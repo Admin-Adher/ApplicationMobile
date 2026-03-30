@@ -12,12 +12,19 @@ export const RESERVE_PRIORITIES: { value: ReservePriority; label: string; color:
 ];
 
 export function genReserveId(reserves: { id: string }[]): string {
+  const existing = new Set(reserves.map(r => r.id));
   let max = 0;
   for (const r of reserves) {
     const m = r.id.match(/RSV-(\d+)/);
     if (m) max = Math.max(max, parseInt(m[1], 10));
   }
-  return `RSV-${String(max + 1).padStart(3, '0')}`;
+  let next = max + 1;
+  let candidate = `RSV-${String(next).padStart(3, '0')}`;
+  while (existing.has(candidate)) {
+    next++;
+    candidate = `RSV-${String(next).padStart(3, '0')}`;
+  }
+  return candidate;
 }
 
 export function isOverdue(deadline: string, status: ReserveStatus): boolean {

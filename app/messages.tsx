@@ -1,5 +1,5 @@
 import {
-  View, Text, StyleSheet, FlatList, TouchableOpacity, TextInput,
+  View, Text, StyleSheet, ScrollView, TouchableOpacity, TextInput,
   Platform, Alert, Modal, TouchableWithoutFeedback,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -316,81 +316,75 @@ export default function MessagesScreen() {
         </View>
       </View>
 
-      <FlatList
-        data={[]}
-        keyExtractor={() => ''}
-        renderItem={null}
-        showsVerticalScrollIndicator={false}
-        ListHeaderComponent={() => (
-          <View style={styles.content}>
-            {showPinned && (
-              <>
-                <View style={styles.sectionHeader}>
-                  <View style={styles.pinnedSectionTitle}>
-                    <Ionicons name="pin" size={12} color={C.waiting} />
-                    <Text style={[styles.sectionLabel, { color: C.waiting }]}>ÉPINGLÉES</Text>
-                    <Text style={styles.pinnedCount}>{pinnedChannels.length}/{maxPinnedChannels}</Text>
-                  </View>
+      <ScrollView showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
+        <View style={styles.content}>
+          {showPinned && (
+            <>
+              <View style={styles.sectionHeader}>
+                <View style={styles.pinnedSectionTitle}>
+                  <Ionicons name="pin" size={12} color={C.waiting} />
+                  <Text style={[styles.sectionLabel, { color: C.waiting }]}>ÉPINGLÉES</Text>
+                  <Text style={styles.pinnedCount}>{pinnedChannels.length}/{maxPinnedChannels}</Text>
                 </View>
-                <View style={styles.channelGroup}>
-                  {pinnedChannels.map((ch, i) => (
-                    <View key={ch.id}>
-                      {i > 0 && <View style={styles.divider} />}
-                      <ChannelItem
-                        channel={ch}
-                        lastMsg={lastMessageByChannel[ch.id]}
-                        unread={unreadByChannel[ch.id] ?? 0}
-                        isPinned={true}
-                        onPress={() => goToChannel(ch)}
-                        onLongPress={() => setActionSheet(ch)}
-                      />
-                    </View>
-                  ))}
-                </View>
-              </>
-            )}
-
-            {renderSection('Canaux chantier', generalChannels)}
-            {renderSection('Canaux entreprises', companyChannels)}
-            {renderSection('Canaux personnalisés', customChannels, () => setShowNewChannel(true), 'Nouveau')}
-            {renderSection('Groupes', groupChannels, () => setShowNewGroup(true), 'Nouveau')}
-            {renderSection('Messages directs', dmChannels, () => setShowNewDM(true), 'Nouveau DM')}
-
-            {filteredChannels.length === 0 && (
-              <View style={styles.empty}>
-                <Ionicons name="search-outline" size={40} color={C.textMuted} />
-                <Text style={styles.emptyText}>Aucun résultat</Text>
               </View>
-            )}
+              <View style={styles.channelGroup}>
+                {pinnedChannels.map((ch, i) => (
+                  <View key={ch.id}>
+                    {i > 0 && <View style={styles.divider} />}
+                    <ChannelItem
+                      channel={ch}
+                      lastMsg={lastMessageByChannel[ch.id]}
+                      unread={unreadByChannel[ch.id] ?? 0}
+                      isPinned={true}
+                      onPress={() => goToChannel(ch)}
+                      onLongPress={() => setActionSheet(ch)}
+                    />
+                  </View>
+                ))}
+              </View>
+            </>
+          )}
 
-            <View style={styles.quickActions}>
-              <TouchableOpacity style={styles.quickBtn} onPress={() => setShowNewChannel(true)}>
-                <View style={[styles.quickBtnIcon, { backgroundColor: C.primary + '20' }]}>
-                  <Ionicons name="add-circle" size={22} color={C.primary} />
-                </View>
-                <Text style={styles.quickBtnText}>Créer un canal</Text>
-                <Ionicons name="chevron-forward" size={16} color={C.textMuted} />
-              </TouchableOpacity>
-              <View style={styles.divider} />
-              <TouchableOpacity style={styles.quickBtn} onPress={() => setShowNewGroup(true)}>
-                <View style={[styles.quickBtnIcon, { backgroundColor: '#7C3AED' + '20' }]}>
-                  <Ionicons name="people-circle" size={22} color="#7C3AED" />
-                </View>
-                <Text style={styles.quickBtnText}>Créer un groupe</Text>
-                <Ionicons name="chevron-forward" size={16} color={C.textMuted} />
-              </TouchableOpacity>
-              <View style={styles.divider} />
-              <TouchableOpacity style={styles.quickBtn} onPress={() => setShowNewDM(true)}>
-                <View style={[styles.quickBtnIcon, { backgroundColor: '#EC4899' + '20' }]}>
-                  <Ionicons name="chatbubble-ellipses" size={22} color="#EC4899" />
-                </View>
-                <Text style={styles.quickBtnText}>Message direct</Text>
-                <Ionicons name="chevron-forward" size={16} color={C.textMuted} />
-              </TouchableOpacity>
+          {renderSection('Canaux chantier', generalChannels)}
+          {renderSection('Canaux entreprises', companyChannels)}
+          {renderSection('Canaux personnalisés', customChannels, () => setShowNewChannel(true), 'Nouveau')}
+          {renderSection('Groupes', groupChannels, () => setShowNewGroup(true), 'Nouveau')}
+          {renderSection('Messages directs', dmChannels, () => setShowNewDM(true), 'Nouveau DM')}
+
+          {filteredChannels.length === 0 && (
+            <View style={styles.empty}>
+              <Ionicons name="search-outline" size={40} color={C.textMuted} />
+              <Text style={styles.emptyText}>Aucun résultat</Text>
             </View>
+          )}
+
+          <View style={styles.quickActions}>
+            <TouchableOpacity style={styles.quickBtn} onPress={() => setShowNewChannel(true)}>
+              <View style={[styles.quickBtnIcon, { backgroundColor: C.primary + '20' }]}>
+                <Ionicons name="add-circle" size={22} color={C.primary} />
+              </View>
+              <Text style={styles.quickBtnText}>Créer un canal</Text>
+              <Ionicons name="chevron-forward" size={16} color={C.textMuted} />
+            </TouchableOpacity>
+            <View style={styles.divider} />
+            <TouchableOpacity style={styles.quickBtn} onPress={() => setShowNewGroup(true)}>
+              <View style={[styles.quickBtnIcon, { backgroundColor: '#7C3AED' + '20' }]}>
+                <Ionicons name="people-circle" size={22} color="#7C3AED" />
+              </View>
+              <Text style={styles.quickBtnText}>Créer un groupe</Text>
+              <Ionicons name="chevron-forward" size={16} color={C.textMuted} />
+            </TouchableOpacity>
+            <View style={styles.divider} />
+            <TouchableOpacity style={styles.quickBtn} onPress={() => setShowNewDM(true)}>
+              <View style={[styles.quickBtnIcon, { backgroundColor: '#EC4899' + '20' }]}>
+                <Ionicons name="chatbubble-ellipses" size={22} color="#EC4899" />
+              </View>
+              <Text style={styles.quickBtnText}>Message direct</Text>
+              <Ionicons name="chevron-forward" size={16} color={C.textMuted} />
+            </TouchableOpacity>
           </View>
-        )}
-      />
+        </View>
+      </ScrollView>
 
       <NewChannelModal
         visible={showNewChannel}

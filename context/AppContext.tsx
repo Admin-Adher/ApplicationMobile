@@ -2,9 +2,10 @@ import React, { createContext, useContext, useEffect, useReducer, useRef, useSta
 import { Alert } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Reserve, Company, Task, Document, Photo, Message, Channel, Profile, Comment, ReserveStatus, ReservePriority, TaskStatus } from '@/constants/types';
-import { supabase } from '@/lib/supabase';
+import { supabase, isSupabaseConfigured } from '@/lib/supabase';
 import { initStorageBuckets } from '@/lib/storage';
 import { C } from '@/constants/colors';
+import { MOCK_RESERVES, MOCK_COMPANIES, MOCK_TASKS, MOCK_DOCUMENTS, MOCK_PHOTOS, MOCK_MESSAGES } from '@/lib/mockData';
 
 export const STATIC_CHANNELS: Channel[] = [
   { id: 'general', name: 'Général', description: 'Canal principal du projet', icon: 'home', color: C.primary, type: 'general' },
@@ -95,8 +96,8 @@ function toCompany(row: any): Company {
 function toTask(row: any): Task {
   return {
     id: row.id, title: row.title, description: row.description, status: row.status as TaskStatus,
-    priority: row.priority as ReservePriority, deadline: row.deadline,
-    assignee: row.assignee, progress: row.progress, company: row.company,
+    priority: row.priority as ReservePriority, startDate: row.start_date ?? undefined,
+    deadline: row.deadline, assignee: row.assignee, progress: row.progress, company: row.company,
   };
 }
 
@@ -431,6 +432,26 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   async function loadAll() {
     dispatch({ type: 'SET_LOADING', payload: true });
+
+    if (!isSupabaseConfigured) {
+      await loadCustomChannels();
+      await loadGroupChannels();
+      await loadPinnedChannels();
+      dispatch({
+        type: 'INIT',
+        payload: {
+          reserves: MOCK_RESERVES,
+          companies: MOCK_COMPANIES,
+          tasks: MOCK_TASKS,
+          documents: MOCK_DOCUMENTS,
+          photos: MOCK_PHOTOS,
+          messages: MOCK_MESSAGES,
+          profiles: [],
+        },
+      });
+      return;
+    }
+
     initStorageBuckets().catch(() => {});
     try {
       const { data: { session } } = await supabase.auth.getSession();
@@ -501,6 +522,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }
 
   useEffect(() => {
+    if (!isSupabaseConfigured) {
+      loadAll();
+      return;
+    }
+
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
       if (event === 'SIGNED_IN' && session) {
         loadAll();
@@ -519,6 +545,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   useEffect(() => {
+    if (!isSupabaseConfigured) return;
+
     const globalSub = supabase
       .channel('global-messages-v2')
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages' }, (payload) => {

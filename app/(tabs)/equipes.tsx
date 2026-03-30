@@ -1,13 +1,16 @@
 import {
   View, Text, StyleSheet, ScrollView, Platform, TouchableOpacity,
-  Alert, Modal, TextInput, KeyboardAvoidingView, TouchableWithoutFeedback,
+  Alert, Modal, TextInput, TouchableWithoutFeedback,
 } from 'react-native';
+import { KeyboardAvoidingView } from 'react-native-keyboard-controller';
 import { useState } from 'react';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { C } from '@/constants/colors';
 import { useApp } from '@/context/AppContext';
+import { useAuth } from '@/context/AuthContext';
 import { Company } from '@/constants/types';
+import { useRouter } from 'expo-router';
 
 const COMPANY_COLORS = ['#3B82F6', '#F59E0B', '#8B5CF6', '#EC4899', '#EF4444', '#06B6D4', '#84CC16'];
 
@@ -17,6 +20,8 @@ function genId(): string {
 
 export default function EquipesScreen() {
   const insets = useSafeAreaInsets();
+  const router = useRouter();
+  const { user } = useAuth();
   const {
     companies, tasks, stats,
     updateCompanyWorkers, addCompany, updateCompanyFull, deleteCompany, updateCompanyHours,
@@ -38,6 +43,26 @@ export default function EquipesScreen() {
   const [hoursInput, setHoursInput] = useState('');
 
   const today = new Date().toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' });
+
+  if (user && user.role !== 'admin' && user.role !== 'conducteur') {
+    return (
+      <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: C.bg, padding: 32 }}>
+        <Ionicons name="lock-closed-outline" size={48} color={C.textMuted} />
+        <Text style={{ fontSize: 17, fontFamily: 'Inter_600SemiBold', color: C.text, marginTop: 16, textAlign: 'center' }}>
+          Accès restreint
+        </Text>
+        <Text style={{ fontSize: 14, fontFamily: 'Inter_400Regular', color: C.textMuted, marginTop: 8, textAlign: 'center' }}>
+          Seuls les administrateurs et conducteurs de travaux ont accès à la gestion des équipes.
+        </Text>
+        <TouchableOpacity
+          onPress={() => router.replace('/(tabs)' as any)}
+          style={{ marginTop: 24, paddingHorizontal: 20, paddingVertical: 10, backgroundColor: C.primary, borderRadius: 10 }}
+        >
+          <Text style={{ color: '#fff', fontFamily: 'Inter_600SemiBold', fontSize: 14 }}>Retour au tableau de bord</Text>
+        </TouchableOpacity>
+      </View>
+    );
+  }
 
   function openAdd() {
     setEditTarget(null);

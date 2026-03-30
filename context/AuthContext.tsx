@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useEffect, useRef, useState } from 'react';
-import { supabase } from '@/lib/supabase';
+import { supabase, isSupabaseConfigured } from '@/lib/supabase';
 import { User, UserRole } from '@/constants/types';
 
 const ROLE_PERMISSIONS: Record<UserRole, { canCreate: boolean; canEdit: boolean; canDelete: boolean; canExport: boolean }> = {
@@ -48,13 +48,31 @@ async function fetchProfile(userId: string): Promise<User | null> {
 async function seedDemoUsers(): Promise<'done' | 'error'> {
   try {
     for (const u of DEMO_USERS) {
+      let authUserId: string | undefined;
+
       const { data: signInData, error: signInErr } = await supabase.auth.signInWithPassword({
         email: u.email,
         password: u.password,
       });
 
-      const authUserId = signInData?.user?.id;
-      if (signInErr || !authUserId) continue;
+      if (!signInErr && signInData?.user?.id) {
+        authUserId = signInData.user.id;
+      } else {
+        const { data: signUpData, error: signUpErr } = await supabase.auth.signUp({
+          email: u.email,
+          password: u.password,
+        });
+        if (signUpErr || !signUpData?.user?.id) continue;
+        authUserId = signUpData.user.id;
+        await supabase.auth.signOut();
+        const { data: reSign } = await supabase.auth.signInWithPassword({
+          email: u.email,
+          password: u.password,
+        });
+        if (reSign?.user?.id) authUserId = reSign.user.id;
+      }
+
+      if (!authUserId) continue;
 
       await supabase.from('profiles').upsert({
         id: authUserId,
@@ -76,9 +94,30 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [seedStatus, setSeedStatus] = useState<'idle' | 'seeding' | 'done' | 'error'>('idle');
+  const [users, setUsers] = useState<User[]>([]);
   const isSeedingRef = useRef(false);
 
   useEffect(() => {
+    if (!isSupabaseConfigured) {
+      const offlineUser: User = {
+        id: 'offline-admin',
+        name: 'Admin Système',
+        role: 'admin',
+        roleLabel: 'Administrateur',
+        email: 'admin@buildtrack.fr',
+      };
+      setUser(offlineUser);
+      setUsers(DEMO_USERS.map((u, i) => ({
+        id: `demo-${i}`,
+        name: u.name,
+        role: u.role as UserRole,
+        roleLabel: u.roleLabel,
+        email: u.email,
+      })));
+      setIsLoading(false);
+      return;
+    }
+
     supabase.auth.getSession().then(async ({ data: { session } }) => {
       if (session?.user) {
         const profile = await fetchProfile(session.user.id);
@@ -103,6 +142,22 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   useEffect(() => {
+    if (!user || !isSupabaseConfigured) return;
+    supabase.from('profiles').select('id, name, role, role_label, email').then(({ data }) => {
+      if (data && data.length > 0) {
+        setUsers(data.map((p: any) => ({
+          id: p.id,
+          name: p.name,
+          role: p.role as UserRole,
+          roleLabel: p.role_label,
+          email: p.email,
+        })));
+      }
+    }).catch(() => {});
+  }, [user?.id]);
+
+  useEffect(() => {
+    if (!isSupabaseConfigured) return;
     if (!isLoading && !user && seedStatus === 'idle') {
       setSeedStatus('seeding');
       isSeedingRef.current = true;
@@ -127,7 +182,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   async function logout() {
     try {
-      await supabase.auth.signOut();
+      if (isSupabaseConfigured) await supabase.auth.signOut();
     } catch {
       // ignore
     }
@@ -135,14 +190,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }
 
   const permissions = user ? ROLE_PERMISSIONS[user.role] : ROLE_PERMISSIONS.observateur;
-
-  const staticUsers: User[] = DEMO_USERS.map((u, i) => ({
-    id: `demo-${i}`,
-    name: u.name,
-    role: u.role as UserRole,
-    roleLabel: u.roleLabel,
-    email: u.email,
-  }));
 
   return (
     <AuthContext.Provider value={{
@@ -152,7 +199,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       login,
       logout,
       permissions,
-      users: staticUsers,
+      users,
       seedStatus,
     }}>
       {children}

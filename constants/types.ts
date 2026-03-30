@@ -65,6 +65,7 @@ export interface Task {
   description: string;
   status: TaskStatus;
   priority: ReservePriority;
+  startDate?: string;
   deadline: string;
   assignee: string;
   progress: number;

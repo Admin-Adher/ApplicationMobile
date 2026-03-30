@@ -1,8 +1,8 @@
 import {
   View, Text, StyleSheet, FlatList, TouchableOpacity, TextInput, Alert,
-  Modal, Platform, KeyboardAvoidingView,
-  ActivityIndicator, Animated,
+  Modal, Platform, ActivityIndicator, Animated,
 } from 'react-native';
+import { KeyboardAvoidingView } from 'react-native-keyboard-controller';
 import * as Clipboard from 'expo-clipboard';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -20,7 +20,7 @@ import MembersModal from '@/components/channel/MembersModal';
 
 const REACTIONS = ['👍', '✅', '⚠️', '🔥', '💯', '❌'];
 
-function formatDate(timestamp: string): string {
+function formatTimestampLabel(timestamp: string): string {
   const parts = timestamp.split(' ');
   if (parts.length < 2) return timestamp;
   const datePart = parts[0];
@@ -116,7 +116,9 @@ export default function ChannelScreen() {
   const liveChannelName = channelObj?.name ?? channelName ?? 'Canal';
   const liveMembers: string[] = channelObj?.members ?? (membersParam ? membersParam.split(',').filter(Boolean) : []);
   const isEditable = channelObj?.type === 'custom' || channelObj?.type === 'group';
-  const isCreator = !!channelObj?.createdBy && channelObj.createdBy === user?.name;
+  const isCreator = !!channelObj?.createdBy && (
+    channelObj.createdBy === user?.id || channelObj.createdBy === user?.name
+  );
 
   const [text, setText] = useState('');
   const [replyTo, setReplyTo] = useState<Message | null>(null);
@@ -139,6 +141,9 @@ export default function ChannelScreen() {
   useEffect(() => {
     setChannelRead(channelId!);
     setActiveChannelId(channelId!);
+    if (!supabase) {
+      return () => { setActiveChannelId(null); };
+    }
     const typingCh = supabase.channel(`typing:${channelId}`);
     typingCh.on('broadcast', { event: 'typing' }, ({ payload }) => {
       const name = payload.userName as string;
@@ -180,12 +185,12 @@ export default function ChannelScreen() {
     for (const msg of filteredMessages) {
       const msgDate = getDateFromTimestamp(msg.timestamp);
       if (msgDate !== lastDate) {
-        items.push({ _type: 'date', label: formatDate(msg.timestamp), key: `date-${msgDate}` });
+        items.push({ _type: 'date', label: formatTimestampLabel(msg.timestamp), key: `date-${msgDate}` });
         lastDate = msgDate;
       }
       items.push(msg);
     }
-    return items;
+    return [...items].reverse();
   }, [filteredMessages]);
 
   const knownSenders = useMemo(() => {
@@ -208,11 +213,6 @@ export default function ChannelScreen() {
     return allMentionNames.filter(s => s.toLowerCase().includes(q)).slice(0, 6);
   }, [mentionQuery, allMentionNames]);
 
-  useEffect(() => {
-    if (channelMessages.length > 0 && !searchMode) {
-      setTimeout(() => flatListRef.current?.scrollToEnd({ animated: false }), 80);
-    }
-  }, [channelMessages.length]);
 
   function handleTextChange(val: string) {
     setText(val);
@@ -225,7 +225,7 @@ export default function ChannelScreen() {
   }
 
   function insertMention(senderName: string) {
-    const updated = text.replace(/@(\w*)$/, `@${senderName.split(' ')[0]} `);
+    const updated = text.replace(/@(\w*)$/, `@${senderName} `);
     setText(updated);
     setMentionQuery('');
     inputRef.current?.focus();
@@ -246,7 +246,6 @@ export default function ChannelScreen() {
           replyToId: replyTo?.id, replyToContent: replyTo?.content, replyToSender: replyTo?.sender,
         }, user?.name ?? 'Moi');
         setText(''); setReplyTo(null);
-        setTimeout(() => flatListRef.current?.scrollToEnd({ animated: true }), 100);
       } finally { setAttachmentUploading(false); }
     }
   }
@@ -265,20 +264,18 @@ export default function ChannelScreen() {
           replyToId: replyTo?.id, replyToContent: replyTo?.content, replyToSender: replyTo?.sender,
         }, user?.name ?? 'Moi');
         setText(''); setReplyTo(null);
-        setTimeout(() => flatListRef.current?.scrollToEnd({ animated: true }), 100);
       } finally { setAttachmentUploading(false); }
     }
   }
 
   function handleSend() {
-    if (!text.trim() && !replyTo) return;
+    if (!text.trim()) return;
     const mentions = (text.match(/@\w+/g) ?? []).map(m => m.slice(1));
     addMessage(channelId!, text.trim(), {
       replyToId: replyTo?.id, replyToContent: replyTo?.content,
       replyToSender: replyTo?.sender, mentions,
     }, user?.name ?? 'Moi');
     setText(''); setReplyTo(null); setMentionQuery('');
-    setTimeout(() => flatListRef.current?.scrollToEnd({ animated: true }), 100);
   }
 
   function openActions(msg: Message) {
@@ -455,7 +452,7 @@ export default function ChannelScreen() {
           renderItem={renderItem}
           contentContainerStyle={styles.list}
           showsVerticalScrollIndicator={false}
-          onContentSizeChange={() => { if (!searchMode) flatListRef.current?.scrollToEnd({ animated: false }); }}
+          inverted
           ListEmptyComponent={() => (
             <View style={styles.empty}>
               <View style={[styles.emptyIcon, { backgroundColor: color + '20' }]}>

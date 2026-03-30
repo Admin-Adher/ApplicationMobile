@@ -23,6 +23,10 @@ const MONTHS_FULL = ['Janvier', 'Février', 'Mars', 'Avril', 'Mai', 'Juin', 'Jui
 const DAYS_SHORT = ['L', 'M', 'M', 'J', 'V', 'S', 'D'];
 
 function getTaskStartDate(task: Task): Date {
+  if (task.startDate) {
+    const parsed = parseDeadline(task.startDate);
+    if (parsed) return parsed;
+  }
   const deadline = parseDeadline(task.deadline);
   if (!deadline) return new Date();
   const durationDays = task.status === 'done' ? 14 : Math.max(7, Math.round((1 - task.progress / 100) * 21 + 7));
@@ -408,24 +412,25 @@ export default function PlanningScreen() {
           </TouchableOpacity>
         </View>
 
+        <View style={styles.searchRow}>
+          <Ionicons name="search-outline" size={15} color={C.textMuted} style={styles.searchIcon} />
+          <TextInput
+            style={styles.searchInput}
+            placeholder="Rechercher une tâche..."
+            placeholderTextColor={C.textMuted}
+            value={search}
+            onChangeText={setSearch}
+            returnKeyType="search"
+          />
+          {search.length > 0 && (
+            <TouchableOpacity onPress={() => setSearch('')} hitSlop={8}>
+              <Ionicons name="close-circle" size={15} color={C.textMuted} />
+            </TouchableOpacity>
+          )}
+        </View>
+
         {viewMode === 'list' && (
           <>
-            <View style={styles.searchRow}>
-              <Ionicons name="search-outline" size={15} color={C.textMuted} style={styles.searchIcon} />
-              <TextInput
-                style={styles.searchInput}
-                placeholder="Rechercher une tâche..."
-                placeholderTextColor={C.textMuted}
-                value={search}
-                onChangeText={setSearch}
-                returnKeyType="search"
-              />
-              {search.length > 0 && (
-                <TouchableOpacity onPress={() => setSearch('')} hitSlop={8}>
-                  <Ionicons name="close-circle" size={15} color={C.textMuted} />
-                </TouchableOpacity>
-              )}
-            </View>
             <View style={styles.listHeader}>
               <Text style={styles.sectionTitle}>
                 {filterStatus === 'all' ? 'Toutes les tâches' : `Tâches — ${STATUS_CFG[filterStatus]?.label}`}
@@ -466,7 +471,7 @@ export default function PlanningScreen() {
           <>
             <View style={styles.card}>
               <Text style={styles.sectionTitle}>Diagramme de Gantt</Text>
-              <Text style={styles.ganttHint}>Les barres vont du début estimé à la date limite — faites défiler horizontalement</Text>
+              <Text style={styles.ganttHint}>Les barres vont du début (réel ou estimé) à la date limite — faites défiler horizontalement. Les dates de début sans valeur saisie sont estimées.</Text>
               <View style={ganttStyles.wrapper}>
                 <GanttView tasks={filtered} />
               </View>
