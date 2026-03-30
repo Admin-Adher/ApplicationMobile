@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useEffect, useRef, useState } from 'react';
-import { supabase } from '@/lib/supabase';
+import { supabase, isSupabaseConfigured } from '@/lib/supabase';
 import { User, UserRole } from '@/constants/types';
 
 const ROLE_PERMISSIONS: Record<UserRole, { canCreate: boolean; canEdit: boolean; canDelete: boolean; canExport: boolean }> = {
@@ -30,19 +30,24 @@ interface AuthContextValue {
 const AuthContext = createContext<AuthContextValue | null>(null);
 
 async function fetchProfile(userId: string): Promise<User | null> {
-  const { data, error } = await supabase.from('profiles').select('*').eq('id', userId).single();
-  if (error || !data) return null;
-  return {
-    id: data.id,
-    name: data.name,
-    role: data.role as UserRole,
-    roleLabel: data.role_label,
-    email: data.email,
-    password: '',
-  };
+  try {
+    const { data, error } = await supabase.from('profiles').select('*').eq('id', userId).single();
+    if (error || !data) return null;
+    return {
+      id: data.id,
+      name: data.name,
+      role: data.role as UserRole,
+      roleLabel: data.role_label,
+      email: data.email,
+      password: '',
+    };
+  } catch {
+    return null;
+  }
 }
 
 async function seedDemoUsers(): Promise<'done' | 'error'> {
+  if (!isSupabaseConfigured) return 'error';
   try {
     for (const u of DEMO_USERS) {
       const { data: signInData, error: signInErr } = await supabase.auth.signInWithPassword({
@@ -76,11 +81,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const isSeedingRef = useRef(false);
 
   useEffect(() => {
+    if (!isSupabaseConfigured) {
+      setIsLoading(false);
+      return;
+    }
+
     supabase.auth.getSession().then(async ({ data: { session } }) => {
       if (session?.user) {
         const profile = await fetchProfile(session.user.id);
         setUser(profile);
       }
+      setIsLoading(false);
+    }).catch(() => {
       setIsLoading(false);
     });
 
@@ -98,7 +110,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   useEffect(() => {
-    if (!isLoading && !user && seedStatus === 'idle') {
+    if (!isLoading && !user && seedStatus === 'idle' && isSupabaseConfigured) {
       setSeedStatus('seeding');
       isSeedingRef.current = true;
       seedDemoUsers().then(result => {
@@ -109,15 +121,41 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, [isLoading, user, seedStatus]);
 
   async function login(email: string, password: string): Promise<{ success: boolean; error?: string }> {
-    const { error } = await supabase.auth.signInWithPassword({ email, password });
-    if (error) {
+    if (!isSupabaseConfigured) {
+      const demo = DEMO_USERS.find(u => u.email === email && u.password === password);
+      if (demo) {
+        setUser({
+          id: `local-${demo.email}`,
+          name: demo.name,
+          role: demo.role as UserRole,
+          roleLabel: demo.roleLabel,
+          email: demo.email,
+          password: '',
+        });
+        return { success: true };
+      }
       return { success: false, error: 'Email ou mot de passe incorrect.' };
     }
-    return { success: true };
+
+    try {
+      const { error } = await supabase.auth.signInWithPassword({ email, password });
+      if (error) {
+        return { success: false, error: 'Email ou mot de passe incorrect.' };
+      }
+      return { success: true };
+    } catch {
+      return { success: false, error: 'Impossible de se connecter. Vérifiez votre réseau.' };
+    }
   }
 
   async function logout() {
-    await supabase.auth.signOut();
+    if (isSupabaseConfigured) {
+      try {
+        await supabase.auth.signOut();
+      } catch {
+        // ignore
+      }
+    }
     setUser(null);
   }
 

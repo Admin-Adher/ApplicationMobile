@@ -2,8 +2,15 @@ import { createClient } from '@supabase/supabase-js';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Platform } from 'react-native';
 
-const SUPABASE_URL = process.env.EXPO_PUBLIC_SUPABASE_URL!;
-const SUPABASE_KEY = process.env.EXPO_PUBLIC_SUPABASE_KEY!;
+const SUPABASE_URL = process.env.EXPO_PUBLIC_SUPABASE_URL ?? '';
+const SUPABASE_KEY = process.env.EXPO_PUBLIC_SUPABASE_KEY ?? '';
+
+if (!SUPABASE_URL || !SUPABASE_KEY) {
+  console.warn(
+    '[Supabase] EXPO_PUBLIC_SUPABASE_URL or EXPO_PUBLIC_SUPABASE_KEY is not set. ' +
+    'The app will run in offline/mock mode only.'
+  );
+}
 
 const SsrSafeStorage = {
   getItem: (key: string): Promise<string | null> => {
@@ -31,11 +38,15 @@ const SsrSafeStorage = {
   },
 };
 
-export const supabase = createClient(SUPABASE_URL, SUPABASE_KEY, {
-  auth: {
-    storage: SsrSafeStorage,
-    autoRefreshToken: true,
-    persistSession: true,
-    detectSessionInUrl: false,
-  },
-});
+export const supabase = SUPABASE_URL && SUPABASE_KEY
+  ? createClient(SUPABASE_URL, SUPABASE_KEY, {
+      auth: {
+        storage: SsrSafeStorage,
+        autoRefreshToken: true,
+        persistSession: true,
+        detectSessionInUrl: false,
+      },
+    })
+  : null as any;
+
+export const isSupabaseConfigured = Boolean(SUPABASE_URL && SUPABASE_KEY);
