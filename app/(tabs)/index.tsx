@@ -5,11 +5,13 @@ import { useRouter } from 'expo-router';
 import { C } from '@/constants/colors';
 import { useApp } from '@/context/AppContext';
 
-function KPICard({ label, value, color, icon }: { label: string; value: string | number; color: string; icon: string }) {
+function KPICard({ label, value, color, icon, bg }: { label: string; value: string | number; color: string; icon: string; bg: string }) {
   return (
-    <View style={[styles.kpiCard, { borderTopColor: color }]}>
-      <Ionicons name={icon as any} size={20} color={color} />
-      <Text style={[styles.kpiValue, { color }]}>{value}</Text>
+    <View style={[styles.kpiCard, { borderLeftColor: color, backgroundColor: C.surface }]}>
+      <View style={[styles.kpiIconWrap, { backgroundColor: bg }]}>
+        <Ionicons name={icon as any} size={18} color={color} />
+      </View>
+      <Text style={[styles.kpiValue, { color: C.text }]}>{value}</Text>
       <Text style={styles.kpiLabel}>{label}</Text>
     </View>
   );
@@ -39,11 +41,16 @@ export default function DashboardScreen() {
   const today = new Date().toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' });
 
   return (
-    <View style={[styles.container]}>
+    <View style={styles.container}>
       <View style={[styles.header, { paddingTop: topPad + 12 }]}>
-        <View>
-          <Text style={styles.brand}>BuildTrack</Text>
-          <Text style={styles.date}>{today}</Text>
+        <View style={styles.headerLeft}>
+          <View style={styles.logoMini}>
+            <Text style={styles.logoMiniLetter}>B</Text>
+          </View>
+          <View>
+            <Text style={styles.brand}>BuildTrack</Text>
+            <Text style={styles.date}>{today}</Text>
+          </View>
         </View>
         <View style={styles.projectBadge}>
           <Text style={styles.projectText}>Projet Horizon</Text>
@@ -52,16 +59,18 @@ export default function DashboardScreen() {
 
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
         <View style={styles.kpiGrid}>
-          <KPICard label="Total réserves" value={stats.total} color={C.textSub} icon="list" />
-          <KPICard label="Ouvertes" value={stats.open + stats.inProgress} color={C.open} icon="alert-circle" />
-          <KPICard label="Critiques" value={criticalReserves.length} color={C.critical} icon="warning" />
-          <KPICard label="Clôturées" value={stats.closed} color={C.closed} icon="checkmark-circle" />
+          <KPICard label="Total réserves" value={stats.total} color={C.primary} icon="list" bg={C.primaryBg} />
+          <KPICard label="Ouvertes" value={stats.open + stats.inProgress} color={C.open} icon="alert-circle" bg={C.openBg} />
+          <KPICard label="Critiques" value={criticalReserves.length} color={C.critical} icon="warning" bg={C.criticalBg} />
+          <KPICard label="Clôturées" value={stats.closed} color={C.closed} icon="checkmark-circle" bg={C.closedBg} />
         </View>
 
         <View style={styles.card}>
           <View style={styles.cardHeader}>
             <Text style={styles.cardTitle}>Avancement global</Text>
-            <Text style={[styles.pct, { color: C.primary }]}>{stats.progress}%</Text>
+            <View style={styles.pctBadge}>
+              <Text style={styles.pct}>{stats.progress}%</Text>
+            </View>
           </View>
           <View style={styles.progressBg}>
             <View style={[styles.progressFill, { width: `${stats.progress}%` as any }]} />
@@ -103,8 +112,13 @@ export default function DashboardScreen() {
         {criticalReserves.length > 0 && (
           <View style={styles.alertCard}>
             <View style={styles.alertHeader}>
-              <Ionicons name="warning" size={16} color={C.critical} />
+              <View style={styles.alertIconWrap}>
+                <Ionicons name="warning" size={16} color={C.critical} />
+              </View>
               <Text style={styles.alertTitle}>Alertes critiques</Text>
+              <View style={styles.alertCount}>
+                <Text style={styles.alertCountText}>{criticalReserves.length}</Text>
+              </View>
             </View>
             {criticalReserves.map(r => (
               <TouchableOpacity
@@ -117,7 +131,7 @@ export default function DashboardScreen() {
                   <Text style={styles.alertText}>{r.title}</Text>
                   <Text style={styles.alertSub}>Bât. {r.building} — Échéance : {r.deadline}</Text>
                 </View>
-                <Ionicons name="chevron-forward" size={14} color={C.textMuted} />
+                <Ionicons name="chevron-forward" size={14} color={C.critical} />
               </TouchableOpacity>
             ))}
           </View>
@@ -137,52 +151,78 @@ const styles = StyleSheet.create({
     alignItems: 'flex-end',
     borderBottomWidth: 1,
     borderBottomColor: C.border,
+    backgroundColor: C.surface,
   },
-  brand: { fontSize: 22, fontFamily: 'Inter_700Bold', color: C.text },
-  date: { fontSize: 12, fontFamily: 'Inter_400Regular', color: C.textSub, marginTop: 2 },
-  projectBadge: { backgroundColor: C.primaryBg, paddingHorizontal: 12, paddingVertical: 6, borderRadius: 20 },
-  projectText: { fontSize: 12, fontFamily: 'Inter_600SemiBold', color: C.primary },
+  headerLeft: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  logoMini: {
+    width: 34,
+    height: 34,
+    backgroundColor: C.primary,
+    borderRadius: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  logoMiniLetter: { fontSize: 18, fontFamily: 'Inter_700Bold', color: C.accent },
+  brand: { fontSize: 18, fontFamily: 'Inter_700Bold', color: C.text },
+  date: { fontSize: 11, fontFamily: 'Inter_400Regular', color: C.textSub, marginTop: 1 },
+  projectBadge: {
+    backgroundColor: C.primary,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 20,
+  },
+  projectText: { fontSize: 12, fontFamily: 'Inter_600SemiBold', color: '#fff' },
   content: { padding: 16, paddingBottom: 32 },
   kpiGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10, marginBottom: 14 },
   kpiCard: {
     flex: 1, minWidth: '44%', backgroundColor: C.surface,
-    borderRadius: 14, padding: 14, borderTopWidth: 3,
-    borderWidth: 1, borderColor: C.border, alignItems: 'flex-start',
+    borderRadius: 14, padding: 14, borderLeftWidth: 4,
+    borderWidth: 1, borderColor: C.border,
+    shadowColor: '#003082', shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.06, shadowRadius: 6, elevation: 1,
   },
-  kpiValue: { fontSize: 28, fontFamily: 'Inter_700Bold', marginTop: 8 },
-  kpiLabel: { fontSize: 11, fontFamily: 'Inter_400Regular', color: C.textSub, marginTop: 2 },
+  kpiIconWrap: { width: 36, height: 36, borderRadius: 10, alignItems: 'center', justifyContent: 'center', marginBottom: 10 },
+  kpiValue: { fontSize: 28, fontFamily: 'Inter_700Bold', marginBottom: 2 },
+  kpiLabel: { fontSize: 11, fontFamily: 'Inter_400Regular', color: C.textSub },
   card: {
     backgroundColor: C.surface, borderRadius: 14, padding: 16,
     marginBottom: 14, borderWidth: 1, borderColor: C.border,
+    shadowColor: '#003082', shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05, shadowRadius: 6, elevation: 1,
   },
-  cardHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 },
-  cardTitle: { fontSize: 15, fontFamily: 'Inter_600SemiBold', color: C.text },
+  cardHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 },
+  cardTitle: { fontSize: 15, fontFamily: 'Inter_700Bold', color: C.text },
   cardSub: { fontSize: 12, fontFamily: 'Inter_400Regular', color: C.textSub },
-  pct: { fontSize: 20, fontFamily: 'Inter_700Bold' },
+  pctBadge: { backgroundColor: C.primaryBg, paddingHorizontal: 10, paddingVertical: 4, borderRadius: 20 },
+  pct: { fontSize: 15, fontFamily: 'Inter_700Bold', color: C.primary },
   progressBg: { height: 8, backgroundColor: C.border, borderRadius: 4, overflow: 'hidden', marginBottom: 8 },
   progressFill: { height: '100%', backgroundColor: C.primary, borderRadius: 4 },
   progressHint: { fontSize: 12, fontFamily: 'Inter_400Regular', color: C.textMuted },
-  statusBars: { gap: 10, marginTop: 8 },
+  statusBars: { gap: 12, marginTop: 8 },
   statusRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   statusDot: { width: 8, height: 8, borderRadius: 4 },
-  statusLabel: { fontSize: 12, fontFamily: 'Inter_400Regular', color: C.textSub, width: 80 },
+  statusLabel: { fontSize: 12, fontFamily: 'Inter_400Regular', color: C.textSub, width: 82 },
   statusBarWrap: { flex: 1, height: 6, backgroundColor: C.border, borderRadius: 3, overflow: 'hidden' },
   statusBarFill: { height: '100%', borderRadius: 3 },
-  statusCount: { fontSize: 12, fontFamily: 'Inter_600SemiBold', width: 20, textAlign: 'right' },
+  statusCount: { fontSize: 12, fontFamily: 'Inter_700Bold', width: 22, textAlign: 'right' },
   coRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 10 },
   coDot: { width: 8, height: 8, borderRadius: 4 },
-  coName: { fontSize: 12, fontFamily: 'Inter_500Medium', color: C.textSub, width: 60 },
+  coName: { fontSize: 12, fontFamily: 'Inter_500Medium', color: C.textSub, width: 64 },
   coBarWrap: { flex: 1, height: 6, backgroundColor: C.border, borderRadius: 3, overflow: 'hidden' },
   coBarFill: { height: '100%', borderRadius: 3 },
-  coCount: { fontSize: 12, fontFamily: 'Inter_600SemiBold', width: 42, textAlign: 'right' },
+  coCount: { fontSize: 12, fontFamily: 'Inter_700Bold', width: 44, textAlign: 'right' },
   alertCard: {
-    backgroundColor: C.criticalBg, borderRadius: 14, padding: 16,
-    marginBottom: 14, borderWidth: 1, borderColor: 'rgba(239,68,68,0.25)',
+    backgroundColor: C.openBg,
+    borderRadius: 14, padding: 16,
+    marginBottom: 14, borderWidth: 1, borderColor: 'rgba(220,38,38,0.2)',
   },
-  alertHeader: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 12 },
-  alertTitle: { fontSize: 14, fontFamily: 'Inter_600SemiBold', color: C.critical },
-  alertItem: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 8, borderTopWidth: 1, borderTopColor: 'rgba(239,68,68,0.15)' },
+  alertHeader: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 12 },
+  alertIconWrap: { width: 28, height: 28, borderRadius: 8, backgroundColor: 'rgba(220,38,38,0.12)', alignItems: 'center', justifyContent: 'center' },
+  alertTitle: { fontSize: 14, fontFamily: 'Inter_700Bold', color: C.critical, flex: 1 },
+  alertCount: { backgroundColor: C.critical, borderRadius: 10, paddingHorizontal: 8, paddingVertical: 2 },
+  alertCountText: { fontSize: 11, fontFamily: 'Inter_700Bold', color: '#fff' },
+  alertItem: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 10, borderTopWidth: 1, borderTopColor: 'rgba(220,38,38,0.12)' },
   alertDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: C.critical },
-  alertText: { fontSize: 13, fontFamily: 'Inter_500Medium', color: C.text },
+  alertText: { fontSize: 13, fontFamily: 'Inter_600SemiBold', color: C.text },
   alertSub: { fontSize: 11, fontFamily: 'Inter_400Regular', color: C.textSub, marginTop: 2 },
 });

@@ -20,7 +20,9 @@ export default function ReserveCard({ reserve }: Props) {
       activeOpacity={0.75}
     >
       <View style={styles.top}>
-        <Text style={styles.id}>{reserve.id}</Text>
+        <View style={styles.idWrap}>
+          <Text style={styles.id}>{reserve.id}</Text>
+        </View>
         <StatusBadge status={reserve.status} small />
       </View>
 
@@ -38,9 +40,7 @@ export default function ReserveCard({ reserve }: Props) {
           <Ionicons name="people-outline" size={12} color={C.textMuted} />
           <Text style={styles.company} numberOfLines={1}>{reserve.company}</Text>
         </View>
-        <View style={styles.rightRow}>
-          <PriorityBadge priority={reserve.priority} small />
-        </View>
+        <PriorityBadge priority={reserve.priority} small />
       </View>
 
       {reserve.deadline && (
@@ -61,6 +61,11 @@ const styles = StyleSheet.create({
     marginBottom: 10,
     borderWidth: 1,
     borderColor: C.border,
+    shadowColor: '#003082',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.06,
+    shadowRadius: 6,
+    elevation: 1,
   },
   top: {
     flexDirection: 'row',
@@ -68,9 +73,15 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginBottom: 8,
   },
+  idWrap: {
+    backgroundColor: C.primaryBg,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 6,
+  },
   id: {
     fontSize: 11,
-    fontFamily: 'Inter_600SemiBold',
+    fontFamily: 'Inter_700Bold',
     color: C.primary,
     letterSpacing: 0.5,
   },
@@ -79,7 +90,7 @@ const styles = StyleSheet.create({
     fontFamily: 'Inter_600SemiBold',
     color: C.text,
     marginBottom: 8,
-    lineHeight: 20,
+    lineHeight: 21,
   },
   meta: {
     marginBottom: 10,
@@ -108,20 +119,16 @@ const styles = StyleSheet.create({
   },
   company: {
     fontSize: 12,
-    fontFamily: 'Inter_400Regular',
+    fontFamily: 'Inter_500Medium',
     color: C.textSub,
     flex: 1,
-  },
-  rightRow: {
-    flexDirection: 'row',
-    gap: 6,
   },
   deadline: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 4,
-    marginTop: 8,
-    paddingTop: 8,
+    marginTop: 10,
+    paddingTop: 10,
     borderTopWidth: 1,
     borderTopColor: C.border,
   },

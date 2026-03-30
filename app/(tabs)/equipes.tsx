@@ -266,7 +266,7 @@ export default function EquipesScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: C.bg },
-  header: { paddingHorizontal: 20, paddingBottom: 14, borderBottomWidth: 1, borderBottomColor: C.border, flexDirection: 'row', alignItems: 'flex-end', justifyContent: 'space-between' },
+  header: { paddingHorizontal: 20, paddingBottom: 14, borderBottomWidth: 1, borderBottomColor: C.border, flexDirection: 'row', alignItems: 'flex-end', justifyContent: 'space-between', backgroundColor: C.surface },
   title: { fontSize: 22, fontFamily: 'Inter_700Bold', color: C.text },
   subtitle: { fontSize: 12, fontFamily: 'Inter_400Regular', color: C.textSub, marginTop: 2 },
   addBtn: { backgroundColor: C.primary, width: 36, height: 36, borderRadius: 10, alignItems: 'center', justifyContent: 'center' },

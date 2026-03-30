@@ -142,7 +142,7 @@ export default function MoreScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: C.bg },
-  header: { paddingHorizontal: 20, paddingBottom: 14, borderBottomWidth: 1, borderBottomColor: C.border },
+  header: { paddingHorizontal: 20, paddingBottom: 14, borderBottomWidth: 1, borderBottomColor: C.border, backgroundColor: C.surface },
   headerRow: { flexDirection: 'row', alignItems: 'center' },
   title: { fontSize: 22, fontFamily: 'Inter_700Bold', color: C.text },
   subtitle: { fontSize: 12, fontFamily: 'Inter_400Regular', color: C.textSub, marginTop: 2 },

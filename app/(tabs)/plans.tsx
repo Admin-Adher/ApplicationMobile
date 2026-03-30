@@ -527,7 +527,7 @@ export default function PlansScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: C.bg },
-  header: { paddingHorizontal: 16, paddingBottom: 10, borderBottomWidth: 1, borderBottomColor: C.border },
+  header: { paddingHorizontal: 16, paddingBottom: 10, borderBottomWidth: 1, borderBottomColor: C.border, backgroundColor: C.surface },
   headerTop: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 },
   title: { fontSize: 22, fontFamily: 'Inter_700Bold', color: C.text },
   zoomBtns: { flexDirection: 'row', gap: 6 },

@@ -68,7 +68,7 @@ export default function RootLayout() {
                   <Stack.Screen name="+not-found" />
                 </Stack>
               </AuthGuard>
-              <StatusBar style="light" />
+              <StatusBar style="dark" />
             </KeyboardProvider>
           </SafeAreaProvider>
         </GestureHandlerRootView>

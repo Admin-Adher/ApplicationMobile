@@ -46,7 +46,7 @@ export default function Header({ title, subtitle, showBack, rightIcon, onRightPr
 
 const styles = StyleSheet.create({
   container: {
-    backgroundColor: C.bg,
+    backgroundColor: C.surface,
     paddingHorizontal: 20,
     paddingBottom: 12,
     borderBottomWidth: 1,
