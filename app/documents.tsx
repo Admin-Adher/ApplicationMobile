@@ -1,4 +1,4 @@
-import { View, Text, StyleSheet, SectionList, TouchableOpacity, TextInput, Alert, Platform } from 'react-native';
+import { View, Text, StyleSheet, SectionList, TouchableOpacity, TextInput, Alert, Platform, ActivityIndicator, Linking } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useState, useMemo } from 'react';
 import * as DocumentPicker from 'expo-document-picker';
@@ -6,6 +6,7 @@ import { C } from '@/constants/colors';
 import { useApp } from '@/context/AppContext';
 import { DocumentType, Document } from '@/constants/types';
 import Header from '@/components/Header';
+import { uploadDocument } from '@/lib/storage';
 
 function genId() {
   return Date.now().toString() + Math.random().toString(36).substr(2, 6);
@@ -74,6 +75,10 @@ export default function DocumentsScreen() {
       if (!result.canceled && result.assets[0]) {
         const asset = result.assets[0];
         const docType = getDocType(asset.mimeType, asset.name);
+
+        const storageUrl = await uploadDocument(asset.uri, asset.name, asset.mimeType ?? undefined);
+        const finalUri = storageUrl ?? asset.uri;
+
         const newDoc: Document = {
           id: genId(),
           name: asset.name,
@@ -82,10 +87,15 @@ export default function DocumentsScreen() {
           uploadedAt: new Date().toLocaleDateString('fr-FR'),
           size: formatSize(asset.size),
           version: 1,
-          uri: asset.uri,
+          uri: finalUri,
         };
         addDocument(newDoc);
-        Alert.alert('Document ajouté', `"${asset.name}" a été importé avec succès.`);
+        Alert.alert(
+          'Document importé',
+          storageUrl
+            ? `"${asset.name}" uploadé sur Supabase Storage.`
+            : `"${asset.name}" importé (stockage local).`
+        );
       }
     } catch (e) {
       Alert.alert('Erreur', 'Impossible de charger le document.');
@@ -95,10 +105,16 @@ export default function DocumentsScreen() {
   }
 
   function handleDownload(doc: Document) {
-    if (doc.uri) {
-      Alert.alert('Fichier disponible', `Le fichier "${doc.name}" est chargé localement.\nURI : ${doc.uri.slice(0, 60)}...`);
+    if (!doc.uri) {
+      Alert.alert('Info', 'Aucun fichier disponible pour ce document.');
+      return;
+    }
+    if (doc.uri.startsWith('http')) {
+      Linking.openURL(doc.uri).catch(() =>
+        Alert.alert('Erreur', 'Impossible d\'ouvrir le lien.')
+      );
     } else {
-      Alert.alert('Info', 'Ce document est un exemple — le téléchargement réel est disponible avec un backend.');
+      Alert.alert('Fichier local', `Fichier disponible localement :\n${doc.uri.slice(0, 80)}...`);
     }
   }
 
@@ -131,8 +147,17 @@ export default function DocumentsScreen() {
       </View>
 
       <TouchableOpacity style={styles.uploadBar} onPress={handlePickDocument} disabled={loading}>
-        <Ionicons name="cloud-upload-outline" size={18} color={C.primary} />
-        <Text style={styles.uploadText}>{loading ? 'Chargement...' : 'Importer un document (PDF, Word, Excel, Image…)'}</Text>
+        {loading ? (
+          <>
+            <ActivityIndicator size="small" color={C.primary} />
+            <Text style={styles.uploadText}>Upload en cours...</Text>
+          </>
+        ) : (
+          <>
+            <Ionicons name="cloud-upload-outline" size={18} color={C.primary} />
+            <Text style={styles.uploadText}>Importer un document (PDF, Word, Excel, Image…)</Text>
+          </>
+        )}
       </TouchableOpacity>
 
       <SectionList
@@ -152,14 +177,24 @@ export default function DocumentsScreen() {
               <Text style={styles.docName} numberOfLines={2}>{item.name}</Text>
               <Text style={styles.docMeta}>{item.size} — v{item.version} — {item.uploadedAt}</Text>
               {item.uri && (
-                <View style={styles.localBadge}>
-                  <Ionicons name="checkmark-circle" size={10} color={C.closed} />
-                  <Text style={styles.localBadgeText}>Fichier local</Text>
+                <View style={styles.uriBadge}>
+                  <Ionicons
+                    name={item.uri.startsWith('http') ? 'cloud-done-outline' : 'phone-portrait-outline'}
+                    size={10}
+                    color={item.uri.startsWith('http') ? C.closed : C.textMuted}
+                  />
+                  <Text style={[styles.uriBadgeText, { color: item.uri.startsWith('http') ? C.closed : C.textMuted }]}>
+                    {item.uri.startsWith('http') ? 'Cloud Supabase' : 'Fichier local'}
+                  </Text>
                 </View>
               )}
             </View>
             <TouchableOpacity onPress={() => handleDownload(item)} hitSlop={8}>
-              <Ionicons name="download-outline" size={18} color={C.textMuted} />
+              <Ionicons
+                name={item.uri?.startsWith('http') ? 'open-outline' : 'download-outline'}
+                size={18}
+                color={C.textMuted}
+              />
             </TouchableOpacity>
           </TouchableOpacity>
         )}
@@ -187,8 +222,8 @@ const styles = StyleSheet.create({
   iconWrap: { width: 44, height: 44, borderRadius: 12, alignItems: 'center', justifyContent: 'center' },
   docName: { fontSize: 14, fontFamily: 'Inter_500Medium', color: C.text, lineHeight: 20 },
   docMeta: { fontSize: 11, fontFamily: 'Inter_400Regular', color: C.textMuted, marginTop: 3 },
-  localBadge: { flexDirection: 'row', alignItems: 'center', gap: 3, marginTop: 4 },
-  localBadgeText: { fontSize: 10, fontFamily: 'Inter_400Regular', color: C.closed },
+  uriBadge: { flexDirection: 'row', alignItems: 'center', gap: 3, marginTop: 4 },
+  uriBadgeText: { fontSize: 10, fontFamily: 'Inter_400Regular' },
   empty: { alignItems: 'center', paddingTop: 60, gap: 8 },
   emptyText: { fontSize: 15, fontFamily: 'Inter_400Regular', color: C.textMuted },
   emptyHint: { fontSize: 12, fontFamily: 'Inter_400Regular', color: C.textMuted },

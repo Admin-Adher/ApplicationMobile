@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useEffect, useReducer } from 'react';
 import { Reserve, Company, Task, Document, Photo, Message, ReserveStatus, ReservePriority, TaskStatus } from '@/constants/types';
 import { supabase } from '@/lib/supabase';
+import { initStorageBuckets } from '@/lib/storage';
 
 interface AppState {
   reserves: Reserve[];
@@ -249,6 +250,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   async function loadAll() {
     dispatch({ type: 'SET_LOADING', payload: true });
+    initStorageBuckets().catch(() => {});
     try {
       const [
         { data: reserves },

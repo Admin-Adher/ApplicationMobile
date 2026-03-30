@@ -1,4 +1,4 @@
-import { View, Text, StyleSheet, FlatList, TouchableOpacity, Alert, Image, Platform } from 'react-native';
+import { View, Text, StyleSheet, FlatList, TouchableOpacity, Alert, Image, Platform, ActivityIndicator } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useState } from 'react';
 import * as ImagePicker from 'expo-image-picker';
@@ -7,6 +7,7 @@ import { useApp } from '@/context/AppContext';
 import { useAuth } from '@/context/AuthContext';
 import Header from '@/components/Header';
 import { Photo } from '@/constants/types';
+import { uploadPhoto } from '@/lib/storage';
 
 function genId() {
   return Date.now().toString() + Math.random().toString(36).substr(2, 6);
@@ -17,40 +18,48 @@ export default function PhotosScreen() {
   const { user } = useAuth();
   const [loading, setLoading] = useState(false);
 
+  async function processPhoto(uri: string, source: 'camera' | 'gallery') {
+    setLoading(true);
+    try {
+      const filename = `photo_${Date.now()}.jpg`;
+      const storageUrl = await uploadPhoto(uri, filename);
+      const finalUri = storageUrl ?? uri;
+
+      const newPhoto: Photo = {
+        id: genId(),
+        comment: source === 'camera' ? 'Photo prise sur le chantier' : 'Photo chantier',
+        location: source === 'camera' ? 'Chantier' : 'Zone non définie',
+        takenAt: new Date().toLocaleDateString('fr-FR'),
+        takenBy: user?.name ?? 'Équipe',
+        colorCode: source === 'camera' ? C.closed : C.primary,
+        uri: finalUri,
+      };
+      addPhoto(newPhoto);
+      if (storageUrl) {
+        Alert.alert('Photo enregistrée', 'Photo uploadée sur Supabase Storage.');
+      }
+    } catch (e) {
+      Alert.alert('Erreur', 'Impossible de traiter la photo.');
+    } finally {
+      setLoading(false);
+    }
+  }
+
   async function handlePickPhoto() {
     if (Platform.OS !== 'web') {
       const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
       if (status !== 'granted') {
-        Alert.alert('Permission refusée', "L'accès à la galerie est nécessaire pour ajouter des photos.");
+        Alert.alert('Permission refusée', "L'accès à la galerie est nécessaire.");
         return;
       }
     }
-
-    setLoading(true);
-    try {
-      const result = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes: ImagePicker.MediaTypeOptions.Images,
-        allowsEditing: true,
-        quality: 0.8,
-      });
-
-      if (!result.canceled && result.assets[0]) {
-        const asset = result.assets[0];
-        const newPhoto: Photo = {
-          id: genId(),
-          comment: 'Photo chantier',
-          location: 'Zone non définie',
-          takenAt: new Date().toLocaleDateString('fr-FR'),
-          takenBy: user?.name ?? 'Équipe',
-          colorCode: C.primary,
-          uri: asset.uri,
-        };
-        addPhoto(newPhoto);
-      }
-    } catch (e) {
-      Alert.alert('Erreur', 'Impossible de charger la photo.');
-    } finally {
-      setLoading(false);
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      allowsEditing: true,
+      quality: 0.8,
+    });
+    if (!result.canceled && result.assets[0]) {
+      await processPhoto(result.assets[0].uri, 'gallery');
     }
   }
 
@@ -64,29 +73,9 @@ export default function PhotosScreen() {
       Alert.alert('Permission refusée', "L'accès à l'appareil photo est nécessaire.");
       return;
     }
-    setLoading(true);
-    try {
-      const result = await ImagePicker.launchCameraAsync({
-        allowsEditing: true,
-        quality: 0.8,
-      });
-      if (!result.canceled && result.assets[0]) {
-        const asset = result.assets[0];
-        const newPhoto: Photo = {
-          id: genId(),
-          comment: 'Photo prise sur le chantier',
-          location: 'Chantier',
-          takenAt: new Date().toLocaleDateString('fr-FR'),
-          takenBy: user?.name ?? 'Équipe',
-          colorCode: C.closed,
-          uri: asset.uri,
-        };
-        addPhoto(newPhoto);
-      }
-    } catch (e) {
-      Alert.alert('Erreur', 'Impossible de prendre la photo.');
-    } finally {
-      setLoading(false);
+    const result = await ImagePicker.launchCameraAsync({ allowsEditing: true, quality: 0.8 });
+    if (!result.canceled && result.assets[0]) {
+      await processPhoto(result.assets[0].uri, 'camera');
     }
   }
 
@@ -129,6 +118,12 @@ export default function PhotosScreen() {
                 <Text style={[styles.actionBtnText, { color: C.inProgress }]}>Depuis la galerie</Text>
               </TouchableOpacity>
             </View>
+            {loading && (
+              <View style={styles.loadingRow}>
+                <ActivityIndicator color={C.primary} size="small" />
+                <Text style={styles.loadingText}>Upload en cours...</Text>
+              </View>
+            )}
           </>
         )}
         renderItem={({ item }) => (
@@ -150,7 +145,16 @@ export default function PhotosScreen() {
                 <Ionicons name="person-outline" size={10} color={C.textMuted} />
                 <Text style={styles.photoBy}>{item.takenBy}</Text>
               </View>
-              <Text style={styles.photoDate}>{item.takenAt}</Text>
+              <View style={styles.photoMeta}>
+                {item.uri?.startsWith('http') ? (
+                  <Ionicons name="cloud-done-outline" size={10} color={C.closed} />
+                ) : (
+                  <Ionicons name="phone-portrait-outline" size={10} color={C.textMuted} />
+                )}
+                <Text style={[styles.photoDate, item.uri?.startsWith('http') && { color: C.closed }]}>
+                  {item.uri?.startsWith('http') ? 'Cloud' : 'Local'} — {item.takenAt}
+                </Text>
+              </View>
             </View>
           </View>
         )}
@@ -177,6 +181,8 @@ const styles = StyleSheet.create({
   actionRow: { flexDirection: 'row', gap: 10, marginBottom: 14, width: '100%' },
   actionBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, backgroundColor: C.surface, borderRadius: 12, paddingVertical: 14, borderWidth: 1, borderColor: C.border },
   actionBtnText: { fontSize: 13, fontFamily: 'Inter_600SemiBold', color: C.primary },
+  loadingRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, paddingVertical: 8, marginBottom: 8 },
+  loadingText: { fontSize: 13, fontFamily: 'Inter_400Regular', color: C.textSub },
   photoCard: { width: '48.5%', backgroundColor: C.surface, borderRadius: 14, overflow: 'hidden', marginBottom: 10, borderWidth: 1, borderColor: C.border },
   photoThumb: { height: 110, alignItems: 'center', justifyContent: 'center' },
   photoThumbImg: { width: '100%', height: 110 },
@@ -185,7 +191,7 @@ const styles = StyleSheet.create({
   photoMeta: { flexDirection: 'row', alignItems: 'center', gap: 4, marginBottom: 2 },
   photoLocation: { fontSize: 10, fontFamily: 'Inter_400Regular', color: C.textSub, flex: 1 },
   photoBy: { fontSize: 10, fontFamily: 'Inter_400Regular', color: C.textSub },
-  photoDate: { fontSize: 10, fontFamily: 'Inter_400Regular', color: C.textMuted, marginTop: 4 },
+  photoDate: { fontSize: 10, fontFamily: 'Inter_400Regular', color: C.textMuted },
   empty: { alignItems: 'center', paddingTop: 40, gap: 10 },
   emptyText: { fontSize: 15, fontFamily: 'Inter_400Regular', color: C.textMuted },
   emptyHint: { fontSize: 12, fontFamily: 'Inter_400Regular', color: C.textMuted },

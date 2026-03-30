@@ -222,3 +222,37 @@ on conflict (id) do nothing;
 -- Les 4 utilisateurs seront créés automatiquement au 1er lancement
 -- de l'app via la fonction de seed intégrée.
 -- ============================================================
+
+-- ============================================================
+-- STORAGE — Buckets pour photos et documents
+-- À exécuter dans l'éditeur SQL de Supabase (une seule fois)
+-- ============================================================
+
+-- Créer les buckets publics
+INSERT INTO storage.buckets (id, name, public)
+VALUES ('photos', 'photos', true)
+ON CONFLICT (id) DO NOTHING;
+
+INSERT INTO storage.buckets (id, name, public)
+VALUES ('documents', 'documents', true)
+ON CONFLICT (id) DO NOTHING;
+
+-- Politique : les utilisateurs authentifiés peuvent uploader des photos
+CREATE POLICY IF NOT EXISTS "authenticated_upload_photos"
+ON storage.objects FOR INSERT TO authenticated
+WITH CHECK (bucket_id = 'photos');
+
+-- Politique : lecture publique des photos
+CREATE POLICY IF NOT EXISTS "public_read_photos"
+ON storage.objects FOR SELECT
+USING (bucket_id = 'photos');
+
+-- Politique : les utilisateurs authentifiés peuvent uploader des documents
+CREATE POLICY IF NOT EXISTS "authenticated_upload_documents"
+ON storage.objects FOR INSERT TO authenticated
+WITH CHECK (bucket_id = 'documents');
+
+-- Politique : lecture publique des documents
+CREATE POLICY IF NOT EXISTS "public_read_documents"
+ON storage.objects FOR SELECT
+USING (bucket_id = 'documents');
