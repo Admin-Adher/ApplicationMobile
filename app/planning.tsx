@@ -67,7 +67,7 @@ function TaskCard({ task, onDelete, canEdit, onPress }: { task: Task; onDelete: 
         <Ionicons name="calendar-outline" size={12} color={C.textMuted} />
         <Text style={styles.taskDeadline}>{formatDate(task.deadline)}</Text>
       </View>
-    </View>
+    </TouchableOpacity>
   );
 }
 
