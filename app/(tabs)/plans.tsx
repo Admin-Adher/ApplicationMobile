@@ -139,6 +139,7 @@ export default function PlansScreen() {
   const touchStartXRef = useRef(0);
   const touchStartYRef = useRef(0);
   const isDraggingRef = useRef(false);
+  const suppressNextPlanTapRef = useRef(false);
 
   const vectorPlan = FLOOR_PLANS[building];
 
@@ -205,9 +206,18 @@ export default function PlansScreen() {
   }
 
   function handlePlanTap(e: any) {
-    if (!addingMarker) return;
+    if (!addingMarker) {
+      suppressNextPlanTapRef.current = false;
+      return;
+    }
+    if (suppressNextPlanTapRef.current) {
+      suppressNextPlanTapRef.current = false;
+      return;
+    }
     if (isDraggingRef.current) return;
-    const { locationX, locationY } = e.nativeEvent;
+    const { locationX, locationY, pageX, pageY } = e.nativeEvent;
+    const totalMove = Math.abs((pageX ?? 0) - touchStartXRef.current) + Math.abs((pageY ?? 0) - touchStartYRef.current);
+    if (totalMove > 8) return;
     if (locationX === undefined || locationY === undefined) return;
     const px = Math.min(100, Math.max(0, Math.round((locationX / PLAN_W) * 100)));
     const py = Math.min(100, Math.max(0, Math.round((locationY / PLAN_H) * 100)));
@@ -446,7 +456,7 @@ export default function PlansScreen() {
                 )}
 
                 {/* LAYER 2: Reserve markers (always on top) */}
-                {buildingReserves.map(r => (
+                {buildingReserves.filter(r => r.planX != null && r.planY != null).map(r => (
                   <TouchableOpacity
                     key={r.id}
                     style={[styles.marker, {
@@ -454,6 +464,7 @@ export default function PlansScreen() {
                       top: `${r.planY}%` as any,
                       backgroundColor: MARKER_COLORS[r.status],
                     }]}
+                    onPressIn={() => { suppressNextPlanTapRef.current = true; }}
                     onPress={() => setSelected(r)}
                   >
                     <Text style={styles.markerText}>{r.id.split('-')[1] ?? '?'}</Text>

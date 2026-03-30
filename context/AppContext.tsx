@@ -247,7 +247,7 @@ function reducer(state: AppState, action: Action): AppState {
 
     case 'ADD_DOCUMENT':
       supabase.from('documents').insert({ id: action.payload.id, name: action.payload.name, type: action.payload.type, category: action.payload.category, uploaded_at: action.payload.uploadedAt, size: action.payload.size, version: action.payload.version, uri: action.payload.uri });
-      return { ...state, documents: [action.payload, ...state.photos] };
+      return { ...state, documents: [action.payload, ...state.documents] };
 
     case 'DELETE_DOCUMENT':
       supabase.from('documents').delete().eq('id', action.payload);
