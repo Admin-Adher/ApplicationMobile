@@ -31,17 +31,14 @@ export default function LoginScreen() {
     setLoading(true);
     const result = await login(email.trim(), password);
     setLoading(false);
-    if (result.success) {
-      router.replace('/(tabs)');
-    } else {
+    if (!result.success) {
       Alert.alert('Erreur de connexion', result.error ?? 'Une erreur est survenue.');
     }
   }
 
   function fillDemo(demoEmail: string) {
     setEmail(demoEmail);
-    setPassword('pass123');
-    if (demoEmail === 'admin@buildtrack.fr') setPassword('admin123');
+    setPassword(demoEmail === 'admin@buildtrack.fr' ? 'admin123' : 'pass123');
   }
 
   return (

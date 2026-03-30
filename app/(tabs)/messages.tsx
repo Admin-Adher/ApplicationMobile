@@ -1,5 +1,5 @@
 import {
-  View, Text, StyleSheet, FlatList, TouchableOpacity, TextInput,
+  View, Text, StyleSheet, ScrollView, TouchableOpacity, TextInput,
   Platform, Alert, Modal, TouchableWithoutFeedback,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -172,7 +172,7 @@ export default function MessagesTabScreen() {
     const q = search.toLowerCase();
     const results: { message: Message; channel: Channel }[] = [];
     for (const msg of messages) {
-      if (msg.type !== 'message' && msg.type !== undefined) continue;
+      if (msg.type && msg.type !== 'message') continue;
       if (!msg.content.toLowerCase().includes(q) && !msg.sender.toLowerCase().includes(q)) continue;
       const ch = channels.find(c => c.id === msg.channelId);
       if (ch) results.push({ message: msg, channel: ch });
@@ -326,12 +326,7 @@ export default function MessagesTabScreen() {
         </View>
       </View>
 
-      <FlatList
-        data={[]}
-        keyExtractor={() => ''}
-        renderItem={null}
-        showsVerticalScrollIndicator={false}
-        ListHeaderComponent={() => (
+      <ScrollView showsVerticalScrollIndicator={false}>
           <View style={styles.content}>
             {showPinned && (
               <>
@@ -442,8 +437,7 @@ export default function MessagesTabScreen() {
               </View>
             )}
           </View>
-        )}
-      />
+      </ScrollView>
 
       <NewChannelModal
         visible={showNewChannel}

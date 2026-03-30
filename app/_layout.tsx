@@ -76,7 +76,7 @@ export default function RootLayout() {
                 </Stack>
               </AuthGuard>
               <NotificationBanner />
-              <StatusBar style="dark" />
+              <StatusBar style="light" />
             </KeyboardProvider>
           </SafeAreaProvider>
         </GestureHandlerRootView>

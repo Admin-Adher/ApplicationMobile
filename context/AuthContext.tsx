@@ -121,7 +121,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     supabase.auth.getSession().then(async ({ data: { session } }) => {
       if (session?.user) {
         const profile = await fetchProfile(session.user.id);
-        setUser(profile);
+        if (profile) {
+          setUser(profile);
+        } else {
+          await supabase.auth.signOut();
+          setUser(null);
+        }
       }
       setIsLoading(false);
     }).catch(() => {

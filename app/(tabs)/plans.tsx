@@ -304,8 +304,6 @@ export default function PlansScreen() {
           text: 'Remplacer',
           style: 'destructive',
           onPress: () => {
-            const existingPlans = documents.filter(d => d.category === `Plan-${building}` && d.type === 'plan');
-            existingPlans.forEach(d => deleteDocument(d.id));
             handleImportPlan();
           },
         },

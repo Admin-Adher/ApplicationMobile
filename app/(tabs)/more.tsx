@@ -2,6 +2,7 @@ import { View, Text, StyleSheet, ScrollView, Platform, TouchableOpacity, Alert }
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
+import { useMemo } from 'react';
 import { C } from '@/constants/colors';
 import { useApp } from '@/context/AppContext';
 import { useAuth } from '@/context/AuthContext';
@@ -29,13 +30,13 @@ export default function MoreScreen() {
   const { user, logout, permissions } = useAuth();
   const topPad = Platform.OS === 'web' ? 67 : insets.top;
 
-  const MENU_ITEMS: MenuItem[] = [
+  const MENU_ITEMS = useMemo<MenuItem[]>(() => [
     { icon: 'folder-open', label: 'Documents', subtitle: `${documents.length} fichiers`, route: '/documents', color: '#3B82F6' },
     { icon: 'calendar', label: 'Planning', subtitle: `${tasks.length} tâches`, route: '/planning', color: '#10B981' },
     { icon: 'camera', label: 'Photos', subtitle: `${photos.length} photos`, route: '/photos', color: '#F59E0B' },
     { icon: 'document-text', label: 'Rapports', subtitle: 'Journalier, hebdo', route: '/rapports', color: '#8B5CF6' },
     { icon: 'people', label: 'Équipes', subtitle: `${companies.length} entreprises`, route: '/(tabs)/equipes', color: '#EC4899' },
-  ];
+  ], [documents.length, tasks.length, photos.length, companies.length]);
 
   function handleLogout() {
     Alert.alert('Déconnexion', 'Voulez-vous vous déconnecter ?', [
@@ -54,9 +55,6 @@ export default function MoreScreen() {
             <Text style={styles.title}>Modules</Text>
             <Text style={styles.subtitle}>Accès rapide aux outils</Text>
           </View>
-          <TouchableOpacity style={styles.logoutBtn} onPress={handleLogout}>
-            <Ionicons name="log-out-outline" size={18} color={C.open} />
-          </TouchableOpacity>
         </View>
       </View>
 

@@ -149,8 +149,8 @@ export default function NewReserveScreen() {
       deadline: deadline || '—',
       comments: [],
       history: [{ id: 'h0', action: 'Réserve créée', author, createdAt: new Date().toISOString().slice(0, 10) }],
-      planX: presetX ?? 50,
-      planY: presetY ?? 50,
+      planX: presetX ?? undefined,
+      planY: presetY ?? undefined,
       photoUri: photoUri ?? undefined,
     });
     Alert.alert('Réserve créée', `${id} ajoutée avec succès.`, [
@@ -300,7 +300,7 @@ export default function NewReserveScreen() {
             <Text style={styles.label}>Date limite</Text>
             <TextInput
               style={styles.input}
-              placeholder="JJ/MM/AAAA — Ex : 30/04/2025"
+              placeholder="JJ/MM/AAAA — Ex : 30/04/2026"
               placeholderTextColor={C.textMuted}
               value={deadline}
               onChangeText={setDeadline}

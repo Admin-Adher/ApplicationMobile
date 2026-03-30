@@ -61,7 +61,7 @@ export default function ReserveDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
   const { reserves, updateReserveStatus, updateReserveFields, deleteReserve, addComment, companies, channels } = useApp();
-  const { user } = useAuth();
+  const { user, permissions } = useAuth();
   const [comment, setComment] = useState('');
   const [showCommentBox, setShowCommentBox] = useState(false);
   const [editModalVisible, setEditModalVisible] = useState(false);
@@ -153,16 +153,16 @@ export default function ReserveDetailScreen() {
     }
   }
 
-  function buildChangeSummary(r: Reserve): string[] {
-    const changes: string[] = [];
-    if (editTitle.trim() !== r.title) changes.push(`Titre : "${r.title}" → "${editTitle.trim()}"`);
-    if (editBuilding !== r.building) changes.push(`Bâtiment : ${r.building} → ${editBuilding}`);
-    if (editZone !== r.zone) changes.push(`Zone : ${r.zone} → ${editZone}`);
-    if (editLevel !== r.level) changes.push(`Niveau : ${r.level} → ${editLevel}`);
-    if (editCompany !== r.company) changes.push(`Entreprise : ${r.company} → ${editCompany}`);
-    if (editPriority !== r.priority) changes.push(`Priorité : ${PRIORITY_LABEL[r.priority]} → ${PRIORITY_LABEL[editPriority]}`);
+  function buildChangeSummary(r: Reserve): { label: string; oldVal: string; newVal: string }[] {
+    const changes: { label: string; oldVal: string; newVal: string }[] = [];
+    if (editTitle.trim() !== r.title) changes.push({ label: 'Titre', oldVal: r.title, newVal: editTitle.trim() });
+    if (editBuilding !== r.building) changes.push({ label: 'Bâtiment', oldVal: r.building, newVal: editBuilding });
+    if (editZone !== r.zone) changes.push({ label: 'Zone', oldVal: r.zone, newVal: editZone });
+    if (editLevel !== r.level) changes.push({ label: 'Niveau', oldVal: r.level, newVal: editLevel });
+    if (editCompany !== r.company) changes.push({ label: 'Entreprise', oldVal: r.company, newVal: editCompany });
+    if (editPriority !== r.priority) changes.push({ label: 'Priorité', oldVal: PRIORITY_LABEL[r.priority], newVal: PRIORITY_LABEL[editPriority] });
     const newDl = editDeadline || '—';
-    if (newDl !== r.deadline) changes.push(`Échéance : ${r.deadline} → ${newDl}`);
+    if (newDl !== r.deadline) changes.push({ label: 'Échéance', oldVal: r.deadline, newVal: newDl });
     return changes;
   }
 
@@ -183,8 +183,8 @@ export default function ReserveDetailScreen() {
       action: 'Réserve modifiée',
       author,
       createdAt: today,
-      oldValue: changes.length > 0 ? changes.map(c => c.split(' → ')[0].replace(/.*: /, '')).join(', ') : undefined,
-      newValue: changes.length > 0 ? changes.map(c => c.split(' → ')[1]).join(', ') : undefined,
+      oldValue: changes.length > 0 ? changes.map(c => c.oldVal).join(', ') : undefined,
+      newValue: changes.length > 0 ? changes.map(c => c.newVal).join(', ') : undefined,
     };
     const updated: Reserve = {
       ...reserve,
@@ -261,8 +261,8 @@ export default function ReserveDetailScreen() {
         title={reserve.id}
         subtitle={reserve.title}
         showBack
-        rightLabel="Modifier"
-        onRightPress={openEdit}
+        rightLabel={permissions.canEdit ? 'Modifier' : undefined}
+        onRightPress={permissions.canEdit ? openEdit : undefined}
       />
 
       {saveSuccess && (
@@ -337,27 +337,29 @@ export default function ReserveDetailScreen() {
           <Text style={styles.description}>{reserve.description}</Text>
         </View>
 
-        <View style={styles.card}>
-          <Text style={styles.sectionTitle}>Modifier le statut</Text>
-          <View style={styles.statusGrid}>
-            {STATUS_ORDER.map(s => {
-              const cfg = STATUS_CONFIG[s];
-              const isActive = reserve.status === s;
-              return (
-                <TouchableOpacity
-                  key={s}
-                  style={[styles.statusBtn, { borderColor: cfg.color, backgroundColor: isActive ? cfg.bg : 'transparent' }]}
-                  onPress={() => !isActive && handleStatusChange(s)}
-                  disabled={isActive}
-                >
-                  <View style={[styles.statusDot, { backgroundColor: cfg.color }]} />
-                  <Text style={[styles.statusBtnText, { color: cfg.color }]}>{cfg.label}</Text>
-                  {isActive && <Ionicons name="checkmark" size={12} color={cfg.color} />}
-                </TouchableOpacity>
-              );
-            })}
+        {permissions.canEdit && (
+          <View style={styles.card}>
+            <Text style={styles.sectionTitle}>Modifier le statut</Text>
+            <View style={styles.statusGrid}>
+              {STATUS_ORDER.map(s => {
+                const cfg = STATUS_CONFIG[s];
+                const isActive = reserve.status === s;
+                return (
+                  <TouchableOpacity
+                    key={s}
+                    style={[styles.statusBtn, { borderColor: cfg.color, backgroundColor: isActive ? cfg.bg : 'transparent' }]}
+                    onPress={() => !isActive && handleStatusChange(s)}
+                    disabled={isActive}
+                  >
+                    <View style={[styles.statusDot, { backgroundColor: cfg.color }]} />
+                    <Text style={[styles.statusBtnText, { color: cfg.color }]}>{cfg.label}</Text>
+                    {isActive && <Ionicons name="checkmark" size={12} color={cfg.color} />}
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
           </View>
-        </View>
+        )}
 
         <View style={styles.card}>
           <View style={styles.commentHeader}>
@@ -426,10 +428,12 @@ export default function ReserveDetailScreen() {
           ))}
         </View>
 
-        <TouchableOpacity style={styles.deleteBtn} onPress={handleDelete}>
-          <Ionicons name="trash-outline" size={16} color={C.open} />
-          <Text style={styles.deleteBtnText}>Supprimer cette réserve</Text>
-        </TouchableOpacity>
+        {permissions.canDelete && (
+          <TouchableOpacity style={styles.deleteBtn} onPress={handleDelete}>
+            <Ionicons name="trash-outline" size={16} color={C.open} />
+            <Text style={styles.deleteBtnText}>Supprimer cette réserve</Text>
+          </TouchableOpacity>
+        )}
       </ScrollView>
 
       {/* Modal d'édition */}

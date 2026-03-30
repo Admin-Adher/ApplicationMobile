@@ -46,7 +46,7 @@ function KPICard({
   return <View style={styles.kpiTouchable}>{card}</View>;
 }
 
-function StatusBar({ label, count, total, color }: { label: string; count: number; total: number; color: string }) {
+function ReserveStatusBar({ label, count, total, color }: { label: string; count: number; total: number; color: string }) {
   const pct = total > 0 ? (count / total) * 100 : 0;
   return (
     <View style={styles.statusRow}>
@@ -199,11 +199,11 @@ export default function DashboardScreen() {
         <View style={styles.card}>
           <Text style={styles.cardTitle}>Répartition des réserves</Text>
           <View style={styles.statusBars}>
-            <StatusBar label="Ouvert" count={stats.open} total={stats.total} color={C.open} />
-            <StatusBar label="En cours" count={stats.inProgress} total={stats.total} color={C.inProgress} />
-            <StatusBar label="En attente" count={stats.waiting} total={stats.total} color={C.waiting} />
-            <StatusBar label="Vérification" count={stats.verification} total={stats.total} color={C.verification} />
-            <StatusBar label="Clôturé" count={stats.closed} total={stats.total} color={C.closed} />
+            <ReserveStatusBar label="Ouvert" count={stats.open} total={stats.total} color={C.open} />
+            <ReserveStatusBar label="En cours" count={stats.inProgress} total={stats.total} color={C.inProgress} />
+            <ReserveStatusBar label="En attente" count={stats.waiting} total={stats.total} color={C.waiting} />
+            <ReserveStatusBar label="Vérification" count={stats.verification} total={stats.total} color={C.verification} />
+            <ReserveStatusBar label="Clôturé" count={stats.closed} total={stats.total} color={C.closed} />
           </View>
         </View>
 

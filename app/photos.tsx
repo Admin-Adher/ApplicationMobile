@@ -44,20 +44,18 @@ export default function PhotosScreen() {
       { attachmentUri: sharePhoto.uri },
       user?.name ?? 'Moi'
     );
-    setTimeout(() => {
-      router.push({
-        pathname: '/channel/[id]',
-        params: {
-          id: channel.id,
-          name: channel.name,
-          color: channel.color,
-          icon: channel.icon,
-          isDM: channel.type === 'dm' ? '1' : '0',
-          isGroup: channel.type === 'group' ? '1' : '0',
-          members: channel.members ? channel.members.join(',') : '',
-        },
-      } as any);
-    }, 100);
+    router.push({
+      pathname: '/channel/[id]',
+      params: {
+        id: channel.id,
+        name: channel.name,
+        color: channel.color,
+        icon: channel.icon,
+        isDM: channel.type === 'dm' ? '1' : '0',
+        isGroup: channel.type === 'group' ? '1' : '0',
+        members: channel.members ? channel.members.join(',') : '',
+      },
+    } as any);
   }
 
   function handleDeletePhoto(id: string, comment: string) {
