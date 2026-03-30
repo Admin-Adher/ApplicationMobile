@@ -13,6 +13,7 @@ export const STATIC_CHANNELS: Channel[] = [
 ];
 
 const CUSTOM_CHANNELS_KEY = 'customChannels_v1';
+const GROUP_CHANNELS_KEY = 'groupChannels_v1';
 
 interface AppState {
   reserves: Reserve[];
@@ -25,10 +26,11 @@ interface AppState {
   isLoading: boolean;
   profiles: Profile[];
   customChannels: Channel[];
+  groupChannels: Channel[];
 }
 
 type Action =
-  | { type: 'INIT'; payload: Omit<AppState, 'isLoading' | 'lastReadByChannel' | 'customChannels'> }
+  | { type: 'INIT'; payload: Omit<AppState, 'isLoading' | 'lastReadByChannel' | 'customChannels' | 'groupChannels'> }
   | { type: 'ADD_RESERVE'; payload: Reserve }
   | { type: 'UPDATE_RESERVE'; payload: Reserve }
   | { type: 'UPDATE_RESERVE_STATUS'; payload: { id: string; status: ReserveStatus; author: string } }
@@ -51,7 +53,10 @@ type Action =
   | { type: 'SET_LOADING'; payload: boolean }
   | { type: 'ADD_CUSTOM_CHANNEL'; payload: Channel }
   | { type: 'SET_CUSTOM_CHANNELS'; payload: Channel[] }
-  | { type: 'REMOVE_CUSTOM_CHANNEL'; payload: string };
+  | { type: 'REMOVE_CUSTOM_CHANNEL'; payload: string }
+  | { type: 'ADD_GROUP_CHANNEL'; payload: Channel }
+  | { type: 'SET_GROUP_CHANNELS'; payload: Channel[] }
+  | { type: 'REMOVE_GROUP_CHANNEL'; payload: string };
 
 function genId(): string {
   return Date.now().toString() + Math.random().toString(36).substr(2, 6);
@@ -140,7 +145,7 @@ export function dmChannelId(nameA: string, nameB: string): string {
 function reducer(state: AppState, action: Action): AppState {
   switch (action.type) {
     case 'INIT':
-      return { ...action.payload, lastReadByChannel: state.lastReadByChannel, customChannels: state.customChannels, isLoading: false };
+      return { ...action.payload, lastReadByChannel: state.lastReadByChannel, customChannels: state.customChannels, groupChannels: state.groupChannels, isLoading: false };
 
     case 'ADD_RESERVE':
       return { ...state, reserves: [action.payload, ...state.reserves] };
@@ -255,6 +260,15 @@ function reducer(state: AppState, action: Action): AppState {
     case 'REMOVE_CUSTOM_CHANNEL':
       return { ...state, customChannels: state.customChannels.filter(c => c.id !== action.payload) };
 
+    case 'ADD_GROUP_CHANNEL':
+      return { ...state, groupChannels: [...state.groupChannels, action.payload] };
+
+    case 'SET_GROUP_CHANNELS':
+      return { ...state, groupChannels: action.payload };
+
+    case 'REMOVE_GROUP_CHANNEL':
+      return { ...state, groupChannels: state.groupChannels.filter(c => c.id !== action.payload) };
+
     default:
       return state;
   }
@@ -286,6 +300,8 @@ interface AppContextValue extends AppState {
   deleteDocument: (id: string) => void;
   addCustomChannel: (name: string, description: string, icon: string, color: string) => Channel;
   removeCustomChannel: (id: string) => void;
+  addGroupChannel: (name: string, members: string[], color: string) => Channel;
+  removeGroupChannel: (id: string) => void;
   getOrCreateDMChannel: (otherName: string) => Channel;
   unreadCount: number;
   stats: {
@@ -302,7 +318,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     reserves: [], companies: [], tasks: [],
     documents: [], photos: [], messages: [],
     lastReadByChannel: {}, isLoading: true,
-    profiles: [], customChannels: [],
+    profiles: [], customChannels: [], groupChannels: [],
   });
 
   const [notification, setNotification] = useState<{ msg: Message; channelName: string; channelColor: string; channelIcon: string } | null>(null);
@@ -334,6 +350,21 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   async function saveCustomChannels(channels: Channel[]) {
     try {
       await AsyncStorage.setItem(CUSTOM_CHANNELS_KEY, JSON.stringify(channels));
+    } catch {}
+  }
+
+  async function loadGroupChannels() {
+    try {
+      const stored = await AsyncStorage.getItem(GROUP_CHANNELS_KEY);
+      if (stored) {
+        dispatch({ type: 'SET_GROUP_CHANNELS', payload: JSON.parse(stored) });
+      }
+    } catch {}
+  }
+
+  async function saveGroupChannels(channels: Channel[]) {
+    try {
+      await AsyncStorage.setItem(GROUP_CHANNELS_KEY, JSON.stringify(channels));
     } catch {}
   }
 
@@ -377,6 +408,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       }
 
       await loadCustomChannels();
+      await loadGroupChannels();
 
       const userName = currentUserNameRef.current;
       dispatch({
@@ -487,6 +519,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     ...STATIC_CHANNELS,
     ...companyChannels,
     ...state.customChannels,
+    ...state.groupChannels,
     ...dmChannels,
   ];
 
@@ -534,6 +567,29 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     dispatch({ type: 'REMOVE_CUSTOM_CHANNEL', payload: id });
     const updated = state.customChannels.filter(c => c.id !== id);
     saveCustomChannels(updated);
+  }
+
+  function addGroupChannel(name: string, members: string[], color: string): Channel {
+    const newCh: Channel = {
+      id: 'group-' + genId(),
+      name,
+      description: `Groupe : ${members.join(', ')}`,
+      icon: 'people-circle',
+      color,
+      type: 'group',
+      members,
+      createdBy: currentUserNameRef.current,
+    };
+    dispatch({ type: 'ADD_GROUP_CHANNEL', payload: newCh });
+    const updated = [...state.groupChannels, newCh];
+    saveGroupChannels(updated);
+    return newCh;
+  }
+
+  function removeGroupChannel(id: string) {
+    dispatch({ type: 'REMOVE_GROUP_CHANNEL', payload: id });
+    const updated = state.groupChannels.filter(c => c.id !== id);
+    saveGroupChannels(updated);
   }
 
   function getOrCreateDMChannel(otherName: string): Channel {
@@ -611,6 +667,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     deleteDocument: (id) => dispatch({ type: 'DELETE_DOCUMENT', payload: id }),
     addCustomChannel,
     removeCustomChannel,
+    addGroupChannel,
+    removeGroupChannel,
     getOrCreateDMChannel,
   };
 

@@ -9,6 +9,7 @@ import { useAuth } from '@/context/AuthContext';
 import { Channel, Message } from '@/constants/types';
 import NewChannelModal from '@/components/NewChannelModal';
 import NewDMModal from '@/components/NewDMModal';
+import NewGroupModal from '@/components/NewGroupModal';
 
 const AVATAR_COLORS = [C.primary, '#059669', '#D97706', '#7C3AED', '#DB2777', '#EA580C', '#0891B2'];
 function getAvatarColor(name: string) {
@@ -32,6 +33,7 @@ function ChannelItem({ channel, lastMsg, unread, onPress }: {
 }) {
   const hasUnread = unread > 0;
   const isDM = channel.type === 'dm';
+  const isGroup = channel.type === 'group';
 
   const previewText = () => {
     if (!lastMsg) return 'Aucun message';
@@ -66,6 +68,50 @@ function ChannelItem({ channel, lastMsg, unread, onPress }: {
             </Text>
             {hasUnread ? (
               <View style={[styles.unreadBadge, { backgroundColor: avatarColor }]}>
+                <Text style={styles.unreadBadgeText}>{unread > 99 ? '99+' : unread}</Text>
+              </View>
+            ) : null}
+          </View>
+        </View>
+      </TouchableOpacity>
+    );
+  }
+
+  if (isGroup) {
+    const members = channel.members ?? [];
+    const firstTwo = members.slice(0, 2);
+    return (
+      <TouchableOpacity style={[styles.channelItem, hasUnread && styles.channelItemUnread]} onPress={onPress} activeOpacity={0.75}>
+        <View style={[styles.groupAvatar, { backgroundColor: channel.color + '18' }]}>
+          <View style={styles.groupAvatarStack}>
+            {firstTwo.map((m, i) => {
+              const c = getAvatarColor(m);
+              return (
+                <View key={i} style={[styles.groupMiniAvatar, { backgroundColor: c + '30', borderColor: channel.color + '15', left: i * 14 }]}>
+                  <Text style={[styles.groupMiniAvatarText, { color: c }]}>{m.charAt(0).toUpperCase()}</Text>
+                </View>
+              );
+            })}
+          </View>
+          {hasUnread && <View style={styles.unreadDot} />}
+        </View>
+        <View style={styles.channelBody}>
+          <View style={styles.channelTop}>
+            <Text style={[styles.channelName, hasUnread && styles.channelNameUnread]} numberOfLines={1}>
+              {channel.name}
+            </Text>
+            {lastMsg && (
+              <Text style={[styles.channelTime, hasUnread && { color: channel.color }]}>
+                {formatChannelTime(lastMsg.timestamp)}
+              </Text>
+            )}
+          </View>
+          <View style={styles.channelBottom}>
+            <Text style={[styles.channelPreview, hasUnread && styles.channelPreviewUnread]} numberOfLines={1}>
+              {previewText()}
+            </Text>
+            {hasUnread ? (
+              <View style={[styles.unreadBadge, { backgroundColor: channel.color }]}>
                 <Text style={styles.unreadBadgeText}>{unread > 99 ? '99+' : unread}</Text>
               </View>
             ) : null}
@@ -110,11 +156,12 @@ function ChannelItem({ channel, lastMsg, unread, onPress }: {
 export default function MessagesScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const { channels, messages, unreadByChannel, profiles, addCustomChannel, getOrCreateDMChannel } = useApp();
+  const { channels, messages, unreadByChannel, profiles, addCustomChannel, addGroupChannel, getOrCreateDMChannel } = useApp();
   const { user } = useAuth();
   const [search, setSearch] = useState('');
   const [showNewChannel, setShowNewChannel] = useState(false);
   const [showNewDM, setShowNewDM] = useState(false);
+  const [showNewGroup, setShowNewGroup] = useState(false);
   const topPad = Platform.OS === 'web' ? 67 : insets.top;
 
   const totalUnread = Object.values(unreadByChannel).reduce((a, b) => a + b, 0);
@@ -141,14 +188,31 @@ export default function MessagesScreen() {
   const generalChannels = filteredChannels.filter(ch => ch.type === 'general' || ch.type === 'building');
   const companyChannels = filteredChannels.filter(ch => ch.type === 'company');
   const customChannels = filteredChannels.filter(ch => ch.type === 'custom');
+  const groupChannels = filteredChannels.filter(ch => ch.type === 'group');
   const dmChannels = filteredChannels.filter(ch => ch.type === 'dm');
 
   function goToChannel(ch: Channel) {
-    router.push({ pathname: '/channel/[id]', params: { id: ch.id, name: ch.name, color: ch.color, icon: ch.icon, isDM: ch.type === 'dm' ? '1' : '0' } } as any);
+    router.push({
+      pathname: '/channel/[id]',
+      params: {
+        id: ch.id,
+        name: ch.name,
+        color: ch.color,
+        icon: ch.icon,
+        isDM: ch.type === 'dm' ? '1' : '0',
+        isGroup: ch.type === 'group' ? '1' : '0',
+        members: ch.members ? ch.members.join(',') : '',
+      },
+    } as any);
   }
 
   function handleCreateChannel(name: string, description: string, icon: string, color: string) {
     const ch = addCustomChannel(name, description, icon, color);
+    goToChannel(ch);
+  }
+
+  function handleCreateGroup(name: string, members: string[], color: string) {
+    const ch = addGroupChannel(name, members, color);
     goToChannel(ch);
   }
 
@@ -158,6 +222,12 @@ export default function MessagesScreen() {
   }
 
   const currentUserName = user?.name ?? '';
+
+  const EMPTY_LABELS: Record<string, string> = {
+    'Messages directs': 'Aucun message direct — commencez une conversation !',
+    'Groupes': 'Aucun groupe — créez un groupe pour discuter à plusieurs !',
+    'Canaux personnalisés': 'Aucun canal personnalisé',
+  };
 
   function renderSection(title: string, items: Channel[], icon?: string, onAction?: () => void, actionLabel?: string) {
     if (items.length === 0 && !onAction) return null;
@@ -189,7 +259,7 @@ export default function MessagesScreen() {
         ) : (
           <View style={styles.emptySection}>
             <Text style={styles.emptySectionText}>
-              {title === 'Messages directs' ? 'Aucun message direct — commencez une conversation !' : 'Aucun canal personnalisé'}
+              {EMPTY_LABELS[title] ?? 'Aucun élément'}
             </Text>
           </View>
         )}
@@ -212,6 +282,9 @@ export default function MessagesScreen() {
           </View>
           <TouchableOpacity style={styles.headerBtn} onPress={() => setShowNewDM(true)}>
             <Ionicons name="chatbubble-ellipses-outline" size={20} color={C.primary} />
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.headerBtn} onPress={() => setShowNewGroup(true)}>
+            <Ionicons name="people-outline" size={20} color={C.primary} />
           </TouchableOpacity>
           <TouchableOpacity style={styles.headerBtn} onPress={() => setShowNewChannel(true)}>
             <Ionicons name="add-circle-outline" size={22} color={C.primary} />
@@ -244,6 +317,7 @@ export default function MessagesScreen() {
             {renderSection('Canaux chantier', generalChannels)}
             {renderSection('Canaux entreprises', companyChannels)}
             {renderSection('Canaux personnalisés', customChannels, undefined, () => setShowNewChannel(true), 'Nouveau')}
+            {renderSection('Groupes', groupChannels, undefined, () => setShowNewGroup(true), 'Nouveau')}
             {renderSection('Messages directs', dmChannels, undefined, () => setShowNewDM(true), 'Nouveau DM')}
 
             {filteredChannels.length === 0 && (
@@ -259,6 +333,14 @@ export default function MessagesScreen() {
                   <Ionicons name="add-circle" size={22} color={C.primary} />
                 </View>
                 <Text style={styles.quickBtnText}>Créer un canal</Text>
+                <Ionicons name="chevron-forward" size={16} color={C.textMuted} />
+              </TouchableOpacity>
+              <View style={styles.divider} />
+              <TouchableOpacity style={styles.quickBtn} onPress={() => setShowNewGroup(true)}>
+                <View style={[styles.quickBtnIcon, { backgroundColor: '#7C3AED' + '20' }]}>
+                  <Ionicons name="people-circle" size={22} color="#7C3AED" />
+                </View>
+                <Text style={styles.quickBtnText}>Créer un groupe</Text>
                 <Ionicons name="chevron-forward" size={16} color={C.textMuted} />
               </TouchableOpacity>
               <View style={styles.divider} />
@@ -278,6 +360,13 @@ export default function MessagesScreen() {
         visible={showNewChannel}
         onClose={() => setShowNewChannel(false)}
         onCreate={handleCreateChannel}
+      />
+      <NewGroupModal
+        visible={showNewGroup}
+        onClose={() => setShowNewGroup(false)}
+        profiles={profiles}
+        currentUserName={currentUserName}
+        onCreate={handleCreateGroup}
       />
       <NewDMModal
         visible={showNewDM}
@@ -328,6 +417,13 @@ const styles = StyleSheet.create({
   channelIcon: { width: 46, height: 46, borderRadius: 23, alignItems: 'center', justifyContent: 'center', position: 'relative' },
   dmAvatar: { width: 46, height: 46, borderRadius: 23, alignItems: 'center', justifyContent: 'center', position: 'relative' },
   dmAvatarText: { fontSize: 20, fontFamily: 'Inter_700Bold' },
+  groupAvatar: { width: 46, height: 46, borderRadius: 14, alignItems: 'center', justifyContent: 'center', position: 'relative' },
+  groupAvatarStack: { width: 36, height: 26, position: 'relative' },
+  groupMiniAvatar: {
+    position: 'absolute', width: 24, height: 24, borderRadius: 12,
+    alignItems: 'center', justifyContent: 'center', borderWidth: 1.5,
+  },
+  groupMiniAvatarText: { fontSize: 11, fontFamily: 'Inter_700Bold' },
   unreadDot: {
     position: 'absolute', top: 2, right: 2,
     width: 10, height: 10, borderRadius: 5,

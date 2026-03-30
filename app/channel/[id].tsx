@@ -135,9 +135,12 @@ function TypingIndicator({ users }: { users: string[] }) {
 type ListItem = Message | { _type: 'date'; label: string; key: string };
 
 export default function ChannelScreen() {
-  const { id: channelId, name: channelName, color: channelColor, icon: channelIcon } = useLocalSearchParams<{
-    id: string; name: string; color: string; icon: string;
+  const { id: channelId, name: channelName, color: channelColor, icon: channelIcon, isDM, isGroup, members: membersParam } = useLocalSearchParams<{
+    id: string; name: string; color: string; icon: string; isDM?: string; isGroup?: string; members?: string;
   }>();
+  const isDMChannel = isDM === '1';
+  const isGroupChannel = isGroup === '1';
+  const groupMembers = membersParam ? membersParam.split(',').filter(Boolean) : (channels.find(c => c.id === channelId)?.members ?? []);
   const router = useRouter();
   const { messages, addMessage, deleteMessage, updateMessage, setChannelRead, setActiveChannelId, channels } = useApp();
   const { user } = useAuth();
@@ -489,12 +492,26 @@ export default function ChannelScreen() {
         <TouchableOpacity onPress={() => router.back()} style={styles.backBtn}>
           <Ionicons name="chevron-back" size={22} color={C.text} />
         </TouchableOpacity>
-        <View style={[styles.headerIcon, { backgroundColor: color + '20' }]}>
-          <Ionicons name={(channelIcon ?? 'chatbubbles') as any} size={18} color={color} />
-        </View>
+        {isDMChannel ? (
+          <View style={[styles.headerIcon, { backgroundColor: color + '20' }]}>
+            <Text style={[styles.headerIconText, { color }]}>{(channelName ?? '?').charAt(0).toUpperCase()}</Text>
+          </View>
+        ) : isGroupChannel ? (
+          <View style={[styles.headerIcon, { backgroundColor: color + '20', overflow: 'hidden' }]}>
+            <Ionicons name="people-circle" size={22} color={color} />
+          </View>
+        ) : (
+          <View style={[styles.headerIcon, { backgroundColor: color + '20' }]}>
+            <Ionicons name={(channelIcon ?? 'chatbubbles') as any} size={18} color={color} />
+          </View>
+        )}
         <View style={{ flex: 1 }}>
           <Text style={styles.headerName} numberOfLines={1}>{channelName ?? 'Canal'}</Text>
-          <Text style={styles.headerSub}>{channelMessages.length} message{channelMessages.length !== 1 ? 's' : ''}</Text>
+          {isGroupChannel && groupMembers.length > 0 ? (
+            <Text style={styles.headerSub} numberOfLines={1}>{groupMembers.length} membres</Text>
+          ) : (
+            <Text style={styles.headerSub}>{channelMessages.length} message{channelMessages.length !== 1 ? 's' : ''}</Text>
+          )}
         </View>
         <View style={styles.headerActions}>
           {pinnedMessages.length > 0 && (
@@ -726,6 +743,7 @@ const styles = StyleSheet.create({
   header: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 14, paddingBottom: 12, borderBottomWidth: 1, borderBottomColor: C.border, backgroundColor: C.surface },
   backBtn: { width: 36, height: 36, borderRadius: 18, backgroundColor: C.surface2, alignItems: 'center', justifyContent: 'center' },
   headerIcon: { width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center' },
+  headerIconText: { fontSize: 18, fontFamily: 'Inter_700Bold' },
   headerName: { fontSize: 16, fontFamily: 'Inter_700Bold', color: C.text },
   headerSub: { fontSize: 11, fontFamily: 'Inter_400Regular', color: C.textMuted },
   headerActions: { flexDirection: 'row', gap: 4 },

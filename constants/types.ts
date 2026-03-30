@@ -119,8 +119,9 @@ export interface Channel {
   description: string;
   icon: string;
   color: string;
-  type: 'general' | 'building' | 'company' | 'custom' | 'dm';
+  type: 'general' | 'building' | 'company' | 'custom' | 'dm' | 'group';
   dmParticipants?: string[];
+  members?: string[];
   createdBy?: string;
 }
 
