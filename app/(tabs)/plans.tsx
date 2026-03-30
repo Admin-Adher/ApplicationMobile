@@ -297,7 +297,7 @@ export default function PlansScreen() {
     if (!activePlan) return;
     Alert.alert(
       'Remplacer le plan importé ?',
-      `Le plan vectoriel par défaut sera rétabli pour le Bâtiment ${building}. Vous pourrez en importer un nouveau.`,
+      `Le plan actuel sera supprimé et vous pourrez immédiatement en importer un nouveau pour le Bâtiment ${building}.`,
       [
         { text: 'Annuler', style: 'cancel' },
         {
@@ -306,6 +306,7 @@ export default function PlansScreen() {
           onPress: () => {
             const existingPlans = documents.filter(d => d.category === `Plan-${building}` && d.type === 'plan');
             existingPlans.forEach(d => deleteDocument(d.id));
+            handleImportPlan();
           },
         },
       ]

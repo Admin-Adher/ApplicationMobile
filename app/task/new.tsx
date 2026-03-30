@@ -9,7 +9,7 @@ import Header from '@/components/Header';
 import { Task, TaskStatus, ReservePriority } from '@/constants/types';
 
 function genId() {
-  return Date.now().toString() + Math.random().toString(36).substr(2, 6);
+  return Date.now().toString() + Math.random().toString(36).substring(2, 8);
 }
 
 const STATUS_OPTS: { value: TaskStatus; label: string; color: string }[] = [
@@ -37,7 +37,7 @@ export default function NewTaskScreen() {
   const [priority, setPriority] = useState<ReservePriority>('medium');
   const [deadline, setDeadline] = useState('');
   const [assignee, setAssignee] = useState(user?.name ?? '');
-  const [company, setCompany] = useState(companies[0]?.name ?? '');
+  const [company, setCompany] = useState(companies[0]?.id ?? '');
   const [progress, setProgress] = useState('0');
 
   function handleSave() {
@@ -51,7 +51,7 @@ export default function NewTaskScreen() {
       description: description.trim(),
       status,
       priority,
-      deadline: deadline.trim() || new Date(Date.now() + 7 * 86400000).toISOString().slice(0, 10),
+      deadline: deadline.trim() || (() => { const d = new Date(Date.now() + 7 * 86400000); return `${String(d.getDate()).padStart(2,'0')}/${String(d.getMonth()+1).padStart(2,'0')}/${d.getFullYear()}`; })(),
       assignee: assignee.trim() || (user?.name ?? 'Équipe'),
       company: company.trim(),
       progress: Math.min(100, Math.max(0, parseInt(progress) || 0)),
@@ -103,22 +103,23 @@ export default function NewTaskScreen() {
               {companies.map(c => (
                 <TouchableOpacity
                   key={c.id}
-                  style={[styles.chip, company === c.name && { backgroundColor: C.primaryBg, borderColor: C.primary }]}
-                  onPress={() => setCompany(c.name)}
+                  style={[styles.chip, company === c.id && { backgroundColor: C.primaryBg, borderColor: C.primary }]}
+                  onPress={() => setCompany(c.id)}
                 >
-                  <Text style={[styles.chipText, company === c.name && { color: C.primary }]}>{c.shortName}</Text>
+                  <Text style={[styles.chipText, company === c.id && { color: C.primary }]}>{c.shortName}</Text>
                 </TouchableOpacity>
               ))}
             </View>
           </ScrollView>
 
-          <Text style={styles.label}>Échéance (YYYY-MM-DD)</Text>
+          <Text style={styles.label}>Échéance (JJ/MM/AAAA)</Text>
           <TextInput
             style={styles.input}
-            placeholder="Ex: 2025-04-30"
+            placeholder="Ex: 30/04/2026"
             placeholderTextColor={C.textMuted}
             value={deadline}
             onChangeText={setDeadline}
+            keyboardType="numbers-and-punctuation"
           />
 
           <Text style={styles.label}>Avancement (%)</Text>
