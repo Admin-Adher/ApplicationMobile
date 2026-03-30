@@ -169,6 +169,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, [isLoading, user, seedStatus]);
 
   async function login(email: string, password: string): Promise<{ success: boolean; error?: string }> {
+    if (!isSupabaseConfigured) {
+      const match = DEMO_USERS.find(u => u.email === email && u.password === password);
+      if (!match) return { success: false, error: 'Email ou mot de passe incorrect.' };
+      setUser({
+        id: `demo-${DEMO_USERS.indexOf(match)}`,
+        name: match.name,
+        role: match.role as UserRole,
+        roleLabel: match.roleLabel,
+        email: match.email,
+      });
+      return { success: true };
+    }
     try {
       const { error } = await supabase.auth.signInWithPassword({ email, password });
       if (error) {

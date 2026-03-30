@@ -13,7 +13,7 @@ import { C } from '@/constants/colors';
 import { useApp } from '@/context/AppContext';
 import { useAuth } from '@/context/AuthContext';
 import { Message } from '@/constants/types';
-import { supabase } from '@/lib/supabase';
+import { supabase, isSupabaseConfigured } from '@/lib/supabase';
 import { uploadPhoto } from '@/lib/storage';
 import MessageBubble, { getAvatarColor } from '@/components/channel/MessageBubble';
 import MembersModal from '@/components/channel/MembersModal';
@@ -141,7 +141,7 @@ export default function ChannelScreen() {
   useEffect(() => {
     setChannelRead(channelId!);
     setActiveChannelId(channelId!);
-    if (!supabase) {
+    if (!isSupabaseConfigured) {
       return () => { setActiveChannelId(null); };
     }
     const typingCh = supabase.channel(`typing:${channelId}`);
@@ -513,11 +513,11 @@ export default function ChannelScreen() {
             onSubmitEditing={Platform.OS === 'web' ? handleSend : undefined}
           />
           <TouchableOpacity
-            style={[styles.sendBtn, { backgroundColor: (text.trim() || replyTo) ? color : C.surface2 }]}
+            style={[styles.sendBtn, { backgroundColor: text.trim() ? color : C.surface2 }]}
             onPress={handleSend}
-            disabled={!text.trim() && !replyTo}
+            disabled={!text.trim()}
           >
-            <Ionicons name="send" size={18} color={(text.trim() || replyTo) ? '#fff' : C.textMuted} />
+            <Ionicons name="send" size={18} color={text.trim() ? '#fff' : C.textMuted} />
           </TouchableOpacity>
         </View>
       </KeyboardAvoidingView>

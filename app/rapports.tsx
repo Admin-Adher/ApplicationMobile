@@ -7,13 +7,6 @@ import { useApp } from '@/context/AppContext';
 import { useAuth } from '@/context/AuthContext';
 import Header from '@/components/Header';
 
-const today = new Date().toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
-const weekNum = (() => {
-  const d = new Date();
-  const startOfYear = new Date(d.getFullYear(), 0, 1);
-  return Math.ceil(((d.getTime() - startOfYear.getTime()) / 86400000 + startOfYear.getDay() + 1) / 7);
-})();
-
 function buildDailyHTML(reserves: any[], companies: any[], tasks: any[], stats: any, userName: string): string {
   const now = new Date().toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
   const personnelRows = companies.map(c =>
@@ -54,7 +47,7 @@ function buildDailyHTML(reserves: any[], companies: any[], tasks: any[], stats: 
   </body></html>`;
 }
 
-function buildWeeklyHTML(reserves: any[], companies: any[], tasks: any[], stats: any, userName: string): string {
+function buildWeeklyHTML(reserves: any[], companies: any[], tasks: any[], stats: any, userName: string, weekNum: number): string {
   const criticalRows = reserves.filter((r: any) => r.priority === 'critical' && r.status !== 'closed').map((r: any) =>
     `<tr><td>${r.id}</td><td>${r.title}</td><td>Bât. ${r.building}</td><td>${r.deadline}</td></tr>`
   ).join('');
@@ -110,6 +103,13 @@ export default function RapportsScreen() {
   const { user, permissions } = useAuth();
   const userName = user?.name ?? 'Équipe BuildTrack';
 
+  const today = new Date().toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
+  const weekNum = (() => {
+    const d = new Date();
+    const startOfYear = new Date(d.getFullYear(), 0, 1);
+    return Math.ceil(((d.getTime() - startOfYear.getTime()) / 86400000 + startOfYear.getDay() + 1) / 7);
+  })();
+
   async function exportPDF(type: 'daily' | 'weekly') {
     if (!permissions.canExport) {
       Alert.alert('Accès refusé', "Votre rôle ne permet pas d'exporter des rapports.");
@@ -118,7 +118,7 @@ export default function RapportsScreen() {
     try {
       const html = type === 'daily'
         ? buildDailyHTML(reserves, companies, tasks, stats, userName)
-        : buildWeeklyHTML(reserves, companies, tasks, stats, userName);
+        : buildWeeklyHTML(reserves, companies, tasks, stats, userName, weekNum);
 
       const { uri } = await Print.printToFileAsync({ html, base64: false });
       const canShare = await Sharing.isAvailableAsync();
