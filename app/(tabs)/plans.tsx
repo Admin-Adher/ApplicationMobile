@@ -1,6 +1,6 @@
 import {
   View, Text, StyleSheet, TouchableOpacity, ScrollView, Platform,
-  Modal, PanResponder, Animated, GestureResponderEvent, Image,
+  Modal, PanResponder, Animated, Image,
   ActivityIndicator, Alert, Linking,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -12,10 +12,10 @@ import { C } from '@/constants/colors';
 import { useApp } from '@/context/AppContext';
 import { Reserve, Document } from '@/constants/types';
 import StatusBadge from '@/components/StatusBadge';
+import { STATUS_CONFIG } from '@/components/StatusBadge';
 import PriorityBadge from '@/components/PriorityBadge';
 import { uploadDocument } from '@/lib/storage';
-
-const BUILDINGS = ['A', 'B', 'C'];
+import { RESERVE_BUILDINGS } from '@/lib/reserveUtils';
 
 interface Room {
   id: string; label: string;
@@ -50,11 +50,6 @@ const FLOOR_PLANS: Record<string, Room[]> = {
   ],
 };
 
-const MARKER_COLORS: Record<string, string> = {
-  open: C.open, in_progress: C.inProgress,
-  waiting: C.waiting, verification: C.verification, closed: C.closed,
-};
-
 const PLAN_W = 360;
 const PLAN_H = 270;
 
@@ -74,11 +69,13 @@ function formatSize(bytes: number | undefined): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)} Mo`;
 }
 
-function genId() {
-  return Date.now().toString() + Math.random().toString(36).substr(2, 6);
+function genDocId() {
+  return Date.now().toString() + Math.random().toString(36).substring(2, 8);
 }
 
 function PlanImageLayer({ uri, isPdfFile }: { uri: string; isPdfFile: boolean }) {
+  const [imgError, setImgError] = useState(false);
+
   if (isPdfFile) {
     if (Platform.OS === 'web') {
       return (
@@ -103,8 +100,23 @@ function PlanImageLayer({ uri, isPdfFile }: { uri: string; isPdfFile: boolean })
       </View>
     );
   }
+
+  if (imgError) {
+    return (
+      <View style={planImgStyles.errorContainer}>
+        <Ionicons name="image-outline" size={32} color={C.textMuted} />
+        <Text style={planImgStyles.errorText}>Image inaccessible</Text>
+      </View>
+    );
+  }
+
   return (
-    <Image source={{ uri }} style={planImgStyles.image} resizeMode="contain" />
+    <Image
+      source={{ uri }}
+      style={planImgStyles.image}
+      resizeMode="contain"
+      onError={() => setImgError(true)}
+    />
   );
 }
 
@@ -115,6 +127,8 @@ const planImgStyles = StyleSheet.create({
   pdfText: { fontSize: 13, fontFamily: 'Inter_500Medium', color: C.text },
   pdfBtn: { flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: C.primary, paddingHorizontal: 14, paddingVertical: 8, borderRadius: 8 },
   pdfBtnText: { fontSize: 13, fontFamily: 'Inter_600SemiBold', color: '#fff' },
+  errorContainer: { position: 'absolute', top: 0, left: 0, width: PLAN_W, height: PLAN_H, alignItems: 'center', justifyContent: 'center', gap: 8, backgroundColor: C.surface2 },
+  errorText: { fontSize: 12, fontFamily: 'Inter_400Regular', color: C.textMuted },
 });
 
 export default function PlansScreen() {
@@ -134,8 +148,9 @@ export default function PlansScreen() {
   const translateX = useRef(new Animated.Value(0)).current;
   const translateY = useRef(new Animated.Value(0)).current;
   const lastScale = useRef(1);
-  const lastTX = useRef(0);
-  const lastTY = useRef(0);
+  // Track pan position without using private ._value API
+  const committedTX = useRef(0);
+  const committedTY = useRef(0);
   const touchStartXRef = useRef(0);
   const touchStartYRef = useRef(0);
   const isDraggingRef = useRef(false);
@@ -156,7 +171,6 @@ export default function PlansScreen() {
     buildingReserves = buildingReserves.filter(r => r.zone === zoneFilter);
   }
 
-  // Find the most recently uploaded plan for the current building
   const activePlan: Document | null = useMemo(() => {
     const planDocs = documents.filter(d => d.category === `Plan-${building}` && d.type === 'plan');
     return planDocs.length > 0 ? planDocs[0] : null;
@@ -167,8 +181,6 @@ export default function PlansScreen() {
       onStartShouldSetPanResponder: () => true,
       onMoveShouldSetPanResponder: () => true,
       onPanResponderGrant: (e) => {
-        lastTX.current = (translateX as any)._value;
-        lastTY.current = (translateY as any)._value;
         touchStartXRef.current = e.nativeEvent.pageX;
         touchStartYRef.current = e.nativeEvent.pageY;
         isDraggingRef.current = false;
@@ -176,12 +188,12 @@ export default function PlansScreen() {
       onPanResponderMove: (_, gs) => {
         const moved = Math.abs(gs.dx) + Math.abs(gs.dy);
         if (moved > 6) isDraggingRef.current = true;
-        translateX.setValue(lastTX.current + gs.dx);
-        translateY.setValue(lastTY.current + gs.dy);
+        translateX.setValue(committedTX.current + gs.dx);
+        translateY.setValue(committedTY.current + gs.dy);
       },
-      onPanResponderRelease: () => {
-        lastTX.current = (translateX as any)._value;
-        lastTY.current = (translateY as any)._value;
+      onPanResponderRelease: (_, gs) => {
+        committedTX.current = committedTX.current + gs.dx;
+        committedTY.current = committedTY.current + gs.dy;
       },
     })
   ).current;
@@ -197,7 +209,9 @@ export default function PlansScreen() {
     Animated.spring(scale, { toValue: next, useNativeDriver: true }).start();
   }
   function resetView() {
-    lastScale.current = 1; lastTX.current = 0; lastTY.current = 0;
+    lastScale.current = 1;
+    committedTX.current = 0;
+    committedTY.current = 0;
     Animated.parallel([
       Animated.spring(scale, { toValue: 1, useNativeDriver: true }),
       Animated.spring(translateX, { toValue: 0, useNativeDriver: true }),
@@ -246,12 +260,15 @@ export default function PlansScreen() {
           return;
         }
 
-        // Upload to Supabase Storage plans bucket
+        // Delete any existing plans for this building before importing the new one
+        const existingPlans = documents.filter(d => d.category === `Plan-${building}` && d.type === 'plan');
+        existingPlans.forEach(d => deleteDocument(d.id));
+
         const storageUrl = await uploadDocument(asset.uri, `plan_${building}_${docName}`, asset.mimeType ?? undefined);
         const finalUri = storageUrl ?? asset.uri;
 
         const newDoc: Document = {
-          id: genId(),
+          id: genDocId(),
           name: `Plan Bâtiment ${building} — ${docName}`,
           type: 'plan',
           category: `Plan-${building}`,
@@ -263,14 +280,14 @@ export default function PlansScreen() {
         addDocument(newDoc);
 
         Alert.alert(
-          'Plan importé ✓',
+          'Plan importé',
           storageUrl
             ? `Plan du Bâtiment ${building} uploadé sur Supabase Storage.`
-            : `Plan du Bâtiment ${building} importé localement.`
+            : `Plan du Bâtiment ${building} importé localement (non persistant).`
         );
       }
     } catch (e) {
-      Alert.alert('Erreur', 'Impossible d\'importer le plan.');
+      Alert.alert('Erreur', "Impossible d'importer le plan.");
     } finally {
       setImporting(false);
     }
@@ -286,7 +303,10 @@ export default function PlansScreen() {
         {
           text: 'Remplacer',
           style: 'destructive',
-          onPress: () => deleteDocument(activePlan.id),
+          onPress: () => {
+            const existingPlans = documents.filter(d => d.category === `Plan-${building}` && d.type === 'plan');
+            existingPlans.forEach(d => deleteDocument(d.id));
+          },
         },
       ]
     );
@@ -306,7 +326,7 @@ export default function PlansScreen() {
         <View style={styles.buildingBarRow}>
           <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ flex: 1 }}>
             <View style={styles.buildingRow}>
-              {BUILDINGS.map(b => (
+              {RESERVE_BUILDINGS.map(b => (
                 <TouchableOpacity
                   key={b}
                   style={[styles.buildingBtn, building === b && styles.buildingBtnActive]}
@@ -462,7 +482,7 @@ export default function PlansScreen() {
                     style={[styles.marker, {
                       left: `${r.planX}%` as any,
                       top: `${r.planY}%` as any,
-                      backgroundColor: MARKER_COLORS[r.status],
+                      backgroundColor: STATUS_CONFIG[r.status].color,
                     }]}
                     onPressIn={() => { suppressNextPlanTapRef.current = true; }}
                     onPress={() => setSelected(r)}
@@ -506,15 +526,12 @@ export default function PlansScreen() {
           )}
 
           <View style={styles.legend}>
-            {(['open', 'in_progress', 'waiting', 'verification', 'closed'] as const).map(s => {
-              const labels: Record<string, string> = { open: 'Ouvert', in_progress: 'En cours', waiting: 'Attente', verification: 'Vérif.', closed: 'Clôturé' };
-              return (
-                <View key={s} style={styles.legendItem}>
-                  <View style={[styles.legendDot, { backgroundColor: MARKER_COLORS[s] }]} />
-                  <Text style={styles.legendLabel}>{labels[s]}</Text>
-                </View>
-              );
-            })}
+            {(['open', 'in_progress', 'waiting', 'verification', 'closed'] as const).map(s => (
+              <View key={s} style={styles.legendItem}>
+                <View style={[styles.legendDot, { backgroundColor: STATUS_CONFIG[s].color }]} />
+                <Text style={styles.legendLabel}>{STATUS_CONFIG[s].label}</Text>
+              </View>
+            ))}
           </View>
         </View>
 
@@ -525,7 +542,7 @@ export default function PlansScreen() {
             style={styles.reserveRow}
             onPress={() => router.push(`/reserve/${r.id}` as any)}
           >
-            <View style={[styles.reserveColorDot, { backgroundColor: MARKER_COLORS[r.status] }]} />
+            <View style={[styles.reserveColorDot, { backgroundColor: STATUS_CONFIG[r.status].color }]} />
             <View style={{ flex: 1 }}>
               <Text style={styles.reserveTitle}>{r.id} — {r.title}</Text>
               <Text style={styles.reserveSub}>{r.zone} — {r.level} — {r.company}</Text>

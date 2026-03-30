@@ -7,6 +7,7 @@ import { useApp } from '@/context/AppContext';
 import { useAuth } from '@/context/AuthContext';
 import { Task, TaskStatus } from '@/constants/types';
 import Header from '@/components/Header';
+import { parseDeadline, formatDate } from '@/lib/reserveUtils';
 
 const STATUS_CFG: Record<TaskStatus, { label: string; color: string }> = {
   todo: { label: 'À faire', color: C.textMuted },
@@ -21,21 +22,17 @@ const MONTHS_FR = ['Janv', 'Févr', 'Mars', 'Avr', 'Mai', 'Juin', 'Juil', 'Août
 const MONTHS_FULL = ['Janvier', 'Février', 'Mars', 'Avril', 'Mai', 'Juin', 'Juillet', 'Août', 'Septembre', 'Octobre', 'Novembre', 'Décembre'];
 const DAYS_SHORT = ['L', 'M', 'M', 'J', 'V', 'S', 'D'];
 
-function parseDate(dateStr: string): Date | null {
-  if (!dateStr) return null;
-  const d = new Date(dateStr);
-  return isNaN(d.getTime()) ? null : d;
-}
-
 function getTaskStartDate(task: Task): Date {
-  const deadline = parseDate(task.deadline);
+  const deadline = parseDeadline(task.deadline);
   if (!deadline) return new Date();
   const durationDays = task.status === 'done' ? 14 : Math.max(7, Math.round((1 - task.progress / 100) * 21 + 7));
   return new Date(deadline.getTime() - durationDays * 86400000);
 }
 
 function TaskCard({ task, onDelete, canEdit }: { task: Task; onDelete: () => void; canEdit: boolean }) {
+  const { companies } = useApp();
   const cfg = STATUS_CFG[task.status];
+  const companyName = companies.find(c => c.id === task.company)?.name ?? task.company;
   return (
     <View style={[styles.taskCard, { borderLeftColor: cfg.color }]}>
       <View style={styles.taskTop}>
@@ -62,9 +59,9 @@ function TaskCard({ task, onDelete, canEdit }: { task: Task; onDelete: () => voi
         <Ionicons name="people-outline" size={12} color={C.textMuted} />
         <Text style={styles.taskAssignee}>{task.assignee}</Text>
         <Ionicons name="business-outline" size={12} color={C.textMuted} />
-        <Text style={styles.taskCompany} numberOfLines={1}>{task.company}</Text>
+        <Text style={styles.taskCompany} numberOfLines={1}>{companyName}</Text>
         <Ionicons name="calendar-outline" size={12} color={C.textMuted} />
-        <Text style={styles.taskDeadline}>{task.deadline}</Text>
+        <Text style={styles.taskDeadline}>{formatDate(task.deadline)}</Text>
       </View>
     </View>
   );
@@ -83,7 +80,7 @@ function CalendarView({ tasks }: { tasks: Task[] }) {
   const tasksByDay = useMemo(() => {
     const map: Record<number, Task[]> = {};
     tasks.forEach(t => {
-      const d = parseDate(t.deadline);
+      const d = parseDeadline(t.deadline);
       if (d && d.getFullYear() === year && d.getMonth() === month) {
         const day = d.getDate();
         if (!map[day]) map[day] = [];
@@ -204,7 +201,7 @@ function GanttView({ tasks }: { tasks: Task[] }) {
 
   const tasksWithDates = useMemo(() => {
     return tasks.map(t => {
-      const end = parseDate(t.deadline) ?? new Date(today.getTime() + 7 * 86400000);
+      const end = parseDeadline(t.deadline) ?? new Date(today.getTime() + 7 * 86400000);
       const start = getTaskStartDate(t);
       return { ...t, start, end };
     }).sort((a, b) => a.start.getTime() - b.start.getTime());
@@ -228,6 +225,9 @@ function GanttView({ tasks }: { tasks: Task[] }) {
 
   const totalDays = Math.ceil((maxDate.getTime() - minDate.getTime()) / 86400000);
   const totalWidth = totalDays * DAY_PX;
+  const HEADER_H = 28;
+  const ROW_H = 44;
+  const ganttInnerHeight = HEADER_H + tasksWithDates.length * ROW_H;
 
   function dayOffset(date: Date): number {
     return Math.floor((date.getTime() - minDate.getTime()) / 86400000) * DAY_PX;
@@ -257,16 +257,17 @@ function GanttView({ tasks }: { tasks: Task[] }) {
 
   return (
     <ScrollView horizontal showsHorizontalScrollIndicator={true} style={ganttStyles.hScroll}>
-      <View style={{ width: totalWidth + 10 }}>
+      <View style={{ width: totalWidth + 10, position: 'relative' }}>
+        {/* Today line spans the full gantt height */}
+        {todayOffset >= 0 && todayOffset <= totalWidth && (
+          <View style={[ganttStyles.todayLine, { left: todayOffset, height: ganttInnerHeight }]} />
+        )}
         <View style={[ganttStyles.timelineHeader, { width: totalWidth + 10 }]}>
           {monthMarkers.map((m, i) => (
             <View key={i} style={[ganttStyles.monthMarker, { left: m.x }]}>
               <Text style={ganttStyles.monthLabel}>{m.label}</Text>
             </View>
           ))}
-          {todayOffset >= 0 && todayOffset <= totalWidth && (
-            <View style={[ganttStyles.todayLine, { left: todayOffset }]} />
-          )}
         </View>
 
         {tasksWithDates.map((t) => {
@@ -291,25 +292,27 @@ function GanttView({ tasks }: { tasks: Task[] }) {
 }
 
 function GanttLegend({ tasks }: { tasks: Task[] }) {
-  const today = new Date();
-  const tasksWithDates = useMemo(() => {
-    return tasks.map(t => {
-      const end = parseDate(t.deadline) ?? new Date(today.getTime() + 7 * 86400000);
-      const start = getTaskStartDate(t);
-      return { ...t, start, end };
-    }).sort((a, b) => a.start.getTime() - b.start.getTime());
+  if (tasks.length === 0) return null;
+  const sorted = useMemo(() => {
+    return [...tasks].sort((a, b) => {
+      const aDate = parseDeadline(a.deadline);
+      const bDate = parseDeadline(b.deadline);
+      if (!aDate && !bDate) return 0;
+      if (!aDate) return 1;
+      if (!bDate) return -1;
+      return aDate.getTime() - bDate.getTime();
+    });
   }, [tasks]);
 
-  if (tasksWithDates.length === 0) return null;
   return (
     <View style={ganttStyles.legend}>
-      {tasksWithDates.map(t => {
+      {sorted.map(t => {
         const cfg = STATUS_CFG[t.status];
         return (
           <View key={t.id} style={ganttStyles.legendRow}>
             <View style={[ganttStyles.legendDot, { backgroundColor: cfg.color }]} />
             <Text style={ganttStyles.legendTitle} numberOfLines={1}>{t.title}</Text>
-            <Text style={ganttStyles.legendDeadline}>{t.deadline}</Text>
+            <Text style={ganttStyles.legendDeadline}>{formatDate(t.deadline)}</Text>
           </View>
         );
       })}
@@ -475,7 +478,7 @@ const ganttStyles = StyleSheet.create({
   timelineHeader: { height: 28, position: 'relative', borderBottomWidth: 1, borderBottomColor: C.border, marginBottom: 4 },
   monthMarker: { position: 'absolute', top: 4 },
   monthLabel: { fontSize: 10, fontFamily: 'Inter_600SemiBold', color: C.textSub, backgroundColor: C.surface, paddingHorizontal: 2 },
-  todayLine: { position: 'absolute', top: 0, bottom: -1000, width: 1.5, backgroundColor: C.critical + '80' },
+  todayLine: { position: 'absolute', top: 0, width: 1.5, backgroundColor: C.critical + '80', zIndex: 1 },
   row: { height: 38, position: 'relative', marginBottom: 6 },
   bar: {
     position: 'absolute', top: 4, height: 30, borderRadius: 6,
@@ -516,16 +519,16 @@ const styles = StyleSheet.create({
   taskTop: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 },
   statusBadge: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 20 },
   statusText: { fontSize: 11, fontFamily: 'Inter_600SemiBold' },
-  taskPct: { fontSize: 14, fontFamily: 'Inter_700Bold' },
+  taskPct: { fontSize: 13, fontFamily: 'Inter_700Bold' },
   taskTitle: { fontSize: 14, fontFamily: 'Inter_600SemiBold', color: C.text, marginBottom: 4 },
   taskDesc: { fontSize: 12, fontFamily: 'Inter_400Regular', color: C.textSub, marginBottom: 10 },
   taskProgress: { marginBottom: 10 },
-  taskBarBg: { height: 5, backgroundColor: C.border, borderRadius: 3, overflow: 'hidden' },
-  taskBarFill: { height: '100%', borderRadius: 3 },
+  taskBarBg: { height: 4, backgroundColor: C.border, borderRadius: 2, overflow: 'hidden' },
+  taskBarFill: { height: 4, borderRadius: 2 },
   taskBottom: { flexDirection: 'row', alignItems: 'center', gap: 5, flexWrap: 'wrap' },
-  taskAssignee: { fontSize: 11, fontFamily: 'Inter_400Regular', color: C.textMuted },
-  taskCompany: { fontSize: 11, fontFamily: 'Inter_400Regular', color: C.textMuted, flex: 1, maxWidth: 120 },
-  taskDeadline: { fontSize: 11, fontFamily: 'Inter_400Regular', color: C.textMuted },
-  empty: { alignItems: 'center', paddingVertical: 32, gap: 10 },
+  taskAssignee: { fontSize: 11, fontFamily: 'Inter_400Regular', color: C.textSub, marginRight: 4 },
+  taskCompany: { fontSize: 11, fontFamily: 'Inter_400Regular', color: C.textSub, marginRight: 4, flex: 1 },
+  taskDeadline: { fontSize: 11, fontFamily: 'Inter_500Medium', color: C.textSub },
+  empty: { alignItems: 'center', paddingVertical: 40, gap: 10 },
   emptyText: { fontSize: 14, fontFamily: 'Inter_400Regular', color: C.textMuted },
 });
