@@ -99,7 +99,6 @@ export default function ReservesScreen() {
     return list;
   }, [reserves, statusFilter, buildingFilter, priorityFilter, companyFilter, sortKey, search]);
 
-  const activeSortLabel = SORT_OPTIONS.find(s => s.key === sortKey)?.label ?? '';
   const isSortActive = sortKey !== 'date_desc';
 
   return (

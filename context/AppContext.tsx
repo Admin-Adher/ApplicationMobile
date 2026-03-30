@@ -66,7 +66,7 @@ type Action =
   | { type: 'SET_PINNED_CHANNELS'; payload: string[] };
 
 function genId(): string {
-  return Date.now().toString() + Math.random().toString(36).substr(2, 6);
+  return Date.now().toString() + Math.random().toString(36).substring(2, 8);
 }
 
 function toReserve(row: any): Reserve {
@@ -722,7 +722,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         status: r.status, created_at: r.createdAt, deadline: r.deadline,
         comments: r.comments, history: r.history, plan_x: r.planX, plan_y: r.planY,
         photo_uri: r.photoUri,
-      });
+      }).catch(() => {});
       dispatch({ type: 'ADD_RESERVE', payload: r });
     },
     updateReserve: (r) => {
@@ -731,7 +731,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         zone: r.zone, level: r.level, company: r.company, priority: r.priority,
         status: r.status, deadline: r.deadline, comments: r.comments, history: r.history,
         plan_x: r.planX, plan_y: r.planY, photo_uri: r.photoUri,
-      }).eq('id', r.id);
+      }).eq('id', r.id).catch(() => {});
       dispatch({ type: 'UPDATE_RESERVE', payload: r });
     },
     updateReserveFields: (r) => {

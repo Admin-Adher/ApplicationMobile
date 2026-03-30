@@ -178,9 +178,6 @@ export default function ReserveDetailScreen() {
     const author = user?.name ?? 'Conducteur de travaux';
     const today = new Date().toISOString().slice(0, 10);
     const changes = buildChangeSummary(reserve);
-    const actionLabel = changes.length > 0
-      ? `Modifié : ${changes.join(' | ')}`
-      : 'Réserve consultée (aucune modification)';
     const historyEntry = {
       id: `h${Date.now()}`,
       action: 'Réserve modifiée',
@@ -202,7 +199,6 @@ export default function ReserveDetailScreen() {
       photoUri: editPhotoUri ?? undefined,
       history: changes.length > 0 ? [...reserve.history, historyEntry] : reserve.history,
     };
-    _ = actionLabel;
     updateReserveFields(updated);
     setEditModalVisible(false);
     setSaveSuccess(true);
@@ -595,9 +591,6 @@ export default function ReserveDetailScreen() {
     </View>
   );
 }
-
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
-let _ : unknown;
 
 function InfoRow({ icon, label, value, last, valueColor }: {
   icon: string; label: string; value: string; last?: boolean; valueColor?: string;
