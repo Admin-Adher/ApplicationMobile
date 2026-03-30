@@ -53,6 +53,8 @@ type Action =
   | { type: 'ADD_PHOTO'; payload: Photo }
   | { type: 'ADD_DOCUMENT'; payload: Document }
   | { type: 'DELETE_DOCUMENT'; payload: string }
+  | { type: 'DELETE_RESERVE'; payload: string }
+  | { type: 'UPDATE_RESERVE_FIELDS'; payload: Reserve }
   | { type: 'SET_LOADING'; payload: boolean }
   | { type: 'ADD_CUSTOM_CHANNEL'; payload: Channel }
   | { type: 'SET_CUSTOM_CHANNELS'; payload: Channel[] }
@@ -157,6 +159,12 @@ function reducer(state: AppState, action: Action): AppState {
 
     case 'UPDATE_RESERVE':
       return { ...state, reserves: state.reserves.map(r => r.id === action.payload.id ? action.payload : r) };
+
+    case 'DELETE_RESERVE':
+      return { ...state, reserves: state.reserves.filter(r => r.id !== action.payload) };
+
+    case 'UPDATE_RESERVE_FIELDS':
+      return { ...state, reserves: state.reserves.map(x => x.id === action.payload.id ? action.payload : x) };
 
     case 'UPDATE_RESERVE_STATUS': {
       const { id, status, author } = action.payload;
@@ -299,6 +307,8 @@ interface AppContextValue extends AppState {
   notification: { msg: Message; channelName: string; channelColor: string; channelIcon: string } | null;
   addReserve: (r: Reserve) => void;
   updateReserve: (r: Reserve) => void;
+  updateReserveFields: (r: Reserve) => void;
+  deleteReserve: (id: string) => void;
   updateReserveStatus: (id: string, status: ReserveStatus, author?: string) => void;
   addComment: (reserveId: string, content: string, author?: string) => void;
   addCompany: (c: Company) => void;
@@ -723,6 +733,18 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         plan_x: r.planX, plan_y: r.planY, photo_uri: r.photoUri,
       }).eq('id', r.id);
       dispatch({ type: 'UPDATE_RESERVE', payload: r });
+    },
+    updateReserveFields: (r) => {
+      supabase.from('reserves').update({
+        title: r.title, description: r.description, building: r.building,
+        zone: r.zone, level: r.level, company: r.company, priority: r.priority,
+        deadline: r.deadline, history: r.history,
+      }).eq('id', r.id).catch(() => {});
+      dispatch({ type: 'UPDATE_RESERVE_FIELDS', payload: r });
+    },
+    deleteReserve: (id) => {
+      supabase.from('reserves').delete().eq('id', id).catch(() => {});
+      dispatch({ type: 'DELETE_RESERVE', payload: id });
     },
     updateReserveStatus: (id, status, author = 'Conducteur de travaux') => {
       dispatch({ type: 'UPDATE_RESERVE_STATUS', payload: { id, status, author } });

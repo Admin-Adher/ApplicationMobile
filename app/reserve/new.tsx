@@ -20,6 +20,12 @@ const PRIORITIES: { value: ReservePriority; label: string; color: string }[] = [
   { value: 'critical', label: 'Critique', color: C.critical },
 ];
 
+function genReserveId(): string {
+  const ts = Date.now().toString(36).toUpperCase();
+  const rand = Math.floor(Math.random() * 1000).toString().padStart(3, '0');
+  return `RSV-${ts}${rand}`;
+}
+
 function SelectRow<T extends string>({
   label, options, value, onChange, colorFn,
 }: {
@@ -123,12 +129,20 @@ export default function NewReserveScreen() {
       Alert.alert('Champ obligatoire', 'Le titre est requis.');
       return;
     }
+    if (!company) {
+      Alert.alert('Champ obligatoire', "Sélectionnez l'entreprise responsable.");
+      return;
+    }
+    if (deadline && !/^\d{2}\/\d{2}\/\d{4}$/.test(deadline)) {
+      Alert.alert('Format invalide', 'La date limite doit être au format JJ/MM/AAAA.');
+      return;
+    }
     const author = user?.name ?? 'Conducteur de travaux';
-    const id = 'RSV-' + String(Date.now()).slice(-3).padStart(3, '0');
+    const id = genReserveId();
     addReserve({
       id,
       title: title.trim(),
-      description: description.trim() || 'Aucune description.',
+      description: description.trim() || 'Aucune description fournie.',
       building,
       zone,
       level,
@@ -161,6 +175,7 @@ export default function NewReserveScreen() {
             <Text style={styles.sourceText}>Créé depuis : {params.prefill_source}</Text>
           </View>
         ) : null}
+
         <View style={styles.card}>
           <View style={styles.fieldGroup}>
             <Text style={styles.label}>Titre *</Text>
@@ -172,11 +187,11 @@ export default function NewReserveScreen() {
               onChangeText={setTitle}
             />
           </View>
-          <View style={styles.fieldGroup}>
+          <View style={[styles.fieldGroup, { marginBottom: 0 }]}>
             <Text style={styles.label}>Description</Text>
             <TextInput
               style={[styles.input, styles.textArea]}
-              placeholder="Décrivez le problème..."
+              placeholder="Décrivez le problème en détail..."
               placeholderTextColor={C.textMuted}
               value={description}
               onChangeText={setDescription}
@@ -187,7 +202,7 @@ export default function NewReserveScreen() {
         </View>
 
         <View style={styles.card}>
-          <View style={styles.fieldGroup}>
+          <View style={[styles.fieldGroup, { marginBottom: 0 }]}>
             <Text style={styles.label}>Photo jointe</Text>
             {photoUri ? (
               <View style={styles.photoPreviewWrap}>
@@ -237,27 +252,34 @@ export default function NewReserveScreen() {
         </View>
 
         <View style={styles.card}>
-          <View style={styles.fieldGroup}>
-            <Text style={styles.label}>Entreprise responsable</Text>
-            <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-              <View style={styles.chipRow}>
-                {companies.map(co => (
-                  <TouchableOpacity
-                    key={co.id}
-                    style={[styles.chip, company === co.name && { ...styles.chipActive, borderColor: co.color }]}
-                    onPress={() => setCompany(co.name)}
-                  >
-                    <View style={[styles.coDot, { backgroundColor: co.color }]} />
-                    <Text style={[styles.chipText, company === co.name && { color: co.color }]}>{co.shortName}</Text>
-                  </TouchableOpacity>
-                ))}
+          <View style={[styles.fieldGroup, { marginBottom: 0 }]}>
+            <Text style={styles.label}>Entreprise responsable *</Text>
+            {companies.length === 0 ? (
+              <View style={styles.warningRow}>
+                <Ionicons name="alert-circle-outline" size={14} color={C.medium} />
+                <Text style={styles.warningText}>Aucune entreprise configurée. Ajoutez d'abord une entreprise dans l'onglet Équipes.</Text>
               </View>
-            </ScrollView>
+            ) : (
+              <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+                <View style={styles.chipRow}>
+                  {companies.map(co => (
+                    <TouchableOpacity
+                      key={co.id}
+                      style={[styles.chip, company === co.name && { ...styles.chipActive, borderColor: co.color }]}
+                      onPress={() => setCompany(co.name)}
+                    >
+                      <View style={[styles.coDot, { backgroundColor: co.color }]} />
+                      <Text style={[styles.chipText, company === co.name && { color: co.color }]}>{co.shortName}</Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              </ScrollView>
+            )}
           </View>
         </View>
 
         <View style={styles.card}>
-          <View style={styles.fieldGroup}>
+          <View style={[styles.fieldGroup, { marginBottom: 0 }]}>
             <Text style={styles.label}>Priorité</Text>
             <View style={styles.chipRow}>
               {PRIORITIES.map(p => (
@@ -274,7 +296,7 @@ export default function NewReserveScreen() {
         </View>
 
         <View style={styles.card}>
-          <View style={styles.fieldGroup}>
+          <View style={[styles.fieldGroup, { marginBottom: 0 }]}>
             <Text style={styles.label}>Date limite (JJ/MM/AAAA)</Text>
             <TextInput
               style={styles.input}
@@ -282,7 +304,10 @@ export default function NewReserveScreen() {
               placeholderTextColor={C.textMuted}
               value={deadline}
               onChangeText={setDeadline}
+              keyboardType="numbers-and-punctuation"
+              maxLength={10}
             />
+            <Text style={styles.hint}>Format attendu : jour/mois/année — laisser vide si pas d'échéance</Text>
           </View>
         </View>
 
@@ -301,6 +326,7 @@ const styles = StyleSheet.create({
   card: { backgroundColor: C.surface, borderRadius: 14, padding: 16, marginBottom: 14, borderWidth: 1, borderColor: C.border },
   fieldGroup: { marginBottom: 14 },
   label: { fontSize: 12, fontFamily: 'Inter_600SemiBold', color: C.textSub, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 8 },
+  hint: { fontSize: 11, fontFamily: 'Inter_400Regular', color: C.textMuted, marginTop: 6 },
   input: {
     backgroundColor: C.surface2, borderRadius: 10, paddingHorizontal: 14, paddingVertical: 12,
     color: C.text, fontFamily: 'Inter_400Regular', fontSize: 14,
@@ -325,6 +351,8 @@ const styles = StyleSheet.create({
   cloudBadgeText: { fontSize: 10, fontFamily: 'Inter_600SemiBold', color: C.closed },
   uploadRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 8 },
   uploadText: { fontSize: 12, fontFamily: 'Inter_400Regular', color: C.textSub },
+  warningRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 8, backgroundColor: C.medium + '10', borderRadius: 10, padding: 12, borderWidth: 1, borderColor: C.medium + '30' },
+  warningText: { flex: 1, fontSize: 13, fontFamily: 'Inter_400Regular', color: C.medium, lineHeight: 18 },
   submitBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', backgroundColor: C.primary, borderRadius: 14, paddingVertical: 16, gap: 8 },
   submitBtnText: { fontSize: 16, fontFamily: 'Inter_600SemiBold', color: '#fff' },
   sourceCard: { flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: C.inProgress + '15', borderRadius: 10, padding: 10, marginBottom: 12, borderWidth: 1, borderColor: C.inProgress + '30' },

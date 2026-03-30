@@ -10,12 +10,24 @@ interface Props {
   reserve: Reserve;
 }
 
+function isOverdue(deadline: string, status: string): boolean {
+  if (status === 'closed' || deadline === '—' || !deadline) return false;
+  const parts = deadline.split('/');
+  if (parts.length === 3) {
+    const d = new Date(`${parts[2]}-${parts[1]}-${parts[0]}`);
+    return d < new Date() && !isNaN(d.getTime());
+  }
+  const d = new Date(deadline);
+  return d < new Date() && !isNaN(d.getTime());
+}
+
 export default function ReserveCard({ reserve }: Props) {
   const router = useRouter();
+  const overdue = isOverdue(reserve.deadline, reserve.status);
 
   return (
     <TouchableOpacity
-      style={styles.card}
+      style={[styles.card, overdue && styles.cardOverdue]}
       onPress={() => router.push(`/reserve/${reserve.id}` as any)}
       activeOpacity={0.75}
     >
@@ -23,7 +35,15 @@ export default function ReserveCard({ reserve }: Props) {
         <View style={styles.idWrap}>
           <Text style={styles.id}>{reserve.id}</Text>
         </View>
-        <StatusBadge status={reserve.status} small />
+        <View style={styles.topRight}>
+          {overdue && (
+            <View style={styles.overdueBadge}>
+              <Ionicons name="warning-outline" size={10} color={C.open} />
+              <Text style={styles.overdueText}>En retard</Text>
+            </View>
+          )}
+          <StatusBadge status={reserve.status} small />
+        </View>
       </View>
 
       <Text style={styles.title} numberOfLines={2}>{reserve.title}</Text>
@@ -40,13 +60,29 @@ export default function ReserveCard({ reserve }: Props) {
           <Ionicons name="people-outline" size={12} color={C.textMuted} />
           <Text style={styles.company} numberOfLines={1}>{reserve.company}</Text>
         </View>
-        <PriorityBadge priority={reserve.priority} small />
+        <View style={styles.rightRow}>
+          {reserve.photoUri ? (
+            <View style={styles.iconBadge}>
+              <Ionicons name="camera-outline" size={12} color={C.textMuted} />
+            </View>
+          ) : null}
+          {reserve.comments.length > 0 ? (
+            <View style={styles.iconBadge}>
+              <Ionicons name="chatbubble-outline" size={12} color={C.textMuted} />
+              <Text style={styles.iconBadgeCount}>{reserve.comments.length}</Text>
+            </View>
+          ) : null}
+          <PriorityBadge priority={reserve.priority} small />
+        </View>
       </View>
 
-      {reserve.deadline && (
-        <View style={styles.deadline}>
-          <Ionicons name="calendar-outline" size={11} color={C.textMuted} />
-          <Text style={styles.deadlineText}>Échéance : {reserve.deadline}</Text>
+      {reserve.deadline && reserve.deadline !== '—' && (
+        <View style={[styles.deadline, overdue && styles.deadlineOverdue]}>
+          <Ionicons name="calendar-outline" size={11} color={overdue ? C.open : C.textMuted} />
+          <Text style={[styles.deadlineText, overdue && styles.deadlineTextOverdue]}>
+            Échéance : {reserve.deadline}
+            {overdue ? ' — Dépassée' : ''}
+          </Text>
         </View>
       )}
     </TouchableOpacity>
@@ -67,11 +103,21 @@ const styles = StyleSheet.create({
     shadowRadius: 6,
     elevation: 1,
   },
+  cardOverdue: {
+    borderColor: C.open + '50',
+    borderLeftWidth: 3,
+    borderLeftColor: C.open,
+  },
   top: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
     marginBottom: 8,
+  },
+  topRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
   },
   idWrap: {
     backgroundColor: C.primaryBg,
@@ -84,6 +130,20 @@ const styles = StyleSheet.create({
     fontFamily: 'Inter_700Bold',
     color: C.primary,
     letterSpacing: 0.5,
+  },
+  overdueBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 3,
+    backgroundColor: C.open + '15',
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 10,
+  },
+  overdueText: {
+    fontSize: 10,
+    fontFamily: 'Inter_600SemiBold',
+    color: C.open,
   },
   title: {
     fontSize: 15,
@@ -123,6 +183,27 @@ const styles = StyleSheet.create({
     color: C.textSub,
     flex: 1,
   },
+  rightRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  iconBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 3,
+    backgroundColor: C.surface2,
+    paddingHorizontal: 6,
+    paddingVertical: 3,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: C.border,
+  },
+  iconBadgeCount: {
+    fontSize: 10,
+    fontFamily: 'Inter_600SemiBold',
+    color: C.textMuted,
+  },
   deadline: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -132,9 +213,16 @@ const styles = StyleSheet.create({
     borderTopWidth: 1,
     borderTopColor: C.border,
   },
+  deadlineOverdue: {
+    borderTopColor: C.open + '30',
+  },
   deadlineText: {
     fontSize: 11,
     fontFamily: 'Inter_400Regular',
     color: C.textMuted,
+  },
+  deadlineTextOverdue: {
+    color: C.open,
+    fontFamily: 'Inter_500Medium',
   },
 });

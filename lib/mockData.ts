@@ -25,7 +25,7 @@ export const MOCK_RESERVES: Reserve[] = [
   {
     id: 'RSV-002',
     title: 'Défaut étanchéité toiture Bât B',
-    description: 'Infiltration d\'eau détectée au niveau de la jonction toiture/acrotère côté nord. Zone de 2m² concernée.',
+    description: "Infiltration d'eau détectée au niveau de la jonction toiture/acrotère côté nord. Zone de 2m² concernée.",
     building: 'B',
     zone: 'Zone Nord',
     level: 'R+3',
@@ -69,7 +69,7 @@ export const MOCK_RESERVES: Reserve[] = [
   {
     id: 'RSV-004',
     title: 'Revêtement sol dégradé Hall C',
-    description: 'Carrelage fissuré et décollé sur environ 8m² dans le hall principal du bâtiment C. Risque de chute.',
+    description: "Carrelage fissuré et décollé sur environ 8m² dans le hall principal du bâtiment C. Risque de chute.",
     building: 'C',
     zone: 'Zone Centre',
     level: 'RDC',
@@ -83,13 +83,13 @@ export const MOCK_RESERVES: Reserve[] = [
     comments: [],
     history: [
       { id: 'h6', action: 'Réserve créée', author: 'S. Leroy', createdAt: '2025-03-12' },
-      { id: 'h7', action: 'Statut modifié', author: 'S. Leroy', oldValue: 'Ouvert', newValue: 'En attente', createdAt: '2025-03-14', newValue: 'En attente livraison carrelage' },
+      { id: 'h7', action: 'Statut modifié', author: 'S. Leroy', oldValue: 'Ouvert', newValue: 'En attente livraison carrelage', createdAt: '2025-03-14' },
     ],
   },
   {
     id: 'RSV-005',
     title: 'Joints façade manquants Bât B',
-    description: 'Joints de dilatation absents sur la façade ouest, sur une longueur de 12 mètres au niveau R+1.',
+    description: "Joints de dilatation absents sur la façade ouest, sur une longueur de 12 mètres au niveau R+1.",
     building: 'B',
     zone: 'Zone Ouest',
     level: 'R+1',
@@ -108,7 +108,7 @@ export const MOCK_RESERVES: Reserve[] = [
   {
     id: 'RSV-006',
     title: 'Câblage réseau informatique incomplet',
-    description: 'Câblage réseau non terminé dans les bureaux 201 à 208. 24 prises RJ45 manquantes.',
+    description: "Câblage réseau non terminé dans les bureaux 201 à 208. 24 prises RJ45 manquantes.",
     building: 'A',
     zone: 'Zone Nord',
     level: 'R+2',
@@ -130,7 +130,7 @@ export const MOCK_RESERVES: Reserve[] = [
   {
     id: 'RSV-007',
     title: 'Porte coupe-feu CF60 non installée',
-    description: 'Porte coupe-feu CF60 manquante au niveau cage escalier bâtiment C. Non-conformité réglementaire ERP.',
+    description: "Porte coupe-feu CF60 manquante au niveau cage escalier bâtiment C. Non-conformité réglementaire ERP.",
     building: 'C',
     zone: 'Zone Est',
     level: 'R+1',
@@ -149,7 +149,7 @@ export const MOCK_RESERVES: Reserve[] = [
   {
     id: 'RSV-008',
     title: 'Peinture façade sud non terminée',
-    description: 'Peinture façade côté sud bâtiment B non terminée. Il manque environ 30% de la surface totale.',
+    description: "Peinture façade côté sud bâtiment B non terminée. Il manque environ 30% de la surface totale.",
     building: 'B',
     zone: 'Zone Sud',
     level: 'R+2',
@@ -171,7 +171,7 @@ export const MOCK_RESERVES: Reserve[] = [
   {
     id: 'RSV-009',
     title: 'Escalier de secours Bât A incomplet',
-    description: 'Main courante escalier de secours côté nord non fixée. Garde-corps à hauteur insuffisante (85cm au lieu de 100cm).',
+    description: "Main courante escalier de secours côté nord non fixée. Garde-corps à hauteur insuffisante (85cm au lieu de 100cm).",
     building: 'A',
     zone: 'Zone Nord',
     level: 'R+3',
@@ -190,7 +190,7 @@ export const MOCK_RESERVES: Reserve[] = [
   {
     id: 'RSV-010',
     title: 'Robinetterie non conforme Bât C',
-    description: 'Mitigeurs thermostatiques non installés dans les sanitaires du niveau 2. Normes EHPAD non respectées.',
+    description: "Mitigeurs thermostatiques non installés dans les sanitaires du niveau 2. Normes EHPAD non respectées.",
     building: 'C',
     zone: 'Zone Ouest',
     level: 'R+2',
@@ -306,11 +306,11 @@ export const MOCK_DOCUMENTS: Document[] = [
   { id: 'd9', name: 'Rapport hebdomadaire Semaine 11', type: 'report', category: 'Rapports', uploadedAt: '2025-03-14', size: '1.2 Mo', version: 1 },
   { id: 'd10', name: 'PV Réception Phase 1', type: 'report', category: 'PV', uploadedAt: '2025-03-01', size: '0.5 Mo', version: 1 },
   { id: 'd11', name: 'Fiche technique béton C30/37', type: 'technical', category: 'Fiches', uploadedAt: '2025-02-20', size: '0.3 Mo', version: 1 },
-  { id: 'd12', name: 'Plan évacuation incendie', type: 'plan', category: 'Sécurité', uploadedAt: '2025-03-10', size: '1.5 Mo', version: 2 },
+  { id: 'd12', name: "Plan évacuation incendie", type: 'plan', category: 'Sécurité', uploadedAt: '2025-03-10', size: '1.5 Mo', version: 2 },
 ];
 
 export const MOCK_PHOTOS: Photo[] = [
-  { id: 'p1', comment: 'Fissure mur porteur — vue d\'ensemble', location: 'Bât A, R+2, Zone Sud', takenAt: '2025-03-18 09:15', takenBy: 'J. Dupont', colorCode: '#EF4444' },
+  { id: 'p1', comment: "Fissure mur porteur — vue d'ensemble", location: 'Bât A, R+2, Zone Sud', takenAt: '2025-03-18 09:15', takenBy: 'J. Dupont', colorCode: '#EF4444' },
   { id: 'p2', comment: 'Avancement coulage dalle niveau 3', location: 'Bât A, R+3', takenAt: '2025-03-22 14:30', takenBy: 'J. Dupont', colorCode: '#3B82F6' },
   { id: 'p3', comment: 'Infiltration toiture bât B', location: 'Bât B, Toiture', takenAt: '2025-03-15 11:00', takenBy: 'M. Martin', colorCode: '#F59E0B' },
   { id: 'p4', comment: 'Pose carrelage hall C — terminé', location: 'Bât C, RDC, Hall', takenAt: '2025-03-14 16:45', takenBy: 'S. Leroy', colorCode: '#10B981' },
@@ -321,12 +321,12 @@ export const MOCK_PHOTOS: Photo[] = [
 ];
 
 export const MOCK_MESSAGES: Message[] = [
-  { id: 'm1', sender: 'Système', content: 'Réserve RSV-001 créée — Fissure mur porteur Niveau 2 [CRITIQUE]', timestamp: '2025-03-18 08:30', type: 'notification', read: true, isMe: false },
-  { id: 'm2', sender: 'Marc Martin', content: 'Bonjour, les travaux de reprise toiture sont planifiés pour lundi. L\'équipe sera sur site à 7h30.', timestamp: '2025-03-20 09:15', type: 'message', read: true, isMe: false },
-  { id: 'm3', sender: 'Moi', content: 'Parfait. N\'oubliez pas le rapport photo avant/après.', timestamp: '2025-03-20 09:22', type: 'message', read: true, isMe: true },
-  { id: 'm4', sender: 'Système', content: 'RSV-003 passée en statut "Vérification" par Paul Bernard', timestamp: '2025-03-21 14:10', type: 'notification', read: true, isMe: false },
-  { id: 'm5', sender: 'Paul Bernard', content: 'CONSUEL prévu jeudi après-midi pour validation installation électrique bât A.', timestamp: '2025-03-21 16:00', type: 'message', read: false, isMe: false },
-  { id: 'm6', sender: 'Sophie Leroy', content: 'Attention, la livraison du carrelage prévu lundi est repoussée au mercredi. Impact sur RSV-004.', timestamp: '2025-03-22 07:45', type: 'message', read: false, isMe: false },
-  { id: 'm7', sender: 'Système', content: 'RSV-007 créée — Porte coupe-feu CF60 non installée [CRITIQUE] — Échéance : 26/03/2025', timestamp: '2025-03-21 11:30', type: 'notification', read: false, isMe: false },
-  { id: 'm8', sender: 'Moi', content: 'Réunion chantier mercredi 9h30 en base vie. Présence obligatoire des chefs d\'équipe.', timestamp: '2025-03-22 08:15', type: 'message', read: true, isMe: true },
+  { id: 'm1', channelId: 'general', sender: 'Système', content: 'Réserve RSV-001 créée — Fissure mur porteur Niveau 2 [CRITIQUE]', timestamp: '2025-03-18 08:30', type: 'notification', read: true, isMe: false, reactions: {}, isPinned: false, readBy: [], mentions: [] },
+  { id: 'm2', channelId: 'general', sender: 'Marc Martin', content: "Bonjour, les travaux de reprise toiture sont planifiés pour lundi. L'équipe sera sur site à 7h30.", timestamp: '2025-03-20 09:15', type: 'message', read: true, isMe: false, reactions: {}, isPinned: false, readBy: [], mentions: [] },
+  { id: 'm3', channelId: 'general', sender: 'Moi', content: "Parfait. N'oubliez pas le rapport photo avant/après.", timestamp: '2025-03-20 09:22', type: 'message', read: true, isMe: true, reactions: {}, isPinned: false, readBy: [], mentions: [] },
+  { id: 'm4', channelId: 'general', sender: 'Système', content: 'RSV-003 passée en statut "Vérification" par Paul Bernard', timestamp: '2025-03-21 14:10', type: 'notification', read: true, isMe: false, reactions: {}, isPinned: false, readBy: [], mentions: [] },
+  { id: 'm5', channelId: 'general', sender: 'Paul Bernard', content: 'CONSUEL prévu jeudi après-midi pour validation installation électrique bât A.', timestamp: '2025-03-21 16:00', type: 'message', read: false, isMe: false, reactions: {}, isPinned: false, readBy: [], mentions: [] },
+  { id: 'm6', channelId: 'general', sender: 'Sophie Leroy', content: 'Attention, la livraison du carrelage prévu lundi est repoussée au mercredi. Impact sur RSV-004.', timestamp: '2025-03-22 07:45', type: 'message', read: false, isMe: false, reactions: {}, isPinned: false, readBy: [], mentions: [] },
+  { id: 'm7', channelId: 'general', sender: 'Système', content: 'RSV-007 créée — Porte coupe-feu CF60 non installée [CRITIQUE] — Échéance : 26/03/2025', timestamp: '2025-03-21 11:30', type: 'notification', read: false, isMe: false, reactions: {}, isPinned: false, readBy: [], mentions: [] },
+  { id: 'm8', channelId: 'general', sender: 'Moi', content: "Réunion chantier mercredi 9h30 en base vie. Présence obligatoire des chefs d'équipe.", timestamp: '2025-03-22 08:15', type: 'message', read: true, isMe: true, reactions: {}, isPinned: false, readBy: [], mentions: [] },
 ];
