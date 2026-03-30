@@ -766,7 +766,7 @@ export default function ChannelScreen() {
                   {isDMChannel ? 'Message direct' : isGroupChannel ? 'Groupe' : isEditable ? 'Canal personnalisé' : 'Canal chantier'}
                 </Text>
               </View>
-              {isEditable && isCreator && (
+              {isEditable && (
                 <TouchableOpacity
                   style={styles.mgmtRenameBtn}
                   onPress={() => { setRenameText(liveChannelName); setRenameVisible(true); }}
@@ -784,9 +784,9 @@ export default function ChannelScreen() {
               <>
                 <View style={styles.mgmtSectionRow}>
                   <Text style={styles.mgmtSectionLabel}>
-                    {isEditable ? 'MEMBRES DU CANAL' : isDMChannel ? 'PARTICIPANTS' : 'MEMBRES DU GROUPE'}
+                    {isEditable ? (isGroupChannel ? 'MEMBRES DU GROUPE' : 'MEMBRES DU CANAL') : isDMChannel ? 'PARTICIPANTS' : 'MEMBRES DU GROUPE'}
                   </Text>
-                  {isEditable && (
+                  {(isEditable || isGroupChannel) && (
                     <TouchableOpacity
                       style={styles.mgmtAddBtn}
                       onPress={() => { setMembersVisible(false); setAddMemberVisible(true); }}
@@ -808,7 +808,7 @@ export default function ChannelScreen() {
                         <Text style={[styles.meBadgeText, { color: C.primary }]}>Créateur</Text>
                       </View>
                     )}
-                    {isEditable && name !== channelObj?.createdBy && (
+                    {(isEditable || isGroupChannel) && name !== channelObj?.createdBy && name !== user?.name && (
                       <TouchableOpacity
                         style={styles.removeMemberBtn}
                         onPress={() => {
@@ -848,35 +848,64 @@ export default function ChannelScreen() {
             )}
 
             {/* Zone danger */}
-            {isEditable && isCreator && (
+            {isEditable && (
               <>
                 <View style={styles.sheetDivider2} />
-                <TouchableOpacity
-                  style={styles.deleteCanalBtn}
-                  onPress={() => {
-                    Alert.alert(
-                      `Supprimer ce ${isGroupChannel ? 'groupe' : 'canal'} ?`,
-                      'Tous les messages seront perdus. Cette action est irréversible.',
-                      [
-                        { text: 'Annuler', style: 'cancel' },
-                        {
-                          text: 'Supprimer', style: 'destructive',
-                          onPress: () => {
-                            setMembersVisible(false);
-                            if (channelObj?.type === 'custom') removeCustomChannel(channelId!);
-                            else removeGroupChannel(channelId!);
-                            router.back();
+                {!isCreator && (
+                  <TouchableOpacity
+                    style={styles.deleteCanalBtn}
+                    onPress={() => {
+                      Alert.alert(
+                        `Quitter ce ${isGroupChannel ? 'groupe' : 'canal'} ?`,
+                        `Vous ne ferez plus partie de ce ${isGroupChannel ? 'groupe' : 'canal'}.`,
+                        [
+                          { text: 'Annuler', style: 'cancel' },
+                          {
+                            text: 'Quitter', style: 'destructive',
+                            onPress: () => {
+                              setMembersVisible(false);
+                              removeChannelMember(channelId!, user?.name ?? '');
+                              router.back();
+                            },
                           },
-                        },
-                      ]
-                    );
-                  }}
-                >
-                  <Ionicons name="trash-outline" size={18} color={C.open} />
-                  <Text style={styles.deleteCanalText}>
-                    Supprimer {isGroupChannel ? 'le groupe' : 'le canal'}
-                  </Text>
-                </TouchableOpacity>
+                        ]
+                      );
+                    }}
+                  >
+                    <Ionicons name="exit-outline" size={18} color={C.waiting} />
+                    <Text style={[styles.deleteCanalText, { color: C.waiting }]}>
+                      Quitter {isGroupChannel ? 'le groupe' : 'le canal'}
+                    </Text>
+                  </TouchableOpacity>
+                )}
+                {isCreator && (
+                  <TouchableOpacity
+                    style={styles.deleteCanalBtn}
+                    onPress={() => {
+                      Alert.alert(
+                        `Supprimer ce ${isGroupChannel ? 'groupe' : 'canal'} ?`,
+                        'Tous les messages seront perdus. Cette action est irréversible.',
+                        [
+                          { text: 'Annuler', style: 'cancel' },
+                          {
+                            text: 'Supprimer', style: 'destructive',
+                            onPress: () => {
+                              setMembersVisible(false);
+                              if (channelObj?.type === 'custom') removeCustomChannel(channelId!);
+                              else removeGroupChannel(channelId!);
+                              router.back();
+                            },
+                          },
+                        ]
+                      );
+                    }}
+                  >
+                    <Ionicons name="trash-outline" size={18} color={C.open} />
+                    <Text style={styles.deleteCanalText}>
+                      Supprimer {isGroupChannel ? 'le groupe' : 'le canal'}
+                    </Text>
+                  </TouchableOpacity>
+                )}
               </>
             )}
 
