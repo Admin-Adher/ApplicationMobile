@@ -30,13 +30,25 @@ export default function MoreScreen() {
   const { user, logout, permissions } = useAuth();
   const topPad = Platform.OS === 'web' ? 67 : insets.top;
 
+  const delayedCount = useMemo(() => tasks.filter(t => t.status === 'delayed').length, [tasks]);
+  const recentDocsCount = useMemo(() => {
+    const sevenDaysAgo = new Date();
+    sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+    return documents.filter(d => {
+      const parts = d.uploadedAt.split('/');
+      if (parts.length !== 3) return false;
+      const date = new Date(`${parts[2]}-${parts[1]}-${parts[0]}`);
+      return date >= sevenDaysAgo;
+    }).length;
+  }, [documents]);
+
   const MENU_ITEMS = useMemo<MenuItem[]>(() => [
-    { icon: 'folder-open', label: 'Documents', subtitle: `${documents.length} fichiers`, route: '/documents', color: '#3B82F6' },
-    { icon: 'calendar', label: 'Planning', subtitle: `${tasks.length} tâches`, route: '/planning', color: '#10B981' },
-    { icon: 'camera', label: 'Photos', subtitle: `${photos.length} photos`, route: '/photos', color: '#F59E0B' },
-    { icon: 'document-text', label: 'Rapports', subtitle: 'Journalier, hebdo', route: '/rapports', color: '#8B5CF6' },
+    { icon: 'folder-open', label: 'Documents', subtitle: `${documents.length} fichiers`, route: '/documents', color: C.inProgress, badge: recentDocsCount || undefined },
+    { icon: 'calendar', label: 'Planning', subtitle: `${tasks.length} tâches`, route: '/planning', color: C.closed, badge: delayedCount || undefined },
+    { icon: 'camera', label: 'Photos', subtitle: `${photos.length} photos`, route: '/photos', color: C.medium },
+    { icon: 'document-text', label: 'Rapports', subtitle: 'Journalier, hebdo', route: '/rapports', color: C.verification },
     { icon: 'people', label: 'Équipes', subtitle: `${companies.length} entreprises`, route: '/(tabs)/equipes', color: '#EC4899' },
-  ], [documents.length, tasks.length, photos.length, companies.length]);
+  ], [documents.length, tasks.length, photos.length, companies.length, delayedCount, recentDocsCount]);
 
   function handleLogout() {
     Alert.alert('Déconnexion', 'Voulez-vous vous déconnecter ?', [

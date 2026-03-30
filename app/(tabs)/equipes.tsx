@@ -21,7 +21,7 @@ function genId(): string {
 export default function EquipesScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
-  const { user } = useAuth();
+  const { user, permissions } = useAuth();
   const {
     companies, tasks, stats,
     updateCompanyWorkers, addCompany, updateCompanyFull, deleteCompany, updateCompanyHours,
@@ -44,7 +44,7 @@ export default function EquipesScreen() {
 
   const today = new Date().toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' });
 
-  if (user && user.role !== 'admin' && user.role !== 'conducteur') {
+  if (user && !permissions.canManageTeams) {
     return (
       <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: C.bg, padding: 32 }}>
         <Ionicons name="lock-closed-outline" size={48} color={C.textMuted} />
@@ -177,9 +177,6 @@ export default function EquipesScreen() {
   return (
     <View style={styles.container}>
       <View style={[styles.header, { paddingTop: topPad + 12 }]}>
-        <TouchableOpacity style={styles.backBtn} onPress={() => router.back()} hitSlop={8}>
-          <Ionicons name="chevron-back" size={22} color={C.text} />
-        </TouchableOpacity>
         <View style={{ flex: 1 }}>
           <Text style={styles.title}>Équipes</Text>
           <Text style={styles.subtitle}>{today}</Text>

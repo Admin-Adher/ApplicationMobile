@@ -205,7 +205,7 @@ function CalendarView({ tasks, onTaskPress }: { tasks: Task[]; onTaskPress: (id:
 
 const DAY_PX = 18;
 
-function GanttView({ tasks }: { tasks: Task[] }) {
+function GanttView({ tasks, onTaskPress }: { tasks: Task[]; onTaskPress: (id: string) => void }) {
   const today = new Date();
 
   const tasksWithDates = useMemo(() => {
@@ -286,12 +286,16 @@ function GanttView({ tasks }: { tasks: Task[] }) {
           const progressWidth = width * (t.progress / 100);
           return (
             <View key={t.id} style={ganttStyles.row}>
-              <View style={[ganttStyles.bar, { left, width, backgroundColor: cfg.color + '30', borderColor: cfg.color }]}>
+              <TouchableOpacity
+                style={[ganttStyles.bar, { left, width, backgroundColor: cfg.color + '30', borderColor: cfg.color }]}
+                onPress={() => onTaskPress(t.id)}
+                activeOpacity={0.75}
+              >
                 <View style={[ganttStyles.barFill, { width: progressWidth, backgroundColor: cfg.color + '80' }]} />
                 <Text style={[ganttStyles.barLabel, { color: cfg.color }]} numberOfLines={1}>
                   {t.title}
                 </Text>
-              </View>
+              </TouchableOpacity>
             </View>
           );
         })}
@@ -473,7 +477,7 @@ export default function PlanningScreen() {
               <Text style={styles.sectionTitle}>Diagramme de Gantt</Text>
               <Text style={styles.ganttHint}>Les barres vont du début (réel ou estimé) à la date limite — faites défiler horizontalement. Les dates de début sans valeur saisie sont estimées.</Text>
               <View style={ganttStyles.wrapper}>
-                <GanttView tasks={filtered} />
+                <GanttView tasks={filtered} onTaskPress={(id) => router.push(`/task/${id}` as any)} />
               </View>
             </View>
             <View style={styles.card}>

@@ -399,10 +399,10 @@ const MOCK_MESSAGES: Message[] = [
 ];
 
 const MOCK_PROFILES: Profile[] = [
-  { id: 'demo-0', name: 'Admin Système', role: 'admin', email: 'admin@buildtrack.fr' },
-  { id: 'demo-1', name: 'Jean Dupont', role: 'conducteur', email: 'j.dupont@buildtrack.fr' },
-  { id: 'demo-2', name: 'Marie Martin', role: 'chef_equipe', email: 'm.martin@buildtrack.fr' },
-  { id: 'demo-3', name: 'Pierre Lambert', role: 'observateur', email: 'p.lambert@buildtrack.fr' },
+  { id: 'demo-0', name: 'Admin Système', role: 'admin', roleLabel: 'Administrateur', email: 'admin@buildtrack.fr' },
+  { id: 'demo-1', name: 'Jean Dupont', role: 'conducteur', roleLabel: 'Conducteur de travaux', email: 'j.dupont@buildtrack.fr' },
+  { id: 'demo-2', name: 'Marie Martin', role: 'chef_equipe', roleLabel: "Chef d'équipe", email: 'm.martin@buildtrack.fr' },
+  { id: 'demo-3', name: 'Pierre Lambert', role: 'observateur', roleLabel: 'Observateur', email: 'p.lambert@buildtrack.fr' },
 ];
 
 export function AppProvider({ children }: { children: React.ReactNode }) {

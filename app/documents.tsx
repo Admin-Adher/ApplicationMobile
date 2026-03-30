@@ -19,10 +19,10 @@ const DOC_ICONS: Record<DocumentType, string> = {
 };
 
 const DOC_COLORS: Record<DocumentType, string> = {
-  plan: '#3B82F6',
-  report: '#10B981',
-  technical: '#F59E0B',
-  photo: '#8B5CF6',
+  plan: C.inProgress,
+  report: C.closed,
+  technical: C.medium,
+  photo: C.verification,
   other: C.low,
 };
 
@@ -72,6 +72,46 @@ export default function DocumentsScreen() {
         const asset = result.assets[0];
         const docType = getDocType(asset.mimeType, asset.name);
 
+        if (docType === 'plan') {
+          setLoading(false);
+          Alert.alert(
+            'Bâtiment du plan',
+            'Dans quel bâtiment ce plan se situe-t-il ?',
+            ['A', 'B', 'C'].map(building => ({
+              text: `Bâtiment ${building}`,
+              onPress: async () => {
+                setLoading(true);
+                try {
+                  const storageUrl = await uploadDocument(asset.uri, asset.name, asset.mimeType ?? undefined);
+                  const finalUri = storageUrl ?? asset.uri;
+                  const newDoc: Document = {
+                    id: genId(),
+                    name: asset.name,
+                    type: 'plan',
+                    category: `Plan-${building}`,
+                    uploadedAt: new Date().toLocaleDateString('fr-FR'),
+                    size: formatSize(asset.size),
+                    version: 1,
+                    uri: finalUri,
+                  };
+                  addDocument(newDoc);
+                  Alert.alert(
+                    'Plan importé',
+                    storageUrl
+                      ? `"${asset.name}" uploadé sur Supabase Storage.`
+                      : `"${asset.name}" importé (stockage local).`
+                  );
+                } catch {
+                  Alert.alert('Erreur', 'Impossible de charger le document.');
+                } finally {
+                  setLoading(false);
+                }
+              },
+            }))
+          );
+          return;
+        }
+
         const storageUrl = await uploadDocument(asset.uri, asset.name, asset.mimeType ?? undefined);
         const finalUri = storageUrl ?? asset.uri;
 
@@ -79,7 +119,7 @@ export default function DocumentsScreen() {
           id: genId(),
           name: asset.name,
           type: docType,
-          category: docType === 'plan' ? 'Plans' : docType === 'report' ? 'Rapports' : docType === 'technical' ? 'Fiches techniques' : 'Documents',
+          category: docType === 'report' ? 'Rapports' : docType === 'technical' ? 'Fiches techniques' : docType === 'photo' ? 'Photos' : 'Documents',
           uploadedAt: new Date().toLocaleDateString('fr-FR'),
           size: formatSize(asset.size),
           version: 1,

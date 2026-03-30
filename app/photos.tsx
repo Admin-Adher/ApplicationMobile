@@ -1,9 +1,8 @@
 import { View, Text, StyleSheet, FlatList, TouchableOpacity, Alert, Image, Platform, ActivityIndicator, Modal, TextInput, ScrollView } from 'react-native';
 import { KeyboardAvoidingView } from 'react-native-keyboard-controller';
 import { Ionicons } from '@expo/vector-icons';
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import * as ImagePicker from 'expo-image-picker';
-import { useRouter } from 'expo-router';
 import { C } from '@/constants/colors';
 import { useApp } from '@/context/AppContext';
 import { useAuth } from '@/context/AuthContext';
@@ -15,7 +14,6 @@ import { genId } from '@/lib/utils';
 export default function PhotosScreen() {
   const { photos, addPhoto, deletePhoto, channels, addMessage } = useApp();
   const { user, permissions } = useAuth();
-  const router = useRouter();
   const [loading, setLoading] = useState(false);
   const [pendingUri, setPendingUri] = useState<string | null>(null);
   const [commentInput, setCommentInput] = useState('');
@@ -25,6 +23,8 @@ export default function PhotosScreen() {
   const [shareModalVisible, setShareModalVisible] = useState(false);
   const [shareCaption, setShareCaption] = useState('');
   const [fullScreenUri, setFullScreenUri] = useState<string | null>(null);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [authorFilter, setAuthorFilter] = useState('');
 
   function openShareModal(photo: Photo) {
     setSharePhoto(photo);
@@ -34,25 +34,17 @@ export default function PhotosScreen() {
 
   function handleShareToChannel(channel: Channel) {
     if (!sharePhoto) return;
-    setShareModalVisible(false);
     addMessage(
       channel.id,
       shareCaption.trim() || sharePhoto.comment || 'Photo partagée',
       { attachmentUri: sharePhoto.uri },
       user?.name ?? 'Moi'
     );
-    router.push({
-      pathname: '/channel/[id]',
-      params: {
-        id: channel.id,
-        name: channel.name,
-        color: channel.color,
-        icon: channel.icon,
-        isDM: channel.type === 'dm' ? '1' : '0',
-        isGroup: channel.type === 'group' ? '1' : '0',
-        members: channel.members ? channel.members.join(',') : '',
-      },
-    } as any);
+    Alert.alert(
+      'Photo partagée',
+      `La photo a été partagée dans « ${channel.name} ». Vous pouvez la partager dans d'autres canaux ou fermer cette fenêtre.`,
+      [{ text: 'OK' }]
+    );
   }
 
   function handleDeletePhoto(id: string, comment: string) {
@@ -102,6 +94,25 @@ export default function PhotosScreen() {
       setPendingUri(null);
     }
   }
+
+  const uniqueAuthors = useMemo(() => Array.from(new Set(photos.map(p => p.takenBy))), [photos]);
+
+  const filteredPhotos = useMemo(() => {
+    let list = photos;
+    if (searchQuery.trim()) {
+      const q = searchQuery.toLowerCase();
+      list = list.filter(p =>
+        p.comment.toLowerCase().includes(q) ||
+        p.location.toLowerCase().includes(q) ||
+        p.takenBy.toLowerCase().includes(q) ||
+        p.takenAt.includes(q)
+      );
+    }
+    if (authorFilter) {
+      list = list.filter(p => p.takenBy === authorFilter);
+    }
+    return list;
+  }, [photos, searchQuery, authorFilter]);
 
   function cancelModal() {
     setModalVisible(false);
@@ -161,7 +172,7 @@ export default function PhotosScreen() {
       />
 
       <FlatList
-        data={photos}
+        data={filteredPhotos}
         numColumns={2}
         keyExtractor={item => item.id}
         contentContainerStyle={styles.content}
@@ -175,10 +186,54 @@ export default function PhotosScreen() {
                 <Text style={styles.statLabel}>Photos totales</Text>
               </View>
               <View style={styles.statItem}>
-                <Text style={styles.statVal}>{new Set(photos.map(p => p.takenBy)).size}</Text>
+                <Text style={styles.statVal}>{uniqueAuthors.length}</Text>
                 <Text style={styles.statLabel}>Photographes</Text>
               </View>
             </View>
+
+            <View style={styles.searchWrap}>
+              <Ionicons name="search-outline" size={16} color={C.textMuted} />
+              <TextInput
+                style={styles.searchInput}
+                placeholder="Rechercher par commentaire, lieu, auteur..."
+                placeholderTextColor={C.textMuted}
+                value={searchQuery}
+                onChangeText={setSearchQuery}
+                returnKeyType="search"
+              />
+              {searchQuery.length > 0 && (
+                <TouchableOpacity onPress={() => setSearchQuery('')} hitSlop={8}>
+                  <Ionicons name="close-circle" size={16} color={C.textMuted} />
+                </TouchableOpacity>
+              )}
+            </View>
+
+            {uniqueAuthors.length > 1 && (
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 12 }}>
+                <View style={{ flexDirection: 'row', gap: 8 }}>
+                  <TouchableOpacity
+                    style={[styles.filterChip, !authorFilter && styles.filterChipActive]}
+                    onPress={() => setAuthorFilter('')}
+                  >
+                    <Text style={[styles.filterChipText, !authorFilter && styles.filterChipTextActive]}>Tous</Text>
+                  </TouchableOpacity>
+                  {uniqueAuthors.map(author => (
+                    <TouchableOpacity
+                      key={author}
+                      style={[styles.filterChip, authorFilter === author && styles.filterChipActive]}
+                      onPress={() => setAuthorFilter(authorFilter === author ? '' : author)}
+                    >
+                      <Text style={[styles.filterChipText, authorFilter === author && styles.filterChipTextActive]}>{author}</Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              </ScrollView>
+            )}
+
+            {(searchQuery || authorFilter) && (
+              <Text style={styles.filterResult}>{filteredPhotos.length} photo{filteredPhotos.length !== 1 ? 's' : ''} trouvée{filteredPhotos.length !== 1 ? 's' : ''}</Text>
+            )}
+
             {permissions.canCreate && (
               <View style={styles.actionRow}>
                 <TouchableOpacity style={[styles.actionBtn, { flex: 1 }]} onPress={handleCamera} disabled={loading}>
@@ -378,6 +433,13 @@ export default function PhotosScreen() {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: C.bg },
   content: { padding: 12, paddingBottom: 32 },
+  searchWrap: { flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: C.surface, marginBottom: 12, borderRadius: 10, paddingHorizontal: 12, paddingVertical: 10, borderWidth: 1, borderColor: C.border },
+  searchInput: { flex: 1, fontSize: 13, fontFamily: 'Inter_400Regular', color: C.text },
+  filterChip: { paddingHorizontal: 12, paddingVertical: 6, borderRadius: 20, backgroundColor: C.surface, borderWidth: 1, borderColor: C.border },
+  filterChipActive: { backgroundColor: C.primaryBg, borderColor: C.primary },
+  filterChipText: { fontSize: 12, fontFamily: 'Inter_500Medium', color: C.textSub },
+  filterChipTextActive: { color: C.primary },
+  filterResult: { fontSize: 12, fontFamily: 'Inter_400Regular', color: C.textMuted, marginBottom: 10, textAlign: 'center' },
   row: { justifyContent: 'space-between', gap: 10 },
   statsRow: { flexDirection: 'row', gap: 10, marginBottom: 12, width: '100%' },
   statItem: { flex: 1, backgroundColor: C.surface, borderRadius: 12, padding: 14, alignItems: 'center', borderWidth: 1, borderColor: C.border },
