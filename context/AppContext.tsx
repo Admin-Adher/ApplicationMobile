@@ -1,8 +1,7 @@
 import React, { createContext, useContext, useEffect, useReducer } from 'react';
 import { Reserve, Company, Task, Document, Photo, Message, ReserveStatus, ReservePriority, TaskStatus } from '@/constants/types';
-import { supabase, isSupabaseConfigured } from '@/lib/supabase';
+import { supabase } from '@/lib/supabase';
 import { initStorageBuckets } from '@/lib/storage';
-import { MOCK_RESERVES, MOCK_COMPANIES, MOCK_TASKS, MOCK_DOCUMENTS, MOCK_PHOTOS, MOCK_MESSAGES } from '@/lib/mockData';
 
 interface AppState {
   reserves: Reserve[];
@@ -34,10 +33,6 @@ type Action =
 
 function genId(): string {
   return Date.now().toString() + Math.random().toString(36).substr(2, 6);
-}
-
-function sdb() {
-  return isSupabaseConfigured && supabase ? supabase : null;
 }
 
 function toReserve(row: any): Reserve {
@@ -151,7 +146,7 @@ function reducer(state: AppState, action: Action): AppState {
             ...r, status,
             history: [...r.history, { id: genId(), action: 'Statut modifié', author, createdAt: new Date().toISOString().slice(0, 10), oldValue: labels[r.status], newValue: labels[status] }],
           };
-          sdb()?.from('reserves').update({ status: updated.status, history: updated.history }).eq('id', id);
+          supabase.from('reserves').update({ status: updated.status, history: updated.history }).eq('id', id);
           return updated;
         }),
       };
@@ -164,7 +159,7 @@ function reducer(state: AppState, action: Action): AppState {
         reserves: state.reserves.map(r => {
           if (r.id !== reserveId) return r;
           const updated = { ...r, comments: [...r.comments, { id: genId(), author, content, createdAt: new Date().toISOString().slice(0, 10) }] };
-          sdb()?.from('reserves').update({ comments: updated.comments }).eq('id', reserveId);
+          supabase.from('reserves').update({ comments: updated.comments }).eq('id', reserveId);
           return updated;
         }),
       };
@@ -172,12 +167,12 @@ function reducer(state: AppState, action: Action): AppState {
 
     case 'ADD_COMPANY': {
       const c = action.payload;
-      sdb()?.from('companies').insert({ id: c.id, name: c.name, short_name: c.shortName, color: c.color, planned_workers: c.plannedWorkers, actual_workers: c.actualWorkers, hours_worked: c.hoursWorked, zone: c.zone, contact: c.contact });
+      supabase.from('companies').insert({ id: c.id, name: c.name, short_name: c.shortName, color: c.color, planned_workers: c.plannedWorkers, actual_workers: c.actualWorkers, hours_worked: c.hoursWorked, zone: c.zone, contact: c.contact });
       return { ...state, companies: [...state.companies, c] };
     }
 
     case 'UPDATE_COMPANY':
-      sdb()?.from('companies').update({ actual_workers: action.payload.actualWorkers }).eq('id', action.payload.id);
+      supabase.from('companies').update({ actual_workers: action.payload.actualWorkers }).eq('id', action.payload.id);
       return { ...state, companies: state.companies.map(c => c.id === action.payload.id ? { ...c, actualWorkers: action.payload.actualWorkers } : c) };
 
     case 'ADD_MESSAGE': {
@@ -190,36 +185,36 @@ function reducer(state: AppState, action: Action): AppState {
         read: true,
         isMe: true,
       };
-      sdb()?.from('messages').insert({ id: msg.id, sender: msg.sender, content: msg.content, timestamp: msg.timestamp, type: msg.type, read: msg.read, is_me: msg.isMe });
+      supabase.from('messages').insert({ id: msg.id, sender: msg.sender, content: msg.content, timestamp: msg.timestamp, type: msg.type, read: msg.read, is_me: msg.isMe });
       return { ...state, messages: [...state.messages, msg] };
     }
 
     case 'MARK_MESSAGES_READ':
-      sdb()?.from('messages').update({ read: true }).eq('is_me', false);
+      supabase.from('messages').update({ read: true }).eq('is_me', false);
       return { ...state, messages: state.messages.map(m => ({ ...m, read: true })) };
 
     case 'ADD_TASK':
-      sdb()?.from('tasks').insert({ id: action.payload.id, title: action.payload.title, description: action.payload.description, status: action.payload.status, priority: action.payload.priority, deadline: action.payload.deadline, assignee: action.payload.assignee, progress: action.payload.progress, company: action.payload.company });
+      supabase.from('tasks').insert({ id: action.payload.id, title: action.payload.title, description: action.payload.description, status: action.payload.status, priority: action.payload.priority, deadline: action.payload.deadline, assignee: action.payload.assignee, progress: action.payload.progress, company: action.payload.company });
       return { ...state, tasks: [action.payload, ...state.tasks] };
 
     case 'UPDATE_TASK':
-      sdb()?.from('tasks').update({ title: action.payload.title, description: action.payload.description, status: action.payload.status, priority: action.payload.priority, deadline: action.payload.deadline, assignee: action.payload.assignee, progress: action.payload.progress, company: action.payload.company }).eq('id', action.payload.id);
+      supabase.from('tasks').update({ title: action.payload.title, description: action.payload.description, status: action.payload.status, priority: action.payload.priority, deadline: action.payload.deadline, assignee: action.payload.assignee, progress: action.payload.progress, company: action.payload.company }).eq('id', action.payload.id);
       return { ...state, tasks: state.tasks.map(t => t.id === action.payload.id ? action.payload : t) };
 
     case 'DELETE_TASK':
-      sdb()?.from('tasks').delete().eq('id', action.payload);
+      supabase.from('tasks').delete().eq('id', action.payload);
       return { ...state, tasks: state.tasks.filter(t => t.id !== action.payload) };
 
     case 'ADD_PHOTO':
-      sdb()?.from('photos').insert({ id: action.payload.id, comment: action.payload.comment, location: action.payload.location, taken_at: action.payload.takenAt, taken_by: action.payload.takenBy, color_code: action.payload.colorCode, uri: action.payload.uri });
+      supabase.from('photos').insert({ id: action.payload.id, comment: action.payload.comment, location: action.payload.location, taken_at: action.payload.takenAt, taken_by: action.payload.takenBy, color_code: action.payload.colorCode, uri: action.payload.uri });
       return { ...state, photos: [action.payload, ...state.photos] };
 
     case 'ADD_DOCUMENT':
-      sdb()?.from('documents').insert({ id: action.payload.id, name: action.payload.name, type: action.payload.type, category: action.payload.category, uploaded_at: action.payload.uploadedAt, size: action.payload.size, version: action.payload.version, uri: action.payload.uri });
+      supabase.from('documents').insert({ id: action.payload.id, name: action.payload.name, type: action.payload.type, category: action.payload.category, uploaded_at: action.payload.uploadedAt, size: action.payload.size, version: action.payload.version, uri: action.payload.uri });
       return { ...state, documents: [action.payload, ...state.documents] };
 
     case 'DELETE_DOCUMENT':
-      sdb()?.from('documents').delete().eq('id', action.payload);
+      supabase.from('documents').delete().eq('id', action.payload);
       return { ...state, documents: state.documents.filter(d => d.id !== action.payload) };
 
     case 'SET_LOADING':
@@ -299,21 +294,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }
 
   useEffect(() => {
-    if (!isSupabaseConfigured || !supabase) {
-      dispatch({
-        type: 'INIT',
-        payload: {
-          reserves: MOCK_RESERVES,
-          companies: MOCK_COMPANIES,
-          tasks: MOCK_TASKS,
-          documents: MOCK_DOCUMENTS,
-          photos: MOCK_PHOTOS,
-          messages: MOCK_MESSAGES,
-        },
-      });
-      return;
-    }
-
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
       if (event === 'SIGNED_IN' && session) {
         loadAll();
@@ -351,7 +331,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const value: AppContextValue = {
     ...state, stats, unreadCount,
     addReserve: (r) => {
-      sdb()?.from('reserves').insert({
+      supabase.from('reserves').insert({
         id: r.id, title: r.title, description: r.description, building: r.building,
         zone: r.zone, level: r.level, company: r.company, priority: r.priority,
         status: r.status, created_at: r.createdAt, deadline: r.deadline,
@@ -361,7 +341,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       dispatch({ type: 'ADD_RESERVE', payload: r });
     },
     updateReserve: (r) => {
-      sdb()?.from('reserves').update({
+      supabase.from('reserves').update({
         title: r.title, description: r.description, building: r.building,
         zone: r.zone, level: r.level, company: r.company, priority: r.priority,
         status: r.status, deadline: r.deadline, comments: r.comments, history: r.history,

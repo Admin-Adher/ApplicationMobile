@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useEffect, useRef, useState } from 'react';
-import { supabase, isSupabaseConfigured } from '@/lib/supabase';
+import { supabase } from '@/lib/supabase';
 import { User, UserRole } from '@/constants/types';
 
 const ROLE_PERMISSIONS: Record<UserRole, { canCreate: boolean; canEdit: boolean; canDelete: boolean; canExport: boolean }> = {
@@ -47,7 +47,6 @@ async function fetchProfile(userId: string): Promise<User | null> {
 }
 
 async function seedDemoUsers(): Promise<'done' | 'error'> {
-  if (!isSupabaseConfigured) return 'error';
   try {
     for (const u of DEMO_USERS) {
       const { data: signInData, error: signInErr } = await supabase.auth.signInWithPassword({
@@ -81,11 +80,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const isSeedingRef = useRef(false);
 
   useEffect(() => {
-    if (!isSupabaseConfigured) {
-      setIsLoading(false);
-      return;
-    }
-
     supabase.auth.getSession().then(async ({ data: { session } }) => {
       if (session?.user) {
         const profile = await fetchProfile(session.user.id);
@@ -110,7 +104,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   useEffect(() => {
-    if (!isLoading && !user && seedStatus === 'idle' && isSupabaseConfigured) {
+    if (!isLoading && !user && seedStatus === 'idle') {
       setSeedStatus('seeding');
       isSeedingRef.current = true;
       seedDemoUsers().then(result => {
@@ -121,22 +115,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, [isLoading, user, seedStatus]);
 
   async function login(email: string, password: string): Promise<{ success: boolean; error?: string }> {
-    if (!isSupabaseConfigured) {
-      const demo = DEMO_USERS.find(u => u.email === email && u.password === password);
-      if (demo) {
-        setUser({
-          id: `local-${demo.email}`,
-          name: demo.name,
-          role: demo.role as UserRole,
-          roleLabel: demo.roleLabel,
-          email: demo.email,
-          password: '',
-        });
-        return { success: true };
-      }
-      return { success: false, error: 'Email ou mot de passe incorrect.' };
-    }
-
     try {
       const { error } = await supabase.auth.signInWithPassword({ email, password });
       if (error) {
@@ -149,12 +127,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }
 
   async function logout() {
-    if (isSupabaseConfigured) {
-      try {
-        await supabase.auth.signOut();
-      } catch {
-        // ignore
-      }
+    try {
+      await supabase.auth.signOut();
+    } catch {
+      // ignore
     }
     setUser(null);
   }
