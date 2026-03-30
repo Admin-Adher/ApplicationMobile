@@ -37,8 +37,9 @@ assets/            # Images, icons, splash screen
 
 The "Start Frontend" workflow runs:
 ```
-PORT=5000 npx expo start --web --port 5000
+npm run start
 ```
+which executes `npx expo start --web --port 5000`
 
 The app is accessible on port 5000 (web preview). Users can also scan the QR code with Expo Go for mobile testing.
 
