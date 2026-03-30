@@ -351,7 +351,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const value: AppContextValue = {
     ...state, stats, unreadCount,
     addReserve: (r) => {
-      supabase.from('reserves').insert({
+      sdb()?.from('reserves').insert({
         id: r.id, title: r.title, description: r.description, building: r.building,
         zone: r.zone, level: r.level, company: r.company, priority: r.priority,
         status: r.status, created_at: r.createdAt, deadline: r.deadline,
@@ -361,7 +361,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       dispatch({ type: 'ADD_RESERVE', payload: r });
     },
     updateReserve: (r) => {
-      supabase.from('reserves').update({
+      sdb()?.from('reserves').update({
         title: r.title, description: r.description, building: r.building,
         zone: r.zone, level: r.level, company: r.company, priority: r.priority,
         status: r.status, deadline: r.deadline, comments: r.comments, history: r.history,
