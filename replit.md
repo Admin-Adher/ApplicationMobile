@@ -9,7 +9,7 @@ Digital construction site management application built with Expo (React Native) 
 - **UI:** React Native with `react-native-web` for browser support
 - **Backend/Database:** Supabase (PostgreSQL + Auth + Storage)
 - **State Management:** React Context API + `useReducer`
-- **Data Fetching:** TanStack Query (`@tanstack/react-query`)
+- **Data Fetching:** React Context (TanStack Query was installed but unused; removed from dependencies)
 - **Local Storage:** AsyncStorage
 - **Reporting:** `expo-print` (PDF), `xlsx` (Excel/CSV)
 
@@ -60,10 +60,19 @@ The Supabase schema is defined in `lib/schema.sql`. Run it in the Supabase SQL E
 
 ## Bug Fixes Applied
 
-- **`app/(tabs)/more.tsx`** — Équipes module added to the "Plus" menu (was inaccessible — tab hidden with `href: null` and missing from menu)
-- **`app/channel/[id].tsx`** — Replaced deprecated `Clipboard` from `react-native` with `expo-clipboard`; updated `Clipboard.setString()` → `Clipboard.setStringAsync()`
-- **`app/channel/[id].tsx`** — Fixed deprecated `ImagePicker.MediaTypeOptions.Images` → `['images']`
-- **`app/channel/[id].tsx`** — Fixed hardcoded `paddingTop: 52` → `insets.top + 8` using `useSafeAreaInsets()` for correct notch/Dynamic Island support
+**Session 1 (earlier):**
+- **`app/_layout.tsx`** — Removed `SupabaseNotConfiguredScreen` dead-end that blocked mock mode; app now boots into full mock mode when Supabase isn't configured
+- **`app/channel/[id].tsx`** — Fixed `if (!supabase)` guard (always false because `supabase` is `null as any`) to `if (!isSupabaseConfigured)`; fixed send button disabled logic
+- **`app/rapports.tsx`** — Moved module-level `today`/`weekNum` constants inside the component to prevent stale values
+- **`context/AuthContext.tsx`** — Added mock-mode `login()` support validating against `DEMO_USERS` so logout + re-login works without Supabase
+- **`app/(tabs)/more.tsx`** — Équipes module added to the "Plus" menu (was inaccessible)
+- **`app/channel/[id].tsx`** — Replaced deprecated `Clipboard` from `react-native` with `expo-clipboard`; fixed deprecated `ImagePicker.MediaTypeOptions.Images` → `['images']`; fixed hardcoded `paddingTop: 52` → `insets.top + 8`
+
+**Session 2 (current):**
+- **`lib/mockData.ts`** — Added 3 missing companies (EIFFAGE Gros Œuvre, VINCI Électricité, GECINA Finitions) to `MOCK_COMPANIES`; previously only BOUYGUES existed while 4 reserve companies were referenced — causing the company filter and "Contacter" button to fail for 3 of 4 companies
+- **`lib/mockData.ts`** — Distributed `MOCK_TASKS` across all 4 companies (previously all 6 tasks used `company: 'co1'` BOUYGUES only); updated `assignee` names to match
+- **`context/AppContext.tsx`** — Collapsed 3 identical reducer cases (`UPDATE_RESERVE`, `UPDATE_RESERVE_STATUS`, `UPDATE_RESERVE_FIELDS`) into a single fallthrough — they had identical implementations
+- **`package.json`** — Moved `eas-cli` from `dependencies` to `devDependencies` (it's a build tool, not a runtime dep); removed unused `@tanstack/react-query`
 
 ## Feature Completion (100%)
 

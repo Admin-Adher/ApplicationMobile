@@ -171,16 +171,12 @@ function reducer(state: AppState, action: Action): AppState {
       return { ...state, reserves: [action.payload, ...state.reserves] };
 
     case 'UPDATE_RESERVE':
+    case 'UPDATE_RESERVE_STATUS':
+    case 'UPDATE_RESERVE_FIELDS':
       return { ...state, reserves: state.reserves.map(r => r.id === action.payload.id ? action.payload : r) };
 
     case 'DELETE_RESERVE':
       return { ...state, reserves: state.reserves.filter(r => r.id !== action.payload) };
-
-    case 'UPDATE_RESERVE_FIELDS':
-      return { ...state, reserves: state.reserves.map(x => x.id === action.payload.id ? action.payload : x) };
-
-    case 'UPDATE_RESERVE_STATUS':
-      return { ...state, reserves: state.reserves.map(r => r.id === action.payload.id ? action.payload : r) };
 
     case 'ADD_COMMENT': {
       const { reserveId, comment } = action.payload;
