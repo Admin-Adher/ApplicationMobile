@@ -238,21 +238,21 @@ VALUES ('documents', 'documents', true)
 ON CONFLICT (id) DO NOTHING;
 
 -- Politique : les utilisateurs authentifiés peuvent uploader des photos
-CREATE POLICY IF NOT EXISTS "authenticated_upload_photos"
+CREATE POLICY "authenticated_upload_photos"
 ON storage.objects FOR INSERT TO authenticated
 WITH CHECK (bucket_id = 'photos');
 
 -- Politique : lecture publique des photos
-CREATE POLICY IF NOT EXISTS "public_read_photos"
+CREATE POLICY "public_read_photos"
 ON storage.objects FOR SELECT
 USING (bucket_id = 'photos');
 
 -- Politique : les utilisateurs authentifiés peuvent uploader des documents
-CREATE POLICY IF NOT EXISTS "authenticated_upload_documents"
+CREATE POLICY "authenticated_upload_documents"
 ON storage.objects FOR INSERT TO authenticated
 WITH CHECK (bucket_id = 'documents');
 
 -- Politique : lecture publique des documents
-CREATE POLICY IF NOT EXISTS "public_read_documents"
+CREATE POLICY "public_read_documents"
 ON storage.objects FOR SELECT
 USING (bucket_id = 'documents');
