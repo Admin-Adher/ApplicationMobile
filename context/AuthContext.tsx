@@ -72,7 +72,7 @@ async function seedDemoUsers(): Promise<'done' | 'error'> {
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState(true);
-  const [seedStatus, setSeedStatus] = useState<'idle' | 'seeding' | 'done' | 'error'>('idle');
+  const [seedStatus, setSeedStatus] = useState<'idle' | 'seeding' | 'done' | 'error'>('done');
   const isSeedingRef = useRef(false);
 
   useEffect(() => {
