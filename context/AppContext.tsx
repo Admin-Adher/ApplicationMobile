@@ -14,6 +14,8 @@ export const STATIC_CHANNELS: Channel[] = [
 
 const CUSTOM_CHANNELS_KEY = 'customChannels_v1';
 const GROUP_CHANNELS_KEY = 'groupChannels_v1';
+const PINNED_CHANNELS_KEY = 'pinnedChannels_v1';
+const MAX_PINNED = 5;
 
 interface AppState {
   reserves: Reserve[];
@@ -27,10 +29,11 @@ interface AppState {
   profiles: Profile[];
   customChannels: Channel[];
   groupChannels: Channel[];
+  pinnedChannelIds: string[];
 }
 
 type Action =
-  | { type: 'INIT'; payload: Omit<AppState, 'isLoading' | 'lastReadByChannel' | 'customChannels' | 'groupChannels'> }
+  | { type: 'INIT'; payload: Omit<AppState, 'isLoading' | 'lastReadByChannel' | 'customChannels' | 'groupChannels' | 'pinnedChannelIds'> }
   | { type: 'ADD_RESERVE'; payload: Reserve }
   | { type: 'UPDATE_RESERVE'; payload: Reserve }
   | { type: 'UPDATE_RESERVE_STATUS'; payload: { id: string; status: ReserveStatus; author: string } }
@@ -56,7 +59,8 @@ type Action =
   | { type: 'REMOVE_CUSTOM_CHANNEL'; payload: string }
   | { type: 'ADD_GROUP_CHANNEL'; payload: Channel }
   | { type: 'SET_GROUP_CHANNELS'; payload: Channel[] }
-  | { type: 'REMOVE_GROUP_CHANNEL'; payload: string };
+  | { type: 'REMOVE_GROUP_CHANNEL'; payload: string }
+  | { type: 'SET_PINNED_CHANNELS'; payload: string[] };
 
 function genId(): string {
   return Date.now().toString() + Math.random().toString(36).substr(2, 6);
@@ -145,7 +149,7 @@ export function dmChannelId(nameA: string, nameB: string): string {
 function reducer(state: AppState, action: Action): AppState {
   switch (action.type) {
     case 'INIT':
-      return { ...action.payload, lastReadByChannel: state.lastReadByChannel, customChannels: state.customChannels, groupChannels: state.groupChannels, isLoading: false };
+      return { ...action.payload, lastReadByChannel: state.lastReadByChannel, customChannels: state.customChannels, groupChannels: state.groupChannels, pinnedChannelIds: state.pinnedChannelIds, isLoading: false };
 
     case 'ADD_RESERVE':
       return { ...state, reserves: [action.payload, ...state.reserves] };
@@ -269,6 +273,9 @@ function reducer(state: AppState, action: Action): AppState {
     case 'REMOVE_GROUP_CHANNEL':
       return { ...state, groupChannels: state.groupChannels.filter(c => c.id !== action.payload) };
 
+    case 'SET_PINNED_CHANNELS':
+      return { ...state, pinnedChannelIds: action.payload };
+
     default:
       return state;
   }
@@ -302,6 +309,9 @@ interface AppContextValue extends AppState {
   removeCustomChannel: (id: string) => void;
   addGroupChannel: (name: string, members: string[], color: string) => Channel;
   removeGroupChannel: (id: string) => void;
+  pinChannel: (id: string) => { success: boolean; reason?: string };
+  unpinChannel: (id: string) => void;
+  maxPinnedChannels: number;
   getOrCreateDMChannel: (otherName: string) => Channel;
   unreadCount: number;
   stats: {
@@ -318,7 +328,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     reserves: [], companies: [], tasks: [],
     documents: [], photos: [], messages: [],
     lastReadByChannel: {}, isLoading: true,
-    profiles: [], customChannels: [], groupChannels: [],
+    profiles: [], customChannels: [], groupChannels: [], pinnedChannelIds: [],
   });
 
   const [notification, setNotification] = useState<{ msg: Message; channelName: string; channelColor: string; channelIcon: string } | null>(null);
@@ -368,6 +378,21 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     } catch {}
   }
 
+  async function loadPinnedChannels() {
+    try {
+      const stored = await AsyncStorage.getItem(PINNED_CHANNELS_KEY);
+      if (stored) {
+        dispatch({ type: 'SET_PINNED_CHANNELS', payload: JSON.parse(stored) });
+      }
+    } catch {}
+  }
+
+  async function savePinnedChannels(ids: string[]) {
+    try {
+      await AsyncStorage.setItem(PINNED_CHANNELS_KEY, JSON.stringify(ids));
+    } catch {}
+  }
+
   async function loadAll() {
     dispatch({ type: 'SET_LOADING', payload: true });
     initStorageBuckets().catch(() => {});
@@ -409,6 +434,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
       await loadCustomChannels();
       await loadGroupChannels();
+      await loadPinnedChannels();
 
       const userName = currentUserNameRef.current;
       dispatch({
@@ -592,6 +618,21 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     saveGroupChannels(updated);
   }
 
+  function pinChannel(id: string): { success: boolean; reason?: string } {
+    if (state.pinnedChannelIds.includes(id)) return { success: false, reason: 'already_pinned' };
+    if (state.pinnedChannelIds.length >= MAX_PINNED) return { success: false, reason: 'limit_reached' };
+    const updated = [...state.pinnedChannelIds, id];
+    dispatch({ type: 'SET_PINNED_CHANNELS', payload: updated });
+    savePinnedChannels(updated);
+    return { success: true };
+  }
+
+  function unpinChannel(id: string) {
+    const updated = state.pinnedChannelIds.filter(pid => pid !== id);
+    dispatch({ type: 'SET_PINNED_CHANNELS', payload: updated });
+    savePinnedChannels(updated);
+  }
+
   function getOrCreateDMChannel(otherName: string): Channel {
     const myName = currentUserNameRef.current;
     const chId = dmChannelId(myName, otherName);
@@ -669,6 +710,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     removeCustomChannel,
     addGroupChannel,
     removeGroupChannel,
+    pinChannel,
+    unpinChannel,
+    maxPinnedChannels: MAX_PINNED,
     getOrCreateDMChannel,
   };
 
