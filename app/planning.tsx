@@ -1,4 +1,4 @@
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert, TextInput } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useState, useMemo } from 'react';
 import { useRouter } from 'expo-router';
@@ -332,13 +332,25 @@ export default function PlanningScreen() {
   const router = useRouter();
   const [viewMode, setViewMode] = useState<ViewMode>('list');
   const [filterStatus, setFilterStatus] = useState<TaskStatus | 'all'>('all');
+  const [search, setSearch] = useState('');
 
   const todo = tasks.filter(t => t.status === 'todo').length;
   const inP = tasks.filter(t => t.status === 'in_progress').length;
   const done = tasks.filter(t => t.status === 'done').length;
   const delayed = tasks.filter(t => t.status === 'delayed').length;
 
-  const filtered = filterStatus === 'all' ? tasks : tasks.filter(t => t.status === filterStatus);
+  const filtered = useMemo(() => {
+    let list = filterStatus === 'all' ? tasks : tasks.filter(t => t.status === filterStatus);
+    if (search.trim()) {
+      const q = search.toLowerCase();
+      list = list.filter(t =>
+        t.title.toLowerCase().includes(q) ||
+        t.assignee.toLowerCase().includes(q) ||
+        (t.description ?? '').toLowerCase().includes(q)
+      );
+    }
+    return list;
+  }, [tasks, filterStatus, search]);
 
   function handleDelete(id: string, title: string) {
     Alert.alert('Supprimer', `Supprimer la tâche "${title}" ?`, [
@@ -398,6 +410,22 @@ export default function PlanningScreen() {
 
         {viewMode === 'list' && (
           <>
+            <View style={styles.searchRow}>
+              <Ionicons name="search-outline" size={15} color={C.textMuted} style={styles.searchIcon} />
+              <TextInput
+                style={styles.searchInput}
+                placeholder="Rechercher une tâche..."
+                placeholderTextColor={C.textMuted}
+                value={search}
+                onChangeText={setSearch}
+                returnKeyType="search"
+              />
+              {search.length > 0 && (
+                <TouchableOpacity onPress={() => setSearch('')} hitSlop={8}>
+                  <Ionicons name="close-circle" size={15} color={C.textMuted} />
+                </TouchableOpacity>
+              )}
+            </View>
             <View style={styles.listHeader}>
               <Text style={styles.sectionTitle}>
                 {filterStatus === 'all' ? 'Toutes les tâches' : `Tâches — ${STATUS_CFG[filterStatus]?.label}`}
@@ -519,6 +547,9 @@ const styles = StyleSheet.create({
   card: { backgroundColor: C.surface, borderRadius: 14, padding: 14, marginBottom: 16, borderWidth: 1, borderColor: C.border },
   sectionTitle: { fontSize: 13, fontFamily: 'Inter_600SemiBold', color: C.textSub, textTransform: 'uppercase', letterSpacing: 0.5 },
   ganttHint: { fontSize: 11, fontFamily: 'Inter_400Regular', color: C.textMuted, marginTop: 4 },
+  searchRow: { flexDirection: 'row', alignItems: 'center', backgroundColor: C.surface, borderRadius: 12, borderWidth: 1, borderColor: C.border, paddingHorizontal: 12, marginBottom: 12, gap: 8 },
+  searchIcon: { },
+  searchInput: { flex: 1, height: 42, fontSize: 14, fontFamily: 'Inter_400Regular', color: C.text },
   listHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 },
   addBtn: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 12, paddingVertical: 7, borderRadius: 20, backgroundColor: C.primaryBg, borderWidth: 1, borderColor: C.primary },
   addBtnText: { fontSize: 12, fontFamily: 'Inter_600SemiBold', color: C.primary },

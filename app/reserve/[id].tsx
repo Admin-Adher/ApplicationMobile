@@ -243,14 +243,9 @@ export default function ReserveDetailScreen() {
   }
 
   function handleStatusChange(newStatus: ReserveStatus) {
-    Alert.alert(
-      'Modifier le statut',
-      `Passer à "${STATUS_CONFIG[newStatus].label}" ?`,
-      [
-        { text: 'Annuler', style: 'cancel' },
-        { text: 'Confirmer', onPress: () => updateReserveStatus(reserve.id, newStatus, user?.name ?? 'Conducteur de travaux') },
-      ]
-    );
+    updateReserveStatus(reserve.id, newStatus, user?.name ?? 'Conducteur de travaux');
+    setSaveSuccess(true);
+    setTimeout(() => setSaveSuccess(false), 2500);
   }
 
   function handleAddComment() {

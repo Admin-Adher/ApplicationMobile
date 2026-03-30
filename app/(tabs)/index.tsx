@@ -26,8 +26,11 @@ function KPICard({
 }) {
   const card = (
     <View style={[styles.kpiCard, { borderLeftColor: color }]}>
-      <View style={[styles.kpiIconWrap, { backgroundColor: bg }]}>
-        <Ionicons name={icon as any} size={18} color={color} />
+      <View style={styles.kpiCardTop}>
+        <View style={[styles.kpiIconWrap, { backgroundColor: bg }]}>
+          <Ionicons name={icon as any} size={18} color={color} />
+        </View>
+        {onPress && <Ionicons name="chevron-forward" size={13} color={C.textMuted} />}
       </View>
       <Text style={styles.kpiValue}>{value}</Text>
       <Text style={styles.kpiLabel}>{label}</Text>
@@ -359,6 +362,7 @@ const styles = StyleSheet.create({
 
   kpiGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10, marginBottom: 10 },
   kpiTouchable: { flex: 1, minWidth: '44%' },
+  kpiCardTop: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 },
   kpiCard: {
     backgroundColor: C.surface,
     borderRadius: 14, padding: 14, borderLeftWidth: 4,
@@ -368,7 +372,7 @@ const styles = StyleSheet.create({
       default: { shadowColor: '#003082', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.06, shadowRadius: 6 },
     }),
   },
-  kpiIconWrap: { width: 36, height: 36, borderRadius: 10, alignItems: 'center', justifyContent: 'center', marginBottom: 10 },
+  kpiIconWrap: { width: 36, height: 36, borderRadius: 10, alignItems: 'center', justifyContent: 'center' },
   kpiValue: { fontSize: 28, fontFamily: 'Inter_700Bold', color: C.text, marginBottom: 2 },
   kpiLabel: { fontSize: 11, fontFamily: 'Inter_400Regular', color: C.textSub },
 

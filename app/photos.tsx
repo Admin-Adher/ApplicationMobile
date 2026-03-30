@@ -11,11 +11,11 @@ import { Photo, Channel } from '@/constants/types';
 import { uploadPhoto } from '@/lib/storage';
 
 function genId() {
-  return Date.now().toString() + Math.random().toString(36).substr(2, 6);
+  return Date.now().toString() + Math.random().toString(36).substring(2, 8);
 }
 
 export default function PhotosScreen() {
-  const { photos, addPhoto, channels, addMessage } = useApp();
+  const { photos, addPhoto, deletePhoto, channels, addMessage } = useApp();
   const { user } = useAuth();
   const router = useRouter();
   const [loading, setLoading] = useState(false);
@@ -26,6 +26,7 @@ export default function PhotosScreen() {
   const [sharePhoto, setSharePhoto] = useState<Photo | null>(null);
   const [shareModalVisible, setShareModalVisible] = useState(false);
   const [shareCaption, setShareCaption] = useState('');
+  const [fullScreenUri, setFullScreenUri] = useState<string | null>(null);
 
   function openShareModal(photo: Photo) {
     setSharePhoto(photo);
@@ -56,6 +57,13 @@ export default function PhotosScreen() {
         },
       } as any);
     }, 100);
+  }
+
+  function handleDeletePhoto(id: string, comment: string) {
+    Alert.alert('Supprimer la photo', `Supprimer "${comment}" ?`, [
+      { text: 'Annuler', style: 'cancel' },
+      { text: 'Supprimer', style: 'destructive', onPress: () => deletePhoto(id) },
+    ]);
   }
 
   function openCommentModal(uri: string) {
@@ -109,7 +117,7 @@ export default function PhotosScreen() {
       }
     }
     const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      mediaTypes: ['images'],
       allowsEditing: true,
       quality: 0.8,
     });
@@ -183,13 +191,23 @@ export default function PhotosScreen() {
         )}
         renderItem={({ item }) => (
           <View style={styles.photoCard}>
-            {item.uri ? (
-              <Image source={{ uri: item.uri }} style={styles.photoThumbImg} resizeMode="cover" />
-            ) : (
-              <View style={[styles.photoThumb, { backgroundColor: item.colorCode + '30' }]}>
-                <Ionicons name="camera" size={32} color={item.colorCode} />
-              </View>
-            )}
+            <TouchableOpacity
+              onPress={() => item.uri ? setFullScreenUri(item.uri) : null}
+              activeOpacity={0.9}
+            >
+              {item.uri ? (
+                <View>
+                  <Image source={{ uri: item.uri }} style={styles.photoThumbImg} resizeMode="cover" />
+                  <View style={styles.expandHint}>
+                    <Ionicons name="expand-outline" size={10} color="#fff" />
+                  </View>
+                </View>
+              ) : (
+                <View style={[styles.photoThumb, { backgroundColor: item.colorCode + '30' }]}>
+                  <Ionicons name="camera" size={32} color={item.colorCode} />
+                </View>
+              )}
+            </TouchableOpacity>
             <View style={styles.photoInfo}>
               <Text style={styles.photoComment} numberOfLines={2}>{item.comment}</Text>
               <View style={styles.photoMeta}>
@@ -210,10 +228,15 @@ export default function PhotosScreen() {
                   {item.uri?.startsWith('http') ? 'Cloud' : 'Local'} — {item.takenAt}
                 </Text>
               </View>
-              <TouchableOpacity style={styles.shareBtn} onPress={() => openShareModal(item)} activeOpacity={0.75}>
-                <Ionicons name="share-social-outline" size={12} color={C.primary} />
-                <Text style={styles.shareBtnText}>Partager</Text>
-              </TouchableOpacity>
+              <View style={styles.photoActions}>
+                <TouchableOpacity style={styles.shareBtn} onPress={() => openShareModal(item)} activeOpacity={0.75}>
+                  <Ionicons name="share-social-outline" size={12} color={C.primary} />
+                  <Text style={styles.shareBtnText}>Partager</Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={styles.deleteBtn} onPress={() => handleDeletePhoto(item.id, item.comment)} activeOpacity={0.75}>
+                  <Ionicons name="trash-outline" size={12} color={C.open} />
+                </TouchableOpacity>
+              </View>
             </View>
           </View>
         )}
@@ -226,6 +249,19 @@ export default function PhotosScreen() {
         )}
       />
 
+      {/* Vue plein écran */}
+      <Modal visible={!!fullScreenUri} transparent animationType="fade" onRequestClose={() => setFullScreenUri(null)}>
+        <View style={styles.fullScreenOverlay}>
+          <TouchableOpacity style={styles.fullScreenClose} onPress={() => setFullScreenUri(null)}>
+            <Ionicons name="close" size={26} color="#fff" />
+          </TouchableOpacity>
+          {fullScreenUri && (
+            <Image source={{ uri: fullScreenUri }} style={styles.fullScreenImage} resizeMode="contain" />
+          )}
+        </View>
+      </Modal>
+
+      {/* Modal partage */}
       <Modal visible={shareModalVisible} transparent animationType="slide" onRequestClose={() => setShareModalVisible(false)}>
         <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={styles.modalOverlay}>
           <View style={styles.modalCard}>
@@ -272,6 +308,7 @@ export default function PhotosScreen() {
         </KeyboardAvoidingView>
       </Modal>
 
+      {/* Modal annotation */}
       <Modal visible={modalVisible} transparent animationType="slide" onRequestClose={cancelModal}>
         <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={styles.modalOverlay}>
           <View style={styles.modalCard}>
@@ -342,15 +379,23 @@ const styles = StyleSheet.create({
   photoCard: { width: '48.5%', backgroundColor: C.surface, borderRadius: 14, overflow: 'hidden', marginBottom: 10, borderWidth: 1, borderColor: C.border },
   photoThumb: { height: 110, alignItems: 'center', justifyContent: 'center' },
   photoThumbImg: { width: '100%', height: 110 },
+  expandHint: { position: 'absolute', bottom: 6, right: 6, backgroundColor: 'rgba(0,0,0,0.45)', borderRadius: 4, padding: 3 },
   photoInfo: { padding: 10 },
   photoComment: { fontSize: 12, fontFamily: 'Inter_500Medium', color: C.text, marginBottom: 6, lineHeight: 16 },
   photoMeta: { flexDirection: 'row', alignItems: 'center', gap: 4, marginBottom: 2 },
   photoLocation: { fontSize: 10, fontFamily: 'Inter_400Regular', color: C.textSub, flex: 1 },
   photoBy: { fontSize: 10, fontFamily: 'Inter_400Regular', color: C.textSub },
   photoDate: { fontSize: 10, fontFamily: 'Inter_400Regular', color: C.textMuted },
+  photoActions: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 8 },
+  shareBtn: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 4, paddingVertical: 6, paddingHorizontal: 8, borderRadius: 8, backgroundColor: C.primaryBg },
+  shareBtnText: { fontSize: 11, fontFamily: 'Inter_600SemiBold', color: C.primary },
+  deleteBtn: { padding: 6, borderRadius: 8, backgroundColor: C.openBg, borderWidth: 1, borderColor: C.open + '30' },
   empty: { alignItems: 'center', paddingTop: 40, gap: 10 },
   emptyText: { fontSize: 15, fontFamily: 'Inter_400Regular', color: C.textMuted },
   emptyHint: { fontSize: 12, fontFamily: 'Inter_400Regular', color: C.textMuted },
+  fullScreenOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.95)', justifyContent: 'center', alignItems: 'center' },
+  fullScreenClose: { position: 'absolute', top: 50, right: 20, zIndex: 10, padding: 8 },
+  fullScreenImage: { width: '100%', height: '100%' },
   modalOverlay: { flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.45)' },
   modalCard: { backgroundColor: C.surface, borderTopLeftRadius: 20, borderTopRightRadius: 20, padding: 20, paddingBottom: 36 },
   modalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 },
@@ -368,8 +413,6 @@ const styles = StyleSheet.create({
   cancelBtnText: { fontSize: 14, fontFamily: 'Inter_600SemiBold', color: C.textSub },
   confirmBtn: { flex: 2, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, paddingVertical: 14, borderRadius: 12, backgroundColor: C.primary },
   confirmBtnText: { fontSize: 14, fontFamily: 'Inter_600SemiBold', color: '#fff' },
-  shareBtn: { flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 8, paddingVertical: 6, paddingHorizontal: 10, borderRadius: 8, backgroundColor: C.primaryBg, alignSelf: 'flex-start' },
-  shareBtnText: { fontSize: 11, fontFamily: 'Inter_600SemiBold', color: C.primary },
   channelPickItem: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: C.border },
   channelPickIcon: { width: 36, height: 36, borderRadius: 10, alignItems: 'center', justifyContent: 'center' },
   channelPickName: { fontSize: 14, fontFamily: 'Inter_600SemiBold', color: C.text },

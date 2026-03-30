@@ -169,7 +169,7 @@ export default function DocumentsScreen() {
           <Text style={styles.sectionHeader}>{section.title}</Text>
         )}
         renderItem={({ item }) => (
-          <TouchableOpacity style={styles.docCard} onLongPress={() => handleDelete(item)}>
+          <View style={styles.docCard}>
             <View style={[styles.iconWrap, { backgroundColor: DOC_COLORS[item.type] + '20' }]}>
               <Ionicons name={DOC_ICONS[item.type] as any} size={22} color={DOC_COLORS[item.type]} />
             </View>
@@ -189,14 +189,19 @@ export default function DocumentsScreen() {
                 </View>
               )}
             </View>
-            <TouchableOpacity onPress={() => handleDownload(item)} hitSlop={8}>
-              <Ionicons
-                name={item.uri?.startsWith('http') ? 'open-outline' : 'download-outline'}
-                size={18}
-                color={C.textMuted}
-              />
-            </TouchableOpacity>
-          </TouchableOpacity>
+            <View style={styles.docActions}>
+              <TouchableOpacity onPress={() => handleDownload(item)} hitSlop={8} style={styles.docActionBtn}>
+                <Ionicons
+                  name={item.uri?.startsWith('http') ? 'open-outline' : 'download-outline'}
+                  size={18}
+                  color={C.textMuted}
+                />
+              </TouchableOpacity>
+              <TouchableOpacity onPress={() => handleDelete(item)} hitSlop={8} style={[styles.docActionBtn, styles.docDeleteBtn]}>
+                <Ionicons name="trash-outline" size={17} color={C.open} />
+              </TouchableOpacity>
+            </View>
+          </View>
         )}
         ListEmptyComponent={() => (
           <View style={styles.empty}>
@@ -222,6 +227,9 @@ const styles = StyleSheet.create({
   iconWrap: { width: 44, height: 44, borderRadius: 12, alignItems: 'center', justifyContent: 'center' },
   docName: { fontSize: 14, fontFamily: 'Inter_500Medium', color: C.text, lineHeight: 20 },
   docMeta: { fontSize: 11, fontFamily: 'Inter_400Regular', color: C.textMuted, marginTop: 3 },
+  docActions: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  docActionBtn: { padding: 6, borderRadius: 8, backgroundColor: C.surface2, borderWidth: 1, borderColor: C.border },
+  docDeleteBtn: { backgroundColor: C.openBg, borderColor: C.open + '40' },
   uriBadge: { flexDirection: 'row', alignItems: 'center', gap: 3, marginTop: 4 },
   uriBadgeText: { fontSize: 10, fontFamily: 'Inter_400Regular' },
   empty: { alignItems: 'center', paddingTop: 60, gap: 8 },

@@ -8,7 +8,11 @@ import { useAuth } from '@/context/AuthContext';
 import Header from '@/components/Header';
 
 const today = new Date().toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
-const weekNum = Math.ceil(new Date().getDate() / 7);
+const weekNum = (() => {
+  const d = new Date();
+  const startOfYear = new Date(d.getFullYear(), 0, 1);
+  return Math.ceil(((d.getTime() - startOfYear.getTime()) / 86400000 + startOfYear.getDay() + 1) / 7);
+})();
 
 function buildDailyHTML(reserves: any[], companies: any[], tasks: any[], stats: any, userName: string): string {
   const now = new Date().toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });

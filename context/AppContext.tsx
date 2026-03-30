@@ -53,6 +53,7 @@ type Action =
   | { type: 'ADD_PHOTO'; payload: Photo }
   | { type: 'ADD_DOCUMENT'; payload: Document }
   | { type: 'DELETE_DOCUMENT'; payload: string }
+  | { type: 'DELETE_PHOTO'; payload: string }
   | { type: 'DELETE_RESERVE'; payload: string }
   | { type: 'UPDATE_RESERVE_FIELDS'; payload: Reserve }
   | { type: 'SET_LOADING'; payload: boolean }
@@ -264,6 +265,10 @@ function reducer(state: AppState, action: Action): AppState {
       supabase.from('documents').delete().eq('id', action.payload).catch(() => {});
       return { ...state, documents: state.documents.filter(d => d.id !== action.payload) };
 
+    case 'DELETE_PHOTO':
+      supabase.from('photos').delete().eq('id', action.payload).catch(() => {});
+      return { ...state, photos: state.photos.filter(p => p.id !== action.payload) };
+
     case 'SET_LOADING':
       return { ...state, isLoading: action.payload };
 
@@ -350,6 +355,7 @@ interface AppContextValue extends AppState {
   updateTask: (t: Task) => void;
   deleteTask: (id: string) => void;
   addPhoto: (p: Photo) => void;
+  deletePhoto: (id: string) => void;
   addDocument: (d: Document) => void;
   deleteDocument: (id: string) => void;
   addCustomChannel: (name: string, description: string, icon: string, color: string) => Channel;
@@ -839,6 +845,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     updateTask: (t) => dispatch({ type: 'UPDATE_TASK', payload: t }),
     deleteTask: (id) => dispatch({ type: 'DELETE_TASK', payload: id }),
     addPhoto: (p) => dispatch({ type: 'ADD_PHOTO', payload: p }),
+    deletePhoto: (id) => dispatch({ type: 'DELETE_PHOTO', payload: id }),
     addDocument: (d) => dispatch({ type: 'ADD_DOCUMENT', payload: d }),
     deleteDocument: (id) => dispatch({ type: 'DELETE_DOCUMENT', payload: id }),
     addCustomChannel,

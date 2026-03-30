@@ -30,7 +30,6 @@ export default function MoreScreen() {
   const topPad = Platform.OS === 'web' ? 67 : insets.top;
 
   const MENU_ITEMS: MenuItem[] = [
-    { icon: 'people', label: 'Équipes', subtitle: 'Entreprises & présence', route: '/equipes', color: C.primary },
     { icon: 'folder-open', label: 'Documents', subtitle: `${documents.length} fichiers`, route: '/documents', color: '#3B82F6' },
     { icon: 'calendar', label: 'Planning', subtitle: `${tasks.length} tâches`, route: '/planning', color: '#10B981' },
     { icon: 'camera', label: 'Photos', subtitle: `${photos.length} photos`, route: '/photos', color: '#F59E0B' },
