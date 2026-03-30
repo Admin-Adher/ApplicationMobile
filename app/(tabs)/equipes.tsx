@@ -1,13 +1,29 @@
-import { View, Text, StyleSheet, ScrollView, Platform, TouchableOpacity, Alert } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, Platform, TouchableOpacity, Alert, Modal, TextInput, KeyboardAvoidingView } from 'react-native';
+import { useState } from 'react';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { C } from '@/constants/colors';
 import { useApp } from '@/context/AppContext';
+import { Company } from '@/constants/types';
+
+const COMPANY_COLORS = ['#3B82F6', '#F59E0B', '#8B5CF6', '#EC4899', '#EF4444', '#06B6D4', '#84CC16'];
+
+function genId(): string {
+  return Date.now().toString() + Math.random().toString(36).substr(2, 6);
+}
 
 export default function EquipesScreen() {
   const insets = useSafeAreaInsets();
-  const { companies, tasks, stats, updateCompanyWorkers } = useApp();
+  const { companies, tasks, stats, updateCompanyWorkers, addCompany } = useApp();
   const topPad = Platform.OS === 'web' ? 67 : insets.top;
+  const bottomPad = Platform.OS === 'web' ? 34 : insets.bottom;
+
+  const [modalVisible, setModalVisible] = useState(false);
+  const [nom, setNom] = useState('');
+  const [nomCourt, setNomCourt] = useState('');
+  const [contact, setContact] = useState('');
+  const [zone, setZone] = useState('');
+  const [effectif, setEffectif] = useState('');
 
   const today = new Date().toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' });
 
@@ -25,14 +41,54 @@ export default function EquipesScreen() {
     );
   }
 
+  function handleAddCompany() {
+    if (!nom.trim() || !nomCourt.trim() || !effectif.trim()) return;
+    const planned = parseInt(effectif);
+    if (isNaN(planned) || planned < 0) return;
+
+    const color = COMPANY_COLORS[companies.length % COMPANY_COLORS.length];
+    const company: Company = {
+      id: genId(),
+      name: nom.trim(),
+      shortName: nomCourt.trim().toUpperCase(),
+      color,
+      plannedWorkers: planned,
+      actualWorkers: 0,
+      hoursWorked: 0,
+      zone: zone.trim() || 'À définir',
+      contact: contact.trim() || '—',
+    };
+    addCompany(company);
+    setModalVisible(false);
+    setNom('');
+    setNomCourt('');
+    setContact('');
+    setZone('');
+    setEffectif('');
+  }
+
+  function handleClose() {
+    setModalVisible(false);
+    setNom('');
+    setNomCourt('');
+    setContact('');
+    setZone('');
+    setEffectif('');
+  }
+
   return (
     <View style={[styles.container]}>
       <View style={[styles.header, { paddingTop: topPad + 12 }]}>
-        <Text style={styles.title}>Équipes</Text>
-        <Text style={styles.subtitle}>{today}</Text>
+        <View>
+          <Text style={styles.title}>Équipes</Text>
+          <Text style={styles.subtitle}>{today}</Text>
+        </View>
+        <TouchableOpacity style={styles.addBtn} onPress={() => setModalVisible(true)}>
+          <Ionicons name="add" size={22} color="#fff" />
+        </TouchableOpacity>
       </View>
 
-      <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+      <ScrollView contentContainerStyle={[styles.content, { paddingBottom: bottomPad + 32 }]} showsVerticalScrollIndicator={false}>
         <View style={styles.summaryCard}>
           <View style={styles.summaryRow}>
             <View style={styles.summaryItem}>
@@ -54,7 +110,7 @@ export default function EquipesScreen() {
           </View>
           <View style={styles.summaryBarBg}>
             <View style={[styles.summaryBarFill, {
-              width: `${Math.min((stats.totalWorkers / stats.plannedWorkers) * 100, 100)}%` as any
+              width: `${Math.min(stats.plannedWorkers > 0 ? (stats.totalWorkers / stats.plannedWorkers) * 100 : 0, 100)}%` as any
             }]} />
           </View>
         </View>
@@ -114,7 +170,6 @@ export default function EquipesScreen() {
 
         <Text style={styles.sectionTitle}>Tâches en cours</Text>
         {tasks.filter(t => t.status === 'in_progress' || t.status === 'delayed').map(task => {
-          const co = companies.find(c => c.id === task.company);
           return (
             <View key={task.id} style={styles.taskCard}>
               <View style={styles.taskTop}>
@@ -137,16 +192,85 @@ export default function EquipesScreen() {
           );
         })}
       </ScrollView>
+
+      <Modal visible={modalVisible} transparent animationType="fade" onRequestClose={handleClose}>
+        <KeyboardAvoidingView style={styles.modalOverlay} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
+          <View style={styles.modalCard}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>Nouvelle entreprise</Text>
+              <TouchableOpacity onPress={handleClose}>
+                <Ionicons name="close" size={22} color={C.textSub} />
+              </TouchableOpacity>
+            </View>
+
+            <Text style={styles.fieldLabel}>Nom de l'entreprise *</Text>
+            <TextInput
+              style={styles.input}
+              placeholder="Ex: VINCI Construction"
+              placeholderTextColor={C.textMuted}
+              value={nom}
+              onChangeText={setNom}
+            />
+
+            <Text style={styles.fieldLabel}>Nom court *</Text>
+            <TextInput
+              style={styles.input}
+              placeholder="Ex: VINCI"
+              placeholderTextColor={C.textMuted}
+              value={nomCourt}
+              onChangeText={setNomCourt}
+              autoCapitalize="characters"
+            />
+
+            <Text style={styles.fieldLabel}>Effectif prévu *</Text>
+            <TextInput
+              style={styles.input}
+              placeholder="Ex: 20"
+              placeholderTextColor={C.textMuted}
+              value={effectif}
+              onChangeText={setEffectif}
+              keyboardType="numeric"
+            />
+
+            <Text style={styles.fieldLabel}>Zone / Bâtiment</Text>
+            <TextInput
+              style={styles.input}
+              placeholder="Ex: Bâtiment B"
+              placeholderTextColor={C.textMuted}
+              value={zone}
+              onChangeText={setZone}
+            />
+
+            <Text style={styles.fieldLabel}>Contact</Text>
+            <TextInput
+              style={styles.input}
+              placeholder="Ex: Jean Dupont — 06 12 34 56 78"
+              placeholderTextColor={C.textMuted}
+              value={contact}
+              onChangeText={setContact}
+            />
+
+            <TouchableOpacity
+              style={[styles.confirmBtn, (!nom.trim() || !nomCourt.trim() || !effectif.trim()) && styles.confirmBtnDisabled]}
+              onPress={handleAddCompany}
+              disabled={!nom.trim() || !nomCourt.trim() || !effectif.trim()}
+            >
+              <Text style={styles.confirmBtnText}>Ajouter l'entreprise</Text>
+            </TouchableOpacity>
+          </View>
+        </KeyboardAvoidingView>
+      </Modal>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: C.bg },
-  header: { paddingHorizontal: 20, paddingBottom: 14, borderBottomWidth: 1, borderBottomColor: C.border },
+  header: { paddingHorizontal: 20, paddingBottom: 14, borderBottomWidth: 1, borderBottomColor: C.border, flexDirection: 'row', alignItems: 'flex-end', justifyContent: 'space-between' },
   title: { fontSize: 22, fontFamily: 'Inter_700Bold', color: C.text },
   subtitle: { fontSize: 12, fontFamily: 'Inter_400Regular', color: C.textSub, marginTop: 2 },
-  content: { padding: 16, paddingBottom: 32 },
+  addBtn: { backgroundColor: C.primary, width: 36, height: 36, borderRadius: 10, alignItems: 'center', justifyContent: 'center' },
+  content: { padding: 16 },
   summaryCard: { backgroundColor: C.surface, borderRadius: 14, padding: 16, marginBottom: 20, borderWidth: 1, borderColor: C.border },
   summaryRow: { flexDirection: 'row', justifyContent: 'space-around', marginBottom: 14 },
   summaryItem: { alignItems: 'center' },
@@ -178,4 +302,13 @@ const styles = StyleSheet.create({
   taskPct: { fontSize: 15, fontFamily: 'Inter_700Bold' },
   taskBarBg: { height: 5, backgroundColor: C.border, borderRadius: 3, overflow: 'hidden' },
   taskBarFill: { height: '100%', borderRadius: 3 },
+  modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.6)', justifyContent: 'center', alignItems: 'center', padding: 20 },
+  modalCard: { backgroundColor: C.surface, borderRadius: 18, padding: 20, width: '100%', maxWidth: 440, borderWidth: 1, borderColor: C.border },
+  modalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 18 },
+  modalTitle: { fontSize: 18, fontFamily: 'Inter_700Bold', color: C.text },
+  fieldLabel: { fontSize: 12, fontFamily: 'Inter_600SemiBold', color: C.textSub, marginBottom: 6, marginTop: 12, textTransform: 'uppercase', letterSpacing: 0.4 },
+  input: { backgroundColor: C.bg, borderWidth: 1, borderColor: C.border, borderRadius: 10, paddingHorizontal: 14, paddingVertical: 10, fontSize: 15, fontFamily: 'Inter_400Regular', color: C.text },
+  confirmBtn: { backgroundColor: C.primary, borderRadius: 12, paddingVertical: 14, alignItems: 'center', marginTop: 20 },
+  confirmBtnDisabled: { opacity: 0.4 },
+  confirmBtnText: { fontSize: 15, fontFamily: 'Inter_600SemiBold', color: '#fff' },
 });

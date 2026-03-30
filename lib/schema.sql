@@ -136,48 +136,45 @@ create policy "Messages modifiables"
 -- ============================================================
 
 insert into public.companies (id, name, short_name, color, planned_workers, actual_workers, hours_worked, zone, contact) values
-('co1', 'EIFFAGE Gros Œuvre', 'EIFFAGE', '#3B82F6', 45, 38, 320, 'Bâtiment A', 'Jean Dupont — 06 12 34 56 78'),
-('co2', 'BOUYGUES Construction', 'BOUYGUES', '#10B981', 28, 25, 210, 'Bâtiment B', 'Marc Martin — 06 23 45 67 89'),
-('co3', 'VINCI Électricité', 'VINCI', '#F59E0B', 15, 12, 98, 'Bât. A + B', 'Paul Bernard — 06 34 56 78 90'),
-('co4', 'GECINA Finitions', 'GECINA', '#8B5CF6', 20, 18, 145, 'Bâtiment C', 'Sophie Leroy — 06 45 67 89 01')
+('co1', 'BOUYGUES Construction', 'BOUYGUES', '#10B981', 28, 25, 210, 'Bâtiment A', 'Marc Martin — 06 23 45 67 89')
 on conflict (id) do nothing;
 
 insert into public.reserves (id, title, description, building, zone, level, company, priority, status, created_at, deadline, plan_x, plan_y, comments, history) values
-('RSV-001', 'Fissure mur porteur Niveau 2', 'Fissure diagonale de 3mm visible sur le mur porteur sud du bâtiment A. Nécessite expertise structure urgente.', 'A', 'Zone Sud', 'R+2', 'EIFFAGE Gros Œuvre', 'critical', 'open', '2025-03-18', '2025-03-25', 18, 28,
-  '[{"id":"c1","author":"J. Dupont","content":"Expert contacté, RDV lundi matin.","createdAt":"2025-03-19"}]',
-  '[{"id":"h1","action":"Réserve créée","author":"J. Dupont","createdAt":"2025-03-18"}]'),
+('RSV-001', 'Fissure mur porteur Niveau 2', 'Fissure diagonale de 3mm visible sur le mur porteur sud du bâtiment A. Nécessite expertise structure urgente.', 'A', 'Zone Sud', 'R+2', 'BOUYGUES Construction', 'critical', 'open', '2025-03-18', '2025-03-25', 18, 28,
+  '[{"id":"c1","author":"M. Martin","content":"Expert contacté, RDV lundi matin.","createdAt":"2025-03-19"}]',
+  '[{"id":"h1","action":"Réserve créée","author":"M. Martin","createdAt":"2025-03-18"}]'),
 ('RSV-002', 'Défaut étanchéité toiture Bât B', 'Infiltration d''eau détectée au niveau de la jonction toiture/acrotère côté nord. Zone de 2m² concernée.', 'B', 'Zone Nord', 'R+3', 'BOUYGUES Construction', 'high', 'in_progress', '2025-03-15', '2025-03-28', 32, 14,
   '[{"id":"c2","author":"M. Martin","content":"Travaux de reprise planifiés semaine prochaine.","createdAt":"2025-03-20"}]',
   '[{"id":"h2","action":"Réserve créée","author":"M. Martin","createdAt":"2025-03-15"},{"id":"h3","action":"Statut modifié","author":"M. Martin","oldValue":"Ouvert","newValue":"En cours","createdAt":"2025-03-18"}]'),
-('RSV-003', 'Installation électrique non conforme', 'Câblage électrique non conforme aux normes NFC 15-100 dans le local technique RDC.', 'A', 'Zone Est', 'RDC', 'VINCI Électricité', 'high', 'verification', '2025-03-10', '2025-03-22', 68, 72,
-  '[{"id":"c3","author":"P. Bernard","content":"Reprise effectuée, en attente de contrôle CONSUEL.","createdAt":"2025-03-21"}]',
-  '[{"id":"h4","action":"Réserve créée","author":"P. Bernard","createdAt":"2025-03-10"}]'),
-('RSV-004', 'Revêtement sol dégradé Hall C', 'Carrelage fissuré et décollé sur environ 8m² dans le hall principal du bâtiment C. Risque de chute.', 'C', 'Zone Centre', 'RDC', 'GECINA Finitions', 'medium', 'waiting', '2025-03-12', '2025-04-02', 26, 58, '[]',
-  '[{"id":"h6","action":"Réserve créée","author":"S. Leroy","createdAt":"2025-03-12"}]'),
+('RSV-003', 'Installation électrique non conforme', 'Câblage électrique non conforme aux normes NFC 15-100 dans le local technique RDC.', 'A', 'Zone Est', 'RDC', 'BOUYGUES Construction', 'high', 'verification', '2025-03-10', '2025-03-22', 68, 72,
+  '[{"id":"c3","author":"M. Martin","content":"Reprise effectuée, en attente de contrôle CONSUEL.","createdAt":"2025-03-21"}]',
+  '[{"id":"h4","action":"Réserve créée","author":"M. Martin","createdAt":"2025-03-10"}]'),
+('RSV-004', 'Revêtement sol dégradé Hall C', 'Carrelage fissuré et décollé sur environ 8m² dans le hall principal du bâtiment C. Risque de chute.', 'C', 'Zone Centre', 'RDC', 'BOUYGUES Construction', 'medium', 'waiting', '2025-03-12', '2025-04-02', 26, 58, '[]',
+  '[{"id":"h6","action":"Réserve créée","author":"M. Martin","createdAt":"2025-03-12"}]'),
 ('RSV-005', 'Joints façade manquants Bât B', 'Joints de dilatation absents sur la façade ouest, sur une longueur de 12 mètres au niveau R+1.', 'B', 'Zone Ouest', 'R+1', 'BOUYGUES Construction', 'medium', 'open', '2025-03-20', '2025-04-05', 58, 62, '[]',
-  '[{"id":"h8","action":"Réserve créée","author":"J. Dupont","createdAt":"2025-03-20"}]'),
-('RSV-006', 'Câblage réseau informatique incomplet', 'Câblage réseau non terminé dans les bureaux 201 à 208. 24 prises RJ45 manquantes.', 'A', 'Zone Nord', 'R+2', 'VINCI Électricité', 'low', 'in_progress', '2025-03-17', '2025-03-31', 42, 45,
-  '[{"id":"c4","author":"P. Bernard","content":"12 prises posées ce jour, reste 12.","createdAt":"2025-03-22"}]',
-  '[{"id":"h9","action":"Réserve créée","author":"P. Bernard","createdAt":"2025-03-17"}]'),
-('RSV-007', 'Porte coupe-feu CF60 non installée', 'Porte coupe-feu CF60 manquante au niveau cage escalier bâtiment C. Non-conformité réglementaire ERP.', 'C', 'Zone Est', 'R+1', 'GECINA Finitions', 'critical', 'open', '2025-03-21', '2025-03-26', 62, 32, '[]',
-  '[{"id":"h11","action":"Réserve créée","author":"S. Leroy","createdAt":"2025-03-21"}]'),
+  '[{"id":"h8","action":"Réserve créée","author":"M. Martin","createdAt":"2025-03-20"}]'),
+('RSV-006', 'Câblage réseau informatique incomplet', 'Câblage réseau non terminé dans les bureaux 201 à 208. 24 prises RJ45 manquantes.', 'A', 'Zone Nord', 'R+2', 'BOUYGUES Construction', 'low', 'in_progress', '2025-03-17', '2025-03-31', 42, 45,
+  '[{"id":"c4","author":"M. Martin","content":"12 prises posées ce jour, reste 12.","createdAt":"2025-03-22"}]',
+  '[{"id":"h9","action":"Réserve créée","author":"M. Martin","createdAt":"2025-03-17"}]'),
+('RSV-007', 'Porte coupe-feu CF60 non installée', 'Porte coupe-feu CF60 manquante au niveau cage escalier bâtiment C. Non-conformité réglementaire ERP.', 'C', 'Zone Est', 'R+1', 'BOUYGUES Construction', 'critical', 'open', '2025-03-21', '2025-03-26', 62, 32, '[]',
+  '[{"id":"h11","action":"Réserve créée","author":"M. Martin","createdAt":"2025-03-21"}]'),
 ('RSV-008', 'Peinture façade sud non terminée', 'Peinture façade côté sud bâtiment B non terminée. Il manque environ 30% de la surface totale.', 'B', 'Zone Sud', 'R+2', 'BOUYGUES Construction', 'low', 'closed', '2025-03-05', '2025-03-15', 72, 80,
   '[{"id":"c5","author":"M. Martin","content":"Travaux terminés et validés.","createdAt":"2025-03-15"}]',
   '[{"id":"h12","action":"Réserve créée","author":"M. Martin","createdAt":"2025-03-05"}]'),
-('RSV-009', 'Escalier de secours Bât A incomplet', 'Main courante escalier de secours côté nord non fixée. Garde-corps à hauteur insuffisante.', 'A', 'Zone Nord', 'R+3', 'EIFFAGE Gros Œuvre', 'high', 'open', '2025-03-19', '2025-03-30', 82, 22, '[]',
-  '[{"id":"h14","action":"Réserve créée","author":"J. Dupont","createdAt":"2025-03-19"}]'),
-('RSV-010', 'Robinetterie non conforme Bât C', 'Mitigeurs thermostatiques non installés dans les sanitaires du niveau 2. Normes EHPAD non respectées.', 'C', 'Zone Ouest', 'R+2', 'GECINA Finitions', 'medium', 'verification', '2025-03-13', '2025-03-27', 46, 76,
-  '[{"id":"c6","author":"S. Leroy","content":"Pose effectuée, vérification en cours.","createdAt":"2025-03-24"}]',
-  '[{"id":"h15","action":"Réserve créée","author":"S. Leroy","createdAt":"2025-03-13"}]')
+('RSV-009', 'Escalier de secours Bât A incomplet', 'Main courante escalier de secours côté nord non fixée. Garde-corps à hauteur insuffisante.', 'A', 'Zone Nord', 'R+3', 'BOUYGUES Construction', 'high', 'open', '2025-03-19', '2025-03-30', 82, 22, '[]',
+  '[{"id":"h14","action":"Réserve créée","author":"M. Martin","createdAt":"2025-03-19"}]'),
+('RSV-010', 'Robinetterie non conforme Bât C', 'Mitigeurs thermostatiques non installés dans les sanitaires du niveau 2. Normes EHPAD non respectées.', 'C', 'Zone Ouest', 'R+2', 'BOUYGUES Construction', 'medium', 'verification', '2025-03-13', '2025-03-27', 46, 76,
+  '[{"id":"c6","author":"M. Martin","content":"Pose effectuée, vérification en cours.","createdAt":"2025-03-24"}]',
+  '[{"id":"h15","action":"Réserve créée","author":"M. Martin","createdAt":"2025-03-13"}]')
 on conflict (id) do nothing;
 
 insert into public.tasks (id, title, description, status, priority, deadline, assignee, progress, company) values
-('t1', 'Coulage dalle béton Bât A Niv. 3', 'Mise en œuvre dalle béton armé C30/37 sur 450m²', 'in_progress', 'high', '2025-03-28', 'EIFFAGE Gros Œuvre', 75, 'co1'),
-('t2', 'Pose menuiseries extérieures Bât B', 'Installation fenêtres et baies vitrées double vitrage', 'todo', 'medium', '2025-04-10', 'BOUYGUES Construction', 0, 'co2'),
-('t3', 'Installation réseau électrique Bât A', 'Câblage tableau général + distribution étages', 'in_progress', 'high', '2025-04-05', 'VINCI Électricité', 45, 'co3'),
-('t4', 'Carrelage halls et couloirs Bât C', 'Pose carrelage grès cérame 60x60 zones communes', 'done', 'low', '2025-03-15', 'GECINA Finitions', 100, 'co4'),
-('t5', 'Peinture intérieure Bât B', 'Enduit + peinture blanche toutes pièces Bât B', 'delayed', 'medium', '2025-03-20', 'BOUYGUES Construction', 20, 'co2'),
-('t6', 'Étanchéité toiture Bât C', 'Mise en œuvre étanchéité bicouche + isolation', 'todo', 'high', '2025-04-15', 'BOUYGUES Construction', 0, 'co2')
+('t1', 'Coulage dalle béton Bât A Niv. 3', 'Mise en œuvre dalle béton armé C30/37 sur 450m²', 'in_progress', 'high', '2025-03-28', 'BOUYGUES Construction', 75, 'co1'),
+('t2', 'Pose menuiseries extérieures Bât B', 'Installation fenêtres et baies vitrées double vitrage', 'todo', 'medium', '2025-04-10', 'BOUYGUES Construction', 0, 'co1'),
+('t3', 'Installation réseau électrique Bât A', 'Câblage tableau général + distribution étages', 'in_progress', 'high', '2025-04-05', 'BOUYGUES Construction', 45, 'co1'),
+('t4', 'Carrelage halls et couloirs Bât C', 'Pose carrelage grès cérame 60x60 zones communes', 'done', 'low', '2025-03-15', 'BOUYGUES Construction', 100, 'co1'),
+('t5', 'Peinture intérieure Bât B', 'Enduit + peinture blanche toutes pièces Bât B', 'delayed', 'medium', '2025-03-20', 'BOUYGUES Construction', 20, 'co1'),
+('t6', 'Étanchéité toiture Bât C', 'Mise en œuvre étanchéité bicouche + isolation', 'todo', 'high', '2025-04-15', 'BOUYGUES Construction', 0, 'co1')
 on conflict (id) do nothing;
 
 insert into public.documents (id, name, type, category, uploaded_at, size, version) values

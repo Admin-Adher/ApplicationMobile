@@ -19,6 +19,7 @@ type Action =
   | { type: 'UPDATE_RESERVE'; payload: Reserve }
   | { type: 'UPDATE_RESERVE_STATUS'; payload: { id: string; status: ReserveStatus; author: string } }
   | { type: 'ADD_COMMENT'; payload: { reserveId: string; author: string; content: string } }
+  | { type: 'ADD_COMPANY'; payload: Company }
   | { type: 'UPDATE_COMPANY'; payload: { id: string; actualWorkers: number } }
   | { type: 'ADD_MESSAGE'; payload: { content: string; sender: string } }
   | { type: 'MARK_MESSAGES_READ' }
@@ -164,6 +165,12 @@ function reducer(state: AppState, action: Action): AppState {
       };
     }
 
+    case 'ADD_COMPANY': {
+      const c = action.payload;
+      supabase.from('companies').insert({ id: c.id, name: c.name, short_name: c.shortName, color: c.color, planned_workers: c.plannedWorkers, actual_workers: c.actualWorkers, hours_worked: c.hoursWorked, zone: c.zone, contact: c.contact });
+      return { ...state, companies: [...state.companies, c] };
+    }
+
     case 'UPDATE_COMPANY':
       supabase.from('companies').update({ actual_workers: action.payload.actualWorkers }).eq('id', action.payload.id);
       return { ...state, companies: state.companies.map(c => c.id === action.payload.id ? { ...c, actualWorkers: action.payload.actualWorkers } : c) };
@@ -223,6 +230,7 @@ interface AppContextValue extends AppState {
   updateReserve: (r: Reserve) => void;
   updateReserveStatus: (id: string, status: ReserveStatus, author?: string) => void;
   addComment: (reserveId: string, content: string, author?: string) => void;
+  addCompany: (c: Company) => void;
   updateCompanyWorkers: (id: string, actual: number) => void;
   addMessage: (content: string, sender?: string) => void;
   markMessagesRead: () => void;
@@ -345,6 +353,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       dispatch({ type: 'UPDATE_RESERVE_STATUS', payload: { id, status, author } }),
     addComment: (reserveId, content, author = 'Conducteur de travaux') =>
       dispatch({ type: 'ADD_COMMENT', payload: { reserveId, author, content } }),
+    addCompany: (c) => dispatch({ type: 'ADD_COMPANY', payload: c }),
     updateCompanyWorkers: (id, actual) =>
       dispatch({ type: 'UPDATE_COMPANY', payload: { id, actualWorkers: actual } }),
     addMessage: (content, sender = 'Moi') =>
