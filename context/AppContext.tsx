@@ -1,7 +1,16 @@
-import React, { createContext, useContext, useEffect, useReducer } from 'react';
-import { Reserve, Company, Task, Document, Photo, Message, ReserveStatus, ReservePriority, TaskStatus } from '@/constants/types';
+import React, { createContext, useContext, useEffect, useReducer, useRef } from 'react';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { Reserve, Company, Task, Document, Photo, Message, Channel, ReserveStatus, ReservePriority, TaskStatus } from '@/constants/types';
 import { supabase } from '@/lib/supabase';
 import { initStorageBuckets } from '@/lib/storage';
+import { C } from '@/constants/colors';
+
+export const STATIC_CHANNELS: Channel[] = [
+  { id: 'general', name: 'Général', description: 'Canal principal du projet', icon: 'home', color: C.primary, type: 'general' },
+  { id: 'building-a', name: 'Chantier A', description: 'Messages relatifs au Bâtiment A', icon: 'business', color: '#7C3AED', type: 'building' },
+  { id: 'building-b', name: 'Chantier B', description: 'Messages relatifs au Bâtiment B', icon: 'business', color: '#059669', type: 'building' },
+  { id: 'building-c', name: 'Chantier C', description: 'Messages relatifs au Bâtiment C', icon: 'business', color: '#D97706', type: 'building' },
+];
 
 interface AppState {
   reserves: Reserve[];
@@ -10,19 +19,25 @@ interface AppState {
   documents: Document[];
   photos: Photo[];
   messages: Message[];
+  lastReadByChannel: Record<string, string>;
   isLoading: boolean;
 }
 
 type Action =
-  | { type: 'INIT'; payload: Omit<AppState, 'isLoading'> }
+  | { type: 'INIT'; payload: Omit<AppState, 'isLoading' | 'lastReadByChannel'> }
   | { type: 'ADD_RESERVE'; payload: Reserve }
   | { type: 'UPDATE_RESERVE'; payload: Reserve }
   | { type: 'UPDATE_RESERVE_STATUS'; payload: { id: string; status: ReserveStatus; author: string } }
   | { type: 'ADD_COMMENT'; payload: { reserveId: string; author: string; content: string } }
   | { type: 'ADD_COMPANY'; payload: Company }
   | { type: 'UPDATE_COMPANY'; payload: { id: string; actualWorkers: number } }
-  | { type: 'ADD_MESSAGE'; payload: { content: string; sender: string } }
+  | { type: 'ADD_MESSAGE'; payload: Message }
+  | { type: 'INCOMING_MESSAGE'; payload: Message }
+  | { type: 'DELETE_MESSAGE'; payload: string }
+  | { type: 'UPDATE_MESSAGE'; payload: Message }
   | { type: 'MARK_MESSAGES_READ' }
+  | { type: 'SET_CHANNEL_READ'; payload: { channelId: string; timestamp: string } }
+  | { type: 'SET_LAST_READ'; payload: Record<string, string> }
   | { type: 'ADD_TASK'; payload: Task }
   | { type: 'UPDATE_TASK'; payload: Task }
   | { type: 'DELETE_TASK'; payload: string }
@@ -37,94 +52,81 @@ function genId(): string {
 
 function toReserve(row: any): Reserve {
   return {
-    id: row.id,
-    title: row.title,
-    description: row.description,
-    building: row.building,
-    zone: row.zone,
-    level: row.level,
-    company: row.company,
-    priority: row.priority as ReservePriority,
-    status: row.status as ReserveStatus,
-    createdAt: row.created_at,
-    deadline: row.deadline,
-    comments: row.comments ?? [],
-    history: row.history ?? [],
-    planX: row.plan_x,
-    planY: row.plan_y,
-    photoUri: row.photo_uri ?? undefined,
+    id: row.id, title: row.title, description: row.description, building: row.building,
+    zone: row.zone, level: row.level, company: row.company, priority: row.priority as ReservePriority,
+    status: row.status as ReserveStatus, createdAt: row.created_at, deadline: row.deadline,
+    comments: row.comments ?? [], history: row.history ?? [],
+    planX: row.plan_x, planY: row.plan_y, photoUri: row.photo_uri ?? undefined,
   };
 }
 
 function toCompany(row: any): Company {
   return {
-    id: row.id,
-    name: row.name,
-    shortName: row.short_name,
-    color: row.color,
-    plannedWorkers: row.planned_workers,
-    actualWorkers: row.actual_workers,
-    hoursWorked: row.hours_worked,
-    zone: row.zone,
-    contact: row.contact,
+    id: row.id, name: row.name, shortName: row.short_name, color: row.color,
+    plannedWorkers: row.planned_workers, actualWorkers: row.actual_workers,
+    hoursWorked: row.hours_worked, zone: row.zone, contact: row.contact,
   };
 }
 
 function toTask(row: any): Task {
   return {
-    id: row.id,
-    title: row.title,
-    description: row.description,
-    status: row.status as TaskStatus,
-    priority: row.priority as ReservePriority,
-    deadline: row.deadline,
-    assignee: row.assignee,
-    progress: row.progress,
-    company: row.company,
+    id: row.id, title: row.title, description: row.description, status: row.status as TaskStatus,
+    priority: row.priority as ReservePriority, deadline: row.deadline,
+    assignee: row.assignee, progress: row.progress, company: row.company,
   };
 }
 
 function toDocument(row: any): Document {
   return {
-    id: row.id,
-    name: row.name,
-    type: row.type,
-    category: row.category,
-    uploadedAt: row.uploaded_at,
-    size: row.size,
-    version: row.version,
-    uri: row.uri ?? undefined,
+    id: row.id, name: row.name, type: row.type, category: row.category,
+    uploadedAt: row.uploaded_at, size: row.size, version: row.version, uri: row.uri ?? undefined,
   };
 }
 
 function toPhoto(row: any): Photo {
   return {
-    id: row.id,
-    comment: row.comment,
-    location: row.location,
-    takenAt: row.taken_at,
-    takenBy: row.taken_by,
-    colorCode: row.color_code,
-    uri: row.uri ?? undefined,
+    id: row.id, comment: row.comment, location: row.location,
+    takenAt: row.taken_at, takenBy: row.taken_by, colorCode: row.color_code, uri: row.uri ?? undefined,
   };
 }
 
-function toMessage(row: any): Message {
+export function toMessage(row: any): Message {
   return {
     id: row.id,
+    channelId: row.channel_id ?? 'general',
     sender: row.sender,
     content: row.content,
     timestamp: row.timestamp,
     type: row.type,
     read: row.read,
     isMe: row.is_me,
+    replyToId: row.reply_to_id ?? undefined,
+    replyToContent: row.reply_to_content ?? undefined,
+    replyToSender: row.reply_to_sender ?? undefined,
+    attachmentUri: row.attachment_uri ?? undefined,
+    reactions: row.reactions ?? {},
+    isPinned: row.is_pinned ?? false,
+    readBy: row.read_by ?? [],
+    mentions: row.mentions ?? [],
+    reserveId: row.reserve_id ?? undefined,
+  };
+}
+
+function fromMessage(m: Message): Record<string, any> {
+  return {
+    id: m.id, channel_id: m.channelId, sender: m.sender, content: m.content,
+    timestamp: m.timestamp, type: m.type, read: m.read, is_me: m.isMe,
+    reply_to_id: m.replyToId ?? null, reply_to_content: m.replyToContent ?? null,
+    reply_to_sender: m.replyToSender ?? null, attachment_uri: m.attachmentUri ?? null,
+    reactions: m.reactions, is_pinned: m.isPinned, read_by: m.readBy,
+    mentions: m.mentions, reserve_id: m.reserveId ?? null,
   };
 }
 
 function reducer(state: AppState, action: Action): AppState {
   switch (action.type) {
     case 'INIT':
-      return { ...action.payload, isLoading: false };
+      return { ...action.payload, lastReadByChannel: state.lastReadByChannel, isLoading: false };
 
     case 'ADD_RESERVE':
       return { ...state, reserves: [action.payload, ...state.reserves] };
@@ -135,8 +137,7 @@ function reducer(state: AppState, action: Action): AppState {
     case 'UPDATE_RESERVE_STATUS': {
       const { id, status, author } = action.payload;
       const labels: Record<ReserveStatus, string> = {
-        open: 'Ouvert', in_progress: 'En cours',
-        waiting: 'En attente', verification: 'Vérification', closed: 'Clôturé',
+        open: 'Ouvert', in_progress: 'En cours', waiting: 'En attente', verification: 'Vérification', closed: 'Clôturé',
       };
       return {
         ...state,
@@ -175,23 +176,34 @@ function reducer(state: AppState, action: Action): AppState {
       supabase.from('companies').update({ actual_workers: action.payload.actualWorkers }).eq('id', action.payload.id);
       return { ...state, companies: state.companies.map(c => c.id === action.payload.id ? { ...c, actualWorkers: action.payload.actualWorkers } : c) };
 
-    case 'ADD_MESSAGE': {
-      const msg: Message = {
-        id: genId(),
-        sender: action.payload.sender,
-        content: action.payload.content,
-        timestamp: new Date().toLocaleString('fr-FR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }).replace(',', ''),
-        type: 'message',
-        read: true,
-        isMe: true,
-      };
-      supabase.from('messages').insert({ id: msg.id, sender: msg.sender, content: msg.content, timestamp: msg.timestamp, type: msg.type, read: msg.read, is_me: msg.isMe });
-      return { ...state, messages: [...state.messages, msg] };
-    }
+    case 'ADD_MESSAGE':
+      supabase.from('messages').insert(fromMessage(action.payload)).catch(() => {});
+      return { ...state, messages: [...state.messages, action.payload] };
+
+    case 'INCOMING_MESSAGE':
+      if (state.messages.find(m => m.id === action.payload.id)) return state;
+      return { ...state, messages: [...state.messages, action.payload] };
+
+    case 'DELETE_MESSAGE':
+      supabase.from('messages').delete().eq('id', action.payload).catch(() => {});
+      return { ...state, messages: state.messages.filter(m => m.id !== action.payload) };
+
+    case 'UPDATE_MESSAGE':
+      supabase.from('messages').update(fromMessage(action.payload)).eq('id', action.payload.id).catch(() => {});
+      return { ...state, messages: state.messages.map(m => m.id === action.payload.id ? action.payload : m) };
 
     case 'MARK_MESSAGES_READ':
-      supabase.from('messages').update({ read: true }).eq('is_me', false);
+      supabase.from('messages').update({ read: true }).eq('is_me', false).catch(() => {});
       return { ...state, messages: state.messages.map(m => ({ ...m, read: true })) };
+
+    case 'SET_CHANNEL_READ': {
+      const newLastRead = { ...state.lastReadByChannel, [action.payload.channelId]: action.payload.timestamp };
+      AsyncStorage.setItem('lastReadByChannel', JSON.stringify(newLastRead)).catch(() => {});
+      return { ...state, lastReadByChannel: newLastRead };
+    }
+
+    case 'SET_LAST_READ':
+      return { ...state, lastReadByChannel: action.payload };
 
     case 'ADD_TASK':
       supabase.from('tasks').insert({ id: action.payload.id, title: action.payload.title, description: action.payload.description, status: action.payload.status, priority: action.payload.priority, deadline: action.payload.deadline, assignee: action.payload.assignee, progress: action.payload.progress, company: action.payload.company });
@@ -226,14 +238,20 @@ function reducer(state: AppState, action: Action): AppState {
 }
 
 interface AppContextValue extends AppState {
+  channels: Channel[];
+  unreadByChannel: Record<string, number>;
   addReserve: (r: Reserve) => void;
   updateReserve: (r: Reserve) => void;
   updateReserveStatus: (id: string, status: ReserveStatus, author?: string) => void;
   addComment: (reserveId: string, content: string, author?: string) => void;
   addCompany: (c: Company) => void;
   updateCompanyWorkers: (id: string, actual: number) => void;
-  addMessage: (content: string, sender?: string) => void;
+  addMessage: (channelId: string, content: string, options?: Partial<Pick<Message, 'replyToId' | 'replyToContent' | 'replyToSender' | 'attachmentUri' | 'mentions' | 'reserveId'>>, sender?: string) => void;
+  incomingMessage: (msg: Message) => void;
+  deleteMessage: (id: string) => void;
+  updateMessage: (msg: Message) => void;
   markMessagesRead: () => void;
+  setChannelRead: (channelId: string) => void;
   addTask: (t: Task) => void;
   updateTask: (t: Task) => void;
   deleteTask: (id: string) => void;
@@ -253,7 +271,8 @@ const AppContext = createContext<AppContextValue | null>(null);
 export function AppProvider({ children }: { children: React.ReactNode }) {
   const [state, dispatch] = useReducer(reducer, {
     reserves: [], companies: [], tasks: [],
-    documents: [], photos: [], messages: [], isLoading: true,
+    documents: [], photos: [], messages: [],
+    lastReadByChannel: {}, isLoading: true,
   });
 
   async function loadAll() {
@@ -275,6 +294,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         supabase.from('photos').select('*').order('taken_at', { ascending: false }),
         supabase.from('messages').select('*').order('timestamp', { ascending: true }),
       ]);
+
+      const storedLastRead = await AsyncStorage.getItem('lastReadByChannel').catch(() => null);
+      if (storedLastRead) {
+        dispatch({ type: 'SET_LAST_READ', payload: JSON.parse(storedLastRead) });
+      }
 
       dispatch({
         type: 'INIT',
@@ -303,15 +327,32 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     });
 
     supabase.auth.getSession().then(({ data: { session } }) => {
-      if (session) {
-        loadAll();
-      } else {
-        dispatch({ type: 'SET_LOADING', payload: false });
-      }
+      if (session) loadAll();
+      else dispatch({ type: 'SET_LOADING', payload: false });
     });
 
     return () => subscription.unsubscribe();
   }, []);
+
+  const channels: Channel[] = [
+    ...STATIC_CHANNELS,
+    ...state.companies.map(co => ({
+      id: `company-${co.id}`,
+      name: co.name,
+      description: `Canal de l'entreprise ${co.name}`,
+      icon: 'people' as const,
+      color: co.color,
+      type: 'company' as const,
+    })),
+  ];
+
+  const unreadByChannel: Record<string, number> = {};
+  for (const ch of channels) {
+    const lastRead = state.lastReadByChannel[ch.id] ?? '0';
+    unreadByChannel[ch.id] = state.messages.filter(
+      m => m.channelId === ch.id && !m.isMe && m.timestamp > lastRead
+    ).length;
+  }
 
   const stats = {
     total: state.reserves.length,
@@ -326,10 +367,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     plannedWorkers: state.companies.reduce((s, c) => s + c.plannedWorkers, 0),
   };
 
-  const unreadCount = state.messages.filter(m => !m.read && !m.isMe).length;
+  const unreadCount = Object.values(unreadByChannel).reduce((a, b) => a + b, 0);
 
   const value: AppContextValue = {
-    ...state, stats, unreadCount,
+    ...state, stats, unreadCount, channels, unreadByChannel,
     addReserve: (r) => {
       supabase.from('reserves').insert({
         id: r.id, title: r.title, description: r.description, building: r.building,
@@ -356,9 +397,26 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     addCompany: (c) => dispatch({ type: 'ADD_COMPANY', payload: c }),
     updateCompanyWorkers: (id, actual) =>
       dispatch({ type: 'UPDATE_COMPANY', payload: { id, actualWorkers: actual } }),
-    addMessage: (content, sender = 'Moi') =>
-      dispatch({ type: 'ADD_MESSAGE', payload: { content, sender } }),
+    addMessage: (channelId, content, options = {}, sender = 'Moi') => {
+      const ts = new Date().toLocaleString('fr-FR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }).replace(',', '');
+      const msg: Message = {
+        id: genId(), channelId, sender, content, timestamp: ts,
+        type: 'message', read: true, isMe: true,
+        reactions: {}, isPinned: false, readBy: [], mentions: options.mentions ?? [],
+        replyToId: options.replyToId, replyToContent: options.replyToContent,
+        replyToSender: options.replyToSender, attachmentUri: options.attachmentUri,
+        reserveId: options.reserveId,
+      };
+      dispatch({ type: 'ADD_MESSAGE', payload: msg });
+    },
+    incomingMessage: (msg) => dispatch({ type: 'INCOMING_MESSAGE', payload: msg }),
+    deleteMessage: (id) => dispatch({ type: 'DELETE_MESSAGE', payload: id }),
+    updateMessage: (msg) => dispatch({ type: 'UPDATE_MESSAGE', payload: msg }),
     markMessagesRead: () => dispatch({ type: 'MARK_MESSAGES_READ' }),
+    setChannelRead: (channelId) => {
+      const ts = new Date().toLocaleString('fr-FR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }).replace(',', '');
+      dispatch({ type: 'SET_CHANNEL_READ', payload: { channelId, timestamp: ts } });
+    },
     addTask: (t) => dispatch({ type: 'ADD_TASK', payload: t }),
     updateTask: (t) => dispatch({ type: 'UPDATE_TASK', payload: t }),
     deleteTask: (id) => dispatch({ type: 'DELETE_TASK', payload: id }),

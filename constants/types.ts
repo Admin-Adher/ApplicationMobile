@@ -95,10 +95,29 @@ export interface Photo {
 
 export interface Message {
   id: string;
+  channelId: string;
   sender: string;
   content: string;
   timestamp: string;
   type: 'message' | 'notification' | 'system';
   read: boolean;
   isMe: boolean;
+  replyToId?: string;
+  replyToContent?: string;
+  replyToSender?: string;
+  attachmentUri?: string;
+  reactions: Record<string, string[]>;
+  isPinned: boolean;
+  readBy: string[];
+  mentions: string[];
+  reserveId?: string;
+}
+
+export interface Channel {
+  id: string;
+  name: string;
+  description: string;
+  icon: string;
+  color: string;
+  type: 'general' | 'building' | 'company';
 }
