@@ -124,6 +124,7 @@ export default function PlansScreen() {
   const [building, setBuilding] = useState('A');
   const [selected, setSelected] = useState<Reserve | null>(null);
   const [companyFilter, setCompanyFilter] = useState<string>('all');
+  const [zoneFilter, setZoneFilter] = useState<string>('all');
   const [addingMarker, setAddingMarker] = useState(false);
   const [pendingCoords, setPendingCoords] = useState<{ x: number; y: number } | null>(null);
   const [importing, setImporting] = useState(false);
@@ -138,9 +139,17 @@ export default function PlansScreen() {
 
   const vectorPlan = FLOOR_PLANS[building];
 
+  const buildingZones = useMemo(() => {
+    const zones = reserves.filter(r => r.building === building).map(r => r.zone);
+    return Array.from(new Set(zones)).sort();
+  }, [reserves, building]);
+
   let buildingReserves = reserves.filter(r => r.building === building);
   if (companyFilter !== 'all') {
     buildingReserves = buildingReserves.filter(r => r.company === companyFilter);
+  }
+  if (zoneFilter !== 'all') {
+    buildingReserves = buildingReserves.filter(r => r.zone === zoneFilter);
   }
 
   // Find the most recently uploaded plan for the current building
@@ -286,7 +295,7 @@ export default function PlansScreen() {
                 <TouchableOpacity
                   key={b}
                   style={[styles.buildingBtn, building === b && styles.buildingBtnActive]}
-                  onPress={() => { setBuilding(b); resetView(); setAddingMarker(false); setPendingCoords(null); }}
+                  onPress={() => { setBuilding(b); resetView(); setAddingMarker(false); setPendingCoords(null); setZoneFilter('all'); }}
                 >
                   <Text style={[styles.buildingText, building === b && styles.buildingTextActive]}>Bât. {b}</Text>
                   {documents.some(d => d.category === `Plan-${b}` && d.type === 'plan') && (
@@ -333,6 +342,29 @@ export default function PlansScreen() {
           ))}
         </ScrollView>
       </View>
+
+      {buildingZones.length > 0 && (
+        <View style={styles.zoneFilterWrap}>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 6, paddingHorizontal: 16 }}>
+            <TouchableOpacity
+              style={[styles.filterChip, zoneFilter === 'all' && styles.zoneChipActive]}
+              onPress={() => setZoneFilter('all')}
+            >
+              <Ionicons name="layers-outline" size={11} color={zoneFilter === 'all' ? C.inProgress : C.textMuted} />
+              <Text style={[styles.filterChipText, zoneFilter === 'all' && { color: C.inProgress }]}>Toutes zones</Text>
+            </TouchableOpacity>
+            {buildingZones.map(z => (
+              <TouchableOpacity
+                key={z}
+                style={[styles.filterChip, zoneFilter === z && styles.zoneChipActive]}
+                onPress={() => setZoneFilter(zoneFilter === z ? 'all' : z)}
+              >
+                <Text style={[styles.filterChipText, zoneFilter === z && { color: C.inProgress }]}>{z}</Text>
+              </TouchableOpacity>
+            ))}
+          </ScrollView>
+        </View>
+      )}
 
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
         <View style={styles.planContainer}>
@@ -543,8 +575,10 @@ const styles = StyleSheet.create({
   importBtnDisabled: { opacity: 0.6 },
   importBtnText: { fontSize: 12, fontFamily: 'Inter_600SemiBold', color: C.primary },
   companyFilterWrap: { paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: C.border },
+  zoneFilterWrap: { paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: C.border, backgroundColor: C.surface2 },
   filterChip: { flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: 12, paddingVertical: 6, borderRadius: 20, backgroundColor: C.surface, borderWidth: 1, borderColor: C.border },
   filterChipActive: { backgroundColor: C.primaryBg, borderColor: C.primary },
+  zoneChipActive: { backgroundColor: C.inProgress + '18', borderColor: C.inProgress },
   filterChipText: { fontSize: 12, fontFamily: 'Inter_500Medium', color: C.textSub },
   filterChipTextActive: { color: C.primary },
   filterDot: { width: 6, height: 6, borderRadius: 3 },

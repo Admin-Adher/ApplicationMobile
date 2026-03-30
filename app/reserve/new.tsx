@@ -1,12 +1,14 @@
-import { View, Text, StyleSheet, ScrollView, TextInput, TouchableOpacity, Alert, Platform } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TextInput, TouchableOpacity, Alert, Platform, Image, ActivityIndicator } from 'react-native';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { useState } from 'react';
 import { Ionicons } from '@expo/vector-icons';
+import * as ImagePicker from 'expo-image-picker';
 import { C } from '@/constants/colors';
 import { useApp } from '@/context/AppContext';
 import { useAuth } from '@/context/AuthContext';
 import { ReservePriority, ReserveStatus } from '@/constants/types';
 import Header from '@/components/Header';
+import { uploadPhoto } from '@/lib/storage';
 
 const BUILDINGS = ['A', 'B', 'C'];
 const ZONES = ['Zone Nord', 'Zone Sud', 'Zone Est', 'Zone Ouest', 'Zone Centre'];
@@ -63,9 +65,58 @@ export default function NewReserveScreen() {
   const [company, setCompany] = useState(companies[0]?.name ?? '');
   const [priority, setPriority] = useState<ReservePriority>('medium');
   const [deadline, setDeadline] = useState('');
+  const [photoUri, setPhotoUri] = useState<string | null>(null);
+  const [photoUploading, setPhotoUploading] = useState(false);
 
   const presetX = params.planX ? parseInt(params.planX) : null;
   const presetY = params.planY ? parseInt(params.planY) : null;
+
+  async function handlePickPhoto() {
+    if (Platform.OS !== 'web') {
+      const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (status !== 'granted') {
+        Alert.alert('Permission refusée', "L'accès à la galerie est nécessaire.");
+        return;
+      }
+    }
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      allowsEditing: true,
+      quality: 0.8,
+    });
+    if (!result.canceled && result.assets[0]) {
+      await savePhoto(result.assets[0].uri);
+    }
+  }
+
+  async function handleCamera() {
+    if (Platform.OS === 'web') {
+      Alert.alert('Info', 'La prise de photo directe est disponible sur appareil mobile.');
+      return;
+    }
+    const { status } = await ImagePicker.requestCameraPermissionsAsync();
+    if (status !== 'granted') {
+      Alert.alert('Permission refusée', "L'accès à l'appareil photo est nécessaire.");
+      return;
+    }
+    const result = await ImagePicker.launchCameraAsync({ allowsEditing: true, quality: 0.8 });
+    if (!result.canceled && result.assets[0]) {
+      await savePhoto(result.assets[0].uri);
+    }
+  }
+
+  async function savePhoto(uri: string) {
+    setPhotoUploading(true);
+    try {
+      const filename = `reserve_photo_${Date.now()}.jpg`;
+      const storageUrl = await uploadPhoto(uri, filename);
+      setPhotoUri(storageUrl ?? uri);
+    } catch {
+      setPhotoUri(uri);
+    } finally {
+      setPhotoUploading(false);
+    }
+  }
 
   function handleSubmit() {
     if (!title.trim()) {
@@ -92,6 +143,7 @@ export default function NewReserveScreen() {
       ],
       planX: presetX ?? Math.round(Math.random() * 80 + 10),
       planY: presetY ?? Math.round(Math.random() * 80 + 10),
+      photoUri: photoUri ?? undefined,
     });
     Alert.alert('Réserve créée', `${id} ajoutée avec succès.`, [
       { text: 'OK', onPress: () => router.back() },
@@ -125,6 +177,50 @@ export default function NewReserveScreen() {
               multiline
               numberOfLines={4}
             />
+          </View>
+        </View>
+
+        <View style={styles.card}>
+          <View style={styles.fieldGroup}>
+            <Text style={styles.label}>Photo jointe</Text>
+            {photoUri ? (
+              <View style={styles.photoPreviewWrap}>
+                <Image source={{ uri: photoUri }} style={styles.photoPreview} resizeMode="cover" />
+                <View style={styles.photoActions}>
+                  <TouchableOpacity style={styles.photoActionBtn} onPress={handleCamera}>
+                    <Ionicons name="camera-outline" size={14} color={C.primary} />
+                    <Text style={styles.photoActionText}>Remplacer</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity style={[styles.photoActionBtn, { borderColor: C.open }]} onPress={() => setPhotoUri(null)}>
+                    <Ionicons name="trash-outline" size={14} color={C.open} />
+                    <Text style={[styles.photoActionText, { color: C.open }]}>Supprimer</Text>
+                  </TouchableOpacity>
+                </View>
+                {photoUri.startsWith('http') && (
+                  <View style={styles.cloudBadge}>
+                    <Ionicons name="cloud-done-outline" size={10} color={C.closed} />
+                    <Text style={styles.cloudBadgeText}>Supabase</Text>
+                  </View>
+                )}
+              </View>
+            ) : (
+              <View style={styles.photoRow}>
+                <TouchableOpacity style={[styles.photoBtn, { flex: 1 }]} onPress={handleCamera} disabled={photoUploading}>
+                  <Ionicons name="camera" size={18} color={C.primary} />
+                  <Text style={styles.photoBtnText}>Prendre</Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={[styles.photoBtn, { flex: 1 }]} onPress={handlePickPhoto} disabled={photoUploading}>
+                  <Ionicons name="images-outline" size={18} color={C.inProgress} />
+                  <Text style={[styles.photoBtnText, { color: C.inProgress }]}>Galerie</Text>
+                </TouchableOpacity>
+              </View>
+            )}
+            {photoUploading && (
+              <View style={styles.uploadRow}>
+                <ActivityIndicator size="small" color={C.primary} />
+                <Text style={styles.uploadText}>Upload en cours...</Text>
+              </View>
+            )}
           </View>
         </View>
 
@@ -211,6 +307,18 @@ const styles = StyleSheet.create({
   chipText: { fontSize: 13, fontFamily: 'Inter_500Medium', color: C.textSub },
   chipTextActive: { color: C.primary },
   coDot: { width: 8, height: 8, borderRadius: 4 },
+  photoRow: { flexDirection: 'row', gap: 10 },
+  photoBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, backgroundColor: C.surface2, borderRadius: 10, paddingVertical: 14, borderWidth: 1.5, borderColor: C.border },
+  photoBtnText: { fontSize: 13, fontFamily: 'Inter_600SemiBold', color: C.primary },
+  photoPreviewWrap: { borderRadius: 10, overflow: 'hidden', borderWidth: 1, borderColor: C.border },
+  photoPreview: { width: '100%', height: 160 },
+  photoActions: { flexDirection: 'row', gap: 8, padding: 10, backgroundColor: C.surface2 },
+  photoActionBtn: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, paddingVertical: 8, borderRadius: 8, borderWidth: 1, borderColor: C.border },
+  photoActionText: { fontSize: 12, fontFamily: 'Inter_600SemiBold', color: C.primary },
+  cloudBadge: { flexDirection: 'row', alignItems: 'center', gap: 4, position: 'absolute', top: 8, right: 8, backgroundColor: 'rgba(0,0,0,0.55)', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 10 },
+  cloudBadgeText: { fontSize: 10, fontFamily: 'Inter_600SemiBold', color: C.closed },
+  uploadRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 8 },
+  uploadText: { fontSize: 12, fontFamily: 'Inter_400Regular', color: C.textSub },
   submitBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', backgroundColor: C.primary, borderRadius: 14, paddingVertical: 16, gap: 8 },
   submitBtnText: { fontSize: 16, fontFamily: 'Inter_600SemiBold', color: '#fff' },
 });

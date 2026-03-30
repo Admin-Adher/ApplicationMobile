@@ -34,10 +34,11 @@ function StatusBar({ label, count, total, color }: { label: string; count: numbe
 export default function DashboardScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
-  const { stats, reserves, companies } = useApp();
+  const { stats, reserves, companies, tasks } = useApp();
   const topPad = Platform.OS === 'web' ? 67 : insets.top;
 
   const criticalReserves = reserves.filter(r => r.priority === 'critical' && r.status !== 'closed');
+  const delayedTasks = tasks.filter(t => t.status === 'delayed');
   const today = new Date().toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' });
 
   return (
@@ -63,6 +64,7 @@ export default function DashboardScreen() {
           <KPICard label="Ouvertes" value={stats.open + stats.inProgress} color={C.open} icon="alert-circle" bg={C.openBg} />
           <KPICard label="Critiques" value={criticalReserves.length} color={C.critical} icon="warning" bg={C.criticalBg} />
           <KPICard label="Clôturées" value={stats.closed} color={C.closed} icon="checkmark-circle" bg={C.closedBg} />
+          <KPICard label="Tâches retard" value={delayedTasks.length} color={C.waiting} icon="time-outline" bg={C.waiting + '18'} />
         </View>
 
         <View style={styles.card}>
@@ -132,6 +134,34 @@ export default function DashboardScreen() {
                   <Text style={styles.alertSub}>Bât. {r.building} — Échéance : {r.deadline}</Text>
                 </View>
                 <Ionicons name="chevron-forward" size={14} color={C.critical} />
+              </TouchableOpacity>
+            ))}
+          </View>
+        )}
+
+        {delayedTasks.length > 0 && (
+          <View style={styles.delayCard}>
+            <View style={styles.alertHeader}>
+              <View style={styles.delayIconWrap}>
+                <Ionicons name="time-outline" size={16} color={C.waiting} />
+              </View>
+              <Text style={styles.delayTitle}>Tâches en retard</Text>
+              <View style={styles.delayCount}>
+                <Text style={styles.delayCountText}>{delayedTasks.length}</Text>
+              </View>
+            </View>
+            {delayedTasks.map(t => (
+              <TouchableOpacity
+                key={t.id}
+                style={styles.delayItem}
+                onPress={() => router.push('/planning' as any)}
+              >
+                <View style={styles.delayDot} />
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.alertText}>{t.title}</Text>
+                  <Text style={styles.alertSub}>{t.assignee} — Échéance : {t.deadline}</Text>
+                </View>
+                <Ionicons name="chevron-forward" size={14} color={C.waiting} />
               </TouchableOpacity>
             ))}
           </View>
@@ -225,4 +255,15 @@ const styles = StyleSheet.create({
   alertDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: C.critical },
   alertText: { fontSize: 13, fontFamily: 'Inter_600SemiBold', color: C.text },
   alertSub: { fontSize: 11, fontFamily: 'Inter_400Regular', color: C.textSub, marginTop: 2 },
+  delayCard: {
+    backgroundColor: C.waitingBg,
+    borderRadius: 14, padding: 16,
+    marginBottom: 14, borderWidth: 1, borderColor: 'rgba(217,119,6,0.25)',
+  },
+  delayIconWrap: { width: 28, height: 28, borderRadius: 8, backgroundColor: 'rgba(217,119,6,0.14)', alignItems: 'center', justifyContent: 'center' },
+  delayTitle: { fontSize: 14, fontFamily: 'Inter_700Bold', color: C.waiting, flex: 1 },
+  delayCount: { backgroundColor: C.waiting, borderRadius: 10, paddingHorizontal: 8, paddingVertical: 2 },
+  delayCountText: { fontSize: 11, fontFamily: 'Inter_700Bold', color: '#fff' },
+  delayItem: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 10, borderTopWidth: 1, borderTopColor: 'rgba(217,119,6,0.15)' },
+  delayDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: C.waiting },
 });

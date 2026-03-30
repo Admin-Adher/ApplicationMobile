@@ -1,4 +1,4 @@
-import { View, Text, StyleSheet, FlatList, TouchableOpacity, Alert, Image, Platform, ActivityIndicator } from 'react-native';
+import { View, Text, StyleSheet, FlatList, TouchableOpacity, Alert, Image, Platform, ActivityIndicator, Modal, TextInput, KeyboardAvoidingView } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useState } from 'react';
 import * as ImagePicker from 'expo-image-picker';
@@ -17,32 +17,51 @@ export default function PhotosScreen() {
   const { photos, addPhoto } = useApp();
   const { user } = useAuth();
   const [loading, setLoading] = useState(false);
+  const [pendingUri, setPendingUri] = useState<string | null>(null);
+  const [commentInput, setCommentInput] = useState('');
+  const [locationInput, setLocationInput] = useState('');
+  const [modalVisible, setModalVisible] = useState(false);
 
-  async function processPhoto(uri: string, source: 'camera' | 'gallery') {
+  function openCommentModal(uri: string) {
+    setPendingUri(uri);
+    setCommentInput('');
+    setLocationInput('');
+    setModalVisible(true);
+  }
+
+  async function confirmPhoto() {
+    if (!pendingUri) return;
+    setModalVisible(false);
     setLoading(true);
     try {
       const filename = `photo_${Date.now()}.jpg`;
-      const storageUrl = await uploadPhoto(uri, filename);
-      const finalUri = storageUrl ?? uri;
+      const storageUrl = await uploadPhoto(pendingUri, filename);
+      const finalUri = storageUrl ?? pendingUri;
 
       const newPhoto: Photo = {
         id: genId(),
-        comment: source === 'camera' ? 'Photo prise sur le chantier' : 'Photo chantier',
-        location: source === 'camera' ? 'Chantier' : 'Zone non définie',
+        comment: commentInput.trim() || 'Photo chantier',
+        location: locationInput.trim() || 'Zone non définie',
         takenAt: new Date().toLocaleDateString('fr-FR'),
         takenBy: user?.name ?? 'Équipe',
-        colorCode: source === 'camera' ? C.closed : C.primary,
+        colorCode: C.closed,
         uri: finalUri,
       };
       addPhoto(newPhoto);
       if (storageUrl) {
         Alert.alert('Photo enregistrée', 'Photo uploadée sur Supabase Storage.');
       }
-    } catch (e) {
+    } catch {
       Alert.alert('Erreur', 'Impossible de traiter la photo.');
     } finally {
       setLoading(false);
+      setPendingUri(null);
     }
+  }
+
+  function cancelModal() {
+    setModalVisible(false);
+    setPendingUri(null);
   }
 
   async function handlePickPhoto() {
@@ -59,7 +78,7 @@ export default function PhotosScreen() {
       quality: 0.8,
     });
     if (!result.canceled && result.assets[0]) {
-      await processPhoto(result.assets[0].uri, 'gallery');
+      openCommentModal(result.assets[0].uri);
     }
   }
 
@@ -75,7 +94,7 @@ export default function PhotosScreen() {
     }
     const result = await ImagePicker.launchCameraAsync({ allowsEditing: true, quality: 0.8 });
     if (!result.canceled && result.assets[0]) {
-      await processPhoto(result.assets[0].uri, 'camera');
+      openCommentModal(result.assets[0].uri);
     }
   }
 
@@ -166,6 +185,57 @@ export default function PhotosScreen() {
           </View>
         )}
       />
+
+      <Modal visible={modalVisible} transparent animationType="slide" onRequestClose={cancelModal}>
+        <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={styles.modalOverlay}>
+          <View style={styles.modalCard}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>Annoter la photo</Text>
+              <TouchableOpacity onPress={cancelModal} hitSlop={8}>
+                <Ionicons name="close" size={22} color={C.textSub} />
+              </TouchableOpacity>
+            </View>
+
+            {pendingUri && (
+              <Image source={{ uri: pendingUri }} style={styles.modalPreview} resizeMode="cover" />
+            )}
+
+            <View style={styles.modalField}>
+              <Text style={styles.modalLabel}>Commentaire</Text>
+              <TextInput
+                style={styles.modalInput}
+                placeholder="Décrivez ce que montre la photo..."
+                placeholderTextColor={C.textMuted}
+                value={commentInput}
+                onChangeText={setCommentInput}
+                multiline
+                numberOfLines={3}
+              />
+            </View>
+
+            <View style={styles.modalField}>
+              <Text style={styles.modalLabel}>Emplacement</Text>
+              <TextInput
+                style={styles.modalInput}
+                placeholder="Ex : Bâtiment A — Zone Nord — R+2"
+                placeholderTextColor={C.textMuted}
+                value={locationInput}
+                onChangeText={setLocationInput}
+              />
+            </View>
+
+            <View style={styles.modalBtns}>
+              <TouchableOpacity style={styles.cancelBtn} onPress={cancelModal}>
+                <Text style={styles.cancelBtnText}>Annuler</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.confirmBtn} onPress={confirmPhoto}>
+                <Ionicons name="checkmark" size={16} color="#fff" />
+                <Text style={styles.confirmBtnText}>Enregistrer</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </KeyboardAvoidingView>
+      </Modal>
     </View>
   );
 }
@@ -195,4 +265,21 @@ const styles = StyleSheet.create({
   empty: { alignItems: 'center', paddingTop: 40, gap: 10 },
   emptyText: { fontSize: 15, fontFamily: 'Inter_400Regular', color: C.textMuted },
   emptyHint: { fontSize: 12, fontFamily: 'Inter_400Regular', color: C.textMuted },
+  modalOverlay: { flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.45)' },
+  modalCard: { backgroundColor: C.surface, borderTopLeftRadius: 20, borderTopRightRadius: 20, padding: 20, paddingBottom: 36 },
+  modalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 },
+  modalTitle: { fontSize: 17, fontFamily: 'Inter_700Bold', color: C.text },
+  modalPreview: { width: '100%', height: 150, borderRadius: 12, marginBottom: 16 },
+  modalField: { marginBottom: 14 },
+  modalLabel: { fontSize: 12, fontFamily: 'Inter_600SemiBold', color: C.textSub, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 6 },
+  modalInput: {
+    backgroundColor: C.surface2, borderRadius: 10, paddingHorizontal: 14, paddingVertical: 12,
+    color: C.text, fontFamily: 'Inter_400Regular', fontSize: 14,
+    borderWidth: 1, borderColor: C.border, textAlignVertical: 'top',
+  },
+  modalBtns: { flexDirection: 'row', gap: 10, marginTop: 4 },
+  cancelBtn: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingVertical: 14, borderRadius: 12, borderWidth: 1.5, borderColor: C.border },
+  cancelBtnText: { fontSize: 14, fontFamily: 'Inter_600SemiBold', color: C.textSub },
+  confirmBtn: { flex: 2, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, paddingVertical: 14, borderRadius: 12, backgroundColor: C.primary },
+  confirmBtnText: { fontSize: 14, fontFamily: 'Inter_600SemiBold', color: '#fff' },
 });

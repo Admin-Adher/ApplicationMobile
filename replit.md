@@ -52,3 +52,17 @@ The Supabase schema is defined in `lib/schema.sql`. Run it in the Supabase SQL E
 - Conducteur de travaux (Site Manager)
 - Chef d'équipe (Foreman)
 - Observateur (Observer)
+
+## Feature Completion (100%)
+
+All 10 planned modules are implemented:
+1. **Réserves** — full CRUD, 5 statuses, comments, history, photo attachment on creation
+2. **Plans interactifs** — import PDF/image, pinning, zoom/pan, filter by company + filter by zone
+3. **Documents** — upload, categories, versioning, search
+4. **Équipes** — company tracking, actual/planned workers, hours, zones
+5. **Planning** — list/calendar/Gantt views, task creation/deletion
+6. **Dashboard** — KPIs including delayed tasks counter, status bars, critical + delayed task alerts
+7. **Communication** — internal messaging, reserve comments
+8. **Photos** — camera/gallery, comment+location modal before saving, Supabase upload
+9. **Rapports** — daily/weekly PDF, CSV export
+10. **Utilisateurs** — 4 roles, Supabase auth
