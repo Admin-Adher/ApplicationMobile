@@ -1,12 +1,12 @@
 {
   "expo": {
-    "name": "ApplicationMobile",
-    "slug": "applicationmobile",
+    "name": "BuildTrack",
+    "slug": "buildtrack",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
-    "scheme": "applicationmobile",
-    "userInterfaceStyle": "automatic",
+    "scheme": "buildtrack",
+    "userInterfaceStyle": "dark",
     "newArchEnabled": true,
     "ios": {
       "supportsTablet": true
@@ -14,7 +14,7 @@
     "android": {
       "adaptiveIcon": {
         "foregroundImage": "./assets/images/adaptive-icon.png",
-        "backgroundColor": "#ffffff"
+        "backgroundColor": "#0F1117"
       }
     },
     "web": {
@@ -30,7 +30,7 @@
           "image": "./assets/images/splash-icon.png",
           "imageWidth": 200,
           "resizeMode": "contain",
-          "backgroundColor": "#0A0A0A"
+          "backgroundColor": "#0F1117"
         }
       ]
     ],

@@ -1,54 +1,102 @@
 import { Tabs } from 'expo-router';
-import { useColorScheme, Platform } from 'react-native';
+import { Platform, View, Text, StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { Colors } from '@/constants/colors';
+import { C } from '@/constants/colors';
+import { useApp } from '@/context/AppContext';
+
+function TabIcon({ name, color, size, badge }: { name: any; color: string; size: number; badge?: number }) {
+  return (
+    <View>
+      <Ionicons name={name} size={size} color={color} />
+      {badge && badge > 0 ? (
+        <View style={styles.badge}>
+          <Text style={styles.badgeText}>{badge > 9 ? '9+' : badge}</Text>
+        </View>
+      ) : null}
+    </View>
+  );
+}
 
 export default function TabLayout() {
-  const colorScheme = useColorScheme();
-  const colors = Colors[colorScheme ?? 'light'];
+  const { unreadCount } = useApp();
 
   return (
     <Tabs
       screenOptions={{
         headerShown: false,
-        tabBarActiveTintColor: colors.iconActive,
-        tabBarInactiveTintColor: colors.icon,
+        tabBarActiveTintColor: C.primary,
+        tabBarInactiveTintColor: C.textMuted,
         tabBarStyle: {
-          backgroundColor: colors.tabBar,
-          borderTopColor: colors.tabBarBorder,
+          backgroundColor: C.tabBar,
+          borderTopColor: C.tabBorder,
           borderTopWidth: 1,
-          height: Platform.OS === 'web' ? 84 : undefined,
-          paddingBottom: Platform.OS === 'web' ? 34 : undefined,
+          height: Platform.OS === 'web' ? 84 : 60,
+          paddingBottom: Platform.OS === 'web' ? 34 : 8,
+          paddingTop: 8,
+        },
+        tabBarLabelStyle: {
+          fontFamily: 'Inter_500Medium',
+          fontSize: 10,
         },
       }}
     >
       <Tabs.Screen
         name="index"
         options={{
-          title: 'Home',
-          tabBarIcon: ({ color, size }) => (
-            <Ionicons name="home" size={size} color={color} />
-          ),
+          title: 'Dashboard',
+          tabBarIcon: ({ color, size }) => <TabIcon name="grid" color={color} size={size} />,
         }}
       />
       <Tabs.Screen
-        name="explore"
+        name="reserves"
         options={{
-          title: 'Explore',
-          tabBarIcon: ({ color, size }) => (
-            <Ionicons name="compass" size={size} color={color} />
-          ),
+          title: 'Réserves',
+          tabBarIcon: ({ color, size }) => <TabIcon name="warning" color={color} size={size} />,
         }}
       />
       <Tabs.Screen
-        name="profile"
+        name="plans"
         options={{
-          title: 'Profile',
+          title: 'Plans',
+          tabBarIcon: ({ color, size }) => <TabIcon name="map" color={color} size={size} />,
+        }}
+      />
+      <Tabs.Screen
+        name="equipes"
+        options={{
+          title: 'Équipes',
+          tabBarIcon: ({ color, size }) => <TabIcon name="people" color={color} size={size} />,
+        }}
+      />
+      <Tabs.Screen
+        name="more"
+        options={{
+          title: 'Plus',
           tabBarIcon: ({ color, size }) => (
-            <Ionicons name="person" size={size} color={color} />
+            <TabIcon name="grid-outline" color={color} size={size} badge={unreadCount} />
           ),
         }}
       />
     </Tabs>
   );
 }
+
+const styles = StyleSheet.create({
+  badge: {
+    position: 'absolute',
+    top: -4,
+    right: -8,
+    backgroundColor: C.open,
+    borderRadius: 8,
+    minWidth: 16,
+    height: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 3,
+  },
+  badgeText: {
+    color: '#fff',
+    fontSize: 9,
+    fontFamily: 'Inter_700Bold',
+  },
+});
