@@ -140,12 +140,18 @@ export default function ChannelScreen() {
   }>();
   const isDMChannel = isDM === '1';
   const isGroupChannel = isGroup === '1';
-  const groupMembers = membersParam ? membersParam.split(',').filter(Boolean) : (channels.find(c => c.id === channelId)?.members ?? []);
   const router = useRouter();
-  const { messages, addMessage, deleteMessage, updateMessage, setChannelRead, setActiveChannelId, channels } = useApp();
+  const { messages, addMessage, deleteMessage, updateMessage, setChannelRead, setActiveChannelId, channels, removeCustomChannel, removeGroupChannel, renameChannel, addChannelMember, removeChannelMember, profiles } = useApp();
   const { user } = useAuth();
   const flatListRef = useRef<FlatList>(null);
   const inputRef = useRef<TextInput>(null);
+
+  const channelObj = channels.find(c => c.id === channelId);
+  const color = channelColor ?? channelObj?.color ?? C.primary;
+  const liveChannelName = channelObj?.name ?? channelName ?? 'Canal';
+  const liveMembers: string[] = channelObj?.members ?? (membersParam ? membersParam.split(',').filter(Boolean) : []);
+  const isEditable = channelObj?.type === 'custom' || channelObj?.type === 'group';
+  const isCreator = !!channelObj?.createdBy && channelObj.createdBy === user?.name;
 
   const [text, setText] = useState('');
   const [replyTo, setReplyTo] = useState<Message | null>(null);
@@ -156,14 +162,14 @@ export default function ChannelScreen() {
   const [searchMode, setSearchMode] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [membersVisible, setMembersVisible] = useState(false);
+  const [addMemberVisible, setAddMemberVisible] = useState(false);
+  const [renameVisible, setRenameVisible] = useState(false);
+  const [renameText, setRenameText] = useState('');
   const [typingUsers, setTypingUsers] = useState<string[]>([]);
   const [attachmentUploading, setAttachmentUploading] = useState(false);
   const [mentionQuery, setMentionQuery] = useState('');
   const typingTimeouts = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
   const typingChannelRef = useRef<any>(null);
-
-  const channelObj = channels.find(c => c.id === channelId);
-  const color = channelColor ?? channelObj?.color ?? C.primary;
 
   useEffect(() => {
     setChannelRead(channelId!);
@@ -506,9 +512,9 @@ export default function ChannelScreen() {
           </View>
         )}
         <View style={{ flex: 1 }}>
-          <Text style={styles.headerName} numberOfLines={1}>{channelName ?? 'Canal'}</Text>
-          {isGroupChannel && groupMembers.length > 0 ? (
-            <Text style={styles.headerSub} numberOfLines={1}>{groupMembers.length} membres</Text>
+          <Text style={styles.headerName} numberOfLines={1}>{liveChannelName}</Text>
+          {(isDMChannel || isGroupChannel) && liveMembers.length > 0 ? (
+            <Text style={styles.headerSub} numberOfLines={1}>{liveMembers.length} membre{liveMembers.length !== 1 ? 's' : ''}</Text>
           ) : (
             <Text style={styles.headerSub}>{channelMessages.length} message{channelMessages.length !== 1 ? 's' : ''}</Text>
           )}
@@ -574,7 +580,7 @@ export default function ChannelScreen() {
               <View style={[styles.emptyIcon, { backgroundColor: color + '20' }]}>
                 <Ionicons name={(channelIcon ?? 'chatbubbles') as any} size={32} color={color} />
               </View>
-              <Text style={styles.emptyTitle}>{channelName}</Text>
+              <Text style={styles.emptyTitle}>{liveChannelName}</Text>
               <Text style={styles.emptyText}>Soyez le premier à envoyer un message dans ce canal.</Text>
             </View>
           )}
@@ -717,21 +723,224 @@ export default function ChannelScreen() {
         </TouchableOpacity>
       </Modal>
 
+      {/* === PANEL GESTION CANAL / GROUPE === */}
       <Modal visible={membersVisible} transparent animationType="slide" onRequestClose={() => setMembersVisible(false)}>
         <TouchableOpacity style={styles.modalOverlay} activeOpacity={1} onPress={() => setMembersVisible(false)}>
-          <View style={styles.actionSheet}>
+          <TouchableOpacity activeOpacity={1} style={[styles.actionSheet, { maxHeight: '85%' }]}>
             <View style={styles.actionSheetHandle} />
-            <Text style={styles.pinnedSheetTitle}>Membres actifs</Text>
-            {[user?.name ?? 'Moi', ...knownSenders].filter((v, i, a) => a.indexOf(v) === i).map(name => (
-              <View key={name} style={styles.memberItem}>
-                <View style={[styles.memberAvatar, { backgroundColor: getAvatarColor(name) + '25' }]}>
-                  <Text style={[styles.memberAvatarText, { color: getAvatarColor(name) }]}>{name.charAt(0)}</Text>
-                </View>
-                <Text style={styles.memberName}>{name}</Text>
-                {name === user?.name && <View style={styles.meBadge}><Text style={styles.meBadgeText}>Vous</Text></View>}
+
+            {/* En-tête */}
+            <View style={styles.mgmtHeader}>
+              <View style={[styles.mgmtHeaderIcon, { backgroundColor: color + '20' }]}>
+                {isDMChannel
+                  ? <Text style={[styles.mgmtHeaderIconText, { color }]}>{liveChannelName.charAt(0)}</Text>
+                  : <Ionicons name={(isGroupChannel ? 'people-circle' : channelIcon ?? 'chatbubbles') as any} size={22} color={color} />}
               </View>
-            ))}
-          </View>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.mgmtTitle} numberOfLines={1}>{liveChannelName}</Text>
+                <Text style={styles.mgmtSub}>
+                  {isDMChannel ? 'Message direct' : isGroupChannel ? 'Groupe' : isEditable ? 'Canal personnalisé' : 'Canal chantier'}
+                </Text>
+              </View>
+              {isEditable && isCreator && (
+                <TouchableOpacity
+                  style={styles.mgmtRenameBtn}
+                  onPress={() => { setRenameText(liveChannelName); setRenameVisible(true); }}
+                >
+                  <Ionicons name="pencil-outline" size={16} color={C.primary} />
+                  <Text style={styles.mgmtRenameBtnText}>Renommer</Text>
+                </TouchableOpacity>
+              )}
+            </View>
+
+            <View style={styles.sheetDivider2} />
+
+            {/* Section membres */}
+            {isEditable || isDMChannel || isGroupChannel ? (
+              <>
+                <View style={styles.mgmtSectionRow}>
+                  <Text style={styles.mgmtSectionLabel}>
+                    {isEditable ? 'MEMBRES DU CANAL' : isDMChannel ? 'PARTICIPANTS' : 'MEMBRES DU GROUPE'}
+                  </Text>
+                  {isEditable && (
+                    <TouchableOpacity
+                      style={styles.mgmtAddBtn}
+                      onPress={() => { setMembersVisible(false); setAddMemberVisible(true); }}
+                    >
+                      <Ionicons name="person-add-outline" size={14} color={C.primary} />
+                      <Text style={styles.mgmtAddBtnText}>Ajouter</Text>
+                    </TouchableOpacity>
+                  )}
+                </View>
+                {liveMembers.length > 0 ? liveMembers.map(name => (
+                  <View key={name} style={styles.memberItem}>
+                    <View style={[styles.memberAvatar, { backgroundColor: getAvatarColor(name) + '25' }]}>
+                      <Text style={[styles.memberAvatarText, { color: getAvatarColor(name) }]}>{name.charAt(0)}</Text>
+                    </View>
+                    <Text style={styles.memberName}>{name}</Text>
+                    {name === user?.name && <View style={styles.meBadge}><Text style={styles.meBadgeText}>Vous</Text></View>}
+                    {channelObj?.createdBy === name && name !== user?.name && (
+                      <View style={[styles.meBadge, { backgroundColor: C.primary + '15' }]}>
+                        <Text style={[styles.meBadgeText, { color: C.primary }]}>Créateur</Text>
+                      </View>
+                    )}
+                    {isEditable && name !== channelObj?.createdBy && (
+                      <TouchableOpacity
+                        style={styles.removeMemberBtn}
+                        onPress={() => {
+                          Alert.alert(
+                            'Retirer ce membre ?',
+                            `${name} sera retiré(e) du ${isGroupChannel ? 'groupe' : 'canal'}.`,
+                            [
+                              { text: 'Annuler', style: 'cancel' },
+                              { text: 'Retirer', style: 'destructive', onPress: () => removeChannelMember(channelId!, name) },
+                            ]
+                          );
+                        }}
+                      >
+                        <Ionicons name="remove-circle-outline" size={20} color={C.open} />
+                      </TouchableOpacity>
+                    )}
+                  </View>
+                )) : (
+                  <View style={{ padding: 16, alignItems: 'center' }}>
+                    <Text style={styles.mgmtSub}>Aucun membre enregistré</Text>
+                  </View>
+                )}
+              </>
+            ) : (
+              <>
+                <Text style={styles.mgmtSectionLabel}>MEMBRES ACTIFS</Text>
+                {[user?.name ?? 'Moi', ...knownSenders].filter((v, i, a) => a.indexOf(v) === i).map(name => (
+                  <View key={name} style={styles.memberItem}>
+                    <View style={[styles.memberAvatar, { backgroundColor: getAvatarColor(name) + '25' }]}>
+                      <Text style={[styles.memberAvatarText, { color: getAvatarColor(name) }]}>{name.charAt(0)}</Text>
+                    </View>
+                    <Text style={styles.memberName}>{name}</Text>
+                    {name === user?.name && <View style={styles.meBadge}><Text style={styles.meBadgeText}>Vous</Text></View>}
+                  </View>
+                ))}
+              </>
+            )}
+
+            {/* Zone danger */}
+            {isEditable && isCreator && (
+              <>
+                <View style={styles.sheetDivider2} />
+                <TouchableOpacity
+                  style={styles.deleteCanalBtn}
+                  onPress={() => {
+                    Alert.alert(
+                      `Supprimer ce ${isGroupChannel ? 'groupe' : 'canal'} ?`,
+                      'Tous les messages seront perdus. Cette action est irréversible.',
+                      [
+                        { text: 'Annuler', style: 'cancel' },
+                        {
+                          text: 'Supprimer', style: 'destructive',
+                          onPress: () => {
+                            setMembersVisible(false);
+                            if (channelObj?.type === 'custom') removeCustomChannel(channelId!);
+                            else removeGroupChannel(channelId!);
+                            router.back();
+                          },
+                        },
+                      ]
+                    );
+                  }}
+                >
+                  <Ionicons name="trash-outline" size={18} color={C.open} />
+                  <Text style={styles.deleteCanalText}>
+                    Supprimer {isGroupChannel ? 'le groupe' : 'le canal'}
+                  </Text>
+                </TouchableOpacity>
+              </>
+            )}
+
+            <TouchableOpacity style={styles.sheetCancelBtn2} onPress={() => setMembersVisible(false)}>
+              <Text style={styles.sheetCancelText2}>Fermer</Text>
+            </TouchableOpacity>
+          </TouchableOpacity>
+        </TouchableOpacity>
+      </Modal>
+
+      {/* === MODAL RENOMMER === */}
+      <Modal visible={renameVisible} transparent animationType="fade" onRequestClose={() => setRenameVisible(false)}>
+        <TouchableOpacity style={styles.modalOverlay} activeOpacity={1} onPress={() => setRenameVisible(false)}>
+          <TouchableOpacity activeOpacity={1} style={styles.renameSheet}>
+            <Text style={styles.renameTitle}>
+              Renommer {isGroupChannel ? 'le groupe' : 'le canal'}
+            </Text>
+            <TextInput
+              style={styles.renameInput}
+              value={renameText}
+              onChangeText={setRenameText}
+              placeholder="Nouveau nom..."
+              placeholderTextColor={C.textMuted}
+              autoFocus
+              maxLength={50}
+            />
+            <View style={styles.renameBtns}>
+              <TouchableOpacity style={styles.renameCancelBtn} onPress={() => setRenameVisible(false)}>
+                <Text style={styles.renameCancelText}>Annuler</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.renameConfirmBtn, { backgroundColor: renameText.trim() ? color : C.surface2 }]}
+                onPress={() => {
+                  if (!renameText.trim()) return;
+                  renameChannel(channelId!, renameText.trim());
+                  setRenameVisible(false);
+                }}
+                disabled={!renameText.trim()}
+              >
+                <Text style={[styles.renameConfirmText, { color: renameText.trim() ? '#fff' : C.textMuted }]}>
+                  Enregistrer
+                </Text>
+              </TouchableOpacity>
+            </View>
+          </TouchableOpacity>
+        </TouchableOpacity>
+      </Modal>
+
+      {/* === MODAL AJOUTER UN MEMBRE === */}
+      <Modal visible={addMemberVisible} transparent animationType="slide" onRequestClose={() => setAddMemberVisible(false)}>
+        <TouchableOpacity style={styles.modalOverlay} activeOpacity={1} onPress={() => setAddMemberVisible(false)}>
+          <TouchableOpacity activeOpacity={1} style={[styles.actionSheet, { maxHeight: '75%' }]}>
+            <View style={styles.actionSheetHandle} />
+            <Text style={styles.pinnedSheetTitle}>Ajouter un membre</Text>
+            {profiles
+              .filter(p => p.name !== user?.name && !liveMembers.includes(p.name))
+              .length === 0 ? (
+              <View style={{ padding: 20, alignItems: 'center' }}>
+                <Text style={styles.mgmtSub}>Tous les utilisateurs sont déjà membres</Text>
+              </View>
+            ) : profiles
+              .filter(p => p.name !== user?.name && !liveMembers.includes(p.name))
+              .map(p => (
+                <TouchableOpacity
+                  key={p.id}
+                  style={styles.memberItem}
+                  onPress={() => {
+                    addChannelMember(channelId!, p.name);
+                    setAddMemberVisible(false);
+                  }}
+                >
+                  <View style={[styles.memberAvatar, { backgroundColor: getAvatarColor(p.name) + '25' }]}>
+                    <Text style={[styles.memberAvatarText, { color: getAvatarColor(p.name) }]}>{p.name.charAt(0)}</Text>
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.memberName}>{p.name}</Text>
+                    <Text style={styles.mgmtSub}>{p.role}</Text>
+                  </View>
+                  <View style={[styles.meBadge, { backgroundColor: C.primary + '15' }]}>
+                    <Ionicons name="add" size={12} color={C.primary} />
+                    <Text style={[styles.meBadgeText, { color: C.primary }]}>Ajouter</Text>
+                  </View>
+                </TouchableOpacity>
+              ))}
+            <TouchableOpacity style={styles.sheetCancelBtn2} onPress={() => setAddMemberVisible(false)}>
+              <Text style={styles.sheetCancelText2}>Annuler</Text>
+            </TouchableOpacity>
+          </TouchableOpacity>
         </TouchableOpacity>
       </Modal>
     </View>
@@ -843,6 +1052,31 @@ const styles = StyleSheet.create({
   memberAvatar: { width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center' },
   memberAvatarText: { fontSize: 15, fontFamily: 'Inter_700Bold' },
   memberName: { flex: 1, fontSize: 14, fontFamily: 'Inter_500Medium', color: C.text },
-  meBadge: { backgroundColor: C.primaryBg, paddingHorizontal: 8, paddingVertical: 3, borderRadius: 10 },
+  meBadge: { backgroundColor: C.primaryBg, paddingHorizontal: 8, paddingVertical: 3, borderRadius: 10, flexDirection: 'row', alignItems: 'center', gap: 3 },
   meBadgeText: { fontSize: 11, fontFamily: 'Inter_600SemiBold', color: C.primary },
+  removeMemberBtn: { padding: 4 },
+  mgmtHeader: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 4, marginBottom: 4 },
+  mgmtHeaderIcon: { width: 44, height: 44, borderRadius: 14, alignItems: 'center', justifyContent: 'center' },
+  mgmtHeaderIconText: { fontSize: 20, fontFamily: 'Inter_700Bold' },
+  mgmtTitle: { fontSize: 16, fontFamily: 'Inter_700Bold', color: C.text },
+  mgmtSub: { fontSize: 11, fontFamily: 'Inter_400Regular', color: C.textMuted, marginTop: 1 },
+  mgmtRenameBtn: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 10, paddingVertical: 6, borderRadius: 10, backgroundColor: C.primaryBg },
+  mgmtRenameBtnText: { fontSize: 12, fontFamily: 'Inter_600SemiBold', color: C.primary },
+  mgmtSectionRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 12, marginBottom: 4 },
+  mgmtSectionLabel: { fontSize: 10, fontFamily: 'Inter_600SemiBold', color: C.textMuted, textTransform: 'uppercase', letterSpacing: 0.8 },
+  mgmtAddBtn: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 10, paddingVertical: 6, borderRadius: 10, backgroundColor: C.primaryBg },
+  mgmtAddBtnText: { fontSize: 12, fontFamily: 'Inter_600SemiBold', color: C.primary },
+  sheetDivider2: { height: 1, backgroundColor: C.border, marginVertical: 12 },
+  deleteCanalBtn: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 14, paddingHorizontal: 4 },
+  deleteCanalText: { fontSize: 15, fontFamily: 'Inter_600SemiBold', color: C.open },
+  sheetCancelBtn2: { marginTop: 12, paddingVertical: 14, backgroundColor: C.surface2, borderRadius: 14, alignItems: 'center' },
+  sheetCancelText2: { fontSize: 16, fontFamily: 'Inter_600SemiBold', color: C.textSub },
+  renameSheet: { backgroundColor: C.surface, borderTopLeftRadius: 20, borderTopRightRadius: 20, padding: 24, paddingBottom: 34 },
+  renameTitle: { fontSize: 17, fontFamily: 'Inter_700Bold', color: C.text, marginBottom: 16, textAlign: 'center' },
+  renameInput: { backgroundColor: C.surface2, borderRadius: 12, paddingHorizontal: 14, paddingVertical: 12, fontSize: 15, fontFamily: 'Inter_400Regular', color: C.text, borderWidth: 1, borderColor: C.border, marginBottom: 16 },
+  renameBtns: { flexDirection: 'row', gap: 10 },
+  renameCancelBtn: { flex: 1, paddingVertical: 14, backgroundColor: C.surface2, borderRadius: 12, alignItems: 'center' },
+  renameCancelText: { fontSize: 15, fontFamily: 'Inter_600SemiBold', color: C.textSub },
+  renameConfirmBtn: { flex: 1, paddingVertical: 14, borderRadius: 12, alignItems: 'center' },
+  renameConfirmText: { fontSize: 15, fontFamily: 'Inter_700Bold' },
 });

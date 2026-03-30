@@ -60,6 +60,7 @@ type Action =
   | { type: 'ADD_GROUP_CHANNEL'; payload: Channel }
   | { type: 'SET_GROUP_CHANNELS'; payload: Channel[] }
   | { type: 'REMOVE_GROUP_CHANNEL'; payload: string }
+  | { type: 'UPDATE_CHANNEL'; payload: Channel }
   | { type: 'SET_PINNED_CHANNELS'; payload: string[] };
 
 function genId(): string {
@@ -273,6 +274,17 @@ function reducer(state: AppState, action: Action): AppState {
     case 'REMOVE_GROUP_CHANNEL':
       return { ...state, groupChannels: state.groupChannels.filter(c => c.id !== action.payload) };
 
+    case 'UPDATE_CHANNEL': {
+      const ch = action.payload;
+      if (ch.type === 'custom') {
+        return { ...state, customChannels: state.customChannels.map(c => c.id === ch.id ? ch : c) };
+      }
+      if (ch.type === 'group') {
+        return { ...state, groupChannels: state.groupChannels.map(c => c.id === ch.id ? ch : c) };
+      }
+      return state;
+    }
+
     case 'SET_PINNED_CHANNELS':
       return { ...state, pinnedChannelIds: action.payload };
 
@@ -309,6 +321,9 @@ interface AppContextValue extends AppState {
   removeCustomChannel: (id: string) => void;
   addGroupChannel: (name: string, members: string[], color: string) => Channel;
   removeGroupChannel: (id: string) => void;
+  renameChannel: (id: string, newName: string) => void;
+  addChannelMember: (id: string, memberName: string) => void;
+  removeChannelMember: (id: string, memberName: string) => void;
   pinChannel: (id: string) => { success: boolean; reason?: string };
   unpinChannel: (id: string) => void;
   maxPinnedChannels: number;
@@ -618,6 +633,43 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     saveGroupChannels(updated);
   }
 
+  function _updateAndPersistChannel(updatedCh: Channel) {
+    dispatch({ type: 'UPDATE_CHANNEL', payload: updatedCh });
+    if (updatedCh.type === 'custom') {
+      saveCustomChannels(state.customChannels.map(c => c.id === updatedCh.id ? updatedCh : c));
+    } else if (updatedCh.type === 'group') {
+      saveGroupChannels(state.groupChannels.map(c => c.id === updatedCh.id ? updatedCh : c));
+    }
+  }
+
+  function renameChannel(id: string, newName: string) {
+    const ch = [...state.customChannels, ...state.groupChannels].find(c => c.id === id);
+    if (!ch) return;
+    _updateAndPersistChannel({ ...ch, name: newName });
+  }
+
+  function addChannelMember(id: string, memberName: string) {
+    const ch = [...state.customChannels, ...state.groupChannels].find(c => c.id === id);
+    if (!ch) return;
+    const members = [...(ch.members ?? [])];
+    if (members.includes(memberName)) return;
+    members.push(memberName);
+    _updateAndPersistChannel({
+      ...ch, members,
+      description: ch.type === 'group' ? `Groupe : ${members.join(', ')}` : ch.description,
+    });
+  }
+
+  function removeChannelMember(id: string, memberName: string) {
+    const ch = [...state.customChannels, ...state.groupChannels].find(c => c.id === id);
+    if (!ch) return;
+    const members = (ch.members ?? []).filter(m => m !== memberName);
+    _updateAndPersistChannel({
+      ...ch, members,
+      description: ch.type === 'group' ? `Groupe : ${members.join(', ')}` : ch.description,
+    });
+  }
+
   function pinChannel(id: string): { success: boolean; reason?: string } {
     if (state.pinnedChannelIds.includes(id)) return { success: false, reason: 'already_pinned' };
     if (state.pinnedChannelIds.length >= MAX_PINNED) return { success: false, reason: 'limit_reached' };
@@ -710,6 +762,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     removeCustomChannel,
     addGroupChannel,
     removeGroupChannel,
+    renameChannel,
+    addChannelMember,
+    removeChannelMember,
     pinChannel,
     unpinChannel,
     maxPinnedChannels: MAX_PINNED,
