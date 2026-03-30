@@ -4,13 +4,11 @@ import { useState, useMemo } from 'react';
 import * as DocumentPicker from 'expo-document-picker';
 import { C } from '@/constants/colors';
 import { useApp } from '@/context/AppContext';
+import { useAuth } from '@/context/AuthContext';
 import { DocumentType, Document } from '@/constants/types';
 import Header from '@/components/Header';
 import { uploadDocument } from '@/lib/storage';
-
-function genId() {
-  return Date.now().toString() + Math.random().toString(36).substring(2, 8);
-}
+import { genId, formatSize } from '@/lib/utils';
 
 const DOC_ICONS: Record<DocumentType, string> = {
   plan: 'map-outline',
@@ -37,15 +35,9 @@ function getDocType(mimeType: string | undefined, name: string): DocumentType {
   return 'other';
 }
 
-function formatSize(bytes: number | undefined): string {
-  if (!bytes) return '?';
-  if (bytes < 1024) return `${bytes} o`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} Ko`;
-  return `${(bytes / (1024 * 1024)).toFixed(1)} Mo`;
-}
-
 export default function DocumentsScreen() {
   const { documents, addDocument, deleteDocument } = useApp();
+  const { permissions } = useAuth();
   const [search, setSearch] = useState('');
   const [loading, setLoading] = useState(false);
 
@@ -65,6 +57,10 @@ export default function DocumentsScreen() {
   }, [filtered]);
 
   async function handlePickDocument() {
+    if (!permissions.canCreate) {
+      Alert.alert('Accès refusé', "Votre rôle ne permet pas d'importer des documents.");
+      return;
+    }
     setLoading(true);
     try {
       const result = await DocumentPicker.getDocumentAsync({
@@ -111,7 +107,7 @@ export default function DocumentsScreen() {
     }
     if (doc.uri.startsWith('http')) {
       Linking.openURL(doc.uri).catch(() =>
-        Alert.alert('Erreur', 'Impossible d\'ouvrir le lien.')
+        Alert.alert('Erreur', "Impossible d'ouvrir le lien.")
       );
     } else {
       Alert.alert('Fichier local', `Fichier disponible localement :\n${doc.uri.slice(0, 80)}...`);
@@ -119,6 +115,10 @@ export default function DocumentsScreen() {
   }
 
   function handleDelete(doc: Document) {
+    if (!permissions.canDelete) {
+      Alert.alert('Accès refusé', "Votre rôle ne permet pas de supprimer des documents.");
+      return;
+    }
     Alert.alert('Supprimer', `Supprimer "${doc.name}" ?`, [
       { text: 'Annuler', style: 'cancel' },
       { text: 'Supprimer', style: 'destructive', onPress: () => deleteDocument(doc.id) },
@@ -131,8 +131,8 @@ export default function DocumentsScreen() {
         title="Documents"
         subtitle={`${documents.length} fichiers`}
         showBack
-        rightIcon={loading ? 'hourglass-outline' : 'add-outline'}
-        onRightPress={handlePickDocument}
+        rightIcon={permissions.canCreate ? (loading ? 'hourglass-outline' : 'add-outline') : undefined}
+        onRightPress={permissions.canCreate ? handlePickDocument : undefined}
       />
 
       <View style={styles.searchWrap}>
@@ -146,19 +146,21 @@ export default function DocumentsScreen() {
         />
       </View>
 
-      <TouchableOpacity style={styles.uploadBar} onPress={handlePickDocument} disabled={loading}>
-        {loading ? (
-          <>
-            <ActivityIndicator size="small" color={C.primary} />
-            <Text style={styles.uploadText}>Upload en cours...</Text>
-          </>
-        ) : (
-          <>
-            <Ionicons name="cloud-upload-outline" size={18} color={C.primary} />
-            <Text style={styles.uploadText}>Importer un document (PDF, Word, Excel, Image…)</Text>
-          </>
-        )}
-      </TouchableOpacity>
+      {permissions.canCreate && (
+        <TouchableOpacity style={styles.uploadBar} onPress={handlePickDocument} disabled={loading}>
+          {loading ? (
+            <>
+              <ActivityIndicator size="small" color={C.primary} />
+              <Text style={styles.uploadText}>Upload en cours...</Text>
+            </>
+          ) : (
+            <>
+              <Ionicons name="cloud-upload-outline" size={18} color={C.primary} />
+              <Text style={styles.uploadText}>Importer un document (PDF, Word, Excel, Image…)</Text>
+            </>
+          )}
+        </TouchableOpacity>
+      )}
 
       <SectionList
         sections={grouped}
@@ -197,9 +199,11 @@ export default function DocumentsScreen() {
                   color={C.textMuted}
                 />
               </TouchableOpacity>
-              <TouchableOpacity onPress={() => handleDelete(item)} hitSlop={8} style={[styles.docActionBtn, styles.docDeleteBtn]}>
-                <Ionicons name="trash-outline" size={17} color={C.open} />
-              </TouchableOpacity>
+              {permissions.canDelete && (
+                <TouchableOpacity onPress={() => handleDelete(item)} hitSlop={8} style={[styles.docActionBtn, styles.docDeleteBtn]}>
+                  <Ionicons name="trash-outline" size={17} color={C.open} />
+                </TouchableOpacity>
+              )}
             </View>
           </View>
         )}
@@ -207,7 +211,7 @@ export default function DocumentsScreen() {
           <View style={styles.empty}>
             <Ionicons name="folder-open-outline" size={48} color={C.textMuted} />
             <Text style={styles.emptyText}>Aucun document trouvé</Text>
-            <Text style={styles.emptyHint}>Appuyez sur + pour importer</Text>
+            {permissions.canCreate && <Text style={styles.emptyHint}>Appuyez sur + pour importer</Text>}
           </View>
         )}
       />

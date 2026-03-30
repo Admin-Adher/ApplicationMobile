@@ -10,6 +10,7 @@ import { useRouter } from 'expo-router';
 import * as DocumentPicker from 'expo-document-picker';
 import { C } from '@/constants/colors';
 import { useApp } from '@/context/AppContext';
+import { useAuth } from '@/context/AuthContext';
 import { Reserve, Document } from '@/constants/types';
 import StatusBadge from '@/components/StatusBadge';
 import { STATUS_CONFIG } from '@/components/StatusBadge';
@@ -135,6 +136,7 @@ export default function PlansScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const { reserves, companies, documents, addDocument, deleteDocument } = useApp();
+  const { permissions } = useAuth();
   const [building, setBuilding] = useState('A');
   const [selected, setSelected] = useState<Reserve | null>(null);
   const [companyFilter, setCompanyFilter] = useState<string>('all');
@@ -339,20 +341,22 @@ export default function PlansScreen() {
               ))}
             </View>
           </ScrollView>
-          <TouchableOpacity
-            style={[styles.importBtn, importing && styles.importBtnDisabled]}
-            onPress={handleImportPlan}
-            disabled={importing}
-          >
-            {importing ? (
-              <ActivityIndicator size="small" color={C.primary} />
-            ) : (
-              <>
-                <Ionicons name="cloud-upload-outline" size={15} color={C.primary} />
-                <Text style={styles.importBtnText}>Importer</Text>
-              </>
-            )}
-          </TouchableOpacity>
+          {permissions.canCreate && (
+            <TouchableOpacity
+              style={[styles.importBtn, importing && styles.importBtnDisabled]}
+              onPress={handleImportPlan}
+              disabled={importing}
+            >
+              {importing ? (
+                <ActivityIndicator size="small" color={C.primary} />
+              ) : (
+                <>
+                  <Ionicons name="cloud-upload-outline" size={15} color={C.primary} />
+                  <Text style={styles.importBtnText}>Importer</Text>
+                </>
+              )}
+            </TouchableOpacity>
+          )}
         </View>
       </View>
 
@@ -412,25 +416,27 @@ export default function PlansScreen() {
               )}
             </View>
             <View style={{ flexDirection: 'row', gap: 8 }}>
-              {activePlan && (
+              {activePlan && permissions.canCreate && (
                 <TouchableOpacity style={styles.removePlanBtn} onPress={handleRemovePlan}>
                   <Ionicons name="swap-horizontal-outline" size={13} color={C.textSub} />
                   <Text style={styles.removePlanText}>Remplacer</Text>
                 </TouchableOpacity>
               )}
-              <TouchableOpacity
-                style={[styles.addMarkerBtn, addingMarker && styles.addMarkerBtnActive]}
-                onPress={() => setAddingMarker(!addingMarker)}
-              >
-                <Ionicons name={addingMarker ? 'close' : 'add-circle-outline'} size={15} color={addingMarker ? C.open : C.primary} />
-                <Text style={[styles.addMarkerText, addingMarker && { color: C.open }]}>
-                  {addingMarker ? 'Annuler' : 'Placer'}
-                </Text>
-              </TouchableOpacity>
+              {permissions.canCreate && (
+                <TouchableOpacity
+                  style={[styles.addMarkerBtn, addingMarker && styles.addMarkerBtnActive]}
+                  onPress={() => setAddingMarker(!addingMarker)}
+                >
+                  <Ionicons name={addingMarker ? 'close' : 'add-circle-outline'} size={15} color={addingMarker ? C.open : C.primary} />
+                  <Text style={[styles.addMarkerText, addingMarker && { color: C.open }]}>
+                    {addingMarker ? 'Annuler' : 'Placer'}
+                  </Text>
+                </TouchableOpacity>
+              )}
             </View>
           </View>
 
-          {!activePlan && (
+          {!activePlan && permissions.canCreate && (
             <TouchableOpacity style={styles.importHintBanner} onPress={handleImportPlan} disabled={importing}>
               <Ionicons name="cloud-upload-outline" size={16} color={C.primary} />
               <Text style={styles.importHintText}>

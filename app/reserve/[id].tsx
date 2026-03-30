@@ -366,12 +366,14 @@ export default function ReserveDetailScreen() {
             <Text style={styles.sectionTitle}>
               Commentaires ({reserve.comments.length})
             </Text>
-            <TouchableOpacity
-              onPress={() => setShowCommentBox(!showCommentBox)}
-              style={styles.addCommentBtn}
-            >
-              <Ionicons name={showCommentBox ? 'close' : 'add'} size={18} color={C.primary} />
-            </TouchableOpacity>
+            {permissions.canCreate && (
+              <TouchableOpacity
+                onPress={() => setShowCommentBox(!showCommentBox)}
+                style={styles.addCommentBtn}
+              >
+                <Ionicons name={showCommentBox ? 'close' : 'add'} size={18} color={C.primary} />
+              </TouchableOpacity>
+            )}
           </View>
 
           {showCommentBox && (

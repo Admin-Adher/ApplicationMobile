@@ -98,9 +98,15 @@ export default function EquipesScreen() {
   }
 
   function handleSave() {
-    if (!nom.trim() || !nomCourt.trim() || !effectif.trim()) return;
+    if (!nom.trim() || !nomCourt.trim() || !effectif.trim()) {
+      Alert.alert('Champs requis', 'Le nom, le sigle et l\'effectif prévu sont obligatoires.');
+      return;
+    }
     const planned = parseInt(effectif, 10);
-    if (isNaN(planned) || planned < 0) return;
+    if (isNaN(planned) || planned < 0) {
+      Alert.alert('Valeur invalide', 'L\'effectif prévu doit être un nombre entier positif.');
+      return;
+    }
     const hours = parseInt(heures, 10);
 
     if (editTarget) {
@@ -155,8 +161,16 @@ export default function EquipesScreen() {
     if (!workerModal) return;
     const n = parseInt(workerInput, 10);
     const h = parseInt(hoursInput, 10);
-    if (!isNaN(n) && n >= 0) updateCompanyWorkers(workerModal.id, n);
-    if (!isNaN(h) && h >= 0) updateCompanyHours(workerModal.id, h);
+    if (isNaN(n) || n < 0) {
+      Alert.alert('Valeur invalide', 'Le nombre de personnes présentes doit être un entier positif.');
+      return;
+    }
+    if (isNaN(h) || h < 0) {
+      Alert.alert('Valeur invalide', 'Les heures travaillées doivent être un entier positif.');
+      return;
+    }
+    updateCompanyWorkers(workerModal.id, n);
+    updateCompanyHours(workerModal.id, h);
     setWorkerModal(null);
   }
 

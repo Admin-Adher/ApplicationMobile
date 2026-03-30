@@ -10,14 +10,11 @@ import { useAuth } from '@/context/AuthContext';
 import Header from '@/components/Header';
 import { Photo, Channel } from '@/constants/types';
 import { uploadPhoto } from '@/lib/storage';
-
-function genId() {
-  return Date.now().toString() + Math.random().toString(36).substring(2, 8);
-}
+import { genId } from '@/lib/utils';
 
 export default function PhotosScreen() {
   const { photos, addPhoto, deletePhoto, channels, addMessage } = useApp();
-  const { user } = useAuth();
+  const { user, permissions } = useAuth();
   const router = useRouter();
   const [loading, setLoading] = useState(false);
   const [pendingUri, setPendingUri] = useState<string | null>(null);
@@ -59,6 +56,10 @@ export default function PhotosScreen() {
   }
 
   function handleDeletePhoto(id: string, comment: string) {
+    if (!permissions.canDelete) {
+      Alert.alert('Accès refusé', "Votre rôle ne permet pas de supprimer des photos.");
+      return;
+    }
     Alert.alert('Supprimer la photo', `Supprimer "${comment}" ?`, [
       { text: 'Annuler', style: 'cancel' },
       { text: 'Supprimer', style: 'destructive', onPress: () => deletePhoto(id) },
@@ -108,6 +109,10 @@ export default function PhotosScreen() {
   }
 
   async function handlePickPhoto() {
+    if (!permissions.canCreate) {
+      Alert.alert('Accès refusé', "Votre rôle ne permet pas d'ajouter des photos.");
+      return;
+    }
     if (Platform.OS !== 'web') {
       const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
       if (status !== 'granted') {
@@ -126,6 +131,10 @@ export default function PhotosScreen() {
   }
 
   async function handleCamera() {
+    if (!permissions.canCreate) {
+      Alert.alert('Accès refusé', "Votre rôle ne permet pas d'ajouter des photos.");
+      return;
+    }
     if (Platform.OS === 'web') {
       Alert.alert('Info', 'La prise de photo directe est disponible sur appareil mobile via Expo Go.');
       return;
@@ -147,8 +156,8 @@ export default function PhotosScreen() {
         title="Photos chantier"
         subtitle={`${photos.length} photos`}
         showBack
-        rightIcon="camera-outline"
-        onRightPress={handleCamera}
+        rightIcon={permissions.canCreate ? 'camera-outline' : undefined}
+        onRightPress={permissions.canCreate ? handleCamera : undefined}
       />
 
       <FlatList
@@ -170,16 +179,18 @@ export default function PhotosScreen() {
                 <Text style={styles.statLabel}>Photographes</Text>
               </View>
             </View>
-            <View style={styles.actionRow}>
-              <TouchableOpacity style={[styles.actionBtn, { flex: 1 }]} onPress={handleCamera} disabled={loading}>
-                <Ionicons name="camera" size={18} color={C.primary} />
-                <Text style={styles.actionBtnText}>Prendre une photo</Text>
-              </TouchableOpacity>
-              <TouchableOpacity style={[styles.actionBtn, { flex: 1 }]} onPress={handlePickPhoto} disabled={loading}>
-                <Ionicons name="images-outline" size={18} color={C.inProgress} />
-                <Text style={[styles.actionBtnText, { color: C.inProgress }]}>Depuis la galerie</Text>
-              </TouchableOpacity>
-            </View>
+            {permissions.canCreate && (
+              <View style={styles.actionRow}>
+                <TouchableOpacity style={[styles.actionBtn, { flex: 1 }]} onPress={handleCamera} disabled={loading}>
+                  <Ionicons name="camera" size={18} color={C.primary} />
+                  <Text style={styles.actionBtnText}>Prendre une photo</Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={[styles.actionBtn, { flex: 1 }]} onPress={handlePickPhoto} disabled={loading}>
+                  <Ionicons name="images-outline" size={18} color={C.inProgress} />
+                  <Text style={[styles.actionBtnText, { color: C.inProgress }]}>Depuis la galerie</Text>
+                </TouchableOpacity>
+              </View>
+            )}
             {loading && (
               <View style={styles.loadingRow}>
                 <ActivityIndicator color={C.primary} size="small" />
@@ -232,9 +243,11 @@ export default function PhotosScreen() {
                   <Ionicons name="share-social-outline" size={12} color={C.primary} />
                   <Text style={styles.shareBtnText}>Partager</Text>
                 </TouchableOpacity>
-                <TouchableOpacity style={styles.deleteBtn} onPress={() => handleDeletePhoto(item.id, item.comment)} activeOpacity={0.75}>
-                  <Ionicons name="trash-outline" size={12} color={C.open} />
-                </TouchableOpacity>
+                {permissions.canDelete && (
+                  <TouchableOpacity style={styles.deleteBtn} onPress={() => handleDeletePhoto(item.id, item.comment)} activeOpacity={0.75}>
+                    <Ionicons name="trash-outline" size={12} color={C.open} />
+                  </TouchableOpacity>
+                )}
               </View>
             </View>
           </View>

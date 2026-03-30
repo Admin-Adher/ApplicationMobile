@@ -381,7 +381,7 @@ export default function PlanningScreen() {
             onPress={() => setViewMode(mode)}
           >
             <Ionicons
-              name={mode === 'list' ? 'list-outline' : mode === 'calendar' ? 'calendar-outline' : 'bar-chart-outline'}
+              name={mode === 'list' ? 'list-outline' : mode === 'calendar' ? 'calendar-outline' : 'reorder-four-outline'}
               size={15}
               color={viewMode === mode ? C.primary : C.textSub}
             />

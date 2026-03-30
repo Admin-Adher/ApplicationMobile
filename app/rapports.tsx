@@ -88,7 +88,7 @@ function buildWeeklyHTML(reserves: any[], companies: any[], tasks: any[], stats:
   </body></html>`;
 }
 
-function buildXlsvCSV(reserves: any[]): string {
+function buildCsvReport(reserves: any[]): string {
   const header = ['ID', 'Titre', 'Statut', 'Priorité', 'Bâtiment', 'Zone', 'Niveau', 'Entreprise', 'Date création', 'Échéance'];
   const statusMap: Record<string, string> = { open: 'Ouvert', in_progress: 'En cours', waiting: 'En attente', verification: 'Vérification', closed: 'Clôturé' };
   const priorityMap: Record<string, string> = { low: 'Faible', medium: 'Moyen', high: 'Élevé', critical: 'Critique' };
@@ -151,7 +151,7 @@ export default function RapportsScreen() {
       return;
     }
     try {
-      const csv = buildXlsvCSV(reserves);
+      const csv = buildCsvReport(reserves);
 
       if (Platform.OS === 'web') {
         const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
@@ -191,10 +191,12 @@ export default function RapportsScreen() {
               <Text style={styles.reportTitle}>Rapport journalier</Text>
               <Text style={styles.reportDate}>{today}</Text>
             </View>
-            <TouchableOpacity style={styles.exportBtn} onPress={() => exportPDF('daily')}>
-              <Ionicons name="download-outline" size={14} color={C.primary} />
-              <Text style={styles.exportBtnText}>PDF</Text>
-            </TouchableOpacity>
+            {permissions.canExport && (
+              <TouchableOpacity style={styles.exportBtn} onPress={() => exportPDF('daily')}>
+                <Ionicons name="download-outline" size={14} color={C.primary} />
+                <Text style={styles.exportBtnText}>PDF</Text>
+              </TouchableOpacity>
+            )}
           </View>
 
           <View style={styles.reportSection}>
@@ -243,10 +245,12 @@ export default function RapportsScreen() {
               <Text style={styles.reportTitle}>Rapport hebdomadaire</Text>
               <Text style={styles.reportDate}>Semaine {weekNum}</Text>
             </View>
-            <TouchableOpacity style={styles.exportBtn} onPress={() => exportPDF('weekly')}>
-              <Ionicons name="download-outline" size={14} color={C.primary} />
-              <Text style={styles.exportBtnText}>PDF</Text>
-            </TouchableOpacity>
+            {permissions.canExport && (
+              <TouchableOpacity style={styles.exportBtn} onPress={() => exportPDF('weekly')}>
+                <Ionicons name="download-outline" size={14} color={C.primary} />
+                <Text style={styles.exportBtnText}>PDF</Text>
+              </TouchableOpacity>
+            )}
           </View>
 
           <View style={styles.reportSection}>
@@ -286,10 +290,12 @@ export default function RapportsScreen() {
               <Text style={styles.reportTitle}>Rapport réserves</Text>
               <Text style={styles.reportDate}>{stats.total} réserves au total</Text>
             </View>
-            <TouchableOpacity style={styles.exportBtn} onPress={exportCSV}>
-              <Ionicons name="download-outline" size={14} color={C.closed} />
-              <Text style={[styles.exportBtnText, { color: C.closed }]}>CSV</Text>
-            </TouchableOpacity>
+            {permissions.canExport && (
+              <TouchableOpacity style={styles.exportBtn} onPress={exportCSV}>
+                <Ionicons name="download-outline" size={14} color={C.closed} />
+                <Text style={[styles.exportBtnText, { color: C.closed }]}>CSV</Text>
+              </TouchableOpacity>
+            )}
           </View>
 
           {(['open', 'in_progress', 'waiting', 'verification', 'closed'] as const).map(s => {
@@ -311,10 +317,12 @@ export default function RapportsScreen() {
             );
           })}
 
-          <TouchableOpacity style={styles.fullExportBtn} onPress={exportCSV}>
-            <Ionicons name="table-outline" size={16} color="#fff" />
-            <Text style={styles.fullExportBtnText}>Exporter toutes les réserves (CSV)</Text>
-          </TouchableOpacity>
+          {permissions.canExport && (
+            <TouchableOpacity style={styles.fullExportBtn} onPress={exportCSV}>
+              <Ionicons name="table-outline" size={16} color="#fff" />
+              <Text style={styles.fullExportBtnText}>Exporter toutes les réserves (CSV)</Text>
+            </TouchableOpacity>
+          )}
         </View>
       </ScrollView>
     </View>

@@ -144,7 +144,7 @@ const styles = StyleSheet.create({
   headerRow: { flexDirection: 'row', alignItems: 'center' },
   title: { fontSize: 22, fontFamily: 'Inter_700Bold', color: C.text },
   subtitle: { fontSize: 12, fontFamily: 'Inter_400Regular', color: C.textSub, marginTop: 2 },
-  logoutBtn: { width: 36, height: 36, borderRadius: 18, backgroundColor: C.open + '15', alignItems: 'center', justifyContent: 'center' },
+
   content: { padding: 16, paddingBottom: 40 },
   userCard: { flexDirection: 'row', alignItems: 'center', gap: 14, backgroundColor: C.surface, borderRadius: 14, padding: 16, marginBottom: 12, borderWidth: 1, borderColor: C.border, borderLeftWidth: 4 },
   userAvatar: { width: 48, height: 48, borderRadius: 24, alignItems: 'center', justifyContent: 'center' },

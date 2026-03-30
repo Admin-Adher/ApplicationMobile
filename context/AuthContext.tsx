@@ -137,7 +137,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       if (isSeedingRef.current) return;
       if (session?.user) {
         const profile = await fetchProfile(session.user.id);
-        setUser(profile);
+        if (profile) {
+          setUser(profile);
+        } else {
+          await supabase.auth.signOut();
+          setUser(null);
+        }
       } else {
         setUser(null);
       }
