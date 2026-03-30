@@ -3,7 +3,8 @@ import { View, Text, StyleSheet } from 'react-native';
 import { Stack, useRouter, useSegments } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import * as SplashScreen from 'expo-splash-screen';
-import { useFonts, Inter_400Regular, Inter_500Medium, Inter_600SemiBold, Inter_700Bold } from '@expo-google-fonts/inter';
+import { useFonts } from 'expo-font';
+import { Inter_400Regular, Inter_500Medium, Inter_600SemiBold, Inter_700Bold } from '@expo-google-fonts/inter';
 import { Ionicons } from '@expo/vector-icons';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -62,21 +63,26 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
 }
 
 export default function RootLayout() {
-  const [fontsLoaded, fontError] = useFonts({
+  const [interLoaded, interError] = useFonts({
     Inter_400Regular,
     Inter_500Medium,
     Inter_600SemiBold,
     Inter_700Bold,
-    ...Ionicons.font,
   });
 
+  const [iconsLoaded] = useFonts({
+    ionicons: require('@expo/vector-icons/build/vendor/react-native-vector-icons/Fonts/Ionicons.ttf'),
+  });
+
+  const fontsReady = (interLoaded || !!interError);
+
   useEffect(() => {
-    if (fontsLoaded || fontError) {
+    if (fontsReady) {
       SplashScreen.hideAsync();
     }
-  }, [fontsLoaded, fontError]);
+  }, [fontsReady]);
 
-  if (!fontsLoaded && !fontError) {
+  if (!fontsReady) {
     return null;
   }
 
