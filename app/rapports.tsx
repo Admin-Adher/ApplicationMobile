@@ -2,6 +2,7 @@ import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert, Platform }
 import { Ionicons } from '@expo/vector-icons';
 import * as Print from 'expo-print';
 import * as Sharing from 'expo-sharing';
+import * as FileSystem from 'expo-file-system';
 import { C } from '@/constants/colors';
 import { useApp } from '@/context/AppContext';
 import { useAuth } from '@/context/AuthContext';
@@ -139,13 +140,27 @@ export default function RapportsScreen() {
     }
     try {
       const csv = buildXlsvCSV(reserves);
-      const html = `<html><body><pre style="font-family:monospace;font-size:11px">${csv.replace(/</g, '&lt;')}</pre></body></html>`;
-      const { uri } = await Print.printToFileAsync({ html });
+
+      if (Platform.OS === 'web') {
+        const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = `buildtrack_reserves_${new Date().toLocaleDateString('fr-FR').replace(/\//g, '-')}.csv`;
+        link.click();
+        URL.revokeObjectURL(url);
+        return;
+      }
+
+      const filename = `buildtrack_reserves_${Date.now()}.csv`;
+      const fileUri = FileSystem.cacheDirectory + filename;
+      await FileSystem.writeAsStringAsync(fileUri, csv, { encoding: FileSystem.EncodingType.UTF8 });
+
       const canShare = await Sharing.isAvailableAsync();
       if (canShare) {
-        await Sharing.shareAsync(uri, { mimeType: 'text/csv', dialogTitle: 'Partager le rapport CSV' });
+        await Sharing.shareAsync(fileUri, { mimeType: 'text/csv', dialogTitle: 'Partager le rapport CSV', UTI: 'public.comma-separated-values-text' });
       } else {
-        Alert.alert('CSV généré', `${reserves.length} réserves exportées.`);
+        Alert.alert('CSV généré', `${reserves.length} réserves exportées.\n${fileUri}`);
       }
     } catch (e: any) {
       Alert.alert('Erreur', `Impossible d'exporter : ${e?.message ?? e}`);

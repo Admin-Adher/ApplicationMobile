@@ -11,7 +11,7 @@ Digital construction site management application built with Expo (React Native) 
 - **State Management:** React Context API + `useReducer`
 - **Data Fetching:** React Context (TanStack Query was installed but unused; removed from dependencies)
 - **Local Storage:** AsyncStorage
-- **Reporting:** `expo-print` (PDF), `xlsx` (Excel/CSV)
+- **Reporting:** `expo-print` (PDF), `expo-file-system` + `expo-sharing` (CSV natif)
 
 ## Project Structure
 
@@ -73,6 +73,12 @@ The Supabase schema is defined in `lib/schema.sql`. Run it in the Supabase SQL E
 - **`lib/mockData.ts`** — Distributed `MOCK_TASKS` across all 4 companies (previously all 6 tasks used `company: 'co1'` BOUYGUES only); updated `assignee` names to match
 - **`context/AppContext.tsx`** — Collapsed 3 identical reducer cases (`UPDATE_RESERVE`, `UPDATE_RESERVE_STATUS`, `UPDATE_RESERVE_FIELDS`) into a single fallthrough — they had identical implementations
 - **`package.json`** — Moved `eas-cli` from `dependencies` to `devDependencies` (it's a build tool, not a runtime dep); removed unused `@tanstack/react-query`
+
+**Session 3 (actuelle) :**
+- **`lib/supabase.ts`** — Corrigé le message de warning qui mentionnait encore "offline/mock mode" (inexistant depuis la suppression de mockData). Nouveau message : "L'application ne fonctionnera pas sans Supabase configuré."
+- **`app/photos.tsx`** — Remplacé `KeyboardAvoidingView` importé depuis `react-native` par la version de `react-native-keyboard-controller`, cohérent avec tous les autres écrans (equipes.tsx, etc.)
+- **`app/rapports.tsx`** — Refactorisé l'export CSV : suppression du workaround `Print.printToFileAsync` (créait un PDF d'une balise `<pre>` HTML) → utilisation de `expo-file-system` pour écrire un vrai fichier `.csv` puis partage via `expo-sharing`. Sur web : téléchargement direct via l'API Blob du navigateur.
+- **`package.json`** — Ajout de `expo-file-system@~18.1.11` (compatible Expo SDK 53)
 
 ## Feature Completion (100%)
 

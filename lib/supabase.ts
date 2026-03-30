@@ -7,8 +7,8 @@ const SUPABASE_KEY = process.env.EXPO_PUBLIC_SUPABASE_KEY;
 
 if (!SUPABASE_URL || !SUPABASE_KEY) {
   console.warn(
-    '[Supabase] EXPO_PUBLIC_SUPABASE_URL or EXPO_PUBLIC_SUPABASE_KEY is not set. ' +
-    'The app will run in offline/mock mode only.'
+    '[Supabase] EXPO_PUBLIC_SUPABASE_URL ou EXPO_PUBLIC_SUPABASE_KEY non défini. ' +
+    "L'application ne fonctionnera pas sans Supabase configuré."
   );
 }
 
