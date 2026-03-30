@@ -5,7 +5,6 @@ import { Reserve, Company, Task, Document, Photo, Message, Channel, Profile, Com
 import { supabase, isSupabaseConfigured } from '@/lib/supabase';
 import { initStorageBuckets } from '@/lib/storage';
 import { C } from '@/constants/colors';
-import { MOCK_RESERVES, MOCK_COMPANIES, MOCK_TASKS, MOCK_DOCUMENTS, MOCK_PHOTOS, MOCK_MESSAGES } from '@/lib/mockData';
 
 export const STATIC_CHANNELS: Channel[] = [
   { id: 'general', name: 'Général', description: 'Canal principal du projet', icon: 'home', color: C.primary, type: 'general' },
@@ -429,25 +428,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   async function loadAll() {
     dispatch({ type: 'SET_LOADING', payload: true });
 
-    if (!isSupabaseConfigured) {
-      await loadCustomChannels();
-      await loadGroupChannels();
-      await loadPinnedChannels();
-      dispatch({
-        type: 'INIT',
-        payload: {
-          reserves: MOCK_RESERVES,
-          companies: MOCK_COMPANIES,
-          tasks: MOCK_TASKS,
-          documents: MOCK_DOCUMENTS,
-          photos: MOCK_PHOTOS,
-          messages: MOCK_MESSAGES,
-          profiles: [],
-        },
-      });
-      return;
-    }
-
     initStorageBuckets().catch(() => {});
     try {
       const { data: { session } } = await supabase.auth.getSession();
@@ -518,11 +498,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }
 
   useEffect(() => {
-    if (!isSupabaseConfigured) {
-      loadAll();
-      return;
-    }
-
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
       if (event === 'SIGNED_IN' && session) {
         loadAll();
