@@ -1,0 +1,754 @@
+📘 PLAN COMPLET — APPLICATION BUILDTRACK
+
+1️⃣ Présentation générale de l’application
+
+Nom provisoire :
+
+BuildTrack
+
+Type d’application :
+
+Application de gestion de chantier numérique destinée à remplacer :
+
+Excel
+
+papier
+
+WhatsApp
+
+emails dispersés
+
+
+Elle centralise toutes les informations du chantier dans un seul outil.
+
+
+---
+
+🎯 Objectif principal
+
+Créer une application permettant de :
+
+suivre les réserves chantier
+
+gérer les équipes
+
+visualiser les plans
+
+suivre l’avancement
+
+centraliser les documents
+
+améliorer la communication terrain
+
+
+➡️ Le but est de remplacer un outil comme Dalux, mais adapté à tes besoins terrain.
+
+
+---
+
+👤 Utilisateurs cibles
+
+Conducteurs de travaux
+
+Ils pilotent le chantier.
+
+Utilisation :
+
+créer réserves
+
+suivre avancement
+
+consulter rapports
+
+
+
+---
+
+Chefs d’équipe
+
+Ils exécutent les travaux.
+
+Utilisation :
+
+voir les tâches
+
+corriger réserves
+
+ajouter photos
+
+
+
+---
+
+Bureau / direction
+
+Ils supervisent.
+
+Utilisation :
+
+suivre indicateurs
+
+consulter rapports
+
+analyser performances
+
+
+
+---
+
+2️⃣ Objectifs métier de l’application
+
+🎯 Objectifs opérationnels
+
+Réduire les erreurs chantier
+
+Suivre l’avancement en temps réel
+
+Améliorer la communication
+
+Centraliser les données
+
+Gagner du temps
+
+
+
+---
+
+📊 Objectifs techniques
+
+Créer un outil :
+
+rapide
+
+simple à utiliser
+
+mobile-friendly
+
+utilisable hors ligne
+
+synchronisé cloud
+
+
+
+---
+
+3️⃣ Fonctionnalités principales
+
+C’est le cœur du projet.
+
+
+---
+
+MODULE 1 — Gestion des réserves (fonction clé)
+
+👉 Fonction principale type Dalux
+
+
+---
+
+Objectif
+
+Suivre toutes les anomalies du chantier.
+
+
+---
+
+Fonctionnalités
+
+Créer une réserve :
+
+Champs :
+
+ID automatique
+
+Titre
+
+Description
+
+Bâtiment
+
+Zone
+
+Niveau
+
+Entreprise responsable
+
+Priorité
+
+Statut
+
+Date création
+
+Date limite
+
+Photos
+
+Commentaires
+
+
+
+---
+
+Statuts possibles :
+
+Ouvert
+
+En cours
+
+En attente
+
+Vérification
+
+Clôturé
+
+
+
+---
+
+Fonctions avancées :
+
+Ajouter photo 📸
+
+Modifier statut
+
+Ajouter commentaire
+
+Affecter entreprise
+
+Historique complet
+
+
+
+---
+
+MODULE 2 — Plans interactifs
+
+👉 Fonction clé type Dalux
+
+
+---
+
+Objectif
+
+Voir les réserves directement sur les plans.
+
+
+---
+
+Fonctionnalités
+
+Importer :
+
+PDF plans
+
+Images plans
+
+
+Puis :
+
+ajouter points sur plan
+
+cliquer sur point
+
+afficher réserve
+
+
+
+---
+
+Fonctions :
+
+Zoom
+
+Déplacement
+
+Filtre par zone
+
+Filtre par entreprise
+
+
+
+---
+
+MODULE 3 — Gestion documentaire
+
+Objectif
+
+Centraliser tous les documents.
+
+
+---
+
+Documents supportés :
+
+Plans PDF
+
+Rapports
+
+Fiches techniques
+
+Notices
+
+Photos
+
+
+
+---
+
+Fonctionnalités :
+
+Upload fichiers
+
+Organisation par dossier
+
+Recherche
+
+Versionning
+
+Téléchargement
+
+
+
+---
+
+MODULE 4 — Suivi des équipes
+
+Objectif
+
+Suivre la main-d’œuvre.
+
+
+---
+
+Fonctionnalités
+
+Créer :
+
+Entreprises
+
+Équipes
+
+Collaborateurs
+
+
+
+---
+
+Champs :
+
+Nom entreprise
+
+Nombre de personnes
+
+Heures travaillées
+
+Zone d’intervention
+
+
+
+---
+
+Suivi quotidien :
+
+Personnel prévu
+
+Personnel réel
+
+Écart
+
+
+
+---
+
+MODULE 5 — Planning chantier
+
+Objectif
+
+Organiser le travail.
+
+
+---
+
+Fonctionnalités
+
+Créer :
+
+tâches
+
+sous-tâches
+
+échéances
+
+
+
+---
+
+Vue :
+
+calendrier
+
+planning hebdomadaire
+
+diagramme Gantt
+
+
+
+---
+
+MODULE 6 — Dashboard (tableau de bord)
+
+Objectif
+
+Voir l’état global du chantier.
+
+
+---
+
+Indicateurs :
+
+nombre réserves ouvertes
+
+réserves clôturées
+
+avancement (%)
+
+personnel présent
+
+tâches en retard
+
+
+
+---
+
+Graphiques :
+
+camembert
+
+courbes
+
+histogrammes
+
+
+
+---
+
+MODULE 7 — Communication interne
+
+Objectif
+
+Remplacer WhatsApp.
+
+
+---
+
+Fonctions :
+
+messages internes
+
+commentaires
+
+notifications
+
+
+
+---
+
+Notifications :
+
+nouvelle réserve
+
+modification statut
+
+tâche assignée
+
+
+
+---
+
+MODULE 8 — Photos chantier
+
+Objectif
+
+Tracer visuellement le chantier.
+
+
+---
+
+Fonctions :
+
+prise photo directe
+
+ajout commentaire
+
+localisation sur plan
+
+historique photo
+
+
+
+---
+
+MODULE 9 — Rapports automatiques
+
+Objectif
+
+Générer documents officiels.
+
+
+---
+
+Rapports :
+
+rapport journalier
+
+rapport hebdomadaire
+
+rapport réserves
+
+rapport avancement
+
+
+Formats :
+
+PDF
+
+Excel
+
+
+
+---
+
+MODULE 10 — Gestion utilisateurs
+
+Objectif
+
+Contrôler accès.
+
+
+---
+
+Rôles :
+
+Admin
+
+Conducteur
+
+Chef équipe
+
+Observateur
+
+
+
+---
+
+Permissions :
+
+lecture
+
+modification
+
+suppression
+
+
+
+---
+
+4️⃣ Architecture technique (niveau réel)
+
+C’est ce qui transforme l’idée en vraie application.
+
+
+---
+
+Frontend (interface utilisateur)
+
+Technologies possibles :
+
+React
+
+Flutter (mobile)
+
+App apk
+---
+
+Stockage fichiers
+
+Photos + documents :
+
+Cloud storage
+
+Serveur sécurisé
+
+
+
+---
+
+5️⃣ Version mobile (essentielle)
+
+Objectif :
+
+Utilisation directe sur chantier.
+
+
+---
+
+Fonctions mobiles :
+
+prendre photo
+
+créer réserve
+
+consulter plan
+
+modifier statut
+
+
+
+---
+
+Mode hors ligne :
+
+Très important.
+
+Les données :
+
+se synchronisent plus tard
+
+
+
+---
+
+6️⃣ Sécurité
+
+Essentiel pour données chantier.
+
+
+---
+
+Mesures :
+
+connexion sécurisée
+
+mot de passe crypté
+
+sauvegarde automatique
+
+gestion permissions
+
+
+
+---
+
+7️⃣ Performance attendue
+
+Temps de réponse :
+
+< 2 secondes
+
+
+Chargement plans :
+
+rapide
+
+
+Nombre utilisateurs :
+
+10 à 500 utilisateurs
+
+
+
+---
+
+8️⃣ Évolution future (roadmap)
+
+Fonctionnalités avancées possibles :
+
+
+---
+
+BIM (niveau Dalux Pro)
+
+Intégration modèles 3D.
+
+
+---
+
+IA chantier
+
+Détection automatique :
+
+anomalies
+
+retards
+
+risques
+
+
+
+---
+
+Synchronisation ERP
+
+Connexion avec :
+
+facturation
+
+gestion entreprise
+
+
+
+---
+
+9️⃣ Résultat attendu (vision finale)
+
+À la fin du projet :
+
+Tu auras une application capable de :
+
+gérer un chantier complet
+
+remplacer Excel
+
+remplacer WhatsApp
+
+remplacer papier
+
+
+➡️ Un outil proche de :
+
+Dalux
+
+Procore
+
+PlanGrid
+
+
+
+---
+
+🔟 Étapes réelles pour construire l’application
+
+Voici l’ordre logique réel :
+
+1. Définir modules (fait ici ✅)
+
+
+2. Créer base de données
+
+
+3. Créer interface
+
+
+4. Ajouter photos
+
+
+5. Ajouter plans
+
+
+6. Ajouter utilisateurs
+
+
+7. Ajouter rapports
+
+
+8. Déployer
