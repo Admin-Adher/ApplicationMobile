@@ -208,8 +208,11 @@ const styles = StyleSheet.create({
     flex: 1, minWidth: '44%', backgroundColor: C.surface,
     borderRadius: 14, padding: 14, borderLeftWidth: 4,
     borderWidth: 1, borderColor: C.border,
-    shadowColor: '#003082', shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.06, shadowRadius: 6, elevation: 1,
+    elevation: 1,
+    ...Platform.select({
+      web: { boxShadow: '0px 1px 6px rgba(0,48,130,0.06)' } as any,
+      default: { shadowColor: '#003082', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.06, shadowRadius: 6 },
+    }),
   },
   kpiIconWrap: { width: 36, height: 36, borderRadius: 10, alignItems: 'center', justifyContent: 'center', marginBottom: 10 },
   kpiValue: { fontSize: 28, fontFamily: 'Inter_700Bold', marginBottom: 2 },
@@ -217,8 +220,11 @@ const styles = StyleSheet.create({
   card: {
     backgroundColor: C.surface, borderRadius: 14, padding: 16,
     marginBottom: 14, borderWidth: 1, borderColor: C.border,
-    shadowColor: '#003082', shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.05, shadowRadius: 6, elevation: 1,
+    elevation: 1,
+    ...Platform.select({
+      web: { boxShadow: '0px 1px 6px rgba(0,48,130,0.05)' } as any,
+      default: { shadowColor: '#003082', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.05, shadowRadius: 6 },
+    }),
   },
   cardHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 },
   cardTitle: { fontSize: 15, fontFamily: 'Inter_700Bold', color: C.text },

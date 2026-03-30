@@ -13,7 +13,7 @@ import { ReservePriority, ReserveStatus } from '@/constants/types';
 import Header from '@/components/Header';
 import { uploadPhoto } from '@/lib/storage';
 import {
-  RESERVE_BUILDINGS, RESERVE_ZONES, RESERVE_LEVELS, RESERVE_PRIORITIES, genReserveId,
+  RESERVE_BUILDINGS, RESERVE_ZONES, RESERVE_LEVELS, RESERVE_PRIORITIES, genReserveId, validateDeadline,
 } from '@/lib/reserveUtils';
 
 function SelectRow<T extends string>({
@@ -49,7 +49,7 @@ function SelectRow<T extends string>({
 
 export default function NewReserveScreen() {
   const router = useRouter();
-  const { companies, addReserve } = useApp();
+  const { companies, addReserve, reserves } = useApp();
   const { user } = useAuth();
   const params = useLocalSearchParams<{
     building?: string; planX?: string; planY?: string;
@@ -126,12 +126,12 @@ export default function NewReserveScreen() {
       Alert.alert('Champ obligatoire', "Sélectionnez l'entreprise responsable.");
       return;
     }
-    if (deadline && !/^\d{2}\/\d{2}\/\d{4}$/.test(deadline)) {
-      Alert.alert('Format invalide', 'La date limite doit être au format JJ/MM/AAAA (ex: 30/04/2025).');
+    if (deadline && !validateDeadline(deadline)) {
+      Alert.alert('Date invalide', "Vérifiez que le jour, le mois et l'année sont corrects (ex : 30/04/2026).");
       return;
     }
     const author = user?.name ?? 'Conducteur de travaux';
-    const id = genReserveId();
+    const id = genReserveId(reserves.length);
     addReserve({
       id,
       title: title.trim(),

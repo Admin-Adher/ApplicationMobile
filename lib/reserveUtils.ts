@@ -11,12 +11,8 @@ export const RESERVE_PRIORITIES: { value: ReservePriority; label: string; color:
   { value: 'critical', label: 'Critique', color: C.critical },
 ];
 
-let _reserveCounter = 0;
-export function genReserveId(): string {
-  _reserveCounter++;
-  const ts = Date.now().toString(36).toUpperCase().slice(-5);
-  const seq = _reserveCounter.toString().padStart(2, '0');
-  return `RSV-${ts}${seq}`;
+export function genReserveId(existingCount: number): string {
+  return `RSV-${String(existingCount + 1).padStart(3, '0')}`;
 }
 
 export function isOverdue(deadline: string, status: ReserveStatus): boolean {
@@ -56,4 +52,13 @@ export function deadlineDaysLeft(deadline: string): number | null {
   const today = new Date();
   today.setHours(0, 0, 0, 0);
   return Math.ceil((d.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+}
+
+export function validateDeadline(s: string): boolean {
+  if (!s) return true;
+  if (!/^\d{2}\/\d{2}\/\d{4}$/.test(s)) return false;
+  const [d, m, y] = s.split('/').map(Number);
+  if (m < 1 || m > 12 || d < 1 || d > 31) return false;
+  const date = new Date(y, m - 1, d);
+  return date.getDate() === d && date.getMonth() === m - 1 && date.getFullYear() === y;
 }

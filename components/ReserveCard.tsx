@@ -1,4 +1,4 @@
-import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, Platform } from 'react-native';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { Reserve } from '@/constants/types';
@@ -93,11 +93,16 @@ const styles = StyleSheet.create({
     marginBottom: 10,
     borderWidth: 1,
     borderColor: C.border,
-    shadowColor: '#003082',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.06,
-    shadowRadius: 6,
-    elevation: 1,
+    ...Platform.select({
+      web: { boxShadow: '0px 1px 6px rgba(0,48,130,0.06)' } as any,
+      default: {
+        shadowColor: '#003082',
+        shadowOffset: { width: 0, height: 1 },
+        shadowOpacity: 0.06,
+        shadowRadius: 6,
+        elevation: 1,
+      },
+    }),
   },
   cardOverdue: {
     borderColor: C.open + '50',

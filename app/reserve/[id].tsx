@@ -16,14 +16,14 @@ import { useAuth } from '@/context/AuthContext';
 import { uploadPhoto } from '@/lib/storage';
 import {
   RESERVE_BUILDINGS, RESERVE_ZONES, RESERVE_LEVELS, RESERVE_PRIORITIES,
-  isOverdue, formatDate,
+  isOverdue, formatDate, validateDeadline,
 } from '@/lib/reserveUtils';
 
 const STATUS_ORDER: ReserveStatus[] = ['open', 'in_progress', 'waiting', 'verification', 'closed'];
 
-const PRIORITY_LABEL: Record<ReservePriority, string> = {
-  low: 'Basse', medium: 'Moyenne', high: 'Haute', critical: 'Critique',
-};
+const PRIORITY_LABEL = Object.fromEntries(
+  RESERVE_PRIORITIES.map(p => [p.value, p.label])
+) as Record<ReservePriority, string>;
 
 function ChipSelect<T extends string>({
   options, value, onChange, colorFn, labelMap,
@@ -171,8 +171,8 @@ export default function ReserveDetailScreen() {
       Alert.alert('Champ obligatoire', 'Le titre est requis.');
       return;
     }
-    if (editDeadline && !/^\d{2}\/\d{2}\/\d{4}$/.test(editDeadline)) {
-      Alert.alert('Format invalide', 'La date limite doit être au format JJ/MM/AAAA (ex: 30/04/2025).');
+    if (editDeadline && !validateDeadline(editDeadline)) {
+      Alert.alert('Date invalide', "Vérifiez que le jour, le mois et l'année sont corrects (ex : 30/04/2026).");
       return;
     }
     const author = user?.name ?? 'Conducteur de travaux';
@@ -386,6 +386,7 @@ export default function ReserveDetailScreen() {
                 value={comment}
                 onChangeText={setComment}
                 multiline
+                maxLength={500}
                 autoFocus
               />
               <TouchableOpacity style={styles.sendBtn} onPress={handleAddComment}>
