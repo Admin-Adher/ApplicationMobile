@@ -109,13 +109,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, [isLoading, user, seedStatus]);
 
   async function login(email: string, password: string): Promise<{ success: boolean; error?: string }> {
-    const { data, error } = await supabase.auth.signInWithPassword({ email, password });
-    console.log('[AUTH] signIn result:', JSON.stringify({ user: data?.user?.id, error: error?.message, status: error?.status }));
+    const { error } = await supabase.auth.signInWithPassword({ email, password });
     if (error) {
-      return { success: false, error: `${error.message} (code: ${error.status})` };
+      return { success: false, error: 'Email ou mot de passe incorrect.' };
     }
-    const profile = await fetchProfile(data.user!.id);
-    console.log('[AUTH] profile fetched:', JSON.stringify(profile));
     return { success: true };
   }
 

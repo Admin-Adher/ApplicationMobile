@@ -247,42 +247,60 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     documents: [], photos: [], messages: [], isLoading: true,
   });
 
-  useEffect(() => {
-    async function init() {
-      try {
-        const [
-          { data: reserves },
-          { data: companies },
-          { data: tasks },
-          { data: documents },
-          { data: photos },
-          { data: messages },
-        ] = await Promise.all([
-          supabase.from('reserves').select('*').order('created_at', { ascending: false }),
-          supabase.from('companies').select('*'),
-          supabase.from('tasks').select('*'),
-          supabase.from('documents').select('*').order('uploaded_at', { ascending: false }),
-          supabase.from('photos').select('*').order('taken_at', { ascending: false }),
-          supabase.from('messages').select('*').order('timestamp', { ascending: true }),
-        ]);
+  async function loadAll() {
+    dispatch({ type: 'SET_LOADING', payload: true });
+    try {
+      const [
+        { data: reserves },
+        { data: companies },
+        { data: tasks },
+        { data: documents },
+        { data: photos },
+        { data: messages },
+      ] = await Promise.all([
+        supabase.from('reserves').select('*').order('created_at', { ascending: false }),
+        supabase.from('companies').select('*'),
+        supabase.from('tasks').select('*'),
+        supabase.from('documents').select('*').order('uploaded_at', { ascending: false }),
+        supabase.from('photos').select('*').order('taken_at', { ascending: false }),
+        supabase.from('messages').select('*').order('timestamp', { ascending: true }),
+      ]);
 
-        dispatch({
-          type: 'INIT',
-          payload: {
-            reserves: (reserves ?? []).map(toReserve),
-            companies: (companies ?? []).map(toCompany),
-            tasks: (tasks ?? []).map(toTask),
-            documents: (documents ?? []).map(toDocument),
-            photos: (photos ?? []).map(toPhoto),
-            messages: (messages ?? []).map(toMessage),
-          },
-        });
-      } catch (err) {
-        console.warn('Supabase init error:', err);
+      dispatch({
+        type: 'INIT',
+        payload: {
+          reserves: (reserves ?? []).map(toReserve),
+          companies: (companies ?? []).map(toCompany),
+          tasks: (tasks ?? []).map(toTask),
+          documents: (documents ?? []).map(toDocument),
+          photos: (photos ?? []).map(toPhoto),
+          messages: (messages ?? []).map(toMessage),
+        },
+      });
+    } catch (err) {
+      console.warn('Supabase load error:', err);
+      dispatch({ type: 'SET_LOADING', payload: false });
+    }
+  }
+
+  useEffect(() => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+      if (event === 'SIGNED_IN' && session) {
+        loadAll();
+      } else if (event === 'SIGNED_OUT') {
+        dispatch({ type: 'INIT', payload: { reserves: [], companies: [], tasks: [], documents: [], photos: [], messages: [] } });
+      }
+    });
+
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      if (session) {
+        loadAll();
+      } else {
         dispatch({ type: 'SET_LOADING', payload: false });
       }
-    }
-    init();
+    });
+
+    return () => subscription.unsubscribe();
   }, []);
 
   const stats = {
