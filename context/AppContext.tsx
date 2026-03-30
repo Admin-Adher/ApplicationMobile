@@ -350,6 +350,61 @@ interface AppContextValue extends AppState {
 
 const AppContext = createContext<AppContextValue | null>(null);
 
+const MOCK_TODAY = new Date().toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit', year: 'numeric' });
+
+const MOCK_COMPANIES: Company[] = [
+  { id: 'co1', name: 'Maçonnerie Dubois', shortName: 'Dubois', color: '#3B82F6', plannedWorkers: 8, actualWorkers: 6, hoursWorked: 320, zone: 'Zone Nord', contact: 'M. Dubois' },
+  { id: 'co2', name: 'Plomberie Martin', shortName: 'Martin', color: '#10B981', plannedWorkers: 4, actualWorkers: 4, hoursWorked: 180, zone: 'Zone Sud', contact: 'Mme Martin' },
+  { id: 'co3', name: 'Électricité Leroy', shortName: 'Leroy', color: '#F59E0B', plannedWorkers: 5, actualWorkers: 3, hoursWorked: 210, zone: 'Zone Est', contact: 'M. Leroy' },
+  { id: 'co4', name: 'Menuiserie Petit', shortName: 'Petit', color: '#8B5CF6', plannedWorkers: 3, actualWorkers: 3, hoursWorked: 140, zone: 'Zone Ouest', contact: 'M. Petit' },
+];
+
+const MOCK_RESERVES: Reserve[] = [
+  { id: 'RSV-001', title: 'Fissure mur porteur RDC', description: 'Fissure horizontale de 2 mm sur le mur porteur nord, entre les axes B3 et B4.', building: 'A', zone: 'Zone Nord', level: 'RDC', company: 'Maçonnerie Dubois', priority: 'critical', status: 'open', createdAt: '2026-03-15', deadline: '25/03/2026', comments: [], history: [{ id: 'h1', action: 'Réserve créée', author: 'Jean Dupont', createdAt: '2026-03-15' }], planX: 20, planY: 30 },
+  { id: 'RSV-002', title: 'Fuite canalisation sous-sol', description: 'Fuite eau froide au niveau du coude DN50, local technique.', building: 'B', zone: 'Zone Sud', level: 'Sous-sol', company: 'Plomberie Martin', priority: 'high', status: 'in_progress', createdAt: '2026-03-18', deadline: '22/03/2026', comments: [{ id: 'c1', author: 'Marie Martin', content: 'Intervention prévue demain matin.', createdAt: '2026-03-19' }], history: [{ id: 'h2', action: 'Réserve créée', author: 'Jean Dupont', createdAt: '2026-03-18' }, { id: 'h3', action: 'Statut modifié', author: 'Jean Dupont', createdAt: '2026-03-19', oldValue: 'Ouvert', newValue: 'En cours' }], planX: 55, planY: 70 },
+  { id: 'RSV-003', title: 'Défaut prise électrique R+1', description: "Prise 16A non fonctionnelle chambre 12, vérification du circuit F7.", building: 'A', zone: 'Zone Est', level: 'R+1', company: 'Électricité Leroy', priority: 'medium', status: 'verification', createdAt: '2026-03-10', deadline: '30/03/2026', comments: [], history: [{ id: 'h4', action: 'Réserve créée', author: 'Admin Système', createdAt: '2026-03-10' }], planX: 75, planY: 45 },
+  { id: 'RSV-004', title: 'Porte intérieure coincée', description: "Porte chambre 8 ferme mal, gêne au passage. Seuil à reprendre.", building: 'B', zone: 'Zone Ouest', level: 'R+2', company: 'Menuiserie Petit', priority: 'low', status: 'closed', createdAt: '2026-03-05', deadline: '15/03/2026', comments: [], history: [{ id: 'h5', action: 'Réserve créée', author: 'Jean Dupont', createdAt: '2026-03-05' }, { id: 'h6', action: 'Statut modifié', author: 'Marie Martin', createdAt: '2026-03-14', oldValue: 'En cours', newValue: 'Clôturé' }], planX: 30, planY: 60 },
+  { id: 'RSV-005', title: 'Finition peinture escalier', description: "Reprise peinture nécessaire sur la cage d'escalier, côté palier R+1.", building: 'C', zone: 'Zone Centre', level: 'R+1', company: 'Maçonnerie Dubois', priority: 'low', status: 'waiting', createdAt: '2026-03-20', deadline: '—', comments: [], history: [{ id: 'h7', action: 'Réserve créée', author: 'Jean Dupont', createdAt: '2026-03-20' }], planX: 50, planY: 50 },
+  { id: 'RSV-006', title: 'Infiltration toiture bât. C', description: "Trace d'humidité au plafond R+3, infiltration possible au niveau de l'acrotère.", building: 'C', zone: 'Zone Nord', level: 'R+3', company: 'Maçonnerie Dubois', priority: 'high', status: 'open', createdAt: '2026-03-22', deadline: '01/04/2026', comments: [], history: [{ id: 'h8', action: 'Réserve créée', author: 'Admin Système', createdAt: '2026-03-22' }], planX: 65, planY: 20 },
+  { id: 'RSV-007', title: 'Câblage réseau salle serveur', description: 'Câbles réseau non étiquetés, brassage à revoir selon plan informatique.', building: 'A', zone: 'Zone Centre', level: 'Sous-sol', company: 'Électricité Leroy', priority: 'medium', status: 'in_progress', createdAt: '2026-03-25', deadline: '05/04/2026', comments: [], history: [{ id: 'h9', action: 'Réserve créée', author: 'Jean Dupont', createdAt: '2026-03-25' }], planX: 40, planY: 80 },
+  { id: 'RSV-008', title: 'Carrelage fissuré salle de bain', description: 'Carrelage salle de bain appt 14, fissure diagonale 15 cm, risque éclat.', building: 'B', zone: 'Zone Est', level: 'R+2', company: 'Maçonnerie Dubois', priority: 'medium', status: 'open', createdAt: '2026-03-28', deadline: '10/04/2026', comments: [], history: [{ id: 'h10', action: 'Réserve créée', author: 'Marie Martin', createdAt: '2026-03-28' }], planX: 80, planY: 35 },
+];
+
+const MOCK_TASKS: Task[] = [
+  { id: 'tsk1', title: 'Coulage dalle bâtiment A', description: 'Préparation et coulage dalle béton niveau RDC.', status: 'done', priority: 'high', startDate: '2026-03-01', deadline: '15/03/2026', assignee: 'Jean Dupont', progress: 100, company: 'co1' },
+  { id: 'tsk2', title: 'Installation réseau plomberie', description: 'Pose canalisations eau froide/chaude bâtiments A et B.', status: 'in_progress', priority: 'high', startDate: '2026-03-10', deadline: '31/03/2026', assignee: 'Marie Martin', progress: 65, company: 'co2' },
+  { id: 'tsk3', title: 'Câblage électrique R+1', description: 'Tirage câbles et pose tableaux électriques niveau R+1.', status: 'in_progress', priority: 'medium', startDate: '2026-03-15', deadline: '05/04/2026', assignee: 'Pierre Lambert', progress: 40, company: 'co3' },
+  { id: 'tsk4', title: 'Pose menuiseries extérieures', description: 'Installation fenêtres double vitrage et portes palières.', status: 'todo', priority: 'medium', startDate: '2026-04-01', deadline: '20/04/2026', assignee: 'Jean Dupont', progress: 0, company: 'co4' },
+  { id: 'tsk5', title: 'Finitions peinture intérieure', description: "Peinture blanche deux couches sur l'ensemble des pièces.", status: 'todo', priority: 'low', startDate: '2026-04-15', deadline: '30/04/2026', assignee: 'Admin Système', progress: 0, company: 'co1' },
+];
+
+const MOCK_DOCUMENTS: Document[] = [
+  { id: 'doc1', name: 'Plan masse - Bâtiment A.pdf', type: 'plan', category: 'Plans', uploadedAt: '2026-02-15', size: '2.4 Mo', version: 3 },
+  { id: 'doc2', name: 'CCTP Plomberie.pdf', type: 'technical', category: 'Marchés', uploadedAt: '2026-01-20', size: '1.1 Mo', version: 1 },
+  { id: 'doc3', name: 'Calendrier prévisionnel.xlsx', type: 'other', category: 'Planning', uploadedAt: '2026-03-01', size: '340 Ko', version: 2 },
+];
+
+const MOCK_PHOTOS: Photo[] = [
+  { id: 'ph1', comment: 'Fissure mur nord RSV-001', location: 'Bât. A - RDC', takenAt: '2026-03-15', takenBy: 'Jean Dupont', colorCode: '#EF4444' },
+  { id: 'ph2', comment: 'État avancement dalle béton', location: 'Bât. A - RDC', takenAt: '2026-03-10', takenBy: 'Admin Système', colorCode: '#10B981' },
+  { id: 'ph3', comment: 'Salle serveur — câblage réseau', location: 'Bât. A - Sous-sol', takenAt: '2026-03-25', takenBy: 'Jean Dupont', colorCode: '#F59E0B' },
+];
+
+const MOCK_MESSAGES: Message[] = [
+  { id: 'msg1', channelId: 'general', sender: 'Jean Dupont', content: "Bonjour à tous, réunion de chantier à 14h aujourd'hui.", timestamp: `${MOCK_TODAY} 08:15`, type: 'message', read: false, isMe: false, reactions: {}, isPinned: false, readBy: [], mentions: [] },
+  { id: 'msg2', channelId: 'general', sender: 'Marie Martin', content: 'Présent. Je prépare le point sur les réserves en cours.', timestamp: `${MOCK_TODAY} 08:32`, type: 'message', read: false, isMe: false, reactions: {}, isPinned: false, readBy: [], mentions: [] },
+  { id: 'msg3', channelId: 'building-a', sender: 'Jean Dupont', content: 'La fissure RSV-001 a été confirmée ce matin. Priorité critique.', timestamp: `${MOCK_TODAY} 09:05`, type: 'message', read: false, isMe: false, reactions: {}, isPinned: false, readBy: [], mentions: [] },
+  { id: 'msg4', channelId: 'building-b', sender: 'Marie Martin', content: 'Intervention plomberie confirmée pour demain 8h.', timestamp: `${MOCK_TODAY} 09:45`, type: 'message', read: false, isMe: false, reactions: {}, isPinned: false, readBy: [], mentions: [] },
+  { id: 'msg5', channelId: 'building-c', sender: 'Pierre Lambert', content: "Infiltration toiture RSV-006 vérifiée. Rapport transmis à l'architecte.", timestamp: `${MOCK_TODAY} 10:12`, type: 'message', read: false, isMe: false, reactions: {}, isPinned: false, readBy: [], mentions: [] },
+];
+
+const MOCK_PROFILES: Profile[] = [
+  { id: 'demo-0', name: 'Admin Système', role: 'admin', email: 'admin@buildtrack.fr' },
+  { id: 'demo-1', name: 'Jean Dupont', role: 'conducteur', email: 'j.dupont@buildtrack.fr' },
+  { id: 'demo-2', name: 'Marie Martin', role: 'chef_equipe', email: 'm.martin@buildtrack.fr' },
+  { id: 'demo-3', name: 'Pierre Lambert', role: 'observateur', email: 'p.lambert@buildtrack.fr' },
+];
+
 export function AppProvider({ children }: { children: React.ReactNode }) {
   const [state, dispatch] = useReducer(reducer, {
     reserves: [], companies: [], tasks: [],
@@ -425,7 +480,36 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     } catch {}
   }
 
+  async function loadMockData() {
+    dispatch({ type: 'SET_LOADING', payload: true });
+    currentUserNameRef.current = 'Admin Système';
+    await loadCustomChannels();
+    await loadGroupChannels();
+    await loadPinnedChannels();
+    const storedLastRead = await AsyncStorage.getItem('lastReadByChannel').catch(() => null);
+    if (storedLastRead) {
+      dispatch({ type: 'SET_LAST_READ', payload: JSON.parse(storedLastRead) });
+    }
+    dispatch({
+      type: 'INIT',
+      payload: {
+        reserves: MOCK_RESERVES,
+        companies: MOCK_COMPANIES,
+        tasks: MOCK_TASKS,
+        documents: MOCK_DOCUMENTS,
+        photos: MOCK_PHOTOS,
+        messages: MOCK_MESSAGES,
+        profiles: MOCK_PROFILES,
+      },
+    });
+  }
+
   async function loadAll() {
+    if (!isSupabaseConfigured) {
+      await loadMockData();
+      return;
+    }
+
     dispatch({ type: 'SET_LOADING', payload: true });
 
     initStorageBuckets().catch(() => {});
@@ -498,6 +582,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }
 
   useEffect(() => {
+    if (!isSupabaseConfigured) {
+      loadMockData();
+      return;
+    }
+
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
       if (event === 'SIGNED_IN' && session) {
         loadAll();
@@ -736,45 +825,53 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     dismissNotification,
 
     addReserve: (r) => {
-      supabase.from('reserves').insert({
-        id: r.id, title: r.title, description: r.description, building: r.building,
-        zone: r.zone, level: r.level, company: r.company, priority: r.priority,
-        status: r.status, created_at: r.createdAt, deadline: r.deadline,
-        comments: r.comments, history: r.history, plan_x: r.planX, plan_y: r.planY,
-        photo_uri: r.photoUri,
-      }).then(({ error }) => {
-        if (error) console.warn('Erreur ajout réserve:', error.message);
-      });
+      if (isSupabaseConfigured) {
+        supabase.from('reserves').insert({
+          id: r.id, title: r.title, description: r.description, building: r.building,
+          zone: r.zone, level: r.level, company: r.company, priority: r.priority,
+          status: r.status, created_at: r.createdAt, deadline: r.deadline,
+          comments: r.comments, history: r.history, plan_x: r.planX, plan_y: r.planY,
+          photo_uri: r.photoUri,
+        }).then(({ error }) => {
+          if (error) console.warn('Erreur ajout réserve:', error.message);
+        });
+      }
       dispatch({ type: 'ADD_RESERVE', payload: r });
     },
 
     updateReserve: (r) => {
-      supabase.from('reserves').update({
-        title: r.title, description: r.description, building: r.building,
-        zone: r.zone, level: r.level, company: r.company, priority: r.priority,
-        status: r.status, deadline: r.deadline, comments: r.comments, history: r.history,
-        plan_x: r.planX, plan_y: r.planY, photo_uri: r.photoUri,
-      }).eq('id', r.id).then(({ error }) => {
-        if (error) console.warn('Erreur mise à jour réserve:', error.message);
-      });
+      if (isSupabaseConfigured) {
+        supabase.from('reserves').update({
+          title: r.title, description: r.description, building: r.building,
+          zone: r.zone, level: r.level, company: r.company, priority: r.priority,
+          status: r.status, deadline: r.deadline, comments: r.comments, history: r.history,
+          plan_x: r.planX, plan_y: r.planY, photo_uri: r.photoUri,
+        }).eq('id', r.id).then(({ error }) => {
+          if (error) console.warn('Erreur mise à jour réserve:', error.message);
+        });
+      }
       dispatch({ type: 'UPDATE_RESERVE', payload: r });
     },
 
     updateReserveFields: (r) => {
-      supabase.from('reserves').update({
-        title: r.title, description: r.description, building: r.building,
-        zone: r.zone, level: r.level, company: r.company, priority: r.priority,
-        deadline: r.deadline, history: r.history, photo_uri: r.photoUri ?? null,
-      }).eq('id', r.id).then(({ error }) => {
-        if (error) console.warn('Erreur modification réserve:', error.message);
-      });
+      if (isSupabaseConfigured) {
+        supabase.from('reserves').update({
+          title: r.title, description: r.description, building: r.building,
+          zone: r.zone, level: r.level, company: r.company, priority: r.priority,
+          deadline: r.deadline, history: r.history, photo_uri: r.photoUri ?? null,
+        }).eq('id', r.id).then(({ error }) => {
+          if (error) console.warn('Erreur modification réserve:', error.message);
+        });
+      }
       dispatch({ type: 'UPDATE_RESERVE_FIELDS', payload: r });
     },
 
     deleteReserve: (id) => {
-      supabase.from('reserves').delete().eq('id', id).then(({ error }) => {
-        if (error) console.warn('Erreur suppression réserve:', error.message);
-      });
+      if (isSupabaseConfigured) {
+        supabase.from('reserves').delete().eq('id', id).then(({ error }) => {
+          if (error) console.warn('Erreur suppression réserve:', error.message);
+        });
+      }
       dispatch({ type: 'DELETE_RESERVE', payload: id });
     },
 
@@ -798,9 +895,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         status,
         history: [...reserve.history, historyEntry],
       };
-      supabase.from('reserves').update({ status: updated.status, history: updated.history }).eq('id', id).then(({ error }) => {
-        if (error) console.warn('Erreur statut réserve:', error.message);
-      });
+      if (isSupabaseConfigured) {
+        supabase.from('reserves').update({ status: updated.status, history: updated.history }).eq('id', id).then(({ error }) => {
+          if (error) console.warn('Erreur statut réserve:', error.message);
+        });
+      }
       dispatch({ type: 'UPDATE_RESERVE_STATUS', payload: updated });
 
       const company = stateRef.current.companies.find(c => c.name === reserve.company);
@@ -825,9 +924,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           mentions: [],
           reserveId: reserve.id,
         };
-        supabase.from('messages').insert(fromMessage(notifMsg)).then(({ error }) => {
-          if (error) console.warn('Erreur notification canal:', error.message);
-        });
+        if (isSupabaseConfigured) {
+          supabase.from('messages').insert(fromMessage(notifMsg)).then(({ error }) => {
+            if (error) console.warn('Erreur notification canal:', error.message);
+          });
+        }
         dispatch({ type: 'ADD_MESSAGE', payload: notifMsg });
       }
     },
@@ -843,52 +944,64 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         createdAt: new Date().toISOString().slice(0, 10),
       };
       const updatedComments = [...reserve.comments, comment];
-      supabase.from('reserves').update({ comments: updatedComments }).eq('id', reserveId).then(({ error }) => {
-        if (error) console.warn('Erreur ajout commentaire:', error.message);
-      });
+      if (isSupabaseConfigured) {
+        supabase.from('reserves').update({ comments: updatedComments }).eq('id', reserveId).then(({ error }) => {
+          if (error) console.warn('Erreur ajout commentaire:', error.message);
+        });
+      }
       dispatch({ type: 'ADD_COMMENT', payload: { reserveId, comment } });
     },
 
     addCompany: (c) => {
-      supabase.from('companies').insert({
-        id: c.id, name: c.name, short_name: c.shortName, color: c.color,
-        planned_workers: c.plannedWorkers, actual_workers: c.actualWorkers,
-        hours_worked: c.hoursWorked, zone: c.zone, contact: c.contact,
-      }).then(({ error }) => {
-        if (error) console.warn('Erreur ajout entreprise:', error.message);
-      });
+      if (isSupabaseConfigured) {
+        supabase.from('companies').insert({
+          id: c.id, name: c.name, short_name: c.shortName, color: c.color,
+          planned_workers: c.plannedWorkers, actual_workers: c.actualWorkers,
+          hours_worked: c.hoursWorked, zone: c.zone, contact: c.contact,
+        }).then(({ error }) => {
+          if (error) console.warn('Erreur ajout entreprise:', error.message);
+        });
+      }
       dispatch({ type: 'ADD_COMPANY', payload: c });
     },
 
     updateCompanyWorkers: (id, actual) => {
-      supabase.from('companies').update({ actual_workers: actual }).eq('id', id).then(({ error }) => {
-        if (error) console.warn('Erreur mise à jour effectif:', error.message);
-      });
+      if (isSupabaseConfigured) {
+        supabase.from('companies').update({ actual_workers: actual }).eq('id', id).then(({ error }) => {
+          if (error) console.warn('Erreur mise à jour effectif:', error.message);
+        });
+      }
       dispatch({ type: 'UPDATE_COMPANY', payload: { id, actualWorkers: actual } });
     },
 
     updateCompanyFull: (c) => {
-      supabase.from('companies').update({
-        name: c.name, short_name: c.shortName, color: c.color,
-        planned_workers: c.plannedWorkers, actual_workers: c.actualWorkers,
-        hours_worked: c.hoursWorked, zone: c.zone, contact: c.contact,
-      }).eq('id', c.id).then(({ error }) => {
-        if (error) console.warn('Erreur mise à jour entreprise:', error.message);
-      });
+      if (isSupabaseConfigured) {
+        supabase.from('companies').update({
+          name: c.name, short_name: c.shortName, color: c.color,
+          planned_workers: c.plannedWorkers, actual_workers: c.actualWorkers,
+          hours_worked: c.hoursWorked, zone: c.zone, contact: c.contact,
+        }).eq('id', c.id).then(({ error }) => {
+          if (error) console.warn('Erreur mise à jour entreprise:', error.message);
+        });
+      }
       dispatch({ type: 'UPDATE_COMPANY_FULL', payload: c });
     },
 
     deleteCompany: (id) => {
-      supabase.from('companies').delete().eq('id', id).then(({ error }) => {
-        if (error) console.warn('Erreur suppression entreprise:', error.message);
-      });
+      if (isSupabaseConfigured) {
+        supabase.from('companies').delete().eq('id', id).then(({ error }) => {
+          if (error) console.warn('Erreur suppression entreprise:', error.message);
+        });
+      }
       dispatch({ type: 'DELETE_COMPANY', payload: id });
     },
 
     updateCompanyHours: (id, hours) => {
-      supabase.from('companies').update({ hours_worked: hours }).eq('id', id).then(({ error }) => {
-        if (error) console.warn('Erreur mise à jour heures:', error.message);
-      });
+      if (isSupabaseConfigured) {
+        supabase.from('companies').update({ hours_worked: hours }).eq('id', id).then(({ error }) => {
+          if (error) console.warn('Erreur mise à jour heures:', error.message);
+        });
+      }
       dispatch({ type: 'UPDATE_COMPANY_HOURS', payload: { id, hours } });
     },
 
@@ -908,25 +1021,31 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         replyToSender: options.replyToSender, attachmentUri: options.attachmentUri,
         reserveId: options.reserveId,
       };
-      supabase.from('messages').insert(fromMessage(msg)).then(({ error }) => {
-        if (error) console.warn('Erreur envoi message:', error.message);
-      });
+      if (isSupabaseConfigured) {
+        supabase.from('messages').insert(fromMessage(msg)).then(({ error }) => {
+          if (error) console.warn('Erreur envoi message:', error.message);
+        });
+      }
       dispatch({ type: 'ADD_MESSAGE', payload: msg });
     },
 
     incomingMessage: (msg) => dispatch({ type: 'INCOMING_MESSAGE', payload: msg }),
 
     deleteMessage: (id) => {
-      supabase.from('messages').delete().eq('id', id).then(({ error }) => {
-        if (error) console.warn('Erreur suppression message:', error.message);
-      });
+      if (isSupabaseConfigured) {
+        supabase.from('messages').delete().eq('id', id).then(({ error }) => {
+          if (error) console.warn('Erreur suppression message:', error.message);
+        });
+      }
       dispatch({ type: 'DELETE_MESSAGE', payload: id });
     },
 
     updateMessage: (msg) => {
-      supabase.from('messages').update(fromMessage(msg)).eq('id', msg.id).then(({ error }) => {
-        if (error) console.warn('Erreur mise à jour message:', error.message);
-      });
+      if (isSupabaseConfigured) {
+        supabase.from('messages').update(fromMessage(msg)).eq('id', msg.id).then(({ error }) => {
+          if (error) console.warn('Erreur mise à jour message:', error.message);
+        });
+      }
       dispatch({ type: 'UPDATE_MESSAGE', payload: msg });
     },
 
@@ -943,65 +1062,79 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     },
 
     addTask: (t) => {
-      supabase.from('tasks').insert({
-        id: t.id, title: t.title, description: t.description, status: t.status,
-        priority: t.priority, deadline: t.deadline, assignee: t.assignee,
-        progress: t.progress, company: t.company,
-      }).then(({ error }) => {
-        if (error) console.warn('Erreur ajout tâche:', error.message);
-      });
+      if (isSupabaseConfigured) {
+        supabase.from('tasks').insert({
+          id: t.id, title: t.title, description: t.description, status: t.status,
+          priority: t.priority, deadline: t.deadline, assignee: t.assignee,
+          progress: t.progress, company: t.company,
+        }).then(({ error }) => {
+          if (error) console.warn('Erreur ajout tâche:', error.message);
+        });
+      }
       dispatch({ type: 'ADD_TASK', payload: t });
     },
 
     updateTask: (t) => {
-      supabase.from('tasks').update({
-        title: t.title, description: t.description, status: t.status,
-        priority: t.priority, deadline: t.deadline, assignee: t.assignee,
-        progress: t.progress, company: t.company,
-      }).eq('id', t.id).then(({ error }) => {
-        if (error) console.warn('Erreur mise à jour tâche:', error.message);
-      });
+      if (isSupabaseConfigured) {
+        supabase.from('tasks').update({
+          title: t.title, description: t.description, status: t.status,
+          priority: t.priority, deadline: t.deadline, assignee: t.assignee,
+          progress: t.progress, company: t.company,
+        }).eq('id', t.id).then(({ error }) => {
+          if (error) console.warn('Erreur mise à jour tâche:', error.message);
+        });
+      }
       dispatch({ type: 'UPDATE_TASK', payload: t });
     },
 
     deleteTask: (id) => {
-      supabase.from('tasks').delete().eq('id', id).then(({ error }) => {
-        if (error) console.warn('Erreur suppression tâche:', error.message);
-      });
+      if (isSupabaseConfigured) {
+        supabase.from('tasks').delete().eq('id', id).then(({ error }) => {
+          if (error) console.warn('Erreur suppression tâche:', error.message);
+        });
+      }
       dispatch({ type: 'DELETE_TASK', payload: id });
     },
 
     addPhoto: (p) => {
-      supabase.from('photos').insert({
-        id: p.id, comment: p.comment, location: p.location,
-        taken_at: p.takenAt, taken_by: p.takenBy, color_code: p.colorCode, uri: p.uri,
-      }).then(({ error }) => {
-        if (error) console.warn('Erreur ajout photo:', error.message);
-      });
+      if (isSupabaseConfigured) {
+        supabase.from('photos').insert({
+          id: p.id, comment: p.comment, location: p.location,
+          taken_at: p.takenAt, taken_by: p.takenBy, color_code: p.colorCode, uri: p.uri,
+        }).then(({ error }) => {
+          if (error) console.warn('Erreur ajout photo:', error.message);
+        });
+      }
       dispatch({ type: 'ADD_PHOTO', payload: p });
     },
 
     deletePhoto: (id) => {
-      supabase.from('photos').delete().eq('id', id).then(({ error }) => {
-        if (error) console.warn('Erreur suppression photo:', error.message);
-      });
+      if (isSupabaseConfigured) {
+        supabase.from('photos').delete().eq('id', id).then(({ error }) => {
+          if (error) console.warn('Erreur suppression photo:', error.message);
+        });
+      }
       dispatch({ type: 'DELETE_PHOTO', payload: id });
     },
 
     addDocument: (d) => {
-      supabase.from('documents').insert({
-        id: d.id, name: d.name, type: d.type, category: d.category,
-        uploaded_at: d.uploadedAt, size: d.size, version: d.version, uri: d.uri,
-      }).then(({ error }) => {
-        if (error) console.warn('Erreur ajout document:', error.message);
-      });
+      if (isSupabaseConfigured) {
+        supabase.from('documents').insert({
+          id: d.id, name: d.name, type: d.type, category: d.category,
+          uploaded_at: d.uploadedAt, size: d.size, version: d.version, uri: d.uri,
+        }).then(({ error }) => {
+          if (error) console.warn('Erreur ajout document:', error.message);
+        });
+      }
       dispatch({ type: 'ADD_DOCUMENT', payload: d });
     },
 
     deleteDocument: (id) => {
-      supabase.from('documents').delete().eq('id', id).then(({ error }) => {
-        if (error) console.warn('Erreur suppression document:', error.message);
-      });
+      if (isSupabaseConfigured) {
+        supabase.from('documents').delete().eq('id', id).then(({ error }) => {
+          if (error) console.warn('Erreur suppression document:', error.message);
+        });
+      }
       dispatch({ type: 'DELETE_DOCUMENT', payload: id });
     },
 

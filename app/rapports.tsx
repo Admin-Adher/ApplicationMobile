@@ -121,6 +121,18 @@ export default function RapportsScreen() {
         ? buildDailyHTML(reserves, companies, tasks, stats, userName)
         : buildWeeklyHTML(reserves, companies, tasks, stats, userName, weekNum);
 
+      if (Platform.OS === 'web') {
+        const blob = new Blob([html], { type: 'text/html;charset=utf-8;' });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url;
+        const label = type === 'daily' ? 'journalier' : 'hebdomadaire';
+        link.download = `buildtrack_rapport_${label}_${new Date().toLocaleDateString('fr-FR').replace(/\//g, '-')}.html`;
+        link.click();
+        URL.revokeObjectURL(url);
+        return;
+      }
+
       const { uri } = await Print.printToFileAsync({ html, base64: false });
       const canShare = await Sharing.isAvailableAsync();
       if (canShare) {

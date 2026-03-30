@@ -66,6 +66,7 @@ export default function NewReserveScreen() {
   const [deadline, setDeadline] = useState('');
   const [photoUri, setPhotoUri] = useState<string | null>(null);
   const [photoUploading, setPhotoUploading] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   const presetX = params.planX ? parseInt(params.planX) : null;
   const presetY = params.planY ? parseInt(params.planY) : null;
@@ -118,6 +119,7 @@ export default function NewReserveScreen() {
   }
 
   function handleSubmit() {
+    if (isSubmitting) return;
     if (!title.trim()) {
       Alert.alert('Champ obligatoire', 'Le titre est requis.');
       return;
@@ -130,6 +132,7 @@ export default function NewReserveScreen() {
       Alert.alert('Date invalide', "Vérifiez que le jour, le mois et l'année sont corrects (ex : 30/04/2026).");
       return;
     }
+    setIsSubmitting(true);
     const author = user?.name ?? 'Conducteur de travaux';
     const id = genReserveId(reserves);
     addReserve({
@@ -146,8 +149,8 @@ export default function NewReserveScreen() {
       deadline: deadline || '—',
       comments: [],
       history: [{ id: 'h0', action: 'Réserve créée', author, createdAt: new Date().toISOString().slice(0, 10) }],
-      planX: presetX ?? Math.round(Math.random() * 80 + 10),
-      planY: presetY ?? Math.round(Math.random() * 80 + 10),
+      planX: presetX ?? 50,
+      planY: presetY ?? 50,
       photoUri: photoUri ?? undefined,
     });
     Alert.alert('Réserve créée', `${id} ajoutée avec succès.`, [
@@ -308,9 +311,9 @@ export default function NewReserveScreen() {
           </View>
         </View>
 
-        <TouchableOpacity style={styles.submitBtn} onPress={handleSubmit}>
+        <TouchableOpacity style={[styles.submitBtn, isSubmitting && { opacity: 0.6 }]} onPress={handleSubmit} disabled={isSubmitting}>
           <Ionicons name="add-circle" size={20} color="#fff" />
-          <Text style={styles.submitBtnText}>Créer la réserve</Text>
+          <Text style={styles.submitBtnText}>{isSubmitting ? 'Création...' : 'Créer la réserve'}</Text>
         </TouchableOpacity>
       </ScrollView>
     </View>

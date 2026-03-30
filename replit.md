@@ -74,7 +74,12 @@ The Supabase schema is defined in `lib/schema.sql`. Run it in the Supabase SQL E
 - **`context/AppContext.tsx`** — Collapsed 3 identical reducer cases (`UPDATE_RESERVE`, `UPDATE_RESERVE_STATUS`, `UPDATE_RESERVE_FIELDS`) into a single fallthrough — they had identical implementations
 - **`package.json`** — Moved `eas-cli` from `dependencies` to `devDependencies` (it's a build tool, not a runtime dep); removed unused `@tanstack/react-query`
 
-**Session 3 (actuelle) :**
+**Session 4 (actuelle) :**
+- **`context/AppContext.tsx`** — Correction critique du mode démo : `supabase` est `null` quand non configuré, provoquant un crash sur tous les appels `.from()`. Solution : (1) ajout de données mock réalistes (8 réserves, 4 entreprises, 5 tâches, 3 documents, 3 photos, 5 messages, 4 profils) en constantes ; (2) ajout de `loadMockData()` ; (3) protection du useEffect d'auth avec `if (!isSupabaseConfigured)` ; (4) protection de `loadAll()` en tête de fonction ; (5) ajout de guards `if (isSupabaseConfigured)` sur les 21 appels supabase dans toutes les fonctions d'action (addReserve, updateReserve, addTask, etc.)
+- **`app/reserve/new.tsx`** — Suppression des coordonnées aléatoires (`Math.random()`) sur le plan : les réserves sans placement explicite sont maintenant placées au centre (50, 50). Ajout d'un état `isSubmitting` pour prévenir la double soumission via appui rapide sur "Créer".
+- **`app/rapports.tsx`** — Export PDF corrigé sur web : génération d'un fichier HTML téléchargeable via l'API Blob du navigateur (comme le CSV), au lieu d'afficher un chemin de fichier inutilisable.
+
+**Session 3 (précédente) :**
 - **`lib/supabase.ts`** — Corrigé le message de warning qui mentionnait encore "offline/mock mode" (inexistant depuis la suppression de mockData). Nouveau message : "L'application ne fonctionnera pas sans Supabase configuré."
 - **`app/photos.tsx`** — Remplacé `KeyboardAvoidingView` importé depuis `react-native` par la version de `react-native-keyboard-controller`, cohérent avec tous les autres écrans (equipes.tsx, etc.)
 - **`app/rapports.tsx`** — Refactorisé l'export CSV : suppression du workaround `Print.printToFileAsync` (créait un PDF d'une balise `<pre>` HTML) → utilisation de `expo-file-system` pour écrire un vrai fichier `.csv` puis partage via `expo-sharing`. Sur web : téléchargement direct via l'API Blob du navigateur.
