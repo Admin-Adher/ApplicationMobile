@@ -45,6 +45,7 @@ export default function ReservesScreen() {
   const [buildingFilter, setBuildingFilter] = useState<string>('all');
   const [priorityFilter, setPriorityFilter] = useState<'all' | ReservePriority>('all');
   const [companyFilter, setCompanyFilter] = useState<string>('all');
+  const [zoneFilter, setZoneFilter] = useState<string>('all');
   const [sortKey, setSortKey] = useState<SortKey>('date_desc');
   const [search, setSearch] = useState('');
   const [sortModalVisible, setSortModalVisible] = useState(false);
@@ -56,9 +57,15 @@ export default function ReservesScreen() {
     return Array.from(b).sort();
   }, [reserves]);
 
+  const zones = useMemo(() => {
+    const z = new Set(reserves.map(r => r.zone).filter(Boolean));
+    return Array.from(z).sort();
+  }, [reserves]);
+
   const activeFilterCount = (buildingFilter !== 'all' ? 1 : 0)
     + (priorityFilter !== 'all' ? 1 : 0)
-    + (companyFilter !== 'all' ? 1 : 0);
+    + (companyFilter !== 'all' ? 1 : 0)
+    + (zoneFilter !== 'all' ? 1 : 0);
 
   const overdueCount = useMemo(
     () => reserves.filter(r => isOverdue(r.deadline, r.status)).length,
@@ -74,6 +81,7 @@ export default function ReservesScreen() {
       const matchBuilding = buildingFilter === 'all' || r.building === buildingFilter;
       const matchPriority = priorityFilter === 'all' || r.priority === priorityFilter;
       const matchCompany = companyFilter === 'all' || r.company === companyFilter;
+      const matchZone = zoneFilter === 'all' || r.zone === zoneFilter;
       const q = search.toLowerCase();
       const matchSearch = !q ||
         r.title.toLowerCase().includes(q) ||
@@ -83,7 +91,7 @@ export default function ReservesScreen() {
         r.description.toLowerCase().includes(q) ||
         r.zone.toLowerCase().includes(q) ||
         r.level.toLowerCase().includes(q);
-      return matchStatus && matchBuilding && matchPriority && matchCompany && matchSearch;
+      return matchStatus && matchBuilding && matchPriority && matchCompany && matchZone && matchSearch;
     });
 
     list = [...list].sort((a, b) => {
@@ -97,7 +105,7 @@ export default function ReservesScreen() {
       }
     });
     return list;
-  }, [reserves, statusFilter, buildingFilter, priorityFilter, companyFilter, sortKey, search]);
+  }, [reserves, statusFilter, buildingFilter, priorityFilter, companyFilter, zoneFilter, sortKey, search]);
 
   const isSortActive = sortKey !== 'date_desc';
 
@@ -245,7 +253,7 @@ export default function ReservesScreen() {
             <View style={styles.sheetTitleRow}>
               <Text style={styles.sheetTitle}>Filtres avancés</Text>
               {activeFilterCount > 0 && (
-                <TouchableOpacity onPress={() => { setBuildingFilter('all'); setPriorityFilter('all'); setCompanyFilter('all'); }}>
+                <TouchableOpacity onPress={() => { setBuildingFilter('all'); setPriorityFilter('all'); setCompanyFilter('all'); setZoneFilter('all'); }}>
                   <Text style={styles.resetText}>Réinitialiser</Text>
                 </TouchableOpacity>
               )}
@@ -285,6 +293,23 @@ export default function ReservesScreen() {
                       onPress={() => setPriorityFilter(p.key as 'all' | ReservePriority)}
                     >
                       <Text style={[styles.chipText, priorityFilter === p.key && { color: p.color }]}>{p.label}</Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              </ScrollView>
+
+              <Text style={styles.sheetSectionLabel}>ZONE</Text>
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.chipScroll}>
+                <View style={styles.chipRowInline}>
+                  {['all', ...zones].map(z => (
+                    <TouchableOpacity
+                      key={z}
+                      style={[styles.chip, zoneFilter === z && styles.chipActive]}
+                      onPress={() => setZoneFilter(z)}
+                    >
+                      <Text style={[styles.chipText, zoneFilter === z && styles.chipTextActive]}>
+                        {z === 'all' ? 'Toutes' : z}
+                      </Text>
                     </TouchableOpacity>
                   ))}
                 </View>

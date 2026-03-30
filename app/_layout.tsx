@@ -108,6 +108,7 @@ export default function RootLayout() {
                   <Stack.Screen name="documents" options={{ headerShown: false }} />
                   <Stack.Screen name="planning" options={{ headerShown: false }} />
                   <Stack.Screen name="task/new" options={{ headerShown: false }} />
+                  <Stack.Screen name="task/[id]" options={{ headerShown: false }} />
                   <Stack.Screen name="photos" options={{ headerShown: false }} />
                   <Stack.Screen name="rapports" options={{ headerShown: false }} />
                   <Stack.Screen name="messages" options={{ headerShown: false }} />

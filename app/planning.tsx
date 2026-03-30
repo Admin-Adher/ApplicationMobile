@@ -71,7 +71,7 @@ function TaskCard({ task, onDelete, canEdit, onPress }: { task: Task; onDelete: 
   );
 }
 
-function CalendarView({ tasks }: { tasks: Task[] }) {
+function CalendarView({ tasks, onTaskPress }: { tasks: Task[]; onTaskPress: (id: string) => void }) {
   const today = new Date();
   const [year, setYear] = useState(today.getFullYear());
   const [month, setMonth] = useState(today.getMonth());
@@ -182,13 +182,14 @@ function CalendarView({ tasks }: { tasks: Task[] }) {
             selectedTasks.map(t => {
               const cfg = STATUS_CFG[t.status];
               return (
-                <View key={t.id} style={[calStyles.taskRow, { borderLeftColor: cfg.color }]}>
+                <TouchableOpacity key={t.id} style={[calStyles.taskRow, { borderLeftColor: cfg.color }]} onPress={() => onTaskPress(t.id)} activeOpacity={0.75}>
                   <View style={{ flex: 1 }}>
                     <Text style={calStyles.taskRowTitle}>{t.title}</Text>
                     <Text style={calStyles.taskRowSub}>{t.assignee} — {cfg.label}</Text>
                   </View>
                   <Text style={[calStyles.taskRowPct, { color: cfg.color }]}>{t.progress}%</Text>
-                </View>
+                  <Ionicons name="chevron-forward" size={14} color={cfg.color} />
+                </TouchableOpacity>
               );
             })
           )}
@@ -295,7 +296,7 @@ function GanttView({ tasks }: { tasks: Task[] }) {
   );
 }
 
-function GanttLegend({ tasks }: { tasks: Task[] }) {
+function GanttLegend({ tasks, onTaskPress }: { tasks: Task[]; onTaskPress: (id: string) => void }) {
   if (tasks.length === 0) return null;
   const sorted = useMemo(() => {
     return [...tasks].sort((a, b) => {
@@ -313,11 +314,12 @@ function GanttLegend({ tasks }: { tasks: Task[] }) {
       {sorted.map(t => {
         const cfg = STATUS_CFG[t.status];
         return (
-          <View key={t.id} style={ganttStyles.legendRow}>
+          <TouchableOpacity key={t.id} style={ganttStyles.legendRow} onPress={() => onTaskPress(t.id)} activeOpacity={0.75}>
             <View style={[ganttStyles.legendDot, { backgroundColor: cfg.color }]} />
             <Text style={ganttStyles.legendTitle} numberOfLines={1}>{t.title}</Text>
             <Text style={ganttStyles.legendDeadline}>{formatDate(t.deadline)}</Text>
-          </View>
+            <Ionicons name="chevron-forward" size={13} color={C.textMuted} />
+          </TouchableOpacity>
         );
       })}
     </View>
@@ -414,6 +416,7 @@ export default function PlanningScreen() {
                 task={t}
                 canEdit={permissions.canEdit}
                 onDelete={() => handleDelete(t.id, t.title)}
+                onPress={() => router.push(`/task/${t.id}` as any)}
               />
             ))}
             {filtered.length === 0 && (
@@ -427,7 +430,7 @@ export default function PlanningScreen() {
 
         {viewMode === 'calendar' && (
           <View style={styles.card}>
-            <CalendarView tasks={filtered} />
+            <CalendarView tasks={filtered} onTaskPress={(id) => router.push(`/task/${id}` as any)} />
           </View>
         )}
 
@@ -442,7 +445,7 @@ export default function PlanningScreen() {
             </View>
             <View style={styles.card}>
               <Text style={styles.sectionTitle}>Légende des tâches</Text>
-              <GanttLegend tasks={filtered} />
+              <GanttLegend tasks={filtered} onTaskPress={(id) => router.push(`/task/${id}` as any)} />
             </View>
           </>
         )}
