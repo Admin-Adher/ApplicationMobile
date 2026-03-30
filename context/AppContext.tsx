@@ -1,10 +1,6 @@
 import React, { createContext, useContext, useEffect, useReducer } from 'react';
 import { Reserve, Company, Task, Document, Photo, Message, ReserveStatus, ReservePriority, TaskStatus } from '@/constants/types';
-import { loadData, saveData, isInitialized, setInitialized } from '@/lib/storage';
-import {
-  MOCK_RESERVES, MOCK_COMPANIES, MOCK_TASKS,
-  MOCK_DOCUMENTS, MOCK_PHOTOS, MOCK_MESSAGES,
-} from '@/lib/mockData';
+import { supabase } from '@/lib/supabase';
 
 interface AppState {
   reserves: Reserve[];
@@ -37,6 +33,92 @@ function genId(): string {
   return Date.now().toString() + Math.random().toString(36).substr(2, 6);
 }
 
+function toReserve(row: any): Reserve {
+  return {
+    id: row.id,
+    title: row.title,
+    description: row.description,
+    building: row.building,
+    zone: row.zone,
+    level: row.level,
+    company: row.company,
+    priority: row.priority as ReservePriority,
+    status: row.status as ReserveStatus,
+    createdAt: row.created_at,
+    deadline: row.deadline,
+    comments: row.comments ?? [],
+    history: row.history ?? [],
+    planX: row.plan_x,
+    planY: row.plan_y,
+    photoUri: row.photo_uri ?? undefined,
+  };
+}
+
+function toCompany(row: any): Company {
+  return {
+    id: row.id,
+    name: row.name,
+    shortName: row.short_name,
+    color: row.color,
+    plannedWorkers: row.planned_workers,
+    actualWorkers: row.actual_workers,
+    hoursWorked: row.hours_worked,
+    zone: row.zone,
+    contact: row.contact,
+  };
+}
+
+function toTask(row: any): Task {
+  return {
+    id: row.id,
+    title: row.title,
+    description: row.description,
+    status: row.status as TaskStatus,
+    priority: row.priority as ReservePriority,
+    deadline: row.deadline,
+    assignee: row.assignee,
+    progress: row.progress,
+    company: row.company,
+  };
+}
+
+function toDocument(row: any): Document {
+  return {
+    id: row.id,
+    name: row.name,
+    type: row.type,
+    category: row.category,
+    uploadedAt: row.uploaded_at,
+    size: row.size,
+    version: row.version,
+    uri: row.uri ?? undefined,
+  };
+}
+
+function toPhoto(row: any): Photo {
+  return {
+    id: row.id,
+    comment: row.comment,
+    location: row.location,
+    takenAt: row.taken_at,
+    takenBy: row.taken_by,
+    colorCode: row.color_code,
+    uri: row.uri ?? undefined,
+  };
+}
+
+function toMessage(row: any): Message {
+  return {
+    id: row.id,
+    sender: row.sender,
+    content: row.content,
+    timestamp: row.timestamp,
+    type: row.type,
+    read: row.read,
+    isMe: row.is_me,
+  };
+}
+
 function reducer(state: AppState, action: Action): AppState {
   switch (action.type) {
     case 'INIT':
@@ -46,14 +128,11 @@ function reducer(state: AppState, action: Action): AppState {
       return { ...state, reserves: [action.payload, ...state.reserves] };
 
     case 'UPDATE_RESERVE':
-      return {
-        ...state,
-        reserves: state.reserves.map(r => r.id === action.payload.id ? action.payload : r),
-      };
+      return { ...state, reserves: state.reserves.map(r => r.id === action.payload.id ? action.payload : r) };
 
     case 'UPDATE_RESERVE_STATUS': {
       const { id, status, author } = action.payload;
-      const statusLabels: Record<ReserveStatus, string> = {
+      const labels: Record<ReserveStatus, string> = {
         open: 'Ouvert', in_progress: 'En cours',
         waiting: 'En attente', verification: 'Vérification', closed: 'Clôturé',
       };
@@ -61,16 +140,12 @@ function reducer(state: AppState, action: Action): AppState {
         ...state,
         reserves: state.reserves.map(r => {
           if (r.id !== id) return r;
-          const oldLabel = statusLabels[r.status];
-          const newLabel = statusLabels[status];
-          return {
-            ...r,
-            status,
-            history: [
-              ...r.history,
-              { id: genId(), action: 'Statut modifié', author, createdAt: new Date().toISOString().slice(0, 10), oldValue: oldLabel, newValue: newLabel },
-            ],
+          const updated = {
+            ...r, status,
+            history: [...r.history, { id: genId(), action: 'Statut modifié', author, createdAt: new Date().toISOString().slice(0, 10), oldValue: labels[r.status], newValue: labels[status] }],
           };
+          supabase.from('reserves').update({ status: updated.status, history: updated.history }).eq('id', id);
+          return updated;
         }),
       };
     }
@@ -81,67 +156,57 @@ function reducer(state: AppState, action: Action): AppState {
         ...state,
         reserves: state.reserves.map(r => {
           if (r.id !== reserveId) return r;
-          return {
-            ...r,
-            comments: [
-              ...r.comments,
-              { id: genId(), author, content, createdAt: new Date().toISOString().slice(0, 10) },
-            ],
-          };
+          const updated = { ...r, comments: [...r.comments, { id: genId(), author, content, createdAt: new Date().toISOString().slice(0, 10) }] };
+          supabase.from('reserves').update({ comments: updated.comments }).eq('id', reserveId);
+          return updated;
         }),
       };
     }
 
     case 'UPDATE_COMPANY':
-      return {
-        ...state,
-        companies: state.companies.map(c =>
-          c.id === action.payload.id ? { ...c, actualWorkers: action.payload.actualWorkers } : c
-        ),
-      };
+      supabase.from('companies').update({ actual_workers: action.payload.actualWorkers }).eq('id', action.payload.id);
+      return { ...state, companies: state.companies.map(c => c.id === action.payload.id ? { ...c, actualWorkers: action.payload.actualWorkers } : c) };
 
-    case 'ADD_MESSAGE':
-      return {
-        ...state,
-        messages: [
-          ...state.messages,
-          {
-            id: genId(),
-            sender: action.payload.sender,
-            content: action.payload.content,
-            timestamp: new Date().toLocaleString('fr-FR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }).replace(',', ''),
-            type: 'message',
-            read: true,
-            isMe: true,
-          },
-        ],
+    case 'ADD_MESSAGE': {
+      const msg: Message = {
+        id: genId(),
+        sender: action.payload.sender,
+        content: action.payload.content,
+        timestamp: new Date().toLocaleString('fr-FR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }).replace(',', ''),
+        type: 'message',
+        read: true,
+        isMe: true,
       };
+      supabase.from('messages').insert({ id: msg.id, sender: msg.sender, content: msg.content, timestamp: msg.timestamp, type: msg.type, read: msg.read, is_me: msg.isMe });
+      return { ...state, messages: [...state.messages, msg] };
+    }
 
     case 'MARK_MESSAGES_READ':
-      return {
-        ...state,
-        messages: state.messages.map(m => ({ ...m, read: true })),
-      };
+      supabase.from('messages').update({ read: true }).eq('is_me', false);
+      return { ...state, messages: state.messages.map(m => ({ ...m, read: true })) };
 
     case 'ADD_TASK':
+      supabase.from('tasks').insert({ id: action.payload.id, title: action.payload.title, description: action.payload.description, status: action.payload.status, priority: action.payload.priority, deadline: action.payload.deadline, assignee: action.payload.assignee, progress: action.payload.progress, company: action.payload.company });
       return { ...state, tasks: [action.payload, ...state.tasks] };
 
     case 'UPDATE_TASK':
-      return {
-        ...state,
-        tasks: state.tasks.map(t => t.id === action.payload.id ? action.payload : t),
-      };
+      supabase.from('tasks').update({ title: action.payload.title, description: action.payload.description, status: action.payload.status, priority: action.payload.priority, deadline: action.payload.deadline, assignee: action.payload.assignee, progress: action.payload.progress, company: action.payload.company }).eq('id', action.payload.id);
+      return { ...state, tasks: state.tasks.map(t => t.id === action.payload.id ? action.payload : t) };
 
     case 'DELETE_TASK':
+      supabase.from('tasks').delete().eq('id', action.payload);
       return { ...state, tasks: state.tasks.filter(t => t.id !== action.payload) };
 
     case 'ADD_PHOTO':
+      supabase.from('photos').insert({ id: action.payload.id, comment: action.payload.comment, location: action.payload.location, taken_at: action.payload.takenAt, taken_by: action.payload.takenBy, color_code: action.payload.colorCode, uri: action.payload.uri });
       return { ...state, photos: [action.payload, ...state.photos] };
 
     case 'ADD_DOCUMENT':
+      supabase.from('documents').insert({ id: action.payload.id, name: action.payload.name, type: action.payload.type, category: action.payload.category, uploaded_at: action.payload.uploadedAt, size: action.payload.size, version: action.payload.version, uri: action.payload.uri });
       return { ...state, documents: [action.payload, ...state.documents] };
 
     case 'DELETE_DOCUMENT':
+      supabase.from('documents').delete().eq('id', action.payload);
       return { ...state, documents: state.documents.filter(d => d.id !== action.payload) };
 
     case 'SET_LOADING':
@@ -178,87 +243,47 @@ const AppContext = createContext<AppContextValue | null>(null);
 
 export function AppProvider({ children }: { children: React.ReactNode }) {
   const [state, dispatch] = useReducer(reducer, {
-    reserves: [],
-    companies: [],
-    tasks: [],
-    documents: [],
-    photos: [],
-    messages: [],
-    isLoading: true,
+    reserves: [], companies: [], tasks: [],
+    documents: [], photos: [], messages: [], isLoading: true,
   });
 
   useEffect(() => {
     async function init() {
-      const initialized = await isInitialized();
-      if (!initialized) {
-        await Promise.all([
-          saveData('RESERVES', MOCK_RESERVES),
-          saveData('COMPANIES', MOCK_COMPANIES),
-          saveData('TASKS', MOCK_TASKS),
-          saveData('DOCUMENTS', MOCK_DOCUMENTS),
-          saveData('PHOTOS', MOCK_PHOTOS),
-          saveData('MESSAGES', MOCK_MESSAGES),
+      try {
+        const [
+          { data: reserves },
+          { data: companies },
+          { data: tasks },
+          { data: documents },
+          { data: photos },
+          { data: messages },
+        ] = await Promise.all([
+          supabase.from('reserves').select('*').order('created_at', { ascending: false }),
+          supabase.from('companies').select('*'),
+          supabase.from('tasks').select('*'),
+          supabase.from('documents').select('*').order('uploaded_at', { ascending: false }),
+          supabase.from('photos').select('*').order('taken_at', { ascending: false }),
+          supabase.from('messages').select('*').order('timestamp', { ascending: true }),
         ]);
-        await setInitialized();
+
         dispatch({
           type: 'INIT',
           payload: {
-            reserves: MOCK_RESERVES,
-            companies: MOCK_COMPANIES,
-            tasks: MOCK_TASKS,
-            documents: MOCK_DOCUMENTS,
-            photos: MOCK_PHOTOS,
-            messages: MOCK_MESSAGES,
+            reserves: (reserves ?? []).map(toReserve),
+            companies: (companies ?? []).map(toCompany),
+            tasks: (tasks ?? []).map(toTask),
+            documents: (documents ?? []).map(toDocument),
+            photos: (photos ?? []).map(toPhoto),
+            messages: (messages ?? []).map(toMessage),
           },
         });
-      } else {
-        const [reserves, companies, tasks, documents, photos, messages] = await Promise.all([
-          loadData<Reserve[]>('RESERVES'),
-          loadData<Company[]>('COMPANIES'),
-          loadData<Task[]>('TASKS'),
-          loadData<Document[]>('DOCUMENTS'),
-          loadData<Photo[]>('PHOTOS'),
-          loadData<Message[]>('MESSAGES'),
-        ]);
-        dispatch({
-          type: 'INIT',
-          payload: {
-            reserves: reserves ?? MOCK_RESERVES,
-            companies: companies ?? MOCK_COMPANIES,
-            tasks: tasks ?? MOCK_TASKS,
-            documents: documents ?? MOCK_DOCUMENTS,
-            photos: photos ?? MOCK_PHOTOS,
-            messages: messages ?? MOCK_MESSAGES,
-          },
-        });
+      } catch (err) {
+        console.warn('Supabase init error:', err);
+        dispatch({ type: 'SET_LOADING', payload: false });
       }
     }
     init();
   }, []);
-
-  useEffect(() => {
-    if (!state.isLoading) saveData('RESERVES', state.reserves);
-  }, [state.reserves, state.isLoading]);
-
-  useEffect(() => {
-    if (!state.isLoading) saveData('COMPANIES', state.companies);
-  }, [state.companies, state.isLoading]);
-
-  useEffect(() => {
-    if (!state.isLoading) saveData('MESSAGES', state.messages);
-  }, [state.messages, state.isLoading]);
-
-  useEffect(() => {
-    if (!state.isLoading) saveData('TASKS', state.tasks);
-  }, [state.tasks, state.isLoading]);
-
-  useEffect(() => {
-    if (!state.isLoading) saveData('PHOTOS', state.photos);
-  }, [state.photos, state.isLoading]);
-
-  useEffect(() => {
-    if (!state.isLoading) saveData('DOCUMENTS', state.documents);
-  }, [state.documents, state.isLoading]);
 
   const stats = {
     total: state.reserves.length,
@@ -268,27 +293,42 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     verification: state.reserves.filter(r => r.status === 'verification').length,
     closed: state.reserves.filter(r => r.status === 'closed').length,
     progress: state.reserves.length > 0
-      ? Math.round((state.reserves.filter(r => r.status === 'closed').length / state.reserves.length) * 100)
-      : 0,
-    totalWorkers: state.companies.reduce((sum, c) => sum + c.actualWorkers, 0),
-    plannedWorkers: state.companies.reduce((sum, c) => sum + c.plannedWorkers, 0),
+      ? Math.round((state.reserves.filter(r => r.status === 'closed').length / state.reserves.length) * 100) : 0,
+    totalWorkers: state.companies.reduce((s, c) => s + c.actualWorkers, 0),
+    plannedWorkers: state.companies.reduce((s, c) => s + c.plannedWorkers, 0),
   };
 
   const unreadCount = state.messages.filter(m => !m.read && !m.isMe).length;
 
   const value: AppContextValue = {
-    ...state,
-    stats,
-    unreadCount,
-    addReserve: (r) => dispatch({ type: 'ADD_RESERVE', payload: r }),
-    updateReserve: (r) => dispatch({ type: 'UPDATE_RESERVE', payload: r }),
+    ...state, stats, unreadCount,
+    addReserve: (r) => {
+      supabase.from('reserves').insert({
+        id: r.id, title: r.title, description: r.description, building: r.building,
+        zone: r.zone, level: r.level, company: r.company, priority: r.priority,
+        status: r.status, created_at: r.createdAt, deadline: r.deadline,
+        comments: r.comments, history: r.history, plan_x: r.planX, plan_y: r.planY,
+        photo_uri: r.photoUri,
+      });
+      dispatch({ type: 'ADD_RESERVE', payload: r });
+    },
+    updateReserve: (r) => {
+      supabase.from('reserves').update({
+        title: r.title, description: r.description, building: r.building,
+        zone: r.zone, level: r.level, company: r.company, priority: r.priority,
+        status: r.status, deadline: r.deadline, comments: r.comments, history: r.history,
+        plan_x: r.planX, plan_y: r.planY, photo_uri: r.photoUri,
+      }).eq('id', r.id);
+      dispatch({ type: 'UPDATE_RESERVE', payload: r });
+    },
     updateReserveStatus: (id, status, author = 'Conducteur de travaux') =>
       dispatch({ type: 'UPDATE_RESERVE_STATUS', payload: { id, status, author } }),
     addComment: (reserveId, content, author = 'Conducteur de travaux') =>
       dispatch({ type: 'ADD_COMMENT', payload: { reserveId, author, content } }),
     updateCompanyWorkers: (id, actual) =>
       dispatch({ type: 'UPDATE_COMPANY', payload: { id, actualWorkers: actual } }),
-    addMessage: (content, sender = 'Moi') => dispatch({ type: 'ADD_MESSAGE', payload: { content, sender } }),
+    addMessage: (content, sender = 'Moi') =>
+      dispatch({ type: 'ADD_MESSAGE', payload: { content, sender } }),
     markMessagesRead: () => dispatch({ type: 'MARK_MESSAGES_READ' }),
     addTask: (t) => dispatch({ type: 'ADD_TASK', payload: t }),
     updateTask: (t) => dispatch({ type: 'UPDATE_TASK', payload: t }),

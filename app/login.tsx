@@ -16,7 +16,7 @@ const DEMO_ACCOUNTS = [
 export default function LoginScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
-  const { login } = useAuth();
+  const { login, seedStatus } = useAuth();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPass, setShowPass] = useState(false);
@@ -111,6 +111,18 @@ export default function LoginScreen() {
 
         <View style={styles.demoSection}>
           <Text style={styles.demoTitle}>Comptes de démonstration</Text>
+          {seedStatus === 'seeding' && (
+            <View style={styles.seedBanner}>
+              <Ionicons name="sync-outline" size={14} color={C.inProgress} />
+              <Text style={styles.seedText}>Initialisation des comptes Supabase...</Text>
+            </View>
+          )}
+          {seedStatus === 'error' && (
+            <View style={[styles.seedBanner, { backgroundColor: C.open + '20' }]}>
+              <Ionicons name="warning-outline" size={14} color={C.open} />
+              <Text style={[styles.seedText, { color: C.open }]}>Vérifiez votre connexion Supabase</Text>
+            </View>
+          )}
           <View style={styles.demoGrid}>
             {DEMO_ACCOUNTS.map(acc => (
               <TouchableOpacity
@@ -156,4 +168,6 @@ const styles = StyleSheet.create({
   demoLabel: { fontSize: 13, fontFamily: 'Inter_600SemiBold' },
   demoEmail: { fontSize: 11, fontFamily: 'Inter_400Regular', color: C.textMuted, marginTop: 2 },
   demoHint: { fontSize: 11, fontFamily: 'Inter_400Regular', color: C.textMuted, textAlign: 'center', marginTop: 12 },
+  seedBanner: { flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: C.inProgress + '20', borderRadius: 8, paddingVertical: 8, paddingHorizontal: 12, marginBottom: 12 },
+  seedText: { fontSize: 12, fontFamily: 'Inter_400Regular', color: C.inProgress, flex: 1 },
 });
