@@ -3,10 +3,10 @@
   "version": "1.0.0",
   "main": "expo-router/entry",
   "scripts": {
-    "start": "npx expo start --web --port 5000",
-    "android": "expo run:android",
-    "ios": "expo run:ios",
-    "web": "expo export --platform web"
+    "start": "node node_modules/expo/bin/cli start --web --port 5000",
+    "android": "node node_modules/expo/bin/cli run:android",
+    "ios": "node node_modules/expo/bin/cli run:ios",
+    "web": "node node_modules/expo/bin/cli export --platform web"
   },
   "dependencies": {
     "@expo-google-fonts/inter": "^0.2.3",
