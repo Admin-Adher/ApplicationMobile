@@ -120,7 +120,7 @@ const planImgStyles = StyleSheet.create({
 export default function PlansScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
-  const { reserves, companies, documents, addDocument } = useApp();
+  const { reserves, companies, documents, addDocument, deleteDocument } = useApp();
   const [building, setBuilding] = useState('A');
   const [selected, setSelected] = useState<Reserve | null>(null);
   const [companyFilter, setCompanyFilter] = useState<string>('all');
@@ -136,6 +136,9 @@ export default function PlansScreen() {
   const lastScale = useRef(1);
   const lastTX = useRef(0);
   const lastTY = useRef(0);
+  const touchStartXRef = useRef(0);
+  const touchStartYRef = useRef(0);
+  const isDraggingRef = useRef(false);
 
   const vectorPlan = FLOOR_PLANS[building];
 
@@ -162,11 +165,16 @@ export default function PlansScreen() {
     PanResponder.create({
       onStartShouldSetPanResponder: () => true,
       onMoveShouldSetPanResponder: () => true,
-      onPanResponderGrant: () => {
+      onPanResponderGrant: (e) => {
         lastTX.current = (translateX as any)._value;
         lastTY.current = (translateY as any)._value;
+        touchStartXRef.current = e.nativeEvent.pageX;
+        touchStartYRef.current = e.nativeEvent.pageY;
+        isDraggingRef.current = false;
       },
       onPanResponderMove: (_, gs) => {
+        const moved = Math.abs(gs.dx) + Math.abs(gs.dy);
+        if (moved > 6) isDraggingRef.current = true;
         translateX.setValue(lastTX.current + gs.dx);
         translateY.setValue(lastTY.current + gs.dy);
       },
@@ -196,11 +204,13 @@ export default function PlansScreen() {
     ]).start();
   }
 
-  function handlePlanTap(e: GestureResponderEvent) {
+  function handlePlanTap(e: any) {
     if (!addingMarker) return;
+    if (isDraggingRef.current) return;
     const { locationX, locationY } = e.nativeEvent;
-    const px = Math.round((locationX / PLAN_W) * 100);
-    const py = Math.round((locationY / PLAN_H) * 100);
+    if (locationX === undefined || locationY === undefined) return;
+    const px = Math.min(100, Math.max(0, Math.round((locationX / PLAN_W) * 100)));
+    const py = Math.min(100, Math.max(0, Math.round((locationY / PLAN_H) * 100)));
     setPendingCoords({ x: px, y: py });
     setAddingMarker(false);
   }
@@ -257,21 +267,16 @@ export default function PlansScreen() {
   }
 
   function handleRemovePlan() {
+    if (!activePlan) return;
     Alert.alert(
-      'Supprimer le plan importé ?',
-      `Le plan vectoriel par défaut sera rétabli pour le Bâtiment ${building}.`,
+      'Remplacer le plan importé ?',
+      `Le plan vectoriel par défaut sera rétabli pour le Bâtiment ${building}. Vous pourrez en importer un nouveau.`,
       [
         { text: 'Annuler', style: 'cancel' },
         {
-          text: 'Supprimer',
+          text: 'Remplacer',
           style: 'destructive',
-          onPress: () => {
-            if (activePlan) {
-              // We'll just filter it out by uploading a signal — simplest: use deleteDocument
-              // Since we don't expose deleteDocument here directly, we route through addDocument trick
-              // Actually let's call deleteDocument if available
-            }
-          },
+          onPress: () => deleteDocument(activePlan.id),
         },
       ]
     );
