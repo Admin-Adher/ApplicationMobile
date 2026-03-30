@@ -10,7 +10,6 @@ export interface User {
   role: UserRole;
   roleLabel: string;
   email: string;
-  password: string;
 }
 
 export interface Comment {

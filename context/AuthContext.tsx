@@ -39,7 +39,6 @@ async function fetchProfile(userId: string): Promise<User | null> {
       role: data.role as UserRole,
       roleLabel: data.role_label,
       email: data.email,
-      password: '',
     };
   } catch {
     return null;
@@ -76,7 +75,7 @@ async function seedDemoUsers(): Promise<'done' | 'error'> {
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState(true);
-  const [seedStatus, setSeedStatus] = useState<'idle' | 'seeding' | 'done' | 'error'>('done');
+  const [seedStatus, setSeedStatus] = useState<'idle' | 'seeding' | 'done' | 'error'>('idle');
   const isSeedingRef = useRef(false);
 
   useEffect(() => {
@@ -143,7 +142,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     role: u.role as UserRole,
     roleLabel: u.roleLabel,
     email: u.email,
-    password: '',
   }));
 
   return (

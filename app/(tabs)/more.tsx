@@ -40,7 +40,7 @@ export default function MoreScreen() {
   function handleLogout() {
     Alert.alert('Déconnexion', 'Voulez-vous vous déconnecter ?', [
       { text: 'Annuler', style: 'cancel' },
-      { text: 'Déconnexion', style: 'destructive', onPress: () => { logout(); router.replace('/login'); } },
+      { text: 'Déconnexion', style: 'destructive', onPress: () => { logout(); } },
     ]);
   }
 

@@ -15,8 +15,8 @@ export const C = {
 
   open: '#DC2626',
   openBg: '#FEF2F2',
-  inProgress: '#003082',
-  inProgressBg: '#EEF3FA',
+  inProgress: '#2563EB',
+  inProgressBg: '#EFF6FF',
   waiting: '#D97706',
   waitingBg: '#FFFBEB',
   verification: '#7C3AED',

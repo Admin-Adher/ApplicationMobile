@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useEffect, useReducer, useRef, useState } from 'react';
+import { Alert } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { Reserve, Company, Task, Document, Photo, Message, Channel, Profile, ReserveStatus, ReservePriority, TaskStatus } from '@/constants/types';
+import { Reserve, Company, Task, Document, Photo, Message, Channel, Profile, Comment, ReserveStatus, ReservePriority, TaskStatus } from '@/constants/types';
 import { supabase } from '@/lib/supabase';
 import { initStorageBuckets } from '@/lib/storage';
 import { C } from '@/constants/colors';
@@ -36,8 +37,8 @@ type Action =
   | { type: 'INIT'; payload: Omit<AppState, 'isLoading' | 'lastReadByChannel' | 'customChannels' | 'groupChannels' | 'pinnedChannelIds'> }
   | { type: 'ADD_RESERVE'; payload: Reserve }
   | { type: 'UPDATE_RESERVE'; payload: Reserve }
-  | { type: 'UPDATE_RESERVE_STATUS'; payload: { id: string; status: ReserveStatus; author: string } }
-  | { type: 'ADD_COMMENT'; payload: { reserveId: string; author: string; content: string } }
+  | { type: 'UPDATE_RESERVE_STATUS'; payload: Reserve }
+  | { type: 'ADD_COMMENT'; payload: { reserveId: string; comment: Comment } }
   | { type: 'ADD_COMPANY'; payload: Company }
   | { type: 'UPDATE_COMPANY'; payload: { id: string; actualWorkers: number } }
   | { type: 'ADD_MESSAGE'; payload: Message }
@@ -156,7 +157,14 @@ export function dmChannelId(nameA: string, nameB: string): string {
 function reducer(state: AppState, action: Action): AppState {
   switch (action.type) {
     case 'INIT':
-      return { ...action.payload, lastReadByChannel: state.lastReadByChannel, customChannels: state.customChannels, groupChannels: state.groupChannels, pinnedChannelIds: state.pinnedChannelIds, isLoading: false };
+      return {
+        ...action.payload,
+        lastReadByChannel: state.lastReadByChannel,
+        customChannels: state.customChannels,
+        groupChannels: state.groupChannels,
+        pinnedChannelIds: state.pinnedChannelIds,
+        isLoading: false,
+      };
 
     case 'ADD_RESERVE':
       return { ...state, reserves: [action.payload, ...state.reserves] };
@@ -170,50 +178,31 @@ function reducer(state: AppState, action: Action): AppState {
     case 'UPDATE_RESERVE_FIELDS':
       return { ...state, reserves: state.reserves.map(x => x.id === action.payload.id ? action.payload : x) };
 
-    case 'UPDATE_RESERVE_STATUS': {
-      const { id, status, author } = action.payload;
-      const labels: Record<ReserveStatus, string> = {
-        open: 'Ouvert', in_progress: 'En cours', waiting: 'En attente', verification: 'Vérification', closed: 'Clôturé',
-      };
-      return {
-        ...state,
-        reserves: state.reserves.map(r => {
-          if (r.id !== id) return r;
-          const updated = {
-            ...r, status,
-            history: [...r.history, { id: genId(), action: 'Statut modifié', author, createdAt: new Date().toISOString().slice(0, 10), oldValue: labels[r.status], newValue: labels[status] }],
-          };
-          supabase.from('reserves').update({ status: updated.status, history: updated.history }).eq('id', id).catch(() => {});
-          return updated;
-        }),
-      };
-    }
+    case 'UPDATE_RESERVE_STATUS':
+      return { ...state, reserves: state.reserves.map(r => r.id === action.payload.id ? action.payload : r) };
 
     case 'ADD_COMMENT': {
-      const { reserveId, author, content } = action.payload;
+      const { reserveId, comment } = action.payload;
       return {
         ...state,
-        reserves: state.reserves.map(r => {
-          if (r.id !== reserveId) return r;
-          const updated = { ...r, comments: [...r.comments, { id: genId(), author, content, createdAt: new Date().toISOString().slice(0, 10) }] };
-          supabase.from('reserves').update({ comments: updated.comments }).eq('id', reserveId).catch(() => {});
-          return updated;
-        }),
+        reserves: state.reserves.map(r =>
+          r.id === reserveId ? { ...r, comments: [...r.comments, comment] } : r
+        ),
       };
     }
 
-    case 'ADD_COMPANY': {
-      const c = action.payload;
-      supabase.from('companies').insert({ id: c.id, name: c.name, short_name: c.shortName, color: c.color, planned_workers: c.plannedWorkers, actual_workers: c.actualWorkers, hours_worked: c.hoursWorked, zone: c.zone, contact: c.contact }).catch(() => {});
-      return { ...state, companies: [...state.companies, c] };
-    }
+    case 'ADD_COMPANY':
+      return { ...state, companies: [...state.companies, action.payload] };
 
     case 'UPDATE_COMPANY':
-      supabase.from('companies').update({ actual_workers: action.payload.actualWorkers }).eq('id', action.payload.id).catch(() => {});
-      return { ...state, companies: state.companies.map(c => c.id === action.payload.id ? { ...c, actualWorkers: action.payload.actualWorkers } : c) };
+      return {
+        ...state,
+        companies: state.companies.map(c =>
+          c.id === action.payload.id ? { ...c, actualWorkers: action.payload.actualWorkers } : c
+        ),
+      };
 
     case 'ADD_MESSAGE':
-      supabase.from('messages').insert(fromMessage(action.payload)).catch(() => {});
       return { ...state, messages: [...state.messages, action.payload] };
 
     case 'INCOMING_MESSAGE':
@@ -221,15 +210,12 @@ function reducer(state: AppState, action: Action): AppState {
       return { ...state, messages: [...state.messages, action.payload] };
 
     case 'DELETE_MESSAGE':
-      supabase.from('messages').delete().eq('id', action.payload).catch(() => {});
       return { ...state, messages: state.messages.filter(m => m.id !== action.payload) };
 
     case 'UPDATE_MESSAGE':
-      supabase.from('messages').update(fromMessage(action.payload)).eq('id', action.payload.id).catch(() => {});
       return { ...state, messages: state.messages.map(m => m.id === action.payload.id ? action.payload : m) };
 
     case 'MARK_MESSAGES_READ':
-      supabase.from('messages').update({ read: true }).eq('is_me', false).catch(() => {});
       return { ...state, messages: state.messages.map(m => ({ ...m, read: true })) };
 
     case 'SET_CHANNEL_READ': {
@@ -242,31 +228,24 @@ function reducer(state: AppState, action: Action): AppState {
       return { ...state, lastReadByChannel: action.payload };
 
     case 'ADD_TASK':
-      supabase.from('tasks').insert({ id: action.payload.id, title: action.payload.title, description: action.payload.description, status: action.payload.status, priority: action.payload.priority, deadline: action.payload.deadline, assignee: action.payload.assignee, progress: action.payload.progress, company: action.payload.company }).catch(() => {});
       return { ...state, tasks: [action.payload, ...state.tasks] };
 
     case 'UPDATE_TASK':
-      supabase.from('tasks').update({ title: action.payload.title, description: action.payload.description, status: action.payload.status, priority: action.payload.priority, deadline: action.payload.deadline, assignee: action.payload.assignee, progress: action.payload.progress, company: action.payload.company }).eq('id', action.payload.id).catch(() => {});
       return { ...state, tasks: state.tasks.map(t => t.id === action.payload.id ? action.payload : t) };
 
     case 'DELETE_TASK':
-      supabase.from('tasks').delete().eq('id', action.payload).catch(() => {});
       return { ...state, tasks: state.tasks.filter(t => t.id !== action.payload) };
 
     case 'ADD_PHOTO':
-      supabase.from('photos').insert({ id: action.payload.id, comment: action.payload.comment, location: action.payload.location, taken_at: action.payload.takenAt, taken_by: action.payload.takenBy, color_code: action.payload.colorCode, uri: action.payload.uri }).catch(() => {});
       return { ...state, photos: [action.payload, ...state.photos] };
 
     case 'ADD_DOCUMENT':
-      supabase.from('documents').insert({ id: action.payload.id, name: action.payload.name, type: action.payload.type, category: action.payload.category, uploaded_at: action.payload.uploadedAt, size: action.payload.size, version: action.payload.version, uri: action.payload.uri }).catch(() => {});
       return { ...state, documents: [action.payload, ...state.documents] };
 
     case 'DELETE_DOCUMENT':
-      supabase.from('documents').delete().eq('id', action.payload).catch(() => {});
       return { ...state, documents: state.documents.filter(d => d.id !== action.payload) };
 
     case 'DELETE_PHOTO':
-      supabase.from('photos').delete().eq('id', action.payload).catch(() => {});
       return { ...state, photos: state.photos.filter(p => p.id !== action.payload) };
 
     case 'SET_LOADING':
@@ -304,23 +283,19 @@ function reducer(state: AppState, action: Action): AppState {
     case 'SET_PINNED_CHANNELS':
       return { ...state, pinnedChannelIds: action.payload };
 
-    case 'UPDATE_COMPANY_FULL': {
-      const c = action.payload;
-      supabase.from('companies').update({
-        name: c.name, short_name: c.shortName, color: c.color,
-        planned_workers: c.plannedWorkers, actual_workers: c.actualWorkers,
-        hours_worked: c.hoursWorked, zone: c.zone, contact: c.contact,
-      }).eq('id', c.id).catch(() => {});
-      return { ...state, companies: state.companies.map(co => co.id === c.id ? c : co) };
-    }
+    case 'UPDATE_COMPANY_FULL':
+      return { ...state, companies: state.companies.map(co => co.id === action.payload.id ? action.payload : co) };
 
     case 'DELETE_COMPANY':
-      supabase.from('companies').delete().eq('id', action.payload).catch(() => {});
       return { ...state, companies: state.companies.filter(c => c.id !== action.payload) };
 
     case 'UPDATE_COMPANY_HOURS':
-      supabase.from('companies').update({ hours_worked: action.payload.hours }).eq('id', action.payload.id).catch(() => {});
-      return { ...state, companies: state.companies.map(c => c.id === action.payload.id ? { ...c, hoursWorked: action.payload.hours } : c) };
+      return {
+        ...state,
+        companies: state.companies.map(c =>
+          c.id === action.payload.id ? { ...c, hoursWorked: action.payload.hours } : c
+        ),
+      };
 
     default:
       return state;
@@ -392,6 +367,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const currentUserNameRef = useRef<string>('');
   const activeChannelIdRef = useRef<string | null>(null);
   const channelsRef = useRef<Channel[]>([...STATIC_CHANNELS]);
+  const stateRef = useRef(state);
+
+  useEffect(() => {
+    stateRef.current = state;
+  }, [state]);
 
   function dismissNotification() {
     setNotification(null);
@@ -466,7 +446,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       }
 
       const [
-        { data: reserves },
+        { data: reserves, error: reservesErr },
         { data: companies },
         { data: tasks },
         { data: documents },
@@ -482,6 +462,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         supabase.from('messages').select('*').order('timestamp', { ascending: true }),
         supabase.from('profiles').select('id, name, role, email'),
       ]);
+
+      if (reservesErr) {
+        console.warn('Erreur chargement réserves:', reservesErr.message);
+      }
 
       const storedLastRead = await AsyncStorage.getItem('lastReadByChannel').catch(() => null);
       if (storedLastRead) {
@@ -508,6 +492,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     } catch (err) {
       console.warn('Supabase load error:', err);
       dispatch({ type: 'SET_LOADING', payload: false });
+      Alert.alert(
+        'Erreur de connexion',
+        'Impossible de charger les données. Vérifiez votre connexion internet.',
+        [{ text: 'Réessayer', onPress: loadAll }, { text: 'Ignorer', style: 'cancel' }]
+      );
     }
   }
 
@@ -746,6 +735,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     ...state, stats, unreadCount, channels, unreadByChannel, notification,
     setActiveChannelId,
     dismissNotification,
+
     addReserve: (r) => {
       supabase.from('reserves').insert({
         id: r.id, title: r.title, description: r.description, building: r.building,
@@ -753,75 +743,163 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         status: r.status, created_at: r.createdAt, deadline: r.deadline,
         comments: r.comments, history: r.history, plan_x: r.planX, plan_y: r.planY,
         photo_uri: r.photoUri,
-      }).catch(() => {});
+      }).then(({ error }) => {
+        if (error) console.warn('Erreur ajout réserve:', error.message);
+      });
       dispatch({ type: 'ADD_RESERVE', payload: r });
     },
+
     updateReserve: (r) => {
       supabase.from('reserves').update({
         title: r.title, description: r.description, building: r.building,
         zone: r.zone, level: r.level, company: r.company, priority: r.priority,
         status: r.status, deadline: r.deadline, comments: r.comments, history: r.history,
         plan_x: r.planX, plan_y: r.planY, photo_uri: r.photoUri,
-      }).eq('id', r.id).catch(() => {});
+      }).eq('id', r.id).then(({ error }) => {
+        if (error) console.warn('Erreur mise à jour réserve:', error.message);
+      });
       dispatch({ type: 'UPDATE_RESERVE', payload: r });
     },
+
     updateReserveFields: (r) => {
       supabase.from('reserves').update({
         title: r.title, description: r.description, building: r.building,
         zone: r.zone, level: r.level, company: r.company, priority: r.priority,
         deadline: r.deadline, history: r.history, photo_uri: r.photoUri ?? null,
-      }).eq('id', r.id).catch(() => {});
+      }).eq('id', r.id).then(({ error }) => {
+        if (error) console.warn('Erreur modification réserve:', error.message);
+      });
       dispatch({ type: 'UPDATE_RESERVE_FIELDS', payload: r });
     },
+
     deleteReserve: (id) => {
-      supabase.from('reserves').delete().eq('id', id).catch(() => {});
+      supabase.from('reserves').delete().eq('id', id).then(({ error }) => {
+        if (error) console.warn('Erreur suppression réserve:', error.message);
+      });
       dispatch({ type: 'DELETE_RESERVE', payload: id });
     },
+
     updateReserveStatus: (id, status, author = 'Conducteur de travaux') => {
-      dispatch({ type: 'UPDATE_RESERVE_STATUS', payload: { id, status, author } });
-      const reserve = state.reserves.find(r => r.id === id);
-      if (reserve) {
-        const company = state.companies.find(c => c.name === reserve.company);
-        if (company) {
-          const notifChannelId = `company-${company.id}`;
-          const STATUS_LABELS: Record<string, string> = {
-            open: 'Ouvert', in_progress: 'En cours', waiting: 'En attente',
-            verification: 'En vérification', closed: 'Clôturé',
-          };
-          const ts = new Date().toLocaleString('fr-FR', {
-            day: '2-digit', month: '2-digit', year: 'numeric',
-            hour: '2-digit', minute: '2-digit',
-          }).replace(',', '');
-          const notifMsg: Message = {
-            id: genId(),
-            channelId: notifChannelId,
-            sender: author,
-            content: `Réserve ${reserve.id} — "${reserve.title}" : statut modifié → ${STATUS_LABELS[status] ?? status}`,
-            timestamp: ts,
-            type: 'notification',
-            read: false,
-            isMe: false,
-            reactions: {},
-            isPinned: false,
-            readBy: [],
-            mentions: [],
-            reserveId: reserve.id,
-          };
-          dispatch({ type: 'ADD_MESSAGE', payload: notifMsg });
-        }
+      const reserve = stateRef.current.reserves.find(r => r.id === id);
+      if (!reserve) return;
+      const labels: Record<ReserveStatus, string> = {
+        open: 'Ouvert', in_progress: 'En cours', waiting: 'En attente',
+        verification: 'Vérification', closed: 'Clôturé',
+      };
+      const historyEntry = {
+        id: genId(),
+        action: 'Statut modifié',
+        author,
+        createdAt: new Date().toISOString().slice(0, 10),
+        oldValue: labels[reserve.status],
+        newValue: labels[status],
+      };
+      const updated: Reserve = {
+        ...reserve,
+        status,
+        history: [...reserve.history, historyEntry],
+      };
+      supabase.from('reserves').update({ status: updated.status, history: updated.history }).eq('id', id).then(({ error }) => {
+        if (error) console.warn('Erreur statut réserve:', error.message);
+      });
+      dispatch({ type: 'UPDATE_RESERVE_STATUS', payload: updated });
+
+      const company = stateRef.current.companies.find(c => c.name === reserve.company);
+      if (company) {
+        const notifChannelId = `company-${company.id}`;
+        const ts = new Date().toLocaleString('fr-FR', {
+          day: '2-digit', month: '2-digit', year: 'numeric',
+          hour: '2-digit', minute: '2-digit',
+        }).replace(',', '');
+        const notifMsg: Message = {
+          id: genId(),
+          channelId: notifChannelId,
+          sender: author,
+          content: `Réserve ${reserve.id} — "${reserve.title}" : statut modifié → ${labels[status] ?? status}`,
+          timestamp: ts,
+          type: 'notification',
+          read: false,
+          isMe: false,
+          reactions: {},
+          isPinned: false,
+          readBy: [],
+          mentions: [],
+          reserveId: reserve.id,
+        };
+        supabase.from('messages').insert(fromMessage(notifMsg)).then(({ error }) => {
+          if (error) console.warn('Erreur notification canal:', error.message);
+        });
+        dispatch({ type: 'ADD_MESSAGE', payload: notifMsg });
       }
     },
-    addComment: (reserveId, content, author = 'Conducteur de travaux') =>
-      dispatch({ type: 'ADD_COMMENT', payload: { reserveId, author: currentUserNameRef.current || author, content } }),
-    addCompany: (c) => dispatch({ type: 'ADD_COMPANY', payload: c }),
-    updateCompanyWorkers: (id, actual) =>
-      dispatch({ type: 'UPDATE_COMPANY', payload: { id, actualWorkers: actual } }),
-    updateCompanyFull: (c) => dispatch({ type: 'UPDATE_COMPANY_FULL', payload: c }),
-    deleteCompany: (id) => dispatch({ type: 'DELETE_COMPANY', payload: id }),
-    updateCompanyHours: (id, hours) => dispatch({ type: 'UPDATE_COMPANY_HOURS', payload: { id, hours } }),
+
+    addComment: (reserveId, content, author = 'Conducteur de travaux') => {
+      const reserve = stateRef.current.reserves.find(r => r.id === reserveId);
+      if (!reserve) return;
+      const actualAuthor = currentUserNameRef.current || author;
+      const comment: Comment = {
+        id: genId(),
+        author: actualAuthor,
+        content,
+        createdAt: new Date().toISOString().slice(0, 10),
+      };
+      const updatedComments = [...reserve.comments, comment];
+      supabase.from('reserves').update({ comments: updatedComments }).eq('id', reserveId).then(({ error }) => {
+        if (error) console.warn('Erreur ajout commentaire:', error.message);
+      });
+      dispatch({ type: 'ADD_COMMENT', payload: { reserveId, comment } });
+    },
+
+    addCompany: (c) => {
+      supabase.from('companies').insert({
+        id: c.id, name: c.name, short_name: c.shortName, color: c.color,
+        planned_workers: c.plannedWorkers, actual_workers: c.actualWorkers,
+        hours_worked: c.hoursWorked, zone: c.zone, contact: c.contact,
+      }).then(({ error }) => {
+        if (error) console.warn('Erreur ajout entreprise:', error.message);
+      });
+      dispatch({ type: 'ADD_COMPANY', payload: c });
+    },
+
+    updateCompanyWorkers: (id, actual) => {
+      supabase.from('companies').update({ actual_workers: actual }).eq('id', id).then(({ error }) => {
+        if (error) console.warn('Erreur mise à jour effectif:', error.message);
+      });
+      dispatch({ type: 'UPDATE_COMPANY', payload: { id, actualWorkers: actual } });
+    },
+
+    updateCompanyFull: (c) => {
+      supabase.from('companies').update({
+        name: c.name, short_name: c.shortName, color: c.color,
+        planned_workers: c.plannedWorkers, actual_workers: c.actualWorkers,
+        hours_worked: c.hoursWorked, zone: c.zone, contact: c.contact,
+      }).eq('id', c.id).then(({ error }) => {
+        if (error) console.warn('Erreur mise à jour entreprise:', error.message);
+      });
+      dispatch({ type: 'UPDATE_COMPANY_FULL', payload: c });
+    },
+
+    deleteCompany: (id) => {
+      supabase.from('companies').delete().eq('id', id).then(({ error }) => {
+        if (error) console.warn('Erreur suppression entreprise:', error.message);
+      });
+      dispatch({ type: 'DELETE_COMPANY', payload: id });
+    },
+
+    updateCompanyHours: (id, hours) => {
+      supabase.from('companies').update({ hours_worked: hours }).eq('id', id).then(({ error }) => {
+        if (error) console.warn('Erreur mise à jour heures:', error.message);
+      });
+      dispatch({ type: 'UPDATE_COMPANY_HOURS', payload: { id, hours } });
+    },
+
     reload: loadAll,
+
     addMessage: (channelId, content, options = {}, sender = 'Moi') => {
-      const ts = new Date().toLocaleString('fr-FR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }).replace(',', '');
+      const ts = new Date().toLocaleString('fr-FR', {
+        day: '2-digit', month: '2-digit', year: 'numeric',
+        hour: '2-digit', minute: '2-digit',
+      }).replace(',', '');
       const actualSender = currentUserNameRef.current || sender;
       const msg: Message = {
         id: genId(), channelId, sender: actualSender, content, timestamp: ts,
@@ -831,23 +909,103 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         replyToSender: options.replyToSender, attachmentUri: options.attachmentUri,
         reserveId: options.reserveId,
       };
+      supabase.from('messages').insert(fromMessage(msg)).then(({ error }) => {
+        if (error) console.warn('Erreur envoi message:', error.message);
+      });
       dispatch({ type: 'ADD_MESSAGE', payload: msg });
     },
+
     incomingMessage: (msg) => dispatch({ type: 'INCOMING_MESSAGE', payload: msg }),
-    deleteMessage: (id) => dispatch({ type: 'DELETE_MESSAGE', payload: id }),
-    updateMessage: (msg) => dispatch({ type: 'UPDATE_MESSAGE', payload: msg }),
-    markMessagesRead: () => dispatch({ type: 'MARK_MESSAGES_READ' }),
+
+    deleteMessage: (id) => {
+      supabase.from('messages').delete().eq('id', id).then(({ error }) => {
+        if (error) console.warn('Erreur suppression message:', error.message);
+      });
+      dispatch({ type: 'DELETE_MESSAGE', payload: id });
+    },
+
+    updateMessage: (msg) => {
+      supabase.from('messages').update(fromMessage(msg)).eq('id', msg.id).then(({ error }) => {
+        if (error) console.warn('Erreur mise à jour message:', error.message);
+      });
+      dispatch({ type: 'UPDATE_MESSAGE', payload: msg });
+    },
+
+    markMessagesRead: () => {
+      dispatch({ type: 'MARK_MESSAGES_READ' });
+    },
+
     setChannelRead: (channelId) => {
-      const ts = new Date().toLocaleString('fr-FR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }).replace(',', '');
+      const ts = new Date().toLocaleString('fr-FR', {
+        day: '2-digit', month: '2-digit', year: 'numeric',
+        hour: '2-digit', minute: '2-digit',
+      }).replace(',', '');
       dispatch({ type: 'SET_CHANNEL_READ', payload: { channelId, timestamp: ts } });
     },
-    addTask: (t) => dispatch({ type: 'ADD_TASK', payload: t }),
-    updateTask: (t) => dispatch({ type: 'UPDATE_TASK', payload: t }),
-    deleteTask: (id) => dispatch({ type: 'DELETE_TASK', payload: id }),
-    addPhoto: (p) => dispatch({ type: 'ADD_PHOTO', payload: p }),
-    deletePhoto: (id) => dispatch({ type: 'DELETE_PHOTO', payload: id }),
-    addDocument: (d) => dispatch({ type: 'ADD_DOCUMENT', payload: d }),
-    deleteDocument: (id) => dispatch({ type: 'DELETE_DOCUMENT', payload: id }),
+
+    addTask: (t) => {
+      supabase.from('tasks').insert({
+        id: t.id, title: t.title, description: t.description, status: t.status,
+        priority: t.priority, deadline: t.deadline, assignee: t.assignee,
+        progress: t.progress, company: t.company,
+      }).then(({ error }) => {
+        if (error) console.warn('Erreur ajout tâche:', error.message);
+      });
+      dispatch({ type: 'ADD_TASK', payload: t });
+    },
+
+    updateTask: (t) => {
+      supabase.from('tasks').update({
+        title: t.title, description: t.description, status: t.status,
+        priority: t.priority, deadline: t.deadline, assignee: t.assignee,
+        progress: t.progress, company: t.company,
+      }).eq('id', t.id).then(({ error }) => {
+        if (error) console.warn('Erreur mise à jour tâche:', error.message);
+      });
+      dispatch({ type: 'UPDATE_TASK', payload: t });
+    },
+
+    deleteTask: (id) => {
+      supabase.from('tasks').delete().eq('id', id).then(({ error }) => {
+        if (error) console.warn('Erreur suppression tâche:', error.message);
+      });
+      dispatch({ type: 'DELETE_TASK', payload: id });
+    },
+
+    addPhoto: (p) => {
+      supabase.from('photos').insert({
+        id: p.id, comment: p.comment, location: p.location,
+        taken_at: p.takenAt, taken_by: p.takenBy, color_code: p.colorCode, uri: p.uri,
+      }).then(({ error }) => {
+        if (error) console.warn('Erreur ajout photo:', error.message);
+      });
+      dispatch({ type: 'ADD_PHOTO', payload: p });
+    },
+
+    deletePhoto: (id) => {
+      supabase.from('photos').delete().eq('id', id).then(({ error }) => {
+        if (error) console.warn('Erreur suppression photo:', error.message);
+      });
+      dispatch({ type: 'DELETE_PHOTO', payload: id });
+    },
+
+    addDocument: (d) => {
+      supabase.from('documents').insert({
+        id: d.id, name: d.name, type: d.type, category: d.category,
+        uploaded_at: d.uploadedAt, size: d.size, version: d.version, uri: d.uri,
+      }).then(({ error }) => {
+        if (error) console.warn('Erreur ajout document:', error.message);
+      });
+      dispatch({ type: 'ADD_DOCUMENT', payload: d });
+    },
+
+    deleteDocument: (id) => {
+      supabase.from('documents').delete().eq('id', id).then(({ error }) => {
+        if (error) console.warn('Erreur suppression document:', error.message);
+      });
+      dispatch({ type: 'DELETE_DOCUMENT', payload: id });
+    },
+
     addCustomChannel,
     removeCustomChannel,
     addGroupChannel,

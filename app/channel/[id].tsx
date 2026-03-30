@@ -1,6 +1,6 @@
 import {
   View, Text, StyleSheet, FlatList, TouchableOpacity, TextInput, Alert,
-  Modal, Platform, Image, KeyboardAvoidingView, Linking,
+  Modal, Platform, KeyboardAvoidingView,
   ActivityIndicator, Animated,
 } from 'react-native';
 import * as Clipboard from 'expo-clipboard';
@@ -15,15 +15,10 @@ import { useAuth } from '@/context/AuthContext';
 import { Message } from '@/constants/types';
 import { supabase } from '@/lib/supabase';
 import { uploadPhoto } from '@/lib/storage';
+import MessageBubble, { getAvatarColor } from '@/components/channel/MessageBubble';
+import MembersModal from '@/components/channel/MembersModal';
 
 const REACTIONS = ['👍', '✅', '⚠️', '🔥', '💯', '❌'];
-
-function getAvatarColor(name: string): string {
-  const COLORS = [C.primary, '#059669', '#D97706', '#7C3AED', '#DB2777', '#EA580C', '#0891B2', '#65A30D'];
-  let hash = 0;
-  for (let i = 0; i < name.length; i++) hash = name.charCodeAt(i) + ((hash << 5) - hash);
-  return COLORS[Math.abs(hash) % COLORS.length];
-}
 
 function formatDate(timestamp: string): string {
   const parts = timestamp.split(' ');
@@ -38,36 +33,6 @@ function formatDate(timestamp: string): string {
 
 function getDateFromTimestamp(timestamp: string): string {
   return timestamp.split(' ')[0] ?? timestamp;
-}
-
-function detectMentions(text: string, name: string): boolean {
-  return text.toLowerCase().includes(`@${name.toLowerCase().split(' ')[0]}`);
-}
-
-function MessageTextRender({ text, isMe }: { text: string; isMe: boolean }) {
-  const parts: React.ReactNode[] = [];
-  let lastIndex = 0;
-  const combined = /(https?:\/\/[^\s]+)|(@\w+)/g;
-  let match;
-  let idx = 0;
-  while ((match = combined.exec(text)) !== null) {
-    if (match.index > lastIndex) {
-      parts.push(<Text key={`t${idx++}`} style={[styles.msgText, isMe && styles.msgTextMe]}>{text.slice(lastIndex, match.index)}</Text>);
-    }
-    if (match[0].startsWith('http')) {
-      const url = match[0];
-      parts.push(
-        <Text key={`u${idx++}`} style={[styles.msgText, styles.msgLink, isMe && { color: '#93C5FD' }]} onPress={() => Linking.openURL(url).catch(() => {})}>{url}</Text>
-      );
-    } else {
-      parts.push(<Text key={`m${idx++}`} style={[styles.msgText, styles.msgMention, isMe && { backgroundColor: 'rgba(255,255,255,0.2)' }]}>{match[0]}</Text>);
-    }
-    lastIndex = match.index + match[0].length;
-  }
-  if (lastIndex < text.length) {
-    parts.push(<Text key={`t${idx++}`} style={[styles.msgText, isMe && styles.msgTextMe]}>{text.slice(lastIndex)}</Text>);
-  }
-  return <Text>{parts}</Text>;
 }
 
 function DateSeparator({ label }: { label: string }) {
@@ -87,7 +52,6 @@ function TypingIndicator({ users }: { users: string[] }) {
 
   useEffect(() => {
     if (users.length === 0) return;
-
     function animateDot(dot: Animated.Value, delay: number) {
       return Animated.loop(
         Animated.sequence([
@@ -98,26 +62,17 @@ function TypingIndicator({ users }: { users: string[] }) {
         ])
       );
     }
-
-    const anim1 = animateDot(dot1, 0);
-    const anim2 = animateDot(dot2, 140);
-    const anim3 = animateDot(dot3, 280);
-    anim1.start();
-    anim2.start();
-    anim3.start();
-
+    const a1 = animateDot(dot1, 0);
+    const a2 = animateDot(dot2, 140);
+    const a3 = animateDot(dot3, 280);
+    a1.start(); a2.start(); a3.start();
     return () => {
-      anim1.stop();
-      anim2.stop();
-      anim3.stop();
-      dot1.setValue(0);
-      dot2.setValue(0);
-      dot3.setValue(0);
+      a1.stop(); a2.stop(); a3.stop();
+      dot1.setValue(0); dot2.setValue(0); dot3.setValue(0);
     };
   }, [users.length]);
 
   if (users.length === 0) return null;
-
   const label = users.length === 1
     ? `${users[0]} est en train d'écrire`
     : `${users.join(', ')} écrivent`;
@@ -138,13 +93,20 @@ type ListItem = Message | { _type: 'date'; label: string; key: string };
 
 export default function ChannelScreen() {
   const insets = useSafeAreaInsets();
-  const { id: channelId, name: channelName, color: channelColor, icon: channelIcon, isDM, isGroup, members: membersParam } = useLocalSearchParams<{
+  const {
+    id: channelId, name: channelName, color: channelColor, icon: channelIcon,
+    isDM, isGroup, members: membersParam,
+  } = useLocalSearchParams<{
     id: string; name: string; color: string; icon: string; isDM?: string; isGroup?: string; members?: string;
   }>();
   const isDMChannel = isDM === '1';
   const isGroupChannel = isGroup === '1';
   const router = useRouter();
-  const { messages, addMessage, deleteMessage, updateMessage, setChannelRead, setActiveChannelId, channels, removeCustomChannel, removeGroupChannel, renameChannel, addChannelMember, removeChannelMember, profiles } = useApp();
+  const {
+    messages, addMessage, deleteMessage, updateMessage, setChannelRead, setActiveChannelId,
+    channels, removeCustomChannel, removeGroupChannel, renameChannel,
+    addChannelMember, removeChannelMember, profiles,
+  } = useApp();
   const { user } = useAuth();
   const flatListRef = useRef<FlatList>(null);
   const inputRef = useRef<TextInput>(null);
@@ -177,7 +139,6 @@ export default function ChannelScreen() {
   useEffect(() => {
     setChannelRead(channelId!);
     setActiveChannelId(channelId!);
-
     const typingCh = supabase.channel(`typing:${channelId}`);
     typingCh.on('broadcast', { event: 'typing' }, ({ payload }) => {
       const name = payload.userName as string;
@@ -189,7 +150,6 @@ export default function ChannelScreen() {
       }, 3000);
     }).subscribe();
     typingChannelRef.current = typingCh;
-
     return () => {
       supabase.removeChannel(typingCh);
       setActiveChannelId(null);
@@ -259,8 +219,7 @@ export default function ChannelScreen() {
     const atMatch = val.match(/@(\w*)$/);
     setMentionQuery(atMatch ? atMatch[1] : '');
     typingChannelRef.current?.send({
-      type: 'broadcast',
-      event: 'typing',
+      type: 'broadcast', event: 'typing',
       payload: { userName: user?.name ?? 'Utilisateur' },
     }).catch(() => {});
   }
@@ -284,16 +243,11 @@ export default function ChannelScreen() {
         const url = await uploadPhoto(result.assets[0].uri, `msg_${Date.now()}.jpg`);
         addMessage(channelId!, text.trim() || '', {
           attachmentUri: url ?? result.assets[0].uri,
-          replyToId: replyTo?.id,
-          replyToContent: replyTo?.content,
-          replyToSender: replyTo?.sender,
+          replyToId: replyTo?.id, replyToContent: replyTo?.content, replyToSender: replyTo?.sender,
         }, user?.name ?? 'Moi');
-        setText('');
-        setReplyTo(null);
+        setText(''); setReplyTo(null);
         setTimeout(() => flatListRef.current?.scrollToEnd({ animated: true }), 100);
-      } finally {
-        setAttachmentUploading(false);
-      }
+      } finally { setAttachmentUploading(false); }
     }
   }
 
@@ -308,16 +262,11 @@ export default function ChannelScreen() {
         const url = await uploadPhoto(result.assets[0].uri, `msg_${Date.now()}.jpg`);
         addMessage(channelId!, text.trim() || '', {
           attachmentUri: url ?? result.assets[0].uri,
-          replyToId: replyTo?.id,
-          replyToContent: replyTo?.content,
-          replyToSender: replyTo?.sender,
+          replyToId: replyTo?.id, replyToContent: replyTo?.content, replyToSender: replyTo?.sender,
         }, user?.name ?? 'Moi');
-        setText('');
-        setReplyTo(null);
+        setText(''); setReplyTo(null);
         setTimeout(() => flatListRef.current?.scrollToEnd({ animated: true }), 100);
-      } finally {
-        setAttachmentUploading(false);
-      }
+      } finally { setAttachmentUploading(false); }
     }
   }
 
@@ -325,14 +274,10 @@ export default function ChannelScreen() {
     if (!text.trim() && !replyTo) return;
     const mentions = (text.match(/@\w+/g) ?? []).map(m => m.slice(1));
     addMessage(channelId!, text.trim(), {
-      replyToId: replyTo?.id,
-      replyToContent: replyTo?.content,
-      replyToSender: replyTo?.sender,
-      mentions,
+      replyToId: replyTo?.id, replyToContent: replyTo?.content,
+      replyToSender: replyTo?.sender, mentions,
     }, user?.name ?? 'Moi');
-    setText('');
-    setReplyTo(null);
-    setMentionQuery('');
+    setText(''); setReplyTo(null); setMentionQuery('');
     setTimeout(() => flatListRef.current?.scrollToEnd({ animated: true }), 100);
   }
 
@@ -387,14 +332,18 @@ export default function ChannelScreen() {
   function handleReact(emoji: string) {
     setEmojiModalVisible(false);
     if (!selectedMsg) return;
+    applyReact(emoji, selectedMsg);
+  }
+
+  function applyReact(emoji: string, msg: Message) {
     const userName = user?.name ?? 'Moi';
-    const current = selectedMsg.reactions[emoji] ?? [];
+    const current = msg.reactions[emoji] ?? [];
     const updated = current.includes(userName)
       ? current.filter(u => u !== userName)
       : [...current, userName];
-    const newReactions = { ...selectedMsg.reactions, [emoji]: updated };
+    const newReactions = { ...msg.reactions, [emoji]: updated };
     if (updated.length === 0) delete newReactions[emoji];
-    updateMessage({ ...selectedMsg, reactions: newReactions });
+    updateMessage({ ...msg, reactions: newReactions });
   }
 
   function handleNotifPress(msg: Message) {
@@ -403,120 +352,29 @@ export default function ChannelScreen() {
     }
   }
 
-  function renderItem({ item }: { item: ListItem }) {
+  const renderItem = useCallback(({ item }: { item: ListItem }) => {
     if ('_type' in item && item._type === 'date') {
       return <DateSeparator label={item.label} />;
     }
     const msg = item as Message;
-
-    if (msg.type === 'notification' || msg.type === 'system') {
-      return (
-        <TouchableOpacity style={styles.notifWrap} onPress={() => handleNotifPress(msg)} activeOpacity={msg.reserveId ? 0.7 : 1}>
-          <View style={[styles.notifBubble, msg.reserveId && { borderColor: C.primary + '40', borderWidth: 1 }]}>
-            <Ionicons name={msg.reserveId ? 'alert-circle-outline' : 'notifications'} size={12} color={C.inProgress} />
-            <Text style={styles.notifText}>{msg.content}</Text>
-            {msg.reserveId && <Ionicons name="chevron-forward" size={11} color={C.primary} />}
-          </View>
-          <Text style={styles.notifTime}>{msg.timestamp.split(' ')[1]}</Text>
-        </TouchableOpacity>
-      );
-    }
-
-    const avatarColor = getAvatarColor(msg.sender);
-    const isMentioned = detectMentions(msg.content, user?.name ?? '');
-    const readCount = msg.readBy.filter(n => n !== (user?.name ?? 'Moi')).length;
-
     return (
-      <TouchableOpacity
-        style={[styles.bubbleWrap, msg.isMe && styles.bubbleWrapMe, isMentioned && !msg.isMe && styles.bubbleMentioned]}
+      <MessageBubble
+        msg={msg}
+        color={color}
+        userName={user?.name ?? ''}
         onLongPress={() => openActions(msg)}
-        delayLongPress={400}
-        activeOpacity={0.95}
-      >
-        {!msg.isMe && (
-          <View style={[styles.avatar, { backgroundColor: avatarColor + '25' }]}>
-            <Text style={[styles.avatarText, { color: avatarColor }]}>{msg.sender.charAt(0)}</Text>
-          </View>
-        )}
-        <View style={{ maxWidth: '78%' }}>
-          {!msg.isMe && <Text style={[styles.senderName, { color: avatarColor }]}>{msg.sender}</Text>}
-
-          {msg.replyToId && (
-            <View style={[styles.replyPreview, msg.isMe && styles.replyPreviewMe]}>
-              <View style={[styles.replyBar, { backgroundColor: msg.isMe ? 'rgba(255,255,255,0.5)' : color }]} />
-              <View style={{ flex: 1 }}>
-                <Text style={[styles.replyWho, { color: msg.isMe ? 'rgba(255,255,255,0.8)' : color }]}>{msg.replyToSender}</Text>
-                <Text style={[styles.replyText, msg.isMe && { color: 'rgba(255,255,255,0.7)' }]} numberOfLines={1}>{msg.replyToContent}</Text>
-              </View>
-            </View>
-          )}
-
-          <View style={[
-            styles.bubble,
-            msg.isMe ? [styles.bubbleMe, { backgroundColor: color }] : styles.bubbleThem,
-            msg.isPinned && styles.bubblePinned,
-          ]}>
-            {msg.isPinned && (
-              <View style={styles.pinBadge}>
-                <Ionicons name="pin" size={9} color={msg.isMe ? 'rgba(255,255,255,0.7)' : C.waiting} />
-                <Text style={[styles.pinBadgeText, msg.isMe && { color: 'rgba(255,255,255,0.7)' }]}>Épinglé</Text>
-              </View>
-            )}
-            {msg.attachmentUri && (
-              <Image source={{ uri: msg.attachmentUri }} style={styles.attachment} resizeMode="cover" />
-            )}
-            {msg.content.length > 0 && (
-              <MessageTextRender text={msg.content} isMe={msg.isMe} />
-            )}
-          </View>
-
-          {Object.keys(msg.reactions).length > 0 && (
-            <View style={[styles.reactionsRow, msg.isMe && { justifyContent: 'flex-end' }]}>
-              {Object.entries(msg.reactions).map(([emoji, users]) =>
-                users.length > 0 ? (
-                  <TouchableOpacity
-                    key={emoji}
-                    style={[styles.reactionChip, users.includes(user?.name ?? '') && styles.reactionChipMine]}
-                    onPress={() => { setSelectedMsg(msg); handleReact(emoji); }}
-                  >
-                    <Text style={styles.reactionEmoji}>{emoji}</Text>
-                    <Text style={styles.reactionCount}>{users.length}</Text>
-                  </TouchableOpacity>
-                ) : null
-              )}
-              <TouchableOpacity
-                style={styles.addReactionBtn}
-                onPress={() => { setSelectedMsg(msg); setEmojiModalVisible(true); }}
-              >
-                <Text style={styles.addReactionText}>＋</Text>
-              </TouchableOpacity>
-            </View>
-          )}
-
-          <View style={[styles.metaRow, msg.isMe && { justifyContent: 'flex-end' }]}>
-            <Text style={[styles.timeText, msg.isMe && styles.timeTextMe]}>
-              {msg.timestamp.split(' ')[1] ?? msg.timestamp}
-            </Text>
-            {msg.isMe && (
-              <View style={styles.readRow}>
-                <Ionicons
-                  name={readCount > 0 ? 'checkmark-done' : 'checkmark'}
-                  size={11}
-                  color={readCount > 0 ? C.closed : C.textMuted}
-                />
-                {readCount > 0 && <Text style={styles.readText}>Vu par {readCount}</Text>}
-              </View>
-            )}
-          </View>
-        </View>
-      </TouchableOpacity>
+        onNotifPress={handleNotifPress}
+        onReactInline={(emoji, m) => applyReact(emoji, m)}
+        onOpenReactPicker={(m) => { setSelectedMsg(m); setEmojiModalVisible(true); }}
+      />
     );
-  }
+  }, [color, user?.name, channelId]);
 
   const lastPinned = pinnedMessages[pinnedMessages.length - 1];
 
   return (
     <View style={styles.container}>
+      {/* ── HEADER ── */}
       <View style={[styles.header, { paddingTop: Platform.OS === 'web' ? 16 : insets.top + 8 }]}>
         <TouchableOpacity onPress={() => router.back()} style={styles.backBtn}>
           <Ionicons name="chevron-back" size={22} color={C.text} />
@@ -667,6 +525,7 @@ export default function ChannelScreen() {
         </View>
       </KeyboardAvoidingView>
 
+      {/* ── MODAL ACTIONS ── */}
       <Modal visible={actionModalVisible} transparent animationType="slide" onRequestClose={() => setActionModalVisible(false)}>
         <TouchableOpacity style={styles.modalOverlay} activeOpacity={1} onPress={() => setActionModalVisible(false)}>
           <View style={styles.actionSheet}>
@@ -709,6 +568,7 @@ export default function ChannelScreen() {
         </TouchableOpacity>
       </Modal>
 
+      {/* ── MODAL EMOJI ── */}
       <Modal visible={emojiModalVisible} transparent animationType="fade" onRequestClose={() => setEmojiModalVisible(false)}>
         <TouchableOpacity style={styles.modalOverlay} activeOpacity={1} onPress={() => setEmojiModalVisible(false)}>
           <View style={styles.emojiSheet}>
@@ -727,6 +587,7 @@ export default function ChannelScreen() {
         </TouchableOpacity>
       </Modal>
 
+      {/* ── MODAL ÉPINGLÉS ── */}
       <Modal visible={pinnedModalVisible} transparent animationType="slide" onRequestClose={() => setPinnedModalVisible(false)}>
         <TouchableOpacity style={styles.modalOverlay} activeOpacity={1} onPress={() => setPinnedModalVisible(false)}>
           <View style={styles.actionSheet}>
@@ -740,7 +601,7 @@ export default function ChannelScreen() {
                   <Text style={styles.pinnedItemContent} numberOfLines={2}>{m.content || 'Photo'}</Text>
                   <Text style={styles.pinnedItemTime}>{m.timestamp}</Text>
                 </View>
-                <TouchableOpacity onPress={() => { updateMessage({ ...m, isPinned: false }); }}>
+                <TouchableOpacity onPress={() => updateMessage({ ...m, isPinned: false })}>
                   <Ionicons name="close" size={16} color={C.textMuted} />
                 </TouchableOpacity>
               </View>
@@ -750,176 +611,31 @@ export default function ChannelScreen() {
         </TouchableOpacity>
       </Modal>
 
-      {/* === PANEL GESTION CANAL / GROUPE === */}
-      <Modal visible={membersVisible} transparent animationType="slide" onRequestClose={() => setMembersVisible(false)}>
-        <TouchableOpacity style={styles.modalOverlay} activeOpacity={1} onPress={() => setMembersVisible(false)}>
-          <TouchableOpacity activeOpacity={1} style={[styles.actionSheet, { maxHeight: '85%' }]}>
-            <View style={styles.actionSheetHandle} />
+      {/* ── MODAL MEMBRES (composant externe) ── */}
+      <MembersModal
+        visible={membersVisible}
+        onClose={() => setMembersVisible(false)}
+        channelId={channelId!}
+        channelObj={channelObj}
+        liveChannelName={liveChannelName}
+        liveMembers={liveMembers}
+        color={color}
+        isDMChannel={isDMChannel}
+        isGroupChannel={isGroupChannel}
+        isEditable={isEditable}
+        isCreator={isCreator}
+        channelIcon={channelIcon ?? 'chatbubbles'}
+        user={user}
+        knownSenders={knownSenders}
+        profiles={profiles}
+        onRenamePress={() => { setRenameText(liveChannelName); setMembersVisible(false); setRenameVisible(true); }}
+        onAddMemberPress={() => setAddMemberVisible(true)}
+        removeChannelMember={removeChannelMember}
+        removeCustomChannel={removeCustomChannel}
+        removeGroupChannel={removeGroupChannel}
+      />
 
-            {/* En-tête */}
-            <View style={styles.mgmtHeader}>
-              <View style={[styles.mgmtHeaderIcon, { backgroundColor: color + '20' }]}>
-                {isDMChannel
-                  ? <Text style={[styles.mgmtHeaderIconText, { color }]}>{liveChannelName.charAt(0)}</Text>
-                  : <Ionicons name={(isGroupChannel ? 'people-circle' : channelIcon ?? 'chatbubbles') as any} size={22} color={color} />}
-              </View>
-              <View style={{ flex: 1 }}>
-                <Text style={styles.mgmtTitle} numberOfLines={1}>{liveChannelName}</Text>
-                <Text style={styles.mgmtSub}>
-                  {isDMChannel ? 'Message direct' : isGroupChannel ? 'Groupe' : isEditable ? 'Canal personnalisé' : 'Canal chantier'}
-                </Text>
-              </View>
-              {isEditable && (
-                <TouchableOpacity
-                  style={styles.mgmtRenameBtn}
-                  onPress={() => { setRenameText(liveChannelName); setRenameVisible(true); }}
-                >
-                  <Ionicons name="pencil-outline" size={16} color={C.primary} />
-                  <Text style={styles.mgmtRenameBtnText}>Renommer</Text>
-                </TouchableOpacity>
-              )}
-            </View>
-
-            <View style={styles.sheetDivider2} />
-
-            {/* Section membres */}
-            {isEditable || isDMChannel || isGroupChannel ? (
-              <>
-                <View style={styles.mgmtSectionRow}>
-                  <Text style={styles.mgmtSectionLabel}>
-                    {isEditable ? (isGroupChannel ? 'MEMBRES DU GROUPE' : 'MEMBRES DU CANAL') : isDMChannel ? 'PARTICIPANTS' : 'MEMBRES DU GROUPE'}
-                  </Text>
-                  {(isEditable || isGroupChannel) && (
-                    <TouchableOpacity
-                      style={styles.mgmtAddBtn}
-                      onPress={() => { setMembersVisible(false); setAddMemberVisible(true); }}
-                    >
-                      <Ionicons name="person-add-outline" size={14} color={C.primary} />
-                      <Text style={styles.mgmtAddBtnText}>Ajouter</Text>
-                    </TouchableOpacity>
-                  )}
-                </View>
-                {liveMembers.length > 0 ? liveMembers.map(name => (
-                  <View key={name} style={styles.memberItem}>
-                    <View style={[styles.memberAvatar, { backgroundColor: getAvatarColor(name) + '25' }]}>
-                      <Text style={[styles.memberAvatarText, { color: getAvatarColor(name) }]}>{name.charAt(0)}</Text>
-                    </View>
-                    <Text style={styles.memberName}>{name}</Text>
-                    {name === user?.name && <View style={styles.meBadge}><Text style={styles.meBadgeText}>Vous</Text></View>}
-                    {channelObj?.createdBy === name && name !== user?.name && (
-                      <View style={[styles.meBadge, { backgroundColor: C.primary + '15' }]}>
-                        <Text style={[styles.meBadgeText, { color: C.primary }]}>Créateur</Text>
-                      </View>
-                    )}
-                    {(isEditable || isGroupChannel) && name !== channelObj?.createdBy && name !== user?.name && (
-                      <TouchableOpacity
-                        style={styles.removeMemberBtn}
-                        onPress={() => {
-                          Alert.alert(
-                            'Retirer ce membre ?',
-                            `${name} sera retiré(e) du ${isGroupChannel ? 'groupe' : 'canal'}.`,
-                            [
-                              { text: 'Annuler', style: 'cancel' },
-                              { text: 'Retirer', style: 'destructive', onPress: () => removeChannelMember(channelId!, name) },
-                            ]
-                          );
-                        }}
-                      >
-                        <Ionicons name="remove-circle-outline" size={20} color={C.open} />
-                      </TouchableOpacity>
-                    )}
-                  </View>
-                )) : (
-                  <View style={{ padding: 16, alignItems: 'center' }}>
-                    <Text style={styles.mgmtSub}>Aucun membre enregistré</Text>
-                  </View>
-                )}
-              </>
-            ) : (
-              <>
-                <Text style={styles.mgmtSectionLabel}>MEMBRES ACTIFS</Text>
-                {[user?.name ?? 'Moi', ...knownSenders].filter((v, i, a) => a.indexOf(v) === i).map(name => (
-                  <View key={name} style={styles.memberItem}>
-                    <View style={[styles.memberAvatar, { backgroundColor: getAvatarColor(name) + '25' }]}>
-                      <Text style={[styles.memberAvatarText, { color: getAvatarColor(name) }]}>{name.charAt(0)}</Text>
-                    </View>
-                    <Text style={styles.memberName}>{name}</Text>
-                    {name === user?.name && <View style={styles.meBadge}><Text style={styles.meBadgeText}>Vous</Text></View>}
-                  </View>
-                ))}
-              </>
-            )}
-
-            {/* Zone danger */}
-            {isEditable && (
-              <>
-                <View style={styles.sheetDivider2} />
-                {!isCreator && (
-                  <TouchableOpacity
-                    style={styles.deleteCanalBtn}
-                    onPress={() => {
-                      Alert.alert(
-                        `Quitter ce ${isGroupChannel ? 'groupe' : 'canal'} ?`,
-                        `Vous ne ferez plus partie de ce ${isGroupChannel ? 'groupe' : 'canal'}.`,
-                        [
-                          { text: 'Annuler', style: 'cancel' },
-                          {
-                            text: 'Quitter', style: 'destructive',
-                            onPress: () => {
-                              setMembersVisible(false);
-                              removeChannelMember(channelId!, user?.name ?? '');
-                              router.back();
-                            },
-                          },
-                        ]
-                      );
-                    }}
-                  >
-                    <Ionicons name="exit-outline" size={18} color={C.waiting} />
-                    <Text style={[styles.deleteCanalText, { color: C.waiting }]}>
-                      Quitter {isGroupChannel ? 'le groupe' : 'le canal'}
-                    </Text>
-                  </TouchableOpacity>
-                )}
-                {isCreator && (
-                  <TouchableOpacity
-                    style={styles.deleteCanalBtn}
-                    onPress={() => {
-                      Alert.alert(
-                        `Supprimer ce ${isGroupChannel ? 'groupe' : 'canal'} ?`,
-                        'Tous les messages seront perdus. Cette action est irréversible.',
-                        [
-                          { text: 'Annuler', style: 'cancel' },
-                          {
-                            text: 'Supprimer', style: 'destructive',
-                            onPress: () => {
-                              setMembersVisible(false);
-                              if (channelObj?.type === 'custom') removeCustomChannel(channelId!);
-                              else removeGroupChannel(channelId!);
-                              router.back();
-                            },
-                          },
-                        ]
-                      );
-                    }}
-                  >
-                    <Ionicons name="trash-outline" size={18} color={C.open} />
-                    <Text style={styles.deleteCanalText}>
-                      Supprimer {isGroupChannel ? 'le groupe' : 'le canal'}
-                    </Text>
-                  </TouchableOpacity>
-                )}
-              </>
-            )}
-
-            <TouchableOpacity style={styles.sheetCancelBtn2} onPress={() => setMembersVisible(false)}>
-              <Text style={styles.sheetCancelText2}>Fermer</Text>
-            </TouchableOpacity>
-          </TouchableOpacity>
-        </TouchableOpacity>
-      </Modal>
-
-      {/* === MODAL RENOMMER === */}
+      {/* ── MODAL RENOMMER ── */}
       <Modal visible={renameVisible} transparent animationType="fade" onRequestClose={() => setRenameVisible(false)}>
         <TouchableOpacity style={styles.modalOverlay} activeOpacity={1} onPress={() => setRenameVisible(false)}>
           <TouchableOpacity activeOpacity={1} style={styles.renameSheet}>
@@ -957,44 +673,37 @@ export default function ChannelScreen() {
         </TouchableOpacity>
       </Modal>
 
-      {/* === MODAL AJOUTER UN MEMBRE === */}
+      {/* ── MODAL AJOUTER MEMBRE ── */}
       <Modal visible={addMemberVisible} transparent animationType="slide" onRequestClose={() => setAddMemberVisible(false)}>
         <TouchableOpacity style={styles.modalOverlay} activeOpacity={1} onPress={() => setAddMemberVisible(false)}>
           <TouchableOpacity activeOpacity={1} style={[styles.actionSheet, { maxHeight: '75%' }]}>
             <View style={styles.actionSheetHandle} />
             <Text style={styles.pinnedSheetTitle}>Ajouter un membre</Text>
-            {profiles
-              .filter(p => p.name !== user?.name && !liveMembers.includes(p.name))
-              .length === 0 ? (
+            {profiles.filter(p => p.name !== user?.name && !liveMembers.includes(p.name)).length === 0 ? (
               <View style={{ padding: 20, alignItems: 'center' }}>
-                <Text style={styles.mgmtSub}>Tous les utilisateurs sont déjà membres</Text>
+                <Text style={styles.emptyText}>Tous les utilisateurs sont déjà membres</Text>
               </View>
-            ) : profiles
-              .filter(p => p.name !== user?.name && !liveMembers.includes(p.name))
-              .map(p => (
-                <TouchableOpacity
-                  key={p.id}
-                  style={styles.memberItem}
-                  onPress={() => {
-                    addChannelMember(channelId!, p.name);
-                    setAddMemberVisible(false);
-                  }}
-                >
-                  <View style={[styles.memberAvatar, { backgroundColor: getAvatarColor(p.name) + '25' }]}>
-                    <Text style={[styles.memberAvatarText, { color: getAvatarColor(p.name) }]}>{p.name.charAt(0)}</Text>
-                  </View>
-                  <View style={{ flex: 1 }}>
-                    <Text style={styles.memberName}>{p.name}</Text>
-                    <Text style={styles.mgmtSub}>{p.role}</Text>
-                  </View>
-                  <View style={[styles.meBadge, { backgroundColor: C.primary + '15' }]}>
-                    <Ionicons name="add" size={12} color={C.primary} />
-                    <Text style={[styles.meBadgeText, { color: C.primary }]}>Ajouter</Text>
-                  </View>
-                </TouchableOpacity>
-              ))}
-            <TouchableOpacity style={styles.sheetCancelBtn2} onPress={() => setAddMemberVisible(false)}>
-              <Text style={styles.sheetCancelText2}>Annuler</Text>
+            ) : profiles.filter(p => p.name !== user?.name && !liveMembers.includes(p.name)).map(p => (
+              <TouchableOpacity
+                key={p.id}
+                style={styles.memberItem}
+                onPress={() => { addChannelMember(channelId!, p.name); setAddMemberVisible(false); }}
+              >
+                <View style={[styles.memberAvatar, { backgroundColor: getAvatarColor(p.name) + '25' }]}>
+                  <Text style={[styles.memberAvatarText, { color: getAvatarColor(p.name) }]}>{p.name.charAt(0)}</Text>
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.memberName}>{p.name}</Text>
+                  <Text style={styles.memberSub}>{p.role}</Text>
+                </View>
+                <View style={[styles.addBadge, { backgroundColor: C.primary + '15' }]}>
+                  <Ionicons name="add" size={12} color={C.primary} />
+                  <Text style={[styles.addBadgeText, { color: C.primary }]}>Ajouter</Text>
+                </View>
+              </TouchableOpacity>
+            ))}
+            <TouchableOpacity style={styles.sheetCancelBtn} onPress={() => setAddMemberVisible(false)}>
+              <Text style={styles.sheetCancelText}>Annuler</Text>
             </TouchableOpacity>
           </TouchableOpacity>
         </TouchableOpacity>
@@ -1024,115 +733,63 @@ const styles = StyleSheet.create({
   dateSepWrap: { flexDirection: 'row', alignItems: 'center', gap: 10, marginVertical: 16 },
   dateSepLine: { flex: 1, height: 1, backgroundColor: C.border },
   dateSepText: { fontSize: 11, fontFamily: 'Inter_500Medium', color: C.textMuted },
-  bubbleWrap: { flexDirection: 'row', alignItems: 'flex-end', gap: 8, marginBottom: 12 },
-  bubbleWrapMe: { justifyContent: 'flex-end' },
-  bubbleMentioned: { backgroundColor: C.primaryBg, borderRadius: 12, padding: 4, marginLeft: -4 },
-  avatar: { width: 32, height: 32, borderRadius: 16, alignItems: 'center', justifyContent: 'center', flexShrink: 0 },
-  avatarText: { fontSize: 13, fontFamily: 'Inter_700Bold' },
-  senderName: { fontSize: 12, fontFamily: 'Inter_600SemiBold', marginBottom: 3, marginLeft: 2 },
-  replyPreview: { flexDirection: 'row', alignItems: 'stretch', backgroundColor: C.surface2, borderRadius: 8, marginBottom: 4, overflow: 'hidden', maxWidth: '100%' },
-  replyPreviewMe: { backgroundColor: 'rgba(255,255,255,0.2)' },
-  replyBar: { width: 3 },
-  replyWho: { fontSize: 11, fontFamily: 'Inter_600SemiBold', padding: 4, paddingBottom: 1 },
-  replyText: { fontSize: 11, fontFamily: 'Inter_400Regular', color: C.textSub, paddingHorizontal: 4, paddingBottom: 4 },
-  bubble: { borderRadius: 16, padding: 10, overflow: 'hidden' },
-  bubbleThem: { backgroundColor: C.surface, borderWidth: 1, borderColor: C.border, borderBottomLeftRadius: 4 },
-  bubbleMe: { borderBottomRightRadius: 4 },
-  bubblePinned: { borderWidth: 1.5, borderColor: C.waiting + '60' },
-  pinBadge: { flexDirection: 'row', alignItems: 'center', gap: 3, marginBottom: 4 },
-  pinBadgeText: { fontSize: 9, fontFamily: 'Inter_600SemiBold', color: C.waiting, textTransform: 'uppercase', letterSpacing: 0.4 },
-  attachment: { width: 220, height: 160, borderRadius: 10, marginBottom: 6 },
-  msgText: { fontSize: 14, fontFamily: 'Inter_400Regular', color: C.text, lineHeight: 20 },
-  msgTextMe: { color: '#fff' },
-  msgLink: { textDecorationLine: 'underline', color: C.primary },
-  msgMention: { color: C.primary, fontFamily: 'Inter_600SemiBold', backgroundColor: C.primaryBg, borderRadius: 4, paddingHorizontal: 2 },
-  reactionsRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 4, marginTop: 4 },
-  reactionChip: { flexDirection: 'row', alignItems: 'center', gap: 3, backgroundColor: C.surface, borderRadius: 12, paddingHorizontal: 8, paddingVertical: 3, borderWidth: 1, borderColor: C.border },
-  reactionChipMine: { backgroundColor: C.primaryBg, borderColor: C.primary },
-  reactionEmoji: { fontSize: 14 },
-  reactionCount: { fontSize: 11, fontFamily: 'Inter_600SemiBold', color: C.textSub },
-  addReactionBtn: { width: 26, height: 26, borderRadius: 13, backgroundColor: C.surface2, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: C.border },
-  addReactionText: { fontSize: 13, color: C.textSub },
-  metaRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 3, marginLeft: 2 },
-  timeText: { fontSize: 10, fontFamily: 'Inter_400Regular', color: C.textMuted },
-  timeTextMe: { textAlign: 'right' },
-  readRow: { flexDirection: 'row', alignItems: 'center', gap: 2 },
-  readText: { fontSize: 10, fontFamily: 'Inter_400Regular', color: C.closed },
-  notifWrap: { alignItems: 'center', marginVertical: 8 },
-  notifBubble: { flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: C.inProgressBg, paddingHorizontal: 12, paddingVertical: 7, borderRadius: 20 },
-  notifText: { fontSize: 12, fontFamily: 'Inter_400Regular', color: C.inProgress, maxWidth: 260 },
-  notifTime: { fontSize: 10, fontFamily: 'Inter_400Regular', color: C.textMuted, marginTop: 2 },
-  typingRow: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 16, paddingVertical: 8 },
-  typingDots: { flexDirection: 'row', gap: 4, alignItems: 'center' },
-  typingDot: { width: 7, height: 7, borderRadius: 3.5, backgroundColor: C.textMuted },
+  typingRow: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 16, paddingVertical: 6 },
+  typingDots: { flexDirection: 'row', gap: 3 },
+  typingDot: { width: 5, height: 5, borderRadius: 2.5, backgroundColor: C.textMuted },
   typingText: { fontSize: 12, fontFamily: 'Inter_400Regular', color: C.textMuted, fontStyle: 'italic' },
-  replyBar2: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 14, paddingVertical: 8, backgroundColor: C.surface, borderTopWidth: 1, borderTopColor: C.border },
-  replyAccent: { width: 3, height: '100%', borderRadius: 2, alignSelf: 'stretch' },
-  replyBarWho: { fontSize: 12, fontFamily: 'Inter_600SemiBold' },
+  replyBar2: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 14, paddingVertical: 8, backgroundColor: C.surface, borderTopWidth: 1, borderTopColor: C.border },
+  replyAccent: { width: 3, height: '100%', borderRadius: 2 },
+  replyBarWho: { fontSize: 11, fontFamily: 'Inter_600SemiBold', marginBottom: 2 },
   replyBarText: { fontSize: 12, fontFamily: 'Inter_400Regular', color: C.textSub },
-  mentionDropdown: { backgroundColor: C.surface, borderTopWidth: 1, borderTopColor: C.border },
-  mentionItem: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 14, paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: C.borderLight },
+  mentionDropdown: { backgroundColor: C.surface, borderTopWidth: 1, borderTopColor: C.border, maxHeight: 180 },
+  mentionItem: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 14, paddingVertical: 8 },
   mentionAvatar: { width: 28, height: 28, borderRadius: 14, alignItems: 'center', justifyContent: 'center' },
   mentionAvatarText: { fontSize: 12, fontFamily: 'Inter_700Bold' },
   mentionName: { fontSize: 14, fontFamily: 'Inter_500Medium', color: C.text },
-  inputRow: { flexDirection: 'row', alignItems: 'flex-end', gap: 6, paddingHorizontal: 12, paddingVertical: 10, borderTopWidth: 1, borderTopColor: C.border, backgroundColor: C.surface, paddingBottom: Platform.OS === 'web' ? 32 : 10 },
-  attachBtn: { width: 36, height: 36, borderRadius: 18, backgroundColor: C.surface2, alignItems: 'center', justifyContent: 'center' },
-  input: { flex: 1, backgroundColor: C.surface2, borderRadius: 20, paddingHorizontal: 14, paddingVertical: 9, color: C.text, fontFamily: 'Inter_400Regular', fontSize: 14, borderWidth: 1, borderColor: C.border, maxHeight: 100 },
-  sendBtn: { width: 40, height: 40, borderRadius: 20, alignItems: 'center', justifyContent: 'center' },
-  empty: { alignItems: 'center', paddingTop: 60, gap: 12 },
-  emptyIcon: { width: 72, height: 72, borderRadius: 36, alignItems: 'center', justifyContent: 'center' },
+  inputRow: { flexDirection: 'row', alignItems: 'flex-end', gap: 6, paddingHorizontal: 12, paddingVertical: 8, borderTopWidth: 1, borderTopColor: C.border, backgroundColor: C.surface },
+  attachBtn: { width: 36, height: 36, alignItems: 'center', justifyContent: 'center' },
+  input: { flex: 1, maxHeight: 100, backgroundColor: C.surface2, borderRadius: 20, paddingHorizontal: 14, paddingVertical: 8, fontSize: 14, fontFamily: 'Inter_400Regular', color: C.text, borderWidth: 1, borderColor: C.border },
+  sendBtn: { width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center' },
+  empty: { alignItems: 'center', paddingTop: 80, gap: 12 },
+  emptyIcon: { width: 64, height: 64, borderRadius: 32, alignItems: 'center', justifyContent: 'center' },
   emptyTitle: { fontSize: 18, fontFamily: 'Inter_700Bold', color: C.text },
-  emptyText: { fontSize: 14, fontFamily: 'Inter_400Regular', color: C.textSub, textAlign: 'center', paddingHorizontal: 32 },
-  modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.45)', justifyContent: 'flex-end' },
-  actionSheet: { backgroundColor: C.surface, borderTopLeftRadius: 20, borderTopRightRadius: 20, paddingBottom: Platform.OS === 'web' ? 24 : 34, paddingHorizontal: 16, paddingTop: 12 },
+  emptyText: { fontSize: 14, fontFamily: 'Inter_400Regular', color: C.textMuted, textAlign: 'center', paddingHorizontal: 24 },
+  modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' },
+  actionSheet: { backgroundColor: C.surface, borderTopLeftRadius: 20, borderTopRightRadius: 20, padding: 16 },
   actionSheetHandle: { width: 36, height: 4, backgroundColor: C.border, borderRadius: 2, alignSelf: 'center', marginBottom: 14 },
-  actionPreview: { backgroundColor: C.surface2, borderRadius: 10, padding: 10, marginBottom: 10, borderWidth: 1, borderColor: C.border },
-  actionPreviewText: { fontSize: 13, fontFamily: 'Inter_400Regular', color: C.textSub, fontStyle: 'italic' },
-  actionItem: { flexDirection: 'row', alignItems: 'center', gap: 14, paddingVertical: 14, borderBottomWidth: 1, borderBottomColor: C.borderLight },
-  actionEmoji: { fontSize: 20, width: 22, textAlign: 'center' },
-  actionLabel: { fontSize: 16, fontFamily: 'Inter_400Regular', color: C.text },
-  actionCancel: { justifyContent: 'center', borderBottomWidth: 0, marginTop: 4 },
-  actionCancelText: { fontSize: 16, fontFamily: 'Inter_600SemiBold', color: C.textSub, textAlign: 'center', width: '100%' },
-  emojiSheet: { backgroundColor: C.surface, borderTopLeftRadius: 20, borderTopRightRadius: 20, padding: 20, paddingBottom: 34 },
-  emojiTitle: { fontSize: 15, fontFamily: 'Inter_600SemiBold', color: C.text, marginBottom: 16, textAlign: 'center' },
+  actionPreview: { backgroundColor: C.surface2, borderRadius: 10, padding: 10, marginBottom: 12 },
+  actionPreviewText: { fontSize: 13, fontFamily: 'Inter_400Regular', color: C.textSub },
+  actionItem: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 14, borderBottomWidth: 1, borderBottomColor: C.border },
+  actionEmoji: { fontSize: 20, width: 24, textAlign: 'center' },
+  actionLabel: { fontSize: 15, fontFamily: 'Inter_500Medium', color: C.text },
+  actionCancel: { borderBottomWidth: 0, justifyContent: 'center' },
+  actionCancelText: { fontSize: 15, fontFamily: 'Inter_600SemiBold', color: C.textSub, textAlign: 'center', flex: 1 },
+  emojiSheet: { backgroundColor: C.surface, borderTopLeftRadius: 20, borderTopRightRadius: 20, padding: 20 },
+  emojiTitle: { fontSize: 16, fontFamily: 'Inter_600SemiBold', color: C.text, marginBottom: 16, textAlign: 'center' },
   emojiRow: { flexDirection: 'row', justifyContent: 'space-around' },
   emojiBtn: { alignItems: 'center', gap: 4 },
-  emojiChar: { fontSize: 32 },
-  emojiReactCount: { fontSize: 11, fontFamily: 'Inter_700Bold', color: C.primary },
-  pinnedSheetTitle: { fontSize: 15, fontFamily: 'Inter_700Bold', color: C.text, marginBottom: 12 },
-  pinnedItem: { flexDirection: 'row', alignItems: 'flex-start', gap: 10, paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: C.borderLight },
+  emojiChar: { fontSize: 28 },
+  emojiReactCount: { fontSize: 11, fontFamily: 'Inter_600SemiBold', color: C.textSub },
+  pinnedSheetTitle: { fontSize: 16, fontFamily: 'Inter_700Bold', color: C.text, marginBottom: 14 },
+  pinnedItem: { flexDirection: 'row', alignItems: 'flex-start', gap: 10, paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: C.border },
   pinnedItemWho: { fontSize: 12, fontFamily: 'Inter_600SemiBold', color: C.primary, marginBottom: 2 },
   pinnedItemContent: { fontSize: 13, fontFamily: 'Inter_400Regular', color: C.text },
   pinnedItemTime: { fontSize: 10, fontFamily: 'Inter_400Regular', color: C.textMuted, marginTop: 2 },
-  memberItem: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: C.borderLight },
+  renameSheet: { backgroundColor: C.surface, borderRadius: 20, padding: 20, margin: 20 },
+  renameTitle: { fontSize: 18, fontFamily: 'Inter_700Bold', color: C.text, marginBottom: 14 },
+  renameInput: { backgroundColor: C.surface2, borderRadius: 10, paddingHorizontal: 14, paddingVertical: 12, fontSize: 15, fontFamily: 'Inter_400Regular', color: C.text, borderWidth: 1, borderColor: C.border, marginBottom: 16 },
+  renameBtns: { flexDirection: 'row', gap: 10 },
+  renameCancelBtn: { flex: 1, backgroundColor: C.surface2, borderRadius: 12, paddingVertical: 13, alignItems: 'center' },
+  renameCancelText: { fontSize: 15, fontFamily: 'Inter_600SemiBold', color: C.textSub },
+  renameConfirmBtn: { flex: 1, borderRadius: 12, paddingVertical: 13, alignItems: 'center' },
+  renameConfirmText: { fontSize: 15, fontFamily: 'Inter_600SemiBold' },
+  memberItem: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: C.border },
   memberAvatar: { width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center' },
   memberAvatarText: { fontSize: 15, fontFamily: 'Inter_700Bold' },
-  memberName: { flex: 1, fontSize: 14, fontFamily: 'Inter_500Medium', color: C.text },
-  meBadge: { backgroundColor: C.primaryBg, paddingHorizontal: 8, paddingVertical: 3, borderRadius: 10, flexDirection: 'row', alignItems: 'center', gap: 3 },
-  meBadgeText: { fontSize: 11, fontFamily: 'Inter_600SemiBold', color: C.primary },
-  removeMemberBtn: { padding: 4 },
-  mgmtHeader: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 4, marginBottom: 4 },
-  mgmtHeaderIcon: { width: 44, height: 44, borderRadius: 14, alignItems: 'center', justifyContent: 'center' },
-  mgmtHeaderIconText: { fontSize: 20, fontFamily: 'Inter_700Bold' },
-  mgmtTitle: { fontSize: 16, fontFamily: 'Inter_700Bold', color: C.text },
-  mgmtSub: { fontSize: 11, fontFamily: 'Inter_400Regular', color: C.textMuted, marginTop: 1 },
-  mgmtRenameBtn: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 10, paddingVertical: 6, borderRadius: 10, backgroundColor: C.primaryBg },
-  mgmtRenameBtnText: { fontSize: 12, fontFamily: 'Inter_600SemiBold', color: C.primary },
-  mgmtSectionRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 12, marginBottom: 4 },
-  mgmtSectionLabel: { fontSize: 10, fontFamily: 'Inter_600SemiBold', color: C.textMuted, textTransform: 'uppercase', letterSpacing: 0.8 },
-  mgmtAddBtn: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 10, paddingVertical: 6, borderRadius: 10, backgroundColor: C.primaryBg },
-  mgmtAddBtnText: { fontSize: 12, fontFamily: 'Inter_600SemiBold', color: C.primary },
-  sheetDivider2: { height: 1, backgroundColor: C.border, marginVertical: 12 },
-  deleteCanalBtn: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 14, paddingHorizontal: 4 },
-  deleteCanalText: { fontSize: 15, fontFamily: 'Inter_600SemiBold', color: C.open },
-  sheetCancelBtn2: { marginTop: 12, paddingVertical: 14, backgroundColor: C.surface2, borderRadius: 14, alignItems: 'center' },
-  sheetCancelText2: { fontSize: 16, fontFamily: 'Inter_600SemiBold', color: C.textSub },
-  renameSheet: { backgroundColor: C.surface, borderTopLeftRadius: 20, borderTopRightRadius: 20, padding: 24, paddingBottom: 34 },
-  renameTitle: { fontSize: 17, fontFamily: 'Inter_700Bold', color: C.text, marginBottom: 16, textAlign: 'center' },
-  renameInput: { backgroundColor: C.surface2, borderRadius: 12, paddingHorizontal: 14, paddingVertical: 12, fontSize: 15, fontFamily: 'Inter_400Regular', color: C.text, borderWidth: 1, borderColor: C.border, marginBottom: 16 },
-  renameBtns: { flexDirection: 'row', gap: 10 },
-  renameCancelBtn: { flex: 1, paddingVertical: 14, backgroundColor: C.surface2, borderRadius: 12, alignItems: 'center' },
-  renameCancelText: { fontSize: 15, fontFamily: 'Inter_600SemiBold', color: C.textSub },
-  renameConfirmBtn: { flex: 1, paddingVertical: 14, borderRadius: 12, alignItems: 'center' },
-  renameConfirmText: { fontSize: 15, fontFamily: 'Inter_700Bold' },
+  memberName: { fontSize: 14, fontFamily: 'Inter_500Medium', color: C.text },
+  memberSub: { fontSize: 11, fontFamily: 'Inter_400Regular', color: C.textMuted },
+  addBadge: { flexDirection: 'row', alignItems: 'center', gap: 3, borderRadius: 10, paddingHorizontal: 8, paddingVertical: 3 },
+  addBadgeText: { fontSize: 11, fontFamily: 'Inter_600SemiBold' },
+  sheetCancelBtn: { marginTop: 10, backgroundColor: C.surface2, borderRadius: 12, paddingVertical: 13, alignItems: 'center' },
+  sheetCancelText: { fontSize: 15, fontFamily: 'Inter_600SemiBold', color: C.textSub },
 });
