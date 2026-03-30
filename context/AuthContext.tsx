@@ -109,10 +109,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, [isLoading, user, seedStatus]);
 
   async function login(email: string, password: string): Promise<{ success: boolean; error?: string }> {
-    const { error } = await supabase.auth.signInWithPassword({ email, password });
+    const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+    console.log('[AUTH] signIn result:', JSON.stringify({ user: data?.user?.id, error: error?.message, status: error?.status }));
     if (error) {
-      return { success: false, error: 'Email ou mot de passe incorrect. Vérifiez que les comptes ont été créés dans Supabase.' };
+      return { success: false, error: `${error.message} (code: ${error.status})` };
     }
+    const profile = await fetchProfile(data.user!.id);
+    console.log('[AUTH] profile fetched:', JSON.stringify(profile));
     return { success: true };
   }
 
