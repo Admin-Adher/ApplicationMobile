@@ -9,7 +9,7 @@ import Header from '@/components/Header';
 import { uploadDocument } from '@/lib/storage';
 
 function genId() {
-  return Date.now().toString() + Math.random().toString(36).substr(2, 6);
+  return Date.now().toString() + Math.random().toString(36).substring(2, 8);
 }
 
 const DOC_ICONS: Record<DocumentType, string> = {

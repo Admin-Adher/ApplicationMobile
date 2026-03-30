@@ -29,12 +29,16 @@ function getTaskStartDate(task: Task): Date {
   return new Date(deadline.getTime() - durationDays * 86400000);
 }
 
-function TaskCard({ task, onDelete, canEdit }: { task: Task; onDelete: () => void; canEdit: boolean }) {
+function TaskCard({ task, onDelete, canEdit, onPress }: { task: Task; onDelete: () => void; canEdit: boolean; onPress?: () => void }) {
   const { companies } = useApp();
   const cfg = STATUS_CFG[task.status];
   const companyName = companies.find(c => c.id === task.company)?.name ?? task.company;
   return (
-    <View style={[styles.taskCard, { borderLeftColor: cfg.color }]}>
+    <TouchableOpacity
+      style={[styles.taskCard, { borderLeftColor: cfg.color }]}
+      onPress={onPress}
+      activeOpacity={onPress ? 0.75 : 1}
+    >
       <View style={styles.taskTop}>
         <View style={[styles.statusBadge, { backgroundColor: cfg.color + '20' }]}>
           <Text style={[styles.statusText, { color: cfg.color }]}>{cfg.label}</Text>

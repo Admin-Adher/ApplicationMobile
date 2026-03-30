@@ -60,10 +60,14 @@ function StatusBar({ label, count, total, color }: { label: string; count: numbe
 export default function DashboardScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
-  const { stats, reserves, companies, tasks } = useApp();
+  const { stats, reserves, companies, tasks, reload } = useApp();
   const { user } = useAuth();
   const topPad = Platform.OS === 'web' ? 67 : insets.top;
   const [refreshing, setRefreshing] = useState(false);
+
+  const PRIORITY_LABELS: Record<string, string> = {
+    low: 'Basse', medium: 'Moyenne', high: 'Haute', critical: 'Critique',
+  };
 
   const criticalReserves = reserves.filter(r => r.priority === 'critical' && r.status !== 'closed');
   const overdueNonCritical = reserves.filter(
@@ -74,10 +78,14 @@ export default function DashboardScreen() {
   const today = new Date().toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' });
   const firstName = user?.name?.split(' ')[0] ?? null;
 
-  const onRefresh = useCallback(() => {
+  const onRefresh = useCallback(async () => {
     setRefreshing(true);
-    setTimeout(() => setRefreshing(false), 800);
-  }, []);
+    try {
+      await reload();
+    } finally {
+      setRefreshing(false);
+    }
+  }, [reload]);
 
   return (
     <View style={styles.container}>
@@ -272,7 +280,7 @@ export default function DashboardScreen() {
                 <View style={[styles.alertDot, { backgroundColor: C.high }]} />
                 <View style={{ flex: 1 }}>
                   <Text style={styles.alertText}>{r.title}</Text>
-                  <Text style={styles.alertSub}>Bât. {r.building} — {r.priority} — Échéance : {r.deadline}</Text>
+                  <Text style={styles.alertSub}>Bât. {r.building} — {PRIORITY_LABELS[r.priority] ?? r.priority} — Échéance : {r.deadline}</Text>
                 </View>
                 <Ionicons name="chevron-forward" size={14} color={C.high} />
               </TouchableOpacity>

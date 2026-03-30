@@ -63,7 +63,10 @@ type Action =
   | { type: 'SET_GROUP_CHANNELS'; payload: Channel[] }
   | { type: 'REMOVE_GROUP_CHANNEL'; payload: string }
   | { type: 'UPDATE_CHANNEL'; payload: Channel }
-  | { type: 'SET_PINNED_CHANNELS'; payload: string[] };
+  | { type: 'SET_PINNED_CHANNELS'; payload: string[] }
+  | { type: 'UPDATE_COMPANY_FULL'; payload: Company }
+  | { type: 'DELETE_COMPANY'; payload: string }
+  | { type: 'UPDATE_COMPANY_HOURS'; payload: { id: string; hours: number } };
 
 function genId(): string {
   return Date.now().toString() + Math.random().toString(36).substring(2, 8);
@@ -296,6 +299,24 @@ function reducer(state: AppState, action: Action): AppState {
     case 'SET_PINNED_CHANNELS':
       return { ...state, pinnedChannelIds: action.payload };
 
+    case 'UPDATE_COMPANY_FULL': {
+      const c = action.payload;
+      supabase.from('companies').update({
+        name: c.name, short_name: c.shortName, color: c.color,
+        planned_workers: c.plannedWorkers, actual_workers: c.actualWorkers,
+        hours_worked: c.hoursWorked, zone: c.zone, contact: c.contact,
+      }).eq('id', c.id).catch(() => {});
+      return { ...state, companies: state.companies.map(co => co.id === c.id ? c : co) };
+    }
+
+    case 'DELETE_COMPANY':
+      supabase.from('companies').delete().eq('id', action.payload).catch(() => {});
+      return { ...state, companies: state.companies.filter(c => c.id !== action.payload) };
+
+    case 'UPDATE_COMPANY_HOURS':
+      supabase.from('companies').update({ hours_worked: action.payload.hours }).eq('id', action.payload.id).catch(() => {});
+      return { ...state, companies: state.companies.map(c => c.id === action.payload.id ? { ...c, hoursWorked: action.payload.hours } : c) };
+
     default:
       return state;
   }
@@ -313,6 +334,10 @@ interface AppContextValue extends AppState {
   addComment: (reserveId: string, content: string, author?: string) => void;
   addCompany: (c: Company) => void;
   updateCompanyWorkers: (id: string, actual: number) => void;
+  updateCompanyFull: (c: Company) => void;
+  deleteCompany: (id: string) => void;
+  updateCompanyHours: (id: string, hours: number) => void;
+  reload: () => void;
   addMessage: (channelId: string, content: string, options?: Partial<Pick<Message, 'replyToId' | 'replyToContent' | 'replyToSender' | 'attachmentUri' | 'mentions' | 'reserveId'>>, sender?: string) => void;
   incomingMessage: (msg: Message) => void;
   deleteMessage: (id: string) => void;
@@ -785,6 +810,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     addCompany: (c) => dispatch({ type: 'ADD_COMPANY', payload: c }),
     updateCompanyWorkers: (id, actual) =>
       dispatch({ type: 'UPDATE_COMPANY', payload: { id, actualWorkers: actual } }),
+    updateCompanyFull: (c) => dispatch({ type: 'UPDATE_COMPANY_FULL', payload: c }),
+    deleteCompany: (id) => dispatch({ type: 'DELETE_COMPANY', payload: id }),
+    updateCompanyHours: (id, hours) => dispatch({ type: 'UPDATE_COMPANY_HOURS', payload: { id, hours } }),
+    reload: loadAll,
     addMessage: (channelId, content, options = {}, sender = 'Moi') => {
       const ts = new Date().toLocaleString('fr-FR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }).replace(',', '');
       const actualSender = currentUserNameRef.current || sender;

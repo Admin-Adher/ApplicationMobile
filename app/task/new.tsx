@@ -7,6 +7,7 @@ import { useApp } from '@/context/AppContext';
 import { useAuth } from '@/context/AuthContext';
 import Header from '@/components/Header';
 import { Task, TaskStatus, ReservePriority } from '@/constants/types';
+import { validateDeadline } from '@/lib/reserveUtils';
 
 function genId() {
   return Date.now().toString() + Math.random().toString(36).substring(2, 8);
@@ -45,19 +46,29 @@ export default function NewTaskScreen() {
       Alert.alert('Champ requis', 'Le titre est obligatoire.');
       return;
     }
+    const deadlineValue = deadline.trim() || (() => {
+      const d = new Date(Date.now() + 7 * 86400000);
+      return `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}/${d.getFullYear()}`;
+    })();
+    if (deadline.trim() && !validateDeadline(deadline.trim())) {
+      Alert.alert('Date invalide', "Vérifiez que le jour, le mois et l'année sont corrects (ex : 30/04/2026).");
+      return;
+    }
     const task: Task = {
       id: genId(),
       title: title.trim(),
       description: description.trim(),
       status,
       priority,
-      deadline: deadline.trim() || (() => { const d = new Date(Date.now() + 7 * 86400000); return `${String(d.getDate()).padStart(2,'0')}/${String(d.getMonth()+1).padStart(2,'0')}/${d.getFullYear()}`; })(),
+      deadline: deadlineValue,
       assignee: assignee.trim() || (user?.name ?? 'Équipe'),
       company: company.trim(),
       progress: Math.min(100, Math.max(0, parseInt(progress) || 0)),
     };
     addTask(task);
-    router.back();
+    Alert.alert('Tâche créée', `"${task.title}" a été ajoutée au planning.`, [
+      { text: 'OK', onPress: () => router.back() },
+    ]);
   }
 
   return (

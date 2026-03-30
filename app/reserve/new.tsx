@@ -131,7 +131,7 @@ export default function NewReserveScreen() {
       return;
     }
     const author = user?.name ?? 'Conducteur de travaux';
-    const id = genReserveId(reserves.length);
+    const id = genReserveId(reserves);
     addReserve({
       id,
       title: title.trim(),

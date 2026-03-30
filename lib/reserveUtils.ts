@@ -11,8 +11,13 @@ export const RESERVE_PRIORITIES: { value: ReservePriority; label: string; color:
   { value: 'critical', label: 'Critique', color: C.critical },
 ];
 
-export function genReserveId(existingCount: number): string {
-  return `RSV-${String(existingCount + 1).padStart(3, '0')}`;
+export function genReserveId(reserves: { id: string }[]): string {
+  let max = 0;
+  for (const r of reserves) {
+    const m = r.id.match(/RSV-(\d+)/);
+    if (m) max = Math.max(max, parseInt(m[1], 10));
+  }
+  return `RSV-${String(max + 1).padStart(3, '0')}`;
 }
 
 export function isOverdue(deadline: string, status: ReserveStatus): boolean {
