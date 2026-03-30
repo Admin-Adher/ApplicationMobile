@@ -49,9 +49,13 @@ jobs:
           EXPO_PUBLIC_SUPABASE_URL: ${{ secrets.EXPO_PUBLIC_SUPABASE_URL }}
           EXPO_PUBLIC_SUPABASE_KEY: ${{ secrets.EXPO_PUBLIC_SUPABASE_KEY }}
 
+      - name: Find APK location
+        run: find android/app/build/outputs/apk -name "*.apk" | tee apk-paths.txt
+
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
           name: buildtrack-release.apk
-          path: android/app/build/outputs/apk/release/app-release-unsigned.apk
+          path: android/app/build/outputs/apk/**/*.apk
           retention-days: 30
+          if-no-files-found: error
