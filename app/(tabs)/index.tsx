@@ -1,20 +1,46 @@
-import { View, Text, StyleSheet, ScrollView, Platform, TouchableOpacity } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, Platform, TouchableOpacity, RefreshControl } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
+import { useState, useCallback } from 'react';
 import { C } from '@/constants/colors';
 import { useApp } from '@/context/AppContext';
+import { useAuth } from '@/context/AuthContext';
+import { parseDeadline, isOverdue } from '@/lib/reserveUtils';
+import { Task } from '@/constants/types';
 
-function KPICard({ label, value, color, icon, bg }: { label: string; value: string | number; color: string; icon: string; bg: string }) {
-  return (
-    <View style={[styles.kpiCard, { borderLeftColor: color, backgroundColor: C.surface }]}>
+function isTaskLate(t: Task): boolean {
+  if (t.status === 'done') return false;
+  if (t.status === 'delayed') return true;
+  const d = parseDeadline(t.deadline);
+  if (!d) return false;
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  return d < today;
+}
+
+function KPICard({
+  label, value, color, icon, bg, onPress,
+}: {
+  label: string; value: string | number; color: string; icon: string; bg: string; onPress?: () => void;
+}) {
+  const card = (
+    <View style={[styles.kpiCard, { borderLeftColor: color }]}>
       <View style={[styles.kpiIconWrap, { backgroundColor: bg }]}>
         <Ionicons name={icon as any} size={18} color={color} />
       </View>
-      <Text style={[styles.kpiValue, { color: C.text }]}>{value}</Text>
+      <Text style={styles.kpiValue}>{value}</Text>
       <Text style={styles.kpiLabel}>{label}</Text>
     </View>
   );
+  if (onPress) {
+    return (
+      <TouchableOpacity onPress={onPress} activeOpacity={0.75} style={styles.kpiTouchable}>
+        {card}
+      </TouchableOpacity>
+    );
+  }
+  return <View style={styles.kpiTouchable}>{card}</View>;
 }
 
 function StatusBar({ label, count, total, color }: { label: string; count: number; total: number; color: string }) {
@@ -35,11 +61,23 @@ export default function DashboardScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const { stats, reserves, companies, tasks } = useApp();
+  const { user } = useAuth();
   const topPad = Platform.OS === 'web' ? 67 : insets.top;
+  const [refreshing, setRefreshing] = useState(false);
 
   const criticalReserves = reserves.filter(r => r.priority === 'critical' && r.status !== 'closed');
-  const delayedTasks = tasks.filter(t => t.status === 'delayed');
+  const overdueNonCritical = reserves.filter(
+    r => r.status !== 'closed' && r.priority !== 'critical' && isOverdue(r.deadline, r.status)
+  );
+  const lateTasks = tasks.filter(isTaskLate);
+
   const today = new Date().toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' });
+  const firstName = user?.name?.split(' ')[0] ?? null;
+
+  const onRefresh = useCallback(() => {
+    setRefreshing(true);
+    setTimeout(() => setRefreshing(false), 800);
+  }, []);
 
   return (
     <View style={styles.container}>
@@ -49,24 +87,90 @@ export default function DashboardScreen() {
             <Text style={styles.logoMiniLetter}>B</Text>
           </View>
           <View>
-            <Text style={styles.brand}>BuildTrack</Text>
+            <Text style={styles.brand}>{firstName ? `Bonjour, ${firstName}` : 'BuildTrack'}</Text>
             <Text style={styles.date}>{today}</Text>
           </View>
         </View>
-        <View style={styles.projectBadge}>
-          <Text style={styles.projectText}>Projet Horizon</Text>
+        <View style={styles.headerRight}>
+          {user && (
+            <View style={styles.roleBadge}>
+              <Text style={styles.roleText}>{user.roleLabel}</Text>
+            </View>
+          )}
+          <View style={styles.projectBadge}>
+            <Text style={styles.projectText}>Projet Horizon</Text>
+          </View>
         </View>
       </View>
 
-      <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+      <ScrollView
+        contentContainerStyle={styles.content}
+        showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={C.primary} colors={[C.primary]} />
+        }
+      >
+        {/* KPI 2×2 grid */}
         <View style={styles.kpiGrid}>
-          <KPICard label="Total réserves" value={stats.total} color={C.primary} icon="list" bg={C.primaryBg} />
-          <KPICard label="Ouvertes" value={stats.open + stats.inProgress} color={C.open} icon="alert-circle" bg={C.openBg} />
-          <KPICard label="Critiques" value={criticalReserves.length} color={C.critical} icon="warning" bg={C.criticalBg} />
-          <KPICard label="Clôturées" value={stats.closed} color={C.closed} icon="checkmark-circle" bg={C.closedBg} />
-          <KPICard label="Tâches retard" value={delayedTasks.length} color={C.waiting} icon="time-outline" bg={C.waiting + '18'} />
+          <KPICard
+            label="Total réserves"
+            value={stats.total}
+            color={C.primary}
+            icon="list"
+            bg={C.primaryBg}
+            onPress={() => router.push('/(tabs)/reserves' as any)}
+          />
+          <KPICard
+            label="Actives"
+            value={stats.open + stats.inProgress}
+            color={C.open}
+            icon="alert-circle"
+            bg={C.openBg}
+            onPress={() => router.push('/(tabs)/reserves' as any)}
+          />
+          <KPICard
+            label="Critiques"
+            value={criticalReserves.length}
+            color={C.critical}
+            icon="warning"
+            bg={C.criticalBg}
+            onPress={() => router.push('/(tabs)/reserves' as any)}
+          />
+          <KPICard
+            label="Clôturées"
+            value={stats.closed}
+            color={C.closed}
+            icon="checkmark-circle"
+            bg={C.closedBg}
+            onPress={() => router.push('/(tabs)/reserves' as any)}
+          />
         </View>
 
+        {/* 5th KPI — wide card for late tasks */}
+        <TouchableOpacity
+          style={[styles.kpiWide, { borderLeftColor: lateTasks.length > 0 ? C.waiting : C.closed }]}
+          onPress={() => router.push('/planning' as any)}
+          activeOpacity={0.75}
+        >
+          <View style={[styles.kpiIconWrap, { backgroundColor: lateTasks.length > 0 ? C.waiting + '20' : C.closedBg }]}>
+            <Ionicons
+              name="time-outline"
+              size={18}
+              color={lateTasks.length > 0 ? C.waiting : C.closed}
+            />
+          </View>
+          <View style={{ flex: 1 }}>
+            <Text style={[styles.kpiValue, { fontSize: 24, color: lateTasks.length > 0 ? C.waiting : C.closed }]}>
+              {lateTasks.length}
+            </Text>
+            <Text style={styles.kpiLabel}>
+              {lateTasks.length === 0 ? 'Aucune tâche en retard' : `Tâche${lateTasks.length > 1 ? 's' : ''} en retard`}
+            </Text>
+          </View>
+          <Ionicons name="chevron-forward" size={16} color={C.textMuted} />
+        </TouchableOpacity>
+
+        {/* Avancement global */}
         <View style={styles.card}>
           <View style={styles.cardHeader}>
             <Text style={styles.cardTitle}>Avancement global</Text>
@@ -80,6 +184,7 @@ export default function DashboardScreen() {
           <Text style={styles.progressHint}>{stats.closed} / {stats.total} réserves clôturées</Text>
         </View>
 
+        {/* Répartition des statuts */}
         <View style={styles.card}>
           <Text style={styles.cardTitle}>Répartition des réserves</Text>
           <View style={styles.statusBars}>
@@ -91,6 +196,7 @@ export default function DashboardScreen() {
           </View>
         </View>
 
+        {/* Personnel */}
         <View style={styles.card}>
           <View style={styles.cardHeader}>
             <Text style={styles.cardTitle}>Personnel aujourd'hui</Text>
@@ -98,19 +204,25 @@ export default function DashboardScreen() {
           </View>
           {companies.map(co => {
             const pct = co.plannedWorkers > 0 ? (co.actualWorkers / co.plannedWorkers) * 100 : 0;
+            const isOver = co.actualWorkers > co.plannedWorkers;
+            const isUnder = co.plannedWorkers > 0 && co.actualWorkers < co.plannedWorkers * 0.7;
+            const barColor = isOver ? C.waiting : isUnder ? C.open : co.color;
             return (
               <View key={co.id} style={styles.coRow}>
                 <View style={[styles.coDot, { backgroundColor: co.color }]} />
                 <Text style={styles.coName}>{co.shortName}</Text>
                 <View style={styles.coBarWrap}>
-                  <View style={[styles.coBarFill, { width: `${Math.min(pct, 100)}%` as any, backgroundColor: co.color }]} />
+                  <View style={[styles.coBarFill, { width: `${Math.min(pct, 100)}%` as any, backgroundColor: barColor }]} />
                 </View>
-                <Text style={[styles.coCount, { color: co.color }]}>{co.actualWorkers}/{co.plannedWorkers}</Text>
+                <Text style={[styles.coCount, { color: isOver ? C.waiting : isUnder ? C.open : co.color }]}>
+                  {co.actualWorkers}/{co.plannedWorkers}{isOver ? ' ↑' : isUnder ? ' ↓' : ''}
+                </Text>
               </View>
             );
           })}
         </View>
 
+        {/* Alertes critiques */}
         {criticalReserves.length > 0 && (
           <View style={styles.alertCard}>
             <View style={styles.alertHeader}>
@@ -139,7 +251,37 @@ export default function DashboardScreen() {
           </View>
         )}
 
-        {delayedTasks.length > 0 && (
+        {/* Réserves en retard (non critiques) */}
+        {overdueNonCritical.length > 0 && (
+          <View style={styles.overdueCard}>
+            <View style={styles.alertHeader}>
+              <View style={styles.overdueIconWrap}>
+                <Ionicons name="calendar-outline" size={16} color={C.high} />
+              </View>
+              <Text style={styles.overdueTitle}>Réserves en retard</Text>
+              <View style={styles.overdueCount}>
+                <Text style={styles.overdueCountText}>{overdueNonCritical.length}</Text>
+              </View>
+            </View>
+            {overdueNonCritical.map(r => (
+              <TouchableOpacity
+                key={r.id}
+                style={styles.overdueItem}
+                onPress={() => router.push(`/reserve/${r.id}` as any)}
+              >
+                <View style={[styles.alertDot, { backgroundColor: C.high }]} />
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.alertText}>{r.title}</Text>
+                  <Text style={styles.alertSub}>Bât. {r.building} — {r.priority} — Échéance : {r.deadline}</Text>
+                </View>
+                <Ionicons name="chevron-forward" size={14} color={C.high} />
+              </TouchableOpacity>
+            ))}
+          </View>
+        )}
+
+        {/* Tâches en retard */}
+        {lateTasks.length > 0 && (
           <View style={styles.delayCard}>
             <View style={styles.alertHeader}>
               <View style={styles.delayIconWrap}>
@@ -147,10 +289,10 @@ export default function DashboardScreen() {
               </View>
               <Text style={styles.delayTitle}>Tâches en retard</Text>
               <View style={styles.delayCount}>
-                <Text style={styles.delayCountText}>{delayedTasks.length}</Text>
+                <Text style={styles.delayCountText}>{lateTasks.length}</Text>
               </View>
             </View>
-            {delayedTasks.map(t => (
+            {lateTasks.map(t => (
               <TouchableOpacity
                 key={t.id}
                 style={styles.delayItem}
@@ -159,7 +301,9 @@ export default function DashboardScreen() {
                 <View style={styles.delayDot} />
                 <View style={{ flex: 1 }}>
                   <Text style={styles.alertText}>{t.title}</Text>
-                  <Text style={styles.alertSub}>{t.assignee} — Échéance : {t.deadline}</Text>
+                  <Text style={styles.alertSub}>
+                    {t.status === 'delayed' ? 'Marquée en retard' : 'Deadline dépassée'} — {t.deadline}
+                  </Text>
                 </View>
                 <Ionicons name="chevron-forward" size={14} color={C.waiting} />
               </TouchableOpacity>
@@ -174,7 +318,7 @@ export default function DashboardScreen() {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: C.bg },
   header: {
-    paddingHorizontal: 20,
+    paddingHorizontal: 16,
     paddingBottom: 14,
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -184,43 +328,56 @@ const styles = StyleSheet.create({
     backgroundColor: C.surface,
   },
   headerLeft: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  headerRight: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   logoMini: {
-    width: 34,
-    height: 34,
+    width: 34, height: 34,
     backgroundColor: C.primary,
     borderRadius: 8,
-    alignItems: 'center',
-    justifyContent: 'center',
+    alignItems: 'center', justifyContent: 'center',
   },
   logoMiniLetter: { fontSize: 18, fontFamily: 'Inter_700Bold', color: C.accent },
-  brand: { fontSize: 18, fontFamily: 'Inter_700Bold', color: C.text },
+  brand: { fontSize: 16, fontFamily: 'Inter_700Bold', color: C.text },
   date: { fontSize: 11, fontFamily: 'Inter_400Regular', color: C.textSub, marginTop: 1 },
-  projectBadge: {
-    backgroundColor: C.primary,
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 20,
+  roleBadge: {
+    backgroundColor: C.surface2,
+    paddingHorizontal: 8, paddingVertical: 4,
+    borderRadius: 12, borderWidth: 1, borderColor: C.border,
   },
-  projectText: { fontSize: 12, fontFamily: 'Inter_600SemiBold', color: '#fff' },
-  content: { padding: 16, paddingBottom: 32 },
-  kpiGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10, marginBottom: 14 },
+  roleText: { fontSize: 10, fontFamily: 'Inter_600SemiBold', color: C.textSub },
+  projectBadge: { backgroundColor: C.primary, paddingHorizontal: 10, paddingVertical: 5, borderRadius: 16 },
+  projectText: { fontSize: 11, fontFamily: 'Inter_600SemiBold', color: '#fff' },
+
+  content: { padding: 14, paddingBottom: 36 },
+
+  kpiGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10, marginBottom: 10 },
+  kpiTouchable: { flex: 1, minWidth: '44%' },
   kpiCard: {
-    flex: 1, minWidth: '44%', backgroundColor: C.surface,
+    backgroundColor: C.surface,
     borderRadius: 14, padding: 14, borderLeftWidth: 4,
-    borderWidth: 1, borderColor: C.border,
-    elevation: 1,
+    borderWidth: 1, borderColor: C.border, elevation: 1,
     ...Platform.select({
       web: { boxShadow: '0px 1px 6px rgba(0,48,130,0.06)' } as any,
       default: { shadowColor: '#003082', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.06, shadowRadius: 6 },
     }),
   },
   kpiIconWrap: { width: 36, height: 36, borderRadius: 10, alignItems: 'center', justifyContent: 'center', marginBottom: 10 },
-  kpiValue: { fontSize: 28, fontFamily: 'Inter_700Bold', marginBottom: 2 },
+  kpiValue: { fontSize: 28, fontFamily: 'Inter_700Bold', color: C.text, marginBottom: 2 },
   kpiLabel: { fontSize: 11, fontFamily: 'Inter_400Regular', color: C.textSub },
+
+  kpiWide: {
+    flexDirection: 'row', alignItems: 'center', gap: 14,
+    backgroundColor: C.surface, borderRadius: 14, padding: 14,
+    borderLeftWidth: 4, borderWidth: 1, borderColor: C.border,
+    marginBottom: 10, elevation: 1,
+    ...Platform.select({
+      web: { boxShadow: '0px 1px 6px rgba(0,48,130,0.06)' } as any,
+      default: { shadowColor: '#003082', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.06, shadowRadius: 6 },
+    }),
+  },
+
   card: {
     backgroundColor: C.surface, borderRadius: 14, padding: 16,
-    marginBottom: 14, borderWidth: 1, borderColor: C.border,
-    elevation: 1,
+    marginBottom: 10, borderWidth: 1, borderColor: C.border, elevation: 1,
     ...Platform.select({
       web: { boxShadow: '0px 1px 6px rgba(0,48,130,0.05)' } as any,
       default: { shadowColor: '#003082', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.05, shadowRadius: 6 },
@@ -234,6 +391,7 @@ const styles = StyleSheet.create({
   progressBg: { height: 8, backgroundColor: C.border, borderRadius: 4, overflow: 'hidden', marginBottom: 8 },
   progressFill: { height: '100%', backgroundColor: C.primary, borderRadius: 4 },
   progressHint: { fontSize: 12, fontFamily: 'Inter_400Regular', color: C.textMuted },
+
   statusBars: { gap: 12, marginTop: 8 },
   statusRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   statusDot: { width: 8, height: 8, borderRadius: 4 },
@@ -241,16 +399,17 @@ const styles = StyleSheet.create({
   statusBarWrap: { flex: 1, height: 6, backgroundColor: C.border, borderRadius: 3, overflow: 'hidden' },
   statusBarFill: { height: '100%', borderRadius: 3 },
   statusCount: { fontSize: 12, fontFamily: 'Inter_700Bold', width: 22, textAlign: 'right' },
+
   coRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 10 },
   coDot: { width: 8, height: 8, borderRadius: 4 },
   coName: { fontSize: 12, fontFamily: 'Inter_500Medium', color: C.textSub, width: 64 },
   coBarWrap: { flex: 1, height: 6, backgroundColor: C.border, borderRadius: 3, overflow: 'hidden' },
   coBarFill: { height: '100%', borderRadius: 3 },
-  coCount: { fontSize: 12, fontFamily: 'Inter_700Bold', width: 44, textAlign: 'right' },
+  coCount: { fontSize: 12, fontFamily: 'Inter_700Bold', width: 52, textAlign: 'right' },
+
   alertCard: {
-    backgroundColor: C.openBg,
-    borderRadius: 14, padding: 16,
-    marginBottom: 14, borderWidth: 1, borderColor: 'rgba(220,38,38,0.2)',
+    backgroundColor: C.openBg, borderRadius: 14, padding: 16,
+    marginBottom: 10, borderWidth: 1, borderColor: 'rgba(220,38,38,0.2)',
   },
   alertHeader: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 12 },
   alertIconWrap: { width: 28, height: 28, borderRadius: 8, backgroundColor: 'rgba(220,38,38,0.12)', alignItems: 'center', justifyContent: 'center' },
@@ -261,10 +420,20 @@ const styles = StyleSheet.create({
   alertDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: C.critical },
   alertText: { fontSize: 13, fontFamily: 'Inter_600SemiBold', color: C.text },
   alertSub: { fontSize: 11, fontFamily: 'Inter_400Regular', color: C.textSub, marginTop: 2 },
+
+  overdueCard: {
+    backgroundColor: C.highBg, borderRadius: 14, padding: 16,
+    marginBottom: 10, borderWidth: 1, borderColor: 'rgba(234,88,12,0.2)',
+  },
+  overdueIconWrap: { width: 28, height: 28, borderRadius: 8, backgroundColor: 'rgba(234,88,12,0.12)', alignItems: 'center', justifyContent: 'center' },
+  overdueTitle: { fontSize: 14, fontFamily: 'Inter_700Bold', color: C.high, flex: 1 },
+  overdueCount: { backgroundColor: C.high, borderRadius: 10, paddingHorizontal: 8, paddingVertical: 2 },
+  overdueCountText: { fontSize: 11, fontFamily: 'Inter_700Bold', color: '#fff' },
+  overdueItem: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 10, borderTopWidth: 1, borderTopColor: 'rgba(234,88,12,0.12)' },
+
   delayCard: {
-    backgroundColor: C.waitingBg,
-    borderRadius: 14, padding: 16,
-    marginBottom: 14, borderWidth: 1, borderColor: 'rgba(217,119,6,0.25)',
+    backgroundColor: C.waitingBg, borderRadius: 14, padding: 16,
+    marginBottom: 10, borderWidth: 1, borderColor: 'rgba(217,119,6,0.25)',
   },
   delayIconWrap: { width: 28, height: 28, borderRadius: 8, backgroundColor: 'rgba(217,119,6,0.14)', alignItems: 'center', justifyContent: 'center' },
   delayTitle: { fontSize: 14, fontFamily: 'Inter_700Bold', color: C.waiting, flex: 1 },
