@@ -9,9 +9,7 @@ import Header from '@/components/Header';
 import { Task, TaskStatus, ReservePriority } from '@/constants/types';
 import { validateDeadline } from '@/lib/reserveUtils';
 
-function genId() {
-  return Date.now().toString() + Math.random().toString(36).substring(2, 8);
-}
+import { genId } from '@/lib/utils';
 
 const STATUS_OPTS: { value: TaskStatus; label: string; color: string }[] = [
   { value: 'todo', label: 'À faire', color: C.textMuted },
@@ -30,7 +28,7 @@ const PRIORITY_OPTS: { value: ReservePriority; label: string; color: string }[] 
 export default function NewTaskScreen() {
   const router = useRouter();
   const { addTask, companies } = useApp();
-  const { user } = useAuth();
+  const { user, permissions } = useAuth();
 
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
@@ -40,6 +38,26 @@ export default function NewTaskScreen() {
   const [assignee, setAssignee] = useState(user?.name ?? '');
   const [company, setCompany] = useState(companies[0]?.id ?? '');
   const [progress, setProgress] = useState('0');
+
+  if (!permissions.canCreate) {
+    return (
+      <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: C.bg, padding: 32 }}>
+        <Ionicons name="lock-closed-outline" size={48} color={C.textMuted} />
+        <Text style={{ fontSize: 17, fontFamily: 'Inter_600SemiBold', color: C.text, marginTop: 16, textAlign: 'center' }}>
+          Accès refusé
+        </Text>
+        <Text style={{ fontSize: 14, fontFamily: 'Inter_400Regular', color: C.textMuted, marginTop: 8, textAlign: 'center' }}>
+          Votre rôle ne permet pas de créer des tâches.
+        </Text>
+        <TouchableOpacity
+          onPress={() => router.back()}
+          style={{ marginTop: 24, paddingHorizontal: 20, paddingVertical: 10, backgroundColor: C.primary, borderRadius: 10 }}
+        >
+          <Text style={{ color: '#fff', fontFamily: 'Inter_600SemiBold', fontSize: 14 }}>Retour</Text>
+        </TouchableOpacity>
+      </View>
+    );
+  }
 
   function handleSave() {
     if (!title.trim()) {

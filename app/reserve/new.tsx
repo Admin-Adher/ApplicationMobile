@@ -50,7 +50,7 @@ function SelectRow<T extends string>({
 export default function NewReserveScreen() {
   const router = useRouter();
   const { companies, addReserve, reserves } = useApp();
-  const { user } = useAuth();
+  const { user, permissions } = useAuth();
   const params = useLocalSearchParams<{
     building?: string; planX?: string; planY?: string;
     prefill_description?: string; prefill_source?: string;
@@ -70,6 +70,26 @@ export default function NewReserveScreen() {
 
   const presetX = params.planX ? parseInt(params.planX) : null;
   const presetY = params.planY ? parseInt(params.planY) : null;
+
+  if (!permissions.canCreate) {
+    return (
+      <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: C.bg, padding: 32 }}>
+        <Ionicons name="lock-closed-outline" size={48} color={C.textMuted} />
+        <Text style={{ fontSize: 17, fontFamily: 'Inter_600SemiBold', color: C.text, marginTop: 16, textAlign: 'center' }}>
+          Accès refusé
+        </Text>
+        <Text style={{ fontSize: 14, fontFamily: 'Inter_400Regular', color: C.textMuted, marginTop: 8, textAlign: 'center' }}>
+          Votre rôle ne permet pas de créer des réserves.
+        </Text>
+        <TouchableOpacity
+          onPress={() => router.back()}
+          style={{ marginTop: 24, paddingHorizontal: 20, paddingVertical: 10, backgroundColor: C.primary, borderRadius: 10 }}
+        >
+          <Text style={{ color: '#fff', fontFamily: 'Inter_600SemiBold', fontSize: 14 }}>Retour</Text>
+        </TouchableOpacity>
+      </View>
+    );
+  }
 
   async function handlePickPhoto() {
     if (Platform.OS !== 'web') {

@@ -875,7 +875,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       dispatch({ type: 'DELETE_RESERVE', payload: id });
     },
 
-    updateReserveStatus: (id, status, author = 'Conducteur de travaux') => {
+    updateReserveStatus: (id, status, author?: string) => {
+      author = author ?? currentUserNameRef.current ?? 'Système';
       const reserve = stateRef.current.reserves.find(r => r.id === id);
       if (!reserve) return;
       const labels: Record<ReserveStatus, string> = {

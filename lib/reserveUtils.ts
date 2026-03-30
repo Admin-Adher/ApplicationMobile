@@ -28,7 +28,7 @@ export function genReserveId(reserves: { id: string }[]): string {
 }
 
 export function isOverdue(deadline: string, status: ReserveStatus): boolean {
-  if (status === 'closed' || deadline === '—' || !deadline) return false;
+  if (status === 'closed' || status === 'verification' || deadline === '—' || !deadline) return false;
   const parsed = parseDeadline(deadline);
   if (!parsed) return false;
   const today = new Date();

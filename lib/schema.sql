@@ -69,6 +69,7 @@ create table if not exists public.tasks (
   description text not null,
   status text not null default 'todo',
   priority text not null default 'medium',
+  start_date text,
   deadline text not null,
   assignee text not null,
   progress int not null default 0,
@@ -119,12 +120,22 @@ create policy "Photos modifiables"
 -- ---- 7. TABLE MESSAGES ----
 create table if not exists public.messages (
   id text primary key,
+  channel_id text not null default 'general',
   sender text not null,
   content text not null,
   timestamp text not null,
   type text not null default 'message',
   read boolean not null default false,
-  is_me boolean not null default false
+  is_me boolean not null default false,
+  reply_to_id text,
+  reply_to_content text,
+  reply_to_sender text,
+  attachment_uri text,
+  reactions jsonb not null default '{}',
+  is_pinned boolean not null default false,
+  read_by jsonb not null default '[]',
+  mentions jsonb not null default '[]',
+  reserve_id text
 );
 alter table public.messages enable row level security;
 create policy "Messages lisibles par tous" on public.messages for select using (auth.role() = 'authenticated');

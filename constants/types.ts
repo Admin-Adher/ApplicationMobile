@@ -129,5 +129,6 @@ export interface Profile {
   id: string;
   name: string;
   role: UserRole;
+  roleLabel: string;
   email: string;
 }

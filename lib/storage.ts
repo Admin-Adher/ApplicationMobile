@@ -1,4 +1,4 @@
-import { supabase } from './supabase';
+import { supabase, isSupabaseConfigured } from './supabase';
 
 async function uriToBlob(uri: string): Promise<Blob> {
   const response = await fetch(uri);
@@ -48,6 +48,7 @@ export async function uploadDocument(
 }
 
 export async function initStorageBuckets(): Promise<void> {
+  if (!isSupabaseConfigured) return;
   for (const bucket of ['photos', 'documents']) {
     const { error } = await supabase.storage.createBucket(bucket, { public: true });
     if (error && !error.message.toLowerCase().includes('already exists')) {
