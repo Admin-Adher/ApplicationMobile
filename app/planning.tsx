@@ -1,8 +1,10 @@
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useState } from 'react';
+import { useRouter } from 'expo-router';
 import { C } from '@/constants/colors';
 import { useApp } from '@/context/AppContext';
+import { useAuth } from '@/context/AuthContext';
 import { Task, TaskStatus } from '@/constants/types';
 import Header from '@/components/Header';
 
@@ -15,7 +17,7 @@ const STATUS_CFG: Record<TaskStatus, { label: string; color: string }> = {
 
 const DAYS = ['Lun', 'Mar', 'Mer', 'Jeu', 'Ven', 'Sam', 'Dim'];
 
-function TaskCard({ task }: { task: Task }) {
+function TaskCard({ task, onDelete, canEdit }: { task: Task; onDelete: () => void; canEdit: boolean }) {
   const cfg = STATUS_CFG[task.status];
   return (
     <View style={[styles.taskCard, { borderLeftColor: cfg.color }]}>
@@ -23,7 +25,14 @@ function TaskCard({ task }: { task: Task }) {
         <View style={[styles.statusBadge, { backgroundColor: cfg.color + '20' }]}>
           <Text style={[styles.statusText, { color: cfg.color }]}>{cfg.label}</Text>
         </View>
-        <Text style={[styles.taskPct, { color: cfg.color }]}>{task.progress}%</Text>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+          <Text style={[styles.taskPct, { color: cfg.color }]}>{task.progress}%</Text>
+          {canEdit && (
+            <TouchableOpacity onPress={onDelete} hitSlop={8}>
+              <Ionicons name="trash-outline" size={15} color={C.textMuted} />
+            </TouchableOpacity>
+          )}
+        </View>
       </View>
       <Text style={styles.taskTitle}>{task.title}</Text>
       <Text style={styles.taskDesc} numberOfLines={1}>{task.description}</Text>
@@ -35,6 +44,8 @@ function TaskCard({ task }: { task: Task }) {
       <View style={styles.taskBottom}>
         <Ionicons name="people-outline" size={12} color={C.textMuted} />
         <Text style={styles.taskAssignee}>{task.assignee}</Text>
+        <Ionicons name="business-outline" size={12} color={C.textMuted} />
+        <Text style={styles.taskCompany} numberOfLines={1}>{task.company}</Text>
         <Ionicons name="calendar-outline" size={12} color={C.textMuted} />
         <Text style={styles.taskDeadline}>{task.deadline}</Text>
       </View>
@@ -43,36 +54,54 @@ function TaskCard({ task }: { task: Task }) {
 }
 
 export default function PlanningScreen() {
-  const { tasks } = useApp();
+  const { tasks, deleteTask } = useApp();
+  const { permissions } = useAuth();
+  const router = useRouter();
   const [activeDay, setActiveDay] = useState(0);
+  const [filterStatus, setFilterStatus] = useState<TaskStatus | 'all'>('all');
 
   const todo = tasks.filter(t => t.status === 'todo').length;
   const inP = tasks.filter(t => t.status === 'in_progress').length;
   const done = tasks.filter(t => t.status === 'done').length;
   const delayed = tasks.filter(t => t.status === 'delayed').length;
 
+  const filtered = filterStatus === 'all' ? tasks : tasks.filter(t => t.status === filterStatus);
+
+  function handleDelete(id: string, title: string) {
+    Alert.alert('Supprimer', `Supprimer la tâche "${title}" ?`, [
+      { text: 'Annuler', style: 'cancel' },
+      { text: 'Supprimer', style: 'destructive', onPress: () => deleteTask(id) },
+    ]);
+  }
+
   return (
     <View style={styles.container}>
-      <Header title="Planning" subtitle={`${tasks.length} tâches au total`} showBack />
+      <Header
+        title="Planning"
+        subtitle={`${tasks.length} tâches au total`}
+        showBack
+        rightIcon={permissions.canCreate ? 'add-circle-outline' : undefined}
+        onRightPress={permissions.canCreate ? () => router.push('/task/new' as any) : undefined}
+      />
 
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
         <View style={styles.statsRow}>
-          <View style={[styles.statCard, { borderTopColor: C.textMuted }]}>
+          <TouchableOpacity style={[styles.statCard, { borderTopColor: C.textMuted }, filterStatus === 'todo' && styles.statCardActive]} onPress={() => setFilterStatus(filterStatus === 'todo' ? 'all' : 'todo')}>
             <Text style={styles.statVal}>{todo}</Text>
             <Text style={styles.statLabel}>À faire</Text>
-          </View>
-          <View style={[styles.statCard, { borderTopColor: C.inProgress }]}>
+          </TouchableOpacity>
+          <TouchableOpacity style={[styles.statCard, { borderTopColor: C.inProgress }, filterStatus === 'in_progress' && styles.statCardActive]} onPress={() => setFilterStatus(filterStatus === 'in_progress' ? 'all' : 'in_progress')}>
             <Text style={[styles.statVal, { color: C.inProgress }]}>{inP}</Text>
             <Text style={styles.statLabel}>En cours</Text>
-          </View>
-          <View style={[styles.statCard, { borderTopColor: C.waiting }]}>
+          </TouchableOpacity>
+          <TouchableOpacity style={[styles.statCard, { borderTopColor: C.waiting }, filterStatus === 'delayed' && styles.statCardActive]} onPress={() => setFilterStatus(filterStatus === 'delayed' ? 'all' : 'delayed')}>
             <Text style={[styles.statVal, { color: C.waiting }]}>{delayed}</Text>
             <Text style={styles.statLabel}>Retard</Text>
-          </View>
-          <View style={[styles.statCard, { borderTopColor: C.closed }]}>
+          </TouchableOpacity>
+          <TouchableOpacity style={[styles.statCard, { borderTopColor: C.closed }, filterStatus === 'done' && styles.statCardActive]} onPress={() => setFilterStatus(filterStatus === 'done' ? 'all' : 'done')}>
             <Text style={[styles.statVal, { color: C.closed }]}>{done}</Text>
             <Text style={styles.statLabel}>Terminé</Text>
-          </View>
+          </TouchableOpacity>
         </View>
 
         <View style={styles.card}>
@@ -95,8 +124,37 @@ export default function PlanningScreen() {
           </ScrollView>
         </View>
 
-        <Text style={styles.sectionTitle}>Toutes les tâches</Text>
-        {tasks.map(t => <TaskCard key={t.id} task={t} />)}
+        <View style={styles.listHeader}>
+          <Text style={styles.sectionTitle}>
+            {filterStatus === 'all' ? 'Toutes les tâches' : `Tâches — ${STATUS_CFG[filterStatus]?.label}`}
+            {' '}({filtered.length})
+          </Text>
+          {permissions.canCreate && (
+            <TouchableOpacity
+              style={styles.addBtn}
+              onPress={() => router.push('/task/new' as any)}
+            >
+              <Ionicons name="add" size={16} color={C.primary} />
+              <Text style={styles.addBtnText}>Nouvelle tâche</Text>
+            </TouchableOpacity>
+          )}
+        </View>
+
+        {filtered.map(t => (
+          <TaskCard
+            key={t.id}
+            task={t}
+            canEdit={permissions.canEdit}
+            onDelete={() => handleDelete(t.id, t.title)}
+          />
+        ))}
+
+        {filtered.length === 0 && (
+          <View style={styles.empty}>
+            <Ionicons name="checkmark-done-outline" size={40} color={C.textMuted} />
+            <Text style={styles.emptyText}>Aucune tâche dans cette catégorie</Text>
+          </View>
+        )}
       </ScrollView>
     </View>
   );
@@ -107,10 +165,14 @@ const styles = StyleSheet.create({
   content: { padding: 16, paddingBottom: 40 },
   statsRow: { flexDirection: 'row', gap: 8, marginBottom: 16 },
   statCard: { flex: 1, backgroundColor: C.surface, borderRadius: 12, padding: 12, borderTopWidth: 3, borderWidth: 1, borderColor: C.border, alignItems: 'center' },
+  statCardActive: { borderColor: C.primary, backgroundColor: C.primaryBg },
   statVal: { fontSize: 22, fontFamily: 'Inter_700Bold', color: C.text },
   statLabel: { fontSize: 10, fontFamily: 'Inter_400Regular', color: C.textSub, marginTop: 2 },
   card: { backgroundColor: C.surface, borderRadius: 14, padding: 14, marginBottom: 16, borderWidth: 1, borderColor: C.border },
-  sectionTitle: { fontSize: 13, fontFamily: 'Inter_600SemiBold', color: C.textSub, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 12 },
+  sectionTitle: { fontSize: 13, fontFamily: 'Inter_600SemiBold', color: C.textSub, textTransform: 'uppercase', letterSpacing: 0.5 },
+  listHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 },
+  addBtn: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 12, paddingVertical: 7, borderRadius: 20, backgroundColor: C.primaryBg, borderWidth: 1, borderColor: C.primary },
+  addBtnText: { fontSize: 12, fontFamily: 'Inter_600SemiBold', color: C.primary },
   daysRow: { flexDirection: 'row', gap: 8 },
   dayBtn: { alignItems: 'center', paddingHorizontal: 14, paddingVertical: 10, borderRadius: 12, backgroundColor: C.surface2 },
   dayBtnActive: { backgroundColor: C.primaryBg },
@@ -128,7 +190,10 @@ const styles = StyleSheet.create({
   taskProgress: { marginBottom: 10 },
   taskBarBg: { height: 5, backgroundColor: C.border, borderRadius: 3, overflow: 'hidden' },
   taskBarFill: { height: '100%', borderRadius: 3 },
-  taskBottom: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-  taskAssignee: { fontSize: 11, fontFamily: 'Inter_400Regular', color: C.textMuted, flex: 1 },
+  taskBottom: { flexDirection: 'row', alignItems: 'center', gap: 5, flexWrap: 'wrap' },
+  taskAssignee: { fontSize: 11, fontFamily: 'Inter_400Regular', color: C.textMuted },
+  taskCompany: { fontSize: 11, fontFamily: 'Inter_400Regular', color: C.textMuted, flex: 1, maxWidth: 120 },
   taskDeadline: { fontSize: 11, fontFamily: 'Inter_400Regular', color: C.textMuted },
+  empty: { alignItems: 'center', paddingVertical: 32, gap: 10 },
+  emptyText: { fontSize: 14, fontFamily: 'Inter_400Regular', color: C.textMuted },
 });

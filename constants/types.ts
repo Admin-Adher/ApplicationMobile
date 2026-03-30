@@ -2,6 +2,16 @@ export type ReserveStatus = 'open' | 'in_progress' | 'waiting' | 'verification' 
 export type ReservePriority = 'low' | 'medium' | 'high' | 'critical';
 export type TaskStatus = 'todo' | 'in_progress' | 'done' | 'delayed';
 export type DocumentType = 'plan' | 'report' | 'technical' | 'photo' | 'other';
+export type UserRole = 'admin' | 'conducteur' | 'chef_equipe' | 'observateur';
+
+export interface User {
+  id: string;
+  name: string;
+  role: UserRole;
+  roleLabel: string;
+  email: string;
+  password: string;
+}
 
 export interface Comment {
   id: string;
@@ -35,6 +45,7 @@ export interface Reserve {
   history: HistoryEntry[];
   planX: number;
   planY: number;
+  photoUri?: string;
 }
 
 export interface Company {
@@ -69,6 +80,7 @@ export interface Document {
   uploadedAt: string;
   size: string;
   version: number;
+  uri?: string;
 }
 
 export interface Photo {
@@ -78,6 +90,7 @@ export interface Photo {
   takenAt: string;
   takenBy: string;
   colorCode: string;
+  uri?: string;
 }
 
 export interface Message {

@@ -1,20 +1,151 @@
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert, Platform } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import * as Print from 'expo-print';
+import * as Sharing from 'expo-sharing';
 import { C } from '@/constants/colors';
 import { useApp } from '@/context/AppContext';
+import { useAuth } from '@/context/AuthContext';
 import Header from '@/components/Header';
 
 const today = new Date().toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
 const weekNum = Math.ceil(new Date().getDate() / 7);
 
+function buildDailyHTML(reserves: any[], companies: any[], tasks: any[], stats: any, userName: string): string {
+  const now = new Date().toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
+  const personnelRows = companies.map(c =>
+    `<tr><td>${c.name}</td><td>${c.actualWorkers}</td><td>${c.plannedWorkers}</td></tr>`
+  ).join('');
+  const taskRows = tasks.filter((t: any) => t.status === 'in_progress').map((t: any) =>
+    `<tr><td>${t.title}</td><td>${t.assignee}</td><td>${t.progress}%</td><td>${t.deadline}</td></tr>`
+  ).join('');
+  return `<!DOCTYPE html><html><head><meta charset="UTF-8">
+  <style>
+    body { font-family: Arial, sans-serif; padding: 30px; color: #111; }
+    h1 { color: #1A6FD8; font-size: 22px; }
+    h2 { color: #333; font-size: 16px; border-bottom: 1px solid #ccc; padding-bottom: 4px; margin-top: 24px; }
+    table { width: 100%; border-collapse: collapse; margin-top: 10px; font-size: 13px; }
+    th { background: #1A6FD8; color: white; padding: 8px; text-align: left; }
+    td { padding: 6px 8px; border-bottom: 1px solid #eee; }
+    .meta { color: #666; font-size: 12px; margin-bottom: 20px; }
+    .kpi { display: flex; gap: 16px; flex-wrap: wrap; margin-top: 10px; }
+    .kpi-card { border: 1px solid #ccc; border-radius: 8px; padding: 12px 20px; text-align: center; }
+    .kpi-val { font-size: 28px; font-weight: bold; color: #1A6FD8; }
+    .kpi-label { font-size: 12px; color: #666; }
+  </style></head><body>
+  <h1>BuildTrack — Rapport journalier</h1>
+  <p class="meta">Date : ${now} | Rédigé par : ${userName}</p>
+  <h2>Indicateurs chantier</h2>
+  <div class="kpi">
+    <div class="kpi-card"><div class="kpi-val">${stats.total}</div><div class="kpi-label">Réserves totales</div></div>
+    <div class="kpi-card"><div class="kpi-val">${stats.open + stats.inProgress}</div><div class="kpi-label">En cours</div></div>
+    <div class="kpi-card"><div class="kpi-val">${stats.closed}</div><div class="kpi-label">Clôturées</div></div>
+    <div class="kpi-card"><div class="kpi-val">${stats.progress}%</div><div class="kpi-label">Avancement</div></div>
+  </div>
+  <h2>Personnel présent</h2>
+  <table><thead><tr><th>Entreprise</th><th>Présents</th><th>Prévus</th></tr></thead>
+  <tbody>${personnelRows}</tbody></table>
+  <h2>Tâches en cours</h2>
+  <table><thead><tr><th>Tâche</th><th>Responsable</th><th>Avancement</th><th>Échéance</th></tr></thead>
+  <tbody>${taskRows || '<tr><td colspan="4">Aucune tâche en cours</td></tr>'}</tbody></table>
+  </body></html>`;
+}
+
+function buildWeeklyHTML(reserves: any[], companies: any[], tasks: any[], stats: any, userName: string): string {
+  const criticalRows = reserves.filter((r: any) => r.priority === 'critical' && r.status !== 'closed').map((r: any) =>
+    `<tr><td>${r.id}</td><td>${r.title}</td><td>Bât. ${r.building}</td><td>${r.deadline}</td></tr>`
+  ).join('');
+  const reserveByStatus = [
+    { label: 'Ouvert', count: stats.open, color: '#EF4444' },
+    { label: 'En cours', count: stats.inProgress, color: '#F59E0B' },
+    { label: 'En attente', count: stats.waiting, color: '#6366F1' },
+    { label: 'Vérification', count: stats.verification, color: '#3B82F6' },
+    { label: 'Clôturé', count: stats.closed, color: '#10B981' },
+  ];
+  const statusRows = reserveByStatus.map(s =>
+    `<tr><td style="color:${s.color};font-weight:bold">${s.label}</td><td>${s.count}</td><td>${stats.total ? Math.round((s.count / stats.total) * 100) : 0}%</td></tr>`
+  ).join('');
+  return `<!DOCTYPE html><html><head><meta charset="UTF-8">
+  <style>
+    body { font-family: Arial, sans-serif; padding: 30px; color: #111; }
+    h1 { color: #1A6FD8; font-size: 22px; }
+    h2 { color: #333; font-size: 16px; border-bottom: 1px solid #ccc; padding-bottom: 4px; margin-top: 24px; }
+    table { width: 100%; border-collapse: collapse; margin-top: 10px; font-size: 13px; }
+    th { background: #1A6FD8; color: white; padding: 8px; text-align: left; }
+    td { padding: 6px 8px; border-bottom: 1px solid #eee; }
+    .meta { color: #666; font-size: 12px; margin-bottom: 20px; }
+    .progress-bar { background: #eee; border-radius: 4px; height: 12px; margin-top: 8px; }
+    .progress-fill { background: #1A6FD8; height: 12px; border-radius: 4px; width: ${stats.progress}%; }
+  </style></head><body>
+  <h1>BuildTrack — Rapport hebdomadaire — Semaine ${weekNum}</h1>
+  <p class="meta">Rédigé par : ${userName}</p>
+  <h2>Avancement global</h2>
+  <p><strong>${stats.progress}%</strong> — ${stats.closed} / ${stats.total} réserves clôturées</p>
+  <div class="progress-bar"><div class="progress-fill"></div></div>
+  <h2>Répartition des réserves</h2>
+  <table><thead><tr><th>Statut</th><th>Nombre</th><th>%</th></tr></thead>
+  <tbody>${statusRows}</tbody></table>
+  <h2>Réserves critiques ouvertes</h2>
+  <table><thead><tr><th>ID</th><th>Titre</th><th>Bâtiment</th><th>Échéance</th></tr></thead>
+  <tbody>${criticalRows || '<tr><td colspan="4">Aucune réserve critique ouverte</td></tr>'}</tbody></table>
+  </body></html>`;
+}
+
+function buildXlsvCSV(reserves: any[]): string {
+  const header = ['ID', 'Titre', 'Statut', 'Priorité', 'Bâtiment', 'Zone', 'Niveau', 'Entreprise', 'Date création', 'Échéance'];
+  const statusMap: Record<string, string> = { open: 'Ouvert', in_progress: 'En cours', waiting: 'En attente', verification: 'Vérification', closed: 'Clôturé' };
+  const priorityMap: Record<string, string> = { low: 'Faible', medium: 'Moyen', high: 'Élevé', critical: 'Critique' };
+  const rows = reserves.map(r => [
+    r.id, `"${r.title}"`, statusMap[r.status] ?? r.status, priorityMap[r.priority] ?? r.priority,
+    r.building, r.zone, r.level, `"${r.company}"`, r.createdAt, r.deadline,
+  ]);
+  return [header, ...rows].map(row => row.join(';')).join('\n');
+}
+
 export default function RapportsScreen() {
   const { reserves, companies, tasks, stats } = useApp();
+  const { user, permissions } = useAuth();
+  const userName = user?.name ?? 'Équipe BuildTrack';
 
-  const openReserves = reserves.filter(r => r.status === 'open' || r.status === 'in_progress');
-  const closedToday = reserves.filter(r => r.status === 'closed');
+  async function exportPDF(type: 'daily' | 'weekly') {
+    if (!permissions.canExport) {
+      Alert.alert('Accès refusé', "Votre rôle ne permet pas d'exporter des rapports.");
+      return;
+    }
+    try {
+      const html = type === 'daily'
+        ? buildDailyHTML(reserves, companies, tasks, stats, userName)
+        : buildWeeklyHTML(reserves, companies, tasks, stats, userName);
 
-  function handleExport(type: string) {
-    Alert.alert('Export ' + type, 'La génération et l\'export de rapports sont disponibles dans la version complète avec backend.');
+      const { uri } = await Print.printToFileAsync({ html, base64: false });
+      const canShare = await Sharing.isAvailableAsync();
+      if (canShare) {
+        await Sharing.shareAsync(uri, { mimeType: 'application/pdf', dialogTitle: 'Partager le rapport PDF' });
+      } else {
+        Alert.alert('PDF généré', `Fichier disponible : ${uri}`);
+      }
+    } catch (e: any) {
+      Alert.alert('Erreur', `Impossible de générer le PDF : ${e?.message ?? e}`);
+    }
+  }
+
+  async function exportCSV() {
+    if (!permissions.canExport) {
+      Alert.alert('Accès refusé', "Votre rôle ne permet pas d'exporter des rapports.");
+      return;
+    }
+    try {
+      const csv = buildXlsvCSV(reserves);
+      const html = `<html><body><pre style="font-family:monospace;font-size:11px">${csv.replace(/</g, '&lt;')}</pre></body></html>`;
+      const { uri } = await Print.printToFileAsync({ html });
+      const canShare = await Sharing.isAvailableAsync();
+      if (canShare) {
+        await Sharing.shareAsync(uri, { mimeType: 'text/csv', dialogTitle: 'Partager le rapport CSV' });
+      } else {
+        Alert.alert('CSV généré', `${reserves.length} réserves exportées.`);
+      }
+    } catch (e: any) {
+      Alert.alert('Erreur', `Impossible d'exporter : ${e?.message ?? e}`);
+    }
   }
 
   return (
@@ -29,8 +160,9 @@ export default function RapportsScreen() {
               <Text style={styles.reportTitle}>Rapport journalier</Text>
               <Text style={styles.reportDate}>{today}</Text>
             </View>
-            <TouchableOpacity style={styles.exportBtn} onPress={() => handleExport('PDF')}>
-              <Ionicons name="share-outline" size={16} color={C.primary} />
+            <TouchableOpacity style={styles.exportBtn} onPress={() => exportPDF('daily')}>
+              <Ionicons name="download-outline" size={14} color={C.primary} />
+              <Text style={styles.exportBtnText}>PDF</Text>
             </TouchableOpacity>
           </View>
 
@@ -50,16 +182,16 @@ export default function RapportsScreen() {
           </View>
 
           <View style={styles.reportSection}>
-            <Text style={styles.sectionTitle}>Réserves du jour</Text>
+            <Text style={styles.sectionTitle}>Réserves</Text>
             <View style={styles.statRow}>
-              <StatItem label="Nouvelles" val={2} color={C.open} />
-              <StatItem label="Modifiées" val={3} color={C.inProgress} />
-              <StatItem label="Clôturées" val={1} color={C.closed} />
+              <StatItem label="Ouvertes" val={stats.open} color={C.open} />
+              <StatItem label="En cours" val={stats.inProgress} color={C.inProgress} />
+              <StatItem label="Clôturées" val={stats.closed} color={C.closed} />
             </View>
           </View>
 
           <View style={styles.reportSection}>
-            <Text style={styles.sectionTitle}>Tâches avancées</Text>
+            <Text style={styles.sectionTitle}>Tâches en cours</Text>
             {tasks.filter(t => t.status === 'in_progress').map(t => (
               <View key={t.id} style={styles.taskItem}>
                 <View style={styles.taskDot} />
@@ -67,6 +199,9 @@ export default function RapportsScreen() {
                 <Text style={[styles.taskPct, { color: C.inProgress }]}>{t.progress}%</Text>
               </View>
             ))}
+            {tasks.filter(t => t.status === 'in_progress').length === 0 && (
+              <Text style={styles.emptyText}>Aucune tâche en cours</Text>
+            )}
           </View>
         </View>
 
@@ -75,10 +210,11 @@ export default function RapportsScreen() {
             <Ionicons name="calendar" size={20} color={C.closed} />
             <View style={{ flex: 1 }}>
               <Text style={styles.reportTitle}>Rapport hebdomadaire</Text>
-              <Text style={styles.reportDate}>Semaine {weekNum} — Mars 2025</Text>
+              <Text style={styles.reportDate}>Semaine {weekNum}</Text>
             </View>
-            <TouchableOpacity style={styles.exportBtn} onPress={() => handleExport('Excel')}>
-              <Ionicons name="share-outline" size={16} color={C.primary} />
+            <TouchableOpacity style={styles.exportBtn} onPress={() => exportPDF('weekly')}>
+              <Ionicons name="download-outline" size={14} color={C.primary} />
+              <Text style={styles.exportBtnText}>PDF</Text>
             </TouchableOpacity>
           </View>
 
@@ -119,8 +255,9 @@ export default function RapportsScreen() {
               <Text style={styles.reportTitle}>Rapport réserves</Text>
               <Text style={styles.reportDate}>{stats.total} réserves au total</Text>
             </View>
-            <TouchableOpacity style={styles.exportBtn} onPress={() => handleExport('PDF')}>
-              <Ionicons name="share-outline" size={16} color={C.primary} />
+            <TouchableOpacity style={styles.exportBtn} onPress={exportCSV}>
+              <Ionicons name="download-outline" size={14} color={C.closed} />
+              <Text style={[styles.exportBtnText, { color: C.closed }]}>CSV</Text>
             </TouchableOpacity>
           </View>
 
@@ -142,6 +279,11 @@ export default function RapportsScreen() {
               </View>
             );
           })}
+
+          <TouchableOpacity style={styles.fullExportBtn} onPress={exportCSV}>
+            <Ionicons name="table-outline" size={16} color="#fff" />
+            <Text style={styles.fullExportBtnText}>Exporter toutes les réserves (CSV)</Text>
+          </TouchableOpacity>
         </View>
       </ScrollView>
     </View>
@@ -164,7 +306,8 @@ const styles = StyleSheet.create({
   reportHeader: { flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 16, paddingBottom: 12, borderBottomWidth: 1, borderBottomColor: C.border },
   reportTitle: { fontSize: 16, fontFamily: 'Inter_600SemiBold', color: C.text },
   reportDate: { fontSize: 12, fontFamily: 'Inter_400Regular', color: C.textSub, marginTop: 2 },
-  exportBtn: { padding: 8, backgroundColor: C.primaryBg, borderRadius: 8 },
+  exportBtn: { flexDirection: 'row', alignItems: 'center', gap: 4, padding: 8, backgroundColor: C.primaryBg, borderRadius: 8, borderWidth: 1, borderColor: C.primary + '40' },
+  exportBtnText: { fontSize: 12, fontFamily: 'Inter_600SemiBold', color: C.primary },
   reportSection: { marginBottom: 14, paddingBottom: 14, borderBottomWidth: 1, borderBottomColor: C.border },
   sectionTitle: { fontSize: 12, fontFamily: 'Inter_600SemiBold', color: C.textSub, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 10 },
   coRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 8 },
@@ -181,6 +324,7 @@ const styles = StyleSheet.create({
   taskDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: C.inProgress },
   taskText: { flex: 1, fontSize: 13, fontFamily: 'Inter_400Regular', color: C.text },
   taskPct: { fontSize: 13, fontFamily: 'Inter_600SemiBold' },
+  emptyText: { fontSize: 13, fontFamily: 'Inter_400Regular', color: C.textMuted },
   progressWrap: { flexDirection: 'row', alignItems: 'center', gap: 10, marginTop: 10 },
   progressBg: { flex: 1, height: 8, backgroundColor: C.border, borderRadius: 4, overflow: 'hidden' },
   progressFill: { height: '100%', backgroundColor: C.primary, borderRadius: 4 },
@@ -195,4 +339,6 @@ const styles = StyleSheet.create({
   statusBarBg: { flex: 1, height: 6, backgroundColor: C.border, borderRadius: 3, overflow: 'hidden' },
   statusBarFill: { height: '100%', borderRadius: 3 },
   statusCount: { fontSize: 13, fontFamily: 'Inter_600SemiBold', width: 20, textAlign: 'right' },
+  fullExportBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, backgroundColor: C.primary, borderRadius: 12, paddingVertical: 12, marginTop: 10 },
+  fullExportBtnText: { fontSize: 14, fontFamily: 'Inter_600SemiBold', color: '#fff' },
 });

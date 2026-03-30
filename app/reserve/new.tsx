@@ -1,9 +1,10 @@
 import { View, Text, StyleSheet, ScrollView, TextInput, TouchableOpacity, Alert, Platform } from 'react-native';
-import { useRouter } from 'expo-router';
+import { useRouter, useLocalSearchParams } from 'expo-router';
 import { useState } from 'react';
 import { Ionicons } from '@expo/vector-icons';
 import { C } from '@/constants/colors';
 import { useApp } from '@/context/AppContext';
+import { useAuth } from '@/context/AuthContext';
 import { ReservePriority, ReserveStatus } from '@/constants/types';
 import Header from '@/components/Header';
 
@@ -51,21 +52,27 @@ function SelectRow<T extends string>({
 export default function NewReserveScreen() {
   const router = useRouter();
   const { companies, addReserve } = useApp();
+  const { user } = useAuth();
+  const params = useLocalSearchParams<{ building?: string; planX?: string; planY?: string }>();
 
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
-  const [building, setBuilding] = useState('A');
+  const [building, setBuilding] = useState(params.building ?? 'A');
   const [zone, setZone] = useState('Zone Nord');
   const [level, setLevel] = useState('RDC');
   const [company, setCompany] = useState(companies[0]?.name ?? '');
   const [priority, setPriority] = useState<ReservePriority>('medium');
   const [deadline, setDeadline] = useState('');
 
+  const presetX = params.planX ? parseInt(params.planX) : null;
+  const presetY = params.planY ? parseInt(params.planY) : null;
+
   function handleSubmit() {
     if (!title.trim()) {
       Alert.alert('Champ obligatoire', 'Le titre est requis.');
       return;
     }
+    const author = user?.name ?? 'Conducteur de travaux';
     const id = 'RSV-' + String(Date.now()).slice(-3).padStart(3, '0');
     addReserve({
       id,
@@ -81,10 +88,10 @@ export default function NewReserveScreen() {
       deadline: deadline || '—',
       comments: [],
       history: [
-        { id: 'h0', action: 'Réserve créée', author: 'Conducteur de travaux', createdAt: new Date().toISOString().slice(0, 10) },
+        { id: 'h0', action: 'Réserve créée', author, createdAt: new Date().toISOString().slice(0, 10) },
       ],
-      planX: Math.round(Math.random() * 80 + 10),
-      planY: Math.round(Math.random() * 80 + 10),
+      planX: presetX ?? Math.round(Math.random() * 80 + 10),
+      planY: presetY ?? Math.round(Math.random() * 80 + 10),
     });
     Alert.alert('Réserve créée', `${id} ajoutée avec succès.`, [
       { text: 'OK', onPress: () => router.back() },

@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useEffect, useReducer } from 'react';
-import { Reserve, Company, Task, Document, Photo, Message, ReserveStatus, ReservePriority } from '@/constants/types';
+import { Reserve, Company, Task, Document, Photo, Message, ReserveStatus, ReservePriority, TaskStatus } from '@/constants/types';
 import { loadData, saveData, isInitialized, setInitialized } from '@/lib/storage';
 import {
   MOCK_RESERVES, MOCK_COMPANIES, MOCK_TASKS,
@@ -23,8 +23,14 @@ type Action =
   | { type: 'UPDATE_RESERVE_STATUS'; payload: { id: string; status: ReserveStatus; author: string } }
   | { type: 'ADD_COMMENT'; payload: { reserveId: string; author: string; content: string } }
   | { type: 'UPDATE_COMPANY'; payload: { id: string; actualWorkers: number } }
-  | { type: 'ADD_MESSAGE'; payload: { content: string } }
+  | { type: 'ADD_MESSAGE'; payload: { content: string; sender: string } }
   | { type: 'MARK_MESSAGES_READ' }
+  | { type: 'ADD_TASK'; payload: Task }
+  | { type: 'UPDATE_TASK'; payload: Task }
+  | { type: 'DELETE_TASK'; payload: string }
+  | { type: 'ADD_PHOTO'; payload: Photo }
+  | { type: 'ADD_DOCUMENT'; payload: Document }
+  | { type: 'DELETE_DOCUMENT'; payload: string }
   | { type: 'SET_LOADING'; payload: boolean };
 
 function genId(): string {
@@ -101,7 +107,7 @@ function reducer(state: AppState, action: Action): AppState {
           ...state.messages,
           {
             id: genId(),
-            sender: 'Moi',
+            sender: action.payload.sender,
             content: action.payload.content,
             timestamp: new Date().toLocaleString('fr-FR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }).replace(',', ''),
             type: 'message',
@@ -117,6 +123,27 @@ function reducer(state: AppState, action: Action): AppState {
         messages: state.messages.map(m => ({ ...m, read: true })),
       };
 
+    case 'ADD_TASK':
+      return { ...state, tasks: [action.payload, ...state.tasks] };
+
+    case 'UPDATE_TASK':
+      return {
+        ...state,
+        tasks: state.tasks.map(t => t.id === action.payload.id ? action.payload : t),
+      };
+
+    case 'DELETE_TASK':
+      return { ...state, tasks: state.tasks.filter(t => t.id !== action.payload) };
+
+    case 'ADD_PHOTO':
+      return { ...state, photos: [action.payload, ...state.photos] };
+
+    case 'ADD_DOCUMENT':
+      return { ...state, documents: [action.payload, ...state.documents] };
+
+    case 'DELETE_DOCUMENT':
+      return { ...state, documents: state.documents.filter(d => d.id !== action.payload) };
+
     case 'SET_LOADING':
       return { ...state, isLoading: action.payload };
 
@@ -131,8 +158,14 @@ interface AppContextValue extends AppState {
   updateReserveStatus: (id: string, status: ReserveStatus, author?: string) => void;
   addComment: (reserveId: string, content: string, author?: string) => void;
   updateCompanyWorkers: (id: string, actual: number) => void;
-  addMessage: (content: string) => void;
+  addMessage: (content: string, sender?: string) => void;
   markMessagesRead: () => void;
+  addTask: (t: Task) => void;
+  updateTask: (t: Task) => void;
+  deleteTask: (id: string) => void;
+  addPhoto: (p: Photo) => void;
+  addDocument: (d: Document) => void;
+  deleteDocument: (id: string) => void;
   unreadCount: number;
   stats: {
     total: number; open: number; inProgress: number;
@@ -215,6 +248,18 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     if (!state.isLoading) saveData('MESSAGES', state.messages);
   }, [state.messages, state.isLoading]);
 
+  useEffect(() => {
+    if (!state.isLoading) saveData('TASKS', state.tasks);
+  }, [state.tasks, state.isLoading]);
+
+  useEffect(() => {
+    if (!state.isLoading) saveData('PHOTOS', state.photos);
+  }, [state.photos, state.isLoading]);
+
+  useEffect(() => {
+    if (!state.isLoading) saveData('DOCUMENTS', state.documents);
+  }, [state.documents, state.isLoading]);
+
   const stats = {
     total: state.reserves.length,
     open: state.reserves.filter(r => r.status === 'open').length,
@@ -243,8 +288,14 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       dispatch({ type: 'ADD_COMMENT', payload: { reserveId, author, content } }),
     updateCompanyWorkers: (id, actual) =>
       dispatch({ type: 'UPDATE_COMPANY', payload: { id, actualWorkers: actual } }),
-    addMessage: (content) => dispatch({ type: 'ADD_MESSAGE', payload: { content } }),
+    addMessage: (content, sender = 'Moi') => dispatch({ type: 'ADD_MESSAGE', payload: { content, sender } }),
     markMessagesRead: () => dispatch({ type: 'MARK_MESSAGES_READ' }),
+    addTask: (t) => dispatch({ type: 'ADD_TASK', payload: t }),
+    updateTask: (t) => dispatch({ type: 'UPDATE_TASK', payload: t }),
+    deleteTask: (id) => dispatch({ type: 'DELETE_TASK', payload: id }),
+    addPhoto: (p) => dispatch({ type: 'ADD_PHOTO', payload: p }),
+    addDocument: (d) => dispatch({ type: 'ADD_DOCUMENT', payload: d }),
+    deleteDocument: (id) => dispatch({ type: 'DELETE_DOCUMENT', payload: id }),
   };
 
   return <AppContext.Provider value={value}>{children}</AppContext.Provider>;

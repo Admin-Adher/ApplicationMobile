@@ -3,6 +3,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useState, useEffect } from 'react';
 import { C } from '@/constants/colors';
 import { useApp } from '@/context/AppContext';
+import { useAuth } from '@/context/AuthContext';
 import { Message } from '@/constants/types';
 import Header from '@/components/Header';
 
@@ -39,6 +40,7 @@ function MessageBubble({ msg }: { msg: Message }) {
 
 export default function MessagesScreen() {
   const { messages, addMessage, markMessagesRead } = useApp();
+  const { user } = useAuth();
   const [text, setText] = useState('');
 
   useEffect(() => {
@@ -47,7 +49,7 @@ export default function MessagesScreen() {
 
   function handleSend() {
     if (!text.trim()) return;
-    addMessage(text.trim());
+    addMessage(text.trim(), user?.name ?? 'Moi');
     setText('');
   }
 

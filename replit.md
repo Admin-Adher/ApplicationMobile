@@ -1,50 +1,84 @@
-# ApplicationMobile
+# BuildTrack
 
-A mobile application built with Expo and React Native, with web preview support.
+Application de gestion de chantier numérique de type Dalux, construite avec Expo et React Native.
 
 ## Tech Stack
 
-- **Framework**: Expo (SDK 53) with Expo Router (file-based routing)
+- **Framework**: Expo (SDK 53) avec Expo Router (routing basé sur les fichiers)
 - **Language**: TypeScript
-- **UI**: React Native + react-native-web (for web preview)
-- **State**: @tanstack/react-query for server state, useState for local state
-- **Navigation**: Expo Router (tab-based navigation)
+- **UI**: React Native + react-native-web (prévisualisation web)
+- **State**: React Context + useReducer (AppContext, AuthContext)
+- **Navigation**: Expo Router (tab-based + stack navigation)
 - **Fonts**: Inter (via @expo-google-fonts/inter)
 - **Storage**: @react-native-async-storage/async-storage
+- **Photos**: expo-image-picker (caméra + galerie)
+- **Documents**: expo-document-picker (import de fichiers)
+- **Export PDF**: expo-print + expo-sharing
+- **Export CSV**: génération native + expo-sharing
 
-## Project Structure
+## Modules implémentés
+
+| Module | Statut |
+|--------|--------|
+| MODULE 1 — Gestion des réserves | ✅ Complet |
+| MODULE 2 — Plans interactifs | ✅ Zoom/pan + placement de marqueurs + filtre entreprise |
+| MODULE 3 — Gestion documentaire | ✅ Import réel de fichiers |
+| MODULE 4 — Suivi des équipes | ✅ Complet |
+| MODULE 5 — Planning chantier | ✅ Création/suppression de tâches + filtres |
+| MODULE 6 — Dashboard | ✅ Complet |
+| MODULE 7 — Communication interne | ✅ Messages avec nom d'utilisateur |
+| MODULE 8 — Photos chantier | ✅ Caméra réelle + galerie |
+| MODULE 9 — Rapports automatiques | ✅ Export PDF réel + CSV |
+| MODULE 10 — Gestion utilisateurs | ✅ Auth + rôles + permissions |
+
+## Architecture
 
 ```
 app/
-  _layout.tsx          # Root layout with all providers
+  login.tsx              # Écran de connexion
+  _layout.tsx            # Root layout + AuthGuard
   (tabs)/
-    _layout.tsx        # Tab navigation layout
-    index.tsx          # Home screen
-    explore.tsx        # Explore screen
-    profile.tsx        # Profile screen
-  +not-found.tsx       # 404 screen
-assets/
-  images/              # App icons and images
-components/            # Reusable UI components
+    _layout.tsx          # Navigation onglets
+    index.tsx            # Dashboard
+    reserves.tsx         # Liste réserves
+    plans.tsx            # Plans interactifs (zoom/pan)
+    equipes.tsx          # Suivi équipes
+    more.tsx             # Modules + profil + déconnexion
+  reserve/
+    [id].tsx             # Détail réserve
+    new.tsx              # Création réserve
+  task/
+    new.tsx              # Création tâche
+  documents.tsx          # Gestion documentaire
+  planning.tsx           # Planning chantier
+  photos.tsx             # Photos chantier
+  rapports.tsx           # Rapports PDF/CSV
+  messages.tsx           # Messagerie interne
+context/
+  AuthContext.tsx        # Auth + rôles + permissions
+  AppContext.tsx         # État global de l'application
 constants/
-  colors.ts            # Color theme (light/dark)
+  types.ts               # Types TypeScript
+  colors.ts              # Thème couleurs
 lib/
-  query-client.ts      # React Query client + API utilities
+  mockData.ts            # Données initiales
+  storage.ts             # Persistance AsyncStorage
 ```
 
-## Running the App
+## Authentification
 
-- **Start Frontend**: `PORT=8080 npx expo start --port 8080`
-- App runs on port 8080 (Expo Metro dev server)
-- Scan the QR code with Expo Go (iOS/Android) to test on physical device
-- Web preview available at port 8080
+4 rôles disponibles :
+- **Admin** — admin@buildtrack.fr / admin123
+- **Conducteur** — j.dupont@buildtrack.fr / pass123
+- **Chef d'équipe** — m.martin@buildtrack.fr / pass123
+- **Observateur** — p.lambert@buildtrack.fr / pass123
 
-## Workflows
+## Workflow
 
-- `Start Frontend` — Runs the Expo dev server on port 8080
+- `Start Frontend` — Expo dev server sur le port 5000
 
-## Deployment
+## Déploiement
 
-- Build: `npm run web` (expo export --platform web → outputs to dist/)
-- Deployment type: static
-- Public dir: dist/
+- Build : `npm run web` (expo export → dist/)
+- Type : static
+- Répertoire public : dist/
