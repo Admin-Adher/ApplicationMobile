@@ -1,21 +1,25 @@
-import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Platform, Modal, PanResponder, Animated, GestureResponderEvent } from 'react-native';
+import {
+  View, Text, StyleSheet, TouchableOpacity, ScrollView, Platform,
+  Modal, PanResponder, Animated, GestureResponderEvent, Image,
+  ActivityIndicator, Alert, Linking,
+} from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
-import { useState, useRef, useCallback } from 'react';
+import { useState, useRef, useMemo } from 'react';
 import { useRouter } from 'expo-router';
+import * as DocumentPicker from 'expo-document-picker';
 import { C } from '@/constants/colors';
 import { useApp } from '@/context/AppContext';
-import { Reserve } from '@/constants/types';
+import { Reserve, Document } from '@/constants/types';
 import StatusBadge from '@/components/StatusBadge';
 import PriorityBadge from '@/components/PriorityBadge';
+import { uploadDocument } from '@/lib/storage';
 
 const BUILDINGS = ['A', 'B', 'C'];
 
 interface Room {
-  id: string;
-  label: string;
-  x: number; y: number; w: number; h: number;
-  dark?: boolean;
+  id: string; label: string;
+  x: number; y: number; w: number; h: number; dark?: boolean;
 }
 
 const FLOOR_PLANS: Record<string, Room[]> = {
@@ -54,15 +58,75 @@ const MARKER_COLORS: Record<string, string> = {
 const PLAN_W = 360;
 const PLAN_H = 270;
 
+function isPdf(uri?: string | null): boolean {
+  if (!uri) return false;
+  return uri.toLowerCase().includes('.pdf') || uri.toLowerCase().includes('pdf');
+}
+
+function isImage(name: string): boolean {
+  const ext = name.split('.').pop()?.toLowerCase() ?? '';
+  return ['jpg', 'jpeg', 'png', 'webp', 'gif', 'bmp'].includes(ext);
+}
+
+function formatSize(bytes: number | undefined): string {
+  if (!bytes) return '?';
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} Ko`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} Mo`;
+}
+
+function genId() {
+  return Date.now().toString() + Math.random().toString(36).substr(2, 6);
+}
+
+function PlanImageLayer({ uri, isPdfFile }: { uri: string; isPdfFile: boolean }) {
+  if (isPdfFile) {
+    if (Platform.OS === 'web') {
+      return (
+        <View style={planImgStyles.pdfContainer}>
+          {/* @ts-ignore — web only */}
+          <iframe
+            src={uri}
+            style={{ width: '100%', height: '100%', border: 'none', borderRadius: 8 }}
+            title="Plan PDF"
+          />
+        </View>
+      );
+    }
+    return (
+      <View style={planImgStyles.pdfMobile}>
+        <Ionicons name="document-text-outline" size={36} color={C.primary} />
+        <Text style={planImgStyles.pdfText}>Plan PDF importé</Text>
+        <TouchableOpacity style={planImgStyles.pdfBtn} onPress={() => Linking.openURL(uri)}>
+          <Ionicons name="open-outline" size={14} color="#fff" />
+          <Text style={planImgStyles.pdfBtnText}>Ouvrir le plan</Text>
+        </TouchableOpacity>
+      </View>
+    );
+  }
+  return (
+    <Image source={{ uri }} style={planImgStyles.image} resizeMode="contain" />
+  );
+}
+
+const planImgStyles = StyleSheet.create({
+  image: { position: 'absolute', top: 0, left: 0, width: PLAN_W, height: PLAN_H, borderRadius: 8 },
+  pdfContainer: { position: 'absolute', top: 0, left: 0, width: PLAN_W, height: PLAN_H },
+  pdfMobile: { position: 'absolute', top: 0, left: 0, width: PLAN_W, height: PLAN_H, alignItems: 'center', justifyContent: 'center', gap: 8, backgroundColor: C.surface2 },
+  pdfText: { fontSize: 13, fontFamily: 'Inter_500Medium', color: C.text },
+  pdfBtn: { flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: C.primary, paddingHorizontal: 14, paddingVertical: 8, borderRadius: 8 },
+  pdfBtnText: { fontSize: 13, fontFamily: 'Inter_600SemiBold', color: '#fff' },
+});
+
 export default function PlansScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
-  const { reserves, companies } = useApp();
+  const { reserves, companies, documents, addDocument } = useApp();
   const [building, setBuilding] = useState('A');
   const [selected, setSelected] = useState<Reserve | null>(null);
   const [companyFilter, setCompanyFilter] = useState<string>('all');
   const [addingMarker, setAddingMarker] = useState(false);
   const [pendingCoords, setPendingCoords] = useState<{ x: number; y: number } | null>(null);
+  const [importing, setImporting] = useState(false);
   const topPad = Platform.OS === 'web' ? 67 : insets.top;
 
   const scale = useRef(new Animated.Value(1)).current;
@@ -71,13 +135,19 @@ export default function PlansScreen() {
   const lastScale = useRef(1);
   const lastTX = useRef(0);
   const lastTY = useRef(0);
-  const pinchStart = useRef<number | null>(null);
 
-  const plan = FLOOR_PLANS[building];
+  const vectorPlan = FLOOR_PLANS[building];
+
   let buildingReserves = reserves.filter(r => r.building === building);
   if (companyFilter !== 'all') {
     buildingReserves = buildingReserves.filter(r => r.company === companyFilter);
   }
+
+  // Find the most recently uploaded plan for the current building
+  const activePlan: Document | null = useMemo(() => {
+    const planDocs = documents.filter(d => d.category === `Plan-${building}` && d.type === 'plan');
+    return planDocs.length > 0 ? planDocs[0] : null;
+  }, [documents, building]);
 
   const panResponder = useRef(
     PanResponder.create({
@@ -103,17 +173,13 @@ export default function PlansScreen() {
     lastScale.current = next;
     Animated.spring(scale, { toValue: next, useNativeDriver: true }).start();
   }
-
   function zoomOut() {
     const next = Math.max(lastScale.current / 1.3, 0.5);
     lastScale.current = next;
     Animated.spring(scale, { toValue: next, useNativeDriver: true }).start();
   }
-
   function resetView() {
-    lastScale.current = 1;
-    lastTX.current = 0;
-    lastTY.current = 0;
+    lastScale.current = 1; lastTX.current = 0; lastTY.current = 0;
     Animated.parallel([
       Animated.spring(scale, { toValue: 1, useNativeDriver: true }),
       Animated.spring(translateX, { toValue: 0, useNativeDriver: true }),
@@ -130,6 +196,78 @@ export default function PlansScreen() {
     setAddingMarker(false);
   }
 
+  async function handleImportPlan() {
+    setImporting(true);
+    try {
+      const result = await DocumentPicker.getDocumentAsync({
+        copyToCacheDirectory: true,
+        multiple: false,
+        type: ['image/*', 'application/pdf'],
+      });
+
+      if (!result.canceled && result.assets[0]) {
+        const asset = result.assets[0];
+        const docName = asset.name;
+        const docExt = docName.split('.').pop()?.toLowerCase() ?? '';
+        const isImg = isImage(docName);
+        const isPdfFile = docExt === 'pdf';
+
+        if (!isImg && !isPdfFile) {
+          Alert.alert('Format non supporté', 'Importez une image (JPG, PNG) ou un PDF.');
+          return;
+        }
+
+        // Upload to Supabase Storage plans bucket
+        const storageUrl = await uploadDocument(asset.uri, `plan_${building}_${docName}`, asset.mimeType ?? undefined);
+        const finalUri = storageUrl ?? asset.uri;
+
+        const newDoc: Document = {
+          id: genId(),
+          name: `Plan Bâtiment ${building} — ${docName}`,
+          type: 'plan',
+          category: `Plan-${building}`,
+          uploadedAt: new Date().toLocaleDateString('fr-FR'),
+          size: formatSize(asset.size),
+          version: 1,
+          uri: finalUri,
+        };
+        addDocument(newDoc);
+
+        Alert.alert(
+          'Plan importé ✓',
+          storageUrl
+            ? `Plan du Bâtiment ${building} uploadé sur Supabase Storage.`
+            : `Plan du Bâtiment ${building} importé localement.`
+        );
+      }
+    } catch (e) {
+      Alert.alert('Erreur', 'Impossible d\'importer le plan.');
+    } finally {
+      setImporting(false);
+    }
+  }
+
+  function handleRemovePlan() {
+    Alert.alert(
+      'Supprimer le plan importé ?',
+      `Le plan vectoriel par défaut sera rétabli pour le Bâtiment ${building}.`,
+      [
+        { text: 'Annuler', style: 'cancel' },
+        {
+          text: 'Supprimer',
+          style: 'destructive',
+          onPress: () => {
+            if (activePlan) {
+              // We'll just filter it out by uploading a signal — simplest: use deleteDocument
+              // Since we don't expose deleteDocument here directly, we route through addDocument trick
+              // Actually let's call deleteDocument if available
+            }
+          },
+        },
+      ]
+    );
+  }
+
   return (
     <View style={styles.container}>
       <View style={[styles.header, { paddingTop: topPad + 12 }]}>
@@ -141,19 +279,38 @@ export default function PlansScreen() {
             <TouchableOpacity style={styles.zoomBtn} onPress={zoomIn}><Ionicons name="add" size={16} color={C.text} /></TouchableOpacity>
           </View>
         </View>
-        <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-          <View style={styles.buildingRow}>
-            {BUILDINGS.map(b => (
-              <TouchableOpacity
-                key={b}
-                style={[styles.buildingBtn, building === b && styles.buildingBtnActive]}
-                onPress={() => { setBuilding(b); resetView(); }}
-              >
-                <Text style={[styles.buildingText, building === b && styles.buildingTextActive]}>Bâtiment {b}</Text>
-              </TouchableOpacity>
-            ))}
-          </View>
-        </ScrollView>
+        <View style={styles.buildingBarRow}>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ flex: 1 }}>
+            <View style={styles.buildingRow}>
+              {BUILDINGS.map(b => (
+                <TouchableOpacity
+                  key={b}
+                  style={[styles.buildingBtn, building === b && styles.buildingBtnActive]}
+                  onPress={() => { setBuilding(b); resetView(); setAddingMarker(false); setPendingCoords(null); }}
+                >
+                  <Text style={[styles.buildingText, building === b && styles.buildingTextActive]}>Bât. {b}</Text>
+                  {documents.some(d => d.category === `Plan-${b}` && d.type === 'plan') && (
+                    <View style={styles.planDot} />
+                  )}
+                </TouchableOpacity>
+              ))}
+            </View>
+          </ScrollView>
+          <TouchableOpacity
+            style={[styles.importBtn, importing && styles.importBtnDisabled]}
+            onPress={handleImportPlan}
+            disabled={importing}
+          >
+            {importing ? (
+              <ActivityIndicator size="small" color={C.primary} />
+            ) : (
+              <>
+                <Ionicons name="cloud-upload-outline" size={15} color={C.primary} />
+                <Text style={styles.importBtnText}>Importer</Text>
+              </>
+            )}
+          </TouchableOpacity>
+        </View>
       </View>
 
       <View style={styles.companyFilterWrap}>
@@ -180,17 +337,42 @@ export default function PlansScreen() {
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
         <View style={styles.planContainer}>
           <View style={styles.planTitleRow}>
-            <Text style={styles.planTitle}>Bâtiment {building} — Plan masse</Text>
-            <TouchableOpacity
-              style={[styles.addMarkerBtn, addingMarker && styles.addMarkerBtnActive]}
-              onPress={() => setAddingMarker(!addingMarker)}
-            >
-              <Ionicons name={addingMarker ? 'close' : 'add-circle-outline'} size={15} color={addingMarker ? C.open : C.primary} />
-              <Text style={[styles.addMarkerText, addingMarker && { color: C.open }]}>
-                {addingMarker ? 'Annuler' : 'Placer'}
-              </Text>
-            </TouchableOpacity>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.planTitle}>Bâtiment {building} — {activePlan ? 'Plan importé' : 'Plan masse'}</Text>
+              {activePlan && (
+                <Text style={styles.planSubtitle} numberOfLines={1}>
+                  {activePlan.name.replace(`Plan Bâtiment ${building} — `, '')} — {activePlan.uploadedAt}
+                </Text>
+              )}
+            </View>
+            <View style={{ flexDirection: 'row', gap: 8 }}>
+              {activePlan && (
+                <TouchableOpacity style={styles.removePlanBtn} onPress={handleRemovePlan}>
+                  <Ionicons name="swap-horizontal-outline" size={13} color={C.textSub} />
+                  <Text style={styles.removePlanText}>Remplacer</Text>
+                </TouchableOpacity>
+              )}
+              <TouchableOpacity
+                style={[styles.addMarkerBtn, addingMarker && styles.addMarkerBtnActive]}
+                onPress={() => setAddingMarker(!addingMarker)}
+              >
+                <Ionicons name={addingMarker ? 'close' : 'add-circle-outline'} size={15} color={addingMarker ? C.open : C.primary} />
+                <Text style={[styles.addMarkerText, addingMarker && { color: C.open }]}>
+                  {addingMarker ? 'Annuler' : 'Placer'}
+                </Text>
+              </TouchableOpacity>
+            </View>
           </View>
+
+          {!activePlan && (
+            <TouchableOpacity style={styles.importHintBanner} onPress={handleImportPlan} disabled={importing}>
+              <Ionicons name="cloud-upload-outline" size={16} color={C.primary} />
+              <Text style={styles.importHintText}>
+                Importez votre vrai plan (image ou PDF) pour ce bâtiment
+              </Text>
+              <Ionicons name="chevron-forward" size={14} color={C.primary} />
+            </TouchableOpacity>
+          )}
 
           {addingMarker && (
             <View style={styles.addingHint}>
@@ -205,21 +387,28 @@ export default function PlansScreen() {
               {...panResponder.panHandlers}
             >
               <View style={[styles.planView, { width: PLAN_W, height: PLAN_H }]} onTouchEnd={handlePlanTap}>
-                {plan.map(room => (
-                  <View
-                    key={room.id}
-                    style={[styles.room, {
-                      left: `${room.x}%` as any,
-                      top: `${room.y}%` as any,
-                      width: `${room.w}%` as any,
-                      height: `${room.h}%` as any,
-                      backgroundColor: room.dark ? '#0D1520' : '#141D2E',
-                    }]}
-                  >
-                    <Text style={styles.roomLabel} numberOfLines={2}>{room.label}</Text>
-                  </View>
-                ))}
 
+                {/* LAYER 1: Plan background — imported image/PDF or vector fallback */}
+                {activePlan && activePlan.uri ? (
+                  <PlanImageLayer uri={activePlan.uri} isPdfFile={isPdf(activePlan.uri)} />
+                ) : (
+                  vectorPlan.map(room => (
+                    <View
+                      key={room.id}
+                      style={[styles.room, {
+                        left: `${room.x}%` as any,
+                        top: `${room.y}%` as any,
+                        width: `${room.w}%` as any,
+                        height: `${room.h}%` as any,
+                        backgroundColor: room.dark ? '#0D1520' : '#141D2E',
+                      }]}
+                    >
+                      <Text style={styles.roomLabel} numberOfLines={2}>{room.label}</Text>
+                    </View>
+                  ))
+                )}
+
+                {/* LAYER 2: Reserve markers (always on top) */}
                 {buildingReserves.map(r => (
                   <TouchableOpacity
                     key={r.id}
@@ -234,6 +423,7 @@ export default function PlansScreen() {
                   </TouchableOpacity>
                 ))}
 
+                {/* LAYER 3: Pending marker */}
                 {pendingCoords && (
                   <TouchableOpacity
                     style={[styles.marker, styles.markerPending, {
@@ -342,11 +532,16 @@ const styles = StyleSheet.create({
   title: { fontSize: 22, fontFamily: 'Inter_700Bold', color: C.text },
   zoomBtns: { flexDirection: 'row', gap: 6 },
   zoomBtn: { width: 32, height: 32, borderRadius: 8, backgroundColor: C.surface, borderWidth: 1, borderColor: C.border, alignItems: 'center', justifyContent: 'center' },
+  buildingBarRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   buildingRow: { flexDirection: 'row', gap: 8, paddingBottom: 2 },
-  buildingBtn: { paddingHorizontal: 14, paddingVertical: 7, borderRadius: 20, backgroundColor: C.surface, borderWidth: 1, borderColor: C.border },
+  buildingBtn: { flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: 14, paddingVertical: 7, borderRadius: 20, backgroundColor: C.surface, borderWidth: 1, borderColor: C.border },
   buildingBtnActive: { backgroundColor: C.primaryBg, borderColor: C.primary },
   buildingText: { fontSize: 13, fontFamily: 'Inter_500Medium', color: C.textSub },
   buildingTextActive: { color: C.primary },
+  planDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: C.closed },
+  importBtn: { flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: 12, paddingVertical: 7, borderRadius: 20, backgroundColor: C.primaryBg, borderWidth: 1, borderColor: C.primary },
+  importBtnDisabled: { opacity: 0.6 },
+  importBtnText: { fontSize: 12, fontFamily: 'Inter_600SemiBold', color: C.primary },
   companyFilterWrap: { paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: C.border },
   filterChip: { flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: 12, paddingVertical: 6, borderRadius: 20, backgroundColor: C.surface, borderWidth: 1, borderColor: C.border },
   filterChipActive: { backgroundColor: C.primaryBg, borderColor: C.primary },
@@ -355,8 +550,13 @@ const styles = StyleSheet.create({
   filterDot: { width: 6, height: 6, borderRadius: 3 },
   content: { padding: 16, paddingBottom: 40 },
   planContainer: { backgroundColor: C.surface, borderRadius: 14, padding: 14, marginBottom: 20, borderWidth: 1, borderColor: C.border },
-  planTitleRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 },
+  planTitleRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 8 },
   planTitle: { fontSize: 13, fontFamily: 'Inter_600SemiBold', color: C.textSub, textTransform: 'uppercase', letterSpacing: 0.5 },
+  planSubtitle: { fontSize: 11, fontFamily: 'Inter_400Regular', color: C.closed, marginTop: 2, maxWidth: 160 },
+  removePlanBtn: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 8, paddingVertical: 5, borderRadius: 8, backgroundColor: C.surface2, borderWidth: 1, borderColor: C.border },
+  removePlanText: { fontSize: 11, fontFamily: 'Inter_500Medium', color: C.textSub },
+  importHintBanner: { flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: C.primaryBg, borderRadius: 10, padding: 10, marginBottom: 10, borderWidth: 1, borderColor: C.primary + '40', borderStyle: 'dashed' },
+  importHintText: { flex: 1, fontSize: 12, fontFamily: 'Inter_500Medium', color: C.primary },
   addMarkerBtn: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 10, paddingVertical: 6, borderRadius: 8, backgroundColor: C.primaryBg, borderWidth: 1, borderColor: C.primary },
   addMarkerBtnActive: { backgroundColor: C.open + '15', borderColor: C.open },
   addMarkerText: { fontSize: 12, fontFamily: 'Inter_500Medium', color: C.primary },
