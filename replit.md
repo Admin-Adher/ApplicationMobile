@@ -54,6 +54,17 @@ The Supabase schema is defined in `lib/schema.sql`. Run it in the Supabase SQL E
 - Chef d'équipe (Foreman)
 - Observateur (Observer)
 
+## Dependencies Added
+
+- `expo-clipboard@~7.1.5` — used in `channel/[id].tsx` for copy-to-clipboard (replaces deprecated `Clipboard` from `react-native`)
+
+## Bug Fixes Applied
+
+- **`app/(tabs)/more.tsx`** — Équipes module added to the "Plus" menu (was inaccessible — tab hidden with `href: null` and missing from menu)
+- **`app/channel/[id].tsx`** — Replaced deprecated `Clipboard` from `react-native` with `expo-clipboard`; updated `Clipboard.setString()` → `Clipboard.setStringAsync()`
+- **`app/channel/[id].tsx`** — Fixed deprecated `ImagePicker.MediaTypeOptions.Images` → `['images']`
+- **`app/channel/[id].tsx`** — Fixed hardcoded `paddingTop: 52` → `insets.top + 8` using `useSafeAreaInsets()` for correct notch/Dynamic Island support
+
 ## Feature Completion (100%)
 
 All 10 planned modules are implemented:

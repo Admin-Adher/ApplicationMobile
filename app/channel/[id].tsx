@@ -1,8 +1,10 @@
 import {
   View, Text, StyleSheet, FlatList, TouchableOpacity, TextInput, Alert,
-  Modal, Platform, Image, KeyboardAvoidingView, Clipboard, Linking,
+  Modal, Platform, Image, KeyboardAvoidingView, Linking,
   ActivityIndicator, Animated,
 } from 'react-native';
+import * as Clipboard from 'expo-clipboard';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { useLocalSearchParams, useRouter } from 'expo-router';
@@ -135,6 +137,7 @@ function TypingIndicator({ users }: { users: string[] }) {
 type ListItem = Message | { _type: 'date'; label: string; key: string };
 
 export default function ChannelScreen() {
+  const insets = useSafeAreaInsets();
   const { id: channelId, name: channelName, color: channelColor, icon: channelIcon, isDM, isGroup, members: membersParam } = useLocalSearchParams<{
     id: string; name: string; color: string; icon: string; isDM?: string; isGroup?: string; members?: string;
   }>();
@@ -274,7 +277,7 @@ export default function ChannelScreen() {
       const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
       if (status !== 'granted') { Alert.alert('Permission refusée', "L'accès à la galerie est nécessaire."); return; }
     }
-    const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ImagePicker.MediaTypeOptions.Images, allowsEditing: true, quality: 0.8 });
+    const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images'], allowsEditing: true, quality: 0.8 });
     if (!result.canceled && result.assets[0]) {
       setAttachmentUploading(true);
       try {
@@ -344,9 +347,9 @@ export default function ChannelScreen() {
     inputRef.current?.focus();
   }
 
-  function handleCopy() {
+  async function handleCopy() {
     setActionModalVisible(false);
-    Clipboard.setString(selectedMsg?.content ?? '');
+    await Clipboard.setStringAsync(selectedMsg?.content ?? '');
     Alert.alert('Copié', 'Message copié dans le presse-papier.');
   }
 
@@ -514,7 +517,7 @@ export default function ChannelScreen() {
 
   return (
     <View style={styles.container}>
-      <View style={[styles.header, { paddingTop: Platform.OS === 'web' ? 16 : 52 }]}>
+      <View style={[styles.header, { paddingTop: Platform.OS === 'web' ? 16 : insets.top + 8 }]}>
         <TouchableOpacity onPress={() => router.back()} style={styles.backBtn}>
           <Ionicons name="chevron-back" size={22} color={C.text} />
         </TouchableOpacity>

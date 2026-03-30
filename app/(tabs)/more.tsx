@@ -25,7 +25,7 @@ interface MenuItem {
 export default function MoreScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
-  const { documents, photos, tasks } = useApp();
+  const { documents, photos, tasks, companies } = useApp();
   const { user, logout, permissions } = useAuth();
   const topPad = Platform.OS === 'web' ? 67 : insets.top;
 
@@ -34,6 +34,7 @@ export default function MoreScreen() {
     { icon: 'calendar', label: 'Planning', subtitle: `${tasks.length} tâches`, route: '/planning', color: '#10B981' },
     { icon: 'camera', label: 'Photos', subtitle: `${photos.length} photos`, route: '/photos', color: '#F59E0B' },
     { icon: 'document-text', label: 'Rapports', subtitle: 'Journalier, hebdo', route: '/rapports', color: '#8B5CF6' },
+    { icon: 'people', label: 'Équipes', subtitle: `${companies.length} entreprises`, route: '/(tabs)/equipes', color: '#EC4899' },
   ];
 
   function handleLogout() {
