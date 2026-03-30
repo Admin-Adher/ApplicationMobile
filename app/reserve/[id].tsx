@@ -1,10 +1,11 @@
 import {
   View, Text, StyleSheet, ScrollView, TouchableOpacity,
-  TextInput, Alert, Platform, Image, Modal,
+  TextInput, Alert, Image, Modal, ActivityIndicator, Platform,
 } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useState, useMemo } from 'react';
+import * as ImagePicker from 'expo-image-picker';
 import { C } from '@/constants/colors';
 import { useApp } from '@/context/AppContext';
 import { Reserve, ReservePriority, ReserveStatus } from '@/constants/types';
@@ -12,28 +13,17 @@ import StatusBadge, { STATUS_CONFIG } from '@/components/StatusBadge';
 import PriorityBadge from '@/components/PriorityBadge';
 import Header from '@/components/Header';
 import { useAuth } from '@/context/AuthContext';
+import { uploadPhoto } from '@/lib/storage';
+import {
+  RESERVE_BUILDINGS, RESERVE_ZONES, RESERVE_LEVELS, RESERVE_PRIORITIES,
+  isOverdue, formatDate,
+} from '@/lib/reserveUtils';
 
 const STATUS_ORDER: ReserveStatus[] = ['open', 'in_progress', 'waiting', 'verification', 'closed'];
-const BUILDINGS = ['A', 'B', 'C'];
-const ZONES = ['Zone Nord', 'Zone Sud', 'Zone Est', 'Zone Ouest', 'Zone Centre'];
-const LEVELS = ['Sous-sol', 'RDC', 'R+1', 'R+2', 'R+3'];
-const PRIORITIES: { value: ReservePriority; label: string; color: string }[] = [
-  { value: 'low', label: 'Basse', color: C.low },
-  { value: 'medium', label: 'Moyenne', color: C.medium },
-  { value: 'high', label: 'Haute', color: C.high },
-  { value: 'critical', label: 'Critique', color: C.critical },
-];
 
-function isOverdue(deadline: string, status: ReserveStatus): boolean {
-  if (status === 'closed' || deadline === '—' || !deadline) return false;
-  const parts = deadline.split('/');
-  if (parts.length === 3) {
-    const d = new Date(`${parts[2]}-${parts[1]}-${parts[0]}`);
-    return d < new Date() && !isNaN(d.getTime());
-  }
-  const d = new Date(deadline);
-  return d < new Date() && !isNaN(d.getTime());
-}
+const PRIORITY_LABEL: Record<ReservePriority, string> = {
+  low: 'Basse', medium: 'Moyenne', high: 'Haute', critical: 'Critique',
+};
 
 function ChipSelect<T extends string>({
   options, value, onChange, colorFn, labelMap,
@@ -76,17 +66,20 @@ export default function ReserveDetailScreen() {
   const [showCommentBox, setShowCommentBox] = useState(false);
   const [editModalVisible, setEditModalVisible] = useState(false);
   const [photoFullScreen, setPhotoFullScreen] = useState(false);
+  const [saveSuccess, setSaveSuccess] = useState(false);
 
   const reserve = reserves.find(r => r.id === id);
 
   const [editTitle, setEditTitle] = useState('');
   const [editDescription, setEditDescription] = useState('');
-  const [editBuilding, setEditBuilding] = useState('A');
-  const [editZone, setEditZone] = useState('Zone Nord');
-  const [editLevel, setEditLevel] = useState('RDC');
+  const [editBuilding, setEditBuilding] = useState<string>(RESERVE_BUILDINGS[0]);
+  const [editZone, setEditZone] = useState<string>(RESERVE_ZONES[0]);
+  const [editLevel, setEditLevel] = useState<string>('RDC');
   const [editCompany, setEditCompany] = useState('');
   const [editPriority, setEditPriority] = useState<ReservePriority>('medium');
   const [editDeadline, setEditDeadline] = useState('');
+  const [editPhotoUri, setEditPhotoUri] = useState<string | null | undefined>(undefined);
+  const [editPhotoUploading, setEditPhotoUploading] = useState(false);
 
   const overdue = useMemo(
     () => reserve ? isOverdue(reserve.deadline, reserve.status) : false,
@@ -117,7 +110,60 @@ export default function ReserveDetailScreen() {
     setEditCompany(reserve.company);
     setEditPriority(reserve.priority);
     setEditDeadline(reserve.deadline === '—' ? '' : reserve.deadline);
+    setEditPhotoUri(reserve.photoUri ?? null);
     setEditModalVisible(true);
+  }
+
+  async function handleEditPickPhoto() {
+    if (Platform.OS !== 'web') {
+      const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (status !== 'granted') {
+        Alert.alert('Permission refusée', "L'accès à la galerie est nécessaire.");
+        return;
+      }
+    }
+    const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images'], allowsEditing: true, quality: 0.8 });
+    if (!result.canceled && result.assets[0]) await saveEditPhoto(result.assets[0].uri);
+  }
+
+  async function handleEditCamera() {
+    if (Platform.OS === 'web') {
+      Alert.alert('Info', 'La prise de photo directe est disponible sur mobile.');
+      return;
+    }
+    const { status } = await ImagePicker.requestCameraPermissionsAsync();
+    if (status !== 'granted') {
+      Alert.alert('Permission refusée', "L'accès à l'appareil photo est nécessaire.");
+      return;
+    }
+    const result = await ImagePicker.launchCameraAsync({ allowsEditing: true, quality: 0.8 });
+    if (!result.canceled && result.assets[0]) await saveEditPhoto(result.assets[0].uri);
+  }
+
+  async function saveEditPhoto(uri: string) {
+    setEditPhotoUploading(true);
+    try {
+      const filename = `reserve_photo_${Date.now()}.jpg`;
+      const storageUrl = await uploadPhoto(uri, filename);
+      setEditPhotoUri(storageUrl ?? uri);
+    } catch {
+      setEditPhotoUri(uri);
+    } finally {
+      setEditPhotoUploading(false);
+    }
+  }
+
+  function buildChangeSummary(r: Reserve): string[] {
+    const changes: string[] = [];
+    if (editTitle.trim() !== r.title) changes.push(`Titre : "${r.title}" → "${editTitle.trim()}"`);
+    if (editBuilding !== r.building) changes.push(`Bâtiment : ${r.building} → ${editBuilding}`);
+    if (editZone !== r.zone) changes.push(`Zone : ${r.zone} → ${editZone}`);
+    if (editLevel !== r.level) changes.push(`Niveau : ${r.level} → ${editLevel}`);
+    if (editCompany !== r.company) changes.push(`Entreprise : ${r.company} → ${editCompany}`);
+    if (editPriority !== r.priority) changes.push(`Priorité : ${PRIORITY_LABEL[r.priority]} → ${PRIORITY_LABEL[editPriority]}`);
+    const newDl = editDeadline || '—';
+    if (newDl !== r.deadline) changes.push(`Échéance : ${r.deadline} → ${newDl}`);
+    return changes;
   }
 
   function handleSaveEdit() {
@@ -126,16 +172,22 @@ export default function ReserveDetailScreen() {
       return;
     }
     if (editDeadline && !/^\d{2}\/\d{2}\/\d{4}$/.test(editDeadline)) {
-      Alert.alert('Format invalide', 'La date limite doit être au format JJ/MM/AAAA.');
+      Alert.alert('Format invalide', 'La date limite doit être au format JJ/MM/AAAA (ex: 30/04/2025).');
       return;
     }
     const author = user?.name ?? 'Conducteur de travaux';
     const today = new Date().toISOString().slice(0, 10);
+    const changes = buildChangeSummary(reserve);
+    const actionLabel = changes.length > 0
+      ? `Modifié : ${changes.join(' | ')}`
+      : 'Réserve consultée (aucune modification)';
     const historyEntry = {
       id: `h${Date.now()}`,
       action: 'Réserve modifiée',
       author,
       createdAt: today,
+      oldValue: changes.length > 0 ? changes.map(c => c.split(' → ')[0].replace(/.*: /, '')).join(', ') : undefined,
+      newValue: changes.length > 0 ? changes.map(c => c.split(' → ')[1]).join(', ') : undefined,
     };
     const updated: Reserve = {
       ...reserve,
@@ -147,16 +199,20 @@ export default function ReserveDetailScreen() {
       company: editCompany,
       priority: editPriority,
       deadline: editDeadline || '—',
-      history: [...reserve.history, historyEntry],
+      photoUri: editPhotoUri ?? undefined,
+      history: changes.length > 0 ? [...reserve.history, historyEntry] : reserve.history,
     };
+    _ = actionLabel;
     updateReserveFields(updated);
     setEditModalVisible(false);
+    setSaveSuccess(true);
+    setTimeout(() => setSaveSuccess(false), 2500);
   }
 
   function handleDelete() {
     Alert.alert(
       'Supprimer la réserve',
-      `Supprimer définitivement ${reserve.id} — "${reserve.title}" ?`,
+      `Supprimer définitivement ${reserve.id} — "${reserve.title}" ?\n\nCette action est irréversible.`,
       [
         { text: 'Annuler', style: 'cancel' },
         {
@@ -218,13 +274,19 @@ export default function ReserveDetailScreen() {
         onRightPress={openEdit}
       />
 
+      {saveSuccess && (
+        <View style={styles.toastBanner}>
+          <Ionicons name="checkmark-circle" size={16} color={C.closed} />
+          <Text style={styles.toastText}>Modifications enregistrées</Text>
+        </View>
+      )}
+
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
-        {/* Bandeau délai dépassé */}
         {overdue && (
           <View style={styles.overdueBanner}>
             <Ionicons name="warning" size={16} color={C.open} />
             <Text style={styles.overdueBannerText}>
-              Délai dépassé — Échéance : {reserve.deadline}
+              Délai dépassé — Échéance : {formatDate(reserve.deadline)}
             </Text>
           </View>
         )}
@@ -234,12 +296,16 @@ export default function ReserveDetailScreen() {
           <PriorityBadge priority={reserve.priority} />
         </View>
 
-        {/* Photo */}
         {reserve.photoUri ? (
           <View style={styles.card}>
             <Text style={styles.sectionTitle}>Photo</Text>
             <TouchableOpacity onPress={() => setPhotoFullScreen(true)} activeOpacity={0.85}>
-              <Image source={{ uri: reserve.photoUri }} style={styles.photo} resizeMode="cover" />
+              <Image
+                source={{ uri: reserve.photoUri }}
+                style={styles.photo}
+                resizeMode="cover"
+                onError={() => {}}
+              />
               <View style={styles.photoHint}>
                 <Ionicons name="expand-outline" size={12} color="#fff" />
                 <Text style={styles.photoHintText}>Appuyer pour agrandir</Text>
@@ -254,11 +320,11 @@ export default function ReserveDetailScreen() {
           <InfoRow icon="location-outline" label="Zone" value={reserve.zone} />
           <InfoRow icon="layers-outline" label="Niveau" value={reserve.level} />
           <InfoRow icon="people-outline" label="Entreprise" value={reserve.company} />
-          <InfoRow icon="calendar-outline" label="Créé le" value={reserve.createdAt} />
+          <InfoRow icon="calendar-outline" label="Créé le" value={formatDate(reserve.createdAt)} />
           <InfoRow
             icon="timer-outline"
             label="Échéance"
-            value={reserve.deadline}
+            value={reserve.deadline === '—' ? 'Aucune échéance' : formatDate(reserve.deadline)}
             valueColor={overdue ? C.open : undefined}
             last
           />
@@ -344,7 +410,7 @@ export default function ReserveDetailScreen() {
                 </View>
                 <View>
                   <Text style={styles.commentAuthor}>{c.author}</Text>
-                  <Text style={styles.commentDate}>{c.createdAt}</Text>
+                  <Text style={styles.commentDate}>{formatDate(c.createdAt)}</Text>
                 </View>
               </View>
               <Text style={styles.commentContent}>{c.content}</Text>
@@ -362,7 +428,7 @@ export default function ReserveDetailScreen() {
                 {h.oldValue && h.newValue && (
                   <Text style={styles.historyValues}>{h.oldValue} → {h.newValue}</Text>
                 )}
-                <Text style={styles.historyMeta}>{h.author} — {h.createdAt}</Text>
+                <Text style={styles.historyMeta}>{h.author} — {formatDate(h.createdAt)}</Text>
               </View>
             </View>
           ))}
@@ -388,7 +454,7 @@ export default function ReserveDetailScreen() {
               </TouchableOpacity>
             </View>
 
-            <ScrollView contentContainerStyle={mStyles.content} keyboardShouldPersistTaps="handled">
+            <ScrollView contentContainerStyle={mStyles.content} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
               <Text style={mStyles.label}>TITRE *</Text>
               <TextInput style={mStyles.input} value={editTitle} onChangeText={setEditTitle} placeholder="Titre..." placeholderTextColor={C.textMuted} />
 
@@ -403,34 +469,87 @@ export default function ReserveDetailScreen() {
                 numberOfLines={4}
               />
 
+              <Text style={mStyles.label}>PHOTO</Text>
+              {editPhotoUri ? (
+                <View style={mStyles.photoWrap}>
+                  <Image source={{ uri: editPhotoUri }} style={mStyles.photoPreview} resizeMode="cover" onError={() => {}} />
+                  <View style={mStyles.photoActions}>
+                    <TouchableOpacity style={mStyles.photoActionBtn} onPress={handleEditCamera} disabled={editPhotoUploading}>
+                      <Ionicons name="camera-outline" size={13} color={C.primary} />
+                      <Text style={mStyles.photoActionText}>Remplacer</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity style={mStyles.photoActionBtn} onPress={handleEditPickPhoto} disabled={editPhotoUploading}>
+                      <Ionicons name="images-outline" size={13} color={C.inProgress} />
+                      <Text style={[mStyles.photoActionText, { color: C.inProgress }]}>Galerie</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity style={[mStyles.photoActionBtn, { borderColor: C.open + '60' }]} onPress={() => setEditPhotoUri(null)} disabled={editPhotoUploading}>
+                      <Ionicons name="trash-outline" size={13} color={C.open} />
+                      <Text style={[mStyles.photoActionText, { color: C.open }]}>Suppr.</Text>
+                    </TouchableOpacity>
+                  </View>
+                  {editPhotoUploading && (
+                    <View style={mStyles.uploadOverlay}>
+                      <ActivityIndicator color="#fff" />
+                    </View>
+                  )}
+                </View>
+              ) : (
+                <View style={mStyles.photoRow}>
+                  <TouchableOpacity style={mStyles.photoBtn} onPress={handleEditCamera} disabled={editPhotoUploading}>
+                    <Ionicons name="camera" size={16} color={C.primary} />
+                    <Text style={mStyles.photoBtnText}>Photo</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity style={[mStyles.photoBtn, { flex: 1 }]} onPress={handleEditPickPhoto} disabled={editPhotoUploading}>
+                    <Ionicons name="images-outline" size={16} color={C.inProgress} />
+                    <Text style={[mStyles.photoBtnText, { color: C.inProgress }]}>Galerie</Text>
+                  </TouchableOpacity>
+                </View>
+              )}
+
               <Text style={mStyles.label}>BÂTIMENT</Text>
-              <ChipSelect options={BUILDINGS} value={editBuilding} onChange={setEditBuilding} />
+              <ChipSelect
+                options={RESERVE_BUILDINGS}
+                value={editBuilding}
+                onChange={setEditBuilding}
+              />
 
               <Text style={mStyles.label}>ZONE</Text>
-              <ChipSelect options={ZONES} value={editZone} onChange={setEditZone} />
+              <ChipSelect
+                options={RESERVE_ZONES}
+                value={editZone}
+                onChange={setEditZone}
+              />
 
               <Text style={mStyles.label}>NIVEAU</Text>
-              <ChipSelect options={LEVELS} value={editLevel} onChange={setEditLevel} />
+              <ChipSelect
+                options={RESERVE_LEVELS}
+                value={editLevel}
+                onChange={setEditLevel}
+              />
 
               <Text style={mStyles.label}>ENTREPRISE</Text>
-              <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 4 }}>
-                <View style={{ flexDirection: 'row', gap: 8, paddingRight: 8 }}>
-                  {companies.map(co => (
-                    <TouchableOpacity
-                      key={co.id}
-                      style={[mStyles.chip, editCompany === co.name && { borderColor: co.color, backgroundColor: co.color + '20' }]}
-                      onPress={() => setEditCompany(co.name)}
-                    >
-                      <View style={{ width: 7, height: 7, borderRadius: 4, backgroundColor: co.color }} />
-                      <Text style={[mStyles.chipText, editCompany === co.name && { color: co.color }]}>{co.shortName}</Text>
-                    </TouchableOpacity>
-                  ))}
-                </View>
-              </ScrollView>
+              {companies.length === 0 ? (
+                <Text style={mStyles.hint}>Aucune entreprise configurée.</Text>
+              ) : (
+                <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 4 }}>
+                  <View style={{ flexDirection: 'row', gap: 8, paddingRight: 8 }}>
+                    {companies.map(co => (
+                      <TouchableOpacity
+                        key={co.id}
+                        style={[mStyles.chip, editCompany === co.name && { borderColor: co.color, backgroundColor: co.color + '20' }]}
+                        onPress={() => setEditCompany(co.name)}
+                      >
+                        <View style={{ width: 7, height: 7, borderRadius: 4, backgroundColor: co.color }} />
+                        <Text style={[mStyles.chipText, editCompany === co.name && { color: co.color }]}>{co.shortName}</Text>
+                      </TouchableOpacity>
+                    ))}
+                  </View>
+                </ScrollView>
+              )}
 
               <Text style={mStyles.label}>PRIORITÉ</Text>
               <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 16 }}>
-                {PRIORITIES.map(p => (
+                {RESERVE_PRIORITIES.map(p => (
                   <TouchableOpacity
                     key={p.value}
                     style={[mStyles.chip, editPriority === p.value && { borderColor: p.color, backgroundColor: p.color + '20' }]}
@@ -441,12 +560,12 @@ export default function ReserveDetailScreen() {
                 ))}
               </View>
 
-              <Text style={mStyles.label}>DATE LIMITE (JJ/MM/AAAA)</Text>
+              <Text style={mStyles.label}>DATE LIMITE</Text>
               <TextInput
                 style={mStyles.input}
                 value={editDeadline}
                 onChangeText={setEditDeadline}
-                placeholder="Ex : 30/04/2025"
+                placeholder="JJ/MM/AAAA — Ex : 30/04/2025"
                 placeholderTextColor={C.textMuted}
                 keyboardType="numbers-and-punctuation"
                 maxLength={10}
@@ -464,13 +583,21 @@ export default function ReserveDetailScreen() {
             <TouchableOpacity style={styles.photoCloseBtn} onPress={() => setPhotoFullScreen(false)}>
               <Ionicons name="close" size={22} color="#fff" />
             </TouchableOpacity>
-            <Image source={{ uri: reserve.photoUri }} style={styles.photoFull} resizeMode="contain" />
+            <Image
+              source={{ uri: reserve.photoUri }}
+              style={styles.photoFull}
+              resizeMode="contain"
+              onError={() => {}}
+            />
           </TouchableOpacity>
         </Modal>
       ) : null}
     </View>
   );
 }
+
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+let _ : unknown;
 
 function InfoRow({ icon, label, value, last, valueColor }: {
   icon: string; label: string; value: string; last?: boolean; valueColor?: string;
@@ -489,6 +616,12 @@ const styles = StyleSheet.create({
   notFound: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 12 },
   notFoundText: { fontSize: 16, color: C.textSub, fontFamily: 'Inter_400Regular' },
   content: { padding: 16, paddingBottom: 40 },
+  toastBanner: {
+    flexDirection: 'row', alignItems: 'center', gap: 8,
+    backgroundColor: C.closed + '15', paddingHorizontal: 16, paddingVertical: 10,
+    borderBottomWidth: 1, borderBottomColor: C.closed + '30',
+  },
+  toastText: { fontSize: 13, fontFamily: 'Inter_600SemiBold', color: C.closed },
   overdueBanner: {
     flexDirection: 'row', alignItems: 'center', gap: 8,
     backgroundColor: C.open + '12', borderRadius: 10, padding: 12,
@@ -503,6 +636,12 @@ const styles = StyleSheet.create({
   infoLabel: { fontSize: 13, fontFamily: 'Inter_400Regular', color: C.textSub, flex: 1 },
   infoValue: { fontSize: 13, fontFamily: 'Inter_500Medium', color: C.text },
   description: { fontSize: 14, fontFamily: 'Inter_400Regular', color: C.text, lineHeight: 22 },
+  photo: { width: '100%', height: 200, borderRadius: 10 },
+  photoHint: {
+    position: 'absolute', bottom: 8, right: 8, flexDirection: 'row', alignItems: 'center', gap: 4,
+    backgroundColor: 'rgba(0,0,0,0.5)', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 8,
+  },
+  photoHintText: { fontSize: 11, fontFamily: 'Inter_400Regular', color: '#fff' },
   statusGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   statusBtn: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 12, paddingVertical: 8, borderRadius: 20, borderWidth: 1.5 },
   statusDot: { width: 7, height: 7, borderRadius: 4 },
@@ -531,33 +670,43 @@ const styles = StyleSheet.create({
   historyMeta: { fontSize: 11, fontFamily: 'Inter_400Regular', color: C.textMuted, marginTop: 3 },
   contactBtn: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 12, paddingVertical: 11, paddingHorizontal: 14, borderRadius: 10, borderWidth: 1.5 },
   contactBtnText: { flex: 1, fontSize: 14, fontFamily: 'Inter_600SemiBold' },
-  deleteBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, paddingVertical: 14, borderRadius: 12, borderWidth: 1.5, borderColor: C.open + '40', backgroundColor: C.open + '08' },
+  deleteBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, paddingVertical: 14, borderRadius: 12, borderWidth: 1.5, borderColor: C.open + '50', backgroundColor: C.open + '08' },
   deleteBtnText: { fontSize: 14, fontFamily: 'Inter_600SemiBold', color: C.open },
-  photo: { width: '100%', height: 200, borderRadius: 10 },
-  photoHint: { position: 'absolute', bottom: 8, right: 8, flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: 'rgba(0,0,0,0.5)', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 8 },
-  photoHintText: { fontSize: 10, fontFamily: 'Inter_500Medium', color: '#fff' },
   photoModal: { flex: 1, backgroundColor: 'rgba(0,0,0,0.95)', justifyContent: 'center', alignItems: 'center' },
-  photoFull: { width: '100%', height: '80%' },
-  photoCloseBtn: { position: 'absolute', top: 50, right: 20, width: 36, height: 36, borderRadius: 18, backgroundColor: 'rgba(255,255,255,0.2)', alignItems: 'center', justifyContent: 'center', zIndex: 10 },
+  photoCloseBtn: { position: 'absolute', top: 52, right: 20, zIndex: 10, padding: 8, backgroundColor: 'rgba(255,255,255,0.15)', borderRadius: 20 },
+  photoFull: { width: '100%', height: '70%' },
 });
 
 const mStyles = StyleSheet.create({
   overlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' },
-  sheet: { backgroundColor: C.surface, borderTopLeftRadius: 20, borderTopRightRadius: 20, maxHeight: '90%' },
-  sheetHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: 16, borderBottomWidth: 1, borderBottomColor: C.border },
-  closeBtn: { padding: 4 },
+  sheet: { backgroundColor: C.surface, borderTopLeftRadius: 24, borderTopRightRadius: 24, maxHeight: '92%' },
+  sheetHeader: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    paddingHorizontal: 16, paddingVertical: 14,
+    borderBottomWidth: 1, borderBottomColor: C.border,
+  },
   sheetTitle: { fontSize: 16, fontFamily: 'Inter_700Bold', color: C.text },
+  closeBtn: { padding: 4 },
   saveBtn: { backgroundColor: C.primary, paddingHorizontal: 16, paddingVertical: 8, borderRadius: 10 },
   saveBtnText: { fontSize: 14, fontFamily: 'Inter_600SemiBold', color: '#fff' },
-  content: { padding: 16, paddingBottom: 40 },
-  label: { fontSize: 11, fontFamily: 'Inter_600SemiBold', color: C.textMuted, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 8, marginTop: 12 },
-  hint: { fontSize: 11, fontFamily: 'Inter_400Regular', color: C.textMuted, marginTop: 4, marginBottom: 8 },
+  content: { padding: 16, paddingBottom: 32 },
+  label: { fontSize: 11, fontFamily: 'Inter_600SemiBold', color: C.textMuted, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 6, marginTop: 14 },
+  hint: { fontSize: 11, fontFamily: 'Inter_400Regular', color: C.textMuted, marginTop: 4 },
   input: {
     backgroundColor: C.surface2, borderRadius: 10, paddingHorizontal: 14, paddingVertical: 12,
     color: C.text, fontFamily: 'Inter_400Regular', fontSize: 14,
     borderWidth: 1, borderColor: C.border,
   },
-  textArea: { minHeight: 90, textAlignVertical: 'top' },
-  chip: { paddingHorizontal: 14, paddingVertical: 8, borderRadius: 20, borderWidth: 1.5, borderColor: C.border, backgroundColor: C.surface2, flexDirection: 'row', alignItems: 'center', gap: 6 },
+  textArea: { minHeight: 80, textAlignVertical: 'top' },
+  chip: { paddingHorizontal: 14, paddingVertical: 8, borderRadius: 20, borderWidth: 1.5, borderColor: C.border, backgroundColor: C.surface2, flexDirection: 'row', alignItems: 'center', gap: 5 },
   chipText: { fontSize: 13, fontFamily: 'Inter_500Medium', color: C.textSub },
+  photoWrap: { borderRadius: 10, overflow: 'hidden', borderWidth: 1, borderColor: C.border, marginBottom: 4 },
+  photoPreview: { width: '100%', height: 140 },
+  photoActions: { flexDirection: 'row', gap: 6, padding: 8, backgroundColor: C.surface2 },
+  photoActionBtn: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 4, paddingVertical: 7, borderRadius: 8, borderWidth: 1, borderColor: C.border },
+  photoActionText: { fontSize: 11, fontFamily: 'Inter_600SemiBold', color: C.primary },
+  photoRow: { flexDirection: 'row', gap: 8, marginBottom: 4 },
+  photoBtn: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, backgroundColor: C.surface2, borderRadius: 10, paddingVertical: 12, borderWidth: 1.5, borderColor: C.border },
+  photoBtnText: { fontSize: 13, fontFamily: 'Inter_600SemiBold', color: C.primary },
+  uploadOverlay: { position: 'absolute', inset: 0, backgroundColor: 'rgba(0,0,0,0.4)', alignItems: 'center', justifyContent: 'center' },
 });

@@ -1,4 +1,7 @@
-import { View, Text, StyleSheet, ScrollView, TextInput, TouchableOpacity, Alert, Platform, Image, ActivityIndicator } from 'react-native';
+import {
+  View, Text, StyleSheet, ScrollView, TextInput, TouchableOpacity,
+  Alert, Platform, Image, ActivityIndicator,
+} from 'react-native';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { useState } from 'react';
 import { Ionicons } from '@expo/vector-icons';
@@ -9,22 +12,9 @@ import { useAuth } from '@/context/AuthContext';
 import { ReservePriority, ReserveStatus } from '@/constants/types';
 import Header from '@/components/Header';
 import { uploadPhoto } from '@/lib/storage';
-
-const BUILDINGS = ['A', 'B', 'C'];
-const ZONES = ['Zone Nord', 'Zone Sud', 'Zone Est', 'Zone Ouest', 'Zone Centre'];
-const LEVELS = ['Sous-sol', 'RDC', 'R+1', 'R+2', 'R+3'];
-const PRIORITIES: { value: ReservePriority; label: string; color: string }[] = [
-  { value: 'low', label: 'Basse', color: C.low },
-  { value: 'medium', label: 'Moyenne', color: C.medium },
-  { value: 'high', label: 'Haute', color: C.high },
-  { value: 'critical', label: 'Critique', color: C.critical },
-];
-
-function genReserveId(): string {
-  const ts = Date.now().toString(36).toUpperCase();
-  const rand = Math.floor(Math.random() * 1000).toString().padStart(3, '0');
-  return `RSV-${ts}${rand}`;
-}
+import {
+  RESERVE_BUILDINGS, RESERVE_ZONES, RESERVE_LEVELS, RESERVE_PRIORITIES, genReserveId,
+} from '@/lib/reserveUtils';
 
 function SelectRow<T extends string>({
   label, options, value, onChange, colorFn,
@@ -61,12 +51,15 @@ export default function NewReserveScreen() {
   const router = useRouter();
   const { companies, addReserve } = useApp();
   const { user } = useAuth();
-  const params = useLocalSearchParams<{ building?: string; planX?: string; planY?: string; prefill_description?: string; prefill_source?: string }>();
+  const params = useLocalSearchParams<{
+    building?: string; planX?: string; planY?: string;
+    prefill_description?: string; prefill_source?: string;
+  }>();
 
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState(params.prefill_description ?? '');
-  const [building, setBuilding] = useState(params.building ?? 'A');
-  const [zone, setZone] = useState('Zone Nord');
+  const [building, setBuilding] = useState(params.building ?? RESERVE_BUILDINGS[0]);
+  const [zone, setZone] = useState(RESERVE_ZONES[0]);
   const [level, setLevel] = useState('RDC');
   const [company, setCompany] = useState(companies[0]?.name ?? '');
   const [priority, setPriority] = useState<ReservePriority>('medium');
@@ -86,7 +79,7 @@ export default function NewReserveScreen() {
       }
     }
     const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      mediaTypes: ['images'],
       allowsEditing: true,
       quality: 0.8,
     });
@@ -134,7 +127,7 @@ export default function NewReserveScreen() {
       return;
     }
     if (deadline && !/^\d{2}\/\d{2}\/\d{4}$/.test(deadline)) {
-      Alert.alert('Format invalide', 'La date limite doit être au format JJ/MM/AAAA.');
+      Alert.alert('Format invalide', 'La date limite doit être au format JJ/MM/AAAA (ex: 30/04/2025).');
       return;
     }
     const author = user?.name ?? 'Conducteur de travaux';
@@ -152,9 +145,7 @@ export default function NewReserveScreen() {
       createdAt: new Date().toISOString().slice(0, 10),
       deadline: deadline || '—',
       comments: [],
-      history: [
-        { id: 'h0', action: 'Réserve créée', author, createdAt: new Date().toISOString().slice(0, 10) },
-      ],
+      history: [{ id: 'h0', action: 'Réserve créée', author, createdAt: new Date().toISOString().slice(0, 10) }],
       planX: presetX ?? Math.round(Math.random() * 80 + 10),
       planY: presetY ?? Math.round(Math.random() * 80 + 10),
       photoUri: photoUri ?? undefined,
@@ -220,7 +211,7 @@ export default function NewReserveScreen() {
                 {photoUri.startsWith('http') && (
                   <View style={styles.cloudBadge}>
                     <Ionicons name="cloud-done-outline" size={10} color={C.closed} />
-                    <Text style={styles.cloudBadgeText}>Supabase</Text>
+                    <Text style={styles.cloudBadgeText}>Sauvegardé</Text>
                   </View>
                 )}
               </View>
@@ -228,7 +219,7 @@ export default function NewReserveScreen() {
               <View style={styles.photoRow}>
                 <TouchableOpacity style={[styles.photoBtn, { flex: 1 }]} onPress={handleCamera} disabled={photoUploading}>
                   <Ionicons name="camera" size={18} color={C.primary} />
-                  <Text style={styles.photoBtnText}>Prendre</Text>
+                  <Text style={styles.photoBtnText}>Prendre une photo</Text>
                 </TouchableOpacity>
                 <TouchableOpacity style={[styles.photoBtn, { flex: 1 }]} onPress={handlePickPhoto} disabled={photoUploading}>
                   <Ionicons name="images-outline" size={18} color={C.inProgress} />
@@ -246,9 +237,9 @@ export default function NewReserveScreen() {
         </View>
 
         <View style={styles.card}>
-          <SelectRow label="Bâtiment" options={BUILDINGS} value={building} onChange={setBuilding} />
-          <SelectRow label="Zone" options={ZONES} value={zone} onChange={setZone} />
-          <SelectRow label="Niveau" options={LEVELS} value={level} onChange={setLevel} />
+          <SelectRow label="Bâtiment" options={RESERVE_BUILDINGS} value={building} onChange={setBuilding} />
+          <SelectRow label="Zone" options={RESERVE_ZONES} value={zone} onChange={setZone} />
+          <SelectRow label="Niveau" options={RESERVE_LEVELS} value={level} onChange={setLevel} />
         </View>
 
         <View style={styles.card}>
@@ -257,7 +248,9 @@ export default function NewReserveScreen() {
             {companies.length === 0 ? (
               <View style={styles.warningRow}>
                 <Ionicons name="alert-circle-outline" size={14} color={C.medium} />
-                <Text style={styles.warningText}>Aucune entreprise configurée. Ajoutez d'abord une entreprise dans l'onglet Équipes.</Text>
+                <Text style={styles.warningText}>
+                  Aucune entreprise configurée. Ajoutez d'abord une entreprise dans l'onglet Équipes.
+                </Text>
               </View>
             ) : (
               <ScrollView horizontal showsHorizontalScrollIndicator={false}>
@@ -282,7 +275,7 @@ export default function NewReserveScreen() {
           <View style={[styles.fieldGroup, { marginBottom: 0 }]}>
             <Text style={styles.label}>Priorité</Text>
             <View style={styles.chipRow}>
-              {PRIORITIES.map(p => (
+              {RESERVE_PRIORITIES.map(p => (
                 <TouchableOpacity
                   key={p.value}
                   style={[styles.chip, priority === p.value && { backgroundColor: p.color + '20', borderColor: p.color }]}
@@ -297,17 +290,17 @@ export default function NewReserveScreen() {
 
         <View style={styles.card}>
           <View style={[styles.fieldGroup, { marginBottom: 0 }]}>
-            <Text style={styles.label}>Date limite (JJ/MM/AAAA)</Text>
+            <Text style={styles.label}>Date limite</Text>
             <TextInput
               style={styles.input}
-              placeholder="Ex : 30/04/2025"
+              placeholder="JJ/MM/AAAA — Ex : 30/04/2025"
               placeholderTextColor={C.textMuted}
               value={deadline}
               onChangeText={setDeadline}
               keyboardType="numbers-and-punctuation"
               maxLength={10}
             />
-            <Text style={styles.hint}>Format attendu : jour/mois/année — laisser vide si pas d'échéance</Text>
+            <Text style={styles.hint}>Laisser vide si aucune échéance fixée</Text>
           </View>
         </View>
 
@@ -348,7 +341,7 @@ const styles = StyleSheet.create({
   photoActionBtn: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, paddingVertical: 8, borderRadius: 8, borderWidth: 1, borderColor: C.border },
   photoActionText: { fontSize: 12, fontFamily: 'Inter_600SemiBold', color: C.primary },
   cloudBadge: { flexDirection: 'row', alignItems: 'center', gap: 4, position: 'absolute', top: 8, right: 8, backgroundColor: 'rgba(0,0,0,0.55)', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 10 },
-  cloudBadgeText: { fontSize: 10, fontFamily: 'Inter_600SemiBold', color: C.closed },
+  cloudBadgeText: { fontSize: 10, fontFamily: 'Inter_600SemiBold', color: '#fff' },
   uploadRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 8 },
   uploadText: { fontSize: 12, fontFamily: 'Inter_400Regular', color: C.textSub },
   warningRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 8, backgroundColor: C.medium + '10', borderRadius: 10, padding: 12, borderWidth: 1, borderColor: C.medium + '30' },

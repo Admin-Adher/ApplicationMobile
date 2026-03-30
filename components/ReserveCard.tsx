@@ -5,25 +5,17 @@ import { Reserve } from '@/constants/types';
 import { C } from '@/constants/colors';
 import StatusBadge from './StatusBadge';
 import PriorityBadge from './PriorityBadge';
+import { isOverdue, formatDate, deadlineDaysLeft } from '@/lib/reserveUtils';
 
 interface Props {
   reserve: Reserve;
 }
 
-function isOverdue(deadline: string, status: string): boolean {
-  if (status === 'closed' || deadline === '—' || !deadline) return false;
-  const parts = deadline.split('/');
-  if (parts.length === 3) {
-    const d = new Date(`${parts[2]}-${parts[1]}-${parts[0]}`);
-    return d < new Date() && !isNaN(d.getTime());
-  }
-  const d = new Date(deadline);
-  return d < new Date() && !isNaN(d.getTime());
-}
-
 export default function ReserveCard({ reserve }: Props) {
   const router = useRouter();
   const overdue = isOverdue(reserve.deadline, reserve.status);
+  const daysLeft = deadlineDaysLeft(reserve.deadline);
+  const showDeadline = reserve.deadline && reserve.deadline !== '—';
 
   return (
     <TouchableOpacity
@@ -76,12 +68,16 @@ export default function ReserveCard({ reserve }: Props) {
         </View>
       </View>
 
-      {reserve.deadline && reserve.deadline !== '—' && (
+      {showDeadline && (
         <View style={[styles.deadline, overdue && styles.deadlineOverdue]}>
           <Ionicons name="calendar-outline" size={11} color={overdue ? C.open : C.textMuted} />
           <Text style={[styles.deadlineText, overdue && styles.deadlineTextOverdue]}>
-            Échéance : {reserve.deadline}
-            {overdue ? ' — Dépassée' : ''}
+            {formatDate(reserve.deadline)}
+            {overdue
+              ? ` — En retard de ${Math.abs(daysLeft ?? 0)} j`
+              : daysLeft !== null && daysLeft <= 7 && daysLeft >= 0
+              ? ` — J-${daysLeft}`
+              : ''}
           </Text>
         </View>
       )}
