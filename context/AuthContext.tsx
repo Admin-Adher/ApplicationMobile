@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useEffect, useState } from 'react';
+import React, { createContext, useContext, useEffect, useRef, useState } from 'react';
 import { supabase } from '@/lib/supabase';
 import { User, UserRole } from '@/constants/types';
 
@@ -45,13 +45,13 @@ async function fetchProfile(userId: string): Promise<User | null> {
 async function seedDemoUsers(): Promise<'done' | 'error'> {
   try {
     for (const u of DEMO_USERS) {
-      const { data: signUpData, error: signUpErr } = await supabase.auth.signUp({
+      const { data: signInData, error: signInErr } = await supabase.auth.signInWithPassword({
         email: u.email,
         password: u.password,
       });
 
-      const authUserId = signUpData?.user?.id;
-      if (!authUserId) continue;
+      const authUserId = signInData?.user?.id;
+      if (signInErr || !authUserId) continue;
 
       await supabase.from('profiles').upsert({
         id: authUserId,
@@ -73,6 +73,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [seedStatus, setSeedStatus] = useState<'idle' | 'seeding' | 'done' | 'error'>('idle');
+  const isSeedingRef = useRef(false);
 
   useEffect(() => {
     supabase.auth.getSession().then(async ({ data: { session } }) => {
@@ -84,6 +85,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     });
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, session) => {
+      if (isSeedingRef.current) return;
       if (session?.user) {
         const profile = await fetchProfile(session.user.id);
         setUser(profile);
@@ -98,7 +100,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     if (!isLoading && !user && seedStatus === 'idle') {
       setSeedStatus('seeding');
-      seedDemoUsers().then(result => setSeedStatus(result));
+      isSeedingRef.current = true;
+      seedDemoUsers().then(result => {
+        isSeedingRef.current = false;
+        setSeedStatus(result);
+      });
     }
   }, [isLoading, user, seedStatus]);
 
