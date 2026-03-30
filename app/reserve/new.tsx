@@ -199,11 +199,15 @@ export default function NewReserveScreen() {
               <View style={styles.photoPreviewWrap}>
                 <Image source={{ uri: photoUri }} style={styles.photoPreview} resizeMode="cover" />
                 <View style={styles.photoActions}>
-                  <TouchableOpacity style={styles.photoActionBtn} onPress={handleCamera}>
+                  <TouchableOpacity style={styles.photoActionBtn} onPress={handleCamera} disabled={photoUploading}>
                     <Ionicons name="camera-outline" size={14} color={C.primary} />
-                    <Text style={styles.photoActionText}>Remplacer</Text>
+                    <Text style={styles.photoActionText}>Caméra</Text>
                   </TouchableOpacity>
-                  <TouchableOpacity style={[styles.photoActionBtn, { borderColor: C.open }]} onPress={() => setPhotoUri(null)}>
+                  <TouchableOpacity style={[styles.photoActionBtn, { borderColor: C.inProgress + '80' }]} onPress={handlePickPhoto} disabled={photoUploading}>
+                    <Ionicons name="images-outline" size={14} color={C.inProgress} />
+                    <Text style={[styles.photoActionText, { color: C.inProgress }]}>Galerie</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity style={[styles.photoActionBtn, { borderColor: C.open }]} onPress={() => setPhotoUri(null)} disabled={photoUploading}>
                     <Ionicons name="trash-outline" size={14} color={C.open} />
                     <Text style={[styles.photoActionText, { color: C.open }]}>Supprimer</Text>
                   </TouchableOpacity>
