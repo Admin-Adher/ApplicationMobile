@@ -67,20 +67,24 @@ export default function TabLayout() {
         }}
       />
       <Tabs.Screen
-        name="equipes"
+        name="messages"
         options={{
-          title: 'Équipes',
-          tabBarIcon: ({ color, size }) => <TabIcon name="people" color={color} size={size} />,
+          title: 'Messages',
+          tabBarIcon: ({ color, size }) => (
+            <TabIcon name="chatbubbles" color={color} size={size} badge={unreadCount} />
+          ),
         }}
       />
       <Tabs.Screen
         name="more"
         options={{
           title: 'Plus',
-          tabBarIcon: ({ color, size }) => (
-            <TabIcon name="grid-outline" color={color} size={size} badge={unreadCount} />
-          ),
+          tabBarIcon: ({ color, size }) => <TabIcon name="grid-outline" color={color} size={size} />,
         }}
+      />
+      <Tabs.Screen
+        name="equipes"
+        options={{ href: null }}
       />
     </Tabs>
   );

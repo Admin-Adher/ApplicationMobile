@@ -231,11 +231,19 @@ export default function ChannelScreen() {
     return Array.from(senders);
   }, [channelMessages]);
 
+  const allMentionNames = useMemo(() => {
+    const names = new Set<string>();
+    profiles.forEach(p => names.add(p.name));
+    knownSenders.forEach(s => names.add(s));
+    if (user?.name) names.add(user.name);
+    return Array.from(names);
+  }, [profiles, knownSenders, user]);
+
   const mentionSuggestions = useMemo(() => {
     if (!mentionQuery) return [];
     const q = mentionQuery.toLowerCase();
-    return knownSenders.filter(s => s.toLowerCase().includes(q)).slice(0, 5);
-  }, [mentionQuery, knownSenders]);
+    return allMentionNames.filter(s => s.toLowerCase().includes(q)).slice(0, 6);
+  }, [mentionQuery, allMentionNames]);
 
   useEffect(() => {
     if (channelMessages.length > 0 && !searchMode) {
@@ -354,6 +362,18 @@ export default function ChannelScreen() {
     setActionModalVisible(false);
     if (!selectedMsg) return;
     updateMessage({ ...selectedMsg, isPinned: !selectedMsg.isPinned });
+  }
+
+  function handleCreateReserveFromMsg() {
+    setActionModalVisible(false);
+    if (!selectedMsg) return;
+    router.push({
+      pathname: '/reserve/new',
+      params: {
+        prefill_description: selectedMsg.content,
+        prefill_source: `Message de ${selectedMsg.sender} dans ${liveChannelName}`,
+      },
+    } as any);
   }
 
   function openReactPicker() {
@@ -668,6 +688,10 @@ export default function ChannelScreen() {
             <TouchableOpacity style={styles.actionItem} onPress={handleCopy}>
               <Ionicons name="copy-outline" size={20} color={C.text} />
               <Text style={styles.actionLabel}>Copier le texte</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.actionItem} onPress={handleCreateReserveFromMsg}>
+              <Ionicons name="alert-circle-outline" size={20} color={C.waiting} />
+              <Text style={[styles.actionLabel, { color: C.waiting }]}>Créer une réserve</Text>
             </TouchableOpacity>
             {selectedMsg?.isMe && (
               <TouchableOpacity style={styles.actionItem} onPress={handleDelete}>

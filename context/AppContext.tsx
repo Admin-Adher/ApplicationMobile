@@ -724,10 +724,42 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       }).eq('id', r.id);
       dispatch({ type: 'UPDATE_RESERVE', payload: r });
     },
-    updateReserveStatus: (id, status, author = 'Conducteur de travaux') =>
-      dispatch({ type: 'UPDATE_RESERVE_STATUS', payload: { id, status, author } }),
+    updateReserveStatus: (id, status, author = 'Conducteur de travaux') => {
+      dispatch({ type: 'UPDATE_RESERVE_STATUS', payload: { id, status, author } });
+      const reserve = state.reserves.find(r => r.id === id);
+      if (reserve) {
+        const company = state.companies.find(c => c.name === reserve.company);
+        if (company) {
+          const notifChannelId = `company-${company.id}`;
+          const STATUS_LABELS: Record<string, string> = {
+            open: 'Ouvert', in_progress: 'En cours', waiting: 'En attente',
+            verification: 'En vérification', closed: 'Clôturé',
+          };
+          const ts = new Date().toLocaleString('fr-FR', {
+            day: '2-digit', month: '2-digit', year: 'numeric',
+            hour: '2-digit', minute: '2-digit',
+          }).replace(',', '');
+          const notifMsg: Message = {
+            id: genId(),
+            channelId: notifChannelId,
+            sender: author,
+            content: `Réserve ${reserve.id} — "${reserve.title}" : statut modifié → ${STATUS_LABELS[status] ?? status}`,
+            timestamp: ts,
+            type: 'notification',
+            read: false,
+            isMe: false,
+            reactions: {},
+            isPinned: false,
+            readBy: [],
+            mentions: [],
+            reserveId: reserve.id,
+          };
+          dispatch({ type: 'ADD_MESSAGE', payload: notifMsg });
+        }
+      }
+    },
     addComment: (reserveId, content, author = 'Conducteur de travaux') =>
-      dispatch({ type: 'ADD_COMMENT', payload: { reserveId, author, content } }),
+      dispatch({ type: 'ADD_COMMENT', payload: { reserveId, author: currentUserNameRef.current || author, content } }),
     addCompany: (c) => dispatch({ type: 'ADD_COMPANY', payload: c }),
     updateCompanyWorkers: (id, actual) =>
       dispatch({ type: 'UPDATE_COMPANY', payload: { id, actualWorkers: actual } }),

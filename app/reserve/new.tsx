@@ -55,10 +55,10 @@ export default function NewReserveScreen() {
   const router = useRouter();
   const { companies, addReserve } = useApp();
   const { user } = useAuth();
-  const params = useLocalSearchParams<{ building?: string; planX?: string; planY?: string }>();
+  const params = useLocalSearchParams<{ building?: string; planX?: string; planY?: string; prefill_description?: string; prefill_source?: string }>();
 
   const [title, setTitle] = useState('');
-  const [description, setDescription] = useState('');
+  const [description, setDescription] = useState(params.prefill_description ?? '');
   const [building, setBuilding] = useState(params.building ?? 'A');
   const [zone, setZone] = useState('Zone Nord');
   const [level, setLevel] = useState('RDC');
@@ -155,6 +155,12 @@ export default function NewReserveScreen() {
       <Header title="Nouvelle réserve" showBack rightLabel="Créer" onRightPress={handleSubmit} />
 
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
+        {params.prefill_source ? (
+          <View style={styles.sourceCard}>
+            <Ionicons name="chatbubble-outline" size={14} color={C.inProgress} />
+            <Text style={styles.sourceText}>Créé depuis : {params.prefill_source}</Text>
+          </View>
+        ) : null}
         <View style={styles.card}>
           <View style={styles.fieldGroup}>
             <Text style={styles.label}>Titre *</Text>
@@ -321,4 +327,6 @@ const styles = StyleSheet.create({
   uploadText: { fontSize: 12, fontFamily: 'Inter_400Regular', color: C.textSub },
   submitBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', backgroundColor: C.primary, borderRadius: 14, paddingVertical: 16, gap: 8 },
   submitBtnText: { fontSize: 16, fontFamily: 'Inter_600SemiBold', color: '#fff' },
+  sourceCard: { flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: C.inProgress + '15', borderRadius: 10, padding: 10, marginBottom: 12, borderWidth: 1, borderColor: C.inProgress + '30' },
+  sourceText: { flex: 1, fontSize: 12, fontFamily: 'Inter_500Medium', color: C.inProgress, lineHeight: 16 },
 });

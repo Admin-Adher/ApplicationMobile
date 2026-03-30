@@ -1,12 +1,13 @@
-import { View, Text, StyleSheet, FlatList, TouchableOpacity, Alert, Image, Platform, ActivityIndicator, Modal, TextInput, KeyboardAvoidingView } from 'react-native';
+import { View, Text, StyleSheet, FlatList, TouchableOpacity, Alert, Image, Platform, ActivityIndicator, Modal, TextInput, KeyboardAvoidingView, ScrollView } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useState } from 'react';
 import * as ImagePicker from 'expo-image-picker';
+import { useRouter } from 'expo-router';
 import { C } from '@/constants/colors';
 import { useApp } from '@/context/AppContext';
 import { useAuth } from '@/context/AuthContext';
 import Header from '@/components/Header';
-import { Photo } from '@/constants/types';
+import { Photo, Channel } from '@/constants/types';
 import { uploadPhoto } from '@/lib/storage';
 
 function genId() {
@@ -14,13 +15,48 @@ function genId() {
 }
 
 export default function PhotosScreen() {
-  const { photos, addPhoto } = useApp();
+  const { photos, addPhoto, channels, addMessage } = useApp();
   const { user } = useAuth();
+  const router = useRouter();
   const [loading, setLoading] = useState(false);
   const [pendingUri, setPendingUri] = useState<string | null>(null);
   const [commentInput, setCommentInput] = useState('');
   const [locationInput, setLocationInput] = useState('');
   const [modalVisible, setModalVisible] = useState(false);
+  const [sharePhoto, setSharePhoto] = useState<Photo | null>(null);
+  const [shareModalVisible, setShareModalVisible] = useState(false);
+  const [shareCaption, setShareCaption] = useState('');
+
+  function openShareModal(photo: Photo) {
+    setSharePhoto(photo);
+    setShareCaption(photo.comment || '');
+    setShareModalVisible(true);
+  }
+
+  function handleShareToChannel(channel: Channel) {
+    if (!sharePhoto) return;
+    setShareModalVisible(false);
+    addMessage(
+      channel.id,
+      shareCaption.trim() || sharePhoto.comment || 'Photo partagée',
+      { attachmentUri: sharePhoto.uri },
+      user?.name ?? 'Moi'
+    );
+    setTimeout(() => {
+      router.push({
+        pathname: '/channel/[id]',
+        params: {
+          id: channel.id,
+          name: channel.name,
+          color: channel.color,
+          icon: channel.icon,
+          isDM: channel.type === 'dm' ? '1' : '0',
+          isGroup: channel.type === 'group' ? '1' : '0',
+          members: channel.members ? channel.members.join(',') : '',
+        },
+      } as any);
+    }, 100);
+  }
 
   function openCommentModal(uri: string) {
     setPendingUri(uri);
@@ -174,6 +210,10 @@ export default function PhotosScreen() {
                   {item.uri?.startsWith('http') ? 'Cloud' : 'Local'} — {item.takenAt}
                 </Text>
               </View>
+              <TouchableOpacity style={styles.shareBtn} onPress={() => openShareModal(item)} activeOpacity={0.75}>
+                <Ionicons name="share-social-outline" size={12} color={C.primary} />
+                <Text style={styles.shareBtnText}>Partager</Text>
+              </TouchableOpacity>
             </View>
           </View>
         )}
@@ -185,6 +225,52 @@ export default function PhotosScreen() {
           </View>
         )}
       />
+
+      <Modal visible={shareModalVisible} transparent animationType="slide" onRequestClose={() => setShareModalVisible(false)}>
+        <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={styles.modalOverlay}>
+          <View style={styles.modalCard}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>Partager dans un canal</Text>
+              <TouchableOpacity onPress={() => setShareModalVisible(false)} hitSlop={8}>
+                <Ionicons name="close" size={22} color={C.textSub} />
+              </TouchableOpacity>
+            </View>
+            {sharePhoto?.uri && (
+              <Image source={{ uri: sharePhoto.uri }} style={[styles.modalPreview, { height: 100 }]} resizeMode="cover" />
+            )}
+            <View style={styles.modalField}>
+              <Text style={styles.modalLabel}>Légende (optionnel)</Text>
+              <TextInput
+                style={styles.modalInput}
+                placeholder="Ajoutez un commentaire..."
+                placeholderTextColor={C.textMuted}
+                value={shareCaption}
+                onChangeText={setShareCaption}
+              />
+            </View>
+            <Text style={styles.modalLabel}>Choisir un canal</Text>
+            <ScrollView style={{ maxHeight: 240 }} showsVerticalScrollIndicator={false}>
+              {channels.map(ch => (
+                <TouchableOpacity
+                  key={ch.id}
+                  style={styles.channelPickItem}
+                  onPress={() => handleShareToChannel(ch)}
+                  activeOpacity={0.75}
+                >
+                  <View style={[styles.channelPickIcon, { backgroundColor: ch.color + '20' }]}>
+                    <Ionicons name={ch.icon as any} size={18} color={ch.color} />
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.channelPickName}>{ch.name}</Text>
+                    <Text style={styles.channelPickDesc} numberOfLines={1}>{ch.description}</Text>
+                  </View>
+                  <Ionicons name="chevron-forward" size={14} color={C.textMuted} />
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
+          </View>
+        </KeyboardAvoidingView>
+      </Modal>
 
       <Modal visible={modalVisible} transparent animationType="slide" onRequestClose={cancelModal}>
         <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={styles.modalOverlay}>
@@ -282,4 +368,10 @@ const styles = StyleSheet.create({
   cancelBtnText: { fontSize: 14, fontFamily: 'Inter_600SemiBold', color: C.textSub },
   confirmBtn: { flex: 2, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, paddingVertical: 14, borderRadius: 12, backgroundColor: C.primary },
   confirmBtnText: { fontSize: 14, fontFamily: 'Inter_600SemiBold', color: '#fff' },
+  shareBtn: { flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 8, paddingVertical: 6, paddingHorizontal: 10, borderRadius: 8, backgroundColor: C.primaryBg, alignSelf: 'flex-start' },
+  shareBtnText: { fontSize: 11, fontFamily: 'Inter_600SemiBold', color: C.primary },
+  channelPickItem: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: C.border },
+  channelPickIcon: { width: 36, height: 36, borderRadius: 10, alignItems: 'center', justifyContent: 'center' },
+  channelPickName: { fontSize: 14, fontFamily: 'Inter_600SemiBold', color: C.text },
+  channelPickDesc: { fontSize: 12, fontFamily: 'Inter_400Regular', color: C.textSub, marginTop: 1 },
 });

@@ -8,13 +8,15 @@ import { ReserveStatus } from '@/constants/types';
 import StatusBadge, { STATUS_CONFIG } from '@/components/StatusBadge';
 import PriorityBadge from '@/components/PriorityBadge';
 import Header from '@/components/Header';
+import { useAuth } from '@/context/AuthContext';
 
 const STATUS_ORDER: ReserveStatus[] = ['open', 'in_progress', 'waiting', 'verification', 'closed'];
 
 export default function ReserveDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
-  const { reserves, updateReserveStatus, addComment } = useApp();
+  const { reserves, updateReserveStatus, addComment, companies, channels } = useApp();
+  const { user } = useAuth();
   const [comment, setComment] = useState('');
   const [showCommentBox, setShowCommentBox] = useState(false);
 
@@ -31,13 +33,35 @@ export default function ReserveDetailScreen() {
     );
   }
 
+  const company = companies.find(c => c.name === reserve?.company);
+  const companyChannel = company ? channels.find(ch => ch.id === `company-${company.id}`) : null;
+
+  function handleContactCompany() {
+    if (!companyChannel) {
+      Alert.alert('Canal indisponible', `Le canal de "${reserve!.company}" n'existe pas encore. Ajoutez d'abord l'entreprise dans l'onglet Équipes.`);
+      return;
+    }
+    router.push({
+      pathname: '/channel/[id]',
+      params: {
+        id: companyChannel.id,
+        name: companyChannel.name,
+        color: companyChannel.color,
+        icon: companyChannel.icon,
+        isDM: '0',
+        isGroup: '0',
+        members: '',
+      },
+    } as any);
+  }
+
   function handleStatusChange(newStatus: ReserveStatus) {
     Alert.alert(
       'Modifier le statut',
       `Passer à "${STATUS_CONFIG[newStatus].label}" ?`,
       [
         { text: 'Annuler', style: 'cancel' },
-        { text: 'Confirmer', onPress: () => updateReserveStatus(reserve!.id, newStatus) },
+        { text: 'Confirmer', onPress: () => updateReserveStatus(reserve!.id, newStatus, user?.name ?? 'Conducteur de travaux') },
       ]
     );
   }
@@ -71,6 +95,17 @@ export default function ReserveDetailScreen() {
           <InfoRow icon="people-outline" label="Entreprise" value={reserve.company} />
           <InfoRow icon="calendar-outline" label="Créé le" value={reserve.createdAt} />
           <InfoRow icon="timer-outline" label="Échéance" value={reserve.deadline} last />
+          <TouchableOpacity
+            style={[styles.contactBtn, { borderColor: company?.color ?? C.primary, backgroundColor: (company?.color ?? C.primary) + '12' }]}
+            onPress={handleContactCompany}
+            activeOpacity={0.75}
+          >
+            <Ionicons name="chatbubbles" size={16} color={company?.color ?? C.primary} />
+            <Text style={[styles.contactBtnText, { color: company?.color ?? C.primary }]}>
+              Contacter {reserve.company}
+            </Text>
+            <Ionicons name="chevron-forward" size={14} color={company?.color ?? C.primary} />
+          </TouchableOpacity>
         </View>
 
         <View style={styles.card}>
@@ -213,4 +248,6 @@ const styles = StyleSheet.create({
   historyAction: { fontSize: 13, fontFamily: 'Inter_500Medium', color: C.text },
   historyValues: { fontSize: 12, fontFamily: 'Inter_400Regular', color: C.textSub, marginTop: 2 },
   historyMeta: { fontSize: 11, fontFamily: 'Inter_400Regular', color: C.textMuted, marginTop: 3 },
+  contactBtn: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 12, paddingVertical: 11, paddingHorizontal: 14, borderRadius: 10, borderWidth: 1.5 },
+  contactBtnText: { flex: 1, fontSize: 14, fontFamily: 'Inter_600SemiBold' },
 });

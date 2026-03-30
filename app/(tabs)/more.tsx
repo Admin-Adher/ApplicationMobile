@@ -25,16 +25,16 @@ interface MenuItem {
 export default function MoreScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
-  const { documents, photos, tasks, unreadCount } = useApp();
+  const { documents, photos, tasks } = useApp();
   const { user, logout, permissions } = useAuth();
   const topPad = Platform.OS === 'web' ? 67 : insets.top;
 
   const MENU_ITEMS: MenuItem[] = [
+    { icon: 'people', label: 'Équipes', subtitle: 'Entreprises & présence', route: '/equipes', color: C.primary },
     { icon: 'folder-open', label: 'Documents', subtitle: `${documents.length} fichiers`, route: '/documents', color: '#3B82F6' },
     { icon: 'calendar', label: 'Planning', subtitle: `${tasks.length} tâches`, route: '/planning', color: '#10B981' },
     { icon: 'camera', label: 'Photos', subtitle: `${photos.length} photos`, route: '/photos', color: '#F59E0B' },
     { icon: 'document-text', label: 'Rapports', subtitle: 'Journalier, hebdo', route: '/rapports', color: '#8B5CF6' },
-    { icon: 'chatbubbles', label: 'Messages', subtitle: unreadCount > 0 ? `${unreadCount} non lus` : 'Communication', route: '/messages', color: '#EC4899', badge: unreadCount },
   ];
 
   function handleLogout() {
