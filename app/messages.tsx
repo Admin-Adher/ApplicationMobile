@@ -5,14 +5,16 @@ import { useState, useMemo } from 'react';
 import { useRouter } from 'expo-router';
 import { C } from '@/constants/colors';
 import { useApp } from '@/context/AppContext';
+import { useAuth } from '@/context/AuthContext';
 import { Channel, Message } from '@/constants/types';
-import Header from '@/components/Header';
+import NewChannelModal from '@/components/NewChannelModal';
+import NewDMModal from '@/components/NewDMModal';
 
-function getAvatarColor(name: string): string {
-  const COLORS = [C.primary, '#059669', '#D97706', '#7C3AED', '#DB2777', '#EA580C', '#0891B2', '#65A30D'];
+const AVATAR_COLORS = [C.primary, '#059669', '#D97706', '#7C3AED', '#DB2777', '#EA580C', '#0891B2'];
+function getAvatarColor(name: string) {
   let hash = 0;
   for (let i = 0; i < name.length; i++) hash = name.charCodeAt(i) + ((hash << 5) - hash);
-  return COLORS[Math.abs(hash) % COLORS.length];
+  return AVATAR_COLORS[Math.abs(hash) % AVATAR_COLORS.length];
 }
 
 function formatChannelTime(timestamp: string): string {
@@ -29,6 +31,7 @@ function ChannelItem({ channel, lastMsg, unread, onPress }: {
   onPress: () => void;
 }) {
   const hasUnread = unread > 0;
+  const isDM = channel.type === 'dm';
 
   const previewText = () => {
     if (!lastMsg) return 'Aucun message';
@@ -37,6 +40,40 @@ function ChannelItem({ channel, lastMsg, unread, onPress }: {
     const prefix = lastMsg.isMe ? 'Vous : ' : `${lastMsg.sender.split(' ')[0]} : `;
     return prefix + lastMsg.content;
   };
+
+  if (isDM) {
+    const avatarColor = getAvatarColor(channel.name);
+    return (
+      <TouchableOpacity style={[styles.channelItem, hasUnread && styles.channelItemUnread]} onPress={onPress} activeOpacity={0.75}>
+        <View style={[styles.dmAvatar, { backgroundColor: avatarColor + '25' }]}>
+          <Text style={[styles.dmAvatarText, { color: avatarColor }]}>{channel.name.charAt(0).toUpperCase()}</Text>
+          {hasUnread && <View style={styles.unreadDot} />}
+        </View>
+        <View style={styles.channelBody}>
+          <View style={styles.channelTop}>
+            <Text style={[styles.channelName, hasUnread && styles.channelNameUnread]} numberOfLines={1}>
+              {channel.name}
+            </Text>
+            {lastMsg && (
+              <Text style={[styles.channelTime, hasUnread && { color: avatarColor }]}>
+                {formatChannelTime(lastMsg.timestamp)}
+              </Text>
+            )}
+          </View>
+          <View style={styles.channelBottom}>
+            <Text style={[styles.channelPreview, hasUnread && styles.channelPreviewUnread]} numberOfLines={1}>
+              {previewText()}
+            </Text>
+            {hasUnread ? (
+              <View style={[styles.unreadBadge, { backgroundColor: avatarColor }]}>
+                <Text style={styles.unreadBadgeText}>{unread > 99 ? '99+' : unread}</Text>
+              </View>
+            ) : null}
+          </View>
+        </View>
+      </TouchableOpacity>
+    );
+  }
 
   return (
     <TouchableOpacity style={[styles.channelItem, hasUnread && styles.channelItemUnread]} onPress={onPress} activeOpacity={0.75}>
@@ -47,7 +84,7 @@ function ChannelItem({ channel, lastMsg, unread, onPress }: {
       <View style={styles.channelBody}>
         <View style={styles.channelTop}>
           <Text style={[styles.channelName, hasUnread && styles.channelNameUnread]} numberOfLines={1}>
-            {channel.name}
+            {channel.type === 'custom' ? `# ${channel.name}` : channel.name}
           </Text>
           {lastMsg && (
             <Text style={[styles.channelTime, hasUnread && { color: channel.color }]}>
@@ -73,8 +110,11 @@ function ChannelItem({ channel, lastMsg, unread, onPress }: {
 export default function MessagesScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const { channels, messages, unreadByChannel } = useApp();
+  const { channels, messages, unreadByChannel, profiles, addCustomChannel, getOrCreateDMChannel } = useApp();
+  const { user } = useAuth();
   const [search, setSearch] = useState('');
+  const [showNewChannel, setShowNewChannel] = useState(false);
+  const [showNewDM, setShowNewDM] = useState(false);
   const topPad = Platform.OS === 'web' ? 67 : insets.top;
 
   const totalUnread = Object.values(unreadByChannel).reduce((a, b) => a + b, 0);
@@ -100,9 +140,61 @@ export default function MessagesScreen() {
 
   const generalChannels = filteredChannels.filter(ch => ch.type === 'general' || ch.type === 'building');
   const companyChannels = filteredChannels.filter(ch => ch.type === 'company');
+  const customChannels = filteredChannels.filter(ch => ch.type === 'custom');
+  const dmChannels = filteredChannels.filter(ch => ch.type === 'dm');
 
   function goToChannel(ch: Channel) {
-    router.push({ pathname: '/channel/[id]', params: { id: ch.id, name: ch.name, color: ch.color, icon: ch.icon } } as any);
+    router.push({ pathname: '/channel/[id]', params: { id: ch.id, name: ch.name, color: ch.color, icon: ch.icon, isDM: ch.type === 'dm' ? '1' : '0' } } as any);
+  }
+
+  function handleCreateChannel(name: string, description: string, icon: string, color: string) {
+    const ch = addCustomChannel(name, description, icon, color);
+    goToChannel(ch);
+  }
+
+  function handleStartDM(profile: { name: string }) {
+    const ch = getOrCreateDMChannel(profile.name);
+    goToChannel(ch);
+  }
+
+  const currentUserName = user?.name ?? '';
+
+  function renderSection(title: string, items: Channel[], icon?: string, onAction?: () => void, actionLabel?: string) {
+    if (items.length === 0 && !onAction) return null;
+    return (
+      <>
+        <View style={styles.sectionHeader}>
+          <Text style={styles.sectionLabel}>{title}</Text>
+          {onAction && (
+            <TouchableOpacity style={styles.sectionAction} onPress={onAction}>
+              <Ionicons name="add" size={16} color={C.primary} />
+              <Text style={styles.sectionActionText}>{actionLabel}</Text>
+            </TouchableOpacity>
+          )}
+        </View>
+        {items.length > 0 ? (
+          <View style={styles.channelGroup}>
+            {items.map((ch, i) => (
+              <View key={ch.id}>
+                {i > 0 && <View style={styles.divider} />}
+                <ChannelItem
+                  channel={ch}
+                  lastMsg={lastMessageByChannel[ch.id]}
+                  unread={unreadByChannel[ch.id] ?? 0}
+                  onPress={() => goToChannel(ch)}
+                />
+              </View>
+            ))}
+          </View>
+        ) : (
+          <View style={styles.emptySection}>
+            <Text style={styles.emptySectionText}>
+              {title === 'Messages directs' ? 'Aucun message direct — commencez une conversation !' : 'Aucun canal personnalisé'}
+            </Text>
+          </View>
+        )}
+      </>
+    );
   }
 
   return (
@@ -115,9 +207,15 @@ export default function MessagesScreen() {
           <View style={{ flex: 1 }}>
             <Text style={styles.title}>Messages</Text>
             {totalUnread > 0 && (
-              <Text style={styles.subtitle}>{totalUnread} message{totalUnread > 1 ? 's' : ''} non lu{totalUnread > 1 ? 's' : ''}</Text>
+              <Text style={styles.subtitle}>{totalUnread} non lu{totalUnread > 1 ? 's' : ''}</Text>
             )}
           </View>
+          <TouchableOpacity style={styles.headerBtn} onPress={() => setShowNewDM(true)}>
+            <Ionicons name="chatbubble-ellipses-outline" size={20} color={C.primary} />
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.headerBtn} onPress={() => setShowNewChannel(true)}>
+            <Ionicons name="add-circle-outline" size={22} color={C.primary} />
+          </TouchableOpacity>
         </View>
         <View style={styles.searchWrap}>
           <Ionicons name="search-outline" size={16} color={C.textMuted} />
@@ -143,52 +241,50 @@ export default function MessagesScreen() {
         showsVerticalScrollIndicator={false}
         ListHeaderComponent={() => (
           <View style={styles.content}>
-            {generalChannels.length > 0 && (
-              <>
-                <Text style={styles.sectionLabel}>Canaux chantier</Text>
-                <View style={styles.channelGroup}>
-                  {generalChannels.map(ch => (
-                    <ChannelItem
-                      key={ch.id}
-                      channel={ch}
-                      lastMsg={lastMessageByChannel[ch.id]}
-                      unread={unreadByChannel[ch.id] ?? 0}
-                      onPress={() => goToChannel(ch)}
-                    />
-                  ))}
-                </View>
-              </>
-            )}
-            {companyChannels.length > 0 && (
-              <>
-                <Text style={styles.sectionLabel}>Canaux entreprises</Text>
-                <View style={styles.channelGroup}>
-                  {companyChannels.map(ch => (
-                    <ChannelItem
-                      key={ch.id}
-                      channel={ch}
-                      lastMsg={lastMessageByChannel[ch.id]}
-                      unread={unreadByChannel[ch.id] ?? 0}
-                      onPress={() => goToChannel(ch)}
-                    />
-                  ))}
-                </View>
-              </>
-            )}
+            {renderSection('Canaux chantier', generalChannels)}
+            {renderSection('Canaux entreprises', companyChannels)}
+            {renderSection('Canaux personnalisés', customChannels, undefined, () => setShowNewChannel(true), 'Nouveau')}
+            {renderSection('Messages directs', dmChannels, undefined, () => setShowNewDM(true), 'Nouveau DM')}
+
             {filteredChannels.length === 0 && (
               <View style={styles.empty}>
                 <Ionicons name="search-outline" size={40} color={C.textMuted} />
-                <Text style={styles.emptyText}>Aucun canal trouvé</Text>
+                <Text style={styles.emptyText}>Aucun résultat</Text>
               </View>
             )}
-            <View style={styles.infoBox}>
-              <Ionicons name="information-circle-outline" size={14} color={C.textSub} />
-              <Text style={styles.infoText}>
-                Les messages sont synchronisés en temps réel via Supabase Realtime
-              </Text>
+
+            <View style={styles.quickActions}>
+              <TouchableOpacity style={styles.quickBtn} onPress={() => setShowNewChannel(true)}>
+                <View style={[styles.quickBtnIcon, { backgroundColor: C.primary + '20' }]}>
+                  <Ionicons name="add-circle" size={22} color={C.primary} />
+                </View>
+                <Text style={styles.quickBtnText}>Créer un canal</Text>
+                <Ionicons name="chevron-forward" size={16} color={C.textMuted} />
+              </TouchableOpacity>
+              <View style={styles.divider} />
+              <TouchableOpacity style={styles.quickBtn} onPress={() => setShowNewDM(true)}>
+                <View style={[styles.quickBtnIcon, { backgroundColor: '#EC4899' + '20' }]}>
+                  <Ionicons name="chatbubble-ellipses" size={22} color="#EC4899" />
+                </View>
+                <Text style={styles.quickBtnText}>Message direct</Text>
+                <Ionicons name="chevron-forward" size={16} color={C.textMuted} />
+              </TouchableOpacity>
             </View>
           </View>
         )}
+      />
+
+      <NewChannelModal
+        visible={showNewChannel}
+        onClose={() => setShowNewChannel(false)}
+        onCreate={handleCreateChannel}
+      />
+      <NewDMModal
+        visible={showNewDM}
+        onClose={() => setShowNewDM(false)}
+        profiles={profiles}
+        currentUserName={currentUserName}
+        onSelect={handleStartDM}
       />
     </View>
   );
@@ -196,20 +292,47 @@ export default function MessagesScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: C.bg },
-  header: { paddingHorizontal: 16, paddingBottom: 12, borderBottomWidth: 1, borderBottomColor: C.border, backgroundColor: C.surface },
+  header: {
+    paddingHorizontal: 16, paddingBottom: 12,
+    borderBottomWidth: 1, borderBottomColor: C.border,
+    backgroundColor: C.surface,
+  },
   headerRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 12 },
   backBtn: { width: 36, height: 36, borderRadius: 18, backgroundColor: C.surface2, alignItems: 'center', justifyContent: 'center' },
+  headerBtn: { width: 36, height: 36, borderRadius: 18, backgroundColor: C.primaryBg, alignItems: 'center', justifyContent: 'center' },
   title: { fontSize: 22, fontFamily: 'Inter_700Bold', color: C.text },
   subtitle: { fontSize: 12, fontFamily: 'Inter_400Regular', color: C.primary, marginTop: 1 },
-  searchWrap: { flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: C.surface2, borderRadius: 12, paddingHorizontal: 12, paddingVertical: 10, borderWidth: 1, borderColor: C.border },
+  searchWrap: {
+    flexDirection: 'row', alignItems: 'center', gap: 8,
+    backgroundColor: C.surface2, borderRadius: 12,
+    paddingHorizontal: 12, paddingVertical: 10, borderWidth: 1, borderColor: C.border,
+  },
   searchInput: { flex: 1, fontSize: 14, fontFamily: 'Inter_400Regular', color: C.text },
   content: { padding: 16, paddingBottom: 40 },
-  sectionLabel: { fontSize: 11, fontFamily: 'Inter_600SemiBold', color: C.textMuted, textTransform: 'uppercase', letterSpacing: 0.8, marginBottom: 8, marginTop: 4 },
-  channelGroup: { backgroundColor: C.surface, borderRadius: 14, borderWidth: 1, borderColor: C.border, marginBottom: 20, overflow: 'hidden' },
-  channelItem: { flexDirection: 'row', alignItems: 'center', gap: 12, padding: 14, borderBottomWidth: 1, borderBottomColor: C.borderLight },
+  sectionHeader: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    marginBottom: 8, marginTop: 4,
+  },
+  sectionLabel: {
+    fontSize: 11, fontFamily: 'Inter_600SemiBold', color: C.textMuted,
+    textTransform: 'uppercase', letterSpacing: 0.8,
+  },
+  sectionAction: { flexDirection: 'row', alignItems: 'center', gap: 4 },
+  sectionActionText: { fontSize: 12, fontFamily: 'Inter_600SemiBold', color: C.primary },
+  channelGroup: {
+    backgroundColor: C.surface, borderRadius: 14, borderWidth: 1,
+    borderColor: C.border, marginBottom: 20, overflow: 'hidden',
+  },
+  channelItem: { flexDirection: 'row', alignItems: 'center', gap: 12, padding: 14 },
   channelItemUnread: { backgroundColor: C.primaryBg + '60' },
   channelIcon: { width: 46, height: 46, borderRadius: 23, alignItems: 'center', justifyContent: 'center', position: 'relative' },
-  unreadDot: { position: 'absolute', top: 2, right: 2, width: 10, height: 10, borderRadius: 5, backgroundColor: C.open, borderWidth: 2, borderColor: C.surface },
+  dmAvatar: { width: 46, height: 46, borderRadius: 23, alignItems: 'center', justifyContent: 'center', position: 'relative' },
+  dmAvatarText: { fontSize: 20, fontFamily: 'Inter_700Bold' },
+  unreadDot: {
+    position: 'absolute', top: 2, right: 2,
+    width: 10, height: 10, borderRadius: 5,
+    backgroundColor: C.open, borderWidth: 2, borderColor: C.surface,
+  },
   channelBody: { flex: 1 },
   channelTop: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 3 },
   channelName: { fontSize: 15, fontFamily: 'Inter_500Medium', color: C.text, flex: 1 },
@@ -220,8 +343,22 @@ const styles = StyleSheet.create({
   channelPreviewUnread: { color: C.text, fontFamily: 'Inter_500Medium' },
   unreadBadge: { borderRadius: 10, paddingHorizontal: 7, paddingVertical: 2, minWidth: 20, alignItems: 'center' },
   unreadBadgeText: { fontSize: 11, fontFamily: 'Inter_700Bold', color: '#fff' },
+  divider: { height: 1, backgroundColor: C.borderLight, marginHorizontal: 14 },
+  emptySection: {
+    backgroundColor: C.surface, borderRadius: 14, borderWidth: 1,
+    borderColor: C.border, marginBottom: 20, padding: 20, alignItems: 'center',
+  },
+  emptySectionText: { fontSize: 13, fontFamily: 'Inter_400Regular', color: C.textMuted, textAlign: 'center' },
   empty: { alignItems: 'center', paddingVertical: 40, gap: 10 },
   emptyText: { fontSize: 15, fontFamily: 'Inter_400Regular', color: C.textMuted },
-  infoBox: { flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: C.surface, borderRadius: 10, padding: 12, borderWidth: 1, borderColor: C.border },
-  infoText: { fontSize: 12, fontFamily: 'Inter_400Regular', color: C.textSub, flex: 1 },
+  quickActions: {
+    backgroundColor: C.surface, borderRadius: 14, borderWidth: 1,
+    borderColor: C.border, overflow: 'hidden', marginTop: 8,
+  },
+  quickBtn: {
+    flexDirection: 'row', alignItems: 'center', gap: 12,
+    padding: 14,
+  },
+  quickBtnIcon: { width: 36, height: 36, borderRadius: 10, alignItems: 'center', justifyContent: 'center' },
+  quickBtnText: { flex: 1, fontSize: 15, fontFamily: 'Inter_500Medium', color: C.text },
 });

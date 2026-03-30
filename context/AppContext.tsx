@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useEffect, useReducer, useRef, useState } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { Reserve, Company, Task, Document, Photo, Message, Channel, ReserveStatus, ReservePriority, TaskStatus } from '@/constants/types';
+import { Reserve, Company, Task, Document, Photo, Message, Channel, Profile, ReserveStatus, ReservePriority, TaskStatus } from '@/constants/types';
 import { supabase } from '@/lib/supabase';
 import { initStorageBuckets } from '@/lib/storage';
 import { C } from '@/constants/colors';
@@ -12,6 +12,8 @@ export const STATIC_CHANNELS: Channel[] = [
   { id: 'building-c', name: 'Chantier C', description: 'Messages relatifs au Bâtiment C', icon: 'business', color: '#D97706', type: 'building' },
 ];
 
+const CUSTOM_CHANNELS_KEY = 'customChannels_v1';
+
 interface AppState {
   reserves: Reserve[];
   companies: Company[];
@@ -21,10 +23,12 @@ interface AppState {
   messages: Message[];
   lastReadByChannel: Record<string, string>;
   isLoading: boolean;
+  profiles: Profile[];
+  customChannels: Channel[];
 }
 
 type Action =
-  | { type: 'INIT'; payload: Omit<AppState, 'isLoading' | 'lastReadByChannel'> }
+  | { type: 'INIT'; payload: Omit<AppState, 'isLoading' | 'lastReadByChannel' | 'customChannels'> }
   | { type: 'ADD_RESERVE'; payload: Reserve }
   | { type: 'UPDATE_RESERVE'; payload: Reserve }
   | { type: 'UPDATE_RESERVE_STATUS'; payload: { id: string; status: ReserveStatus; author: string } }
@@ -44,7 +48,10 @@ type Action =
   | { type: 'ADD_PHOTO'; payload: Photo }
   | { type: 'ADD_DOCUMENT'; payload: Document }
   | { type: 'DELETE_DOCUMENT'; payload: string }
-  | { type: 'SET_LOADING'; payload: boolean };
+  | { type: 'SET_LOADING'; payload: boolean }
+  | { type: 'ADD_CUSTOM_CHANNEL'; payload: Channel }
+  | { type: 'SET_CUSTOM_CHANNELS'; payload: Channel[] }
+  | { type: 'REMOVE_CUSTOM_CHANNEL'; payload: string };
 
 function genId(): string {
   return Date.now().toString() + Math.random().toString(36).substr(2, 6);
@@ -126,10 +133,14 @@ function fromMessage(m: Message): Record<string, any> {
   };
 }
 
+export function dmChannelId(nameA: string, nameB: string): string {
+  return 'dm-' + [nameA, nameB].sort().join('__');
+}
+
 function reducer(state: AppState, action: Action): AppState {
   switch (action.type) {
     case 'INIT':
-      return { ...action.payload, lastReadByChannel: state.lastReadByChannel, isLoading: false };
+      return { ...action.payload, lastReadByChannel: state.lastReadByChannel, customChannels: state.customChannels, isLoading: false };
 
     case 'ADD_RESERVE':
       return { ...state, reserves: [action.payload, ...state.reserves] };
@@ -226,7 +237,7 @@ function reducer(state: AppState, action: Action): AppState {
 
     case 'ADD_DOCUMENT':
       supabase.from('documents').insert({ id: action.payload.id, name: action.payload.name, type: action.payload.type, category: action.payload.category, uploaded_at: action.payload.uploadedAt, size: action.payload.size, version: action.payload.version, uri: action.payload.uri });
-      return { ...state, documents: [action.payload, ...state.documents] };
+      return { ...state, documents: [action.payload, ...state.photos] };
 
     case 'DELETE_DOCUMENT':
       supabase.from('documents').delete().eq('id', action.payload);
@@ -234,6 +245,15 @@ function reducer(state: AppState, action: Action): AppState {
 
     case 'SET_LOADING':
       return { ...state, isLoading: action.payload };
+
+    case 'ADD_CUSTOM_CHANNEL':
+      return { ...state, customChannels: [...state.customChannels, action.payload] };
+
+    case 'SET_CUSTOM_CHANNELS':
+      return { ...state, customChannels: action.payload };
+
+    case 'REMOVE_CUSTOM_CHANNEL':
+      return { ...state, customChannels: state.customChannels.filter(c => c.id !== action.payload) };
 
     default:
       return state;
@@ -264,6 +284,9 @@ interface AppContextValue extends AppState {
   addPhoto: (p: Photo) => void;
   addDocument: (d: Document) => void;
   deleteDocument: (id: string) => void;
+  addCustomChannel: (name: string, description: string, icon: string, color: string) => Channel;
+  removeCustomChannel: (id: string) => void;
+  getOrCreateDMChannel: (otherName: string) => Channel;
   unreadCount: number;
   stats: {
     total: number; open: number; inProgress: number;
@@ -279,6 +302,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     reserves: [], companies: [], tasks: [],
     documents: [], photos: [], messages: [],
     lastReadByChannel: {}, isLoading: true,
+    profiles: [], customChannels: [],
   });
 
   const [notification, setNotification] = useState<{ msg: Message; channelName: string; channelColor: string; channelIcon: string } | null>(null);
@@ -296,6 +320,21 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     if (id) {
       setNotification(prev => (prev?.msg.channelId === id ? null : prev));
     }
+  }
+
+  async function loadCustomChannels() {
+    try {
+      const stored = await AsyncStorage.getItem(CUSTOM_CHANNELS_KEY);
+      if (stored) {
+        dispatch({ type: 'SET_CUSTOM_CHANNELS', payload: JSON.parse(stored) });
+      }
+    } catch {}
+  }
+
+  async function saveCustomChannels(channels: Channel[]) {
+    try {
+      await AsyncStorage.setItem(CUSTOM_CHANNELS_KEY, JSON.stringify(channels));
+    } catch {}
   }
 
   async function loadAll() {
@@ -321,6 +360,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         { data: documents },
         { data: photos },
         { data: messages },
+        { data: profilesData },
       ] = await Promise.all([
         supabase.from('reserves').select('*').order('created_at', { ascending: false }),
         supabase.from('companies').select('*'),
@@ -328,12 +368,15 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         supabase.from('documents').select('*').order('uploaded_at', { ascending: false }),
         supabase.from('photos').select('*').order('taken_at', { ascending: false }),
         supabase.from('messages').select('*').order('timestamp', { ascending: true }),
+        supabase.from('profiles').select('id, name, role, email'),
       ]);
 
       const storedLastRead = await AsyncStorage.getItem('lastReadByChannel').catch(() => null);
       if (storedLastRead) {
         dispatch({ type: 'SET_LAST_READ', payload: JSON.parse(storedLastRead) });
       }
+
+      await loadCustomChannels();
 
       const userName = currentUserNameRef.current;
       dispatch({
@@ -345,6 +388,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           documents: (documents ?? []).map(toDocument),
           photos: (photos ?? []).map(toPhoto),
           messages: (messages ?? []).map(r => toMessage(r, userName)),
+          profiles: (profilesData ?? []).map((p: any) => ({ id: p.id, name: p.name, role: p.role, email: p.email })),
         },
       });
     } catch (err) {
@@ -359,7 +403,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         loadAll();
       } else if (event === 'SIGNED_OUT') {
         currentUserNameRef.current = '';
-        dispatch({ type: 'INIT', payload: { reserves: [], companies: [], tasks: [], documents: [], photos: [], messages: [] } });
+        dispatch({ type: 'INIT', payload: { reserves: [], companies: [], tasks: [], documents: [], photos: [], messages: [], profiles: [] } });
       }
     });
 
@@ -381,11 +425,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           dispatch({ type: 'INCOMING_MESSAGE', payload: msg });
           if (activeChannelIdRef.current !== msg.channelId) {
             const ch = channelsRef.current.find(c => c.id === msg.channelId);
+            const isDM = msg.channelId.startsWith('dm-');
             setNotification({
               msg,
-              channelName: ch?.name ?? msg.channelId,
+              channelName: isDM ? msg.sender : (ch?.name ?? msg.channelId),
               channelColor: ch?.color ?? C.primary,
-              channelIcon: ch?.icon ?? 'chatbubbles',
+              channelIcon: isDM ? 'person-circle' : (ch?.icon ?? 'chatbubbles'),
             });
           }
         }
@@ -408,16 +453,41 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     return () => clearTimeout(timer);
   }, [notification]);
 
+  const companyChannels: Channel[] = state.companies.map(co => ({
+    id: `company-${co.id}`,
+    name: co.name,
+    description: `Canal de l'entreprise ${co.name}`,
+    icon: 'people' as const,
+    color: co.color,
+    type: 'company' as const,
+  }));
+
+  const dmChannelIds = new Set(
+    state.messages
+      .filter(m => m.channelId.startsWith('dm-'))
+      .map(m => m.channelId)
+  );
+
+  const dmChannels: Channel[] = Array.from(dmChannelIds).map(chId => {
+    const parts = chId.replace('dm-', '').split('__');
+    const myName = currentUserNameRef.current;
+    const otherName = parts.find(p => p !== myName) ?? parts[0];
+    return {
+      id: chId,
+      name: otherName,
+      description: `Message direct avec ${otherName}`,
+      icon: 'person-circle',
+      color: '#EC4899',
+      type: 'dm' as const,
+      dmParticipants: parts,
+    };
+  });
+
   const channels: Channel[] = [
     ...STATIC_CHANNELS,
-    ...state.companies.map(co => ({
-      id: `company-${co.id}`,
-      name: co.name,
-      description: `Canal de l'entreprise ${co.name}`,
-      icon: 'people' as const,
-      color: co.color,
-      type: 'company' as const,
-    })),
+    ...companyChannels,
+    ...state.customChannels,
+    ...dmChannels,
   ];
 
   useEffect(() => {
@@ -446,6 +516,41 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   };
 
   const unreadCount = Object.values(unreadByChannel).reduce((a, b) => a + b, 0);
+
+  function addCustomChannel(name: string, description: string, icon: string, color: string): Channel {
+    const newCh: Channel = {
+      id: 'custom-' + genId(),
+      name, description, icon, color,
+      type: 'custom',
+      createdBy: currentUserNameRef.current,
+    };
+    dispatch({ type: 'ADD_CUSTOM_CHANNEL', payload: newCh });
+    const updated = [...state.customChannels, newCh];
+    saveCustomChannels(updated);
+    return newCh;
+  }
+
+  function removeCustomChannel(id: string) {
+    dispatch({ type: 'REMOVE_CUSTOM_CHANNEL', payload: id });
+    const updated = state.customChannels.filter(c => c.id !== id);
+    saveCustomChannels(updated);
+  }
+
+  function getOrCreateDMChannel(otherName: string): Channel {
+    const myName = currentUserNameRef.current;
+    const chId = dmChannelId(myName, otherName);
+    const existing = dmChannels.find(c => c.id === chId);
+    if (existing) return existing;
+    return {
+      id: chId,
+      name: otherName,
+      description: `Message direct avec ${otherName}`,
+      icon: 'person-circle',
+      color: '#EC4899',
+      type: 'dm',
+      dmParticipants: [myName, otherName],
+    };
+  }
 
   const value: AppContextValue = {
     ...state, stats, unreadCount, channels, unreadByChannel, notification,
@@ -504,6 +609,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     addPhoto: (p) => dispatch({ type: 'ADD_PHOTO', payload: p }),
     addDocument: (d) => dispatch({ type: 'ADD_DOCUMENT', payload: d }),
     deleteDocument: (id) => dispatch({ type: 'DELETE_DOCUMENT', payload: id }),
+    addCustomChannel,
+    removeCustomChannel,
+    getOrCreateDMChannel,
   };
 
   return <AppContext.Provider value={value}>{children}</AppContext.Provider>;

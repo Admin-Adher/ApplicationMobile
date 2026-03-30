@@ -119,5 +119,14 @@ export interface Channel {
   description: string;
   icon: string;
   color: string;
-  type: 'general' | 'building' | 'company';
+  type: 'general' | 'building' | 'company' | 'custom' | 'dm';
+  dmParticipants?: string[];
+  createdBy?: string;
+}
+
+export interface Profile {
+  id: string;
+  name: string;
+  role: UserRole;
+  email: string;
 }
