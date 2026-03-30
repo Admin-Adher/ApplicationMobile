@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useEffect, useReducer, useRef } from 'react';
+import React, { createContext, useContext, useEffect, useReducer, useRef, useState } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Reserve, Company, Task, Document, Photo, Message, Channel, ReserveStatus, ReservePriority, TaskStatus } from '@/constants/types';
 import { supabase } from '@/lib/supabase';
@@ -90,7 +90,10 @@ function toPhoto(row: any): Photo {
   };
 }
 
-export function toMessage(row: any): Message {
+export function toMessage(row: any, currentUserName?: string): Message {
+  const isMe = currentUserName
+    ? row.sender === currentUserName
+    : (row.is_me ?? false);
   return {
     id: row.id,
     channelId: row.channel_id ?? 'general',
@@ -99,7 +102,7 @@ export function toMessage(row: any): Message {
     timestamp: row.timestamp,
     type: row.type,
     read: row.read,
-    isMe: row.is_me,
+    isMe,
     replyToId: row.reply_to_id ?? undefined,
     replyToContent: row.reply_to_content ?? undefined,
     replyToSender: row.reply_to_sender ?? undefined,
@@ -240,6 +243,7 @@ function reducer(state: AppState, action: Action): AppState {
 interface AppContextValue extends AppState {
   channels: Channel[];
   unreadByChannel: Record<string, number>;
+  notification: { msg: Message; channelName: string; channelColor: string; channelIcon: string } | null;
   addReserve: (r: Reserve) => void;
   updateReserve: (r: Reserve) => void;
   updateReserveStatus: (id: string, status: ReserveStatus, author?: string) => void;
@@ -252,6 +256,8 @@ interface AppContextValue extends AppState {
   updateMessage: (msg: Message) => void;
   markMessagesRead: () => void;
   setChannelRead: (channelId: string) => void;
+  setActiveChannelId: (id: string | null) => void;
+  dismissNotification: () => void;
   addTask: (t: Task) => void;
   updateTask: (t: Task) => void;
   deleteTask: (id: string) => void;
@@ -275,10 +281,39 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     lastReadByChannel: {}, isLoading: true,
   });
 
+  const [notification, setNotification] = useState<{ msg: Message; channelName: string; channelColor: string; channelIcon: string } | null>(null);
+
+  const currentUserNameRef = useRef<string>('');
+  const activeChannelIdRef = useRef<string | null>(null);
+  const channelsRef = useRef<Channel[]>([...STATIC_CHANNELS]);
+
+  function dismissNotification() {
+    setNotification(null);
+  }
+
+  function setActiveChannelId(id: string | null) {
+    activeChannelIdRef.current = id;
+    if (id) {
+      setNotification(prev => (prev?.msg.channelId === id ? null : prev));
+    }
+  }
+
   async function loadAll() {
     dispatch({ type: 'SET_LOADING', payload: true });
     initStorageBuckets().catch(() => {});
     try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (session?.user?.id) {
+        const { data: profile } = await supabase
+          .from('profiles')
+          .select('name')
+          .eq('id', session.user.id)
+          .single();
+        if (profile?.name) {
+          currentUserNameRef.current = profile.name;
+        }
+      }
+
       const [
         { data: reserves },
         { data: companies },
@@ -300,6 +335,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         dispatch({ type: 'SET_LAST_READ', payload: JSON.parse(storedLastRead) });
       }
 
+      const userName = currentUserNameRef.current;
       dispatch({
         type: 'INIT',
         payload: {
@@ -308,7 +344,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           tasks: (tasks ?? []).map(toTask),
           documents: (documents ?? []).map(toDocument),
           photos: (photos ?? []).map(toPhoto),
-          messages: (messages ?? []).map(toMessage),
+          messages: (messages ?? []).map(r => toMessage(r, userName)),
         },
       });
     } catch (err) {
@@ -322,6 +358,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       if (event === 'SIGNED_IN' && session) {
         loadAll();
       } else if (event === 'SIGNED_OUT') {
+        currentUserNameRef.current = '';
         dispatch({ type: 'INIT', payload: { reserves: [], companies: [], tasks: [], documents: [], photos: [], messages: [] } });
       }
     });
@@ -334,6 +371,43 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     return () => subscription.unsubscribe();
   }, []);
 
+  useEffect(() => {
+    const globalSub = supabase
+      .channel('global-messages-v2')
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages' }, (payload) => {
+        const userName = currentUserNameRef.current;
+        const msg = toMessage(payload.new, userName);
+        if (!msg.isMe) {
+          dispatch({ type: 'INCOMING_MESSAGE', payload: msg });
+          if (activeChannelIdRef.current !== msg.channelId) {
+            const ch = channelsRef.current.find(c => c.id === msg.channelId);
+            setNotification({
+              msg,
+              channelName: ch?.name ?? msg.channelId,
+              channelColor: ch?.color ?? C.primary,
+              channelIcon: ch?.icon ?? 'chatbubbles',
+            });
+          }
+        }
+      })
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'messages' }, (payload) => {
+        const userName = currentUserNameRef.current;
+        dispatch({ type: 'UPDATE_MESSAGE', payload: toMessage(payload.new, userName) });
+      })
+      .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'messages' }, (payload) => {
+        dispatch({ type: 'DELETE_MESSAGE', payload: payload.old.id });
+      })
+      .subscribe();
+
+    return () => { supabase.removeChannel(globalSub); };
+  }, []);
+
+  useEffect(() => {
+    if (!notification) return;
+    const timer = setTimeout(() => setNotification(null), 4500);
+    return () => clearTimeout(timer);
+  }, [notification]);
+
   const channels: Channel[] = [
     ...STATIC_CHANNELS,
     ...state.companies.map(co => ({
@@ -345,6 +419,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       type: 'company' as const,
     })),
   ];
+
+  useEffect(() => {
+    channelsRef.current = channels;
+  }, [channels]);
 
   const unreadByChannel: Record<string, number> = {};
   for (const ch of channels) {
@@ -370,7 +448,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const unreadCount = Object.values(unreadByChannel).reduce((a, b) => a + b, 0);
 
   const value: AppContextValue = {
-    ...state, stats, unreadCount, channels, unreadByChannel,
+    ...state, stats, unreadCount, channels, unreadByChannel, notification,
+    setActiveChannelId,
+    dismissNotification,
     addReserve: (r) => {
       supabase.from('reserves').insert({
         id: r.id, title: r.title, description: r.description, building: r.building,
@@ -399,8 +479,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       dispatch({ type: 'UPDATE_COMPANY', payload: { id, actualWorkers: actual } }),
     addMessage: (channelId, content, options = {}, sender = 'Moi') => {
       const ts = new Date().toLocaleString('fr-FR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }).replace(',', '');
+      const actualSender = currentUserNameRef.current || sender;
       const msg: Message = {
-        id: genId(), channelId, sender, content, timestamp: ts,
+        id: genId(), channelId, sender: actualSender, content, timestamp: ts,
         type: 'message', read: true, isMe: true,
         reactions: {}, isPinned: false, readBy: [], mentions: options.mentions ?? [],
         replyToId: options.replyToId, replyToContent: options.replyToContent,

@@ -10,6 +10,7 @@ import { KeyboardProvider } from 'react-native-keyboard-controller';
 import { AppProvider } from '@/context/AppContext';
 import { AuthProvider, useAuth } from '@/context/AuthContext';
 import { isSupabaseConfigured } from '@/lib/supabase';
+import NotificationBanner from '@/components/NotificationBanner';
 import { C } from '@/constants/colors';
 
 SplashScreen.preventAutoHideAsync();
@@ -106,9 +107,11 @@ export default function RootLayout() {
                   <Stack.Screen name="photos" options={{ headerShown: false }} />
                   <Stack.Screen name="rapports" options={{ headerShown: false }} />
                   <Stack.Screen name="messages" options={{ headerShown: false }} />
+                  <Stack.Screen name="channel/[id]" options={{ headerShown: false }} />
                   <Stack.Screen name="+not-found" />
                 </Stack>
               </AuthGuard>
+              <NotificationBanner />
               <StatusBar style="dark" />
             </KeyboardProvider>
           </SafeAreaProvider>

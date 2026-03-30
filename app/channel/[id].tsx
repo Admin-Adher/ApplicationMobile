@@ -1,14 +1,14 @@
 import {
   View, Text, StyleSheet, FlatList, TouchableOpacity, TextInput, Alert,
   Modal, Platform, Image, KeyboardAvoidingView, Clipboard, Linking,
-  ActivityIndicator,
+  ActivityIndicator, Animated,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import * as ImagePicker from 'expo-image-picker';
 import { C } from '@/constants/colors';
-import { useApp, toMessage } from '@/context/AppContext';
+import { useApp } from '@/context/AppContext';
 import { useAuth } from '@/context/AuthContext';
 import { Message } from '@/constants/types';
 import { supabase } from '@/lib/supabase';
@@ -43,8 +43,6 @@ function detectMentions(text: string, name: string): boolean {
 }
 
 function MessageTextRender({ text, isMe }: { text: string; isMe: boolean }) {
-  const urlRegex = /(https?:\/\/[^\s]+)/g;
-  const mentionRegex = /@(\w+)/g;
   const parts: React.ReactNode[] = [];
   let lastIndex = 0;
   const combined = /(https?:\/\/[^\s]+)|(@\w+)/g;
@@ -80,6 +78,60 @@ function DateSeparator({ label }: { label: string }) {
   );
 }
 
+function TypingIndicator({ users }: { users: string[] }) {
+  const dot1 = useRef(new Animated.Value(0)).current;
+  const dot2 = useRef(new Animated.Value(0)).current;
+  const dot3 = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    if (users.length === 0) return;
+
+    function animateDot(dot: Animated.Value, delay: number) {
+      return Animated.loop(
+        Animated.sequence([
+          Animated.delay(delay),
+          Animated.timing(dot, { toValue: -5, duration: 280, useNativeDriver: true }),
+          Animated.timing(dot, { toValue: 0, duration: 280, useNativeDriver: true }),
+          Animated.delay(300),
+        ])
+      );
+    }
+
+    const anim1 = animateDot(dot1, 0);
+    const anim2 = animateDot(dot2, 140);
+    const anim3 = animateDot(dot3, 280);
+    anim1.start();
+    anim2.start();
+    anim3.start();
+
+    return () => {
+      anim1.stop();
+      anim2.stop();
+      anim3.stop();
+      dot1.setValue(0);
+      dot2.setValue(0);
+      dot3.setValue(0);
+    };
+  }, [users.length]);
+
+  if (users.length === 0) return null;
+
+  const label = users.length === 1
+    ? `${users[0]} est en train d'écrire`
+    : `${users.join(', ')} écrivent`;
+
+  return (
+    <View style={styles.typingRow}>
+      <View style={styles.typingDots}>
+        {[dot1, dot2, dot3].map((dot, i) => (
+          <Animated.View key={i} style={[styles.typingDot, { transform: [{ translateY: dot }] }]} />
+        ))}
+      </View>
+      <Text style={styles.typingText}>{label}…</Text>
+    </View>
+  );
+}
+
 type ListItem = Message | { _type: 'date'; label: string; key: string };
 
 export default function ChannelScreen() {
@@ -87,7 +139,7 @@ export default function ChannelScreen() {
     id: string; name: string; color: string; icon: string;
   }>();
   const router = useRouter();
-  const { messages, addMessage, deleteMessage, updateMessage, incomingMessage, setChannelRead, channels } = useApp();
+  const { messages, addMessage, deleteMessage, updateMessage, setChannelRead, setActiveChannelId, channels } = useApp();
   const { user } = useAuth();
   const flatListRef = useRef<FlatList>(null);
   const inputRef = useRef<TextInput>(null);
@@ -104,11 +156,33 @@ export default function ChannelScreen() {
   const [typingUsers, setTypingUsers] = useState<string[]>([]);
   const [attachmentUploading, setAttachmentUploading] = useState(false);
   const [mentionQuery, setMentionQuery] = useState('');
-  const typingTimeouts = useRef<Record<string, NodeJS.Timeout>>({});
+  const typingTimeouts = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
   const typingChannelRef = useRef<any>(null);
 
   const channelObj = channels.find(c => c.id === channelId);
   const color = channelColor ?? channelObj?.color ?? C.primary;
+
+  useEffect(() => {
+    setChannelRead(channelId!);
+    setActiveChannelId(channelId!);
+
+    const typingCh = supabase.channel(`typing:${channelId}`);
+    typingCh.on('broadcast', { event: 'typing' }, ({ payload }) => {
+      const name = payload.userName as string;
+      if (name === user?.name) return;
+      setTypingUsers(prev => prev.includes(name) ? prev : [...prev, name]);
+      if (typingTimeouts.current[name]) clearTimeout(typingTimeouts.current[name]);
+      typingTimeouts.current[name] = setTimeout(() => {
+        setTypingUsers(prev => prev.filter(u => u !== name));
+      }, 3000);
+    }).subscribe();
+    typingChannelRef.current = typingCh;
+
+    return () => {
+      supabase.removeChannel(typingCh);
+      setActiveChannelId(null);
+    };
+  }, [channelId]);
 
   const channelMessages = useMemo(() =>
     messages.filter(m => m.channelId === channelId),
@@ -155,43 +229,6 @@ export default function ChannelScreen() {
   }, [mentionQuery, knownSenders]);
 
   useEffect(() => {
-    setChannelRead(channelId!);
-
-    const realtimeCh = supabase
-      .channel(`channel-${channelId}`)
-      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages', filter: `channel_id=eq.${channelId}` },
-        (payload) => {
-          const msg = toMessage(payload.new);
-          if (!msg.isMe) incomingMessage(msg);
-        }
-      )
-      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'messages', filter: `channel_id=eq.${channelId}` },
-        (payload) => { updateMessage(toMessage(payload.new)); }
-      )
-      .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'messages' },
-        (payload) => { deleteMessage(payload.old.id); }
-      )
-      .subscribe();
-
-    const typingCh = supabase.channel(`typing:${channelId}`);
-    typingCh.on('broadcast', { event: 'typing' }, ({ payload }) => {
-      const name = payload.userName as string;
-      if (name === user?.name) return;
-      setTypingUsers(prev => prev.includes(name) ? prev : [...prev, name]);
-      if (typingTimeouts.current[name]) clearTimeout(typingTimeouts.current[name]);
-      typingTimeouts.current[name] = setTimeout(() => {
-        setTypingUsers(prev => prev.filter(u => u !== name));
-      }, 3000);
-    }).subscribe();
-    typingChannelRef.current = typingCh;
-
-    return () => {
-      supabase.removeChannel(realtimeCh);
-      supabase.removeChannel(typingCh);
-    };
-  }, [channelId]);
-
-  useEffect(() => {
     if (channelMessages.length > 0 && !searchMode) {
       setTimeout(() => flatListRef.current?.scrollToEnd({ animated: false }), 80);
     }
@@ -201,7 +238,11 @@ export default function ChannelScreen() {
     setText(val);
     const atMatch = val.match(/@(\w*)$/);
     setMentionQuery(atMatch ? atMatch[1] : '');
-    typingChannelRef.current?.send({ type: 'broadcast', event: 'typing', payload: { userName: user?.name ?? 'Utilisateur' } }).catch(() => {});
+    typingChannelRef.current?.send({
+      type: 'broadcast',
+      event: 'typing',
+      payload: { userName: user?.name ?? 'Utilisateur' },
+    }).catch(() => {});
   }
 
   function insertMention(senderName: string) {
@@ -221,7 +262,12 @@ export default function ChannelScreen() {
       setAttachmentUploading(true);
       try {
         const url = await uploadPhoto(result.assets[0].uri, `msg_${Date.now()}.jpg`);
-        addMessage(channelId!, text.trim() || '', { attachmentUri: url ?? result.assets[0].uri, replyToId: replyTo?.id, replyToContent: replyTo?.content, replyToSender: replyTo?.sender }, user?.name ?? 'Moi');
+        addMessage(channelId!, text.trim() || '', {
+          attachmentUri: url ?? result.assets[0].uri,
+          replyToId: replyTo?.id,
+          replyToContent: replyTo?.content,
+          replyToSender: replyTo?.sender,
+        }, user?.name ?? 'Moi');
         setText('');
         setReplyTo(null);
         setTimeout(() => flatListRef.current?.scrollToEnd({ animated: true }), 100);
@@ -240,7 +286,12 @@ export default function ChannelScreen() {
       setAttachmentUploading(true);
       try {
         const url = await uploadPhoto(result.assets[0].uri, `msg_${Date.now()}.jpg`);
-        addMessage(channelId!, text.trim() || '', { attachmentUri: url ?? result.assets[0].uri, replyToId: replyTo?.id, replyToContent: replyTo?.content, replyToSender: replyTo?.sender }, user?.name ?? 'Moi');
+        addMessage(channelId!, text.trim() || '', {
+          attachmentUri: url ?? result.assets[0].uri,
+          replyToId: replyTo?.id,
+          replyToContent: replyTo?.content,
+          replyToSender: replyTo?.sender,
+        }, user?.name ?? 'Moi');
         setText('');
         setReplyTo(null);
         setTimeout(() => flatListRef.current?.scrollToEnd({ animated: true }), 100);
@@ -414,10 +465,14 @@ export default function ChannelScreen() {
             <Text style={[styles.timeText, msg.isMe && styles.timeTextMe]}>
               {msg.timestamp.split(' ')[1] ?? msg.timestamp}
             </Text>
-            {msg.isMe && readCount > 0 && (
+            {msg.isMe && (
               <View style={styles.readRow}>
-                <Ionicons name="checkmark-done" size={11} color={C.closed} />
-                <Text style={styles.readText}>Vu par {readCount}</Text>
+                <Ionicons
+                  name={readCount > 0 ? 'checkmark-done' : 'checkmark'}
+                  size={11}
+                  color={readCount > 0 ? C.closed : C.textMuted}
+                />
+                {readCount > 0 && <Text style={styles.readText}>Vu par {readCount}</Text>}
               </View>
             )}
           </View>
@@ -439,7 +494,7 @@ export default function ChannelScreen() {
         </View>
         <View style={{ flex: 1 }}>
           <Text style={styles.headerName} numberOfLines={1}>{channelName ?? 'Canal'}</Text>
-          <Text style={styles.headerSub}>{channelMessages.length} messages</Text>
+          <Text style={styles.headerSub}>{channelMessages.length} message{channelMessages.length !== 1 ? 's' : ''}</Text>
         </View>
         <View style={styles.headerActions}>
           {pinnedMessages.length > 0 && (
@@ -508,16 +563,7 @@ export default function ChannelScreen() {
           )}
         />
 
-        {typingUsers.length > 0 && (
-          <View style={styles.typingRow}>
-            <View style={styles.typingDots}>
-              {[0, 1, 2].map(i => <View key={i} style={[styles.typingDot, { opacity: 0.4 + i * 0.2 }]} />)}
-            </View>
-            <Text style={styles.typingText}>
-              {typingUsers.join(', ')} est en train d'écrire...
-            </Text>
-          </View>
-        )}
+        <TypingIndicator users={typingUsers} />
 
         {replyTo && (
           <View style={styles.replyBar2}>
@@ -557,7 +603,7 @@ export default function ChannelScreen() {
           <TextInput
             ref={inputRef}
             style={styles.input}
-            placeholder={replyTo ? 'Votre réponse...' : 'Message... (@ pour mentionner)'}
+            placeholder={replyTo ? 'Votre réponse...' : 'Message… (@ pour mentionner)'}
             placeholderTextColor={C.textMuted}
             value={text}
             onChangeText={handleTextChange}
@@ -733,9 +779,9 @@ const styles = StyleSheet.create({
   notifBubble: { flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: C.inProgressBg, paddingHorizontal: 12, paddingVertical: 7, borderRadius: 20 },
   notifText: { fontSize: 12, fontFamily: 'Inter_400Regular', color: C.inProgress, maxWidth: 260 },
   notifTime: { fontSize: 10, fontFamily: 'Inter_400Regular', color: C.textMuted, marginTop: 2 },
-  typingRow: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 16, paddingVertical: 6 },
-  typingDots: { flexDirection: 'row', gap: 3 },
-  typingDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: C.textMuted },
+  typingRow: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 16, paddingVertical: 8 },
+  typingDots: { flexDirection: 'row', gap: 4, alignItems: 'center' },
+  typingDot: { width: 7, height: 7, borderRadius: 3.5, backgroundColor: C.textMuted },
   typingText: { fontSize: 12, fontFamily: 'Inter_400Regular', color: C.textMuted, fontStyle: 'italic' },
   replyBar2: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 14, paddingVertical: 8, backgroundColor: C.surface, borderTopWidth: 1, borderTopColor: C.border },
   replyAccent: { width: 3, height: '100%', borderRadius: 2, alignSelf: 'stretch' },
