@@ -10,9 +10,11 @@ import { useApp } from '@/context/AppContext';
 
 interface Props {
   reserve: Reserve;
+  onPress?: (reserve: Reserve) => void;
+  selected?: boolean;
 }
 
-export default function ReserveCard({ reserve }: Props) {
+export default function ReserveCard({ reserve, onPress, selected }: Props) {
   const router = useRouter();
   const { lots } = useApp();
   const overdue = isOverdue(reserve.deadline, reserve.status);
@@ -24,8 +26,8 @@ export default function ReserveCard({ reserve }: Props) {
 
   return (
     <TouchableOpacity
-      style={[styles.card, overdue && styles.cardOverdue, isObservation && styles.cardObservation]}
-      onPress={() => router.push(`/reserve/${reserve.id}` as any)}
+      style={[styles.card, overdue && styles.cardOverdue, isObservation && styles.cardObservation, selected && styles.cardSelected]}
+      onPress={() => onPress ? onPress(reserve) : router.push(`/reserve/${reserve.id}` as any)}
       activeOpacity={0.75}
     >
       <View style={styles.top}>
@@ -133,6 +135,11 @@ const styles = StyleSheet.create({
   cardObservation: {
     borderLeftWidth: 3,
     borderLeftColor: '#0EA5E9',
+  },
+  cardSelected: {
+    borderColor: C.primary,
+    borderWidth: 2,
+    backgroundColor: C.primaryBg,
   },
   top: {
     flexDirection: 'row',

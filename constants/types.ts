@@ -92,6 +92,7 @@ export interface SitePlan {
   chantierId: string;
   name: string;
   uri?: string;
+  dxfName?: string;
   uploadedAt: string;
   size?: string;
 }

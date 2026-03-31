@@ -1,6 +1,6 @@
 import {
   View, Text, StyleSheet, ScrollView, TextInput, TouchableOpacity,
-  Alert, Platform, Image, ActivityIndicator,
+  Alert, Platform, Image, ActivityIndicator, useWindowDimensions,
 } from 'react-native';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { useState } from 'react';
@@ -79,6 +79,7 @@ export default function NewReserveScreen() {
   const [photoUri, setPhotoUri] = useState<string | null>(null);
   const [photoUploading, setPhotoUploading] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [aiAnalyzing, setAiAnalyzing] = useState(false);
 
   const presetX = params.planX ? parseInt(params.planX) : null;
   const presetY = params.planY ? parseInt(params.planY) : null;
@@ -147,6 +148,48 @@ export default function NewReserveScreen() {
       setPhotoUri(uri);
     } finally {
       setPhotoUploading(false);
+    }
+  }
+
+  async function handleAnalyzePhoto() {
+    if (!photoUri || aiAnalyzing) return;
+    setAiAnalyzing(true);
+    try {
+      const resp = await fetch(photoUri);
+      const blob = await resp.blob();
+      const base64: string = await new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onloadend = () => {
+          const result = reader.result as string;
+          resolve(result.split(',')[1] ?? '');
+        };
+        reader.onerror = reject;
+        reader.readAsDataURL(blob);
+      });
+      const apiResp = await fetch('/api/analyze-photo', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ imageBase64: base64, mimeType: blob.type || 'image/jpeg' }),
+      });
+      if (!apiResp.ok) throw new Error(`HTTP ${apiResp.status}`);
+      const result = await apiResp.json() as {
+        title?: string; description?: string; priority?: string; lot?: string; error?: string;
+      };
+      if (result.error) throw new Error(result.error);
+      if (result.title) setTitle(result.title);
+      if (result.description) setDescription(result.description);
+      if (result.priority && ['low', 'medium', 'high', 'critical'].includes(result.priority)) {
+        setPriority(result.priority as ReservePriority);
+      }
+      const lotMsg = result.lot ? `\nCorps d'état détecté : ${result.lot}` : '';
+      Alert.alert(
+        '✓ Analyse IA complète',
+        `Le titre, la description et la priorité ont été pré-remplis automatiquement.${lotMsg}\n\nVérifiez et ajustez si nécessaire.`
+      );
+    } catch {
+      Alert.alert('Erreur IA', "L'analyse a échoué. Vérifiez votre connexion et réessayez.");
+    } finally {
+      setAiAnalyzing(false);
     }
   }
 
@@ -291,16 +334,37 @@ export default function NewReserveScreen() {
             {photoUri ? (
               <View style={styles.photoPreviewWrap}>
                 <Image source={{ uri: photoUri }} style={styles.photoPreview} resizeMode="cover" />
+                {aiAnalyzing && (
+                  <View style={styles.aiOverlay}>
+                    <ActivityIndicator size="small" color="#fff" />
+                    <Text style={styles.aiOverlayText}>Analyse IA en cours…</Text>
+                  </View>
+                )}
+                <TouchableOpacity
+                  style={styles.aiBtn}
+                  onPress={handleAnalyzePhoto}
+                  disabled={aiAnalyzing || photoUploading}
+                  activeOpacity={0.8}
+                >
+                  {aiAnalyzing ? (
+                    <ActivityIndicator size="small" color="#fff" />
+                  ) : (
+                    <Ionicons name="sparkles" size={14} color="#fff" />
+                  )}
+                  <Text style={styles.aiBtnText}>
+                    {aiAnalyzing ? 'Analyse…' : 'Analyser avec l\'IA'}
+                  </Text>
+                </TouchableOpacity>
                 <View style={styles.photoActions}>
-                  <TouchableOpacity style={styles.photoActionBtn} onPress={handleCamera} disabled={photoUploading}>
+                  <TouchableOpacity style={styles.photoActionBtn} onPress={handleCamera} disabled={photoUploading || aiAnalyzing}>
                     <Ionicons name="camera-outline" size={14} color={C.primary} />
                     <Text style={styles.photoActionText}>Caméra</Text>
                   </TouchableOpacity>
-                  <TouchableOpacity style={[styles.photoActionBtn, { borderColor: C.inProgress + '80' }]} onPress={handlePickPhoto} disabled={photoUploading}>
+                  <TouchableOpacity style={[styles.photoActionBtn, { borderColor: C.inProgress + '80' }]} onPress={handlePickPhoto} disabled={photoUploading || aiAnalyzing}>
                     <Ionicons name="images-outline" size={14} color={C.inProgress} />
                     <Text style={[styles.photoActionText, { color: C.inProgress }]}>Galerie</Text>
                   </TouchableOpacity>
-                  <TouchableOpacity style={[styles.photoActionBtn, { borderColor: C.open }]} onPress={() => setPhotoUri(null)} disabled={photoUploading}>
+                  <TouchableOpacity style={[styles.photoActionBtn, { borderColor: C.open }]} onPress={() => setPhotoUri(null)} disabled={photoUploading || aiAnalyzing}>
                     <Ionicons name="trash-outline" size={14} color={C.open} />
                     <Text style={[styles.photoActionText, { color: C.open }]}>Supprimer</Text>
                   </TouchableOpacity>
@@ -497,6 +561,18 @@ const styles = StyleSheet.create({
   photoActionText: { fontSize: 12, fontFamily: 'Inter_600SemiBold', color: C.primary },
   cloudBadge: { flexDirection: 'row', alignItems: 'center', gap: 4, position: 'absolute', top: 8, right: 8, backgroundColor: 'rgba(0,0,0,0.55)', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 10 },
   cloudBadgeText: { fontSize: 10, fontFamily: 'Inter_600SemiBold', color: '#fff' },
+  aiBtn: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6,
+    backgroundColor: '#6366F1', paddingVertical: 10, paddingHorizontal: 16,
+    marginHorizontal: 10, marginTop: -4, marginBottom: 4, borderRadius: 10,
+  },
+  aiBtnText: { fontSize: 13, fontFamily: 'Inter_700Bold', color: '#fff', letterSpacing: 0.2 },
+  aiOverlay: {
+    position: 'absolute', top: 0, left: 0, right: 0, bottom: 0,
+    backgroundColor: 'rgba(99,102,241,0.35)', zIndex: 10,
+    alignItems: 'center', justifyContent: 'center', gap: 8,
+  },
+  aiOverlayText: { fontSize: 14, fontFamily: 'Inter_600SemiBold', color: '#fff' },
   uploadRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 8 },
   uploadText: { fontSize: 12, fontFamily: 'Inter_400Regular', color: C.textSub },
   warningRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 8, backgroundColor: C.medium + '10', borderRadius: 10, padding: 12, borderWidth: 1, borderColor: C.medium + '30' },

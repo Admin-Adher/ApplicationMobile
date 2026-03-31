@@ -1,4 +1,4 @@
-import { View, Text, StyleSheet, FlatList, TouchableOpacity, TextInput, Platform, ScrollView, Modal, ActivityIndicator } from 'react-native';
+import { View, Text, StyleSheet, FlatList, TouchableOpacity, TextInput, Platform, ScrollView, Modal, ActivityIndicator, useWindowDimensions, Image } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
@@ -56,6 +56,9 @@ export default function ReservesScreen() {
   const [sortModalVisible, setSortModalVisible] = useState(false);
   const [filterModalVisible, setFilterModalVisible] = useState(false);
   const topPad = Platform.OS === 'web' ? 67 : insets.top;
+  const { width } = useWindowDimensions();
+  const isWideScreen = width >= 768;
+  const [selectedReserveId, setSelectedReserveId] = useState<string | null>(null);
 
   const chantierReserves = useMemo(
     () => chantierFilter === 'all' ? reserves : reserves.filter(r => r.chantierId === chantierFilter),
@@ -126,6 +129,10 @@ export default function ReservesScreen() {
 
   const isSortActive = sortKey !== 'date_desc';
   const obsCount = useMemo(() => chantierReserves.filter(r => r.kind === 'observation').length, [chantierReserves]);
+  const selectedReserve = useMemo(
+    () => filtered.find(r => r.id === selectedReserveId) ?? null,
+    [filtered, selectedReserveId]
+  );
 
   return (
     <View style={styles.container}>
@@ -251,30 +258,137 @@ export default function ReservesScreen() {
         </View>
       </View>
 
-      <FlatList
-        data={filtered}
-        keyExtractor={item => item.id}
-        renderItem={({ item }) => <ReserveCard reserve={item} />}
-        contentContainerStyle={styles.list}
-        showsVerticalScrollIndicator={false}
-        ListEmptyComponent={() => (
-          <View style={styles.empty}>
-            <View style={styles.emptyIcon}>
-              {chantierReserves.length === 0
-                ? <Ionicons name="document-text-outline" size={40} color={C.primary} />
-                : <Ionicons name="funnel-outline" size={40} color={C.primary} />}
-            </View>
-            <Text style={styles.emptyText}>
-              {chantierReserves.length === 0 ? 'Aucune réserve' : 'Aucun résultat'}
-            </Text>
-            <Text style={styles.emptyHint}>
-              {chantierReserves.length === 0
-                ? 'Créez la première réserve avec le bouton +'
-                : 'Modifiez vos filtres ou votre recherche'}
-            </Text>
+      {isWideScreen ? (
+        <View style={styles.splitRow}>
+          <FlatList
+            data={filtered}
+            keyExtractor={item => item.id}
+            renderItem={({ item }) => (
+              <ReserveCard
+                reserve={item}
+                onPress={r => setSelectedReserveId(r.id === selectedReserveId ? null : r.id)}
+                selected={item.id === selectedReserveId}
+              />
+            )}
+            contentContainerStyle={styles.listNarrow}
+            showsVerticalScrollIndicator={false}
+            style={styles.splitList}
+            ListEmptyComponent={() => (
+              <View style={styles.empty}>
+                <View style={styles.emptyIcon}>
+                  {chantierReserves.length === 0
+                    ? <Ionicons name="document-text-outline" size={40} color={C.primary} />
+                    : <Ionicons name="funnel-outline" size={40} color={C.primary} />}
+                </View>
+                <Text style={styles.emptyText}>
+                  {chantierReserves.length === 0 ? 'Aucune réserve' : 'Aucun résultat'}
+                </Text>
+                <Text style={styles.emptyHint}>
+                  {chantierReserves.length === 0
+                    ? 'Créez la première réserve avec le bouton +'
+                    : 'Modifiez vos filtres ou votre recherche'}
+                </Text>
+              </View>
+            )}
+          />
+          <View style={styles.splitDetail}>
+            {selectedReserve ? (
+              <ScrollView contentContainerStyle={styles.detailContent} showsVerticalScrollIndicator={false}>
+                <View style={styles.detailHeader}>
+                  <View style={styles.detailIdRow}>
+                    <View style={styles.detailIdWrap}><Text style={styles.detailId}>{selectedReserve.id}</Text></View>
+                    {selectedReserve.kind === 'observation' && (
+                      <View style={styles.detailObsBadge}><Ionicons name="eye-outline" size={11} color="#0EA5E9" /><Text style={styles.detailObsText}>Observation</Text></View>
+                    )}
+                  </View>
+                  <Text style={styles.detailTitle}>{selectedReserve.title}</Text>
+                  <View style={styles.detailBadgeRow}>
+                    {(() => {
+                      const PRIORITY_COLORS: Record<string, string> = { critical: '#EF4444', high: '#F97316', medium: '#F59E0B', low: '#22C55E' };
+                      const PRIORITY_LABELS: Record<string, string> = { critical: 'Critique', high: 'Haute', medium: 'Moyenne', low: 'Basse' };
+                      const pc = PRIORITY_COLORS[selectedReserve.priority] ?? '#6B7280';
+                      return (
+                        <View style={[styles.detailPriorityBadge, { backgroundColor: pc + '20', borderColor: pc }]}>
+                          <Text style={[styles.detailPriorityText, { color: pc }]}>{PRIORITY_LABELS[selectedReserve.priority] ?? selectedReserve.priority}</Text>
+                        </View>
+                      );
+                    })()}
+                  </View>
+                </View>
+
+                {selectedReserve.photoUri ? (
+                  <Image source={{ uri: selectedReserve.photoUri }} style={styles.detailPhoto} resizeMode="cover" />
+                ) : null}
+
+                <View style={styles.detailCard}>
+                  <Text style={styles.detailLabel}>DESCRIPTION</Text>
+                  <Text style={styles.detailText}>{selectedReserve.description}</Text>
+                </View>
+
+                <View style={styles.detailCard}>
+                  <View style={styles.detailRow}>
+                    <Ionicons name="business-outline" size={14} color={C.textMuted} />
+                    <Text style={styles.detailMeta}>Bât. {selectedReserve.building} — {selectedReserve.zone} — {selectedReserve.level}</Text>
+                  </View>
+                  <View style={styles.detailRow}>
+                    <Ionicons name="people-outline" size={14} color={C.textMuted} />
+                    <Text style={styles.detailMeta}>{selectedReserve.company}</Text>
+                  </View>
+                  {selectedReserve.deadline && selectedReserve.deadline !== '—' && (
+                    <View style={styles.detailRow}>
+                      <Ionicons name="calendar-outline" size={14} color={C.textMuted} />
+                      <Text style={styles.detailMeta}>Échéance : {selectedReserve.deadline}</Text>
+                    </View>
+                  )}
+                  <View style={styles.detailRow}>
+                    <Ionicons name="time-outline" size={14} color={C.textMuted} />
+                    <Text style={styles.detailMeta}>Créée le {selectedReserve.createdAt}</Text>
+                  </View>
+                </View>
+
+                <TouchableOpacity
+                  style={styles.detailOpenBtn}
+                  onPress={() => router.push(`/reserve/${selectedReserve.id}` as any)}
+                >
+                  <Text style={styles.detailOpenText}>Ouvrir la fiche complète</Text>
+                  <Ionicons name="arrow-forward" size={15} color={C.primary} />
+                </TouchableOpacity>
+              </ScrollView>
+            ) : (
+              <View style={styles.detailEmpty}>
+                <Ionicons name="hand-left-outline" size={36} color={C.textMuted} />
+                <Text style={styles.detailEmptyText}>Sélectionnez une réserve</Text>
+                <Text style={styles.detailEmptyHint}>Cliquez sur une réserve dans la liste pour voir ses détails ici</Text>
+              </View>
+            )}
           </View>
-        )}
-      />
+        </View>
+      ) : (
+        <FlatList
+          data={filtered}
+          keyExtractor={item => item.id}
+          renderItem={({ item }) => <ReserveCard reserve={item} />}
+          contentContainerStyle={styles.list}
+          showsVerticalScrollIndicator={false}
+          ListEmptyComponent={() => (
+            <View style={styles.empty}>
+              <View style={styles.emptyIcon}>
+                {chantierReserves.length === 0
+                  ? <Ionicons name="document-text-outline" size={40} color={C.primary} />
+                  : <Ionicons name="funnel-outline" size={40} color={C.primary} />}
+              </View>
+              <Text style={styles.emptyText}>
+                {chantierReserves.length === 0 ? 'Aucune réserve' : 'Aucun résultat'}
+              </Text>
+              <Text style={styles.emptyHint}>
+                {chantierReserves.length === 0
+                  ? 'Créez la première réserve avec le bouton +'
+                  : 'Modifiez vos filtres ou votre recherche'}
+              </Text>
+            </View>
+          )}
+        />
+      )}
 
       {/* FAB flottant visible sur toutes plateformes */}
       {permissions.canCreate && (
@@ -558,4 +672,35 @@ const styles = StyleSheet.create({
       default: { shadowColor: '#003082', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.30, shadowRadius: 10, elevation: 8 },
     }),
   },
+
+  splitRow: { flex: 1, flexDirection: 'row' },
+  splitList: { flex: 1, borderRightWidth: 1, borderRightColor: C.border },
+  listNarrow: { padding: 12, paddingBottom: 100 },
+  splitDetail: { width: 380, backgroundColor: C.bg },
+  detailContent: { padding: 20, paddingBottom: 48 },
+  detailHeader: { marginBottom: 16 },
+  detailIdRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 10 },
+  detailIdWrap: { backgroundColor: C.primaryBg, paddingHorizontal: 10, paddingVertical: 4, borderRadius: 8 },
+  detailId: { fontSize: 12, fontFamily: 'Inter_700Bold', color: C.primary, letterSpacing: 0.5 },
+  detailObsBadge: { flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: '#0EA5E915', paddingHorizontal: 8, paddingVertical: 3, borderRadius: 10, borderWidth: 1, borderColor: '#0EA5E930' },
+  detailObsText: { fontSize: 11, fontFamily: 'Inter_600SemiBold', color: '#0EA5E9' },
+  detailTitle: { fontSize: 18, fontFamily: 'Inter_700Bold', color: C.text, lineHeight: 26, marginBottom: 10 },
+  detailBadgeRow: { flexDirection: 'row', gap: 8, flexWrap: 'wrap' },
+  detailPriorityBadge: { paddingHorizontal: 12, paddingVertical: 5, borderRadius: 20, borderWidth: 1.5 },
+  detailPriorityText: { fontSize: 12, fontFamily: 'Inter_700Bold' },
+  detailPhoto: { width: '100%', height: 180, borderRadius: 12, marginBottom: 14 },
+  detailCard: { backgroundColor: C.surface, borderRadius: 12, padding: 14, marginBottom: 12, borderWidth: 1, borderColor: C.border, gap: 8 },
+  detailLabel: { fontSize: 11, fontFamily: 'Inter_600SemiBold', color: C.textMuted, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 4 },
+  detailText: { fontSize: 14, fontFamily: 'Inter_400Regular', color: C.text, lineHeight: 21 },
+  detailRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  detailMeta: { fontSize: 13, fontFamily: 'Inter_400Regular', color: C.textSub, flex: 1 },
+  detailOpenBtn: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8,
+    backgroundColor: C.surface, borderRadius: 12, paddingVertical: 14,
+    borderWidth: 1.5, borderColor: C.primary, marginTop: 4,
+  },
+  detailOpenText: { fontSize: 14, fontFamily: 'Inter_600SemiBold', color: C.primary },
+  detailEmpty: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 12, padding: 32 },
+  detailEmptyText: { fontSize: 16, fontFamily: 'Inter_600SemiBold', color: C.textSub },
+  detailEmptyHint: { fontSize: 13, fontFamily: 'Inter_400Regular', color: C.textMuted, textAlign: 'center', lineHeight: 19 },
 });

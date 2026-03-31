@@ -17,6 +17,7 @@ import { STATUS_CONFIG } from '@/components/StatusBadge';
 import PriorityBadge from '@/components/PriorityBadge';
 import { uploadDocument } from '@/lib/storage';
 import { genId } from '@/lib/utils';
+import { parseDxf, normalizeDxfPoint, DxfParseResult, DxfEntity } from '@/lib/dxfParser';
 
 interface Room {
   id: string; label: string;
@@ -60,6 +61,101 @@ const GENERIC_FLOOR_PLAN: Room[] = [
 
 const PLAN_W = 360;
 const PLAN_H = 270;
+
+function DxfOverlay({ dxf }: { dxf: DxfParseResult }) {
+  const MAX_ENTITIES = 2000;
+  const elements: JSX.Element[] = [];
+  let entityIdx = 0;
+
+  function addLine(x1: number, y1: number, x2: number, y2: number, key: string) {
+    const p1 = normalizeDxfPoint(x1, y1, dxf, PLAN_W, PLAN_H, 8);
+    const p2 = normalizeDxfPoint(x2, y2, dxf, PLAN_W, PLAN_H, 8);
+    const dx = p2.x - p1.x;
+    const dy = p2.y - p1.y;
+    const len = Math.sqrt(dx * dx + dy * dy);
+    if (len < 0.3) return;
+    const angle = Math.atan2(dy, dx) * (180 / Math.PI);
+    const cx = (p1.x + p2.x) / 2;
+    const cy = (p1.y + p2.y) / 2;
+    elements.push(
+      <View
+        key={key}
+        style={{
+          position: 'absolute',
+          left: cx - len / 2,
+          top: cy - 0.5,
+          width: len,
+          height: 1,
+          backgroundColor: '#60A5FA',
+          opacity: 0.9,
+          transform: [{ rotate: `${angle}deg` }],
+        }}
+      />
+    );
+  }
+
+  for (const e of dxf.entities) {
+    if (entityIdx >= MAX_ENTITIES) break;
+    if (e.type === 'LINE') {
+      addLine(e.x1, e.y1, e.x2, e.y2, `l-${entityIdx}`);
+      entityIdx++;
+    } else if (e.type === 'LWPOLYLINE') {
+      const pts = e.closed ? [...e.points, e.points[0]] : e.points;
+      for (let i = 0; i < pts.length - 1 && entityIdx < MAX_ENTITIES; i++) {
+        addLine(pts[i].x, pts[i].y, pts[i + 1].x, pts[i + 1].y, `pl-${entityIdx}`);
+        entityIdx++;
+      }
+    } else if (e.type === 'CIRCLE') {
+      const pc = normalizeDxfPoint(e.cx, e.cy, dxf, PLAN_W, PLAN_H, 8);
+      const scaleX = (PLAN_W - 16) / dxf.width;
+      const scaleY = (PLAN_H - 16) / dxf.height;
+      const rPx = e.r * Math.min(scaleX, scaleY);
+      elements.push(
+        <View
+          key={`ci-${entityIdx}`}
+          style={{
+            position: 'absolute',
+            left: pc.x - rPx,
+            top: pc.y - rPx,
+            width: rPx * 2,
+            height: rPx * 2,
+            borderRadius: rPx,
+            borderWidth: 1,
+            borderColor: '#60A5FA',
+            opacity: 0.85,
+          }}
+        />
+      );
+      entityIdx++;
+    } else if (e.type === 'TEXT') {
+      const pt = normalizeDxfPoint(e.x, e.y, dxf, PLAN_W, PLAN_H, 8);
+      elements.push(
+        <Text
+          key={`tx-${entityIdx}`}
+          numberOfLines={1}
+          style={{
+            position: 'absolute',
+            left: pt.x,
+            top: pt.y - 5,
+            fontSize: 5,
+            fontFamily: 'Inter_400Regular',
+            color: '#93C5FD',
+            opacity: 0.85,
+          }}
+        >
+          {e.text}
+        </Text>
+      );
+      entityIdx++;
+    }
+  }
+
+  return (
+    <View style={{ position: 'absolute', top: 0, left: 0, width: PLAN_W, height: PLAN_H, pointerEvents: 'none' as any }}>
+      {elements}
+    </View>
+  );
+}
 
 function isPdf(uri?: string | null): boolean {
   if (!uri) return false;
@@ -160,6 +256,7 @@ export default function PlansScreen() {
   const [pendingCoords, setPendingCoords] = useState<{ x: number; y: number } | null>(null);
   const [importing, setImporting] = useState(false);
   const [showFilters, setShowFilters] = useState(false);
+  const [dxfData, setDxfData] = useState<Record<string, DxfParseResult>>({});
   const topPad = Platform.OS === 'web' ? 67 : insets.top;
 
   const scale = useRef(new Animated.Value(1)).current;
@@ -270,7 +367,7 @@ export default function PlansScreen() {
       const result = await DocumentPicker.getDocumentAsync({
         copyToCacheDirectory: true,
         multiple: false,
-        type: ['image/*', 'application/pdf'],
+        type: ['image/*', 'application/pdf', '*/*'],
       });
 
       if (!result.canceled && result.assets[0]) {
@@ -279,9 +376,27 @@ export default function PlansScreen() {
         const docExt = docName.split('.').pop()?.toLowerCase() ?? '';
         const isImg = isImage(docName);
         const isPdfFile = docExt === 'pdf';
+        const isDxf = docExt === 'dxf';
 
-        if (!isImg && !isPdfFile) {
-          Alert.alert('Format non supporté', 'Importez une image (JPG, PNG) ou un PDF.');
+        if (!isImg && !isPdfFile && !isDxf) {
+          Alert.alert('Format non supporté', 'Importez une image (JPG, PNG), un PDF ou un fichier AutoCAD (.dxf).');
+          return;
+        }
+
+        if (isDxf) {
+          const dxfResp = await fetch(asset.uri);
+          const dxfText = await dxfResp.text();
+          const parsed = parseDxf(dxfText);
+          if (parsed.entities.length === 0) {
+            Alert.alert('DXF vide', "Le fichier DXF ne contient aucune entité reconnue. Vérifiez qu'il s'agit d'un plan AutoCAD valide.");
+            return;
+          }
+          setDxfData(prev => ({ ...prev, [currentPlanId]: parsed }));
+          updateSitePlan({ ...currentPlan!, dxfName: docName, size: formatSize(asset.size) });
+          Alert.alert(
+            'Plan DXF importé ✓',
+            `${parsed.entities.length} entités chargées depuis "${docName}". Le plan vectoriel AutoCAD est maintenant affiché.`
+          );
           return;
         }
 
@@ -570,6 +685,10 @@ export default function PlansScreen() {
                       <Text style={styles.roomLabel} numberOfLines={2}>{room.label}</Text>
                     </View>
                   ))
+                )}
+
+                {currentPlanId && dxfData[currentPlanId] && (
+                  <DxfOverlay dxf={dxfData[currentPlanId]} />
                 )}
 
                 {planReserves.filter(r => r.planX != null && r.planY != null).map((r, idx) => (
