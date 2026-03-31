@@ -47,6 +47,7 @@ export default function PhotosScreen() {
     const note = sharePhoto.uri
       ? `La photo a été partagée dans « ${channel.name} » avec l'image.`
       : `Le commentaire a été partagé dans « ${channel.name} » (photo sans image disponible).`;
+    setShareModalVisible(false);
     Alert.alert('Partage effectué', note, [{ text: 'OK' }]);
   }
 
@@ -138,14 +139,18 @@ export default function PhotosScreen() {
       const filename = `photo_${Date.now()}.jpg`;
       const storageUrl = await uploadPhoto(pendingUri, filename);
 
-      let finalUri: string = storageUrl ?? pendingUri;
+      let finalUri: string | undefined = storageUrl ?? pendingUri;
 
-      if (!storageUrl && Platform.OS === 'web' && finalUri.startsWith('blob:')) {
+      if (!storageUrl && Platform.OS === 'web' && finalUri?.startsWith('blob:')) {
         try {
           finalUri = await blobUriToDataUri(finalUri);
         } catch {
-          // keep blob URI as fallback — it'll work for current session
+          finalUri = undefined;
         }
+      }
+
+      if (finalUri?.startsWith('blob:')) {
+        finalUri = undefined;
       }
 
       const newPhoto: Photo = {

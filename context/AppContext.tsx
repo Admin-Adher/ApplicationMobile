@@ -546,7 +546,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     } catch {}
     try {
       const sp = await AsyncStorage.getItem(MOCK_PHOTOS_KEY);
-      if (sp) photos = JSON.parse(sp);
+      if (sp) {
+        const parsed: Photo[] = JSON.parse(sp);
+        photos = parsed.map(p =>
+          p.uri?.startsWith('blob:') ? { ...p, uri: undefined } : p
+        );
+      }
     } catch {}
     try {
       const sm = await AsyncStorage.getItem(MOCK_MESSAGES_KEY);
@@ -1173,6 +1178,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         supabase.from('messages').insert(fromMessage(msg)).then(({ error }) => {
           if (error) console.warn('Erreur envoi message:', error.message);
         });
+      } else {
+        persistMockMessages([...stateRef.current.messages, msg]);
       }
       dispatch({ type: 'ADD_MESSAGE', payload: msg });
     },
@@ -1184,6 +1191,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         supabase.from('messages').delete().eq('id', id).then(({ error }) => {
           if (error) console.warn('Erreur suppression message:', error.message);
         });
+      } else {
+        persistMockMessages(stateRef.current.messages.filter(m => m.id !== id));
       }
       dispatch({ type: 'DELETE_MESSAGE', payload: id });
     },
@@ -1193,6 +1202,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         supabase.from('messages').update(fromMessage(msg)).eq('id', msg.id).then(({ error }) => {
           if (error) console.warn('Erreur mise à jour message:', error.message);
         });
+      } else {
+        persistMockMessages(stateRef.current.messages.map(m => m.id === msg.id ? msg : m));
       }
       dispatch({ type: 'UPDATE_MESSAGE', payload: msg });
     },
