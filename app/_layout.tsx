@@ -11,6 +11,8 @@ import { AppProvider } from '@/context/AppContext';
 import { AuthProvider, useAuth } from '@/context/AuthContext';
 import { SettingsProvider } from '@/context/SettingsContext';
 import { IncidentsProvider } from '@/context/IncidentsContext';
+import { PointageProvider } from '@/context/PointageContext';
+import { ReglementaireProvider } from '@/context/ReglementaireContext';
 import NotificationBanner from '@/components/NotificationBanner';
 
 SplashScreen.preventAutoHideAsync();
@@ -59,6 +61,8 @@ export default function RootLayout() {
       <AppProvider>
         <SettingsProvider>
           <IncidentsProvider>
+          <PointageProvider>
+          <ReglementaireProvider>
             <GestureHandlerRootView style={{ flex: 1 }}>
               <SafeAreaProvider>
                 <KeyboardProvider>
@@ -79,6 +83,8 @@ export default function RootLayout() {
                       <Stack.Screen name="incidents" options={{ headerShown: false }} />
                       <Stack.Screen name="search" options={{ headerShown: false }} />
                       <Stack.Screen name="settings" options={{ headerShown: false }} />
+                      <Stack.Screen name="pointage" options={{ headerShown: false }} />
+                      <Stack.Screen name="reglementaire" options={{ headerShown: false }} />
                       <Stack.Screen name="+not-found" />
                     </Stack>
                   </AuthGuard>
@@ -87,6 +93,8 @@ export default function RootLayout() {
                 </KeyboardProvider>
               </SafeAreaProvider>
             </GestureHandlerRootView>
+          </ReglementaireProvider>
+          </PointageProvider>
           </IncidentsProvider>
         </SettingsProvider>
       </AppProvider>

@@ -58,6 +58,8 @@ export default function MoreScreen() {
       { icon: 'checkbox', label: 'Checklists', subtitle: 'Contrôle qualité', route: '/checklist', color: '#06B6D4' },
       { icon: 'document-text', label: 'CR Réunions', subtitle: 'Comptes-rendus', route: '/meeting-report', color: '#7C3AED' },
       { icon: 'book', label: 'Journal chantier', subtitle: 'Journal officiel', route: '/journal', color: '#059669' },
+      { icon: 'time', label: 'Pointage horaire', subtitle: 'Arrivées & départs', route: '/pointage', color: '#0891B2' },
+      { icon: 'document-lock', label: 'Docs réglementaires', subtitle: 'PPSPS · DICT · DOE', route: '/reglementaire', color: '#BE185D' },
       { icon: 'settings', label: 'Paramètres', subtitle: 'Projet & présences', route: '/settings', color: C.textSub },
     ];
     if (permissions.canViewTeams) {

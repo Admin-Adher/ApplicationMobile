@@ -110,9 +110,18 @@ The Supabase schema is defined in `lib/schema.sql`. Run it in the Supabase SQL E
 - **`app/(tabs)/more.tsx`** — Ajout de 3 nouveaux modules dans la grille : Checklists (`/checklist`), CR Réunions (`/meeting-report`), Journal de chantier (`/journal`) — ces modules existaient mais n'étaient pas accessibles depuis le menu principal.
 - **`app/(tabs)/equipes.tsx`** — C4 : Les cartes de tâches affichent maintenant le nom court de l'entreprise (`shortName`) en plus du responsable, permettant d'identifier immédiatement à quelle entreprise appartient chaque tâche.
 
+**Session 8 (actuelle) — Points 5 et 10 de l'audit BTP :**
+- **`constants/types.ts`** — Ajout de `TimeEntry` (pointage horaire : nom ouvrier, entreprise, heure arrivée/départ, notes) et `RegulatoryDoc` + `RegDocType` + `RegDocStatus` (documents réglementaires PPSPS/DICT/DOE/Plan de prévention/DPAE/autre).
+- **`context/PointageContext.tsx`** (nouveau) — Contexte dédié au pointage horaire. Persistance AsyncStorage (`buildtrack_pointage_v1`). CRUD complet : `addEntry`, `updateEntry`, `deleteEntry`, `getEntriesForDate`.
+- **`context/ReglementaireContext.tsx`** (nouveau) — Contexte pour les documents réglementaires. Persistance AsyncStorage (`buildtrack_reglementaire_v1`). CRUD complet : `addDoc`, `updateDoc`, `deleteDoc`.
+- **`app/pointage.tsx`** (nouveau) — Module de pointage horaire : navigation jour par jour, KPIs (présents/partis/heures totales), filtres par entreprise, cartes avec heure arrivée/départ et calcul automatique des heures travaillées, bouton rapide "Départ", formulaire complet de saisie.
+- **`app/reglementaire.tsx`** (nouveau) — Module PPSPS/DICT/DOE : liste par catégorie de document réglementaire, indicateurs de statut (Valide/Expire bientôt/Expiré/Manquant/En cours), bannière d'alerte si documents expirés ou manquants, changement de statut en un tap, formulaire complet avec type/titre/entreprise/référence/dates d'émission et expiration.
+- **`app/_layout.tsx`** — Ajout des providers `PointageProvider` et `ReglementaireProvider`, et enregistrement des routes `pointage` et `reglementaire` dans la Stack.
+- **`app/(tabs)/more.tsx`** — Ajout des deux nouveaux modules dans la grille : "Pointage horaire" et "Docs réglementaires".
+
 ## Feature Completion (100%)
 
-All 11 planned modules are implemented:
+All 13 planned modules are implemented:
 1. **Réserves** — full CRUD, 5 statuses, comments, history, photo attachment on creation
 2. **Plans interactifs** — import PDF/image, pinning, zoom/pan, filter by company + filter by zone
 3. **Documents** — upload, categories, versioning, search

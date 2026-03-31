@@ -228,3 +228,34 @@ export interface JournalEntry {
   visitors: string;
   createdAt: string;
 }
+
+export interface TimeEntry {
+  id: string;
+  date: string;
+  companyId: string;
+  companyName: string;
+  companyColor: string;
+  workerName: string;
+  arrivalTime: string;
+  departureTime?: string;
+  notes?: string;
+  recordedBy: string;
+}
+
+export type RegDocType = 'ppsps' | 'dict' | 'doe' | 'plan_prevention' | 'declaration_prealable' | 'dpae' | 'autre';
+export type RegDocStatus = 'valid' | 'expiring' | 'expired' | 'missing' | 'in_progress';
+
+export interface RegulatoryDoc {
+  id: string;
+  type: RegDocType;
+  title: string;
+  company?: string;
+  reference?: string;
+  issueDate?: string;
+  expiryDate?: string;
+  status: RegDocStatus;
+  notes?: string;
+  uri?: string;
+  createdAt: string;
+  createdBy: string;
+}
