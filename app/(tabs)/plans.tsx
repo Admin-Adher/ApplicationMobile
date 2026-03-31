@@ -1,7 +1,7 @@
 import {
   View, Text, StyleSheet, TouchableOpacity, ScrollView, Platform,
   Modal, PanResponder, Animated, Image,
-  ActivityIndicator, Alert, Linking,
+  ActivityIndicator, Alert, Linking, TextInput,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -177,6 +177,117 @@ function formatSize(bytes: number | undefined): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)} Mo`;
 }
 
+const MINI_W = 90;
+const MINI_H = Math.round(MINI_W * PLAN_H / PLAN_W);
+
+interface PinCluster {
+  cx: number;
+  cy: number;
+  items: Reserve[];
+  dominantStatus: string;
+  number: number;
+}
+
+function computeClusters(reserves: Reserve[], scale: number, numberMap: Map<string, number>): PinCluster[] {
+  const threshold = 8.33 / Math.max(scale, 0.3);
+  const pins = reserves.filter(r => r.planX != null && r.planY != null);
+  const assigned = new Set<string>();
+  const clusters: PinCluster[] = [];
+  let clusterIdx = 0;
+
+  for (const r of pins) {
+    if (assigned.has(r.id)) continue;
+    const group: Reserve[] = [r];
+    assigned.add(r.id);
+    for (const r2 of pins) {
+      if (assigned.has(r2.id)) continue;
+      const d = Math.sqrt(Math.pow(r.planX! - r2.planX!, 2) + Math.pow(r.planY! - r2.planY!, 2));
+      if (d < threshold) { group.push(r2); assigned.add(r2.id); }
+    }
+    const cx = group.reduce((s, g) => s + g.planX!, 0) / group.length;
+    const cy = group.reduce((s, g) => s + g.planY!, 0) / group.length;
+    const dominantStatus = group.reduce((prev, cur) => {
+      const order: Record<string, number> = { open: 0, in_progress: 1, waiting: 2, verification: 3, closed: 4 };
+      return (order[cur.status] ?? 9) < (order[prev.status] ?? 9) ? cur : prev;
+    }).status;
+    clusters.push({ cx, cy, items: group, dominantStatus, number: numberMap.get(r.id) ?? (clusterIdx + 1) });
+    clusterIdx++;
+  }
+  return clusters;
+}
+
+function exportPlanPDF(planName: string, chantierName: string, reserves: Reserve[], numberMap: Map<string, number>) {
+  const STATUS_FR: Record<string, string> = {
+    open: 'Ouvert', in_progress: 'En cours', waiting: 'En attente',
+    verification: 'Vérification', closed: 'Clôturé',
+  };
+  const PRIORITY_FR: Record<string, string> = {
+    critical: '🔴 Critique', high: '🟠 Haute', medium: '🟡 Moyenne', low: '🟢 Basse',
+  };
+
+  const rows = reserves.map(r => {
+    const n = numberMap.get(r.id) ?? '—';
+    return `<tr>
+      <td style="text-align:center;font-weight:bold;">${n}</td>
+      <td>${r.title}</td>
+      <td>${r.company || '—'}</td>
+      <td>${r.level || '—'}</td>
+      <td>${STATUS_FR[r.status] || r.status}</td>
+      <td>${PRIORITY_FR[r.priority] || r.priority}</td>
+      <td>${r.deadline || '—'}</td>
+    </tr>`;
+  }).join('');
+
+  const html = `<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <title>Plan : ${planName}</title>
+  <style>
+    body { font-family: 'Arial', sans-serif; padding: 24px; color: #111; }
+    h1 { color: #003082; font-size: 22px; margin-bottom: 4px; }
+    .meta { color: #666; font-size: 13px; margin-bottom: 24px; }
+    table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    th { background: #003082; color: #fff; padding: 9px 10px; text-align: left; }
+    td { padding: 8px 10px; border-bottom: 1px solid #e5e7eb; vertical-align: top; }
+    tr:nth-child(even) td { background: #f8fafc; }
+    .footer { margin-top: 32px; font-size: 11px; color: #aaa; text-align: center; }
+    @media print { body { padding: 0; } }
+  </style>
+</head>
+<body>
+  <h1>Plan : ${planName}</h1>
+  <div class="meta">
+    Chantier : <strong>${chantierName}</strong> &nbsp;·&nbsp;
+    ${reserves.length} réserve${reserves.length !== 1 ? 's' : ''} &nbsp;·&nbsp;
+    Exporté le ${new Date().toLocaleDateString('fr-FR')}
+  </div>
+  <table>
+    <thead>
+      <tr><th>#</th><th>Titre</th><th>Entreprise</th><th>Niveau</th><th>Statut</th><th>Priorité</th><th>Échéance</th></tr>
+    </thead>
+    <tbody>${rows}</tbody>
+  </table>
+  <div class="footer">BuildTrack — Gestion de chantier numérique</div>
+</body>
+</html>`;
+
+  if (Platform.OS === 'web') {
+    const w = window.open('', '_blank');
+    if (w) {
+      w.document.write(html);
+      w.document.close();
+      setTimeout(() => w.print(), 400);
+    }
+  } else {
+    Alert.alert(
+      'Export PDF',
+      'L\'export PDF est disponible sur la version web. Ouvrez BuildTrack dans votre navigateur pour l\'utiliser.',
+      [{ text: 'OK' }]
+    );
+  }
+}
+
 function PlanImageLayer({ uri, isPdfFile }: { uri: string; isPdfFile: boolean }) {
   const [imgError, setImgError] = useState(false);
 
@@ -250,20 +361,35 @@ export default function PlansScreen() {
   );
 
   const [activePlanId, setActivePlanId] = useState<string | null>(null);
-  const currentPlanId = activePlanId ?? chantierPlans[0]?.id ?? null;
+
+  const [selectedBuilding, setSelectedBuilding] = useState<string>('all');
+  const buildings = useMemo(() => {
+    const b = Array.from(new Set(chantierPlans.map(p => p.building).filter(Boolean))) as string[];
+    return b.sort();
+  }, [chantierPlans]);
+  const filteredPlans = useMemo(() => {
+    if (selectedBuilding === 'all' || buildings.length < 2) return chantierPlans;
+    return chantierPlans.filter(p => (p.building ?? '') === selectedBuilding);
+  }, [chantierPlans, selectedBuilding, buildings]);
+
+  const currentPlanId = activePlanId ?? filteredPlans[0]?.id ?? chantierPlans[0]?.id ?? null;
   const currentPlan = chantierPlans.find(p => p.id === currentPlanId) ?? null;
 
   const [selected, setSelected] = useState<Reserve | null>(null);
+  const [statusFilter, setStatusFilter] = useState<string>('all');
   const [companyFilter, setCompanyFilter] = useState<string>('all');
   const [levelFilter, setLevelFilter] = useState<string>('all');
   const [addingMarker, setAddingMarker] = useState(false);
-  const [pendingCoords, setPendingCoords] = useState<{ x: number; y: number } | null>(null);
   const [importing, setImporting] = useState(false);
   const [showFilters, setShowFilters] = useState(false);
   const [dxfData, setDxfData] = useState<Record<string, DxfParseResult>>({});
   const [showLayers, setShowLayers] = useState(false);
   const [visibleLayers, setVisibleLayers] = useState<Record<string, string[]>>({});
   const [showQRModal, setShowQRModal] = useState<{ x: number; y: number } | null>(null);
+  const [displayScale, setDisplayScale] = useState(1);
+  const [newPlanModal, setNewPlanModal] = useState<{ visible: boolean; name: string; building: string; level: string }>({
+    visible: false, name: '', building: '', level: '',
+  });
   const topPad = Platform.OS === 'web' ? 67 : insets.top;
 
   const scale = useRef(new Animated.Value(1)).current;
@@ -281,14 +407,31 @@ export default function PlansScreen() {
     ? (DEMO_FLOOR_PLANS[currentPlanId] ?? GENERIC_FLOOR_PLAN)
     : GENERIC_FLOOR_PLAN;
 
+  const allPlanReserves = useMemo(
+    () => reserves.filter(r => r.planId === currentPlanId),
+    [reserves, currentPlanId]
+  );
+
+  const pinNumberMap = useMemo(() => {
+    const map = new Map<string, number>();
+    allPlanReserves.forEach((r, i) => map.set(r.id, i + 1));
+    return map;
+  }, [allPlanReserves]);
+
   const planReserves = useMemo(() => {
-    let list = reserves.filter(r => r.planId === currentPlanId);
+    let list = allPlanReserves;
+    if (statusFilter !== 'all') list = list.filter(r => r.status === statusFilter);
     if (companyFilter !== 'all') list = list.filter(r => r.company === companyFilter);
     if (levelFilter !== 'all') list = list.filter(r => r.level === levelFilter);
     return list;
-  }, [reserves, currentPlanId, companyFilter, levelFilter]);
+  }, [allPlanReserves, statusFilter, companyFilter, levelFilter]);
 
-  const activeFilters = [companyFilter, levelFilter].filter(f => f !== 'all').length;
+  const pinClusters = useMemo(
+    () => computeClusters(planReserves, displayScale, pinNumberMap),
+    [planReserves, displayScale, pinNumberMap]
+  );
+
+  const activeFilters = [statusFilter, companyFilter, levelFilter].filter(f => f !== 'all').length;
 
   const planLevels = useMemo(() => {
     const lvls = reserves.filter(r => r.planId === currentPlanId).map(r => r.level);
@@ -320,17 +463,20 @@ export default function PlansScreen() {
   function zoomIn() {
     const next = Math.min(lastScale.current * 1.3, 4);
     lastScale.current = next;
+    setDisplayScale(next);
     Animated.spring(scale, { toValue: next, useNativeDriver: true }).start();
   }
   function zoomOut() {
     const next = Math.max(lastScale.current / 1.3, 0.5);
     lastScale.current = next;
+    setDisplayScale(next);
     Animated.spring(scale, { toValue: next, useNativeDriver: true }).start();
   }
   function resetView() {
     lastScale.current = 1;
     committedTX.current = 0;
     committedTY.current = 0;
+    setDisplayScale(1);
     Animated.parallel([
       Animated.spring(scale, { toValue: 1, useNativeDriver: true }),
       Animated.spring(translateX, { toValue: 0, useNativeDriver: true }),
@@ -354,17 +500,25 @@ export default function PlansScreen() {
     if (locationX === undefined || locationY === undefined) return;
     const px = Math.min(100, Math.max(0, Math.round((locationX / PLAN_W) * 100)));
     const py = Math.min(100, Math.max(0, Math.round((locationY / PLAN_H) * 100)));
-    setPendingCoords({ x: px, y: py });
     setAddingMarker(false);
+    router.push({
+      pathname: '/reserve/new',
+      params: {
+        planId: currentPlanId ?? '',
+        chantierId: activeChantierId ?? '',
+        planX: String(px),
+        planY: String(py),
+      },
+    } as any);
   }
 
   function handleSelectPlan(planId: string) {
     setActivePlanId(planId);
     resetView();
     setAddingMarker(false);
-    setPendingCoords(null);
     setCompanyFilter('all');
     setLevelFilter('all');
+    setStatusFilter('all');
   }
 
   async function handleImportPlan() {
@@ -440,29 +594,22 @@ export default function PlansScreen() {
 
   function handleAddPlan() {
     if (!activeChantierId) return;
-    Alert.prompt(
-      'Nouveau plan',
-      'Nom du plan (ex : Bâtiment D — Niveau 2)',
-      [
-        { text: 'Annuler', style: 'cancel' },
-        {
-          text: 'Créer',
-          onPress: (name) => {
-            if (!name?.trim()) return;
-            const newPlan: SitePlan = {
-              id: genId(),
-              chantierId: activeChantierId,
-              name: name.trim(),
-              uploadedAt: new Date().toLocaleDateString('fr-FR'),
-            };
-            addSitePlan(newPlan);
-            setActivePlanId(newPlan.id);
-          },
-        },
-      ],
-      'plain-text',
-      ''
-    );
+    setNewPlanModal({ visible: true, name: '', building: '', level: '' });
+  }
+
+  function handleConfirmNewPlan() {
+    if (!activeChantierId || !newPlanModal.name.trim()) return;
+    const newPlan: SitePlan = {
+      id: genId(),
+      chantierId: activeChantierId,
+      name: newPlanModal.name.trim(),
+      building: newPlanModal.building.trim() || undefined,
+      level: newPlanModal.level.trim() || undefined,
+      uploadedAt: new Date().toLocaleDateString('fr-FR'),
+    };
+    addSitePlan(newPlan);
+    setActivePlanId(newPlan.id);
+    setNewPlanModal({ visible: false, name: '', building: '', level: '' });
   }
 
   if (!activeChantierId || chantierPlans.length === 0) {
@@ -539,17 +686,41 @@ export default function PlansScreen() {
           </View>
         </View>
 
+        {buildings.length >= 2 && (
+          <View style={styles.buildingHierarchyRow}>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 6, paddingHorizontal: 16 }}>
+              <TouchableOpacity
+                style={[styles.buildingHierarchyChip, selectedBuilding === 'all' && styles.buildingHierarchyChipActive]}
+                onPress={() => setSelectedBuilding('all')}
+              >
+                <Ionicons name="grid-outline" size={11} color={selectedBuilding === 'all' ? '#fff' : C.textSub} />
+                <Text style={[styles.buildingHierarchyChipText, selectedBuilding === 'all' && styles.buildingHierarchyChipTextActive]}>Tous</Text>
+              </TouchableOpacity>
+              {buildings.map(b => (
+                <TouchableOpacity
+                  key={b}
+                  style={[styles.buildingHierarchyChip, selectedBuilding === b && styles.buildingHierarchyChipActive]}
+                  onPress={() => { setSelectedBuilding(b); setActivePlanId(null); }}
+                >
+                  <Ionicons name="business-outline" size={11} color={selectedBuilding === b ? '#fff' : C.textSub} />
+                  <Text style={[styles.buildingHierarchyChipText, selectedBuilding === b && styles.buildingHierarchyChipTextActive]} numberOfLines={1}>{b}</Text>
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
+          </View>
+        )}
+
         <View style={styles.buildingBarRow}>
           <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ flex: 1 }}>
             <View style={styles.buildingRow}>
-              {chantierPlans.map(plan => (
+              {filteredPlans.map(plan => (
                 <TouchableOpacity
                   key={plan.id}
                   style={[styles.buildingBtn, currentPlanId === plan.id && styles.buildingBtnActive]}
                   onPress={() => handleSelectPlan(plan.id)}
                 >
                   <Text style={[styles.buildingText, currentPlanId === plan.id && styles.buildingTextActive]} numberOfLines={1}>
-                    {plan.name}
+                    {plan.level ? `${plan.level} — ${plan.name}` : plan.name}
                   </Text>
                   {plan.uri && <View style={styles.planDot} />}
                 </TouchableOpacity>
@@ -573,12 +744,43 @@ export default function PlansScreen() {
                 )}
               </TouchableOpacity>
             )}
-            {permissions.canCreate && Platform.OS !== 'web' && (
+            {permissions.canCreate && (
               <TouchableOpacity style={styles.addPlanBtn} onPress={handleAddPlan}>
                 <Ionicons name="add" size={16} color={C.textSub} />
               </TouchableOpacity>
             )}
           </View>
+        </View>
+
+        <View style={styles.statusFilterRow}>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 5, paddingHorizontal: 16, paddingVertical: 6 }}>
+            {[
+              { key: 'all', label: 'Tout', color: C.primary, icon: 'list-outline' },
+              { key: 'open', label: 'Ouvert', color: '#EF4444', icon: 'alert-circle' },
+              { key: 'in_progress', label: 'En cours', color: '#F59E0B', icon: 'time' },
+              { key: 'waiting', label: 'Attente', color: '#6B7280', icon: 'pause-circle' },
+              { key: 'verification', label: 'Vérif.', color: '#8B5CF6', icon: 'eye' },
+              { key: 'closed', label: 'Clôturé', color: '#10B981', icon: 'checkmark-circle' },
+            ].map(s => {
+              const isActive = statusFilter === s.key;
+              const count = s.key === 'all' ? allPlanReserves.length : allPlanReserves.filter(r => r.status === s.key).length;
+              return (
+                <TouchableOpacity
+                  key={s.key}
+                  style={[styles.statusChip, isActive && { backgroundColor: s.color + '20', borderColor: s.color }]}
+                  onPress={() => setStatusFilter(s.key)}
+                >
+                  <View style={[styles.statusChipDot, { backgroundColor: s.color }]} />
+                  <Text style={[styles.statusChipText, isActive && { color: s.color, fontFamily: 'Inter_600SemiBold' }]}>{s.label}</Text>
+                  {count > 0 && (
+                    <View style={[styles.statusChipCount, { backgroundColor: isActive ? s.color : C.border }]}>
+                      <Text style={[styles.statusChipCountText, isActive && { color: '#fff' }]}>{count}</Text>
+                    </View>
+                  )}
+                </TouchableOpacity>
+              );
+            })}
+          </ScrollView>
         </View>
       </View>
 
@@ -759,85 +961,106 @@ export default function PlansScreen() {
                   />
                 )}
 
-                {planReserves.filter(r => r.planX != null && r.planY != null).map((r, idx) => (
-                  <TouchableOpacity
-                    key={r.id}
-                    style={[styles.marker, {
-                      left: `${r.planX}%` as any,
-                      top: `${r.planY}%` as any,
-                      backgroundColor: STATUS_CONFIG[r.status].color,
-                    }]}
-                    onPressIn={() => { suppressNextPlanTapRef.current = true; }}
-                    onPress={() => setSelected(r)}
-                  >
-                    <Text style={styles.markerText}>{r.id.split('-')[1] ?? String(idx + 1)}</Text>
-                  </TouchableOpacity>
-                ))}
-
-                {pendingCoords && (
-                  <View
-                    style={[styles.pendingMarker, {
-                      left: `${pendingCoords.x}%` as any,
-                      top: `${pendingCoords.y}%` as any,
-                    }]}
-                  >
-                    <Ionicons name="add" size={12} color="#fff" />
-                  </View>
-                )}
+                {pinClusters.map((cluster, ci) => {
+                  const isCluster = cluster.items.length > 1;
+                  const color = STATUS_CONFIG[cluster.dominantStatus as keyof typeof STATUS_CONFIG]?.color ?? C.primary;
+                  return (
+                    <TouchableOpacity
+                      key={`cl-${ci}`}
+                      style={[
+                        isCluster ? styles.clusterMarker : styles.marker,
+                        {
+                          left: `${cluster.cx}%` as any,
+                          top: `${cluster.cy}%` as any,
+                          backgroundColor: color,
+                          width: isCluster ? 30 : 22,
+                          height: isCluster ? 30 : 22,
+                          borderRadius: isCluster ? 15 : 11,
+                          transform: isCluster
+                            ? [{ translateX: -15 }, { translateY: -15 }]
+                            : [{ translateX: -11 }, { translateY: -11 }],
+                        },
+                      ]}
+                      onPressIn={() => { suppressNextPlanTapRef.current = true; }}
+                      onPress={() => {
+                        if (isCluster) {
+                          setStatusFilter('all');
+                        } else {
+                          setSelected(cluster.items[0]);
+                        }
+                      }}
+                    >
+                      {isCluster ? (
+                        <View style={styles.clusterInner}>
+                          <Text style={styles.clusterText}>{cluster.items.length}</Text>
+                        </View>
+                      ) : (
+                        <Text style={styles.markerText}>{cluster.number}</Text>
+                      )}
+                    </TouchableOpacity>
+                  );
+                })}
               </View>
             </Animated.View>
+
+            {allPlanReserves.length > 0 && (
+              <View style={styles.miniMap} pointerEvents="none">
+                <View style={styles.miniMapInner}>
+                  {allPlanReserves.filter(r => r.planX != null && r.planY != null).map(r => {
+                    const color = STATUS_CONFIG[r.status as keyof typeof STATUS_CONFIG]?.color ?? C.primary;
+                    return (
+                      <View
+                        key={r.id}
+                        style={[styles.miniMapDot, {
+                          left: (r.planX! / 100) * MINI_W - 2,
+                          top: (r.planY! / 100) * MINI_H - 2,
+                          backgroundColor: color,
+                        }]}
+                      />
+                    );
+                  })}
+                  <View
+                    style={[styles.miniMapViewport, {
+                      left: Math.max(0, (-committedTX.current / displayScale) * (MINI_W / PLAN_W)),
+                      top: Math.max(0, (-committedTY.current / displayScale) * (MINI_H / PLAN_H)),
+                      width: Math.min(MINI_W, (MINI_W / displayScale)),
+                      height: Math.min(MINI_H, (MINI_H / displayScale)),
+                    }]}
+                  />
+                </View>
+              </View>
+            )}
           </View>
 
-          {pendingCoords && (
-            <View style={styles.pendingBanner}>
-              <Ionicons name="location-outline" size={14} color={C.inProgress} />
-              <Text style={styles.pendingText}>
-                Position sélectionnée ({pendingCoords.x}%, {pendingCoords.y}%)
-              </Text>
-              <TouchableOpacity
-                style={styles.pendingQrBtn}
-                onPress={() => setShowQRModal(pendingCoords)}
-              >
-                <Ionicons name="qr-code-outline" size={15} color={C.textSub} />
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={styles.pendingCreateBtn}
-                onPress={() => {
-                  router.push({
-                    pathname: '/reserve/new',
-                    params: {
-                      planId: currentPlanId ?? '',
-                      chantierId: activeChantierId ?? '',
-                      planX: String(pendingCoords.x),
-                      planY: String(pendingCoords.y),
-                    },
-                  } as any);
-                  setPendingCoords(null);
-                }}
-              >
-                <Text style={styles.pendingCreateText}>Créer la réserve</Text>
-                <Ionicons name="arrow-forward" size={13} color={C.primary} />
-              </TouchableOpacity>
-              <TouchableOpacity onPress={() => setPendingCoords(null)}>
-                <Ionicons name="close-circle" size={18} color={C.textMuted} />
-              </TouchableOpacity>
-            </View>
-          )}
         </View>
 
         {planReserves.length > 0 && (
           <View style={styles.listSection}>
-            <Text style={styles.listTitle}>
-              Réserves sur ce plan ({planReserves.length})
-            </Text>
-            {planReserves.map((r, idx) => (
+            <View style={styles.listTitleRow}>
+              <Text style={styles.listTitle}>
+                Réserves sur ce plan ({planReserves.length})
+              </Text>
+              <TouchableOpacity
+                style={styles.exportBtn}
+                onPress={() => exportPlanPDF(
+                  currentPlan?.name ?? 'Plan',
+                  activeChantier?.name ?? '',
+                  planReserves,
+                  pinNumberMap
+                )}
+              >
+                <Ionicons name="document-text-outline" size={13} color={C.primary} />
+                <Text style={styles.exportBtnText}>Export PDF</Text>
+              </TouchableOpacity>
+            </View>
+            {planReserves.map(r => (
               <TouchableOpacity
                 key={r.id}
                 style={styles.reserveRow}
                 onPress={() => router.push(`/reserve/${r.id}` as any)}
               >
                 <View style={[styles.pinBadge, { backgroundColor: STATUS_CONFIG[r.status].color }]}>
-                  <Text style={styles.pinBadgeText}>{r.id.split('-')[1] ?? String(idx + 1)}</Text>
+                  <Text style={styles.pinBadgeText}>{pinNumberMap.get(r.id) ?? '—'}</Text>
                 </View>
                 <View style={styles.reserveInfo}>
                   <Text style={styles.reserveTitle} numberOfLines={1}>{r.title}</Text>
@@ -891,7 +1114,7 @@ export default function PlansScreen() {
             <TouchableOpacity activeOpacity={1} style={styles.modalCard} onPress={() => {}}>
               <View style={styles.modalHeader}>
                 <View style={[styles.modalPin, { backgroundColor: STATUS_CONFIG[selected.status].color }]}>
-                  <Text style={styles.modalPinText}>{selected.id.split('-')[1] ?? '#'}</Text>
+                  <Text style={styles.modalPinText}>{pinNumberMap.get(selected.id) ?? '#'}</Text>
                 </View>
                 <View style={{ flex: 1 }}>
                   <Text style={styles.modalTitle} numberOfLines={2}>{selected.title}</Text>
@@ -962,6 +1185,68 @@ export default function PlansScreen() {
               </Text>
             </TouchableOpacity>
           )}
+        </TouchableOpacity>
+      </Modal>
+
+      <Modal visible={newPlanModal.visible} transparent animationType="fade" onRequestClose={() => setNewPlanModal(p => ({ ...p, visible: false }))}>
+        <TouchableOpacity style={styles.modalOverlay} activeOpacity={1} onPress={() => setNewPlanModal(p => ({ ...p, visible: false }))}>
+          <TouchableOpacity activeOpacity={1} style={styles.modalCard} onPress={() => {}}>
+            <View style={styles.modalHeader}>
+              <View style={[styles.modalPin, { backgroundColor: C.primary }]}>
+                <Ionicons name="map-outline" size={14} color="#fff" />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.modalTitle}>Nouveau plan</Text>
+                <Text style={styles.modalMeta}>Ajoutez un plan à ce chantier</Text>
+              </View>
+              <TouchableOpacity onPress={() => setNewPlanModal(p => ({ ...p, visible: false }))}>
+                <Ionicons name="close" size={20} color={C.textMuted} />
+              </TouchableOpacity>
+            </View>
+
+            <View style={styles.newPlanField}>
+              <Text style={styles.newPlanLabel}>Nom du plan *</Text>
+              <TextInput
+                style={styles.newPlanInput}
+                placeholder="ex : Plan électrique"
+                placeholderTextColor={C.textMuted}
+                value={newPlanModal.name}
+                onChangeText={v => setNewPlanModal(p => ({ ...p, name: v }))}
+                autoFocus
+              />
+            </View>
+            <View style={styles.newPlanRow}>
+              <View style={[styles.newPlanField, { flex: 1 }]}>
+                <Text style={styles.newPlanLabel}>Bâtiment</Text>
+                <TextInput
+                  style={styles.newPlanInput}
+                  placeholder="ex : Bât A"
+                  placeholderTextColor={C.textMuted}
+                  value={newPlanModal.building}
+                  onChangeText={v => setNewPlanModal(p => ({ ...p, building: v }))}
+                />
+              </View>
+              <View style={[styles.newPlanField, { flex: 1 }]}>
+                <Text style={styles.newPlanLabel}>Niveau</Text>
+                <TextInput
+                  style={styles.newPlanInput}
+                  placeholder="ex : RDC, R+1"
+                  placeholderTextColor={C.textMuted}
+                  value={newPlanModal.level}
+                  onChangeText={v => setNewPlanModal(p => ({ ...p, level: v }))}
+                />
+              </View>
+            </View>
+
+            <TouchableOpacity
+              style={[styles.modalOpenBtn, !newPlanModal.name.trim() && { opacity: 0.5 }]}
+              onPress={handleConfirmNewPlan}
+              disabled={!newPlanModal.name.trim()}
+            >
+              <Ionicons name="add-circle-outline" size={16} color={C.primary} />
+              <Text style={styles.modalOpenText}>Créer le plan</Text>
+            </TouchableOpacity>
+          </TouchableOpacity>
         </TouchableOpacity>
       </Modal>
     </View>
@@ -1154,5 +1439,106 @@ const styles = StyleSheet.create({
     color: C.textMuted,
     textAlign: 'center',
     lineHeight: 18,
+  },
+
+  buildingHierarchyRow: {
+    paddingVertical: 8,
+    borderBottomWidth: 1,
+    borderBottomColor: C.border,
+  },
+  buildingHierarchyChip: {
+    flexDirection: 'row', alignItems: 'center', gap: 5,
+    paddingHorizontal: 12, paddingVertical: 7,
+    borderRadius: 20, backgroundColor: C.surface2,
+    borderWidth: 1.5, borderColor: C.border,
+  },
+  buildingHierarchyChipActive: {
+    backgroundColor: C.primary, borderColor: C.primary,
+  },
+  buildingHierarchyChipText: {
+    fontSize: 12, fontFamily: 'Inter_600SemiBold', color: C.textSub,
+  },
+  buildingHierarchyChipTextActive: {
+    color: '#fff',
+  },
+
+  statusFilterRow: {
+    borderBottomWidth: 1, borderBottomColor: C.border,
+    backgroundColor: C.surface,
+  },
+  statusChip: {
+    flexDirection: 'row', alignItems: 'center', gap: 5,
+    paddingHorizontal: 9, paddingVertical: 5,
+    borderRadius: 16, backgroundColor: C.surface2,
+    borderWidth: 1, borderColor: C.border,
+  },
+  statusChipDot: { width: 6, height: 6, borderRadius: 3 },
+  statusChipText: { fontSize: 11, fontFamily: 'Inter_500Medium', color: C.textSub },
+  statusChipCount: {
+    minWidth: 16, height: 16, borderRadius: 8,
+    alignItems: 'center', justifyContent: 'center',
+    paddingHorizontal: 3, backgroundColor: C.border,
+  },
+  statusChipCountText: {
+    fontSize: 9, fontFamily: 'Inter_700Bold', color: C.textSub,
+  },
+
+  clusterMarker: {
+    position: 'absolute',
+    alignItems: 'center', justifyContent: 'center',
+    borderWidth: 2.5, borderColor: 'rgba(255,255,255,0.5)',
+    shadowColor: '#000', shadowOpacity: 0.45, shadowRadius: 4, elevation: 6,
+  },
+  clusterInner: { alignItems: 'center', justifyContent: 'center' },
+  clusterText: { fontSize: 11, fontFamily: 'Inter_700Bold', color: '#fff' },
+
+  miniMap: {
+    position: 'absolute',
+    bottom: 8, right: 8,
+    width: MINI_W + 4,
+    height: MINI_H + 4,
+    borderRadius: 6,
+    backgroundColor: 'rgba(15,24,37,0.80)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.15)',
+    padding: 2,
+  },
+  miniMapInner: {
+    width: MINI_W, height: MINI_H,
+    position: 'relative', overflow: 'hidden',
+  },
+  miniMapDot: {
+    position: 'absolute',
+    width: 4, height: 4, borderRadius: 2,
+  },
+  miniMapViewport: {
+    position: 'absolute',
+    borderWidth: 1,
+    borderColor: 'rgba(96,165,250,0.7)',
+    backgroundColor: 'rgba(96,165,250,0.08)',
+    borderRadius: 2,
+  },
+
+  listTitleRow: {
+    flexDirection: 'row', alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 10,
+  },
+  exportBtn: {
+    flexDirection: 'row', alignItems: 'center', gap: 5,
+    paddingHorizontal: 10, paddingVertical: 6,
+    borderRadius: 8, backgroundColor: C.primaryBg,
+    borderWidth: 1, borderColor: C.primary + '40',
+  },
+  exportBtnText: { fontSize: 11, fontFamily: 'Inter_600SemiBold', color: C.primary },
+
+  newPlanField: { gap: 5 },
+  newPlanRow: { flexDirection: 'row', gap: 10 },
+  newPlanLabel: { fontSize: 12, fontFamily: 'Inter_600SemiBold', color: C.textSub },
+  newPlanInput: {
+    backgroundColor: C.surface2, borderRadius: 10,
+    paddingHorizontal: 12, paddingVertical: 10,
+    fontSize: 14, fontFamily: 'Inter_400Regular',
+    color: C.text, borderWidth: 1, borderColor: C.border,
   },
 });
