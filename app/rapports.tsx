@@ -447,7 +447,7 @@ export default function RapportsScreen() {
 
           {permissions.canExport && (
             <TouchableOpacity style={styles.fullExportBtn} onPress={exportCSV}>
-              <Ionicons name="table-outline" size={16} color="#fff" />
+              <Ionicons name="document-outline" size={16} color="#fff" />
               <Text style={styles.fullExportBtnText}>Exporter toutes les réserves (CSV)</Text>
             </TouchableOpacity>
           )}

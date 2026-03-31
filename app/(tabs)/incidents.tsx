@@ -528,7 +528,7 @@ const styles = StyleSheet.create({
 
   filtersWrap: { borderBottomWidth: 1, borderBottomColor: C.border, paddingBottom: 6 },
   filterRowLabeled: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingTop: 8 },
-  filterRowLabel: { fontSize: 11, fontFamily: 'Inter_600SemiBold', color: C.textMuted, width: 44, textTransform: 'uppercase', letterSpacing: 0.3 },
+  filterRowLabel: { fontSize: 11, fontFamily: 'Inter_600SemiBold', color: C.textMuted, minWidth: 56, textTransform: 'uppercase', letterSpacing: 0.3 },
   filterChips: { flexDirection: 'row', gap: 6, alignItems: 'center' },
   fChip: {
     flexDirection: 'row', alignItems: 'center', gap: 4,

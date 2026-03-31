@@ -143,6 +143,22 @@ export default function NewTaskScreen() {
             value={assignee}
             onChangeText={setAssignee}
           />
+          {companies.length > 0 && (
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginTop: -4, marginBottom: 12 }}>
+              <View style={{ flexDirection: 'row', gap: 6 }}>
+                {companies.map(c => (
+                  <TouchableOpacity
+                    key={c.id}
+                    style={[styles.assigneeChip, assignee === c.name && { backgroundColor: C.primaryBg, borderColor: C.primary }]}
+                    onPress={() => setAssignee(c.name)}
+                  >
+                    <View style={[styles.assigneeDot, { backgroundColor: c.color }]} />
+                    <Text style={[styles.assigneeChipText, assignee === c.name && { color: C.primary }]}>{c.shortName}</Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            </ScrollView>
+          )}
 
           <Text style={styles.label}>Entreprise</Text>
           <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 16 }}>
@@ -240,4 +256,7 @@ const styles = StyleSheet.create({
   optionLabel: { fontSize: 13, fontFamily: 'Inter_500Medium', color: C.textSub },
   saveBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, backgroundColor: C.primary, borderRadius: 14, paddingVertical: 16, marginTop: 4 },
   saveBtnText: { fontSize: 16, fontFamily: 'Inter_600SemiBold', color: '#fff' },
+  assigneeChip: { flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: 12, paddingVertical: 6, borderRadius: 16, backgroundColor: C.surface2, borderWidth: 1, borderColor: C.border },
+  assigneeChipText: { fontSize: 12, fontFamily: 'Inter_500Medium', color: C.textSub },
+  assigneeDot: { width: 7, height: 7, borderRadius: 4 },
 });

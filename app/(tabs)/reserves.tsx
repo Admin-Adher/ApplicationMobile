@@ -121,11 +121,6 @@ export default function ReservesScreen() {
               {isLoading ? 'Chargement…' : `${filtered.length} / ${reserves.length} réserve${reserves.length !== 1 ? 's' : ''}${overdueCount > 0 ? ` · ${overdueCount} en retard` : ''}`}
             </Text>
           </View>
-          {permissions.canCreate && (
-            <TouchableOpacity style={styles.addBtn} onPress={() => router.push('/reserve/new' as any)}>
-              <Ionicons name="add" size={22} color="#fff" />
-            </TouchableOpacity>
-          )}
         </View>
 
         <View style={styles.searchWrap}>
@@ -371,13 +366,9 @@ const styles = StyleSheet.create({
     borderBottomColor: C.border,
     backgroundColor: C.surface,
   },
-  headerRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 },
+  headerRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 12 },
   title: { fontSize: 22, fontFamily: 'Inter_700Bold', color: C.text },
   subtitle: { fontSize: 12, fontFamily: 'Inter_400Regular', color: C.textSub, marginTop: 2 },
-  addBtn: {
-    backgroundColor: C.primary, width: 40, height: 40, borderRadius: 12,
-    alignItems: 'center', justifyContent: 'center',
-  },
   searchWrap: {
     flexDirection: 'row', alignItems: 'center', gap: 8,
     backgroundColor: C.surface2, borderRadius: 10, paddingHorizontal: 12,

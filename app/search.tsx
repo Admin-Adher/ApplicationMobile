@@ -100,12 +100,33 @@ export default function SearchScreen() {
       </View>
 
       {!hasQuery && (
-        <View style={styles.hint}>
+        <View style={styles.emptyState}>
           <Ionicons name="search-circle-outline" size={56} color={C.border} />
           <Text style={styles.hintTitle}>Recherche unifiée</Text>
           <Text style={styles.hintText}>
             Tapez au moins 2 caractères pour chercher dans les réserves, tâches, documents et incidents.
           </Text>
+          <View style={styles.shortcutsWrap}>
+            <Text style={styles.shortcutsLabel}>Suggestions rapides</Text>
+            <View style={styles.shortcutsRow}>
+              {[
+                { icon: 'warning', label: 'Réserves ouvertes', q: 'ouvert', color: C.open },
+                { icon: 'calendar', label: 'Planning', q: 'en cours', color: C.inProgress },
+                { icon: 'folder-open', label: 'Plans', q: 'plan', color: C.closed },
+                { icon: 'shield', label: 'Sécurité', q: 'incident', color: '#EF4444' },
+              ].map(s => (
+                <TouchableOpacity
+                  key={s.q}
+                  style={[styles.shortcutChip, { borderColor: s.color + '50' }]}
+                  onPress={() => setQuery(s.q)}
+                  activeOpacity={0.75}
+                >
+                  <Ionicons name={s.icon as any} size={13} color={s.color} />
+                  <Text style={[styles.shortcutText, { color: s.color }]}>{s.label}</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+          </View>
         </View>
       )}
 
@@ -263,9 +284,15 @@ const styles = StyleSheet.create({
   },
   searchInput: { flex: 1, fontSize: 15, fontFamily: 'Inter_400Regular', color: C.text },
 
-  hint: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 32, gap: 12 },
+  emptyState: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 32, gap: 12 },
   hintTitle: { fontSize: 17, fontFamily: 'Inter_600SemiBold', color: C.text },
   hintText: { fontSize: 14, fontFamily: 'Inter_400Regular', color: C.textMuted, textAlign: 'center', maxWidth: 280, lineHeight: 20 },
+  shortcutsWrap: { width: '100%', marginTop: 8 },
+  shortcutsLabel: { fontSize: 11, fontFamily: 'Inter_600SemiBold', color: C.textMuted, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 10, textAlign: 'center' },
+  shortcutsRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, justifyContent: 'center' },
+  shortcutChip: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 14, paddingVertical: 9, borderRadius: 20, backgroundColor: C.surface, borderWidth: 1.5 },
+  shortcutText: { fontSize: 13, fontFamily: 'Inter_500Medium' },
+  hint: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 32, gap: 12 },
 
   results: { paddingHorizontal: 16, paddingBottom: 24 },
 
