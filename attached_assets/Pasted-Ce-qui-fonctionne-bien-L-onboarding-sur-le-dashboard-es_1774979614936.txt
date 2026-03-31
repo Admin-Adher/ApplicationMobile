@@ -1,0 +1,34 @@
+Ce qui fonctionne bien :
+
+L'onboarding sur le dashboard est clair : si aucun chantier n'existe, le CTA "Nouveau chantier" est immédiat
+Le flux Plan → Poser un marqueur → Créer réserve est cohérent et naturel pour le terrain
+Les données mock (Projet Horizon + 3 plans + 8 réserves) permettent de comprendre tout de suite la logique sans partir de zéro
+Ce qui peut sembler moins évident :
+
+Changer de chantier actif est enterré dans "Plus → Chantiers". Un utilisateur qui gère plusieurs chantiers pourrait ne pas trouver ça facilement. Une façon de l'améliorer serait un sélecteur de chantier actif visible dans le header du dashboard ou de l'onglet Plans.
+
+L'onglet Réserves liste toutes les réserves de tous les chantiers sans filtre chantier visible en haut. Un utilisateur multi-chantiers pourrait s'y perdre.
+
+Le formulaire "Nouvelle réserve" a encore le sélecteur "Bâtiment A/B/C" (l'ancien système) visible en plus du nouveau sélecteur de plan. C'est redondant et peut prêter à confusion.
+
+Depuis l'onglet Plans, si un utilisateur veut créer une réserve sans placer de marqueur (juste la signaler), il doit aller dans l'onglet Réserves ou utiliser le bouton "Ajouter une réserve" en bas de l'écran Plans — c'est correct mais pas très visible.
+
+En résumé : Le tunnel principal (créer un chantier → voir ses plans → poser un pin → créer la réserve) est logique. Les points à améliorer sont surtout la visibilité du sélecteur de chantier actif et la suppression du champ "Bâtiment" redondant dans le formulaire de réserve.
+
+Voulez-vous que je corrige ces points ?
+
+Oui corrige ces points
+
+Je redémarre l'app et lis les fichiers en parallèle pour préparer les corrections :
+
+Je vais corriger les 4 points en parallèle. D'abord je lis les sections restantes :
+
+J'applique les 3 corrections en parallèle :
+
+Correction 1 — Sélecteur de chantier visible dans le header du dashboard :
+
+Maintenant j'ajoute les styles du pill chantier dans index.tsx et je travaille sur reserves.tsx :
+
+You've reached your daily free quota limit. It will reset at 12:00 AM UTC.
+
+You're out of credits. 

@@ -313,7 +313,9 @@ export default function NewReserveScreen() {
         )}
 
         <View style={styles.card}>
-          <SelectRow label="Bâtiment" options={RESERVE_BUILDINGS} value={building} onChange={setBuilding} />
+          {!effectiveChantierId && (
+            <SelectRow label="Bâtiment" options={RESERVE_BUILDINGS} value={building} onChange={setBuilding} />
+          )}
           <SelectRow label="Zone" options={RESERVE_ZONES} value={zone} onChange={setZone} />
           <SelectRow label="Niveau" options={RESERVE_LEVELS} value={level} onChange={setLevel} />
         </View>

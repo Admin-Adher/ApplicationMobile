@@ -108,9 +108,24 @@ export default function DashboardScreen() {
           </View>
         </View>
         <View style={styles.headerRight}>
-          <View style={styles.projectBadge}>
-            <Text style={styles.projectText} numberOfLines={1}>{projectName}</Text>
-          </View>
+          {activeChantier ? (
+            <TouchableOpacity
+              style={styles.chantierPill}
+              onPress={() => router.push('/chantier/manage' as any)}
+            >
+              <View style={styles.chantierPillDot} />
+              <Text style={styles.chantierPillText} numberOfLines={1}>{activeChantier.name}</Text>
+              <Ionicons name="chevron-down" size={11} color={C.primary} />
+            </TouchableOpacity>
+          ) : (
+            <TouchableOpacity
+              style={styles.chantierPillEmpty}
+              onPress={() => router.push('/chantier/new' as any)}
+            >
+              <Ionicons name="add" size={13} color={C.textMuted} />
+              <Text style={styles.chantierPillEmptyText}>Chantier</Text>
+            </TouchableOpacity>
+          )}
         </View>
       </View>
 
