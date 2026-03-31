@@ -3,6 +3,8 @@ export type ReservePriority = 'low' | 'medium' | 'high' | 'critical';
 export type TaskStatus = 'todo' | 'in_progress' | 'done' | 'delayed';
 export type DocumentType = 'plan' | 'report' | 'technical' | 'photo' | 'other';
 export type UserRole = 'admin' | 'conducteur' | 'chef_equipe' | 'observateur';
+export type IncidentSeverity = 'minor' | 'moderate' | 'major' | 'critical';
+export type IncidentStatus = 'open' | 'investigating' | 'resolved';
 
 export interface User {
   id: string;
@@ -45,6 +47,7 @@ export interface Reserve {
   planX?: number;
   planY?: number;
   photoUri?: string;
+  linkedTaskId?: string;
 }
 
 export interface Company {
@@ -70,6 +73,7 @@ export interface Task {
   assignee: string;
   progress: number;
   company: string;
+  reserveId?: string;
 }
 
 export interface Document {
@@ -131,4 +135,29 @@ export interface Profile {
   role: UserRole;
   roleLabel: string;
   email: string;
+}
+
+export interface Incident {
+  id: string;
+  title: string;
+  description: string;
+  severity: IncidentSeverity;
+  location: string;
+  building: string;
+  reportedAt: string;
+  reportedBy: string;
+  status: IncidentStatus;
+  witnesses: string;
+  actions: string;
+}
+
+export interface AttendanceRecord {
+  id: string;
+  date: string;
+  companyId: string;
+  companyName: string;
+  companyColor: string;
+  workers: number;
+  hoursWorked: number;
+  savedBy: string;
 }

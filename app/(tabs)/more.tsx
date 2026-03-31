@@ -6,6 +6,8 @@ import { useMemo } from 'react';
 import { C } from '@/constants/colors';
 import { useApp } from '@/context/AppContext';
 import { useAuth } from '@/context/AuthContext';
+import { useSettings } from '@/context/SettingsContext';
+import { useIncidents } from '@/context/IncidentsContext';
 
 const ROLE_COLORS: Record<string, string> = {
   admin: '#8B5CF6',
@@ -28,9 +30,12 @@ export default function MoreScreen() {
   const router = useRouter();
   const { documents, photos, tasks, companies } = useApp();
   const { user, logout, permissions } = useAuth();
+  const { projectName } = useSettings();
+  const { incidents } = useIncidents();
   const topPad = Platform.OS === 'web' ? 67 : insets.top;
 
   const delayedCount = useMemo(() => tasks.filter(t => t.status === 'delayed').length, [tasks]);
+  const openIncidentsCount = useMemo(() => incidents.filter(i => i.status !== 'resolved').length, [incidents]);
   const recentDocsCount = useMemo(() => {
     const sevenDaysAgo = new Date();
     sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
@@ -48,12 +53,15 @@ export default function MoreScreen() {
       { icon: 'calendar', label: 'Planning', subtitle: `${tasks.length} tâches`, route: '/planning', color: C.closed, badge: delayedCount || undefined },
       { icon: 'camera', label: 'Photos', subtitle: `${photos.length} photos`, route: '/photos', color: C.medium },
       { icon: 'document-text', label: 'Rapports', subtitle: 'Journalier, hebdo', route: '/rapports', color: C.verification },
+      { icon: 'shield', label: 'Sécurité', subtitle: `${incidents.length} incidents`, route: '/incidents', color: C.open, badge: openIncidentsCount || undefined },
+      { icon: 'search', label: 'Recherche', subtitle: 'Tout le chantier', route: '/search', color: '#8B5CF6' },
+      { icon: 'settings', label: 'Paramètres', subtitle: 'Projet & présences', route: '/settings', color: C.textSub },
     ];
     if (permissions.canViewTeams) {
       items.push({ icon: 'people', label: 'Équipes', subtitle: `${companies.length} entreprises`, route: '/(tabs)/equipes', color: '#EC4899' });
     }
     return items;
-  }, [documents.length, tasks.length, photos.length, companies.length, delayedCount, recentDocsCount, permissions.canViewTeams]);
+  }, [documents.length, tasks.length, photos.length, companies.length, incidents.length, delayedCount, recentDocsCount, openIncidentsCount, permissions.canViewTeams]);
 
   function handleLogout() {
     Alert.alert('Déconnexion', 'Voulez-vous vous déconnecter ?', [
@@ -145,7 +153,7 @@ export default function MoreScreen() {
             <Text style={styles.infoTitle}>BuildTrack</Text>
           </View>
           <Text style={styles.infoText}>Application de gestion de chantier numérique — Type Dalux</Text>
-          <Text style={styles.infoVersion}>Version 1.0.0 — Projet Horizon</Text>
+          <Text style={styles.infoVersion}>Version 1.0.0 — {projectName}</Text>
         </View>
 
         <TouchableOpacity style={styles.logoutFullBtn} onPress={handleLogout}>

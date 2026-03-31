@@ -1,6 +1,6 @@
 import { View, Text, StyleSheet, ScrollView, TextInput, TouchableOpacity, Alert } from 'react-native';
 import { useState } from 'react';
-import { useRouter } from 'expo-router';
+import { useRouter, useLocalSearchParams } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { C } from '@/constants/colors';
 import { useApp } from '@/context/AppContext';
@@ -27,17 +27,24 @@ const PRIORITY_OPTS: { value: ReservePriority; label: string; color: string }[] 
 
 export default function NewTaskScreen() {
   const router = useRouter();
-  const { addTask, companies } = useApp();
+  const { reserveId } = useLocalSearchParams<{ reserveId?: string }>();
+  const { addTask, reserves, updateReserveFields, companies } = useApp();
   const { user, permissions } = useAuth();
 
-  const [title, setTitle] = useState('');
-  const [description, setDescription] = useState('');
+  const sourceReserve = reserveId ? reserves.find(r => r.id === reserveId) : null;
+
+  const [title, setTitle] = useState(sourceReserve ? `Lever : ${sourceReserve.title}` : '');
+  const [description, setDescription] = useState(sourceReserve?.description ?? '');
   const [status, setStatus] = useState<TaskStatus>('todo');
-  const [priority, setPriority] = useState<ReservePriority>('medium');
+  const [priority, setPriority] = useState<ReservePriority>(sourceReserve?.priority ?? 'medium');
   const [startDate, setStartDate] = useState('');
-  const [deadline, setDeadline] = useState('');
+  const [deadline, setDeadline] = useState(
+    sourceReserve?.deadline && sourceReserve.deadline !== '—' ? sourceReserve.deadline : ''
+  );
   const [assignee, setAssignee] = useState(user?.name ?? '');
-  const [company, setCompany] = useState(companies[0]?.id ?? '');
+  const [company, setCompany] = useState(
+    companies.find(c => c.name === sourceReserve?.company)?.id ?? companies[0]?.id ?? ''
+  );
   const [progress, setProgress] = useState('0');
 
   if (!permissions.canCreate) {

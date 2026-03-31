@@ -6,6 +6,7 @@ import { useState, useCallback } from 'react';
 import { C } from '@/constants/colors';
 import { useApp } from '@/context/AppContext';
 import { useAuth } from '@/context/AuthContext';
+import { useSettings } from '@/context/SettingsContext';
 import { parseDeadline, isOverdue } from '@/lib/reserveUtils';
 import { Task } from '@/constants/types';
 
@@ -65,6 +66,7 @@ export default function DashboardScreen() {
   const router = useRouter();
   const { stats, reserves, companies, tasks, reload } = useApp();
   const { user } = useAuth();
+  const { projectName } = useSettings();
   const topPad = Platform.OS === 'web' ? 67 : insets.top;
   const [refreshing, setRefreshing] = useState(false);
 
@@ -109,7 +111,7 @@ export default function DashboardScreen() {
             </View>
           )}
           <View style={styles.projectBadge}>
-            <Text style={styles.projectText}>Projet Horizon</Text>
+            <Text style={styles.projectText}>{projectName}</Text>
           </View>
         </View>
       </View>

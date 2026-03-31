@@ -45,6 +45,14 @@ function buildDailyHTML(reserves: any[], companies: any[], tasks: any[], stats: 
   <h2>Tâches en cours</h2>
   <table><thead><tr><th>Tâche</th><th>Responsable</th><th>Avancement</th><th>Échéance</th></tr></thead>
   <tbody>${taskRows || '<tr><td colspan="4">Aucune tâche en cours</td></tr>'}</tbody></table>
+  <h2>Réserves actives</h2>
+  <table><thead><tr><th>ID</th><th>Titre</th><th>Bâtiment</th><th>Entreprise</th><th>Priorité</th><th>Statut</th><th>Échéance</th></tr></thead>
+  <tbody>${reserves.filter((r: any) => r.status !== 'closed').map((r: any) => {
+    const priorityLabels: Record<string, string> = { low: 'Basse', medium: 'Moyenne', high: 'Haute', critical: 'Critique' };
+    const statusLabels: Record<string, string> = { open: 'Ouvert', in_progress: 'En cours', waiting: 'En attente', verification: 'Vérification' };
+    const pColor: Record<string, string> = { low: '#6B7280', medium: '#F59E0B', high: '#EF4444', critical: '#7F1D1D' };
+    return `<tr><td><strong>${r.id}</strong></td><td>${r.title}</td><td>Bât. ${r.building} — ${r.level}</td><td>${r.company}</td><td style="color:${pColor[r.priority] || '#000'};font-weight:bold">${priorityLabels[r.priority] || r.priority}</td><td>${statusLabels[r.status] || r.status}</td><td>${r.deadline}</td></tr>`;
+  }).join('') || '<tr><td colspan="7">Aucune réserve active</td></tr>'}</tbody></table>
   </body></html>`;
 }
 

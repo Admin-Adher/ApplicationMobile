@@ -16,7 +16,7 @@ import StatusBadge from '@/components/StatusBadge';
 import { STATUS_CONFIG } from '@/components/StatusBadge';
 import PriorityBadge from '@/components/PriorityBadge';
 import { uploadDocument } from '@/lib/storage';
-import { RESERVE_BUILDINGS } from '@/lib/reserveUtils';
+import { RESERVE_BUILDINGS, RESERVE_LEVELS } from '@/lib/reserveUtils';
 
 interface Room {
   id: string; label: string;
@@ -141,6 +141,7 @@ export default function PlansScreen() {
   const [selected, setSelected] = useState<Reserve | null>(null);
   const [companyFilter, setCompanyFilter] = useState<string>('all');
   const [zoneFilter, setZoneFilter] = useState<string>('all');
+  const [levelFilter, setLevelFilter] = useState<string>('all');
   const [addingMarker, setAddingMarker] = useState(false);
   const [pendingCoords, setPendingCoords] = useState<{ x: number; y: number } | null>(null);
   const [importing, setImporting] = useState(false);
@@ -171,6 +172,9 @@ export default function PlansScreen() {
   }
   if (zoneFilter !== 'all') {
     buildingReserves = buildingReserves.filter(r => r.zone === zoneFilter);
+  }
+  if (levelFilter !== 'all') {
+    buildingReserves = buildingReserves.filter(r => r.level === levelFilter);
   }
 
   const activePlan: Document | null = useMemo(() => {
@@ -331,7 +335,7 @@ export default function PlansScreen() {
                 <TouchableOpacity
                   key={b}
                   style={[styles.buildingBtn, building === b && styles.buildingBtnActive]}
-                  onPress={() => { setBuilding(b); resetView(); setAddingMarker(false); setPendingCoords(null); setZoneFilter('all'); }}
+                  onPress={() => { setBuilding(b); resetView(); setAddingMarker(false); setPendingCoords(null); setZoneFilter('all'); setLevelFilter('all'); }}
                 >
                   <Text style={[styles.buildingText, building === b && styles.buildingTextActive]}>Bât. {b}</Text>
                   {documents.some(d => d.category === `Plan-${b}` && d.type === 'plan') && (
@@ -403,6 +407,27 @@ export default function PlansScreen() {
           </ScrollView>
         </View>
       )}
+
+      <View style={styles.zoneFilterWrap}>
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 6, paddingHorizontal: 16 }}>
+          <TouchableOpacity
+            style={[styles.filterChip, levelFilter === 'all' && styles.levelChipActive]}
+            onPress={() => setLevelFilter('all')}
+          >
+            <Ionicons name="albums-outline" size={11} color={levelFilter === 'all' ? '#8B5CF6' : C.textMuted} />
+            <Text style={[styles.filterChipText, levelFilter === 'all' && { color: '#8B5CF6' }]}>Tous niveaux</Text>
+          </TouchableOpacity>
+          {RESERVE_LEVELS.map(lvl => (
+            <TouchableOpacity
+              key={lvl}
+              style={[styles.filterChip, levelFilter === lvl && styles.levelChipActive]}
+              onPress={() => setLevelFilter(levelFilter === lvl ? 'all' : lvl)}
+            >
+              <Text style={[styles.filterChipText, levelFilter === lvl && { color: '#8B5CF6' }]}>{lvl}</Text>
+            </TouchableOpacity>
+          ))}
+        </ScrollView>
+      </View>
 
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
         <View style={styles.planContainer}>

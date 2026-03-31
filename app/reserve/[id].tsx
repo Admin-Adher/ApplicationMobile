@@ -60,7 +60,7 @@ function ChipSelect<T extends string>({
 export default function ReserveDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
-  const { reserves, updateReserveStatus, updateReserveFields, deleteReserve, addComment, companies, channels } = useApp();
+  const { reserves, tasks, updateReserveStatus, updateReserveFields, deleteReserve, addComment, companies, channels } = useApp();
   const { user, permissions } = useAuth();
   const [comment, setComment] = useState('');
   const [showCommentBox, setShowCommentBox] = useState(false);

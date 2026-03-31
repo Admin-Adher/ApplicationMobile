@@ -9,6 +9,8 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { KeyboardProvider } from 'react-native-keyboard-controller';
 import { AppProvider } from '@/context/AppContext';
 import { AuthProvider, useAuth } from '@/context/AuthContext';
+import { SettingsProvider } from '@/context/SettingsContext';
+import { IncidentsProvider } from '@/context/IncidentsContext';
 import NotificationBanner from '@/components/NotificationBanner';
 
 SplashScreen.preventAutoHideAsync();
@@ -55,33 +57,39 @@ export default function RootLayout() {
   return (
     <AuthProvider>
       <AppProvider>
-        <GestureHandlerRootView style={{ flex: 1 }}>
-          <SafeAreaProvider>
-            <KeyboardProvider>
-              <AuthGuard>
-                <Stack>
-                  <Stack.Screen name="login" options={{ headerShown: false }} />
-                  <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
-                  <Stack.Screen name="reserve/[id]" options={{ headerShown: false }} />
-                  <Stack.Screen name="reserve/new" options={{ headerShown: false }} />
-                  <Stack.Screen name="documents" options={{ headerShown: false }} />
-                  <Stack.Screen name="planning" options={{ headerShown: false }} />
-                  <Stack.Screen name="task/new" options={{ headerShown: false }} />
-                  <Stack.Screen name="task/[id]" options={{ headerShown: false }} />
-                  <Stack.Screen name="photos" options={{ headerShown: false }} />
-                  <Stack.Screen name="rapports" options={{ headerShown: false }} />
-                  <Stack.Screen name="messages" options={{ headerShown: false }} />
-                  <Stack.Screen name="channel/[id]" options={{ headerShown: false }} />
-                  <Stack.Screen name="+not-found" />
-                </Stack>
-              </AuthGuard>
-              <NotificationBanner />
-              <StatusBar style="light" />
-            </KeyboardProvider>
-          </SafeAreaProvider>
-        </GestureHandlerRootView>
+        <SettingsProvider>
+          <IncidentsProvider>
+            <GestureHandlerRootView style={{ flex: 1 }}>
+              <SafeAreaProvider>
+                <KeyboardProvider>
+                  <AuthGuard>
+                    <Stack>
+                      <Stack.Screen name="login" options={{ headerShown: false }} />
+                      <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+                      <Stack.Screen name="reserve/[id]" options={{ headerShown: false }} />
+                      <Stack.Screen name="reserve/new" options={{ headerShown: false }} />
+                      <Stack.Screen name="documents" options={{ headerShown: false }} />
+                      <Stack.Screen name="planning" options={{ headerShown: false }} />
+                      <Stack.Screen name="task/new" options={{ headerShown: false }} />
+                      <Stack.Screen name="task/[id]" options={{ headerShown: false }} />
+                      <Stack.Screen name="photos" options={{ headerShown: false }} />
+                      <Stack.Screen name="rapports" options={{ headerShown: false }} />
+                      <Stack.Screen name="messages" options={{ headerShown: false }} />
+                      <Stack.Screen name="channel/[id]" options={{ headerShown: false }} />
+                      <Stack.Screen name="incidents" options={{ headerShown: false }} />
+                      <Stack.Screen name="search" options={{ headerShown: false }} />
+                      <Stack.Screen name="settings" options={{ headerShown: false }} />
+                      <Stack.Screen name="+not-found" />
+                    </Stack>
+                  </AuthGuard>
+                  <NotificationBanner />
+                  <StatusBar style="light" />
+                </KeyboardProvider>
+              </SafeAreaProvider>
+            </GestureHandlerRootView>
+          </IncidentsProvider>
+        </SettingsProvider>
       </AppProvider>
     </AuthProvider>
   );
 }
-
