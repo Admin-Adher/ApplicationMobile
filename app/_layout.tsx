@@ -14,7 +14,10 @@ import { IncidentsProvider } from '@/context/IncidentsContext';
 import { PointageProvider } from '@/context/PointageContext';
 import { ReglementaireProvider } from '@/context/ReglementaireContext';
 import { SubscriptionProvider } from '@/context/SubscriptionContext';
+import { NetworkProvider } from '@/context/NetworkContext';
+import { NotificationsProvider } from '@/context/NotificationsContext';
 import NotificationBanner from '@/components/NotificationBanner';
+import OfflineBanner from '@/components/OfflineBanner';
 
 SplashScreen.preventAutoHideAsync();
 
@@ -60,11 +63,13 @@ export default function RootLayout() {
   return (
     <AuthProvider>
       <SubscriptionProvider>
+      <NetworkProvider>
       <AppProvider>
         <SettingsProvider>
           <IncidentsProvider>
           <PointageProvider>
           <ReglementaireProvider>
+          <NotificationsProvider>
             <GestureHandlerRootView style={{ flex: 1 }}>
               <SafeAreaProvider>
                 <KeyboardProvider>
@@ -92,19 +97,23 @@ export default function RootLayout() {
                       <Stack.Screen name="checklist" options={{ headerShown: false, title: 'Checklists' }} />
                       <Stack.Screen name="journal" options={{ headerShown: false, title: 'Journal de chantier' }} />
                       <Stack.Screen name="meeting-report" options={{ headerShown: false, title: 'CR Réunions' }} />
+                      <Stack.Screen name="notifications" options={{ headerShown: false, title: 'Notifications' }} />
                       <Stack.Screen name="+not-found" />
                     </Stack>
                   </AuthGuard>
                   <NotificationBanner />
+                  <OfflineBanner />
                   <StatusBar style="light" />
                 </KeyboardProvider>
               </SafeAreaProvider>
             </GestureHandlerRootView>
+          </NotificationsProvider>
           </ReglementaireProvider>
           </PointageProvider>
           </IncidentsProvider>
         </SettingsProvider>
       </AppProvider>
+      </NetworkProvider>
       </SubscriptionProvider>
     </AuthProvider>
   );

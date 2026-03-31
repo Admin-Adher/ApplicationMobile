@@ -8,6 +8,7 @@ import { useApp } from '@/context/AppContext';
 import { useAuth } from '@/context/AuthContext';
 import { useSettings } from '@/context/SettingsContext';
 import { useIncidents } from '@/context/IncidentsContext';
+import { useNotifications } from '@/context/NotificationsContext';
 import { parseDeadline, isOverdue } from '@/lib/reserveUtils';
 import { Task } from '@/constants/types';
 
@@ -69,6 +70,7 @@ export default function DashboardScreen() {
   const { user } = useAuth();
   const { projectName } = useSettings();
   const { incidents } = useIncidents();
+  const { unreadCount } = useNotifications();
   const topPad = Platform.OS === 'web' ? 67 : insets.top;
   const [refreshing, setRefreshing] = useState(false);
 
@@ -108,6 +110,19 @@ export default function DashboardScreen() {
           </View>
         </View>
         <View style={styles.headerRight}>
+          <TouchableOpacity
+            style={styles.bellBtn}
+            onPress={() => router.push('/notifications' as any)}
+          >
+            <Ionicons name="notifications-outline" size={20} color={C.text} />
+            {unreadCount > 0 && (
+              <View style={styles.bellBadge}>
+                <Text style={styles.bellBadgeText}>
+                  {unreadCount > 9 ? '9+' : String(unreadCount)}
+                </Text>
+              </View>
+            )}
+          </TouchableOpacity>
           {activeChantier ? (
             <TouchableOpacity
               style={styles.chantierPill}
@@ -433,7 +448,28 @@ const styles = StyleSheet.create({
     backgroundColor: C.surface,
   },
   headerLeft: { flexDirection: 'row', alignItems: 'center', gap: 10 },
-  headerRight: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  headerRight: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  bellBtn: {
+    width: 36, height: 36,
+    borderRadius: 10,
+    backgroundColor: C.surface2,
+    alignItems: 'center', justifyContent: 'center',
+    position: 'relative',
+  },
+  bellBadge: {
+    position: 'absolute',
+    top: -3, right: -3,
+    minWidth: 16, height: 16,
+    borderRadius: 8,
+    backgroundColor: '#EF4444',
+    alignItems: 'center', justifyContent: 'center',
+    paddingHorizontal: 3,
+  },
+  bellBadgeText: {
+    fontSize: 9,
+    fontFamily: 'Inter_700Bold',
+    color: '#fff',
+  },
   logoMini: {
     width: 34, height: 34,
     backgroundColor: C.primary,

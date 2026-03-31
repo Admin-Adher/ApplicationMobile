@@ -62,10 +62,11 @@ const GENERIC_FLOOR_PLAN: Room[] = [
 const PLAN_W = 360;
 const PLAN_H = 270;
 
-function DxfOverlay({ dxf }: { dxf: DxfParseResult }) {
+function DxfOverlay({ dxf, visibleLayers }: { dxf: DxfParseResult; visibleLayers?: string[] }) {
   const MAX_ENTITIES = 2000;
   const elements: JSX.Element[] = [];
   let entityIdx = 0;
+  const filterLayers = visibleLayers && visibleLayers.length > 0;
 
   function addLine(x1: number, y1: number, x2: number, y2: number, key: string) {
     const p1 = normalizeDxfPoint(x1, y1, dxf, PLAN_W, PLAN_H, 8);
@@ -96,6 +97,7 @@ function DxfOverlay({ dxf }: { dxf: DxfParseResult }) {
 
   for (const e of dxf.entities) {
     if (entityIdx >= MAX_ENTITIES) break;
+    if (filterLayers && !visibleLayers!.includes(e.layer)) { entityIdx++; continue; }
     if (e.type === 'LINE') {
       addLine(e.x1, e.y1, e.x2, e.y2, `l-${entityIdx}`);
       entityIdx++;
@@ -257,6 +259,9 @@ export default function PlansScreen() {
   const [importing, setImporting] = useState(false);
   const [showFilters, setShowFilters] = useState(false);
   const [dxfData, setDxfData] = useState<Record<string, DxfParseResult>>({});
+  const [showLayers, setShowLayers] = useState(false);
+  const [visibleLayers, setVisibleLayers] = useState<Record<string, string[]>>({});
+  const [showQRModal, setShowQRModal] = useState<{ x: number; y: number } | null>(null);
   const topPad = Platform.OS === 'web' ? 67 : insets.top;
 
   const scale = useRef(new Animated.Value(1)).current;

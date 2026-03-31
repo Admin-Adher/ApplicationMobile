@@ -152,6 +152,14 @@ export interface Opr {
   createdAt: string;
 }
 
+export interface PhotoAnnotation {
+  id: string;
+  x: number;
+  y: number;
+  color: string;
+  label: string;
+}
+
 export interface Reserve {
   id: string;
   title: string;
@@ -172,6 +180,7 @@ export interface Reserve {
   planX?: number;
   planY?: number;
   photoUri?: string;
+  photoAnnotations?: PhotoAnnotation[];
   linkedTaskId?: string;
   closedAt?: string;
   closedBy?: string;

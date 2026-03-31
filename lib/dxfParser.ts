@@ -7,6 +7,7 @@ export type DxfEntity =
 
 export interface DxfParseResult {
   entities: DxfEntity[];
+  layers: string[];
   minX: number;
   minY: number;
   maxX: number;
@@ -186,8 +187,13 @@ export function parseDxf(content: string): DxfParseResult {
 
   if (!isFinite(minX)) { minX = 0; minY = 0; maxX = 100; maxY = 100; }
 
+  const layerSet = new Set<string>();
+  for (const e of entities) layerSet.add(e.layer);
+  const layers = [...layerSet].sort();
+
   return {
     entities,
+    layers,
     minX, minY, maxX, maxY,
     width: maxX - minX || 1,
     height: maxY - minY || 1,
