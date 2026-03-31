@@ -105,7 +105,7 @@ export default function ChannelScreen() {
   const {
     messages, addMessage, deleteMessage, updateMessage, setChannelRead, setActiveChannelId,
     channels, removeCustomChannel, removeGroupChannel, renameChannel,
-    addChannelMember, removeChannelMember, profiles,
+    addChannelMember, removeChannelMember, profiles, channelMembersOverride,
   } = useApp();
   const { user } = useAuth();
   const flatListRef = useRef<FlatList>(null);
@@ -114,8 +114,16 @@ export default function ChannelScreen() {
   const channelObj = channels.find(c => c.id === channelId);
   const color = channelColor ?? channelObj?.color ?? C.primary;
   const liveChannelName = channelObj?.name ?? channelName ?? 'Canal';
-  const liveMembers: string[] = channelObj?.members ?? (membersParam ? membersParam.split(',').filter(Boolean) : []);
-  const isEditable = channelObj?.type === 'custom' || channelObj?.type === 'group';
+  const baseMembers: string[] = channelObj?.members ?? (membersParam ? membersParam.split(',').filter(Boolean) : []);
+  const overrideMembers: string[] = channelId ? (channelMembersOverride[channelId] ?? []) : [];
+  const liveMembers: string[] = useMemo(() => {
+    if (overrideMembers.length === 0) return baseMembers;
+    const merged = [...baseMembers];
+    overrideMembers.forEach(m => { if (!merged.includes(m)) merged.push(m); });
+    return merged;
+  }, [baseMembers.join(','), overrideMembers.join(',')]);
+  const isEditable = channelObj?.type === 'custom' || channelObj?.type === 'group' || channelObj?.type === 'company';
+  const canDelete = channelObj?.type === 'custom' || channelObj?.type === 'group';
   const isCreator = !!channelObj?.createdBy && (
     channelObj.createdBy === user?.id || channelObj.createdBy === user?.name
   );
@@ -454,7 +462,7 @@ export default function ChannelScreen() {
           showsVerticalScrollIndicator={false}
           inverted
           ListEmptyComponent={() => (
-            <View style={styles.empty}>
+            <View style={[styles.empty, { transform: [{ scaleY: -1 }] }]}>
               <View style={[styles.emptyIcon, { backgroundColor: color + '20' }]}>
                 <Ionicons name={(channelIcon ?? 'chatbubbles') as any} size={32} color={color} />
               </View>
@@ -620,6 +628,7 @@ export default function ChannelScreen() {
         isDMChannel={isDMChannel}
         isGroupChannel={isGroupChannel}
         isEditable={isEditable}
+        canDelete={canDelete}
         isCreator={isCreator}
         channelIcon={channelIcon ?? 'chatbubbles'}
         user={user}

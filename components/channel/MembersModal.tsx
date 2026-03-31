@@ -16,6 +16,7 @@ interface Props {
   isDMChannel: boolean;
   isGroupChannel: boolean;
   isEditable: boolean;
+  canDelete?: boolean;
   isCreator: boolean;
   channelIcon: string;
   user: User | null;
@@ -30,7 +31,7 @@ interface Props {
 
 export default function MembersModal({
   visible, onClose, channelId, channelObj, liveChannelName, liveMembers,
-  color, isDMChannel, isGroupChannel, isEditable, isCreator, channelIcon,
+  color, isDMChannel, isGroupChannel, isEditable, canDelete = false, isCreator, channelIcon,
   user, knownSenders, profiles, onRenamePress, onAddMemberPress,
   removeChannelMember, removeCustomChannel, removeGroupChannel,
 }: Props) {
@@ -51,7 +52,7 @@ export default function MembersModal({
             <View style={{ flex: 1 }}>
               <Text style={styles.title} numberOfLines={1}>{liveChannelName}</Text>
               <Text style={styles.sub}>
-                {isDMChannel ? 'Message direct' : isGroupChannel ? 'Groupe' : isEditable ? 'Canal personnalisé' : 'Canal chantier'}
+                {isDMChannel ? 'Message direct' : isGroupChannel ? 'Groupe' : channelObj?.type === 'company' ? 'Canal entreprise' : isEditable ? 'Canal personnalisé' : 'Canal chantier'}
               </Text>
             </View>
             {isEditable && (
@@ -129,7 +130,7 @@ export default function MembersModal({
               </>
             )}
 
-            {isEditable && (
+            {isEditable && canDelete && (
               <>
                 <View style={styles.divider} />
                 {!isCreator && (

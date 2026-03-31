@@ -16,6 +16,7 @@ export const STATIC_CHANNELS: Channel[] = [
 const CUSTOM_CHANNELS_KEY = 'customChannels_v1';
 const GROUP_CHANNELS_KEY = 'groupChannels_v1';
 const PINNED_CHANNELS_KEY = 'pinnedChannels_v1';
+const CHANNEL_MEMBERS_OVERRIDE_KEY = 'channelMembersOverride_v1';
 const MAX_PINNED = 5;
 
 interface AppState {
@@ -31,10 +32,11 @@ interface AppState {
   customChannels: Channel[];
   groupChannels: Channel[];
   pinnedChannelIds: string[];
+  channelMembersOverride: Record<string, string[]>;
 }
 
 type Action =
-  | { type: 'INIT'; payload: Omit<AppState, 'isLoading' | 'lastReadByChannel' | 'customChannels' | 'groupChannels' | 'pinnedChannelIds'> }
+  | { type: 'INIT'; payload: Omit<AppState, 'isLoading' | 'lastReadByChannel' | 'customChannels' | 'groupChannels' | 'pinnedChannelIds' | 'channelMembersOverride'> }
   | { type: 'ADD_RESERVE'; payload: Reserve }
   | { type: 'UPDATE_RESERVE'; payload: Reserve }
   | { type: 'UPDATE_RESERVE_STATUS'; payload: Reserve }
@@ -68,7 +70,8 @@ type Action =
   | { type: 'SET_PINNED_CHANNELS'; payload: string[] }
   | { type: 'UPDATE_COMPANY_FULL'; payload: Company }
   | { type: 'DELETE_COMPANY'; payload: string }
-  | { type: 'UPDATE_COMPANY_HOURS'; payload: { id: string; hours: number } };
+  | { type: 'UPDATE_COMPANY_HOURS'; payload: { id: string; hours: number } }
+  | { type: 'SET_CHANNEL_MEMBERS_OVERRIDE'; payload: Record<string, string[]> };
 
 function genId(): string {
   return Date.now().toString() + Math.random().toString(36).substring(2, 8);
@@ -163,6 +166,7 @@ function reducer(state: AppState, action: Action): AppState {
         customChannels: state.customChannels,
         groupChannels: state.groupChannels,
         pinnedChannelIds: state.pinnedChannelIds,
+        channelMembersOverride: state.channelMembersOverride,
         isLoading: false,
       };
 
@@ -293,6 +297,9 @@ function reducer(state: AppState, action: Action): AppState {
         ),
       };
 
+    case 'SET_CHANNEL_MEMBERS_OVERRIDE':
+      return { ...state, channelMembersOverride: action.payload };
+
     default:
       return state;
   }
@@ -411,6 +418,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     documents: [], photos: [], messages: [],
     lastReadByChannel: {}, isLoading: true,
     profiles: [], customChannels: [], groupChannels: [], pinnedChannelIds: [],
+    channelMembersOverride: {},
   });
 
   const [notification, setNotification] = useState<{ msg: Message; channelName: string; channelColor: string; channelIcon: string } | null>(null);
@@ -480,12 +488,28 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     } catch {}
   }
 
+  async function loadChannelMembersOverride() {
+    try {
+      const stored = await AsyncStorage.getItem(CHANNEL_MEMBERS_OVERRIDE_KEY);
+      if (stored) {
+        dispatch({ type: 'SET_CHANNEL_MEMBERS_OVERRIDE', payload: JSON.parse(stored) });
+      }
+    } catch {}
+  }
+
+  async function saveChannelMembersOverride(overrides: Record<string, string[]>) {
+    try {
+      await AsyncStorage.setItem(CHANNEL_MEMBERS_OVERRIDE_KEY, JSON.stringify(overrides));
+    } catch {}
+  }
+
   async function loadMockData() {
     dispatch({ type: 'SET_LOADING', payload: true });
     currentUserNameRef.current = 'Admin Système';
     await loadCustomChannels();
     await loadGroupChannels();
     await loadPinnedChannels();
+    await loadChannelMembersOverride();
     const storedLastRead = await AsyncStorage.getItem('lastReadByChannel').catch(() => null);
     if (storedLastRead) {
       dispatch({ type: 'SET_LAST_READ', payload: JSON.parse(storedLastRead) });
@@ -556,6 +580,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       await loadCustomChannels();
       await loadGroupChannels();
       await loadPinnedChannels();
+      await loadChannelMembersOverride();
 
       const userName = currentUserNameRef.current;
       dispatch({
@@ -762,30 +787,60 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   function renameChannel(id: string, newName: string) {
     const ch = [...state.customChannels, ...state.groupChannels].find(c => c.id === id);
-    if (!ch) return;
-    _updateAndPersistChannel({ ...ch, name: newName });
+    if (ch) {
+      _updateAndPersistChannel({ ...ch, name: newName });
+      return;
+    }
+    if (id.startsWith('company-')) {
+      const companyId = id.replace('company-', '');
+      const company = state.companies.find(co => co.id === companyId);
+      if (company) {
+        const updatedCompany = { ...company, name: newName };
+        if (isSupabaseConfigured) {
+          supabase.from('companies').update({ name: newName }).eq('id', companyId).then(({ error }) => {
+            if (error) console.warn('Erreur renommage canal entreprise:', error.message);
+          });
+        }
+        dispatch({ type: 'UPDATE_COMPANY_FULL', payload: updatedCompany });
+      }
+    }
   }
 
   function addChannelMember(id: string, memberName: string) {
     const ch = [...state.customChannels, ...state.groupChannels].find(c => c.id === id);
-    if (!ch) return;
-    const members = [...(ch.members ?? [])];
-    if (members.includes(memberName)) return;
-    members.push(memberName);
-    _updateAndPersistChannel({
-      ...ch, members,
-      description: ch.type === 'group' ? `Groupe : ${members.join(', ')}` : ch.description,
-    });
+    if (ch) {
+      const members = [...(ch.members ?? [])];
+      if (members.includes(memberName)) return;
+      members.push(memberName);
+      _updateAndPersistChannel({
+        ...ch, members,
+        description: ch.type === 'group' ? `Groupe : ${members.join(', ')}` : ch.description,
+      });
+    } else {
+      const current = state.channelMembersOverride[id] ?? [];
+      if (current.includes(memberName)) return;
+      const updated = [...current, memberName];
+      const newOverrides = { ...state.channelMembersOverride, [id]: updated };
+      dispatch({ type: 'SET_CHANNEL_MEMBERS_OVERRIDE', payload: newOverrides });
+      saveChannelMembersOverride(newOverrides);
+    }
   }
 
   function removeChannelMember(id: string, memberName: string) {
     const ch = [...state.customChannels, ...state.groupChannels].find(c => c.id === id);
-    if (!ch) return;
-    const members = (ch.members ?? []).filter(m => m !== memberName);
-    _updateAndPersistChannel({
-      ...ch, members,
-      description: ch.type === 'group' ? `Groupe : ${members.join(', ')}` : ch.description,
-    });
+    if (ch) {
+      const members = (ch.members ?? []).filter(m => m !== memberName);
+      _updateAndPersistChannel({
+        ...ch, members,
+        description: ch.type === 'group' ? `Groupe : ${members.join(', ')}` : ch.description,
+      });
+    } else {
+      const current = state.channelMembersOverride[id] ?? [];
+      const updated = current.filter(m => m !== memberName);
+      const newOverrides = { ...state.channelMembersOverride, [id]: updated };
+      dispatch({ type: 'SET_CHANNEL_MEMBERS_OVERRIDE', payload: newOverrides });
+      saveChannelMembersOverride(newOverrides);
+    }
   }
 
   function pinChannel(id: string): { success: boolean; reason?: string } {
