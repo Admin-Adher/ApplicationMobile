@@ -172,6 +172,59 @@ function buildIncidentHTML(incident: any, projectName: string): string {
   </body></html>`;
 }
 
+function buildCompanyReserveHTML(company: any, companyReserves: any[], projectName: string): string {
+  const now = new Date().toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' });
+  const priorityLabels: Record<string, string> = { low: 'Basse', medium: 'Moyenne', high: 'Haute', critical: 'Critique' };
+  const priorityColors: Record<string, string> = { low: '#6B7280', medium: '#F59E0B', high: '#EF4444', critical: '#7F1D1D' };
+  const statusLabels: Record<string, string> = { open: 'Ouvert', in_progress: 'En cours', waiting: 'En attente', verification: 'Vérification', closed: 'Clôturé' };
+  const statusColors: Record<string, string> = { open: '#EF4444', in_progress: '#F59E0B', waiting: '#6366F1', verification: '#3B82F6', closed: '#10B981' };
+  const openCount = companyReserves.filter((r: any) => r.status !== 'closed').length;
+  const closedCount = companyReserves.filter((r: any) => r.status === 'closed').length;
+  const rows = companyReserves.map((r: any) =>
+    `<tr>
+      <td><strong>${r.id}</strong></td>
+      <td>${r.title}</td>
+      <td>Bât. ${r.building} — ${r.zone} — ${r.level}</td>
+      <td style="color:${priorityColors[r.priority]||'#000'};font-weight:bold">${priorityLabels[r.priority]||r.priority}</td>
+      <td style="color:${statusColors[r.status]||'#000'};font-weight:bold">${statusLabels[r.status]||r.status}</td>
+      <td>${r.deadline||'—'}</td>
+      <td>${r.closedAt||'—'}</td>
+    </tr>`
+  ).join('');
+  return `<!DOCTYPE html><html><head><meta charset="UTF-8">
+  <style>
+    body { font-family: Arial, sans-serif; padding: 30px; color: #111; }
+    h1 { color: ${company.color||'#1A6FD8'}; font-size: 20px; margin-bottom: 4px; }
+    h2 { color: #333; font-size: 15px; border-bottom: 2px solid ${company.color||'#1A6FD8'}; padding-bottom: 4px; margin-top: 20px; }
+    .meta { color: #666; font-size: 12px; margin-bottom: 20px; }
+    table { width: 100%; border-collapse: collapse; margin-top: 10px; font-size: 12px; }
+    th { background: ${company.color||'#1A6FD8'}; color: white; padding: 8px; text-align: left; }
+    td { padding: 6px 8px; border-bottom: 1px solid #eee; vertical-align: top; }
+    .kpi { display: flex; gap: 16px; flex-wrap: wrap; margin: 16px 0; }
+    .kpi-card { border: 2px solid ${company.color||'#1A6FD8'}; border-radius: 8px; padding: 10px 18px; text-align: center; }
+    .kpi-val { font-size: 26px; font-weight: bold; color: ${company.color||'#1A6FD8'}; }
+    .kpi-label { font-size: 11px; color: #666; }
+    .footer { margin-top: 30px; border-top: 1px solid #ccc; padding-top: 12px; color: #666; font-size: 11px; }
+  </style></head><body>
+  <h1>Bon de réserve — ${company.name}</h1>
+  <p class="meta">Projet : ${projectName} | Date : ${now} | Contact : ${company.contact||'—'}</p>
+  <div class="kpi">
+    <div class="kpi-card"><div class="kpi-val">${companyReserves.length}</div><div class="kpi-label">Total réserves</div></div>
+    <div class="kpi-card"><div class="kpi-val" style="color:#EF4444">${openCount}</div><div class="kpi-label">À lever</div></div>
+    <div class="kpi-card"><div class="kpi-val" style="color:#10B981">${closedCount}</div><div class="kpi-label">Levées</div></div>
+  </div>
+  <h2>Liste des réserves</h2>
+  <table>
+    <thead><tr><th>Réf.</th><th>Intitulé</th><th>Localisation</th><th>Priorité</th><th>Statut</th><th>Échéance</th><th>Date levée</th></tr></thead>
+    <tbody>${rows || '<tr><td colspan="7" style="color:#10B981;text-align:center">Aucune réserve pour cette entreprise</td></tr>'}</tbody>
+  </table>
+  <div class="footer">
+    Document généré par BuildTrack — ${projectName} | À retourner signé au conducteur de travaux
+    <br><br>Signature de l'entreprise : ______________________&nbsp;&nbsp;&nbsp; Date : ___________
+  </div>
+  </body></html>`;
+}
+
 function buildCsvReport(reserves: any[]): string {
   const header = ['ID', 'Titre', 'Statut', 'Priorité', 'Bâtiment', 'Zone', 'Niveau', 'Entreprise', 'Date création', 'Échéance', 'Date clôture', 'Clôturé par'];
   const statusMap: Record<string, string> = { open: 'Ouvert', in_progress: 'En cours', waiting: 'En attente', verification: 'Vérification', closed: 'Clôturé' };
@@ -185,7 +238,7 @@ function buildCsvReport(reserves: any[]): string {
 }
 
 export default function RapportsScreen() {
-  const { reserves, companies, tasks, stats } = useApp();
+  const { reserves, companies, tasks, stats, chantiers, activeChantierId } = useApp();
   const { user, permissions } = useAuth();
   const { projectName } = useSettings();
   const { incidents } = useIncidents();
@@ -412,6 +465,59 @@ export default function RapportsScreen() {
           </View>
         </View>
 
+        {/* BON DE RÉSERVE PAR ENTREPRISE */}
+        {permissions.canExport && companies.length > 0 && (
+          <View style={styles.reportCard}>
+            <View style={styles.reportHeader}>
+              <Ionicons name="briefcase-outline" size={20} color={C.primary} />
+              <View style={{ flex: 1 }}>
+                <Text style={styles.reportTitle}>Bons de réserve par entreprise</Text>
+                <Text style={styles.reportDate}>PDF individuel par sous-traitant</Text>
+              </View>
+            </View>
+            {companies.map(company => {
+              const companyReserves = reserves.filter(r => r.company === company.name);
+              const openCount = companyReserves.filter(r => r.status !== 'closed').length;
+              const closedCount = companyReserves.filter(r => r.status === 'closed').length;
+              const activeChantier = chantiers.find(c => c.id === activeChantierId);
+              const projectName = activeChantier?.name ?? 'Projet BuildTrack';
+              return (
+                <View key={company.id} style={styles.companyRow}>
+                  <View style={[styles.companyDot, { backgroundColor: company.color }]} />
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.companyName}>{company.name}</Text>
+                    <Text style={styles.companyMeta}>
+                      {companyReserves.length} réserve{companyReserves.length !== 1 ? 's' : ''}
+                      {openCount > 0 ? ` · ${openCount} à lever` : ''}
+                      {closedCount > 0 ? ` · ${closedCount} levée${closedCount > 1 ? 's' : ''}` : ''}
+                    </Text>
+                  </View>
+                  {companyReserves.length > 0 ? (
+                    <TouchableOpacity
+                      style={styles.exportBtn}
+                      onPress={() => {
+                        const html = buildCompanyReserveHTML(company, companyReserves, projectName);
+                        const blob = new (window as any).Blob([html], { type: 'text/html' });
+                        const url = (window as any).URL.createObjectURL(blob);
+                        const a = (window as any).document.createElement('a');
+                        a.href = url;
+                        a.download = `bon-reserve-${company.name.replace(/\s+/g, '-').toLowerCase()}.html`;
+                        a.click();
+                        (window as any).URL.revokeObjectURL(url);
+                      }}
+                    >
+                      <Ionicons name="document-text-outline" size={13} color={C.primary} />
+                      <Text style={styles.exportBtnText}>PDF</Text>
+                    </TouchableOpacity>
+                  ) : (
+                    <Text style={{ fontSize: 11, fontFamily: 'Inter_400Regular', color: C.textMuted }}>Aucune</Text>
+                  )}
+                </View>
+              );
+            })}
+          </View>
+        )}
+
         <View style={styles.reportCard}>
           <View style={styles.reportHeader}>
             <Ionicons name="warning" size={20} color={C.waiting} />
@@ -479,6 +585,10 @@ const styles = StyleSheet.create({
   exportBtnText: { fontSize: 12, fontFamily: 'Inter_600SemiBold', color: C.primary },
   reportSection: { marginBottom: 14, paddingBottom: 14, borderBottomWidth: 1, borderBottomColor: C.border },
   sectionTitle: { fontSize: 12, fontFamily: 'Inter_600SemiBold', color: C.textSub, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 10 },
+  companyRow: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: C.border },
+  companyDot: { width: 10, height: 10, borderRadius: 5 },
+  companyName: { fontSize: 14, fontFamily: 'Inter_500Medium', color: C.text },
+  companyMeta: { fontSize: 11, fontFamily: 'Inter_400Regular', color: C.textSub, marginTop: 2 },
   coRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 8 },
   coDot: { width: 8, height: 8, borderRadius: 4 },
   coName: { flex: 1, fontSize: 13, fontFamily: 'Inter_400Regular', color: C.text },

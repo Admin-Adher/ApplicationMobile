@@ -5,7 +5,7 @@ import { parseDeadline, isOverdue } from '@/lib/reserveUtils';
 
 const SEEN_KEY = 'buildtrack_notif_seen_v1';
 
-export type NotifType = 'critical_reserve' | 'overdue_reserve' | 'late_task' | 'system';
+export type NotifType = 'critical_reserve' | 'overdue_reserve' | 'due_soon_reserve' | 'late_task' | 'system';
 
 export interface AppNotification {
   id: string;
@@ -87,6 +87,25 @@ export function NotificationsProvider({ children }: { children: React.ReactNode 
           createdAt: r.deadline || r.createdAt,
           read: seenIds.has(`late_${r.id}`),
         });
+      }
+      if (r.status !== 'closed' && r.deadline && r.deadline !== '—') {
+        const deadlineDate = parseDeadline(r.deadline);
+        if (deadlineDate !== null) {
+          const daysLeft = Math.floor((deadlineDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+          if (daysLeft >= 0 && daysLeft <= 3 && !isOverdue(r.deadline, r.status)) {
+            const label = daysLeft === 0 ? "aujourd'hui" : daysLeft === 1 ? 'demain' : `dans ${daysLeft} jours`;
+            result.push({
+              id: `soon_${r.id}`,
+              type: 'due_soon_reserve',
+              title: 'Échéance imminente',
+              body: `${r.title} — échéance ${label}`,
+              route: '/reserve/[id]',
+              routeParams: { id: r.id },
+              createdAt: r.createdAt,
+              read: seenIds.has(`soon_${r.id}`),
+            });
+          }
+        }
       }
     }
 

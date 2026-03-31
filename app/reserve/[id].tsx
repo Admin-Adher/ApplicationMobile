@@ -70,13 +70,14 @@ export default function ReserveDetailScreen() {
   const [showCommentBox, setShowCommentBox] = useState(false);
   const [editModalVisible, setEditModalVisible] = useState(false);
   const [photoFullScreen, setPhotoFullScreen] = useState(false);
+  const [selectedPhotoIndex, setSelectedPhotoIndex] = useState(0);
   const [saveSuccess, setSaveSuccess] = useState(false);
   const [signatureModalVisible, setSignatureModalVisible] = useState(false);
   const [signataireName, setSignataireName] = useState('');
   const sigPadRef = useRef<SignaturePadRef>(null);
   const [annotatorPhoto, setAnnotatorPhoto] = useState<ReservePhoto | null>(null);
   const [editPhotos, setEditPhotos] = useState<ReservePhoto[]>([]);
-  const [editPhotoUploading2, setEditPhotoUploading2] = useState(false);
+  const [editPhotoUploading, setEditPhotoUploading] = useState(false);
 
   const reserve = reserves.find(r => r.id === id);
 
@@ -88,8 +89,6 @@ export default function ReserveDetailScreen() {
   const [editCompany, setEditCompany] = useState('');
   const [editPriority, setEditPriority] = useState<ReservePriority>('medium');
   const [editDeadline, setEditDeadline] = useState('');
-  const [editPhotoUri, setEditPhotoUri] = useState<string | null | undefined>(undefined);
-  const [editPhotoUploading, setEditPhotoUploading] = useState(false);
 
   const overdue = useMemo(
     () => reserve ? isOverdue(reserve.deadline, reserve.status) : false,
@@ -108,6 +107,15 @@ export default function ReserveDetailScreen() {
     );
   }
 
+  const allPhotos: ReservePhoto[] = reserve.photos && reserve.photos.length > 0
+    ? reserve.photos
+    : reserve.photoUri
+      ? [{ id: 'legacy', uri: reserve.photoUri, kind: 'defect', takenAt: reserve.createdAt, takenBy: '' }]
+      : [];
+
+  const defectCount = allPhotos.filter(p => p.kind === 'defect').length;
+  const resolutionCount = allPhotos.filter(p => p.kind === 'resolution').length;
+
   const company = companies.find(c => c.name === reserve.company);
   const companyChannel = company ? channels.find(ch => ch.id === `company-${company.id}`) : null;
 
@@ -120,7 +128,6 @@ export default function ReserveDetailScreen() {
     setEditCompany(reserve.company);
     setEditPriority(reserve.priority);
     setEditDeadline(reserve.deadline === '—' ? '' : reserve.deadline);
-    setEditPhotoUri(reserve.photoUri ?? null);
     setEditPhotos(reserve.photos ?? (reserve.photoUri ? [{ id: 'legacy', uri: reserve.photoUri, kind: 'defect', takenAt: reserve.createdAt, takenBy: '' }] : []));
     setEditModalVisible(true);
   }
@@ -138,7 +145,7 @@ export default function ReserveDetailScreen() {
       ...reserve,
       enterpriseSignature: dataUrl,
       enterpriseSignataire: signataireName.trim() || author,
-      enterpriseAcknowledgedAt: today,
+      enterpriseAcknowledgedAt: reserve.enterpriseAcknowledgedAt ?? today,
       history: [...reserve.history, {
         id: `h${Date.now()}`,
         action: 'Levée signée',
@@ -183,63 +190,29 @@ export default function ReserveDetailScreen() {
   }
 
   function handleAnnotationSave(photoId: string, annotations: any[]) {
-    const updatedPhotos: ReservePhoto[] = (reserve.photos ?? []).map(p =>
+    const updatedPhotos: ReservePhoto[] = allPhotos.map(p =>
       p.id === photoId ? { ...p, annotations } : p
     );
     updateReserveFields({ ...reserve, photos: updatedPhotos });
     setAnnotatorPhoto(null);
   }
 
-  async function handleAddEditPhoto() {
+  async function handleAddEditPhoto(fromCamera = false) {
     if (editPhotos.length >= 6) { Alert.alert('Limite atteinte', 'Maximum 6 photos par réserve.'); return; }
-    if (Platform.OS !== 'web') {
-      const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
-      if (status !== 'granted') { Alert.alert('Permission refusée', "L'accès à la galerie est nécessaire."); return; }
-    }
-    const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images'], allowsEditing: true, quality: 0.8 });
-    if (!result.canceled && result.assets[0]) {
-      setEditPhotoUploading2(true);
-      try {
-        const filename = `reserve_photo_${Date.now()}.jpg`;
-        const storageUrl = await uploadPhoto(result.assets[0].uri, filename);
-        const finalUri = storageUrl ?? result.assets[0].uri;
-        const today = new Date().toISOString().slice(0, 10);
-        const newPhoto: ReservePhoto = { id: genId(), uri: finalUri, kind: 'defect', takenAt: today, takenBy: user?.name ?? '' };
-        setEditPhotos(prev => [...prev, newPhoto]);
-      } catch {
-        const today = new Date().toISOString().slice(0, 10);
-        const newPhoto: ReservePhoto = { id: genId(), uri: result.assets[0].uri, kind: 'defect', takenAt: today, takenBy: user?.name ?? '' };
-        setEditPhotos(prev => [...prev, newPhoto]);
-      } finally {
-        setEditPhotoUploading2(false);
+    if (fromCamera) {
+      if (Platform.OS === 'web') { Alert.alert('Info', 'La prise de photo directe est disponible sur mobile.'); return; }
+      const { status } = await ImagePicker.requestCameraPermissionsAsync();
+      if (status !== 'granted') { Alert.alert('Permission refusée', "L'accès à l'appareil photo est nécessaire."); return; }
+      const result = await ImagePicker.launchCameraAsync({ allowsEditing: true, quality: 0.8 });
+      if (!result.canceled && result.assets[0]) await saveEditPhoto(result.assets[0].uri);
+    } else {
+      if (Platform.OS !== 'web') {
+        const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+        if (status !== 'granted') { Alert.alert('Permission refusée', "L'accès à la galerie est nécessaire."); return; }
       }
+      const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images'], allowsEditing: true, quality: 0.8 });
+      if (!result.canceled && result.assets[0]) await saveEditPhoto(result.assets[0].uri);
     }
-  }
-
-  async function handleEditPickPhoto() {
-    if (Platform.OS !== 'web') {
-      const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
-      if (status !== 'granted') {
-        Alert.alert('Permission refusée', "L'accès à la galerie est nécessaire.");
-        return;
-      }
-    }
-    const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images'], allowsEditing: true, quality: 0.8 });
-    if (!result.canceled && result.assets[0]) await saveEditPhoto(result.assets[0].uri);
-  }
-
-  async function handleEditCamera() {
-    if (Platform.OS === 'web') {
-      Alert.alert('Info', 'La prise de photo directe est disponible sur mobile.');
-      return;
-    }
-    const { status } = await ImagePicker.requestCameraPermissionsAsync();
-    if (status !== 'granted') {
-      Alert.alert('Permission refusée', "L'accès à l'appareil photo est nécessaire.");
-      return;
-    }
-    const result = await ImagePicker.launchCameraAsync({ allowsEditing: true, quality: 0.8 });
-    if (!result.canceled && result.assets[0]) await saveEditPhoto(result.assets[0].uri);
   }
 
   async function saveEditPhoto(uri: string) {
@@ -247,12 +220,25 @@ export default function ReserveDetailScreen() {
     try {
       const filename = `reserve_photo_${Date.now()}.jpg`;
       const storageUrl = await uploadPhoto(uri, filename);
-      setEditPhotoUri(storageUrl ?? uri);
+      const finalUri = storageUrl ?? uri;
+      const today = new Date().toISOString().slice(0, 10);
+      const newPhoto: ReservePhoto = { id: genId(), uri: finalUri, kind: 'defect', takenAt: today, takenBy: user?.name ?? '' };
+      setEditPhotos(prev => [...prev, newPhoto]);
     } catch {
-      setEditPhotoUri(uri);
+      const today = new Date().toISOString().slice(0, 10);
+      const newPhoto: ReservePhoto = { id: genId(), uri, kind: 'defect', takenAt: today, takenBy: user?.name ?? '' };
+      setEditPhotos(prev => [...prev, newPhoto]);
     } finally {
       setEditPhotoUploading(false);
     }
+  }
+
+  function toggleEditPhotoKind(photoId: string) {
+    setEditPhotos(prev => prev.map(p => p.id === photoId ? { ...p, kind: p.kind === 'defect' ? 'resolution' : 'defect' } : p));
+  }
+
+  function removeEditPhoto(photoId: string) {
+    setEditPhotos(prev => prev.filter(p => p.id !== photoId));
   }
 
   function buildChangeSummary(r: Reserve): { label: string; oldVal: string; newVal: string }[] {
@@ -298,11 +284,12 @@ export default function ReserveDetailScreen() {
       company: editCompany,
       priority: editPriority,
       deadline: editDeadline || '—',
-      photoUri: editPhotoUri ?? undefined,
+      photoUri: editPhotos[0]?.uri ?? undefined,
+      photos: editPhotos.length > 0 ? editPhotos : undefined,
       history: changes.length > 0 ? [...reserve.history, historyEntry] : reserve.history,
     };
     updateReserveFields(updated);
-    if (editPhotoUri && editPhotoUri !== reserve.photoUri) {
+    editPhotos.forEach(p => {
       addPhoto({
         id: genId(),
         comment: `Photo réserve ${reserve.id} — ${editTitle.trim()}`,
@@ -310,9 +297,9 @@ export default function ReserveDetailScreen() {
         takenAt: today,
         takenBy: author,
         colorCode: '#EF4444',
-        uri: editPhotoUri,
+        uri: p.uri,
       });
-    }
+    });
     setEditModalVisible(false);
     setSaveSuccess(true);
     setTimeout(() => setSaveSuccess(false), 2500);
@@ -368,6 +355,9 @@ export default function ReserveDetailScreen() {
     setShowCommentBox(false);
   }
 
+  const ackDone = !!reserve.enterpriseAcknowledgedAt;
+  const signDone = !!reserve.enterpriseSignature;
+
   return (
     <View style={styles.container}>
       <Header
@@ -400,23 +390,56 @@ export default function ReserveDetailScreen() {
           <PriorityBadge priority={reserve.priority} />
         </View>
 
-        {reserve.photoUri ? (
+        {/* PHOTO GALLERY — multi-photo with defect/resolution badges */}
+        {allPhotos.length > 0 && (
           <View style={styles.card}>
-            <Text style={styles.sectionTitle}>Photo</Text>
-            <TouchableOpacity onPress={() => setPhotoFullScreen(true)} activeOpacity={0.85}>
-              <Image
-                source={{ uri: reserve.photoUri }}
-                style={styles.photo}
-                resizeMode="cover"
-                onError={() => {}}
-              />
-              <View style={styles.photoHint}>
-                <Ionicons name="expand-outline" size={12} color="#fff" />
-                <Text style={styles.photoHintText}>Appuyer pour agrandir</Text>
+            <View style={styles.photoGalleryHeader}>
+              <Text style={styles.sectionTitle}>Photos ({allPhotos.length})</Text>
+              <View style={{ flexDirection: 'row', gap: 6 }}>
+                {defectCount > 0 && (
+                  <View style={styles.photoBadgeDefect}>
+                    <View style={[styles.photoBadgeDot, { backgroundColor: '#EF4444' }]} />
+                    <Text style={[styles.photoBadgeText, { color: '#EF4444' }]}>{defectCount} constat{defectCount > 1 ? 's' : ''}</Text>
+                  </View>
+                )}
+                {resolutionCount > 0 && (
+                  <View style={styles.photoBadgeResolution}>
+                    <View style={[styles.photoBadgeDot, { backgroundColor: '#22C55E' }]} />
+                    <Text style={[styles.photoBadgeText, { color: '#22C55E' }]}>{resolutionCount} levée{resolutionCount > 1 ? 's' : ''}</Text>
+                  </View>
+                )}
               </View>
-            </TouchableOpacity>
+            </View>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+              <View style={{ flexDirection: 'row', gap: 10 }}>
+                {allPhotos.map((photo, idx) => (
+                  <View key={photo.id} style={styles.photoThumb}>
+                    <TouchableOpacity
+                      onPress={() => { setSelectedPhotoIndex(idx); setPhotoFullScreen(true); }}
+                      activeOpacity={0.85}
+                    >
+                      <Image source={{ uri: photo.uri }} style={styles.photoThumbImg} resizeMode="cover" onError={() => {}} />
+                      <View style={[styles.photoKindBadge, { backgroundColor: photo.kind === 'defect' ? '#EF444488' : '#22C55E88' }]}>
+                        <Text style={styles.photoKindBadgeText}>{photo.kind === 'defect' ? 'Constat' : 'Levée'}</Text>
+                      </View>
+                    </TouchableOpacity>
+                    {permissions.canEdit && photo.id !== 'legacy' && (
+                      <TouchableOpacity style={styles.annotateBtn} onPress={() => setAnnotatorPhoto(photo)}>
+                        <Ionicons name="pencil" size={11} color="#fff" />
+                      </TouchableOpacity>
+                    )}
+                    {photo.annotations && photo.annotations.length > 0 && (
+                      <View style={styles.annotatedIndicator}>
+                        <Ionicons name="brush-outline" size={9} color="#fff" />
+                      </View>
+                    )}
+                  </View>
+                ))}
+              </View>
+            </ScrollView>
+            <Text style={styles.photoHintSmall}>Appuyer pour agrandir · Crayon pour annoter</Text>
           </View>
-        ) : null}
+        )}
 
         <View style={styles.card}>
           <Text style={styles.sectionTitle}>Informations</Text>
@@ -489,6 +512,74 @@ export default function ReserveDetailScreen() {
             </View>
           </View>
         )}
+
+        {/* ENTERPRISE WORKFLOW — Accusé de réception + Signature de levée */}
+        <View style={styles.card}>
+          <Text style={styles.sectionTitle}>Workflow entreprise</Text>
+
+          {/* Étape 1 : Accusé de réception */}
+          <View style={styles.workflowStep}>
+            <View style={[styles.workflowStepNum, ackDone && styles.workflowStepNumDone]}>
+              {ackDone
+                ? <Ionicons name="checkmark" size={13} color="#fff" />
+                : <Text style={styles.workflowStepNumText}>1</Text>}
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.workflowStepTitle}>Accusé de réception</Text>
+              {ackDone ? (
+                <Text style={styles.workflowStepDone}>Accusé le {formatDate(reserve.enterpriseAcknowledgedAt!)}</Text>
+              ) : (
+                <>
+                  <Text style={styles.workflowStepDesc}>L'entreprise confirme avoir pris connaissance de cette réserve.</Text>
+                  {permissions.canEdit && (
+                    <TouchableOpacity style={styles.workflowBtn} onPress={handleEnterpriseAck} activeOpacity={0.8}>
+                      <Ionicons name="mail-open-outline" size={14} color={C.primary} />
+                      <Text style={styles.workflowBtnText}>Accuser réception</Text>
+                    </TouchableOpacity>
+                  )}
+                </>
+              )}
+            </View>
+          </View>
+
+          <View style={styles.workflowDivider} />
+
+          {/* Étape 2 : Déclaration de levée (signature) */}
+          <View style={[styles.workflowStep, { marginBottom: 0 }]}>
+            <View style={[styles.workflowStepNum, signDone && styles.workflowStepNumDone, !ackDone && styles.workflowStepNumLocked]}>
+              {signDone
+                ? <Ionicons name="checkmark" size={13} color="#fff" />
+                : <Text style={styles.workflowStepNumText}>2</Text>}
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={[styles.workflowStepTitle, !ackDone && { color: C.textMuted }]}>Signature de levée</Text>
+              {signDone ? (
+                <View>
+                  <Text style={styles.workflowStepDone}>
+                    Signé par {reserve.enterpriseSignataire}
+                  </Text>
+                  <Image
+                    source={{ uri: reserve.enterpriseSignature! }}
+                    style={styles.signaturePreview}
+                    resizeMode="contain"
+                  />
+                </View>
+              ) : ackDone ? (
+                <>
+                  <Text style={styles.workflowStepDesc}>L'entreprise certifie avoir levé la réserve. Signature numérique requise.</Text>
+                  {permissions.canEdit && (
+                    <TouchableOpacity style={styles.workflowBtn} onPress={() => setSignatureModalVisible(true)} activeOpacity={0.8}>
+                      <Ionicons name="pencil-outline" size={14} color={C.primary} />
+                      <Text style={styles.workflowBtnText}>Signer la levée</Text>
+                    </TouchableOpacity>
+                  )}
+                </>
+              ) : (
+                <Text style={styles.workflowStepDesc}>Disponible après accusé de réception.</Text>
+              )}
+            </View>
+          </View>
+        </View>
 
         {(() => {
           const linkedTask = reserve.linkedTaskId ? tasks.find(t => t.id === reserve.linkedTaskId) : null;
@@ -645,63 +736,53 @@ export default function ReserveDetailScreen() {
                 numberOfLines={4}
               />
 
-              <Text style={mStyles.label}>PHOTO</Text>
-              {editPhotoUri ? (
-                <View style={mStyles.photoWrap}>
-                  <Image source={{ uri: editPhotoUri }} style={mStyles.photoPreview} resizeMode="cover" onError={() => {}} />
-                  <View style={mStyles.photoActions}>
-                    <TouchableOpacity style={mStyles.photoActionBtn} onPress={handleEditCamera} disabled={editPhotoUploading}>
-                      <Ionicons name="camera-outline" size={13} color={C.primary} />
-                      <Text style={mStyles.photoActionText}>Remplacer</Text>
-                    </TouchableOpacity>
-                    <TouchableOpacity style={mStyles.photoActionBtn} onPress={handleEditPickPhoto} disabled={editPhotoUploading}>
-                      <Ionicons name="images-outline" size={13} color={C.inProgress} />
-                      <Text style={[mStyles.photoActionText, { color: C.inProgress }]}>Galerie</Text>
-                    </TouchableOpacity>
-                    <TouchableOpacity style={[mStyles.photoActionBtn, { borderColor: C.open + '60' }]} onPress={() => setEditPhotoUri(null)} disabled={editPhotoUploading}>
-                      <Ionicons name="trash-outline" size={13} color={C.open} />
-                      <Text style={[mStyles.photoActionText, { color: C.open }]}>Suppr.</Text>
-                    </TouchableOpacity>
+              <Text style={mStyles.label}>PHOTOS ({editPhotos.length}/6)</Text>
+              {editPhotos.length > 0 && (
+                <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 8 }}>
+                  <View style={{ flexDirection: 'row', gap: 8 }}>
+                    {editPhotos.map(p => (
+                      <View key={p.id} style={mStyles.photoThumb}>
+                        <TouchableOpacity onPress={() => toggleEditPhotoKind(p.id)} activeOpacity={0.85}>
+                          <Image source={{ uri: p.uri }} style={mStyles.photoThumbImg} resizeMode="cover" onError={() => {}} />
+                          <View style={[mStyles.photoKindBadge, { backgroundColor: p.kind === 'defect' ? '#EF444488' : '#22C55E88' }]}>
+                            <Text style={mStyles.photoKindText}>{p.kind === 'defect' ? 'Constat' : 'Levée'}</Text>
+                          </View>
+                        </TouchableOpacity>
+                        <TouchableOpacity style={mStyles.photoRemoveBtn} onPress={() => removeEditPhoto(p.id)}>
+                          <Ionicons name="close" size={10} color="#fff" />
+                        </TouchableOpacity>
+                      </View>
+                    ))}
                   </View>
-                  {editPhotoUploading && (
-                    <View style={mStyles.uploadOverlay}>
-                      <ActivityIndicator color="#fff" />
-                    </View>
-                  )}
-                </View>
-              ) : (
+                </ScrollView>
+              )}
+              {editPhotos.length < 6 && (
                 <View style={mStyles.photoRow}>
-                  <TouchableOpacity style={mStyles.photoBtn} onPress={handleEditCamera} disabled={editPhotoUploading}>
+                  <TouchableOpacity style={mStyles.photoBtn} onPress={() => handleAddEditPhoto(true)} disabled={editPhotoUploading}>
                     <Ionicons name="camera" size={16} color={C.primary} />
                     <Text style={mStyles.photoBtnText}>Photo</Text>
                   </TouchableOpacity>
-                  <TouchableOpacity style={[mStyles.photoBtn, { flex: 1 }]} onPress={handleEditPickPhoto} disabled={editPhotoUploading}>
+                  <TouchableOpacity style={[mStyles.photoBtn, { flex: 1 }]} onPress={() => handleAddEditPhoto(false)} disabled={editPhotoUploading}>
                     <Ionicons name="images-outline" size={16} color={C.inProgress} />
                     <Text style={[mStyles.photoBtnText, { color: C.inProgress }]}>Galerie</Text>
                   </TouchableOpacity>
                 </View>
               )}
+              {editPhotoUploading && (
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+                  <ActivityIndicator size="small" color={C.primary} />
+                  <Text style={{ fontSize: 12, color: C.textMuted, fontFamily: 'Inter_400Regular' }}>Upload en cours...</Text>
+                </View>
+              )}
 
               <Text style={mStyles.label}>BÂTIMENT</Text>
-              <ChipSelect
-                options={RESERVE_BUILDINGS}
-                value={editBuilding}
-                onChange={setEditBuilding}
-              />
+              <ChipSelect options={RESERVE_BUILDINGS} value={editBuilding} onChange={setEditBuilding} />
 
               <Text style={mStyles.label}>ZONE</Text>
-              <ChipSelect
-                options={RESERVE_ZONES}
-                value={editZone}
-                onChange={setEditZone}
-              />
+              <ChipSelect options={RESERVE_ZONES} value={editZone} onChange={setEditZone} />
 
               <Text style={mStyles.label}>NIVEAU</Text>
-              <ChipSelect
-                options={RESERVE_LEVELS}
-                value={editLevel}
-                onChange={setEditLevel}
-              />
+              <ChipSelect options={RESERVE_LEVELS} value={editLevel} onChange={setEditLevel} />
 
               <Text style={mStyles.label}>ENTREPRISE</Text>
               {companies.length === 0 ? (
@@ -737,32 +818,104 @@ export default function ReserveDetailScreen() {
               </View>
 
               <Text style={mStyles.label}>DATE LIMITE</Text>
-              <DateInput
-                value={editDeadline}
-                onChange={setEditDeadline}
-                optional
-              />
+              <DateInput value={editDeadline} onChange={setEditDeadline} optional />
             </ScrollView>
           </View>
         </View>
       </Modal>
 
-      {/* Photo plein écran */}
-      {reserve.photoUri ? (
-        <Modal visible={photoFullScreen} transparent animationType="fade" onRequestClose={() => setPhotoFullScreen(false)}>
-          <TouchableOpacity style={styles.photoModal} activeOpacity={1} onPress={() => setPhotoFullScreen(false)}>
-            <TouchableOpacity style={styles.photoCloseBtn} onPress={() => setPhotoFullScreen(false)}>
-              <Ionicons name="close" size={22} color="#fff" />
-            </TouchableOpacity>
-            <Image
-              source={{ uri: reserve.photoUri }}
-              style={styles.photoFull}
-              resizeMode="contain"
-              onError={() => {}}
-            />
+      {/* Photo plein écran — galerie multi-photos */}
+      <Modal visible={photoFullScreen} transparent animationType="fade" onRequestClose={() => setPhotoFullScreen(false)}>
+        <View style={styles.photoModal}>
+          <TouchableOpacity style={styles.photoCloseBtn} onPress={() => setPhotoFullScreen(false)}>
+            <Ionicons name="close" size={22} color="#fff" />
           </TouchableOpacity>
-        </Modal>
-      ) : null}
+          {allPhotos.length > 0 && (
+            <>
+              <Image
+                source={{ uri: allPhotos[selectedPhotoIndex]?.uri }}
+                style={styles.photoFull}
+                resizeMode="contain"
+                onError={() => {}}
+              />
+              <View style={styles.photoNavRow}>
+                <TouchableOpacity
+                  onPress={() => setSelectedPhotoIndex(i => Math.max(0, i - 1))}
+                  disabled={selectedPhotoIndex === 0}
+                  style={[styles.photoNavBtn, selectedPhotoIndex === 0 && { opacity: 0.3 }]}
+                >
+                  <Ionicons name="chevron-back" size={22} color="#fff" />
+                </TouchableOpacity>
+                <View style={[styles.photoKindBadge, { backgroundColor: allPhotos[selectedPhotoIndex]?.kind === 'defect' ? '#EF444488' : '#22C55E88', paddingHorizontal: 14, paddingVertical: 5 }]}>
+                  <Text style={styles.photoKindBadgeText}>
+                    {allPhotos[selectedPhotoIndex]?.kind === 'defect' ? 'Constat' : 'Levée'} · {selectedPhotoIndex + 1}/{allPhotos.length}
+                  </Text>
+                </View>
+                <TouchableOpacity
+                  onPress={() => setSelectedPhotoIndex(i => Math.min(allPhotos.length - 1, i + 1))}
+                  disabled={selectedPhotoIndex === allPhotos.length - 1}
+                  style={[styles.photoNavBtn, selectedPhotoIndex === allPhotos.length - 1 && { opacity: 0.3 }]}
+                >
+                  <Ionicons name="chevron-forward" size={22} color="#fff" />
+                </TouchableOpacity>
+              </View>
+            </>
+          )}
+        </View>
+      </Modal>
+
+      {/* Modal signature de levée */}
+      <Modal visible={signatureModalVisible} transparent animationType="slide" onRequestClose={() => setSignatureModalVisible(false)}>
+        <View style={mStyles.overlay}>
+          <View style={mStyles.sheet}>
+            <View style={mStyles.sheetHeader}>
+              <TouchableOpacity onPress={() => setSignatureModalVisible(false)} style={mStyles.closeBtn}>
+                <Ionicons name="close" size={20} color={C.textSub} />
+              </TouchableOpacity>
+              <Text style={mStyles.sheetTitle}>Signature de levée</Text>
+              <TouchableOpacity onPress={handleSignatureSave} style={mStyles.saveBtn}>
+                <Text style={mStyles.saveBtnText}>Valider</Text>
+              </TouchableOpacity>
+            </View>
+            <ScrollView contentContainerStyle={mStyles.content} showsVerticalScrollIndicator={false}>
+              <View style={styles.sigInfoBox}>
+                <Ionicons name="information-circle-outline" size={16} color={C.primary} />
+                <Text style={styles.sigInfoText}>
+                  En signant, l'entreprise certifie avoir levé la réserve <Text style={{ fontFamily: 'Inter_700Bold' }}>{reserve.id}</Text>.
+                </Text>
+              </View>
+              <Text style={mStyles.label}>NOM DU SIGNATAIRE</Text>
+              <TextInput
+                style={mStyles.input}
+                placeholder={user?.name ?? 'Nom du représentant...'}
+                placeholderTextColor={C.textMuted}
+                value={signataireName}
+                onChangeText={setSignataireName}
+              />
+              <Text style={[mStyles.label, { marginTop: 16 }]}>SIGNATURE *</Text>
+              <View style={styles.sigPadWrap}>
+                <SignaturePad ref={sigPadRef} />
+              </View>
+              <TouchableOpacity
+                onPress={() => sigPadRef.current?.clear()}
+                style={styles.clearSigBtn}
+              >
+                <Ionicons name="refresh-outline" size={14} color={C.textSub} />
+                <Text style={styles.clearSigText}>Effacer la signature</Text>
+              </TouchableOpacity>
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Annotateur photo */}
+      {annotatorPhoto && (
+        <PhotoAnnotationOverlay
+          photo={annotatorPhoto}
+          onSave={(annotations) => handleAnnotationSave(annotatorPhoto.id, annotations)}
+          onClose={() => setAnnotatorPhoto(null)}
+        />
+      )}
     </View>
   );
 }
@@ -804,16 +957,58 @@ const styles = StyleSheet.create({
   infoLabel: { fontSize: 13, fontFamily: 'Inter_400Regular', color: C.textSub, flex: 1 },
   infoValue: { fontSize: 13, fontFamily: 'Inter_500Medium', color: C.text },
   description: { fontSize: 14, fontFamily: 'Inter_400Regular', color: C.text, lineHeight: 22 },
-  photo: { width: '100%', height: 200, borderRadius: 10 },
-  photoHint: {
-    position: 'absolute', bottom: 8, right: 8, flexDirection: 'row', alignItems: 'center', gap: 4,
-    backgroundColor: 'rgba(0,0,0,0.5)', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 8,
+  photoGalleryHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 },
+  photoBadgeDefect: { flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: '#EF444415', paddingHorizontal: 8, paddingVertical: 3, borderRadius: 8 },
+  photoBadgeResolution: { flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: '#22C55E15', paddingHorizontal: 8, paddingVertical: 3, borderRadius: 8 },
+  photoBadgeDot: { width: 6, height: 6, borderRadius: 3 },
+  photoBadgeText: { fontSize: 11, fontFamily: 'Inter_600SemiBold' },
+  photoThumb: { width: 110, height: 90, borderRadius: 10, overflow: 'hidden', position: 'relative' },
+  photoThumbImg: { width: 110, height: 90 },
+  photoKindBadge: { position: 'absolute', bottom: 0, left: 0, right: 0, paddingVertical: 3, alignItems: 'center' },
+  photoKindBadgeText: { fontSize: 10, fontFamily: 'Inter_600SemiBold', color: '#fff' },
+  annotateBtn: {
+    position: 'absolute', top: 5, right: 5,
+    backgroundColor: 'rgba(0,0,0,0.55)', width: 22, height: 22, borderRadius: 11,
+    alignItems: 'center', justifyContent: 'center',
   },
-  photoHintText: { fontSize: 11, fontFamily: 'Inter_400Regular', color: '#fff' },
+  annotatedIndicator: {
+    position: 'absolute', top: 5, left: 5,
+    backgroundColor: C.primary + 'CC', width: 18, height: 18, borderRadius: 9,
+    alignItems: 'center', justifyContent: 'center',
+  },
+  photoHintSmall: { fontSize: 11, fontFamily: 'Inter_400Regular', color: C.textMuted, marginTop: 8 },
   statusGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   statusBtn: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 12, paddingVertical: 8, borderRadius: 20, borderWidth: 1.5 },
   statusDot: { width: 7, height: 7, borderRadius: 4 },
   statusBtnText: { fontSize: 12, fontFamily: 'Inter_600SemiBold' },
+  workflowStep: { flexDirection: 'row', gap: 14, alignItems: 'flex-start', marginBottom: 4 },
+  workflowStepNum: {
+    width: 26, height: 26, borderRadius: 13,
+    backgroundColor: C.border, alignItems: 'center', justifyContent: 'center',
+    marginTop: 1,
+  },
+  workflowStepNumDone: { backgroundColor: C.closed },
+  workflowStepNumLocked: { backgroundColor: C.border, opacity: 0.5 },
+  workflowStepNumText: { fontSize: 12, fontFamily: 'Inter_700Bold', color: C.textSub },
+  workflowStepTitle: { fontSize: 14, fontFamily: 'Inter_600SemiBold', color: C.text, marginBottom: 4 },
+  workflowStepDesc: { fontSize: 12, fontFamily: 'Inter_400Regular', color: C.textMuted, marginBottom: 8 },
+  workflowStepDone: { fontSize: 12, fontFamily: 'Inter_500Medium', color: C.closed },
+  workflowBtn: {
+    flexDirection: 'row', alignItems: 'center', gap: 6,
+    backgroundColor: C.primaryBg, borderRadius: 8, paddingVertical: 8, paddingHorizontal: 12,
+    borderWidth: 1, borderColor: C.primary + '40', alignSelf: 'flex-start',
+  },
+  workflowBtnText: { fontSize: 13, fontFamily: 'Inter_600SemiBold', color: C.primary },
+  workflowDivider: { height: 1, backgroundColor: C.border, marginVertical: 14, marginLeft: 40 },
+  signaturePreview: { height: 54, width: 180, marginTop: 6, borderRadius: 6, backgroundColor: C.surface2 },
+  sigInfoBox: {
+    flexDirection: 'row', gap: 10, backgroundColor: C.primaryBg, borderRadius: 10,
+    padding: 12, marginBottom: 16, borderWidth: 1, borderColor: C.primary + '30',
+  },
+  sigInfoText: { flex: 1, fontSize: 13, fontFamily: 'Inter_400Regular', color: C.text, lineHeight: 20 },
+  sigPadWrap: { borderRadius: 10, overflow: 'hidden', borderWidth: 1.5, borderColor: C.border, marginBottom: 10 },
+  clearSigBtn: { flexDirection: 'row', alignItems: 'center', gap: 6, alignSelf: 'center', paddingVertical: 6 },
+  clearSigText: { fontSize: 12, fontFamily: 'Inter_400Regular', color: C.textSub },
   commentHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   addCommentBtn: { padding: 4 },
   commentBox: { flexDirection: 'row', gap: 8, marginBottom: 12, alignItems: 'flex-end' },
@@ -853,6 +1048,8 @@ const styles = StyleSheet.create({
   photoModal: { flex: 1, backgroundColor: 'rgba(0,0,0,0.95)', justifyContent: 'center', alignItems: 'center' },
   photoCloseBtn: { position: 'absolute', top: 52, right: 20, zIndex: 10, padding: 8, backgroundColor: 'rgba(255,255,255,0.15)', borderRadius: 20 },
   photoFull: { width: '100%', height: '70%' },
+  photoNavRow: { flexDirection: 'row', alignItems: 'center', gap: 16, position: 'absolute', bottom: 60 },
+  photoNavBtn: { padding: 10, backgroundColor: 'rgba(255,255,255,0.15)', borderRadius: 20 },
 });
 
 const mStyles = StyleSheet.create({
@@ -878,13 +1075,16 @@ const mStyles = StyleSheet.create({
   textArea: { minHeight: 80, textAlignVertical: 'top' },
   chip: { paddingHorizontal: 14, paddingVertical: 8, borderRadius: 20, borderWidth: 1.5, borderColor: C.border, backgroundColor: C.surface2, flexDirection: 'row', alignItems: 'center', gap: 5 },
   chipText: { fontSize: 13, fontFamily: 'Inter_500Medium', color: C.textSub },
-  photoWrap: { borderRadius: 10, overflow: 'hidden', borderWidth: 1, borderColor: C.border, marginBottom: 4 },
-  photoPreview: { width: '100%', height: 140 },
-  photoActions: { flexDirection: 'row', gap: 6, padding: 8, backgroundColor: C.surface2 },
-  photoActionBtn: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 4, paddingVertical: 7, borderRadius: 8, borderWidth: 1, borderColor: C.border },
-  photoActionText: { fontSize: 11, fontFamily: 'Inter_600SemiBold', color: C.primary },
   photoRow: { flexDirection: 'row', gap: 8, marginBottom: 4 },
   photoBtn: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, backgroundColor: C.surface2, borderRadius: 10, paddingVertical: 12, borderWidth: 1.5, borderColor: C.border },
   photoBtnText: { fontSize: 13, fontFamily: 'Inter_600SemiBold', color: C.primary },
-  uploadOverlay: { position: 'absolute', inset: 0, backgroundColor: 'rgba(0,0,0,0.4)', alignItems: 'center', justifyContent: 'center' },
+  photoThumb: { width: 88, height: 72, borderRadius: 8, overflow: 'hidden', position: 'relative' },
+  photoThumbImg: { width: 88, height: 72 },
+  photoKindBadge: { position: 'absolute', bottom: 0, left: 0, right: 0, paddingVertical: 2, alignItems: 'center' },
+  photoKindText: { fontSize: 9, fontFamily: 'Inter_600SemiBold', color: '#fff' },
+  photoRemoveBtn: {
+    position: 'absolute', top: 3, right: 3,
+    backgroundColor: 'rgba(0,0,0,0.55)', width: 18, height: 18, borderRadius: 9,
+    alignItems: 'center', justifyContent: 'center',
+  },
 });

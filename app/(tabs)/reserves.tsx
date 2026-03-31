@@ -42,7 +42,12 @@ export default function ReservesScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const { reserves, companies, isLoading, chantiers, activeChantierId, lots } = useApp();
-  const { permissions } = useAuth();
+  const { permissions, user } = useAuth();
+
+  const isSousTraitant = user?.role === 'sous_traitant';
+  const sousTraitantCompanyName = isSousTraitant && user?.companyId
+    ? companies.find(c => c.id === user.companyId)?.name ?? null
+    : null;
   const [chantierFilter, setChantierFilter] = useState<string>(activeChantierId ?? 'all');
   const [statusFilter, setStatusFilter] = useState<'all' | 'overdue' | ReserveStatus>('all');
   const [kindFilter, setKindFilter] = useState<'all' | ReserveKind>('all');
@@ -60,10 +65,13 @@ export default function ReservesScreen() {
   const isWideScreen = width >= 768;
   const [selectedReserveId, setSelectedReserveId] = useState<string | null>(null);
 
-  const chantierReserves = useMemo(
-    () => chantierFilter === 'all' ? reserves : reserves.filter(r => r.chantierId === chantierFilter),
-    [reserves, chantierFilter]
-  );
+  const chantierReserves = useMemo(() => {
+    let list = chantierFilter === 'all' ? reserves : reserves.filter(r => r.chantierId === chantierFilter);
+    if (isSousTraitant && sousTraitantCompanyName) {
+      list = list.filter(r => r.company === sousTraitantCompanyName);
+    }
+    return list;
+  }, [reserves, chantierFilter, isSousTraitant, sousTraitantCompanyName]);
 
   const buildings = useMemo(() => {
     const b = new Set(chantierReserves.map(r => r.building));
@@ -145,6 +153,15 @@ export default function ReservesScreen() {
             </Text>
           </View>
         </View>
+
+        {isSousTraitant && sousTraitantCompanyName && (
+          <View style={styles.stBanner}>
+            <Ionicons name="shield-checkmark-outline" size={13} color={C.primary} />
+            <Text style={styles.stBannerText}>
+              Vue filtrée — uniquement vos réserves : <Text style={{ fontFamily: 'Inter_700Bold' }}>{sousTraitantCompanyName}</Text>
+            </Text>
+          </View>
+        )}
 
         {chantiers.length > 1 && (
           <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.chantierBar}>
@@ -606,6 +623,12 @@ const styles = StyleSheet.create({
   },
   filterBadgeText: { fontSize: 9, fontFamily: 'Inter_700Bold', color: '#fff' },
   chantierBar: { marginBottom: 10 },
+  stBanner: {
+    flexDirection: 'row', alignItems: 'center', gap: 8,
+    backgroundColor: C.primaryBg, borderRadius: 8, paddingHorizontal: 12, paddingVertical: 8,
+    marginBottom: 10, borderWidth: 1, borderColor: C.primary + '30',
+  },
+  stBannerText: { fontSize: 12, fontFamily: 'Inter_400Regular', color: C.text, flex: 1 },
   chantierChip: {
     flexDirection: 'row', alignItems: 'center', gap: 6,
     paddingHorizontal: 12, paddingVertical: 7, borderRadius: 20,

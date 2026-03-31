@@ -25,11 +25,12 @@ const ROLE_LABELS: Record<UserRole, string> = {
 };
 
 const DEMO_USERS = [
-  { email: 'superadmin@buildtrack.fr', password: 'super123', name: 'Super Admin BuildTrack', role: 'super_admin', roleLabel: 'Super Administrateur' },
-  { email: 'admin@buildtrack.fr',     password: 'admin123', name: 'Admin Système',  role: 'admin',       roleLabel: 'Administrateur' },
-  { email: 'j.dupont@buildtrack.fr',  password: 'pass123',  name: 'Jean Dupont',    role: 'conducteur',  roleLabel: 'Conducteur de travaux' },
-  { email: 'm.martin@buildtrack.fr',  password: 'pass123',  name: 'Marie Martin',   role: 'chef_equipe', roleLabel: "Chef d'équipe" },
-  { email: 'p.lambert@buildtrack.fr', password: 'pass123',  name: 'Pierre Lambert', role: 'observateur', roleLabel: 'Observateur' },
+  { email: 'superadmin@buildtrack.fr', password: 'super123', name: 'Super Admin BuildTrack', role: 'super_admin', roleLabel: 'Super Administrateur', companyId: undefined as string | undefined },
+  { email: 'admin@buildtrack.fr',     password: 'admin123', name: 'Admin Système',  role: 'admin',        roleLabel: 'Administrateur',          companyId: undefined as string | undefined },
+  { email: 'j.dupont@buildtrack.fr',  password: 'pass123',  name: 'Jean Dupont',    role: 'conducteur',   roleLabel: 'Conducteur de travaux',    companyId: undefined as string | undefined },
+  { email: 'm.martin@buildtrack.fr',  password: 'pass123',  name: 'Marie Martin',   role: 'chef_equipe',  roleLabel: "Chef d'équipe",            companyId: undefined as string | undefined },
+  { email: 'p.lambert@buildtrack.fr', password: 'pass123',  name: 'Pierre Lambert', role: 'observateur',  roleLabel: 'Observateur',              companyId: undefined as string | undefined },
+  { email: 'st.martin@buildtrack.fr', password: 'pass123',  name: 'Stéphane Martin (ST)', role: 'sous_traitant', roleLabel: 'Sous-traitant', companyId: 'co2' as string | undefined },
 ];
 
 interface AuthContextValue {
@@ -207,6 +208,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         roleLabel: u.roleLabel,
         email: u.email,
         organizationId: u.role === 'super_admin' ? undefined : 'demo-org',
+        companyId: u.companyId,
       })));
       setIsLoading(false);
       return;
@@ -284,6 +286,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         roleLabel: match.roleLabel,
         email: match.email,
         organizationId: match.role === 'super_admin' ? undefined : 'demo-org',
+        companyId: match.companyId,
       });
       return { success: true };
     }

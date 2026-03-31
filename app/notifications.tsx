@@ -22,6 +22,12 @@ const TYPE_CONFIG: Record<NotifType, { icon: string; color: string; bg: string; 
     bg: '#FFFBEB',
     label: 'Réserve en retard',
   },
+  due_soon_reserve: {
+    icon: 'alarm-outline',
+    color: '#6366F1',
+    bg: '#EEF2FF',
+    label: 'Échéance imminente',
+  },
   late_task: {
     icon: 'calendar',
     color: '#8B5CF6',
