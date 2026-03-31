@@ -239,7 +239,10 @@ export default function AdminScreen() {
     <View style={styles.container}>
       <View style={[styles.header, { paddingTop: topPad + 12 }]}>
         <View style={styles.headerRow}>
-          <View>
+          <TouchableOpacity onPress={() => router.back()} style={styles.backBtn} hitSlop={8}>
+            <Ionicons name="chevron-back" size={22} color={C.text} />
+          </TouchableOpacity>
+          <View style={{ flex: 1 }}>
             <Text style={styles.title}>Administration</Text>
             <Text style={styles.subtitle}>Gestion des accès et des équipes</Text>
           </View>
@@ -803,7 +806,8 @@ const styles = StyleSheet.create({
       default: { shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.06, shadowRadius: 4, elevation: 2 },
     }),
   },
-  headerRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 14 },
+  headerRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 14, gap: 8 },
+  backBtn: { padding: 2 },
   title: { fontSize: 22, fontFamily: 'Inter_700Bold', color: C.text },
   subtitle: { fontSize: 12, fontFamily: 'Inter_400Regular', color: C.textMuted, marginTop: 2 },
   adminBadge: {

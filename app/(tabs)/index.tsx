@@ -108,13 +108,8 @@ export default function DashboardScreen() {
           </View>
         </View>
         <View style={styles.headerRight}>
-          {user && (
-            <View style={styles.roleBadge}>
-              <Text style={styles.roleText}>{user.roleLabel}</Text>
-            </View>
-          )}
           <View style={styles.projectBadge}>
-            <Text style={styles.projectText}>{projectName}</Text>
+            <Text style={styles.projectText} numberOfLines={1}>{projectName}</Text>
           </View>
         </View>
       </View>

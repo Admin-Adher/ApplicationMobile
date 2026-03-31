@@ -16,6 +16,13 @@ const STATUS_CFG: Record<TaskStatus, { label: string; color: string }> = {
   delayed: { label: 'Retard', color: C.waiting },
 };
 
+const PRIORITY_CFG: Record<string, { label: string; color: string }> = {
+  low: { label: 'Faible', color: '#22C55E' },
+  medium: { label: 'Moyen', color: '#F59E0B' },
+  high: { label: 'Haute', color: '#EF4444' },
+  critical: { label: 'Critique', color: '#7C3AED' },
+};
+
 type ViewMode = 'list' | 'calendar' | 'gantt';
 
 const MONTHS_FR = ['Janv', 'Févr', 'Mars', 'Avr', 'Mai', 'Juin', 'Juil', 'Août', 'Sept', 'Oct', 'Nov', 'Déc'];
@@ -47,8 +54,16 @@ function TaskCard({ task, onDelete, canEdit, onPress }: { task: Task; onDelete: 
       activeOpacity={onPress ? 0.75 : 1}
     >
       <View style={styles.taskTop}>
-        <View style={[styles.statusBadge, { backgroundColor: cfg.color + '20' }]}>
-          <Text style={[styles.statusText, { color: cfg.color }]}>{cfg.label}</Text>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flexWrap: 'wrap', flex: 1 }}>
+          <View style={[styles.statusBadge, { backgroundColor: cfg.color + '20' }]}>
+            <Text style={[styles.statusText, { color: cfg.color }]}>{cfg.label}</Text>
+          </View>
+          {task.priority && PRIORITY_CFG[task.priority] && (
+            <View style={[styles.statusBadge, { backgroundColor: PRIORITY_CFG[task.priority].color + '15', flexDirection: 'row', alignItems: 'center', gap: 4 }]}>
+              <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: PRIORITY_CFG[task.priority].color }} />
+              <Text style={[styles.statusText, { color: PRIORITY_CFG[task.priority].color }]}>{PRIORITY_CFG[task.priority].label}</Text>
+            </View>
+          )}
         </View>
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
           <Text style={[styles.taskPct, { color: cfg.color }]}>{task.progress}%</Text>

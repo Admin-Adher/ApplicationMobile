@@ -199,8 +199,7 @@ export default function IncidentsScreen() {
       <Header
         title="Sécurité & Incidents"
         subtitle={`${openCount} non résolu${openCount !== 1 ? 's' : ''}`}
-        rightLabel={permissions.canCreate ? 'Signaler' : undefined}
-        onRightPress={permissions.canCreate ? openAdd : undefined}
+        showBack
       />
 
       <View style={styles.searchWrap}>
@@ -505,6 +504,12 @@ export default function IncidentsScreen() {
           </TouchableOpacity>
         </TouchableOpacity>
       </Modal>
+
+      {permissions.canCreate && (
+        <TouchableOpacity style={styles.fab} onPress={openAdd}>
+          <Ionicons name="warning-outline" size={22} color="#fff" />
+        </TouchableOpacity>
+      )}
     </View>
   );
 }
@@ -596,4 +601,20 @@ const styles = StyleSheet.create({
   photoPickerRow: { flexDirection: 'row', gap: 10, marginTop: 4, marginBottom: 8 },
   photoPickerBtn: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, paddingVertical: 12, backgroundColor: C.primaryBg, borderRadius: 10, borderWidth: 1, borderColor: C.primary + '40' },
   photoPickerText: { fontSize: 13, fontFamily: 'Inter_600SemiBold', color: C.primary },
+
+  fab: {
+    position: 'absolute',
+    bottom: Platform.OS === 'web' ? 100 : 24,
+    right: 20,
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    backgroundColor: C.open,
+    alignItems: 'center',
+    justifyContent: 'center',
+    ...Platform.select({
+      web: { boxShadow: '0px 4px 16px rgba(239,68,68,0.35)' } as any,
+      default: { shadowColor: '#EF4444', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.35, shadowRadius: 10, elevation: 8 },
+    }),
+  },
 });

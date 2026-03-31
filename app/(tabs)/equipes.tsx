@@ -174,16 +174,21 @@ export default function EquipesScreen() {
   return (
     <View style={styles.container}>
       <View style={[styles.header, { paddingTop: topPad + 12 }]}>
-        <View style={{ flex: 1 }}>
-          <Text style={styles.title}>Équipes</Text>
-          <Text style={styles.subtitle}>{today}</Text>
-        </View>
-        {permissions.canManageTeams && (
-          <TouchableOpacity style={styles.addBtn} onPress={openAdd}>
-            <Ionicons name="add" size={18} color="#fff" />
-            <Text style={styles.addBtnLabel}>Ajouter</Text>
+        <View style={styles.headerTopRow}>
+          <TouchableOpacity onPress={() => router.back()} style={styles.backBtn} hitSlop={8}>
+            <Ionicons name="chevron-back" size={22} color={C.text} />
           </TouchableOpacity>
-        )}
+          <View style={{ flex: 1 }}>
+            <Text style={styles.title}>Équipes</Text>
+            <Text style={styles.subtitle}>{today}</Text>
+          </View>
+          {permissions.canManageTeams && (
+            <TouchableOpacity style={styles.addBtn} onPress={openAdd}>
+              <Ionicons name="add" size={18} color="#fff" />
+              <Text style={styles.addBtnLabel}>Ajouter</Text>
+            </TouchableOpacity>
+          )}
+        </View>
       </View>
 
       <ScrollView
@@ -542,10 +547,10 @@ const styles = StyleSheet.create({
   header: {
     paddingHorizontal: 16, paddingBottom: 14,
     borderBottomWidth: 1, borderBottomColor: C.border,
-    flexDirection: 'row', alignItems: 'flex-end', justifyContent: 'space-between', gap: 8,
     backgroundColor: C.surface,
   },
-  backBtn: { paddingBottom: 2 },
+  headerTopRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  backBtn: { padding: 2 },
   title: { fontSize: 22, fontFamily: 'Inter_700Bold', color: C.text },
   subtitle: { fontSize: 12, fontFamily: 'Inter_400Regular', color: C.textSub, marginTop: 2 },
   addBtn: { backgroundColor: C.primary, flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: 14, paddingVertical: 8, borderRadius: 10 },

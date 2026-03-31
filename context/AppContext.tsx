@@ -538,11 +538,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     let messages: Message[] = MOCK_MESSAGES;
     try {
       const sr = await AsyncStorage.getItem(MOCK_RESERVES_KEY);
-      if (sr) reserves = JSON.parse(sr);
+      if (sr) { const p = JSON.parse(sr); if (Array.isArray(p) && p.length > 0) reserves = p; }
     } catch {}
     try {
       const st = await AsyncStorage.getItem(MOCK_TASKS_KEY);
-      if (st) tasks = JSON.parse(st);
+      if (st) { const p = JSON.parse(st); if (Array.isArray(p) && p.length > 0) tasks = p; }
     } catch {}
     try {
       const sp = await AsyncStorage.getItem(MOCK_PHOTOS_KEY);

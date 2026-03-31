@@ -331,7 +331,7 @@ export default function MessagesTabScreen() {
         <View style={styles.demoBanner}>
           <Ionicons name="information-circle-outline" size={15} color={C.waiting} />
           <Text style={styles.demoBannerText}>
-            Mode démo — Supabase est nécessaire pour la vraie synchronisation multi-utilisateurs
+            Mode démo — activez la synchronisation cloud pour collaborer en temps réel
           </Text>
         </View>
       )}

@@ -43,6 +43,20 @@ which executes `npx expo start --web --port 5000`
 
 The app is accessible on port 5000 (web preview). Users can also scan the QR code with Expo Go for mobile testing.
 
+## UX Audit Fixes Applied (March 2026)
+
+All 13 issues from the comprehensive UX audit were addressed:
+
+- **Data consistency**: Mock reserves/tasks now always load from MOCK_RESERVES fallback if AsyncStorage returns empty, ensuring Dashboard and Réserves counts always match
+- **Back navigation**: Added `← back` buttons to Incidents, Équipes, and Administration screens (secondary tabs accessed via "Plus")
+- **Incidents FAB**: Promoted "Signaler" from header text link to a prominent red FAB button
+- **Réserves FAB**: Fixed FAB bottom position on web (now above the tab bar)
+- **Plans filters**: Collapsed company/zone/level filter rows behind a "⋮ Options" toggle button with active filter count badge; building selector stays always visible
+- **Plans legend**: Status color legend already present (open/in_progress/waiting/verification/closed)
+- **Planning priority**: Added priority color badge (green/amber/red/purple dot + label) to task cards
+- **Dashboard header**: Removed redundant role badge from header to reduce clutter on small screens
+- **Messages**: Replaced "Supabase" technical jargon in demo banner with user-friendly text
+
 ## Database
 
 The Supabase schema is defined in `lib/schema.sql`. The subscription/storage migration is in `lib/migration_subscription.sql` — run it once in the Supabase SQL Editor. The app includes a demo seed mechanism in `AuthContext.tsx` that creates demo users on first run (max 30s timeout).

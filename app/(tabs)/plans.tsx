@@ -142,7 +142,9 @@ export default function PlansScreen() {
   const [addingMarker, setAddingMarker] = useState(false);
   const [pendingCoords, setPendingCoords] = useState<{ x: number; y: number } | null>(null);
   const [importing, setImporting] = useState(false);
+  const [showFilters, setShowFilters] = useState(false);
   const topPad = Platform.OS === 'web' ? 67 : insets.top;
+  const activeFilters = [companyFilter, zoneFilter, levelFilter].filter(f => f !== 'all').length;
 
   const scale = useRef(new Animated.Value(1)).current;
   const translateX = useRef(new Animated.Value(0)).current;
@@ -320,6 +322,17 @@ export default function PlansScreen() {
         <View style={styles.headerTop}>
           <Text style={styles.title}>Plans interactifs</Text>
           <View style={styles.zoomBtns}>
+            <TouchableOpacity
+              style={[styles.zoomBtn, showFilters && styles.filterToggleActive]}
+              onPress={() => setShowFilters(v => !v)}
+            >
+              <Ionicons name="options-outline" size={14} color={showFilters ? C.primary : C.text} />
+              {activeFilters > 0 && (
+                <View style={styles.filterBadge}>
+                  <Text style={styles.filterBadgeText}>{activeFilters}</Text>
+                </View>
+              )}
+            </TouchableOpacity>
             <TouchableOpacity style={styles.zoomBtn} onPress={zoomOut}><Ionicons name="remove" size={16} color={C.text} /></TouchableOpacity>
             <TouchableOpacity style={styles.zoomBtn} onPress={resetView}><Ionicons name="scan-outline" size={14} color={C.text} /></TouchableOpacity>
             <TouchableOpacity style={styles.zoomBtn} onPress={zoomIn}><Ionicons name="add" size={16} color={C.text} /></TouchableOpacity>
@@ -361,70 +374,74 @@ export default function PlansScreen() {
         </View>
       </View>
 
-      <View style={styles.companyFilterWrap}>
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 6, paddingHorizontal: 16 }}>
-          <TouchableOpacity
-            style={[styles.filterChip, companyFilter === 'all' && styles.filterChipActive]}
-            onPress={() => setCompanyFilter('all')}
-          >
-            <Text style={[styles.filterChipText, companyFilter === 'all' && styles.filterChipTextActive]}>Toutes</Text>
-          </TouchableOpacity>
-          {companies.map(c => (
-            <TouchableOpacity
-              key={c.id}
-              style={[styles.filterChip, companyFilter === c.name && { backgroundColor: c.color + '20', borderColor: c.color }]}
-              onPress={() => setCompanyFilter(companyFilter === c.name ? 'all' : c.name)}
-            >
-              <View style={[styles.filterDot, { backgroundColor: c.color }]} />
-              <Text style={[styles.filterChipText, companyFilter === c.name && { color: c.color }]}>{c.shortName}</Text>
-            </TouchableOpacity>
-          ))}
-        </ScrollView>
-      </View>
-
-      {buildingZones.length > 0 && (
-        <View style={styles.zoneFilterWrap}>
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 6, paddingHorizontal: 16 }}>
-            <TouchableOpacity
-              style={[styles.filterChip, zoneFilter === 'all' && styles.zoneChipActive]}
-              onPress={() => setZoneFilter('all')}
-            >
-              <Ionicons name="layers-outline" size={11} color={zoneFilter === 'all' ? C.inProgress : C.textMuted} />
-              <Text style={[styles.filterChipText, zoneFilter === 'all' && { color: C.inProgress }]}>Toutes zones</Text>
-            </TouchableOpacity>
-            {buildingZones.map(z => (
+      {showFilters && (
+        <>
+          <View style={styles.companyFilterWrap}>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 6, paddingHorizontal: 16 }}>
               <TouchableOpacity
-                key={z}
-                style={[styles.filterChip, zoneFilter === z && styles.zoneChipActive]}
-                onPress={() => setZoneFilter(zoneFilter === z ? 'all' : z)}
+                style={[styles.filterChip, companyFilter === 'all' && styles.filterChipActive]}
+                onPress={() => setCompanyFilter('all')}
               >
-                <Text style={[styles.filterChipText, zoneFilter === z && { color: C.inProgress }]}>{z}</Text>
+                <Text style={[styles.filterChipText, companyFilter === 'all' && styles.filterChipTextActive]}>Toutes</Text>
               </TouchableOpacity>
-            ))}
-          </ScrollView>
-        </View>
-      )}
+              {companies.map(c => (
+                <TouchableOpacity
+                  key={c.id}
+                  style={[styles.filterChip, companyFilter === c.name && { backgroundColor: c.color + '20', borderColor: c.color }]}
+                  onPress={() => setCompanyFilter(companyFilter === c.name ? 'all' : c.name)}
+                >
+                  <View style={[styles.filterDot, { backgroundColor: c.color }]} />
+                  <Text style={[styles.filterChipText, companyFilter === c.name && { color: c.color }]}>{c.shortName}</Text>
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
+          </View>
 
-      <View style={styles.zoneFilterWrap}>
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 6, paddingHorizontal: 16 }}>
-          <TouchableOpacity
-            style={[styles.filterChip, levelFilter === 'all' && styles.levelChipActive]}
-            onPress={() => setLevelFilter('all')}
-          >
-            <Ionicons name="albums-outline" size={11} color={levelFilter === 'all' ? '#8B5CF6' : C.textMuted} />
-            <Text style={[styles.filterChipText, levelFilter === 'all' && { color: '#8B5CF6' }]}>Tous niveaux</Text>
-          </TouchableOpacity>
-          {RESERVE_LEVELS.map(lvl => (
-            <TouchableOpacity
-              key={lvl}
-              style={[styles.filterChip, levelFilter === lvl && styles.levelChipActive]}
-              onPress={() => setLevelFilter(levelFilter === lvl ? 'all' : lvl)}
-            >
-              <Text style={[styles.filterChipText, levelFilter === lvl && { color: '#8B5CF6' }]}>{lvl}</Text>
-            </TouchableOpacity>
-          ))}
-        </ScrollView>
-      </View>
+          {buildingZones.length > 0 && (
+            <View style={styles.zoneFilterWrap}>
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 6, paddingHorizontal: 16 }}>
+                <TouchableOpacity
+                  style={[styles.filterChip, zoneFilter === 'all' && styles.zoneChipActive]}
+                  onPress={() => setZoneFilter('all')}
+                >
+                  <Ionicons name="layers-outline" size={11} color={zoneFilter === 'all' ? C.inProgress : C.textMuted} />
+                  <Text style={[styles.filterChipText, zoneFilter === 'all' && { color: C.inProgress }]}>Toutes zones</Text>
+                </TouchableOpacity>
+                {buildingZones.map(z => (
+                  <TouchableOpacity
+                    key={z}
+                    style={[styles.filterChip, zoneFilter === z && styles.zoneChipActive]}
+                    onPress={() => setZoneFilter(zoneFilter === z ? 'all' : z)}
+                  >
+                    <Text style={[styles.filterChipText, zoneFilter === z && { color: C.inProgress }]}>{z}</Text>
+                  </TouchableOpacity>
+                ))}
+              </ScrollView>
+            </View>
+          )}
+
+          <View style={styles.zoneFilterWrap}>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 6, paddingHorizontal: 16 }}>
+              <TouchableOpacity
+                style={[styles.filterChip, levelFilter === 'all' && styles.levelChipActive]}
+                onPress={() => setLevelFilter('all')}
+              >
+                <Ionicons name="albums-outline" size={11} color={levelFilter === 'all' ? '#8B5CF6' : C.textMuted} />
+                <Text style={[styles.filterChipText, levelFilter === 'all' && { color: '#8B5CF6' }]}>Tous niveaux</Text>
+              </TouchableOpacity>
+              {RESERVE_LEVELS.map(lvl => (
+                <TouchableOpacity
+                  key={lvl}
+                  style={[styles.filterChip, levelFilter === lvl && styles.levelChipActive]}
+                  onPress={() => setLevelFilter(levelFilter === lvl ? 'all' : lvl)}
+                >
+                  <Text style={[styles.filterChipText, levelFilter === lvl && { color: '#8B5CF6' }]}>{lvl}</Text>
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
+          </View>
+        </>
+      )}
 
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
         <View style={styles.planContainer}>
@@ -624,6 +641,9 @@ const styles = StyleSheet.create({
   title: { fontSize: 22, fontFamily: 'Inter_700Bold', color: C.text },
   zoomBtns: { flexDirection: 'row', gap: 6 },
   zoomBtn: { width: 32, height: 32, borderRadius: 8, backgroundColor: C.surface, borderWidth: 1, borderColor: C.border, alignItems: 'center', justifyContent: 'center' },
+  filterToggleActive: { backgroundColor: C.primaryBg, borderColor: C.primary },
+  filterBadge: { position: 'absolute', top: -4, right: -4, width: 14, height: 14, borderRadius: 7, backgroundColor: C.primary, alignItems: 'center', justifyContent: 'center' },
+  filterBadgeText: { fontSize: 8, fontFamily: 'Inter_700Bold', color: '#fff' },
   buildingBarRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   buildingRow: { flexDirection: 'row', gap: 8, paddingBottom: 2 },
   buildingBtn: { flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: 14, paddingVertical: 7, borderRadius: 20, backgroundColor: C.surface, borderWidth: 1, borderColor: C.border },
