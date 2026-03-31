@@ -583,6 +583,7 @@ export default function PlansScreen() {
       onPanResponderRelease: (_, gs) => {
         committedTX.current = committedTX.current + gs.dx;
         committedTY.current = committedTY.current + gs.dy;
+        setTimeout(() => { isDraggingRef.current = false; }, 50);
       },
     })
   ).current;
@@ -872,7 +873,7 @@ export default function PlansScreen() {
                   onPress={() => handleSelectPlan(plan.id)}
                 >
                   <Text style={[styles.buildingText, currentPlanId === plan.id && styles.buildingTextActive]} numberOfLines={1}>
-                    {plan.level ? `${plan.level} — ${plan.name}` : plan.name}
+                    {(plan.level && selectedLevel === 'all') ? `${plan.level} — ${plan.name}` : plan.name}
                   </Text>
                   {plan.uri && <View style={styles.planDot} />}
                 </TouchableOpacity>
@@ -1178,8 +1179,8 @@ export default function PlansScreen() {
               </View>
             </Animated.View>
 
-            {allPlanReserves.length > 0 && (
-              <View style={styles.miniMap} pointerEvents="none">
+            {(allPlanReserves.length > 0 || displayScale !== 1) && (
+              <View style={[styles.miniMap, { pointerEvents: 'none' as any }]}>
                 <View style={styles.miniMapInner}>
                   {allPlanReserves.filter(r => r.planX != null && r.planY != null).map(r => {
                     const color = STATUS_CONFIG[r.status as keyof typeof STATUS_CONFIG]?.color ?? C.primary;
