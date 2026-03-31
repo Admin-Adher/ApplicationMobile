@@ -18,6 +18,7 @@ import PriorityBadge from '@/components/PriorityBadge';
 import { uploadDocument } from '@/lib/storage';
 import { genId } from '@/lib/utils';
 import { parseDxf, normalizeDxfPoint, DxfParseResult, DxfEntity } from '@/lib/dxfParser';
+import QRCodeDisplay from '@/components/QRCodeDisplay';
 
 interface Room {
   id: string; label: string;
@@ -520,6 +521,14 @@ export default function PlansScreen() {
                 </View>
               )}
             </TouchableOpacity>
+            {currentPlanId && dxfData[currentPlanId] && (
+              <TouchableOpacity
+                style={[styles.zoomBtn, showLayers && styles.filterToggleActive]}
+                onPress={() => setShowLayers(v => !v)}
+              >
+                <Ionicons name="layers-outline" size={14} color={showLayers ? C.primary : C.text} />
+              </TouchableOpacity>
+            )}
             <TouchableOpacity style={styles.zoomBtn} onPress={zoomOut}><Ionicons name="remove" size={16} color={C.text} /></TouchableOpacity>
             <TouchableOpacity style={styles.zoomBtn} onPress={resetView}><Ionicons name="scan-outline" size={14} color={C.text} /></TouchableOpacity>
             <TouchableOpacity style={styles.zoomBtn} onPress={zoomIn}><Ionicons name="add" size={16} color={C.text} /></TouchableOpacity>
@@ -617,6 +626,49 @@ export default function PlansScreen() {
         </>
       )}
 
+      {showLayers && currentPlanId && dxfData[currentPlanId] && (
+        <View style={styles.layersPanel}>
+          <View style={styles.layersPanelHeader}>
+            <Ionicons name="layers" size={13} color={C.primary} />
+            <Text style={styles.layersPanelTitle}>Calques DXF</Text>
+            <Text style={styles.layersPanelCount}>{dxfData[currentPlanId].layers.length} calque{dxfData[currentPlanId].layers.length !== 1 ? 's' : ''}</Text>
+          </View>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 6, paddingHorizontal: 16 }}>
+            <TouchableOpacity
+              style={[styles.layerChip, !(visibleLayers[currentPlanId]?.length) && styles.layerChipActive]}
+              onPress={() => setVisibleLayers(prev => ({ ...prev, [currentPlanId]: [] }))}
+            >
+              <Text style={[styles.layerChipText, !(visibleLayers[currentPlanId]?.length) && styles.layerChipTextActive]}>
+                Tous
+              </Text>
+            </TouchableOpacity>
+            {dxfData[currentPlanId].layers.map(layer => {
+              const isActive = visibleLayers[currentPlanId]?.includes(layer);
+              return (
+                <TouchableOpacity
+                  key={layer}
+                  style={[styles.layerChip, isActive && styles.layerChipActive]}
+                  onPress={() => {
+                    setVisibleLayers(prev => {
+                      const curr = prev[currentPlanId] ?? [];
+                      const next = curr.includes(layer)
+                        ? curr.filter(l => l !== layer)
+                        : [...curr, layer];
+                      return { ...prev, [currentPlanId]: next };
+                    });
+                  }}
+                >
+                  <View style={[styles.layerDot, { backgroundColor: isActive ? C.primary : C.textMuted }]} />
+                  <Text style={[styles.layerChipText, isActive && styles.layerChipTextActive]} numberOfLines={1}>
+                    {layer || '(défaut)'}
+                  </Text>
+                </TouchableOpacity>
+              );
+            })}
+          </ScrollView>
+        </View>
+      )}
+
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
         <View style={styles.planContainer}>
           <View style={styles.planTitleRow}>
@@ -693,7 +745,14 @@ export default function PlansScreen() {
                 )}
 
                 {currentPlanId && dxfData[currentPlanId] && (
-                  <DxfOverlay dxf={dxfData[currentPlanId]} />
+                  <DxfOverlay
+                    dxf={dxfData[currentPlanId]}
+                    visibleLayers={
+                      visibleLayers[currentPlanId]?.length
+                        ? visibleLayers[currentPlanId]
+                        : undefined
+                    }
+                  />
                 )}
 
                 {planReserves.filter(r => r.planX != null && r.planY != null).map((r, idx) => (
@@ -731,6 +790,12 @@ export default function PlansScreen() {
               <Text style={styles.pendingText}>
                 Position sélectionnée ({pendingCoords.x}%, {pendingCoords.y}%)
               </Text>
+              <TouchableOpacity
+                style={styles.pendingQrBtn}
+                onPress={() => setShowQRModal(pendingCoords)}
+              >
+                <Ionicons name="qr-code-outline" size={15} color={C.textSub} />
+              </TouchableOpacity>
               <TouchableOpacity
                 style={styles.pendingCreateBtn}
                 onPress={() => {
@@ -859,6 +924,42 @@ export default function PlansScreen() {
           )}
         </TouchableOpacity>
       </Modal>
+
+      <Modal visible={!!showQRModal} transparent animationType="fade" onRequestClose={() => setShowQRModal(null)}>
+        <TouchableOpacity style={styles.modalOverlay} activeOpacity={1} onPress={() => setShowQRModal(null)}>
+          {showQRModal && currentPlan && (
+            <TouchableOpacity activeOpacity={1} style={styles.qrModalCard} onPress={() => {}}>
+              <View style={styles.modalHeader}>
+                <View style={styles.qrModalIconWrap}>
+                  <Ionicons name="qr-code" size={16} color={C.primary} />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.modalTitle}>Code QR de position</Text>
+                  <Text style={styles.modalMeta}>{currentPlan.name}</Text>
+                </View>
+                <TouchableOpacity onPress={() => setShowQRModal(null)}>
+                  <Ionicons name="close" size={20} color={C.textMuted} />
+                </TouchableOpacity>
+              </View>
+              <View style={styles.qrModalBody}>
+                <QRCodeDisplay
+                  data={{
+                    planId: currentPlan.id,
+                    planName: currentPlan.name,
+                    building: activeChantier?.name,
+                    x: showQRModal.x,
+                    y: showQRModal.y,
+                  }}
+                  size={180}
+                />
+              </View>
+              <Text style={styles.qrModalHint}>
+                Scannez ce QR sur le chantier pour pré-remplir automatiquement la création d'une réserve à cette position.
+              </Text>
+            </TouchableOpacity>
+          )}
+        </TouchableOpacity>
+      </Modal>
     </View>
   );
 }
@@ -965,4 +1066,88 @@ const styles = StyleSheet.create({
   emptySubtitle: { fontSize: 14, fontFamily: 'Inter_400Regular', color: C.textMuted, textAlign: 'center', lineHeight: 20 },
   emptyBtn: { flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: C.primary, borderRadius: 12, paddingHorizontal: 20, paddingVertical: 12, marginTop: 8 },
   emptyBtnText: { fontSize: 14, fontFamily: 'Inter_600SemiBold', color: '#fff' },
+  pendingQrBtn: {
+    width: 30, height: 30, borderRadius: 8,
+    backgroundColor: C.surface2,
+    borderWidth: 1, borderColor: C.border,
+    alignItems: 'center', justifyContent: 'center',
+    flexShrink: 0,
+  },
+  layersPanel: {
+    borderBottomWidth: 1,
+    borderBottomColor: C.border,
+    paddingVertical: 8,
+    backgroundColor: C.surface,
+  },
+  layersPanelHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 16,
+    paddingBottom: 8,
+  },
+  layersPanelTitle: {
+    fontSize: 12,
+    fontFamily: 'Inter_600SemiBold',
+    color: C.primary,
+    flex: 1,
+  },
+  layersPanelCount: {
+    fontSize: 11,
+    fontFamily: 'Inter_400Regular',
+    color: C.textMuted,
+  },
+  layerChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 16,
+    backgroundColor: C.surface2,
+    borderWidth: 1,
+    borderColor: C.border,
+  },
+  layerChipActive: {
+    backgroundColor: C.primaryBg,
+    borderColor: C.primary + '60',
+  },
+  layerChipText: {
+    fontSize: 12,
+    fontFamily: 'Inter_500Medium',
+    color: C.textSub,
+    maxWidth: 120,
+  },
+  layerChipTextActive: {
+    color: C.primary,
+  },
+  layerDot: {
+    width: 7,
+    height: 7,
+    borderRadius: 4,
+  },
+  qrModalCard: {
+    backgroundColor: C.surface,
+    borderRadius: 18,
+    padding: 20,
+    gap: 16,
+  },
+  qrModalIconWrap: {
+    width: 36, height: 36,
+    borderRadius: 10,
+    backgroundColor: C.primaryBg,
+    alignItems: 'center', justifyContent: 'center',
+    flexShrink: 0,
+  },
+  qrModalBody: {
+    alignItems: 'center',
+    paddingVertical: 8,
+  },
+  qrModalHint: {
+    fontSize: 12,
+    fontFamily: 'Inter_400Regular',
+    color: C.textMuted,
+    textAlign: 'center',
+    lineHeight: 18,
+  },
 });
