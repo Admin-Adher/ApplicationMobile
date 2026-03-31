@@ -9,6 +9,7 @@ import { useRouter } from 'expo-router';
 import { C } from '@/constants/colors';
 import { useApp } from '@/context/AppContext';
 import { useAuth } from '@/context/AuthContext';
+import { isSupabaseConfigured } from '@/lib/supabase';
 import { Channel, Message } from '@/constants/types';
 import NewChannelModal from '@/components/NewChannelModal';
 import NewDMModal from '@/components/NewDMModal';
@@ -326,6 +327,15 @@ export default function MessagesTabScreen() {
         </View>
       </View>
 
+      {!isSupabaseConfigured && (
+        <View style={styles.demoBanner}>
+          <Ionicons name="information-circle-outline" size={15} color={C.waiting} />
+          <Text style={styles.demoBannerText}>
+            Mode démo — Supabase est nécessaire pour la vraie synchronisation multi-utilisateurs
+          </Text>
+        </View>
+      )}
+
       <ScrollView showsVerticalScrollIndicator={false}>
           <View style={styles.content}>
             {showPinned && (
@@ -635,4 +645,15 @@ const styles = StyleSheet.create({
   sheetBtnSub: { fontSize: 12, fontFamily: 'Inter_400Regular', color: C.textMuted, marginTop: 1 },
   sheetCancelBtn: { marginTop: 8, alignItems: 'center', paddingVertical: 14, borderRadius: 14, backgroundColor: C.surface2, borderWidth: 1, borderColor: C.border },
   sheetCancelText: { fontSize: 15, fontFamily: 'Inter_600SemiBold', color: C.textSub },
+  demoBanner: {
+    flexDirection: 'row', alignItems: 'center', gap: 7,
+    marginHorizontal: 16, marginBottom: 10,
+    paddingVertical: 8, paddingHorizontal: 12,
+    backgroundColor: C.waiting + '15',
+    borderRadius: 10, borderWidth: 1, borderColor: C.waiting + '35',
+  },
+  demoBannerText: {
+    flex: 1, fontSize: 12, fontFamily: 'Inter_400Regular',
+    color: C.waiting, lineHeight: 17,
+  },
 });
