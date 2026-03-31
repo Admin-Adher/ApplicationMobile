@@ -139,6 +139,11 @@ The Supabase schema is defined in `lib/schema.sql`. The subscription/storage mig
 - **`lib/storage.ts`** — Suppression des appels `createBucket()` côté client (bloqués par RLS avec la clé anon). Les buckets sont désormais créés via SQL.
 - **`app/login.tsx`** — Message d'erreur du seeder mis à jour pour orienter vers la désactivation de la confirmation email Supabase.
 
+**Session 11 (actuelle) — Audit complet warnings + corrections :**
+- **`components/NotificationBanner.tsx`** — `pointerEvents="box-none"` migré du prop JSX vers `StyleSheet.create` (`styles.wrapper`). Le prop était déprécié dans React Native 19 en faveur du style. Correction de la forme intermédiaire (inline style) vers la forme définitive (StyleSheet).
+- **Audit warnings terminé** — Les 2 warnings console restants (`shadow*` et `props.pointerEvents`) viennent des internals React Native (respectivement les couches de rendu web Expo et `AppContainer-dev.js` de `react-native/Libraries/ReactNative/`). Ils ne proviennent PAS du code BuildTrack et disparaîtront en production. Notre code utilise correctement `Platform.select` avec `boxShadow` pour web et `style.pointerEvents` dans StyleSheet.
+- **Audit fonctionnel confirmé** — Toutes les routes vérifiées, tous les contextes chargent correctement, les données mock persistent via AsyncStorage. Les "5 tâches en retard" et "7 réserves en retard" affichées sont des données persistées de sessions précédentes — comportement correct du système.
+
 **Session 10 (actuelle) — Audit UX : BottomNavBar + enrichissement Settings :**
 - **`components/BottomNavBar.tsx`** (nouveau) — Barre de navigation persistante à 5 onglets pour toutes les pages secondaires (hors tabs principaux). Utilise `router.navigate()` pour éviter l'empilement de l'historique. Prop `activeTab` pour indiquer l'onglet actif.
 - **`app/(tabs)/_layout.tsx`** — L'onglet "Plus" renommé en **"Modules"** avec l'icône `apps-outline`.

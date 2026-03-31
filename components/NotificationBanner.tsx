@@ -86,7 +86,6 @@ export default function NotificationBanner() {
         styles.wrapper,
         { top: topPad, transform: [{ translateY }], opacity },
       ]}
-      pointerEvents="box-none"
     >
       <TouchableOpacity
         style={[styles.banner, { borderLeftColor: channelColor }]}
@@ -127,6 +126,7 @@ const styles = StyleSheet.create({
     left: 12,
     right: 12,
     zIndex: 9999,
+    pointerEvents: 'box-none',
   },
   banner: {
     flexDirection: 'row',
