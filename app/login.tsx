@@ -140,7 +140,9 @@ export default function LoginScreen() {
             {seedStatus === 'error' && (
               <View style={[styles.seedBanner, { backgroundColor: C.openBg, borderColor: C.open + '40' }]}>
                 <Ionicons name="warning-outline" size={14} color={C.open} />
-                <Text style={[styles.seedText, { color: C.open }]}>Vérifiez votre connexion Supabase</Text>
+                <Text style={[styles.seedText, { color: C.open }]}>
+                  {'Comptes non créés. Si les mots de passe échouent, désactivez « Confirm email » dans Supabase → Authentication → Providers → Email.'}
+                </Text>
               </View>
             )}
             <View style={styles.demoGrid}>

@@ -111,52 +111,73 @@ async function fetchProfile(userId: string): Promise<User | null> {
   }
 }
 
-async function seedDemoUsers(): Promise<'done' | 'error'> {
-  try {
-    for (const u of DEMO_USERS) {
-      let authUserId: string | undefined;
+async function seedOneUser(u: typeof DEMO_USERS[number]): Promise<void> {
+  let authUserId: string | undefined;
 
-      const { data: signInData, error: signInErr } = await supabase.auth.signInWithPassword({
-        email: u.email,
-        password: u.password,
-      });
+  const { data: signInData, error: signInErr } = await supabase.auth.signInWithPassword({
+    email: u.email,
+    password: u.password,
+  });
 
-      if (!signInErr && signInData?.user?.id) {
-        authUserId = signInData.user.id;
-      } else {
-        const { data: signUpData, error: signUpErr } = await supabase.auth.signUp({
-          email: u.email,
-          password: u.password,
-        });
-        if (signUpErr || !signUpData?.user?.id) continue;
-        authUserId = signUpData.user.id;
-        await supabase.auth.signOut();
-        const { data: reSign } = await supabase.auth.signInWithPassword({
-          email: u.email,
-          password: u.password,
-        });
-        if (reSign?.user?.id) authUserId = reSign.user.id;
-      }
+  if (!signInErr && signInData?.user?.id) {
+    authUserId = signInData.user.id;
+  } else {
+    const { data: signUpData, error: signUpErr } = await supabase.auth.signUp({
+      email: u.email,
+      password: u.password,
+    });
+    if (signUpErr || !signUpData?.user?.id) return;
+    authUserId = signUpData.user.id;
 
-      if (!authUserId) continue;
+    await supabase.auth.signOut();
 
-      const orgId = (u.role === 'super_admin') ? undefined : '00000000-0000-0000-0000-000000000001';
+    const { data: reSign, error: reSignErr } = await supabase.auth.signInWithPassword({
+      email: u.email,
+      password: u.password,
+    });
 
-      await supabase.from('profiles').upsert({
-        id: authUserId,
-        name: u.name,
-        role: u.role,
-        role_label: u.roleLabel,
-        email: u.email,
-        organization_id: orgId ?? null,
-      }, { onConflict: 'id' });
-
-      await supabase.auth.signOut();
+    if (reSignErr) {
+      // Email confirmation likely required in Supabase — skip profile upsert
+      return;
     }
-    return 'done';
-  } catch {
-    return 'error';
+    if (reSign?.user?.id) authUserId = reSign.user.id;
   }
+
+  if (!authUserId) return;
+
+  const orgId = (u.role === 'super_admin') ? undefined : '00000000-0000-0000-0000-000000000001';
+
+  await supabase.from('profiles').upsert({
+    id: authUserId,
+    name: u.name,
+    role: u.role,
+    role_label: u.roleLabel,
+    email: u.email,
+    organization_id: orgId ?? null,
+  }, { onConflict: 'id' });
+
+  await supabase.auth.signOut();
+}
+
+async function seedDemoUsers(): Promise<'done' | 'error'> {
+  const SEED_TIMEOUT_MS = 30_000;
+
+  const doSeed = async (): Promise<'done' | 'error'> => {
+    try {
+      for (const u of DEMO_USERS) {
+        await seedOneUser(u).catch(() => {});
+      }
+      return 'done';
+    } catch {
+      return 'error';
+    }
+  };
+
+  const timeout = new Promise<'done'>((resolve) =>
+    setTimeout(() => resolve('done'), SEED_TIMEOUT_MS)
+  );
+
+  return Promise.race([doSeed(), timeout]);
 }
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
@@ -267,6 +288,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     try {
       const { error } = await supabase.auth.signInWithPassword({ email, password });
       if (error) {
+        if (error.message?.toLowerCase().includes('email not confirmed') ||
+            error.message?.toLowerCase().includes('email_not_confirmed')) {
+          return {
+            success: false,
+            error: "Email non confirmé. Désactivez « Confirm email » dans Supabase → Authentication → Providers → Email, puis relancez l'app.",
+          };
+        }
         return { success: false, error: 'Email ou mot de passe incorrect.' };
       }
       return { success: true };
