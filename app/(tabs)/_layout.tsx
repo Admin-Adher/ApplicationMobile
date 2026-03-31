@@ -21,7 +21,7 @@ function TabIcon({ name, color, size, badge }: { name: any; color: string; size:
 export default function TabLayout() {
   const { unreadCount } = useApp();
   const { user } = useAuth();
-  const isAdmin = user?.role === 'admin';
+  const isAdmin = user?.role === 'admin' || user?.role === 'super_admin';
 
   return (
     <Tabs

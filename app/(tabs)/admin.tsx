@@ -21,13 +21,6 @@ const ROLES: { value: UserRole; label: string; color: string; bg: string }[] = [
   { value: 'observateur', label: 'Observateur',            color: '#6B7280', bg: '#F3F4F6' },
 ];
 
-const INVITE_ROLES: { value: UserRole; label: string; color: string; bg: string }[] = [
-  { value: 'admin',       label: 'Administrateur',         color: '#EF4444', bg: '#FEF2F2' },
-  { value: 'conducteur',  label: 'Conducteur de travaux',  color: '#3B82F6', bg: '#EFF6FF' },
-  { value: 'chef_equipe', label: "Chef d'équipe",          color: '#F59E0B', bg: '#FFFBEB' },
-  { value: 'observateur', label: 'Observateur',            color: '#6B7280', bg: '#F3F4F6' },
-];
-
 const PLAN_COLORS: Record<string, string> = {
   Starter: '#6B7280',
   Pro: '#3B82F6',

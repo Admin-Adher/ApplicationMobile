@@ -200,6 +200,7 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
           .select('*')
           .eq('organization_id', user.organizationId)
           .eq('status', 'pending')
+          .gt('expires_at', new Date().toISOString())
           .order('created_at', { ascending: false });
 
         if (invData) {
@@ -226,10 +227,10 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
 
   const orgUsers = organization
     ? users.filter(u => u.organizationId === organization.id)
-    : users;
+    : [];
 
   const seatUsed = orgUsers.length;
-  const seatMax = plan?.maxUsers ?? 20;
+  const seatMax = plan?.maxUsers ?? (user?.role === 'super_admin' ? -1 : 5);
   const canInvite = seatMax === -1 || seatUsed < seatMax;
 
   async function inviteUser(
