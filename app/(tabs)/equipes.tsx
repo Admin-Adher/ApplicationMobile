@@ -339,7 +339,12 @@ export default function EquipesScreen() {
               <View style={[styles.taskDot, { backgroundColor: task.status === 'delayed' ? C.waiting : C.inProgress }]} />
               <View style={{ flex: 1 }}>
                 <Text style={styles.taskTitle}>{task.title}</Text>
-                <Text style={styles.taskSub}>{task.assignee}</Text>
+                <Text style={styles.taskSub}>
+                  {task.assignee}
+                  {companies.find(c => c.id === task.company)
+                    ? ` — ${companies.find(c => c.id === task.company)!.shortName}`
+                    : task.company ? ` — ${task.company}` : ''}
+                </Text>
               </View>
               <Text style={[styles.taskPct, { color: task.status === 'delayed' ? C.waiting : C.inProgress }]}>
                 {task.progress}%

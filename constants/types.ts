@@ -192,17 +192,25 @@ export interface Checklist {
   status: 'draft' | 'in_progress' | 'completed';
 }
 
+export interface MeetingReportAction {
+  description: string;
+  responsible: string;
+  deadline: string;
+  status: 'done' | 'pending';
+}
+
 export interface MeetingReport {
   id: string;
-  title: string;
+  subject: string;
   date: string;
   location: string;
-  attendees: string;
-  conducteur: string;
+  participants: string;
   agenda: string;
-  decisions: string;
-  actions: string;
-  nextMeeting?: string;
+  notes: string;
+  decisions: string[];
+  actions: MeetingReportAction[];
+  nextMeeting: string;
+  redactedBy: string;
   createdAt: string;
 }
 
@@ -211,12 +219,11 @@ export interface JournalEntry {
   date: string;
   author: string;
   weather: string;
-  temperature: string;
-  workforce: string;
+  workerCount: number;
   workDone: string;
-  issues: string;
-  deliveries: string;
+  materials: string;
+  incidents: string;
+  observations: string;
   visitors: string;
-  notes: string;
   createdAt: string;
 }

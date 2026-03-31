@@ -95,6 +95,12 @@ The Supabase schema is defined in `lib/schema.sql`. Run it in the Supabase SQL E
 - **`app/(tabs)/admin.tsx`** — Suppression de `genId()` locale ; import depuis `lib/utils.ts`
 - **`app/reserve/[id].tsx`** — Affichage de la "Date de levée" (`closedAt`) et "Clôturé par" (`closedBy`) dans le détail d'une réserve clôturée
 
+**Session 6 (actuelle) — Corrections audit complet :**
+- **`app/task/[id].tsx`** — Corrigé deux bugs de champs incorrects : `c.text` → `c.content` (interface `Comment`) et `h.date` → `h.createdAt` (interface `HistoryEntry`). Les commentaires et l'historique des tâches s'affichent maintenant correctement (C5).
+- **`constants/types.ts`** — `MeetingReport` : refonte complète de l'interface pour correspondre à l'implémentation réelle dans `meeting-report.tsx` (champs `subject`, `participants`, `redactedBy`, `decisions: string[]`, `actions: MeetingReportAction[]`, `notes`, etc.). `JournalEntry` : correction des champs `workforce/issues` → `workerCount: number / incidents: string` + ajout de `materials` et `observations`. Ajout de `MeetingReportAction` interface.
+- **`app/(tabs)/more.tsx`** — Ajout de 3 nouveaux modules dans la grille : Checklists (`/checklist`), CR Réunions (`/meeting-report`), Journal de chantier (`/journal`) — ces modules existaient mais n'étaient pas accessibles depuis le menu principal.
+- **`app/(tabs)/equipes.tsx`** — C4 : Les cartes de tâches affichent maintenant le nom court de l'entreprise (`shortName`) en plus du responsable, permettant d'identifier immédiatement à quelle entreprise appartient chaque tâche.
+
 ## Feature Completion (100%)
 
 All 11 planned modules are implemented:

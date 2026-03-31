@@ -277,7 +277,7 @@ export default function EditTaskScreen() {
                   <Text style={styles.commentDate}>{c.createdAt}</Text>
                 </View>
               </View>
-              <Text style={styles.commentText}>{c.text}</Text>
+              <Text style={styles.commentText}>{c.content}</Text>
             </View>
           ))}
           <View style={styles.commentInputRow}>
@@ -307,7 +307,7 @@ export default function EditTaskScreen() {
                 <View style={styles.historyDot} />
                 <View style={{ flex: 1 }}>
                   <Text style={styles.historyText}>{h.action}</Text>
-                  <Text style={styles.historyMeta}>{h.author} — {h.date}</Text>
+                  <Text style={styles.historyMeta}>{h.author} — {h.createdAt}</Text>
                 </View>
               </View>
             ))}

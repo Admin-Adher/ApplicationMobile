@@ -55,6 +55,9 @@ export default function MoreScreen() {
       { icon: 'document-text', label: 'Rapports', subtitle: 'Journalier, hebdo', route: '/rapports', color: C.verification },
       { icon: 'shield', label: 'Sécurité', subtitle: `${incidents.length} incidents`, route: '/incidents', color: C.open, badge: openIncidentsCount || undefined },
       { icon: 'search', label: 'Recherche', subtitle: 'Tout le chantier', route: '/search', color: '#8B5CF6' },
+      { icon: 'checkbox', label: 'Checklists', subtitle: 'Contrôle qualité', route: '/checklist', color: '#06B6D4' },
+      { icon: 'document-text', label: 'CR Réunions', subtitle: 'Comptes-rendus', route: '/meeting-report', color: '#7C3AED' },
+      { icon: 'book', label: 'Journal chantier', subtitle: 'Journal officiel', route: '/journal', color: '#059669' },
       { icon: 'settings', label: 'Paramètres', subtitle: 'Projet & présences', route: '/settings', color: C.textSub },
     ];
     if (permissions.canViewTeams) {

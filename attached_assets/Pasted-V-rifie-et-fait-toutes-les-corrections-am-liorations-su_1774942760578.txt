@@ -1,0 +1,150 @@
+Vérifie et fait toutes les corrections/améliorations suivantes : "Fixed. The react@19.2.4 / react-native-renderer@19.0.0 mismatch is now resolved — both react and react-dom are back on 19.0.0. The warning list in the logs no longer mentions React, confirming the crash-causing conflict is gone. The bundler is running cleanly.
+
+Vérifie l'ensemble des fonctionnalités de l'application pour voir si tous t'es cohérents entre les pages, si tout ce qui est nécessaire pour une appli du BTP est implementé ou est ce qu'il y a encore des lacunes en terme de logique et fonctionnalités ?
+
+Je vais faire une analyse complète du code pour t'apporter un bilan précis.
+
+Voici mon audit complet de l'application.
+
+Cohérence entre les pages ✅ / ⚠️
+Ce qui est cohérent et bien fait :
+
+Design system uniforme (couleurs, typographie Inter, espacements) sur tous les écrans
+Gestion des permissions par rôle (admin / conducteur / chef_équipe / observateur) correctement appliquée partout
+Navigation tab + stack cohérente avec Expo Router
+Format de dates FR (jj/mm/aaaa) uniforme
+Guard Supabase (isSupabaseConfigured) respecté dans tous les contextes
+Incohérences identifiées :
+
+Problème Fichiers concernés
+C1 Les photos prises depuis la fiche réserve (reserve/[id].tsx) ne s'ajoutent pas à la galerie Photos — les deux modules sont déconnectés reserve/[id].tsx, photos.tsx
+C2 Les épingles de réserves sur les plans ne fonctionnent que sur le plan schématique codé en dur. Sur un vrai PDF importé, les pins sont inactifs plans.tsx
+C3 task.company stocke un ID (ex : co1) mais l'affichage dans les cartes planning n'affiche pas toujours le nom réel de l'entreprise planning.tsx, task/[id].tsx
+C4 Dans equipes.tsx, les tâches en cours s'affichent sans filtrage par entreprise — un chef d'équipe voit les tâches de toutes les entreprises equipes.tsx
+C5 Les tâches n'ont ni commentaires ni historique de modification, contrairement aux réserves qui en ont un complet task/[id].tsx vs reserve/[id].tsx
+C6 Le rapport hebdomadaire n'inclut pas les incidents alors que le rapport journalier oui rapports.tsx
+C7 Le type Incident n'a pas de champs closedAt/closedBy bien que le CSV des rapports soit censé les exporter constants/types.ts, rapports.tsx
+Fonctionnalités présentes et bien implémentées ✅
+Dashboard : KPIs dynamiques, alertes critiques cliquables, réserves en retard, tâches en retard, incidents ouverts
+Réserves : cycle de vie complet (ouvert → en cours → en attente → vérification → clôturé), filtres multi-critères, tri, commentaires, historique, photo, épingle sur plan
+Planning : vues liste/calendrier/Gantt, filtre entreprise, filtres statut, recherche
+Équipes : suivi effectif planifié/réel par entreprise, historique présences, sauvegarde snapshot
+Messagerie : canaux fixes + canaux perso + groupes + DM, réponses, réactions, mentions @, épingles, partage de photos
+Incidents : signalement, gravité, statut, filtres, intégration dans rapports et dashboard
+Documents : import, versioning, recherche, catégorisation
+Photos : galerie, partage vers canal, filtres
+Rapports : PDF journalier et hebdomadaire + CSV réserves avec export et partage natif
+Recherche globale : réserves + tâches + documents + incidents
+Authentification : 4 rôles, mode offline, seed Supabase automatique
+Plans : import PDF + schéma vectoriel avec épingles de réserves
+Lacunes pour une vraie appli BTP — priorités
+🔴 Critiques (bloquantes en production)
+
+Persistance offline réelle
+Les réserves, tâches et incidents sont en mémoire — si l'app se ferme sans Supabase, tout est perdu. AsyncStorage ne persiste que l'historique présences. Sur un chantier avec connectivité limitée, c'est bloquant.
+
+Notifications push
+Aucune alerte native pour les échéances qui approchent (J-3, J-1), les réserves critiques créées, ou les incidents graves. Il y a un banner in-app mais pas d'expo-notifications.
+
+IDs de réserves non formatés
+Les nouvelles réserves créées par l'utilisateur ont un ID aléatoire (rsv-abc123) pas du tout RSV-001, RSV-002... La numérotation officielle est essentielle pour le suivi documentaire BTP.
+
+Export PDF des incidents
+Un incident grave nécessite une fiche formelle. Aujourd'hui les incidents n'ont qu'une ligne dans le rapport journalier — pas d'export PDF dédié par incident.
+
+🟠 Importantes (limitent l'usage professionnel)
+5. Multi-projet
+L'app gère un seul chantier. Bouygues Construction pilote plusieurs chantiers simultanément — il faut un sélecteur de projet avec isolation des données.
+
+Check-listes qualité / GPA
+Aucun module de check-lists de contrôle qualité (levée de réserves OPR, contrôles avant réception d'ouvrage). C'est l'un des usages les plus fréquents en BTP.
+
+Compte-rendu de réunion de chantier
+La réunion de chantier hebdomadaire est obligatoire et doit être tracée. Pas de module CR avec ordre du jour, présents, points actionnables et distribution automatique.
+
+Journal de chantier officiel
+Distinct du rapport journalier, le journal de chantier est un document légal à numérotation chronologique continue. Il n'existe pas.
+
+Import CSV/Excel de réserves
+Sur un gros chantier avec des centaines de réserves à reprendre d'un ancien système (Autocad, Finalcad, Excel), l'absence d'import est rédhibitoire.
+
+Fichier sous-traitant complet
+Les entreprises n'ont que nom + effectif + zone + contact. Un vrai dossier sous-traitant nécessite : numéro SIRET, attestations assurances, décennale, qualifications RGE, documents DC1/DC2, etc.
+
+Situations de travaux / suivi financier
+Pas de gestion des situations mensuelles, BPU/DPGF, avenants, retenues de garantie. Pour un conducteur de travaux, c'est une lacune majeure.
+
+🟡 Souhaitables (amélioration de l'expérience)
+12. Météo intégrée
+La météo conditionne les arrêts de chantier (gel, vent > 60 km/h, pluie). Une carte météo des 5 prochains jours dans le dashboard serait très utile.
+
+QR codes
+Générer et scanner des QR codes pour identifier une réserve ou une zone directement sur site accélérerait énormément la saisie terrain.
+
+Signature électronique
+Les rapports journaliers et les levées de réserves OPR nécessitent des signatures. Aucune signature électronique (même une simple zone de touch-signature) n'est disponible.
+
+Tâches : dépendances
+Le Gantt est purement visuel. Les tâches n'ont pas de relations prédécesseur/successeur, donc il ne peut pas calculer les chemins critiques ni détecter les conflits de planning.
+
+Géolocalisation réelle
+Les réserves et incidents sont localisés sur un schéma codé en dur. Une carte GPS du site avec positionnement réel (même en outdoor) apporterait une vraie valeur terrain.
+
+Synthèse
+L'application est solide et cohérente pour un MVP — elle couvre les modules essentiels du quotidien (réserves, planning, équipes, messagerie, incidents, rapports). Les principaux axes à traiter pour atteindre un niveau production Bouygues Construction sont, dans l'ordre de priorité : la persistance offline, les IDs formatés des réserves, les notifications push, les check-listes qualité, et le multi-projet."
+
+C'est un audit très complet. Laisse-moi d'abord explorer toute la structure du code avant de commencer les corrections, pour avoir une vision précise de chaque fichier concerné.
+
+Let me read all the key files in parallel to fully understand the codebase:
+
+Let me read all the remaining key files in parallel:
+
+Excellent, je comprends maintenant toute la structure. Laisse-moi lire les fichiers restants pour les corrections ciblées :
+
+Maintenant je lis les derniers fichiers clés :
+
+J'ai maintenant une vision complète du code. Laisse-moi aussi lire les fichiers utils et photos :
+
+J'ai maintenant une compréhension complète de tout le code. Je vais implémenter toutes les corrections et nouvelles fonctionnalités de façon systématique. Voici le plan :
+
+Je commence l'implémentation complète. En lisant tous les fichiers clés en parallèle d'abord :
+
+Maintenant je vais lire les autres fichiers clés en parallèle :
+
+Maintenant les fichiers restants en parallèle :
+
+Maintenant je lis la suite de AppContext :
+
+J'ai maintenant toute la compréhension nécessaire. Commençons l'implémentation de toutes les corrections et fonctionnalités en parallèle :
+
+Maintenant j'ai tout ce qu'il me faut. Voici l'implémentation complète de toutes les corrections et nouvelles fonctionnalités en parallèle :
+
+Maintenant je vais faire tous les changements sur AppContext.tsx, IncidentsContext.tsx, et les écrans en parallèle :
+
+Continuation des modifications en parallèle — reducer, mock data, contexte interface :
+
+Je continue l'implémentation complète. Lisons les sections critiques d'AppContext en parallèle avec les autres fichiers à modifier :
+
+Implémentation parallèle de tous les fichiers :
+
+Maintenant j'ajoute la persistance mock dans les fonctions addReserve, addTask, addPhoto, et addTaskComment :
+
+Maintenant corrigeons IncidentsContext (C7), puis tous les écrans en parallèle :
+
+Je lis en parallèle tous les fichiers à corriger :
+
+C1, C2, C4, C5, C6, C7 — implémentation tous les écrans en parallèle :
+
+Maintenant je lis plans.tsx, equipes.tsx (parties non encore vues) en parallèle pour les fixes C2 et C4 :
+
+Maintenant j'ajoute les champs SIRET/assurance/qualifications au modal equipes.tsx et je corrige task/[id].tsx et rapports.tsx en parallèle :
+
+Maintenant je fixe rapports.tsx (C6), task/[id].tsx (C5), et je crée les nouveaux modules en parallèle :
+
+Je vais maintenant implémenter task/[id].tsx (C5), le modal equipes.tsx (SIRET), et créer les 3 nouveaux modules en parallèle :
+
+Je vais tout implémenter en parallèle — task/[id].tsx, equipes.tsx modal, et les 3 nouveaux modules :
+
+Maintenant j'ajoute la section commentaires/historique dans task/[id].tsx et je crée les 3 nouveaux modules :
+
+Maintenant je crée les 3 nouveaux modules et je mets à jour more.tsx :
