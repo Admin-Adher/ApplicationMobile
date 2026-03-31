@@ -7,6 +7,7 @@ import { C } from '@/constants/colors';
 import { useApp } from '@/context/AppContext';
 import { useAuth } from '@/context/AuthContext';
 import { useSettings } from '@/context/SettingsContext';
+import { useIncidents } from '@/context/IncidentsContext';
 import { parseDeadline, isOverdue } from '@/lib/reserveUtils';
 import { Task } from '@/constants/types';
 
@@ -67,6 +68,7 @@ export default function DashboardScreen() {
   const { stats, reserves, companies, tasks, reload } = useApp();
   const { user } = useAuth();
   const { projectName } = useSettings();
+  const { incidents } = useIncidents();
   const topPad = Platform.OS === 'web' ? 67 : insets.top;
   const [refreshing, setRefreshing] = useState(false);
 
@@ -79,6 +81,7 @@ export default function DashboardScreen() {
     r => r.status !== 'closed' && r.priority !== 'critical' && isOverdue(r.deadline, r.status)
   );
   const lateTasks = tasks.filter(isTaskLate);
+  const openIncidents = incidents.filter(i => i.status !== 'resolved');
 
   const today = new Date().toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' });
   const firstName = user?.name?.split(' ')[0] ?? null;
@@ -178,6 +181,30 @@ export default function DashboardScreen() {
             </Text>
             <Text style={styles.kpiLabel}>
               {lateTasks.length === 0 ? 'Aucune tâche en retard' : `Tâche${lateTasks.length > 1 ? 's' : ''} en retard`}
+            </Text>
+          </View>
+          <Ionicons name="chevron-forward" size={16} color={C.textMuted} />
+        </TouchableOpacity>
+
+        {/* 6th KPI — wide card for open incidents */}
+        <TouchableOpacity
+          style={[styles.kpiWide, { borderLeftColor: openIncidents.length > 0 ? '#EF4444' : C.closed }]}
+          onPress={() => router.push('/incidents' as any)}
+          activeOpacity={0.75}
+        >
+          <View style={[styles.kpiIconWrap, { backgroundColor: openIncidents.length > 0 ? '#EF444420' : C.closedBg }]}>
+            <Ionicons
+              name="shield-outline"
+              size={18}
+              color={openIncidents.length > 0 ? '#EF4444' : C.closed}
+            />
+          </View>
+          <View style={{ flex: 1 }}>
+            <Text style={[styles.kpiValue, { fontSize: 24, color: openIncidents.length > 0 ? '#EF4444' : C.closed }]}>
+              {openIncidents.length}
+            </Text>
+            <Text style={styles.kpiLabel}>
+              {openIncidents.length === 0 ? 'Aucun incident ouvert' : `Incident${openIncidents.length > 1 ? 's' : ''} non résolu${openIncidents.length > 1 ? 's' : ''}`}
             </Text>
           </View>
           <Ionicons name="chevron-forward" size={16} color={C.textMuted} />

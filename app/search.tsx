@@ -4,6 +4,7 @@ import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { C } from '@/constants/colors';
 import { useApp } from '@/context/AppContext';
+import { useIncidents } from '@/context/IncidentsContext';
 import Header from '@/components/Header';
 import StatusBadge from '@/components/StatusBadge';
 import PriorityBadge from '@/components/PriorityBadge';
@@ -20,9 +21,17 @@ const STATUS_COLORS: Record<string, string> = {
   todo: C.textMuted, done: C.closed, delayed: C.waiting,
 };
 
+const INCIDENT_SEVERITY_LABELS: Record<string, string> = {
+  minor: 'Mineur', moderate: 'Modéré', major: 'Majeur', critical: 'Critique',
+};
+const INCIDENT_SEVERITY_COLORS: Record<string, string> = {
+  minor: '#6B7280', moderate: '#F59E0B', major: '#EF4444', critical: '#7F1D1D',
+};
+
 export default function SearchScreen() {
   const router = useRouter();
   const { reserves, tasks, documents } = useApp();
+  const { incidents } = useIncidents();
   const [query, setQuery] = useState('');
 
   const q = query.trim().toLowerCase();
@@ -55,7 +64,17 @@ export default function SearchScreen() {
     ).slice(0, 5);
   }, [documents, q]);
 
-  const hasResults = filteredReserves.length > 0 || filteredTasks.length > 0 || filteredDocuments.length > 0;
+  const filteredIncidents = useMemo(() => {
+    if (!q || q.length < 2) return [];
+    return incidents.filter(i =>
+      i.title.toLowerCase().includes(q) ||
+      i.description.toLowerCase().includes(q) ||
+      i.location.toLowerCase().includes(q) ||
+      i.reportedBy.toLowerCase().includes(q)
+    ).slice(0, 6);
+  }, [incidents, q]);
+
+  const hasResults = filteredReserves.length > 0 || filteredTasks.length > 0 || filteredDocuments.length > 0 || filteredIncidents.length > 0;
   const hasQuery = q.length >= 2;
 
   return (
@@ -85,7 +104,7 @@ export default function SearchScreen() {
           <Ionicons name="search-circle-outline" size={56} color={C.border} />
           <Text style={styles.hintTitle}>Recherche unifiée</Text>
           <Text style={styles.hintText}>
-            Tapez au moins 2 caractères pour chercher dans les réserves, tâches et documents.
+            Tapez au moins 2 caractères pour chercher dans les réserves, tâches, documents et incidents.
           </Text>
         </View>
       )}
@@ -185,6 +204,40 @@ export default function SearchScreen() {
                   <Ionicons name="chevron-forward" size={14} color={C.textMuted} style={styles.chevron} />
                 </TouchableOpacity>
               ))}
+            </View>
+          )}
+
+          {filteredIncidents.length > 0 && (
+            <View style={styles.section}>
+              <View style={styles.sectionHeader}>
+                <Ionicons name="shield-outline" size={14} color="#EF4444" />
+                <Text style={styles.sectionTitle}>Incidents ({filteredIncidents.length})</Text>
+              </View>
+              {filteredIncidents.map(i => {
+                const sevColor = INCIDENT_SEVERITY_COLORS[i.severity] ?? '#6B7280';
+                return (
+                  <TouchableOpacity
+                    key={i.id}
+                    style={styles.resultCard}
+                    onPress={() => router.push('/incidents' as any)}
+                    activeOpacity={0.75}
+                  >
+                    <View style={styles.resultRow}>
+                      <View style={[styles.statusPill, { backgroundColor: sevColor + '20' }]}>
+                        <Text style={[styles.statusPillText, { color: sevColor }]}>
+                          {INCIDENT_SEVERITY_LABELS[i.severity]}
+                        </Text>
+                      </View>
+                      <Text style={[styles.resultTitle, { flex: 1 }]} numberOfLines={1}>{i.title}</Text>
+                    </View>
+                    <Text style={styles.resultMetaText} numberOfLines={1}>{i.description}</Text>
+                    <View style={[styles.resultMeta, { marginTop: 4 }]}>
+                      <Text style={styles.resultMetaText}>Bât. {i.building} — {i.location} — {i.reportedAt}</Text>
+                    </View>
+                    <Ionicons name="chevron-forward" size={14} color={C.textMuted} style={styles.chevron} />
+                  </TouchableOpacity>
+                );
+              })}
             </View>
           )}
 

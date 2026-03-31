@@ -12,10 +12,7 @@ import { Incident, IncidentSeverity, IncidentStatus } from '@/constants/types';
 import Header from '@/components/Header';
 import DateInput from '@/components/DateInput';
 import { RESERVE_BUILDINGS } from '@/lib/reserveUtils';
-
-function genId() {
-  return 'inc-' + Date.now().toString() + Math.random().toString(36).substring(2, 6);
-}
+import { genId } from '@/lib/utils';
 
 const SEVERITY_CONFIG: Record<IncidentSeverity, { label: string; color: string; bg: string; icon: string }> = {
   minor:    { label: 'Mineur',   color: '#6B7280', bg: '#F3F4F6', icon: 'information-circle' },
@@ -135,7 +132,7 @@ export default function IncidentsScreen() {
       await updateIncident({ ...editTarget, ...form });
     } else {
       await addIncident({
-        id: genId(),
+        id: 'inc-' + genId(),
         ...form,
         reportedBy: user?.name ?? 'Inconnu',
       });

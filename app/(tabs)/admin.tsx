@@ -10,6 +10,7 @@ import { useApp } from '@/context/AppContext';
 import { useAuth } from '@/context/AuthContext';
 import { UserRole, Company } from '@/constants/types';
 import { isSupabaseConfigured } from '@/lib/supabase';
+import { genId } from '@/lib/utils';
 
 const ROLES: { value: UserRole; label: string; color: string; bg: string }[] = [
   { value: 'admin',       label: 'Administrateur',         color: '#EF4444', bg: '#FEF2F2' },
@@ -22,10 +23,6 @@ const COMPANY_COLORS = [
   '#3B82F6','#10B981','#F59E0B','#EF4444','#8B5CF6',
   '#06B6D4','#F97316','#EC4899','#14B8A6','#84CC16',
 ];
-
-function genId() {
-  return Date.now().toString() + Math.random().toString(36).substring(2, 8);
-}
 
 function RoleBadge({ role }: { role: UserRole }) {
   const r = ROLES.find(x => x.value === role) ?? ROLES[3];

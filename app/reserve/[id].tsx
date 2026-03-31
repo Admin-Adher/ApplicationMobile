@@ -318,8 +318,24 @@ export default function ReserveDetailScreen() {
             label="Échéance"
             value={reserve.deadline === '—' ? 'Aucune échéance' : formatDate(reserve.deadline)}
             valueColor={overdue ? C.open : undefined}
-            last
+            last={!reserve.closedAt}
           />
+          {reserve.closedAt && (
+            <InfoRow
+              icon="checkmark-circle-outline"
+              label="Date de levée"
+              value={formatDate(reserve.closedAt)}
+              valueColor={C.closed}
+            />
+          )}
+          {reserve.closedBy && (
+            <InfoRow
+              icon="person-outline"
+              label="Clôturé par"
+              value={reserve.closedBy}
+              last
+            />
+          )}
           <TouchableOpacity
             style={[styles.contactBtn, { borderColor: company?.color ?? C.primary, backgroundColor: (company?.color ?? C.primary) + '12' }]}
             onPress={handleContactCompany}

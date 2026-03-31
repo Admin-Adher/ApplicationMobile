@@ -85,6 +85,16 @@ The Supabase schema is defined in `lib/schema.sql`. Run it in the Supabase SQL E
 - **`app/rapports.tsx`** — Refactorisé l'export CSV : suppression du workaround `Print.printToFileAsync` (créait un PDF d'une balise `<pre>` HTML) → utilisation de `expo-file-system` pour écrire un vrai fichier `.csv` puis partage via `expo-sharing`. Sur web : téléchargement direct via l'API Blob du navigateur.
 - **`package.json`** — Ajout de `expo-file-system@~18.1.11` (compatible Expo SDK 53)
 
+**Session 5 (actuelle) — Corrections d'audit :**
+- **`constants/types.ts`** — Ajout de `closedAt?: string` et `closedBy?: string` sur l'interface `Reserve` (date et auteur de levée de réserve, obligatoires en BTP pour les OPR)
+- **`context/AppContext.tsx`** — Suppression de la fonction `genId()` locale (dupliquée) ; import depuis `lib/utils.ts`. `updateReserveStatus` enregistre maintenant `closedAt` (date ISO) et `closedBy` (nom de l'auteur) à la clôture ; propagé sur Supabase via `closed_at`/`closed_by`. `toReserve()` mappe ces nouveaux champs depuis la base.
+- **`app/(tabs)/index.tsx`** — Ajout d'une 6e KPI "Incidents non résolus" sur le tableau de bord (bouclier rouge, navigation vers `/incidents`), alimentée par `useIncidents()`
+- **`app/search.tsx`** — Recherche globale étendue aux incidents (titre, description, lieu, signalé par) ; section dédiée dans les résultats avec badge de gravité ; placeholder mis à jour
+- **`app/(tabs)/equipes.tsx`** — Suppression de `genId()` locale ; import depuis `lib/utils.ts`. Les cartes "Tâches en cours" sont maintenant cliquables (`onPress` → `/task/${task.id}`)
+- **`app/incidents.tsx`** — Suppression de `genId()` locale ; import depuis `lib/utils.ts`
+- **`app/(tabs)/admin.tsx`** — Suppression de `genId()` locale ; import depuis `lib/utils.ts`
+- **`app/reserve/[id].tsx`** — Affichage de la "Date de levée" (`closedAt`) et "Clôturé par" (`closedBy`) dans le détail d'une réserve clôturée
+
 ## Feature Completion (100%)
 
 All 11 planned modules are implemented:

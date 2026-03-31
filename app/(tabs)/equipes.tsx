@@ -11,12 +11,9 @@ import { useApp } from '@/context/AppContext';
 import { useAuth } from '@/context/AuthContext';
 import { Company } from '@/constants/types';
 import { useRouter } from 'expo-router';
+import { genId } from '@/lib/utils';
 
 const COMPANY_COLORS = ['#3B82F6', '#F59E0B', '#8B5CF6', '#EC4899', '#EF4444', '#06B6D4', '#84CC16'];
-
-function genId(): string {
-  return Date.now().toString() + Math.random().toString(36).substring(2, 8);
-}
 
 export default function EquipesScreen() {
   const insets = useSafeAreaInsets();
@@ -301,7 +298,12 @@ export default function EquipesScreen() {
 
         <Text style={styles.sectionTitle}>Tâches en cours</Text>
         {tasks.filter(t => t.status === 'in_progress' || t.status === 'delayed').map(task => (
-          <View key={task.id} style={styles.taskCard}>
+          <TouchableOpacity
+            key={task.id}
+            style={styles.taskCard}
+            onPress={() => router.push(`/task/${task.id}` as any)}
+            activeOpacity={0.75}
+          >
             <View style={styles.taskTop}>
               <View style={[styles.taskDot, { backgroundColor: task.status === 'delayed' ? C.waiting : C.inProgress }]} />
               <View style={{ flex: 1 }}>
@@ -311,6 +313,7 @@ export default function EquipesScreen() {
               <Text style={[styles.taskPct, { color: task.status === 'delayed' ? C.waiting : C.inProgress }]}>
                 {task.progress}%
               </Text>
+              <Ionicons name="chevron-forward" size={14} color={C.textMuted} />
             </View>
             <View style={styles.taskBarBg}>
               <View style={[styles.taskBarFill, {
@@ -318,7 +321,7 @@ export default function EquipesScreen() {
                 backgroundColor: task.status === 'delayed' ? C.waiting : C.inProgress,
               }]} />
             </View>
-          </View>
+          </TouchableOpacity>
         ))}
       </ScrollView>
 

@@ -5,6 +5,7 @@ import { Reserve, Company, Task, Document, Photo, Message, Channel, Profile, Com
 import { supabase, isSupabaseConfigured } from '@/lib/supabase';
 import { initStorageBuckets } from '@/lib/storage';
 import { C } from '@/constants/colors';
+import { genId } from '@/lib/utils';
 
 export const STATIC_CHANNELS: Channel[] = [
   { id: 'general', name: 'Général', description: 'Canal principal du projet', icon: 'home', color: C.primary, type: 'general' },
@@ -73,10 +74,6 @@ type Action =
   | { type: 'UPDATE_COMPANY_HOURS'; payload: { id: string; hours: number } }
   | { type: 'SET_CHANNEL_MEMBERS_OVERRIDE'; payload: Record<string, string[]> };
 
-function genId(): string {
-  return Date.now().toString() + Math.random().toString(36).substring(2, 8);
-}
-
 function toReserve(row: any): Reserve {
   return {
     id: row.id, title: row.title, description: row.description, building: row.building,
@@ -84,6 +81,7 @@ function toReserve(row: any): Reserve {
     status: row.status as ReserveStatus, createdAt: row.created_at, deadline: row.deadline,
     comments: row.comments ?? [], history: row.history ?? [],
     planX: row.plan_x, planY: row.plan_y, photoUri: row.photo_uri ?? undefined,
+    closedAt: row.closed_at ?? undefined, closedBy: row.closed_by ?? undefined,
   };
 }
 
@@ -946,13 +944,20 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         oldValue: labels[reserve.status],
         newValue: labels[status],
       };
+      const closedAt = status === 'closed' ? new Date().toISOString().slice(0, 10) : reserve.closedAt;
+      const closedBy = status === 'closed' ? author : reserve.closedBy;
       const updated: Reserve = {
         ...reserve,
         status,
         history: [...reserve.history, historyEntry],
+        closedAt,
+        closedBy,
       };
       if (isSupabaseConfigured) {
-        supabase.from('reserves').update({ status: updated.status, history: updated.history }).eq('id', id).then(({ error }) => {
+        supabase.from('reserves').update({
+          status: updated.status, history: updated.history,
+          closed_at: closedAt ?? null, closed_by: closedBy ?? null,
+        }).eq('id', id).then(({ error }) => {
           if (error) console.warn('Erreur statut réserve:', error.message);
         });
       }

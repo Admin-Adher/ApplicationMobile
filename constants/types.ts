@@ -48,6 +48,8 @@ export interface Reserve {
   planY?: number;
   photoUri?: string;
   linkedTaskId?: string;
+  closedAt?: string;
+  closedBy?: string;
 }
 
 export interface Company {
