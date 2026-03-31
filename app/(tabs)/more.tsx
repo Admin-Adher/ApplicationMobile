@@ -1,4 +1,5 @@
 import { View, Text, StyleSheet, ScrollView, Platform, TouchableOpacity, Alert } from 'react-native';
+import { openChantierSwitcher } from '@/components/ChantierSwitcherSheet';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
@@ -116,8 +117,24 @@ export default function MoreScreen() {
   return (
     <View style={styles.container}>
       <View style={[styles.header, { paddingTop: topPad + 12 }]}>
-        <Text style={styles.title}>Plus</Text>
-        <Text style={styles.subtitle}>Modules & administration</Text>
+        <View style={styles.headerRow}>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.title}>Plus</Text>
+            <Text style={styles.subtitle}>Modules & administration</Text>
+          </View>
+          {activeChantier ? (
+            <TouchableOpacity style={styles.chantierPill} onPress={openChantierSwitcher} activeOpacity={0.8}>
+              <View style={styles.chantierPillDot} />
+              <Text style={styles.chantierPillText} numberOfLines={1}>{activeChantier.name}</Text>
+              <Ionicons name="chevron-down" size={11} color={C.primary} />
+            </TouchableOpacity>
+          ) : (
+            <TouchableOpacity style={styles.chantierPillEmpty} onPress={openChantierSwitcher} activeOpacity={0.8}>
+              <Ionicons name="add" size={13} color={C.textMuted} />
+              <Text style={styles.chantierPillEmptyText}>Chantier</Text>
+            </TouchableOpacity>
+          )}
+        </View>
       </View>
 
       <ScrollView
@@ -223,8 +240,24 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20, paddingBottom: 14,
     borderBottomWidth: 1, borderBottomColor: C.border, backgroundColor: C.surface,
   },
+  headerRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   title: { fontSize: 22, fontFamily: 'Inter_700Bold', color: C.text },
   subtitle: { fontSize: 12, fontFamily: 'Inter_400Regular', color: C.textSub, marginTop: 2 },
+  chantierPill: {
+    flexDirection: 'row', alignItems: 'center', gap: 6,
+    backgroundColor: C.primaryBg, borderRadius: 20,
+    paddingHorizontal: 10, paddingVertical: 6,
+    borderWidth: 1, borderColor: C.primary + '40', maxWidth: 140,
+  },
+  chantierPillDot: { width: 7, height: 7, borderRadius: 4, backgroundColor: C.primary },
+  chantierPillText: { fontSize: 11, fontFamily: 'Inter_600SemiBold', color: C.primary, flex: 1 },
+  chantierPillEmpty: {
+    flexDirection: 'row', alignItems: 'center', gap: 4,
+    backgroundColor: C.surface2, borderRadius: 20,
+    paddingHorizontal: 10, paddingVertical: 6,
+    borderWidth: 1, borderColor: C.border,
+  },
+  chantierPillEmptyText: { fontSize: 11, fontFamily: 'Inter_500Medium', color: C.textMuted },
 
   content: { padding: 16 },
 

@@ -18,6 +18,7 @@ import { NetworkProvider } from '@/context/NetworkContext';
 import { NotificationsProvider } from '@/context/NotificationsContext';
 import NotificationBanner from '@/components/NotificationBanner';
 import OfflineBanner from '@/components/OfflineBanner';
+import ChantierSwitcherSheet from '@/components/ChantierSwitcherSheet';
 
 SplashScreen.preventAutoHideAsync();
 
@@ -103,6 +104,7 @@ export default function RootLayout() {
                   </AuthGuard>
                   <NotificationBanner />
                   <OfflineBanner />
+                  <ChantierSwitcherSheet />
                   <StatusBar style="light" />
                 </KeyboardProvider>
               </SafeAreaProvider>

@@ -2,6 +2,7 @@ import { View, Text, StyleSheet, ScrollView, Platform, TouchableOpacity, Refresh
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
+import { openChantierSwitcher } from '@/components/ChantierSwitcherSheet';
 import { useState, useCallback } from 'react';
 import { C } from '@/constants/colors';
 import { useApp } from '@/context/AppContext';
@@ -126,7 +127,7 @@ export default function DashboardScreen() {
           {activeChantier ? (
             <TouchableOpacity
               style={styles.chantierPill}
-              onPress={() => router.push('/chantier/manage' as any)}
+              onPress={openChantierSwitcher}
             >
               <View style={styles.chantierPillDot} />
               <Text style={styles.chantierPillText} numberOfLines={1}>{activeChantier.name}</Text>

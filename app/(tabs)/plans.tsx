@@ -18,6 +18,7 @@ import PriorityBadge from '@/components/PriorityBadge';
 import { uploadDocument } from '@/lib/storage';
 import { genId } from '@/lib/utils';
 import { parseDxf, normalizeDxfPoint, DxfParseResult, DxfEntity } from '@/lib/dxfParser';
+import { openChantierSwitcher } from '@/components/ChantierSwitcherSheet';
 import QRCodeDisplay from '@/components/QRCodeDisplay';
 
 interface Room {
@@ -506,7 +507,10 @@ export default function PlansScreen() {
           <View style={{ flex: 1 }}>
             <Text style={styles.title}>Plans interactifs</Text>
             {activeChantier && (
-              <Text style={styles.chantierLabel} numberOfLines={1}>{activeChantier.name}</Text>
+              <TouchableOpacity style={styles.chantierLabelRow} onPress={openChantierSwitcher} activeOpacity={0.7}>
+                <Text style={styles.chantierLabel} numberOfLines={1}>{activeChantier.name}</Text>
+                <Ionicons name="chevron-down" size={11} color={C.textMuted} />
+              </TouchableOpacity>
             )}
           </View>
           <View style={styles.zoomBtns}>
@@ -969,7 +973,8 @@ const styles = StyleSheet.create({
   header: { backgroundColor: C.surface, borderBottomWidth: 1, borderBottomColor: C.border, paddingBottom: 0 },
   headerTop: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', paddingHorizontal: 16, paddingBottom: 12 },
   title: { fontSize: 22, fontFamily: 'Inter_700Bold', color: C.text },
-  chantierLabel: { fontSize: 12, fontFamily: 'Inter_400Regular', color: C.textMuted, marginTop: 2 },
+  chantierLabelRow: { flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 2 },
+  chantierLabel: { fontSize: 12, fontFamily: 'Inter_400Regular', color: C.textMuted },
   zoomBtns: { flexDirection: 'row', gap: 6 },
   zoomBtn: { width: 34, height: 34, borderRadius: 10, backgroundColor: C.surface2, borderWidth: 1, borderColor: C.border, alignItems: 'center', justifyContent: 'center' },
   filterToggleActive: { backgroundColor: C.primaryBg, borderColor: C.primary },

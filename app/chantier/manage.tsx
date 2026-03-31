@@ -24,7 +24,6 @@ export default function ManageChantiersScreen() {
   function handleSetActive(id: string) {
     if (id === activeChantierId) return;
     setActiveChantier(id);
-    Alert.alert('Chantier actif', `Ce chantier est maintenant sélectionné.`);
   }
 
   function handleDelete(id: string, name: string) {
