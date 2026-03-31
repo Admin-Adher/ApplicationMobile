@@ -44,7 +44,7 @@ export default function EquipesScreen() {
 
   const today = new Date().toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' });
 
-  if (user && !permissions.canManageTeams) {
+  if (user && !permissions.canViewTeams) {
     return (
       <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: C.bg, padding: 32 }}>
         <Ionicons name="lock-closed-outline" size={48} color={C.textMuted} />
@@ -52,7 +52,7 @@ export default function EquipesScreen() {
           Accès restreint
         </Text>
         <Text style={{ fontSize: 14, fontFamily: 'Inter_400Regular', color: C.textMuted, marginTop: 8, textAlign: 'center' }}>
-          Seuls les administrateurs et conducteurs de travaux ont accès à la gestion des équipes.
+          Votre rôle ne donne pas accès à la gestion des équipes.
         </Text>
         <TouchableOpacity
           onPress={() => router.replace('/(tabs)' as any)}
@@ -181,9 +181,11 @@ export default function EquipesScreen() {
           <Text style={styles.title}>Équipes</Text>
           <Text style={styles.subtitle}>{today}</Text>
         </View>
-        <TouchableOpacity style={styles.addBtn} onPress={openAdd}>
-          <Ionicons name="add" size={22} color="#fff" />
-        </TouchableOpacity>
+        {permissions.canManageTeams && (
+          <TouchableOpacity style={styles.addBtn} onPress={openAdd}>
+            <Ionicons name="add" size={22} color="#fff" />
+          </TouchableOpacity>
+        )}
       </View>
 
       <ScrollView
@@ -228,27 +230,33 @@ export default function EquipesScreen() {
                   <Text style={styles.coName}>{co.name}</Text>
                   <Text style={styles.coZone}>{co.zone}</Text>
                 </View>
-                <TouchableOpacity
-                  style={styles.iconBtn}
-                  onPress={() => openWorkerModal(co)}
-                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                >
-                  <Ionicons name="people-outline" size={16} color={C.primary} />
-                </TouchableOpacity>
-                <TouchableOpacity
-                  style={styles.iconBtn}
-                  onPress={() => openEdit(co)}
-                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                >
-                  <Ionicons name="pencil-outline" size={16} color={C.primary} />
-                </TouchableOpacity>
-                <TouchableOpacity
-                  style={[styles.iconBtn, { backgroundColor: C.openBg }]}
-                  onPress={() => handleDeleteCompany(co)}
-                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                >
-                  <Ionicons name="trash-outline" size={16} color={C.open} />
-                </TouchableOpacity>
+                {permissions.canUpdateAttendance && (
+                  <TouchableOpacity
+                    style={styles.iconBtn}
+                    onPress={() => openWorkerModal(co)}
+                    hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                  >
+                    <Ionicons name="people-outline" size={16} color={C.primary} />
+                  </TouchableOpacity>
+                )}
+                {permissions.canManageTeams && (
+                  <>
+                    <TouchableOpacity
+                      style={styles.iconBtn}
+                      onPress={() => openEdit(co)}
+                      hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                    >
+                      <Ionicons name="pencil-outline" size={16} color={C.primary} />
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={[styles.iconBtn, { backgroundColor: C.openBg }]}
+                      onPress={() => handleDeleteCompany(co)}
+                      hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                    >
+                      <Ionicons name="trash-outline" size={16} color={C.open} />
+                    </TouchableOpacity>
+                  </>
+                )}
               </View>
 
               <View style={styles.coStats}>

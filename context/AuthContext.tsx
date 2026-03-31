@@ -2,11 +2,15 @@ import React, { createContext, useContext, useEffect, useRef, useState } from 'r
 import { supabase, isSupabaseConfigured } from '@/lib/supabase';
 import { User, UserRole } from '@/constants/types';
 
-const ROLE_PERMISSIONS: Record<UserRole, { canCreate: boolean; canEdit: boolean; canDelete: boolean; canExport: boolean; canManageTeams: boolean }> = {
-  admin:       { canCreate: true,  canEdit: true,  canDelete: true,  canExport: true,  canManageTeams: true },
-  conducteur:  { canCreate: true,  canEdit: true,  canDelete: false, canExport: true,  canManageTeams: true },
-  chef_equipe: { canCreate: true,  canEdit: true,  canDelete: false, canExport: false, canManageTeams: false },
-  observateur: { canCreate: false, canEdit: false, canDelete: false, canExport: true,  canManageTeams: false },
+const ROLE_PERMISSIONS: Record<UserRole, {
+  canCreate: boolean; canEdit: boolean; canDelete: boolean;
+  canExport: boolean; canManageTeams: boolean;
+  canViewTeams: boolean; canUpdateAttendance: boolean;
+}> = {
+  admin:       { canCreate: true,  canEdit: true,  canDelete: true,  canExport: true,  canManageTeams: true,  canViewTeams: true,  canUpdateAttendance: true  },
+  conducteur:  { canCreate: true,  canEdit: true,  canDelete: false, canExport: true,  canManageTeams: true,  canViewTeams: true,  canUpdateAttendance: true  },
+  chef_equipe: { canCreate: true,  canEdit: true,  canDelete: false, canExport: false, canManageTeams: false, canViewTeams: true,  canUpdateAttendance: true  },
+  observateur: { canCreate: false, canEdit: false, canDelete: false, canExport: true,  canManageTeams: false, canViewTeams: false, canUpdateAttendance: false },
 };
 
 const DEMO_USERS = [
@@ -29,7 +33,11 @@ interface AuthContextValue {
   isLoading: boolean;
   login: (email: string, password: string) => Promise<{ success: boolean; error?: string }>;
   logout: () => Promise<void>;
-  permissions: { canCreate: boolean; canEdit: boolean; canDelete: boolean; canExport: boolean; canManageTeams: boolean };
+  permissions: {
+    canCreate: boolean; canEdit: boolean; canDelete: boolean;
+    canExport: boolean; canManageTeams: boolean;
+    canViewTeams: boolean; canUpdateAttendance: boolean;
+  };
   users: User[];
   seedStatus: 'idle' | 'seeding' | 'done' | 'error';
   updateUserRole: (userId: string, newRole: UserRole) => Promise<void>;

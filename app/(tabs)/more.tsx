@@ -42,13 +42,18 @@ export default function MoreScreen() {
     }).length;
   }, [documents]);
 
-  const MENU_ITEMS = useMemo<MenuItem[]>(() => [
-    { icon: 'folder-open', label: 'Documents', subtitle: `${documents.length} fichiers`, route: '/documents', color: C.inProgress, badge: recentDocsCount || undefined },
-    { icon: 'calendar', label: 'Planning', subtitle: `${tasks.length} tâches`, route: '/planning', color: C.closed, badge: delayedCount || undefined },
-    { icon: 'camera', label: 'Photos', subtitle: `${photos.length} photos`, route: '/photos', color: C.medium },
-    { icon: 'document-text', label: 'Rapports', subtitle: 'Journalier, hebdo', route: '/rapports', color: C.verification },
-    { icon: 'people', label: 'Équipes', subtitle: `${companies.length} entreprises`, route: '/(tabs)/equipes', color: '#EC4899' },
-  ], [documents.length, tasks.length, photos.length, companies.length, delayedCount, recentDocsCount]);
+  const MENU_ITEMS = useMemo<MenuItem[]>(() => {
+    const items: MenuItem[] = [
+      { icon: 'folder-open', label: 'Documents', subtitle: `${documents.length} fichiers`, route: '/documents', color: C.inProgress, badge: recentDocsCount || undefined },
+      { icon: 'calendar', label: 'Planning', subtitle: `${tasks.length} tâches`, route: '/planning', color: C.closed, badge: delayedCount || undefined },
+      { icon: 'camera', label: 'Photos', subtitle: `${photos.length} photos`, route: '/photos', color: C.medium },
+      { icon: 'document-text', label: 'Rapports', subtitle: 'Journalier, hebdo', route: '/rapports', color: C.verification },
+    ];
+    if (permissions.canViewTeams) {
+      items.push({ icon: 'people', label: 'Équipes', subtitle: `${companies.length} entreprises`, route: '/(tabs)/equipes', color: '#EC4899' });
+    }
+    return items;
+  }, [documents.length, tasks.length, photos.length, companies.length, delayedCount, recentDocsCount, permissions.canViewTeams]);
 
   function handleLogout() {
     Alert.alert('Déconnexion', 'Voulez-vous vous déconnecter ?', [
@@ -95,6 +100,8 @@ export default function MoreScreen() {
                 { label: 'Modifier', key: 'canEdit' },
                 { label: 'Supprimer', key: 'canDelete' },
                 { label: 'Exporter', key: 'canExport' },
+                { label: 'Équipes', key: 'canViewTeams' },
+                { label: 'Présences', key: 'canUpdateAttendance' },
               ].map(p => (
                 <View key={p.key} style={styles.permItem}>
                   <Ionicons
@@ -167,7 +174,7 @@ const styles = StyleSheet.create({
   userEmail: { fontSize: 11, fontFamily: 'Inter_400Regular', color: C.textMuted },
   permCard: { backgroundColor: C.surface, borderRadius: 14, padding: 14, marginBottom: 16, borderWidth: 1, borderColor: C.border },
   permTitle: { fontSize: 12, fontFamily: 'Inter_600SemiBold', color: C.textSub, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 12 },
-  permRow: { flexDirection: 'row', justifyContent: 'space-around' },
+  permRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 10, justifyContent: 'space-around' },
   permItem: { alignItems: 'center', gap: 4 },
   permLabel: { fontSize: 11, fontFamily: 'Inter_400Regular', color: C.textSub },
   sectionLabel: { fontSize: 12, fontFamily: 'Inter_600SemiBold', color: C.textSub, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 12 },
