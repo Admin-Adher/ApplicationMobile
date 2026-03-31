@@ -12,6 +12,7 @@ import { Reserve, ReservePriority, ReserveStatus } from '@/constants/types';
 import StatusBadge, { STATUS_CONFIG } from '@/components/StatusBadge';
 import PriorityBadge from '@/components/PriorityBadge';
 import Header from '@/components/Header';
+import DateInput from '@/components/DateInput';
 import { useAuth } from '@/context/AuthContext';
 import { uploadPhoto } from '@/lib/storage';
 import {
@@ -361,6 +362,55 @@ export default function ReserveDetailScreen() {
           </View>
         )}
 
+        {(() => {
+          const linkedTask = reserve.linkedTaskId ? tasks.find(t => t.id === reserve.linkedTaskId) : null;
+          const TASK_STATUS_COLORS: Record<string, string> = {
+            todo: C.textMuted, in_progress: C.inProgress, done: C.closed, delayed: C.waiting,
+          };
+          const TASK_STATUS_LABELS: Record<string, string> = {
+            todo: 'À faire', in_progress: 'En cours', done: 'Terminé', delayed: 'En retard',
+          };
+          return (
+            <View style={styles.card}>
+              <Text style={styles.sectionTitle}>Tâche corrective</Text>
+              {linkedTask ? (
+                <TouchableOpacity
+                  style={styles.taskLink}
+                  onPress={() => router.push(`/task/${linkedTask.id}` as any)}
+                  activeOpacity={0.75}
+                >
+                  <View style={{ flex: 1 }}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+                      <View style={[styles.taskStatusDot, { backgroundColor: TASK_STATUS_COLORS[linkedTask.status] }]} />
+                      <Text style={[styles.taskStatusText, { color: TASK_STATUS_COLORS[linkedTask.status] }]}>
+                        {TASK_STATUS_LABELS[linkedTask.status]}
+                      </Text>
+                      <Text style={styles.taskProgressText}>{linkedTask.progress}%</Text>
+                    </View>
+                    <Text style={styles.taskTitle}>{linkedTask.title}</Text>
+                    <Text style={styles.taskMeta}>Responsable : {linkedTask.assignee} · Éch. : {linkedTask.deadline}</Text>
+                    <View style={styles.taskProgressBar}>
+                      <View style={[styles.taskProgressFill, { width: `${linkedTask.progress}%` as any, backgroundColor: TASK_STATUS_COLORS[linkedTask.status] }]} />
+                    </View>
+                  </View>
+                  <Ionicons name="chevron-forward" size={16} color={C.textMuted} style={{ marginLeft: 8 }} />
+                </TouchableOpacity>
+              ) : permissions.canCreate ? (
+                <TouchableOpacity
+                  style={styles.createTaskBtn}
+                  onPress={() => router.push({ pathname: '/task/new', params: { reserveId: reserve.id } } as any)}
+                  activeOpacity={0.8}
+                >
+                  <Ionicons name="add-circle-outline" size={18} color={C.primary} />
+                  <Text style={styles.createTaskBtnText}>Créer une tâche corrective</Text>
+                </TouchableOpacity>
+              ) : (
+                <Text style={styles.emptyText}>Aucune tâche corrective associée à cette réserve.</Text>
+              )}
+            </View>
+          );
+        })()}
+
         <View style={styles.card}>
           <View style={styles.commentHeader}>
             <Text style={styles.sectionTitle}>
@@ -559,16 +609,11 @@ export default function ReserveDetailScreen() {
               </View>
 
               <Text style={mStyles.label}>DATE LIMITE</Text>
-              <TextInput
-                style={mStyles.input}
+              <DateInput
                 value={editDeadline}
-                onChangeText={setEditDeadline}
-                placeholder="JJ/MM/AAAA — Ex : 30/04/2025"
-                placeholderTextColor={C.textMuted}
-                keyboardType="numbers-and-punctuation"
-                maxLength={10}
+                onChange={setEditDeadline}
+                optional
               />
-              <Text style={mStyles.hint}>Laisser vide pour supprimer l'échéance</Text>
             </ScrollView>
           </View>
         </View>
@@ -667,6 +712,16 @@ const styles = StyleSheet.create({
   contactBtnText: { flex: 1, fontSize: 14, fontFamily: 'Inter_600SemiBold' },
   deleteBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, paddingVertical: 14, borderRadius: 12, borderWidth: 1.5, borderColor: C.open + '50', backgroundColor: C.open + '08' },
   deleteBtnText: { fontSize: 14, fontFamily: 'Inter_600SemiBold', color: C.open },
+  taskLink: { flexDirection: 'row', alignItems: 'center', backgroundColor: C.surface2, borderRadius: 12, padding: 14, borderWidth: 1, borderColor: C.border },
+  taskStatusDot: { width: 8, height: 8, borderRadius: 4 },
+  taskStatusText: { fontSize: 12, fontFamily: 'Inter_600SemiBold' },
+  taskProgressText: { fontSize: 12, fontFamily: 'Inter_400Regular', color: C.textMuted },
+  taskTitle: { fontSize: 14, fontFamily: 'Inter_500Medium', color: C.text, marginBottom: 4 },
+  taskMeta: { fontSize: 12, fontFamily: 'Inter_400Regular', color: C.textMuted, marginBottom: 8 },
+  taskProgressBar: { height: 4, backgroundColor: C.border, borderRadius: 2, overflow: 'hidden' },
+  taskProgressFill: { height: 4, borderRadius: 2 },
+  createTaskBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, backgroundColor: C.primaryBg, borderRadius: 10, paddingVertical: 13, borderWidth: 1, borderColor: C.primary + '40' },
+  createTaskBtnText: { fontSize: 14, fontFamily: 'Inter_600SemiBold', color: C.primary },
   photoModal: { flex: 1, backgroundColor: 'rgba(0,0,0,0.95)', justifyContent: 'center', alignItems: 'center' },
   photoCloseBtn: { position: 'absolute', top: 52, right: 20, zIndex: 10, padding: 8, backgroundColor: 'rgba(255,255,255,0.15)', borderRadius: 20 },
   photoFull: { width: '100%', height: '70%' },

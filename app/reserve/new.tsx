@@ -11,6 +11,7 @@ import { useApp } from '@/context/AppContext';
 import { useAuth } from '@/context/AuthContext';
 import { ReservePriority, ReserveStatus } from '@/constants/types';
 import Header from '@/components/Header';
+import DateInput from '@/components/DateInput';
 import { uploadPhoto } from '@/lib/storage';
 import {
   RESERVE_BUILDINGS, RESERVE_ZONES, RESERVE_LEVELS, RESERVE_PRIORITIES, genReserveId, validateDeadline,
@@ -317,17 +318,12 @@ export default function NewReserveScreen() {
 
         <View style={styles.card}>
           <View style={[styles.fieldGroup, { marginBottom: 0 }]}>
-            <Text style={styles.label}>Date limite</Text>
-            <TextInput
-              style={styles.input}
-              placeholder="JJ/MM/AAAA — Ex : 30/04/2026"
-              placeholderTextColor={C.textMuted}
+            <DateInput
+              label="Date limite"
               value={deadline}
-              onChangeText={setDeadline}
-              keyboardType="numbers-and-punctuation"
-              maxLength={10}
+              onChange={setDeadline}
+              optional
             />
-            <Text style={styles.hint}>Laisser vide si aucune échéance fixée</Text>
           </View>
         </View>
 

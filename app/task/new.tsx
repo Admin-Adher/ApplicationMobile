@@ -6,9 +6,9 @@ import { C } from '@/constants/colors';
 import { useApp } from '@/context/AppContext';
 import { useAuth } from '@/context/AuthContext';
 import Header from '@/components/Header';
+import DateInput from '@/components/DateInput';
 import { Task, TaskStatus, ReservePriority } from '@/constants/types';
 import { validateDeadline } from '@/lib/reserveUtils';
-
 import { genId } from '@/lib/utils';
 
 const STATUS_OPTS: { value: TaskStatus; label: string; color: string }[] = [
@@ -28,7 +28,7 @@ const PRIORITY_OPTS: { value: ReservePriority; label: string; color: string }[] 
 export default function NewTaskScreen() {
   const router = useRouter();
   const { reserveId } = useLocalSearchParams<{ reserveId?: string }>();
-  const { addTask, reserves, updateReserveFields, companies } = useApp();
+  const { addTask, reserves, updateReserveFields, companies, tasks } = useApp();
   const { user, permissions } = useAuth();
 
   const sourceReserve = reserveId ? reserves.find(r => r.id === reserveId) : null;
@@ -84,8 +84,9 @@ export default function NewTaskScreen() {
       Alert.alert('Date invalide', "Vérifiez que le jour, le mois et l'année sont corrects (ex : 30/04/2026).");
       return;
     }
+    const newId = genId();
     const task: Task = {
-      id: genId(),
+      id: newId,
       title: title.trim(),
       description: description.trim(),
       status,
@@ -95,8 +96,12 @@ export default function NewTaskScreen() {
       assignee: assignee.trim() || (user?.name ?? 'Équipe'),
       company: company.trim(),
       progress: Math.min(100, Math.max(0, parseInt(progress) || 0)),
+      reserveId: sourceReserve?.id,
     };
     addTask(task);
+    if (sourceReserve) {
+      updateReserveFields({ ...sourceReserve, linkedTaskId: newId });
+    }
     Alert.alert('Tâche créée', `"${task.title}" a été ajoutée au planning.`, [
       { text: 'OK', onPress: () => router.back() },
     ]);
@@ -154,24 +159,17 @@ export default function NewTaskScreen() {
             </View>
           </ScrollView>
 
-          <Text style={styles.label}>Date de début (JJ/MM/AAAA) — optionnel</Text>
-          <TextInput
-            style={styles.input}
-            placeholder="Ex: 01/04/2026"
-            placeholderTextColor={C.textMuted}
+          <DateInput
+            label="Date de début"
             value={startDate}
-            onChangeText={setStartDate}
-            keyboardType="numbers-and-punctuation"
+            onChange={setStartDate}
+            optional
           />
 
-          <Text style={styles.label}>Échéance (JJ/MM/AAAA)</Text>
-          <TextInput
-            style={styles.input}
-            placeholder="Ex: 30/04/2026"
-            placeholderTextColor={C.textMuted}
+          <DateInput
+            label="Échéance"
             value={deadline}
-            onChangeText={setDeadline}
-            keyboardType="numbers-and-punctuation"
+            onChange={setDeadline}
           />
 
           <Text style={styles.label}>Avancement (%)</Text>

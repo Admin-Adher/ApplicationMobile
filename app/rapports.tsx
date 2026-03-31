@@ -6,9 +6,10 @@ import * as FileSystem from 'expo-file-system';
 import { C } from '@/constants/colors';
 import { useApp } from '@/context/AppContext';
 import { useAuth } from '@/context/AuthContext';
+import { useSettings } from '@/context/SettingsContext';
 import Header from '@/components/Header';
 
-function buildDailyHTML(reserves: any[], companies: any[], tasks: any[], stats: any, userName: string): string {
+function buildDailyHTML(reserves: any[], companies: any[], tasks: any[], stats: any, userName: string, projectName: string): string {
   const now = new Date().toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
   const personnelRows = companies.map(c =>
     `<tr><td>${c.name}</td><td>${c.actualWorkers}</td><td>${c.plannedWorkers}</td></tr>`
@@ -30,7 +31,7 @@ function buildDailyHTML(reserves: any[], companies: any[], tasks: any[], stats: 
     .kpi-val { font-size: 28px; font-weight: bold; color: #1A6FD8; }
     .kpi-label { font-size: 12px; color: #666; }
   </style></head><body>
-  <h1>BuildTrack — Rapport journalier</h1>
+  <h1>${projectName} — Rapport journalier</h1>
   <p class="meta">Date : ${now} | Rédigé par : ${userName}</p>
   <h2>Indicateurs chantier</h2>
   <div class="kpi">
@@ -56,7 +57,7 @@ function buildDailyHTML(reserves: any[], companies: any[], tasks: any[], stats: 
   </body></html>`;
 }
 
-function buildWeeklyHTML(reserves: any[], companies: any[], tasks: any[], stats: any, userName: string, weekNum: number): string {
+function buildWeeklyHTML(reserves: any[], companies: any[], tasks: any[], stats: any, userName: string, weekNum: number, projectName: string): string {
   const criticalRows = reserves.filter((r: any) => r.priority === 'critical' && r.status !== 'closed').map((r: any) =>
     `<tr><td>${r.id}</td><td>${r.title}</td><td>Bât. ${r.building}</td><td>${r.deadline}</td></tr>`
   ).join('');
@@ -82,7 +83,7 @@ function buildWeeklyHTML(reserves: any[], companies: any[], tasks: any[], stats:
     .progress-bar { background: #eee; border-radius: 4px; height: 12px; margin-top: 8px; }
     .progress-fill { background: #1A6FD8; height: 12px; border-radius: 4px; width: ${stats.progress}%; }
   </style></head><body>
-  <h1>BuildTrack — Rapport hebdomadaire — Semaine ${weekNum}</h1>
+  <h1>${projectName} — Rapport hebdomadaire — Semaine ${weekNum}</h1>
   <p class="meta">Rédigé par : ${userName}</p>
   <h2>Avancement global</h2>
   <p><strong>${stats.progress}%</strong> — ${stats.closed} / ${stats.total} réserves clôturées</p>
@@ -110,6 +111,7 @@ function buildCsvReport(reserves: any[]): string {
 export default function RapportsScreen() {
   const { reserves, companies, tasks, stats } = useApp();
   const { user, permissions } = useAuth();
+  const { projectName } = useSettings();
   const userName = user?.name ?? 'Équipe BuildTrack';
 
   const today = new Date().toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
@@ -126,8 +128,8 @@ export default function RapportsScreen() {
     }
     try {
       const html = type === 'daily'
-        ? buildDailyHTML(reserves, companies, tasks, stats, userName)
-        : buildWeeklyHTML(reserves, companies, tasks, stats, userName, weekNum);
+        ? buildDailyHTML(reserves, companies, tasks, stats, userName, projectName)
+        : buildWeeklyHTML(reserves, companies, tasks, stats, userName, weekNum, projectName);
 
       if (Platform.OS === 'web') {
         const printWindow = window.open('', '_blank');

@@ -6,6 +6,7 @@ import { C } from '@/constants/colors';
 import { useApp } from '@/context/AppContext';
 import { useAuth } from '@/context/AuthContext';
 import Header from '@/components/Header';
+import DateInput from '@/components/DateInput';
 import { Task, TaskStatus, ReservePriority } from '@/constants/types';
 import { validateDeadline } from '@/lib/reserveUtils';
 
@@ -26,10 +27,11 @@ const PRIORITY_OPTS: { value: ReservePriority; label: string; color: string }[] 
 export default function EditTaskScreen() {
   const router = useRouter();
   const { id } = useLocalSearchParams<{ id: string }>();
-  const { tasks, updateTask, deleteTask, companies } = useApp();
+  const { tasks, reserves, updateTask, deleteTask, companies } = useApp();
   const { permissions } = useAuth();
 
   const task = tasks.find(t => t.id === id);
+  const linkedReserve = task?.reserveId ? reserves.find(r => r.id === task.reserveId) : null;
 
   const [title, setTitle] = useState(task?.title ?? '');
   const [description, setDescription] = useState(task?.description ?? '');
@@ -111,6 +113,24 @@ export default function EditTaskScreen() {
       />
 
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
+
+        {linkedReserve && (
+          <TouchableOpacity
+            style={styles.reserveLink}
+            onPress={() => router.push(`/reserve/${linkedReserve.id}` as any)}
+            activeOpacity={0.75}
+          >
+            <View style={styles.reserveLinkLeft}>
+              <Ionicons name="warning" size={16} color={C.open} />
+              <View>
+                <Text style={styles.reserveLinkLabel}>Réserve liée</Text>
+                <Text style={styles.reserveLinkId}>{linkedReserve.id} — {linkedReserve.title}</Text>
+              </View>
+            </View>
+            <Ionicons name="chevron-forward" size={16} color={C.textMuted} />
+          </TouchableOpacity>
+        )}
+
         <View style={styles.card}>
           <Text style={styles.sectionTitle}>Informations générales</Text>
 
@@ -161,26 +181,17 @@ export default function EditTaskScreen() {
             </View>
           </ScrollView>
 
-          <Text style={styles.label}>Date de début (JJ/MM/AAAA) — optionnel</Text>
-          <TextInput
-            style={styles.input}
-            placeholder="Ex: 01/04/2026"
-            placeholderTextColor={C.textMuted}
+          <DateInput
+            label="Date de début"
             value={startDate}
-            onChangeText={setStartDate}
-            keyboardType="numbers-and-punctuation"
-            editable={permissions.canEdit}
+            onChange={permissions.canEdit ? setStartDate : () => {}}
+            optional
           />
 
-          <Text style={styles.label}>Échéance (JJ/MM/AAAA)</Text>
-          <TextInput
-            style={styles.input}
-            placeholder="Ex: 30/04/2026"
-            placeholderTextColor={C.textMuted}
+          <DateInput
+            label="Échéance"
             value={deadline}
-            onChangeText={setDeadline}
-            keyboardType="numbers-and-punctuation"
-            editable={permissions.canEdit}
+            onChange={permissions.canEdit ? setDeadline : () => {}}
           />
 
           <Text style={styles.label}>Avancement (%)</Text>
@@ -267,4 +278,12 @@ const styles = StyleSheet.create({
   saveBtnText: { fontSize: 16, fontFamily: 'Inter_600SemiBold', color: '#fff' },
   deleteBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, borderRadius: 14, paddingVertical: 14, marginTop: 10, borderWidth: 1.5, borderColor: C.open },
   deleteBtnText: { fontSize: 15, fontFamily: 'Inter_600SemiBold', color: C.open },
+  reserveLink: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    backgroundColor: C.open + '10', borderRadius: 12, padding: 14, marginBottom: 14,
+    borderWidth: 1, borderColor: C.open + '30',
+  },
+  reserveLinkLeft: { flexDirection: 'row', alignItems: 'center', gap: 10, flex: 1 },
+  reserveLinkLabel: { fontSize: 11, fontFamily: 'Inter_600SemiBold', color: C.open, textTransform: 'uppercase', letterSpacing: 0.4 },
+  reserveLinkId: { fontSize: 13, fontFamily: 'Inter_500Medium', color: C.text, marginTop: 2 },
 });
