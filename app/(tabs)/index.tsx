@@ -210,31 +210,64 @@ export default function DashboardScreen() {
           <Ionicons name="chevron-forward" size={16} color={C.textMuted} />
         </TouchableOpacity>
 
-        {/* Avancement global */}
-        <View style={styles.card}>
-          <View style={styles.cardHeader}>
-            <Text style={styles.cardTitle}>Avancement global</Text>
-            <View style={styles.pctBadge}>
-              <Text style={styles.pct}>{stats.progress}%</Text>
+        {/* État vide — chantier non initialisé */}
+        {stats.total === 0 && companies.length === 0 && (
+          <View style={styles.onboardCard}>
+            <View style={styles.onboardIconWrap}>
+              <Ionicons name="construct" size={32} color={C.primary} />
+            </View>
+            <Text style={styles.onboardTitle}>Bienvenue sur BuildTrack</Text>
+            <Text style={styles.onboardText}>
+              Votre chantier numérique est prêt. Commencez par créer votre première réserve ou configurer les entreprises intervenantes.
+            </Text>
+            <View style={styles.onboardActions}>
+              <TouchableOpacity
+                style={styles.onboardBtn}
+                onPress={() => router.push('/reserve/new' as any)}
+              >
+                <Ionicons name="add-circle-outline" size={16} color="#fff" />
+                <Text style={styles.onboardBtnText}>Créer une réserve</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.onboardBtnSecondary}
+                onPress={() => router.push('/(tabs)/admin' as any)}
+              >
+                <Ionicons name="people-outline" size={16} color={C.primary} />
+                <Text style={styles.onboardBtnSecondaryText}>Configurer les équipes</Text>
+              </TouchableOpacity>
             </View>
           </View>
-          <View style={styles.progressBg}>
-            <View style={[styles.progressFill, { width: `${stats.progress}%` as any }]} />
+        )}
+
+        {/* Avancement global */}
+        {stats.total > 0 && (
+          <View style={styles.card}>
+            <View style={styles.cardHeader}>
+              <Text style={styles.cardTitle}>Avancement global</Text>
+              <View style={styles.pctBadge}>
+                <Text style={styles.pct}>{stats.progress}%</Text>
+              </View>
+            </View>
+            <View style={styles.progressBg}>
+              <View style={[styles.progressFill, { width: `${stats.progress}%` as any }]} />
+            </View>
+            <Text style={styles.progressHint}>{stats.closed} / {stats.total} réserves clôturées</Text>
           </View>
-          <Text style={styles.progressHint}>{stats.closed} / {stats.total} réserves clôturées</Text>
-        </View>
+        )}
 
         {/* Répartition des statuts */}
-        <View style={styles.card}>
-          <Text style={styles.cardTitle}>Répartition des réserves</Text>
-          <View style={styles.statusBars}>
-            <ReserveStatusBar label="Ouvert" count={stats.open} total={stats.total} color={C.open} />
-            <ReserveStatusBar label="En cours" count={stats.inProgress} total={stats.total} color={C.inProgress} />
-            <ReserveStatusBar label="En attente" count={stats.waiting} total={stats.total} color={C.waiting} />
-            <ReserveStatusBar label="Vérification" count={stats.verification} total={stats.total} color={C.verification} />
-            <ReserveStatusBar label="Clôturé" count={stats.closed} total={stats.total} color={C.closed} />
+        {stats.total > 0 && (
+          <View style={styles.card}>
+            <Text style={styles.cardTitle}>Répartition des réserves</Text>
+            <View style={styles.statusBars}>
+              <ReserveStatusBar label="Ouvert" count={stats.open} total={stats.total} color={C.open} />
+              <ReserveStatusBar label="En cours" count={stats.inProgress} total={stats.total} color={C.inProgress} />
+              <ReserveStatusBar label="En attente" count={stats.waiting} total={stats.total} color={C.waiting} />
+              <ReserveStatusBar label="Vérification" count={stats.verification} total={stats.total} color={C.verification} />
+              <ReserveStatusBar label="Clôturé" count={stats.closed} total={stats.total} color={C.closed} />
+            </View>
           </View>
-        </View>
+        )}
 
         {/* Personnel */}
         <View style={styles.card}>
@@ -482,4 +515,32 @@ const styles = StyleSheet.create({
   delayCountText: { fontSize: 11, fontFamily: 'Inter_700Bold', color: '#fff' },
   delayItem: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 10, borderTopWidth: 1, borderTopColor: 'rgba(217,119,6,0.15)' },
   delayDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: C.waiting },
+
+  onboardCard: {
+    backgroundColor: C.surface, borderRadius: 16, padding: 20,
+    marginBottom: 10, borderWidth: 1, borderColor: C.border,
+    alignItems: 'center',
+    ...Platform.select({
+      web: { boxShadow: '0px 2px 12px rgba(0,48,130,0.08)' } as any,
+      default: { shadowColor: '#003082', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.08, shadowRadius: 12 },
+    }),
+  },
+  onboardIconWrap: {
+    width: 64, height: 64, borderRadius: 20, backgroundColor: C.primaryBg,
+    alignItems: 'center', justifyContent: 'center', marginBottom: 14,
+  },
+  onboardTitle: { fontSize: 18, fontFamily: 'Inter_700Bold', color: C.text, marginBottom: 8, textAlign: 'center' },
+  onboardText: { fontSize: 13, fontFamily: 'Inter_400Regular', color: C.textSub, textAlign: 'center', lineHeight: 20, marginBottom: 20 },
+  onboardActions: { flexDirection: 'row', gap: 10, width: '100%' },
+  onboardBtn: {
+    flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6,
+    backgroundColor: C.primary, borderRadius: 12, paddingVertical: 12,
+  },
+  onboardBtnText: { fontSize: 13, fontFamily: 'Inter_600SemiBold', color: '#fff' },
+  onboardBtnSecondary: {
+    flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6,
+    backgroundColor: C.primaryBg, borderRadius: 12, paddingVertical: 12,
+    borderWidth: 1, borderColor: C.primary + '40',
+  },
+  onboardBtnSecondaryText: { fontSize: 13, fontFamily: 'Inter_600SemiBold', color: C.primary },
 });

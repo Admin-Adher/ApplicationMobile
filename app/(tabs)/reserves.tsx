@@ -217,6 +217,17 @@ export default function ReservesScreen() {
         )}
       />
 
+      {/* FAB flottant visible sur toutes plateformes */}
+      {permissions.canCreate && (
+        <TouchableOpacity
+          style={styles.fab}
+          onPress={() => router.push('/reserve/new' as any)}
+          activeOpacity={0.85}
+        >
+          <Ionicons name="add" size={26} color="#fff" />
+        </TouchableOpacity>
+      )}
+
       {/* Modal tri */}
       <Modal visible={sortModalVisible} transparent animationType="slide" onRequestClose={() => setSortModalVisible(false)}>
         <TouchableOpacity style={styles.modalOverlay} activeOpacity={1} onPress={() => setSortModalVisible(false)}>
@@ -435,4 +446,20 @@ const styles = StyleSheet.create({
   dot: { width: 7, height: 7, borderRadius: 4 },
   applyBtn: { marginTop: 20, marginBottom: 8, backgroundColor: C.primary, borderRadius: 12, paddingVertical: 14, alignItems: 'center' },
   applyBtnText: { fontSize: 15, fontFamily: 'Inter_600SemiBold', color: '#fff' },
+
+  fab: {
+    position: 'absolute',
+    bottom: Platform.OS === 'web' ? 28 : 24,
+    right: 20,
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    backgroundColor: C.primary,
+    alignItems: 'center',
+    justifyContent: 'center',
+    ...Platform.select({
+      web: { boxShadow: '0px 4px 16px rgba(0,48,130,0.30)' } as any,
+      default: { shadowColor: '#003082', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.30, shadowRadius: 10, elevation: 8 },
+    }),
+  },
 });
