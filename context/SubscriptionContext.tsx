@@ -1,21 +1,21 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
 import { supabase, isSupabaseConfigured } from '@/lib/supabase';
 import { useAuth } from '@/context/AuthContext';
-import { Organization, Plan, Subscription, Invitation, UserRole } from '@/constants/types';
+import { Organization, Plan, Subscription, Invitation, UserRole, User } from '@/constants/types';
 
-const DEMO_PLAN: Plan = {
-  id: 'plan-pro-demo',
-  name: 'Pro',
-  maxUsers: 20,
-  priceMonthly: 149,
-  features: [
-    'Gestion des réserves',
-    'Rapports PDF/Excel',
-    "Jusqu'à 20 utilisateurs",
-    'Support prioritaire',
-    'Pointage & présences',
-  ],
-};
+export interface OrgSummary {
+  org: Organization;
+  planName: string;
+  planId: string;
+  status: 'trial' | 'active' | 'suspended' | 'expired';
+  seatMax: number;
+}
+
+const DEMO_PLANS: Plan[] = [
+  { id: 'plan-starter', name: 'Starter', maxUsers: 5, priceMonthly: 49, features: ['Gestion des réserves', "Jusqu'à 5 utilisateurs", 'Support email'] },
+  { id: 'plan-pro', name: 'Pro', maxUsers: 20, priceMonthly: 149, features: ['Gestion des réserves', 'Rapports PDF/Excel', "Jusqu'à 20 utilisateurs", 'Support prioritaire', 'Pointage & présences'] },
+  { id: 'plan-entreprise', name: 'Entreprise', maxUsers: -1, priceMonthly: 399, features: ['Toutes les fonctionnalités', 'Utilisateurs illimités', 'Support dédié', 'API access', 'SSO'] },
+];
 
 const DEMO_ORG: Organization = {
   id: 'demo-org',
@@ -27,7 +27,7 @@ const DEMO_ORG: Organization = {
 const DEMO_SUBSCRIPTION: Subscription = {
   id: 'sub-demo',
   organizationId: 'demo-org',
-  planId: 'plan-pro-demo',
+  planId: 'plan-pro',
   status: 'trial',
   startedAt: new Date().toISOString(),
   trialEndsAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
@@ -37,18 +37,20 @@ interface SubscriptionContextValue {
   organization: Organization | null;
   plan: Plan | null;
   subscription: Subscription | null;
+  orgUsers: User[];
   seatUsed: number;
   seatMax: number;
   canInvite: boolean;
   isLoading: boolean;
   pendingInvitations: Invitation[];
   allOrganizations: Organization[];
-  inviteUser: (
-    email: string,
-    role: UserRole
-  ) => Promise<{ success: boolean; error?: string; token?: string }>;
+  allPlans: Plan[];
+  orgSummaries: OrgSummary[];
+  inviteUser: (email: string, role: UserRole) => Promise<{ success: boolean; error?: string; token?: string }>;
   cancelInvitation: (id: string) => Promise<void>;
   refreshSubscription: () => void;
+  updateOrgPlan: (orgId: string, planId: string) => Promise<{ success: boolean; error?: string }>;
+  updateOrgStatus: (orgId: string, status: 'trial' | 'active' | 'suspended' | 'expired') => Promise<{ success: boolean; error?: string }>;
 }
 
 const SubscriptionContext = createContext<SubscriptionContextValue | null>(null);
@@ -61,6 +63,8 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
   const [subscription, setSubscription] = useState<Subscription | null>(null);
   const [pendingInvitations, setPendingInvitations] = useState<Invitation[]>([]);
   const [allOrganizations, setAllOrganizations] = useState<Organization[]>([]);
+  const [allPlans, setAllPlans] = useState<Plan[]>(DEMO_PLANS);
+  const [orgSummaries, setOrgSummaries] = useState<OrgSummary[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [refreshKey, setRefreshKey] = useState(0);
 
@@ -76,9 +80,11 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
 
     if (!isSupabaseConfigured) {
       setOrganization(DEMO_ORG);
-      setPlan(DEMO_PLAN);
+      setPlan(DEMO_PLANS[1]);
       setSubscription(DEMO_SUBSCRIPTION);
       setAllOrganizations([DEMO_ORG]);
+      setAllPlans(DEMO_PLANS);
+      setOrgSummaries([{ org: DEMO_ORG, planName: 'Pro', planId: 'plan-pro', status: 'trial', seatMax: 20 }]);
       setIsLoading(false);
       return;
     }
@@ -90,20 +96,51 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
     if (!user) return;
     setIsLoading(true);
     try {
+      const { data: plansData } = await supabase
+        .from('plans')
+        .select('*')
+        .order('price_monthly', { ascending: true });
+
+      if (plansData && plansData.length > 0) {
+        setAllPlans(plansData.map((p: any) => ({
+          id: p.id,
+          name: p.name,
+          maxUsers: p.max_users,
+          priceMonthly: p.price_monthly,
+          features: Array.isArray(p.features) ? p.features : JSON.parse(p.features ?? '[]'),
+        })));
+      }
+
       if (user.role === 'super_admin') {
         const { data: orgs } = await supabase
           .from('organizations')
           .select('*')
           .order('created_at', { ascending: false });
+
+        const { data: subs } = await supabase
+          .from('subscriptions')
+          .select('*, plans(*)');
+
         if (orgs) {
-          setAllOrganizations(
-            orgs.map((o: any) => ({
-              id: o.id,
-              name: o.name,
-              slug: o.slug,
-              createdAt: o.created_at,
-            }))
-          );
+          const orgList: Organization[] = orgs.map((o: any) => ({
+            id: o.id,
+            name: o.name,
+            slug: o.slug,
+            createdAt: o.created_at,
+          }));
+          setAllOrganizations(orgList);
+
+          const summaries: OrgSummary[] = orgList.map(org => {
+            const sub = subs?.find((s: any) => s.organization_id === org.id);
+            return {
+              org,
+              planName: sub?.plans?.name ?? '—',
+              planId: sub?.plan_id ?? '',
+              status: (sub?.status ?? 'trial') as OrgSummary['status'],
+              seatMax: sub?.plans?.max_users ?? 5,
+            };
+          });
+          setOrgSummaries(summaries);
         }
       }
 
@@ -187,7 +224,11 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
     }
   }
 
-  const seatUsed = users.length;
+  const orgUsers = organization
+    ? users.filter(u => u.organizationId === organization.id)
+    : users;
+
+  const seatUsed = orgUsers.length;
   const seatMax = plan?.maxUsers ?? 20;
   const canInvite = seatMax === -1 || seatUsed < seatMax;
 
@@ -208,7 +249,7 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
       return { success: false, error: 'Adresse email invalide.' };
     }
 
-    const alreadyMember = users.find(u => u.email.toLowerCase() === emailLower);
+    const alreadyMember = orgUsers.find(u => u.email.toLowerCase() === emailLower);
     if (alreadyMember) {
       return { success: false, error: 'Cet utilisateur fait déjà partie de votre organisation.' };
     }
@@ -238,10 +279,7 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
       i => i.email.toLowerCase() === emailLower && i.status === 'pending'
     );
     if (existingInv) {
-      return {
-        success: false,
-        error: 'Une invitation est déjà en attente pour cet email.',
-      };
+      return { success: false, error: 'Une invitation est déjà en attente pour cet email.' };
     }
 
     try {
@@ -286,21 +324,74 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
     setPendingInvitations(prev => prev.filter(i => i.id !== id));
   }
 
+  async function updateOrgPlan(orgId: string, planId: string): Promise<{ success: boolean; error?: string }> {
+    if (!isSupabaseConfigured) {
+      const plan = allPlans.find(p => p.id === planId);
+      setOrgSummaries(prev => prev.map(s =>
+        s.org.id === orgId
+          ? { ...s, planName: plan?.name ?? s.planName, planId, status: 'active' }
+          : s
+      ));
+      return { success: true };
+    }
+    try {
+      const { error } = await supabase
+        .from('subscriptions')
+        .update({ plan_id: planId, status: 'active' })
+        .eq('organization_id', orgId);
+
+      if (error) return { success: false, error: error.message };
+      refreshSubscription();
+      return { success: true };
+    } catch {
+      return { success: false, error: 'Erreur réseau.' };
+    }
+  }
+
+  async function updateOrgStatus(
+    orgId: string,
+    status: 'trial' | 'active' | 'suspended' | 'expired'
+  ): Promise<{ success: boolean; error?: string }> {
+    if (!isSupabaseConfigured) {
+      setOrgSummaries(prev => prev.map(s =>
+        s.org.id === orgId ? { ...s, status } : s
+      ));
+      return { success: true };
+    }
+    try {
+      const { error } = await supabase
+        .from('subscriptions')
+        .update({ status })
+        .eq('organization_id', orgId);
+
+      if (error) return { success: false, error: error.message };
+      refreshSubscription();
+      return { success: true };
+    } catch {
+      return { success: false, error: 'Erreur réseau.' };
+    }
+  }
+
   return (
     <SubscriptionContext.Provider
       value={{
         organization,
         plan,
         subscription,
+        orgUsers,
         seatUsed,
         seatMax,
         canInvite,
         isLoading,
         pendingInvitations,
         allOrganizations,
+        allPlans,
+        orgSummaries,
         inviteUser,
         cancelInvitation,
         refreshSubscription,
+        updateOrgPlan,
+        updateOrgStatus,
       }}
     >
       {children}

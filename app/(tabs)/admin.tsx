@@ -63,12 +63,14 @@ export default function AdminScreen() {
   const bottomPad = Platform.OS === 'web' ? 0 : insets.bottom;
   const router = useRouter();
 
-  const { user, users, updateUserRole, deleteUserProfile } = useAuth();
+  const { user, updateUserRole, deleteUserProfile } = useAuth();
   const { companies, addCompany, updateCompanyFull, deleteCompany, updateCompanyWorkers, updateCompanyHours } = useApp();
   const {
     plan, subscription, seatUsed, seatMax, canInvite,
-    pendingInvitations, inviteUser, cancelInvitation,
+    pendingInvitations, inviteUser, cancelInvitation, orgUsers,
   } = useSubscription();
+
+  const users = orgUsers;
 
   const [activeTab, setActiveTab] = useState<'users' | 'companies' | 'abonnement'>('users');
 
@@ -77,6 +79,7 @@ export default function AdminScreen() {
   const [inviteRole, setInviteRole] = useState<UserRole>('observateur');
   const [inviteSending, setInviteSending] = useState(false);
   const [inviteToken, setInviteToken] = useState<string | null>(null);
+  const [tokenCopied, setTokenCopied] = useState(false);
   const [userSearch, setUserSearch] = useState('');
   const [roleModal, setRoleModal] = useState<{ id: string; name: string; currentRole: UserRole } | null>(null);
   const [saving, setSaving] = useState(false);
@@ -97,7 +100,7 @@ export default function AdminScreen() {
   }, [users, userSearch]);
 
   const roleCounts = useMemo(() => {
-    const counts: Record<UserRole, number> = { admin: 0, conducteur: 0, chef_equipe: 0, observateur: 0 };
+    const counts: Record<UserRole, number> = { super_admin: 0, admin: 0, conducteur: 0, chef_equipe: 0, observateur: 0 };
     users.forEach(u => { counts[u.role] = (counts[u.role] ?? 0) + 1; });
     return counts;
   }, [users]);
@@ -119,6 +122,23 @@ export default function AdminScreen() {
     setInviteEmail('');
     setInviteRole('observateur');
     setInviteToken(null);
+    setTokenCopied(false);
+  }
+
+  function handleCopyToken() {
+    if (!inviteToken) return;
+    if (Platform.OS === 'web' && typeof navigator !== 'undefined' && navigator.clipboard) {
+      navigator.clipboard.writeText(inviteToken).then(() => {
+        setTokenCopied(true);
+        setTimeout(() => setTokenCopied(false), 2500);
+      }).catch(() => {
+        Alert.alert('Token', inviteToken);
+      });
+    } else {
+      Alert.alert('Token d\'invitation', inviteToken);
+      setTokenCopied(true);
+      setTimeout(() => setTokenCopied(false), 2500);
+    }
   }
 
   function handleCancelInvitation(id: string, email: string) {

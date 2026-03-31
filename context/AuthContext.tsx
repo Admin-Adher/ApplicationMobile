@@ -14,14 +14,6 @@ const ROLE_PERMISSIONS: Record<UserRole, {
   observateur: { canCreate: false, canEdit: false, canDelete: false, canExport: true,  canManageTeams: false, canViewTeams: false, canUpdateAttendance: false },
 };
 
-const DEMO_USERS = [
-  { email: 'superadmin@buildtrack.fr', password: 'super123', name: 'Super Admin BuildTrack', role: 'super_admin', roleLabel: 'Super Administrateur' },
-  { email: 'admin@buildtrack.fr',     password: 'admin123', name: 'Admin Système',  role: 'admin',       roleLabel: 'Administrateur' },
-  { email: 'j.dupont@buildtrack.fr',  password: 'pass123',  name: 'Jean Dupont',    role: 'conducteur',  roleLabel: 'Conducteur de travaux' },
-  { email: 'm.martin@buildtrack.fr',  password: 'pass123',  name: 'Marie Martin',   role: 'chef_equipe', roleLabel: "Chef d'équipe" },
-  { email: 'p.lambert@buildtrack.fr', password: 'pass123',  name: 'Pierre Lambert', role: 'observateur', roleLabel: 'Observateur' },
-];
-
 const ROLE_LABELS: Record<UserRole, string> = {
   super_admin: 'Super Administrateur',
   admin: 'Administrateur',
@@ -29,6 +21,14 @@ const ROLE_LABELS: Record<UserRole, string> = {
   chef_equipe: "Chef d'équipe",
   observateur: 'Observateur',
 };
+
+const DEMO_USERS = [
+  { email: 'superadmin@buildtrack.fr', password: 'super123', name: 'Super Admin BuildTrack', role: 'super_admin', roleLabel: 'Super Administrateur' },
+  { email: 'admin@buildtrack.fr',     password: 'admin123', name: 'Admin Système',  role: 'admin',       roleLabel: 'Administrateur' },
+  { email: 'j.dupont@buildtrack.fr',  password: 'pass123',  name: 'Jean Dupont',    role: 'conducteur',  roleLabel: 'Conducteur de travaux' },
+  { email: 'm.martin@buildtrack.fr',  password: 'pass123',  name: 'Marie Martin',   role: 'chef_equipe', roleLabel: "Chef d'équipe" },
+  { email: 'p.lambert@buildtrack.fr', password: 'pass123',  name: 'Pierre Lambert', role: 'observateur', roleLabel: 'Observateur' },
+];
 
 interface AuthContextValue {
   user: User | null;
@@ -49,17 +49,62 @@ interface AuthContextValue {
 
 const AuthContext = createContext<AuthContextValue | null>(null);
 
+async function linkPendingInvitation(userId: string, email: string): Promise<string | undefined> {
+  try {
+    const { data: inv } = await supabase
+      .from('invitations')
+      .select('*')
+      .eq('email', email.toLowerCase())
+      .eq('status', 'pending')
+      .gt('expires_at', new Date().toISOString())
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .single();
+
+    if (!inv) return undefined;
+
+    await supabase.from('profiles').update({
+      organization_id: inv.organization_id,
+      role: inv.role,
+      role_label: ROLE_LABELS[inv.role as UserRole] ?? inv.role,
+    }).eq('id', userId);
+
+    await supabase.from('invitations').update({ status: 'accepted' }).eq('id', inv.id);
+
+    return inv.organization_id;
+  } catch {
+    return undefined;
+  }
+}
+
 async function fetchProfile(userId: string): Promise<User | null> {
   try {
     const { data, error } = await supabase.from('profiles').select('*').eq('id', userId).single();
     if (error || !data) return null;
+
+    let orgId: string | undefined = data.organization_id ?? undefined;
+    let role: UserRole = data.role as UserRole;
+    let roleLabel: string = data.role_label;
+
+    if (!orgId && role !== 'super_admin') {
+      const linkedOrgId = await linkPendingInvitation(userId, data.email);
+      if (linkedOrgId) {
+        const { data: refreshed } = await supabase.from('profiles').select('*').eq('id', userId).single();
+        if (refreshed) {
+          orgId = refreshed.organization_id ?? undefined;
+          role = refreshed.role as UserRole;
+          roleLabel = refreshed.role_label;
+        }
+      }
+    }
+
     return {
       id: data.id,
       name: data.name,
-      role: data.role as UserRole,
-      roleLabel: data.role_label,
+      role,
+      roleLabel,
       email: data.email,
-      organizationId: data.organization_id ?? undefined,
+      organizationId: orgId,
     };
   } catch {
     return null;
@@ -95,12 +140,15 @@ async function seedDemoUsers(): Promise<'done' | 'error'> {
 
       if (!authUserId) continue;
 
+      const orgId = (u.role === 'super_admin') ? undefined : '00000000-0000-0000-0000-000000000001';
+
       await supabase.from('profiles').upsert({
         id: authUserId,
         name: u.name,
         role: u.role,
         role_label: u.roleLabel,
         email: u.email,
+        organization_id: orgId ?? null,
       }, { onConflict: 'id' });
 
       await supabase.auth.signOut();
@@ -135,7 +183,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         role: u.role as UserRole,
         roleLabel: u.roleLabel,
         email: u.email,
-        organizationId: 'demo-org',
+        organizationId: u.role === 'super_admin' ? undefined : 'demo-org',
       })));
       setIsLoading(false);
       return;
@@ -212,6 +260,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         role: match.role as UserRole,
         roleLabel: match.roleLabel,
         email: match.email,
+        organizationId: match.role === 'super_admin' ? undefined : 'demo-org',
       });
       return { success: true };
     }
