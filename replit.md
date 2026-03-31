@@ -45,7 +45,16 @@ The app is accessible on port 5000 (web preview). Users can also scan the QR cod
 
 ## Database
 
-The Supabase schema is defined in `lib/schema.sql`. Run it in the Supabase SQL Editor to set up tables. The app includes a demo seed mechanism in `AuthContext.tsx` that creates demo users on first run.
+The Supabase schema is defined in `lib/schema.sql`. The subscription/storage migration is in `lib/migration_subscription.sql` — run it once in the Supabase SQL Editor. The app includes a demo seed mechanism in `AuthContext.tsx` that creates demo users on first run (max 30s timeout).
+
+### Tables
+- Core: `profiles`, `companies`, `reserves`, `tasks`, `documents`, `photos`, `messages`, `incidents`
+- Subscription (new): `plans`, `organizations`, `subscriptions`, `invitations`
+
+### Storage Buckets
+- `photos` (public) — created via SQL migration
+- `documents` (public) — created via SQL migration
+- Buckets must be created via Supabase SQL Editor; the anon key cannot create them programmatically.
 
 ## User Roles
 
@@ -109,6 +118,12 @@ The Supabase schema is defined in `lib/schema.sql`. Run it in the Supabase SQL E
 - **`constants/types.ts`** — `MeetingReport` : refonte complète de l'interface pour correspondre à l'implémentation réelle dans `meeting-report.tsx` (champs `subject`, `participants`, `redactedBy`, `decisions: string[]`, `actions: MeetingReportAction[]`, `notes`, etc.). `JournalEntry` : correction des champs `workforce/issues` → `workerCount: number / incidents: string` + ajout de `materials` et `observations`. Ajout de `MeetingReportAction` interface.
 - **`app/(tabs)/more.tsx`** — Ajout de 3 nouveaux modules dans la grille : Checklists (`/checklist`), CR Réunions (`/meeting-report`), Journal de chantier (`/journal`) — ces modules existaient mais n'étaient pas accessibles depuis le menu principal.
 - **`app/(tabs)/equipes.tsx`** — C4 : Les cartes de tâches affichent maintenant le nom court de l'entreprise (`shortName`) en plus du responsable, permettant d'identifier immédiatement à quelle entreprise appartient chaque tâche.
+
+**Session 9 (actuelle) — Connexion Supabase complète + buckets storage :**
+- **`lib/migration_subscription.sql`** (nouveau) — Script SQL idempotent créant les 4 tables d'abonnement (`plans`, `organizations`, `subscriptions`, `invitations`) + colonne `organization_id` dans `profiles` + buckets storage `photos`/`documents` avec politiques RLS. Corrige l'ordre de création (colonne FK avant les policies qui la référencent).
+- **`context/AuthContext.tsx`** — Refactor du seeder : extraction `seedOneUser()`, timeout de 30 secondes via `Promise.race()`, gestion explicite du cas "email non confirmé" (retour sans crash). Message d'erreur de login amélioré : indique précisément comment désactiver la confirmation email dans Supabase si nécessaire.
+- **`lib/storage.ts`** — Suppression des appels `createBucket()` côté client (bloqués par RLS avec la clé anon). Les buckets sont désormais créés via SQL.
+- **`app/login.tsx`** — Message d'erreur du seeder mis à jour pour orienter vers la désactivation de la confirmation email Supabase.
 
 **Session 8 (actuelle) — Points 5 et 10 de l'audit BTP :**
 - **`constants/types.ts`** — Ajout de `TimeEntry` (pointage horaire : nom ouvrier, entreprise, heure arrivée/départ, notes) et `RegulatoryDoc` + `RegDocType` + `RegDocStatus` (documents réglementaires PPSPS/DICT/DOE/Plan de prévention/DPAE/autre).
