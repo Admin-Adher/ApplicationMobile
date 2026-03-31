@@ -230,7 +230,7 @@ export default function DashboardScreen() {
               </TouchableOpacity>
               <TouchableOpacity
                 style={styles.onboardBtnSecondary}
-                onPress={() => router.push('/(tabs)/admin' as any)}
+                onPress={() => router.push('/(tabs)/equipes' as any)}
               >
                 <Ionicons name="people-outline" size={16} color={C.primary} />
                 <Text style={styles.onboardBtnSecondaryText}>Configurer les équipes</Text>

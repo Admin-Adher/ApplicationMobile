@@ -2,7 +2,7 @@ import { View, Text, StyleSheet, ScrollView, Platform, TouchableOpacity, Alert }
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { C } from '@/constants/colors';
 import { useApp } from '@/context/AppContext';
 import { useAuth } from '@/context/AuthContext';
@@ -109,6 +109,7 @@ export default function MoreScreen() {
     ]);
   }
 
+  const [permExpanded, setPermExpanded] = useState(false);
   const roleColor = ROLE_COLORS[user?.role ?? 'observateur'] ?? C.textSub;
 
   return (
@@ -141,26 +142,31 @@ export default function MoreScreen() {
         {/* Permissions */}
         {user && (
           <View style={styles.permCard}>
-            <Text style={styles.permTitle}>Permissions</Text>
-            <View style={styles.permRow}>
-              {[
-                { label: 'Créer', key: 'canCreate' },
-                { label: 'Modifier', key: 'canEdit' },
-                { label: 'Supprimer', key: 'canDelete' },
-                { label: 'Exporter', key: 'canExport' },
-                { label: 'Équipes', key: 'canViewTeams' },
-                { label: 'Présences', key: 'canUpdateAttendance' },
-              ].map(p => (
-                <View key={p.key} style={styles.permItem}>
-                  <Ionicons
-                    name={(permissions as any)[p.key] ? 'checkmark-circle' : 'close-circle'}
-                    size={18}
-                    color={(permissions as any)[p.key] ? C.closed : C.open}
-                  />
-                  <Text style={styles.permLabel}>{p.label}</Text>
-                </View>
-              ))}
-            </View>
+            <TouchableOpacity style={styles.permHeader} onPress={() => setPermExpanded(v => !v)}>
+              <Text style={styles.permTitle}>Permissions</Text>
+              <Ionicons name={permExpanded ? 'chevron-up' : 'chevron-down'} size={16} color={C.textMuted} />
+            </TouchableOpacity>
+            {permExpanded && (
+              <View style={styles.permRow}>
+                {[
+                  { label: 'Créer', key: 'canCreate' },
+                  { label: 'Modifier', key: 'canEdit' },
+                  { label: 'Supprimer', key: 'canDelete' },
+                  { label: 'Exporter', key: 'canExport' },
+                  { label: 'Équipes', key: 'canViewTeams' },
+                  { label: 'Présences', key: 'canUpdateAttendance' },
+                ].map(p => (
+                  <View key={p.key} style={styles.permItem}>
+                    <Ionicons
+                      name={(permissions as any)[p.key] ? 'checkmark-circle' : 'close-circle'}
+                      size={18}
+                      color={(permissions as any)[p.key] ? C.closed : C.open}
+                    />
+                    <Text style={styles.permLabel}>{p.label}</Text>
+                  </View>
+                ))}
+              </View>
+            )}
           </View>
         )}
 
@@ -237,11 +243,12 @@ const styles = StyleSheet.create({
     backgroundColor: C.surface, borderRadius: 14, padding: 14,
     marginBottom: 16, borderWidth: 1, borderColor: C.border,
   },
+  permHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   permTitle: {
     fontSize: 12, fontFamily: 'Inter_600SemiBold', color: C.textSub,
-    textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 12,
+    textTransform: 'uppercase', letterSpacing: 0.5,
   },
-  permRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 10, justifyContent: 'space-around' },
+  permRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 10, justifyContent: 'space-around', marginTop: 12 },
   permItem: { alignItems: 'center', gap: 4 },
   permLabel: { fontSize: 11, fontFamily: 'Inter_400Regular', color: C.textSub },
 

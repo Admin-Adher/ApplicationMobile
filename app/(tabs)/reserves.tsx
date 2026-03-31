@@ -1,4 +1,4 @@
-import { View, Text, StyleSheet, FlatList, TouchableOpacity, TextInput, Platform, ScrollView, Modal } from 'react-native';
+import { View, Text, StyleSheet, FlatList, TouchableOpacity, TextInput, Platform, ScrollView, Modal, ActivityIndicator } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
@@ -41,7 +41,7 @@ function toSortableDate(s: string): string {
 export default function ReservesScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
-  const { reserves, companies } = useApp();
+  const { reserves, companies, isLoading } = useApp();
   const { permissions } = useAuth();
   const [statusFilter, setStatusFilter] = useState<'all' | 'overdue' | ReserveStatus>('all');
   const [buildingFilter, setBuildingFilter] = useState<string>('all');
@@ -118,8 +118,7 @@ export default function ReservesScreen() {
           <View>
             <Text style={styles.title}>Réserves</Text>
             <Text style={styles.subtitle}>
-              {filtered.length} / {reserves.length} réserve{reserves.length !== 1 ? 's' : ''}
-              {overdueCount > 0 ? ` · ${overdueCount} en retard` : ''}
+              {isLoading ? 'Chargement…' : `${filtered.length} / ${reserves.length} réserve${reserves.length !== 1 ? 's' : ''}${overdueCount > 0 ? ` · ${overdueCount} en retard` : ''}`}
             </Text>
           </View>
           {permissions.canCreate && (

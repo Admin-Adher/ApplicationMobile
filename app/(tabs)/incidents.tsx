@@ -219,41 +219,56 @@ export default function IncidentsScreen() {
         )}
       </View>
 
-      <View style={styles.filtersRow}>
-        <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-          <View style={styles.filterChips}>
-            <TouchableOpacity
-              style={[styles.fChip, filterStatus === 'all' && styles.fChipActive]}
-              onPress={() => setFilterStatus('all')}
-            >
-              <Text style={[styles.fChipText, filterStatus === 'all' && styles.fChipTextActive]}>Tous</Text>
-            </TouchableOpacity>
-            {STATUSES.map(s => (
+      <View style={styles.filtersWrap}>
+        <View style={styles.filterRowLabeled}>
+          <Text style={styles.filterRowLabel}>Statut</Text>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ flex: 1 }}>
+            <View style={styles.filterChips}>
               <TouchableOpacity
-                key={s}
-                style={[styles.fChip, filterStatus === s && { borderColor: STATUS_CONFIG[s].color, backgroundColor: STATUS_CONFIG[s].bg }]}
-                onPress={() => setFilterStatus(s)}
+                style={[styles.fChip, filterStatus === 'all' && styles.fChipActive]}
+                onPress={() => setFilterStatus('all')}
               >
-                <Text style={[styles.fChipText, filterStatus === s && { color: STATUS_CONFIG[s].color }]}>
-                  {STATUS_CONFIG[s].label}
-                </Text>
+                <Text style={[styles.fChipText, filterStatus === 'all' && styles.fChipTextActive]}>Tous</Text>
               </TouchableOpacity>
-            ))}
-            <View style={styles.filterDivider} />
-            {SEVERITIES.map(s => (
+              {STATUSES.map(s => (
+                <TouchableOpacity
+                  key={s}
+                  style={[styles.fChip, filterStatus === s && { borderColor: STATUS_CONFIG[s].color, backgroundColor: STATUS_CONFIG[s].bg }]}
+                  onPress={() => setFilterStatus(prev => prev === s ? 'all' : s)}
+                >
+                  <Text style={[styles.fChipText, filterStatus === s && { color: STATUS_CONFIG[s].color }]}>
+                    {STATUS_CONFIG[s].label}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+          </ScrollView>
+        </View>
+        <View style={styles.filterRowLabeled}>
+          <Text style={styles.filterRowLabel}>Gravité</Text>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ flex: 1 }}>
+            <View style={styles.filterChips}>
               <TouchableOpacity
-                key={s}
-                style={[styles.fChip, filterSeverity === s && { borderColor: SEVERITY_CONFIG[s].color, backgroundColor: SEVERITY_CONFIG[s].bg }]}
-                onPress={() => setFilterSeverity(prev => prev === s ? 'all' : s)}
+                style={[styles.fChip, filterSeverity === 'all' && styles.fChipActive]}
+                onPress={() => setFilterSeverity('all')}
               >
-                <Ionicons name={SEVERITY_CONFIG[s].icon as any} size={12} color={SEVERITY_CONFIG[s].color} />
-                <Text style={[styles.fChipText, filterSeverity === s && { color: SEVERITY_CONFIG[s].color }]}>
-                  {SEVERITY_CONFIG[s].label}
-                </Text>
+                <Text style={[styles.fChipText, filterSeverity === 'all' && styles.fChipTextActive]}>Tous</Text>
               </TouchableOpacity>
-            ))}
-          </View>
-        </ScrollView>
+              {SEVERITIES.map(s => (
+                <TouchableOpacity
+                  key={s}
+                  style={[styles.fChip, filterSeverity === s && { borderColor: SEVERITY_CONFIG[s].color, backgroundColor: SEVERITY_CONFIG[s].bg }]}
+                  onPress={() => setFilterSeverity(prev => prev === s ? 'all' : s)}
+                >
+                  <Ionicons name={SEVERITY_CONFIG[s].icon as any} size={12} color={SEVERITY_CONFIG[s].color} />
+                  <Text style={[styles.fChipText, filterSeverity === s && { color: SEVERITY_CONFIG[s].color }]}>
+                    {SEVERITY_CONFIG[s].label}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+          </ScrollView>
+        </View>
       </View>
 
       <ScrollView contentContainerStyle={styles.list} showsVerticalScrollIndicator={false}>
@@ -506,9 +521,10 @@ const styles = StyleSheet.create({
   },
   searchInput: { flex: 1, fontSize: 14, fontFamily: 'Inter_400Regular', color: C.text },
 
-  filtersRow: { paddingBottom: 10 },
-  filterChips: { flexDirection: 'row', gap: 6, paddingHorizontal: 16, alignItems: 'center' },
-  filterDivider: { width: 1, height: 20, backgroundColor: C.border, marginHorizontal: 4 },
+  filtersWrap: { borderBottomWidth: 1, borderBottomColor: C.border, paddingBottom: 6 },
+  filterRowLabeled: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingTop: 8 },
+  filterRowLabel: { fontSize: 11, fontFamily: 'Inter_600SemiBold', color: C.textMuted, width: 44, textTransform: 'uppercase', letterSpacing: 0.3 },
+  filterChips: { flexDirection: 'row', gap: 6, alignItems: 'center' },
   fChip: {
     flexDirection: 'row', alignItems: 'center', gap: 4,
     paddingHorizontal: 10, paddingVertical: 5, borderRadius: 16,

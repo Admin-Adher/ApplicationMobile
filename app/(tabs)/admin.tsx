@@ -382,7 +382,7 @@ export default function AdminScreen() {
           <View style={styles.hintCard}>
             <Ionicons name="key-outline" size={16} color={C.textMuted} />
             <Text style={styles.hintText}>
-              Pour créer de nouveaux comptes, utilisez le tableau de bord Supabase ou l'écran de connexion (inscription automatique au premier login).
+              Pour inviter un nouveau membre, utilisez le bouton "Inviter" ci-dessus. La personne recevra un lien d'accès par e-mail.
             </Text>
           </View>
         </ScrollView>

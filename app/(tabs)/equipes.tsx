@@ -180,7 +180,8 @@ export default function EquipesScreen() {
         </View>
         {permissions.canManageTeams && (
           <TouchableOpacity style={styles.addBtn} onPress={openAdd}>
-            <Ionicons name="add" size={22} color="#fff" />
+            <Ionicons name="add" size={18} color="#fff" />
+            <Text style={styles.addBtnLabel}>Ajouter</Text>
           </TouchableOpacity>
         )}
       </View>
@@ -547,7 +548,8 @@ const styles = StyleSheet.create({
   backBtn: { paddingBottom: 2 },
   title: { fontSize: 22, fontFamily: 'Inter_700Bold', color: C.text },
   subtitle: { fontSize: 12, fontFamily: 'Inter_400Regular', color: C.textSub, marginTop: 2 },
-  addBtn: { backgroundColor: C.primary, width: 36, height: 36, borderRadius: 10, alignItems: 'center', justifyContent: 'center' },
+  addBtn: { backgroundColor: C.primary, flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: 14, paddingVertical: 8, borderRadius: 10 },
+  addBtnLabel: { color: '#fff', fontSize: 13, fontFamily: 'Inter_600SemiBold' },
   content: { padding: 16 },
   summaryCard: { backgroundColor: C.surface, borderRadius: 14, padding: 16, marginBottom: 20, borderWidth: 1, borderColor: C.border },
   summaryRow: { flexDirection: 'row', justifyContent: 'space-around', marginBottom: 14 },
