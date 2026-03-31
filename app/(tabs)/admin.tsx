@@ -5,9 +5,11 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useState, useMemo } from 'react';
+import { useRouter } from 'expo-router';
 import { C } from '@/constants/colors';
 import { useApp } from '@/context/AppContext';
 import { useAuth } from '@/context/AuthContext';
+import { useSubscription } from '@/context/SubscriptionContext';
 import { UserRole, Company } from '@/constants/types';
 import { isSupabaseConfigured } from '@/lib/supabase';
 import { genId } from '@/lib/utils';
@@ -18,6 +20,19 @@ const ROLES: { value: UserRole; label: string; color: string; bg: string }[] = [
   { value: 'chef_equipe', label: "Chef d'équipe",          color: '#F59E0B', bg: '#FFFBEB' },
   { value: 'observateur', label: 'Observateur',            color: '#6B7280', bg: '#F3F4F6' },
 ];
+
+const INVITE_ROLES: { value: UserRole; label: string; color: string; bg: string }[] = [
+  { value: 'admin',       label: 'Administrateur',         color: '#EF4444', bg: '#FEF2F2' },
+  { value: 'conducteur',  label: 'Conducteur de travaux',  color: '#3B82F6', bg: '#EFF6FF' },
+  { value: 'chef_equipe', label: "Chef d'équipe",          color: '#F59E0B', bg: '#FFFBEB' },
+  { value: 'observateur', label: 'Observateur',            color: '#6B7280', bg: '#F3F4F6' },
+];
+
+const PLAN_COLORS: Record<string, string> = {
+  Starter: '#6B7280',
+  Pro: '#3B82F6',
+  Entreprise: '#8B5CF6',
+};
 
 const COMPANY_COLORS = [
   '#3B82F6','#10B981','#F59E0B','#EF4444','#8B5CF6',
@@ -46,11 +61,22 @@ export default function AdminScreen() {
   const insets = useSafeAreaInsets();
   const topPad = Platform.OS === 'web' ? 67 : insets.top;
   const bottomPad = Platform.OS === 'web' ? 0 : insets.bottom;
+  const router = useRouter();
 
   const { user, users, updateUserRole, deleteUserProfile } = useAuth();
   const { companies, addCompany, updateCompanyFull, deleteCompany, updateCompanyWorkers, updateCompanyHours } = useApp();
+  const {
+    plan, subscription, seatUsed, seatMax, canInvite,
+    pendingInvitations, inviteUser, cancelInvitation,
+  } = useSubscription();
 
-  const [activeTab, setActiveTab] = useState<'users' | 'companies'>('users');
+  const [activeTab, setActiveTab] = useState<'users' | 'companies' | 'abonnement'>('users');
+
+  const [inviteModal, setInviteModal] = useState(false);
+  const [inviteEmail, setInviteEmail] = useState('');
+  const [inviteRole, setInviteRole] = useState<UserRole>('observateur');
+  const [inviteSending, setInviteSending] = useState(false);
+  const [inviteToken, setInviteToken] = useState<string | null>(null);
   const [userSearch, setUserSearch] = useState('');
   const [roleModal, setRoleModal] = useState<{ id: string; name: string; currentRole: UserRole } | null>(null);
   const [saving, setSaving] = useState(false);
@@ -75,6 +101,36 @@ export default function AdminScreen() {
     users.forEach(u => { counts[u.role] = (counts[u.role] ?? 0) + 1; });
     return counts;
   }, [users]);
+
+  async function handleSendInvite() {
+    if (!inviteEmail.trim()) return;
+    setInviteSending(true);
+    const result = await inviteUser(inviteEmail.trim(), inviteRole);
+    setInviteSending(false);
+    if (result.success) {
+      setInviteToken(result.token ?? null);
+    } else {
+      Alert.alert('Invitation impossible', result.error ?? 'Erreur inconnue.');
+    }
+  }
+
+  function handleCloseInviteModal() {
+    setInviteModal(false);
+    setInviteEmail('');
+    setInviteRole('observateur');
+    setInviteToken(null);
+  }
+
+  function handleCancelInvitation(id: string, email: string) {
+    Alert.alert(
+      'Annuler l\'invitation',
+      `Annuler l'invitation envoyée à ${email} ?`,
+      [
+        { text: 'Non', style: 'cancel' },
+        { text: 'Annuler l\'invitation', style: 'destructive', onPress: () => cancelInvitation(id) },
+      ]
+    );
+  }
 
   async function handleRoleChange(newRole: UserRole) {
     if (!roleModal) return;
@@ -180,7 +236,7 @@ export default function AdminScreen() {
           </View>
         </View>
 
-        <View style={styles.tabRow}>
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.tabScrollRow} contentContainerStyle={styles.tabRowContent}>
           <TouchableOpacity
             style={[styles.tabBtn, activeTab === 'users' && styles.tabBtnActive]}
             onPress={() => setActiveTab('users')}
@@ -209,10 +265,24 @@ export default function AdminScreen() {
               </Text>
             </View>
           </TouchableOpacity>
-        </View>
+          <TouchableOpacity
+            style={[styles.tabBtn, activeTab === 'abonnement' && styles.tabBtnActive]}
+            onPress={() => setActiveTab('abonnement')}
+          >
+            <Ionicons name="card" size={14} color={activeTab === 'abonnement' ? C.primary : C.textMuted} />
+            <Text style={[styles.tabBtnText, activeTab === 'abonnement' && styles.tabBtnTextActive]}>
+              Abonnement
+            </Text>
+            {pendingInvitations.length > 0 && (
+              <View style={[styles.tabCount, styles.tabCountBadge]}>
+                <Text style={[styles.tabCountText, { color: '#fff' }]}>{pendingInvitations.length}</Text>
+              </View>
+            )}
+          </TouchableOpacity>
+        </ScrollView>
       </View>
 
-      {activeTab === 'users' ? (
+      {activeTab === 'users' && (
         <ScrollView
           contentContainerStyle={[styles.content, { paddingBottom: bottomPad + 32 }]}
           showsVerticalScrollIndicator={false}
@@ -303,7 +373,9 @@ export default function AdminScreen() {
             </Text>
           </View>
         </ScrollView>
-      ) : (
+      )}
+
+      {activeTab === 'companies' && (
         <ScrollView
           contentContainerStyle={[styles.content, { paddingBottom: bottomPad + 32 }]}
           showsVerticalScrollIndicator={false}
@@ -375,6 +447,113 @@ export default function AdminScreen() {
                 </View>
               </View>
             ))
+          )}
+        </ScrollView>
+      )}
+
+      {activeTab === 'abonnement' && (
+        <ScrollView
+          contentContainerStyle={[styles.content, { paddingBottom: bottomPad + 32 }]}
+          showsVerticalScrollIndicator={false}
+        >
+          {plan && (
+            <View style={[styles.planCard, { borderTopColor: PLAN_COLORS[plan.name] ?? C.primary }]}>
+              <View style={styles.planTopRow}>
+                <View style={[styles.planBadge, { backgroundColor: (PLAN_COLORS[plan.name] ?? C.primary) + '18' }]}>
+                  <Text style={[styles.planBadgeTxt, { color: PLAN_COLORS[plan.name] ?? C.primary }]}>{plan.name}</Text>
+                </View>
+                <Text style={styles.planPrice}>
+                  {plan.priceMonthly === 0 ? 'Gratuit' : `${plan.priceMonthly} € / mois`}
+                </Text>
+              </View>
+              {plan.features.map((f, i) => (
+                <View key={i} style={styles.featureRow}>
+                  <Ionicons name="checkmark-circle" size={14} color={PLAN_COLORS[plan.name] ?? C.primary} />
+                  <Text style={styles.featureTxt}>{f}</Text>
+                </View>
+              ))}
+              <TouchableOpacity style={styles.detailLink} onPress={() => router.push('/subscription')}>
+                <Text style={styles.detailLinkTxt}>Voir les détails de l'abonnement</Text>
+                <Ionicons name="chevron-forward" size={14} color={C.primary} />
+              </TouchableOpacity>
+            </View>
+          )}
+
+          <View style={styles.seatCard}>
+            <View style={styles.seatTopRow}>
+              <View style={styles.seatLeft}>
+                <Ionicons name="people" size={16} color={C.primary} />
+                <Text style={styles.seatTitle}>Sièges utilisés</Text>
+              </View>
+              <Text style={styles.seatCount}>
+                {seatUsed}
+                <Text style={styles.seatMax}>{seatMax === -1 ? ' / ∞' : ` / ${seatMax}`}</Text>
+              </Text>
+            </View>
+            {seatMax !== -1 && (
+              <View style={styles.barBg}>
+                <View style={[styles.barFill, {
+                  width: `${Math.min((seatUsed / seatMax) * 100, 100)}%` as any,
+                  backgroundColor: seatUsed / seatMax >= 0.9 ? '#EF4444' : seatUsed / seatMax >= 0.7 ? '#F59E0B' : '#10B981',
+                }]} />
+              </View>
+            )}
+          </View>
+
+          <View style={styles.sectionHeaderRow}>
+            <Text style={styles.sectionTitle}>Invitations en attente ({pendingInvitations.length})</Text>
+            <TouchableOpacity
+              style={[styles.addBtn, !canInvite && styles.addBtnDisabled]}
+              onPress={() => canInvite ? setInviteModal(true) : Alert.alert('Limite atteinte', `Votre plan ${plan?.name} permet ${seatMax} utilisateurs. Passez à un plan supérieur.`)}
+            >
+              <Ionicons name="mail-outline" size={15} color="#fff" />
+              <Text style={styles.addBtnText}>Inviter</Text>
+            </TouchableOpacity>
+          </View>
+
+          {!canInvite && (
+            <View style={styles.limitBanner}>
+              <Ionicons name="warning-outline" size={15} color="#EF4444" />
+              <Text style={styles.limitBannerTxt}>
+                Limite de {seatMax} utilisateurs atteinte. Passez à un plan supérieur pour inviter.
+              </Text>
+            </View>
+          )}
+
+          {pendingInvitations.length === 0 ? (
+            <View style={styles.empty}>
+              <Ionicons name="mail-outline" size={36} color={C.textMuted} />
+              <Text style={styles.emptyText}>Aucune invitation en attente</Text>
+              <Text style={styles.emptyHint}>Invitez un collaborateur par email</Text>
+            </View>
+          ) : (
+            pendingInvitations.map(inv => {
+              const roleInfo = INVITE_ROLES.find(r => r.value === inv.role) ?? INVITE_ROLES[3];
+              const expiresIn = Math.ceil((new Date(inv.expiresAt).getTime() - Date.now()) / (1000 * 60 * 60 * 24));
+              return (
+                <View key={inv.id} style={styles.inviteCard}>
+                  <View style={styles.inviteIconWrap}>
+                    <Ionicons name="mail-outline" size={20} color={C.primary} />
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.inviteEmail}>{inv.email}</Text>
+                    <View style={[styles.inviteRoleBadge, { backgroundColor: roleInfo.bg }]}>
+                      <Text style={[styles.inviteRoleTxt, { color: roleInfo.color }]}>{roleInfo.label}</Text>
+                    </View>
+                    <Text style={styles.inviteExpiry}>
+                      {expiresIn > 0 ? `Expire dans ${expiresIn} jour${expiresIn > 1 ? 's' : ''}` : 'Expirée'}
+                    </Text>
+                  </View>
+                  <TouchableOpacity
+                    style={[styles.iconBtn, styles.iconBtnDanger]}
+                    onPress={() => handleCancelInvitation(inv.id, inv.email)}
+                    hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                  >
+                    <Ionicons name="close" size={16} color={C.open} />
+                  </TouchableOpacity>
+                </View>
+              );
+            })
           )}
         </ScrollView>
       )}
@@ -494,6 +673,92 @@ export default function AdminScreen() {
           </TouchableOpacity>
         </TouchableOpacity>
       </Modal>
+
+      <Modal
+        visible={inviteModal}
+        transparent
+        animationType="slide"
+        onRequestClose={handleCloseInviteModal}
+      >
+        <TouchableOpacity style={styles.overlay} activeOpacity={1} onPress={handleCloseInviteModal}>
+          <TouchableOpacity activeOpacity={1} style={styles.sheet}>
+            <View style={styles.sheetHandle} />
+            {inviteToken ? (
+              <>
+                <View style={styles.inviteSuccessIcon}>
+                  <Ionicons name="checkmark-circle" size={48} color="#10B981" />
+                </View>
+                <Text style={styles.sheetTitle}>Invitation créée !</Text>
+                <Text style={styles.inviteSuccessMsg}>
+                  Partagez ce code ou lien avec {inviteEmail} pour qu'il rejoigne votre organisation.
+                </Text>
+                <View style={styles.tokenBox}>
+                  <Text style={styles.tokenTxt} selectable>{inviteToken}</Text>
+                </View>
+                <Text style={styles.inviteHint}>
+                  Ce code est valable 7 jours. L'utilisateur devra s'inscrire avec l'email {inviteEmail}.
+                </Text>
+                <TouchableOpacity style={styles.saveBtn} onPress={handleCloseInviteModal}>
+                  <Text style={styles.saveBtnText}>Fermer</Text>
+                </TouchableOpacity>
+              </>
+            ) : (
+              <>
+                <Text style={styles.sheetTitle}>Inviter un collaborateur</Text>
+                <Text style={styles.sheetSubtitle}>
+                  {seatMax === -1 ? `Sièges : illimité` : `Sièges : ${seatUsed} / ${seatMax} utilisés`}
+                </Text>
+
+                <View style={styles.field}>
+                  <Text style={styles.fieldLabel}>Adresse email *</Text>
+                  <TextInput
+                    style={styles.fieldInput}
+                    value={inviteEmail}
+                    onChangeText={setInviteEmail}
+                    placeholder="prenom.nom@exemple.fr"
+                    placeholderTextColor={C.textMuted}
+                    keyboardType="email-address"
+                    autoCapitalize="none"
+                    autoCorrect={false}
+                  />
+                </View>
+
+                <View style={styles.field}>
+                  <Text style={styles.fieldLabel}>Rôle</Text>
+                  {INVITE_ROLES.map(r => (
+                    <TouchableOpacity
+                      key={r.value}
+                      style={[styles.roleOption, inviteRole === r.value && { backgroundColor: r.bg, borderColor: r.color }]}
+                      onPress={() => setInviteRole(r.value)}
+                    >
+                      <View style={[styles.roleOptionDot, { backgroundColor: r.color }]} />
+                      <Text style={[styles.roleOptionText, inviteRole === r.value && { color: r.color, fontFamily: 'Inter_600SemiBold' }]}>
+                        {r.label}
+                      </Text>
+                      {inviteRole === r.value && <Ionicons name="checkmark-circle" size={18} color={r.color} />}
+                    </TouchableOpacity>
+                  ))}
+                </View>
+
+                {inviteSending ? (
+                  <ActivityIndicator size="large" color={C.primary} style={{ marginVertical: 20 }} />
+                ) : (
+                  <TouchableOpacity
+                    style={[styles.saveBtn, !inviteEmail.trim() && { opacity: 0.5 }]}
+                    onPress={handleSendInvite}
+                    disabled={!inviteEmail.trim()}
+                  >
+                    <Text style={styles.saveBtnText}>Envoyer l'invitation</Text>
+                  </TouchableOpacity>
+                )}
+                <TouchableOpacity style={styles.cancelBtn} onPress={handleCloseInviteModal}>
+                  <Text style={styles.cancelBtnText}>Annuler</Text>
+                </TouchableOpacity>
+              </>
+            )}
+          </TouchableOpacity>
+        </TouchableOpacity>
+      </Modal>
     </View>
   );
 }
@@ -524,8 +789,8 @@ const styles = StyleSheet.create({
 
   tabRow: { flexDirection: 'row', gap: 6, paddingBottom: 12 },
   tabBtn: {
-    flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6,
-    paddingVertical: 9, borderRadius: 10, backgroundColor: C.bg,
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6,
+    paddingVertical: 9, paddingHorizontal: 14, borderRadius: 10, backgroundColor: C.bg,
     borderWidth: 1, borderColor: C.border,
   },
   tabBtnActive: { backgroundColor: C.primaryBg, borderColor: C.primary },
@@ -664,4 +929,79 @@ const styles = StyleSheet.create({
     borderWidth: 1, borderColor: C.border,
   },
   cancelBtnText: { fontSize: 14, fontFamily: 'Inter_600SemiBold', color: C.textSub },
+
+  tabScrollRow: { paddingBottom: 12 },
+  tabRowContent: { flexDirection: 'row', gap: 6, paddingHorizontal: 0, paddingVertical: 0 },
+  tabCountBadge: { backgroundColor: '#EF4444' },
+
+  planCard: {
+    backgroundColor: C.surface, borderRadius: 14, padding: 14,
+    borderTopWidth: 4, borderWidth: 1, borderColor: C.border,
+    ...Platform.select({
+      web: { boxShadow: '0 1px 4px rgba(0,0,0,0.06)' } as any,
+      default: { shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.06, shadowRadius: 4, elevation: 2 },
+    }),
+  },
+  planTopRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 },
+  planBadge: { borderRadius: 8, paddingHorizontal: 12, paddingVertical: 5 },
+  planBadgeTxt: { fontSize: 14, fontFamily: 'Inter_700Bold' },
+  planPrice: { fontSize: 15, fontFamily: 'Inter_700Bold', color: C.text },
+  featureRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 5 },
+  featureTxt: { fontSize: 13, fontFamily: 'Inter_400Regular', color: C.text, flex: 1 },
+  detailLink: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    marginTop: 10, paddingTop: 10, borderTopWidth: 1, borderTopColor: C.border,
+  },
+  detailLinkTxt: { fontSize: 13, fontFamily: 'Inter_600SemiBold', color: C.primary },
+
+  seatCard: {
+    backgroundColor: C.surface, borderRadius: 14, padding: 14,
+    borderWidth: 1, borderColor: C.border,
+    ...Platform.select({
+      web: { boxShadow: '0 1px 4px rgba(0,0,0,0.06)' } as any,
+      default: { shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.06, shadowRadius: 4, elevation: 2 },
+    }),
+  },
+  seatTopRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 },
+  seatLeft: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  seatTitle: { fontSize: 14, fontFamily: 'Inter_600SemiBold', color: C.text },
+  seatCount: { fontSize: 22, fontFamily: 'Inter_700Bold', color: C.text },
+  seatMax: { fontSize: 13, fontFamily: 'Inter_400Regular', color: C.textMuted },
+  barBg: { height: 7, backgroundColor: C.border, borderRadius: 4, overflow: 'hidden' },
+  barFill: { height: 7, borderRadius: 4 },
+
+  limitBanner: {
+    flexDirection: 'row', alignItems: 'center', gap: 8,
+    backgroundColor: '#FEF2F2', borderRadius: 10, padding: 10,
+    borderWidth: 1, borderColor: '#FECACA',
+  },
+  limitBannerTxt: { flex: 1, fontSize: 12, fontFamily: 'Inter_400Regular', color: '#EF4444' },
+
+  addBtnDisabled: { opacity: 0.5 },
+
+  inviteCard: {
+    flexDirection: 'row', alignItems: 'center', gap: 12,
+    backgroundColor: C.surface, borderRadius: 12, padding: 12,
+    borderWidth: 1, borderColor: C.border,
+  },
+  inviteIconWrap: {
+    width: 40, height: 40, borderRadius: 20,
+    backgroundColor: C.primaryBg, alignItems: 'center', justifyContent: 'center',
+  },
+  inviteEmail: { fontSize: 14, fontFamily: 'Inter_600SemiBold', color: C.text, marginBottom: 4 },
+  inviteRoleBadge: { borderRadius: 6, paddingHorizontal: 8, paddingVertical: 3, alignSelf: 'flex-start', marginBottom: 4 },
+  inviteRoleTxt: { fontSize: 11, fontFamily: 'Inter_600SemiBold' },
+  inviteExpiry: { fontSize: 11, fontFamily: 'Inter_400Regular', color: C.textMuted },
+
+  inviteSuccessIcon: { alignItems: 'center', marginBottom: 8 },
+  inviteSuccessMsg: {
+    fontSize: 13, fontFamily: 'Inter_400Regular', color: C.textMuted,
+    textAlign: 'center', lineHeight: 18, marginBottom: 12,
+  },
+  tokenBox: {
+    backgroundColor: C.bg, borderRadius: 10, padding: 14,
+    borderWidth: 1, borderColor: C.border, marginBottom: 10,
+  },
+  tokenTxt: { fontSize: 13, fontFamily: 'Inter_500Medium', color: C.text, textAlign: 'center', letterSpacing: 1 },
+  inviteHint: { fontSize: 12, fontFamily: 'Inter_400Regular', color: C.textMuted, textAlign: 'center', marginBottom: 12, lineHeight: 17 },
 });

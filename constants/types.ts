@@ -2,7 +2,9 @@ export type ReserveStatus = 'open' | 'in_progress' | 'waiting' | 'verification' 
 export type ReservePriority = 'low' | 'medium' | 'high' | 'critical';
 export type TaskStatus = 'todo' | 'in_progress' | 'done' | 'delayed';
 export type DocumentType = 'plan' | 'report' | 'technical' | 'photo' | 'other';
-export type UserRole = 'admin' | 'conducteur' | 'chef_equipe' | 'observateur';
+export type UserRole = 'super_admin' | 'admin' | 'conducteur' | 'chef_equipe' | 'observateur';
+export type SubscriptionStatus = 'trial' | 'active' | 'suspended' | 'expired';
+export type PlanName = 'Starter' | 'Pro' | 'Entreprise';
 export type IncidentSeverity = 'minor' | 'moderate' | 'major' | 'critical';
 export type IncidentStatus = 'open' | 'investigating' | 'resolved';
 
@@ -12,6 +14,44 @@ export interface User {
   role: UserRole;
   roleLabel: string;
   email: string;
+  organizationId?: string;
+}
+
+export interface Organization {
+  id: string;
+  name: string;
+  slug: string;
+  createdAt: string;
+}
+
+export interface Plan {
+  id: string;
+  name: PlanName;
+  maxUsers: number;
+  priceMonthly: number;
+  features: string[];
+}
+
+export interface Subscription {
+  id: string;
+  organizationId: string;
+  planId: string;
+  status: SubscriptionStatus;
+  startedAt: string;
+  expiresAt?: string;
+  trialEndsAt?: string;
+}
+
+export interface Invitation {
+  id: string;
+  organizationId: string;
+  email: string;
+  role: UserRole;
+  invitedBy: string;
+  token: string;
+  status: 'pending' | 'accepted' | 'expired';
+  createdAt: string;
+  expiresAt: string;
 }
 
 export interface Comment {

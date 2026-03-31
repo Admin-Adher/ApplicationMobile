@@ -7,6 +7,7 @@ const ROLE_PERMISSIONS: Record<UserRole, {
   canExport: boolean; canManageTeams: boolean;
   canViewTeams: boolean; canUpdateAttendance: boolean;
 }> = {
+  super_admin: { canCreate: true,  canEdit: true,  canDelete: true,  canExport: true,  canManageTeams: true,  canViewTeams: true,  canUpdateAttendance: true  },
   admin:       { canCreate: true,  canEdit: true,  canDelete: true,  canExport: true,  canManageTeams: true,  canViewTeams: true,  canUpdateAttendance: true  },
   conducteur:  { canCreate: true,  canEdit: true,  canDelete: false, canExport: true,  canManageTeams: true,  canViewTeams: true,  canUpdateAttendance: true  },
   chef_equipe: { canCreate: true,  canEdit: true,  canDelete: false, canExport: false, canManageTeams: false, canViewTeams: true,  canUpdateAttendance: true  },
@@ -14,6 +15,7 @@ const ROLE_PERMISSIONS: Record<UserRole, {
 };
 
 const DEMO_USERS = [
+  { email: 'superadmin@buildtrack.fr', password: 'super123', name: 'Super Admin BuildTrack', role: 'super_admin', roleLabel: 'Super Administrateur' },
   { email: 'admin@buildtrack.fr',     password: 'admin123', name: 'Admin Système',  role: 'admin',       roleLabel: 'Administrateur' },
   { email: 'j.dupont@buildtrack.fr',  password: 'pass123',  name: 'Jean Dupont',    role: 'conducteur',  roleLabel: 'Conducteur de travaux' },
   { email: 'm.martin@buildtrack.fr',  password: 'pass123',  name: 'Marie Martin',   role: 'chef_equipe', roleLabel: "Chef d'équipe" },
@@ -21,6 +23,7 @@ const DEMO_USERS = [
 ];
 
 const ROLE_LABELS: Record<UserRole, string> = {
+  super_admin: 'Super Administrateur',
   admin: 'Administrateur',
   conducteur: 'Conducteur de travaux',
   chef_equipe: "Chef d'équipe",
@@ -56,6 +59,7 @@ async function fetchProfile(userId: string): Promise<User | null> {
       role: data.role as UserRole,
       roleLabel: data.role_label,
       email: data.email,
+      organizationId: data.organization_id ?? undefined,
     };
   } catch {
     return null;
@@ -122,6 +126,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         role: 'admin',
         roleLabel: 'Administrateur',
         email: 'admin@buildtrack.fr',
+        organizationId: 'demo-org',
       };
       setUser(offlineUser);
       setUsers(DEMO_USERS.map((u, i) => ({
@@ -130,6 +135,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         role: u.role as UserRole,
         roleLabel: u.roleLabel,
         email: u.email,
+        organizationId: 'demo-org',
       })));
       setIsLoading(false);
       return;
@@ -170,7 +176,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     if (!user || !isSupabaseConfigured) return;
-    supabase.from('profiles').select('id, name, role, role_label, email').then(({ data }) => {
+    supabase.from('profiles').select('id, name, role, role_label, email, organization_id').then(({ data }) => {
       if (data && data.length > 0) {
         setUsers(data.map((p: any) => ({
           id: p.id,
@@ -178,6 +184,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           role: p.role as UserRole,
           roleLabel: p.role_label,
           email: p.email,
+          organizationId: p.organization_id ?? undefined,
         })));
       }
     }).catch(() => {});

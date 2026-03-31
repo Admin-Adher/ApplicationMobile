@@ -13,6 +13,7 @@ import { SettingsProvider } from '@/context/SettingsContext';
 import { IncidentsProvider } from '@/context/IncidentsContext';
 import { PointageProvider } from '@/context/PointageContext';
 import { ReglementaireProvider } from '@/context/ReglementaireContext';
+import { SubscriptionProvider } from '@/context/SubscriptionContext';
 import NotificationBanner from '@/components/NotificationBanner';
 
 SplashScreen.preventAutoHideAsync();
@@ -58,6 +59,7 @@ export default function RootLayout() {
 
   return (
     <AuthProvider>
+      <SubscriptionProvider>
       <AppProvider>
         <SettingsProvider>
           <IncidentsProvider>
@@ -85,6 +87,8 @@ export default function RootLayout() {
                       <Stack.Screen name="settings" options={{ headerShown: false }} />
                       <Stack.Screen name="pointage" options={{ headerShown: false }} />
                       <Stack.Screen name="reglementaire" options={{ headerShown: false }} />
+                      <Stack.Screen name="subscription" options={{ headerShown: false }} />
+                      <Stack.Screen name="superadmin" options={{ headerShown: false }} />
                       <Stack.Screen name="+not-found" />
                     </Stack>
                   </AuthGuard>
@@ -98,6 +102,7 @@ export default function RootLayout() {
           </IncidentsProvider>
         </SettingsProvider>
       </AppProvider>
+      </SubscriptionProvider>
     </AuthProvider>
   );
 }

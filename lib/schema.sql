@@ -3,13 +3,138 @@
 -- Coller et exécuter dans l'éditeur SQL de Supabase
 -- ============================================================
 
+-- ---- 0. TABLES ABONNEMENT (à créer AVANT profiles) ----
+
+create table if not exists public.plans (
+  id uuid primary key default gen_random_uuid(),
+  name text not null unique,
+  max_users int not null default 5,
+  price_monthly numeric not null default 0,
+  features jsonb not null default '[]'
+);
+alter table public.plans enable row level security;
+create policy "Plans lisibles par tous les authentifiés"
+  on public.plans for select using (auth.role() = 'authenticated');
+create policy "Plans modifiables par super_admin"
+  on public.plans for all using (
+    exists (select 1 from public.profiles where id = auth.uid() and role = 'super_admin')
+  );
+
+insert into public.plans (name, max_users, price_monthly, features) values
+  ('Starter',   5,  49,  '["Gestion des réserves","Jusqu''à 5 utilisateurs","Support email"]'),
+  ('Pro',       20, 149, '["Gestion des réserves","Rapports PDF/Excel","Jusqu''à 20 utilisateurs","Support prioritaire","Pointage & présences"]'),
+  ('Entreprise',-1, 399, '["Toutes les fonctionnalités","Utilisateurs illimités","Support dédié","API access","SSO"]')
+on conflict (name) do nothing;
+
+create table if not exists public.organizations (
+  id uuid primary key default gen_random_uuid(),
+  name text not null,
+  slug text not null unique,
+  created_at timestamptz not null default now()
+);
+alter table public.organizations enable row level security;
+create policy "Organizations lisibles par leurs membres"
+  on public.organizations for select using (
+    exists (select 1 from public.profiles where id = auth.uid() and organization_id = public.organizations.id)
+    or exists (select 1 from public.profiles where id = auth.uid() and role = 'super_admin')
+  );
+create policy "Organizations modifiables par super_admin"
+  on public.organizations for all using (
+    exists (select 1 from public.profiles where id = auth.uid() and role = 'super_admin')
+  );
+
+insert into public.organizations (id, name, slug, created_at) values
+  ('00000000-0000-0000-0000-000000000001', 'BuildTrack Demo', 'buildtrack-demo', now())
+on conflict (slug) do nothing;
+
+create table if not exists public.subscriptions (
+  id uuid primary key default gen_random_uuid(),
+  organization_id uuid not null references public.organizations(id) on delete cascade,
+  plan_id uuid not null references public.plans(id),
+  status text not null default 'trial' check (status in ('trial','active','suspended','expired')),
+  started_at timestamptz not null default now(),
+  expires_at timestamptz,
+  trial_ends_at timestamptz default (now() + interval '30 days'),
+  unique(organization_id)
+);
+alter table public.subscriptions enable row level security;
+create policy "Subscriptions visibles par membres et super_admin"
+  on public.subscriptions for select using (
+    exists (select 1 from public.profiles where id = auth.uid() and organization_id = public.subscriptions.organization_id)
+    or exists (select 1 from public.profiles where id = auth.uid() and role = 'super_admin')
+  );
+create policy "Subscriptions modifiables par super_admin"
+  on public.subscriptions for all using (
+    exists (select 1 from public.profiles where id = auth.uid() and role = 'super_admin')
+  );
+
+insert into public.subscriptions (organization_id, plan_id, status, trial_ends_at)
+  select
+    '00000000-0000-0000-0000-000000000001',
+    (select id from public.plans where name = 'Pro'),
+    'trial',
+    now() + interval '30 days'
+  where not exists (
+    select 1 from public.subscriptions where organization_id = '00000000-0000-0000-0000-000000000001'
+  );
+
+create table if not exists public.invitations (
+  id uuid primary key default gen_random_uuid(),
+  organization_id uuid not null references public.organizations(id) on delete cascade,
+  email text not null,
+  role text not null default 'observateur',
+  invited_by uuid references auth.users(id),
+  token text not null unique default encode(gen_random_bytes(32), 'hex'),
+  status text not null default 'pending' check (status in ('pending','accepted','expired')),
+  created_at timestamptz not null default now(),
+  expires_at timestamptz not null default (now() + interval '7 days')
+);
+alter table public.invitations enable row level security;
+create policy "Invitations visibles par admins de l''organisation"
+  on public.invitations for select using (
+    exists (
+      select 1 from public.profiles
+      where id = auth.uid()
+      and organization_id = public.invitations.organization_id
+      and role in ('admin','super_admin')
+    )
+  );
+create policy "Invitations créables par admins"
+  on public.invitations for insert with check (
+    exists (
+      select 1 from public.profiles
+      where id = auth.uid()
+      and organization_id = public.invitations.organization_id
+      and role in ('admin','super_admin')
+    )
+  );
+create policy "Invitations modifiables par admins"
+  on public.invitations for update using (
+    exists (
+      select 1 from public.profiles
+      where id = auth.uid()
+      and organization_id = public.invitations.organization_id
+      and role in ('admin','super_admin')
+    )
+  );
+create policy "Invitations supprimables par admins"
+  on public.invitations for delete using (
+    exists (
+      select 1 from public.profiles
+      where id = auth.uid()
+      and organization_id = public.invitations.organization_id
+      and role in ('admin','super_admin')
+    )
+  );
+
 -- ---- 1. TABLE PROFILES (liée à auth.users) ----
 create table if not exists public.profiles (
   id uuid references auth.users on delete cascade primary key,
   name text not null,
   role text not null default 'observateur',
   role_label text not null,
-  email text not null
+  email text not null,
+  organization_id uuid references public.organizations(id)
 );
 alter table public.profiles enable row level security;
 create policy "Profiles visibles par tous les utilisateurs connectés"
