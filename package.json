@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "main": "expo-router/entry",
   "scripts": {
-    "start": "node node_modules/expo/bin/cli start --web --port 5000 --host lan",
+    "start": "node node_modules/expo/bin/cli start --web --port 5000",
     "android": "node node_modules/expo/bin/cli run:android",
     "ios": "node node_modules/expo/bin/cli run:ios",
     "web": "node node_modules/expo/bin/cli export --platform web"
