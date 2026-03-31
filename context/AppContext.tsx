@@ -20,7 +20,7 @@ const PINNED_CHANNELS_KEY = 'pinnedChannels_v1';
 const CHANNEL_MEMBERS_OVERRIDE_KEY = 'channelMembersOverride_v1';
 const MOCK_RESERVES_KEY = 'buildtrack_mock_reserves_v2';
 const MOCK_TASKS_KEY = 'buildtrack_mock_tasks_v2';
-const MOCK_PHOTOS_KEY = 'buildtrack_mock_photos_v2';
+const MOCK_PHOTOS_KEY = 'buildtrack_mock_photos_v3';
 const MOCK_MESSAGES_KEY = 'buildtrack_mock_messages_v1';
 const MAX_PINNED = 5;
 
@@ -410,9 +410,9 @@ const MOCK_DOCUMENTS: Document[] = [
 ];
 
 const MOCK_PHOTOS: Photo[] = [
-  { id: 'ph1', comment: 'Fissure mur nord RSV-001', location: 'Bât. A - RDC', takenAt: '2026-03-15', takenBy: 'Jean Dupont', colorCode: '#EF4444' },
-  { id: 'ph2', comment: 'État avancement dalle béton', location: 'Bât. A - RDC', takenAt: '2026-03-10', takenBy: 'Admin Système', colorCode: '#10B981' },
-  { id: 'ph3', comment: 'Salle serveur — câblage réseau', location: 'Bât. A - Sous-sol', takenAt: '2026-03-25', takenBy: 'Jean Dupont', colorCode: '#F59E0B' },
+  { id: 'ph1', comment: 'Fissure mur nord RSV-001', location: 'Bât. A - RDC', takenAt: '2026-03-15', takenBy: 'Jean Dupont', colorCode: '#EF4444', uri: 'https://images.unsplash.com/photo-1504307651254-35680f356dfd?w=400&q=80' },
+  { id: 'ph2', comment: 'État avancement dalle béton', location: 'Bât. A - RDC', takenAt: '2026-03-10', takenBy: 'Admin Système', colorCode: '#10B981', uri: 'https://images.unsplash.com/photo-1581578731548-c64695cc6952?w=400&q=80' },
+  { id: 'ph3', comment: 'Salle serveur — câblage réseau', location: 'Bât. A - Sous-sol', takenAt: '2026-03-25', takenBy: 'Jean Dupont', colorCode: '#F59E0B', uri: 'https://images.unsplash.com/photo-1590496793929-36417d3117de?w=400&q=80' },
 ];
 
 const MOCK_MESSAGES: Message[] = [

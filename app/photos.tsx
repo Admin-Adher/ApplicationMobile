@@ -37,17 +37,17 @@ export default function PhotosScreen() {
 
   function handleShareToChannel(channel: Channel) {
     if (!sharePhoto) return;
+    const caption = shareCaption.trim() || sharePhoto.comment || 'Photo partagée';
     addMessage(
       channel.id,
-      shareCaption.trim() || sharePhoto.comment || 'Photo partagée',
-      { attachmentUri: sharePhoto.uri },
+      caption,
+      { attachmentUri: sharePhoto.uri || undefined },
       user?.name ?? 'Moi'
     );
-    Alert.alert(
-      'Photo partagée',
-      `La photo a été partagée dans « ${channel.name} ». Vous pouvez la partager dans d'autres canaux ou fermer cette fenêtre.`,
-      [{ text: 'OK' }]
-    );
+    const note = sharePhoto.uri
+      ? `La photo a été partagée dans « ${channel.name} » avec l'image.`
+      : `Le commentaire a été partagé dans « ${channel.name} » (photo sans image disponible).`;
+    Alert.alert('Partage effectué', note, [{ text: 'OK' }]);
   }
 
   async function handleSystemShare() {
@@ -114,6 +114,22 @@ export default function PhotosScreen() {
     setModalVisible(true);
   }
 
+  async function blobUriToDataUri(blobUri: string): Promise<string> {
+    return new Promise((resolve, reject) => {
+      const xhr = new XMLHttpRequest();
+      xhr.onload = () => {
+        const reader = new FileReader();
+        reader.onloadend = () => resolve(reader.result as string);
+        reader.onerror = reject;
+        reader.readAsDataURL(xhr.response);
+      };
+      xhr.onerror = reject;
+      xhr.responseType = 'blob';
+      xhr.open('GET', blobUri);
+      xhr.send();
+    });
+  }
+
   async function confirmPhoto() {
     if (!pendingUri) return;
     setModalVisible(false);
@@ -121,7 +137,16 @@ export default function PhotosScreen() {
     try {
       const filename = `photo_${Date.now()}.jpg`;
       const storageUrl = await uploadPhoto(pendingUri, filename);
-      const finalUri = storageUrl ?? pendingUri;
+
+      let finalUri: string = storageUrl ?? pendingUri;
+
+      if (!storageUrl && Platform.OS === 'web' && finalUri.startsWith('blob:')) {
+        try {
+          finalUri = await blobUriToDataUri(finalUri);
+        } catch {
+          // keep blob URI as fallback — it'll work for current session
+        }
+      }
 
       const newPhoto: Photo = {
         id: genId(),
@@ -404,6 +429,14 @@ export default function PhotosScreen() {
               />
             </View>
 
+            {/* Avertissement si la photo n'a pas d'image */}
+            {!sharePhoto?.uri && (
+              <View style={styles.noUriWarning}>
+                <Ionicons name="information-circle-outline" size={16} color={C.waiting} />
+                <Text style={styles.noUriWarningText}>Cette photo n'a pas d'image — seul le commentaire sera partagé.</Text>
+              </View>
+            )}
+
             {/* Partage externe — WhatsApp, SMS, email, etc. */}
             <TouchableOpacity style={styles.sysShareBtn} onPress={handleSystemShare} activeOpacity={0.8}>
               <View style={styles.sysShareIcon}>
@@ -561,6 +594,8 @@ const styles = StyleSheet.create({
   cancelBtnText: { fontSize: 14, fontFamily: 'Inter_600SemiBold', color: C.textSub },
   confirmBtn: { flex: 2, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, paddingVertical: 14, borderRadius: 12, backgroundColor: C.primary },
   confirmBtnText: { fontSize: 14, fontFamily: 'Inter_600SemiBold', color: '#fff' },
+  noUriWarning: { flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: '#FFFBEB', borderRadius: 10, padding: 10, marginBottom: 12, borderWidth: 1, borderColor: '#F59E0B40' },
+  noUriWarningText: { flex: 1, fontSize: 12, fontFamily: 'Inter_400Regular', color: '#92400E' },
   sysShareBtn: { flexDirection: 'row', alignItems: 'center', gap: 12, backgroundColor: '#25D366', borderRadius: 14, padding: 14, marginBottom: 14 },
   sysShareIcon: { width: 36, height: 36, borderRadius: 18, backgroundColor: 'rgba(255,255,255,0.25)', alignItems: 'center', justifyContent: 'center' },
   sysShareTitle: { fontSize: 14, fontFamily: 'Inter_700Bold', color: '#fff' },
