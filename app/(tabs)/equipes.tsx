@@ -37,6 +37,10 @@ export default function EquipesScreen() {
   const [effectif, setEffectif] = useState('');
   const [heures, setHeures] = useState('');
 
+  const [siret, setSiret] = useState('');
+  const [insurance, setInsurance] = useState('');
+  const [qualifications, setQualifications] = useState('');
+
   const [workerModal, setWorkerModal] = useState<{ id: string; name: string; current: number; hours: number } | null>(null);
   const [workerInput, setWorkerInput] = useState('');
   const [hoursInput, setHoursInput] = useState('');
@@ -65,35 +69,23 @@ export default function EquipesScreen() {
 
   function openAdd() {
     setEditTarget(null);
-    setNom('');
-    setNomCourt('');
-    setContact('');
-    setZone('');
-    setEffectif('');
-    setHeures('');
+    setNom(''); setNomCourt(''); setContact(''); setZone('');
+    setEffectif(''); setHeures(''); setSiret(''); setInsurance(''); setQualifications('');
     setModalVisible(true);
   }
 
   function openEdit(co: Company) {
     setEditTarget(co);
-    setNom(co.name);
-    setNomCourt(co.shortName);
-    setContact(co.contact);
-    setZone(co.zone);
-    setEffectif(String(co.plannedWorkers));
-    setHeures(String(co.hoursWorked));
+    setNom(co.name); setNomCourt(co.shortName); setContact(co.contact); setZone(co.zone);
+    setEffectif(String(co.plannedWorkers)); setHeures(String(co.hoursWorked));
+    setSiret(co.siret ?? ''); setInsurance(co.insurance ?? ''); setQualifications(co.qualifications ?? '');
     setModalVisible(true);
   }
 
   function handleClose() {
-    setModalVisible(false);
-    setEditTarget(null);
-    setNom('');
-    setNomCourt('');
-    setContact('');
-    setZone('');
-    setEffectif('');
-    setHeures('');
+    setModalVisible(false); setEditTarget(null);
+    setNom(''); setNomCourt(''); setContact(''); setZone('');
+    setEffectif(''); setHeures(''); setSiret(''); setInsurance(''); setQualifications('');
   }
 
   function handleSave() {
@@ -117,6 +109,9 @@ export default function EquipesScreen() {
         hoursWorked: isNaN(hours) ? editTarget.hoursWorked : hours,
         zone: zone.trim() || 'À définir',
         contact: contact.trim() || '—',
+        siret: siret.trim() || undefined,
+        insurance: insurance.trim() || undefined,
+        qualifications: qualifications.trim() || undefined,
       });
     } else {
       const color = COMPANY_COLORS[companies.length % COMPANY_COLORS.length];
@@ -130,6 +125,9 @@ export default function EquipesScreen() {
         hoursWorked: 0,
         zone: zone.trim() || 'À définir',
         contact: contact.trim() || '—',
+        siret: siret.trim() || undefined,
+        insurance: insurance.trim() || undefined,
+        qualifications: qualifications.trim() || undefined,
       };
       addCompany(company);
     }
@@ -324,8 +322,13 @@ export default function EquipesScreen() {
           </TouchableOpacity>
         )}
 
-        <Text style={styles.sectionTitle}>Tâches en cours</Text>
-        {tasks.filter(t => t.status === 'in_progress' || t.status === 'delayed').map(task => (
+        <Text style={styles.sectionTitle}>
+          Tâches en cours{user?.role === 'chef_equipe' ? ' (mes tâches)' : ''}
+        </Text>
+        {tasks
+          .filter(t => t.status === 'in_progress' || t.status === 'delayed')
+          .filter(t => user?.role !== 'chef_equipe' || t.assignee === user.name)
+          .map(task => (
           <TouchableOpacity
             key={task.id}
             style={styles.taskCard}
@@ -351,10 +354,15 @@ export default function EquipesScreen() {
             </View>
           </TouchableOpacity>
         ))}
-        {tasks.filter(t => t.status === 'in_progress' || t.status === 'delayed').length === 0 && (
+        {tasks
+          .filter(t => t.status === 'in_progress' || t.status === 'delayed')
+          .filter(t => user?.role !== 'chef_equipe' || t.assignee === user.name)
+          .length === 0 && (
           <View style={styles.emptyBox}>
             <Ionicons name="checkmark-circle-outline" size={28} color={C.closed} />
-            <Text style={styles.emptyText}>Aucune tâche en cours ou en retard</Text>
+            <Text style={styles.emptyText}>
+              {user?.role === 'chef_equipe' ? 'Aucune tâche assignée en cours' : 'Aucune tâche en cours ou en retard'}
+            </Text>
           </View>
         )}
       </ScrollView>
@@ -431,6 +439,36 @@ export default function EquipesScreen() {
               placeholderTextColor={C.textMuted}
               value={contact}
               onChangeText={setContact}
+            />
+
+            <Text style={[styles.fieldLabel, { marginTop: 4 }]}>SIRET</Text>
+            <TextInput
+              style={styles.input}
+              placeholder="Ex: 123 456 789 00012"
+              placeholderTextColor={C.textMuted}
+              value={siret}
+              onChangeText={setSiret}
+              keyboardType="numeric"
+            />
+
+            <Text style={styles.fieldLabel}>Assurance décennale</Text>
+            <TextInput
+              style={styles.input}
+              placeholder="Ex: AXA — Police n°12345"
+              placeholderTextColor={C.textMuted}
+              value={insurance}
+              onChangeText={setInsurance}
+            />
+
+            <Text style={styles.fieldLabel}>Qualifications / Certifications</Text>
+            <TextInput
+              style={[styles.input, { minHeight: 60 }]}
+              placeholder="Ex: RGE, Qualibat 2111..."
+              placeholderTextColor={C.textMuted}
+              value={qualifications}
+              onChangeText={setQualifications}
+              multiline
+              numberOfLines={2}
             />
 
             <TouchableOpacity

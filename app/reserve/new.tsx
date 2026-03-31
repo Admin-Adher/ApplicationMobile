@@ -13,6 +13,7 @@ import { ReservePriority, ReserveStatus } from '@/constants/types';
 import Header from '@/components/Header';
 import DateInput from '@/components/DateInput';
 import { uploadPhoto } from '@/lib/storage';
+import { genId } from '@/lib/utils';
 import {
   RESERVE_BUILDINGS, RESERVE_ZONES, RESERVE_LEVELS, RESERVE_PRIORITIES, genReserveId, validateDeadline,
 } from '@/lib/reserveUtils';
@@ -50,7 +51,7 @@ function SelectRow<T extends string>({
 
 export default function NewReserveScreen() {
   const router = useRouter();
-  const { companies, addReserve, reserves } = useApp();
+  const { companies, addReserve, reserves, addPhoto } = useApp();
   const { user, permissions } = useAuth();
   const params = useLocalSearchParams<{
     building?: string; planX?: string; planY?: string;
@@ -156,6 +157,7 @@ export default function NewReserveScreen() {
     setIsSubmitting(true);
     const author = user?.name ?? 'Conducteur de travaux';
     const id = genReserveId(reserves);
+    const today = new Date().toISOString().slice(0, 10);
     addReserve({
       id,
       title: title.trim(),
@@ -166,14 +168,25 @@ export default function NewReserveScreen() {
       company,
       priority,
       status: 'open' as ReserveStatus,
-      createdAt: new Date().toISOString().slice(0, 10),
+      createdAt: today,
       deadline: deadline || '—',
       comments: [],
-      history: [{ id: 'h0', action: 'Réserve créée', author, createdAt: new Date().toISOString().slice(0, 10) }],
+      history: [{ id: 'h0', action: 'Réserve créée', author, createdAt: today }],
       planX: presetX ?? undefined,
       planY: presetY ?? undefined,
       photoUri: photoUri ?? undefined,
     });
+    if (photoUri) {
+      addPhoto({
+        id: genId(),
+        comment: `Photo réserve ${id} — ${title.trim()}`,
+        location: `Bât. ${building} - ${level}`,
+        takenAt: today,
+        takenBy: author,
+        colorCode: '#EF4444',
+        uri: photoUri,
+      });
+    }
     Alert.alert('Réserve créée', `${id} ajoutée avec succès.`, [
       { text: 'OK', onPress: () => router.back() },
     ]);

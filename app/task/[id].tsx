@@ -27,8 +27,8 @@ const PRIORITY_OPTS: { value: ReservePriority; label: string; color: string }[] 
 export default function EditTaskScreen() {
   const router = useRouter();
   const { id } = useLocalSearchParams<{ id: string }>();
-  const { tasks, reserves, updateTask, deleteTask, companies } = useApp();
-  const { permissions } = useAuth();
+  const { tasks, reserves, updateTask, deleteTask, companies, addTaskComment } = useApp();
+  const { user, permissions } = useAuth();
 
   const task = tasks.find(t => t.id === id);
   const linkedReserve = task?.reserveId ? reserves.find(r => r.id === task.reserveId) : null;
@@ -42,6 +42,7 @@ export default function EditTaskScreen() {
   const [assignee, setAssignee] = useState(task?.assignee ?? '');
   const [company, setCompany] = useState(task?.company ?? companies[0]?.id ?? '');
   const [progress, setProgress] = useState(String(task?.progress ?? 0));
+  const [newComment, setNewComment] = useState('');
 
   if (!task) {
     return (
@@ -101,6 +102,12 @@ export default function EditTaskScreen() {
         },
       ]
     );
+  }
+
+  function handleAddComment() {
+    if (!newComment.trim()) return;
+    addTaskComment(task!.id, newComment.trim(), user?.name ?? 'Utilisateur');
+    setNewComment('');
   }
 
   return (
@@ -253,6 +260,59 @@ export default function EditTaskScreen() {
             )}
           </>
         )}
+
+        <View style={styles.card}>
+          <Text style={styles.sectionTitle}>Commentaires ({task.comments?.length ?? 0})</Text>
+          {(task.comments ?? []).length === 0 && (
+            <Text style={styles.emptyComments}>Aucun commentaire — soyez le premier à commenter.</Text>
+          )}
+          {(task.comments ?? []).map(c => (
+            <View key={c.id} style={styles.commentItem}>
+              <View style={styles.commentHeader}>
+                <View style={styles.commentAvatar}>
+                  <Text style={styles.commentAvatarText}>{c.author.charAt(0)}</Text>
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.commentAuthor}>{c.author}</Text>
+                  <Text style={styles.commentDate}>{c.createdAt}</Text>
+                </View>
+              </View>
+              <Text style={styles.commentText}>{c.text}</Text>
+            </View>
+          ))}
+          <View style={styles.commentInputRow}>
+            <TextInput
+              style={styles.commentInput}
+              placeholder="Ajouter un commentaire..."
+              placeholderTextColor={C.textMuted}
+              value={newComment}
+              onChangeText={setNewComment}
+              multiline
+            />
+            <TouchableOpacity
+              style={[styles.commentSendBtn, !newComment.trim() && { opacity: 0.4 }]}
+              onPress={handleAddComment}
+              disabled={!newComment.trim()}
+            >
+              <Ionicons name="send" size={18} color="#fff" />
+            </TouchableOpacity>
+          </View>
+        </View>
+
+        {(task.history ?? []).length > 0 && (
+          <View style={styles.card}>
+            <Text style={styles.sectionTitle}>Historique des modifications</Text>
+            {[...(task.history ?? [])].reverse().map((h, idx) => (
+              <View key={idx} style={styles.historyItem}>
+                <View style={styles.historyDot} />
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.historyText}>{h.action}</Text>
+                  <Text style={styles.historyMeta}>{h.author} — {h.date}</Text>
+                </View>
+              </View>
+            ))}
+          </View>
+        )}
       </ScrollView>
     </View>
   );
@@ -286,4 +346,19 @@ const styles = StyleSheet.create({
   reserveLinkLeft: { flexDirection: 'row', alignItems: 'center', gap: 10, flex: 1 },
   reserveLinkLabel: { fontSize: 11, fontFamily: 'Inter_600SemiBold', color: C.open, textTransform: 'uppercase', letterSpacing: 0.4 },
   reserveLinkId: { fontSize: 13, fontFamily: 'Inter_500Medium', color: C.text, marginTop: 2 },
+  emptyComments: { fontSize: 13, fontFamily: 'Inter_400Regular', color: C.textMuted, fontStyle: 'italic', marginBottom: 12 },
+  commentItem: { backgroundColor: C.surface2, borderRadius: 10, padding: 12, marginBottom: 10, borderWidth: 1, borderColor: C.border },
+  commentHeader: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 8 },
+  commentAvatar: { width: 30, height: 30, borderRadius: 15, backgroundColor: C.primaryBg, alignItems: 'center', justifyContent: 'center' },
+  commentAvatarText: { fontSize: 13, fontFamily: 'Inter_700Bold', color: C.primary },
+  commentAuthor: { fontSize: 13, fontFamily: 'Inter_600SemiBold', color: C.text },
+  commentDate: { fontSize: 11, fontFamily: 'Inter_400Regular', color: C.textMuted },
+  commentText: { fontSize: 14, fontFamily: 'Inter_400Regular', color: C.text, lineHeight: 20 },
+  commentInputRow: { flexDirection: 'row', alignItems: 'flex-end', gap: 8, marginTop: 8 },
+  commentInput: { flex: 1, backgroundColor: C.surface2, borderRadius: 10, paddingHorizontal: 12, paddingVertical: 10, fontSize: 14, fontFamily: 'Inter_400Regular', color: C.text, borderWidth: 1, borderColor: C.border, maxHeight: 100 },
+  commentSendBtn: { width: 40, height: 40, borderRadius: 10, backgroundColor: C.primary, alignItems: 'center', justifyContent: 'center' },
+  historyItem: { flexDirection: 'row', alignItems: 'flex-start', gap: 10, marginBottom: 10 },
+  historyDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: C.textMuted, marginTop: 5 },
+  historyText: { fontSize: 13, fontFamily: 'Inter_400Regular', color: C.text, lineHeight: 18 },
+  historyMeta: { fontSize: 11, fontFamily: 'Inter_400Regular', color: C.textMuted, marginTop: 2 },
 });

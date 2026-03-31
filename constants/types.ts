@@ -62,6 +62,9 @@ export interface Company {
   hoursWorked: number;
   zone: string;
   contact: string;
+  siret?: string;
+  insurance?: string;
+  qualifications?: string;
 }
 
 export interface Task {
@@ -76,6 +79,8 @@ export interface Task {
   progress: number;
   company: string;
   reserveId?: string;
+  comments?: Comment[];
+  history?: HistoryEntry[];
 }
 
 export interface Document {
@@ -151,6 +156,8 @@ export interface Incident {
   status: IncidentStatus;
   witnesses: string;
   actions: string;
+  closedAt?: string;
+  closedBy?: string;
 }
 
 export interface AttendanceRecord {
@@ -162,4 +169,54 @@ export interface AttendanceRecord {
   workers: number;
   hoursWorked: number;
   savedBy: string;
+}
+
+export interface ChecklistItem {
+  id: string;
+  label: string;
+  checked: boolean;
+  note?: string;
+}
+
+export interface Checklist {
+  id: string;
+  title: string;
+  type: 'opr' | 'reception' | 'securite' | 'qualite' | 'custom';
+  building: string;
+  zone: string;
+  level: string;
+  createdAt: string;
+  createdBy: string;
+  completedAt?: string;
+  items: ChecklistItem[];
+  status: 'draft' | 'in_progress' | 'completed';
+}
+
+export interface MeetingReport {
+  id: string;
+  title: string;
+  date: string;
+  location: string;
+  attendees: string;
+  conducteur: string;
+  agenda: string;
+  decisions: string;
+  actions: string;
+  nextMeeting?: string;
+  createdAt: string;
+}
+
+export interface JournalEntry {
+  id: string;
+  date: string;
+  author: string;
+  weather: string;
+  temperature: string;
+  workforce: string;
+  workDone: string;
+  issues: string;
+  deliveries: string;
+  visitors: string;
+  notes: string;
+  createdAt: string;
 }

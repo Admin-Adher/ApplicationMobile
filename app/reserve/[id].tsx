@@ -15,6 +15,7 @@ import Header from '@/components/Header';
 import DateInput from '@/components/DateInput';
 import { useAuth } from '@/context/AuthContext';
 import { uploadPhoto } from '@/lib/storage';
+import { genId } from '@/lib/utils';
 import {
   RESERVE_BUILDINGS, RESERVE_ZONES, RESERVE_LEVELS, RESERVE_PRIORITIES,
   isOverdue, formatDate, validateDeadline,
@@ -61,7 +62,7 @@ function ChipSelect<T extends string>({
 export default function ReserveDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
-  const { reserves, tasks, updateReserveStatus, updateReserveFields, deleteReserve, addComment, companies, channels } = useApp();
+  const { reserves, tasks, updateReserveStatus, updateReserveFields, deleteReserve, addComment, companies, channels, addPhoto } = useApp();
   const { user, permissions } = useAuth();
   const [comment, setComment] = useState('');
   const [showCommentBox, setShowCommentBox] = useState(false);
@@ -201,6 +202,17 @@ export default function ReserveDetailScreen() {
       history: changes.length > 0 ? [...reserve.history, historyEntry] : reserve.history,
     };
     updateReserveFields(updated);
+    if (editPhotoUri && editPhotoUri !== reserve.photoUri) {
+      addPhoto({
+        id: genId(),
+        comment: `Photo réserve ${reserve.id} — ${editTitle.trim()}`,
+        location: `Bât. ${editBuilding} - ${editLevel}`,
+        takenAt: today,
+        takenBy: author,
+        colorCode: '#EF4444',
+        uri: editPhotoUri,
+      });
+    }
     setEditModalVisible(false);
     setSaveSuccess(true);
     setTimeout(() => setSaveSuccess(false), 2500);

@@ -70,7 +70,7 @@ function buildDailyHTML(reserves: any[], companies: any[], tasks: any[], inciden
   </body></html>`;
 }
 
-function buildWeeklyHTML(reserves: any[], companies: any[], tasks: any[], stats: any, userName: string, weekNum: number, projectName: string): string {
+function buildWeeklyHTML(reserves: any[], companies: any[], tasks: any[], incidents: any[], stats: any, userName: string, weekNum: number, projectName: string): string {
   const criticalRows = reserves.filter((r: any) => r.priority === 'critical' && r.status !== 'closed').map((r: any) =>
     `<tr><td>${r.id}</td><td>${r.title}</td><td>Bât. ${r.building}</td><td>${r.deadline}</td></tr>`
   ).join('');
@@ -84,6 +84,14 @@ function buildWeeklyHTML(reserves: any[], companies: any[], tasks: any[], stats:
   const statusRows = reserveByStatus.map(s =>
     `<tr><td style="color:${s.color};font-weight:bold">${s.label}</td><td>${s.count}</td><td>${stats.total ? Math.round((s.count / stats.total) * 100) : 0}%</td></tr>`
   ).join('');
+  const severityLabels: Record<string, string> = { minor: 'Mineur', moderate: 'Modéré', major: 'Majeur', critical: 'Critique' };
+  const severityColors: Record<string, string> = { minor: '#6B7280', moderate: '#F59E0B', major: '#EF4444', critical: '#7F1D1D' };
+  const incStatusLabels: Record<string, string> = { open: 'Ouvert', investigating: 'En cours', resolved: 'Résolu' };
+  const openIncidents = incidents.filter((i: any) => i.status !== 'resolved');
+  const resolvedThisWeek = incidents.filter((i: any) => i.status === 'resolved');
+  const incidentRows = openIncidents.map((i: any) =>
+    `<tr><td style="color:${severityColors[i.severity]||'#000'};font-weight:bold">${severityLabels[i.severity]||i.severity}</td><td>${i.title}</td><td>Bât. ${i.building}</td><td>${incStatusLabels[i.status]||i.status}</td><td>${i.reportedAt}</td></tr>`
+  ).join('');
   return `<!DOCTYPE html><html><head><meta charset="UTF-8">
   <style>
     body { font-family: Arial, sans-serif; padding: 30px; color: #111; }
@@ -95,9 +103,19 @@ function buildWeeklyHTML(reserves: any[], companies: any[], tasks: any[], stats:
     .meta { color: #666; font-size: 12px; margin-bottom: 20px; }
     .progress-bar { background: #eee; border-radius: 4px; height: 12px; margin-top: 8px; }
     .progress-fill { background: #1A6FD8; height: 12px; border-radius: 4px; width: ${stats.progress}%; }
+    .kpi { display: flex; gap: 16px; flex-wrap: wrap; margin-top: 10px; }
+    .kpi-card { border: 1px solid #ccc; border-radius: 8px; padding: 12px 20px; text-align: center; }
+    .kpi-val { font-size: 28px; font-weight: bold; color: #1A6FD8; }
+    .kpi-label { font-size: 12px; color: #666; }
   </style></head><body>
   <h1>${projectName} — Rapport hebdomadaire — Semaine ${weekNum}</h1>
   <p class="meta">Rédigé par : ${userName}</p>
+  <div class="kpi">
+    <div class="kpi-card"><div class="kpi-val">${stats.progress}%</div><div class="kpi-label">Avancement</div></div>
+    <div class="kpi-card"><div class="kpi-val">${stats.closed}/${stats.total}</div><div class="kpi-label">Réserves clôturées</div></div>
+    <div class="kpi-card"><div class="kpi-val" style="color:${openIncidents.length > 0 ? '#EF4444' : '#10B981'}">${openIncidents.length}</div><div class="kpi-label">Incidents ouverts</div></div>
+    <div class="kpi-card"><div class="kpi-val" style="color:#10B981">${resolvedThisWeek.length}</div><div class="kpi-label">Incidents résolus</div></div>
+  </div>
   <h2>Avancement global</h2>
   <p><strong>${stats.progress}%</strong> — ${stats.closed} / ${stats.total} réserves clôturées</p>
   <div class="progress-bar"><div class="progress-fill"></div></div>
@@ -107,6 +125,49 @@ function buildWeeklyHTML(reserves: any[], companies: any[], tasks: any[], stats:
   <h2>Réserves critiques ouvertes</h2>
   <table><thead><tr><th>ID</th><th>Titre</th><th>Bâtiment</th><th>Échéance</th></tr></thead>
   <tbody>${criticalRows || '<tr><td colspan="4">Aucune réserve critique ouverte</td></tr>'}</tbody></table>
+  <h2>Incidents de sécurité — Semaine ${weekNum}</h2>
+  <table><thead><tr><th>Gravité</th><th>Titre</th><th>Bâtiment</th><th>Statut</th><th>Date</th></tr></thead>
+  <tbody>${incidentRows || '<tr><td colspan="5" style="color:#10B981">Aucun incident ouvert cette semaine</td></tr>'}</tbody></table>
+  </body></html>`;
+}
+
+function buildIncidentHTML(incident: any, projectName: string): string {
+  const severityLabels: Record<string, string> = { minor: 'Mineur', moderate: 'Modéré', major: 'Majeur', critical: 'Critique' };
+  const severityColors: Record<string, string> = { minor: '#6B7280', moderate: '#F59E0B', major: '#EF4444', critical: '#7F1D1D' };
+  const statusLabels: Record<string, string> = { open: 'Ouvert', investigating: 'En cours d\'investigation', resolved: 'Résolu' };
+  return `<!DOCTYPE html><html><head><meta charset="UTF-8">
+  <style>
+    body { font-family: Arial, sans-serif; padding: 30px; color: #111; }
+    h1 { color: #EF4444; font-size: 22px; }
+    h2 { color: #333; font-size: 16px; border-bottom: 1px solid #ccc; padding-bottom: 4px; margin-top: 24px; }
+    .field { margin-bottom: 12px; }
+    .label { font-size: 11px; font-weight: bold; color: #666; text-transform: uppercase; letter-spacing: 0.5px; }
+    .value { font-size: 14px; color: #111; margin-top: 4px; }
+    .severity { display: inline-block; padding: 4px 12px; border-radius: 12px; font-weight: bold; color: white; }
+    .meta { color: #666; font-size: 12px; margin-bottom: 20px; }
+    .section { background: #f9fafb; border-radius: 8px; padding: 16px; margin-top: 16px; }
+  </style></head><body>
+  <h1>Fiche incident — ${incident.id}</h1>
+  <p class="meta">Projet : ${projectName}</p>
+  <div class="field"><div class="label">Titre</div><div class="value">${incident.title}</div></div>
+  <div class="field"><div class="label">Gravité</div><div class="value"><span class="severity" style="background:${severityColors[incident.severity]||'#666'}">${severityLabels[incident.severity]||incident.severity}</span></div></div>
+  <div class="field"><div class="label">Statut</div><div class="value">${statusLabels[incident.status]||incident.status}</div></div>
+  <div class="field"><div class="label">Lieu</div><div class="value">Bât. ${incident.building} — ${incident.location}</div></div>
+  <div class="field"><div class="label">Date</div><div class="value">${incident.reportedAt}</div></div>
+  <div class="field"><div class="label">Signalé par</div><div class="value">${incident.reportedBy}</div></div>
+  <div class="section">
+    <h2>Description</h2>
+    <p>${incident.description}</p>
+  </div>
+  <div class="section">
+    <h2>Témoins</h2>
+    <p>${incident.witnesses || 'Aucun témoin renseigné'}</p>
+  </div>
+  <div class="section">
+    <h2>Actions correctives</h2>
+    <p>${incident.actions || 'Aucune action renseignée'}</p>
+  </div>
+  ${incident.closedAt ? `<div class="section"><h2>Clôture</h2><div class="field"><div class="label">Date de clôture</div><div class="value">${incident.closedAt}</div></div><div class="field"><div class="label">Clôturé par</div><div class="value">${incident.closedBy||'—'}</div></div></div>` : ''}
   </body></html>`;
 }
 
@@ -144,7 +205,7 @@ export default function RapportsScreen() {
     try {
       const html = type === 'daily'
         ? buildDailyHTML(reserves, companies, tasks, incidents, stats, userName, projectName)
-        : buildWeeklyHTML(reserves, companies, tasks, stats, userName, weekNum, projectName);
+        : buildWeeklyHTML(reserves, companies, tasks, incidents, stats, userName, weekNum, projectName);
 
       if (Platform.OS === 'web') {
         const printWindow = window.open('', '_blank');
@@ -304,6 +365,49 @@ export default function RapportsScreen() {
                 </View>
               </View>
             ))}
+            {reserves.filter(r => r.priority === 'critical' && r.status !== 'closed').length === 0 && (
+              <Text style={styles.emptyText}>Aucune réserve critique ouverte</Text>
+            )}
+          </View>
+
+          <View style={[styles.reportSection, { marginBottom: 0, borderBottomWidth: 0 }]}>
+            <Text style={styles.sectionTitle}>Incidents de sécurité</Text>
+            {incidents.filter(i => i.status !== 'resolved').map(i => {
+              const sevColor: Record<string, string> = { minor: C.textSub, moderate: C.waiting, major: C.open, critical: C.critical };
+              const sevLabel: Record<string, string> = { minor: 'Mineur', moderate: 'Modéré', major: 'Majeur', critical: 'Critique' };
+              return (
+                <View key={i.id} style={[styles.critItem, { borderLeftWidth: 3, borderLeftColor: sevColor[i.severity] ?? C.open, paddingLeft: 8, marginBottom: 8 }]}>
+                  <View style={{ flex: 1 }}>
+                    <Text style={[styles.critTitle, { color: sevColor[i.severity] ?? C.open }]}>{sevLabel[i.severity] ?? i.severity} — {i.title}</Text>
+                    <Text style={styles.critSub}>Bât. {i.building} — {i.location} — {i.reportedAt}</Text>
+                  </View>
+                  {permissions.canExport && (
+                    <TouchableOpacity
+                      onPress={async () => {
+                        const html = buildIncidentHTML(i, projectName);
+                        if (Platform.OS === 'web') {
+                          const w = window.open('', '_blank');
+                          if (w) { w.document.write(html); w.document.close(); w.focus(); setTimeout(() => w.print(), 400); }
+                        } else {
+                          try {
+                            const { uri } = await Print.printToFileAsync({ html, base64: false });
+                            const canShare = await Sharing.isAvailableAsync();
+                            if (canShare) await Sharing.shareAsync(uri, { mimeType: 'application/pdf' });
+                          } catch {}
+                        }
+                      }}
+                      style={[styles.exportBtn, { marginLeft: 8 }]}
+                    >
+                      <Ionicons name="download-outline" size={12} color={C.primary} />
+                      <Text style={styles.exportBtnText}>PDF</Text>
+                    </TouchableOpacity>
+                  )}
+                </View>
+              );
+            })}
+            {incidents.filter(i => i.status !== 'resolved').length === 0 && (
+              <Text style={[styles.emptyText, { color: C.closed }]}>Aucun incident ouvert — chantier sécurisé</Text>
+            )}
           </View>
         </View>
 

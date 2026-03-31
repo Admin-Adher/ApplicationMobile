@@ -18,6 +18,9 @@ const CUSTOM_CHANNELS_KEY = 'customChannels_v1';
 const GROUP_CHANNELS_KEY = 'groupChannels_v1';
 const PINNED_CHANNELS_KEY = 'pinnedChannels_v1';
 const CHANNEL_MEMBERS_OVERRIDE_KEY = 'channelMembersOverride_v1';
+const MOCK_RESERVES_KEY = 'buildtrack_mock_reserves_v2';
+const MOCK_TASKS_KEY = 'buildtrack_mock_tasks_v2';
+const MOCK_PHOTOS_KEY = 'buildtrack_mock_photos_v2';
 const MAX_PINNED = 5;
 
 interface AppState {
@@ -54,6 +57,7 @@ type Action =
   | { type: 'ADD_TASK'; payload: Task }
   | { type: 'UPDATE_TASK'; payload: Task }
   | { type: 'DELETE_TASK'; payload: string }
+  | { type: 'ADD_TASK_COMMENT'; payload: { taskId: string; comment: Comment } }
   | { type: 'ADD_PHOTO'; payload: Photo }
   | { type: 'ADD_DOCUMENT'; payload: Document }
   | { type: 'DELETE_DOCUMENT'; payload: string }
@@ -98,6 +102,9 @@ function toTask(row: any): Task {
     id: row.id, title: row.title, description: row.description, status: row.status as TaskStatus,
     priority: row.priority as ReservePriority, startDate: row.start_date ?? undefined,
     deadline: row.deadline, assignee: row.assignee, progress: row.progress, company: row.company,
+    reserveId: row.reserve_id ?? row.reserveId ?? undefined,
+    comments: row.comments ?? [],
+    history: row.history ?? [],
   };
 }
 
@@ -234,6 +241,16 @@ function reducer(state: AppState, action: Action): AppState {
     case 'DELETE_TASK':
       return { ...state, tasks: state.tasks.filter(t => t.id !== action.payload) };
 
+    case 'ADD_TASK_COMMENT': {
+      const { taskId, comment } = action.payload;
+      return {
+        ...state,
+        tasks: state.tasks.map(t =>
+          t.id === taskId ? { ...t, comments: [...(t.comments ?? []), comment] } : t
+        ),
+      };
+    }
+
     case 'ADD_PHOTO':
       return { ...state, photos: [action.payload, ...state.photos] };
 
@@ -330,6 +347,7 @@ interface AppContextValue extends AppState {
   addTask: (t: Task) => void;
   updateTask: (t: Task) => void;
   deleteTask: (id: string) => void;
+  addTaskComment: (taskId: string, content: string, author?: string) => void;
   addPhoto: (p: Photo) => void;
   deletePhoto: (id: string) => void;
   addDocument: (d: Document) => void;
@@ -376,11 +394,11 @@ const MOCK_RESERVES: Reserve[] = [
 ];
 
 const MOCK_TASKS: Task[] = [
-  { id: 'tsk1', title: 'Coulage dalle bâtiment A', description: 'Préparation et coulage dalle béton niveau RDC.', status: 'done', priority: 'high', startDate: '2026-03-01', deadline: '15/03/2026', assignee: 'Jean Dupont', progress: 100, company: 'co1' },
-  { id: 'tsk2', title: 'Installation réseau plomberie', description: 'Pose canalisations eau froide/chaude bâtiments A et B.', status: 'in_progress', priority: 'high', startDate: '2026-03-10', deadline: '31/03/2026', assignee: 'Marie Martin', progress: 65, company: 'co2' },
-  { id: 'tsk3', title: 'Câblage électrique R+1', description: 'Tirage câbles et pose tableaux électriques niveau R+1.', status: 'in_progress', priority: 'medium', startDate: '2026-03-15', deadline: '05/04/2026', assignee: 'Pierre Lambert', progress: 40, company: 'co3' },
-  { id: 'tsk4', title: 'Pose menuiseries extérieures', description: 'Installation fenêtres double vitrage et portes palières.', status: 'todo', priority: 'medium', startDate: '2026-04-01', deadline: '20/04/2026', assignee: 'Jean Dupont', progress: 0, company: 'co4' },
-  { id: 'tsk5', title: 'Finitions peinture intérieure', description: "Peinture blanche deux couches sur l'ensemble des pièces.", status: 'todo', priority: 'low', startDate: '2026-04-15', deadline: '30/04/2026', assignee: 'Admin Système', progress: 0, company: 'co1' },
+  { id: 'tsk1', title: 'Coulage dalle bâtiment A', description: 'Préparation et coulage dalle béton niveau RDC.', status: 'done', priority: 'high', startDate: '2026-03-01', deadline: '15/03/2026', assignee: 'Jean Dupont', progress: 100, company: 'co1', comments: [], history: [{ id: 'ht1', action: 'Tâche créée', author: 'Admin Système', createdAt: '2026-03-01' }] },
+  { id: 'tsk2', title: 'Installation réseau plomberie', description: 'Pose canalisations eau froide/chaude bâtiments A et B.', status: 'in_progress', priority: 'high', startDate: '2026-03-10', deadline: '31/03/2026', assignee: 'Marie Martin', progress: 65, company: 'co2', comments: [{ id: 'tc1', author: 'Marie Martin', content: 'Bâtiment A terminé, B en cours.', createdAt: '2026-03-20' }], history: [{ id: 'ht2', action: 'Tâche créée', author: 'Admin Système', createdAt: '2026-03-10' }] },
+  { id: 'tsk3', title: 'Câblage électrique R+1', description: 'Tirage câbles et pose tableaux électriques niveau R+1.', status: 'in_progress', priority: 'medium', startDate: '2026-03-15', deadline: '05/04/2026', assignee: 'Pierre Lambert', progress: 40, company: 'co3', comments: [], history: [{ id: 'ht3', action: 'Tâche créée', author: 'Admin Système', createdAt: '2026-03-15' }] },
+  { id: 'tsk4', title: 'Pose menuiseries extérieures', description: 'Installation fenêtres double vitrage et portes palières.', status: 'todo', priority: 'medium', startDate: '2026-04-01', deadline: '20/04/2026', assignee: 'Jean Dupont', progress: 0, company: 'co4', comments: [], history: [{ id: 'ht4', action: 'Tâche créée', author: 'Admin Système', createdAt: '2026-03-28' }] },
+  { id: 'tsk5', title: 'Finitions peinture intérieure', description: "Peinture blanche deux couches sur l'ensemble des pièces.", status: 'todo', priority: 'low', startDate: '2026-04-15', deadline: '30/04/2026', assignee: 'Admin Système', progress: 0, company: 'co1', comments: [], history: [{ id: 'ht5', action: 'Tâche créée', author: 'Admin Système', createdAt: '2026-03-28' }] },
 ];
 
 const MOCK_DOCUMENTS: Document[] = [
@@ -512,18 +530,45 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     if (storedLastRead) {
       dispatch({ type: 'SET_LAST_READ', payload: JSON.parse(storedLastRead) });
     }
+
+    let reserves: Reserve[] = MOCK_RESERVES;
+    let tasks: Task[] = MOCK_TASKS;
+    let photos: Photo[] = MOCK_PHOTOS;
+    try {
+      const sr = await AsyncStorage.getItem(MOCK_RESERVES_KEY);
+      if (sr) reserves = JSON.parse(sr);
+    } catch {}
+    try {
+      const st = await AsyncStorage.getItem(MOCK_TASKS_KEY);
+      if (st) tasks = JSON.parse(st);
+    } catch {}
+    try {
+      const sp = await AsyncStorage.getItem(MOCK_PHOTOS_KEY);
+      if (sp) photos = JSON.parse(sp);
+    } catch {}
+
     dispatch({
       type: 'INIT',
       payload: {
-        reserves: MOCK_RESERVES,
+        reserves,
         companies: MOCK_COMPANIES,
-        tasks: MOCK_TASKS,
+        tasks,
         documents: MOCK_DOCUMENTS,
-        photos: MOCK_PHOTOS,
+        photos,
         messages: MOCK_MESSAGES,
         profiles: MOCK_PROFILES,
       },
     });
+  }
+
+  function persistMockReserves(reserves: Reserve[]) {
+    AsyncStorage.setItem(MOCK_RESERVES_KEY, JSON.stringify(reserves)).catch(() => {});
+  }
+  function persistMockTasks(tasks: Task[]) {
+    AsyncStorage.setItem(MOCK_TASKS_KEY, JSON.stringify(tasks)).catch(() => {});
+  }
+  function persistMockPhotos(photos: Photo[]) {
+    AsyncStorage.setItem(MOCK_PHOTOS_KEY, JSON.stringify(photos)).catch(() => {});
   }
 
   async function loadAll() {
@@ -888,6 +933,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         }).then(({ error }) => {
           if (error) console.warn('Erreur ajout réserve:', error.message);
         });
+      } else {
+        persistMockReserves([r, ...stateRef.current.reserves]);
       }
       dispatch({ type: 'ADD_RESERVE', payload: r });
     },
@@ -902,6 +949,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         }).eq('id', r.id).then(({ error }) => {
           if (error) console.warn('Erreur mise à jour réserve:', error.message);
         });
+      } else {
+        persistMockReserves(stateRef.current.reserves.map(res => res.id === r.id ? r : res));
       }
       dispatch({ type: 'UPDATE_RESERVE', payload: r });
     },
@@ -915,6 +964,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         }).eq('id', r.id).then(({ error }) => {
           if (error) console.warn('Erreur modification réserve:', error.message);
         });
+      } else {
+        persistMockReserves(stateRef.current.reserves.map(res => res.id === r.id ? r : res));
       }
       dispatch({ type: 'UPDATE_RESERVE_FIELDS', payload: r });
     },
@@ -924,6 +975,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         supabase.from('reserves').delete().eq('id', id).then(({ error }) => {
           if (error) console.warn('Erreur suppression réserve:', error.message);
         });
+      } else {
+        persistMockReserves(stateRef.current.reserves.filter(r => r.id !== id));
       }
       dispatch({ type: 'DELETE_RESERVE', payload: id });
     },
@@ -1128,9 +1181,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           id: t.id, title: t.title, description: t.description, status: t.status,
           priority: t.priority, start_date: t.startDate ?? null, deadline: t.deadline,
           assignee: t.assignee, progress: t.progress, company: t.company,
+          comments: t.comments ?? [], history: t.history ?? [],
         }).then(({ error }) => {
           if (error) console.warn('Erreur ajout tâche:', error.message);
         });
+      } else {
+        persistMockTasks([t, ...stateRef.current.tasks]);
       }
       dispatch({ type: 'ADD_TASK', payload: t });
     },
@@ -1141,9 +1197,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           title: t.title, description: t.description, status: t.status,
           priority: t.priority, start_date: t.startDate ?? null, deadline: t.deadline,
           assignee: t.assignee, progress: t.progress, company: t.company,
+          comments: t.comments ?? [], history: t.history ?? [],
         }).eq('id', t.id).then(({ error }) => {
           if (error) console.warn('Erreur mise à jour tâche:', error.message);
         });
+      } else {
+        persistMockTasks(stateRef.current.tasks.map(tk => tk.id === t.id ? t : tk));
       }
       dispatch({ type: 'UPDATE_TASK', payload: t });
     },
@@ -1153,8 +1212,27 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         supabase.from('tasks').delete().eq('id', id).then(({ error }) => {
           if (error) console.warn('Erreur suppression tâche:', error.message);
         });
+      } else {
+        persistMockTasks(stateRef.current.tasks.filter(t => t.id !== id));
       }
       dispatch({ type: 'DELETE_TASK', payload: id });
+    },
+
+    addTaskComment: (taskId, content, author = 'Utilisateur') => {
+      const task = stateRef.current.tasks.find(t => t.id === taskId);
+      if (!task) return;
+      const actualAuthor = currentUserNameRef.current || author;
+      const comment: Comment = {
+        id: genId(), author: actualAuthor, content,
+        createdAt: new Date().toISOString().slice(0, 10),
+      };
+      dispatch({ type: 'ADD_TASK_COMMENT', payload: { taskId, comment } });
+      if (!isSupabaseConfigured) {
+        const updatedTasks = stateRef.current.tasks.map(t =>
+          t.id === taskId ? { ...t, comments: [...(t.comments ?? []), comment] } : t
+        );
+        persistMockTasks(updatedTasks);
+      }
     },
 
     addPhoto: (p) => {
@@ -1165,6 +1243,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         }).then(({ error }) => {
           if (error) console.warn('Erreur ajout photo:', error.message);
         });
+      } else {
+        persistMockPhotos([p, ...stateRef.current.photos]);
       }
       dispatch({ type: 'ADD_PHOTO', payload: p });
     },
@@ -1174,6 +1254,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         supabase.from('photos').delete().eq('id', id).then(({ error }) => {
           if (error) console.warn('Erreur suppression photo:', error.message);
         });
+      } else {
+        persistMockPhotos(stateRef.current.photos.filter(p => p.id !== id));
       }
       dispatch({ type: 'DELETE_PHOTO', payload: id });
     },

@@ -81,7 +81,7 @@ function PlanImageLayer({ uri, isPdfFile }: { uri: string; isPdfFile: boolean })
           {/* @ts-ignore — web only */}
           <iframe
             src={uri}
-            style={{ width: '100%', height: '100%', border: 'none', borderRadius: 8 }}
+            style={{ width: '100%', height: '100%', border: 'none', borderRadius: 8, pointerEvents: 'none' }}
             title="Plan PDF"
           />
         </View>
@@ -181,8 +181,8 @@ export default function PlansScreen() {
 
   const panResponder = useRef(
     PanResponder.create({
-      onStartShouldSetPanResponder: () => true,
-      onMoveShouldSetPanResponder: () => true,
+      onStartShouldSetPanResponder: () => false,
+      onMoveShouldSetPanResponder: (_, gs) => Math.abs(gs.dx) + Math.abs(gs.dy) > 4,
       onPanResponderGrant: (e) => {
         touchStartXRef.current = e.nativeEvent.pageX;
         touchStartYRef.current = e.nativeEvent.pageY;
@@ -661,7 +661,7 @@ const styles = StyleSheet.create({
   planView: { position: 'relative', borderRadius: 8, overflow: 'hidden' },
   room: { position: 'absolute', borderWidth: 1, borderColor: '#1E2840', alignItems: 'center', justifyContent: 'center', padding: 4 },
   roomLabel: { fontSize: 8, fontFamily: 'Inter_400Regular', color: C.textMuted, textAlign: 'center' },
-  marker: { position: 'absolute', width: 22, height: 22, borderRadius: 11, alignItems: 'center', justifyContent: 'center', marginLeft: -11, marginTop: -11, borderWidth: 2, borderColor: '#0F1117' },
+  marker: { position: 'absolute', width: 22, height: 22, borderRadius: 11, alignItems: 'center', justifyContent: 'center', marginLeft: -11, marginTop: -11, borderWidth: 2, borderColor: '#0F1117', zIndex: 10 },
   markerPending: { backgroundColor: C.inProgress, borderColor: '#fff', borderWidth: 2 },
   markerText: { fontSize: 9, fontFamily: 'Inter_700Bold', color: '#fff' },
   pendingBanner: { flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: C.inProgress + '15', borderRadius: 8, padding: 8, marginTop: 8 },

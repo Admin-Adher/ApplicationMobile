@@ -46,6 +46,8 @@ function toIncident(row: any): Incident {
     status: row.status,
     witnesses: row.witnesses ?? '',
     actions: row.actions ?? '',
+    closedAt: row.closed_at ?? row.closedAt ?? undefined,
+    closedBy: row.closed_by ?? row.closedBy ?? undefined,
   };
 }
 
@@ -102,6 +104,8 @@ export function IncidentsProvider({ children }: { children: React.ReactNode }) {
           status: incident.status,
           witnesses: incident.witnesses,
           actions: incident.actions,
+          closed_at: incident.closedAt ?? null,
+          closed_by: incident.closedBy ?? null,
         });
       }
     } catch {}
