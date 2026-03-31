@@ -66,6 +66,7 @@ export default function MoreScreen() {
       { icon: 'shield', label: 'Incidents', subtitle: `${openIncidentsCount > 0 ? openIncidentsCount + ' non résolu' + (openIncidentsCount > 1 ? 's' : '') : incidents.length + ' au total'}`, route: '/(tabs)/incidents', color: '#EF4444', badge: openIncidentsCount || undefined },
       { icon: 'calendar', label: 'Planning', subtitle: `${tasks.length} tâche${tasks.length !== 1 ? 's' : ''}`, route: '/planning', color: C.closed, badge: delayedCount || undefined },
       { icon: 'document-text', label: 'Rapports', subtitle: 'Journalier, hebdo', route: '/rapports', color: C.verification },
+      { icon: 'bar-chart', label: 'Analytique', subtitle: 'Tendances & KPIs', route: '/analytics', color: '#0EA5E9' },
       { icon: 'search', label: 'Recherche', subtitle: 'Tout le chantier', route: '/search', color: '#8B5CF6' },
     ];
     if (permissions.canViewTeams) {
@@ -77,6 +78,7 @@ export default function MoreScreen() {
     const outilsItems: MenuItem[] = [
       { icon: 'folder-open', label: 'Documents', subtitle: `${documents.length} fichier${documents.length !== 1 ? 's' : ''}`, route: '/documents', color: C.inProgress, badge: recentDocsCount || undefined },
       { icon: 'camera', label: 'Photos', subtitle: `${photos.length} photo${photos.length !== 1 ? 's' : ''}`, route: '/photos', color: C.medium },
+      { icon: 'git-network', label: 'Intégrations BTP', subtitle: 'Procore · BIM · URSSAF', route: '/integrations', color: '#6366F1' },
       { icon: 'time', label: 'Pointage horaire', subtitle: 'Arrivées & départs', route: '/pointage', color: '#0891B2' },
       { icon: 'checkbox', label: 'Checklists', subtitle: 'Contrôle qualité', route: '/checklist', color: '#06B6D4' },
       { icon: 'document-text', label: 'CR Réunions', subtitle: 'Comptes-rendus', route: '/meeting-report', color: '#7C3AED' },

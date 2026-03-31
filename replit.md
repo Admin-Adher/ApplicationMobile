@@ -198,6 +198,29 @@ All 13 planned modules are implemented:
 10. **Utilisateurs** — 4 roles, Supabase auth
 11. **Administration** — dedicated admin tab (visible to `admin` role only): user role management, company CRUD
 
+## Competitive Audit Features — Archipad Gap Closure (Session 12)
+
+**Features already implemented (confirmed in audit):**
+- ✅ Feature 6 (Bulk reserve operations): Full select mode + `batchUpdateReserves` in `reserves.tsx`
+- ✅ Feature 11 (Weather journal): `journal.tsx` uses open-meteo.com with GPS-based location
+- ✅ Feature 12 (CCTP lot numbering): `STANDARD_LOTS` exported from `AppContext`, CCTP badges in `lots.tsx`
+- ✅ Feature 14 (Meeting reports CRR): `meeting-report.tsx` with templates + PDF export
+- ✅ Feature 4 (Plan versioning UI): Full version history panel + `addSitePlanVersion()` in `plans.tsx`
+- ✅ Feature 9 (Collaborative OPR): Multi-signatory invite modal + signed PDF in `opr.tsx`
+- ✅ Feature 10 (Rich photo annotations): Full `PhotoAnnotator.tsx` with point/text/arrow/rect/measure tools + color palette
+
+**Features newly built in this session:**
+- **Feature 1 (Individual reserve PDF)**: `reserve/[id].tsx` — Added `buildReservePDF()` function generating a professional single-reserve fiche with photos, GPS coordinates, annotations count, history table, comments, and signature block. Exportable via "Exporter fiche PDF" button. Uses `expo-print` + `expo-sharing`.
+- **Feature 5 (Photo GPS capture)**: `reserve/new.tsx` — Added `expo-location` GPS capture on every photo taken (camera or gallery). Coordinates stored in `ReservePhoto.gpsLat` / `gpsLon`. GPS indicator badge shown on photo thumbnails. Coordinates included in the individual reserve PDF.
+- **Feature 7 (Analytics dashboard)**: `app/analytics.tsx` (new screen) — Full analytics dashboard with: 4 KPI cards (total/closure rate/overdue/critical), status breakdown bar chart, 8-week weekly trend bar chart (reserves created vs closed), company performance table with progress bars, priority breakdown for active reserves, and building distribution. Accessible from Plus menu → "Analytique". PDF export support.
+- **Feature 8 (Subcontractor portal QR)**: `sous-traitant.tsx` — Added shareable link section with QR code (via api.qrserver.com), auto-computed from current app URL + company ID, copy-to-clipboard button via `expo-clipboard`.
+- **Feature 13 (Real-time sync)**: Already working — Supabase realtime subscriptions for reserves and tasks channels active in `AppContext.tsx`. `realtimeConnected` state exposed.
+- **Feature 15 (BTP integrations screen)**: `app/integrations.tsx` (new screen) — Full integrations catalog with 10 BTP connectors (Procore, ArchiCAD, Revit, e-Diffusion, Géosat, Kizeo, DocuWare, Signaturit, Météo-France, URSSAF). Category filter chips, toggle switches, API key configuration modal, docs links, active/enabled state management. Accessible from Plus menu → "Intégrations BTP".
+
+**Menu additions (more.tsx):**
+- "Analytique" card added to Chantier section (bar-chart icon, sky blue)
+- "Intégrations BTP" card added to Outils section (git-network icon, indigo)
+
 ## Archipad-Inspired Features (6 features)
 
 All 6 Archipad-inspired features are implemented:

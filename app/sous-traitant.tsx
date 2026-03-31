@@ -1,7 +1,8 @@
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert, Image, Platform } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { useState, useMemo } from 'react';
+import * as Clipboard from 'expo-clipboard';
 import { C } from '@/constants/colors';
 import { useApp } from '@/context/AppContext';
 import { useAuth } from '@/context/AuthContext';
@@ -253,6 +254,51 @@ export default function SousTraitantScreen() {
               );
             })()}
 
+            {/* SHAREABLE PORTAL LINK */}
+            {(() => {
+              const baseUrl = Platform.OS === 'web' && typeof window !== 'undefined'
+                ? window.location.origin
+                : 'https://buildtrack.replit.app';
+              const portalUrl = `${baseUrl}/sous-traitant?company=${encodeURIComponent(displayCompany?.id ?? '')}`;
+              const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=160x160&data=${encodeURIComponent(portalUrl)}&color=1E3A5F&bgcolor=FFFFFF&format=png&margin=4`;
+
+              async function copyLink() {
+                await Clipboard.setStringAsync(portalUrl);
+                Alert.alert('Lien copié', 'Le lien du portail sous-traitant a été copié dans le presse-papiers.');
+              }
+
+              return (
+                <View style={styles.portalCard}>
+                  <View style={styles.portalHeader}>
+                    <Ionicons name="share-social-outline" size={18} color={C.primary} />
+                    <Text style={styles.portalTitle}>Portail sous-traitant</Text>
+                    <View style={styles.portalBadge}>
+                      <View style={styles.portalBadgeDot} />
+                      <Text style={styles.portalBadgeText}>Partageable</Text>
+                    </View>
+                  </View>
+                  <Text style={styles.portalDesc}>
+                    Partagez ce lien avec {displayCompany?.name} pour qu'ils accèdent directement à leurs réserves sans avoir besoin de l'application.
+                  </Text>
+                  <View style={styles.portalBody}>
+                    <Image
+                      source={{ uri: qrUrl }}
+                      style={styles.qrImage}
+                      resizeMode="contain"
+                    />
+                    <View style={styles.portalLinkArea}>
+                      <Text style={styles.portalLinkLabel}>Lien d'accès</Text>
+                      <Text style={styles.portalLinkUrl} numberOfLines={2}>{portalUrl}</Text>
+                      <TouchableOpacity style={styles.copyBtn} onPress={copyLink}>
+                        <Ionicons name="copy-outline" size={14} color={C.primary} />
+                        <Text style={styles.copyBtnText}>Copier le lien</Text>
+                      </TouchableOpacity>
+                    </View>
+                  </View>
+                </View>
+              );
+            })()}
+
             {permissions.canEdit && (
               <View style={styles.infoHint}>
                 <Ionicons name="information-circle-outline" size={13} color={C.primary} />
@@ -346,6 +392,30 @@ const styles = StyleSheet.create({
     borderWidth: 1, borderColor: C.primary + '30', marginBottom: 12,
   },
   infoHintText: { flex: 1, fontSize: 12, fontFamily: 'Inter_400Regular', color: C.primary, lineHeight: 17 },
+
+  portalCard: {
+    backgroundColor: C.surface, borderRadius: 14, padding: 14,
+    marginBottom: 14, borderWidth: 1, borderColor: C.primary + '30',
+    borderLeftWidth: 3, borderLeftColor: C.primary,
+  },
+  portalHeader: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 8 },
+  portalTitle: { fontSize: 14, fontFamily: 'Inter_600SemiBold', color: C.text, flex: 1 },
+  portalBadge: { flexDirection: 'row', alignItems: 'center', gap: 5, backgroundColor: C.closed + '20', borderRadius: 10, paddingHorizontal: 8, paddingVertical: 3 },
+  portalBadgeDot: { width: 7, height: 7, borderRadius: 4, backgroundColor: C.closed },
+  portalBadgeText: { fontSize: 10, fontFamily: 'Inter_600SemiBold', color: C.closed },
+  portalDesc: { fontSize: 12, fontFamily: 'Inter_400Regular', color: C.textSub, lineHeight: 17, marginBottom: 12 },
+  portalBody: { flexDirection: 'row', gap: 12, alignItems: 'flex-start' },
+  qrImage: { width: 80, height: 80, borderRadius: 8, borderWidth: 1, borderColor: C.border },
+  portalLinkArea: { flex: 1 },
+  portalLinkLabel: { fontSize: 10, fontFamily: 'Inter_600SemiBold', color: C.textSub, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 4 },
+  portalLinkUrl: { fontSize: 11, fontFamily: 'Inter_400Regular', color: C.textSub, lineHeight: 16, marginBottom: 10 },
+  copyBtn: {
+    flexDirection: 'row', alignItems: 'center', gap: 6,
+    backgroundColor: C.primary + '15', borderRadius: 8,
+    paddingHorizontal: 12, paddingVertical: 7, alignSelf: 'flex-start',
+    borderWidth: 1, borderColor: C.primary + '30',
+  },
+  copyBtnText: { fontSize: 12, fontFamily: 'Inter_600SemiBold', color: C.primary },
 
   filterRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 },
   filterTitle: { fontSize: 14, fontFamily: 'Inter_600SemiBold', color: C.text },

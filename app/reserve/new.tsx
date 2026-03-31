@@ -6,6 +6,7 @@ import { useRouter, useLocalSearchParams } from 'expo-router';
 import { useState, useMemo } from 'react';
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
+import * as Location from 'expo-location';
 import { C } from '@/constants/colors';
 import { useApp } from '@/context/AppContext';
 import { useAuth } from '@/context/AuthContext';
@@ -154,12 +155,28 @@ export default function NewReserveScreen() {
       const finalUri = storageUrl ?? uri;
       const author = user?.name ?? 'Conducteur de travaux';
       const today = new Date().toISOString().slice(0, 10);
+
+      let gpsLat: number | undefined;
+      let gpsLon: number | undefined;
+      if (Platform.OS !== 'web') {
+        try {
+          const { status } = await Location.requestForegroundPermissionsAsync();
+          if (status === 'granted') {
+            const loc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
+            gpsLat = loc.coords.latitude;
+            gpsLon = loc.coords.longitude;
+          }
+        } catch {}
+      }
+
       const newPhoto: ReservePhoto = {
         id: genId(),
         uri: finalUri,
         kind: 'defect',
         takenAt: today,
         takenBy: author,
+        gpsLat,
+        gpsLon,
       };
       setPhotos(prev => [...prev, newPhoto]);
     } catch {
@@ -379,6 +396,11 @@ export default function NewReserveScreen() {
                         <View style={[styles.photoKindBadge, { backgroundColor: p.kind === 'defect' ? '#EF444488' : '#22C55E88' }]}>
                           <Text style={styles.photoKindBadgeText}>{p.kind === 'defect' ? 'Constat' : 'Levée'}</Text>
                         </View>
+                        {p.gpsLat !== undefined && (
+                          <View style={styles.gpsIndicator}>
+                            <Ionicons name="location" size={9} color="#fff" />
+                          </View>
+                        )}
                       </TouchableOpacity>
                       <TouchableOpacity style={styles.photoRemoveBtn} onPress={() => removePhoto(p.id)}>
                         <Ionicons name="close" size={11} color="#fff" />
@@ -581,6 +603,7 @@ const styles = StyleSheet.create({
   photoKindBadge: { position: 'absolute', bottom: 0, left: 0, right: 0, paddingVertical: 3, alignItems: 'center' },
   photoKindBadgeText: { fontSize: 9, fontFamily: 'Inter_700Bold', color: '#fff' },
   photoRemoveBtn: { position: 'absolute', top: 3, right: 3, width: 18, height: 18, borderRadius: 9, backgroundColor: 'rgba(0,0,0,0.65)', alignItems: 'center', justifyContent: 'center' },
+  gpsIndicator: { position: 'absolute', top: 3, left: 3, width: 16, height: 16, borderRadius: 8, backgroundColor: '#059669CC', alignItems: 'center', justifyContent: 'center' },
   uploadRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 8 },
   uploadText: { fontSize: 12, fontFamily: 'Inter_400Regular', color: C.textSub },
 

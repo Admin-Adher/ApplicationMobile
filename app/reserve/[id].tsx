@@ -6,6 +6,8 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useState, useMemo, useRef } from 'react';
 import * as ImagePicker from 'expo-image-picker';
+import * as Print from 'expo-print';
+import * as Sharing from 'expo-sharing';
 import { C } from '@/constants/colors';
 import { useApp } from '@/context/AppContext';
 import { Reserve, ReservePriority, ReserveStatus, ReservePhoto } from '@/constants/types';
@@ -14,6 +16,7 @@ import PriorityBadge from '@/components/PriorityBadge';
 import Header from '@/components/Header';
 import DateInput from '@/components/DateInput';
 import { useAuth } from '@/context/AuthContext';
+import { useSettings } from '@/context/SettingsContext';
 import { uploadPhoto } from '@/lib/storage';
 import { genId } from '@/lib/utils';
 import {
@@ -61,11 +64,199 @@ function ChipSelect<T extends string>({
   );
 }
 
+const PRIORITY_COLORS: Record<string, string> = {
+  low: '#22C55E', medium: '#F59E0B', high: '#F97316', critical: '#EF4444',
+};
+
+function buildReservePDF(reserve: Reserve, projectName: string, company: any): string {
+  const statusColors: Record<string, string> = {
+    open: '#DC2626', in_progress: '#F59E0B', waiting: '#3B82F6',
+    verification: '#8B5CF6', closed: '#059669',
+  };
+  const statusLabels: Record<string, string> = {
+    open: 'Ouverte', in_progress: 'En cours', waiting: 'En attente',
+    verification: 'Vérification', closed: 'Clôturée',
+  };
+  const priorityLabels: Record<string, string> = {
+    low: 'Faible', medium: 'Moyenne', high: 'Haute', critical: 'Critique',
+  };
+  const priorityColors: Record<string, string> = {
+    low: '#22C55E', medium: '#F59E0B', high: '#F97316', critical: '#7C3AED',
+  };
+
+  const sColor = statusColors[reserve.status] ?? '#6B7280';
+  const sLabel = statusLabels[reserve.status] ?? reserve.status;
+  const pColor = priorityColors[reserve.priority] ?? '#6B7280';
+  const pLabel = priorityLabels[reserve.priority] ?? reserve.priority;
+
+  const allPhotos = reserve.photos && reserve.photos.length > 0
+    ? reserve.photos
+    : reserve.photoUri
+      ? [{ uri: reserve.photoUri, kind: 'defect', takenAt: reserve.createdAt, takenBy: '', annotations: [] }]
+      : [];
+
+  const photoSection = allPhotos.length > 0
+    ? `<div style="margin-top:24px">
+        <div style="font-size:11px;font-weight:700;color:#5E738A;text-transform:uppercase;letter-spacing:0.6px;margin-bottom:12px">
+          Photos (${allPhotos.length})
+        </div>
+        <div style="display:flex;gap:12px;flex-wrap:wrap">
+          ${allPhotos.slice(0, 4).map(p => `
+            <div style="text-align:center">
+              <img src="${p.uri}" style="width:200px;height:150px;object-fit:cover;border-radius:8px;border:1px solid #DDE4EE" />
+              <div style="font-size:9px;color:${p.kind === 'defect' ? '#DC2626' : '#059669'};margin-top:4px;font-weight:bold">
+                ${p.kind === 'defect' ? '🔴 Constat' : '🟢 Levée'}
+                ${(p as any).gpsLat ? ` · 📍 ${parseFloat((p as any).gpsLat).toFixed(5)}, ${parseFloat((p as any).gpsLon).toFixed(5)}` : ''}
+              </div>
+              ${(p.annotations ?? []).length > 0 ? `<div style="font-size:9px;color:#6B7280">${(p.annotations ?? []).length} annotation${(p.annotations ?? []).length > 1 ? 's' : ''}</div>` : ''}
+            </div>
+          `).join('')}
+        </div>
+      </div>`
+    : '';
+
+  const gpsSection = (reserve as any).gpsLat
+    ? `<div style="margin-top:8px;padding:10px 14px;background:#F0FDF4;border:1px solid #BBF7D0;border-radius:8px;font-size:12px;color:#166534">
+        📍 <strong>Coordonnées GPS :</strong> ${parseFloat((reserve as any).gpsLat).toFixed(6)}, ${parseFloat((reserve as any).gpsLon).toFixed(6)}
+      </div>`
+    : '';
+
+  const historyRows = [...reserve.history].reverse().slice(0, 8).map(h =>
+    `<tr>
+      <td style="padding:7px 10px;font-size:11px;border-bottom:1px solid #EEF3FA">${h.createdAt}</td>
+      <td style="padding:7px 10px;font-size:11px;border-bottom:1px solid #EEF3FA;font-weight:600">${h.action}</td>
+      <td style="padding:7px 10px;font-size:11px;border-bottom:1px solid #EEF3FA;color:#6B7280">${h.author}</td>
+      ${h.oldValue && h.newValue ? `<td style="padding:7px 10px;font-size:10px;color:#6B7280;border-bottom:1px solid #EEF3FA">${h.oldValue} → ${h.newValue}</td>` : '<td></td>'}
+    </tr>`
+  ).join('');
+
+  const commentsSection = reserve.comments.length > 0
+    ? `<div style="margin-top:20px">
+        <div style="font-size:11px;font-weight:700;color:#5E738A;text-transform:uppercase;letter-spacing:0.6px;margin-bottom:10px">Commentaires</div>
+        ${reserve.comments.slice(-5).map(c =>
+          `<div style="background:#F9FAFB;border-radius:8px;padding:10px;margin-bottom:8px;border-left:3px solid #1A6FD8">
+            <div style="font-size:10px;color:#5E738A;margin-bottom:4px"><strong>${c.author}</strong> · ${c.createdAt}</div>
+            <div style="font-size:12px;color:#1A2742">${c.content}</div>
+          </div>`
+        ).join('')}
+      </div>`
+    : '';
+
+  const sigSection = reserve.enterpriseSignature
+    ? `<div style="margin-top:24px;padding-top:20px;border-top:2px solid #EEF3FA">
+        <div style="font-size:11px;font-weight:700;color:#5E738A;text-transform:uppercase;letter-spacing:0.6px;margin-bottom:16px">Signature de levée</div>
+        <div style="border:1.5px solid #DDE4EE;border-radius:10px;padding:16px;display:inline-block;background:#FAFBFF">
+          <div style="font-size:10px;color:#5E738A;margin-bottom:8px">Signataire : <strong>${reserve.enterpriseSignataire ?? 'N/A'}</strong></div>
+          <img src="${reserve.enterpriseSignature}" style="width:240px;height:80px;object-fit:contain;border-bottom:2px solid #1A2742;display:block;margin-bottom:8px" />
+          ${reserve.enterpriseAcknowledgedAt ? `<div style="font-size:10px;color:#059669">✓ Levée reconnue le ${reserve.enterpriseAcknowledgedAt}</div>` : ''}
+        </div>
+      </div>`
+    : `<div style="margin-top:24px;padding-top:20px;border-top:2px solid #EEF3FA">
+        <div style="font-size:11px;font-weight:700;color:#5E738A;text-transform:uppercase;letter-spacing:0.6px;margin-bottom:12px">Zone de signature</div>
+        <div style="display:flex;gap:40px">
+          <div style="text-align:center">
+            <div style="height:70px;width:220px;border-bottom:2px solid #1A2742;margin-bottom:8px"></div>
+            <div style="font-size:11px;color:#5E738A">Conducteur de travaux</div>
+          </div>
+          <div style="text-align:center">
+            <div style="height:70px;width:220px;border-bottom:2px solid #1A2742;margin-bottom:8px"></div>
+            <div style="font-size:11px;color:#5E738A">${reserve.company}</div>
+          </div>
+        </div>
+      </div>`;
+
+  return `<!DOCTYPE html><html><head><meta charset="UTF-8">
+  <style>
+    body { font-family: Arial, sans-serif; padding: 32px; color: #1A2742; max-width: 800px; margin: 0 auto; }
+    .header { display: flex; justify-content: space-between; align-items: flex-start; border-bottom: 3px solid #1A6FD8; padding-bottom: 16px; margin-bottom: 24px; }
+    .reserve-id { font-size: 28px; font-weight: 900; color: #1A6FD8; }
+    .project { font-size: 13px; color: #5E738A; margin-top: 4px; }
+    .date { font-size: 11px; color: #8FA3B5; text-align: right; }
+    .status-badge { display: inline-block; padding: 5px 16px; border-radius: 20px; font-weight: 700; font-size: 13px; }
+    .priority-badge { display: inline-block; padding: 4px 12px; border-radius: 14px; font-size: 12px; font-weight: 600; }
+    .info-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-top: 20px; }
+    .info-item { background: #F9FAFB; border-radius: 10px; padding: 12px 16px; }
+    .info-label { font-size: 10px; font-weight: 700; color: #8FA3B5; text-transform: uppercase; letter-spacing: 0.6px; margin-bottom: 4px; }
+    .info-value { font-size: 14px; color: #1A2742; font-weight: 600; }
+    .desc-box { background: #F9FAFB; border-radius: 10px; padding: 16px; margin-top: 20px; border-left: 4px solid #1A6FD8; }
+    .section-title { font-size: 11px; font-weight: 700; color: #5E738A; text-transform: uppercase; letter-spacing: 0.6px; margin-bottom: 10px; }
+    table { width: 100%; border-collapse: collapse; }
+    th { background: #1A6FD8; color: white; padding: 9px 10px; text-align: left; font-size: 11px; }
+    .footer { margin-top: 32px; padding-top: 14px; border-top: 1px solid #DDE4EE; font-size: 10px; color: #8FA3B5; text-align: center; }
+  </style></head>
+  <body>
+    <div class="header">
+      <div>
+        <div class="reserve-id">${reserve.id}</div>
+        <div style="font-size:17px;font-weight:700;color:#1A2742;margin-top:4px">${reserve.title}</div>
+        <div class="project">${projectName}</div>
+        <div style="display:flex;gap:8px;margin-top:10px;align-items:center">
+          <span class="status-badge" style="background:${sColor}22;color:${sColor}">${sLabel}</span>
+          <span class="priority-badge" style="background:${pColor}18;color:${pColor}">${pLabel}</span>
+          ${reserve.kind === 'observation' ? '<span class="priority-badge" style="background:#0EA5E915;color:#0EA5E9">Observation</span>' : ''}
+        </div>
+      </div>
+      <div class="date">
+        <div>Créé le ${reserve.createdAt}</div>
+        ${reserve.closedAt ? `<div style="color:#059669;margin-top:4px">Clôturé le ${reserve.closedAt}</div>` : ''}
+        <div style="margin-top:6px">Échéance : <strong>${reserve.deadline}</strong></div>
+      </div>
+    </div>
+
+    <div class="info-grid">
+      <div class="info-item">
+        <div class="info-label">Entreprise</div>
+        <div class="info-value" style="color:${company?.color ?? '#1A6FD8'}">${reserve.company}</div>
+      </div>
+      <div class="info-item">
+        <div class="info-label">Localisation</div>
+        <div class="info-value">Bât. ${reserve.building} · ${reserve.level} · ${reserve.zone}</div>
+      </div>
+      <div class="info-item">
+        <div class="info-label">Créé par</div>
+        <div class="info-value">${reserve.history[0]?.author ?? 'N/A'}</div>
+      </div>
+      <div class="info-item">
+        <div class="info-label">Photos attachées</div>
+        <div class="info-value">${allPhotos.length} photo${allPhotos.length !== 1 ? 's' : ''}</div>
+      </div>
+    </div>
+
+    ${gpsSection}
+
+    <div class="desc-box" style="margin-top:20px">
+      <div class="section-title">Description</div>
+      <div style="font-size:13px;line-height:1.6;color:#1A2742">${reserve.description}</div>
+    </div>
+
+    ${photoSection}
+
+    ${commentsSection}
+
+    ${reserve.history.length > 0 ? `
+      <div style="margin-top:24px">
+        <div class="section-title">Historique</div>
+        <table>
+          <thead><tr><th>Date</th><th>Action</th><th>Auteur</th><th>Détail</th></tr></thead>
+          <tbody>${historyRows}</tbody>
+        </table>
+      </div>
+    ` : ''}
+
+    ${sigSection}
+
+    <div class="footer">
+      Fiche réserve générée par BuildTrack — ${projectName} — ${new Date().toLocaleDateString('fr-FR')}
+    </div>
+  </body></html>`;
+}
+
 export default function ReserveDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
   const { reserves, tasks, updateReserveStatus, updateReserveFields, deleteReserve, addComment, companies, channels, addPhoto } = useApp();
   const { user, permissions } = useAuth();
+  const { projectName } = useSettings();
   const [comment, setComment] = useState('');
   const [showCommentBox, setShowCommentBox] = useState(false);
   const [editModalVisible, setEditModalVisible] = useState(false);
@@ -303,6 +494,25 @@ export default function ReserveDetailScreen() {
     setEditModalVisible(false);
     setSaveSuccess(true);
     setTimeout(() => setSaveSuccess(false), 2500);
+  }
+
+  async function handleExportPDF() {
+    if (!permissions.canExport) return;
+    const html = buildReservePDF(reserve, projectName, company);
+    if (Platform.OS === 'web') {
+      const w = window.open('', '_blank');
+      if (w) { w.document.write(html); w.document.close(); w.focus(); setTimeout(() => w.print(), 500); }
+      return;
+    }
+    try {
+      const { uri } = await Print.printToFileAsync({ html, base64: false });
+      const canShare = await Sharing.isAvailableAsync();
+      if (canShare) {
+        await Sharing.shareAsync(uri, { mimeType: 'application/pdf', dialogTitle: `Fiche ${reserve.id}` });
+      }
+    } catch {
+      Alert.alert('Erreur', "Impossible de générer le PDF.");
+    }
   }
 
   function handleDelete() {
@@ -699,6 +909,13 @@ export default function ReserveDetailScreen() {
           ))}
         </View>
 
+        {permissions.canExport && (
+          <TouchableOpacity style={styles.exportPdfBtn} onPress={handleExportPDF}>
+            <Ionicons name="document-text-outline" size={16} color={C.primary} />
+            <Text style={styles.exportPdfBtnText}>Exporter fiche PDF</Text>
+          </TouchableOpacity>
+        )}
+
         {permissions.canDelete && (
           <TouchableOpacity style={styles.deleteBtn} onPress={handleDelete}>
             <Ionicons name="trash-outline" size={16} color={C.open} />
@@ -1033,6 +1250,8 @@ const styles = StyleSheet.create({
   historyMeta: { fontSize: 11, fontFamily: 'Inter_400Regular', color: C.textMuted, marginTop: 3 },
   contactBtn: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 12, paddingVertical: 11, paddingHorizontal: 14, borderRadius: 10, borderWidth: 1.5 },
   contactBtnText: { flex: 1, fontSize: 14, fontFamily: 'Inter_600SemiBold' },
+  exportPdfBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, paddingVertical: 14, borderRadius: 12, borderWidth: 1.5, borderColor: C.primary + '50', backgroundColor: C.primary + '08', marginBottom: 10 },
+  exportPdfBtnText: { fontSize: 14, fontFamily: 'Inter_600SemiBold', color: C.primary },
   deleteBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, paddingVertical: 14, borderRadius: 12, borderWidth: 1.5, borderColor: C.open + '50', backgroundColor: C.open + '08' },
   deleteBtnText: { fontSize: 14, fontFamily: 'Inter_600SemiBold', color: C.open },
   taskLink: { flexDirection: 'row', alignItems: 'center', backgroundColor: C.surface2, borderRadius: 12, padding: 14, borderWidth: 1, borderColor: C.border },
