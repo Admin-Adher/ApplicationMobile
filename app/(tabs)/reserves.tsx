@@ -5,6 +5,7 @@ import { useRouter } from 'expo-router';
 import { useState, useMemo } from 'react';
 import { C } from '@/constants/colors';
 import { useApp } from '@/context/AppContext';
+import { useAuth } from '@/context/AuthContext';
 import { ReserveStatus, ReservePriority } from '@/constants/types';
 import ReserveCard from '@/components/ReserveCard';
 import { isOverdue } from '@/lib/reserveUtils';
@@ -41,6 +42,7 @@ export default function ReservesScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const { reserves, companies } = useApp();
+  const { permissions } = useAuth();
   const [statusFilter, setStatusFilter] = useState<'all' | 'overdue' | ReserveStatus>('all');
   const [buildingFilter, setBuildingFilter] = useState<string>('all');
   const [priorityFilter, setPriorityFilter] = useState<'all' | ReservePriority>('all');
@@ -120,9 +122,11 @@ export default function ReservesScreen() {
               {overdueCount > 0 ? ` · ${overdueCount} en retard` : ''}
             </Text>
           </View>
-          <TouchableOpacity style={styles.addBtn} onPress={() => router.push('/reserve/new' as any)}>
-            <Ionicons name="add" size={22} color="#fff" />
-          </TouchableOpacity>
+          {permissions.canCreate && (
+            <TouchableOpacity style={styles.addBtn} onPress={() => router.push('/reserve/new' as any)}>
+              <Ionicons name="add" size={22} color="#fff" />
+            </TouchableOpacity>
+          )}
         </View>
 
         <View style={styles.searchWrap}>

@@ -42,8 +42,8 @@ export interface Reserve {
   deadline: string;
   comments: Comment[];
   history: HistoryEntry[];
-  planX: number;
-  planY: number;
+  planX?: number;
+  planY?: number;
   photoUri?: string;
 }
 
