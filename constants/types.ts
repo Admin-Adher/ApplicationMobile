@@ -142,6 +142,8 @@ export interface Opr {
   signedBy?: string;
   signedAt?: string;
   maireOuvrage?: string;
+  conducteurSignature?: string;
+  moSignature?: string;
   createdAt: string;
 }
 

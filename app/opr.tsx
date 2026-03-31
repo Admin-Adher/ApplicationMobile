@@ -1,7 +1,17 @@
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert, TextInput, Platform, Modal } from 'react-native';
+import {
+  View,
+  Text,
+  StyleSheet,
+  ScrollView,
+  TouchableOpacity,
+  Alert,
+  TextInput,
+  Platform,
+  Modal,
+} from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useRef } from 'react';
 import * as Print from 'expo-print';
 import * as Sharing from 'expo-sharing';
 import { C } from '@/constants/colors';
@@ -11,6 +21,7 @@ import { useSettings } from '@/context/SettingsContext';
 import { Opr, OprItem, OprStatus } from '@/constants/types';
 import Header from '@/components/Header';
 import BottomNavBar from '@/components/BottomNavBar';
+import SignaturePad, { SignaturePadRef } from '@/components/SignaturePad';
 import { genId } from '@/lib/utils';
 import { RESERVE_BUILDINGS, RESERVE_LEVELS } from '@/lib/reserveUtils';
 
@@ -35,97 +46,153 @@ const DEFAULT_OPR_ITEMS = [
   'Espaces extérieurs',
 ];
 
-function buildOprPDF(opr: Opr, projectName: string, lots: any[]): string {
-  const lotMap: Record<string, string> = {};
-  lots.forEach(l => { lotMap[l.id] = l.name; });
-
+function buildOprPDF(opr: Opr, projectName: string): string {
   const statusIcons: Record<string, string> = { ok: '✓', reserve: '⚠', non_applicable: '—' };
-  const statusColors: Record<string, string> = { ok: '#10B981', reserve: '#EF4444', non_applicable: '#6B7280' };
-  const rows = opr.items.map(item =>
-    `<tr>
-      <td>${item.lotName}</td>
-      <td>${item.description}</td>
-      <td style="color:${statusColors[item.status]};font-weight:bold;text-align:center">${statusIcons[item.status]}</td>
-      <td>${item.status === 'reserve' ? (item.reserveId ?? '—') : '—'}</td>
-      <td>${item.note ?? ''}</td>
+  const statusColors: Record<string, string> = { ok: '#059669', reserve: '#DC2626', non_applicable: '#6B7280' };
+  const statusBg: Record<string, string> = { ok: '#ECFDF5', reserve: '#FEF2F2', non_applicable: '#F9FAFB' };
+
+  const rows = opr.items.map((item, idx) =>
+    `<tr style="background:${idx % 2 === 0 ? '#fff' : '#F9FAFB'}">
+      <td style="padding:8px 10px;border-bottom:1px solid #EEF3FA;font-size:12px">${item.lotName}</td>
+      <td style="padding:8px 10px;border-bottom:1px solid #EEF3FA;font-size:12px">${item.description !== item.lotName ? item.description : '—'}</td>
+      <td style="padding:8px 10px;border-bottom:1px solid #EEF3FA;text-align:center">
+        <span style="background:${statusBg[item.status]};color:${statusColors[item.status]};font-weight:700;font-size:12px;padding:3px 10px;border-radius:12px">${statusIcons[item.status]} ${ITEM_STATUS_CFG[item.status].label}</span>
+      </td>
+      <td style="padding:8px 10px;border-bottom:1px solid #EEF3FA;font-size:12px;color:#6B7280">${item.status === 'reserve' ? (item.reserveId ?? '—') : '—'}</td>
+      <td style="padding:8px 10px;border-bottom:1px solid #EEF3FA;font-size:12px">${item.note ?? ''}</td>
     </tr>`
   ).join('');
 
   const totalOk = opr.items.filter(i => i.status === 'ok').length;
   const totalRes = opr.items.filter(i => i.status === 'reserve').length;
   const totalNA = opr.items.filter(i => i.status === 'non_applicable').length;
-
+  const pctConformite = opr.items.length > 0 ? Math.round((totalOk / opr.items.length) * 100) : 0;
   const signedDate = opr.signedAt ?? opr.date;
 
-  return `<!DOCTYPE html><html><head><meta charset="UTF-8">
+  const signatureBlock = opr.status === 'signed' ? `
+    <div style="margin-top:36px;padding-top:20px;border-top:2px solid #EEF3FA">
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:16px">
+        <span style="background:#ECFDF5;color:#059669;font-weight:700;font-size:13px;padding:4px 14px;border-radius:20px">✓ PV signé électroniquement le ${signedDate}</span>
+      </div>
+      <div style="display:flex;gap:32px;flex-wrap:wrap">
+        <div style="flex:1;min-width:220px;border:1.5px solid #DDE4EE;border-radius:10px;padding:14px 18px;background:#FAFBFF">
+          <div style="font-size:10px;color:#8FA3B5;text-transform:uppercase;letter-spacing:0.6px;margin-bottom:8px">Conducteur de travaux</div>
+          ${opr.conducteurSignature
+            ? `<img src="${opr.conducteurSignature}" style="width:100%;max-width:260px;height:80px;object-fit:contain;border-bottom:2px solid #1A2742;display:block;margin-bottom:6px" />`
+            : `<div style="height:60px;border-bottom:2px solid #1A2742;margin-bottom:6px"></div>`
+          }
+          <div style="font-size:13px;font-weight:700;color:#1A2742">${opr.conducteur}</div>
+          <div style="font-size:11px;color:#8FA3B5;margin-top:2px">Signé le ${signedDate}</div>
+        </div>
+        <div style="flex:1;min-width:220px;border:1.5px solid #DDE4EE;border-radius:10px;padding:14px 18px;background:#FAFBFF">
+          <div style="font-size:10px;color:#8FA3B5;text-transform:uppercase;letter-spacing:0.6px;margin-bottom:8px">Maître d'ouvrage</div>
+          ${opr.moSignature
+            ? `<img src="${opr.moSignature}" style="width:100%;max-width:260px;height:80px;object-fit:contain;border-bottom:2px solid #1A2742;display:block;margin-bottom:6px" />`
+            : `<div style="height:60px;border-bottom:2px solid #1A2742;margin-bottom:6px"></div>`
+          }
+          <div style="font-size:13px;font-weight:700;color:#1A2742">${opr.maireOuvrage ?? '—'}</div>
+          <div style="font-size:11px;color:#8FA3B5;margin-top:2px">Signé le ${signedDate}</div>
+        </div>
+      </div>
+    </div>` : `
+    <div style="margin-top:36px;padding-top:20px;border-top:2px solid #EEF3FA">
+      <div style="font-size:12px;font-weight:700;color:#5E738A;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:16px">Signatures</div>
+      <div style="display:flex;gap:32px;flex-wrap:wrap">
+        <div style="flex:1;min-width:220px;border:1.5px solid #DDE4EE;border-radius:10px;padding:14px 18px">
+          <div style="font-size:10px;color:#8FA3B5;text-transform:uppercase;letter-spacing:0.6px;margin-bottom:8px">Conducteur de travaux</div>
+          <div style="height:80px;border-bottom:2px solid #1A2742;margin-bottom:6px"></div>
+          <div style="font-size:13px;color:#1A2742">${opr.conducteur}</div>
+        </div>
+        <div style="flex:1;min-width:220px;border:1.5px solid #DDE4EE;border-radius:10px;padding:14px 18px">
+          <div style="font-size:10px;color:#8FA3B5;text-transform:uppercase;letter-spacing:0.6px;margin-bottom:8px">Maître d'ouvrage</div>
+          <div style="height:80px;border-bottom:2px solid #1A2742;margin-bottom:6px"></div>
+          <div style="font-size:13px;color:#1A2742">${opr.maireOuvrage ?? ''}</div>
+        </div>
+      </div>
+    </div>`;
+
+  return `<!DOCTYPE html><html lang="fr"><head><meta charset="UTF-8">
   <style>
-    body { font-family: Arial, sans-serif; padding: 30px; color: #111; }
-    h1 { color: #1A6FD8; font-size: 20px; }
-    h2 { color: #333; font-size: 15px; border-bottom: 1px solid #ccc; padding-bottom: 4px; margin-top: 24px; }
-    .meta { color: #666; font-size: 12px; margin-bottom: 16px; }
-    table { width: 100%; border-collapse: collapse; margin-top: 10px; font-size: 12px; }
-    th { background: #1A6FD8; color: white; padding: 7px; text-align: left; }
-    td { padding: 5px 7px; border-bottom: 1px solid #eee; }
-    .kpi { display: flex; gap: 14px; flex-wrap: wrap; margin-bottom: 16px; }
-    .kpi-card { border: 1px solid #ccc; border-radius: 8px; padding: 10px 16px; text-align: center; }
-    .kpi-val { font-size: 22px; font-weight: bold; color: #1A6FD8; }
-    .kpi-label { font-size: 11px; color: #666; }
-    .sign-section { margin-top: 40px; display: flex; gap: 40px; }
-    .sign-box { flex: 1; border-top: 2px solid #333; padding-top: 8px; }
-    .sign-label { font-size: 12px; color: #666; }
-    .sign-name { font-size: 13px; font-weight: bold; margin-top: 4px; }
-    .sign-date { font-size: 11px; color: #888; margin-top: 2px; font-style: italic; }
-    .status-signed { background: #D1FAE5; border: 1px solid #10B981; border-radius: 8px; padding: 8px 14px; display: inline-block; color: #065F46; font-weight: bold; font-size: 13px; }
-    .sign-typed { background: #EFF6FF; border: 1px solid #BFDBFE; border-radius: 6px; padding: 4px 10px; display: inline-block; color: #1E40AF; font-weight: bold; font-size: 14px; font-style: italic; letter-spacing: 0.5px; }
-  </style></head><body>
-  <h1>Procès-verbal de réception — ${opr.title}</h1>
-  <p class="meta">
-    Projet : ${projectName} &nbsp;|&nbsp;
-    Date : ${opr.date} &nbsp;|&nbsp;
-    Localisation : Bât. ${opr.building} — ${opr.level}<br>
-    Conducteur : ${opr.conducteur}
-    ${opr.maireOuvrage ? ` &nbsp;|&nbsp; Maître d'ouvrage : ${opr.maireOuvrage}` : ''}
-  </p>
-  <div class="kpi">
-    <div class="kpi-card"><div class="kpi-val" style="color:#10B981">${totalOk}</div><div class="kpi-label">Conforme</div></div>
-    <div class="kpi-card"><div class="kpi-val" style="color:#EF4444">${totalRes}</div><div class="kpi-label">Réserve(s)</div></div>
-    <div class="kpi-card"><div class="kpi-val" style="color:#6B7280">${totalNA}</div><div class="kpi-label">Non applicable</div></div>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: Arial, Helvetica, sans-serif; background: #fff; color: #1A2742; }
+    @media print { body { -webkit-print-color-adjust: exact; print-color-adjust: exact; } }
+  </style>
+  </head><body>
+  <div style="padding:32px 36px;max-width:860px;margin:0 auto">
+
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;padding-bottom:20px;border-bottom:3px solid #003082;margin-bottom:24px">
+      <div>
+        <div style="font-size:22px;font-weight:800;color:#003082;letter-spacing:-0.3px">Procès-verbal de réception</div>
+        <div style="font-size:14px;color:#5E738A;margin-top:4px">${opr.title}</div>
+      </div>
+      <div style="text-align:right">
+        <div style="font-size:11px;color:#8FA3B5">Réf. document</div>
+        <div style="font-size:13px;font-weight:700;color:#1A2742">${opr.id}</div>
+        <div style="font-size:11px;color:#8FA3B5;margin-top:4px">Date</div>
+        <div style="font-size:13px;font-weight:700;color:#1A2742">${opr.date}</div>
+      </div>
+    </div>
+
+    <div style="display:flex;gap:24px;flex-wrap:wrap;margin-bottom:24px">
+      <div style="flex:1;min-width:180px;background:#F4F7FB;border-radius:10px;padding:14px 16px">
+        <div style="font-size:10px;color:#8FA3B5;text-transform:uppercase;letter-spacing:0.6px;margin-bottom:6px">Projet</div>
+        <div style="font-size:14px;font-weight:700;color:#1A2742">${projectName}</div>
+      </div>
+      <div style="flex:1;min-width:140px;background:#F4F7FB;border-radius:10px;padding:14px 16px">
+        <div style="font-size:10px;color:#8FA3B5;text-transform:uppercase;letter-spacing:0.6px;margin-bottom:6px">Localisation</div>
+        <div style="font-size:14px;font-weight:700;color:#1A2742">Bât. ${opr.building} — ${opr.level}</div>
+      </div>
+      <div style="flex:1;min-width:140px;background:#F4F7FB;border-radius:10px;padding:14px 16px">
+        <div style="font-size:10px;color:#8FA3B5;text-transform:uppercase;letter-spacing:0.6px;margin-bottom:6px">Conducteur</div>
+        <div style="font-size:14px;font-weight:700;color:#1A2742">${opr.conducteur}</div>
+      </div>
+      ${opr.maireOuvrage ? `<div style="flex:1;min-width:140px;background:#F4F7FB;border-radius:10px;padding:14px 16px">
+        <div style="font-size:10px;color:#8FA3B5;text-transform:uppercase;letter-spacing:0.6px;margin-bottom:6px">Maître d'ouvrage</div>
+        <div style="font-size:14px;font-weight:700;color:#1A2742">${opr.maireOuvrage}</div>
+      </div>` : ''}
+    </div>
+
+    <div style="display:flex;gap:12px;margin-bottom:28px;flex-wrap:wrap">
+      <div style="border:1.5px solid #DDE4EE;border-radius:10px;padding:12px 20px;text-align:center;min-width:100px">
+        <div style="font-size:26px;font-weight:800;color:#059669">${totalOk}</div>
+        <div style="font-size:11px;color:#6B7280;margin-top:2px">Conforme${totalOk > 1 ? 's' : ''}</div>
+      </div>
+      <div style="border:1.5px solid #DDE4EE;border-radius:10px;padding:12px 20px;text-align:center;min-width:100px">
+        <div style="font-size:26px;font-weight:800;color:#DC2626">${totalRes}</div>
+        <div style="font-size:11px;color:#6B7280;margin-top:2px">Réserve${totalRes > 1 ? 's' : ''}</div>
+      </div>
+      <div style="border:1.5px solid #DDE4EE;border-radius:10px;padding:12px 20px;text-align:center;min-width:100px">
+        <div style="font-size:26px;font-weight:800;color:#6B7280">${totalNA}</div>
+        <div style="font-size:11px;color:#6B7280;margin-top:2px">Non applicable</div>
+      </div>
+      <div style="border:2px solid #003082;border-radius:10px;padding:12px 20px;text-align:center;min-width:100px;background:#EEF3FA">
+        <div style="font-size:26px;font-weight:800;color:#003082">${pctConformite}%</div>
+        <div style="font-size:11px;color:#003082;margin-top:2px">Conformité</div>
+      </div>
+    </div>
+
+    <div style="font-size:12px;font-weight:700;color:#5E738A;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:10px">Détail par lot</div>
+    <table style="width:100%;border-collapse:collapse;border:1.5px solid #DDE4EE;border-radius:10px;overflow:hidden">
+      <thead>
+        <tr style="background:#003082">
+          <th style="padding:10px 10px;text-align:left;font-size:11px;color:#fff;font-weight:700;letter-spacing:0.4px">LOT</th>
+          <th style="padding:10px 10px;text-align:left;font-size:11px;color:#fff;font-weight:700;letter-spacing:0.4px">POINT DE CONTRÔLE</th>
+          <th style="padding:10px 10px;text-align:center;font-size:11px;color:#fff;font-weight:700;letter-spacing:0.4px">STATUT</th>
+          <th style="padding:10px 10px;text-align:left;font-size:11px;color:#fff;font-weight:700;letter-spacing:0.4px">N° RÉS.</th>
+          <th style="padding:10px 10px;text-align:left;font-size:11px;color:#fff;font-weight:700;letter-spacing:0.4px">OBSERVATIONS</th>
+        </tr>
+      </thead>
+      <tbody>${rows}</tbody>
+    </table>
+
+    ${signatureBlock}
+
+    <div style="margin-top:32px;padding-top:12px;border-top:1px solid #EEF3FA;display:flex;justify-content:space-between;align-items:center">
+      <div style="font-size:10px;color:#8FA3B5">BuildTrack — Gestion de chantier</div>
+      <div style="font-size:10px;color:#8FA3B5">Document généré le ${new Date().toLocaleDateString('fr-FR')}</div>
+    </div>
+
   </div>
-  <h2>Détail par lot</h2>
-  <table>
-    <thead><tr><th>Lot</th><th>Point de contrôle</th><th>Statut</th><th>N° Réserve</th><th>Observations</th></tr></thead>
-    <tbody>${rows}</tbody>
-  </table>
-  ${opr.status === 'signed' ? `
-  <h2>Signatures électroniques</h2>
-  <div class="sign-section">
-    <div class="sign-box">
-      <div class="sign-typed">${opr.conducteur}</div>
-      <div class="sign-name" style="margin-top:8px">${opr.conducteur}</div>
-      <div class="sign-label">Conducteur de travaux</div>
-      <div class="sign-date">Signé électroniquement le ${signedDate}</div>
-    </div>
-    <div class="sign-box">
-      <div class="sign-typed">${opr.maireOuvrage ?? '—'}</div>
-      <div class="sign-name" style="margin-top:8px">${opr.maireOuvrage ?? '—'}</div>
-      <div class="sign-label">Maître d'ouvrage</div>
-      <div class="sign-date">Signé électroniquement le ${signedDate}</div>
-    </div>
-  </div>
-  <p style="margin-top:16px"><span class="status-signed">✓ PV signé électroniquement le ${signedDate}</span></p>
-  ` : `
-  <h2>Signatures</h2>
-  <div class="sign-section">
-    <div class="sign-box">
-      <div class="sign-name">&nbsp;</div>
-      <div class="sign-label">Conducteur de travaux : ${opr.conducteur}</div>
-    </div>
-    <div class="sign-box">
-      <div class="sign-name">&nbsp;</div>
-      <div class="sign-label">Maître d'ouvrage${opr.maireOuvrage ? ' : ' + opr.maireOuvrage : ''}</div>
-    </div>
-  </div>
-  `}
   </body></html>`;
 }
 
@@ -143,8 +210,12 @@ export default function OprScreen() {
   const [maireOuvrage, setMaireOuvrage] = useState('');
 
   const [signModalOpr, setSignModalOpr] = useState<Opr | null>(null);
+  const [signStep, setSignStep] = useState<'conducteur' | 'mo'>('conducteur');
   const [signConducteurName, setSignConducteurName] = useState('');
   const [signMoName, setSignMoName] = useState('');
+
+  const conducteurPadRef = useRef<SignaturePadRef>(null);
+  const moPadRef = useRef<SignaturePadRef>(null);
 
   const chantierOprs = useMemo(
     () => oprs.filter(o => !activeChantierId || o.chantierId === activeChantierId)
@@ -180,7 +251,7 @@ export default function OprScreen() {
   }
 
   async function exportOprPDF(opr: Opr) {
-    const html = buildOprPDF(opr, projectName, lots);
+    const html = buildOprPDF(opr, projectName);
     if (Platform.OS === 'web') {
       const w = window.open('', '_blank');
       if (w) { w.document.write(html); w.document.close(); w.focus(); setTimeout(() => w.print(), 400); }
@@ -198,19 +269,29 @@ export default function OprScreen() {
   function openSignModal(opr: Opr) {
     setSignConducteurName(opr.conducteur ?? user?.name ?? '');
     setSignMoName(opr.maireOuvrage ?? '');
+    setSignStep('conducteur');
     setSignModalOpr(opr);
   }
 
-  function confirmSign() {
+  async function confirmSign() {
     if (!signModalOpr) return;
     if (!signConducteurName.trim()) {
-      Alert.alert('Signature requise', 'Veuillez saisir le nom du conducteur de travaux.');
+      Alert.alert('Nom requis', 'Veuillez saisir le nom du conducteur de travaux.');
       return;
     }
     if (!signMoName.trim()) {
-      Alert.alert('Signature requise', "Veuillez saisir le nom du maître d'ouvrage.");
+      Alert.alert('Nom requis', "Veuillez saisir le nom du maître d'ouvrage.");
       return;
     }
+
+    const conducteurSig = conducteurPadRef.current?.isEmpty() ? undefined : conducteurPadRef.current?.getSVGData() ?? undefined;
+    const moSig = moPadRef.current?.isEmpty() ? undefined : moPadRef.current?.getSVGData() ?? undefined;
+
+    if (!conducteurSig && !moSig) {
+      Alert.alert('Signature requise', 'Veuillez apposer au moins une signature dessinée.');
+      return;
+    }
+
     const now = new Date().toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit', year: 'numeric' });
     updateOpr({
       ...signModalOpr,
@@ -219,6 +300,8 @@ export default function OprScreen() {
       maireOuvrage: signMoName.trim(),
       signedBy: signConducteurName.trim(),
       signedAt: now,
+      conducteurSignature: conducteurSig,
+      moSignature: moSig,
     });
     setSignModalOpr(null);
   }
@@ -343,7 +426,7 @@ export default function OprScreen() {
                 <Text style={styles.oprTitle}>{opr.title}</Text>
                 <Text style={styles.oprMeta}>Bât. {opr.building} — {opr.level} · {opr.conducteur}</Text>
                 {opr.maireOuvrage ? (
-                  <Text style={styles.oprMeta}>Maître d'ouvrage : {opr.maireOuvrage}</Text>
+                  <Text style={styles.oprMeta}>MO : {opr.maireOuvrage}</Text>
                 ) : null}
 
                 <View style={styles.oprStats}>
@@ -425,10 +508,15 @@ export default function OprScreen() {
         onRequestClose={() => setSignModalOpr(null)}
       >
         <View style={styles.modalOverlay}>
-          <View style={styles.modalSheet}>
+          <ScrollView
+            style={styles.modalScrollWrap}
+            contentContainerStyle={styles.modalSheet}
+            keyboardShouldPersistTaps="handled"
+            showsVerticalScrollIndicator={false}
+          >
             <View style={styles.modalHandle} />
             <View style={styles.modalTitleRow}>
-              <Ionicons name="create-outline" size={20} color={C.closed} />
+              <Ionicons name="create-outline" size={20} color={C.primary} />
               <Text style={styles.modalTitle}>Signature électronique du PV</Text>
             </View>
 
@@ -439,36 +527,87 @@ export default function OprScreen() {
               </View>
             )}
 
-            <Text style={styles.modalLabel}>CONDUCTEUR DE TRAVAUX *</Text>
-            <View style={styles.signInputWrap}>
-              <Ionicons name="person-outline" size={15} color={C.textMuted} />
-              <TextInput
-                style={styles.signInput}
-                value={signConducteurName}
-                onChangeText={setSignConducteurName}
-                placeholder="Saisir votre nom complet..."
-                placeholderTextColor={C.textMuted}
-                autoCapitalize="words"
-              />
+            <View style={styles.signStepRow}>
+              <TouchableOpacity
+                style={[styles.signStepTab, signStep === 'conducteur' && styles.signStepTabActive]}
+                onPress={() => setSignStep('conducteur')}
+              >
+                <Ionicons name="person-outline" size={14} color={signStep === 'conducteur' ? C.primary : C.textMuted} />
+                <Text style={[styles.signStepTabText, signStep === 'conducteur' && { color: C.primary }]}>Conducteur</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.signStepTab, signStep === 'mo' && styles.signStepTabActive]}
+                onPress={() => setSignStep('mo')}
+              >
+                <Ionicons name="business-outline" size={14} color={signStep === 'mo' ? C.primary : C.textMuted} />
+                <Text style={[styles.signStepTabText, signStep === 'mo' && { color: C.primary }]}>Maître d'ouvrage</Text>
+              </TouchableOpacity>
             </View>
 
-            <Text style={styles.modalLabel}>MAÎTRE D'OUVRAGE *</Text>
-            <View style={styles.signInputWrap}>
-              <Ionicons name="person-circle-outline" size={15} color={C.textMuted} />
-              <TextInput
-                style={styles.signInput}
-                value={signMoName}
-                onChangeText={setSignMoName}
-                placeholder="Nom du maître d'ouvrage..."
-                placeholderTextColor={C.textMuted}
-                autoCapitalize="words"
-              />
-            </View>
+            {signStep === 'conducteur' && (
+              <View style={styles.signBlock}>
+                <Text style={styles.modalLabel}>NOM COMPLET *</Text>
+                <View style={styles.signInputWrap}>
+                  <Ionicons name="person-outline" size={15} color={C.textMuted} />
+                  <TextInput
+                    style={styles.signInput}
+                    value={signConducteurName}
+                    onChangeText={setSignConducteurName}
+                    placeholder="Votre nom complet..."
+                    placeholderTextColor={C.textMuted}
+                    autoCapitalize="words"
+                  />
+                </View>
+                <Text style={styles.modalLabel}>SIGNATURE (dessiner ci-dessous)</Text>
+                <View style={styles.padContainer}>
+                  <SignaturePad ref={conducteurPadRef} />
+                  <TouchableOpacity
+                    style={styles.clearPadBtn}
+                    onPress={() => conducteurPadRef.current?.clear()}
+                  >
+                    <Ionicons name="refresh-outline" size={13} color={C.textMuted} />
+                    <Text style={styles.clearPadText}>Effacer</Text>
+                  </TouchableOpacity>
+                </View>
+                <TouchableOpacity style={styles.nextStepBtn} onPress={() => setSignStep('mo')}>
+                  <Text style={styles.nextStepBtnText}>Suivant — Maître d'ouvrage</Text>
+                  <Ionicons name="arrow-forward" size={15} color="#fff" />
+                </TouchableOpacity>
+              </View>
+            )}
+
+            {signStep === 'mo' && (
+              <View style={styles.signBlock}>
+                <Text style={styles.modalLabel}>NOM DU MAÎTRE D'OUVRAGE *</Text>
+                <View style={styles.signInputWrap}>
+                  <Ionicons name="business-outline" size={15} color={C.textMuted} />
+                  <TextInput
+                    style={styles.signInput}
+                    value={signMoName}
+                    onChangeText={setSignMoName}
+                    placeholder="Nom du maître d'ouvrage..."
+                    placeholderTextColor={C.textMuted}
+                    autoCapitalize="words"
+                  />
+                </View>
+                <Text style={styles.modalLabel}>SIGNATURE (dessiner ci-dessous)</Text>
+                <View style={styles.padContainer}>
+                  <SignaturePad ref={moPadRef} />
+                  <TouchableOpacity
+                    style={styles.clearPadBtn}
+                    onPress={() => moPadRef.current?.clear()}
+                  >
+                    <Ionicons name="refresh-outline" size={13} color={C.textMuted} />
+                    <Text style={styles.clearPadText}>Effacer</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+            )}
 
             <View style={styles.signNotice}>
               <Ionicons name="shield-checkmark-outline" size={14} color={C.closed} />
               <Text style={styles.signNoticeText}>
-                En signant, vous confirmez avoir vériqué tous les points de contrôle. Cette signature est horodatée et lie les deux parties.
+                En signant, les deux parties confirment avoir vérifié tous les points de contrôle. Les signatures sont horodatées.
               </Text>
             </View>
 
@@ -477,11 +616,11 @@ export default function OprScreen() {
                 <Text style={styles.modalCancelText}>Annuler</Text>
               </TouchableOpacity>
               <TouchableOpacity style={styles.modalConfirmBtn} onPress={confirmSign}>
-                <Ionicons name="checkmark-circle" size={16} color="#fff" />
-                <Text style={styles.modalConfirmText}>Signer le PV</Text>
+                <Ionicons name="ribbon-outline" size={16} color="#fff" />
+                <Text style={styles.modalConfirmText}>Valider les signatures</Text>
               </TouchableOpacity>
             </View>
-          </View>
+          </ScrollView>
         </View>
       </Modal>
     </View>
@@ -497,9 +636,9 @@ const styles = StyleSheet.create({
     borderWidth: 1, borderColor: C.border, marginBottom: 16,
   },
   formTitle: { fontSize: 15, fontFamily: 'Inter_600SemiBold', color: C.text, marginBottom: 12 },
-  label: { fontSize: 12, fontFamily: 'Inter_500Medium', color: C.textSub, marginBottom: 6 },
+  label: { fontSize: 11, fontFamily: 'Inter_600SemiBold', color: C.textSub, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 6 },
   input: {
-    backgroundColor: C.inputBg, borderWidth: 1, borderColor: C.border,
+    backgroundColor: C.bg, borderWidth: 1, borderColor: C.border,
     borderRadius: 10, paddingHorizontal: 12, paddingVertical: 10,
     fontSize: 14, fontFamily: 'Inter_400Regular', color: C.text, marginBottom: 10,
   },
@@ -514,66 +653,81 @@ const styles = StyleSheet.create({
   createBtn: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, backgroundColor: C.primary, paddingVertical: 11, borderRadius: 10 },
   createBtnText: { fontSize: 14, fontFamily: 'Inter_600SemiBold', color: '#fff' },
 
-  empty: { alignItems: 'center', paddingVertical: 48, gap: 10 },
+  empty: { alignItems: 'center', justifyContent: 'center', paddingVertical: 60, gap: 10 },
   emptyTitle: { fontSize: 16, fontFamily: 'Inter_600SemiBold', color: C.text },
-  emptyText: { fontSize: 13, fontFamily: 'Inter_400Regular', color: C.textSub, textAlign: 'center' },
-  emptyBtn: { backgroundColor: C.primary, paddingHorizontal: 24, paddingVertical: 12, borderRadius: 12, marginTop: 8 },
+  emptyText: { fontSize: 13, fontFamily: 'Inter_400Regular', color: C.textSub, textAlign: 'center', paddingHorizontal: 20 },
+  emptyBtn: { marginTop: 8, backgroundColor: C.primary, paddingHorizontal: 24, paddingVertical: 11, borderRadius: 10 },
   emptyBtnText: { fontSize: 14, fontFamily: 'Inter_600SemiBold', color: '#fff' },
 
   oprCard: {
-    backgroundColor: C.surface, borderRadius: 14, padding: 16,
-    borderWidth: 1, borderColor: C.border, marginBottom: 16,
+    backgroundColor: C.surface, borderRadius: 14, padding: 14,
+    borderWidth: 1, borderColor: C.border, marginBottom: 12,
   },
   oprHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 },
-  statusBadge: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 20 },
-  statusText: { fontSize: 11, fontFamily: 'Inter_600SemiBold' },
-  oprDate: { fontSize: 12, fontFamily: 'Inter_400Regular', color: C.textMuted },
+  statusBadge: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 12 },
+  statusText: { fontSize: 12, fontFamily: 'Inter_600SemiBold' },
+  oprDate: { fontSize: 12, fontFamily: 'Inter_400Regular', color: C.textSub },
   oprTitle: { fontSize: 15, fontFamily: 'Inter_600SemiBold', color: C.text, marginBottom: 4 },
   oprMeta: { fontSize: 12, fontFamily: 'Inter_400Regular', color: C.textSub, marginBottom: 2 },
 
-  oprStats: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 12, paddingTop: 8, paddingBottom: 12, borderBottomWidth: 1, borderBottomColor: C.border, marginTop: 8 },
+  oprStats: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 8, marginBottom: 10 },
   oprStat: { flexDirection: 'row', alignItems: 'center', gap: 4 },
-  oprStatText: { fontSize: 12, fontFamily: 'Inter_500Medium', color: C.textSub },
-  oprStatSep: { color: C.textMuted, marginHorizontal: 2 },
+  oprStatText: { fontSize: 12, fontFamily: 'Inter_400Regular', color: C.textSub },
+  oprStatSep: { color: C.border, fontSize: 14 },
 
-  itemsList: { gap: 4, marginBottom: 12 },
-  itemRow: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: 5 },
+  itemsList: { gap: 1, marginBottom: 10, backgroundColor: C.bg, borderRadius: 10, overflow: 'hidden', borderWidth: 1, borderColor: C.border },
+  itemRow: {
+    flexDirection: 'row', alignItems: 'center', gap: 10,
+    paddingVertical: 9, paddingHorizontal: 12,
+    backgroundColor: C.surface,
+    borderBottomWidth: 1, borderBottomColor: C.border,
+  },
   itemText: { flex: 1, fontSize: 13, fontFamily: 'Inter_400Regular', color: C.text },
 
-  oprActions: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingTop: 10, borderTopWidth: 1, borderTopColor: C.border },
+  oprActions: { flexDirection: 'row', alignItems: 'center', gap: 10, marginTop: 4, flexWrap: 'wrap' },
   actionBtn: { flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: 12, paddingVertical: 7, borderRadius: 8, borderWidth: 1, borderColor: C.border },
   actionBtnText: { fontSize: 13, fontFamily: 'Inter_500Medium' },
-  signBtn: { borderColor: C.closed + '40', backgroundColor: C.closed + '10' },
-  signedBadge: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 5 },
+  signBtn: { borderColor: C.closed + '40', backgroundColor: C.closedBg },
+  signedBadge: { flexDirection: 'row', alignItems: 'center', gap: 5 },
   signedText: { fontSize: 12, fontFamily: 'Inter_500Medium', color: C.closed },
 
   modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' },
+  modalScrollWrap: { maxHeight: '92%' },
   modalSheet: {
-    backgroundColor: C.surface, borderTopLeftRadius: 24, borderTopRightRadius: 24,
-    paddingHorizontal: 20, paddingBottom: 36, paddingTop: 14,
+    backgroundColor: C.surface, borderTopLeftRadius: 20, borderTopRightRadius: 20,
+    padding: 20, paddingBottom: 40,
   },
-  modalHandle: { width: 40, height: 4, borderRadius: 2, backgroundColor: C.border, alignSelf: 'center', marginBottom: 18 },
-  modalTitleRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 16 },
+  modalHandle: { width: 36, height: 4, backgroundColor: C.border, borderRadius: 2, alignSelf: 'center', marginBottom: 16 },
+  modalTitleRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 14 },
   modalTitle: { fontSize: 17, fontFamily: 'Inter_700Bold', color: C.text },
-  modalPvInfo: { backgroundColor: C.closed + '10', borderRadius: 10, padding: 12, marginBottom: 16, borderWidth: 1, borderColor: C.closed + '30' },
+
+  modalPvInfo: { backgroundColor: C.bg, borderRadius: 10, padding: 12, marginBottom: 16, borderWidth: 1, borderColor: C.border },
   modalPvTitle: { fontSize: 14, fontFamily: 'Inter_600SemiBold', color: C.text },
   modalPvMeta: { fontSize: 12, fontFamily: 'Inter_400Regular', color: C.textSub, marginTop: 2 },
-  modalLabel: { fontSize: 11, fontFamily: 'Inter_600SemiBold', color: C.textSub, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 6 },
-  signInputWrap: {
-    flexDirection: 'row', alignItems: 'center', gap: 10,
-    backgroundColor: C.surface2, borderRadius: 12, paddingHorizontal: 14, paddingVertical: 11,
-    borderWidth: 1.5, borderColor: C.border, marginBottom: 14,
-  },
-  signInput: { flex: 1, fontSize: 15, fontFamily: 'Inter_500Medium', color: C.text },
-  signNotice: {
-    flexDirection: 'row', alignItems: 'flex-start', gap: 8,
-    backgroundColor: C.closed + '10', borderRadius: 10, padding: 12,
-    borderWidth: 1, borderColor: C.closed + '30', marginBottom: 20,
-  },
-  signNoticeText: { flex: 1, fontSize: 12, fontFamily: 'Inter_400Regular', color: C.textSub, lineHeight: 18 },
+
+  signStepRow: { flexDirection: 'row', gap: 8, marginBottom: 16, backgroundColor: C.bg, borderRadius: 12, padding: 4 },
+  signStepTab: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, paddingVertical: 9, borderRadius: 9 },
+  signStepTabActive: { backgroundColor: C.surface, shadowColor: '#000', shadowOpacity: 0.06, shadowRadius: 4, shadowOffset: { width: 0, height: 1 } },
+  signStepTabText: { fontSize: 13, fontFamily: 'Inter_500Medium', color: C.textMuted },
+
+  signBlock: { gap: 8, marginBottom: 12 },
+  modalLabel: { fontSize: 11, fontFamily: 'Inter_600SemiBold', color: C.textSub, textTransform: 'uppercase', letterSpacing: 0.5 },
+  signInputWrap: { flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: C.bg, borderWidth: 1, borderColor: C.border, borderRadius: 10, paddingHorizontal: 12, paddingVertical: 10 },
+  signInput: { flex: 1, fontSize: 14, fontFamily: 'Inter_400Regular', color: C.text },
+
+  padContainer: { alignItems: 'center', gap: 6, marginBottom: 4 },
+  clearPadBtn: { flexDirection: 'row', alignItems: 'center', gap: 4 },
+  clearPadText: { fontSize: 12, fontFamily: 'Inter_400Regular', color: C.textMuted },
+
+  nextStepBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, backgroundColor: C.primary, paddingVertical: 12, borderRadius: 10, marginTop: 4 },
+  nextStepBtnText: { fontSize: 14, fontFamily: 'Inter_600SemiBold', color: '#fff' },
+
+  signNotice: { flexDirection: 'row', alignItems: 'flex-start', gap: 8, backgroundColor: C.closedBg, borderRadius: 10, padding: 12, marginVertical: 12 },
+  signNoticeText: { flex: 1, fontSize: 12, fontFamily: 'Inter_400Regular', color: C.closed, lineHeight: 18 },
+
   modalActions: { flexDirection: 'row', gap: 10 },
   modalCancelBtn: { flex: 1, alignItems: 'center', paddingVertical: 13, borderRadius: 12, borderWidth: 1, borderColor: C.border },
-  modalCancelText: { fontSize: 15, fontFamily: 'Inter_500Medium', color: C.textSub },
-  modalConfirmBtn: { flex: 2, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 7, backgroundColor: C.closed, paddingVertical: 13, borderRadius: 12 },
-  modalConfirmText: { fontSize: 15, fontFamily: 'Inter_700Bold', color: '#fff' },
+  modalCancelText: { fontSize: 14, fontFamily: 'Inter_500Medium', color: C.textSub },
+  modalConfirmBtn: { flex: 2, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, backgroundColor: C.primary, paddingVertical: 13, borderRadius: 12 },
+  modalConfirmText: { fontSize: 14, fontFamily: 'Inter_600SemiBold', color: '#fff' },
 });

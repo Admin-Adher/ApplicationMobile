@@ -29,57 +29,145 @@ const PRIORITY_LABELS: Record<string, string> = { low: 'Faible', medium: 'Moyen'
 const PRIORITY_COLORS: Record<string, string> = { low: '#22C55E', medium: '#F59E0B', high: '#EF4444', critical: '#7C3AED' };
 
 function buildVisitePDF(visite: Visite, reserves: Reserve[], projectName: string): string {
-  const statusLabels = RESERVE_STATUS_LABELS;
-  const priorityLabels = PRIORITY_LABELS;
   const priorityColors: Record<string, string> = { low: '#22C55E', medium: '#F59E0B', high: '#EF4444', critical: '#7C3AED' };
-  const statusColor: Record<string, string> = { open: '#EF4444', in_progress: '#F59E0B', waiting: '#6366F1', verification: '#3B82F6', closed: '#10B981' };
-  const rows = reserves.map(r =>
-    `<tr>
-      <td><strong>${r.id}</strong></td>
-      <td>${r.title}</td>
-      <td>Bât. ${r.building} — ${r.level}</td>
-      <td>${r.company}</td>
-      <td style="color:${priorityColors[r.priority]||'#000'};font-weight:bold">${priorityLabels[r.priority]||r.priority}</td>
-      <td style="color:${statusColor[r.status]||'#000'}">${statusLabels[r.status]||r.status}</td>
-      <td>${r.deadline}</td>
+  const priorityBg: Record<string, string> = { low: '#F0FDF4', medium: '#FFFBEB', high: '#FEF2F2', critical: '#F5F3FF' };
+  const statusColor: Record<string, string> = { open: '#DC2626', in_progress: '#2563EB', waiting: '#D97706', verification: '#7C3AED', closed: '#059669' };
+  const statusBg: Record<string, string> = { open: '#FEF2F2', in_progress: '#EFF6FF', waiting: '#FFFBEB', verification: '#F5F3FF', closed: '#ECFDF5' };
+
+  const totalOpen = reserves.filter(r => r.status === 'open').length;
+  const totalInProgress = reserves.filter(r => r.status === 'in_progress').length;
+  const totalClosed = reserves.filter(r => r.status === 'closed').length;
+  const totalCritical = reserves.filter(r => r.priority === 'critical' || r.priority === 'high').length;
+
+  const criticalReserves = reserves.filter(r => r.priority === 'critical' || r.priority === 'high');
+  const normalReserves = reserves.filter(r => r.priority !== 'critical' && r.priority !== 'high');
+  const sortedReserves = [...criticalReserves, ...normalReserves];
+
+  const rows = sortedReserves.map((r, idx) =>
+    `<tr style="background:${idx % 2 === 0 ? '#fff' : '#F9FAFB'}">
+      <td style="padding:9px 10px;border-bottom:1px solid #EEF3FA;font-size:11px;font-weight:700;color:#5E738A;white-space:nowrap">${r.id}</td>
+      <td style="padding:9px 10px;border-bottom:1px solid #EEF3FA;font-size:12px;font-weight:600;color:#1A2742">${r.title}</td>
+      <td style="padding:9px 10px;border-bottom:1px solid #EEF3FA;font-size:12px;color:#5E738A;white-space:nowrap">Bât.${r.building} — ${r.level}</td>
+      <td style="padding:9px 10px;border-bottom:1px solid #EEF3FA;font-size:12px;color:#1A2742">${r.company}</td>
+      <td style="padding:9px 10px;border-bottom:1px solid #EEF3FA;text-align:center">
+        <span style="background:${priorityBg[r.priority]||'#F9FAFB'};color:${priorityColors[r.priority]||'#6B7280'};font-size:11px;font-weight:700;padding:3px 10px;border-radius:10px">${PRIORITY_LABELS[r.priority]||r.priority}</span>
+      </td>
+      <td style="padding:9px 10px;border-bottom:1px solid #EEF3FA;text-align:center">
+        <span style="background:${statusBg[r.status]||'#F9FAFB'};color:${statusColor[r.status]||'#6B7280'};font-size:11px;font-weight:700;padding:3px 10px;border-radius:10px">${RESERVE_STATUS_LABELS[r.status]||r.status}</span>
+      </td>
+      <td style="padding:9px 10px;border-bottom:1px solid #EEF3FA;font-size:12px;color:#5E738A;white-space:nowrap">${r.deadline}</td>
     </tr>`
   ).join('');
 
-  return `<!DOCTYPE html><html><head><meta charset="UTF-8">
+  return `<!DOCTYPE html><html lang="fr"><head><meta charset="UTF-8">
   <style>
-    body { font-family: Arial, sans-serif; padding: 30px; color: #111; }
-    h1 { color: #1A6FD8; font-size: 20px; }
-    h2 { color: #333; font-size: 15px; border-bottom: 1px solid #ccc; padding-bottom: 4px; margin-top: 24px; }
-    .meta { color: #666; font-size: 12px; margin-bottom: 20px; }
-    table { width: 100%; border-collapse: collapse; margin-top: 10px; font-size: 12px; }
-    th { background: #1A6FD8; color: white; padding: 7px; text-align: left; }
-    td { padding: 5px 7px; border-bottom: 1px solid #eee; }
-    .badge { display: inline-block; padding: 3px 10px; border-radius: 10px; font-size: 11px; font-weight: bold; }
-    .kpi { display: flex; gap: 14px; flex-wrap: wrap; margin-bottom: 16px; }
-    .kpi-card { border: 1px solid #ccc; border-radius: 8px; padding: 10px 16px; text-align: center; }
-    .kpi-val { font-size: 22px; font-weight: bold; color: #1A6FD8; }
-    .kpi-label { font-size: 11px; color: #666; }
-    .notes-box { background: #f9fafb; border-left: 3px solid #1A6FD8; padding: 10px 14px; margin-top: 10px; font-size: 12px; }
-  </style></head><body>
-  <h1>Compte-rendu de visite — ${visite.title}</h1>
-  <p class="meta">
-    Projet : ${projectName} &nbsp;|&nbsp;
-    Date : ${visite.date} &nbsp;|&nbsp;
-    Conducteur : ${visite.conducteur} &nbsp;|&nbsp;
-    Localisation : Bât. ${visite.building || '—'} / ${visite.level || '—'}
-  </p>
-  <div class="kpi">
-    <div class="kpi-card"><div class="kpi-val">${reserves.length}</div><div class="kpi-label">Réserves relevées</div></div>
-    <div class="kpi-card"><div class="kpi-val" style="color:#EF4444">${reserves.filter(r => r.status === 'open').length}</div><div class="kpi-label">Ouvertes</div></div>
-    <div class="kpi-card"><div class="kpi-val" style="color:#F59E0B">${reserves.filter(r => r.status === 'in_progress').length}</div><div class="kpi-label">En cours</div></div>
-    <div class="kpi-card"><div class="kpi-val" style="color:#10B981">${reserves.filter(r => r.status === 'closed').length}</div><div class="kpi-label">Clôturées</div></div>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: Arial, Helvetica, sans-serif; background: #fff; color: #1A2742; }
+    @media print { body { -webkit-print-color-adjust: exact; print-color-adjust: exact; } }
+  </style>
+  </head><body>
+  <div style="padding:32px 36px;max-width:860px;margin:0 auto">
+
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;padding-bottom:20px;border-bottom:3px solid #003082;margin-bottom:24px">
+      <div>
+        <div style="font-size:10px;color:#8FA3B5;text-transform:uppercase;letter-spacing:1px;margin-bottom:6px">Compte-rendu de visite de chantier</div>
+        <div style="font-size:22px;font-weight:800;color:#003082;letter-spacing:-0.3px">${visite.title}</div>
+        <div style="font-size:13px;color:#5E738A;margin-top:4px">${projectName}</div>
+      </div>
+      <div style="text-align:right">
+        <div style="font-size:11px;color:#8FA3B5">Réf.</div>
+        <div style="font-size:13px;font-weight:700;color:#1A2742">${visite.id}</div>
+        <div style="font-size:11px;color:#8FA3B5;margin-top:4px">Date de visite</div>
+        <div style="font-size:14px;font-weight:800;color:#003082">${visite.date}</div>
+      </div>
+    </div>
+
+    <div style="display:flex;gap:16px;flex-wrap:wrap;margin-bottom:24px">
+      <div style="flex:1;min-width:160px;background:#F4F7FB;border-radius:10px;padding:12px 16px">
+        <div style="font-size:10px;color:#8FA3B5;text-transform:uppercase;letter-spacing:0.6px;margin-bottom:6px">Conducteur de travaux</div>
+        <div style="font-size:14px;font-weight:700;color:#1A2742">${visite.conducteur}</div>
+      </div>
+      ${visite.building ? `<div style="flex:1;min-width:140px;background:#F4F7FB;border-radius:10px;padding:12px 16px">
+        <div style="font-size:10px;color:#8FA3B5;text-transform:uppercase;letter-spacing:0.6px;margin-bottom:6px">Localisation</div>
+        <div style="font-size:14px;font-weight:700;color:#1A2742">Bât. ${visite.building} — ${visite.level || ''}</div>
+      </div>` : ''}
+      <div style="flex:1;min-width:140px;background:#F4F7FB;border-radius:10px;padding:12px 16px">
+        <div style="font-size:10px;color:#8FA3B5;text-transform:uppercase;letter-spacing:0.6px;margin-bottom:6px">Statut de la visite</div>
+        <div style="font-size:14px;font-weight:700;color:#${visite.status === 'completed' ? '059669' : visite.status === 'in_progress' ? '2563EB' : '6366F1'}">${visite.status === 'completed' ? 'Terminée' : visite.status === 'in_progress' ? 'En cours' : 'Planifiée'}</div>
+      </div>
+    </div>
+
+    <div style="display:flex;gap:12px;margin-bottom:24px;flex-wrap:wrap">
+      <div style="border:1.5px solid #DDE4EE;border-radius:10px;padding:12px 18px;text-align:center;min-width:90px">
+        <div style="font-size:28px;font-weight:800;color:#1A2742">${reserves.length}</div>
+        <div style="font-size:11px;color:#6B7280;margin-top:2px">Relevées</div>
+      </div>
+      <div style="border:1.5px solid #FEE2E2;border-radius:10px;padding:12px 18px;text-align:center;min-width:90px;background:#FEF2F2">
+        <div style="font-size:28px;font-weight:800;color:#DC2626">${totalOpen}</div>
+        <div style="font-size:11px;color:#DC2626;margin-top:2px">Ouvertes</div>
+      </div>
+      <div style="border:1.5px solid #BFDBFE;border-radius:10px;padding:12px 18px;text-align:center;min-width:90px;background:#EFF6FF">
+        <div style="font-size:28px;font-weight:800;color:#2563EB">${totalInProgress}</div>
+        <div style="font-size:11px;color:#2563EB;margin-top:2px">En cours</div>
+      </div>
+      <div style="border:1.5px solid #A7F3D0;border-radius:10px;padding:12px 18px;text-align:center;min-width:90px;background:#ECFDF5">
+        <div style="font-size:28px;font-weight:800;color:#059669">${totalClosed}</div>
+        <div style="font-size:11px;color:#059669;margin-top:2px">Clôturées</div>
+      </div>
+      ${totalCritical > 0 ? `<div style="border:2px solid #DC2626;border-radius:10px;padding:12px 18px;text-align:center;min-width:90px;background:#FEF2F2">
+        <div style="font-size:28px;font-weight:800;color:#DC2626">${totalCritical}</div>
+        <div style="font-size:11px;color:#DC2626;margin-top:2px">Priorité haute</div>
+      </div>` : ''}
+    </div>
+
+    ${visite.notes ? `
+    <div style="margin-bottom:24px;background:#F4F7FB;border-left:4px solid #003082;border-radius:0 10px 10px 0;padding:14px 18px">
+      <div style="font-size:10px;color:#8FA3B5;text-transform:uppercase;letter-spacing:0.6px;margin-bottom:6px">Observations du conducteur</div>
+      <div style="font-size:13px;color:#1A2742;line-height:1.6">${visite.notes}</div>
+    </div>` : ''}
+
+    <div style="font-size:12px;font-weight:700;color:#5E738A;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:10px">
+      Liste des réserves relevées (${reserves.length})
+      ${totalCritical > 0 ? '<span style="font-size:11px;background:#FEF2F2;color:#DC2626;padding:2px 10px;border-radius:10px;margin-left:8px;font-weight:700">⚠ Triées par priorité</span>' : ''}
+    </div>
+    <table style="width:100%;border-collapse:collapse;border:1.5px solid #DDE4EE;border-radius:10px;overflow:hidden">
+      <thead>
+        <tr style="background:#003082">
+          <th style="padding:10px;text-align:left;font-size:11px;color:#fff;font-weight:700;letter-spacing:0.4px">ID</th>
+          <th style="padding:10px;text-align:left;font-size:11px;color:#fff;font-weight:700;letter-spacing:0.4px">TITRE</th>
+          <th style="padding:10px;text-align:left;font-size:11px;color:#fff;font-weight:700;letter-spacing:0.4px">LIEU</th>
+          <th style="padding:10px;text-align:left;font-size:11px;color:#fff;font-weight:700;letter-spacing:0.4px">ENTREPRISE</th>
+          <th style="padding:10px;text-align:center;font-size:11px;color:#fff;font-weight:700;letter-spacing:0.4px">PRIORITÉ</th>
+          <th style="padding:10px;text-align:center;font-size:11px;color:#fff;font-weight:700;letter-spacing:0.4px">STATUT</th>
+          <th style="padding:10px;text-align:left;font-size:11px;color:#fff;font-weight:700;letter-spacing:0.4px">ÉCHÉANCE</th>
+        </tr>
+      </thead>
+      <tbody>${rows || `<tr><td colspan="7" style="padding:20px;text-align:center;color:#8FA3B5;font-size:13px">Aucune réserve rattachée à cette visite</td></tr>`}</tbody>
+    </table>
+
+    <div style="margin-top:36px;padding-top:20px;border-top:2px solid #EEF3FA">
+      <div style="display:flex;gap:32px;flex-wrap:wrap">
+        <div style="flex:1;min-width:200px;border:1.5px solid #DDE4EE;border-radius:10px;padding:14px 18px">
+          <div style="font-size:10px;color:#8FA3B5;text-transform:uppercase;letter-spacing:0.6px;margin-bottom:8px">Conducteur de travaux</div>
+          <div style="height:70px;border-bottom:2px solid #1A2742;margin-bottom:8px"></div>
+          <div style="font-size:13px;color:#1A2742">${visite.conducteur}</div>
+          <div style="font-size:11px;color:#8FA3B5;margin-top:2px">Date : ${visite.date}</div>
+        </div>
+        <div style="flex:1;min-width:200px;border:1.5px solid #DDE4EE;border-radius:10px;padding:14px 18px">
+          <div style="font-size:10px;color:#8FA3B5;text-transform:uppercase;letter-spacing:0.6px;margin-bottom:8px">Lu et approuvé — Entreprise(s)</div>
+          <div style="height:70px;border-bottom:2px solid #1A2742;margin-bottom:8px"></div>
+          <div style="font-size:13px;color:#1A2742">&nbsp;</div>
+          <div style="font-size:11px;color:#8FA3B5;margin-top:2px">Date : &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</div>
+        </div>
+      </div>
+    </div>
+
+    <div style="margin-top:28px;padding-top:12px;border-top:1px solid #EEF3FA;display:flex;justify-content:space-between;align-items:center">
+      <div style="font-size:10px;color:#8FA3B5">BuildTrack — Gestion de chantier</div>
+      <div style="font-size:10px;color:#8FA3B5">Document généré le ${new Date().toLocaleDateString('fr-FR')}</div>
+    </div>
+
   </div>
-  ${visite.notes ? `<div class="notes-box"><strong>Notes :</strong> ${visite.notes}</div>` : ''}
-  <h2>Réserves de cette visite (${reserves.length})</h2>
-  <table>
-    <thead><tr><th>ID</th><th>Titre</th><th>Lieu</th><th>Entreprise</th><th>Priorité</th><th>Statut</th><th>Échéance</th></tr></thead>
-    <tbody>${rows || '<tr><td colspan="7">Aucune réserve rattachée</td></tr>'}</tbody>
-  </table>
   </body></html>`;
 }
 
