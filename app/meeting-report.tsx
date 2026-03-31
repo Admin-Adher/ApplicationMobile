@@ -1,4 +1,4 @@
-import { View, Text, StyleSheet, ScrollView, TextInput, TouchableOpacity, Alert, Platform } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TextInput, TouchableOpacity, Alert, Platform, Modal } from 'react-native';
 import { useState, useCallback, useEffect } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Ionicons } from '@expo/vector-icons';
@@ -7,9 +7,45 @@ import * as Sharing from 'expo-sharing';
 import { C } from '@/constants/colors';
 import { useAuth } from '@/context/AuthContext';
 import { useSettings } from '@/context/SettingsContext';
+import { useApp } from '@/context/AppContext';
 import Header from '@/components/Header';
 import { MeetingReport } from '@/constants/types';
 import BottomNavBar from '@/components/BottomNavBar';
+
+const CRR_TEMPLATES = [
+  {
+    id: 'hebdo',
+    label: 'Réunion hebdomadaire',
+    icon: 'calendar-outline' as const,
+    subject: 'Réunion de chantier hebdomadaire',
+    agenda: '1. Point avancement travaux\n2. Planning semaine suivante\n3. Levée des réserves\n4. Problèmes et blocages\n5. Questions diverses',
+    agendaNote: 'Point avancement travaux réalisé.\nPlanning semaine suivante défini.\nÉtat des réserves en cours de traitement.',
+  },
+  {
+    id: 'reception',
+    label: 'OPR / Réception',
+    icon: 'ribbon-outline' as const,
+    subject: 'Opérations Préalables à la Réception (OPR)',
+    agenda: '1. Visite contradictoire des ouvrages\n2. Levée des réserves précédentes\n3. Constatation des nouvelles réserves\n4. Signatures du PV',
+    agendaNote: 'Visite contradictoire effectuée.\nListe des réserves établie.\nDélais de levée fixés contractuellement.',
+  },
+  {
+    id: 'coordination',
+    label: 'Coordination de chantier',
+    icon: 'people-outline' as const,
+    subject: 'Réunion de coordination interentreprises',
+    agenda: '1. Point sécurité / PPSPS\n2. Coordination des interventions\n3. Gestion des interfaces\n4. Planning co-activités\n5. Divers',
+    agendaNote: 'Point sécurité réalisé.\nCoordination des zones de travail validée.\nPlanning co-activités transmis.',
+  },
+  {
+    id: 'synthese',
+    label: 'Réunion de synthèse BET',
+    icon: 'construct-outline' as const,
+    subject: 'Réunion de synthèse bureaux d\'études',
+    agenda: '1. Cohérence des plans d\'exécution\n2. Points de blocage techniques\n3. Commandes et approvisionnements\n4. Validation des fiches techniques\n5. Planning études',
+    agendaNote: 'Points de blocage identifiés et traités.\nFiches techniques en attente de validation.',
+  },
+];
 
 const MEETING_KEY = 'buildtrack_meetings_v1';
 function genId() { return Math.random().toString(36).slice(2, 10); }
@@ -55,6 +91,7 @@ function buildMeetingHTML(report: MeetingReport, projectName: string): string {
 export default function MeetingReportScreen() {
   const { user, permissions } = useAuth();
   const { projectName } = useSettings();
+  const { reserves, companies, activeChantierId } = useApp();
   const [reports, setReports] = useState<MeetingReport[]>([]);
 
   useEffect(() => {
@@ -63,6 +100,7 @@ export default function MeetingReportScreen() {
     });
   }, []);
   const [showNew, setShowNew] = useState(false);
+  const [showTemplateModal, setShowTemplateModal] = useState(false);
   const [subject, setSubject] = useState('');
   const [date, setDate] = useState(new Date().toLocaleDateString('fr-FR'));
   const [location, setLocation] = useState('');
@@ -76,6 +114,23 @@ export default function MeetingReportScreen() {
     setSubject(''); setDate(new Date().toLocaleDateString('fr-FR')); setLocation('');
     setParticipants(''); setAgenda(''); setNotes(''); setDecisions(''); setNextMeeting('');
   };
+
+  function applyTemplate(tpl: typeof CRR_TEMPLATES[0]) {
+    const openReserves = reserves.filter(r => r.status !== 'closed' && (!activeChantierId || r.chantierId === activeChantierId));
+    const companyNames = companies.map(c => c.name).join(', ');
+    setSubject(tpl.subject + ' — ' + projectName);
+    setAgenda(tpl.agenda);
+    setNotes(tpl.agendaNote);
+    if (tpl.id === 'hebdo') {
+      setDecisions([
+        `${openReserves.length} réserve${openReserves.length !== 1 ? 's' : ''} en cours de traitement`,
+        'Planning semaine suivante validé',
+      ].join('\n'));
+    }
+    if (companyNames) setParticipants(companyNames + (user?.name ? '\n' + user.name : ''));
+    setShowTemplateModal(false);
+    setShowNew(true);
+  }
 
   const handleCreate = useCallback(() => {
     if (!subject.trim()) {
@@ -132,14 +187,31 @@ export default function MeetingReportScreen() {
         subtitle="Comptes-rendus chantier"
         showBack
         rightLabel={permissions.canCreate ? (showNew ? 'Annuler' : 'Nouveau') : undefined}
-        onRightPress={permissions.canCreate ? () => setShowNew(s => !s) : undefined}
+        onRightPress={permissions.canCreate ? () => { if (showNew) { setShowNew(false); resetForm(); } else setShowNew(true); } : undefined}
       />
 
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
 
+        {!showNew && permissions.canCreate && (
+          <TouchableOpacity style={styles.templateBanner} onPress={() => setShowTemplateModal(true)}>
+            <Ionicons name="flash" size={18} color={C.primary} />
+            <View style={{ flex: 1 }}>
+              <Text style={styles.templateBannerTitle}>Générer depuis un modèle CRR</Text>
+              <Text style={styles.templateBannerSub}>Pré-remplissez automatiquement l'ordre du jour selon le type de réunion</Text>
+            </View>
+            <Ionicons name="chevron-forward" size={16} color={C.textMuted} />
+          </TouchableOpacity>
+        )}
+
         {showNew && (
           <View style={styles.card}>
-            <Text style={styles.sectionTitle}>Nouveau compte-rendu</Text>
+            <View style={styles.formTopRow}>
+              <Text style={styles.sectionTitle}>Nouveau compte-rendu</Text>
+              <TouchableOpacity style={styles.tplBtn} onPress={() => setShowTemplateModal(true)}>
+                <Ionicons name="flash-outline" size={13} color={C.primary} />
+                <Text style={styles.tplBtnText}>Modèle</Text>
+              </TouchableOpacity>
+            </View>
             <Text style={styles.label}>Objet *</Text>
             <TextInput style={styles.input} placeholder="Ex: Réunion de chantier hebdomadaire" placeholderTextColor={C.textMuted} value={subject} onChangeText={setSubject} />
             <Text style={styles.label}>Date</Text>
@@ -209,6 +281,32 @@ export default function MeetingReportScreen() {
           </View>
         ))}
       </ScrollView>
+
+      <Modal visible={showTemplateModal} transparent animationType="slide" onRequestClose={() => setShowTemplateModal(false)}>
+        <View style={styles.tplOverlay}>
+          <View style={styles.tplSheet}>
+            <View style={styles.tplHandle} />
+            <Text style={styles.tplSheetTitle}>Choisir un modèle CRR</Text>
+            <Text style={styles.tplSheetSub}>Le formulaire sera pré-rempli selon le type de réunion</Text>
+            {CRR_TEMPLATES.map(tpl => (
+              <TouchableOpacity key={tpl.id} style={styles.tplRow} onPress={() => applyTemplate(tpl)}>
+                <View style={styles.tplRowIcon}>
+                  <Ionicons name={tpl.icon} size={18} color={C.primary} />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.tplRowLabel}>{tpl.label}</Text>
+                  <Text style={styles.tplRowSub} numberOfLines={2}>{tpl.agenda.split('\n')[0]}{tpl.agenda.split('\n').length > 1 ? '…' : ''}</Text>
+                </View>
+                <Ionicons name="chevron-forward" size={16} color={C.textMuted} />
+              </TouchableOpacity>
+            ))}
+            <TouchableOpacity style={styles.tplCancelBtn} onPress={() => setShowTemplateModal(false)}>
+              <Text style={styles.tplCancelText}>Annuler</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
       <BottomNavBar />
     </View>
   );
@@ -239,4 +337,38 @@ const styles = StyleSheet.create({
   decisionRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 8, marginBottom: 4 },
   decisionText: { flex: 1, fontSize: 13, fontFamily: 'Inter_400Regular', color: C.text },
   notesText: { fontSize: 13, fontFamily: 'Inter_400Regular', color: C.textSub, fontStyle: 'italic', lineHeight: 18 },
+
+  templateBanner: {
+    flexDirection: 'row', alignItems: 'center', gap: 12,
+    backgroundColor: C.primaryBg, borderRadius: 14, padding: 14,
+    borderWidth: 1, borderColor: C.primary + '30', marginBottom: 16,
+  },
+  templateBannerTitle: { fontSize: 14, fontFamily: 'Inter_600SemiBold', color: C.text },
+  templateBannerSub: { fontSize: 11, fontFamily: 'Inter_400Regular', color: C.textSub, marginTop: 2 },
+
+  formTopRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 },
+  tplBtn: {
+    flexDirection: 'row', alignItems: 'center', gap: 5,
+    backgroundColor: C.primaryBg, borderRadius: 8, paddingHorizontal: 10, paddingVertical: 6,
+    borderWidth: 1, borderColor: C.primary + '30',
+  },
+  tplBtnText: { fontSize: 12, fontFamily: 'Inter_600SemiBold', color: C.primary },
+
+  tplOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' },
+  tplSheet: {
+    backgroundColor: C.surface, borderTopLeftRadius: 20, borderTopRightRadius: 20,
+    padding: 20, paddingBottom: 36,
+  },
+  tplHandle: { width: 36, height: 4, backgroundColor: C.border, borderRadius: 2, alignSelf: 'center', marginBottom: 16 },
+  tplSheetTitle: { fontSize: 17, fontFamily: 'Inter_700Bold', color: C.text, marginBottom: 4 },
+  tplSheetSub: { fontSize: 12, fontFamily: 'Inter_400Regular', color: C.textMuted, marginBottom: 18 },
+  tplRow: {
+    flexDirection: 'row', alignItems: 'center', gap: 12,
+    paddingVertical: 14, borderBottomWidth: 1, borderBottomColor: C.border,
+  },
+  tplRowIcon: { width: 38, height: 38, borderRadius: 10, backgroundColor: C.primaryBg, alignItems: 'center', justifyContent: 'center' },
+  tplRowLabel: { fontSize: 14, fontFamily: 'Inter_600SemiBold', color: C.text },
+  tplRowSub: { fontSize: 12, fontFamily: 'Inter_400Regular', color: C.textMuted, marginTop: 2 },
+  tplCancelBtn: { alignItems: 'center', paddingVertical: 14, marginTop: 12 },
+  tplCancelText: { fontSize: 15, fontFamily: 'Inter_500Medium', color: C.textSub },
 });

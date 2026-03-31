@@ -3,7 +3,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { openChantierSwitcher } from '@/components/ChantierSwitcherSheet';
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useMemo } from 'react';
 import { C } from '@/constants/colors';
 import { useApp } from '@/context/AppContext';
 import { useAuth } from '@/context/AuthContext';
@@ -11,7 +11,7 @@ import { useSettings } from '@/context/SettingsContext';
 import { useIncidents } from '@/context/IncidentsContext';
 import { useNotifications } from '@/context/NotificationsContext';
 import { parseDeadline, isOverdue } from '@/lib/reserveUtils';
-import { Task } from '@/constants/types';
+import { Task, ReserveWeekStat, CompanyClosureStat } from '@/constants/types';
 
 function isTaskLate(t: Task): boolean {
   if (t.status === 'done') return false;
@@ -21,6 +21,20 @@ function isTaskLate(t: Task): boolean {
   const today = new Date();
   today.setHours(0, 0, 0, 0);
   return d < today;
+}
+
+function getWeekLabel(date: Date): string {
+  const d = new Date(date);
+  d.setHours(0, 0, 0, 0);
+  d.setDate(d.getDate() - d.getDay() + 1);
+  return `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}`;
+}
+
+function getWeekKey(date: Date): string {
+  const d = new Date(date);
+  d.setHours(0, 0, 0, 0);
+  d.setDate(d.getDate() - d.getDay() + 1);
+  return d.toISOString().slice(0, 10);
 }
 
 function KPICard({
@@ -64,16 +78,83 @@ function ReserveStatusBar({ label, count, total, color }: { label: string; count
   );
 }
 
+function WeekTrendChart({ weekStats }: { weekStats: ReserveWeekStat[] }) {
+  const maxVal = Math.max(...weekStats.map(w => Math.max(w.created, w.closed)), 1);
+  return (
+    <View style={styles.chartContainer}>
+      <View style={styles.chartLegend}>
+        <View style={styles.legendItem}>
+          <View style={[styles.legendDot, { backgroundColor: C.open }]} />
+          <Text style={styles.legendText}>Créées</Text>
+        </View>
+        <View style={styles.legendItem}>
+          <View style={[styles.legendDot, { backgroundColor: C.closed }]} />
+          <Text style={styles.legendText}>Clôturées</Text>
+        </View>
+      </View>
+      <View style={styles.chartBars}>
+        {weekStats.map((week, i) => (
+          <View key={i} style={styles.barGroup}>
+            <View style={styles.barPair}>
+              <View style={styles.barCol}>
+                <View style={[styles.bar, {
+                  height: Math.max(2, (week.created / maxVal) * 80),
+                  backgroundColor: C.open,
+                }]} />
+              </View>
+              <View style={styles.barCol}>
+                <View style={[styles.bar, {
+                  height: Math.max(2, (week.closed / maxVal) * 80),
+                  backgroundColor: C.closed,
+                }]} />
+              </View>
+            </View>
+            <Text style={styles.barLabel}>{week.label}</Text>
+          </View>
+        ))}
+      </View>
+    </View>
+  );
+}
+
+function CompanyTable({ stats }: { stats: CompanyClosureStat[] }) {
+  return (
+    <View style={styles.companyTable}>
+      {stats.map((co, i) => (
+        <View key={i} style={styles.companyRow}>
+          <View style={[styles.companyDot, { backgroundColor: co.color }]} />
+          <Text style={styles.companyName} numberOfLines={1}>{co.companyName}</Text>
+          <View style={styles.companyBarWrap}>
+            <View style={[styles.companyBarFill, {
+              width: `${co.rate}%` as any,
+              backgroundColor: co.rate >= 70 ? C.closed : co.rate >= 40 ? C.inProgress : C.open,
+            }]} />
+          </View>
+          <Text style={[styles.companyRate, {
+            color: co.rate >= 70 ? C.closed : co.rate >= 40 ? C.inProgress : C.open,
+          }]}>{co.rate}%</Text>
+          {co.overdue > 0 && (
+            <View style={styles.overdueTag}>
+              <Text style={styles.overdueTagText}>{co.overdue}⚠</Text>
+            </View>
+          )}
+        </View>
+      ))}
+    </View>
+  );
+}
+
 export default function DashboardScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
-  const { stats, reserves, companies, tasks, reload, chantiers, activeChantier } = useApp();
+  const { stats, reserves, companies, tasks, reload, chantiers, activeChantier, realtimeConnected } = useApp();
   const { user } = useAuth();
   const { projectName } = useSettings();
   const { incidents } = useIncidents();
   const { unreadCount } = useNotifications();
   const topPad = Platform.OS === 'web' ? 67 : insets.top;
   const [refreshing, setRefreshing] = useState(false);
+  const [analyticsTab, setAnalyticsTab] = useState<'trend' | 'companies'>('trend');
 
   const PRIORITY_LABELS: Record<string, string> = {
     low: 'Basse', medium: 'Moyenne', high: 'Haute', critical: 'Critique',
@@ -98,6 +179,42 @@ export default function DashboardScreen() {
     }
   }, [reload]);
 
+  const weekStats = useMemo((): ReserveWeekStat[] => {
+    const now = new Date();
+    const weeks: Map<string, ReserveWeekStat> = new Map();
+    for (let i = 7; i >= 0; i--) {
+      const d = new Date(now);
+      d.setDate(d.getDate() - i * 7);
+      const key = getWeekKey(d);
+      const label = getWeekLabel(d);
+      weeks.set(key, { week: key, label, created: 0, closed: 0 });
+    }
+    reserves.forEach(r => {
+      if (r.createdAt) {
+        const key = getWeekKey(new Date(r.createdAt));
+        const w = weeks.get(key);
+        if (w) w.created += 1;
+      }
+      if (r.closedAt) {
+        const key = getWeekKey(new Date(r.closedAt));
+        const w = weeks.get(key);
+        if (w) w.closed += 1;
+      }
+    });
+    return Array.from(weeks.values());
+  }, [reserves]);
+
+  const companyStats = useMemo((): CompanyClosureStat[] => {
+    return companies.map(co => {
+      const coReserves = reserves.filter(r => r.company === co.name);
+      const closed = coReserves.filter(r => r.status === 'closed').length;
+      const total = coReserves.length;
+      const overdue = coReserves.filter(r => r.status !== 'closed' && isOverdue(r.deadline, r.status)).length;
+      const rate = total > 0 ? Math.round((closed / total) * 100) : 0;
+      return { companyName: co.name, color: co.color, total, closed, rate, overdue };
+    }).filter(c => c.total > 0).sort((a, b) => b.rate - a.rate);
+  }, [reserves, companies]);
+
   return (
     <View style={styles.container}>
       <View style={[styles.header, { paddingTop: topPad + 12 }]}>
@@ -111,6 +228,9 @@ export default function DashboardScreen() {
           </View>
         </View>
         <View style={styles.headerRight}>
+          {realtimeConnected && (
+            <View style={styles.realtimeDot} />
+          )}
           <TouchableOpacity
             style={styles.bellBtn}
             onPress={() => router.push('/notifications' as any)}
@@ -152,7 +272,6 @@ export default function DashboardScreen() {
           <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={C.primary} colors={[C.primary]} />
         }
       >
-        {/* KPI 2×2 grid */}
         <View style={styles.kpiGrid}>
           <KPICard
             label="Total réserves"
@@ -188,7 +307,6 @@ export default function DashboardScreen() {
           />
         </View>
 
-        {/* 5th KPI — wide card for late tasks */}
         <TouchableOpacity
           style={[styles.kpiWide, { borderLeftColor: lateTasks.length > 0 ? C.waiting : C.closed }]}
           onPress={() => router.push('/planning' as any)}
@@ -212,7 +330,6 @@ export default function DashboardScreen() {
           <Ionicons name="chevron-forward" size={16} color={C.textMuted} />
         </TouchableOpacity>
 
-        {/* 6th KPI — wide card for open incidents */}
         <TouchableOpacity
           style={[styles.kpiWide, { borderLeftColor: openIncidents.length > 0 ? '#EF4444' : C.closed }]}
           onPress={() => router.push('/incidents' as any)}
@@ -236,7 +353,6 @@ export default function DashboardScreen() {
           <Ionicons name="chevron-forward" size={16} color={C.textMuted} />
         </TouchableOpacity>
 
-        {/* Onboarding — Aucun chantier créé */}
         {chantiers.length === 0 && (
           <View style={[styles.onboardCard, { borderColor: C.primary + '40', borderWidth: 1.5 }]}>
             <View style={styles.onboardIconWrap}>
@@ -258,7 +374,6 @@ export default function DashboardScreen() {
           </View>
         )}
 
-        {/* État vide — chantier initialisé, aucune réserve */}
         {chantiers.length > 0 && stats.total === 0 && companies.length === 0 && (
           <View style={styles.onboardCard}>
             <View style={styles.onboardIconWrap}>
@@ -287,7 +402,6 @@ export default function DashboardScreen() {
           </View>
         )}
 
-        {/* Avancement global */}
         {stats.total > 0 && (
           <View style={styles.card}>
             <View style={styles.cardHeader}>
@@ -303,7 +417,6 @@ export default function DashboardScreen() {
           </View>
         )}
 
-        {/* Répartition des statuts */}
         {stats.total > 0 && (
           <View style={styles.card}>
             <Text style={styles.cardTitle}>Répartition des réserves</Text>
@@ -317,7 +430,52 @@ export default function DashboardScreen() {
           </View>
         )}
 
-        {/* Personnel */}
+        {stats.total > 0 && (
+          <View style={styles.card}>
+            <View style={styles.cardHeader}>
+              <Text style={styles.cardTitle}>Analyse & tendances</Text>
+              <View style={styles.tabSwitch}>
+                <TouchableOpacity
+                  style={[styles.tabSwitchBtn, analyticsTab === 'trend' && styles.tabSwitchBtnActive]}
+                  onPress={() => setAnalyticsTab('trend')}
+                >
+                  <Text style={[styles.tabSwitchText, analyticsTab === 'trend' && styles.tabSwitchTextActive]}>
+                    Évolution
+                  </Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[styles.tabSwitchBtn, analyticsTab === 'companies' && styles.tabSwitchBtnActive]}
+                  onPress={() => setAnalyticsTab('companies')}
+                >
+                  <Text style={[styles.tabSwitchText, analyticsTab === 'companies' && styles.tabSwitchTextActive]}>
+                    Entreprises
+                  </Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+
+            {analyticsTab === 'trend' && (
+              <>
+                <Text style={styles.chartSubtitle}>8 dernières semaines</Text>
+                <WeekTrendChart weekStats={weekStats} />
+              </>
+            )}
+
+            {analyticsTab === 'companies' && (
+              <>
+                {companyStats.length === 0 ? (
+                  <Text style={styles.emptyAnalytics}>Aucune donnée entreprise disponible</Text>
+                ) : (
+                  <>
+                    <Text style={styles.chartSubtitle}>Taux de clôture par entreprise</Text>
+                    <CompanyTable stats={companyStats} />
+                  </>
+                )}
+              </>
+            )}
+          </View>
+        )}
+
         <View style={styles.card}>
           <View style={styles.cardHeader}>
             <Text style={styles.cardTitle}>Personnel aujourd'hui</Text>
@@ -343,7 +501,6 @@ export default function DashboardScreen() {
           })}
         </View>
 
-        {/* Alertes critiques */}
         {criticalReserves.length > 0 && (
           <View style={styles.alertCard}>
             <View style={styles.alertHeader}>
@@ -372,7 +529,6 @@ export default function DashboardScreen() {
           </View>
         )}
 
-        {/* Réserves en retard (non critiques) */}
         {overdueNonCritical.length > 0 && (
           <View style={styles.overdueCard}>
             <View style={styles.alertHeader}>
@@ -401,7 +557,6 @@ export default function DashboardScreen() {
           </View>
         )}
 
-        {/* Tâches en retard */}
         {lateTasks.length > 0 && (
           <View style={styles.delayCard}>
             <View style={styles.alertHeader}>
@@ -450,6 +605,10 @@ const styles = StyleSheet.create({
   },
   headerLeft: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   headerRight: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  realtimeDot: {
+    width: 8, height: 8, borderRadius: 4,
+    backgroundColor: '#22C55E',
+  },
   bellBtn: {
     width: 36, height: 36,
     borderRadius: 10,
@@ -466,11 +625,7 @@ const styles = StyleSheet.create({
     alignItems: 'center', justifyContent: 'center',
     paddingHorizontal: 3,
   },
-  bellBadgeText: {
-    fontSize: 9,
-    fontFamily: 'Inter_700Bold',
-    color: '#fff',
-  },
+  bellBadgeText: { fontSize: 9, fontFamily: 'Inter_700Bold', color: '#fff' },
   logoMini: {
     width: 34, height: 34,
     backgroundColor: C.primary,
@@ -480,15 +635,6 @@ const styles = StyleSheet.create({
   logoMiniLetter: { fontSize: 18, fontFamily: 'Inter_700Bold', color: C.accent },
   brand: { fontSize: 16, fontFamily: 'Inter_700Bold', color: C.text },
   date: { fontSize: 11, fontFamily: 'Inter_400Regular', color: C.textSub, marginTop: 1 },
-  roleBadge: {
-    backgroundColor: C.surface2,
-    paddingHorizontal: 8, paddingVertical: 4,
-    borderRadius: 12, borderWidth: 1, borderColor: C.border,
-  },
-  roleText: { fontSize: 10, fontFamily: 'Inter_600SemiBold', color: C.textSub },
-  projectBadge: { backgroundColor: C.primary, paddingHorizontal: 10, paddingVertical: 5, borderRadius: 16 },
-  projectText: { fontSize: 11, fontFamily: 'Inter_600SemiBold', color: '#fff' },
-
   chantierPill: {
     flexDirection: 'row', alignItems: 'center', gap: 5,
     backgroundColor: C.primaryBg, paddingHorizontal: 10, paddingVertical: 6,
@@ -502,9 +648,7 @@ const styles = StyleSheet.create({
     borderRadius: 20, borderWidth: 1, borderColor: C.border,
   },
   chantierPillEmptyText: { fontSize: 12, fontFamily: 'Inter_500Medium', color: C.textMuted },
-
   content: { padding: 14, paddingBottom: 36 },
-
   kpiGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10, marginBottom: 10 },
   kpiTouchable: { flex: 1, minWidth: '44%' },
   kpiCardTop: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 },
@@ -520,7 +664,6 @@ const styles = StyleSheet.create({
   kpiIconWrap: { width: 36, height: 36, borderRadius: 10, alignItems: 'center', justifyContent: 'center' },
   kpiValue: { fontSize: 28, fontFamily: 'Inter_700Bold', color: C.text, marginBottom: 2 },
   kpiLabel: { fontSize: 11, fontFamily: 'Inter_400Regular', color: C.textSub },
-
   kpiWide: {
     flexDirection: 'row', alignItems: 'center', gap: 14,
     backgroundColor: C.surface, borderRadius: 14, padding: 14,
@@ -531,7 +674,6 @@ const styles = StyleSheet.create({
       default: { shadowColor: '#003082', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.06, shadowRadius: 6 },
     }),
   },
-
   card: {
     backgroundColor: C.surface, borderRadius: 14, padding: 16,
     marginBottom: 10, borderWidth: 1, borderColor: C.border, elevation: 1,
@@ -544,86 +686,124 @@ const styles = StyleSheet.create({
   cardTitle: { fontSize: 15, fontFamily: 'Inter_700Bold', color: C.text },
   cardSub: { fontSize: 12, fontFamily: 'Inter_400Regular', color: C.textSub },
   pctBadge: { backgroundColor: C.primaryBg, paddingHorizontal: 10, paddingVertical: 4, borderRadius: 20 },
-  pct: { fontSize: 15, fontFamily: 'Inter_700Bold', color: C.primary },
-  progressBg: { height: 8, backgroundColor: C.border, borderRadius: 4, overflow: 'hidden', marginBottom: 8 },
-  progressFill: { height: '100%', backgroundColor: C.primary, borderRadius: 4 },
-  progressHint: { fontSize: 12, fontFamily: 'Inter_400Regular', color: C.textMuted },
-
-  statusBars: { gap: 12, marginTop: 8 },
+  pct: { fontSize: 13, fontFamily: 'Inter_700Bold', color: C.primary },
+  progressBg: { height: 8, backgroundColor: C.surface2, borderRadius: 6, overflow: 'hidden', marginBottom: 6 },
+  progressFill: { height: 8, backgroundColor: C.primary, borderRadius: 6 },
+  progressHint: { fontSize: 12, fontFamily: 'Inter_400Regular', color: C.textSub },
+  statusBars: { gap: 8 },
   statusRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   statusDot: { width: 8, height: 8, borderRadius: 4 },
-  statusLabel: { fontSize: 12, fontFamily: 'Inter_400Regular', color: C.textSub, width: 82 },
-  statusBarWrap: { flex: 1, height: 6, backgroundColor: C.border, borderRadius: 3, overflow: 'hidden' },
-  statusBarFill: { height: '100%', borderRadius: 3 },
-  statusCount: { fontSize: 12, fontFamily: 'Inter_700Bold', width: 22, textAlign: 'right' },
+  statusLabel: { fontSize: 12, fontFamily: 'Inter_400Regular', color: C.textSub, width: 72 },
+  statusBarWrap: { flex: 1, height: 6, backgroundColor: C.surface2, borderRadius: 4, overflow: 'hidden' },
+  statusBarFill: { height: 6, borderRadius: 4 },
+  statusCount: { fontSize: 12, fontFamily: 'Inter_700Bold', width: 28, textAlign: 'right' },
 
-  coRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 10 },
-  coDot: { width: 8, height: 8, borderRadius: 4 },
-  coName: { fontSize: 12, fontFamily: 'Inter_500Medium', color: C.textSub, width: 64 },
-  coBarWrap: { flex: 1, height: 6, backgroundColor: C.border, borderRadius: 3, overflow: 'hidden' },
-  coBarFill: { height: '100%', borderRadius: 3 },
+  tabSwitch: { flexDirection: 'row', gap: 4, backgroundColor: C.surface2, borderRadius: 10, padding: 3 },
+  tabSwitchBtn: { paddingHorizontal: 10, paddingVertical: 5, borderRadius: 8 },
+  tabSwitchBtnActive: { backgroundColor: C.surface },
+  tabSwitchText: { fontSize: 11, fontFamily: 'Inter_500Medium', color: C.textMuted },
+  tabSwitchTextActive: { color: C.primary, fontFamily: 'Inter_600SemiBold' },
+  chartSubtitle: { fontSize: 11, fontFamily: 'Inter_400Regular', color: C.textMuted, marginBottom: 12 },
+  emptyAnalytics: { fontSize: 13, fontFamily: 'Inter_400Regular', color: C.textMuted, textAlign: 'center', paddingVertical: 20 },
+
+  chartContainer: { gap: 8 },
+  chartLegend: { flexDirection: 'row', gap: 16, marginBottom: 8 },
+  legendItem: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  legendDot: { width: 10, height: 10, borderRadius: 3 },
+  legendText: { fontSize: 11, fontFamily: 'Inter_400Regular', color: C.textSub },
+  chartBars: { flexDirection: 'row', alignItems: 'flex-end', gap: 6, height: 100 },
+  barGroup: { flex: 1, alignItems: 'center', gap: 4 },
+  barPair: { flexDirection: 'row', alignItems: 'flex-end', gap: 2, height: 80 },
+  barCol: { flex: 1, justifyContent: 'flex-end' },
+  bar: { borderRadius: 3, minHeight: 2 },
+  barLabel: { fontSize: 9, fontFamily: 'Inter_400Regular', color: C.textMuted, textAlign: 'center' },
+
+  companyTable: { gap: 10 },
+  companyRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  companyDot: { width: 10, height: 10, borderRadius: 5 },
+  companyName: { fontSize: 12, fontFamily: 'Inter_500Medium', color: C.text, width: 90 },
+  companyBarWrap: { flex: 1, height: 8, backgroundColor: C.surface2, borderRadius: 4, overflow: 'hidden' },
+  companyBarFill: { height: 8, borderRadius: 4 },
+  companyRate: { fontSize: 12, fontFamily: 'Inter_700Bold', width: 34, textAlign: 'right' },
+  overdueTag: { backgroundColor: '#EF444415', borderRadius: 6, paddingHorizontal: 5, paddingVertical: 2 },
+  overdueTagText: { fontSize: 10, fontFamily: 'Inter_600SemiBold', color: '#EF4444' },
+
+  coRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 8 },
+  coDot: { width: 10, height: 10, borderRadius: 5 },
+  coName: { fontSize: 12, fontFamily: 'Inter_500Medium', color: C.text, width: 60 },
+  coBarWrap: { flex: 1, height: 8, backgroundColor: C.surface2, borderRadius: 4, overflow: 'hidden' },
+  coBarFill: { height: 8, borderRadius: 4 },
   coCount: { fontSize: 12, fontFamily: 'Inter_700Bold', width: 52, textAlign: 'right' },
 
-  alertCard: {
-    backgroundColor: C.openBg, borderRadius: 14, padding: 16,
-    marginBottom: 10, borderWidth: 1, borderColor: 'rgba(220,38,38,0.2)',
-  },
-  alertHeader: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 12 },
-  alertIconWrap: { width: 28, height: 28, borderRadius: 8, backgroundColor: 'rgba(220,38,38,0.12)', alignItems: 'center', justifyContent: 'center' },
-  alertTitle: { fontSize: 14, fontFamily: 'Inter_700Bold', color: C.critical, flex: 1 },
-  alertCount: { backgroundColor: C.critical, borderRadius: 10, paddingHorizontal: 8, paddingVertical: 2 },
-  alertCountText: { fontSize: 11, fontFamily: 'Inter_700Bold', color: '#fff' },
-  alertItem: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 10, borderTopWidth: 1, borderTopColor: 'rgba(220,38,38,0.12)' },
-  alertDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: C.critical },
-  alertText: { fontSize: 13, fontFamily: 'Inter_600SemiBold', color: C.text },
-  alertSub: { fontSize: 11, fontFamily: 'Inter_400Regular', color: C.textSub, marginTop: 2 },
-
-  overdueCard: {
-    backgroundColor: C.highBg, borderRadius: 14, padding: 16,
-    marginBottom: 10, borderWidth: 1, borderColor: 'rgba(234,88,12,0.2)',
-  },
-  overdueIconWrap: { width: 28, height: 28, borderRadius: 8, backgroundColor: 'rgba(234,88,12,0.12)', alignItems: 'center', justifyContent: 'center' },
-  overdueTitle: { fontSize: 14, fontFamily: 'Inter_700Bold', color: C.high, flex: 1 },
-  overdueCount: { backgroundColor: C.high, borderRadius: 10, paddingHorizontal: 8, paddingVertical: 2 },
-  overdueCountText: { fontSize: 11, fontFamily: 'Inter_700Bold', color: '#fff' },
-  overdueItem: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 10, borderTopWidth: 1, borderTopColor: 'rgba(234,88,12,0.12)' },
-
-  delayCard: {
-    backgroundColor: C.waitingBg, borderRadius: 14, padding: 16,
-    marginBottom: 10, borderWidth: 1, borderColor: 'rgba(217,119,6,0.25)',
-  },
-  delayIconWrap: { width: 28, height: 28, borderRadius: 8, backgroundColor: 'rgba(217,119,6,0.14)', alignItems: 'center', justifyContent: 'center' },
-  delayTitle: { fontSize: 14, fontFamily: 'Inter_700Bold', color: C.waiting, flex: 1 },
-  delayCount: { backgroundColor: C.waiting, borderRadius: 10, paddingHorizontal: 8, paddingVertical: 2 },
-  delayCountText: { fontSize: 11, fontFamily: 'Inter_700Bold', color: '#fff' },
-  delayItem: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 10, borderTopWidth: 1, borderTopColor: 'rgba(217,119,6,0.15)' },
-  delayDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: C.waiting },
-
   onboardCard: {
-    backgroundColor: C.surface, borderRadius: 16, padding: 20,
-    marginBottom: 10, borderWidth: 1, borderColor: C.border,
-    alignItems: 'center',
-    ...Platform.select({
-      web: { boxShadow: '0px 2px 12px rgba(0,48,130,0.08)' } as any,
-      default: { shadowColor: '#003082', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.08, shadowRadius: 12 },
-    }),
+    backgroundColor: C.surface, borderRadius: 16, padding: 24,
+    alignItems: 'center', marginBottom: 10, borderWidth: 1, borderColor: C.border,
   },
   onboardIconWrap: {
-    width: 64, height: 64, borderRadius: 20, backgroundColor: C.primaryBg,
+    width: 64, height: 64, borderRadius: 20,
+    backgroundColor: C.primaryBg,
     alignItems: 'center', justifyContent: 'center', marginBottom: 14,
   },
-  onboardTitle: { fontSize: 18, fontFamily: 'Inter_700Bold', color: C.text, marginBottom: 8, textAlign: 'center' },
-  onboardText: { fontSize: 13, fontFamily: 'Inter_400Regular', color: C.textSub, textAlign: 'center', lineHeight: 20, marginBottom: 20 },
-  onboardActions: { flexDirection: 'row', gap: 10, width: '100%' },
+  onboardTitle: { fontSize: 17, fontFamily: 'Inter_700Bold', color: C.text, marginBottom: 8, textAlign: 'center' },
+  onboardText: { fontSize: 13, fontFamily: 'Inter_400Regular', color: C.textSub, textAlign: 'center', lineHeight: 20, marginBottom: 18 },
+  onboardActions: { flexDirection: 'row', gap: 10, flexWrap: 'wrap', justifyContent: 'center' },
   onboardBtn: {
-    flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6,
-    backgroundColor: C.primary, borderRadius: 12, paddingVertical: 12,
+    flexDirection: 'row', alignItems: 'center', gap: 7,
+    backgroundColor: C.primary, paddingHorizontal: 18, paddingVertical: 12, borderRadius: 12,
   },
-  onboardBtnText: { fontSize: 13, fontFamily: 'Inter_600SemiBold', color: '#fff' },
+  onboardBtnText: { fontSize: 14, fontFamily: 'Inter_600SemiBold', color: '#fff' },
   onboardBtnSecondary: {
-    flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6,
-    backgroundColor: C.primaryBg, borderRadius: 12, paddingVertical: 12,
-    borderWidth: 1, borderColor: C.primary + '40',
+    flexDirection: 'row', alignItems: 'center', gap: 7,
+    backgroundColor: C.primaryBg, paddingHorizontal: 18, paddingVertical: 12,
+    borderRadius: 12, borderWidth: 1, borderColor: C.primary + '40',
   },
-  onboardBtnSecondaryText: { fontSize: 13, fontFamily: 'Inter_600SemiBold', color: C.primary },
+  onboardBtnSecondaryText: { fontSize: 14, fontFamily: 'Inter_600SemiBold', color: C.primary },
+
+  alertCard: {
+    backgroundColor: C.surface, borderRadius: 14, padding: 14,
+    borderWidth: 1, borderColor: C.critical + '30',
+    borderLeftWidth: 4, borderLeftColor: C.critical,
+    marginBottom: 10,
+  },
+  alertHeader: { flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 12 },
+  alertIconWrap: {
+    width: 30, height: 30, borderRadius: 8,
+    backgroundColor: C.critical + '15',
+    alignItems: 'center', justifyContent: 'center',
+  },
+  alertTitle: { flex: 1, fontSize: 14, fontFamily: 'Inter_700Bold', color: C.critical },
+  alertCount: {
+    backgroundColor: C.critical, width: 22, height: 22,
+    borderRadius: 11, alignItems: 'center', justifyContent: 'center',
+  },
+  alertCountText: { fontSize: 11, fontFamily: 'Inter_700Bold', color: '#fff' },
+  alertItem: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 8, borderTopWidth: 1, borderTopColor: C.border },
+  alertDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: C.critical },
+  alertText: { fontSize: 13, fontFamily: 'Inter_600SemiBold', color: C.text },
+  alertSub: { fontSize: 11, fontFamily: 'Inter_400Regular', color: C.textMuted, marginTop: 2 },
+
+  overdueCard: {
+    backgroundColor: C.surface, borderRadius: 14, padding: 14,
+    borderWidth: 1, borderColor: C.high + '30',
+    borderLeftWidth: 4, borderLeftColor: C.high,
+    marginBottom: 10,
+  },
+  overdueIconWrap: { width: 30, height: 30, borderRadius: 8, backgroundColor: C.high + '15', alignItems: 'center', justifyContent: 'center' },
+  overdueTitle: { flex: 1, fontSize: 14, fontFamily: 'Inter_700Bold', color: C.high },
+  overdueCount: { backgroundColor: C.high, width: 22, height: 22, borderRadius: 11, alignItems: 'center', justifyContent: 'center' },
+  overdueCountText: { fontSize: 11, fontFamily: 'Inter_700Bold', color: '#fff' },
+  overdueItem: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 8, borderTopWidth: 1, borderTopColor: C.border },
+
+  delayCard: {
+    backgroundColor: C.surface, borderRadius: 14, padding: 14,
+    borderWidth: 1, borderColor: C.waiting + '30',
+    borderLeftWidth: 4, borderLeftColor: C.waiting,
+    marginBottom: 10,
+  },
+  delayIconWrap: { width: 30, height: 30, borderRadius: 8, backgroundColor: C.waiting + '15', alignItems: 'center', justifyContent: 'center' },
+  delayTitle: { flex: 1, fontSize: 14, fontFamily: 'Inter_700Bold', color: C.waiting },
+  delayCount: { backgroundColor: C.waiting, width: 22, height: 22, borderRadius: 11, alignItems: 'center', justifyContent: 'center' },
+  delayCountText: { fontSize: 11, fontFamily: 'Inter_700Bold', color: '#fff' },
+  delayItem: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 8, borderTopWidth: 1, borderTopColor: C.border },
+  delayDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: C.waiting },
 });

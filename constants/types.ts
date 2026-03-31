@@ -11,6 +11,7 @@ export type IncidentStatus = 'open' | 'investigating' | 'resolved';
 export type ChantierStatus = 'active' | 'completed' | 'paused';
 export type VisiteStatus = 'planned' | 'in_progress' | 'completed';
 export type OprStatus = 'draft' | 'in_progress' | 'signed';
+export type AnnotationTool = 'dot' | 'arrow' | 'rect' | 'text' | 'measure';
 
 export interface User {
   id: string;
@@ -97,6 +98,11 @@ export interface SitePlan {
   dxfName?: string;
   uploadedAt: string;
   size?: string;
+  revisionCode?: string;
+  revisionNumber?: number;
+  parentPlanId?: string;
+  isLatestRevision?: boolean;
+  revisionNote?: string;
 }
 
 export interface Lot {
@@ -106,6 +112,7 @@ export interface Lot {
   color: string;
   chantierId?: string;
   companyId?: string;
+  cctpRef?: string;
 }
 
 export interface Visite {
@@ -136,6 +143,15 @@ export interface OprItem {
   note?: string;
 }
 
+export interface OprSignatory {
+  id: string;
+  name: string;
+  role: string;
+  email?: string;
+  signature?: string;
+  signedAt?: string;
+}
+
 export interface Opr {
   id: string;
   chantierId: string;
@@ -152,6 +168,9 @@ export interface Opr {
   conducteurSignature?: string;
   moSignature?: string;
   createdAt: string;
+  signatories?: OprSignatory[];
+  invitedEmails?: string[];
+  sessionToken?: string;
 }
 
 export interface PhotoAnnotation {
@@ -160,6 +179,13 @@ export interface PhotoAnnotation {
   y: number;
   color: string;
   label: string;
+  tool?: AnnotationTool;
+  x2?: number;
+  y2?: number;
+  width?: number;
+  height?: number;
+  text?: string;
+  fontSize?: number;
 }
 
 export interface ReservePhoto {
@@ -170,6 +196,9 @@ export interface ReservePhoto {
   takenAt: string;
   takenBy: string;
   annotations?: PhotoAnnotation[];
+  gpsLat?: number;
+  gpsLon?: number;
+  gpsAccuracy?: number;
 }
 
 export interface Reserve {
@@ -202,6 +231,8 @@ export interface Reserve {
   enterpriseSignature?: string;
   enterpriseSignataire?: string;
   enterpriseAcknowledgedAt?: string;
+  gpsLat?: number;
+  gpsLon?: number;
 }
 
 export interface Company {
@@ -218,6 +249,7 @@ export interface Company {
   insurance?: string;
   qualifications?: string;
   lots?: string[];
+  email?: string;
 }
 
 export interface Task {
@@ -255,6 +287,9 @@ export interface Photo {
   takenBy: string;
   colorCode: string;
   uri?: string;
+  gpsLat?: number;
+  gpsLon?: number;
+  gpsAccuracy?: number;
 }
 
 export interface Message {
@@ -355,6 +390,7 @@ export interface MeetingReportAction {
 
 export interface MeetingReport {
   id: string;
+  number?: string;
   subject: string;
   date: string;
   location: string;
@@ -366,6 +402,17 @@ export interface MeetingReport {
   nextMeeting: string;
   redactedBy: string;
   createdAt: string;
+  chantierName?: string;
+}
+
+export interface WeatherData {
+  temperature: number;
+  windspeed: number;
+  weathercode: number;
+  description: string;
+  icon: string;
+  humidity?: number;
+  fetchedAt?: string;
 }
 
 export interface JournalEntry {
@@ -380,6 +427,10 @@ export interface JournalEntry {
   observations: string;
   visitors: string;
   createdAt: string;
+  weatherTemp?: number;
+  weatherWind?: number;
+  weatherDescription?: string;
+  weatherCode?: number;
 }
 
 export interface TimeEntry {
@@ -411,4 +462,29 @@ export interface RegulatoryDoc {
   uri?: string;
   createdAt: string;
   createdBy: string;
+}
+
+export interface BTPIntegration {
+  id: string;
+  name: string;
+  type: 'google_drive' | 'autodesk' | 'dropbox' | 'procore' | 'generic';
+  enabled: boolean;
+  config?: Record<string, string>;
+  lastSync?: string;
+}
+
+export interface ReserveWeekStat {
+  week: string;
+  label: string;
+  created: number;
+  closed: number;
+}
+
+export interface CompanyClosureStat {
+  companyName: string;
+  color: string;
+  total: number;
+  closed: number;
+  rate: number;
+  overdue: number;
 }

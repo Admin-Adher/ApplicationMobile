@@ -16,6 +16,7 @@ const LOT_COLORS = [
 ];
 
 function LotCard({ lot, count, onDelete, canDelete }: { lot: Lot; count: number; onDelete: () => void; canDelete: boolean }) {
+  const isStandard = !!STANDARD_LOTS.find(l => l.id === lot.id);
   return (
     <View style={[styles.lotCard, { borderLeftColor: lot.color }]}>
       <View style={styles.lotInfo}>
@@ -23,11 +24,22 @@ function LotCard({ lot, count, onDelete, canDelete }: { lot: Lot; count: number;
           <Text style={[styles.lotCodeText, { color: lot.color }]}>{lot.code}</Text>
         </View>
         <View style={{ flex: 1 }}>
-          <Text style={styles.lotName}>{lot.name}</Text>
+          <View style={styles.lotNameRow}>
+            <Text style={styles.lotName}>{lot.name}</Text>
+            {isStandard && (
+              <View style={styles.cctpBadge}>
+                <Ionicons name="document-text-outline" size={10} color={C.primary} />
+                <Text style={styles.cctpBadgeText}>CCTP</Text>
+              </View>
+            )}
+          </View>
+          {(lot as any).cctpRef ? (
+            <Text style={styles.lotCctpRef} numberOfLines={1}>{(lot as any).cctpRef}</Text>
+          ) : null}
           <Text style={styles.lotCount}>{count} réserve{count !== 1 ? 's' : ''}</Text>
         </View>
       </View>
-      {canDelete && !STANDARD_LOTS.find(l => l.id === lot.id) && (
+      {canDelete && !isStandard && (
         <TouchableOpacity onPress={onDelete} hitSlop={8}>
           <Ionicons name="trash-outline" size={15} color={C.textMuted} />
         </TouchableOpacity>
@@ -235,8 +247,16 @@ const styles = StyleSheet.create({
   lotInfo: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 12 },
   lotCode: { width: 38, height: 38, borderRadius: 10, alignItems: 'center', justifyContent: 'center' },
   lotCodeText: { fontSize: 13, fontFamily: 'Inter_700Bold' },
+  lotNameRow: { flexDirection: 'row', alignItems: 'center', gap: 6, flexWrap: 'wrap' },
   lotName: { fontSize: 14, fontFamily: 'Inter_500Medium', color: C.text },
-  lotCount: { fontSize: 11, fontFamily: 'Inter_400Regular', color: C.textMuted, marginTop: 2 },
+  cctpBadge: {
+    flexDirection: 'row', alignItems: 'center', gap: 3,
+    backgroundColor: C.primaryBg, paddingHorizontal: 6, paddingVertical: 2, borderRadius: 6,
+    borderWidth: 1, borderColor: C.primary + '30',
+  },
+  cctpBadgeText: { fontSize: 9, fontFamily: 'Inter_600SemiBold', color: C.primary },
+  lotCctpRef: { fontSize: 11, fontFamily: 'Inter_400Regular', color: C.textMuted, marginTop: 1, marginBottom: 2 },
+  lotCount: { fontSize: 11, fontFamily: 'Inter_400Regular', color: C.textMuted },
 
   newLotBtn: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8,

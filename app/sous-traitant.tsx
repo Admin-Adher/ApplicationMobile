@@ -214,6 +214,45 @@ export default function SousTraitantScreen() {
               </View>
             </View>
 
+            {(() => {
+              const allCo = reserves.filter(r => displayCompany && r.company === displayCompany.name);
+              const closedCo = allCo.filter(r => r.status === 'closed').length;
+              const totalCo = allCo.length;
+              const pct = totalCo > 0 ? Math.round((closedCo / totalCo) * 100) : 0;
+              const overdue = allCo.filter(r => {
+                if (r.status === 'closed') return false;
+                if (!r.deadline || r.deadline === '—') return false;
+                const parts = r.deadline.split('/');
+                if (parts.length !== 3) return false;
+                return new Date(`${parts[2]}-${parts[1]}-${parts[0]}`) < new Date();
+              }).length;
+              return (
+                <View style={styles.progressCard}>
+                  <View style={styles.progressHeader}>
+                    <View>
+                      <Text style={styles.progressTitle}>Taux de clôture global</Text>
+                      <Text style={styles.progressSub}>{closedCo} / {totalCo} réserve{totalCo !== 1 ? 's' : ''}</Text>
+                    </View>
+                    <View style={styles.pctBadge}>
+                      <Text style={[styles.pctText, { color: pct >= 70 ? C.closed : pct >= 40 ? C.inProgress : C.open }]}>{pct}%</Text>
+                    </View>
+                  </View>
+                  <View style={styles.progressBarBg}>
+                    <View style={[styles.progressBarFill, {
+                      width: `${pct}%` as any,
+                      backgroundColor: pct >= 70 ? C.closed : pct >= 40 ? C.inProgress : C.open,
+                    }]} />
+                  </View>
+                  {overdue > 0 && (
+                    <View style={styles.overdueWarning}>
+                      <Ionicons name="alarm-outline" size={14} color={C.open} />
+                      <Text style={styles.overdueText}>{overdue} réserve{overdue > 1 ? 's' : ''} en retard — action requise</Text>
+                    </View>
+                  )}
+                </View>
+              );
+            })()}
+
             {permissions.canEdit && (
               <View style={styles.infoHint}>
                 <Ionicons name="information-circle-outline" size={13} color={C.primary} />
@@ -339,6 +378,20 @@ const styles = StyleSheet.create({
     gap: 5, paddingVertical: 9, borderRadius: 10, borderWidth: 1,
   },
   actionBtnText: { fontSize: 12, fontFamily: 'Inter_600SemiBold' },
+
+  progressCard: {
+    backgroundColor: C.surface, borderRadius: 14, padding: 16,
+    borderWidth: 1, borderColor: C.border, marginBottom: 12,
+  },
+  progressHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 },
+  progressTitle: { fontSize: 13, fontFamily: 'Inter_600SemiBold', color: C.text },
+  progressSub: { fontSize: 11, fontFamily: 'Inter_400Regular', color: C.textMuted, marginTop: 2 },
+  pctBadge: { backgroundColor: C.primaryBg, paddingHorizontal: 12, paddingVertical: 6, borderRadius: 20, borderWidth: 1, borderColor: C.primary + '40' },
+  pctText: { fontSize: 16, fontFamily: 'Inter_700Bold' },
+  progressBarBg: { height: 8, backgroundColor: C.surface2, borderRadius: 6, overflow: 'hidden', marginBottom: 10 },
+  progressBarFill: { height: 8, borderRadius: 6 },
+  overdueWarning: { flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: C.open + '10', borderRadius: 8, paddingHorizontal: 10, paddingVertical: 7, borderWidth: 1, borderColor: C.open + '30' },
+  overdueText: { fontSize: 12, fontFamily: 'Inter_500Medium', color: C.open, flex: 1 },
 
   empty: { alignItems: 'center', paddingVertical: 48, gap: 10 },
   emptyTitle: { fontSize: 16, fontFamily: 'Inter_600SemiBold', color: C.text },

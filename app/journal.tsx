@@ -1,9 +1,10 @@
-import { View, Text, StyleSheet, ScrollView, TextInput, TouchableOpacity, Alert, Platform } from 'react-native';
-import { useState, useCallback, useEffect } from 'react';
+import { View, Text, StyleSheet, ScrollView, TextInput, TouchableOpacity, Alert, Platform, ActivityIndicator } from 'react-native';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Ionicons } from '@expo/vector-icons';
 import * as Print from 'expo-print';
 import * as Sharing from 'expo-sharing';
+import * as Location from 'expo-location';
 import { C } from '@/constants/colors';
 import { useAuth } from '@/context/AuthContext';
 import { useSettings } from '@/context/SettingsContext';
@@ -12,10 +13,54 @@ import Header from '@/components/Header';
 import { JournalEntry } from '@/constants/types';
 import BottomNavBar from '@/components/BottomNavBar';
 
-const JOURNAL_KEY = 'buildtrack_journal_v1';
+const JOURNAL_KEY = 'buildtrack_journal_v2';
 function genId() { return Math.random().toString(36).slice(2, 10); }
 
-const WEATHER_OPTIONS = ['☀️ Ensoleillé', '⛅ Nuageux', '🌧️ Pluie', '🌩️ Orage', '❄️ Neige', '💨 Vent fort'];
+const WEATHER_OPTIONS = [
+  '☀️ Ensoleillé',
+  '⛅ Nuageux',
+  '🌤️ Partiellement nuageux',
+  '🌧️ Pluie',
+  '🌩️ Orage',
+  '❄️ Neige',
+  '🌫️ Brouillard',
+  '💨 Vent fort',
+  '🌨️ Averses de neige',
+  '🌦️ Averses',
+];
+
+function wmoCodesToLabel(wmo: number): string {
+  if (wmo === 0) return '☀️ Ensoleillé';
+  if (wmo <= 2) return '🌤️ Partiellement nuageux';
+  if (wmo === 3) return '⛅ Nuageux';
+  if (wmo <= 49) return '🌫️ Brouillard';
+  if (wmo <= 59) return '🌦️ Averses';
+  if (wmo <= 69) return '🌧️ Pluie';
+  if (wmo <= 79) return '❄️ Neige';
+  if (wmo <= 84) return '🌦️ Averses';
+  if (wmo <= 86) return '🌨️ Averses de neige';
+  if (wmo <= 99) return '🌩️ Orage';
+  return '⛅ Nuageux';
+}
+
+async function fetchAutoWeather(): Promise<{ label: string; temp: number | null; wind: number | null } | null> {
+  try {
+    const { status } = await Location.requestForegroundPermissionsAsync();
+    if (status !== 'granted') return null;
+    const loc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
+    const { latitude, longitude } = loc.coords;
+    const url = `https://api.open-meteo.com/v1/forecast?latitude=${latitude.toFixed(4)}&longitude=${longitude.toFixed(4)}&current=weather_code,temperature_2m,wind_speed_10m&timezone=auto&forecast_days=1`;
+    const res = await fetch(url);
+    if (!res.ok) return null;
+    const data = await res.json();
+    const wmo: number = data.current?.weather_code ?? 0;
+    const temp: number | null = data.current?.temperature_2m ?? null;
+    const wind: number | null = data.current?.wind_speed_10m ?? null;
+    return { label: wmoCodesToLabel(wmo), temp, wind };
+  } catch {
+    return null;
+  }
+}
 
 function buildJournalHTML(entries: JournalEntry[], projectName: string): string {
   const rows = entries.map(e => `
@@ -28,19 +73,29 @@ function buildJournalHTML(entries: JournalEntry[], projectName: string): string 
       <td>${e.author}</td>
     </tr>
   `).join('');
-  return `<!DOCTYPE html><html><head><meta charset="UTF-8">
+  return `<!DOCTYPE html><html lang="fr"><head><meta charset="UTF-8">
   <style>
-    body { font-family: Arial, sans-serif; padding: 30px; color: #111; }
-    h1 { color: #1A6FD8; font-size: 22px; }
-    .meta { color: #666; font-size: 12px; margin-bottom: 20px; }
-    table { width: 100%; border-collapse: collapse; margin-top: 10px; font-size: 12px; }
-    th { background: #1A6FD8; color: white; padding: 8px; text-align: left; }
-    td { padding: 6px 8px; border-bottom: 1px solid #eee; vertical-align: top; }
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: Arial, Helvetica, sans-serif; padding: 36px; color: #111; font-size: 12px; }
+    header { border-bottom: 3px solid #1A6FD8; padding-bottom: 16px; margin-bottom: 20px; }
+    h1 { color: #1A6FD8; font-size: 22px; margin-bottom: 4px; }
+    .meta { color: #666; font-size: 11px; }
+    table { width: 100%; border-collapse: collapse; margin-top: 10px; }
+    th { background: #1A6FD8; color: white; padding: 9px 10px; text-align: left; font-size: 11px; text-transform: uppercase; letter-spacing: 0.4px; }
+    td { padding: 8px 10px; border-bottom: 1px solid #e8e8e8; vertical-align: top; }
+    tr:nth-child(even) td { background: #f9fbff; }
+    footer { margin-top: 24px; color: #999; font-size: 10px; text-align: center; }
   </style></head><body>
-  <h1>${projectName} — Journal de chantier officiel</h1>
-  <p class="meta">Exporté le ${new Date().toLocaleDateString('fr-FR')} — ${entries.length} entrées</p>
-  <table><thead><tr><th>Date</th><th>Météo</th><th>Effectif</th><th>Travaux réalisés</th><th>Incidents</th><th>Rédacteur</th></tr></thead>
-  <tbody>${rows || '<tr><td colspan="6">Aucune entrée</td></tr>'}</tbody></table>
+  <header>
+    <h1>${projectName}</h1>
+    <p class="meta" style="font-size:16px;font-weight:bold;margin-top:4px;">Journal de chantier officiel</p>
+    <p class="meta">Exporté le ${new Date().toLocaleDateString('fr-FR')} à ${new Date().toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })} — ${entries.length} entrée${entries.length !== 1 ? 's' : ''}</p>
+  </header>
+  <table>
+    <thead><tr><th>Date</th><th>Météo</th><th>Effectif</th><th>Travaux réalisés</th><th>Incidents</th><th>Rédacteur</th></tr></thead>
+    <tbody>${rows || '<tr><td colspan="6" style="text-align:center;padding:20px;color:#999">Aucune entrée</td></tr>'}</tbody>
+  </table>
+  <footer>Document généré automatiquement par BuildTrack — ${projectName}</footer>
   </body></html>`;
 }
 
@@ -50,12 +105,20 @@ export default function JournalScreen() {
   const { companies } = useApp();
   const [entries, setEntries] = useState<JournalEntry[]>([]);
   const [showNew, setShowNew] = useState(false);
+  const [fetchingWeather, setFetchingWeather] = useState(false);
+  const [weatherDetail, setWeatherDetail] = useState<{ temp: number | null; wind: number | null } | null>(null);
 
   useEffect(() => {
     AsyncStorage.getItem(JOURNAL_KEY).then(raw => {
       if (raw) { try { setEntries(JSON.parse(raw)); } catch {} }
+      else {
+        AsyncStorage.getItem('buildtrack_journal_v1').then(oldRaw => {
+          if (oldRaw) { try { setEntries(JSON.parse(oldRaw)); } catch {} }
+        });
+      }
     });
   }, []);
+
   const [date, setDate] = useState(new Date().toLocaleDateString('fr-FR'));
   const [weather, setWeather] = useState('☀️ Ensoleillé');
   const [workerCount, setWorkerCount] = useState('');
@@ -66,9 +129,35 @@ export default function JournalScreen() {
   const [visiteur, setVisiteur] = useState('');
 
   const resetForm = () => {
-    setDate(new Date().toLocaleDateString('fr-FR')); setWeather('☀️ Ensoleillé');
-    setWorkerCount(''); setWorkDone(''); setMaterials(''); setIncidents(''); setObservations(''); setVisiteur('');
+    setDate(new Date().toLocaleDateString('fr-FR'));
+    setWeather('☀️ Ensoleillé');
+    setWorkerCount('');
+    setWorkDone('');
+    setMaterials('');
+    setIncidents('');
+    setObservations('');
+    setVisiteur('');
+    setWeatherDetail(null);
   };
+
+  const handleAutoWeather = useCallback(async () => {
+    if (Platform.OS === 'web') {
+      Alert.alert('Non disponible', 'La géolocalisation météo n\'est pas disponible sur web. Sélectionnez manuellement.');
+      return;
+    }
+    setFetchingWeather(true);
+    try {
+      const result = await fetchAutoWeather();
+      if (result) {
+        setWeather(result.label);
+        setWeatherDetail({ temp: result.temp, wind: result.wind });
+      } else {
+        Alert.alert('Météo indisponible', 'Impossible de récupérer la météo automatiquement. Vérifiez les autorisations de localisation.');
+      }
+    } finally {
+      setFetchingWeather(false);
+    }
+  }, []);
 
   const handleCreate = useCallback(() => {
     if (!workDone.trim()) {
@@ -142,8 +231,9 @@ export default function JournalScreen() {
               <Text style={styles.statLabel}>Effectif cumulé</Text>
             </View>
             <View style={styles.statCard}>
-              <Text style={styles.statVal}>{entries.filter(e => e.incidents).length}</Text>
-              <Text style={[styles.statVal, { color: C.open }]}>{entries.filter(e => e.incidents).length}</Text>
+              <Text style={[styles.statVal, entries.filter(e => e.incidents).length > 0 ? { color: C.open } : {}]}>
+                {entries.filter(e => e.incidents).length}
+              </Text>
               <Text style={styles.statLabel}>Incidents notés</Text>
             </View>
             {permissions.canExport && (
@@ -158,9 +248,40 @@ export default function JournalScreen() {
         {showNew && (
           <View style={styles.card}>
             <Text style={styles.sectionTitle}>Nouvelle entrée journal</Text>
+
             <Text style={styles.label}>Date</Text>
             <TextInput style={styles.input} placeholder="JJ/MM/AAAA" placeholderTextColor={C.textMuted} value={date} onChangeText={setDate} />
-            <Text style={styles.label}>Météo</Text>
+
+            <View style={styles.weatherHeader}>
+              <Text style={styles.label}>Météo</Text>
+              <TouchableOpacity
+                style={[styles.autoWeatherBtn, fetchingWeather && styles.autoWeatherBtnLoading]}
+                onPress={handleAutoWeather}
+                disabled={fetchingWeather}
+              >
+                {fetchingWeather ? (
+                  <ActivityIndicator size="small" color={C.primary} />
+                ) : (
+                  <Ionicons name="locate-outline" size={14} color={C.primary} />
+                )}
+                <Text style={styles.autoWeatherText}>
+                  {fetchingWeather ? 'Localisation…' : 'Météo auto'}
+                </Text>
+              </TouchableOpacity>
+            </View>
+
+            {weatherDetail && (
+              <View style={styles.weatherDetailBanner}>
+                <Ionicons name="thermometer-outline" size={14} color={C.primary} />
+                <Text style={styles.weatherDetailText}>
+                  {weatherDetail.temp !== null ? `${Math.round(weatherDetail.temp)}°C` : ''}
+                  {weatherDetail.temp !== null && weatherDetail.wind !== null ? ' · ' : ''}
+                  {weatherDetail.wind !== null ? `${Math.round(weatherDetail.wind)} km/h` : ''}
+                  {' '}— détectée automatiquement via GPS
+                </Text>
+              </View>
+            )}
+
             <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 12 }}>
               <View style={{ flexDirection: 'row', gap: 8 }}>
                 {WEATHER_OPTIONS.map(w => (
@@ -174,18 +295,25 @@ export default function JournalScreen() {
                 ))}
               </View>
             </ScrollView>
+
             <Text style={styles.label}>Effectif sur site</Text>
             <TextInput style={styles.input} placeholder="Nombre de personnes" placeholderTextColor={C.textMuted} value={workerCount} onChangeText={setWorkerCount} keyboardType="numeric" />
+
             <Text style={styles.label}>Travaux réalisés *</Text>
             <TextInput style={[styles.input, styles.multiline]} placeholder="Description détaillée des travaux effectués aujourd'hui..." placeholderTextColor={C.textMuted} value={workDone} onChangeText={setWorkDone} multiline numberOfLines={4} />
+
             <Text style={styles.label}>Matériaux / Livraisons</Text>
             <TextInput style={[styles.input, styles.multiline]} placeholder="Livraisons reçues, matériaux consommés..." placeholderTextColor={C.textMuted} value={materials} onChangeText={setMaterials} multiline numberOfLines={2} />
+
             <Text style={styles.label}>Incidents / Problèmes</Text>
             <TextInput style={[styles.input, styles.multiline]} placeholder="Signalement d'incidents ou difficultés rencontrées..." placeholderTextColor={C.textMuted} value={incidents} onChangeText={setIncidents} multiline numberOfLines={2} />
+
             <Text style={styles.label}>Visiteurs</Text>
             <TextInput style={styles.input} placeholder="Ex: MOA, Bureau de contrôle, Architecte..." placeholderTextColor={C.textMuted} value={visiteur} onChangeText={setVisiteur} />
+
             <Text style={styles.label}>Observations générales</Text>
             <TextInput style={[styles.input, styles.multiline]} placeholder="Notes complémentaires..." placeholderTextColor={C.textMuted} value={observations} onChangeText={setObservations} multiline numberOfLines={2} />
+
             <TouchableOpacity style={styles.createBtn} onPress={handleCreate}>
               <Ionicons name="journal" size={18} color="#fff" />
               <Text style={styles.createBtnText}>Enregistrer l'entrée</Text>
@@ -221,6 +349,12 @@ export default function JournalScreen() {
               <Text style={styles.entryAuthor}>{entry.author}</Text>
             </View>
             <Text style={styles.entryWork}>{entry.workDone}</Text>
+            {entry.materials ? (
+              <View style={styles.materialsBanner}>
+                <Ionicons name="cube-outline" size={14} color={C.primary} />
+                <Text style={styles.materialsBannerText}>{entry.materials}</Text>
+              </View>
+            ) : null}
             {entry.incidents ? (
               <View style={styles.incidentBanner}>
                 <Ionicons name="warning" size={14} color={C.waiting} />
@@ -229,6 +363,9 @@ export default function JournalScreen() {
             ) : null}
             {entry.visitors ? (
               <Text style={styles.entryVisitor}>Visiteurs : {entry.visitors}</Text>
+            ) : null}
+            {entry.observations ? (
+              <Text style={styles.entryObs}>{entry.observations}</Text>
             ) : null}
           </View>
         ))}
@@ -252,6 +389,20 @@ const styles = StyleSheet.create({
   label: { fontSize: 12, fontFamily: 'Inter_600SemiBold', color: C.textSub, marginBottom: 6, marginTop: 4 },
   input: { backgroundColor: C.surface2, borderRadius: 10, paddingHorizontal: 12, paddingVertical: 12, fontSize: 14, fontFamily: 'Inter_400Regular', color: C.text, borderWidth: 1, borderColor: C.border, marginBottom: 12 },
   multiline: { minHeight: 80, textAlignVertical: 'top' },
+  weatherHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6, marginTop: 4 },
+  autoWeatherBtn: {
+    flexDirection: 'row', alignItems: 'center', gap: 5,
+    backgroundColor: C.primaryBg, paddingHorizontal: 10, paddingVertical: 6, borderRadius: 16,
+    borderWidth: 1, borderColor: C.primary + '50',
+  },
+  autoWeatherBtnLoading: { opacity: 0.7 },
+  autoWeatherText: { fontSize: 12, fontFamily: 'Inter_500Medium', color: C.primary },
+  weatherDetailBanner: {
+    flexDirection: 'row', alignItems: 'center', gap: 6,
+    backgroundColor: C.primaryBg, borderRadius: 8, paddingHorizontal: 10, paddingVertical: 7,
+    marginBottom: 10, borderWidth: 1, borderColor: C.primary + '30',
+  },
+  weatherDetailText: { fontSize: 12, fontFamily: 'Inter_400Regular', color: C.primary, flex: 1 },
   chip: { paddingHorizontal: 12, paddingVertical: 8, borderRadius: 20, backgroundColor: C.surface2, borderWidth: 1, borderColor: C.border },
   chipSelected: { backgroundColor: C.primaryBg, borderColor: C.primary },
   chipText: { fontSize: 13, fontFamily: 'Inter_400Regular', color: C.textSub },
@@ -272,7 +423,10 @@ const styles = StyleSheet.create({
   entryWorkersText: { fontSize: 12, fontFamily: 'Inter_400Regular', color: C.textSub },
   entryAuthor: { fontSize: 11, fontFamily: 'Inter_400Regular', color: C.textMuted, marginLeft: 'auto' },
   entryWork: { fontSize: 14, fontFamily: 'Inter_400Regular', color: C.text, lineHeight: 20 },
+  materialsBanner: { flexDirection: 'row', alignItems: 'flex-start', gap: 6, backgroundColor: C.primaryBg, borderRadius: 8, padding: 8, marginTop: 8, borderLeftWidth: 3, borderLeftColor: C.primary },
+  materialsBannerText: { flex: 1, fontSize: 13, fontFamily: 'Inter_400Regular', color: C.text },
   incidentBanner: { flexDirection: 'row', alignItems: 'flex-start', gap: 6, backgroundColor: C.waiting + '15', borderRadius: 8, padding: 8, marginTop: 8, borderLeftWidth: 3, borderLeftColor: C.waiting },
   incidentBannerText: { flex: 1, fontSize: 13, fontFamily: 'Inter_400Regular', color: C.text },
   entryVisitor: { fontSize: 12, fontFamily: 'Inter_400Regular', color: C.textMuted, marginTop: 6, fontStyle: 'italic' },
+  entryObs: { fontSize: 12, fontFamily: 'Inter_400Regular', color: C.textSub, marginTop: 6, lineHeight: 18 },
 });

@@ -462,7 +462,7 @@ export default function PlansScreen() {
   const router = useRouter();
   const {
     reserves, companies, sitePlans, activeChantierId, activeChantier,
-    addSitePlan, updateSitePlan, deleteSitePlan,
+    addSitePlan, updateSitePlan, deleteSitePlan, addSitePlanVersion,
   } = useApp();
   const { permissions } = useAuth();
 
@@ -511,6 +511,7 @@ export default function PlansScreen() {
   const [newPlanModal, setNewPlanModal] = useState<{ visible: boolean; name: string; building: string; level: string }>({
     visible: false, name: '', building: '', level: '',
   });
+  const [showVersionHistory, setShowVersionHistory] = useState(false);
   const topPad = Platform.OS === 'web' ? 67 : insets.top;
 
   const scale = useRef(new Animated.Value(1)).current;
@@ -881,6 +882,21 @@ export default function PlansScreen() {
             </View>
           </ScrollView>
           <View style={styles.planActions}>
+            {currentPlan && (() => {
+              const versions = chantierPlans.filter(p =>
+                p.parentPlanId === currentPlanId || p.id === currentPlan.parentPlanId ||
+                (currentPlan.parentPlanId && p.parentPlanId === currentPlan.parentPlanId)
+              );
+              const hasVersions = versions.length > 0 || currentPlan.revisionCode;
+              return hasVersions ? (
+                <TouchableOpacity style={styles.versionBtn} onPress={() => setShowVersionHistory(v => !v)}>
+                  <Ionicons name="git-branch-outline" size={13} color={C.primary} />
+                  <Text style={styles.versionBtnText}>
+                    {currentPlan.revisionCode ?? 'R01'} · Versions
+                  </Text>
+                </TouchableOpacity>
+              ) : null;
+            })()}
             {permissions.canCreate && (
               <TouchableOpacity
                 style={[styles.importBtn, importing && styles.importBtnDisabled]}
@@ -903,6 +919,76 @@ export default function PlansScreen() {
               </TouchableOpacity>
             )}
           </View>
+
+          {showVersionHistory && currentPlan && (() => {
+            const allVersions = chantierPlans.filter(p =>
+              p.id === currentPlanId ||
+              p.parentPlanId === currentPlanId ||
+              p.id === currentPlan.parentPlanId ||
+              (currentPlan.parentPlanId && (p.parentPlanId === currentPlan.parentPlanId || p.id === currentPlan.parentPlanId))
+            ).sort((a, b) => (b.revisionNumber ?? 0) - (a.revisionNumber ?? 0));
+            return (
+              <View style={styles.versionPanel}>
+                <View style={styles.versionPanelHeader}>
+                  <Ionicons name="git-branch-outline" size={13} color={C.textSub} />
+                  <Text style={styles.versionPanelTitle}>Historique des révisions — {currentPlan.name}</Text>
+                  <TouchableOpacity onPress={() => setShowVersionHistory(false)} hitSlop={8}>
+                    <Ionicons name="close" size={16} color={C.textMuted} />
+                  </TouchableOpacity>
+                </View>
+                {allVersions.length === 0 ? (
+                  <Text style={styles.versionEmpty}>Aucune révision antérieure · {permissions.canCreate ? 'Importez une nouvelle version via "Importer"' : ''}</Text>
+                ) : (
+                  allVersions.map(ver => (
+                    <TouchableOpacity
+                      key={ver.id}
+                      style={[styles.versionRow, ver.id === currentPlanId && styles.versionRowActive]}
+                      onPress={() => { handleSelectPlan(ver.id); setShowVersionHistory(false); }}
+                    >
+                      <View style={[styles.versionBadge, ver.isLatestRevision && styles.versionBadgeLatest]}>
+                        <Text style={[styles.versionBadgeText, ver.isLatestRevision && styles.versionBadgeTextLatest]}>
+                          {ver.revisionCode ?? 'R01'}
+                        </Text>
+                      </View>
+                      <View style={{ flex: 1 }}>
+                        <Text style={styles.versionName}>{ver.name}</Text>
+                        <Text style={styles.versionDate}>{ver.uploadedAt}{ver.revisionNote ? ' · ' + ver.revisionNote : ''}</Text>
+                      </View>
+                      {ver.isLatestRevision && (
+                        <View style={styles.latestChip}>
+                          <Text style={styles.latestChipText}>Actuelle</Text>
+                        </View>
+                      )}
+                      {ver.id === currentPlanId && !ver.isLatestRevision && (
+                        <View style={styles.viewingChip}>
+                          <Text style={styles.viewingChipText}>En vue</Text>
+                        </View>
+                      )}
+                    </TouchableOpacity>
+                  ))
+                )}
+                {permissions.canCreate && (
+                  <TouchableOpacity
+                    style={styles.newVersionBtn}
+                    onPress={() => {
+                      setShowVersionHistory(false);
+                      Alert.alert(
+                        'Nouvelle révision',
+                        'Importez un fichier plan pour créer une nouvelle révision de ce plan.',
+                        [
+                          { text: 'Annuler', style: 'cancel' },
+                          { text: 'Importer', onPress: handleImportPlan },
+                        ]
+                      );
+                    }}
+                  >
+                    <Ionicons name="cloud-upload-outline" size={13} color={C.primary} />
+                    <Text style={styles.newVersionBtnText}>Créer une nouvelle révision</Text>
+                  </TouchableOpacity>
+                )}
+              </View>
+            );
+          })()}
         </View>
 
         <View style={styles.statusFilterRow}>
@@ -1454,6 +1540,28 @@ const styles = StyleSheet.create({
   importBtnDisabled: { opacity: 0.5 },
   importBtnText: { fontSize: 12, fontFamily: 'Inter_600SemiBold', color: C.primary },
   addPlanBtn: { width: 34, height: 34, borderRadius: 10, backgroundColor: C.surface2, borderWidth: 1, borderColor: C.border, alignItems: 'center', justifyContent: 'center' },
+
+  versionBtn: { flexDirection: 'row', alignItems: 'center', gap: 5, backgroundColor: C.primaryBg, paddingHorizontal: 10, paddingVertical: 6, borderRadius: 9, borderWidth: 1, borderColor: C.primary + '30' },
+  versionBtnText: { fontSize: 11, fontFamily: 'Inter_600SemiBold', color: C.primary },
+  versionPanel: { backgroundColor: C.surface, borderBottomWidth: 1, borderBottomColor: C.border, padding: 12, gap: 2 },
+  versionPanelHeader: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 10 },
+  versionPanelTitle: { flex: 1, fontSize: 12, fontFamily: 'Inter_600SemiBold', color: C.textSub },
+  versionEmpty: { fontSize: 12, fontFamily: 'Inter_400Regular', color: C.textMuted, fontStyle: 'italic', paddingVertical: 8 },
+  versionRow: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: C.border },
+  versionRowActive: { backgroundColor: C.primaryBg, marginHorizontal: -12, paddingHorizontal: 12, borderRadius: 8, borderColor: 'transparent' },
+  versionBadge: { paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6, backgroundColor: C.surface2, borderWidth: 1, borderColor: C.border },
+  versionBadgeLatest: { backgroundColor: C.closed + '18', borderColor: C.closed + '40' },
+  versionBadgeText: { fontSize: 10, fontFamily: 'Inter_700Bold', color: C.textSub },
+  versionBadgeTextLatest: { color: C.closed },
+  versionName: { fontSize: 13, fontFamily: 'Inter_500Medium', color: C.text },
+  versionDate: { fontSize: 11, fontFamily: 'Inter_400Regular', color: C.textMuted, marginTop: 1 },
+  latestChip: { backgroundColor: C.closed + '15', paddingHorizontal: 8, paddingVertical: 3, borderRadius: 8 },
+  latestChipText: { fontSize: 10, fontFamily: 'Inter_600SemiBold', color: C.closed },
+  viewingChip: { backgroundColor: C.primaryBg, paddingHorizontal: 8, paddingVertical: 3, borderRadius: 8, borderWidth: 1, borderColor: C.primary + '30' },
+  viewingChipText: { fontSize: 10, fontFamily: 'Inter_600SemiBold', color: C.primary },
+  newVersionBtn: { flexDirection: 'row', alignItems: 'center', gap: 6, justifyContent: 'center', paddingVertical: 10, marginTop: 6, borderRadius: 10, borderWidth: 1, borderColor: C.primary + '30', backgroundColor: C.primaryBg },
+  newVersionBtnText: { fontSize: 12, fontFamily: 'Inter_600SemiBold', color: C.primary },
+
   companyFilterWrap: { paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: C.border },
   zoneFilterWrap: { paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: C.border },
   filterChip: { flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: 10, paddingVertical: 6, borderRadius: 20, backgroundColor: C.surface2, borderWidth: 1, borderColor: C.border },

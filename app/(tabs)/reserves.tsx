@@ -1,8 +1,8 @@
-import { View, Text, StyleSheet, FlatList, TouchableOpacity, TextInput, Platform, ScrollView, Modal, ActivityIndicator, useWindowDimensions, Image } from 'react-native';
+import { View, Text, StyleSheet, FlatList, TouchableOpacity, TextInput, Platform, ScrollView, Modal, ActivityIndicator, useWindowDimensions, Image, Alert } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useCallback } from 'react';
 import { C } from '@/constants/colors';
 import { useApp } from '@/context/AppContext';
 import { useAuth } from '@/context/AuthContext';
@@ -31,6 +31,7 @@ const SORT_OPTIONS: { key: SortKey; label: string }[] = [
 
 const PRIORITY_ORDER: Record<ReservePriority, number> = { critical: 0, high: 1, medium: 2, low: 3 };
 const STATUS_ORDER_MAP: Record<ReserveStatus, number> = { open: 0, in_progress: 1, waiting: 2, verification: 3, closed: 4 };
+const STATUS_LABELS: Record<ReserveStatus, string> = { open: 'Ouvert', in_progress: 'En cours', waiting: 'En attente', verification: 'Vérification', closed: 'Clôturé' };
 
 function toSortableDate(s: string): string {
   if (!s || s === '—') return '9999-99-99';
@@ -41,7 +42,7 @@ function toSortableDate(s: string): string {
 export default function ReservesScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
-  const { reserves, companies, isLoading, chantiers, activeChantierId, lots } = useApp();
+  const { reserves, companies, isLoading, chantiers, activeChantierId, lots, batchUpdateReserves } = useApp();
   const { permissions, user } = useAuth();
 
   const isSousTraitant = user?.role === 'sous_traitant';
@@ -64,6 +65,14 @@ export default function ReservesScreen() {
   const { width } = useWindowDimensions();
   const isWideScreen = width >= 768;
   const [selectedReserveId, setSelectedReserveId] = useState<string | null>(null);
+
+  const [isSelectMode, setIsSelectMode] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [batchModalVisible, setBatchModalVisible] = useState(false);
+  const [batchAction, setBatchAction] = useState<'status' | 'company' | 'deadline' | null>(null);
+  const [batchStatus, setBatchStatus] = useState<ReserveStatus>('in_progress');
+  const [batchCompany, setBatchCompany] = useState('');
+  const [batchDeadline, setBatchDeadline] = useState('');
 
   const chantierReserves = useMemo(() => {
     let list = chantierFilter === 'all' ? reserves : reserves.filter(r => r.chantierId === chantierFilter);
@@ -142,6 +151,42 @@ export default function ReservesScreen() {
     [filtered, selectedReserveId]
   );
 
+  const toggleSelectMode = useCallback(() => {
+    setIsSelectMode(prev => {
+      if (prev) setSelectedIds(new Set());
+      return !prev;
+    });
+  }, []);
+
+  const toggleId = useCallback((id: string) => {
+    setSelectedIds(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }, []);
+
+  const selectAll = useCallback(() => {
+    setSelectedIds(new Set(filtered.map(r => r.id)));
+  }, [filtered]);
+
+  const applyBatch = useCallback(() => {
+    if (selectedIds.size === 0) return;
+    const ids = Array.from(selectedIds);
+    const updates: any = {};
+    if (batchAction === 'status') updates.status = batchStatus;
+    if (batchAction === 'company' && batchCompany) updates.company = batchCompany;
+    if (batchAction === 'deadline' && batchDeadline) updates.deadline = batchDeadline;
+    if (Object.keys(updates).length === 0) return;
+    batchUpdateReserves(ids, updates, user?.name);
+    setBatchModalVisible(false);
+    setBatchAction(null);
+    setIsSelectMode(false);
+    setSelectedIds(new Set());
+    Alert.alert('Mise à jour effectuée', `${ids.length} réserve${ids.length > 1 ? 's' : ''} mise${ids.length > 1 ? 's' : ''} à jour.`);
+  }, [selectedIds, batchAction, batchStatus, batchCompany, batchDeadline, batchUpdateReserves, user]);
+
   return (
     <View style={styles.container}>
       <View style={[styles.header, { paddingTop: topPad + 12 }]}>
@@ -149,10 +194,40 @@ export default function ReservesScreen() {
           <View style={{ flex: 1 }}>
             <Text style={styles.title}>Réserves</Text>
             <Text style={styles.subtitle}>
-              {isLoading ? 'Chargement…' : `${filtered.length} / ${chantierReserves.length} réserve${chantierReserves.length !== 1 ? 's' : ''}${overdueCount > 0 ? ` · ${overdueCount} en retard` : ''}`}
+              {isLoading ? 'Chargement…' : isSelectMode
+                ? `${selectedIds.size} sélectionnée${selectedIds.size !== 1 ? 's' : ''} sur ${filtered.length}`
+                : `${filtered.length} / ${chantierReserves.length} réserve${chantierReserves.length !== 1 ? 's' : ''}${overdueCount > 0 ? ` · ${overdueCount} en retard` : ''}`}
             </Text>
           </View>
+          {permissions.canUpdate && filtered.length > 0 && (
+            <TouchableOpacity
+              style={[styles.selectBtn, isSelectMode && styles.selectBtnActive]}
+              onPress={toggleSelectMode}
+            >
+              <Ionicons
+                name={isSelectMode ? 'close-circle' : 'checkmark-circle-outline'}
+                size={15}
+                color={isSelectMode ? C.open : C.textSub}
+              />
+              <Text style={[styles.selectBtnText, isSelectMode && styles.selectBtnTextActive]}>
+                {isSelectMode ? 'Annuler' : 'Sélection'}
+              </Text>
+            </TouchableOpacity>
+          )}
         </View>
+
+        {isSelectMode && (
+          <View style={styles.selectBar}>
+            <TouchableOpacity style={styles.selectBarBtn} onPress={selectAll}>
+              <Ionicons name="checkmark-done-outline" size={15} color={C.primary} />
+              <Text style={styles.selectBarBtnText}>Tout sélect.</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.selectBarBtn} onPress={() => setSelectedIds(new Set())}>
+              <Ionicons name="close-outline" size={15} color={C.textSub} />
+              <Text style={styles.selectBarBtnText}>Désélect.</Text>
+            </TouchableOpacity>
+          </View>
+        )}
 
         {isSousTraitant && sousTraitantCompanyName && (
           <View style={styles.stBanner}>
@@ -281,11 +356,23 @@ export default function ReservesScreen() {
             data={filtered}
             keyExtractor={item => item.id}
             renderItem={({ item }) => (
-              <ReserveCard
-                reserve={item}
-                onPress={r => setSelectedReserveId(r.id === selectedReserveId ? null : r.id)}
-                selected={item.id === selectedReserveId}
-              />
+              <View style={styles.selectableRow}>
+                {isSelectMode && (
+                  <TouchableOpacity
+                    onPress={() => toggleId(item.id)}
+                    style={[styles.checkbox, selectedIds.has(item.id) && styles.checkboxChecked]}
+                  >
+                    {selectedIds.has(item.id) && <Ionicons name="checkmark" size={14} color="#fff" />}
+                  </TouchableOpacity>
+                )}
+                <View style={{ flex: 1 }}>
+                  <ReserveCard
+                    reserve={item}
+                    onPress={r => isSelectMode ? toggleId(r.id) : setSelectedReserveId(r.id === selectedReserveId ? null : r.id)}
+                    selected={item.id === selectedReserveId}
+                  />
+                </View>
+              </View>
             )}
             contentContainerStyle={styles.listNarrow}
             showsVerticalScrollIndicator={false}
@@ -384,7 +471,24 @@ export default function ReservesScreen() {
         <FlatList
           data={filtered}
           keyExtractor={item => item.id}
-          renderItem={({ item }) => <ReserveCard reserve={item} />}
+          renderItem={({ item }) => (
+            <View style={styles.selectableRow}>
+              {isSelectMode && (
+                <TouchableOpacity
+                  onPress={() => toggleId(item.id)}
+                  style={[styles.checkbox, selectedIds.has(item.id) && styles.checkboxChecked]}
+                >
+                  {selectedIds.has(item.id) && <Ionicons name="checkmark" size={14} color="#fff" />}
+                </TouchableOpacity>
+              )}
+              <View style={{ flex: 1 }}>
+                <ReserveCard
+                  reserve={item}
+                  onPress={r => isSelectMode ? toggleId(r.id) : undefined}
+                />
+              </View>
+            </View>
+          )}
           contentContainerStyle={styles.list}
           showsVerticalScrollIndicator={false}
           ListEmptyComponent={() => (
@@ -407,8 +511,34 @@ export default function ReservesScreen() {
         />
       )}
 
-      {/* FAB flottant visible sur toutes plateformes */}
-      {permissions.canCreate && (
+      {isSelectMode && selectedIds.size > 0 && (
+        <View style={styles.batchBar}>
+          <Text style={styles.batchBarCount}>{selectedIds.size} sélectionnée{selectedIds.size > 1 ? 's' : ''}</Text>
+          <TouchableOpacity
+            style={styles.batchBarBtn}
+            onPress={() => { setBatchAction('status'); setBatchModalVisible(true); }}
+          >
+            <Ionicons name="swap-horizontal-outline" size={16} color="#fff" />
+            <Text style={styles.batchBarBtnText}>Statut</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={styles.batchBarBtn}
+            onPress={() => { setBatchAction('company'); setBatchModalVisible(true); }}
+          >
+            <Ionicons name="people-outline" size={16} color="#fff" />
+            <Text style={styles.batchBarBtnText}>Entreprise</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={styles.batchBarBtn}
+            onPress={() => { setBatchAction('deadline'); setBatchModalVisible(true); }}
+          >
+            <Ionicons name="calendar-outline" size={16} color="#fff" />
+            <Text style={styles.batchBarBtnText}>Échéance</Text>
+          </TouchableOpacity>
+        </View>
+      )}
+
+      {!isSelectMode && permissions.canCreate && (
         <TouchableOpacity
           style={styles.fab}
           onPress={() => router.push('/reserve/new' as any)}
@@ -418,7 +548,76 @@ export default function ReservesScreen() {
         </TouchableOpacity>
       )}
 
-      {/* Modal tri */}
+      <Modal visible={batchModalVisible} transparent animationType="slide" onRequestClose={() => setBatchModalVisible(false)}>
+        <TouchableOpacity style={styles.modalOverlay} activeOpacity={1} onPress={() => setBatchModalVisible(false)}>
+          <TouchableOpacity activeOpacity={1} style={styles.bottomSheet}>
+            <View style={styles.sheetHandle} />
+            <View style={styles.sheetTitleRow}>
+              <Text style={styles.sheetTitle}>
+                {batchAction === 'status' ? 'Changer le statut' : batchAction === 'company' ? 'Assigner une entreprise' : 'Modifier l\'échéance'}
+              </Text>
+            </View>
+            <Text style={styles.batchDesc}>
+              Modification de {selectedIds.size} réserve{selectedIds.size > 1 ? 's' : ''} sélectionnée{selectedIds.size > 1 ? 's' : ''}
+            </Text>
+
+            {batchAction === 'status' && (
+              <ScrollView showsVerticalScrollIndicator={false}>
+                {(Object.entries(STATUS_LABELS) as [ReserveStatus, string][]).map(([key, label]) => (
+                  <TouchableOpacity
+                    key={key}
+                    style={[styles.sheetItem, batchStatus === key && styles.sheetItemActive]}
+                    onPress={() => setBatchStatus(key)}
+                  >
+                    <Text style={[styles.sheetItemText, batchStatus === key && styles.sheetItemTextActive]}>{label}</Text>
+                    {batchStatus === key && <Ionicons name="checkmark" size={16} color={C.primary} />}
+                  </TouchableOpacity>
+                ))}
+              </ScrollView>
+            )}
+
+            {batchAction === 'company' && (
+              <ScrollView showsVerticalScrollIndicator={false}>
+                {companies.map(co => (
+                  <TouchableOpacity
+                    key={co.id}
+                    style={[styles.sheetItem, batchCompany === co.name && styles.sheetItemActive]}
+                    onPress={() => setBatchCompany(co.name)}
+                  >
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+                      <View style={[styles.coDot, { backgroundColor: co.color }]} />
+                      <Text style={[styles.sheetItemText, batchCompany === co.name && styles.sheetItemTextActive]}>{co.name}</Text>
+                    </View>
+                    {batchCompany === co.name && <Ionicons name="checkmark" size={16} color={C.primary} />}
+                  </TouchableOpacity>
+                ))}
+              </ScrollView>
+            )}
+
+            {batchAction === 'deadline' && (
+              <View style={{ paddingVertical: 12 }}>
+                <Text style={styles.batchInputLabel}>Nouvelle date d'échéance (JJ/MM/AAAA)</Text>
+                <TextInput
+                  style={styles.batchInput}
+                  placeholder="ex: 31/12/2025"
+                  placeholderTextColor={C.textMuted}
+                  value={batchDeadline}
+                  onChangeText={setBatchDeadline}
+                  keyboardType="numbers-and-punctuation"
+                />
+              </View>
+            )}
+
+            <TouchableOpacity style={styles.applyBtn} onPress={applyBatch}>
+              <Text style={styles.applyBtnText}>Appliquer à {selectedIds.size} réserve{selectedIds.size > 1 ? 's' : ''}</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.cancelBtn} onPress={() => setBatchModalVisible(false)}>
+              <Text style={styles.cancelText}>Annuler</Text>
+            </TouchableOpacity>
+          </TouchableOpacity>
+        </TouchableOpacity>
+      </Modal>
+
       <Modal visible={sortModalVisible} transparent animationType="slide" onRequestClose={() => setSortModalVisible(false)}>
         <TouchableOpacity style={styles.modalOverlay} activeOpacity={1} onPress={() => setSortModalVisible(false)}>
           <TouchableOpacity activeOpacity={1} style={styles.bottomSheet}>
@@ -450,7 +649,6 @@ export default function ReservesScreen() {
         </TouchableOpacity>
       </Modal>
 
-      {/* Modal filtres avancés */}
       <Modal visible={filterModalVisible} transparent animationType="slide" onRequestClose={() => setFilterModalVisible(false)}>
         <TouchableOpacity style={styles.modalOverlay} activeOpacity={1} onPress={() => setFilterModalVisible(false)}>
           <TouchableOpacity activeOpacity={1} style={styles.bottomSheet}>
@@ -593,6 +791,23 @@ const styles = StyleSheet.create({
   headerRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 12 },
   title: { fontSize: 22, fontFamily: 'Inter_700Bold', color: C.text },
   subtitle: { fontSize: 12, fontFamily: 'Inter_400Regular', color: C.textSub, marginTop: 2 },
+  selectBtn: {
+    flexDirection: 'row', alignItems: 'center', gap: 5,
+    paddingHorizontal: 12, paddingVertical: 8, borderRadius: 20,
+    backgroundColor: C.surface2, borderWidth: 1, borderColor: C.border,
+  },
+  selectBtnActive: { backgroundColor: C.open + '15', borderColor: C.open },
+  selectBtnText: { fontSize: 12, fontFamily: 'Inter_500Medium', color: C.textSub },
+  selectBtnTextActive: { color: C.open },
+  selectBar: {
+    flexDirection: 'row', gap: 10, marginBottom: 8,
+  },
+  selectBarBtn: {
+    flexDirection: 'row', alignItems: 'center', gap: 5,
+    backgroundColor: C.primaryBg, paddingHorizontal: 12, paddingVertical: 6,
+    borderRadius: 20, borderWidth: 1, borderColor: C.primary + '40',
+  },
+  selectBarBtnText: { fontSize: 12, fontFamily: 'Inter_500Medium', color: C.primary },
   searchWrap: {
     flexDirection: 'row', alignItems: 'center', gap: 8,
     backgroundColor: C.surface2, borderRadius: 10, paddingHorizontal: 12,
@@ -638,7 +853,13 @@ const styles = StyleSheet.create({
   chantierChipText: { fontSize: 12, fontFamily: 'Inter_500Medium', color: C.textSub },
   chantierChipTextActive: { color: '#fff' },
   chantierDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: C.closed },
-  list: { padding: 16, paddingBottom: 80 },
+  selectableRow: { flexDirection: 'row', alignItems: 'center', paddingLeft: 12 },
+  checkbox: {
+    width: 24, height: 24, borderRadius: 12, borderWidth: 2, borderColor: C.border,
+    backgroundColor: C.surface, alignItems: 'center', justifyContent: 'center', marginRight: 8,
+  },
+  checkboxChecked: { backgroundColor: C.primary, borderColor: C.primary },
+  list: { padding: 16, paddingBottom: 120 },
   empty: { alignItems: 'center', paddingTop: 60, gap: 10 },
   emptyIcon: {
     width: 72, height: 72, borderRadius: 36, backgroundColor: C.primaryBg,
@@ -646,6 +867,32 @@ const styles = StyleSheet.create({
   },
   emptyText: { fontSize: 16, fontFamily: 'Inter_600SemiBold', color: C.text },
   emptyHint: { fontSize: 13, fontFamily: 'Inter_400Regular', color: C.textMuted, textAlign: 'center' },
+  batchBar: {
+    position: 'absolute',
+    bottom: Platform.OS === 'web' ? 80 : 0,
+    left: 0, right: 0,
+    backgroundColor: C.primary,
+    flexDirection: 'row', alignItems: 'center',
+    paddingHorizontal: 16, paddingVertical: 14, gap: 10,
+    paddingBottom: Platform.OS === 'ios' ? 28 : 14,
+    ...Platform.select({
+      web: { boxShadow: '0px -4px 16px rgba(0,48,130,0.25)' } as any,
+      default: { shadowColor: '#003082', shadowOffset: { width: 0, height: -4 }, shadowOpacity: 0.25, shadowRadius: 10, elevation: 10 },
+    }),
+  },
+  batchBarCount: { fontSize: 13, fontFamily: 'Inter_600SemiBold', color: '#fff', flex: 1 },
+  batchBarBtn: {
+    flexDirection: 'row', alignItems: 'center', gap: 5,
+    backgroundColor: 'rgba(255,255,255,0.20)', paddingHorizontal: 12, paddingVertical: 8, borderRadius: 10,
+  },
+  batchBarBtnText: { fontSize: 12, fontFamily: 'Inter_600SemiBold', color: '#fff' },
+  batchDesc: { fontSize: 13, fontFamily: 'Inter_400Regular', color: C.textSub, marginBottom: 14, fontStyle: 'italic' },
+  batchInputLabel: { fontSize: 12, fontFamily: 'Inter_600SemiBold', color: C.textSub, marginBottom: 8 },
+  batchInput: {
+    backgroundColor: C.surface2, borderRadius: 10, paddingHorizontal: 14, paddingVertical: 12,
+    fontSize: 15, fontFamily: 'Inter_400Regular', color: C.text, borderWidth: 1, borderColor: C.border,
+  },
+  coDot: { width: 10, height: 10, borderRadius: 5 },
   modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.45)', justifyContent: 'flex-end' },
   bottomSheet: {
     backgroundColor: C.surface, borderTopLeftRadius: 20, borderTopRightRadius: 20,
@@ -659,6 +906,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
     paddingVertical: 14, borderBottomWidth: 1, borderBottomColor: C.border,
   },
+  sheetItemActive: { backgroundColor: C.primaryBg, borderRadius: 10, paddingHorizontal: 10, marginHorizontal: -10 },
   sheetItemText: { fontSize: 15, fontFamily: 'Inter_400Regular', color: C.text },
   sheetItemTextActive: { fontFamily: 'Inter_600SemiBold', color: C.primary },
   cancelBtn: { marginTop: 12, alignItems: 'center', paddingVertical: 14, backgroundColor: C.surface2, borderRadius: 12 },

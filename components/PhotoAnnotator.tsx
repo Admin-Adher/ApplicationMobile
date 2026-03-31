@@ -14,6 +14,18 @@ const MARKER_COLORS = [
   { value: '#3B82F6', label: 'Bleu' },
   { value: '#10B981', label: 'Vert' },
   { value: '#8B5CF6', label: 'Violet' },
+  { value: '#FFFFFF', label: 'Blanc' },
+  { value: '#000000', label: 'Noir' },
+];
+
+type AnnotationTool = 'point' | 'text' | 'arrow' | 'rect' | 'measure';
+
+const TOOLS: { key: AnnotationTool; icon: string; label: string }[] = [
+  { key: 'point', icon: 'ellipse', label: 'Point' },
+  { key: 'text', icon: 'text', label: 'Texte' },
+  { key: 'arrow', icon: 'arrow-forward', label: 'Flèche' },
+  { key: 'rect', icon: 'square-outline', label: 'Zone' },
+  { key: 'measure', icon: 'resize-outline', label: 'Mesure' },
 ];
 
 interface Props {
@@ -35,8 +47,11 @@ export function PhotoAnnotationOverlay({
 }: Props) {
   const [markers, setMarkers] = useState<PhotoAnnotation[]>(annotations);
   const [selectedColor, setSelectedColor] = useState(MARKER_COLORS[0].value);
+  const [activeTool, setActiveTool] = useState<AnnotationTool>('point');
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editLabel, setEditLabel] = useState('');
+  const [pendingText, setPendingText] = useState('');
+  const [pendingTextPos, setPendingTextPos] = useState<{ x: number; y: number } | null>(null);
   const containerRef = useRef<View>(null);
   const [containerSize, setContainerSize] = useState({ w: 300, h: 220 });
 
@@ -45,26 +60,62 @@ export function PhotoAnnotationOverlay({
     const { locationX, locationY } = evt.nativeEvent;
     const xPct = (locationX / containerSize.w) * 100;
     const yPct = (locationY / containerSize.h) * 100;
+    const x = Math.max(2, Math.min(98, xPct));
+    const y = Math.max(2, Math.min(98, yPct));
+
+    if (activeTool === 'text') {
+      setPendingTextPos({ x, y });
+      setPendingText('');
+      return;
+    }
+
+    const toolToType: Record<AnnotationTool, PhotoAnnotation['tool']> = {
+      point: 'point',
+      arrow: 'arrow',
+      rect: 'rect',
+      measure: 'measure',
+      text: 'text',
+    };
+
     const newMarker: PhotoAnnotation = {
       id: genId(),
-      x: Math.max(2, Math.min(98, xPct)),
-      y: Math.max(2, Math.min(98, yPct)),
+      x,
+      y,
       color: selectedColor,
-      label: String(markers.length + 1),
+      label: activeTool === 'measure' ? `Mesure ${markers.filter(m => m.tool === 'measure').length + 1}` : String(markers.length + 1),
+      tool: toolToType[activeTool],
     };
     setMarkers(prev => [...prev, newMarker]);
   }
 
+  function confirmTextInput() {
+    if (!pendingTextPos || !pendingText.trim()) {
+      setPendingTextPos(null);
+      return;
+    }
+    const newMarker: PhotoAnnotation = {
+      id: genId(),
+      x: pendingTextPos.x,
+      y: pendingTextPos.y,
+      color: selectedColor,
+      label: pendingText.trim(),
+      tool: 'text',
+    };
+    setMarkers(prev => [...prev, newMarker]);
+    setPendingTextPos(null);
+    setPendingText('');
+  }
+
   function handleRemoveMarker(id: string) {
-    Alert.alert('Supprimer le marqueur ?', '', [
+    Alert.alert('Supprimer l\'annotation ?', '', [
       { text: 'Annuler', style: 'cancel' },
       { text: 'Supprimer', style: 'destructive', onPress: () => {
-        setMarkers(prev => prev.filter(m => m.id !== id).map((m, i) => ({ ...m, label: String(i + 1) })));
+        setMarkers(prev => prev.filter(m => m.id !== id).map((m, i) => ({ ...m, label: m.tool === 'text' || m.tool === 'measure' ? m.label : String(i + 1) })));
       }},
     ]);
   }
 
-  function handleMarkerLongPress(m: PhotoAnnotation) {
+  function handleMarkerPress(m: PhotoAnnotation) {
     if (!editable) return;
     setEditingId(m.id);
     setEditLabel(m.label);
@@ -74,6 +125,52 @@ export function PhotoAnnotationOverlay({
     setMarkers(prev => prev.map(m => m.id === editingId ? { ...m, label: editLabel.trim() || m.label } : m));
     setEditingId(null);
     setEditLabel('');
+  }
+
+  function getMarkerIcon(tool?: PhotoAnnotation['tool']): string {
+    switch (tool) {
+      case 'arrow': return '↗';
+      case 'rect': return '□';
+      case 'measure': return '↔';
+      case 'text': return 'T';
+      default: return '';
+    }
+  }
+
+  function getMarkerShape(m: PhotoAnnotation) {
+    if (m.tool === 'text') {
+      return (
+        <View style={[styles.textMarker, { backgroundColor: m.color + 'CC', borderColor: m.color }]}>
+          <Text style={[styles.textMarkerLabel, { color: m.color === '#FFFFFF' ? '#000' : '#fff' }]} numberOfLines={2}>{m.label}</Text>
+        </View>
+      );
+    }
+    if (m.tool === 'rect') {
+      return (
+        <View style={[styles.rectMarker, { borderColor: m.color }]}>
+          <Text style={[styles.rectMarkerText, { color: m.color }]}>□</Text>
+        </View>
+      );
+    }
+    if (m.tool === 'arrow') {
+      return (
+        <View style={[styles.arrowMarker, { backgroundColor: m.color }]}>
+          <Text style={styles.markerText}>↗</Text>
+        </View>
+      );
+    }
+    if (m.tool === 'measure') {
+      return (
+        <View style={[styles.measureMarker, { backgroundColor: m.color + 'DD' }]}>
+          <Text style={styles.measureText}>⟷</Text>
+        </View>
+      );
+    }
+    return (
+      <View style={[styles.marker, { backgroundColor: m.color }]}>
+        <Text style={styles.markerText}>{m.label.length <= 2 ? m.label : m.label.slice(0, 2)}</Text>
+      </View>
+    );
   }
 
   return (
@@ -97,27 +194,46 @@ export function PhotoAnnotationOverlay({
         </View>
 
         {editable && (
-          <View style={styles.toolbar}>
-            <Text style={styles.toolbarLabel}>Couleur :</Text>
-            {MARKER_COLORS.map(c => (
-              <TouchableOpacity
-                key={c.value}
-                style={[styles.colorDot, { backgroundColor: c.value, borderWidth: selectedColor === c.value ? 3 : 1, borderColor: selectedColor === c.value ? '#fff' : 'transparent' }]}
-                onPress={() => setSelectedColor(c.value)}
-              />
-            ))}
-            <View style={styles.toolbarSep} />
-            {editable && markers.length > 0 && (
-              <TouchableOpacity onPress={() => {
-                Alert.alert('Effacer tout ?', '', [
-                  { text: 'Annuler', style: 'cancel' },
-                  { text: 'Effacer', style: 'destructive', onPress: () => setMarkers([]) },
-                ]);
-              }} style={styles.clearBtn}>
-                <Ionicons name="trash-outline" size={16} color={C.open} />
-              </TouchableOpacity>
-            )}
-          </View>
+          <>
+            <View style={styles.toolbarRow}>
+              <Text style={styles.toolbarLabel}>Outil :</Text>
+              {TOOLS.map(t => (
+                <TouchableOpacity
+                  key={t.key}
+                  style={[styles.toolBtn, activeTool === t.key && styles.toolBtnActive]}
+                  onPress={() => setActiveTool(t.key)}
+                >
+                  <Ionicons name={t.icon as any} size={16} color={activeTool === t.key ? '#fff' : C.textSub} />
+                  <Text style={[styles.toolBtnLabel, activeTool === t.key && styles.toolBtnLabelActive]}>{t.label}</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+
+            <View style={styles.colorRow}>
+              <Text style={styles.toolbarLabel}>Couleur :</Text>
+              {MARKER_COLORS.map(c => (
+                <TouchableOpacity
+                  key={c.value}
+                  style={[
+                    styles.colorDot,
+                    { backgroundColor: c.value, borderWidth: selectedColor === c.value ? 3 : 1, borderColor: selectedColor === c.value ? C.primary : (c.value === '#FFFFFF' ? C.border : 'transparent') },
+                  ]}
+                  onPress={() => setSelectedColor(c.value)}
+                />
+              ))}
+              <View style={{ flex: 1 }} />
+              {markers.length > 0 && (
+                <TouchableOpacity onPress={() => {
+                  Alert.alert('Effacer tout ?', '', [
+                    { text: 'Annuler', style: 'cancel' },
+                    { text: 'Effacer', style: 'destructive', onPress: () => setMarkers([]) },
+                  ]);
+                }} style={styles.clearBtn}>
+                  <Ionicons name="trash-outline" size={16} color={C.open} />
+                </TouchableOpacity>
+              )}
+            </View>
+          </>
         )}
 
         <View style={styles.imageWrap}>
@@ -136,17 +252,16 @@ export function PhotoAnnotationOverlay({
               <TouchableOpacity
                 key={m.id}
                 style={[
-                  styles.marker,
+                  styles.markerWrap,
                   {
                     left: `${m.x}%` as any,
                     top: `${m.y}%` as any,
-                    backgroundColor: m.color,
                   },
                 ]}
-                onPress={editable ? (e => { e.stopPropagation(); handleMarkerLongPress(m); }) : undefined}
+                onPress={editable ? (e => { e.stopPropagation(); handleMarkerPress(m); }) : undefined}
                 onLongPress={editable ? () => handleRemoveMarker(m.id) : undefined}
               >
-                <Text style={styles.markerText}>{m.label}</Text>
+                {getMarkerShape(m)}
               </TouchableOpacity>
             ))}
           </TouchableOpacity>
@@ -156,7 +271,7 @@ export function PhotoAnnotationOverlay({
           <View style={styles.hint}>
             <Ionicons name="information-circle-outline" size={14} color={C.textMuted} />
             <Text style={styles.hintText}>
-              Appuyez sur la photo pour ajouter un marqueur · Appui long pour supprimer · Appui court sur le marqueur pour renommer
+              Appui sur la photo pour annoter · Appui court sur marqueur pour renommer · Appui long pour supprimer
             </Text>
           </View>
         )}
@@ -166,9 +281,18 @@ export function PhotoAnnotationOverlay({
             {markers.map(m => (
               <View key={m.id} style={styles.legendRow}>
                 <View style={[styles.legendDot, { backgroundColor: m.color }]}>
-                  <Text style={styles.legendDotText}>{m.label.length <= 2 ? m.label : m.label.slice(0, 2)}</Text>
+                  <Text style={styles.legendDotText}>
+                    {m.tool === 'text' ? 'T' : m.tool === 'arrow' ? '↗' : m.tool === 'rect' ? '□' : m.tool === 'measure' ? '⟷' : m.label.length <= 2 ? m.label : m.label.slice(0, 2)}
+                  </Text>
                 </View>
-                <Text style={styles.legendLabelText}>{m.label}</Text>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.legendLabelText}>{m.label}</Text>
+                  {m.tool && m.tool !== 'point' && (
+                    <Text style={styles.legendToolText}>
+                      {m.tool === 'text' ? 'Annotation texte' : m.tool === 'arrow' ? 'Flèche' : m.tool === 'rect' ? 'Zone délimitée' : 'Mesure'}
+                    </Text>
+                  )}
+                </View>
               </View>
             ))}
           </ScrollView>
@@ -178,15 +302,16 @@ export function PhotoAnnotationOverlay({
           <Modal visible transparent animationType="fade">
             <TouchableOpacity style={styles.editOverlay} activeOpacity={1} onPress={() => setEditingId(null)}>
               <View style={styles.editModal}>
-                <Text style={styles.editTitle}>Renommer le marqueur</Text>
+                <Text style={styles.editTitle}>Modifier l'annotation</Text>
                 <TextInput
                   style={styles.editInput}
                   value={editLabel}
                   onChangeText={setEditLabel}
                   autoFocus
-                  placeholder="Label du marqueur"
+                  placeholder="Texte de l'annotation"
                   placeholderTextColor={C.textMuted}
                   onSubmitEditing={saveLabel}
+                  multiline
                 />
                 <View style={styles.editActions}>
                   <TouchableOpacity style={styles.editCancel} onPress={() => setEditingId(null)}>
@@ -194,6 +319,34 @@ export function PhotoAnnotationOverlay({
                   </TouchableOpacity>
                   <TouchableOpacity style={styles.editConfirm} onPress={saveLabel}>
                     <Text style={styles.editConfirmText}>OK</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+            </TouchableOpacity>
+          </Modal>
+        )}
+
+        {pendingTextPos && (
+          <Modal visible transparent animationType="fade">
+            <TouchableOpacity style={styles.editOverlay} activeOpacity={1} onPress={() => setPendingTextPos(null)}>
+              <View style={styles.editModal}>
+                <Text style={styles.editTitle}>Ajouter une annotation texte</Text>
+                <TextInput
+                  style={styles.editInput}
+                  value={pendingText}
+                  onChangeText={setPendingText}
+                  autoFocus
+                  placeholder="Ex: Fissure horizontale, Défaut peinture..."
+                  placeholderTextColor={C.textMuted}
+                  multiline
+                  onSubmitEditing={confirmTextInput}
+                />
+                <View style={styles.editActions}>
+                  <TouchableOpacity style={styles.editCancel} onPress={() => setPendingTextPos(null)}>
+                    <Text style={styles.editCancelText}>Annuler</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity style={styles.editConfirm} onPress={confirmTextInput}>
+                    <Text style={styles.editConfirmText}>Ajouter</Text>
                   </TouchableOpacity>
                 </View>
               </View>
@@ -231,11 +384,15 @@ export function PhotoWithAnnotations({
             {
               left: `${m.x}%` as any,
               top: `${m.y}%` as any,
-              backgroundColor: m.color,
+              backgroundColor: m.tool === 'rect' ? 'transparent' : m.color,
+              borderColor: m.color,
+              borderWidth: m.tool === 'rect' ? 2 : 1.5,
             },
           ]}
         >
-          <Text style={styles.thumbMarkerText}>{m.label.slice(0, 2)}</Text>
+          <Text style={styles.thumbMarkerText}>
+            {m.tool === 'text' ? 'T' : m.tool === 'arrow' ? '↗' : m.tool === 'rect' ? '□' : m.tool === 'measure' ? '⟷' : m.label.slice(0, 2)}
+          </Text>
         </View>
       ))}
       {annotations.length > 0 && (
@@ -249,242 +406,122 @@ export function PhotoWithAnnotations({
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: C.bg,
-  },
+  container: { flex: 1, backgroundColor: C.bg },
   header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 16,
-    paddingTop: Platform.OS === 'ios' ? 20 : 16,
-    paddingBottom: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: C.border,
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    paddingHorizontal: 16, paddingTop: Platform.OS === 'ios' ? 20 : 16, paddingBottom: 12,
+    borderBottomWidth: 1, borderBottomColor: C.border,
   },
-  closeBtn: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
+  closeBtn: { width: 36, height: 36, borderRadius: 18, backgroundColor: C.surface2, alignItems: 'center', justifyContent: 'center' },
+  title: { fontSize: 16, fontFamily: 'Inter_600SemiBold', color: C.text },
+  saveBtn: { backgroundColor: C.primary, paddingHorizontal: 16, paddingVertical: 8, borderRadius: 10 },
+  saveBtnText: { fontSize: 14, fontFamily: 'Inter_600SemiBold', color: '#fff' },
+
+  toolbarRow: {
+    flexDirection: 'row', alignItems: 'center', gap: 6,
+    paddingHorizontal: 12, paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: C.border,
     backgroundColor: C.surface2,
-    alignItems: 'center',
-    justifyContent: 'center',
   },
-  title: {
-    fontSize: 16,
-    fontFamily: 'Inter_600SemiBold',
-    color: C.text,
+  toolbarLabel: { fontSize: 11, fontFamily: 'Inter_500Medium', color: C.textMuted, marginRight: 2 },
+  toolBtn: {
+    flexDirection: 'row', alignItems: 'center', gap: 4,
+    paddingHorizontal: 10, paddingVertical: 6, borderRadius: 10,
+    backgroundColor: C.surface, borderWidth: 1, borderColor: C.border,
   },
-  saveBtn: {
-    backgroundColor: C.primary,
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    borderRadius: 10,
+  toolBtnActive: { backgroundColor: C.primary, borderColor: C.primary },
+  toolBtnLabel: { fontSize: 11, fontFamily: 'Inter_500Medium', color: C.textSub },
+  toolBtnLabelActive: { color: '#fff' },
+
+  colorRow: {
+    flexDirection: 'row', alignItems: 'center', gap: 8,
+    paddingHorizontal: 12, paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: C.border,
   },
-  saveBtnText: {
-    fontSize: 14,
-    fontFamily: 'Inter_600SemiBold',
-    color: '#fff',
-  },
-  toolbar: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-    borderBottomWidth: 1,
-    borderBottomColor: C.border,
-  },
-  toolbarLabel: {
-    fontSize: 13,
-    fontFamily: 'Inter_500Medium',
-    color: C.textSub,
-    marginRight: 4,
-  },
-  colorDot: {
-    width: 26,
-    height: 26,
-    borderRadius: 13,
-  },
-  toolbarSep: {
-    flex: 1,
-  },
-  clearBtn: {
-    width: 32,
-    height: 32,
-    borderRadius: 8,
-    backgroundColor: C.open + '18',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  imageWrap: {
-    flex: 1,
-    backgroundColor: '#000',
-    margin: 12,
-    borderRadius: 12,
-    overflow: 'hidden',
-  },
-  imageTouchable: {
-    flex: 1,
-    position: 'relative',
-  },
-  image: {
-    width: '100%',
-    height: '100%',
+  colorDot: { width: 26, height: 26, borderRadius: 13 },
+  clearBtn: { width: 32, height: 32, borderRadius: 8, backgroundColor: C.open + '18', alignItems: 'center', justifyContent: 'center' },
+
+  imageWrap: { flex: 1, backgroundColor: '#000', margin: 12, borderRadius: 12, overflow: 'hidden' },
+  imageTouchable: { flex: 1, position: 'relative' },
+  image: { width: '100%', height: '100%' },
+
+  markerWrap: {
+    position: 'absolute',
+    transform: [{ translateX: -14 }, { translateY: -14 }],
   },
   marker: {
-    position: 'absolute',
-    width: 28,
-    height: 28,
-    borderRadius: 14,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginLeft: -14,
-    marginTop: -14,
-    borderWidth: 2,
-    borderColor: '#fff',
+    width: 28, height: 28, borderRadius: 14,
+    alignItems: 'center', justifyContent: 'center',
+    borderWidth: 2, borderColor: '#fff',
     ...Platform.select({
       web: { boxShadow: '0 2px 8px rgba(0,0,0,0.4)' } as any,
       default: { shadowColor: '#000', shadowOpacity: 0.4, shadowRadius: 4, shadowOffset: { width: 0, height: 2 }, elevation: 4 },
     }),
   },
-  markerText: {
-    fontSize: 11,
-    fontFamily: 'Inter_700Bold',
-    color: '#fff',
+  markerText: { fontSize: 11, fontFamily: 'Inter_700Bold', color: '#fff' },
+  textMarker: {
+    borderRadius: 6, paddingHorizontal: 8, paddingVertical: 4,
+    maxWidth: 120, borderWidth: 1.5,
+    ...Platform.select({
+      web: { boxShadow: '0 2px 8px rgba(0,0,0,0.4)' } as any,
+      default: { shadowColor: '#000', shadowOpacity: 0.35, shadowRadius: 4, shadowOffset: { width: 0, height: 2 }, elevation: 4 },
+    }),
   },
-  hint: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    gap: 6,
-    paddingHorizontal: 16,
-    paddingVertical: 8,
+  textMarkerLabel: { fontSize: 12, fontFamily: 'Inter_600SemiBold', lineHeight: 16 },
+  rectMarker: {
+    width: 40, height: 30, borderRadius: 4,
+    alignItems: 'center', justifyContent: 'center', borderWidth: 2.5,
   },
-  hintText: {
-    flex: 1,
-    fontSize: 11,
-    fontFamily: 'Inter_400Regular',
-    color: C.textMuted,
-    lineHeight: 16,
+  rectMarkerText: { fontSize: 18, fontFamily: 'Inter_700Bold' },
+  arrowMarker: {
+    width: 28, height: 28, borderRadius: 14,
+    alignItems: 'center', justifyContent: 'center',
+    borderWidth: 2, borderColor: '#fff',
+    ...Platform.select({
+      web: { boxShadow: '0 2px 8px rgba(0,0,0,0.4)' } as any,
+      default: { shadowColor: '#000', shadowOpacity: 0.4, shadowRadius: 4, elevation: 4 },
+    }),
   },
-  legend: {
-    maxHeight: 120,
-    paddingHorizontal: 16,
-    paddingBottom: 8,
-  },
-  legendRow: {
-    flexDirection: 'row',
+  measureMarker: {
+    borderRadius: 8, paddingHorizontal: 8, paddingVertical: 4,
     alignItems: 'center',
-    gap: 10,
-    paddingVertical: 3,
+    ...Platform.select({
+      web: { boxShadow: '0 2px 8px rgba(0,0,0,0.3)' } as any,
+      default: { shadowColor: '#000', shadowOpacity: 0.3, shadowRadius: 3, elevation: 3 },
+    }),
   },
-  legendDot: {
-    width: 22,
-    height: 22,
-    borderRadius: 11,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  legendDotText: {
-    fontSize: 10,
-    fontFamily: 'Inter_700Bold',
-    color: '#fff',
-  },
-  legendLabelText: {
-    fontSize: 13,
-    fontFamily: 'Inter_400Regular',
-    color: C.textSub,
-  },
-  editOverlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.5)',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  editModal: {
-    backgroundColor: C.surface,
-    borderRadius: 16,
-    padding: 20,
-    width: 280,
-    gap: 14,
-  },
-  editTitle: {
-    fontSize: 15,
-    fontFamily: 'Inter_600SemiBold',
-    color: C.text,
-    textAlign: 'center',
-  },
+  measureText: { fontSize: 14, color: '#fff', fontFamily: 'Inter_700Bold' },
+
+  hint: { flexDirection: 'row', alignItems: 'flex-start', gap: 6, paddingHorizontal: 16, paddingVertical: 8 },
+  hintText: { flex: 1, fontSize: 11, fontFamily: 'Inter_400Regular', color: C.textMuted, lineHeight: 16 },
+
+  legend: { maxHeight: 130, paddingHorizontal: 16, paddingBottom: 8 },
+  legendRow: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 4 },
+  legendDot: { width: 24, height: 24, borderRadius: 12, alignItems: 'center', justifyContent: 'center' },
+  legendDotText: { fontSize: 10, fontFamily: 'Inter_700Bold', color: '#fff' },
+  legendLabelText: { fontSize: 13, fontFamily: 'Inter_400Regular', color: C.text },
+  legendToolText: { fontSize: 10, fontFamily: 'Inter_400Regular', color: C.textMuted },
+
+  editOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', alignItems: 'center', justifyContent: 'center' },
+  editModal: { backgroundColor: C.surface, borderRadius: 16, padding: 20, width: 300, gap: 14 },
+  editTitle: { fontSize: 15, fontFamily: 'Inter_600SemiBold', color: C.text, textAlign: 'center' },
   editInput: {
-    backgroundColor: C.surface2,
-    borderRadius: 10,
-    padding: 12,
-    fontSize: 14,
-    fontFamily: 'Inter_400Regular',
-    color: C.text,
-    borderWidth: 1,
-    borderColor: C.border,
+    backgroundColor: C.surface2, borderRadius: 10, padding: 12, fontSize: 14,
+    fontFamily: 'Inter_400Regular', color: C.text, borderWidth: 1, borderColor: C.border, minHeight: 60, textAlignVertical: 'top',
   },
-  editActions: {
-    flexDirection: 'row',
-    gap: 10,
-  },
-  editCancel: {
-    flex: 1,
-    padding: 12,
-    borderRadius: 10,
-    backgroundColor: C.surface2,
-    alignItems: 'center',
-  },
-  editCancelText: {
-    fontSize: 14,
-    fontFamily: 'Inter_500Medium',
-    color: C.textSub,
-  },
-  editConfirm: {
-    flex: 1,
-    padding: 12,
-    borderRadius: 10,
-    backgroundColor: C.primary,
-    alignItems: 'center',
-  },
-  editConfirmText: {
-    fontSize: 14,
-    fontFamily: 'Inter_600SemiBold',
-    color: '#fff',
-  },
+  editActions: { flexDirection: 'row', gap: 10 },
+  editCancel: { flex: 1, padding: 12, borderRadius: 10, backgroundColor: C.surface2, alignItems: 'center' },
+  editCancelText: { fontSize: 14, fontFamily: 'Inter_500Medium', color: C.textSub },
+  editConfirm: { flex: 1, padding: 12, borderRadius: 10, backgroundColor: C.primary, alignItems: 'center' },
+  editConfirmText: { fontSize: 14, fontFamily: 'Inter_600SemiBold', color: '#fff' },
+
   thumbMarker: {
-    position: 'absolute',
-    width: 18,
-    height: 18,
-    borderRadius: 9,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginLeft: -9,
-    marginTop: -9,
-    borderWidth: 1.5,
-    borderColor: '#fff',
+    position: 'absolute', width: 18, height: 18, borderRadius: 9,
+    alignItems: 'center', justifyContent: 'center', marginLeft: -9, marginTop: -9,
   },
-  thumbMarkerText: {
-    fontSize: 8,
-    fontFamily: 'Inter_700Bold',
-    color: '#fff',
-  },
+  thumbMarkerText: { fontSize: 8, fontFamily: 'Inter_700Bold', color: '#fff' },
   thumbBadge: {
-    position: 'absolute',
-    bottom: 4,
-    right: 4,
-    backgroundColor: 'rgba(0,0,0,0.65)',
-    borderRadius: 8,
-    paddingHorizontal: 5,
-    paddingVertical: 2,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 3,
+    position: 'absolute', bottom: 4, right: 4, backgroundColor: 'rgba(0,0,0,0.65)',
+    borderRadius: 8, paddingHorizontal: 5, paddingVertical: 2,
+    flexDirection: 'row', alignItems: 'center', gap: 3,
   },
-  thumbBadgeText: {
-    fontSize: 9,
-    fontFamily: 'Inter_600SemiBold',
-    color: '#fff',
-  },
+  thumbBadgeText: { fontSize: 9, fontFamily: 'Inter_600SemiBold', color: '#fff' },
 });

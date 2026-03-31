@@ -8,6 +8,7 @@ import {
   TextInput,
   Platform,
   Modal,
+  KeyboardAvoidingView,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
@@ -18,7 +19,7 @@ import { C } from '@/constants/colors';
 import { useApp } from '@/context/AppContext';
 import { useAuth } from '@/context/AuthContext';
 import { useSettings } from '@/context/SettingsContext';
-import { Opr, OprItem, OprStatus } from '@/constants/types';
+import { Opr, OprItem, OprSignatory, OprStatus } from '@/constants/types';
 import Header from '@/components/Header';
 import BottomNavBar from '@/components/BottomNavBar';
 import SignaturePad, { SignaturePadRef } from '@/components/SignaturePad';
@@ -216,6 +217,34 @@ export default function OprScreen() {
 
   const conducteurPadRef = useRef<SignaturePadRef>(null);
   const moPadRef = useRef<SignaturePadRef>(null);
+
+  const [inviteModal, setInviteModal] = useState<{ opr: Opr } | null>(null);
+  const [inviteName, setInviteName] = useState('');
+  const [inviteRole, setInviteRole] = useState('');
+  const [inviteEmail, setInviteEmail] = useState('');
+
+  function addSignatory() {
+    if (!inviteModal || !inviteName.trim()) return;
+    const opr = inviteModal.opr;
+    const newSig: OprSignatory = {
+      id: genId(),
+      name: inviteName.trim(),
+      role: inviteRole.trim() || 'Participant',
+      email: inviteEmail.trim() || undefined,
+    };
+    updateOpr({ ...opr, signatories: [...(opr.signatories ?? []), newSig] });
+    setInviteName(''); setInviteRole(''); setInviteEmail('');
+    setInviteModal(null);
+  }
+
+  function removeSignatory(opr: Opr, sigId: string) {
+    Alert.alert('Retirer', 'Retirer ce signataire ?', [
+      { text: 'Annuler', style: 'cancel' },
+      { text: 'Retirer', style: 'destructive', onPress: () =>
+        updateOpr({ ...opr, signatories: (opr.signatories ?? []).filter(s => s.id !== sigId) })
+      },
+    ]);
+  }
 
   const chantierOprs = useMemo(
     () => oprs.filter(o => !activeChantierId || o.chantierId === activeChantierId)
@@ -493,6 +522,49 @@ export default function OprScreen() {
                     </TouchableOpacity>
                   )}
                 </View>
+
+                <View style={styles.signatoryPanel}>
+                  <View style={styles.signatoryHeader}>
+                    <Ionicons name="people-outline" size={13} color={C.textSub} />
+                    <Text style={styles.signatoryTitle}>Signataires collaboratifs</Text>
+                    {permissions.canEdit && opr.status !== 'signed' && (
+                      <TouchableOpacity style={styles.inviteBtn} onPress={() => setInviteModal({ opr })}>
+                        <Ionicons name="person-add-outline" size={12} color={C.primary} />
+                        <Text style={styles.inviteBtnText}>Inviter</Text>
+                      </TouchableOpacity>
+                    )}
+                  </View>
+                  {(opr.signatories ?? []).length === 0 ? (
+                    <Text style={styles.signatoryEmpty}>Aucun signataire invité — appuyez sur "Inviter" pour ajouter des participants</Text>
+                  ) : (
+                    (opr.signatories ?? []).map(sig => (
+                      <View key={sig.id} style={styles.signatoryRow}>
+                        <View style={styles.signatoryAvatar}>
+                          <Text style={styles.signatoryAvatarText}>{sig.name.slice(0, 1).toUpperCase()}</Text>
+                        </View>
+                        <View style={{ flex: 1 }}>
+                          <Text style={styles.signatoryName}>{sig.name}</Text>
+                          <Text style={styles.signatoryRole}>{sig.role}{sig.email ? ' · ' + sig.email : ''}</Text>
+                        </View>
+                        {sig.signedAt ? (
+                          <View style={styles.sigSignedBadge}>
+                            <Ionicons name="checkmark-circle" size={12} color={C.closed} />
+                            <Text style={styles.sigSignedText}>{sig.signedAt}</Text>
+                          </View>
+                        ) : (
+                          <View style={styles.sigPendingBadge}>
+                            <Text style={styles.sigPendingText}>En attente</Text>
+                          </View>
+                        )}
+                        {permissions.canDelete && (
+                          <TouchableOpacity onPress={() => removeSignatory(opr, sig.id)} hitSlop={8}>
+                            <Ionicons name="close" size={14} color={C.textMuted} />
+                          </TouchableOpacity>
+                        )}
+                      </View>
+                    ))
+                  )}
+                </View>
               </View>
             );
           })
@@ -500,6 +572,53 @@ export default function OprScreen() {
       </ScrollView>
 
       <BottomNavBar />
+
+      <Modal visible={inviteModal !== null} transparent animationType="slide" onRequestClose={() => setInviteModal(null)}>
+        <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={{ flex: 1 }}>
+          <View style={styles.inviteOverlay}>
+            <View style={styles.inviteSheet}>
+              <View style={styles.modalHandle} />
+              <Text style={styles.inviteTitle}>Inviter un signataire</Text>
+              <Text style={styles.modalLabel}>Nom *</Text>
+              <TextInput
+                style={styles.input}
+                placeholder="Prénom Nom"
+                placeholderTextColor={C.textMuted}
+                value={inviteName}
+                onChangeText={setInviteName}
+                autoFocus
+              />
+              <Text style={styles.modalLabel}>Rôle / Fonction</Text>
+              <TextInput
+                style={styles.input}
+                placeholder="Ex: Maître d'œuvre, BET Structure…"
+                placeholderTextColor={C.textMuted}
+                value={inviteRole}
+                onChangeText={setInviteRole}
+              />
+              <Text style={styles.modalLabel}>Email (optionnel)</Text>
+              <TextInput
+                style={styles.input}
+                placeholder="prenom.nom@entreprise.fr"
+                placeholderTextColor={C.textMuted}
+                value={inviteEmail}
+                onChangeText={setInviteEmail}
+                keyboardType="email-address"
+                autoCapitalize="none"
+              />
+              <View style={styles.inviteActions}>
+                <TouchableOpacity style={styles.cancelBtn} onPress={() => { setInviteModal(null); setInviteName(''); setInviteRole(''); setInviteEmail(''); }}>
+                  <Text style={styles.cancelBtnText}>Annuler</Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={styles.createBtn} onPress={addSignatory}>
+                  <Ionicons name="person-add-outline" size={15} color="#fff" />
+                  <Text style={styles.createBtnText}>Ajouter</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          </View>
+        </KeyboardAvoidingView>
+      </Modal>
 
       <Modal
         visible={signModalOpr !== null}
@@ -724,6 +843,29 @@ const styles = StyleSheet.create({
 
   signNotice: { flexDirection: 'row', alignItems: 'flex-start', gap: 8, backgroundColor: C.closedBg, borderRadius: 10, padding: 12, marginVertical: 12 },
   signNoticeText: { flex: 1, fontSize: 12, fontFamily: 'Inter_400Regular', color: C.closed, lineHeight: 18 },
+
+  signatoryPanel: {
+    marginTop: 12, paddingTop: 12, borderTopWidth: 1, borderTopColor: C.border,
+  },
+  signatoryHeader: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 10 },
+  signatoryTitle: { flex: 1, fontSize: 12, fontFamily: 'Inter_600SemiBold', color: C.textSub, textTransform: 'uppercase', letterSpacing: 0.4 },
+  inviteBtn: { flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: C.primaryBg, paddingHorizontal: 10, paddingVertical: 5, borderRadius: 8, borderWidth: 1, borderColor: C.primary + '30' },
+  inviteBtnText: { fontSize: 11, fontFamily: 'Inter_600SemiBold', color: C.primary },
+  signatoryEmpty: { fontSize: 11, fontFamily: 'Inter_400Regular', color: C.textMuted, fontStyle: 'italic', lineHeight: 16 },
+  signatoryRow: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: C.border },
+  signatoryAvatar: { width: 32, height: 32, borderRadius: 16, backgroundColor: C.primary + '20', alignItems: 'center', justifyContent: 'center' },
+  signatoryAvatarText: { fontSize: 13, fontFamily: 'Inter_700Bold', color: C.primary },
+  signatoryName: { fontSize: 13, fontFamily: 'Inter_500Medium', color: C.text },
+  signatoryRole: { fontSize: 11, fontFamily: 'Inter_400Regular', color: C.textMuted, marginTop: 1 },
+  sigSignedBadge: { flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: C.closedBg, paddingHorizontal: 7, paddingVertical: 3, borderRadius: 8 },
+  sigSignedText: { fontSize: 10, fontFamily: 'Inter_600SemiBold', color: C.closed },
+  sigPendingBadge: { paddingHorizontal: 8, paddingVertical: 3, borderRadius: 8, backgroundColor: '#FEF3C7' },
+  sigPendingText: { fontSize: 10, fontFamily: 'Inter_500Medium', color: '#92400E' },
+
+  inviteOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' },
+  inviteSheet: { backgroundColor: C.surface, borderTopLeftRadius: 20, borderTopRightRadius: 20, padding: 20, paddingBottom: 40 },
+  inviteTitle: { fontSize: 17, fontFamily: 'Inter_700Bold', color: C.text, marginBottom: 14 },
+  inviteActions: { flexDirection: 'row', gap: 10, marginTop: 8 },
 
   modalActions: { flexDirection: 'row', gap: 10 },
   modalCancelBtn: { flex: 1, alignItems: 'center', paddingVertical: 13, borderRadius: 12, borderWidth: 1, borderColor: C.border },

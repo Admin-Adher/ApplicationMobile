@@ -110,7 +110,8 @@ type Action =
   | { type: 'UPDATE_COMPANY_FULL'; payload: Company }
   | { type: 'DELETE_COMPANY'; payload: string }
   | { type: 'UPDATE_COMPANY_HOURS'; payload: { id: string; hours: number } }
-  | { type: 'SET_CHANNEL_MEMBERS_OVERRIDE'; payload: Record<string, string[]> };
+  | { type: 'SET_CHANNEL_MEMBERS_OVERRIDE'; payload: Record<string, string[]> }
+  | { type: 'BATCH_UPDATE_RESERVES'; payload: Reserve[] };
 
 function toReserve(row: any): Reserve {
   return {
@@ -415,6 +416,14 @@ function reducer(state: AppState, action: Action): AppState {
     case 'SET_CHANNEL_MEMBERS_OVERRIDE':
       return { ...state, channelMembersOverride: action.payload };
 
+    case 'BATCH_UPDATE_RESERVES': {
+      const updatedMap = new Map(action.payload.map(r => [r.id, r]));
+      return {
+        ...state,
+        reserves: state.reserves.map(r => updatedMap.has(r.id) ? updatedMap.get(r.id)! : r),
+      };
+    }
+
     default:
       return state;
   }
@@ -488,6 +497,9 @@ interface AppContextValue extends AppState {
   addOpr: (o: Opr) => void;
   updateOpr: (o: Opr) => void;
   deleteOpr: (id: string) => void;
+  batchUpdateReserves: (ids: string[], updates: Partial<Pick<Reserve, 'status' | 'company' | 'deadline' | 'priority'>>, author?: string) => void;
+  addSitePlanVersion: (parentPlanId: string, newPlan: SitePlan) => void;
+  realtimeConnected: boolean;
 }
 
 const AppContext = createContext<AppContextValue | null>(null);
@@ -568,22 +580,23 @@ const MOCK_PROFILES: Profile[] = [
 ];
 
 export const STANDARD_LOTS: Lot[] = [
-  { id: 'lot-00', code: '00', name: 'VRD / Terrassement', color: '#78716C' },
-  { id: 'lot-01', code: '01', name: 'Gros œuvre / Maçonnerie', color: '#3B82F6' },
-  { id: 'lot-02', code: '02', name: 'Charpente / Couverture', color: '#8B5CF6' },
-  { id: 'lot-03', code: '03', name: 'Étanchéité', color: '#06B6D4' },
-  { id: 'lot-04', code: '04', name: 'Menuiseries extérieures', color: '#F59E0B' },
-  { id: 'lot-05', code: '05', name: 'Menuiseries intérieures', color: '#D97706' },
-  { id: 'lot-06', code: '06', name: 'Isolation thermique', color: '#10B981' },
-  { id: 'lot-07', code: '07', name: 'Plâtrerie / Doublage', color: '#EC4899' },
-  { id: 'lot-08', code: '08', name: 'Carrelage / Revêtements', color: '#EF4444' },
-  { id: 'lot-09', code: '09', name: 'Peinture / Finitions', color: '#6366F1' },
-  { id: 'lot-10', code: '10', name: 'Plomberie / Sanitaire', color: '#0EA5E9' },
-  { id: 'lot-11', code: '11', name: 'Chauffage / Climatisation', color: '#F97316' },
-  { id: 'lot-12', code: '12', name: 'Électricité / Courants forts', color: '#FBBF24' },
-  { id: 'lot-13', code: '13', name: 'Courants faibles / Réseaux', color: '#A78BFA' },
-  { id: 'lot-14', code: '14', name: 'Ascenseurs / Élévateurs', color: '#34D399' },
-  { id: 'lot-15', code: '15', name: 'Espaces verts / Aménagements', color: '#22C55E' },
+  { id: 'lot-00', code: '00', name: 'VRD / Terrassement', color: '#78716C', cctpRef: 'CCTP Titre I — Travaux préparatoires' },
+  { id: 'lot-01', code: '01', name: 'Gros œuvre / Maçonnerie', color: '#3B82F6', cctpRef: 'CCTP Titre II — Lot 01 GO' },
+  { id: 'lot-02', code: '02', name: 'Charpente / Couverture', color: '#8B5CF6', cctpRef: 'CCTP Titre II — Lot 02 Charpente' },
+  { id: 'lot-03', code: '03', name: 'Étanchéité', color: '#06B6D4', cctpRef: 'CCTP Titre II — Lot 03 Étanchéité' },
+  { id: 'lot-04', code: '04', name: 'Menuiseries extérieures', color: '#F59E0B', cctpRef: 'CCTP Titre III — Lot 04 ME' },
+  { id: 'lot-05', code: '05', name: 'Menuiseries intérieures', color: '#D97706', cctpRef: 'CCTP Titre III — Lot 05 MI' },
+  { id: 'lot-06', code: '06', name: 'Isolation thermique / Doublage', color: '#10B981', cctpRef: 'CCTP Titre III — Lot 06 ITE' },
+  { id: 'lot-07', code: '07', name: 'Plâtrerie / Cloisons sèches', color: '#EC4899', cctpRef: 'CCTP Titre III — Lot 07 Plâtrerie' },
+  { id: 'lot-08', code: '08', name: 'Carrelage / Revêtements sols', color: '#EF4444', cctpRef: 'CCTP Titre III — Lot 08 Carrelage' },
+  { id: 'lot-09', code: '09', name: 'Peinture / Finitions', color: '#6366F1', cctpRef: 'CCTP Titre III — Lot 09 Peinture' },
+  { id: 'lot-10', code: '10', name: 'Plomberie / Sanitaire', color: '#0EA5E9', cctpRef: 'CCTP Titre IV — Lot 10 Plomberie' },
+  { id: 'lot-11', code: '11', name: 'Chauffage / VMC / Climatisation', color: '#F97316', cctpRef: 'CCTP Titre IV — Lot 11 CVC' },
+  { id: 'lot-12', code: '12', name: 'Électricité / Courants forts', color: '#FBBF24', cctpRef: 'CCTP Titre IV — Lot 12 CF' },
+  { id: 'lot-13', code: '13', name: 'Courants faibles / Réseaux', color: '#A78BFA', cctpRef: 'CCTP Titre IV — Lot 13 CFa' },
+  { id: 'lot-14', code: '14', name: 'Ascenseurs / Élévateurs', color: '#34D399', cctpRef: 'CCTP Titre V — Lot 14 Ascenseurs' },
+  { id: 'lot-15', code: '15', name: 'Espaces verts / Aménagements ext.', color: '#22C55E', cctpRef: 'CCTP Titre VI — Lot 15 VRD ext.' },
+  { id: 'lot-16', code: '16', name: 'Sécurité incendie / SSI', color: '#F43F5E', cctpRef: 'CCTP Titre V — Lot 16 SSI' },
 ];
 
 const MOCK_VISITES: Visite[] = [
@@ -627,6 +640,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   });
 
   const [notification, setNotification] = useState<{ msg: Message; channelName: string; channelColor: string; channelIcon: string } | null>(null);
+  const [realtimeConnected, setRealtimeConnected] = useState(false);
 
   const currentUserNameRef = useRef<string>('');
   const activeChannelIdRef = useRef<string | null>(null);
@@ -960,6 +974,39 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   useEffect(() => {
+    if (!isSupabaseConfigured) return;
+
+    const reserveSub = supabase
+      .channel('realtime-reserves-v1')
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'reserves' }, (payload) => {
+        const r = toReserve(payload.new);
+        dispatch({ type: 'ADD_RESERVE', payload: r });
+      })
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'reserves' }, (payload) => {
+        const r = toReserve(payload.new);
+        dispatch({ type: 'UPDATE_RESERVE', payload: r });
+      })
+      .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'reserves' }, (payload) => {
+        dispatch({ type: 'DELETE_RESERVE', payload: payload.old.id });
+      })
+      .subscribe((status) => {
+        setRealtimeConnected(status === 'SUBSCRIBED');
+      });
+
+    const taskSub = supabase
+      .channel('realtime-tasks-v1')
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'tasks' }, (payload) => {
+        dispatch({ type: 'UPDATE_TASK', payload: toTask(payload.new) });
+      })
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(reserveSub);
+      supabase.removeChannel(taskSub);
+    };
+  }, []);
+
+  useEffect(() => {
     if (!notification) return;
     const timer = setTimeout(() => setNotification(null), 4500);
     return () => clearTimeout(timer);
@@ -1195,7 +1242,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }
 
   const value: AppContextValue = {
-    ...state, stats, unreadCount, channels, unreadByChannel, notification,
+    ...state, stats, unreadCount, channels, unreadByChannel, notification, realtimeConnected,
     setActiveChannelId,
     dismissNotification,
 
@@ -1609,6 +1656,79 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     deleteLot: (id) => {
       dispatch({ type: 'DELETE_LOT', payload: id });
       persistMockLots(stateRef.current.lots.filter(l => l.id !== id));
+    },
+
+    batchUpdateReserves: (ids, updates, author) => {
+      const actualAuthor = author ?? currentUserNameRef.current ?? 'Système';
+      const statusLabels: Record<string, string> = {
+        open: 'Ouvert', in_progress: 'En cours', waiting: 'En attente',
+        verification: 'Vérification', closed: 'Clôturé',
+      };
+      const now = new Date().toISOString().slice(0, 10);
+      const updated: Reserve[] = [];
+      for (const id of ids) {
+        const reserve = stateRef.current.reserves.find(r => r.id === id);
+        if (!reserve) continue;
+        const historyEntries: typeof reserve.history = [];
+        if (updates.status && updates.status !== reserve.status) {
+          historyEntries.push({
+            id: genId(), action: 'Statut modifié (lot)', author: actualAuthor, createdAt: now,
+            oldValue: statusLabels[reserve.status], newValue: statusLabels[updates.status],
+          });
+        }
+        if (updates.company && updates.company !== reserve.company) {
+          historyEntries.push({
+            id: genId(), action: 'Entreprise modifiée (lot)', author: actualAuthor, createdAt: now,
+            oldValue: reserve.company, newValue: updates.company,
+          });
+        }
+        const isClosing = updates.status === 'closed' && reserve.status !== 'closed';
+        const r: Reserve = {
+          ...reserve,
+          ...updates,
+          history: [...reserve.history, ...historyEntries],
+          closedAt: isClosing ? now : reserve.closedAt,
+          closedBy: isClosing ? actualAuthor : reserve.closedBy,
+        };
+        updated.push(r);
+        if (isSupabaseConfigured) {
+          supabase.from('reserves').update({
+            status: r.status, company: r.company, deadline: r.deadline,
+            priority: r.priority, history: r.history,
+            closed_at: r.closedAt ?? null, closed_by: r.closedBy ?? null,
+          }).eq('id', id).then(({ error }) => {
+            if (error) console.warn('Erreur batch update réserve:', error.message);
+          });
+        }
+      }
+      dispatch({ type: 'BATCH_UPDATE_RESERVES', payload: updated });
+      if (!isSupabaseConfigured) {
+        const allReserves = stateRef.current.reserves.map(r => {
+          const u = updated.find(x => x.id === r.id);
+          return u ?? r;
+        });
+        persistMockReserves(allReserves);
+      }
+    },
+
+    addSitePlanVersion: (parentPlanId, newPlan) => {
+      const allPlans = stateRef.current.sitePlans;
+      const parent = allPlans.find(p => p.id === parentPlanId);
+      if (!parent) return;
+      const revNum = (parent.revisionNumber ?? 1) + 1;
+      const revCode = `R${String(revNum).padStart(2, '0')}`;
+      const updatedParent: SitePlan = { ...parent, isLatestRevision: false };
+      const versionedNew: SitePlan = {
+        ...newPlan,
+        parentPlanId,
+        revisionNumber: revNum,
+        revisionCode: revCode,
+        isLatestRevision: true,
+      };
+      dispatch({ type: 'UPDATE_SITE_PLAN', payload: updatedParent });
+      dispatch({ type: 'ADD_SITE_PLAN', payload: versionedNew });
+      const updatedPlans = allPlans.map(p => p.id === parentPlanId ? updatedParent : p).concat([versionedNew]);
+      persistMockSitePlans(updatedPlans);
     },
 
     addOpr: (o) => {

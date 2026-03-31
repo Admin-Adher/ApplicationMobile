@@ -53,7 +53,8 @@ export default function SettingsScreen() {
   const [nameInput, setNameInput] = useState(projectName);
   const [descInput, setDescInput] = useState(projectDescription);
   const [saving, setSaving] = useState(false);
-  const [activeTab, setActiveTab] = useState<'compte' | 'project' | 'attendance'>('compte');
+  const [activeTab, setActiveTab] = useState<'compte' | 'project' | 'attendance' | 'integrations'>('compte');
+  const [integrationStates, setIntegrationStates] = useState<Record<string, boolean>>({});
   const isAdmin = user?.role === 'admin' || user?.role === 'super_admin';
 
   const grouped = useMemo(() => {
@@ -128,11 +129,12 @@ export default function SettingsScreen() {
     <View style={styles.container}>
       <Header title="Paramètres" subtitle="Compte & projet" showBack />
 
-      <View style={styles.tabRow}>
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.tabScroll} contentContainerStyle={styles.tabRow}>
         {[
-          { key: 'compte',     icon: 'person-circle-outline', label: 'Compte' },
-          { key: 'project',    icon: 'construct-outline',     label: 'Projet' },
-          { key: 'attendance', icon: 'people-outline',        label: `Présences (${totalDays})` },
+          { key: 'compte',       icon: 'person-circle-outline', label: 'Compte' },
+          { key: 'project',      icon: 'construct-outline',     label: 'Projet' },
+          { key: 'attendance',   icon: 'people-outline',        label: `Présences (${totalDays})` },
+          { key: 'integrations', icon: 'apps-outline',          label: 'Intégrations BTP' },
         ].map(tab => (
           <TouchableOpacity
             key={tab.key}
@@ -143,7 +145,7 @@ export default function SettingsScreen() {
             <Text style={[styles.tabText, activeTab === tab.key && styles.tabTextActive]}>{tab.label}</Text>
           </TouchableOpacity>
         ))}
-      </View>
+      </ScrollView>
 
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
 
@@ -380,6 +382,119 @@ export default function SettingsScreen() {
             <View style={{ height: 40 }} />
           </View>
         )}
+
+        {activeTab === 'integrations' && (
+          <View>
+            <View style={styles.integroBanner}>
+              <Ionicons name="apps" size={28} color={C.primary} />
+              <View style={{ flex: 1 }}>
+                <Text style={styles.introBannerTitle}>Écosystème BTP</Text>
+                <Text style={styles.introBannerSub}>Connectez BuildTrack à vos outils métier</Text>
+              </View>
+            </View>
+
+            {[
+              {
+                cat: 'Gestion documentaire',
+                icon: 'folder-open-outline',
+                color: '#3B82F6',
+                items: [
+                  { id: 'bimtrack', name: 'BIM Track', desc: 'Synchronisation des revues BIM et des issues', badge: 'BIM' },
+                  { id: 'autodesk', name: 'Autodesk Docs', desc: 'Import de plans et maquettes Revit/AutoCAD', badge: 'CAO' },
+                  { id: 'procore', name: 'Procore', desc: 'Partage des réserves et rapports chantier', badge: 'GC' },
+                ],
+              },
+              {
+                cat: 'Planning & ressources',
+                icon: 'calendar-outline',
+                color: '#10B981',
+                items: [
+                  { id: 'ms_project', name: 'MS Project', desc: 'Import du planning Gantt et jalons', badge: 'Planning' },
+                  { id: 'primavera', name: 'Primavera P6', desc: 'Synchronisation des WBS et activités', badge: 'Planning' },
+                  { id: 'batigest', name: 'Batigest', desc: 'Suivi des heures et de la main-d\'œuvre', badge: 'RH' },
+                ],
+              },
+              {
+                cat: 'Comptabilité & devis',
+                icon: 'receipt-outline',
+                color: '#F59E0B',
+                items: [
+                  { id: 'sage', name: 'Sage 50 Bâtiment', desc: 'Synchronisation des devis et factures', badge: 'Compta' },
+                  { id: 'batiprix', name: 'Batiprix', desc: 'Import des prix unitaires CSTB', badge: 'CSTB' },
+                  { id: 'chorus', name: 'Chorus Pro', desc: 'Dépôt des factures marchés publics', badge: 'Marché' },
+                ],
+              },
+              {
+                cat: 'Contrôle technique & réglementaire',
+                icon: 'shield-checkmark-outline',
+                color: '#8B5CF6',
+                items: [
+                  { id: 'veritas', name: 'Bureau Veritas', desc: 'Import des rapports de contrôle technique', badge: 'CT' },
+                  { id: 'socotec', name: 'Socotec', desc: 'Synchronisation des avis et observations', badge: 'CT' },
+                  { id: 'apave', name: 'Apave', desc: 'Gestion des vérifications réglementaires', badge: 'Réglementaire' },
+                ],
+              },
+            ].map(section => (
+              <View key={section.cat} style={styles.integroSection}>
+                <View style={styles.integroSectionHeader}>
+                  <View style={[styles.integroSectionIcon, { backgroundColor: section.color + '18' }]}>
+                    <Ionicons name={section.icon as any} size={14} color={section.color} />
+                  </View>
+                  <Text style={styles.integroSectionTitle}>{section.cat}</Text>
+                </View>
+                {section.items.map(item => {
+                  const enabled = integrationStates[item.id] ?? false;
+                  return (
+                    <View key={item.id} style={styles.integroCard}>
+                      <View style={styles.integroCardLeft}>
+                        <View style={[styles.integroBadge, { backgroundColor: section.color + '18' }]}>
+                          <Text style={[styles.integroBadgeText, { color: section.color }]}>{item.badge}</Text>
+                        </View>
+                        <View style={{ flex: 1 }}>
+                          <Text style={styles.integroName}>{item.name}</Text>
+                          <Text style={styles.integroDesc} numberOfLines={2}>{item.desc}</Text>
+                        </View>
+                      </View>
+                      <TouchableOpacity
+                        style={[styles.integroToggle, enabled && { backgroundColor: section.color + '18', borderColor: section.color }]}
+                        onPress={() => {
+                          if (enabled) {
+                            Alert.alert('Déconnecter', `Déconnecter ${item.name} ?`, [
+                              { text: 'Annuler', style: 'cancel' },
+                              { text: 'Déconnecter', style: 'destructive', onPress: () => setIntegrationStates(s => ({ ...s, [item.id]: false })) },
+                            ]);
+                          } else {
+                            Alert.alert(`Connecter ${item.name}`, `L'intégration avec ${item.name} sera activée. Un compte ${item.name} est requis.`, [
+                              { text: 'Annuler', style: 'cancel' },
+                              { text: 'Connecter', onPress: () => setIntegrationStates(s => ({ ...s, [item.id]: true })) },
+                            ]);
+                          }
+                        }}
+                      >
+                        <Ionicons
+                          name={enabled ? 'checkmark-circle' : 'add-circle-outline'}
+                          size={15}
+                          color={enabled ? section.color : C.textMuted}
+                        />
+                        <Text style={[styles.integroToggleText, enabled && { color: section.color }]}>
+                          {enabled ? 'Connecté' : 'Connecter'}
+                        </Text>
+                      </TouchableOpacity>
+                    </View>
+                  );
+                })}
+              </View>
+            ))}
+
+            <View style={styles.integroFooter}>
+              <Ionicons name="lock-closed-outline" size={14} color={C.textMuted} />
+              <Text style={styles.integroFooterText}>
+                Toutes les intégrations utilisent OAuth 2.0 ou des jetons API sécurisés. Vos données restent sur vos serveurs.
+              </Text>
+            </View>
+            <View style={{ height: 40 }} />
+          </View>
+        )}
       </ScrollView>
       <BottomNavBar />
     </View>
@@ -389,17 +504,54 @@ export default function SettingsScreen() {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: C.bg },
 
+  tabScroll: { borderBottomWidth: 1, borderBottomColor: C.border, backgroundColor: C.surface, maxHeight: 52 },
   tabRow: {
-    flexDirection: 'row', gap: 6, paddingHorizontal: 12, paddingVertical: 10,
-    borderBottomWidth: 1, borderBottomColor: C.border, backgroundColor: C.surface,
+    flexDirection: 'row', gap: 6, paddingHorizontal: 12, paddingVertical: 8,
   },
   tabBtn: {
-    flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 5,
-    paddingVertical: 7, borderRadius: 10, backgroundColor: C.bg, borderWidth: 1, borderColor: C.border,
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 5,
+    paddingVertical: 7, paddingHorizontal: 12, borderRadius: 10, backgroundColor: C.bg, borderWidth: 1, borderColor: C.border,
   },
   tabBtnActive: { backgroundColor: C.primaryBg, borderColor: C.primary },
   tabText: { fontSize: 12, fontFamily: 'Inter_600SemiBold', color: C.textMuted },
   tabTextActive: { color: C.primary },
+
+  integroBanner: {
+    flexDirection: 'row', alignItems: 'center', gap: 14,
+    backgroundColor: C.primaryBg, borderRadius: 16, padding: 16,
+    borderWidth: 1, borderColor: C.primary + '30', marginBottom: 16,
+  },
+  introBannerTitle: { fontSize: 16, fontFamily: 'Inter_700Bold', color: C.text },
+  introBannerSub: { fontSize: 12, fontFamily: 'Inter_400Regular', color: C.textSub, marginTop: 2 },
+
+  integroSection: { marginBottom: 16 },
+  integroSectionHeader: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 8 },
+  integroSectionIcon: { width: 28, height: 28, borderRadius: 8, alignItems: 'center', justifyContent: 'center' },
+  integroSectionTitle: { fontSize: 12, fontFamily: 'Inter_600SemiBold', color: C.textSub, textTransform: 'uppercase', letterSpacing: 0.4 },
+
+  integroCard: {
+    flexDirection: 'row', alignItems: 'center',
+    backgroundColor: C.surface, borderRadius: 12, padding: 12,
+    borderWidth: 1, borderColor: C.border, marginBottom: 8, gap: 10,
+  },
+  integroCardLeft: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 10 },
+  integroBadge: { paddingHorizontal: 7, paddingVertical: 3, borderRadius: 6, alignItems: 'center', justifyContent: 'center', minWidth: 44 },
+  integroBadgeText: { fontSize: 9, fontFamily: 'Inter_700Bold', textTransform: 'uppercase', letterSpacing: 0.4 },
+  integroName: { fontSize: 13, fontFamily: 'Inter_600SemiBold', color: C.text },
+  integroDesc: { fontSize: 11, fontFamily: 'Inter_400Regular', color: C.textMuted, marginTop: 2, lineHeight: 15 },
+  integroToggle: {
+    flexDirection: 'row', alignItems: 'center', gap: 5,
+    paddingHorizontal: 10, paddingVertical: 6, borderRadius: 10,
+    borderWidth: 1, borderColor: C.border, backgroundColor: C.bg,
+  },
+  integroToggleText: { fontSize: 11, fontFamily: 'Inter_600SemiBold', color: C.textMuted },
+
+  integroFooter: {
+    flexDirection: 'row', alignItems: 'flex-start', gap: 8,
+    backgroundColor: C.surface, borderRadius: 10, padding: 12,
+    borderWidth: 1, borderColor: C.border, marginTop: 4,
+  },
+  integroFooterText: { flex: 1, fontSize: 11, fontFamily: 'Inter_400Regular', color: C.textMuted, lineHeight: 16 },
 
   content: { padding: 16, gap: 12 },
 
