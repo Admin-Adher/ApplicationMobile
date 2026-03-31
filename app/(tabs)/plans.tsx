@@ -216,27 +216,116 @@ function computeClusters(reserves: Reserve[], scale: number, numberMap: Map<stri
   return clusters;
 }
 
-function exportPlanPDF(planName: string, chantierName: string, reserves: Reserve[], numberMap: Map<string, number>) {
+const STATUS_COLORS: Record<string, string> = {
+  open: '#EF4444', in_progress: '#F59E0B', waiting: '#6B7280',
+  verification: '#8B5CF6', closed: '#10B981',
+};
+
+function exportPlanPDF(
+  planName: string,
+  chantierName: string,
+  reserves: Reserve[],
+  numberMap: Map<string, number>,
+  planUri?: string | null,
+) {
   const STATUS_FR: Record<string, string> = {
     open: 'Ouvert', in_progress: 'En cours', waiting: 'En attente',
     verification: 'Vérification', closed: 'Clôturé',
   };
   const PRIORITY_FR: Record<string, string> = {
-    critical: '🔴 Critique', high: '🟠 Haute', medium: '🟡 Moyenne', low: '🟢 Basse',
+    critical: 'Critique', high: 'Haute', medium: 'Moyenne', low: 'Basse',
   };
+
+  const pinsWithCoords = reserves.filter(r => r.planX != null && r.planY != null);
+  const CANVAS_W = 720;
+  const CANVAS_H = 480;
+
+  const pinData = pinsWithCoords.map(r => ({
+    x: Math.round((r.planX! / 100) * CANVAS_W),
+    y: Math.round((r.planY! / 100) * CANVAS_H),
+    n: numberMap.get(r.id) ?? 0,
+    color: STATUS_COLORS[r.status] ?? '#003082',
+  }));
 
   const rows = reserves.map(r => {
     const n = numberMap.get(r.id) ?? '—';
+    const color = STATUS_COLORS[r.status] ?? '#003082';
     return `<tr>
-      <td style="text-align:center;font-weight:bold;">${n}</td>
-      <td>${r.title}</td>
+      <td style="text-align:center;">
+        <span style="display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px;border-radius:50%;background:${color};color:#fff;font-weight:700;font-size:11px;">${n}</span>
+      </td>
+      <td style="font-weight:600;">${r.title}</td>
       <td>${r.company || '—'}</td>
       <td>${r.level || '—'}</td>
-      <td>${STATUS_FR[r.status] || r.status}</td>
+      <td><span style="color:${color};font-weight:600;">${STATUS_FR[r.status] || r.status}</span></td>
       <td>${PRIORITY_FR[r.priority] || r.priority}</td>
       <td>${r.deadline || '—'}</td>
     </tr>`;
   }).join('');
+
+  const canvasScript = `
+    (function() {
+      const canvas = document.getElementById('plan-canvas');
+      const ctx = canvas.getContext('2d');
+      const W = ${CANVAS_W}, H = ${CANVAS_H};
+      const planUri = ${planUri ? JSON.stringify(planUri) : 'null'};
+      const pins = ${JSON.stringify(pinData)};
+
+      function drawPins() {
+        pins.forEach(function(p) {
+          ctx.beginPath();
+          ctx.arc(p.x, p.y, 12, 0, Math.PI * 2);
+          ctx.fillStyle = p.color;
+          ctx.fill();
+          ctx.strokeStyle = 'rgba(255,255,255,0.8)';
+          ctx.lineWidth = 2;
+          ctx.stroke();
+          ctx.fillStyle = '#fff';
+          ctx.font = 'bold 11px Arial';
+          ctx.textAlign = 'center';
+          ctx.textBaseline = 'middle';
+          ctx.fillText(String(p.n), p.x, p.y);
+        });
+      }
+
+      if (planUri) {
+        const img = new Image();
+        img.crossOrigin = 'anonymous';
+        img.onload = function() {
+          ctx.drawImage(img, 0, 0, W, H);
+          drawPins();
+        };
+        img.onerror = function() {
+          ctx.fillStyle = '#0F1825';
+          ctx.fillRect(0, 0, W, H);
+          ctx.fillStyle = '#1E2D42';
+          for (var i = 0; i < 4; i++) {
+            for (var j = 0; j < 3; j++) {
+              ctx.strokeStyle = '#2A3D56';
+              ctx.strokeRect(i * W/4 + 8, j * H/3 + 8, W/4 - 16, H/3 - 16);
+            }
+          }
+          drawPins();
+        };
+        img.src = planUri;
+      } else {
+        ctx.fillStyle = '#0F1825';
+        ctx.fillRect(0, 0, W, H);
+        ctx.strokeStyle = '#1E2D42';
+        ctx.lineWidth = 1;
+        for (var i = 0; i < 4; i++) {
+          for (var j = 0; j < 3; j++) {
+            ctx.strokeRect(i * W/4 + 8, j * H/3 + 8, W/4 - 16, H/3 - 16);
+          }
+        }
+        ctx.fillStyle = '#2A3D56';
+        ctx.font = '13px Arial';
+        ctx.textAlign = 'center';
+        ctx.fillText('Plan schématique', W / 2, H / 2);
+        drawPins();
+      }
+    })();
+  `;
 
   const html = `<!DOCTYPE html>
 <html lang="fr">
@@ -244,31 +333,53 @@ function exportPlanPDF(planName: string, chantierName: string, reserves: Reserve
   <meta charset="UTF-8">
   <title>Plan : ${planName}</title>
   <style>
-    body { font-family: 'Arial', sans-serif; padding: 24px; color: #111; }
-    h1 { color: #003082; font-size: 22px; margin-bottom: 4px; }
-    .meta { color: #666; font-size: 13px; margin-bottom: 24px; }
-    table { width: 100%; border-collapse: collapse; font-size: 13px; }
-    th { background: #003082; color: #fff; padding: 9px 10px; text-align: left; }
-    td { padding: 8px 10px; border-bottom: 1px solid #e5e7eb; vertical-align: top; }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: Arial, sans-serif; padding: 28px; color: #111; background: #fff; }
+    .header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 20px; }
+    .header-left h1 { color: #003082; font-size: 20px; margin-bottom: 4px; }
+    .header-left .meta { color: #666; font-size: 12px; }
+    .header-right { text-align: right; font-size: 11px; color: #999; }
+    .plan-section { margin-bottom: 24px; }
+    canvas { width: 100%; height: auto; border-radius: 8px; display: block; border: 1px solid #e5e7eb; }
+    .legend-note { font-size: 11px; color: #888; margin-top: 6px; }
+    table { width: 100%; border-collapse: collapse; font-size: 12px; }
+    th { background: #003082; color: #fff; padding: 8px 10px; text-align: left; font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; }
+    td { padding: 7px 10px; border-bottom: 1px solid #f0f0f0; vertical-align: middle; }
     tr:nth-child(even) td { background: #f8fafc; }
-    .footer { margin-top: 32px; font-size: 11px; color: #aaa; text-align: center; }
-    @media print { body { padding: 0; } }
+    .section-title { font-size: 13px; font-weight: 700; color: #003082; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 10px; border-bottom: 2px solid #003082; padding-bottom: 4px; }
+    .footer { margin-top: 28px; font-size: 10px; color: #bbb; text-align: center; border-top: 1px solid #eee; padding-top: 12px; }
+    @media print { body { padding: 0; } @page { margin: 16mm; } }
   </style>
 </head>
 <body>
-  <h1>Plan : ${planName}</h1>
-  <div class="meta">
-    Chantier : <strong>${chantierName}</strong> &nbsp;·&nbsp;
-    ${reserves.length} réserve${reserves.length !== 1 ? 's' : ''} &nbsp;·&nbsp;
-    Exporté le ${new Date().toLocaleDateString('fr-FR')}
+  <div class="header">
+    <div class="header-left">
+      <h1>Plan : ${planName}</h1>
+      <div class="meta">Chantier : <strong>${chantierName}</strong> &nbsp;·&nbsp; ${reserves.length} réserve${reserves.length !== 1 ? 's' : ''} positionnée${reserves.length !== 1 ? 's' : ''}</div>
+    </div>
+    <div class="header-right">
+      Exporté le ${new Date().toLocaleDateString('fr-FR')}<br>
+      BuildTrack
+    </div>
   </div>
+
+  ${pinsWithCoords.length > 0 ? `
+  <div class="plan-section">
+    <div class="section-title">Plan annoté</div>
+    <canvas id="plan-canvas" width="${CANVAS_W}" height="${CANVAS_H}"></canvas>
+    <div class="legend-note">Les numéros correspondent aux réserves du tableau ci-dessous.</div>
+  </div>
+  ` : ''}
+
+  <div class="section-title">Liste des réserves</div>
   <table>
     <thead>
       <tr><th>#</th><th>Titre</th><th>Entreprise</th><th>Niveau</th><th>Statut</th><th>Priorité</th><th>Échéance</th></tr>
     </thead>
-    <tbody>${rows}</tbody>
+    <tbody>${rows || '<tr><td colspan="7" style="text-align:center;color:#999;padding:20px;">Aucune réserve sur ce plan</td></tr>'}</tbody>
   </table>
-  <div class="footer">BuildTrack — Gestion de chantier numérique</div>
+  <div class="footer">BuildTrack — Gestion de chantier numérique — ${new Date().toLocaleDateString('fr-FR')}</div>
+  ${pinsWithCoords.length > 0 ? `<script>${canvasScript}</script>` : ''}
 </body>
 </html>`;
 
@@ -277,7 +388,7 @@ function exportPlanPDF(planName: string, chantierName: string, reserves: Reserve
     if (w) {
       w.document.write(html);
       w.document.close();
-      setTimeout(() => w.print(), 400);
+      setTimeout(() => w.print(), 800);
     }
   } else {
     Alert.alert(
@@ -363,14 +474,25 @@ export default function PlansScreen() {
   const [activePlanId, setActivePlanId] = useState<string | null>(null);
 
   const [selectedBuilding, setSelectedBuilding] = useState<string>('all');
+  const [selectedLevel, setSelectedLevel] = useState<string>('all');
+
   const buildings = useMemo(() => {
     const b = Array.from(new Set(chantierPlans.map(p => p.building).filter(Boolean))) as string[];
     return b.sort();
   }, [chantierPlans]);
+
+  const planLevelsForBuilding = useMemo(() => {
+    const scope = selectedBuilding === 'all' ? chantierPlans : chantierPlans.filter(p => (p.building ?? '') === selectedBuilding);
+    const lvls = Array.from(new Set(scope.map(p => p.level).filter(Boolean))) as string[];
+    return lvls.sort();
+  }, [chantierPlans, selectedBuilding]);
+
   const filteredPlans = useMemo(() => {
-    if (selectedBuilding === 'all' || buildings.length < 2) return chantierPlans;
-    return chantierPlans.filter(p => (p.building ?? '') === selectedBuilding);
-  }, [chantierPlans, selectedBuilding, buildings]);
+    let plans = chantierPlans;
+    if (selectedBuilding !== 'all' && buildings.length >= 2) plans = plans.filter(p => (p.building ?? '') === selectedBuilding);
+    if (selectedLevel !== 'all' && planLevelsForBuilding.length >= 2) plans = plans.filter(p => (p.level ?? '') === selectedLevel);
+    return plans;
+  }, [chantierPlans, selectedBuilding, buildings, selectedLevel, planLevelsForBuilding]);
 
   const currentPlanId = activePlanId ?? filteredPlans[0]?.id ?? chantierPlans[0]?.id ?? null;
   const currentPlan = chantierPlans.find(p => p.id === currentPlanId) ?? null;
@@ -379,7 +501,6 @@ export default function PlansScreen() {
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [companyFilter, setCompanyFilter] = useState<string>('all');
   const [levelFilter, setLevelFilter] = useState<string>('all');
-  const [addingMarker, setAddingMarker] = useState(false);
   const [importing, setImporting] = useState(false);
   const [showFilters, setShowFilters] = useState(false);
   const [dxfData, setDxfData] = useState<Record<string, DxfParseResult>>({});
@@ -430,6 +551,12 @@ export default function PlansScreen() {
     () => computeClusters(planReserves, displayScale, pinNumberMap),
     [planReserves, displayScale, pinNumberMap]
   );
+
+  const ghostClusters = useMemo(() => {
+    const activeIds = new Set(planReserves.map(r => r.id));
+    const ghosts = allPlanReserves.filter(r => !activeIds.has(r.id));
+    return computeClusters(ghosts, displayScale, pinNumberMap);
+  }, [allPlanReserves, planReserves, displayScale, pinNumberMap]);
 
   const activeFilters = [statusFilter, companyFilter, levelFilter].filter(f => f !== 'all').length;
 
@@ -485,22 +612,18 @@ export default function PlansScreen() {
   }
 
   function handlePlanTap(e: any) {
-    if (!addingMarker) {
-      suppressNextPlanTapRef.current = false;
-      return;
-    }
     if (suppressNextPlanTapRef.current) {
       suppressNextPlanTapRef.current = false;
       return;
     }
     if (isDraggingRef.current) return;
+    if (!permissions.canCreate) return;
     const { locationX, locationY, pageX, pageY } = e.nativeEvent;
     const totalMove = Math.abs((pageX ?? 0) - touchStartXRef.current) + Math.abs((pageY ?? 0) - touchStartYRef.current);
     if (totalMove > 8) return;
     if (locationX === undefined || locationY === undefined) return;
     const px = Math.min(100, Math.max(0, Math.round((locationX / PLAN_W) * 100)));
     const py = Math.min(100, Math.max(0, Math.round((locationY / PLAN_H) * 100)));
-    setAddingMarker(false);
     router.push({
       pathname: '/reserve/new',
       params: {
@@ -515,7 +638,6 @@ export default function PlansScreen() {
   function handleSelectPlan(planId: string) {
     setActivePlanId(planId);
     resetView();
-    setAddingMarker(false);
     setCompanyFilter('all');
     setLevelFilter('all');
     setStatusFilter('all');
@@ -688,10 +810,14 @@ export default function PlansScreen() {
 
         {buildings.length >= 2 && (
           <View style={styles.buildingHierarchyRow}>
+            <View style={styles.hierarchyLabelWrap}>
+              <Ionicons name="business-outline" size={10} color={C.textMuted} />
+              <Text style={styles.hierarchyLabel}>Bâtiment</Text>
+            </View>
             <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 6, paddingHorizontal: 16 }}>
               <TouchableOpacity
                 style={[styles.buildingHierarchyChip, selectedBuilding === 'all' && styles.buildingHierarchyChipActive]}
-                onPress={() => setSelectedBuilding('all')}
+                onPress={() => { setSelectedBuilding('all'); setSelectedLevel('all'); setActivePlanId(null); }}
               >
                 <Ionicons name="grid-outline" size={11} color={selectedBuilding === 'all' ? '#fff' : C.textSub} />
                 <Text style={[styles.buildingHierarchyChipText, selectedBuilding === 'all' && styles.buildingHierarchyChipTextActive]}>Tous</Text>
@@ -700,10 +826,36 @@ export default function PlansScreen() {
                 <TouchableOpacity
                   key={b}
                   style={[styles.buildingHierarchyChip, selectedBuilding === b && styles.buildingHierarchyChipActive]}
-                  onPress={() => { setSelectedBuilding(b); setActivePlanId(null); }}
+                  onPress={() => { setSelectedBuilding(b); setSelectedLevel('all'); setActivePlanId(null); }}
                 >
                   <Ionicons name="business-outline" size={11} color={selectedBuilding === b ? '#fff' : C.textSub} />
                   <Text style={[styles.buildingHierarchyChipText, selectedBuilding === b && styles.buildingHierarchyChipTextActive]} numberOfLines={1}>{b}</Text>
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
+          </View>
+        )}
+
+        {planLevelsForBuilding.length >= 2 && (
+          <View style={styles.levelHierarchyRow}>
+            <View style={styles.hierarchyLabelWrap}>
+              <Ionicons name="layers-outline" size={10} color={C.textMuted} />
+              <Text style={styles.hierarchyLabel}>Niveau</Text>
+            </View>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 6, paddingHorizontal: 16 }}>
+              <TouchableOpacity
+                style={[styles.levelHierarchyChip, selectedLevel === 'all' && styles.levelHierarchyChipActive]}
+                onPress={() => { setSelectedLevel('all'); setActivePlanId(null); }}
+              >
+                <Text style={[styles.levelHierarchyChipText, selectedLevel === 'all' && styles.levelHierarchyChipTextActive]}>Tous</Text>
+              </TouchableOpacity>
+              {planLevelsForBuilding.map(lvl => (
+                <TouchableOpacity
+                  key={lvl}
+                  style={[styles.levelHierarchyChip, selectedLevel === lvl && styles.levelHierarchyChipActive]}
+                  onPress={() => { setSelectedLevel(lvl); setActivePlanId(null); }}
+                >
+                  <Text style={[styles.levelHierarchyChipText, selectedLevel === lvl && styles.levelHierarchyChipTextActive]} numberOfLines={1}>{lvl}</Text>
                 </TouchableOpacity>
               ))}
             </ScrollView>
@@ -893,17 +1045,6 @@ export default function PlansScreen() {
                   <Text style={styles.removePlanText}>Remplacer</Text>
                 </TouchableOpacity>
               )}
-              {permissions.canCreate && (
-                <TouchableOpacity
-                  style={[styles.addMarkerBtn, addingMarker && styles.addMarkerBtnActive]}
-                  onPress={() => setAddingMarker(!addingMarker)}
-                >
-                  <Ionicons name={addingMarker ? 'close' : 'add-circle-outline'} size={15} color={addingMarker ? C.open : C.primary} />
-                  <Text style={[styles.addMarkerText, addingMarker && { color: C.open }]}>
-                    {addingMarker ? 'Annuler' : 'Placer'}
-                  </Text>
-                </TouchableOpacity>
-              )}
             </View>
           </View>
 
@@ -917,10 +1058,10 @@ export default function PlansScreen() {
             </TouchableOpacity>
           )}
 
-          {addingMarker && (
+          {permissions.canCreate && (
             <View style={styles.addingHint}>
-              <Ionicons name="information-circle-outline" size={14} color={C.inProgress} />
-              <Text style={styles.addingHintText}>Touchez le plan pour placer une réserve</Text>
+              <Ionicons name="finger-print-outline" size={14} color={C.textMuted} />
+              <Text style={styles.addingHintText}>Tapez sur le plan pour créer une réserve à cet endroit</Text>
             </View>
           )}
 
@@ -960,6 +1101,40 @@ export default function PlansScreen() {
                     }
                   />
                 )}
+
+                {ghostClusters.map((cluster, ci) => {
+                  const isCluster = cluster.items.length > 1;
+                  const color = STATUS_CONFIG[cluster.dominantStatus as keyof typeof STATUS_CONFIG]?.color ?? C.primary;
+                  return (
+                    <View
+                      key={`ghost-${ci}`}
+                      style={[
+                        isCluster ? styles.clusterMarker : styles.marker,
+                        {
+                          left: `${cluster.cx}%` as any,
+                          top: `${cluster.cy}%` as any,
+                          backgroundColor: color,
+                          width: isCluster ? 30 : 22,
+                          height: isCluster ? 30 : 22,
+                          borderRadius: isCluster ? 15 : 11,
+                          transform: isCluster
+                            ? [{ translateX: -15 }, { translateY: -15 }]
+                            : [{ translateX: -11 }, { translateY: -11 }],
+                          opacity: 0.2,
+                          pointerEvents: 'none' as any,
+                        },
+                      ]}
+                    >
+                      {isCluster ? (
+                        <View style={styles.clusterInner}>
+                          <Text style={styles.clusterText}>{cluster.items.length}</Text>
+                        </View>
+                      ) : (
+                        <Text style={styles.markerText}>{cluster.number}</Text>
+                      )}
+                    </View>
+                  );
+                })}
 
                 {pinClusters.map((cluster, ci) => {
                   const isCluster = cluster.items.length > 1;
@@ -1046,7 +1221,8 @@ export default function PlansScreen() {
                   currentPlan?.name ?? 'Plan',
                   activeChantier?.name ?? '',
                   planReserves,
-                  pinNumberMap
+                  pinNumberMap,
+                  currentPlan?.uri ?? null,
                 )}
               >
                 <Ionicons name="document-text-outline" size={13} color={C.primary} />
@@ -1297,8 +1473,8 @@ const styles = StyleSheet.create({
   addMarkerText: { fontSize: 11, fontFamily: 'Inter_600SemiBold', color: C.primary },
   importHintBanner: { flexDirection: 'row', alignItems: 'center', gap: 8, marginHorizontal: 14, marginBottom: 10, backgroundColor: C.primaryBg, borderRadius: 10, padding: 12, borderWidth: 1, borderColor: C.primary + '30' },
   importHintText: { flex: 1, fontSize: 12, fontFamily: 'Inter_400Regular', color: C.primary, lineHeight: 16 },
-  addingHint: { flexDirection: 'row', alignItems: 'center', gap: 6, marginHorizontal: 14, marginBottom: 8, backgroundColor: C.inProgress + '15', borderRadius: 8, paddingHorizontal: 12, paddingVertical: 8 },
-  addingHintText: { fontSize: 12, fontFamily: 'Inter_400Regular', color: C.inProgress },
+  addingHint: { flexDirection: 'row', alignItems: 'center', gap: 6, marginHorizontal: 14, marginBottom: 8, backgroundColor: C.surface2, borderRadius: 8, paddingHorizontal: 12, paddingVertical: 7 },
+  addingHintText: { fontSize: 11, fontFamily: 'Inter_400Regular', color: C.textMuted, flex: 1 },
   planViewport: { overflow: 'hidden', height: PLAN_H + 20, alignItems: 'center', justifyContent: 'center', marginHorizontal: 14, marginBottom: 14, borderRadius: 10, backgroundColor: C.surface2 },
   planAnimated: { alignItems: 'center', justifyContent: 'center' },
   planView: { position: 'relative', borderRadius: 8, overflow: 'hidden', backgroundColor: '#0F1825' },
@@ -1442,9 +1618,25 @@ const styles = StyleSheet.create({
   },
 
   buildingHierarchyRow: {
-    paddingVertical: 8,
+    paddingTop: 6,
+    paddingBottom: 6,
     borderBottomWidth: 1,
     borderBottomColor: C.border,
+  },
+  levelHierarchyRow: {
+    paddingTop: 6,
+    paddingBottom: 6,
+    borderBottomWidth: 1,
+    borderBottomColor: C.border,
+    backgroundColor: C.surface2 + '60',
+  },
+  hierarchyLabelWrap: {
+    flexDirection: 'row', alignItems: 'center', gap: 4,
+    paddingHorizontal: 16, paddingBottom: 5,
+  },
+  hierarchyLabel: {
+    fontSize: 10, fontFamily: 'Inter_600SemiBold',
+    color: C.textMuted, textTransform: 'uppercase', letterSpacing: 0.5,
   },
   buildingHierarchyChip: {
     flexDirection: 'row', alignItems: 'center', gap: 5,
@@ -1460,6 +1652,21 @@ const styles = StyleSheet.create({
   },
   buildingHierarchyChipTextActive: {
     color: '#fff',
+  },
+  levelHierarchyChip: {
+    flexDirection: 'row', alignItems: 'center', gap: 5,
+    paddingHorizontal: 12, paddingVertical: 6,
+    borderRadius: 16, backgroundColor: C.surface2,
+    borderWidth: 1.5, borderColor: C.border,
+  },
+  levelHierarchyChipActive: {
+    backgroundColor: '#8B5CF620', borderColor: '#8B5CF6',
+  },
+  levelHierarchyChipText: {
+    fontSize: 12, fontFamily: 'Inter_600SemiBold', color: C.textSub,
+  },
+  levelHierarchyChipTextActive: {
+    color: '#8B5CF6',
   },
 
   statusFilterRow: {
