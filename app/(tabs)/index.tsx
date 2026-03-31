@@ -452,6 +452,20 @@ const styles = StyleSheet.create({
   projectBadge: { backgroundColor: C.primary, paddingHorizontal: 10, paddingVertical: 5, borderRadius: 16 },
   projectText: { fontSize: 11, fontFamily: 'Inter_600SemiBold', color: '#fff' },
 
+  chantierPill: {
+    flexDirection: 'row', alignItems: 'center', gap: 5,
+    backgroundColor: C.primaryBg, paddingHorizontal: 10, paddingVertical: 6,
+    borderRadius: 20, borderWidth: 1, borderColor: C.primary + '40', maxWidth: 160,
+  },
+  chantierPillDot: { width: 7, height: 7, borderRadius: 4, backgroundColor: C.primary },
+  chantierPillText: { fontSize: 12, fontFamily: 'Inter_600SemiBold', color: C.primary, flex: 1 },
+  chantierPillEmpty: {
+    flexDirection: 'row', alignItems: 'center', gap: 5,
+    backgroundColor: C.surface2, paddingHorizontal: 10, paddingVertical: 6,
+    borderRadius: 20, borderWidth: 1, borderColor: C.border,
+  },
+  chantierPillEmptyText: { fontSize: 12, fontFamily: 'Inter_500Medium', color: C.textMuted },
+
   content: { padding: 14, paddingBottom: 36 },
 
   kpiGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10, marginBottom: 10 },

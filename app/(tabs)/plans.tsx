@@ -679,6 +679,19 @@ export default function PlansScreen() {
         )}
       </ScrollView>
 
+      {permissions.canCreate && (
+        <TouchableOpacity
+          style={styles.fab}
+          onPress={() => router.push({
+            pathname: '/reserve/new',
+            params: { planId: currentPlanId ?? '', chantierId: activeChantierId ?? '' },
+          } as any)}
+          activeOpacity={0.85}
+        >
+          <Ionicons name="add" size={26} color="#fff" />
+        </TouchableOpacity>
+      )}
+
       <Modal visible={!!selected} transparent animationType="fade" onRequestClose={() => setSelected(null)}>
         <TouchableOpacity style={styles.modalOverlay} activeOpacity={1} onPress={() => setSelected(null)}>
           {selected && (
@@ -808,6 +821,21 @@ const styles = StyleSheet.create({
   deadlineText: { fontSize: 11, fontFamily: 'Inter_400Regular', color: C.textMuted },
   modalOpenBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, paddingVertical: 12, backgroundColor: C.primaryBg, borderRadius: 12, borderWidth: 1, borderColor: C.primary + '40' },
   modalOpenText: { fontSize: 14, fontFamily: 'Inter_600SemiBold', color: C.primary },
+  fab: {
+    position: 'absolute',
+    bottom: Platform.OS === 'web' ? 100 : 24,
+    right: 20,
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    backgroundColor: C.primary,
+    alignItems: 'center',
+    justifyContent: 'center',
+    ...Platform.select({
+      web: { boxShadow: '0px 4px 16px rgba(0,48,130,0.30)' } as any,
+      default: { shadowColor: '#003082', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.30, shadowRadius: 10, elevation: 8 },
+    }),
+  },
   emptyState: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 32, gap: 12 },
   emptyTitle: { fontSize: 18, fontFamily: 'Inter_600SemiBold', color: C.text, textAlign: 'center' },
   emptySubtitle: { fontSize: 14, fontFamily: 'Inter_400Regular', color: C.textMuted, textAlign: 'center', lineHeight: 20 },

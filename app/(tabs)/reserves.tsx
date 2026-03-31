@@ -41,8 +41,9 @@ function toSortableDate(s: string): string {
 export default function ReservesScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
-  const { reserves, companies, isLoading } = useApp();
+  const { reserves, companies, isLoading, chantiers, activeChantierId } = useApp();
   const { permissions } = useAuth();
+  const [chantierFilter, setChantierFilter] = useState<string>(activeChantierId ?? 'all');
   const [statusFilter, setStatusFilter] = useState<'all' | 'overdue' | ReserveStatus>('all');
   const [buildingFilter, setBuildingFilter] = useState<string>('all');
   const [priorityFilter, setPriorityFilter] = useState<'all' | ReservePriority>('all');
@@ -54,15 +55,20 @@ export default function ReservesScreen() {
   const [filterModalVisible, setFilterModalVisible] = useState(false);
   const topPad = Platform.OS === 'web' ? 67 : insets.top;
 
+  const chantierReserves = useMemo(
+    () => chantierFilter === 'all' ? reserves : reserves.filter(r => r.chantierId === chantierFilter),
+    [reserves, chantierFilter]
+  );
+
   const buildings = useMemo(() => {
-    const b = new Set(reserves.map(r => r.building));
+    const b = new Set(chantierReserves.map(r => r.building));
     return Array.from(b).sort();
-  }, [reserves]);
+  }, [chantierReserves]);
 
   const zones = useMemo(() => {
-    const z = new Set(reserves.map(r => r.zone).filter(Boolean));
+    const z = new Set(chantierReserves.map(r => r.zone).filter(Boolean));
     return Array.from(z).sort();
-  }, [reserves]);
+  }, [chantierReserves]);
 
   const activeFilterCount = (buildingFilter !== 'all' ? 1 : 0)
     + (priorityFilter !== 'all' ? 1 : 0)
@@ -70,12 +76,12 @@ export default function ReservesScreen() {
     + (zoneFilter !== 'all' ? 1 : 0);
 
   const overdueCount = useMemo(
-    () => reserves.filter(r => isOverdue(r.deadline, r.status)).length,
-    [reserves]
+    () => chantierReserves.filter(r => isOverdue(r.deadline, r.status)).length,
+    [chantierReserves]
   );
 
   const filtered = useMemo(() => {
-    let list = reserves.filter(r => {
+    let list = chantierReserves.filter(r => {
       const matchStatus =
         statusFilter === 'all' ? true :
         statusFilter === 'overdue' ? isOverdue(r.deadline, r.status) :
@@ -107,7 +113,7 @@ export default function ReservesScreen() {
       }
     });
     return list;
-  }, [reserves, statusFilter, buildingFilter, priorityFilter, companyFilter, zoneFilter, sortKey, search]);
+  }, [chantierReserves, statusFilter, buildingFilter, priorityFilter, companyFilter, zoneFilter, sortKey, search]);
 
   const isSortActive = sortKey !== 'date_desc';
 
@@ -115,13 +121,39 @@ export default function ReservesScreen() {
     <View style={styles.container}>
       <View style={[styles.header, { paddingTop: topPad + 12 }]}>
         <View style={styles.headerRow}>
-          <View>
+          <View style={{ flex: 1 }}>
             <Text style={styles.title}>Réserves</Text>
             <Text style={styles.subtitle}>
-              {isLoading ? 'Chargement…' : `${filtered.length} / ${reserves.length} réserve${reserves.length !== 1 ? 's' : ''}${overdueCount > 0 ? ` · ${overdueCount} en retard` : ''}`}
+              {isLoading ? 'Chargement…' : `${filtered.length} / ${chantierReserves.length} réserve${chantierReserves.length !== 1 ? 's' : ''}${overdueCount > 0 ? ` · ${overdueCount} en retard` : ''}`}
             </Text>
           </View>
         </View>
+
+        {chantiers.length > 1 && (
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.chantierBar}>
+            <TouchableOpacity
+              style={[styles.chantierChip, chantierFilter === 'all' && styles.chantierChipActive]}
+              onPress={() => setChantierFilter('all')}
+            >
+              <Ionicons name="layers-outline" size={11} color={chantierFilter === 'all' ? '#fff' : C.textSub} />
+              <Text style={[styles.chantierChipText, chantierFilter === 'all' && styles.chantierChipTextActive]}>
+                Tous les chantiers
+              </Text>
+            </TouchableOpacity>
+            {chantiers.map(c => (
+              <TouchableOpacity
+                key={c.id}
+                style={[styles.chantierChip, chantierFilter === c.id && styles.chantierChipActive]}
+                onPress={() => setChantierFilter(c.id)}
+              >
+                <View style={styles.chantierDot} />
+                <Text style={[styles.chantierChipText, chantierFilter === c.id && styles.chantierChipTextActive]} numberOfLines={1}>
+                  {c.name}
+                </Text>
+              </TouchableOpacity>
+            ))}
+          </ScrollView>
+        )}
 
         <View style={styles.searchWrap}>
           <Ionicons name="search-outline" size={16} color={C.textMuted} />
@@ -195,15 +227,15 @@ export default function ReservesScreen() {
         ListEmptyComponent={() => (
           <View style={styles.empty}>
             <View style={styles.emptyIcon}>
-              {reserves.length === 0
+              {chantierReserves.length === 0
                 ? <Ionicons name="document-text-outline" size={40} color={C.primary} />
                 : <Ionicons name="funnel-outline" size={40} color={C.primary} />}
             </View>
             <Text style={styles.emptyText}>
-              {reserves.length === 0 ? 'Aucune réserve' : 'Aucun résultat'}
+              {chantierReserves.length === 0 ? 'Aucune réserve' : 'Aucun résultat'}
             </Text>
             <Text style={styles.emptyHint}>
-              {reserves.length === 0
+              {chantierReserves.length === 0
                 ? 'Créez la première réserve avec le bouton +'
                 : 'Modifiez vos filtres ou votre recherche'}
             </Text>
@@ -395,6 +427,16 @@ const styles = StyleSheet.create({
     backgroundColor: C.primary, alignItems: 'center', justifyContent: 'center',
   },
   filterBadgeText: { fontSize: 9, fontFamily: 'Inter_700Bold', color: '#fff' },
+  chantierBar: { marginBottom: 10 },
+  chantierChip: {
+    flexDirection: 'row', alignItems: 'center', gap: 6,
+    paddingHorizontal: 12, paddingVertical: 7, borderRadius: 20,
+    backgroundColor: C.surface2, marginRight: 8, borderWidth: 1.5, borderColor: C.border,
+  },
+  chantierChipActive: { backgroundColor: C.primary, borderColor: C.primary },
+  chantierChipText: { fontSize: 12, fontFamily: 'Inter_500Medium', color: C.textSub },
+  chantierChipTextActive: { color: '#fff' },
+  chantierDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: C.closed },
   list: { padding: 16, paddingBottom: 80 },
   empty: { alignItems: 'center', paddingTop: 60, gap: 10 },
   emptyIcon: {
