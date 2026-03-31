@@ -3,6 +3,7 @@ import { Platform, View, Text, StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { C } from '@/constants/colors';
 import { useApp } from '@/context/AppContext';
+import { useAuth } from '@/context/AuthContext';
 
 function TabIcon({ name, color, size, badge }: { name: any; color: string; size: number; badge?: number }) {
   return (
@@ -19,6 +20,8 @@ function TabIcon({ name, color, size, badge }: { name: any; color: string; size:
 
 export default function TabLayout() {
   const { unreadCount } = useApp();
+  const { user } = useAuth();
+  const isAdmin = user?.role === 'admin';
 
   return (
     <Tabs
@@ -85,6 +88,16 @@ export default function TabLayout() {
       <Tabs.Screen
         name="equipes"
         options={{ href: null }}
+      />
+      <Tabs.Screen
+        name="admin"
+        options={{
+          title: 'Admin',
+          href: isAdmin ? undefined : null,
+          tabBarIcon: ({ color, size }) => (
+            <Ionicons name="shield-checkmark" size={size} color={color} />
+          ),
+        }}
       />
     </Tabs>
   );

@@ -16,6 +16,13 @@ const DEMO_USERS = [
   { email: 'p.lambert@buildtrack.fr', password: 'pass123',  name: 'Pierre Lambert', role: 'observateur', roleLabel: 'Observateur' },
 ];
 
+const ROLE_LABELS: Record<UserRole, string> = {
+  admin: 'Administrateur',
+  conducteur: 'Conducteur de travaux',
+  chef_equipe: "Chef d'équipe",
+  observateur: 'Observateur',
+};
+
 interface AuthContextValue {
   user: User | null;
   isAuthenticated: boolean;
@@ -25,6 +32,8 @@ interface AuthContextValue {
   permissions: { canCreate: boolean; canEdit: boolean; canDelete: boolean; canExport: boolean; canManageTeams: boolean };
   users: User[];
   seedStatus: 'idle' | 'seeding' | 'done' | 'error';
+  updateUserRole: (userId: string, newRole: UserRole) => Promise<void>;
+  deleteUserProfile: (userId: string) => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null);
@@ -211,6 +220,26 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setUser(null);
   }
 
+  async function updateUserRole(userId: string, newRole: UserRole): Promise<void> {
+    const newLabel = ROLE_LABELS[newRole];
+    if (isSupabaseConfigured) {
+      await supabase.from('profiles').update({
+        role: newRole,
+        role_label: newLabel,
+      }).eq('id', userId);
+    }
+    setUsers(prev => prev.map(u =>
+      u.id === userId ? { ...u, role: newRole, roleLabel: newLabel } : u
+    ));
+  }
+
+  async function deleteUserProfile(userId: string): Promise<void> {
+    if (isSupabaseConfigured) {
+      await supabase.from('profiles').delete().eq('id', userId);
+    }
+    setUsers(prev => prev.filter(u => u.id !== userId));
+  }
+
   const permissions = user ? ROLE_PERMISSIONS[user.role] : ROLE_PERMISSIONS.observateur;
 
   return (
@@ -223,6 +252,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       permissions,
       users,
       seedStatus,
+      updateUserRole,
+      deleteUserProfile,
     }}>
       {children}
     </AuthContext.Provider>

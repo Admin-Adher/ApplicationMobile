@@ -87,7 +87,7 @@ The Supabase schema is defined in `lib/schema.sql`. Run it in the Supabase SQL E
 
 ## Feature Completion (100%)
 
-All 10 planned modules are implemented:
+All 11 planned modules are implemented:
 1. **Réserves** — full CRUD, 5 statuses, comments, history, photo attachment on creation
 2. **Plans interactifs** — import PDF/image, pinning, zoom/pan, filter by company + filter by zone
 3. **Documents** — upload, categories, versioning, search
@@ -98,3 +98,4 @@ All 10 planned modules are implemented:
 8. **Photos** — camera/gallery, comment+location modal before saving, Supabase upload
 9. **Rapports** — daily/weekly PDF, CSV export
 10. **Utilisateurs** — 4 roles, Supabase auth
+11. **Administration** — dedicated admin tab (visible to `admin` role only): user role management, company CRUD
