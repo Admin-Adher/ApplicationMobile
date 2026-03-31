@@ -162,6 +162,16 @@ export interface PhotoAnnotation {
   label: string;
 }
 
+export interface ReservePhoto {
+  id: string;
+  uri: string;
+  label?: string;
+  kind: 'defect' | 'resolution';
+  takenAt: string;
+  takenBy: string;
+  annotations?: PhotoAnnotation[];
+}
+
 export interface Reserve {
   id: string;
   title: string;
@@ -183,11 +193,15 @@ export interface Reserve {
   planY?: number;
   photoUri?: string;
   photoAnnotations?: PhotoAnnotation[];
+  photos?: ReservePhoto[];
   linkedTaskId?: string;
   closedAt?: string;
   closedBy?: string;
   chantierId?: string;
   planId?: string;
+  enterpriseSignature?: string;
+  enterpriseSignataire?: string;
+  enterpriseAcknowledgedAt?: string;
 }
 
 export interface Company {

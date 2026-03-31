@@ -4,11 +4,11 @@ import {
 } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useRef } from 'react';
 import * as ImagePicker from 'expo-image-picker';
 import { C } from '@/constants/colors';
 import { useApp } from '@/context/AppContext';
-import { Reserve, ReservePriority, ReserveStatus } from '@/constants/types';
+import { Reserve, ReservePriority, ReserveStatus, ReservePhoto } from '@/constants/types';
 import StatusBadge, { STATUS_CONFIG } from '@/components/StatusBadge';
 import PriorityBadge from '@/components/PriorityBadge';
 import Header from '@/components/Header';
@@ -20,6 +20,8 @@ import {
   RESERVE_BUILDINGS, RESERVE_ZONES, RESERVE_LEVELS, RESERVE_PRIORITIES,
   isOverdue, formatDate, validateDeadline,
 } from '@/lib/reserveUtils';
+import SignaturePad, { SignaturePadRef } from '@/components/SignaturePad';
+import { PhotoAnnotationOverlay } from '@/components/PhotoAnnotator';
 
 const STATUS_ORDER: ReserveStatus[] = ['open', 'in_progress', 'waiting', 'verification', 'closed'];
 
@@ -69,6 +71,12 @@ export default function ReserveDetailScreen() {
   const [editModalVisible, setEditModalVisible] = useState(false);
   const [photoFullScreen, setPhotoFullScreen] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
+  const [signatureModalVisible, setSignatureModalVisible] = useState(false);
+  const [signataireName, setSignataireName] = useState('');
+  const sigPadRef = useRef<SignaturePadRef>(null);
+  const [annotatorPhoto, setAnnotatorPhoto] = useState<ReservePhoto | null>(null);
+  const [editPhotos, setEditPhotos] = useState<ReservePhoto[]>([]);
+  const [editPhotoUploading2, setEditPhotoUploading2] = useState(false);
 
   const reserve = reserves.find(r => r.id === id);
 
@@ -113,7 +121,99 @@ export default function ReserveDetailScreen() {
     setEditPriority(reserve.priority);
     setEditDeadline(reserve.deadline === '—' ? '' : reserve.deadline);
     setEditPhotoUri(reserve.photoUri ?? null);
+    setEditPhotos(reserve.photos ?? (reserve.photoUri ? [{ id: 'legacy', uri: reserve.photoUri, kind: 'defect', takenAt: reserve.createdAt, takenBy: '' }] : []));
     setEditModalVisible(true);
+  }
+
+  function handleSignatureSave() {
+    if (sigPadRef.current?.isEmpty()) {
+      Alert.alert('Signature requise', 'Veuillez apposer votre signature avant de valider.');
+      return;
+    }
+    const dataUrl = sigPadRef.current?.getSVGData() ?? null;
+    if (!dataUrl) return;
+    const today = new Date().toISOString().slice(0, 10);
+    const author = user?.name ?? 'Conducteur de travaux';
+    const updated: Reserve = {
+      ...reserve,
+      enterpriseSignature: dataUrl,
+      enterpriseSignataire: signataireName.trim() || author,
+      enterpriseAcknowledgedAt: today,
+      history: [...reserve.history, {
+        id: `h${Date.now()}`,
+        action: 'Levée signée',
+        author: signataireName.trim() || author,
+        createdAt: today,
+      }],
+    };
+    updateReserveFields(updated);
+    setSignatureModalVisible(false);
+    setSaveSuccess(true);
+    setTimeout(() => setSaveSuccess(false), 2500);
+  }
+
+  function handleEnterpriseAck() {
+    Alert.alert(
+      'Accuser réception',
+      `Confirmer que vous avez bien pris connaissance de la réserve ${reserve.id} ?`,
+      [
+        { text: 'Annuler', style: 'cancel' },
+        {
+          text: 'Confirmer',
+          onPress: () => {
+            const today = new Date().toISOString().slice(0, 10);
+            const author = user?.name ?? 'Entreprise';
+            const updated: Reserve = {
+              ...reserve,
+              enterpriseAcknowledgedAt: reserve.enterpriseAcknowledgedAt ?? today,
+              history: [...reserve.history, {
+                id: `h${Date.now()}`,
+                action: 'Réception accusée',
+                author,
+                createdAt: today,
+              }],
+            };
+            updateReserveFields(updated);
+            setSaveSuccess(true);
+            setTimeout(() => setSaveSuccess(false), 2500);
+          },
+        },
+      ]
+    );
+  }
+
+  function handleAnnotationSave(photoId: string, annotations: any[]) {
+    const updatedPhotos: ReservePhoto[] = (reserve.photos ?? []).map(p =>
+      p.id === photoId ? { ...p, annotations } : p
+    );
+    updateReserveFields({ ...reserve, photos: updatedPhotos });
+    setAnnotatorPhoto(null);
+  }
+
+  async function handleAddEditPhoto() {
+    if (editPhotos.length >= 6) { Alert.alert('Limite atteinte', 'Maximum 6 photos par réserve.'); return; }
+    if (Platform.OS !== 'web') {
+      const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (status !== 'granted') { Alert.alert('Permission refusée', "L'accès à la galerie est nécessaire."); return; }
+    }
+    const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images'], allowsEditing: true, quality: 0.8 });
+    if (!result.canceled && result.assets[0]) {
+      setEditPhotoUploading2(true);
+      try {
+        const filename = `reserve_photo_${Date.now()}.jpg`;
+        const storageUrl = await uploadPhoto(result.assets[0].uri, filename);
+        const finalUri = storageUrl ?? result.assets[0].uri;
+        const today = new Date().toISOString().slice(0, 10);
+        const newPhoto: ReservePhoto = { id: genId(), uri: finalUri, kind: 'defect', takenAt: today, takenBy: user?.name ?? '' };
+        setEditPhotos(prev => [...prev, newPhoto]);
+      } catch {
+        const today = new Date().toISOString().slice(0, 10);
+        const newPhoto: ReservePhoto = { id: genId(), uri: result.assets[0].uri, kind: 'defect', takenAt: today, takenBy: user?.name ?? '' };
+        setEditPhotos(prev => [...prev, newPhoto]);
+      } finally {
+        setEditPhotoUploading2(false);
+      }
+    }
   }
 
   async function handleEditPickPhoto() {

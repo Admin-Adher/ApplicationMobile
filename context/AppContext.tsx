@@ -119,7 +119,18 @@ function toReserve(row: any): Reserve {
     status: row.status as ReserveStatus, createdAt: row.created_at, deadline: row.deadline,
     comments: row.comments ?? [], history: row.history ?? [],
     planX: row.plan_x, planY: row.plan_y, photoUri: row.photo_uri ?? undefined,
+    photoAnnotations: row.photo_annotations ?? undefined,
     closedAt: row.closed_at ?? undefined, closedBy: row.closed_by ?? undefined,
+    photos: row.photos ?? undefined,
+    lotId: row.lot_id ?? undefined,
+    kind: row.kind ?? undefined,
+    chantierId: row.chantier_id ?? undefined,
+    planId: row.plan_id ?? undefined,
+    visiteId: row.visite_id ?? undefined,
+    linkedTaskId: row.linked_task_id ?? undefined,
+    enterpriseSignature: row.enterprise_signature ?? undefined,
+    enterpriseSignataire: row.enterprise_signataire ?? undefined,
+    enterpriseAcknowledgedAt: row.enterprise_acknowledged_at ?? undefined,
   };
 }
 

@@ -3,19 +3,20 @@ import {
   Alert, Platform, Image, ActivityIndicator,
 } from 'react-native';
 import { useRouter, useLocalSearchParams } from 'expo-router';
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 import { C } from '@/constants/colors';
 import { useApp } from '@/context/AppContext';
 import { useAuth } from '@/context/AuthContext';
-import { ReserveKind, ReservePriority, ReserveStatus } from '@/constants/types';
+import { ReserveKind, ReservePriority, ReserveStatus, ReservePhoto } from '@/constants/types';
 import Header from '@/components/Header';
 import DateInput from '@/components/DateInput';
 import { uploadPhoto } from '@/lib/storage';
 import { genId } from '@/lib/utils';
 import {
-  RESERVE_BUILDINGS, RESERVE_ZONES, RESERVE_LEVELS, RESERVE_PRIORITIES, genReserveId, validateDeadline,
+  RESERVE_BUILDINGS, RESERVE_ZONES, RESERVE_LEVELS, RESERVE_PRIORITIES, RESERVE_TEMPLATES,
+  genReserveId, validateDeadline,
 } from '@/lib/reserveUtils';
 
 function SelectRow<T extends string>({
@@ -76,12 +77,17 @@ export default function NewReserveScreen() {
   const [deadline, setDeadline] = useState('');
   const [lotId, setLotId] = useState<string>('');
   const [selectedPlanId, setSelectedPlanId] = useState<string>(params.planId ?? chantierPlans[0]?.id ?? '');
-  const [photoUri, setPhotoUri] = useState<string | null>(null);
+  const [photos, setPhotos] = useState<ReservePhoto[]>([]);
   const [photoUploading, setPhotoUploading] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [showTemplates, setShowTemplates] = useState(false);
+  const [expandedTemplateCat, setExpandedTemplateCat] = useState<string | null>(null);
 
   const presetX = params.planX ? parseInt(params.planX) : null;
   const presetY = params.planY ? parseInt(params.planY) : null;
+
+  const selectedLot = useMemo(() => lots.find(l => l.id === lotId) ?? null, [lots, lotId]);
+  const previewId = useMemo(() => genReserveId(reserves, selectedLot), [reserves, selectedLot]);
 
   if (!permissions.canCreate) {
     return (
@@ -103,38 +109,41 @@ export default function NewReserveScreen() {
     );
   }
 
-  async function handlePickPhoto() {
-    if (Platform.OS !== 'web') {
-      const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
-      if (status !== 'granted') {
-        Alert.alert('Permission refusée', "L'accès à la galerie est nécessaire.");
-        return;
+  function applyTemplate(item: { title: string; description: string }) {
+    setTitle(item.title);
+    setDescription(item.description);
+    setShowTemplates(false);
+    setExpandedTemplateCat(null);
+  }
+
+  function handleLotChange(id: string) {
+    setLotId(id);
+    if (id) {
+      const lot = lots.find(l => l.id === id);
+      if (lot?.companyId) {
+        const co = companies.find(c => c.id === lot.companyId);
+        if (co) setCompany(co.name);
       }
-    }
-    const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ['images'],
-      allowsEditing: true,
-      quality: 0.8,
-    });
-    if (!result.canceled && result.assets[0]) {
-      await savePhoto(result.assets[0].uri);
     }
   }
 
+  async function handlePickPhoto() {
+    if (photos.length >= 6) { Alert.alert('Limite atteinte', 'Maximum 6 photos par réserve.'); return; }
+    if (Platform.OS !== 'web') {
+      const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (status !== 'granted') { Alert.alert('Permission refusée', "L'accès à la galerie est nécessaire."); return; }
+    }
+    const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images'], allowsEditing: true, quality: 0.8 });
+    if (!result.canceled && result.assets[0]) await savePhoto(result.assets[0].uri);
+  }
+
   async function handleCamera() {
-    if (Platform.OS === 'web') {
-      Alert.alert('Info', 'La prise de photo directe est disponible sur appareil mobile.');
-      return;
-    }
+    if (photos.length >= 6) { Alert.alert('Limite atteinte', 'Maximum 6 photos par réserve.'); return; }
+    if (Platform.OS === 'web') { Alert.alert('Info', 'La prise de photo directe est disponible sur appareil mobile.'); return; }
     const { status } = await ImagePicker.requestCameraPermissionsAsync();
-    if (status !== 'granted') {
-      Alert.alert('Permission refusée', "L'accès à l'appareil photo est nécessaire.");
-      return;
-    }
+    if (status !== 'granted') { Alert.alert('Permission refusée', "L'accès à l'appareil photo est nécessaire."); return; }
     const result = await ImagePicker.launchCameraAsync({ allowsEditing: true, quality: 0.8 });
-    if (!result.canceled && result.assets[0]) {
-      await savePhoto(result.assets[0].uri);
-    }
+    if (!result.canceled && result.assets[0]) await savePhoto(result.assets[0].uri);
   }
 
   async function savePhoto(uri: string) {
@@ -142,31 +151,51 @@ export default function NewReserveScreen() {
     try {
       const filename = `reserve_photo_${Date.now()}.jpg`;
       const storageUrl = await uploadPhoto(uri, filename);
-      setPhotoUri(storageUrl ?? uri);
+      const finalUri = storageUrl ?? uri;
+      const author = user?.name ?? 'Conducteur de travaux';
+      const today = new Date().toISOString().slice(0, 10);
+      const newPhoto: ReservePhoto = {
+        id: genId(),
+        uri: finalUri,
+        kind: 'defect',
+        takenAt: today,
+        takenBy: author,
+      };
+      setPhotos(prev => [...prev, newPhoto]);
     } catch {
-      setPhotoUri(uri);
+      const today = new Date().toISOString().slice(0, 10);
+      const newPhoto: ReservePhoto = {
+        id: genId(),
+        uri,
+        kind: 'defect',
+        takenAt: today,
+        takenBy: user?.name ?? 'Conducteur de travaux',
+      };
+      setPhotos(prev => [...prev, newPhoto]);
     } finally {
       setPhotoUploading(false);
     }
   }
 
+  function removePhoto(id: string) {
+    setPhotos(prev => prev.filter(p => p.id !== id));
+  }
+
+  function togglePhotoKind(id: string) {
+    setPhotos(prev => prev.map(p => p.id === id ? { ...p, kind: p.kind === 'defect' ? 'resolution' : 'defect' } : p));
+  }
+
   function handleSubmit() {
     if (isSubmitting) return;
-    if (!title.trim()) {
-      Alert.alert('Champ obligatoire', 'Le titre est requis.');
-      return;
-    }
-    if (!company) {
-      Alert.alert('Champ obligatoire', "Sélectionnez l'entreprise responsable.");
-      return;
-    }
+    if (!title.trim()) { Alert.alert('Champ obligatoire', 'Le titre est requis.'); return; }
+    if (!company) { Alert.alert('Champ obligatoire', "Sélectionnez l'entreprise responsable."); return; }
     if (deadline && !validateDeadline(deadline)) {
       Alert.alert('Date invalide', "Vérifiez que le jour, le mois et l'année sont corrects (ex : 30/04/2026).");
       return;
     }
     setIsSubmitting(true);
     const author = user?.name ?? 'Conducteur de travaux';
-    const id = genReserveId(reserves);
+    const id = genReserveId(reserves, selectedLot);
     const today = new Date().toISOString().slice(0, 10);
     addReserve({
       id,
@@ -185,16 +214,15 @@ export default function NewReserveScreen() {
       history: [{ id: 'h0', action: kind === 'observation' ? 'Observation créée' : 'Réserve créée', author, createdAt: today }],
       planX: presetX ?? undefined,
       planY: presetY ?? undefined,
-      photoUri: photoUri ?? undefined,
+      photoUri: photos[0]?.uri ?? undefined,
+      photos: photos.length > 0 ? photos : undefined,
       chantierId: effectiveChantierId,
       planId: selectedPlanId || undefined,
       lotId: lotId || undefined,
       visiteId: visiteId || undefined,
     });
-    if (visiteId) {
-      linkReserveToVisite(id, visiteId);
-    }
-    if (photoUri) {
+    if (visiteId) linkReserveToVisite(id, visiteId);
+    photos.forEach(p => {
       addPhoto({
         id: genId(),
         comment: `Photo ${kind === 'observation' ? 'observation' : 'réserve'} ${id} — ${title.trim()}`,
@@ -202,12 +230,12 @@ export default function NewReserveScreen() {
         takenAt: today,
         takenBy: author,
         colorCode: kind === 'observation' ? '#0EA5E9' : '#EF4444',
-        uri: photoUri,
+        uri: p.uri,
       });
-    }
+    });
     Alert.alert(
       kind === 'observation' ? 'Observation créée' : 'Réserve créée',
-      `${id} ajouté${kind === 'observation' ? 'e' : 'e'} avec succès.`,
+      `${id} ajoutée avec succès.`,
       [{ text: 'OK', onPress: () => router.back() }]
     );
   }
@@ -217,6 +245,7 @@ export default function NewReserveScreen() {
       <Header title={kind === 'observation' ? 'Nouvelle observation' : 'Nouvelle réserve'} showBack rightLabel="Créer" onRightPress={handleSubmit} />
 
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
+
         {sourceVisite ? (
           <View style={styles.visiteCard}>
             <Ionicons name="eye-outline" size={14} color="#6366F1" />
@@ -234,20 +263,15 @@ export default function NewReserveScreen() {
           </View>
         ) : null}
 
+        {/* TYPE */}
         <View style={styles.card}>
           <Text style={styles.label}>TYPE</Text>
           <View style={styles.kindRow}>
-            <TouchableOpacity
-              style={[styles.kindChip, kind === 'reserve' && styles.kindChipReserve]}
-              onPress={() => setKind('reserve')}
-            >
+            <TouchableOpacity style={[styles.kindChip, kind === 'reserve' && styles.kindChipReserve]} onPress={() => setKind('reserve')}>
               <Ionicons name="warning-outline" size={14} color={kind === 'reserve' ? '#EF4444' : C.textSub} />
               <Text style={[styles.kindChipText, kind === 'reserve' && { color: '#EF4444', fontFamily: 'Inter_700Bold' }]}>Réserve</Text>
             </TouchableOpacity>
-            <TouchableOpacity
-              style={[styles.kindChip, kind === 'observation' && styles.kindChipObservation]}
-              onPress={() => setKind('observation')}
-            >
+            <TouchableOpacity style={[styles.kindChip, kind === 'observation' && styles.kindChipObservation]} onPress={() => setKind('observation')}>
               <Ionicons name="eye-outline" size={14} color={kind === 'observation' ? '#0EA5E9' : C.textSub} />
               <Text style={[styles.kindChipText, kind === 'observation' && { color: '#0EA5E9', fontFamily: 'Inter_700Bold' }]}>Observation</Text>
             </TouchableOpacity>
@@ -260,9 +284,61 @@ export default function NewReserveScreen() {
           )}
         </View>
 
+        {/* TEMPLATES */}
+        {kind === 'reserve' && (
+          <View style={styles.card}>
+            <TouchableOpacity style={styles.templateHeader} onPress={() => setShowTemplates(!showTemplates)} activeOpacity={0.7}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                <Ionicons name="bookmark-outline" size={15} color={C.primary} />
+                <Text style={styles.templateHeaderText}>Templates rapides</Text>
+                <View style={styles.templateBadge}>
+                  <Text style={styles.templateBadgeText}>{RESERVE_TEMPLATES.reduce((s, c) => s + c.items.length, 0)}</Text>
+                </View>
+              </View>
+              <Ionicons name={showTemplates ? 'chevron-up' : 'chevron-down'} size={16} color={C.textSub} />
+            </TouchableOpacity>
+            {showTemplates && (
+              <View style={{ marginTop: 12 }}>
+                {RESERVE_TEMPLATES.map(cat => (
+                  <View key={cat.category} style={{ marginBottom: 4 }}>
+                    <TouchableOpacity
+                      style={styles.templateCatRow}
+                      onPress={() => setExpandedTemplateCat(expandedTemplateCat === cat.category ? null : cat.category)}
+                      activeOpacity={0.7}
+                    >
+                      <Ionicons name={cat.icon as any} size={14} color={C.textSub} />
+                      <Text style={styles.templateCatText}>{cat.category}</Text>
+                      <Ionicons name={expandedTemplateCat === cat.category ? 'chevron-up' : 'chevron-down'} size={13} color={C.textMuted} />
+                    </TouchableOpacity>
+                    {expandedTemplateCat === cat.category && cat.items.map(item => (
+                      <TouchableOpacity key={item.title} style={styles.templateItem} onPress={() => applyTemplate(item)} activeOpacity={0.7}>
+                        <Ionicons name="arrow-forward-outline" size={12} color={C.primary} />
+                        <View style={{ flex: 1 }}>
+                          <Text style={styles.templateItemTitle}>{item.title}</Text>
+                          <Text style={styles.templateItemDesc} numberOfLines={1}>{item.description}</Text>
+                        </View>
+                      </TouchableOpacity>
+                    ))}
+                  </View>
+                ))}
+              </View>
+            )}
+            {!showTemplates && (
+              <Text style={styles.templateHint}>Choisissez un modèle pour pré-remplir titre et description</Text>
+            )}
+          </View>
+        )}
+
+        {/* TITRE / DESCRIPTION */}
         <View style={styles.card}>
           <View style={styles.fieldGroup}>
-            <Text style={styles.label}>Titre *</Text>
+            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+              <Text style={styles.label}>Titre *</Text>
+              <View style={styles.idPreviewBadge}>
+                <Ionicons name="pricetag-outline" size={10} color={C.textMuted} />
+                <Text style={styles.idPreviewText}>Réf : {previewId}</Text>
+              </View>
+            </View>
             <TextInput
               style={styles.input}
               placeholder="Ex : Fissure mur porteur..."
@@ -285,34 +361,35 @@ export default function NewReserveScreen() {
           </View>
         </View>
 
+        {/* PHOTOS */}
         <View style={styles.card}>
           <View style={[styles.fieldGroup, { marginBottom: 0 }]}>
-            <Text style={styles.label}>Photo jointe</Text>
-            {photoUri ? (
-              <View style={styles.photoPreviewWrap}>
-                <Image source={{ uri: photoUri }} style={styles.photoPreview} resizeMode="cover" />
-                <View style={styles.photoActions}>
-                  <TouchableOpacity style={styles.photoActionBtn} onPress={handleCamera} disabled={photoUploading}>
-                    <Ionicons name="camera-outline" size={14} color={C.primary} />
-                    <Text style={styles.photoActionText}>Caméra</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity style={[styles.photoActionBtn, { borderColor: C.inProgress + '80' }]} onPress={handlePickPhoto} disabled={photoUploading}>
-                    <Ionicons name="images-outline" size={14} color={C.inProgress} />
-                    <Text style={[styles.photoActionText, { color: C.inProgress }]}>Galerie</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity style={[styles.photoActionBtn, { borderColor: C.open }]} onPress={() => setPhotoUri(null)} disabled={photoUploading}>
-                    <Ionicons name="trash-outline" size={14} color={C.open} />
-                    <Text style={[styles.photoActionText, { color: C.open }]}>Supprimer</Text>
-                  </TouchableOpacity>
+            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+              <Text style={styles.label}>Photos ({photos.length}/6)</Text>
+              {photos.length > 0 && <Text style={styles.photoKindHint}>Appuyer sur une photo pour basculer Constat ↔ Levée</Text>}
+            </View>
+
+            {photos.length > 0 && (
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 10 }}>
+                <View style={{ flexDirection: 'row', gap: 8 }}>
+                  {photos.map(p => (
+                    <View key={p.id} style={styles.photoThumb}>
+                      <TouchableOpacity onPress={() => togglePhotoKind(p.id)} activeOpacity={0.85}>
+                        <Image source={{ uri: p.uri }} style={styles.photoThumbImg} resizeMode="cover" />
+                        <View style={[styles.photoKindBadge, { backgroundColor: p.kind === 'defect' ? '#EF444488' : '#22C55E88' }]}>
+                          <Text style={styles.photoKindBadgeText}>{p.kind === 'defect' ? 'Constat' : 'Levée'}</Text>
+                        </View>
+                      </TouchableOpacity>
+                      <TouchableOpacity style={styles.photoRemoveBtn} onPress={() => removePhoto(p.id)}>
+                        <Ionicons name="close" size={11} color="#fff" />
+                      </TouchableOpacity>
+                    </View>
+                  ))}
                 </View>
-                {photoUri.startsWith('http') && (
-                  <View style={styles.cloudBadge}>
-                    <Ionicons name="cloud-done-outline" size={10} color={C.closed} />
-                    <Text style={styles.cloudBadgeText}>Sauvegardé</Text>
-                  </View>
-                )}
-              </View>
-            ) : (
+              </ScrollView>
+            )}
+
+            {photos.length < 6 && (
               <View style={styles.photoRow}>
                 <TouchableOpacity style={[styles.photoBtn, { flex: 1 }]} onPress={handleCamera} disabled={photoUploading}>
                   <Ionicons name="camera" size={18} color={C.primary} />
@@ -324,6 +401,7 @@ export default function NewReserveScreen() {
                 </TouchableOpacity>
               </View>
             )}
+
             {photoUploading && (
               <View style={styles.uploadRow}>
                 <ActivityIndicator size="small" color={C.primary} />
@@ -333,54 +411,57 @@ export default function NewReserveScreen() {
           </View>
         </View>
 
+        {/* CORPS D'ÉTAT (LOT) */}
         {lots.length > 0 && (
           <View style={styles.card}>
             <View style={styles.fieldGroup}>
               <Text style={styles.label}>Corps d'état (lot)</Text>
               <ScrollView horizontal showsHorizontalScrollIndicator={false}>
                 <View style={styles.chipRow}>
-                  <TouchableOpacity
-                    style={[styles.chip, !lotId && styles.chipActive]}
-                    onPress={() => setLotId('')}
-                  >
+                  <TouchableOpacity style={[styles.chip, !lotId && styles.chipActive]} onPress={() => handleLotChange('')}>
                     <Text style={[styles.chipText, !lotId && styles.chipTextActive]}>Aucun</Text>
                   </TouchableOpacity>
                   {lots.map(lot => (
                     <TouchableOpacity
                       key={lot.id}
                       style={[styles.chip, lotId === lot.id && { backgroundColor: (lot.color ?? C.primary) + '20', borderColor: lot.color ?? C.primary }]}
-                      onPress={() => setLotId(lot.id)}
+                      onPress={() => handleLotChange(lot.id)}
                     >
                       {lot.color && <View style={[styles.lotDot, { backgroundColor: lot.color }]} />}
                       <Text style={[styles.chipText, lotId === lot.id && { color: lot.color ?? C.primary }]} numberOfLines={1}>
-                        {lot.number ? `${lot.number}. ` : ''}{lot.name}
+                        {(lot as any).number ? `${(lot as any).number}. ` : ''}{lot.name}
                       </Text>
                     </TouchableOpacity>
                   ))}
                 </View>
               </ScrollView>
+              {selectedLot && (
+                <View style={styles.lotAutoFillHint}>
+                  <Ionicons name="information-circle-outline" size={12} color={C.primary} />
+                  <Text style={styles.lotAutoFillText}>
+                    Référence automatique : <Text style={{ fontFamily: 'Inter_700Bold' }}>{previewId}</Text>
+                    {selectedLot.companyId && companies.find(c => c.id === selectedLot.companyId)
+                      ? ` · Entreprise auto-remplie : ${companies.find(c => c.id === selectedLot.companyId)!.shortName}`
+                      : ''}
+                  </Text>
+                </View>
+              )}
             </View>
           </View>
         )}
 
+        {/* PLAN */}
         {chantierPlans.length > 0 && (
           <View style={styles.card}>
             <View style={styles.fieldGroup}>
               <Text style={styles.label}>Plan associé</Text>
               <ScrollView horizontal showsHorizontalScrollIndicator={false}>
                 <View style={styles.chipRow}>
-                  <TouchableOpacity
-                    style={[styles.chip, !selectedPlanId && styles.chipActive]}
-                    onPress={() => setSelectedPlanId('')}
-                  >
+                  <TouchableOpacity style={[styles.chip, !selectedPlanId && styles.chipActive]} onPress={() => setSelectedPlanId('')}>
                     <Text style={[styles.chipText, !selectedPlanId && styles.chipTextActive]}>Aucun</Text>
                   </TouchableOpacity>
                   {chantierPlans.map(plan => (
-                    <TouchableOpacity
-                      key={plan.id}
-                      style={[styles.chip, selectedPlanId === plan.id && styles.chipActive]}
-                      onPress={() => setSelectedPlanId(plan.id)}
-                    >
+                    <TouchableOpacity key={plan.id} style={[styles.chip, selectedPlanId === plan.id && styles.chipActive]} onPress={() => setSelectedPlanId(plan.id)}>
                       <Ionicons name="map-outline" size={12} color={selectedPlanId === plan.id ? C.primary : C.textSub} />
                       <Text style={[styles.chipText, selectedPlanId === plan.id && styles.chipTextActive]} numberOfLines={1}>{plan.name}</Text>
                     </TouchableOpacity>
@@ -391,6 +472,7 @@ export default function NewReserveScreen() {
           </View>
         )}
 
+        {/* LOCALISATION */}
         <View style={styles.card}>
           {(!effectiveChantierId && chantierPlans.length === 0) && (
             <SelectRow label="Bâtiment" options={RESERVE_BUILDINGS} value={building} onChange={setBuilding} />
@@ -399,6 +481,7 @@ export default function NewReserveScreen() {
           <SelectRow label="Niveau" options={RESERVE_LEVELS} value={level} onChange={setLevel} />
         </View>
 
+        {/* ENTREPRISE */}
         <View style={styles.card}>
           <View style={[styles.fieldGroup, { marginBottom: 0 }]}>
             <Text style={styles.label}>Entreprise responsable *</Text>
@@ -428,6 +511,7 @@ export default function NewReserveScreen() {
           </View>
         </View>
 
+        {/* PRIORITÉ */}
         <View style={styles.card}>
           <View style={[styles.fieldGroup, { marginBottom: 0 }]}>
             <Text style={styles.label}>Priorité</Text>
@@ -445,21 +529,21 @@ export default function NewReserveScreen() {
           </View>
         </View>
 
+        {/* DATE LIMITE */}
         <View style={styles.card}>
           <View style={[styles.fieldGroup, { marginBottom: 0 }]}>
-            <DateInput
-              label="Date limite"
-              value={deadline}
-              onChange={setDeadline}
-              optional
-            />
+            <DateInput label="Date limite" value={deadline} onChange={setDeadline} optional />
           </View>
         </View>
 
-        <TouchableOpacity style={[styles.submitBtn, isSubmitting && { opacity: 0.6 }, kind === 'observation' && styles.submitBtnObservation]} onPress={handleSubmit} disabled={isSubmitting}>
+        <TouchableOpacity
+          style={[styles.submitBtn, isSubmitting && { opacity: 0.6 }, kind === 'observation' && styles.submitBtnObservation]}
+          onPress={handleSubmit}
+          disabled={isSubmitting}
+        >
           <Ionicons name="add-circle" size={20} color="#fff" />
           <Text style={styles.submitBtnText}>
-            {isSubmitting ? 'Création...' : kind === 'observation' ? 'Créer l\'observation' : 'Créer la réserve'}
+            {isSubmitting ? 'Création...' : kind === 'observation' ? "Créer l'observation" : 'Créer la réserve'}
           </Text>
         </TouchableOpacity>
       </ScrollView>
@@ -487,28 +571,49 @@ const styles = StyleSheet.create({
   chipTextActive: { color: C.primary },
   coDot: { width: 8, height: 8, borderRadius: 4 },
   lotDot: { width: 7, height: 7, borderRadius: 3.5 },
+
   photoRow: { flexDirection: 'row', gap: 10 },
   photoBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, backgroundColor: C.surface2, borderRadius: 10, paddingVertical: 14, borderWidth: 1.5, borderColor: C.border },
   photoBtnText: { fontSize: 13, fontFamily: 'Inter_600SemiBold', color: C.primary },
-  photoPreviewWrap: { borderRadius: 10, overflow: 'hidden', borderWidth: 1, borderColor: C.border },
-  photoPreview: { width: '100%', height: 160 },
-  photoActions: { flexDirection: 'row', gap: 8, padding: 10, backgroundColor: C.surface2 },
-  photoActionBtn: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, paddingVertical: 8, borderRadius: 8, borderWidth: 1, borderColor: C.border },
-  photoActionText: { fontSize: 12, fontFamily: 'Inter_600SemiBold', color: C.primary },
-  cloudBadge: { flexDirection: 'row', alignItems: 'center', gap: 4, position: 'absolute', top: 8, right: 8, backgroundColor: 'rgba(0,0,0,0.55)', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 10 },
-  cloudBadgeText: { fontSize: 10, fontFamily: 'Inter_600SemiBold', color: '#fff' },
+  photoKindHint: { fontSize: 10, fontFamily: 'Inter_400Regular', color: C.textMuted },
+  photoThumb: { position: 'relative', width: 80, height: 80, borderRadius: 10, overflow: 'hidden', borderWidth: 1, borderColor: C.border },
+  photoThumbImg: { width: '100%', height: '100%' },
+  photoKindBadge: { position: 'absolute', bottom: 0, left: 0, right: 0, paddingVertical: 3, alignItems: 'center' },
+  photoKindBadgeText: { fontSize: 9, fontFamily: 'Inter_700Bold', color: '#fff' },
+  photoRemoveBtn: { position: 'absolute', top: 3, right: 3, width: 18, height: 18, borderRadius: 9, backgroundColor: 'rgba(0,0,0,0.65)', alignItems: 'center', justifyContent: 'center' },
   uploadRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 8 },
   uploadText: { fontSize: 12, fontFamily: 'Inter_400Regular', color: C.textSub },
+
+  templateHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  templateHeaderText: { fontSize: 14, fontFamily: 'Inter_600SemiBold', color: C.text },
+  templateBadge: { backgroundColor: C.primaryBg, borderRadius: 8, paddingHorizontal: 6, paddingVertical: 2 },
+  templateBadgeText: { fontSize: 10, fontFamily: 'Inter_700Bold', color: C.primary },
+  templateHint: { fontSize: 11, fontFamily: 'Inter_400Regular', color: C.textMuted, marginTop: 6 },
+  templateCatRow: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: C.border },
+  templateCatText: { flex: 1, fontSize: 13, fontFamily: 'Inter_600SemiBold', color: C.text },
+  templateItem: { flexDirection: 'row', alignItems: 'flex-start', gap: 8, paddingVertical: 9, paddingHorizontal: 4, borderBottomWidth: 1, borderBottomColor: C.border + '60' },
+  templateItemTitle: { fontSize: 13, fontFamily: 'Inter_500Medium', color: C.text },
+  templateItemDesc: { fontSize: 11, fontFamily: 'Inter_400Regular', color: C.textMuted, marginTop: 1 },
+
+  idPreviewBadge: { flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: C.surface2, borderRadius: 8, paddingHorizontal: 8, paddingVertical: 4, borderWidth: 1, borderColor: C.border },
+  idPreviewText: { fontSize: 11, fontFamily: 'Inter_600SemiBold', color: C.textSub },
+
+  lotAutoFillHint: { flexDirection: 'row', alignItems: 'flex-start', gap: 6, marginTop: 8, backgroundColor: C.primaryBg, borderRadius: 8, padding: 10, borderWidth: 1, borderColor: C.primary + '30' },
+  lotAutoFillText: { flex: 1, fontSize: 11, fontFamily: 'Inter_400Regular', color: C.primary, lineHeight: 16 },
+
   warningRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 8, backgroundColor: C.medium + '10', borderRadius: 10, padding: 12, borderWidth: 1, borderColor: C.medium + '30' },
   warningText: { flex: 1, fontSize: 13, fontFamily: 'Inter_400Regular', color: C.medium, lineHeight: 18 },
+
   submitBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', backgroundColor: C.primary, borderRadius: 14, paddingVertical: 16, gap: 8 },
   submitBtnObservation: { backgroundColor: '#0EA5E9' },
   submitBtnText: { fontSize: 16, fontFamily: 'Inter_600SemiBold', color: '#fff' },
+
   sourceCard: { flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: C.inProgress + '15', borderRadius: 10, padding: 10, marginBottom: 12, borderWidth: 1, borderColor: C.inProgress + '30' },
   sourceText: { flex: 1, fontSize: 12, fontFamily: 'Inter_500Medium', color: C.inProgress, lineHeight: 16 },
   visiteCard: { flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: '#6366F115', borderRadius: 12, padding: 12, marginBottom: 12, borderWidth: 1, borderColor: '#6366F130' },
   visiteCardLabel: { fontSize: 10, fontFamily: 'Inter_600SemiBold', color: '#6366F1', textTransform: 'uppercase', letterSpacing: 0.4 },
   visiteCardTitle: { fontSize: 13, fontFamily: 'Inter_500Medium', color: '#6366F1', marginTop: 2 },
+
   kindRow: { flexDirection: 'row', gap: 10 },
   kindChip: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 7, paddingVertical: 11, borderRadius: 12, borderWidth: 1.5, borderColor: C.border, backgroundColor: C.surface2 },
   kindChipReserve: { backgroundColor: '#EF444415', borderColor: '#EF4444' },
