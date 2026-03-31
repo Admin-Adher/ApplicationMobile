@@ -7,15 +7,23 @@ import { C } from '@/constants/colors';
 import { useApp } from '@/context/AppContext';
 import { useAuth } from '@/context/AuthContext';
 import { useSettings } from '@/context/SettingsContext';
+import { useIncidents } from '@/context/IncidentsContext';
 import Header from '@/components/Header';
 
-function buildDailyHTML(reserves: any[], companies: any[], tasks: any[], stats: any, userName: string, projectName: string): string {
+function buildDailyHTML(reserves: any[], companies: any[], tasks: any[], incidents: any[], stats: any, userName: string, projectName: string): string {
   const now = new Date().toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
   const personnelRows = companies.map(c =>
     `<tr><td>${c.name}</td><td>${c.actualWorkers}</td><td>${c.plannedWorkers}</td></tr>`
   ).join('');
   const taskRows = tasks.filter((t: any) => t.status === 'in_progress').map((t: any) =>
     `<tr><td>${t.title}</td><td>${t.assignee}</td><td>${t.progress}%</td><td>${t.deadline}</td></tr>`
+  ).join('');
+  const severityLabels: Record<string, string> = { minor: 'Mineur', moderate: 'Modéré', major: 'Majeur', critical: 'Critique' };
+  const severityColors: Record<string, string> = { minor: '#6B7280', moderate: '#F59E0B', major: '#EF4444', critical: '#7F1D1D' };
+  const incidentStatusLabels: Record<string, string> = { open: 'Ouvert', investigating: 'En cours', resolved: 'Résolu' };
+  const openIncidents = incidents.filter((i: any) => i.status !== 'resolved');
+  const incidentRows = openIncidents.map((i: any) =>
+    `<tr><td style="color:${severityColors[i.severity] || '#000'};font-weight:bold">${severityLabels[i.severity] || i.severity}</td><td>${i.title}</td><td>Bât. ${i.building} — ${i.location}</td><td>${incidentStatusLabels[i.status] || i.status}</td><td>${i.reportedAt}</td><td>${i.reportedBy}</td></tr>`
   ).join('');
   return `<!DOCTYPE html><html><head><meta charset="UTF-8">
   <style>
@@ -30,6 +38,7 @@ function buildDailyHTML(reserves: any[], companies: any[], tasks: any[], stats: 
     .kpi-card { border: 1px solid #ccc; border-radius: 8px; padding: 12px 20px; text-align: center; }
     .kpi-val { font-size: 28px; font-weight: bold; color: #1A6FD8; }
     .kpi-label { font-size: 12px; color: #666; }
+    .incident-alert { background: #FEF2F2; border-left: 4px solid #EF4444; padding: 6px 10px; margin-bottom: 4px; font-size: 12px; }
   </style></head><body>
   <h1>${projectName} — Rapport journalier</h1>
   <p class="meta">Date : ${now} | Rédigé par : ${userName}</p>
@@ -39,6 +48,7 @@ function buildDailyHTML(reserves: any[], companies: any[], tasks: any[], stats: 
     <div class="kpi-card"><div class="kpi-val">${stats.open + stats.inProgress}</div><div class="kpi-label">En cours</div></div>
     <div class="kpi-card"><div class="kpi-val">${stats.closed}</div><div class="kpi-label">Clôturées</div></div>
     <div class="kpi-card"><div class="kpi-val">${stats.progress}%</div><div class="kpi-label">Avancement</div></div>
+    <div class="kpi-card"><div class="kpi-val" style="color:${openIncidents.length > 0 ? '#EF4444' : '#10B981'}">${openIncidents.length}</div><div class="kpi-label">Incidents ouverts</div></div>
   </div>
   <h2>Personnel présent</h2>
   <table><thead><tr><th>Entreprise</th><th>Présents</th><th>Prévus</th></tr></thead>
@@ -46,6 +56,9 @@ function buildDailyHTML(reserves: any[], companies: any[], tasks: any[], stats: 
   <h2>Tâches en cours</h2>
   <table><thead><tr><th>Tâche</th><th>Responsable</th><th>Avancement</th><th>Échéance</th></tr></thead>
   <tbody>${taskRows || '<tr><td colspan="4">Aucune tâche en cours</td></tr>'}</tbody></table>
+  <h2>Incidents de sécurité non résolus (${openIncidents.length})</h2>
+  <table><thead><tr><th>Gravité</th><th>Titre</th><th>Lieu</th><th>Statut</th><th>Date</th><th>Signalé par</th></tr></thead>
+  <tbody>${incidentRows || '<tr><td colspan="6" style="color:#10B981">Aucun incident ouvert — chantier sécurisé</td></tr>'}</tbody></table>
   <h2>Réserves actives</h2>
   <table><thead><tr><th>ID</th><th>Titre</th><th>Bâtiment</th><th>Entreprise</th><th>Priorité</th><th>Statut</th><th>Échéance</th></tr></thead>
   <tbody>${reserves.filter((r: any) => r.status !== 'closed').map((r: any) => {
@@ -98,12 +111,13 @@ function buildWeeklyHTML(reserves: any[], companies: any[], tasks: any[], stats:
 }
 
 function buildCsvReport(reserves: any[]): string {
-  const header = ['ID', 'Titre', 'Statut', 'Priorité', 'Bâtiment', 'Zone', 'Niveau', 'Entreprise', 'Date création', 'Échéance'];
+  const header = ['ID', 'Titre', 'Statut', 'Priorité', 'Bâtiment', 'Zone', 'Niveau', 'Entreprise', 'Date création', 'Échéance', 'Date clôture', 'Clôturé par'];
   const statusMap: Record<string, string> = { open: 'Ouvert', in_progress: 'En cours', waiting: 'En attente', verification: 'Vérification', closed: 'Clôturé' };
   const priorityMap: Record<string, string> = { low: 'Faible', medium: 'Moyen', high: 'Élevé', critical: 'Critique' };
   const rows = reserves.map(r => [
     r.id, `"${r.title}"`, statusMap[r.status] ?? r.status, priorityMap[r.priority] ?? r.priority,
     r.building, r.zone, r.level, `"${r.company}"`, r.createdAt, r.deadline,
+    r.closedAt ?? '', `"${r.closedBy ?? ''}"`,
   ]);
   return [header, ...rows].map(row => row.join(';')).join('\n');
 }
@@ -112,6 +126,7 @@ export default function RapportsScreen() {
   const { reserves, companies, tasks, stats } = useApp();
   const { user, permissions } = useAuth();
   const { projectName } = useSettings();
+  const { incidents } = useIncidents();
   const userName = user?.name ?? 'Équipe BuildTrack';
 
   const today = new Date().toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
@@ -128,7 +143,7 @@ export default function RapportsScreen() {
     }
     try {
       const html = type === 'daily'
-        ? buildDailyHTML(reserves, companies, tasks, stats, userName, projectName)
+        ? buildDailyHTML(reserves, companies, tasks, incidents, stats, userName, projectName)
         : buildWeeklyHTML(reserves, companies, tasks, stats, userName, weekNum, projectName);
 
       if (Platform.OS === 'web') {

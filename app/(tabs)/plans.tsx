@@ -17,6 +17,7 @@ import { STATUS_CONFIG } from '@/components/StatusBadge';
 import PriorityBadge from '@/components/PriorityBadge';
 import { uploadDocument } from '@/lib/storage';
 import { RESERVE_BUILDINGS, RESERVE_LEVELS } from '@/lib/reserveUtils';
+import { genId } from '@/lib/utils';
 
 interface Room {
   id: string; label: string;
@@ -68,10 +69,6 @@ function formatSize(bytes: number | undefined): string {
   if (!bytes) return '?';
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} Ko`;
   return `${(bytes / (1024 * 1024)).toFixed(1)} Mo`;
-}
-
-function genDocId() {
-  return Date.now().toString() + Math.random().toString(36).substring(2, 8);
 }
 
 function PlanImageLayer({ uri, isPdfFile }: { uri: string; isPdfFile: boolean }) {
@@ -274,7 +271,7 @@ export default function PlansScreen() {
         const finalUri = storageUrl ?? asset.uri;
 
         const newDoc: Document = {
-          id: genDocId(),
+          id: genId(),
           name: `Plan Bâtiment ${building} — ${docName}`,
           type: 'plan',
           category: `Plan-${building}`,

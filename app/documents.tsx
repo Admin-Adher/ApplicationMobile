@@ -84,6 +84,7 @@ export default function DocumentsScreen() {
                 try {
                   const storageUrl = await uploadDocument(asset.uri, asset.name, asset.mimeType ?? undefined);
                   const finalUri = storageUrl ?? asset.uri;
+                  const existingVersions = documents.filter(d => d.name === asset.name).map(d => d.version);
                   const newDoc: Document = {
                     id: genId(),
                     name: asset.name,
@@ -91,7 +92,7 @@ export default function DocumentsScreen() {
                     category: `Plan-${building}`,
                     uploadedAt: new Date().toLocaleDateString('fr-FR'),
                     size: formatSize(asset.size),
-                    version: 1,
+                    version: existingVersions.length > 0 ? Math.max(...existingVersions) + 1 : 1,
                     uri: finalUri,
                   };
                   addDocument(newDoc);
@@ -115,6 +116,7 @@ export default function DocumentsScreen() {
         const storageUrl = await uploadDocument(asset.uri, asset.name, asset.mimeType ?? undefined);
         const finalUri = storageUrl ?? asset.uri;
 
+        const existingNonPlanVersions = documents.filter(d => d.name === asset.name).map(d => d.version);
         const newDoc: Document = {
           id: genId(),
           name: asset.name,
@@ -122,7 +124,7 @@ export default function DocumentsScreen() {
           category: docType === 'report' ? 'Rapports' : docType === 'technical' ? 'Fiches techniques' : docType === 'photo' ? 'Photos' : 'Documents',
           uploadedAt: new Date().toLocaleDateString('fr-FR'),
           size: formatSize(asset.size),
-          version: 1,
+          version: existingNonPlanVersions.length > 0 ? Math.max(...existingNonPlanVersions) + 1 : 1,
           uri: finalUri,
         };
         addDocument(newDoc);

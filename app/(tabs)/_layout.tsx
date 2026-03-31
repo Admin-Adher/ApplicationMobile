@@ -79,6 +79,13 @@ export default function TabLayout() {
         }}
       />
       <Tabs.Screen
+        name="incidents"
+        options={{
+          title: 'Incidents',
+          tabBarIcon: ({ color, size }) => <TabIcon name="shield" color={color} size={size} />,
+        }}
+      />
+      <Tabs.Screen
         name="more"
         options={{
           title: 'Plus',

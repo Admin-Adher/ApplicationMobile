@@ -94,12 +94,20 @@ function CalendarView({ tasks, onTaskPress }: { tasks: Task[]; onTaskPress: (id:
 
   const tasksByDay = useMemo(() => {
     const map: Record<number, Task[]> = {};
+    const monthStart = new Date(year, month, 1);
+    const monthEnd = new Date(year, month + 1, 0, 23, 59, 59);
     tasks.forEach(t => {
-      const d = parseDeadline(t.deadline);
-      if (d && d.getFullYear() === year && d.getMonth() === month) {
-        const day = d.getDate();
-        if (!map[day]) map[day] = [];
-        map[day].push(t);
+      const end = parseDeadline(t.deadline);
+      if (!end) return;
+      const start = getTaskStartDate(t);
+      if (start > monthEnd || end < monthStart) return;
+      const dayStart = start <= monthStart ? 1 : start.getDate();
+      const dayEnd = end >= monthEnd ? monthEnd.getDate() : end.getDate();
+      for (let d = dayStart; d <= dayEnd; d++) {
+        if (!map[d]) map[d] = [];
+        if (!map[d].find(existing => existing.id === t.id)) {
+          map[d].push(t);
+        }
       }
     });
     return map;
@@ -356,11 +364,12 @@ function GanttView({ tasks, onTaskPress }: { tasks: Task[]; onTaskPress: (id: st
 }
 
 export default function PlanningScreen() {
-  const { tasks, deleteTask } = useApp();
+  const { tasks, deleteTask, companies } = useApp();
   const { permissions } = useAuth();
   const router = useRouter();
   const [viewMode, setViewMode] = useState<ViewMode>('list');
   const [filterStatus, setFilterStatus] = useState<TaskStatus | 'all'>('all');
+  const [filterCompany, setFilterCompany] = useState<string>('all');
   const [search, setSearch] = useState('');
 
   const todo = tasks.filter(t => t.status === 'todo').length;
@@ -370,6 +379,9 @@ export default function PlanningScreen() {
 
   const filtered = useMemo(() => {
     let list = filterStatus === 'all' ? tasks : tasks.filter(t => t.status === filterStatus);
+    if (filterCompany !== 'all') {
+      list = list.filter(t => t.company === filterCompany);
+    }
     if (search.trim()) {
       const q = search.toLowerCase();
       list = list.filter(t =>
@@ -379,7 +391,7 @@ export default function PlanningScreen() {
       );
     }
     return list;
-  }, [tasks, filterStatus, search]);
+  }, [tasks, filterStatus, filterCompany, search]);
 
   function handleDelete(id: string, title: string) {
     Alert.alert('Supprimer', `Supprimer la tâche "${title}" ?`, [
@@ -458,6 +470,29 @@ export default function PlanningScreen() {
             </TouchableOpacity>
           )}
         </View>
+
+        {companies.length > 0 && (
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 8 }}>
+            <View style={styles.companyFilterRow}>
+              <TouchableOpacity
+                style={[styles.companyChip, filterCompany === 'all' && styles.companyChipActive]}
+                onPress={() => setFilterCompany('all')}
+              >
+                <Text style={[styles.companyChipText, filterCompany === 'all' && styles.companyChipTextActive]}>Toutes</Text>
+              </TouchableOpacity>
+              {companies.map(co => (
+                <TouchableOpacity
+                  key={co.id}
+                  style={[styles.companyChip, filterCompany === co.id && { borderColor: co.color, backgroundColor: co.color + '15' }]}
+                  onPress={() => setFilterCompany(filterCompany === co.id ? 'all' : co.id)}
+                >
+                  <View style={[styles.companyDot, { backgroundColor: co.color }]} />
+                  <Text style={[styles.companyChipText, filterCompany === co.id && { color: co.color }]}>{co.shortName}</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+          </ScrollView>
+        )}
 
         {viewMode === 'list' && (
           <>
@@ -604,4 +639,14 @@ const styles = StyleSheet.create({
   taskDeadline: { fontSize: 11, fontFamily: 'Inter_500Medium', color: C.textSub },
   empty: { alignItems: 'center', paddingVertical: 40, gap: 10 },
   emptyText: { fontSize: 14, fontFamily: 'Inter_400Regular', color: C.textMuted },
+  companyFilterRow: { flexDirection: 'row', gap: 6, paddingHorizontal: 2, alignItems: 'center' },
+  companyChip: {
+    flexDirection: 'row', alignItems: 'center', gap: 5,
+    paddingHorizontal: 10, paddingVertical: 6, borderRadius: 16,
+    borderWidth: 1, borderColor: C.border, backgroundColor: C.surface,
+  },
+  companyChipActive: { borderColor: C.primary, backgroundColor: C.primaryBg },
+  companyChipText: { fontSize: 12, fontFamily: 'Inter_500Medium', color: C.textSub },
+  companyChipTextActive: { color: C.primary },
+  companyDot: { width: 7, height: 7, borderRadius: 4 },
 });

@@ -9,6 +9,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { C } from '@/constants/colors';
 import { useApp } from '@/context/AppContext';
 import { useAuth } from '@/context/AuthContext';
+import { useSettings } from '@/context/SettingsContext';
 import { Company } from '@/constants/types';
 import { useRouter } from 'expo-router';
 import { genId } from '@/lib/utils';
@@ -23,6 +24,7 @@ export default function EquipesScreen() {
     companies, tasks, stats,
     updateCompanyWorkers, addCompany, updateCompanyFull, deleteCompany, updateCompanyHours,
   } = useApp();
+  const { saveAttendanceSnapshot } = useSettings();
   const topPad = Platform.OS === 'web' ? 67 : insets.top;
   const bottomPad = Platform.OS === 'web' ? 34 : insets.bottom;
 
@@ -296,6 +298,32 @@ export default function EquipesScreen() {
           </View>
         )}
 
+        {permissions.canUpdateAttendance && companies.length > 0 && (
+          <TouchableOpacity
+            style={styles.saveAttendanceBtn}
+            onPress={() => {
+              const total = companies.reduce((a, c) => a + c.actualWorkers, 0);
+              Alert.alert(
+                'Sauvegarder les présences',
+                `Enregistrer les présences du jour (${total} personnes au total) dans l'historique ?`,
+                [
+                  { text: 'Annuler', style: 'cancel' },
+                  {
+                    text: 'Sauvegarder',
+                    onPress: async () => {
+                      await saveAttendanceSnapshot(companies, user?.name ?? 'Système');
+                      Alert.alert('Présences sauvegardées', "L'instantané a été enregistré dans l'historique.");
+                    },
+                  },
+                ]
+              );
+            }}
+          >
+            <Ionicons name="save-outline" size={16} color={C.primary} />
+            <Text style={styles.saveAttendanceBtnText}>Sauvegarder les présences du jour</Text>
+          </TouchableOpacity>
+        )}
+
         <Text style={styles.sectionTitle}>Tâches en cours</Text>
         {tasks.filter(t => t.status === 'in_progress' || t.status === 'delayed').map(task => (
           <TouchableOpacity
@@ -323,6 +351,12 @@ export default function EquipesScreen() {
             </View>
           </TouchableOpacity>
         ))}
+        {tasks.filter(t => t.status === 'in_progress' || t.status === 'delayed').length === 0 && (
+          <View style={styles.emptyBox}>
+            <Ionicons name="checkmark-circle-outline" size={28} color={C.closed} />
+            <Text style={styles.emptyText}>Aucune tâche en cours ou en retard</Text>
+          </View>
+        )}
       </ScrollView>
 
       <Modal visible={modalVisible} transparent animationType="fade" onRequestClose={handleClose}>
@@ -524,4 +558,10 @@ const styles = StyleSheet.create({
   confirmBtn: { backgroundColor: C.primary, borderRadius: 12, paddingVertical: 14, alignItems: 'center', marginTop: 20 },
   confirmBtnDisabled: { opacity: 0.4 },
   confirmBtnText: { fontSize: 15, fontFamily: 'Inter_600SemiBold', color: '#fff' },
+  saveAttendanceBtn: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8,
+    backgroundColor: C.primaryBg, borderRadius: 12, paddingVertical: 12, marginBottom: 16,
+    borderWidth: 1, borderColor: C.primary + '40',
+  },
+  saveAttendanceBtnText: { fontSize: 14, fontFamily: 'Inter_600SemiBold', color: C.primary },
 });

@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useEffect, useState, useCallback } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Incident } from '@/constants/types';
+import { supabase, isSupabaseConfigured } from '@/lib/supabase';
 
 const INCIDENTS_KEY = 'buildtrack_incidents_v1';
 
@@ -13,39 +14,66 @@ interface IncidentsContextValue {
 
 const IncidentsContext = createContext<IncidentsContextValue | null>(null);
 
-const today = new Date().toISOString().slice(0, 10);
+function makeMockIncidents(): Incident[] {
+  const today = new Date().toISOString().slice(0, 10);
+  return [
+    {
+      id: 'inc-001',
+      title: 'Chute de matériaux bâtiment A',
+      description: 'Chute de briques depuis l\'échafaudage niveau R+2 lors du décoffrage. Aucune victime. Zone sécurisée immédiatement.',
+      severity: 'moderate',
+      location: 'Échafaudage Est',
+      building: 'A',
+      reportedAt: today,
+      reportedBy: 'Jean Dupont',
+      status: 'investigating',
+      witnesses: 'Marie Martin, Pierre Lambert',
+      actions: 'Zone condamnée. Inspection de l\'échafaudage programmée demain.',
+    },
+  ];
+}
 
-const MOCK_INCIDENTS: Incident[] = [
-  {
-    id: 'inc-001',
-    title: 'Chute de matériaux bâtiment A',
-    description: 'Chute de briques depuis l\'échafaudage niveau R+2 lors du décoffrage. Aucune victime. Zone sécurisée immédiatement.',
-    severity: 'moderate',
-    location: 'Échafaudage Est',
-    building: 'A',
-    reportedAt: today,
-    reportedBy: 'Jean Dupont',
-    status: 'investigating',
-    witnesses: 'Marie Martin, Pierre Lambert',
-    actions: 'Zone condamnée. Inspection de l\'échafaudage programmée demain.',
-  },
-];
+function toIncident(row: any): Incident {
+  return {
+    id: row.id,
+    title: row.title,
+    description: row.description ?? '',
+    severity: row.severity,
+    location: row.location,
+    building: row.building,
+    reportedAt: row.reported_at ?? row.reportedAt ?? '',
+    reportedBy: row.reported_by ?? row.reportedBy ?? '',
+    status: row.status,
+    witnesses: row.witnesses ?? '',
+    actions: row.actions ?? '',
+  };
+}
 
 export function IncidentsProvider({ children }: { children: React.ReactNode }) {
   const [incidents, setIncidents] = useState<Incident[]>([]);
 
   useEffect(() => {
     async function load() {
+      if (isSupabaseConfigured) {
+        try {
+          const { data, error } = await supabase.from('incidents').select('*').order('reported_at', { ascending: false });
+          if (!error && data && data.length > 0) {
+            setIncidents(data.map(toIncident));
+            return;
+          }
+        } catch {}
+      }
       try {
         const stored = await AsyncStorage.getItem(INCIDENTS_KEY);
         if (stored) {
           setIncidents(JSON.parse(stored));
         } else {
-          setIncidents(MOCK_INCIDENTS);
-          await AsyncStorage.setItem(INCIDENTS_KEY, JSON.stringify(MOCK_INCIDENTS));
+          const mock = makeMockIncidents();
+          setIncidents(mock);
+          await AsyncStorage.setItem(INCIDENTS_KEY, JSON.stringify(mock));
         }
       } catch {
-        setIncidents(MOCK_INCIDENTS);
+        setIncidents(makeMockIncidents());
       }
     }
     load();
@@ -56,16 +84,43 @@ export function IncidentsProvider({ children }: { children: React.ReactNode }) {
     try { await AsyncStorage.setItem(INCIDENTS_KEY, JSON.stringify(updated)); } catch {}
   }
 
+  async function syncToSupabase(incident: Incident, mode: 'upsert' | 'delete') {
+    if (!isSupabaseConfigured) return;
+    try {
+      if (mode === 'delete') {
+        await supabase.from('incidents').delete().eq('id', incident.id);
+      } else {
+        await supabase.from('incidents').upsert({
+          id: incident.id,
+          title: incident.title,
+          description: incident.description,
+          severity: incident.severity,
+          location: incident.location,
+          building: incident.building,
+          reported_at: incident.reportedAt,
+          reported_by: incident.reportedBy,
+          status: incident.status,
+          witnesses: incident.witnesses,
+          actions: incident.actions,
+        });
+      }
+    } catch {}
+  }
+
   const addIncident = useCallback(async (incident: Incident) => {
     await persist([incident, ...incidents]);
+    await syncToSupabase(incident, 'upsert');
   }, [incidents]);
 
   const updateIncident = useCallback(async (incident: Incident) => {
     await persist(incidents.map(i => i.id === incident.id ? incident : i));
+    await syncToSupabase(incident, 'upsert');
   }, [incidents]);
 
   const deleteIncident = useCallback(async (id: string) => {
+    const target = incidents.find(i => i.id === id);
     await persist(incidents.filter(i => i.id !== id));
+    if (target) await syncToSupabase(target, 'delete');
   }, [incidents]);
 
   return (
