@@ -1,0 +1,113 @@
+Audit BuildTrack — Bilan complet
+Ce qui fonctionne bien ✅
+Réserves : le module le plus complet — CRUD, statuts, commentaires, historique, photos, intégration plan, clôture avec date/auteur, export CSV
+Planning : 3 vues (liste, calendrier, Gantt), filtres, liaison réserve↔tâche, gestion des rôles
+Incidents : cycle de vie (ouvert → en cours → résolu), filtres, gravité, export PDF individuel
+Messages : canaux, DM, groupes, mentions, réactions, épingles
+Plans interactifs : import, pins, zoom/pan, filtres entreprise et zone
+Tableaux de bord : 6 KPIs temps réel dont incidents non résolus
+Rôles et permissions : 4 niveaux cohérents sur toutes les pages
+Mode démo : fonctionnel hors Supabase via AsyncStorage
+Lacunes critiques à corriger en priorité 🔴
+1. Journal, Checklists et CR de Réunion ne sauvegardent rien
+C'est le problème le plus grave. Ces trois modules utilisent un état local React pur — dès qu'on quitte l'écran ou qu'on recharge l'app, tout est perdu. Dans le BTP, le journal de chantier et les CR de réunion sont des documents légaux (preuve en cas de litige). Ils doivent impérativement être persistés.
+
+2. Les incidents ne peuvent pas avoir de photo jointe
+Le formulaire de signalement d'incident n'a pas de champ photo, contrairement aux réserves. C'est une lacune majeure : pour un accident ou une non-conformité, la preuve photographique est indispensable (rapport d'accident de travail, assurance, OPPBTP).
+
+3. L'onglet Équipes est masqué de la barre de navigation
+L'écran equipes.tsx est accessible uniquement depuis le tableau de bord. Il n'apparaît pas dans la barre d'onglets du bas. C'est incohérent : c'est l'un des modules les plus utilisés par un conducteur de travaux (suivi des effectifs, tâches, heures).
+
+4. Les incidents n'ont pas de closedAt / closedBy
+Les réserves tracent qui a clôturé et quand. Les incidents non. C'est pourtant la même logique documentaire.
+
+Lacunes fonctionnelles pour un usage BTP réel 🟠
+5. Pas de pointage horaire des ouvriers
+Le suivi est purement déclaratif (plannedWorkers / actualWorkers). Un vrai outil BTP doit permettre d'enregistrer l'heure d'arrivée et de départ des équipes (obligation légale DPAE, registre du personnel).
+
+6. Pas de suivi des situations de travaux / avancements financiers
+Il n'y a pas de module pour les situations mensuelles (valorisation des travaux exécutés, bons de commande, DGD). C'est central dans la gestion de chantier.
+
+7. Pas d'attachement de plan à une réserve lors de la création
+On peut épingler une réserve depuis l'écran Plans, mais depuis le formulaire de création on ne voit pas sur quel plan elle sera placée. Le retour utilisateur est absent.
+
+8. Documents : pas de visualiseur PDF intégré
+Les documents s'ouvrent dans le navigateur système, ce qui fait quitter l'app. Un visualiseur intégré (même basique) améliorerait massivement l'expérience terrain.
+
+9. Rapports : pas de rapport personnalisé par entreprise
+Les rapports PDF couvrent tout le chantier. Il n'est pas possible de générer un rapport filtré par entreprise sous-traitante (utile pour les réunions de chantier mensuelles).
+
+10. Pas de gestion des PPSPS / DICT / DOE
+Aucun module pour les documents réglementaires du chantier (Plan de Prévention, PPSPS, DICT, Déclarations préalables, DOE). Ce sont des obligations légales.
+
+Incohérences techniques mineures 🟡
+Problème	Localisation	Impact
+incidents.tsx existe en double (tab + standalone)	app/(tabs)/ et app/	Confusion de routage potentielle
+Checklists : pas de template modifiable par projet	checklist.tsx	Templates figés dans le code
+Pas de queue de sync offline → en ligne	AppContext	Modifications hors-ligne perdues si Supabase indisponible
+equipes.tsx caché de la tab bar	_layout.tsx	Module important inaccessible directement
+Ce que je propose de corriger maintenant
+Par ordre d'impact, voici ce que je peux implémenter immédiatement :
+
+Persister Journal + CR Réunion + Checklists dans AsyncStorage (même pattern que les incidents)
+Ajouter la photo aux incidents (camera/galerie, même composant que les réserves)
+Afficher l'onglet Équipes dans la barre de navigation
+Ajouter closedAt/closedBy aux incidents
+Les points 5–10 (pointage, situations de travaux, PPSPS) sont des modules complets à part entière — je peux les planifier si tu veux aller jusque-là.
+
+Tu veux que je commence par les corrections critiques maintenant ?
+
+Oui fait toutes ses corrections et améliorations
+
+Je vais tout implémenter en parallèle. Laisse-moi d'abord lire les fichiers clés.
+
+Maintenant je lis les fichiers incidents et la navigation en parallèle :
+
+Très bien. Maintenant je lis la suite du formulaire incidents et les types :
+
+Parfait, j'ai tout le contexte. Je lance maintenant tous les changements en parallèle :
+
+J'ai tout ce qu'il me faut. Je lance tous les changements simultanément :
+
+Maintenant je fais tous les fichiers en parallèle :
+
+Maintenant je fais les 4 modifications de persistence + incidents en parallèle :
+
+Maintenant meeting-report.tsx et checklist.tsx :
+
+Maintenant checklist.tsx et incidents.tsx en parallèle :
+
+Maintenant la mise à jour complète d'incidents.tsx (photo + clôture automatique) et IncidentsContext :
+
+Maintenant le gros morceau — la mise à jour complète d'incidents.tsx avec photos et clôture :
+
+Maintenant j'ajoute l'affichage photo dans les cartes incidents et le picker dans le formulaire :
+
+Maintenant j'ajoute les styles pour les nouveaux éléments :
+
+Tous les changements sont faits. Je redémarre maintenant pour vérifier que tout compile :
+
+Bundlé proprement en 4.9s, aucune erreur. Prenons une capture pour confirmer :
+
+L'app compile et tourne parfaitement. Je mets à jour la documentation :
+
+Tout est en place et l'app tourne. Voici le récapitulatif complet de ce qui a été fait :
+
+Ce qui a été corrigé et amélioré
+Corrections critiques
+Journal de chantier, CR de réunion, Checklists — persistance ajoutée
+Les trois modules sauvegardent maintenant leurs données en local entre chaque session. Le journal et les CR de réunion sont des documents légaux en BTP (preuve en cas de litige) — ils ne peuvent plus être perdus au rechargement. Les checklists passent aussi automatiquement au statut "Terminée" quand tous les points sont cochés, avec horodatage.
+
+Photo de preuve sur les incidents
+Le formulaire de signalement d'incident dispose maintenant d'un sélecteur galerie/caméra. La photo apparaît en miniature sur la fiche incident. Elle est synchronisée avec Supabase si configuré.
+
+Clôture automatique des incidents
+Passer un incident au statut "Résolu" enregistre automatiquement la date de résolution et le nom de l'opérateur — comme c'est déjà le cas pour les réserves. Le détail s'affiche sur la carte.
+
+Onglet Équipes visible dans la navigation
+L'écran Équipes est maintenant accessible directement depuis la barre d'onglets (icône personnes), au lieu de passer par le tableau de bord.
+
+Ce qui reste à faire (modules complets)
+Les points 5–10 de l'audit (pointage horaire, situations de travaux, PPSPS/DICT, etc.) sont des modules entiers à construire — chacun représente plusieurs jours de développement. Tu veux qu'on planifie et commence l'un d'eux ?
+
+Fait les points 5 et 10
