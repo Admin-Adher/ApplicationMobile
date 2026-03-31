@@ -48,11 +48,6 @@ export async function uploadDocument(
 }
 
 export async function initStorageBuckets(): Promise<void> {
-  if (!isSupabaseConfigured) return;
-  for (const bucket of ['photos', 'documents']) {
-    const { error } = await supabase.storage.createBucket(bucket, { public: true });
-    if (error && !error.message.toLowerCase().includes('already exists')) {
-      console.warn(`Bucket "${bucket}" creation:`, error.message);
-    }
-  }
+  // Les buckets doivent être créés via Supabase SQL Editor (voir lib/migration_subscription.sql).
+  // La création programmatique via la clé anon est bloquée par RLS.
 }

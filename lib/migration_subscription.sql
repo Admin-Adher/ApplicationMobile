@@ -217,11 +217,73 @@ do $$ begin
   end if;
 end $$;
 
+-- ---- 7. BUCKETS STORAGE (photos & documents) ----
+insert into storage.buckets (id, name, public)
+values ('photos', 'photos', true)
+on conflict (id) do nothing;
+
+insert into storage.buckets (id, name, public)
+values ('documents', 'documents', true)
+on conflict (id) do nothing;
+
+-- Politiques Storage : lecture publique, upload par authentifiés
+do $$ begin
+  if not exists (
+    select 1 from pg_policies where schemaname = 'storage' and tablename = 'objects' and policyname = 'Photos lecture publique'
+  ) then
+    execute 'create policy "Photos lecture publique" on storage.objects for select using (bucket_id = ''photos'')';
+  end if;
+end $$;
+
+do $$ begin
+  if not exists (
+    select 1 from pg_policies where schemaname = 'storage' and tablename = 'objects' and policyname = 'Photos upload authentifie'
+  ) then
+    execute 'create policy "Photos upload authentifie" on storage.objects for insert with check (bucket_id = ''photos'' and auth.role() = ''authenticated'')';
+  end if;
+end $$;
+
+do $$ begin
+  if not exists (
+    select 1 from pg_policies where schemaname = 'storage' and tablename = 'objects' and policyname = 'Photos suppression authentifie'
+  ) then
+    execute 'create policy "Photos suppression authentifie" on storage.objects for delete using (bucket_id = ''photos'' and auth.role() = ''authenticated'')';
+  end if;
+end $$;
+
+do $$ begin
+  if not exists (
+    select 1 from pg_policies where schemaname = 'storage' and tablename = 'objects' and policyname = 'Documents lecture publique'
+  ) then
+    execute 'create policy "Documents lecture publique" on storage.objects for select using (bucket_id = ''documents'')';
+  end if;
+end $$;
+
+do $$ begin
+  if not exists (
+    select 1 from pg_policies where schemaname = 'storage' and tablename = 'objects' and policyname = 'Documents upload authentifie'
+  ) then
+    execute 'create policy "Documents upload authentifie" on storage.objects for insert with check (bucket_id = ''documents'' and auth.role() = ''authenticated'')';
+  end if;
+end $$;
+
+do $$ begin
+  if not exists (
+    select 1 from pg_policies where schemaname = 'storage' and tablename = 'objects' and policyname = 'Documents suppression authentifie'
+  ) then
+    execute 'create policy "Documents suppression authentifie" on storage.objects for delete using (bucket_id = ''documents'' and auth.role() = ''authenticated'')';
+  end if;
+end $$;
+
 -- ============================================================
--- Vérification finale — doit retourner 4 lignes
+-- Vérification finale — doit retourner 4 lignes (tables) + 2 lignes (buckets)
 -- ============================================================
-select table_name, 'OK' as status
+select table_name as name, 'table OK' as status
 from information_schema.tables
 where table_schema = 'public'
 and table_name in ('plans', 'organizations', 'subscriptions', 'invitations')
-order by table_name;
+union all
+select id as name, 'bucket OK' as status
+from storage.buckets
+where id in ('photos', 'documents')
+order by name;
