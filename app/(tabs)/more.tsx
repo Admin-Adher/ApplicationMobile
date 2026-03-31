@@ -34,7 +34,7 @@ interface MenuSection {
 export default function MoreScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
-  const { documents, photos, tasks, companies } = useApp();
+  const { documents, photos, tasks, companies, chantiers, activeChantier } = useApp();
   const { user, logout, permissions } = useAuth();
   const { projectName } = useSettings();
   const { incidents } = useIncidents();
@@ -61,6 +61,7 @@ export default function MoreScreen() {
 
     // Section Chantier — items fréquents
     const chantierItems: MenuItem[] = [
+      { icon: 'business', label: 'Chantiers', subtitle: chantiers.length > 0 ? `${chantiers.length} chantier${chantiers.length > 1 ? 's' : ''}${activeChantier ? ' · Actif: ' + activeChantier.name : ''}` : 'Aucun chantier', route: '/chantier/manage', color: C.primary },
       { icon: 'shield', label: 'Incidents', subtitle: `${openIncidentsCount > 0 ? openIncidentsCount + ' non résolu' + (openIncidentsCount > 1 ? 's' : '') : incidents.length + ' au total'}`, route: '/(tabs)/incidents', color: '#EF4444', badge: openIncidentsCount || undefined },
       { icon: 'calendar', label: 'Planning', subtitle: `${tasks.length} tâche${tasks.length !== 1 ? 's' : ''}`, route: '/planning', color: C.closed, badge: delayedCount || undefined },
       { icon: 'document-text', label: 'Rapports', subtitle: 'Journalier, hebdo', route: '/rapports', color: C.verification },
@@ -100,7 +101,7 @@ export default function MoreScreen() {
     }
 
     return result;
-  }, [documents.length, tasks.length, photos.length, companies.length, incidents.length, delayedCount, recentDocsCount, openIncidentsCount, permissions.canViewTeams, isAdmin, user?.role]);
+  }, [documents.length, tasks.length, photos.length, companies.length, incidents.length, delayedCount, recentDocsCount, openIncidentsCount, permissions.canViewTeams, isAdmin, user?.role, chantiers.length, activeChantier?.id, activeChantier?.name]);
 
   function handleLogout() {
     Alert.alert('Déconnexion', 'Voulez-vous vous déconnecter ?', [

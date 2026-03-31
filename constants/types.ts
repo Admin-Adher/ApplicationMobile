@@ -7,6 +7,7 @@ export type SubscriptionStatus = 'trial' | 'active' | 'suspended' | 'expired';
 export type PlanName = 'Starter' | 'Pro' | 'Entreprise';
 export type IncidentSeverity = 'minor' | 'moderate' | 'major' | 'critical';
 export type IncidentStatus = 'open' | 'investigating' | 'resolved';
+export type ChantierStatus = 'active' | 'completed' | 'paused';
 
 export interface User {
   id: string;
@@ -70,6 +71,27 @@ export interface HistoryEntry {
   newValue?: string;
 }
 
+export interface Chantier {
+  id: string;
+  name: string;
+  address?: string;
+  description?: string;
+  startDate?: string;
+  endDate?: string;
+  status: ChantierStatus;
+  createdAt: string;
+  createdBy: string;
+}
+
+export interface SitePlan {
+  id: string;
+  chantierId: string;
+  name: string;
+  uri?: string;
+  uploadedAt: string;
+  size?: string;
+}
+
 export interface Reserve {
   id: string;
   title: string;
@@ -90,6 +112,8 @@ export interface Reserve {
   linkedTaskId?: string;
   closedAt?: string;
   closedBy?: string;
+  chantierId?: string;
+  planId?: string;
 }
 
 export interface Company {

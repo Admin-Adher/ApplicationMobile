@@ -65,7 +65,7 @@ function ReserveStatusBar({ label, count, total, color }: { label: string; count
 export default function DashboardScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
-  const { stats, reserves, companies, tasks, reload } = useApp();
+  const { stats, reserves, companies, tasks, reload, chantiers, activeChantier } = useApp();
   const { user } = useAuth();
   const { projectName } = useSettings();
   const { incidents } = useIncidents();
@@ -205,8 +205,30 @@ export default function DashboardScreen() {
           <Ionicons name="chevron-forward" size={16} color={C.textMuted} />
         </TouchableOpacity>
 
-        {/* État vide — chantier non initialisé */}
-        {stats.total === 0 && companies.length === 0 && (
+        {/* Onboarding — Aucun chantier créé */}
+        {chantiers.length === 0 && (
+          <View style={[styles.onboardCard, { borderColor: C.primary + '40', borderWidth: 1.5 }]}>
+            <View style={styles.onboardIconWrap}>
+              <Ionicons name="business-outline" size={32} color={C.primary} />
+            </View>
+            <Text style={styles.onboardTitle}>Créez votre premier chantier</Text>
+            <Text style={styles.onboardText}>
+              BuildTrack organise vos réserves par chantier. Commencez par créer un chantier et importer vos plans de masse.
+            </Text>
+            <View style={styles.onboardActions}>
+              <TouchableOpacity
+                style={styles.onboardBtn}
+                onPress={() => router.push('/chantier/new' as any)}
+              >
+                <Ionicons name="add-circle-outline" size={16} color="#fff" />
+                <Text style={styles.onboardBtnText}>Nouveau chantier</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        )}
+
+        {/* État vide — chantier initialisé, aucune réserve */}
+        {chantiers.length > 0 && stats.total === 0 && companies.length === 0 && (
           <View style={styles.onboardCard}>
             <View style={styles.onboardIconWrap}>
               <Ionicons name="construct" size={32} color={C.primary} />

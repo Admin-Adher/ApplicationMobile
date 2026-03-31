@@ -13,16 +13,34 @@ Digital construction site management application built with Expo (React Native) 
 - **Local Storage:** AsyncStorage
 - **Reporting:** `expo-print` (PDF), `expo-file-system` + `expo-sharing` (CSV natif)
 
+## Architecture — Chantier Model
+
+The application uses a **Chantier (construction site) as the root entity**:
+
+```
+Chantier (construction site)
+  └── SitePlan (floor plans — PDF/image, many per chantier)
+       └── Reserve (defect/issue, positioned on a plan with planX/planY pins)
+            └── Comments, History, Photos
+```
+
+Key flows:
+1. Create chantier → add SitePlans (PDFs/images imported)
+2. View plans tab → select plan → see numbered reserve pins
+3. Tap plan → place marker → navigate to new reserve (planId + coords pre-filled)
+4. Reserve stores chantierId + planId for plan association
+
 ## Project Structure
 
 ```
 app/               # Expo Router routes
   (tabs)/          # Main tab navigation (Dashboard, Reserves, Plans, Teams)
   reserve/         # Dynamic routes for reserve detail/creation
+  chantier/        # new.tsx (create) + manage.tsx (list/switch chantiers)
   task/            # Dynamic routes for task management
   login.tsx        # Auth entry point
 components/        # Reusable UI components
-context/           # AuthContext, AppContext (Supabase sync)
+context/           # AuthContext, AppContext (Supabase sync + mock fallback)
 lib/               # supabase.ts, schema.sql, storage helpers
 constants/         # TypeScript types and theme colors
 assets/            # Images, icons, splash screen

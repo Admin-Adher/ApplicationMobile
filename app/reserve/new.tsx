@@ -51,12 +51,16 @@ function SelectRow<T extends string>({
 
 export default function NewReserveScreen() {
   const router = useRouter();
-  const { companies, addReserve, reserves, addPhoto } = useApp();
+  const { companies, addReserve, reserves, addPhoto, activeChantierId, sitePlans } = useApp();
   const { user, permissions } = useAuth();
   const params = useLocalSearchParams<{
     building?: string; planX?: string; planY?: string;
     prefill_description?: string; prefill_source?: string;
+    chantierId?: string; planId?: string;
   }>();
+
+  const effectiveChantierId = params.chantierId ?? activeChantierId ?? undefined;
+  const chantierPlans = sitePlans.filter(p => p.chantierId === effectiveChantierId);
 
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState(params.prefill_description ?? '');
@@ -66,6 +70,7 @@ export default function NewReserveScreen() {
   const [company, setCompany] = useState(companies[0]?.name ?? '');
   const [priority, setPriority] = useState<ReservePriority>('medium');
   const [deadline, setDeadline] = useState('');
+  const [selectedPlanId, setSelectedPlanId] = useState<string>(params.planId ?? chantierPlans[0]?.id ?? '');
   const [photoUri, setPhotoUri] = useState<string | null>(null);
   const [photoUploading, setPhotoUploading] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -175,6 +180,8 @@ export default function NewReserveScreen() {
       planX: presetX ?? undefined,
       planY: presetY ?? undefined,
       photoUri: photoUri ?? undefined,
+      chantierId: effectiveChantierId,
+      planId: selectedPlanId || undefined,
     });
     if (photoUri) {
       addPhoto({
@@ -276,6 +283,34 @@ export default function NewReserveScreen() {
             )}
           </View>
         </View>
+
+        {chantierPlans.length > 0 && (
+          <View style={styles.card}>
+            <View style={styles.fieldGroup}>
+              <Text style={styles.label}>Plan associé</Text>
+              <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+                <View style={styles.chipRow}>
+                  <TouchableOpacity
+                    style={[styles.chip, !selectedPlanId && styles.chipActive]}
+                    onPress={() => setSelectedPlanId('')}
+                  >
+                    <Text style={[styles.chipText, !selectedPlanId && styles.chipTextActive]}>Aucun</Text>
+                  </TouchableOpacity>
+                  {chantierPlans.map(plan => (
+                    <TouchableOpacity
+                      key={plan.id}
+                      style={[styles.chip, selectedPlanId === plan.id && styles.chipActive]}
+                      onPress={() => setSelectedPlanId(plan.id)}
+                    >
+                      <Ionicons name="map-outline" size={12} color={selectedPlanId === plan.id ? C.primary : C.textSub} />
+                      <Text style={[styles.chipText, selectedPlanId === plan.id && styles.chipTextActive]} numberOfLines={1}>{plan.name}</Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              </ScrollView>
+            </View>
+          </View>
+        )}
 
         <View style={styles.card}>
           <SelectRow label="Bâtiment" options={RESERVE_BUILDINGS} value={building} onChange={setBuilding} />

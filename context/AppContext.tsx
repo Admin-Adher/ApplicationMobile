@@ -1,7 +1,7 @@
 import React, { createContext, useContext, useEffect, useReducer, useRef, useState } from 'react';
 import { Alert } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { Reserve, Company, Task, Document, Photo, Message, Channel, Profile, Comment, ReserveStatus, ReservePriority, TaskStatus } from '@/constants/types';
+import { Reserve, Company, Task, Document, Photo, Message, Channel, Profile, Comment, ReserveStatus, ReservePriority, TaskStatus, Chantier, SitePlan, ChantierStatus } from '@/constants/types';
 import { supabase, isSupabaseConfigured } from '@/lib/supabase';
 import { initStorageBuckets } from '@/lib/storage';
 import { C } from '@/constants/colors';
@@ -22,6 +22,9 @@ const MOCK_RESERVES_KEY = 'buildtrack_mock_reserves_v2';
 const MOCK_TASKS_KEY = 'buildtrack_mock_tasks_v2';
 const MOCK_PHOTOS_KEY = 'buildtrack_mock_photos_v3';
 const MOCK_MESSAGES_KEY = 'buildtrack_mock_messages_v1';
+const MOCK_CHANTIERS_KEY = 'buildtrack_mock_chantiers_v1';
+const MOCK_SITE_PLANS_KEY = 'buildtrack_mock_site_plans_v1';
+const ACTIVE_CHANTIER_KEY = 'buildtrack_active_chantier_v1';
 const MAX_PINNED = 5;
 
 interface AppState {
@@ -38,10 +41,22 @@ interface AppState {
   groupChannels: Channel[];
   pinnedChannelIds: string[];
   channelMembersOverride: Record<string, string[]>;
+  chantiers: Chantier[];
+  sitePlans: SitePlan[];
+  activeChantierId: string | null;
 }
 
 type Action =
-  | { type: 'INIT'; payload: Omit<AppState, 'isLoading' | 'lastReadByChannel' | 'customChannels' | 'groupChannels' | 'pinnedChannelIds' | 'channelMembersOverride'> }
+  | { type: 'INIT'; payload: Omit<AppState, 'isLoading' | 'lastReadByChannel' | 'customChannels' | 'groupChannels' | 'pinnedChannelIds' | 'channelMembersOverride' | 'chantiers' | 'sitePlans' | 'activeChantierId'> }
+  | { type: 'ADD_CHANTIER'; payload: Chantier }
+  | { type: 'UPDATE_CHANTIER'; payload: Chantier }
+  | { type: 'DELETE_CHANTIER'; payload: string }
+  | { type: 'ADD_SITE_PLAN'; payload: SitePlan }
+  | { type: 'UPDATE_SITE_PLAN'; payload: SitePlan }
+  | { type: 'DELETE_SITE_PLAN'; payload: string }
+  | { type: 'SET_ACTIVE_CHANTIER'; payload: string | null }
+  | { type: 'SET_CHANTIERS'; payload: Chantier[] }
+  | { type: 'SET_SITE_PLANS'; payload: SitePlan[] }
   | { type: 'ADD_RESERVE'; payload: Reserve }
   | { type: 'UPDATE_RESERVE'; payload: Reserve }
   | { type: 'UPDATE_RESERVE_STATUS'; payload: Reserve }
@@ -173,8 +188,45 @@ function reducer(state: AppState, action: Action): AppState {
         groupChannels: state.groupChannels,
         pinnedChannelIds: state.pinnedChannelIds,
         channelMembersOverride: state.channelMembersOverride,
+        chantiers: state.chantiers,
+        sitePlans: state.sitePlans,
+        activeChantierId: state.activeChantierId,
         isLoading: false,
       };
+
+    case 'ADD_CHANTIER':
+      return { ...state, chantiers: [...state.chantiers, action.payload] };
+
+    case 'UPDATE_CHANTIER':
+      return { ...state, chantiers: state.chantiers.map(c => c.id === action.payload.id ? action.payload : c) };
+
+    case 'DELETE_CHANTIER':
+      return {
+        ...state,
+        chantiers: state.chantiers.filter(c => c.id !== action.payload),
+        sitePlans: state.sitePlans.filter(p => p.chantierId !== action.payload),
+        activeChantierId: state.activeChantierId === action.payload
+          ? (state.chantiers.find(c => c.id !== action.payload)?.id ?? null)
+          : state.activeChantierId,
+      };
+
+    case 'ADD_SITE_PLAN':
+      return { ...state, sitePlans: [...state.sitePlans, action.payload] };
+
+    case 'UPDATE_SITE_PLAN':
+      return { ...state, sitePlans: state.sitePlans.map(p => p.id === action.payload.id ? action.payload : p) };
+
+    case 'DELETE_SITE_PLAN':
+      return { ...state, sitePlans: state.sitePlans.filter(p => p.id !== action.payload) };
+
+    case 'SET_ACTIVE_CHANTIER':
+      return { ...state, activeChantierId: action.payload };
+
+    case 'SET_CHANTIERS':
+      return { ...state, chantiers: action.payload };
+
+    case 'SET_SITE_PLANS':
+      return { ...state, sitePlans: action.payload };
 
     case 'ADD_RESERVE':
       return { ...state, reserves: [action.payload, ...state.reserves] };
@@ -325,6 +377,14 @@ interface AppContextValue extends AppState {
   channels: Channel[];
   unreadByChannel: Record<string, number>;
   notification: { msg: Message; channelName: string; channelColor: string; channelIcon: string } | null;
+  activeChantier: Chantier | null;
+  addChantier: (c: Chantier, plans: SitePlan[]) => void;
+  updateChantier: (c: Chantier) => void;
+  deleteChantier: (id: string) => void;
+  setActiveChantier: (id: string) => void;
+  addSitePlan: (p: SitePlan) => void;
+  updateSitePlan: (p: SitePlan) => void;
+  deleteSitePlan: (id: string) => void;
   addReserve: (r: Reserve) => void;
   updateReserve: (r: Reserve) => void;
   updateReserveFields: (r: Reserve) => void;
@@ -384,15 +444,35 @@ const MOCK_COMPANIES: Company[] = [
   { id: 'co4', name: 'Menuiserie Petit', shortName: 'Petit', color: '#8B5CF6', plannedWorkers: 3, actualWorkers: 3, hoursWorked: 140, zone: 'Zone Ouest', contact: 'M. Petit' },
 ];
 
+const MOCK_CHANTIERS: Chantier[] = [
+  {
+    id: 'chan1',
+    name: 'Projet Horizon',
+    address: '25 rue des Bâtisseurs, 75001 Paris',
+    description: 'Construction immeuble résidentiel R+3, 3 bâtiments, 24 logements.',
+    startDate: '01/01/2026',
+    endDate: '31/12/2026',
+    status: 'active',
+    createdAt: '2026-01-01',
+    createdBy: 'Admin Système',
+  },
+];
+
+const MOCK_SITE_PLANS: SitePlan[] = [
+  { id: 'sp-A', chantierId: 'chan1', name: 'Bâtiment A — Plan masse', uploadedAt: '15/02/2026', size: '2.4 Mo' },
+  { id: 'sp-B', chantierId: 'chan1', name: 'Bâtiment B — Plan masse', uploadedAt: '15/02/2026', size: '1.8 Mo' },
+  { id: 'sp-C', chantierId: 'chan1', name: 'Bâtiment C — Plan masse', uploadedAt: '20/02/2026', size: '2.1 Mo' },
+];
+
 const MOCK_RESERVES: Reserve[] = [
-  { id: 'RSV-001', title: 'Fissure mur porteur RDC', description: 'Fissure horizontale de 2 mm sur le mur porteur nord, entre les axes B3 et B4.', building: 'A', zone: 'Zone Nord', level: 'RDC', company: 'Maçonnerie Dubois', priority: 'critical', status: 'open', createdAt: '2026-03-15', deadline: '25/03/2026', comments: [], history: [{ id: 'h1', action: 'Réserve créée', author: 'Jean Dupont', createdAt: '2026-03-15' }], planX: 20, planY: 30 },
-  { id: 'RSV-002', title: 'Fuite canalisation sous-sol', description: 'Fuite eau froide au niveau du coude DN50, local technique.', building: 'B', zone: 'Zone Sud', level: 'Sous-sol', company: 'Plomberie Martin', priority: 'high', status: 'in_progress', createdAt: '2026-03-18', deadline: '22/03/2026', comments: [{ id: 'c1', author: 'Marie Martin', content: 'Intervention prévue demain matin.', createdAt: '2026-03-19' }], history: [{ id: 'h2', action: 'Réserve créée', author: 'Jean Dupont', createdAt: '2026-03-18' }, { id: 'h3', action: 'Statut modifié', author: 'Jean Dupont', createdAt: '2026-03-19', oldValue: 'Ouvert', newValue: 'En cours' }], planX: 55, planY: 70 },
-  { id: 'RSV-003', title: 'Défaut prise électrique R+1', description: "Prise 16A non fonctionnelle chambre 12, vérification du circuit F7.", building: 'A', zone: 'Zone Est', level: 'R+1', company: 'Électricité Leroy', priority: 'medium', status: 'verification', createdAt: '2026-03-10', deadline: '30/03/2026', comments: [], history: [{ id: 'h4', action: 'Réserve créée', author: 'Admin Système', createdAt: '2026-03-10' }], planX: 75, planY: 45 },
-  { id: 'RSV-004', title: 'Porte intérieure coincée', description: "Porte chambre 8 ferme mal, gêne au passage. Seuil à reprendre.", building: 'B', zone: 'Zone Ouest', level: 'R+2', company: 'Menuiserie Petit', priority: 'low', status: 'closed', createdAt: '2026-03-05', deadline: '15/03/2026', comments: [], history: [{ id: 'h5', action: 'Réserve créée', author: 'Jean Dupont', createdAt: '2026-03-05' }, { id: 'h6', action: 'Statut modifié', author: 'Marie Martin', createdAt: '2026-03-14', oldValue: 'En cours', newValue: 'Clôturé' }], planX: 30, planY: 60 },
-  { id: 'RSV-005', title: 'Finition peinture escalier', description: "Reprise peinture nécessaire sur la cage d'escalier, côté palier R+1.", building: 'C', zone: 'Zone Centre', level: 'R+1', company: 'Maçonnerie Dubois', priority: 'low', status: 'waiting', createdAt: '2026-03-20', deadline: '—', comments: [], history: [{ id: 'h7', action: 'Réserve créée', author: 'Jean Dupont', createdAt: '2026-03-20' }], planX: 50, planY: 50 },
-  { id: 'RSV-006', title: 'Infiltration toiture bât. C', description: "Trace d'humidité au plafond R+3, infiltration possible au niveau de l'acrotère.", building: 'C', zone: 'Zone Nord', level: 'R+3', company: 'Maçonnerie Dubois', priority: 'high', status: 'open', createdAt: '2026-03-22', deadline: '01/04/2026', comments: [], history: [{ id: 'h8', action: 'Réserve créée', author: 'Admin Système', createdAt: '2026-03-22' }], planX: 65, planY: 20 },
-  { id: 'RSV-007', title: 'Câblage réseau salle serveur', description: 'Câbles réseau non étiquetés, brassage à revoir selon plan informatique.', building: 'A', zone: 'Zone Centre', level: 'Sous-sol', company: 'Électricité Leroy', priority: 'medium', status: 'in_progress', createdAt: '2026-03-25', deadline: '05/04/2026', comments: [], history: [{ id: 'h9', action: 'Réserve créée', author: 'Jean Dupont', createdAt: '2026-03-25' }], planX: 40, planY: 80 },
-  { id: 'RSV-008', title: 'Carrelage fissuré salle de bain', description: 'Carrelage salle de bain appt 14, fissure diagonale 15 cm, risque éclat.', building: 'B', zone: 'Zone Est', level: 'R+2', company: 'Maçonnerie Dubois', priority: 'medium', status: 'open', createdAt: '2026-03-28', deadline: '10/04/2026', comments: [], history: [{ id: 'h10', action: 'Réserve créée', author: 'Marie Martin', createdAt: '2026-03-28' }], planX: 80, planY: 35 },
+  { id: 'RSV-001', title: 'Fissure mur porteur RDC', description: 'Fissure horizontale de 2 mm sur le mur porteur nord, entre les axes B3 et B4.', building: 'A', zone: 'Zone Nord', level: 'RDC', company: 'Maçonnerie Dubois', priority: 'critical', status: 'open', createdAt: '2026-03-15', deadline: '25/03/2026', comments: [], history: [{ id: 'h1', action: 'Réserve créée', author: 'Jean Dupont', createdAt: '2026-03-15' }], planX: 20, planY: 30, chantierId: 'chan1', planId: 'sp-A' },
+  { id: 'RSV-002', title: 'Fuite canalisation sous-sol', description: 'Fuite eau froide au niveau du coude DN50, local technique.', building: 'B', zone: 'Zone Sud', level: 'Sous-sol', company: 'Plomberie Martin', priority: 'high', status: 'in_progress', createdAt: '2026-03-18', deadline: '22/03/2026', comments: [{ id: 'c1', author: 'Marie Martin', content: 'Intervention prévue demain matin.', createdAt: '2026-03-19' }], history: [{ id: 'h2', action: 'Réserve créée', author: 'Jean Dupont', createdAt: '2026-03-18' }, { id: 'h3', action: 'Statut modifié', author: 'Jean Dupont', createdAt: '2026-03-19', oldValue: 'Ouvert', newValue: 'En cours' }], planX: 55, planY: 70, chantierId: 'chan1', planId: 'sp-B' },
+  { id: 'RSV-003', title: 'Défaut prise électrique R+1', description: "Prise 16A non fonctionnelle chambre 12, vérification du circuit F7.", building: 'A', zone: 'Zone Est', level: 'R+1', company: 'Électricité Leroy', priority: 'medium', status: 'verification', createdAt: '2026-03-10', deadline: '30/03/2026', comments: [], history: [{ id: 'h4', action: 'Réserve créée', author: 'Admin Système', createdAt: '2026-03-10' }], planX: 75, planY: 45, chantierId: 'chan1', planId: 'sp-A' },
+  { id: 'RSV-004', title: 'Porte intérieure coincée', description: "Porte chambre 8 ferme mal, gêne au passage. Seuil à reprendre.", building: 'B', zone: 'Zone Ouest', level: 'R+2', company: 'Menuiserie Petit', priority: 'low', status: 'closed', createdAt: '2026-03-05', deadline: '15/03/2026', comments: [], history: [{ id: 'h5', action: 'Réserve créée', author: 'Jean Dupont', createdAt: '2026-03-05' }, { id: 'h6', action: 'Statut modifié', author: 'Marie Martin', createdAt: '2026-03-14', oldValue: 'En cours', newValue: 'Clôturé' }], planX: 30, planY: 60, chantierId: 'chan1', planId: 'sp-B' },
+  { id: 'RSV-005', title: 'Finition peinture escalier', description: "Reprise peinture nécessaire sur la cage d'escalier, côté palier R+1.", building: 'C', zone: 'Zone Centre', level: 'R+1', company: 'Maçonnerie Dubois', priority: 'low', status: 'waiting', createdAt: '2026-03-20', deadline: '—', comments: [], history: [{ id: 'h7', action: 'Réserve créée', author: 'Jean Dupont', createdAt: '2026-03-20' }], planX: 50, planY: 50, chantierId: 'chan1', planId: 'sp-C' },
+  { id: 'RSV-006', title: 'Infiltration toiture bât. C', description: "Trace d'humidité au plafond R+3, infiltration possible au niveau de l'acrotère.", building: 'C', zone: 'Zone Nord', level: 'R+3', company: 'Maçonnerie Dubois', priority: 'high', status: 'open', createdAt: '2026-03-22', deadline: '01/04/2026', comments: [], history: [{ id: 'h8', action: 'Réserve créée', author: 'Admin Système', createdAt: '2026-03-22' }], planX: 65, planY: 20, chantierId: 'chan1', planId: 'sp-C' },
+  { id: 'RSV-007', title: 'Câblage réseau salle serveur', description: 'Câbles réseau non étiquetés, brassage à revoir selon plan informatique.', building: 'A', zone: 'Zone Centre', level: 'Sous-sol', company: 'Électricité Leroy', priority: 'medium', status: 'in_progress', createdAt: '2026-03-25', deadline: '05/04/2026', comments: [], history: [{ id: 'h9', action: 'Réserve créée', author: 'Jean Dupont', createdAt: '2026-03-25' }], planX: 40, planY: 80, chantierId: 'chan1', planId: 'sp-A' },
+  { id: 'RSV-008', title: 'Carrelage fissuré salle de bain', description: 'Carrelage salle de bain appt 14, fissure diagonale 15 cm, risque éclat.', building: 'B', zone: 'Zone Est', level: 'R+2', company: 'Maçonnerie Dubois', priority: 'medium', status: 'open', createdAt: '2026-03-28', deadline: '10/04/2026', comments: [], history: [{ id: 'h10', action: 'Réserve créée', author: 'Marie Martin', createdAt: '2026-03-28' }], planX: 80, planY: 35, chantierId: 'chan1', planId: 'sp-B' },
 ];
 
 const MOCK_TASKS: Task[] = [
@@ -437,6 +517,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     lastReadByChannel: {}, isLoading: true,
     profiles: [], customChannels: [], groupChannels: [], pinnedChannelIds: [],
     channelMembersOverride: {},
+    chantiers: [], sitePlans: [], activeChantierId: null,
   });
 
   const [notification, setNotification] = useState<{ msg: Message; channelName: string; channelColor: string; channelIcon: string } | null>(null);
@@ -536,6 +617,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     let tasks: Task[] = MOCK_TASKS;
     let photos: Photo[] = MOCK_PHOTOS;
     let messages: Message[] = MOCK_MESSAGES;
+    let chantiers: Chantier[] = MOCK_CHANTIERS;
+    let sitePlans: SitePlan[] = MOCK_SITE_PLANS;
+    let activeChantierId: string | null = MOCK_CHANTIERS[0]?.id ?? null;
+
     try {
       const sr = await AsyncStorage.getItem(MOCK_RESERVES_KEY);
       if (sr) { const p = JSON.parse(sr); if (Array.isArray(p) && p.length > 0) reserves = p; }
@@ -557,6 +642,18 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       const sm = await AsyncStorage.getItem(MOCK_MESSAGES_KEY);
       if (sm) messages = JSON.parse(sm);
     } catch {}
+    try {
+      const sc = await AsyncStorage.getItem(MOCK_CHANTIERS_KEY);
+      if (sc) { const p = JSON.parse(sc); if (Array.isArray(p)) chantiers = p; }
+    } catch {}
+    try {
+      const ssp = await AsyncStorage.getItem(MOCK_SITE_PLANS_KEY);
+      if (ssp) { const p = JSON.parse(ssp); if (Array.isArray(p)) sitePlans = p; }
+    } catch {}
+    try {
+      const sac = await AsyncStorage.getItem(ACTIVE_CHANTIER_KEY);
+      if (sac) activeChantierId = sac;
+    } catch {}
 
     dispatch({
       type: 'INIT',
@@ -570,6 +667,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         profiles: MOCK_PROFILES,
       },
     });
+    dispatch({ type: 'SET_CHANTIERS', payload: chantiers });
+    dispatch({ type: 'SET_SITE_PLANS', payload: sitePlans });
+    if (activeChantierId) dispatch({ type: 'SET_ACTIVE_CHANTIER', payload: activeChantierId });
   }
 
   function persistMockReserves(reserves: Reserve[]) {
@@ -583,6 +683,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }
   function persistMockMessages(messages: Message[]) {
     AsyncStorage.setItem(MOCK_MESSAGES_KEY, JSON.stringify(messages)).catch(() => {});
+  }
+  function persistMockChantiers(chantiers: Chantier[]) {
+    AsyncStorage.setItem(MOCK_CHANTIERS_KEY, JSON.stringify(chantiers)).catch(() => {});
+  }
+  function persistMockSitePlans(plans: SitePlan[]) {
+    AsyncStorage.setItem(MOCK_SITE_PLANS_KEY, JSON.stringify(plans)).catch(() => {});
   }
 
   async function loadAll() {
@@ -1337,6 +1443,66 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     unpinChannel,
     maxPinnedChannels: MAX_PINNED,
     getOrCreateDMChannel,
+
+    activeChantier: state.chantiers.find(c => c.id === state.activeChantierId) ?? null,
+
+    addChantier: (c: Chantier, plans: SitePlan[]) => {
+      const newChantiers = [...stateRef.current.chantiers, c];
+      const newSitePlans = [...stateRef.current.sitePlans, ...plans];
+      dispatch({ type: 'ADD_CHANTIER', payload: c });
+      plans.forEach(p => dispatch({ type: 'ADD_SITE_PLAN', payload: p }));
+      if (!stateRef.current.activeChantierId) {
+        dispatch({ type: 'SET_ACTIVE_CHANTIER', payload: c.id });
+        AsyncStorage.setItem(ACTIVE_CHANTIER_KEY, c.id).catch(() => {});
+      }
+      persistMockChantiers(newChantiers);
+      persistMockSitePlans(newSitePlans);
+    },
+
+    updateChantier: (c: Chantier) => {
+      dispatch({ type: 'UPDATE_CHANTIER', payload: c });
+      const updated = stateRef.current.chantiers.map(ch => ch.id === c.id ? c : ch);
+      persistMockChantiers(updated);
+    },
+
+    deleteChantier: (id: string) => {
+      dispatch({ type: 'DELETE_CHANTIER', payload: id });
+      const newChantiers = stateRef.current.chantiers.filter(c => c.id !== id);
+      const newSitePlans = stateRef.current.sitePlans.filter(p => p.chantierId !== id);
+      persistMockChantiers(newChantiers);
+      persistMockSitePlans(newSitePlans);
+      const newActiveId = stateRef.current.activeChantierId === id
+        ? (newChantiers[0]?.id ?? null)
+        : stateRef.current.activeChantierId;
+      if (newActiveId) {
+        AsyncStorage.setItem(ACTIVE_CHANTIER_KEY, newActiveId).catch(() => {});
+      } else {
+        AsyncStorage.removeItem(ACTIVE_CHANTIER_KEY).catch(() => {});
+      }
+    },
+
+    setActiveChantier: (id: string) => {
+      dispatch({ type: 'SET_ACTIVE_CHANTIER', payload: id });
+      AsyncStorage.setItem(ACTIVE_CHANTIER_KEY, id).catch(() => {});
+    },
+
+    addSitePlan: (p: SitePlan) => {
+      dispatch({ type: 'ADD_SITE_PLAN', payload: p });
+      const updated = [...stateRef.current.sitePlans, p];
+      persistMockSitePlans(updated);
+    },
+
+    updateSitePlan: (p: SitePlan) => {
+      dispatch({ type: 'UPDATE_SITE_PLAN', payload: p });
+      const updated = stateRef.current.sitePlans.map(sp => sp.id === p.id ? p : sp);
+      persistMockSitePlans(updated);
+    },
+
+    deleteSitePlan: (id: string) => {
+      dispatch({ type: 'DELETE_SITE_PLAN', payload: id });
+      const updated = stateRef.current.sitePlans.filter(p => p.id !== id);
+      persistMockSitePlans(updated);
+    },
   };
 
   return <AppContext.Provider value={value}>{children}</AppContext.Provider>;

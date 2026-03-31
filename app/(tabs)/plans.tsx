@@ -11,12 +11,11 @@ import * as DocumentPicker from 'expo-document-picker';
 import { C } from '@/constants/colors';
 import { useApp } from '@/context/AppContext';
 import { useAuth } from '@/context/AuthContext';
-import { Reserve, Document } from '@/constants/types';
+import { Reserve, SitePlan } from '@/constants/types';
 import StatusBadge from '@/components/StatusBadge';
 import { STATUS_CONFIG } from '@/components/StatusBadge';
 import PriorityBadge from '@/components/PriorityBadge';
 import { uploadDocument } from '@/lib/storage';
-import { RESERVE_BUILDINGS, RESERVE_LEVELS } from '@/lib/reserveUtils';
 import { genId } from '@/lib/utils';
 
 interface Room {
@@ -24,8 +23,8 @@ interface Room {
   x: number; y: number; w: number; h: number; dark?: boolean;
 }
 
-const FLOOR_PLANS: Record<string, Room[]> = {
-  A: [
+const DEMO_FLOOR_PLANS: Record<string, Room[]> = {
+  'sp-A': [
     { id: 'ha', label: 'Hall', x: 0, y: 0, w: 30, h: 25 },
     { id: 'b101', label: 'Bureau 101', x: 30, y: 0, w: 40, h: 25 },
     { id: 'sr', label: 'Salle Réunion', x: 70, y: 0, w: 30, h: 50 },
@@ -36,14 +35,14 @@ const FLOOR_PLANS: Record<string, Room[]> = {
     { id: 'wc', label: 'Sanitaires', x: 0, y: 67, w: 70, h: 18, dark: true },
     { id: 'esc', label: 'Escaliers', x: 70, y: 75, w: 30, h: 25 },
   ],
-  B: [
+  'sp-B': [
     { id: 'accb', label: 'Accueil B', x: 0, y: 0, w: 100, h: 18 },
     { id: 'zt', label: 'Zone Technique', x: 0, y: 18, w: 50, h: 40 },
     { id: 'atel', label: 'Atelier', x: 50, y: 18, w: 50, h: 40 },
     { id: 'stock', label: 'Stockage', x: 0, y: 58, w: 40, h: 42 },
     { id: 'lsoc', label: 'Locaux Sociaux', x: 40, y: 58, w: 60, h: 42 },
   ],
-  C: [
+  'sp-C': [
     { id: 'ail1', label: 'Aile Nord', x: 0, y: 0, w: 30, h: 60 },
     { id: 'hc', label: 'Hall C', x: 30, y: 0, w: 40, h: 25 },
     { id: 'ail2', label: 'Aile Sud', x: 70, y: 0, w: 30, h: 60 },
@@ -51,6 +50,13 @@ const FLOOR_PLANS: Record<string, Room[]> = {
     { id: 'ss', label: 'Sous-sol', x: 0, y: 60, w: 100, h: 40, dark: true },
   ],
 };
+
+const GENERIC_FLOOR_PLAN: Room[] = [
+  { id: 'g1', label: 'Zone A', x: 0, y: 0, w: 50, h: 50 },
+  { id: 'g2', label: 'Zone B', x: 50, y: 0, w: 50, h: 50 },
+  { id: 'g3', label: 'Zone C', x: 0, y: 50, w: 50, h: 50 },
+  { id: 'g4', label: 'Zone D', x: 50, y: 50, w: 50, h: 50 },
+];
 
 const PLAN_W = 360;
 const PLAN_H = 270;
@@ -132,25 +138,34 @@ const planImgStyles = StyleSheet.create({
 export default function PlansScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
-  const { reserves, companies, documents, addDocument, deleteDocument } = useApp();
+  const {
+    reserves, companies, sitePlans, activeChantierId, activeChantier,
+    addSitePlan, updateSitePlan, deleteSitePlan,
+  } = useApp();
   const { permissions } = useAuth();
-  const [building, setBuilding] = useState('A');
+
+  const chantierPlans = useMemo(
+    () => sitePlans.filter(p => p.chantierId === activeChantierId),
+    [sitePlans, activeChantierId]
+  );
+
+  const [activePlanId, setActivePlanId] = useState<string | null>(null);
+  const currentPlanId = activePlanId ?? chantierPlans[0]?.id ?? null;
+  const currentPlan = chantierPlans.find(p => p.id === currentPlanId) ?? null;
+
   const [selected, setSelected] = useState<Reserve | null>(null);
   const [companyFilter, setCompanyFilter] = useState<string>('all');
-  const [zoneFilter, setZoneFilter] = useState<string>('all');
   const [levelFilter, setLevelFilter] = useState<string>('all');
   const [addingMarker, setAddingMarker] = useState(false);
   const [pendingCoords, setPendingCoords] = useState<{ x: number; y: number } | null>(null);
   const [importing, setImporting] = useState(false);
   const [showFilters, setShowFilters] = useState(false);
   const topPad = Platform.OS === 'web' ? 67 : insets.top;
-  const activeFilters = [companyFilter, zoneFilter, levelFilter].filter(f => f !== 'all').length;
 
   const scale = useRef(new Animated.Value(1)).current;
   const translateX = useRef(new Animated.Value(0)).current;
   const translateY = useRef(new Animated.Value(0)).current;
   const lastScale = useRef(1);
-  // Track pan position without using private ._value API
   const committedTX = useRef(0);
   const committedTY = useRef(0);
   const touchStartXRef = useRef(0);
@@ -158,28 +173,23 @@ export default function PlansScreen() {
   const isDraggingRef = useRef(false);
   const suppressNextPlanTapRef = useRef(false);
 
-  const vectorPlan = FLOOR_PLANS[building];
+  const vectorPlan = currentPlanId
+    ? (DEMO_FLOOR_PLANS[currentPlanId] ?? GENERIC_FLOOR_PLAN)
+    : GENERIC_FLOOR_PLAN;
 
-  const buildingZones = useMemo(() => {
-    const zones = reserves.filter(r => r.building === building).map(r => r.zone);
-    return Array.from(new Set(zones)).sort();
-  }, [reserves, building]);
+  const planReserves = useMemo(() => {
+    let list = reserves.filter(r => r.planId === currentPlanId);
+    if (companyFilter !== 'all') list = list.filter(r => r.company === companyFilter);
+    if (levelFilter !== 'all') list = list.filter(r => r.level === levelFilter);
+    return list;
+  }, [reserves, currentPlanId, companyFilter, levelFilter]);
 
-  let buildingReserves = reserves.filter(r => r.building === building);
-  if (companyFilter !== 'all') {
-    buildingReserves = buildingReserves.filter(r => r.company === companyFilter);
-  }
-  if (zoneFilter !== 'all') {
-    buildingReserves = buildingReserves.filter(r => r.zone === zoneFilter);
-  }
-  if (levelFilter !== 'all') {
-    buildingReserves = buildingReserves.filter(r => r.level === levelFilter);
-  }
+  const activeFilters = [companyFilter, levelFilter].filter(f => f !== 'all').length;
 
-  const activePlan: Document | null = useMemo(() => {
-    const planDocs = documents.filter(d => d.category === `Plan-${building}` && d.type === 'plan');
-    return planDocs.length > 0 ? planDocs[0] : null;
-  }, [documents, building]);
+  const planLevels = useMemo(() => {
+    const lvls = reserves.filter(r => r.planId === currentPlanId).map(r => r.level);
+    return Array.from(new Set(lvls)).sort();
+  }, [reserves, currentPlanId]);
 
   const panResponder = useRef(
     PanResponder.create({
@@ -244,7 +254,17 @@ export default function PlansScreen() {
     setAddingMarker(false);
   }
 
+  function handleSelectPlan(planId: string) {
+    setActivePlanId(planId);
+    resetView();
+    setAddingMarker(false);
+    setPendingCoords(null);
+    setCompanyFilter('all');
+    setLevelFilter('all');
+  }
+
   async function handleImportPlan() {
+    if (!currentPlanId) return;
     setImporting(true);
     try {
       const result = await DocumentPicker.getDocumentAsync({
@@ -265,33 +285,19 @@ export default function PlansScreen() {
           return;
         }
 
-        // Delete any existing plans for this building before importing the new one
-        const existingPlans = documents.filter(d => d.category === `Plan-${building}` && d.type === 'plan');
-        existingPlans.forEach(d => deleteDocument(d.id));
-
-        const storageUrl = await uploadDocument(asset.uri, `plan_${building}_${docName}`, asset.mimeType ?? undefined);
+        const storageUrl = await uploadDocument(asset.uri, `plan_${currentPlanId}_${docName}`, asset.mimeType ?? undefined);
         const finalUri = storageUrl ?? asset.uri;
 
-        const newDoc: Document = {
-          id: genId(),
-          name: `Plan Bâtiment ${building} — ${docName}`,
-          type: 'plan',
-          category: `Plan-${building}`,
-          uploadedAt: new Date().toLocaleDateString('fr-FR'),
-          size: formatSize(asset.size),
-          version: 1,
-          uri: finalUri,
-        };
-        addDocument(newDoc);
+        updateSitePlan({ ...currentPlan!, uri: finalUri, size: formatSize(asset.size) });
 
         Alert.alert(
           'Plan importé',
           storageUrl
-            ? `Plan du Bâtiment ${building} uploadé sur Supabase Storage.`
-            : `Plan du Bâtiment ${building} importé localement (non persistant).`
+            ? `Plan "${currentPlan?.name}" uploadé sur Supabase Storage.`
+            : `Plan "${currentPlan?.name}" importé localement.`
         );
       }
-    } catch (e) {
+    } catch {
       Alert.alert('Erreur', "Impossible d'importer le plan.");
     } finally {
       setImporting(false);
@@ -299,20 +305,76 @@ export default function PlansScreen() {
   }
 
   function handleRemovePlan() {
-    if (!activePlan) return;
+    if (!currentPlan?.uri) return;
     Alert.alert(
       'Remplacer le plan importé ?',
-      `Le plan actuel sera supprimé et vous pourrez immédiatement en importer un nouveau pour le Bâtiment ${building}.`,
+      `Le plan actuel sera remplacé. Vous pourrez immédiatement en importer un nouveau.`,
+      [
+        { text: 'Annuler', style: 'cancel' },
+        { text: 'Remplacer', style: 'destructive', onPress: handleImportPlan },
+      ]
+    );
+  }
+
+  function handleAddPlan() {
+    if (!activeChantierId) return;
+    Alert.prompt(
+      'Nouveau plan',
+      'Nom du plan (ex : Bâtiment D — Niveau 2)',
       [
         { text: 'Annuler', style: 'cancel' },
         {
-          text: 'Remplacer',
-          style: 'destructive',
-          onPress: () => {
-            handleImportPlan();
+          text: 'Créer',
+          onPress: (name) => {
+            if (!name?.trim()) return;
+            const newPlan: SitePlan = {
+              id: genId(),
+              chantierId: activeChantierId,
+              name: name.trim(),
+              uploadedAt: new Date().toLocaleDateString('fr-FR'),
+            };
+            addSitePlan(newPlan);
+            setActivePlanId(newPlan.id);
           },
         },
-      ]
+      ],
+      'plain-text',
+      ''
+    );
+  }
+
+  if (!activeChantierId || chantierPlans.length === 0) {
+    return (
+      <View style={styles.container}>
+        <View style={[styles.header, { paddingTop: topPad + 12 }]}>
+          <Text style={styles.title}>Plans interactifs</Text>
+        </View>
+        <View style={styles.emptyState}>
+          <Ionicons name="map-outline" size={52} color={C.textMuted} />
+          <Text style={styles.emptyTitle}>
+            {!activeChantierId ? 'Aucun chantier actif' : 'Aucun plan disponible'}
+          </Text>
+          <Text style={styles.emptySubtitle}>
+            {!activeChantierId
+              ? 'Créez d\'abord un chantier pour accéder aux plans.'
+              : 'Ajoutez des plans à ce chantier pour visualiser les réserves.'}
+          </Text>
+          {!activeChantierId ? (
+            <TouchableOpacity
+              style={styles.emptyBtn}
+              onPress={() => router.push('/chantier/new' as any)}
+            >
+              <Ionicons name="add-circle-outline" size={16} color="#fff" />
+              <Text style={styles.emptyBtnText}>Créer un chantier</Text>
+            </TouchableOpacity>
+          ) : permissions.canCreate ? (
+            <TouchableOpacity style={styles.emptyBtn} onPress={handleAddPlan}>
+              <Ionicons name="add-circle-outline" size={16} color="#fff" />
+              <Text style={styles.emptyBtnText}>Ajouter un plan</Text>
+            </TouchableOpacity>
+          ) : null}
+        </View>
+      </View>
     );
   }
 
@@ -320,7 +382,12 @@ export default function PlansScreen() {
     <View style={styles.container}>
       <View style={[styles.header, { paddingTop: topPad + 12 }]}>
         <View style={styles.headerTop}>
-          <Text style={styles.title}>Plans interactifs</Text>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.title}>Plans interactifs</Text>
+            {activeChantier && (
+              <Text style={styles.chantierLabel} numberOfLines={1}>{activeChantier.name}</Text>
+            )}
+          </View>
           <View style={styles.zoomBtns}>
             <TouchableOpacity
               style={[styles.zoomBtn, showFilters && styles.filterToggleActive]}
@@ -338,39 +405,47 @@ export default function PlansScreen() {
             <TouchableOpacity style={styles.zoomBtn} onPress={zoomIn}><Ionicons name="add" size={16} color={C.text} /></TouchableOpacity>
           </View>
         </View>
+
         <View style={styles.buildingBarRow}>
           <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ flex: 1 }}>
             <View style={styles.buildingRow}>
-              {RESERVE_BUILDINGS.map(b => (
+              {chantierPlans.map(plan => (
                 <TouchableOpacity
-                  key={b}
-                  style={[styles.buildingBtn, building === b && styles.buildingBtnActive]}
-                  onPress={() => { setBuilding(b); resetView(); setAddingMarker(false); setPendingCoords(null); setZoneFilter('all'); setLevelFilter('all'); }}
+                  key={plan.id}
+                  style={[styles.buildingBtn, currentPlanId === plan.id && styles.buildingBtnActive]}
+                  onPress={() => handleSelectPlan(plan.id)}
                 >
-                  <Text style={[styles.buildingText, building === b && styles.buildingTextActive]}>Bât. {b}</Text>
-                  {documents.some(d => d.category === `Plan-${b}` && d.type === 'plan') && (
-                    <View style={styles.planDot} />
-                  )}
+                  <Text style={[styles.buildingText, currentPlanId === plan.id && styles.buildingTextActive]} numberOfLines={1}>
+                    {plan.name}
+                  </Text>
+                  {plan.uri && <View style={styles.planDot} />}
                 </TouchableOpacity>
               ))}
             </View>
           </ScrollView>
-          {permissions.canCreate && (
-            <TouchableOpacity
-              style={[styles.importBtn, importing && styles.importBtnDisabled]}
-              onPress={handleImportPlan}
-              disabled={importing}
-            >
-              {importing ? (
-                <ActivityIndicator size="small" color={C.primary} />
-              ) : (
-                <>
-                  <Ionicons name="cloud-upload-outline" size={15} color={C.primary} />
-                  <Text style={styles.importBtnText}>Importer</Text>
-                </>
-              )}
-            </TouchableOpacity>
-          )}
+          <View style={styles.planActions}>
+            {permissions.canCreate && (
+              <TouchableOpacity
+                style={[styles.importBtn, importing && styles.importBtnDisabled]}
+                onPress={handleImportPlan}
+                disabled={importing || !currentPlanId}
+              >
+                {importing ? (
+                  <ActivityIndicator size="small" color={C.primary} />
+                ) : (
+                  <>
+                    <Ionicons name="cloud-upload-outline" size={15} color={C.primary} />
+                    <Text style={styles.importBtnText}>Importer</Text>
+                  </>
+                )}
+              </TouchableOpacity>
+            )}
+            {permissions.canCreate && Platform.OS !== 'web' && (
+              <TouchableOpacity style={styles.addPlanBtn} onPress={handleAddPlan}>
+                <Ionicons name="add" size={16} color={C.textSub} />
+              </TouchableOpacity>
+            )}
+          </View>
         </View>
       </View>
 
@@ -397,49 +472,28 @@ export default function PlansScreen() {
             </ScrollView>
           </View>
 
-          {buildingZones.length > 0 && (
+          {planLevels.length > 0 && (
             <View style={styles.zoneFilterWrap}>
               <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 6, paddingHorizontal: 16 }}>
                 <TouchableOpacity
-                  style={[styles.filterChip, zoneFilter === 'all' && styles.zoneChipActive]}
-                  onPress={() => setZoneFilter('all')}
+                  style={[styles.filterChip, levelFilter === 'all' && styles.levelChipActive]}
+                  onPress={() => setLevelFilter('all')}
                 >
-                  <Ionicons name="layers-outline" size={11} color={zoneFilter === 'all' ? C.inProgress : C.textMuted} />
-                  <Text style={[styles.filterChipText, zoneFilter === 'all' && { color: C.inProgress }]}>Toutes zones</Text>
+                  <Ionicons name="albums-outline" size={11} color={levelFilter === 'all' ? '#8B5CF6' : C.textMuted} />
+                  <Text style={[styles.filterChipText, levelFilter === 'all' && { color: '#8B5CF6' }]}>Tous niveaux</Text>
                 </TouchableOpacity>
-                {buildingZones.map(z => (
+                {planLevels.map(lvl => (
                   <TouchableOpacity
-                    key={z}
-                    style={[styles.filterChip, zoneFilter === z && styles.zoneChipActive]}
-                    onPress={() => setZoneFilter(zoneFilter === z ? 'all' : z)}
+                    key={lvl}
+                    style={[styles.filterChip, levelFilter === lvl && styles.levelChipActive]}
+                    onPress={() => setLevelFilter(levelFilter === lvl ? 'all' : lvl)}
                   >
-                    <Text style={[styles.filterChipText, zoneFilter === z && { color: C.inProgress }]}>{z}</Text>
+                    <Text style={[styles.filterChipText, levelFilter === lvl && { color: '#8B5CF6' }]}>{lvl}</Text>
                   </TouchableOpacity>
                 ))}
               </ScrollView>
             </View>
           )}
-
-          <View style={styles.zoneFilterWrap}>
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 6, paddingHorizontal: 16 }}>
-              <TouchableOpacity
-                style={[styles.filterChip, levelFilter === 'all' && styles.levelChipActive]}
-                onPress={() => setLevelFilter('all')}
-              >
-                <Ionicons name="albums-outline" size={11} color={levelFilter === 'all' ? '#8B5CF6' : C.textMuted} />
-                <Text style={[styles.filterChipText, levelFilter === 'all' && { color: '#8B5CF6' }]}>Tous niveaux</Text>
-              </TouchableOpacity>
-              {RESERVE_LEVELS.map(lvl => (
-                <TouchableOpacity
-                  key={lvl}
-                  style={[styles.filterChip, levelFilter === lvl && styles.levelChipActive]}
-                  onPress={() => setLevelFilter(levelFilter === lvl ? 'all' : lvl)}
-                >
-                  <Text style={[styles.filterChipText, levelFilter === lvl && { color: '#8B5CF6' }]}>{lvl}</Text>
-                </TouchableOpacity>
-              ))}
-            </ScrollView>
-          </View>
         </>
       )}
 
@@ -447,15 +501,15 @@ export default function PlansScreen() {
         <View style={styles.planContainer}>
           <View style={styles.planTitleRow}>
             <View style={{ flex: 1 }}>
-              <Text style={styles.planTitle}>Bâtiment {building} — {activePlan ? 'Plan importé' : 'Plan masse'}</Text>
-              {activePlan && (
-                <Text style={styles.planSubtitle} numberOfLines={1}>
-                  {activePlan.name.replace(`Plan Bâtiment ${building} — `, '')} — {activePlan.uploadedAt}
-                </Text>
+              <Text style={styles.planTitle}>{currentPlan?.name ?? 'Plan'}</Text>
+              {currentPlan?.uri ? (
+                <Text style={styles.planSubtitle}>Plan importé · {currentPlan.uploadedAt}</Text>
+              ) : (
+                <Text style={styles.planSubtitle}>Plan schématique · {currentPlan?.uploadedAt}</Text>
               )}
             </View>
             <View style={{ flexDirection: 'row', gap: 8 }}>
-              {activePlan && permissions.canCreate && (
+              {currentPlan?.uri && permissions.canCreate && (
                 <TouchableOpacity style={styles.removePlanBtn} onPress={handleRemovePlan}>
                   <Ionicons name="swap-horizontal-outline" size={13} color={C.textSub} />
                   <Text style={styles.removePlanText}>Remplacer</Text>
@@ -475,11 +529,11 @@ export default function PlansScreen() {
             </View>
           </View>
 
-          {!activePlan && permissions.canCreate && (
+          {!currentPlan?.uri && permissions.canCreate && (
             <TouchableOpacity style={styles.importHintBanner} onPress={handleImportPlan} disabled={importing}>
               <Ionicons name="cloud-upload-outline" size={16} color={C.primary} />
               <Text style={styles.importHintText}>
-                Importez votre vrai plan (image ou PDF) pour ce bâtiment
+                Importez votre vrai plan (image ou PDF) pour ce chantier
               </Text>
               <Ionicons name="chevron-forward" size={14} color={C.primary} />
             </TouchableOpacity>
@@ -499,9 +553,8 @@ export default function PlansScreen() {
             >
               <View style={[styles.planView, { width: PLAN_W, height: PLAN_H }]} onTouchEnd={handlePlanTap}>
 
-                {/* LAYER 1: Plan background — imported image/PDF or vector fallback */}
-                {activePlan && activePlan.uri ? (
-                  <PlanImageLayer uri={activePlan.uri} isPdfFile={isPdf(activePlan.uri)} />
+                {currentPlan?.uri ? (
+                  <PlanImageLayer uri={currentPlan.uri} isPdfFile={isPdf(currentPlan.uri)} />
                 ) : (
                   vectorPlan.map(room => (
                     <View
@@ -519,8 +572,7 @@ export default function PlansScreen() {
                   ))
                 )}
 
-                {/* LAYER 2: Reserve markers (always on top) */}
-                {buildingReserves.filter(r => r.planX != null && r.planY != null).map(r => (
+                {planReserves.filter(r => r.planX != null && r.planY != null).map((r, idx) => (
                   <TouchableOpacity
                     key={r.id}
                     style={[styles.marker, {
@@ -531,27 +583,19 @@ export default function PlansScreen() {
                     onPressIn={() => { suppressNextPlanTapRef.current = true; }}
                     onPress={() => setSelected(r)}
                   >
-                    <Text style={styles.markerText}>{r.id.split('-')[1] ?? '?'}</Text>
+                    <Text style={styles.markerText}>{r.id.split('-')[1] ?? String(idx + 1)}</Text>
                   </TouchableOpacity>
                 ))}
 
-                {/* LAYER 3: Pending marker */}
                 {pendingCoords && (
-                  <TouchableOpacity
-                    style={[styles.marker, styles.markerPending, {
+                  <View
+                    style={[styles.pendingMarker, {
                       left: `${pendingCoords.x}%` as any,
                       top: `${pendingCoords.y}%` as any,
                     }]}
-                    onPress={() => {
-                      router.push({
-                        pathname: '/reserve/new',
-                        params: { building, planX: pendingCoords.x, planY: pendingCoords.y },
-                      } as any);
-                      setPendingCoords(null);
-                    }}
                   >
                     <Ionicons name="add" size={12} color="#fff" />
-                  </TouchableOpacity>
+                  </View>
                 )}
               </View>
             </Animated.View>
@@ -559,76 +603,124 @@ export default function PlansScreen() {
 
           {pendingCoords && (
             <View style={styles.pendingBanner}>
-              <Ionicons name="location" size={14} color={C.inProgress} />
+              <Ionicons name="location-outline" size={14} color={C.inProgress} />
               <Text style={styles.pendingText}>
-                Position ({pendingCoords.x}%, {pendingCoords.y}%) — Touchez le + pour créer la réserve
+                Position sélectionnée ({pendingCoords.x}%, {pendingCoords.y}%)
               </Text>
+              <TouchableOpacity
+                style={styles.pendingCreateBtn}
+                onPress={() => {
+                  router.push({
+                    pathname: '/reserve/new',
+                    params: {
+                      planId: currentPlanId ?? '',
+                      chantierId: activeChantierId ?? '',
+                      planX: String(pendingCoords.x),
+                      planY: String(pendingCoords.y),
+                    },
+                  } as any);
+                  setPendingCoords(null);
+                }}
+              >
+                <Text style={styles.pendingCreateText}>Créer la réserve</Text>
+                <Ionicons name="arrow-forward" size={13} color={C.primary} />
+              </TouchableOpacity>
               <TouchableOpacity onPress={() => setPendingCoords(null)}>
-                <Ionicons name="close-circle" size={16} color={C.textMuted} />
+                <Ionicons name="close-circle" size={18} color={C.textMuted} />
               </TouchableOpacity>
             </View>
           )}
-
-          <View style={styles.legend}>
-            {(['open', 'in_progress', 'waiting', 'verification', 'closed'] as const).map(s => (
-              <View key={s} style={styles.legendItem}>
-                <View style={[styles.legendDot, { backgroundColor: STATUS_CONFIG[s].color }]} />
-                <Text style={styles.legendLabel}>{STATUS_CONFIG[s].label}</Text>
-              </View>
-            ))}
-          </View>
         </View>
 
-        <Text style={styles.sectionTitle}>{buildingReserves.length} réserve(s) — Bâtiment {building}</Text>
-        {buildingReserves.map(r => (
-          <TouchableOpacity
-            key={r.id}
-            style={styles.reserveRow}
-            onPress={() => router.push(`/reserve/${r.id}` as any)}
-          >
-            <View style={[styles.reserveColorDot, { backgroundColor: STATUS_CONFIG[r.status].color }]} />
-            <View style={{ flex: 1 }}>
-              <Text style={styles.reserveTitle}>{r.id} — {r.title}</Text>
-              <Text style={styles.reserveSub}>{r.zone} — {r.level} — {r.company}</Text>
-            </View>
-            <Ionicons name="chevron-forward" size={16} color={C.textMuted} />
-          </TouchableOpacity>
-        ))}
-        {buildingReserves.length === 0 && (
-          <View style={styles.empty}>
-            <Ionicons name="map-outline" size={40} color={C.textMuted} />
-            <Text style={styles.emptyText}>Aucune réserve pour ce bâtiment</Text>
+        {planReserves.length > 0 && (
+          <View style={styles.listSection}>
+            <Text style={styles.listTitle}>
+              Réserves sur ce plan ({planReserves.length})
+            </Text>
+            {planReserves.map((r, idx) => (
+              <TouchableOpacity
+                key={r.id}
+                style={styles.reserveRow}
+                onPress={() => router.push(`/reserve/${r.id}` as any)}
+              >
+                <View style={[styles.pinBadge, { backgroundColor: STATUS_CONFIG[r.status].color }]}>
+                  <Text style={styles.pinBadgeText}>{r.id.split('-')[1] ?? String(idx + 1)}</Text>
+                </View>
+                <View style={styles.reserveInfo}>
+                  <Text style={styles.reserveTitle} numberOfLines={1}>{r.title}</Text>
+                  <Text style={styles.reserveMeta}>{r.company} · {r.level}</Text>
+                </View>
+                <View style={{ gap: 4, alignItems: 'flex-end' }}>
+                  <StatusBadge status={r.status} size="sm" />
+                  <PriorityBadge priority={r.priority} size="sm" />
+                </View>
+              </TouchableOpacity>
+            ))}
+          </View>
+        )}
+
+        {planReserves.length === 0 && (
+          <View style={styles.noReservesCard}>
+            <Ionicons name="checkmark-circle-outline" size={32} color={C.closed} />
+            <Text style={styles.noReservesText}>Aucune réserve sur ce plan</Text>
+            {permissions.canCreate && (
+              <TouchableOpacity
+                style={styles.addReserveFromPlanBtn}
+                onPress={() => router.push({
+                  pathname: '/reserve/new',
+                  params: { planId: currentPlanId ?? '', chantierId: activeChantierId ?? '' },
+                } as any)}
+              >
+                <Ionicons name="add" size={14} color={C.primary} />
+                <Text style={styles.addReserveFromPlanText}>Ajouter une réserve</Text>
+              </TouchableOpacity>
+            )}
           </View>
         )}
       </ScrollView>
 
-      <Modal visible={!!selected} transparent animationType="slide" onRequestClose={() => setSelected(null)}>
-        {selected && (
-          <View style={styles.modalOverlay}>
-            <View style={styles.modalCard}>
+      <Modal visible={!!selected} transparent animationType="fade" onRequestClose={() => setSelected(null)}>
+        <TouchableOpacity style={styles.modalOverlay} activeOpacity={1} onPress={() => setSelected(null)}>
+          {selected && (
+            <TouchableOpacity activeOpacity={1} style={styles.modalCard} onPress={() => {}}>
               <View style={styles.modalHeader}>
-                <Text style={styles.modalId}>{selected.id}</Text>
-                <TouchableOpacity onPress={() => setSelected(null)} hitSlop={8}>
-                  <Ionicons name="close" size={22} color={C.textSub} />
+                <View style={[styles.modalPin, { backgroundColor: STATUS_CONFIG[selected.status].color }]}>
+                  <Text style={styles.modalPinText}>{selected.id.split('-')[1] ?? '#'}</Text>
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.modalTitle} numberOfLines={2}>{selected.title}</Text>
+                  <Text style={styles.modalMeta}>{selected.company} · {selected.level}</Text>
+                </View>
+                <TouchableOpacity onPress={() => setSelected(null)}>
+                  <Ionicons name="close" size={20} color={C.textMuted} />
                 </TouchableOpacity>
               </View>
-              <Text style={styles.modalTitle}>{selected.title}</Text>
+              {selected.description ? (
+                <Text style={styles.modalDesc} numberOfLines={3}>{selected.description}</Text>
+              ) : null}
               <View style={styles.modalBadges}>
-                <StatusBadge status={selected.status} />
-                <PriorityBadge priority={selected.priority} />
+                <StatusBadge status={selected.status} size="sm" />
+                <PriorityBadge priority={selected.priority} size="sm" />
+                {selected.deadline && selected.deadline !== '—' && (
+                  <View style={styles.deadlineBadge}>
+                    <Ionicons name="calendar-outline" size={11} color={C.textMuted} />
+                    <Text style={styles.deadlineText}>{selected.deadline}</Text>
+                  </View>
+                )}
               </View>
-              <Text style={styles.modalInfo}>Bât. {selected.building} — {selected.zone} — {selected.level}</Text>
-              <Text style={styles.modalInfo}>{selected.company}</Text>
               <TouchableOpacity
-                style={styles.modalBtn}
-                onPress={() => { setSelected(null); router.push(`/reserve/${selected.id}` as any); }}
+                style={styles.modalOpenBtn}
+                onPress={() => {
+                  setSelected(null);
+                  router.push(`/reserve/${selected.id}` as any);
+                }}
               >
-                <Text style={styles.modalBtnText}>Voir la réserve</Text>
-                <Ionicons name="arrow-forward" size={16} color="#fff" />
+                <Text style={styles.modalOpenText}>Ouvrir la réserve</Text>
+                <Ionicons name="arrow-forward" size={14} color={C.primary} />
               </TouchableOpacity>
-            </View>
-          </View>
-        )}
+            </TouchableOpacity>
+          )}
+        </TouchableOpacity>
       </Modal>
     </View>
   );
@@ -636,74 +728,89 @@ export default function PlansScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: C.bg },
-  header: { paddingHorizontal: 16, paddingBottom: 10, borderBottomWidth: 1, borderBottomColor: C.border, backgroundColor: C.surface },
-  headerTop: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 },
+  header: { backgroundColor: C.surface, borderBottomWidth: 1, borderBottomColor: C.border, paddingBottom: 0 },
+  headerTop: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', paddingHorizontal: 16, paddingBottom: 12 },
   title: { fontSize: 22, fontFamily: 'Inter_700Bold', color: C.text },
-  zoomBtns: { flexDirection: 'row', gap: 8 },
-  zoomBtn: { width: 44, height: 44, borderRadius: 10, backgroundColor: C.surface, borderWidth: 1, borderColor: C.border, alignItems: 'center', justifyContent: 'center' },
+  chantierLabel: { fontSize: 12, fontFamily: 'Inter_400Regular', color: C.textMuted, marginTop: 2 },
+  zoomBtns: { flexDirection: 'row', gap: 6 },
+  zoomBtn: { width: 34, height: 34, borderRadius: 10, backgroundColor: C.surface2, borderWidth: 1, borderColor: C.border, alignItems: 'center', justifyContent: 'center' },
   filterToggleActive: { backgroundColor: C.primaryBg, borderColor: C.primary },
-  filterBadge: { position: 'absolute', top: -4, right: -4, width: 14, height: 14, borderRadius: 7, backgroundColor: C.primary, alignItems: 'center', justifyContent: 'center' },
-  filterBadgeText: { fontSize: 8, fontFamily: 'Inter_700Bold', color: '#fff' },
-  buildingBarRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  buildingRow: { flexDirection: 'row', gap: 8, paddingBottom: 2 },
-  buildingBtn: { flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: 14, paddingVertical: 7, borderRadius: 20, backgroundColor: C.surface, borderWidth: 1, borderColor: C.border },
+  filterBadge: { position: 'absolute', top: -4, right: -4, width: 16, height: 16, borderRadius: 8, backgroundColor: C.primary, alignItems: 'center', justifyContent: 'center' },
+  filterBadgeText: { fontSize: 9, fontFamily: 'Inter_700Bold', color: '#fff' },
+  buildingBarRow: { flexDirection: 'row', alignItems: 'center', paddingBottom: 10 },
+  buildingRow: { flexDirection: 'row', paddingHorizontal: 16, gap: 8 },
+  buildingBtn: { paddingHorizontal: 12, paddingVertical: 7, borderRadius: 20, backgroundColor: C.surface2, borderWidth: 1.5, borderColor: C.border, flexDirection: 'row', alignItems: 'center', gap: 5, maxWidth: 160 },
   buildingBtnActive: { backgroundColor: C.primaryBg, borderColor: C.primary },
-  buildingText: { fontSize: 13, fontFamily: 'Inter_500Medium', color: C.textSub },
+  buildingText: { fontSize: 12, fontFamily: 'Inter_500Medium', color: C.textSub },
   buildingTextActive: { color: C.primary },
   planDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: C.closed },
-  importBtn: { flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: 12, paddingVertical: 7, borderRadius: 20, backgroundColor: C.primaryBg, borderWidth: 1, borderColor: C.primary },
-  importBtnDisabled: { opacity: 0.6 },
+  planActions: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingRight: 12 },
+  importBtn: { flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: 10, paddingVertical: 7, borderRadius: 10, backgroundColor: C.primaryBg, borderWidth: 1, borderColor: C.primary + '40' },
+  importBtnDisabled: { opacity: 0.5 },
   importBtnText: { fontSize: 12, fontFamily: 'Inter_600SemiBold', color: C.primary },
-  companyFilterWrap: { paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: C.border },
-  zoneFilterWrap: { paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: C.border, backgroundColor: C.surface2 },
-  filterChip: { flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: 12, paddingVertical: 6, borderRadius: 20, backgroundColor: C.surface, borderWidth: 1, borderColor: C.border },
+  addPlanBtn: { width: 34, height: 34, borderRadius: 10, backgroundColor: C.surface2, borderWidth: 1, borderColor: C.border, alignItems: 'center', justifyContent: 'center' },
+  companyFilterWrap: { paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: C.border },
+  zoneFilterWrap: { paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: C.border },
+  filterChip: { flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: 10, paddingVertical: 6, borderRadius: 20, backgroundColor: C.surface2, borderWidth: 1, borderColor: C.border },
   filterChipActive: { backgroundColor: C.primaryBg, borderColor: C.primary },
-  zoneChipActive: { backgroundColor: C.inProgress + '18', borderColor: C.inProgress },
   filterChipText: { fontSize: 12, fontFamily: 'Inter_500Medium', color: C.textSub },
   filterChipTextActive: { color: C.primary },
-  filterDot: { width: 6, height: 6, borderRadius: 3 },
-  content: { padding: 16, paddingBottom: 40 },
-  planContainer: { backgroundColor: C.surface, borderRadius: 14, padding: 14, marginBottom: 20, borderWidth: 1, borderColor: C.border },
-  planTitleRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 8 },
-  planTitle: { fontSize: 13, fontFamily: 'Inter_600SemiBold', color: C.textSub, textTransform: 'uppercase', letterSpacing: 0.5 },
-  planSubtitle: { fontSize: 11, fontFamily: 'Inter_400Regular', color: C.closed, marginTop: 2, maxWidth: 160 },
-  removePlanBtn: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 8, paddingVertical: 5, borderRadius: 8, backgroundColor: C.surface2, borderWidth: 1, borderColor: C.border },
+  filterDot: { width: 7, height: 7, borderRadius: 4 },
+  levelChipActive: { backgroundColor: '#8B5CF620', borderColor: '#8B5CF6' },
+  content: { padding: 16, paddingBottom: 48 },
+  planContainer: { backgroundColor: C.surface, borderRadius: 16, borderWidth: 1, borderColor: C.border, marginBottom: 16, overflow: 'hidden' },
+  planTitleRow: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', padding: 14, paddingBottom: 10 },
+  planTitle: { fontSize: 14, fontFamily: 'Inter_600SemiBold', color: C.text },
+  planSubtitle: { fontSize: 11, fontFamily: 'Inter_400Regular', color: C.textMuted, marginTop: 2 },
+  removePlanBtn: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 10, paddingVertical: 6, borderRadius: 8, backgroundColor: C.surface2, borderWidth: 1, borderColor: C.border },
   removePlanText: { fontSize: 11, fontFamily: 'Inter_500Medium', color: C.textSub },
-  importHintBanner: { flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: C.primaryBg, borderRadius: 10, padding: 10, marginBottom: 10, borderWidth: 1, borderColor: C.primary + '40', borderStyle: 'dashed' },
-  importHintText: { flex: 1, fontSize: 12, fontFamily: 'Inter_500Medium', color: C.primary },
-  addMarkerBtn: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 10, paddingVertical: 6, borderRadius: 8, backgroundColor: C.primaryBg, borderWidth: 1, borderColor: C.primary },
-  addMarkerBtnActive: { backgroundColor: C.open + '15', borderColor: C.open },
-  addMarkerText: { fontSize: 12, fontFamily: 'Inter_500Medium', color: C.primary },
-  addingHint: { flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: C.inProgress + '15', borderRadius: 8, padding: 8, marginBottom: 10 },
+  addMarkerBtn: { flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: 10, paddingVertical: 6, borderRadius: 8, backgroundColor: C.primaryBg, borderWidth: 1, borderColor: C.primary + '50' },
+  addMarkerBtnActive: { backgroundColor: '#EF444420', borderColor: C.open },
+  addMarkerText: { fontSize: 11, fontFamily: 'Inter_600SemiBold', color: C.primary },
+  importHintBanner: { flexDirection: 'row', alignItems: 'center', gap: 8, marginHorizontal: 14, marginBottom: 10, backgroundColor: C.primaryBg, borderRadius: 10, padding: 12, borderWidth: 1, borderColor: C.primary + '30' },
+  importHintText: { flex: 1, fontSize: 12, fontFamily: 'Inter_400Regular', color: C.primary, lineHeight: 16 },
+  addingHint: { flexDirection: 'row', alignItems: 'center', gap: 6, marginHorizontal: 14, marginBottom: 8, backgroundColor: C.inProgress + '15', borderRadius: 8, paddingHorizontal: 12, paddingVertical: 8 },
   addingHintText: { fontSize: 12, fontFamily: 'Inter_400Regular', color: C.inProgress },
-  planViewport: { borderRadius: 10, overflow: 'hidden', borderWidth: 1, borderColor: C.border, height: PLAN_H },
-  planAnimated: { alignItems: 'flex-start' },
-  planView: { position: 'relative', borderRadius: 8, overflow: 'hidden' },
-  room: { position: 'absolute', borderWidth: 1, borderColor: '#1E2840', alignItems: 'center', justifyContent: 'center', padding: 4 },
-  roomLabel: { fontSize: 8, fontFamily: 'Inter_400Regular', color: C.textMuted, textAlign: 'center' },
-  marker: { position: 'absolute', width: 22, height: 22, borderRadius: 11, alignItems: 'center', justifyContent: 'center', marginLeft: -11, marginTop: -11, borderWidth: 2, borderColor: '#0F1117', zIndex: 10 },
-  markerPending: { backgroundColor: C.inProgress, borderColor: '#fff', borderWidth: 2 },
+  planViewport: { overflow: 'hidden', height: PLAN_H + 20, alignItems: 'center', justifyContent: 'center', marginHorizontal: 14, marginBottom: 14, borderRadius: 10, backgroundColor: C.surface2 },
+  planAnimated: { alignItems: 'center', justifyContent: 'center' },
+  planView: { position: 'relative', borderRadius: 8, overflow: 'hidden', backgroundColor: '#0F1825' },
+  room: { position: 'absolute', borderWidth: 1, borderColor: '#1E2D42', alignItems: 'center', justifyContent: 'center', padding: 3 },
+  roomLabel: { fontSize: 8, fontFamily: 'Inter_500Medium', color: '#4A6080', textAlign: 'center' },
+  marker: { position: 'absolute', width: 22, height: 22, borderRadius: 11, alignItems: 'center', justifyContent: 'center', transform: [{ translateX: -11 }, { translateY: -11 }], borderWidth: 2, borderColor: 'rgba(255,255,255,0.35)', shadowColor: '#000', shadowOpacity: 0.4, shadowRadius: 3, elevation: 4 },
   markerText: { fontSize: 9, fontFamily: 'Inter_700Bold', color: '#fff' },
-  pendingBanner: { flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: C.inProgress + '15', borderRadius: 8, padding: 8, marginTop: 8 },
+  pendingMarker: { position: 'absolute', width: 24, height: 24, borderRadius: 12, backgroundColor: C.inProgress, alignItems: 'center', justifyContent: 'center', transform: [{ translateX: -12 }, { translateY: -12 }], borderWidth: 2, borderColor: '#fff' },
+  pendingBanner: { flexDirection: 'row', alignItems: 'center', gap: 8, marginHorizontal: 14, marginBottom: 14, backgroundColor: C.inProgress + '15', borderRadius: 10, padding: 10, borderWidth: 1, borderColor: C.inProgress + '30' },
   pendingText: { flex: 1, fontSize: 12, fontFamily: 'Inter_400Regular', color: C.inProgress },
-  legend: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 12 },
-  legendItem: { flexDirection: 'row', alignItems: 'center', gap: 5 },
-  legendDot: { width: 8, height: 8, borderRadius: 4 },
-  legendLabel: { fontSize: 11, fontFamily: 'Inter_400Regular', color: C.textSub },
-  sectionTitle: { fontSize: 13, fontFamily: 'Inter_600SemiBold', color: C.textSub, marginBottom: 10, textTransform: 'uppercase', letterSpacing: 0.5 },
-  reserveRow: { flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: C.surface, borderRadius: 12, padding: 14, marginBottom: 8, borderWidth: 1, borderColor: C.border },
-  reserveColorDot: { width: 10, height: 10, borderRadius: 5 },
-  reserveTitle: { fontSize: 14, fontFamily: 'Inter_500Medium', color: C.text },
-  reserveSub: { fontSize: 12, fontFamily: 'Inter_400Regular', color: C.textSub, marginTop: 2 },
-  empty: { alignItems: 'center', paddingVertical: 32, gap: 10 },
-  emptyText: { fontSize: 14, fontFamily: 'Inter_400Regular', color: C.textMuted },
-  modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.7)', justifyContent: 'flex-end' },
-  modalCard: { backgroundColor: C.surface2, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 24, paddingBottom: 40 },
-  modalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 },
-  modalId: { fontSize: 13, fontFamily: 'Inter_600SemiBold', color: C.primary },
-  modalTitle: { fontSize: 17, fontFamily: 'Inter_600SemiBold', color: C.text, marginBottom: 12, lineHeight: 24 },
-  modalBadges: { flexDirection: 'row', gap: 8, marginBottom: 12 },
-  modalInfo: { fontSize: 13, fontFamily: 'Inter_400Regular', color: C.textSub, marginBottom: 4 },
-  modalBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', backgroundColor: C.primary, borderRadius: 12, paddingVertical: 14, gap: 8, marginTop: 16 },
-  modalBtnText: { fontSize: 15, fontFamily: 'Inter_600SemiBold', color: '#fff' },
+  pendingCreateBtn: { flexDirection: 'row', alignItems: 'center', gap: 4 },
+  pendingCreateText: { fontSize: 12, fontFamily: 'Inter_600SemiBold', color: C.primary },
+  listSection: { marginBottom: 12 },
+  listTitle: { fontSize: 13, fontFamily: 'Inter_600SemiBold', color: C.textSub, marginBottom: 10, textTransform: 'uppercase', letterSpacing: 0.5 },
+  reserveRow: { flexDirection: 'row', alignItems: 'center', gap: 12, backgroundColor: C.surface, borderRadius: 12, padding: 12, marginBottom: 8, borderWidth: 1, borderColor: C.border },
+  pinBadge: { width: 30, height: 30, borderRadius: 15, alignItems: 'center', justifyContent: 'center', flexShrink: 0 },
+  pinBadgeText: { fontSize: 10, fontFamily: 'Inter_700Bold', color: '#fff' },
+  reserveInfo: { flex: 1 },
+  reserveTitle: { fontSize: 13, fontFamily: 'Inter_600SemiBold', color: C.text },
+  reserveMeta: { fontSize: 11, fontFamily: 'Inter_400Regular', color: C.textMuted, marginTop: 2 },
+  noReservesCard: { backgroundColor: C.surface, borderRadius: 14, padding: 24, alignItems: 'center', gap: 10, borderWidth: 1, borderColor: C.border },
+  noReservesText: { fontSize: 14, fontFamily: 'Inter_500Medium', color: C.textSub },
+  addReserveFromPlanBtn: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 16, paddingVertical: 10, borderRadius: 10, backgroundColor: C.primaryBg, borderWidth: 1, borderColor: C.primary + '40' },
+  addReserveFromPlanText: { fontSize: 13, fontFamily: 'Inter_600SemiBold', color: C.primary },
+  modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.6)', justifyContent: 'flex-end', padding: 16 },
+  modalCard: { backgroundColor: C.surface, borderRadius: 18, padding: 16, gap: 12 },
+  modalHeader: { flexDirection: 'row', gap: 12, alignItems: 'flex-start' },
+  modalPin: { width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center', flexShrink: 0 },
+  modalPinText: { fontSize: 12, fontFamily: 'Inter_700Bold', color: '#fff' },
+  modalTitle: { fontSize: 15, fontFamily: 'Inter_600SemiBold', color: C.text },
+  modalMeta: { fontSize: 12, fontFamily: 'Inter_400Regular', color: C.textMuted, marginTop: 2 },
+  modalDesc: { fontSize: 13, fontFamily: 'Inter_400Regular', color: C.textSub, lineHeight: 18 },
+  modalBadges: { flexDirection: 'row', gap: 8, flexWrap: 'wrap' },
+  deadlineBadge: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 8, paddingVertical: 4, backgroundColor: C.surface2, borderRadius: 6, borderWidth: 1, borderColor: C.border },
+  deadlineText: { fontSize: 11, fontFamily: 'Inter_400Regular', color: C.textMuted },
+  modalOpenBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, paddingVertical: 12, backgroundColor: C.primaryBg, borderRadius: 12, borderWidth: 1, borderColor: C.primary + '40' },
+  modalOpenText: { fontSize: 14, fontFamily: 'Inter_600SemiBold', color: C.primary },
+  emptyState: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 32, gap: 12 },
+  emptyTitle: { fontSize: 18, fontFamily: 'Inter_600SemiBold', color: C.text, textAlign: 'center' },
+  emptySubtitle: { fontSize: 14, fontFamily: 'Inter_400Regular', color: C.textMuted, textAlign: 'center', lineHeight: 20 },
+  emptyBtn: { flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: C.primary, borderRadius: 12, paddingHorizontal: 20, paddingVertical: 12, marginTop: 8 },
+  emptyBtnText: { fontSize: 14, fontFamily: 'Inter_600SemiBold', color: '#fff' },
 });
