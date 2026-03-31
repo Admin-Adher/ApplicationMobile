@@ -1,7 +1,6 @@
 -- ============================================================
--- BuildTrack — Migration abonnement
--- À exécuter UNE FOIS dans l'éditeur SQL de Supabase
--- (Project Settings > SQL Editor > New Query)
+-- BuildTrack — Migration abonnement (v2 — ordre corrigé)
+-- À exécuter dans l'éditeur SQL de Supabase
 -- Toutes les instructions sont idempotentes (safe à re-exécuter)
 -- ============================================================
 
@@ -40,7 +39,7 @@ insert into public.plans (name, max_users, price_monthly, features) values
   ('Entreprise',-1, 399, '["Toutes les fonctionnalités","Utilisateurs illimités","Support dédié","API access","SSO"]')
 on conflict (name) do nothing;
 
--- ---- 2. TABLE ORGANIZATIONS ----
+-- ---- 2. TABLE ORGANIZATIONS (sans la politique qui référence organization_id) ----
 create table if not exists public.organizations (
   id uuid primary key default gen_random_uuid(),
   name text not null,
@@ -50,6 +49,31 @@ create table if not exists public.organizations (
 
 alter table public.organizations enable row level security;
 
+-- Organisation de démonstration
+insert into public.organizations (id, name, slug, created_at) values
+  ('00000000-0000-0000-0000-000000000001', 'BuildTrack Demo', 'buildtrack-demo', now())
+on conflict (slug) do nothing;
+
+-- ---- 3. COLONNE organization_id DANS PROFILES (avant les politiques qui la référencent) ----
+do $$ begin
+  if not exists (
+    select 1 from information_schema.columns
+    where table_schema = 'public'
+    and table_name = 'profiles'
+    and column_name = 'organization_id'
+  ) then
+    alter table public.profiles
+    add column organization_id uuid references public.organizations(id);
+  end if;
+end $$;
+
+-- Lier les utilisateurs existants à l'organisation démo (sauf super_admin)
+update public.profiles
+set organization_id = '00000000-0000-0000-0000-000000000001'
+where role != 'super_admin'
+and organization_id is null;
+
+-- ---- 4. POLITIQUES RLS ORGANIZATIONS (maintenant que organization_id existe) ----
 do $$ begin
   if not exists (
     select 1 from pg_policies where tablename = 'organizations' and policyname = 'Organizations lisibles par leurs membres'
@@ -71,32 +95,7 @@ do $$ begin
   end if;
 end $$;
 
--- Organisation de démonstration
-insert into public.organizations (id, name, slug, created_at) values
-  ('00000000-0000-0000-0000-000000000001', 'BuildTrack Demo', 'buildtrack-demo', now())
-on conflict (slug) do nothing;
-
--- ---- 3. COLONNE organization_id DANS PROFILES ----
--- Ajoute la colonne si elle n'existe pas encore
-do $$ begin
-  if not exists (
-    select 1 from information_schema.columns
-    where table_schema = 'public'
-    and table_name = 'profiles'
-    and column_name = 'organization_id'
-  ) then
-    alter table public.profiles
-    add column organization_id uuid references public.organizations(id);
-  end if;
-end $$;
-
--- Lier les utilisateurs démo existants à l'organisation démo
-update public.profiles
-set organization_id = '00000000-0000-0000-0000-000000000001'
-where role != 'super_admin'
-and organization_id is null;
-
--- ---- 4. TABLE SUBSCRIPTIONS ----
+-- ---- 5. TABLE SUBSCRIPTIONS ----
 create table if not exists public.subscriptions (
   id uuid primary key default gen_random_uuid(),
   organization_id uuid not null references public.organizations(id) on delete cascade,
@@ -143,7 +142,7 @@ insert into public.subscriptions (organization_id, plan_id, status, trial_ends_a
     where organization_id = '00000000-0000-0000-0000-000000000001'
   );
 
--- ---- 5. TABLE INVITATIONS ----
+-- ---- 6. TABLE INVITATIONS ----
 create table if not exists public.invitations (
   id uuid primary key default gen_random_uuid(),
   organization_id uuid not null references public.organizations(id) on delete cascade,
