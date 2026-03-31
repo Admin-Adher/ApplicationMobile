@@ -541,7 +541,7 @@ export default function AdminScreen() {
             </View>
           ) : (
             pendingInvitations.map(inv => {
-              const roleInfo = INVITE_ROLES.find(r => r.value === inv.role) ?? INVITE_ROLES[3];
+              const roleInfo = ROLES.find(r => r.value === inv.role) ?? ROLES[3];
               const expiresIn = Math.ceil((new Date(inv.expiresAt).getTime() - Date.now()) / (1000 * 60 * 60 * 24));
               return (
                 <View key={inv.id} style={styles.inviteCard}>
@@ -722,7 +722,7 @@ export default function AdminScreen() {
                   </Text>
                 </TouchableOpacity>
                 <Text style={styles.inviteHint}>
-                  Ce code est valable 7 jours. L'utilisateur devra s'inscrire avec l'email {inviteEmail}.
+                  L'invitation est valable 7 jours. L'utilisateur doit créer un compte avec l'adresse {inviteEmail} — l'accès est lié à l'email, pas au code.
                 </Text>
                 <TouchableOpacity style={styles.saveBtn} onPress={handleCloseInviteModal}>
                   <Text style={styles.saveBtnText}>Fermer</Text>
@@ -751,7 +751,7 @@ export default function AdminScreen() {
 
                 <View style={styles.field}>
                   <Text style={styles.fieldLabel}>Rôle</Text>
-                  {INVITE_ROLES.map(r => (
+                  {ROLES.map(r => (
                     <TouchableOpacity
                       key={r.value}
                       style={[styles.roleOption, inviteRole === r.value && { backgroundColor: r.bg, borderColor: r.color }]}

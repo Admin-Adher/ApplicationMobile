@@ -195,6 +195,9 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
       }
 
       if (user.role === 'admin' || user.role === 'super_admin') {
+        // Note: invitations are filtered client-side by expires_at > now() to exclude expired ones.
+        // Expired rows keep status='pending' in the DB (no auto-transition to 'expired').
+        // A Supabase Edge Function (cron) would be required to automate that transition.
         const { data: invData } = await supabase
           .from('invitations')
           .select('*')
@@ -276,8 +279,12 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
       return { success: false, error: "Vous n'êtes pas associé à une organisation." };
     }
 
+    const now = new Date();
     const existingInv = pendingInvitations.find(
-      i => i.email.toLowerCase() === emailLower && i.status === 'pending'
+      i =>
+        i.email.toLowerCase() === emailLower &&
+        i.status === 'pending' &&
+        new Date(i.expiresAt) > now
     );
     if (existingInv) {
       return { success: false, error: 'Une invitation est déjà en attente pour cet email.' };
