@@ -158,6 +158,7 @@ export interface Incident {
   actions: string;
   closedAt?: string;
   closedBy?: string;
+  photoUri?: string;
 }
 
 export interface AttendanceRecord {

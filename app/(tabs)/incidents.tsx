@@ -1,9 +1,10 @@
 import {
   View, Text, StyleSheet, ScrollView, TouchableOpacity, TextInput,
-  Alert, Modal, ActivityIndicator,
+  Alert, Modal, ActivityIndicator, Image, Platform,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useState, useMemo } from 'react';
+import * as ImagePicker from 'expo-image-picker';
 import { C } from '@/constants/colors';
 import { useAuth } from '@/context/AuthContext';
 import { useIncidents } from '@/context/IncidentsContext';
@@ -58,6 +59,7 @@ const EMPTY_FORM: Omit<Incident, 'id' | 'reportedBy'> = {
   status: 'open',
   witnesses: '',
   actions: '',
+  photoUri: undefined,
 };
 
 type FilterSeverity = IncidentSeverity | 'all';
@@ -74,8 +76,39 @@ export default function IncidentsScreen() {
   const [modalMode, setModalMode] = useState<'add' | 'edit' | null>(null);
   const [editTarget, setEditTarget] = useState<Incident | null>(null);
   const [saving, setSaving] = useState(false);
+  const [photoUri, setPhotoUri] = useState<string | undefined>(undefined);
 
   const [form, setForm] = useState(EMPTY_FORM);
+
+  async function handlePickPhoto() {
+    if (Platform.OS !== 'web') {
+      const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (status !== 'granted') {
+        Alert.alert('Permission refusée', "L'accès à la galerie est nécessaire.");
+        return;
+      }
+    }
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ['images'],
+      allowsEditing: true,
+      quality: 0.8,
+    });
+    if (!result.canceled && result.assets[0]) setPhotoUri(result.assets[0].uri);
+  }
+
+  async function handleCamera() {
+    if (Platform.OS === 'web') {
+      Alert.alert('Info', 'La prise de photo directe est disponible sur appareil mobile.');
+      return;
+    }
+    const { status } = await ImagePicker.requestCameraPermissionsAsync();
+    if (status !== 'granted') {
+      Alert.alert('Permission refusée', "L'accès à l'appareil photo est nécessaire.");
+      return;
+    }
+    const result = await ImagePicker.launchCameraAsync({ allowsEditing: true, quality: 0.8 });
+    if (!result.canceled && result.assets[0]) setPhotoUri(result.assets[0].uri);
+  }
 
   const filtered = useMemo(() => {
     return incidents.filter(i => {
@@ -96,6 +129,7 @@ export default function IncidentsScreen() {
       return `${String(d.getDate()).padStart(2,'0')}/${String(d.getMonth()+1).padStart(2,'0')}/${d.getFullYear()}`;
     })();
     setForm({ ...EMPTY_FORM, reportedAt: todayStr });
+    setPhotoUri(undefined);
     setEditTarget(null);
     setModalMode('add');
   }
@@ -111,7 +145,9 @@ export default function IncidentsScreen() {
       status: i.status,
       witnesses: i.witnesses,
       actions: i.actions,
+      photoUri: i.photoUri,
     });
+    setPhotoUri(i.photoUri);
     setEditTarget(i);
     setModalMode('edit');
   }
@@ -126,13 +162,21 @@ export default function IncidentsScreen() {
       return;
     }
     setSaving(true);
+    const isNowResolved = form.status === 'resolved';
+    const wasResolved = editTarget?.status === 'resolved';
+    const closedAt = isNowResolved ? (wasResolved ? editTarget?.closedAt : new Date().toISOString().slice(0, 10)) : undefined;
+    const closedBy = isNowResolved ? (wasResolved ? editTarget?.closedBy : user?.name ?? 'Inconnu') : undefined;
+
     if (modalMode === 'edit' && editTarget) {
-      await updateIncident({ ...editTarget, ...form });
+      await updateIncident({ ...editTarget, ...form, photoUri, closedAt, closedBy });
     } else {
       await addIncident({
         id: 'inc-' + genId(),
         ...form,
         reportedBy: user?.name ?? 'Inconnu',
+        photoUri,
+        closedAt,
+        closedBy,
       });
     }
     setSaving(false);
@@ -269,6 +313,15 @@ export default function IncidentsScreen() {
                     <Text style={styles.actionsText} numberOfLines={1}>{incident.actions}</Text>
                   </View>
                 ) : null}
+                {incident.photoUri ? (
+                  <Image source={{ uri: incident.photoUri }} style={styles.cardPhoto} resizeMode="cover" />
+                ) : null}
+                {incident.status === 'resolved' && incident.closedAt ? (
+                  <View style={styles.closedBanner}>
+                    <Ionicons name="checkmark-circle" size={12} color={C.closed} />
+                    <Text style={styles.closedText}>Résolu le {incident.closedAt}{incident.closedBy ? ` par ${incident.closedBy}` : ''}</Text>
+                  </View>
+                ) : null}
               </TouchableOpacity>
             );
           })
@@ -396,6 +449,30 @@ export default function IncidentsScreen() {
                 numberOfLines={3}
               />
 
+              <Text style={styles.fieldLabel}>Photo de preuve</Text>
+              {photoUri ? (
+                <View style={styles.photoPreviewWrap}>
+                  <Image source={{ uri: photoUri }} style={styles.photoPreview} resizeMode="cover" />
+                  <TouchableOpacity style={styles.removePhotoBtn} onPress={() => setPhotoUri(undefined)}>
+                    <Ionicons name="close-circle" size={20} color={C.open} />
+                    <Text style={styles.removePhotoText}>Retirer</Text>
+                  </TouchableOpacity>
+                </View>
+              ) : (
+                <View style={styles.photoPickerRow}>
+                  <TouchableOpacity style={styles.photoPickerBtn} onPress={handlePickPhoto}>
+                    <Ionicons name="images-outline" size={18} color={C.primary} />
+                    <Text style={styles.photoPickerText}>Galerie</Text>
+                  </TouchableOpacity>
+                  {Platform.OS !== 'web' && (
+                    <TouchableOpacity style={styles.photoPickerBtn} onPress={handleCamera}>
+                      <Ionicons name="camera-outline" size={18} color={C.primary} />
+                      <Text style={styles.photoPickerText}>Caméra</Text>
+                    </TouchableOpacity>
+                  )}
+                </View>
+              )}
+
               {saving ? (
                 <ActivityIndicator size="large" color={C.primary} style={{ marginVertical: 16 }} />
               ) : (
@@ -491,4 +568,16 @@ const styles = StyleSheet.create({
   saveBtnText: { fontSize: 15, fontFamily: 'Inter_600SemiBold', color: '#fff' },
   cancelBtn: { alignItems: 'center', paddingVertical: 14 },
   cancelBtnText: { fontSize: 15, fontFamily: 'Inter_400Regular', color: C.textMuted },
+
+  cardPhoto: { width: '100%', height: 140, borderRadius: 8, marginTop: 8 },
+  closedBanner: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 8, backgroundColor: C.closed + '12', borderRadius: 8, padding: 8 },
+  closedText: { flex: 1, fontSize: 11, fontFamily: 'Inter_400Regular', color: C.closed },
+
+  photoPreviewWrap: { marginTop: 4, marginBottom: 8 },
+  photoPreview: { width: '100%', height: 160, borderRadius: 10, marginBottom: 6 },
+  removePhotoBtn: { flexDirection: 'row', alignItems: 'center', gap: 4 },
+  removePhotoText: { fontSize: 13, fontFamily: 'Inter_400Regular', color: C.open },
+  photoPickerRow: { flexDirection: 'row', gap: 10, marginTop: 4, marginBottom: 8 },
+  photoPickerBtn: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, paddingVertical: 12, backgroundColor: C.primaryBg, borderRadius: 10, borderWidth: 1, borderColor: C.primary + '40' },
+  photoPickerText: { fontSize: 13, fontFamily: 'Inter_600SemiBold', color: C.primary },
 });

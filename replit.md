@@ -95,6 +95,15 @@ The Supabase schema is defined in `lib/schema.sql`. Run it in the Supabase SQL E
 - **`app/(tabs)/admin.tsx`** — Suppression de `genId()` locale ; import depuis `lib/utils.ts`
 - **`app/reserve/[id].tsx`** — Affichage de la "Date de levée" (`closedAt`) et "Clôturé par" (`closedBy`) dans le détail d'une réserve clôturée
 
+**Session 7 (actuelle) — Audit complet : corrections et améliorations :**
+- **`app/journal.tsx`** — Persistence AsyncStorage : les entrées du journal de chantier sont maintenant sauvegardées dans `buildtrack_journal_v1` et rechargées à chaque ouverture. Données non perdues entre les sessions.
+- **`app/meeting-report.tsx`** — Persistence AsyncStorage : les CR de réunion sont sauvegardés dans `buildtrack_meetings_v1` et rechargés à l'ouverture. Document légal désormais persistant.
+- **`app/checklist.tsx`** — Persistence AsyncStorage : les checklists sauvegardées dans `buildtrack_checklists_v1`. Correction du modèle `Checklist` (ajout des champs requis manquants : `type`, `building`, `zone`, `level`, `status`). La checklist passe automatiquement au statut `completed` quand tous les points sont cochés, avec horodatage.
+- **`constants/types.ts`** — Ajout de `photoUri?: string` sur l'interface `Incident` pour la photo de preuve.
+- **`app/(tabs)/incidents.tsx`** — (1) Photo de preuve : ajout d'un sélecteur caméra/galerie dans le formulaire d'incident, affichage de la photo en miniature sur la carte. (2) Clôture automatique : passage au statut `Résolu` enregistre automatiquement `closedAt` (date ISO) et `closedBy` (nom de l'utilisateur), affichés sur la carte. (3) Imports nettoyés.
+- **`context/IncidentsContext.tsx`** — Mapping `photo_uri` ↔ `photoUri` dans `toIncident()` et `syncToSupabase()` pour persistance Supabase de la photo d'incident.
+- **`app/(tabs)/_layout.tsx`** — L'onglet **Équipes** est maintenant visible dans la barre de navigation principale (icône `people`, libellé "Équipes"). Auparavant masqué avec `href: null`.
+
 **Session 6 (actuelle) — Corrections audit complet :**
 - **`app/task/[id].tsx`** — Corrigé deux bugs de champs incorrects : `c.text` → `c.content` (interface `Comment`) et `h.date` → `h.createdAt` (interface `HistoryEntry`). Les commentaires et l'historique des tâches s'affichent maintenant correctement (C5).
 - **`constants/types.ts`** — `MeetingReport` : refonte complète de l'interface pour correspondre à l'implémentation réelle dans `meeting-report.tsx` (champs `subject`, `participants`, `redactedBy`, `decisions: string[]`, `actions: MeetingReportAction[]`, `notes`, etc.). `JournalEntry` : correction des champs `workforce/issues` → `workerCount: number / incidents: string` + ajout de `materials` et `observations`. Ajout de `MeetingReportAction` interface.

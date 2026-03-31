@@ -1,5 +1,6 @@
 import { View, Text, StyleSheet, ScrollView, TextInput, TouchableOpacity, Alert, Platform } from 'react-native';
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Ionicons } from '@expo/vector-icons';
 import * as Print from 'expo-print';
 import * as Sharing from 'expo-sharing';
@@ -9,6 +10,7 @@ import { useSettings } from '@/context/SettingsContext';
 import Header from '@/components/Header';
 import { MeetingReport } from '@/constants/types';
 
+const MEETING_KEY = 'buildtrack_meetings_v1';
 function genId() { return Math.random().toString(36).slice(2, 10); }
 
 function buildMeetingHTML(report: MeetingReport, projectName: string): string {
@@ -53,6 +55,12 @@ export default function MeetingReportScreen() {
   const { user, permissions } = useAuth();
   const { projectName } = useSettings();
   const [reports, setReports] = useState<MeetingReport[]>([]);
+
+  useEffect(() => {
+    AsyncStorage.getItem(MEETING_KEY).then(raw => {
+      if (raw) { try { setReports(JSON.parse(raw)); } catch {} }
+    });
+  }, []);
   const [showNew, setShowNew] = useState(false);
   const [subject, setSubject] = useState('');
   const [date, setDate] = useState(new Date().toLocaleDateString('fr-FR'));
@@ -87,7 +95,11 @@ export default function MeetingReportScreen() {
       redactedBy: user?.name ?? 'Équipe',
       createdAt: new Date().toLocaleDateString('fr-FR'),
     };
-    setReports(prev => [report, ...prev]);
+    setReports(prev => {
+      const updated = [report, ...prev];
+      AsyncStorage.setItem(MEETING_KEY, JSON.stringify(updated)).catch(() => {});
+      return updated;
+    });
     resetForm();
     setShowNew(false);
   }, [subject, date, location, participants, agenda, notes, decisions, nextMeeting, user]);

@@ -1,11 +1,13 @@
 import { View, Text, StyleSheet, ScrollView, TextInput, TouchableOpacity, Alert } from 'react-native';
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Ionicons } from '@expo/vector-icons';
 import { C } from '@/constants/colors';
 import { useAuth } from '@/context/AuthContext';
 import Header from '@/components/Header';
 import { Checklist, ChecklistItem } from '@/constants/types';
 
+const CHECKLIST_KEY = 'buildtrack_checklists_v1';
 function genId() { return Math.random().toString(36).slice(2, 10); }
 
 const TEMPLATE_ITEMS = [
@@ -23,6 +25,12 @@ export default function ChecklistScreen() {
   const { user, permissions } = useAuth();
   const [checklists, setChecklists] = useState<Checklist[]>([]);
   const [showNew, setShowNew] = useState(false);
+
+  useEffect(() => {
+    AsyncStorage.getItem(CHECKLIST_KEY).then(raw => {
+      if (raw) { try { setChecklists(JSON.parse(raw)); } catch {} }
+    });
+  }, []);
   const [newTitle, setNewTitle] = useState('');
   const [newItems, setNewItems] = useState<string[]>([...TEMPLATE_ITEMS]);
   const [newItemText, setNewItemText] = useState('');
@@ -41,11 +49,20 @@ export default function ChecklistScreen() {
     const checklist: Checklist = {
       id: genId(),
       title: newTitle.trim(),
+      type: 'custom',
+      building: '',
+      zone: '',
+      level: '',
+      status: 'in_progress',
       items,
       createdAt: new Date().toLocaleDateString('fr-FR'),
       createdBy: user?.name ?? 'Équipe',
     };
-    setChecklists(prev => [checklist, ...prev]);
+    setChecklists(prev => {
+      const updated = [checklist, ...prev];
+      AsyncStorage.setItem(CHECKLIST_KEY, JSON.stringify(updated)).catch(() => {});
+      return updated;
+    });
     setNewTitle('');
     setNewItems([...TEMPLATE_ITEMS]);
     setShowNew(false);
@@ -53,15 +70,21 @@ export default function ChecklistScreen() {
 
   const toggleItem = useCallback((checklistId: string, itemId: string) => {
     if (!permissions.canEdit) return;
-    setChecklists(prev => prev.map(cl => {
-      if (cl.id !== checklistId) return cl;
-      return {
-        ...cl,
-        items: cl.items.map(it =>
-          it.id === itemId ? { ...it, checked: !it.checked } : it
-        ),
-      };
-    }));
+    setChecklists(prev => {
+      const updated = prev.map(cl => {
+        if (cl.id !== checklistId) return cl;
+        const newItems = cl.items.map(it => it.id === itemId ? { ...it, checked: !it.checked } : it);
+        const allChecked = newItems.length > 0 && newItems.every(it => it.checked);
+        return {
+          ...cl,
+          items: newItems,
+          status: allChecked ? 'completed' : newItems.some(it => it.checked) ? 'in_progress' : 'draft',
+          completedAt: allChecked ? new Date().toLocaleDateString('fr-FR') : undefined,
+        } as Checklist;
+      });
+      AsyncStorage.setItem(CHECKLIST_KEY, JSON.stringify(updated)).catch(() => {});
+      return updated;
+    });
   }, [permissions.canEdit]);
 
   const getProgress = (cl: Checklist) => {

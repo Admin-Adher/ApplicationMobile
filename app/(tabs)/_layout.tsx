@@ -94,7 +94,10 @@ export default function TabLayout() {
       />
       <Tabs.Screen
         name="equipes"
-        options={{ href: null }}
+        options={{
+          title: 'Équipes',
+          tabBarIcon: ({ color, size }) => <TabIcon name="people" color={color} size={size} />,
+        }}
       />
       <Tabs.Screen
         name="admin"

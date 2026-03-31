@@ -1,5 +1,6 @@
 import { View, Text, StyleSheet, ScrollView, TextInput, TouchableOpacity, Alert, Platform } from 'react-native';
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Ionicons } from '@expo/vector-icons';
 import * as Print from 'expo-print';
 import * as Sharing from 'expo-sharing';
@@ -10,6 +11,7 @@ import { useApp } from '@/context/AppContext';
 import Header from '@/components/Header';
 import { JournalEntry } from '@/constants/types';
 
+const JOURNAL_KEY = 'buildtrack_journal_v1';
 function genId() { return Math.random().toString(36).slice(2, 10); }
 
 const WEATHER_OPTIONS = ['☀️ Ensoleillé', '⛅ Nuageux', '🌧️ Pluie', '🌩️ Orage', '❄️ Neige', '💨 Vent fort'];
@@ -47,6 +49,12 @@ export default function JournalScreen() {
   const { companies } = useApp();
   const [entries, setEntries] = useState<JournalEntry[]>([]);
   const [showNew, setShowNew] = useState(false);
+
+  useEffect(() => {
+    AsyncStorage.getItem(JOURNAL_KEY).then(raw => {
+      if (raw) { try { setEntries(JSON.parse(raw)); } catch {} }
+    });
+  }, []);
   const [date, setDate] = useState(new Date().toLocaleDateString('fr-FR'));
   const [weather, setWeather] = useState('☀️ Ensoleillé');
   const [workerCount, setWorkerCount] = useState('');
@@ -79,7 +87,11 @@ export default function JournalScreen() {
       author: user?.name ?? 'Équipe',
       createdAt: new Date().toISOString(),
     };
-    setEntries(prev => [entry, ...prev]);
+    setEntries(prev => {
+      const updated = [entry, ...prev];
+      AsyncStorage.setItem(JOURNAL_KEY, JSON.stringify(updated)).catch(() => {});
+      return updated;
+    });
     resetForm();
     setShowNew(false);
   }, [date, weather, workerCount, workDone, materials, incidents, observations, visiteur, user]);
