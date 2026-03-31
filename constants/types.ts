@@ -1,13 +1,16 @@
 export type ReserveStatus = 'open' | 'in_progress' | 'waiting' | 'verification' | 'closed';
 export type ReservePriority = 'low' | 'medium' | 'high' | 'critical';
+export type ReserveKind = 'reserve' | 'observation';
 export type TaskStatus = 'todo' | 'in_progress' | 'done' | 'delayed';
 export type DocumentType = 'plan' | 'report' | 'technical' | 'photo' | 'other';
-export type UserRole = 'super_admin' | 'admin' | 'conducteur' | 'chef_equipe' | 'observateur';
+export type UserRole = 'super_admin' | 'admin' | 'conducteur' | 'chef_equipe' | 'observateur' | 'sous_traitant';
 export type SubscriptionStatus = 'trial' | 'active' | 'suspended' | 'expired';
 export type PlanName = 'Starter' | 'Pro' | 'Entreprise';
 export type IncidentSeverity = 'minor' | 'moderate' | 'major' | 'critical';
 export type IncidentStatus = 'open' | 'investigating' | 'resolved';
 export type ChantierStatus = 'active' | 'completed' | 'paused';
+export type VisiteStatus = 'planned' | 'in_progress' | 'completed';
+export type OprStatus = 'draft' | 'in_progress' | 'signed';
 
 export interface User {
   id: string;
@@ -16,6 +19,7 @@ export interface User {
   roleLabel: string;
   email: string;
   organizationId?: string;
+  companyId?: string;
 }
 
 export interface Organization {
@@ -92,6 +96,55 @@ export interface SitePlan {
   size?: string;
 }
 
+export interface Lot {
+  id: string;
+  code: string;
+  name: string;
+  color: string;
+  chantierId?: string;
+  companyId?: string;
+}
+
+export interface Visite {
+  id: string;
+  chantierId: string;
+  title: string;
+  date: string;
+  conducteur: string;
+  status: VisiteStatus;
+  building?: string;
+  level?: string;
+  notes?: string;
+  reserveIds: string[];
+  createdAt: string;
+}
+
+export interface OprItem {
+  id: string;
+  lotId?: string;
+  lotName: string;
+  description: string;
+  status: 'ok' | 'reserve' | 'non_applicable';
+  reserveId?: string;
+  note?: string;
+}
+
+export interface Opr {
+  id: string;
+  chantierId: string;
+  title: string;
+  date: string;
+  building: string;
+  level: string;
+  conducteur: string;
+  status: OprStatus;
+  items: OprItem[];
+  signedBy?: string;
+  signedAt?: string;
+  maireOuvrage?: string;
+  createdAt: string;
+}
+
 export interface Reserve {
   id: string;
   title: string;
@@ -102,6 +155,9 @@ export interface Reserve {
   company: string;
   priority: ReservePriority;
   status: ReserveStatus;
+  kind?: ReserveKind;
+  lotId?: string;
+  visiteId?: string;
   createdAt: string;
   deadline: string;
   comments: Comment[];
@@ -129,6 +185,7 @@ export interface Company {
   siret?: string;
   insurance?: string;
   qualifications?: string;
+  lots?: string[];
 }
 
 export interface Task {

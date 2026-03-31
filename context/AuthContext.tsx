@@ -7,11 +7,12 @@ const ROLE_PERMISSIONS: Record<UserRole, {
   canExport: boolean; canManageTeams: boolean;
   canViewTeams: boolean; canUpdateAttendance: boolean;
 }> = {
-  super_admin: { canCreate: true,  canEdit: true,  canDelete: true,  canExport: true,  canManageTeams: true,  canViewTeams: true,  canUpdateAttendance: true  },
-  admin:       { canCreate: true,  canEdit: true,  canDelete: true,  canExport: true,  canManageTeams: true,  canViewTeams: true,  canUpdateAttendance: true  },
-  conducteur:  { canCreate: true,  canEdit: true,  canDelete: false, canExport: true,  canManageTeams: true,  canViewTeams: true,  canUpdateAttendance: true  },
-  chef_equipe: { canCreate: true,  canEdit: true,  canDelete: false, canExport: false, canManageTeams: false, canViewTeams: true,  canUpdateAttendance: true  },
-  observateur: { canCreate: false, canEdit: false, canDelete: false, canExport: true,  canManageTeams: false, canViewTeams: false, canUpdateAttendance: false },
+  super_admin:    { canCreate: true,  canEdit: true,  canDelete: true,  canExport: true,  canManageTeams: true,  canViewTeams: true,  canUpdateAttendance: true  },
+  admin:          { canCreate: true,  canEdit: true,  canDelete: true,  canExport: true,  canManageTeams: true,  canViewTeams: true,  canUpdateAttendance: true  },
+  conducteur:     { canCreate: true,  canEdit: true,  canDelete: false, canExport: true,  canManageTeams: true,  canViewTeams: true,  canUpdateAttendance: true  },
+  chef_equipe:    { canCreate: true,  canEdit: true,  canDelete: false, canExport: false, canManageTeams: false, canViewTeams: true,  canUpdateAttendance: true  },
+  observateur:    { canCreate: false, canEdit: false, canDelete: false, canExport: true,  canManageTeams: false, canViewTeams: false, canUpdateAttendance: false },
+  sous_traitant:  { canCreate: false, canEdit: true,  canDelete: false, canExport: false, canManageTeams: false, canViewTeams: false, canUpdateAttendance: false },
 };
 
 const ROLE_LABELS: Record<UserRole, string> = {
@@ -20,6 +21,7 @@ const ROLE_LABELS: Record<UserRole, string> = {
   conducteur: 'Conducteur de travaux',
   chef_equipe: "Chef d'équipe",
   observateur: 'Observateur',
+  sous_traitant: 'Sous-traitant',
 };
 
 const DEMO_USERS = [

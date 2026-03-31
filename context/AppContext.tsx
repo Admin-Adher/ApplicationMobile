@@ -1,7 +1,7 @@
 import React, { createContext, useContext, useEffect, useReducer, useRef, useState } from 'react';
 import { Alert } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { Reserve, Company, Task, Document, Photo, Message, Channel, Profile, Comment, ReserveStatus, ReservePriority, TaskStatus, Chantier, SitePlan, ChantierStatus } from '@/constants/types';
+import { Reserve, Company, Task, Document, Photo, Message, Channel, Profile, Comment, ReserveStatus, ReservePriority, TaskStatus, Chantier, SitePlan, ChantierStatus, Visite, Lot, Opr } from '@/constants/types';
 import { supabase, isSupabaseConfigured } from '@/lib/supabase';
 import { initStorageBuckets } from '@/lib/storage';
 import { C } from '@/constants/colors';
@@ -24,6 +24,9 @@ const MOCK_PHOTOS_KEY = 'buildtrack_mock_photos_v3';
 const MOCK_MESSAGES_KEY = 'buildtrack_mock_messages_v1';
 const MOCK_CHANTIERS_KEY = 'buildtrack_mock_chantiers_v1';
 const MOCK_SITE_PLANS_KEY = 'buildtrack_mock_site_plans_v1';
+const MOCK_VISITES_KEY = 'buildtrack_mock_visites_v1';
+const MOCK_LOTS_KEY = 'buildtrack_mock_lots_v1';
+const MOCK_OPRS_KEY = 'buildtrack_mock_oprs_v1';
 const ACTIVE_CHANTIER_KEY = 'buildtrack_active_chantier_v1';
 const MAX_PINNED = 5;
 
@@ -44,10 +47,25 @@ interface AppState {
   chantiers: Chantier[];
   sitePlans: SitePlan[];
   activeChantierId: string | null;
+  visites: Visite[];
+  lots: Lot[];
+  oprs: Opr[];
 }
 
 type Action =
-  | { type: 'INIT'; payload: Omit<AppState, 'isLoading' | 'lastReadByChannel' | 'customChannels' | 'groupChannels' | 'pinnedChannelIds' | 'channelMembersOverride' | 'chantiers' | 'sitePlans' | 'activeChantierId'> }
+  | { type: 'INIT'; payload: Omit<AppState, 'isLoading' | 'lastReadByChannel' | 'customChannels' | 'groupChannels' | 'pinnedChannelIds' | 'channelMembersOverride' | 'chantiers' | 'sitePlans' | 'activeChantierId' | 'visites' | 'lots' | 'oprs'> }
+  | { type: 'SET_VISITES'; payload: Visite[] }
+  | { type: 'ADD_VISITE'; payload: Visite }
+  | { type: 'UPDATE_VISITE'; payload: Visite }
+  | { type: 'DELETE_VISITE'; payload: string }
+  | { type: 'SET_LOTS'; payload: Lot[] }
+  | { type: 'ADD_LOT'; payload: Lot }
+  | { type: 'UPDATE_LOT'; payload: Lot }
+  | { type: 'DELETE_LOT'; payload: string }
+  | { type: 'SET_OPRS'; payload: Opr[] }
+  | { type: 'ADD_OPR'; payload: Opr }
+  | { type: 'UPDATE_OPR'; payload: Opr }
+  | { type: 'DELETE_OPR'; payload: string }
   | { type: 'ADD_CHANTIER'; payload: Chantier }
   | { type: 'UPDATE_CHANTIER'; payload: Chantier }
   | { type: 'DELETE_CHANTIER'; payload: string }
@@ -191,8 +209,26 @@ function reducer(state: AppState, action: Action): AppState {
         chantiers: state.chantiers,
         sitePlans: state.sitePlans,
         activeChantierId: state.activeChantierId,
+        visites: state.visites,
+        lots: state.lots,
+        oprs: state.oprs,
         isLoading: false,
       };
+
+    case 'SET_VISITES': return { ...state, visites: action.payload };
+    case 'ADD_VISITE': return { ...state, visites: [action.payload, ...state.visites] };
+    case 'UPDATE_VISITE': return { ...state, visites: state.visites.map(v => v.id === action.payload.id ? action.payload : v) };
+    case 'DELETE_VISITE': return { ...state, visites: state.visites.filter(v => v.id !== action.payload) };
+
+    case 'SET_LOTS': return { ...state, lots: action.payload };
+    case 'ADD_LOT': return { ...state, lots: [...state.lots, action.payload] };
+    case 'UPDATE_LOT': return { ...state, lots: state.lots.map(l => l.id === action.payload.id ? action.payload : l) };
+    case 'DELETE_LOT': return { ...state, lots: state.lots.filter(l => l.id !== action.payload) };
+
+    case 'SET_OPRS': return { ...state, oprs: action.payload };
+    case 'ADD_OPR': return { ...state, oprs: [action.payload, ...state.oprs] };
+    case 'UPDATE_OPR': return { ...state, oprs: state.oprs.map(o => o.id === action.payload.id ? action.payload : o) };
+    case 'DELETE_OPR': return { ...state, oprs: state.oprs.filter(o => o.id !== action.payload) };
 
     case 'ADD_CHANTIER':
       return { ...state, chantiers: [...state.chantiers, action.payload] };
@@ -431,6 +467,15 @@ interface AppContextValue extends AppState {
     waiting: number; verification: number; closed: number;
     progress: number; totalWorkers: number; plannedWorkers: number;
   };
+  addVisite: (v: Visite) => void;
+  updateVisite: (v: Visite) => void;
+  deleteVisite: (id: string) => void;
+  addLot: (l: Lot) => void;
+  updateLot: (l: Lot) => void;
+  deleteLot: (id: string) => void;
+  addOpr: (o: Opr) => void;
+  updateOpr: (o: Opr) => void;
+  deleteOpr: (id: string) => void;
 }
 
 const AppContext = createContext<AppContextValue | null>(null);
@@ -510,6 +555,54 @@ const MOCK_PROFILES: Profile[] = [
   { id: 'demo-3', name: 'Pierre Lambert', role: 'observateur', roleLabel: 'Observateur', email: 'p.lambert@buildtrack.fr' },
 ];
 
+export const STANDARD_LOTS: Lot[] = [
+  { id: 'lot-00', code: '00', name: 'VRD / Terrassement', color: '#78716C' },
+  { id: 'lot-01', code: '01', name: 'Gros œuvre / Maçonnerie', color: '#3B82F6' },
+  { id: 'lot-02', code: '02', name: 'Charpente / Couverture', color: '#8B5CF6' },
+  { id: 'lot-03', code: '03', name: 'Étanchéité', color: '#06B6D4' },
+  { id: 'lot-04', code: '04', name: 'Menuiseries extérieures', color: '#F59E0B' },
+  { id: 'lot-05', code: '05', name: 'Menuiseries intérieures', color: '#D97706' },
+  { id: 'lot-06', code: '06', name: 'Isolation thermique', color: '#10B981' },
+  { id: 'lot-07', code: '07', name: 'Plâtrerie / Doublage', color: '#EC4899' },
+  { id: 'lot-08', code: '08', name: 'Carrelage / Revêtements', color: '#EF4444' },
+  { id: 'lot-09', code: '09', name: 'Peinture / Finitions', color: '#6366F1' },
+  { id: 'lot-10', code: '10', name: 'Plomberie / Sanitaire', color: '#0EA5E9' },
+  { id: 'lot-11', code: '11', name: 'Chauffage / Climatisation', color: '#F97316' },
+  { id: 'lot-12', code: '12', name: 'Électricité / Courants forts', color: '#FBBF24' },
+  { id: 'lot-13', code: '13', name: 'Courants faibles / Réseaux', color: '#A78BFA' },
+  { id: 'lot-14', code: '14', name: 'Ascenseurs / Élévateurs', color: '#34D399' },
+  { id: 'lot-15', code: '15', name: 'Espaces verts / Aménagements', color: '#22C55E' },
+];
+
+const MOCK_VISITES: Visite[] = [
+  {
+    id: 'vis-001',
+    chantierId: 'chan1',
+    title: 'Visite de contrôle — Semaine 12',
+    date: '25/03/2026',
+    conducteur: 'Jean Dupont',
+    status: 'completed',
+    building: 'A',
+    level: 'RDC',
+    notes: 'Visite complète bâtiment A, relevé des désordres structurels et finitions.',
+    reserveIds: ['RSV-001', 'RSV-003', 'RSV-007'],
+    createdAt: '2026-03-25',
+  },
+  {
+    id: 'vis-002',
+    chantierId: 'chan1',
+    title: 'Visite plomberie — Bât. B',
+    date: '28/03/2026',
+    conducteur: 'Jean Dupont',
+    status: 'completed',
+    building: 'B',
+    level: 'Sous-sol',
+    notes: 'Contrôle réseau plomberie suite fuite RSV-002.',
+    reserveIds: ['RSV-002', 'RSV-008'],
+    createdAt: '2026-03-28',
+  },
+];
+
 export function AppProvider({ children }: { children: React.ReactNode }) {
   const [state, dispatch] = useReducer(reducer, {
     reserves: [], companies: [], tasks: [],
@@ -518,6 +611,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     profiles: [], customChannels: [], groupChannels: [], pinnedChannelIds: [],
     channelMembersOverride: {},
     chantiers: [], sitePlans: [], activeChantierId: null,
+    visites: [], lots: [], oprs: [],
   });
 
   const [notification, setNotification] = useState<{ msg: Message; channelName: string; channelColor: string; channelIcon: string } | null>(null);
@@ -620,6 +714,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     let chantiers: Chantier[] = MOCK_CHANTIERS;
     let sitePlans: SitePlan[] = MOCK_SITE_PLANS;
     let activeChantierId: string | null = MOCK_CHANTIERS[0]?.id ?? null;
+    let visites: Visite[] = MOCK_VISITES;
+    let lots: Lot[] = STANDARD_LOTS;
+    let oprs: Opr[] = [];
 
     try {
       const sr = await AsyncStorage.getItem(MOCK_RESERVES_KEY);
@@ -654,6 +751,18 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       const sac = await AsyncStorage.getItem(ACTIVE_CHANTIER_KEY);
       if (sac) activeChantierId = sac;
     } catch {}
+    try {
+      const sv = await AsyncStorage.getItem(MOCK_VISITES_KEY);
+      if (sv) { const p = JSON.parse(sv); if (Array.isArray(p)) visites = p; }
+    } catch {}
+    try {
+      const sl = await AsyncStorage.getItem(MOCK_LOTS_KEY);
+      if (sl) { const p = JSON.parse(sl); if (Array.isArray(p) && p.length > 0) lots = p; }
+    } catch {}
+    try {
+      const so = await AsyncStorage.getItem(MOCK_OPRS_KEY);
+      if (so) { const p = JSON.parse(so); if (Array.isArray(p)) oprs = p; }
+    } catch {}
 
     dispatch({
       type: 'INIT',
@@ -669,6 +778,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     });
     dispatch({ type: 'SET_CHANTIERS', payload: chantiers });
     dispatch({ type: 'SET_SITE_PLANS', payload: sitePlans });
+    dispatch({ type: 'SET_VISITES', payload: visites });
+    dispatch({ type: 'SET_LOTS', payload: lots });
+    dispatch({ type: 'SET_OPRS', payload: oprs });
     if (activeChantierId) dispatch({ type: 'SET_ACTIVE_CHANTIER', payload: activeChantierId });
   }
 
@@ -689,6 +801,15 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }
   function persistMockSitePlans(plans: SitePlan[]) {
     AsyncStorage.setItem(MOCK_SITE_PLANS_KEY, JSON.stringify(plans)).catch(() => {});
+  }
+  function persistMockVisites(visites: Visite[]) {
+    AsyncStorage.setItem(MOCK_VISITES_KEY, JSON.stringify(visites)).catch(() => {});
+  }
+  function persistMockLots(lots: Lot[]) {
+    AsyncStorage.setItem(MOCK_LOTS_KEY, JSON.stringify(lots)).catch(() => {});
+  }
+  function persistMockOprs(oprs: Opr[]) {
+    AsyncStorage.setItem(MOCK_OPRS_KEY, JSON.stringify(oprs)).catch(() => {});
   }
 
   async function loadAll() {
@@ -1443,6 +1564,45 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     unpinChannel,
     maxPinnedChannels: MAX_PINNED,
     getOrCreateDMChannel,
+
+    addVisite: (v) => {
+      dispatch({ type: 'ADD_VISITE', payload: v });
+      persistMockVisites([v, ...stateRef.current.visites]);
+    },
+    updateVisite: (v) => {
+      dispatch({ type: 'UPDATE_VISITE', payload: v });
+      persistMockVisites(stateRef.current.visites.map(x => x.id === v.id ? v : x));
+    },
+    deleteVisite: (id) => {
+      dispatch({ type: 'DELETE_VISITE', payload: id });
+      persistMockVisites(stateRef.current.visites.filter(v => v.id !== id));
+    },
+
+    addLot: (l) => {
+      dispatch({ type: 'ADD_LOT', payload: l });
+      persistMockLots([...stateRef.current.lots, l]);
+    },
+    updateLot: (l) => {
+      dispatch({ type: 'UPDATE_LOT', payload: l });
+      persistMockLots(stateRef.current.lots.map(x => x.id === l.id ? l : x));
+    },
+    deleteLot: (id) => {
+      dispatch({ type: 'DELETE_LOT', payload: id });
+      persistMockLots(stateRef.current.lots.filter(l => l.id !== id));
+    },
+
+    addOpr: (o) => {
+      dispatch({ type: 'ADD_OPR', payload: o });
+      persistMockOprs([o, ...stateRef.current.oprs]);
+    },
+    updateOpr: (o) => {
+      dispatch({ type: 'UPDATE_OPR', payload: o });
+      persistMockOprs(stateRef.current.oprs.map(x => x.id === o.id ? o : x));
+    },
+    deleteOpr: (id) => {
+      dispatch({ type: 'DELETE_OPR', payload: id });
+      persistMockOprs(stateRef.current.oprs.filter(o => o.id !== id));
+    },
 
     activeChantier: state.chantiers.find(c => c.id === state.activeChantierId) ?? null,
 
