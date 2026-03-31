@@ -6,7 +6,6 @@ import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { C } from '@/constants/colors';
 import { useSubscription } from '@/context/SubscriptionContext';
-import { useAuth } from '@/context/AuthContext';
 import { SubscriptionStatus } from '@/constants/types';
 
 const STATUS_CONFIG: Record<SubscriptionStatus, { label: string; color: string; bg: string; icon: any }> = {
@@ -34,8 +33,7 @@ export default function SubscriptionScreen() {
   const bottomPad = Platform.OS === 'web' ? 34 : insets.bottom;
   const router = useRouter();
 
-  const { organization, plan, subscription, seatUsed, seatMax, isLoading } = useSubscription();
-  const { users } = useAuth();
+  const { organization, plan, subscription, seatUsed, seatMax, isLoading, orgUsers } = useSubscription();
 
   if (isLoading) {
     return (
@@ -128,7 +126,7 @@ export default function SubscriptionScreen() {
         </View>
 
         <Text style={styles.sectionTitle}>Membres actuels</Text>
-        {users.map((u, i) => {
+        {orgUsers.map((u, i) => {
           const colors = ['#3B82F6','#10B981','#F59E0B','#8B5CF6','#EF4444','#06B6D4','#EC4899'];
           const col = colors[i % colors.length];
           const initials = u.name.split(' ').map((w: string) => w[0]).slice(0, 2).join('').toUpperCase();

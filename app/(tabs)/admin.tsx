@@ -715,6 +715,19 @@ export default function AdminScreen() {
                 <View style={styles.tokenBox}>
                   <Text style={styles.tokenTxt} selectable>{inviteToken}</Text>
                 </View>
+                <TouchableOpacity
+                  style={[styles.copyBtn, tokenCopied && styles.copyBtnDone]}
+                  onPress={handleCopyToken}
+                >
+                  <Ionicons
+                    name={tokenCopied ? 'checkmark-circle' : 'copy-outline'}
+                    size={16}
+                    color={tokenCopied ? '#10B981' : C.primary}
+                  />
+                  <Text style={[styles.copyBtnTxt, tokenCopied && styles.copyBtnTxtDone]}>
+                    {tokenCopied ? 'Copié !' : 'Copier le code'}
+                  </Text>
+                </TouchableOpacity>
                 <Text style={styles.inviteHint}>
                   Ce code est valable 7 jours. L'utilisateur devra s'inscrire avec l'email {inviteEmail}.
                 </Text>
@@ -1024,4 +1037,13 @@ const styles = StyleSheet.create({
   },
   tokenTxt: { fontSize: 13, fontFamily: 'Inter_500Medium', color: C.text, textAlign: 'center', letterSpacing: 1 },
   inviteHint: { fontSize: 12, fontFamily: 'Inter_400Regular', color: C.textMuted, textAlign: 'center', marginBottom: 12, lineHeight: 17 },
+
+  copyBtn: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8,
+    borderRadius: 12, paddingVertical: 12, borderWidth: 1,
+    borderColor: C.primary, backgroundColor: C.primaryBg,
+  },
+  copyBtnDone: { borderColor: '#10B981', backgroundColor: '#ECFDF5' },
+  copyBtnTxt: { fontSize: 14, fontFamily: 'Inter_600SemiBold', color: C.primary },
+  copyBtnTxtDone: { color: '#10B981' },
 });
