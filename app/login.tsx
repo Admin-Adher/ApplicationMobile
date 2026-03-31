@@ -6,6 +6,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { C } from '@/constants/colors';
 import { useAuth } from '@/context/AuthContext';
+import { useApp } from '@/context/AppContext';
 
 const DEMO_ACCOUNTS = [
   { email: 'admin@buildtrack.fr', label: 'Admin', color: C.primary },
@@ -14,10 +15,18 @@ const DEMO_ACCOUNTS = [
   { email: 'p.lambert@buildtrack.fr', label: 'Observateur', color: C.textSub },
 ];
 
+const DEMO_USER_NAMES: Record<string, string> = {
+  'admin@buildtrack.fr':     'Admin Système',
+  'j.dupont@buildtrack.fr':  'Jean Dupont',
+  'm.martin@buildtrack.fr':  'Marie Martin',
+  'p.lambert@buildtrack.fr': 'Pierre Lambert',
+};
+
 export default function LoginScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const { login, seedStatus } = useAuth();
+  const { setCurrentUser } = useApp();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPass, setShowPass] = useState(false);
@@ -29,9 +38,13 @@ export default function LoginScreen() {
       return;
     }
     setLoading(true);
-    const result = await login(email.trim(), password);
+    const trimmedEmail = email.trim();
+    const result = await login(trimmedEmail, password);
     setLoading(false);
-    if (!result.success) {
+    if (result.success) {
+      const name = DEMO_USER_NAMES[trimmedEmail];
+      if (name) setCurrentUser(name);
+    } else {
       Alert.alert('Erreur de connexion', result.error ?? 'Une erreur est survenue.');
     }
   }

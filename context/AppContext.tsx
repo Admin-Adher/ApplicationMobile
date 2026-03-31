@@ -21,6 +21,7 @@ const CHANNEL_MEMBERS_OVERRIDE_KEY = 'channelMembersOverride_v1';
 const MOCK_RESERVES_KEY = 'buildtrack_mock_reserves_v2';
 const MOCK_TASKS_KEY = 'buildtrack_mock_tasks_v2';
 const MOCK_PHOTOS_KEY = 'buildtrack_mock_photos_v2';
+const MOCK_MESSAGES_KEY = 'buildtrack_mock_messages_v1';
 const MAX_PINNED = 5;
 
 interface AppState {
@@ -336,6 +337,7 @@ interface AppContextValue extends AppState {
   deleteCompany: (id: string) => void;
   updateCompanyHours: (id: string, hours: number) => void;
   reload: () => void;
+  setCurrentUser: (name: string) => void;
   addMessage: (channelId: string, content: string, options?: Partial<Pick<Message, 'replyToId' | 'replyToContent' | 'replyToSender' | 'attachmentUri' | 'mentions' | 'reserveId'>>, sender?: string) => void;
   incomingMessage: (msg: Message) => void;
   deleteMessage: (id: string) => void;
@@ -521,7 +523,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   async function loadMockData() {
     dispatch({ type: 'SET_LOADING', payload: true });
-    currentUserNameRef.current = 'Admin Système';
     await loadCustomChannels();
     await loadGroupChannels();
     await loadPinnedChannels();
@@ -534,6 +535,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     let reserves: Reserve[] = MOCK_RESERVES;
     let tasks: Task[] = MOCK_TASKS;
     let photos: Photo[] = MOCK_PHOTOS;
+    let messages: Message[] = MOCK_MESSAGES;
     try {
       const sr = await AsyncStorage.getItem(MOCK_RESERVES_KEY);
       if (sr) reserves = JSON.parse(sr);
@@ -546,6 +548,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       const sp = await AsyncStorage.getItem(MOCK_PHOTOS_KEY);
       if (sp) photos = JSON.parse(sp);
     } catch {}
+    try {
+      const sm = await AsyncStorage.getItem(MOCK_MESSAGES_KEY);
+      if (sm) messages = JSON.parse(sm);
+    } catch {}
 
     dispatch({
       type: 'INIT',
@@ -555,7 +561,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         tasks,
         documents: MOCK_DOCUMENTS,
         photos,
-        messages: MOCK_MESSAGES,
+        messages,
         profiles: MOCK_PROFILES,
       },
     });
@@ -569,6 +575,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }
   function persistMockPhotos(photos: Photo[]) {
     AsyncStorage.setItem(MOCK_PHOTOS_KEY, JSON.stringify(photos)).catch(() => {});
+  }
+  function persistMockMessages(messages: Message[]) {
+    AsyncStorage.setItem(MOCK_MESSAGES_KEY, JSON.stringify(messages)).catch(() => {});
   }
 
   async function loadAll() {
@@ -711,6 +720,30 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     const timer = setTimeout(() => setNotification(null), 4500);
     return () => clearTimeout(timer);
   }, [notification]);
+
+  useEffect(() => {
+    if (!isSupabaseConfigured) {
+      persistMockMessages(state.messages);
+    }
+  }, [state.messages]);
+
+  function setCurrentUser(name: string) {
+    currentUserNameRef.current = name;
+    if (!isSupabaseConfigured) {
+      dispatch({
+        type: 'INIT',
+        payload: {
+          reserves: stateRef.current.reserves,
+          companies: stateRef.current.companies,
+          tasks: stateRef.current.tasks,
+          documents: stateRef.current.documents,
+          photos: stateRef.current.photos,
+          messages: stateRef.current.messages.map(m => ({ ...m, isMe: m.sender === name })),
+          profiles: stateRef.current.profiles,
+        },
+      });
+    }
+  }
 
   const companyChannels: Channel[] = state.companies.map(co => ({
     id: `company-${co.id}`,
@@ -1120,6 +1153,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     },
 
     reload: loadAll,
+    setCurrentUser,
 
     addMessage: (channelId, content, options = {}, sender = 'Moi') => {
       const ts = new Date().toLocaleString('fr-FR', {
