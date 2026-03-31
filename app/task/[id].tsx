@@ -35,6 +35,7 @@ export default function EditTaskScreen() {
   const [description, setDescription] = useState(task?.description ?? '');
   const [status, setStatus] = useState<TaskStatus>(task?.status ?? 'todo');
   const [priority, setPriority] = useState<ReservePriority>(task?.priority ?? 'medium');
+  const [startDate, setStartDate] = useState(task?.startDate ? task.startDate.includes('/') ? task.startDate : (() => { const p = task.startDate!.split('-'); return `${p[2]}/${p[1]}/${p[0]}`; })() : '');
   const [deadline, setDeadline] = useState(task?.deadline ?? '');
   const [assignee, setAssignee] = useState(task?.assignee ?? '');
   const [company, setCompany] = useState(task?.company ?? companies[0]?.id ?? '');
@@ -57,6 +58,10 @@ export default function EditTaskScreen() {
       Alert.alert('Champ requis', 'Le titre est obligatoire.');
       return;
     }
+    if (startDate.trim() && !validateDeadline(startDate.trim())) {
+      Alert.alert('Date de début invalide', "Vérifiez le format (ex : 01/04/2026).");
+      return;
+    }
     if (deadline.trim() && !validateDeadline(deadline.trim())) {
       Alert.alert('Date invalide', "Vérifiez que le jour, le mois et l'année sont corrects (ex : 30/04/2026).");
       return;
@@ -67,6 +72,7 @@ export default function EditTaskScreen() {
       description: description.trim(),
       status,
       priority,
+      startDate: startDate.trim() || undefined,
       deadline: deadline.trim() || task!.deadline,
       assignee: assignee.trim() || task!.assignee,
       company: company.trim(),
@@ -154,6 +160,17 @@ export default function EditTaskScreen() {
               ))}
             </View>
           </ScrollView>
+
+          <Text style={styles.label}>Date de début (JJ/MM/AAAA) — optionnel</Text>
+          <TextInput
+            style={styles.input}
+            placeholder="Ex: 01/04/2026"
+            placeholderTextColor={C.textMuted}
+            value={startDate}
+            onChangeText={setStartDate}
+            keyboardType="numbers-and-punctuation"
+            editable={permissions.canEdit}
+          />
 
           <Text style={styles.label}>Échéance (JJ/MM/AAAA)</Text>
           <TextInput

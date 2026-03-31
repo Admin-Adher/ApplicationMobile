@@ -34,6 +34,7 @@ export default function NewTaskScreen() {
   const [description, setDescription] = useState('');
   const [status, setStatus] = useState<TaskStatus>('todo');
   const [priority, setPriority] = useState<ReservePriority>('medium');
+  const [startDate, setStartDate] = useState('');
   const [deadline, setDeadline] = useState('');
   const [assignee, setAssignee] = useState(user?.name ?? '');
   const [company, setCompany] = useState(companies[0]?.id ?? '');
@@ -68,6 +69,10 @@ export default function NewTaskScreen() {
       const d = new Date(Date.now() + 7 * 86400000);
       return `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}/${d.getFullYear()}`;
     })();
+    if (startDate.trim() && !validateDeadline(startDate.trim())) {
+      Alert.alert('Date de début invalide', "Vérifiez le format (ex : 01/04/2026).");
+      return;
+    }
     if (deadline.trim() && !validateDeadline(deadline.trim())) {
       Alert.alert('Date invalide', "Vérifiez que le jour, le mois et l'année sont corrects (ex : 30/04/2026).");
       return;
@@ -78,6 +83,7 @@ export default function NewTaskScreen() {
       description: description.trim(),
       status,
       priority,
+      startDate: startDate.trim() || undefined,
       deadline: deadlineValue,
       assignee: assignee.trim() || (user?.name ?? 'Équipe'),
       company: company.trim(),
@@ -140,6 +146,16 @@ export default function NewTaskScreen() {
               ))}
             </View>
           </ScrollView>
+
+          <Text style={styles.label}>Date de début (JJ/MM/AAAA) — optionnel</Text>
+          <TextInput
+            style={styles.input}
+            placeholder="Ex: 01/04/2026"
+            placeholderTextColor={C.textMuted}
+            value={startDate}
+            onChangeText={setStartDate}
+            keyboardType="numbers-and-punctuation"
+          />
 
           <Text style={styles.label}>Échéance (JJ/MM/AAAA)</Text>
           <TextInput
