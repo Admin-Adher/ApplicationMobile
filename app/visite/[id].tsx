@@ -1,7 +1,7 @@
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert, Platform } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert, Platform, Modal, TextInput, ActivityIndicator } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter, useLocalSearchParams } from 'expo-router';
-import { useMemo } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import * as Print from 'expo-print';
 import * as Sharing from 'expo-sharing';
 import { C } from '@/constants/colors';
@@ -10,6 +10,7 @@ import { useAuth } from '@/context/AuthContext';
 import { Visite, Reserve, VisiteStatus, OprStatus } from '@/constants/types';
 import Header from '@/components/Header';
 import BottomNavBar from '@/components/BottomNavBar';
+import SignaturePad, { SignaturePadRef } from '@/components/SignaturePad';
 
 const STATUS_CFG: Record<VisiteStatus, { label: string; color: string }> = {
   planned: { label: 'Planifiée', color: '#6366F1' },
@@ -149,15 +150,21 @@ function buildVisitePDF(visite: Visite, reserves: Reserve[], projectName: string
       <div style="display:flex;gap:32px;flex-wrap:wrap">
         <div style="flex:1;min-width:200px;border:1.5px solid #DDE4EE;border-radius:10px;padding:14px 18px">
           <div style="font-size:10px;color:#8FA3B5;text-transform:uppercase;letter-spacing:0.6px;margin-bottom:8px">Conducteur de travaux</div>
-          <div style="height:70px;border-bottom:2px solid #1A2742;margin-bottom:8px"></div>
+          ${visite.conducteurSignature
+            ? `<img src="${visite.conducteurSignature}" style="height:70px;width:100%;object-fit:contain;border-bottom:2px solid #1A2742;margin-bottom:8px;display:block" />`
+            : `<div style="height:70px;border-bottom:2px solid #1A2742;margin-bottom:8px"></div>`
+          }
           <div style="font-size:13px;color:#1A2742">${visite.conducteur}</div>
-          <div style="font-size:11px;color:#8FA3B5;margin-top:2px">Date : ${visite.date}</div>
+          <div style="font-size:11px;color:#8FA3B5;margin-top:2px">Date : ${visite.signedAt ?? visite.date}</div>
         </div>
         <div style="flex:1;min-width:200px;border:1.5px solid #DDE4EE;border-radius:10px;padding:14px 18px">
           <div style="font-size:10px;color:#8FA3B5;text-transform:uppercase;letter-spacing:0.6px;margin-bottom:8px">Lu et approuvé — Entreprise(s)</div>
-          <div style="height:70px;border-bottom:2px solid #1A2742;margin-bottom:8px"></div>
-          <div style="font-size:13px;color:#1A2742">&nbsp;</div>
-          <div style="font-size:11px;color:#8FA3B5;margin-top:2px">Date : &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</div>
+          ${visite.entrepriseSignature
+            ? `<img src="${visite.entrepriseSignature}" style="height:70px;width:100%;object-fit:contain;border-bottom:2px solid #1A2742;margin-bottom:8px;display:block" />`
+            : `<div style="height:70px;border-bottom:2px solid #1A2742;margin-bottom:8px"></div>`
+          }
+          <div style="font-size:13px;color:#1A2742">${visite.entrepriseSignataire ?? '&nbsp;'}</div>
+          <div style="font-size:11px;color:#8FA3B5;margin-top:2px">Date : ${visite.signedAt ?? '&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;'}</div>
         </div>
       </div>
     </div>
@@ -178,6 +185,13 @@ export default function VisiteDetailScreen() {
   const { permissions } = useAuth();
   const { useSettings } = require('@/context/SettingsContext');
   const { projectName } = useSettings();
+
+  const [signModalVisible, setSignModalVisible] = useState(false);
+  const [signingTab, setSigningTab] = useState<'conducteur' | 'entreprise'>('conducteur');
+  const [entrepriseSignataire, setEntrepriseSignataire] = useState('');
+  const [isSigning, setIsSigning] = useState(false);
+  const conducteurSigRef = useRef<SignaturePadRef>(null);
+  const entrepriseSigRef = useRef<SignaturePadRef>(null);
 
   const visite = visites.find(v => v.id === id);
   const visiteReserves = useMemo(
@@ -228,6 +242,28 @@ export default function VisiteDetailScreen() {
         },
       },
     ]);
+  }
+
+  async function handleSaveSignature() {
+    if (isSigning) return;
+    setIsSigning(true);
+    try {
+      const conducteurSig = conducteurSigRef.current?.getSVGData() ?? visite!.conducteurSignature ?? null;
+      const entrepriseSig = entrepriseSigRef.current?.getSVGData() ?? visite!.entrepriseSignature ?? null;
+      const today = new Date().toLocaleDateString('fr-FR');
+      updateVisite({
+        ...visite!,
+        conducteurSignature: conducteurSig ?? undefined,
+        entrepriseSignature: entrepriseSig ?? undefined,
+        signedAt: today,
+        entrepriseSignataire: entrepriseSignataire.trim() || visite!.entrepriseSignataire,
+        status: 'completed',
+      });
+      setSignModalVisible(false);
+      Alert.alert('PV signé', 'Les signatures ont été enregistrées. Le PV peut maintenant être exporté en PDF.');
+    } finally {
+      setIsSigning(false);
+    }
   }
 
   async function exportPDF() {
@@ -387,6 +423,22 @@ export default function VisiteDetailScreen() {
           })
         )}
 
+        {permissions.canEdit && (
+          <TouchableOpacity
+            style={[styles.signBtn, visite.signedAt && styles.signBtnSigned]}
+            onPress={() => setSignModalVisible(true)}
+          >
+            <Ionicons
+              name={visite.signedAt ? 'checkmark-circle' : 'pencil-outline'}
+              size={16}
+              color={visite.signedAt ? C.closed : C.primary}
+            />
+            <Text style={[styles.signBtnText, visite.signedAt && styles.signBtnTextSigned]}>
+              {visite.signedAt ? `PV signé le ${visite.signedAt}` : 'Signer le PV de visite'}
+            </Text>
+          </TouchableOpacity>
+        )}
+
         {permissions.canExport && (
           <TouchableOpacity style={styles.exportBtn} onPress={exportPDF}>
             <Ionicons name="document-text-outline" size={16} color={C.verification} />
@@ -394,6 +446,89 @@ export default function VisiteDetailScreen() {
           </TouchableOpacity>
         )}
       </ScrollView>
+
+      <Modal visible={signModalVisible} transparent animationType="slide" onRequestClose={() => setSignModalVisible(false)}>
+        <View style={styles.modalOverlay}>
+          <View style={styles.signModal}>
+            <View style={styles.signModalHeader}>
+              <Text style={styles.signModalTitle}>Signature du PV de visite</Text>
+              <TouchableOpacity onPress={() => setSignModalVisible(false)}>
+                <Ionicons name="close" size={22} color={C.text} />
+              </TouchableOpacity>
+            </View>
+
+            <View style={styles.signTabs}>
+              <TouchableOpacity
+                style={[styles.signTab, signingTab === 'conducteur' && styles.signTabActive]}
+                onPress={() => setSigningTab('conducteur')}
+              >
+                <Ionicons name="person-outline" size={13} color={signingTab === 'conducteur' ? C.primary : C.textSub} />
+                <Text style={[styles.signTabText, signingTab === 'conducteur' && styles.signTabTextActive]}>
+                  Conducteur
+                </Text>
+                {visite.conducteurSignature && <Ionicons name="checkmark-circle" size={12} color={C.closed} />}
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.signTab, signingTab === 'entreprise' && styles.signTabActive]}
+                onPress={() => setSigningTab('entreprise')}
+              >
+                <Ionicons name="business-outline" size={13} color={signingTab === 'entreprise' ? C.primary : C.textSub} />
+                <Text style={[styles.signTabText, signingTab === 'entreprise' && styles.signTabTextActive]}>
+                  Entreprise
+                </Text>
+                {visite.entrepriseSignature && <Ionicons name="checkmark-circle" size={12} color={C.closed} />}
+              </TouchableOpacity>
+            </View>
+
+            <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.signModalContent}>
+              {signingTab === 'conducteur' ? (
+                <View style={styles.signSection}>
+                  <Text style={styles.signSectionLabel}>Conducteur de travaux</Text>
+                  <Text style={styles.signSectionName}>{visite.conducteur}</Text>
+                  <Text style={styles.signInstruction}>Signez dans le cadre ci-dessous :</Text>
+                  <SignaturePad ref={conducteurSigRef} />
+                  <TouchableOpacity style={styles.clearBtn} onPress={() => conducteurSigRef.current?.clear()}>
+                    <Ionicons name="refresh-outline" size={14} color={C.textSub} />
+                    <Text style={styles.clearBtnText}>Effacer</Text>
+                  </TouchableOpacity>
+                </View>
+              ) : (
+                <View style={styles.signSection}>
+                  <Text style={styles.signSectionLabel}>Représentant de l'entreprise</Text>
+                  <TextInput
+                    style={styles.signNameInput}
+                    placeholder="Nom et prénom du signataire..."
+                    placeholderTextColor={C.textMuted}
+                    value={entrepriseSignataire}
+                    onChangeText={setEntrepriseSignataire}
+                  />
+                  <Text style={styles.signInstruction}>Signez dans le cadre ci-dessous :</Text>
+                  <SignaturePad ref={entrepriseSigRef} />
+                  <TouchableOpacity style={styles.clearBtn} onPress={() => entrepriseSigRef.current?.clear()}>
+                    <Ionicons name="refresh-outline" size={14} color={C.textSub} />
+                    <Text style={styles.clearBtnText}>Effacer</Text>
+                  </TouchableOpacity>
+                </View>
+              )}
+            </ScrollView>
+
+            <TouchableOpacity
+              style={[styles.saveSignBtn, isSigning && { opacity: 0.6 }]}
+              onPress={handleSaveSignature}
+              disabled={isSigning}
+            >
+              {isSigning ? (
+                <ActivityIndicator size="small" color="#fff" />
+              ) : (
+                <Ionicons name="checkmark-circle" size={18} color="#fff" />
+              )}
+              <Text style={styles.saveSignBtnText}>
+                {isSigning ? 'Enregistrement…' : 'Valider les signatures'}
+              </Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
 
       <BottomNavBar />
     </View>
@@ -474,4 +609,61 @@ const styles = StyleSheet.create({
     width: 2, height: 10, backgroundColor: C.border,
     alignSelf: 'center', marginVertical: 2,
   },
+
+  signBtn: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8,
+    backgroundColor: C.primary + '15', borderRadius: 14, paddingVertical: 14,
+    borderWidth: 1, borderColor: C.primary + '40', marginTop: 0, marginBottom: 10,
+  },
+  signBtnSigned: {
+    backgroundColor: C.closed + '10', borderColor: C.closed + '40',
+  },
+  signBtnText: { fontSize: 14, fontFamily: 'Inter_600SemiBold', color: C.primary },
+  signBtnTextSigned: { color: C.closed },
+
+  modalOverlay: {
+    flex: 1, backgroundColor: 'rgba(0,0,0,0.55)', justifyContent: 'flex-end',
+  },
+  signModal: {
+    backgroundColor: C.surface, borderTopLeftRadius: 20, borderTopRightRadius: 20,
+    maxHeight: '90%', paddingBottom: 34,
+  },
+  signModalHeader: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    padding: 18, borderBottomWidth: 1, borderBottomColor: C.border,
+  },
+  signModalTitle: { fontSize: 16, fontFamily: 'Inter_700Bold', color: C.text },
+  signTabs: {
+    flexDirection: 'row', borderBottomWidth: 1, borderBottomColor: C.border,
+  },
+  signTab: {
+    flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
+    gap: 6, paddingVertical: 12, borderBottomWidth: 2, borderBottomColor: 'transparent',
+  },
+  signTabActive: { borderBottomColor: C.primary },
+  signTabText: { fontSize: 13, fontFamily: 'Inter_500Medium', color: C.textSub },
+  signTabTextActive: { color: C.primary, fontFamily: 'Inter_600SemiBold' },
+  signModalContent: { padding: 18, paddingBottom: 8 },
+  signSection: { gap: 10 },
+  signSectionLabel: {
+    fontSize: 11, fontFamily: 'Inter_600SemiBold', color: C.textMuted,
+    textTransform: 'uppercase', letterSpacing: 0.5,
+  },
+  signSectionName: { fontSize: 15, fontFamily: 'Inter_600SemiBold', color: C.text },
+  signInstruction: { fontSize: 13, fontFamily: 'Inter_400Regular', color: C.textSub },
+  signNameInput: {
+    backgroundColor: C.bg, borderWidth: 1, borderColor: C.border, borderRadius: 10,
+    padding: 12, fontSize: 14, fontFamily: 'Inter_400Regular', color: C.text,
+  },
+  clearBtn: {
+    flexDirection: 'row', alignItems: 'center', gap: 5, alignSelf: 'flex-end',
+    paddingVertical: 4, paddingHorizontal: 10,
+  },
+  clearBtnText: { fontSize: 12, fontFamily: 'Inter_500Medium', color: C.textSub },
+  saveSignBtn: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8,
+    backgroundColor: C.primary, marginHorizontal: 18, marginTop: 12, borderRadius: 14,
+    paddingVertical: 14,
+  },
+  saveSignBtnText: { fontSize: 15, fontFamily: 'Inter_700Bold', color: '#fff' },
 });

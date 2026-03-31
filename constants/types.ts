@@ -118,6 +118,10 @@ export interface Visite {
   notes?: string;
   reserveIds: string[];
   createdAt: string;
+  conducteurSignature?: string;
+  entrepriseSignature?: string;
+  signedAt?: string;
+  entrepriseSignataire?: string;
 }
 
 export interface OprItem {

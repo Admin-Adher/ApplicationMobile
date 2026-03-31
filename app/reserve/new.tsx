@@ -181,7 +181,24 @@ export default function NewReserveScreen() {
       if (result.priority && ['low', 'medium', 'high', 'critical'].includes(result.priority)) {
         setPriority(result.priority as ReservePriority);
       }
-      const lotMsg = result.lot ? `\nCorps d'état détecté : ${result.lot}` : '';
+      let lotAutoSelected = false;
+      if (result.lot && lots.length > 0) {
+        const normalized = result.lot.toLowerCase().trim();
+        const matched = lots.find(l =>
+          l.name.toLowerCase().includes(normalized) ||
+          normalized.includes(l.name.toLowerCase()) ||
+          (l.code && l.code.toLowerCase() === normalized)
+        );
+        if (matched) {
+          setLotId(matched.id);
+          lotAutoSelected = true;
+        }
+      }
+      const lotMsg = result.lot
+        ? lotAutoSelected
+          ? `\nCorps d'état sélectionné automatiquement : ${result.lot}`
+          : `\nCorps d'état détecté : ${result.lot} (sélectionnez-le manuellement)`
+        : '';
       Alert.alert(
         '✓ Analyse IA complète',
         `Le titre, la description et la priorité ont été pré-remplis automatiquement.${lotMsg}\n\nVérifiez et ajustez si nécessaire.`
