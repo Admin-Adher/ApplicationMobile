@@ -1,8 +1,10 @@
-import { View, Text, StyleSheet, FlatList, TouchableOpacity, Alert, Image, Platform, ActivityIndicator, Modal, TextInput, ScrollView } from 'react-native';
+import { View, Text, StyleSheet, FlatList, TouchableOpacity, Alert, Image, Platform, ActivityIndicator, Modal, TextInput, ScrollView, Share } from 'react-native';
 import { KeyboardAvoidingView } from 'react-native-keyboard-controller';
 import { Ionicons } from '@expo/vector-icons';
 import { useState, useMemo } from 'react';
 import * as ImagePicker from 'expo-image-picker';
+import * as Sharing from 'expo-sharing';
+import * as FileSystem from 'expo-file-system';
 import { C } from '@/constants/colors';
 import { useApp } from '@/context/AppContext';
 import { useAuth } from '@/context/AuthContext';
@@ -46,6 +48,52 @@ export default function PhotosScreen() {
       `La photo a été partagée dans « ${channel.name} ». Vous pouvez la partager dans d'autres canaux ou fermer cette fenêtre.`,
       [{ text: 'OK' }]
     );
+  }
+
+  async function handleSystemShare() {
+    if (!sharePhoto) return;
+    const caption = shareCaption.trim() || sharePhoto.comment || 'Photo chantier BuildTrack';
+    const uri = sharePhoto.uri;
+
+    try {
+      if (Platform.OS === 'web') {
+        if (uri?.startsWith('http') && typeof navigator !== 'undefined' && (navigator as any).share) {
+          await (navigator as any).share({ title: caption, url: uri });
+        } else if (uri?.startsWith('http')) {
+          await (navigator as any).clipboard?.writeText(uri);
+          Alert.alert('Lien copié', 'Le lien de la photo a été copié. Collez-le dans WhatsApp ou toute autre application.');
+        } else {
+          Alert.alert('Partage non disponible', "Cette photo locale ne peut pas être partagée sur le web. Ajoutez-la d'abord au cloud via Supabase.");
+        }
+        return;
+      }
+
+      if (uri?.startsWith('http')) {
+        await Share.share({ message: `${caption}\n${uri}`, url: uri, title: caption });
+        return;
+      }
+
+      if (uri) {
+        const isAvailable = await Sharing.isAvailableAsync();
+        if (isAvailable) {
+          let fileUri = uri;
+          if (!uri.startsWith(FileSystem.documentDirectory ?? '')) {
+            const dest = FileSystem.cacheDirectory + `share_${Date.now()}.jpg`;
+            await FileSystem.copyAsync({ from: uri, to: dest });
+            fileUri = dest;
+          }
+          await Sharing.shareAsync(fileUri, { mimeType: 'image/jpeg', dialogTitle: caption });
+        } else {
+          Alert.alert('Non disponible', "Le partage de fichiers n'est pas disponible sur cet appareil.");
+        }
+        return;
+      }
+
+      Alert.alert('Aucune image', "Cette photo n'a pas d'URI valide pour le partage.");
+    } catch (err: any) {
+      if (err?.message?.includes('cancel') || err?.message?.includes('abort')) return;
+      Alert.alert('Erreur', `Impossible de partager la photo.\n${err?.message ?? ''}`);
+    }
   }
 
   function handleDeletePhoto(id: string, comment: string) {
@@ -335,14 +383,16 @@ export default function PhotosScreen() {
         <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={styles.modalOverlay}>
           <View style={styles.modalCard}>
             <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>Partager dans un canal</Text>
+              <Text style={styles.modalTitle}>Partager la photo</Text>
               <TouchableOpacity onPress={() => setShareModalVisible(false)} hitSlop={8}>
                 <Ionicons name="close" size={22} color={C.textSub} />
               </TouchableOpacity>
             </View>
+
             {sharePhoto?.uri && (
               <Image source={{ uri: sharePhoto.uri }} style={[styles.modalPreview, { height: 100 }]} resizeMode="cover" />
             )}
+
             <View style={styles.modalField}>
               <Text style={styles.modalLabel}>Légende (optionnel)</Text>
               <TextInput
@@ -353,8 +403,27 @@ export default function PhotosScreen() {
                 onChangeText={setShareCaption}
               />
             </View>
-            <Text style={styles.modalLabel}>Choisir un canal</Text>
-            <ScrollView style={{ maxHeight: 240 }} showsVerticalScrollIndicator={false}>
+
+            {/* Partage externe — WhatsApp, SMS, email, etc. */}
+            <TouchableOpacity style={styles.sysShareBtn} onPress={handleSystemShare} activeOpacity={0.8}>
+              <View style={styles.sysShareIcon}>
+                <Ionicons name="share-outline" size={20} color="#fff" />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.sysShareTitle}>Partager via WhatsApp, SMS…</Text>
+                <Text style={styles.sysShareSub}>Ouvre les applications installées sur l'appareil</Text>
+              </View>
+              <Ionicons name="chevron-forward" size={16} color="#fff" />
+            </TouchableOpacity>
+
+            {/* Séparateur */}
+            <View style={styles.shareSeparator}>
+              <View style={styles.separatorLine} />
+              <Text style={styles.separatorLabel}>ou partager dans un canal BuildTrack</Text>
+              <View style={styles.separatorLine} />
+            </View>
+
+            <ScrollView style={{ maxHeight: 200 }} showsVerticalScrollIndicator={false}>
               {channels.map(ch => (
                 <TouchableOpacity
                   key={ch.id}
@@ -492,6 +561,13 @@ const styles = StyleSheet.create({
   cancelBtnText: { fontSize: 14, fontFamily: 'Inter_600SemiBold', color: C.textSub },
   confirmBtn: { flex: 2, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, paddingVertical: 14, borderRadius: 12, backgroundColor: C.primary },
   confirmBtnText: { fontSize: 14, fontFamily: 'Inter_600SemiBold', color: '#fff' },
+  sysShareBtn: { flexDirection: 'row', alignItems: 'center', gap: 12, backgroundColor: '#25D366', borderRadius: 14, padding: 14, marginBottom: 14 },
+  sysShareIcon: { width: 36, height: 36, borderRadius: 18, backgroundColor: 'rgba(255,255,255,0.25)', alignItems: 'center', justifyContent: 'center' },
+  sysShareTitle: { fontSize: 14, fontFamily: 'Inter_700Bold', color: '#fff' },
+  sysShareSub: { fontSize: 11, fontFamily: 'Inter_400Regular', color: 'rgba(255,255,255,0.85)', marginTop: 2 },
+  shareSeparator: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 12 },
+  separatorLine: { flex: 1, height: 1, backgroundColor: C.border },
+  separatorLabel: { fontSize: 11, fontFamily: 'Inter_400Regular', color: C.textMuted, textAlign: 'center' },
   channelPickItem: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: C.border },
   channelPickIcon: { width: 36, height: 36, borderRadius: 10, alignItems: 'center', justifyContent: 'center' },
   channelPickName: { fontSize: 14, fontFamily: 'Inter_600SemiBold', color: C.text },
