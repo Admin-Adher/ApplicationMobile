@@ -9,7 +9,7 @@ import * as ImagePicker from 'expo-image-picker';
 import { C } from '@/constants/colors';
 import { useApp } from '@/context/AppContext';
 import { useAuth } from '@/context/AuthContext';
-import { ReservePriority, ReserveStatus } from '@/constants/types';
+import { ReserveKind, ReservePriority, ReserveStatus } from '@/constants/types';
 import Header from '@/components/Header';
 import DateInput from '@/components/DateInput';
 import { uploadPhoto } from '@/lib/storage';
@@ -51,17 +51,21 @@ function SelectRow<T extends string>({
 
 export default function NewReserveScreen() {
   const router = useRouter();
-  const { companies, addReserve, reserves, addPhoto, activeChantierId, sitePlans } = useApp();
+  const { companies, addReserve, reserves, addPhoto, activeChantierId, sitePlans, lots, linkReserveToVisite, visites } = useApp();
   const { user, permissions } = useAuth();
   const params = useLocalSearchParams<{
     building?: string; planX?: string; planY?: string;
     prefill_description?: string; prefill_source?: string;
-    chantierId?: string; planId?: string;
+    chantierId?: string; planId?: string; visiteId?: string;
   }>();
 
   const effectiveChantierId = params.chantierId ?? activeChantierId ?? undefined;
   const chantierPlans = sitePlans.filter(p => p.chantierId === effectiveChantierId);
 
+  const visiteId = params.visiteId;
+  const sourceVisite = visiteId ? visites.find(v => v.id === visiteId) : null;
+
+  const [kind, setKind] = useState<ReserveKind>('reserve');
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState(params.prefill_description ?? '');
   const [building, setBuilding] = useState(params.building ?? RESERVE_BUILDINGS[0]);
@@ -70,6 +74,7 @@ export default function NewReserveScreen() {
   const [company, setCompany] = useState(companies[0]?.name ?? '');
   const [priority, setPriority] = useState<ReservePriority>('medium');
   const [deadline, setDeadline] = useState('');
+  const [lotId, setLotId] = useState<string>('');
   const [selectedPlanId, setSelectedPlanId] = useState<string>(params.planId ?? chantierPlans[0]?.id ?? '');
   const [photoUri, setPhotoUri] = useState<string | null>(null);
   const [photoUploading, setPhotoUploading] = useState(false);
@@ -165,6 +170,7 @@ export default function NewReserveScreen() {
     const today = new Date().toISOString().slice(0, 10);
     addReserve({
       id,
+      kind,
       title: title.trim(),
       description: description.trim() || 'Aucune description fournie.',
       building,
@@ -176,40 +182,83 @@ export default function NewReserveScreen() {
       createdAt: today,
       deadline: deadline || '—',
       comments: [],
-      history: [{ id: 'h0', action: 'Réserve créée', author, createdAt: today }],
+      history: [{ id: 'h0', action: kind === 'observation' ? 'Observation créée' : 'Réserve créée', author, createdAt: today }],
       planX: presetX ?? undefined,
       planY: presetY ?? undefined,
       photoUri: photoUri ?? undefined,
       chantierId: effectiveChantierId,
       planId: selectedPlanId || undefined,
+      lotId: lotId || undefined,
+      visiteId: visiteId || undefined,
     });
+    if (visiteId) {
+      linkReserveToVisite(id, visiteId);
+    }
     if (photoUri) {
       addPhoto({
         id: genId(),
-        comment: `Photo réserve ${id} — ${title.trim()}`,
+        comment: `Photo ${kind === 'observation' ? 'observation' : 'réserve'} ${id} — ${title.trim()}`,
         location: `Bât. ${building} - ${level}`,
         takenAt: today,
         takenBy: author,
-        colorCode: '#EF4444',
+        colorCode: kind === 'observation' ? '#0EA5E9' : '#EF4444',
         uri: photoUri,
       });
     }
-    Alert.alert('Réserve créée', `${id} ajoutée avec succès.`, [
-      { text: 'OK', onPress: () => router.back() },
-    ]);
+    Alert.alert(
+      kind === 'observation' ? 'Observation créée' : 'Réserve créée',
+      `${id} ajouté${kind === 'observation' ? 'e' : 'e'} avec succès.`,
+      [{ text: 'OK', onPress: () => router.back() }]
+    );
   }
 
   return (
     <View style={styles.container}>
-      <Header title="Nouvelle réserve" showBack rightLabel="Créer" onRightPress={handleSubmit} />
+      <Header title={kind === 'observation' ? 'Nouvelle observation' : 'Nouvelle réserve'} showBack rightLabel="Créer" onRightPress={handleSubmit} />
 
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
-        {params.prefill_source ? (
+        {sourceVisite ? (
+          <View style={styles.visiteCard}>
+            <Ionicons name="eye-outline" size={14} color="#6366F1" />
+            <View style={{ flex: 1 }}>
+              <Text style={styles.visiteCardLabel}>Créé depuis la visite</Text>
+              <Text style={styles.visiteCardTitle}>{sourceVisite.title} — {sourceVisite.date}</Text>
+            </View>
+          </View>
+        ) : null}
+
+        {params.prefill_source && !sourceVisite ? (
           <View style={styles.sourceCard}>
             <Ionicons name="chatbubble-outline" size={14} color={C.inProgress} />
             <Text style={styles.sourceText}>Créé depuis : {params.prefill_source}</Text>
           </View>
         ) : null}
+
+        <View style={styles.card}>
+          <Text style={styles.label}>TYPE</Text>
+          <View style={styles.kindRow}>
+            <TouchableOpacity
+              style={[styles.kindChip, kind === 'reserve' && styles.kindChipReserve]}
+              onPress={() => setKind('reserve')}
+            >
+              <Ionicons name="warning-outline" size={14} color={kind === 'reserve' ? '#EF4444' : C.textSub} />
+              <Text style={[styles.kindChipText, kind === 'reserve' && { color: '#EF4444', fontFamily: 'Inter_700Bold' }]}>Réserve</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.kindChip, kind === 'observation' && styles.kindChipObservation]}
+              onPress={() => setKind('observation')}
+            >
+              <Ionicons name="eye-outline" size={14} color={kind === 'observation' ? '#0EA5E9' : C.textSub} />
+              <Text style={[styles.kindChipText, kind === 'observation' && { color: '#0EA5E9', fontFamily: 'Inter_700Bold' }]}>Observation</Text>
+            </TouchableOpacity>
+          </View>
+          {kind === 'observation' && (
+            <View style={styles.kindHintBox}>
+              <Ionicons name="information-circle-outline" size={13} color="#0EA5E9" />
+              <Text style={styles.kindHintText}>Une observation est un constat sans impact bloquant sur la réception.</Text>
+            </View>
+          )}
+        </View>
 
         <View style={styles.card}>
           <View style={styles.fieldGroup}>
@@ -283,6 +332,36 @@ export default function NewReserveScreen() {
             )}
           </View>
         </View>
+
+        {lots.length > 0 && (
+          <View style={styles.card}>
+            <View style={styles.fieldGroup}>
+              <Text style={styles.label}>Corps d'état (lot)</Text>
+              <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+                <View style={styles.chipRow}>
+                  <TouchableOpacity
+                    style={[styles.chip, !lotId && styles.chipActive]}
+                    onPress={() => setLotId('')}
+                  >
+                    <Text style={[styles.chipText, !lotId && styles.chipTextActive]}>Aucun</Text>
+                  </TouchableOpacity>
+                  {lots.map(lot => (
+                    <TouchableOpacity
+                      key={lot.id}
+                      style={[styles.chip, lotId === lot.id && { backgroundColor: (lot.color ?? C.primary) + '20', borderColor: lot.color ?? C.primary }]}
+                      onPress={() => setLotId(lot.id)}
+                    >
+                      {lot.color && <View style={[styles.lotDot, { backgroundColor: lot.color }]} />}
+                      <Text style={[styles.chipText, lotId === lot.id && { color: lot.color ?? C.primary }]} numberOfLines={1}>
+                        {lot.number ? `${lot.number}. ` : ''}{lot.name}
+                      </Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              </ScrollView>
+            </View>
+          </View>
+        )}
 
         {chantierPlans.length > 0 && (
           <View style={styles.card}>
@@ -377,9 +456,11 @@ export default function NewReserveScreen() {
           </View>
         </View>
 
-        <TouchableOpacity style={[styles.submitBtn, isSubmitting && { opacity: 0.6 }]} onPress={handleSubmit} disabled={isSubmitting}>
+        <TouchableOpacity style={[styles.submitBtn, isSubmitting && { opacity: 0.6 }, kind === 'observation' && styles.submitBtnObservation]} onPress={handleSubmit} disabled={isSubmitting}>
           <Ionicons name="add-circle" size={20} color="#fff" />
-          <Text style={styles.submitBtnText}>{isSubmitting ? 'Création...' : 'Créer la réserve'}</Text>
+          <Text style={styles.submitBtnText}>
+            {isSubmitting ? 'Création...' : kind === 'observation' ? 'Créer l\'observation' : 'Créer la réserve'}
+          </Text>
         </TouchableOpacity>
       </ScrollView>
     </View>
@@ -405,6 +486,7 @@ const styles = StyleSheet.create({
   chipText: { fontSize: 13, fontFamily: 'Inter_500Medium', color: C.textSub },
   chipTextActive: { color: C.primary },
   coDot: { width: 8, height: 8, borderRadius: 4 },
+  lotDot: { width: 7, height: 7, borderRadius: 3.5 },
   photoRow: { flexDirection: 'row', gap: 10 },
   photoBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, backgroundColor: C.surface2, borderRadius: 10, paddingVertical: 14, borderWidth: 1.5, borderColor: C.border },
   photoBtnText: { fontSize: 13, fontFamily: 'Inter_600SemiBold', color: C.primary },
@@ -420,7 +502,18 @@ const styles = StyleSheet.create({
   warningRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 8, backgroundColor: C.medium + '10', borderRadius: 10, padding: 12, borderWidth: 1, borderColor: C.medium + '30' },
   warningText: { flex: 1, fontSize: 13, fontFamily: 'Inter_400Regular', color: C.medium, lineHeight: 18 },
   submitBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', backgroundColor: C.primary, borderRadius: 14, paddingVertical: 16, gap: 8 },
+  submitBtnObservation: { backgroundColor: '#0EA5E9' },
   submitBtnText: { fontSize: 16, fontFamily: 'Inter_600SemiBold', color: '#fff' },
   sourceCard: { flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: C.inProgress + '15', borderRadius: 10, padding: 10, marginBottom: 12, borderWidth: 1, borderColor: C.inProgress + '30' },
   sourceText: { flex: 1, fontSize: 12, fontFamily: 'Inter_500Medium', color: C.inProgress, lineHeight: 16 },
+  visiteCard: { flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: '#6366F115', borderRadius: 12, padding: 12, marginBottom: 12, borderWidth: 1, borderColor: '#6366F130' },
+  visiteCardLabel: { fontSize: 10, fontFamily: 'Inter_600SemiBold', color: '#6366F1', textTransform: 'uppercase', letterSpacing: 0.4 },
+  visiteCardTitle: { fontSize: 13, fontFamily: 'Inter_500Medium', color: '#6366F1', marginTop: 2 },
+  kindRow: { flexDirection: 'row', gap: 10 },
+  kindChip: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 7, paddingVertical: 11, borderRadius: 12, borderWidth: 1.5, borderColor: C.border, backgroundColor: C.surface2 },
+  kindChipReserve: { backgroundColor: '#EF444415', borderColor: '#EF4444' },
+  kindChipObservation: { backgroundColor: '#0EA5E915', borderColor: '#0EA5E9' },
+  kindChipText: { fontSize: 14, fontFamily: 'Inter_600SemiBold', color: C.textSub },
+  kindHintBox: { flexDirection: 'row', alignItems: 'flex-start', gap: 6, backgroundColor: '#0EA5E910', borderRadius: 8, padding: 10, marginTop: 10, borderWidth: 1, borderColor: '#0EA5E930' },
+  kindHintText: { flex: 1, fontSize: 12, fontFamily: 'Inter_400Regular', color: '#0EA5E9', lineHeight: 17 },
 });

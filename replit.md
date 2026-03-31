@@ -190,10 +190,20 @@ All 13 planned modules are implemented:
 2. **Plans interactifs** — import PDF/image, pinning, zoom/pan, filter by company + filter by zone
 3. **Documents** — upload, categories, versioning, search
 4. **Équipes** — company tracking, actual/planned workers, hours, zones
-5. **Planning** — list/calendar/Gantt views, task creation/deletion
+5. **Planning** — list/calendar/Gantt views (Gantt is now default), task creation/deletion
 6. **Dashboard** — KPIs including delayed tasks counter, status bars, critical + delayed task alerts
 7. **Communication** — internal messaging, reserve comments
 8. **Photos** — camera/gallery, comment+location modal before saving, Supabase upload
 9. **Rapports** — daily/weekly PDF, CSV export
 10. **Utilisateurs** — 4 roles, Supabase auth
 11. **Administration** — dedicated admin tab (visible to `admin` role only): user role management, company CRUD
+
+## Archipad-Inspired Features (6 features)
+
+All 6 Archipad-inspired features are implemented:
+1. **Tunnel Visite→Réserve→Levée→OPR→PV signé** — `AppContext.linkReserveToVisite()` links reserves to a visite; `visite/[id].tsx` shows a 5-step tunnel progress indicator with icons, colors, and sub-labels for each stage.
+2. **Observation vs Réserve distinction** — `ReserveKind = 'reserve' | 'observation'`; kind selector chips in `reserve/new.tsx`; blue observation badge in `ReserveCard.tsx`; kind filter chips in `reserves.tsx` toolbar.
+3. **Corps d'état / Lot classification** — Lot picker from `lots` context in `reserve/new.tsx`; lot dot + name in `ReserveCard.tsx`; lot filter section in the advanced filter modal of `reserves.tsx`.
+4. **Sous-traitant direct status update** — `sous-traitant.tsx` shows "Marquer en cours" / "Marquer traité" action buttons per reserve card, calling `updateReserveStatus`.
+5. **OPR + electronic signature** — `opr.tsx` uses a proper Modal (not Alert) with TextInput for conducteur + maître d'ouvrage names, shield notice, horodatage; signature section in exported PDF.
+6. **Gantt integration** — Gantt view is now the **default** view when opening the planning screen (previously was list view).

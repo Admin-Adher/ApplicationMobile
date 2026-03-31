@@ -6,6 +6,7 @@ import { C } from '@/constants/colors';
 import StatusBadge from './StatusBadge';
 import PriorityBadge from './PriorityBadge';
 import { isOverdue, formatDate, deadlineDaysLeft } from '@/lib/reserveUtils';
+import { useApp } from '@/context/AppContext';
 
 interface Props {
   reserve: Reserve;
@@ -13,19 +14,31 @@ interface Props {
 
 export default function ReserveCard({ reserve }: Props) {
   const router = useRouter();
+  const { lots } = useApp();
   const overdue = isOverdue(reserve.deadline, reserve.status);
   const daysLeft = deadlineDaysLeft(reserve.deadline);
   const showDeadline = reserve.deadline && reserve.deadline !== '—';
 
+  const lot = reserve.lotId ? lots.find(l => l.id === reserve.lotId) : null;
+  const isObservation = reserve.kind === 'observation';
+
   return (
     <TouchableOpacity
-      style={[styles.card, overdue && styles.cardOverdue]}
+      style={[styles.card, overdue && styles.cardOverdue, isObservation && styles.cardObservation]}
       onPress={() => router.push(`/reserve/${reserve.id}` as any)}
       activeOpacity={0.75}
     >
       <View style={styles.top}>
-        <View style={styles.idWrap}>
-          <Text style={styles.id}>{reserve.id}</Text>
+        <View style={styles.topLeft}>
+          <View style={styles.idWrap}>
+            <Text style={styles.id}>{reserve.id}</Text>
+          </View>
+          {isObservation ? (
+            <View style={styles.obsBadge}>
+              <Ionicons name="eye-outline" size={10} color="#0EA5E9" />
+              <Text style={styles.obsText}>Observation</Text>
+            </View>
+          ) : null}
         </View>
         <View style={styles.topRight}>
           {overdue && (
@@ -45,6 +58,14 @@ export default function ReserveCard({ reserve }: Props) {
           <Ionicons name="business-outline" size={12} color={C.textMuted} />
           <Text style={styles.metaText}>Bât. {reserve.building} — {reserve.zone} — {reserve.level}</Text>
         </View>
+        {lot && (
+          <View style={styles.metaItem}>
+            <View style={[styles.lotDot, { backgroundColor: lot.color ?? C.textMuted }]} />
+            <Text style={[styles.metaText, { color: lot.color ?? C.textSub }]} numberOfLines={1}>
+              {lot.number ? `Lot ${lot.number} — ` : ''}{lot.name}
+            </Text>
+          </View>
+        )}
       </View>
 
       <View style={styles.bottom}>
@@ -109,11 +130,21 @@ const styles = StyleSheet.create({
     borderLeftWidth: 3,
     borderLeftColor: C.open,
   },
+  cardObservation: {
+    borderLeftWidth: 3,
+    borderLeftColor: '#0EA5E9',
+  },
   top: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
     marginBottom: 8,
+  },
+  topLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    flex: 1,
   },
   topRight: {
     flexDirection: 'row',
@@ -131,6 +162,22 @@ const styles = StyleSheet.create({
     fontFamily: 'Inter_700Bold',
     color: C.primary,
     letterSpacing: 0.5,
+  },
+  obsBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 3,
+    backgroundColor: '#0EA5E915',
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#0EA5E930',
+  },
+  obsText: {
+    fontSize: 10,
+    fontFamily: 'Inter_600SemiBold',
+    color: '#0EA5E9',
   },
   overdueBadge: {
     flexDirection: 'row',
@@ -166,6 +213,11 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontFamily: 'Inter_400Regular',
     color: C.textSub,
+  },
+  lotDot: {
+    width: 7,
+    height: 7,
+    borderRadius: 3.5,
   },
   bottom: {
     flexDirection: 'row',

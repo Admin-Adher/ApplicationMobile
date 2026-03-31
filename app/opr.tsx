@@ -1,4 +1,4 @@
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert, TextInput, Platform } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert, TextInput, Platform, Modal } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { useState, useMemo } from 'react';
@@ -55,6 +55,8 @@ function buildOprPDF(opr: Opr, projectName: string, lots: any[]): string {
   const totalRes = opr.items.filter(i => i.status === 'reserve').length;
   const totalNA = opr.items.filter(i => i.status === 'non_applicable').length;
 
+  const signedDate = opr.signedAt ?? opr.date;
+
   return `<!DOCTYPE html><html><head><meta charset="UTF-8">
   <style>
     body { font-family: Arial, sans-serif; padding: 30px; color: #111; }
@@ -72,7 +74,9 @@ function buildOprPDF(opr: Opr, projectName: string, lots: any[]): string {
     .sign-box { flex: 1; border-top: 2px solid #333; padding-top: 8px; }
     .sign-label { font-size: 12px; color: #666; }
     .sign-name { font-size: 13px; font-weight: bold; margin-top: 4px; }
+    .sign-date { font-size: 11px; color: #888; margin-top: 2px; font-style: italic; }
     .status-signed { background: #D1FAE5; border: 1px solid #10B981; border-radius: 8px; padding: 8px 14px; display: inline-block; color: #065F46; font-weight: bold; font-size: 13px; }
+    .sign-typed { background: #EFF6FF; border: 1px solid #BFDBFE; border-radius: 6px; padding: 4px 10px; display: inline-block; color: #1E40AF; font-weight: bold; font-size: 14px; font-style: italic; letter-spacing: 0.5px; }
   </style></head><body>
   <h1>Procès-verbal de réception — ${opr.title}</h1>
   <p class="meta">
@@ -93,18 +97,22 @@ function buildOprPDF(opr: Opr, projectName: string, lots: any[]): string {
     <tbody>${rows}</tbody>
   </table>
   ${opr.status === 'signed' ? `
-  <h2>Signatures</h2>
+  <h2>Signatures électroniques</h2>
   <div class="sign-section">
     <div class="sign-box">
-      <div class="sign-name">${opr.conducteur}</div>
+      <div class="sign-typed">${opr.conducteur}</div>
+      <div class="sign-name" style="margin-top:8px">${opr.conducteur}</div>
       <div class="sign-label">Conducteur de travaux</div>
+      <div class="sign-date">Signé électroniquement le ${signedDate}</div>
     </div>
     <div class="sign-box">
-      <div class="sign-name">${opr.maireOuvrage ?? '_______________'}</div>
+      <div class="sign-typed">${opr.maireOuvrage ?? '—'}</div>
+      <div class="sign-name" style="margin-top:8px">${opr.maireOuvrage ?? '—'}</div>
       <div class="sign-label">Maître d'ouvrage</div>
+      <div class="sign-date">Signé électroniquement le ${signedDate}</div>
     </div>
   </div>
-  <p style="margin-top:16px"><span class="status-signed">✓ PV signé le ${opr.signedAt ?? opr.date}</span></p>
+  <p style="margin-top:16px"><span class="status-signed">✓ PV signé électroniquement le ${signedDate}</span></p>
   ` : `
   <h2>Signatures</h2>
   <div class="sign-section">
@@ -114,7 +122,7 @@ function buildOprPDF(opr: Opr, projectName: string, lots: any[]): string {
     </div>
     <div class="sign-box">
       <div class="sign-name">&nbsp;</div>
-      <div class="sign-label">Maître d'ouvrage</div>
+      <div class="sign-label">Maître d'ouvrage${opr.maireOuvrage ? ' : ' + opr.maireOuvrage : ''}</div>
     </div>
   </div>
   `}
@@ -133,6 +141,10 @@ export default function OprScreen() {
   const [building, setBuilding] = useState(RESERVE_BUILDINGS[0]);
   const [level, setLevel] = useState('RDC');
   const [maireOuvrage, setMaireOuvrage] = useState('');
+
+  const [signModalOpr, setSignModalOpr] = useState<Opr | null>(null);
+  const [signConducteurName, setSignConducteurName] = useState('');
+  const [signMoName, setSignMoName] = useState('');
 
   const chantierOprs = useMemo(
     () => oprs.filter(o => !activeChantierId || o.chantierId === activeChantierId)
@@ -183,24 +195,32 @@ export default function OprScreen() {
     }
   }
 
-  function signOpr(opr: Opr) {
-    Alert.alert(
-      'Signer le PV',
-      `Confirmer la signature du procès-verbal "${opr.title}" ?\n\nCette action finalise le document.`,
-      [
-        { text: 'Annuler', style: 'cancel' },
-        {
-          text: 'Signer', onPress: () => {
-            updateOpr({
-              ...opr,
-              status: 'signed',
-              signedBy: user?.name ?? 'Conducteur',
-              signedAt: new Date().toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit', year: 'numeric' }),
-            });
-          },
-        },
-      ]
-    );
+  function openSignModal(opr: Opr) {
+    setSignConducteurName(opr.conducteur ?? user?.name ?? '');
+    setSignMoName(opr.maireOuvrage ?? '');
+    setSignModalOpr(opr);
+  }
+
+  function confirmSign() {
+    if (!signModalOpr) return;
+    if (!signConducteurName.trim()) {
+      Alert.alert('Signature requise', 'Veuillez saisir le nom du conducteur de travaux.');
+      return;
+    }
+    if (!signMoName.trim()) {
+      Alert.alert('Signature requise', "Veuillez saisir le nom du maître d'ouvrage.");
+      return;
+    }
+    const now = new Date().toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit', year: 'numeric' });
+    updateOpr({
+      ...signModalOpr,
+      status: 'signed',
+      conducteur: signConducteurName.trim(),
+      maireOuvrage: signMoName.trim(),
+      signedBy: signConducteurName.trim(),
+      signedAt: now,
+    });
+    setSignModalOpr(null);
   }
 
   function cycleItemStatus(opr: Opr, itemId: string) {
@@ -322,6 +342,9 @@ export default function OprScreen() {
 
                 <Text style={styles.oprTitle}>{opr.title}</Text>
                 <Text style={styles.oprMeta}>Bât. {opr.building} — {opr.level} · {opr.conducteur}</Text>
+                {opr.maireOuvrage ? (
+                  <Text style={styles.oprMeta}>Maître d'ouvrage : {opr.maireOuvrage}</Text>
+                ) : null}
 
                 <View style={styles.oprStats}>
                   <View style={styles.oprStat}>
@@ -364,7 +387,7 @@ export default function OprScreen() {
                     </TouchableOpacity>
                   )}
                   {permissions.canEdit && opr.status !== 'signed' && (
-                    <TouchableOpacity style={[styles.actionBtn, styles.signBtn]} onPress={() => signOpr(opr)}>
+                    <TouchableOpacity style={[styles.actionBtn, styles.signBtn]} onPress={() => openSignModal(opr)}>
                       <Ionicons name="create-outline" size={14} color={C.closed} />
                       <Text style={[styles.actionBtnText, { color: C.closed }]}>Signer le PV</Text>
                     </TouchableOpacity>
@@ -372,7 +395,7 @@ export default function OprScreen() {
                   {opr.status === 'signed' && (
                     <View style={styles.signedBadge}>
                       <Ionicons name="checkmark-circle" size={14} color={C.closed} />
-                      <Text style={styles.signedText}>Signé le {opr.signedAt}</Text>
+                      <Text style={styles.signedText}>PV signé le {opr.signedAt}</Text>
                     </View>
                   )}
                   {permissions.canDelete && (
@@ -394,6 +417,73 @@ export default function OprScreen() {
       </ScrollView>
 
       <BottomNavBar />
+
+      <Modal
+        visible={signModalOpr !== null}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setSignModalOpr(null)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalSheet}>
+            <View style={styles.modalHandle} />
+            <View style={styles.modalTitleRow}>
+              <Ionicons name="create-outline" size={20} color={C.closed} />
+              <Text style={styles.modalTitle}>Signature électronique du PV</Text>
+            </View>
+
+            {signModalOpr && (
+              <View style={styles.modalPvInfo}>
+                <Text style={styles.modalPvTitle}>{signModalOpr.title}</Text>
+                <Text style={styles.modalPvMeta}>Date : {signModalOpr.date} · Bât. {signModalOpr.building}</Text>
+              </View>
+            )}
+
+            <Text style={styles.modalLabel}>CONDUCTEUR DE TRAVAUX *</Text>
+            <View style={styles.signInputWrap}>
+              <Ionicons name="person-outline" size={15} color={C.textMuted} />
+              <TextInput
+                style={styles.signInput}
+                value={signConducteurName}
+                onChangeText={setSignConducteurName}
+                placeholder="Saisir votre nom complet..."
+                placeholderTextColor={C.textMuted}
+                autoCapitalize="words"
+              />
+            </View>
+
+            <Text style={styles.modalLabel}>MAÎTRE D'OUVRAGE *</Text>
+            <View style={styles.signInputWrap}>
+              <Ionicons name="person-circle-outline" size={15} color={C.textMuted} />
+              <TextInput
+                style={styles.signInput}
+                value={signMoName}
+                onChangeText={setSignMoName}
+                placeholder="Nom du maître d'ouvrage..."
+                placeholderTextColor={C.textMuted}
+                autoCapitalize="words"
+              />
+            </View>
+
+            <View style={styles.signNotice}>
+              <Ionicons name="shield-checkmark-outline" size={14} color={C.closed} />
+              <Text style={styles.signNoticeText}>
+                En signant, vous confirmez avoir vériqué tous les points de contrôle. Cette signature est horodatée et lie les deux parties.
+              </Text>
+            </View>
+
+            <View style={styles.modalActions}>
+              <TouchableOpacity style={styles.modalCancelBtn} onPress={() => setSignModalOpr(null)}>
+                <Text style={styles.modalCancelText}>Annuler</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.modalConfirmBtn} onPress={confirmSign}>
+                <Ionicons name="checkmark-circle" size={16} color="#fff" />
+                <Text style={styles.modalConfirmText}>Signer le PV</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -439,9 +529,9 @@ const styles = StyleSheet.create({
   statusText: { fontSize: 11, fontFamily: 'Inter_600SemiBold' },
   oprDate: { fontSize: 12, fontFamily: 'Inter_400Regular', color: C.textMuted },
   oprTitle: { fontSize: 15, fontFamily: 'Inter_600SemiBold', color: C.text, marginBottom: 4 },
-  oprMeta: { fontSize: 12, fontFamily: 'Inter_400Regular', color: C.textSub, marginBottom: 10 },
+  oprMeta: { fontSize: 12, fontFamily: 'Inter_400Regular', color: C.textSub, marginBottom: 2 },
 
-  oprStats: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 12, paddingBottom: 12, borderBottomWidth: 1, borderBottomColor: C.border },
+  oprStats: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 12, paddingTop: 8, paddingBottom: 12, borderBottomWidth: 1, borderBottomColor: C.border, marginTop: 8 },
   oprStat: { flexDirection: 'row', alignItems: 'center', gap: 4 },
   oprStatText: { fontSize: 12, fontFamily: 'Inter_500Medium', color: C.textSub },
   oprStatSep: { color: C.textMuted, marginHorizontal: 2 },
@@ -456,4 +546,34 @@ const styles = StyleSheet.create({
   signBtn: { borderColor: C.closed + '40', backgroundColor: C.closed + '10' },
   signedBadge: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 5 },
   signedText: { fontSize: 12, fontFamily: 'Inter_500Medium', color: C.closed },
+
+  modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' },
+  modalSheet: {
+    backgroundColor: C.surface, borderTopLeftRadius: 24, borderTopRightRadius: 24,
+    paddingHorizontal: 20, paddingBottom: 36, paddingTop: 14,
+  },
+  modalHandle: { width: 40, height: 4, borderRadius: 2, backgroundColor: C.border, alignSelf: 'center', marginBottom: 18 },
+  modalTitleRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 16 },
+  modalTitle: { fontSize: 17, fontFamily: 'Inter_700Bold', color: C.text },
+  modalPvInfo: { backgroundColor: C.closed + '10', borderRadius: 10, padding: 12, marginBottom: 16, borderWidth: 1, borderColor: C.closed + '30' },
+  modalPvTitle: { fontSize: 14, fontFamily: 'Inter_600SemiBold', color: C.text },
+  modalPvMeta: { fontSize: 12, fontFamily: 'Inter_400Regular', color: C.textSub, marginTop: 2 },
+  modalLabel: { fontSize: 11, fontFamily: 'Inter_600SemiBold', color: C.textSub, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 6 },
+  signInputWrap: {
+    flexDirection: 'row', alignItems: 'center', gap: 10,
+    backgroundColor: C.surface2, borderRadius: 12, paddingHorizontal: 14, paddingVertical: 11,
+    borderWidth: 1.5, borderColor: C.border, marginBottom: 14,
+  },
+  signInput: { flex: 1, fontSize: 15, fontFamily: 'Inter_500Medium', color: C.text },
+  signNotice: {
+    flexDirection: 'row', alignItems: 'flex-start', gap: 8,
+    backgroundColor: C.closed + '10', borderRadius: 10, padding: 12,
+    borderWidth: 1, borderColor: C.closed + '30', marginBottom: 20,
+  },
+  signNoticeText: { flex: 1, fontSize: 12, fontFamily: 'Inter_400Regular', color: C.textSub, lineHeight: 18 },
+  modalActions: { flexDirection: 'row', gap: 10 },
+  modalCancelBtn: { flex: 1, alignItems: 'center', paddingVertical: 13, borderRadius: 12, borderWidth: 1, borderColor: C.border },
+  modalCancelText: { fontSize: 15, fontFamily: 'Inter_500Medium', color: C.textSub },
+  modalConfirmBtn: { flex: 2, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 7, backgroundColor: C.closed, paddingVertical: 13, borderRadius: 12 },
+  modalConfirmText: { fontSize: 15, fontFamily: 'Inter_700Bold', color: '#fff' },
 });

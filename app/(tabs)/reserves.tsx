@@ -6,7 +6,7 @@ import { useState, useMemo } from 'react';
 import { C } from '@/constants/colors';
 import { useApp } from '@/context/AppContext';
 import { useAuth } from '@/context/AuthContext';
-import { ReserveStatus, ReservePriority } from '@/constants/types';
+import { ReserveStatus, ReservePriority, ReserveKind } from '@/constants/types';
 import ReserveCard from '@/components/ReserveCard';
 import { isOverdue } from '@/lib/reserveUtils';
 
@@ -41,14 +41,16 @@ function toSortableDate(s: string): string {
 export default function ReservesScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
-  const { reserves, companies, isLoading, chantiers, activeChantierId } = useApp();
+  const { reserves, companies, isLoading, chantiers, activeChantierId, lots } = useApp();
   const { permissions } = useAuth();
   const [chantierFilter, setChantierFilter] = useState<string>(activeChantierId ?? 'all');
   const [statusFilter, setStatusFilter] = useState<'all' | 'overdue' | ReserveStatus>('all');
+  const [kindFilter, setKindFilter] = useState<'all' | ReserveKind>('all');
   const [buildingFilter, setBuildingFilter] = useState<string>('all');
   const [priorityFilter, setPriorityFilter] = useState<'all' | ReservePriority>('all');
   const [companyFilter, setCompanyFilter] = useState<string>('all');
   const [zoneFilter, setZoneFilter] = useState<string>('all');
+  const [lotFilter, setLotFilter] = useState<string>('all');
   const [sortKey, setSortKey] = useState<SortKey>('date_desc');
   const [search, setSearch] = useState('');
   const [sortModalVisible, setSortModalVisible] = useState(false);
@@ -73,7 +75,9 @@ export default function ReservesScreen() {
   const activeFilterCount = (buildingFilter !== 'all' ? 1 : 0)
     + (priorityFilter !== 'all' ? 1 : 0)
     + (companyFilter !== 'all' ? 1 : 0)
-    + (zoneFilter !== 'all' ? 1 : 0);
+    + (zoneFilter !== 'all' ? 1 : 0)
+    + (kindFilter !== 'all' ? 1 : 0)
+    + (lotFilter !== 'all' ? 1 : 0);
 
   const overdueCount = useMemo(
     () => chantierReserves.filter(r => isOverdue(r.deadline, r.status)).length,
@@ -86,10 +90,15 @@ export default function ReservesScreen() {
         statusFilter === 'all' ? true :
         statusFilter === 'overdue' ? isOverdue(r.deadline, r.status) :
         r.status === statusFilter;
+      const matchKind =
+        kindFilter === 'all' ? true :
+        kindFilter === 'observation' ? r.kind === 'observation' :
+        (!r.kind || r.kind === 'reserve');
       const matchBuilding = buildingFilter === 'all' || r.building === buildingFilter;
       const matchPriority = priorityFilter === 'all' || r.priority === priorityFilter;
       const matchCompany = companyFilter === 'all' || r.company === companyFilter;
       const matchZone = zoneFilter === 'all' || r.zone === zoneFilter;
+      const matchLot = lotFilter === 'all' || r.lotId === lotFilter;
       const q = search.toLowerCase();
       const matchSearch = !q ||
         r.title.toLowerCase().includes(q) ||
@@ -99,7 +108,7 @@ export default function ReservesScreen() {
         r.description.toLowerCase().includes(q) ||
         r.zone.toLowerCase().includes(q) ||
         r.level.toLowerCase().includes(q);
-      return matchStatus && matchBuilding && matchPriority && matchCompany && matchZone && matchSearch;
+      return matchStatus && matchKind && matchBuilding && matchPriority && matchCompany && matchZone && matchLot && matchSearch;
     });
 
     list = [...list].sort((a, b) => {
@@ -113,9 +122,10 @@ export default function ReservesScreen() {
       }
     });
     return list;
-  }, [chantierReserves, statusFilter, buildingFilter, priorityFilter, companyFilter, zoneFilter, sortKey, search]);
+  }, [chantierReserves, statusFilter, kindFilter, buildingFilter, priorityFilter, companyFilter, zoneFilter, lotFilter, sortKey, search]);
 
   const isSortActive = sortKey !== 'date_desc';
+  const obsCount = useMemo(() => chantierReserves.filter(r => r.kind === 'observation').length, [chantierReserves]);
 
   return (
     <View style={styles.container}>
@@ -195,6 +205,29 @@ export default function ReservesScreen() {
                 </TouchableOpacity>
               );
             })}
+            <View style={styles.kindSep} />
+            <TouchableOpacity
+              style={[styles.filterChip, kindFilter === 'all' && styles.filterChipActive]}
+              onPress={() => setKindFilter('all')}
+            >
+              <Text style={[styles.filterText, kindFilter === 'all' && styles.filterTextActive]}>Tous types</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.filterChip, kindFilter === 'reserve' && styles.filterChipKindReserve]}
+              onPress={() => setKindFilter('reserve')}
+            >
+              <Ionicons name="warning-outline" size={11} color={kindFilter === 'reserve' ? '#EF4444' : C.textSub} />
+              <Text style={[styles.filterText, kindFilter === 'reserve' && { color: '#EF4444' }]}>Réserves</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.filterChip, kindFilter === 'observation' && styles.filterChipKindObs]}
+              onPress={() => setKindFilter('observation')}
+            >
+              <Ionicons name="eye-outline" size={11} color={kindFilter === 'observation' ? '#0EA5E9' : C.textSub} />
+              <Text style={[styles.filterText, kindFilter === 'observation' && { color: '#0EA5E9' }]}>
+                Observations{obsCount > 0 ? ` (${obsCount})` : ''}
+              </Text>
+            </TouchableOpacity>
           </ScrollView>
 
           <TouchableOpacity
@@ -294,7 +327,7 @@ export default function ReservesScreen() {
             <View style={styles.sheetTitleRow}>
               <Text style={styles.sheetTitle}>Filtres avancés</Text>
               {activeFilterCount > 0 && (
-                <TouchableOpacity onPress={() => { setBuildingFilter('all'); setPriorityFilter('all'); setCompanyFilter('all'); setZoneFilter('all'); }}>
+                <TouchableOpacity onPress={() => { setBuildingFilter('all'); setPriorityFilter('all'); setCompanyFilter('all'); setZoneFilter('all'); setKindFilter('all'); setLotFilter('all'); }}>
                   <Text style={styles.resetText}>Réinitialiser</Text>
                 </TouchableOpacity>
               )}
@@ -378,6 +411,34 @@ export default function ReservesScreen() {
                 </View>
               </ScrollView>
 
+              {lots.length > 0 && (
+                <>
+                  <Text style={styles.sheetSectionLabel}>CORPS D'ÉTAT (LOT)</Text>
+                  <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.chipScroll}>
+                    <View style={styles.chipRowInline}>
+                      <TouchableOpacity
+                        style={[styles.chip, lotFilter === 'all' && styles.chipActive]}
+                        onPress={() => setLotFilter('all')}
+                      >
+                        <Text style={[styles.chipText, lotFilter === 'all' && styles.chipTextActive]}>Tous</Text>
+                      </TouchableOpacity>
+                      {lots.map(lot => (
+                        <TouchableOpacity
+                          key={lot.id}
+                          style={[styles.chip, lotFilter === lot.id && { backgroundColor: (lot.color ?? C.primary) + '20', borderColor: lot.color ?? C.primary }]}
+                          onPress={() => setLotFilter(lot.id)}
+                        >
+                          {lot.color && <View style={[styles.dot, { backgroundColor: lot.color }]} />}
+                          <Text style={[styles.chipText, lotFilter === lot.id && { color: lot.color ?? C.primary }]} numberOfLines={1}>
+                            {lot.number ? `${lot.number}. ` : ''}{lot.name}
+                          </Text>
+                        </TouchableOpacity>
+                      ))}
+                    </View>
+                  </ScrollView>
+                </>
+              )}
+
               <TouchableOpacity style={styles.applyBtn} onPress={() => setFilterModalVisible(false)}>
                 <Text style={styles.applyBtnText}>Appliquer</Text>
               </TouchableOpacity>
@@ -409,14 +470,17 @@ const styles = StyleSheet.create({
   searchInput: { flex: 1, fontSize: 14, fontFamily: 'Inter_400Regular', color: C.text },
   toolRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 4 },
   filterChip: {
-    paddingHorizontal: 14, paddingVertical: 7, borderRadius: 20,
+    paddingHorizontal: 14, paddingVertical: 7, borderRadius: 20, flexDirection: 'row', alignItems: 'center', gap: 4,
     backgroundColor: C.surface2, marginRight: 8, borderWidth: 1, borderColor: C.border,
   },
   filterChipActive: { backgroundColor: C.primary, borderColor: C.primary },
   filterChipOverdue: { backgroundColor: C.open, borderColor: C.open },
+  filterChipKindReserve: { backgroundColor: '#EF444415', borderColor: '#EF4444' },
+  filterChipKindObs: { backgroundColor: '#0EA5E915', borderColor: '#0EA5E9' },
   filterText: { fontSize: 13, fontFamily: 'Inter_500Medium', color: C.textSub },
   filterTextActive: { color: '#fff' },
   filterTextOverdue: { color: '#fff' },
+  kindSep: { width: 1, height: 20, backgroundColor: C.border, marginHorizontal: 6, alignSelf: 'center' },
   toolBtn: {
     width: 34, height: 34, borderRadius: 10, backgroundColor: C.surface2,
     alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: C.border,

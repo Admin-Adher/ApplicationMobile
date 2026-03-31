@@ -7,7 +7,7 @@ import * as Sharing from 'expo-sharing';
 import { C } from '@/constants/colors';
 import { useApp } from '@/context/AppContext';
 import { useAuth } from '@/context/AuthContext';
-import { Visite, Reserve, VisiteStatus } from '@/constants/types';
+import { Visite, Reserve, VisiteStatus, OprStatus } from '@/constants/types';
 import Header from '@/components/Header';
 import BottomNavBar from '@/components/BottomNavBar';
 
@@ -86,7 +86,7 @@ function buildVisitePDF(visite: Visite, reserves: Reserve[], projectName: string
 export default function VisiteDetailScreen() {
   const router = useRouter();
   const { id } = useLocalSearchParams<{ id: string }>();
-  const { visites, reserves, updateVisite, deleteVisite, activeChantier } = useApp();
+  const { visites, reserves, updateVisite, deleteVisite, activeChantier, oprs } = useApp();
   const { permissions } = useAuth();
   const { useSettings } = require('@/context/SettingsContext');
   const { projectName } = useSettings();
@@ -96,6 +96,18 @@ export default function VisiteDetailScreen() {
     () => reserves.filter(r => visite?.reserveIds.includes(r.id)),
     [reserves, visite]
   );
+
+  const tunnelData = useMemo(() => {
+    if (!visite) return null;
+    const total = visiteReserves.length;
+    const closed = visiteReserves.filter(r => r.status === 'closed').length;
+    const pctLevees = total > 0 ? Math.round((closed / total) * 100) : 0;
+    const chantierId = visite.chantierId ?? activeChantier?.id;
+    const chantierOprs = oprs.filter(o => !chantierId || o.chantierId === chantierId);
+    const signedOpr = chantierOprs.find(o => o.status === 'signed');
+    const anyOpr = chantierOprs.length > 0;
+    return { total, closed, pctLevees, anyOpr, signedOpr };
+  }, [visite, visiteReserves, oprs, activeChantier]);
 
   if (!visite) {
     return (
@@ -207,6 +219,35 @@ export default function VisiteDetailScreen() {
             </View>
           ) : null}
         </View>
+
+        {tunnelData && (
+          <View style={styles.tunnelCard}>
+            <Text style={styles.tunnelTitle}>Progression du tunnel de réception</Text>
+            <View style={styles.tunnelSteps}>
+              {[
+                { label: 'Visite', done: true, icon: 'eye-outline' as const, color: '#6366F1' },
+                { label: 'Réserves', done: tunnelData.total > 0, icon: 'warning-outline' as const, color: C.open, sub: tunnelData.total > 0 ? `${tunnelData.total} relevée${tunnelData.total > 1 ? 's' : ''}` : 'Aucune' },
+                { label: 'Levée', done: tunnelData.closed > 0, icon: 'checkmark-circle-outline' as const, color: C.closed, sub: tunnelData.total > 0 ? `${tunnelData.pctLevees}%` : '—' },
+                { label: 'OPR', done: tunnelData.anyOpr, icon: 'document-text-outline' as const, color: C.inProgress, sub: tunnelData.anyOpr ? 'Créé' : 'En attente' },
+                { label: 'PV signé', done: !!tunnelData.signedOpr, icon: 'ribbon-outline' as const, color: C.closed, sub: tunnelData.signedOpr ? `Le ${tunnelData.signedOpr.signedAt}` : 'Non signé' },
+              ].map((step, i, arr) => (
+                <View key={step.label} style={styles.tunnelStepWrap}>
+                  <View style={[styles.tunnelStep, step.done && { backgroundColor: step.color + '15', borderColor: step.color + '50' }]}>
+                    <Ionicons name={step.icon} size={16} color={step.done ? step.color : C.textMuted} />
+                    <View>
+                      <Text style={[styles.tunnelStepLabel, step.done && { color: step.color }]}>{step.label}</Text>
+                      {step.sub && <Text style={[styles.tunnelStepSub, step.done && { color: step.color + 'CC' }]}>{step.sub}</Text>}
+                    </View>
+                    {step.done && <Ionicons name="checkmark" size={12} color={step.color} style={{ marginLeft: 'auto' }} />}
+                  </View>
+                  {i < arr.length - 1 && (
+                    <View style={[styles.tunnelArrow, step.done && arr[i + 1].done && { backgroundColor: arr[i + 1].color }]} />
+                  )}
+                </View>
+              ))}
+            </View>
+          </View>
+        )}
 
         <View style={styles.sectionHeader}>
           <Text style={styles.sectionTitle}>Réserves de cette visite ({visiteReserves.length})</Text>
@@ -326,4 +367,23 @@ const styles = StyleSheet.create({
     borderWidth: 1, borderColor: C.verification + '30', marginTop: 8,
   },
   exportBtnText: { fontSize: 14, fontFamily: 'Inter_600SemiBold', color: C.verification },
+
+  tunnelCard: {
+    backgroundColor: C.surface, borderRadius: 14, padding: 16,
+    borderWidth: 1, borderColor: C.border, marginBottom: 16,
+  },
+  tunnelTitle: { fontSize: 13, fontFamily: 'Inter_600SemiBold', color: C.textSub, textTransform: 'uppercase', letterSpacing: 0.4, marginBottom: 12 },
+  tunnelSteps: { gap: 0 },
+  tunnelStepWrap: { flexDirection: 'column' },
+  tunnelStep: {
+    flexDirection: 'row', alignItems: 'center', gap: 10,
+    backgroundColor: C.surface2, borderRadius: 10, padding: 10,
+    borderWidth: 1, borderColor: C.border,
+  },
+  tunnelStepLabel: { fontSize: 13, fontFamily: 'Inter_600SemiBold', color: C.textMuted },
+  tunnelStepSub: { fontSize: 11, fontFamily: 'Inter_400Regular', color: C.textMuted, marginTop: 1 },
+  tunnelArrow: {
+    width: 2, height: 10, backgroundColor: C.border,
+    alignSelf: 'center', marginVertical: 2,
+  },
 });

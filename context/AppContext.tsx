@@ -470,6 +470,7 @@ interface AppContextValue extends AppState {
   addVisite: (v: Visite) => void;
   updateVisite: (v: Visite) => void;
   deleteVisite: (id: string) => void;
+  linkReserveToVisite: (reserveId: string, visiteId: string) => void;
   addLot: (l: Lot) => void;
   updateLot: (l: Lot) => void;
   deleteLot: (id: string) => void;
@@ -1576,6 +1577,14 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     deleteVisite: (id) => {
       dispatch({ type: 'DELETE_VISITE', payload: id });
       persistMockVisites(stateRef.current.visites.filter(v => v.id !== id));
+    },
+    linkReserveToVisite: (reserveId, visiteId) => {
+      const visite = stateRef.current.visites.find(v => v.id === visiteId);
+      if (!visite) return;
+      if (visite.reserveIds.includes(reserveId)) return;
+      const updated = { ...visite, reserveIds: [...visite.reserveIds, reserveId] };
+      dispatch({ type: 'UPDATE_VISITE', payload: updated });
+      persistMockVisites(stateRef.current.visites.map(x => x.id === visiteId ? updated : x));
     },
 
     addLot: (l) => {

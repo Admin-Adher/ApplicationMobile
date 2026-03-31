@@ -5,7 +5,7 @@ import { useState, useMemo } from 'react';
 import { C } from '@/constants/colors';
 import { useApp } from '@/context/AppContext';
 import { useAuth } from '@/context/AuthContext';
-import { Reserve, Company } from '@/constants/types';
+import { Reserve, Company, ReserveStatus } from '@/constants/types';
 import Header from '@/components/Header';
 import BottomNavBar from '@/components/BottomNavBar';
 
@@ -24,7 +24,19 @@ const PRIORITY_CFG: Record<string, { label: string; color: string }> = {
   critical: { label: 'CRITIQUE', color: '#7C3AED' },
 };
 
-function ReserveCard({ reserve, onPress }: { reserve: Reserve; onPress: () => void }) {
+function ReserveCard({
+  reserve,
+  onPress,
+  onMarkInProgress,
+  onMarkDone,
+  canEdit,
+}: {
+  reserve: Reserve;
+  onPress: () => void;
+  onMarkInProgress: () => void;
+  onMarkDone: () => void;
+  canEdit: boolean;
+}) {
   const scfg = STATUS_CFG[reserve.status] ?? STATUS_CFG.open;
   const pcfg = PRIORITY_CFG[reserve.priority] ?? PRIORITY_CFG.medium;
   const isOverdue = reserve.deadline && reserve.deadline !== '—' && (() => {
@@ -33,6 +45,11 @@ function ReserveCard({ reserve, onPress }: { reserve: Reserve; onPress: () => vo
     const d = new Date(`${parts[2]}-${parts[1]}-${parts[0]}`);
     return d < new Date();
   })();
+
+  const isOpen = reserve.status === 'open';
+  const isInProgress = reserve.status === 'in_progress';
+  const isClosed = reserve.status === 'closed';
+  const isObservation = reserve.kind === 'observation';
 
   return (
     <TouchableOpacity style={[styles.card, { borderLeftColor: pcfg.color }]} onPress={onPress} activeOpacity={0.75}>
@@ -43,6 +60,12 @@ function ReserveCard({ reserve, onPress }: { reserve: Reserve; onPress: () => vo
         <View style={[styles.priorityPill, { backgroundColor: pcfg.color + '15' }]}>
           <Text style={[styles.priorityText, { color: pcfg.color }]}>{pcfg.label}</Text>
         </View>
+        {isObservation && (
+          <View style={styles.obsPill}>
+            <Ionicons name="eye-outline" size={10} color="#0EA5E9" />
+            <Text style={styles.obsText}>Obs.</Text>
+          </View>
+        )}
       </View>
       <Text style={styles.reserveId}>{reserve.id}</Text>
       <Text style={styles.reserveTitle}>{reserve.title}</Text>
@@ -57,14 +80,39 @@ function ReserveCard({ reserve, onPress }: { reserve: Reserve; onPress: () => vo
           {reserve.deadline}{isOverdue ? ' ⚠' : ''}
         </Text>
       </View>
+
+      {canEdit && !isClosed && (
+        <View style={styles.actionRow}>
+          {isOpen && (
+            <TouchableOpacity
+              style={[styles.actionBtn, { borderColor: C.inProgress + '60', backgroundColor: C.inProgress + '10' }]}
+              onPress={(e) => { e.stopPropagation?.(); onMarkInProgress(); }}
+              activeOpacity={0.75}
+            >
+              <Ionicons name="play-outline" size={13} color={C.inProgress} />
+              <Text style={[styles.actionBtnText, { color: C.inProgress }]}>Marquer en cours</Text>
+            </TouchableOpacity>
+          )}
+          {(isOpen || isInProgress) && (
+            <TouchableOpacity
+              style={[styles.actionBtn, { borderColor: C.closed + '60', backgroundColor: C.closed + '10' }]}
+              onPress={(e) => { e.stopPropagation?.(); onMarkDone(); }}
+              activeOpacity={0.75}
+            >
+              <Ionicons name="checkmark-circle-outline" size={13} color={C.closed} />
+              <Text style={[styles.actionBtnText, { color: C.closed }]}>Marquer traité</Text>
+            </TouchableOpacity>
+          )}
+        </View>
+      )}
     </TouchableOpacity>
   );
 }
 
 export default function SousTraitantScreen() {
   const router = useRouter();
-  const { reserves, companies, activeChantierId } = useApp();
-  const { user } = useAuth();
+  const { reserves, companies, activeChantierId, updateReserveStatus } = useApp();
+  const { user, permissions } = useAuth();
 
   const [selectedCompanyId, setSelectedCompanyId] = useState<string | null>(null);
   const [showClosed, setShowClosed] = useState(false);
@@ -101,6 +149,8 @@ export default function SousTraitantScreen() {
       r.status === 'closed' && (!displayCompany || r.company === displayCompany?.name)
     ).length,
   }), [companyReserves, reserves, displayCompany]);
+
+  const authorName = user?.name ?? 'Sous-traitant';
 
   return (
     <View style={styles.container}>
@@ -164,6 +214,13 @@ export default function SousTraitantScreen() {
               </View>
             </View>
 
+            {permissions.canEdit && (
+              <View style={styles.infoHint}>
+                <Ionicons name="information-circle-outline" size={13} color={C.primary} />
+                <Text style={styles.infoHintText}>Appuyez sur "Marquer en cours" ou "Marquer traité" pour mettre à jour le statut directement.</Text>
+              </View>
+            )}
+
             <View style={styles.filterRow}>
               <Text style={styles.filterTitle}>
                 {showClosed ? 'Toutes les réserves' : 'Réserves actives'} ({companyReserves.length})
@@ -186,6 +243,9 @@ export default function SousTraitantScreen() {
                   key={r.id}
                   reserve={r}
                   onPress={() => router.push(`/reserve/${r.id}` as any)}
+                  canEdit={permissions.canEdit}
+                  onMarkInProgress={() => updateReserveStatus(r.id, 'in_progress', authorName)}
+                  onMarkDone={() => updateReserveStatus(r.id, 'closed', authorName)}
                 />
               ))
             )}
@@ -233,13 +293,20 @@ const styles = StyleSheet.create({
   companyName: { fontSize: 16, fontFamily: 'Inter_600SemiBold', color: C.text },
   companyContact: { fontSize: 12, fontFamily: 'Inter_400Regular', color: C.textSub, marginTop: 2 },
 
-  statsRow: { flexDirection: 'row', gap: 8, marginBottom: 16 },
+  statsRow: { flexDirection: 'row', gap: 8, marginBottom: 12 },
   statCard: {
     flex: 1, backgroundColor: C.surface, borderRadius: 12, padding: 12,
     borderWidth: 1, borderColor: C.border, borderTopWidth: 3, alignItems: 'center',
   },
   statVal: { fontSize: 22, fontFamily: 'Inter_700Bold' },
   statLabel: { fontSize: 10, fontFamily: 'Inter_400Regular', color: C.textSub, marginTop: 2 },
+
+  infoHint: {
+    flexDirection: 'row', alignItems: 'flex-start', gap: 7,
+    backgroundColor: C.primaryBg, borderRadius: 10, padding: 10,
+    borderWidth: 1, borderColor: C.primary + '30', marginBottom: 12,
+  },
+  infoHintText: { flex: 1, fontSize: 12, fontFamily: 'Inter_400Regular', color: C.primary, lineHeight: 17 },
 
   filterRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 },
   filterTitle: { fontSize: 14, fontFamily: 'Inter_600SemiBold', color: C.text },
@@ -255,11 +322,23 @@ const styles = StyleSheet.create({
   statusText: { fontSize: 11, fontFamily: 'Inter_600SemiBold' },
   priorityPill: { paddingHorizontal: 8, paddingVertical: 3, borderRadius: 10 },
   priorityText: { fontSize: 11, fontFamily: 'Inter_600SemiBold' },
+  obsPill: { flexDirection: 'row', alignItems: 'center', gap: 3, backgroundColor: '#0EA5E915', paddingHorizontal: 7, paddingVertical: 3, borderRadius: 10, borderWidth: 1, borderColor: '#0EA5E930' },
+  obsText: { fontSize: 10, fontFamily: 'Inter_600SemiBold', color: '#0EA5E9' },
   reserveId: { fontSize: 11, fontFamily: 'Inter_600SemiBold', color: C.textMuted, marginBottom: 3 },
   reserveTitle: { fontSize: 14, fontFamily: 'Inter_600SemiBold', color: C.text, marginBottom: 4 },
   reserveDesc: { fontSize: 12, fontFamily: 'Inter_400Regular', color: C.textSub, lineHeight: 18, marginBottom: 8 },
   cardBottom: { flexDirection: 'row', alignItems: 'center', gap: 4 },
   metaText: { fontSize: 12, fontFamily: 'Inter_400Regular', color: C.textSub },
+
+  actionRow: {
+    flexDirection: 'row', gap: 8, marginTop: 12,
+    paddingTop: 10, borderTopWidth: 1, borderTopColor: C.border,
+  },
+  actionBtn: {
+    flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
+    gap: 5, paddingVertical: 9, borderRadius: 10, borderWidth: 1,
+  },
+  actionBtnText: { fontSize: 12, fontFamily: 'Inter_600SemiBold' },
 
   empty: { alignItems: 'center', paddingVertical: 48, gap: 10 },
   emptyTitle: { fontSize: 16, fontFamily: 'Inter_600SemiBold', color: C.text },

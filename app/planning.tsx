@@ -383,7 +383,7 @@ export default function PlanningScreen() {
   const { tasks, deleteTask, companies } = useApp();
   const { permissions } = useAuth();
   const router = useRouter();
-  const [viewMode, setViewMode] = useState<ViewMode>('list');
+  const [viewMode, setViewMode] = useState<ViewMode>('gantt');
   const [filterStatus, setFilterStatus] = useState<TaskStatus | 'all'>('all');
   const [filterCompany, setFilterCompany] = useState<string>('all');
   const [search, setSearch] = useState('');
