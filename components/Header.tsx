@@ -30,15 +30,15 @@ export default function Header({ title, subtitle, showBack, rightIcon, onRightPr
           <Text style={styles.title}>{title}</Text>
           {subtitle ? <Text style={styles.subtitle}>{subtitle}</Text> : null}
         </View>
-        {(rightIcon || rightLabel) && (
-          <TouchableOpacity onPress={onRightPress} style={styles.rightBtn} hitSlop={8}>
+        {(rightIcon || rightLabel) ? (
+          <TouchableOpacity onPress={onRightPress} style={rightLabel ? styles.rightPillBtn : styles.rightBtn} hitSlop={8}>
             {rightLabel ? (
-              <Text style={styles.rightLabel}>{rightLabel}</Text>
+              <Text style={styles.rightPillText}>{rightLabel}</Text>
             ) : (
               <Ionicons name={rightIcon as any} size={22} color={C.primary} />
             )}
           </TouchableOpacity>
-        )}
+        ) : null}
       </View>
     </View>
   );
@@ -78,6 +78,18 @@ const styles = StyleSheet.create({
   rightBtn: {
     padding: 4,
     marginLeft: 8,
+  },
+  rightPillBtn: {
+    marginLeft: 8,
+    backgroundColor: C.primary,
+    borderRadius: 20,
+    paddingHorizontal: 14,
+    paddingVertical: 7,
+  },
+  rightPillText: {
+    fontSize: 13,
+    fontFamily: 'Inter_600SemiBold',
+    color: '#fff',
   },
   rightLabel: {
     fontSize: 14,

@@ -9,6 +9,7 @@ import { DocumentType, Document } from '@/constants/types';
 import Header from '@/components/Header';
 import { uploadDocument } from '@/lib/storage';
 import { genId, formatSize } from '@/lib/utils';
+import BottomNavBar from '@/components/BottomNavBar';
 
 const DOC_ICONS: Record<DocumentType, string> = {
   plan: 'map-outline',
@@ -257,6 +258,7 @@ export default function DocumentsScreen() {
           </View>
         )}
       />
+      <BottomNavBar />
     </View>
   );
 }

@@ -78,8 +78,8 @@ export default function TabLayout() {
       <Tabs.Screen
         name="more"
         options={{
-          title: 'Plus',
-          tabBarIcon: ({ color, size }) => <TabIcon name="grid-outline" color={color} size={size} />,
+          title: 'Modules',
+          tabBarIcon: ({ color, size }) => <TabIcon name="apps-outline" color={color} size={size} />,
         }}
       />
       {/* Screens accessible via "Plus" menu — not shown in tab bar */}

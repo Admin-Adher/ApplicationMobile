@@ -9,6 +9,7 @@ import { useAuth } from '@/context/AuthContext';
 import { useSettings } from '@/context/SettingsContext';
 import Header from '@/components/Header';
 import { MeetingReport } from '@/constants/types';
+import BottomNavBar from '@/components/BottomNavBar';
 
 const MEETING_KEY = 'buildtrack_meetings_v1';
 function genId() { return Math.random().toString(36).slice(2, 10); }
@@ -208,6 +209,7 @@ export default function MeetingReportScreen() {
           </View>
         ))}
       </ScrollView>
+      <BottomNavBar />
     </View>
   );
 }

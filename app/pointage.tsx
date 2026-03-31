@@ -11,6 +11,7 @@ import { useAuth } from '@/context/AuthContext';
 import { usePointage } from '@/context/PointageContext';
 import Header from '@/components/Header';
 import { TimeEntry } from '@/constants/types';
+import BottomNavBar from '@/components/BottomNavBar';
 
 function todayISO() {
   return new Date().toISOString().slice(0, 10);
@@ -426,6 +427,7 @@ export default function PointageScreen() {
           </View>
         </KeyboardAvoidingView>
       </Modal>
+      <BottomNavBar />
     </View>
   );
 }

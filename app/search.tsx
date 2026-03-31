@@ -8,6 +8,7 @@ import { useIncidents } from '@/context/IncidentsContext';
 import Header from '@/components/Header';
 import StatusBadge from '@/components/StatusBadge';
 import PriorityBadge from '@/components/PriorityBadge';
+import BottomNavBar from '@/components/BottomNavBar';
 
 const STATUS_LABELS: Record<string, string> = {
   open: 'Ouvert', in_progress: 'En cours', waiting: 'En attente',
@@ -265,6 +266,7 @@ export default function SearchScreen() {
           <View style={{ height: 40 }} />
         </ScrollView>
       )}
+      <BottomNavBar />
     </View>
   );
 }

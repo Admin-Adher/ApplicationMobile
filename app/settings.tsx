@@ -11,6 +11,7 @@ import { useApp } from '@/context/AppContext';
 import { useAuth } from '@/context/AuthContext';
 import { useSubscription } from '@/context/SubscriptionContext';
 import { AttendanceRecord } from '@/constants/types';
+import BottomNavBar from '@/components/BottomNavBar';
 
 function groupByDate(records: AttendanceRecord[]): Record<string, AttendanceRecord[]> {
   const groups: Record<string, AttendanceRecord[]> = {};
@@ -53,6 +54,7 @@ export default function SettingsScreen() {
   const [descInput, setDescInput] = useState(projectDescription);
   const [saving, setSaving] = useState(false);
   const [activeTab, setActiveTab] = useState<'compte' | 'project' | 'attendance'>('compte');
+  const isAdmin = user?.role === 'admin' || user?.role === 'super_admin';
 
   const grouped = useMemo(() => {
     const g = groupByDate(attendanceHistory);
@@ -232,6 +234,43 @@ export default function SettingsScreen() {
 
         {activeTab === 'project' && (
           <View>
+            {isAdmin && (
+              <View style={styles.statsGrid}>
+                {[
+                  { icon: 'warning-outline', label: 'Réserves', val: companies.length > 0 ? '—' : '0', color: C.waiting },
+                  { icon: 'people-outline', label: 'Entreprises', val: String(companies.length), color: C.primary },
+                  { icon: 'folder-open-outline', label: 'Documents', val: '—', color: C.inProgress },
+                  { icon: 'shield-outline', label: 'Incidents', val: '—', color: '#EF4444' },
+                ].map(s => (
+                  <View key={s.label} style={styles.statBox}>
+                    <Ionicons name={s.icon as any} size={20} color={s.color} />
+                    <Text style={[styles.statNum, { color: s.color }]}>{s.val}</Text>
+                    <Text style={styles.statLbl}>{s.label}</Text>
+                  </View>
+                ))}
+              </View>
+            )}
+
+            {isAdmin && (
+              <View style={[styles.card, { marginBottom: 14 }]}>
+                <Text style={styles.cardTitle}>Accès rapide</Text>
+                {[
+                  { icon: 'people', label: 'Gérer les équipes', route: '/(tabs)/equipes', color: '#EC4899' },
+                  { icon: 'document-text', label: 'Rapports chantier', route: '/rapports', color: C.verification },
+                  { icon: 'map', label: 'Plans interactifs', route: '/(tabs)/plans', color: C.closed },
+                  { icon: 'calendar', label: 'Planning des tâches', route: '/planning', color: C.primary },
+                ].map(item => (
+                  <TouchableOpacity key={item.label} style={styles.quickRow} onPress={() => router.push(item.route as any)}>
+                    <View style={[styles.quickIcon, { backgroundColor: item.color + '18' }]}>
+                      <Ionicons name={item.icon as any} size={16} color={item.color} />
+                    </View>
+                    <Text style={styles.quickLabel}>{item.label}</Text>
+                    <Ionicons name="chevron-forward" size={14} color={C.textMuted} />
+                  </TouchableOpacity>
+                ))}
+              </View>
+            )}
+
             <View style={styles.card}>
               <Text style={styles.cardTitle}>Informations du projet</Text>
 
@@ -271,7 +310,7 @@ export default function SettingsScreen() {
               <View style={styles.infoRow}>
                 <Ionicons name="information-circle-outline" size={16} color={C.primary} />
                 <Text style={styles.infoText}>
-                  Le nom du projet s'affiche dans le tableau de bord, les rapports PDF et l'écran Plus.
+                  Le nom du projet s'affiche dans le tableau de bord, les rapports PDF et l'écran Modules.
                 </Text>
               </View>
             </View>
@@ -342,6 +381,7 @@ export default function SettingsScreen() {
           </View>
         )}
       </ScrollView>
+      <BottomNavBar />
     </View>
   );
 }
@@ -422,6 +462,13 @@ const styles = StyleSheet.create({
   },
   textArea: { minHeight: 80, textAlignVertical: 'top' },
 
+  statsGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10, marginBottom: 14 },
+  statBox: { flex: 1, minWidth: '44%', backgroundColor: C.surface, borderRadius: 14, padding: 14, alignItems: 'center', gap: 4, borderWidth: 1, borderColor: C.border },
+  statNum: { fontSize: 22, fontFamily: 'Inter_700Bold' },
+  statLbl: { fontSize: 11, fontFamily: 'Inter_400Regular', color: C.textSub },
+  quickRow: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: C.border },
+  quickIcon: { width: 34, height: 34, borderRadius: 9, alignItems: 'center', justifyContent: 'center' },
+  quickLabel: { flex: 1, fontSize: 14, fontFamily: 'Inter_500Medium', color: C.text },
   saveBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, backgroundColor: C.primary, borderRadius: 12, paddingVertical: 13, marginTop: 16 },
   saveBtnText: { fontSize: 15, fontFamily: 'Inter_600SemiBold', color: '#fff' },
 

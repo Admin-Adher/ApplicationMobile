@@ -6,6 +6,7 @@ import { C } from '@/constants/colors';
 import { useAuth } from '@/context/AuthContext';
 import Header from '@/components/Header';
 import { Checklist, ChecklistItem } from '@/constants/types';
+import BottomNavBar from '@/components/BottomNavBar';
 
 const CHECKLIST_KEY = 'buildtrack_checklists_v1';
 function genId() { return Math.random().toString(36).slice(2, 10); }
@@ -217,6 +218,7 @@ export default function ChecklistScreen() {
           );
         })}
       </ScrollView>
+      <BottomNavBar />
     </View>
   );
 }

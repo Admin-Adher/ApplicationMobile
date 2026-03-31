@@ -9,6 +9,7 @@ import { useAuth } from '@/context/AuthContext';
 import { useSettings } from '@/context/SettingsContext';
 import { useIncidents } from '@/context/IncidentsContext';
 import Header from '@/components/Header';
+import BottomNavBar from '@/components/BottomNavBar';
 
 function buildDailyHTML(reserves: any[], companies: any[], tasks: any[], incidents: any[], stats: any, userName: string, projectName: string): string {
   const now = new Date().toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
@@ -453,6 +454,7 @@ export default function RapportsScreen() {
           )}
         </View>
       </ScrollView>
+      <BottomNavBar />
     </View>
   );
 }

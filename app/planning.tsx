@@ -8,6 +8,7 @@ import { useAuth } from '@/context/AuthContext';
 import { Task, TaskStatus } from '@/constants/types';
 import Header from '@/components/Header';
 import { parseDeadline, formatDate } from '@/lib/reserveUtils';
+import BottomNavBar from '@/components/BottomNavBar';
 
 const STATUS_CFG: Record<TaskStatus, { label: string; color: string }> = {
   todo: { label: 'À faire', color: C.textMuted },
@@ -561,6 +562,7 @@ export default function PlanningScreen() {
           </View>
         )}
       </ScrollView>
+      <BottomNavBar />
     </View>
   );
 }

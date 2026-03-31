@@ -32,9 +32,9 @@ function autoFormat(raw: string, prev: string): string {
 export default function DateInput({ value, onChange, placeholder, label, optional }: DateInputProps) {
   const [focused, setFocused] = useState(false);
 
+  const hasValue = Boolean(value && value !== '—' && value.length > 0);
   const isValid = !value || value === '—' || validateDeadline(value);
-  const hasValue = value && value !== '—' && value.length > 0;
-  const showError = hasValue && !isValid;
+  const showError = Boolean(hasValue && !isValid);
 
   function handleChange(raw: string) {
     const formatted = autoFormat(raw, value);
@@ -71,21 +71,21 @@ export default function DateInput({ value, onChange, placeholder, label, optiona
           onFocus={() => setFocused(true)}
           onBlur={() => setFocused(false)}
         />
-        {hasValue && (
+        {hasValue ? (
           <TouchableOpacity onPress={() => onChange('')} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
             <Ionicons name="close-circle" size={16} color={C.textMuted} />
           </TouchableOpacity>
-        )}
-        {hasValue && isValid && (
+        ) : null}
+        {hasValue && isValid ? (
           <Ionicons name="checkmark-circle" size={16} color={C.closed} style={{ marginLeft: 4 }} />
-        )}
+        ) : null}
       </View>
-      {showError && (
+      {showError ? (
         <Text style={styles.errorText}>Date invalide — utilisez le format JJ/MM/AAAA</Text>
-      )}
-      {!showError && !hasValue && (
+      ) : null}
+      {!showError && !hasValue ? (
         <Text style={styles.hint}>Ex : 30/04/2026 — laisser vide si aucune échéance</Text>
-      )}
+      ) : null}
     </View>
   );
 }

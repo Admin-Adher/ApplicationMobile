@@ -139,6 +139,18 @@ The Supabase schema is defined in `lib/schema.sql`. The subscription/storage mig
 - **`lib/storage.ts`** — Suppression des appels `createBucket()` côté client (bloqués par RLS avec la clé anon). Les buckets sont désormais créés via SQL.
 - **`app/login.tsx`** — Message d'erreur du seeder mis à jour pour orienter vers la désactivation de la confirmation email Supabase.
 
+**Session 10 (actuelle) — Audit UX : BottomNavBar + enrichissement Settings :**
+- **`components/BottomNavBar.tsx`** (nouveau) — Barre de navigation persistante à 5 onglets pour toutes les pages secondaires (hors tabs principaux). Utilise `router.navigate()` pour éviter l'empilement de l'historique. Prop `activeTab` pour indiquer l'onglet actif.
+- **`app/(tabs)/_layout.tsx`** — L'onglet "Plus" renommé en **"Modules"** avec l'icône `apps-outline`.
+- **`app/_layout.tsx`** — Titres de pages ajoutés pour checklist, journal, meeting-report dans la Stack.
+- **Toutes les pages secondaires** — BottomNavBar ajoutée : planning, rapports, search, pointage, reglementaire, checklist, journal, meeting-report, documents, photos, settings.
+- **`app/rapports.tsx`** — Correction critique : BottomNavBar était placée à l'intérieur du composant auxiliaire `StatItem` au lieu du return principal. Déplacée après `</ScrollView>` dans le return principal.
+- **`components/Header.tsx`** — `rightLabel` rendu en bouton pill stylisé.
+- **`app/login.tsx`** — `paddingTop` du hero réduit (48→20) pour que la section "Comptes de démonstration" soit visible sans défilement.
+- **`app/(tabs)/plans.tsx`** — Boutons zoom agrandis (32px→44px) pour une meilleure accessibilité tactile.
+- **`app/photos.tsx`** — Placeholder amélioré : icône `image-outline` + texte de localisation.
+- **`app/settings.tsx`** — Onglet **Projet** enrichi pour les admins : grille de 4 KPIs (Réserves, Entreprises, Documents, Incidents) + section "Accès rapide" avec 4 liens vers les modules clés (Équipes, Rapports, Plans, Planning).
+
 **Session 8 (actuelle) — Points 5 et 10 de l'audit BTP :**
 - **`constants/types.ts`** — Ajout de `TimeEntry` (pointage horaire : nom ouvrier, entreprise, heure arrivée/départ, notes) et `RegulatoryDoc` + `RegDocType` + `RegDocStatus` (documents réglementaires PPSPS/DICT/DOE/Plan de prévention/DPAE/autre).
 - **`context/PointageContext.tsx`** (nouveau) — Contexte dédié au pointage horaire. Persistance AsyncStorage (`buildtrack_pointage_v1`). CRUD complet : `addEntry`, `updateEntry`, `deleteEntry`, `getEntriesForDate`.

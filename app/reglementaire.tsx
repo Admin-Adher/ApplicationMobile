@@ -10,6 +10,7 @@ import { useAuth } from '@/context/AuthContext';
 import { useReglementaire } from '@/context/ReglementaireContext';
 import Header from '@/components/Header';
 import { RegulatoryDoc, RegDocType, RegDocStatus } from '@/constants/types';
+import BottomNavBar from '@/components/BottomNavBar';
 
 const DOC_TYPES: { value: RegDocType; label: string; desc: string; icon: string; color: string }[] = [
   { value: 'ppsps', label: 'PPSPS', desc: 'Plan Particulier de Sécurité et de Protection de la Santé', icon: 'shield-checkmark', color: '#DC2626' },
@@ -398,6 +399,7 @@ export default function ReglementaireScreen() {
           </View>
         </KeyboardAvoidingView>
       </Modal>
+      <BottomNavBar />
     </View>
   );
 }

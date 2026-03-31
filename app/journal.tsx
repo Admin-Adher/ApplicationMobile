@@ -10,6 +10,7 @@ import { useSettings } from '@/context/SettingsContext';
 import { useApp } from '@/context/AppContext';
 import Header from '@/components/Header';
 import { JournalEntry } from '@/constants/types';
+import BottomNavBar from '@/components/BottomNavBar';
 
 const JOURNAL_KEY = 'buildtrack_journal_v1';
 function genId() { return Math.random().toString(36).slice(2, 10); }
@@ -232,6 +233,7 @@ export default function JournalScreen() {
           </View>
         ))}
       </ScrollView>
+      <BottomNavBar />
     </View>
   );
 }

@@ -89,9 +89,9 @@ export default function RootLayout() {
                       <Stack.Screen name="reglementaire" options={{ headerShown: false }} />
                       <Stack.Screen name="subscription" options={{ headerShown: false }} />
                       <Stack.Screen name="superadmin" options={{ headerShown: false }} />
-                      <Stack.Screen name="checklist" options={{ headerShown: false }} />
-                      <Stack.Screen name="journal" options={{ headerShown: false }} />
-                      <Stack.Screen name="meeting-report" options={{ headerShown: false }} />
+                      <Stack.Screen name="checklist" options={{ headerShown: false, title: 'Checklists' }} />
+                      <Stack.Screen name="journal" options={{ headerShown: false, title: 'Journal de chantier' }} />
+                      <Stack.Screen name="meeting-report" options={{ headerShown: false, title: 'CR Réunions' }} />
                       <Stack.Screen name="+not-found" />
                     </Stack>
                   </AuthGuard>

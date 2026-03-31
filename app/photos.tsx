@@ -10,6 +10,7 @@ import Header from '@/components/Header';
 import { Photo, Channel } from '@/constants/types';
 import { uploadPhoto } from '@/lib/storage';
 import { genId } from '@/lib/utils';
+import BottomNavBar from '@/components/BottomNavBar';
 
 export default function PhotosScreen() {
   const { photos, addPhoto, deletePhoto, channels, addMessage } = useApp();
@@ -268,8 +269,9 @@ export default function PhotosScreen() {
                   </View>
                 </View>
               ) : (
-                <View style={[styles.photoThumb, { backgroundColor: item.colorCode + '30' }]}>
-                  <Ionicons name="camera" size={32} color={item.colorCode} />
+                <View style={[styles.photoThumb, styles.photoThumbPlaceholder]}>
+                  <Ionicons name="image-outline" size={28} color={C.textMuted} />
+                  <Text style={styles.placeholderLabel} numberOfLines={1}>{item.location}</Text>
                 </View>
               )}
             </TouchableOpacity>
@@ -426,6 +428,7 @@ export default function PhotosScreen() {
           </View>
         </KeyboardAvoidingView>
       </Modal>
+      <BottomNavBar />
     </View>
   );
 }
@@ -452,6 +455,8 @@ const styles = StyleSheet.create({
   loadingText: { fontSize: 13, fontFamily: 'Inter_400Regular', color: C.textSub },
   photoCard: { width: '48.5%', backgroundColor: C.surface, borderRadius: 14, overflow: 'hidden', marginBottom: 10, borderWidth: 1, borderColor: C.border },
   photoThumb: { height: 110, alignItems: 'center', justifyContent: 'center' },
+  photoThumbPlaceholder: { backgroundColor: C.surface2, gap: 6 },
+  placeholderLabel: { fontSize: 10, fontFamily: 'Inter_400Regular', color: C.textMuted, paddingHorizontal: 8, textAlign: 'center' },
   photoThumbImg: { width: '100%', height: 110 },
   expandHint: { position: 'absolute', bottom: 6, right: 6, backgroundColor: 'rgba(0,0,0,0.45)', borderRadius: 4, padding: 3 },
   photoInfo: { padding: 10 },

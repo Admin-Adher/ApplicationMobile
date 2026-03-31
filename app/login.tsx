@@ -62,7 +62,7 @@ export default function LoginScreen() {
         keyboardShouldPersistTaps="handled"
         showsVerticalScrollIndicator={false}
       >
-        <View style={[styles.hero, { paddingTop: (Platform.OS === 'web' ? 0 : insets.top) + 48 }]}>
+        <View style={[styles.hero, { paddingTop: (Platform.OS === 'web' ? 0 : insets.top) + 20 }]}>
           <View style={styles.logoRow}>
             <View style={styles.logoBox}>
               <Text style={styles.logoLetter}>B</Text>
