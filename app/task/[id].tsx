@@ -104,7 +104,7 @@ export default function EditTaskScreen() {
   return (
     <View style={styles.container}>
       <Header
-        title="Modifier la tâche"
+        title={permissions.canEdit ? 'Modifier la tâche' : 'Détails de la tâche'}
         showBack
         rightLabel={permissions.canEdit ? 'Enregistrer' : undefined}
         onRightPress={permissions.canEdit ? handleSave : undefined}

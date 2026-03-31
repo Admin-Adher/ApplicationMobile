@@ -1121,8 +1121,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       if (isSupabaseConfigured) {
         supabase.from('tasks').insert({
           id: t.id, title: t.title, description: t.description, status: t.status,
-          priority: t.priority, deadline: t.deadline, assignee: t.assignee,
-          progress: t.progress, company: t.company,
+          priority: t.priority, start_date: t.startDate ?? null, deadline: t.deadline,
+          assignee: t.assignee, progress: t.progress, company: t.company,
         }).then(({ error }) => {
           if (error) console.warn('Erreur ajout tâche:', error.message);
         });
@@ -1134,8 +1134,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       if (isSupabaseConfigured) {
         supabase.from('tasks').update({
           title: t.title, description: t.description, status: t.status,
-          priority: t.priority, deadline: t.deadline, assignee: t.assignee,
-          progress: t.progress, company: t.company,
+          priority: t.priority, start_date: t.startDate ?? null, deadline: t.deadline,
+          assignee: t.assignee, progress: t.progress, company: t.company,
         }).eq('id', t.id).then(({ error }) => {
           if (error) console.warn('Erreur mise à jour tâche:', error.message);
         });
