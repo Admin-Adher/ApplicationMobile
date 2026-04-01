@@ -9,6 +9,7 @@
     "web": "node node_modules/expo/bin/cli export --platform web"
   },
   "dependencies": {
+    "@babel/plugin-transform-class-static-block": "^7.28.6",
     "@expo-google-fonts/inter": "^0.2.3",
     "@expo/metro-runtime": "~5.0.5",
     "@expo/vector-icons": "^14.1.0",
