@@ -140,7 +140,7 @@ export default function MessagesTabScreen() {
     addCustomChannel, addGroupChannel, getOrCreateDMChannel,
     pinnedChannelIds, pinChannel, unpinChannel, maxPinnedChannels,
   } = useApp();
-  const { user } = useAuth();
+  const { user, permissions } = useAuth();
   const [search, setSearch] = useState('');
   const [showNewChannel, setShowNewChannel] = useState(false);
   const [showNewDM, setShowNewDM] = useState(false);
@@ -543,6 +543,16 @@ export default function MessagesTabScreen() {
           </View>
         </TouchableWithoutFeedback>
       </Modal>
+
+      {permissions.canCreate && (
+        <TouchableOpacity
+          style={styles.fab}
+          onPress={() => router.push('/reserve/new' as any)}
+          activeOpacity={0.85}
+        >
+          <Ionicons name="add" size={26} color="#fff" />
+        </TouchableOpacity>
+      )}
     </View>
   );
 }
@@ -655,5 +665,22 @@ const styles = StyleSheet.create({
   demoBannerText: {
     flex: 1, fontSize: 12, fontFamily: 'Inter_400Regular',
     color: C.waiting, lineHeight: 17,
+  },
+  fab: {
+    position: 'absolute',
+    bottom: Platform.OS === 'web' ? 104 : 80,
+    right: 18,
+    zIndex: 100,
+    width: 52,
+    height: 52,
+    borderRadius: 26,
+    backgroundColor: C.primary,
+    alignItems: 'center',
+    justifyContent: 'center',
+    elevation: 6,
+    ...Platform.select({
+      web: { boxShadow: '0px 4px 16px rgba(0,48,130,0.30)' } as any,
+      default: { shadowColor: C.primary, shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.35, shadowRadius: 10 },
+    }),
   },
 });

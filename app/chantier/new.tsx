@@ -85,10 +85,6 @@ export default function NewChantierScreen() {
       return;
     }
     const validPlans = plans.filter(p => p.name.trim());
-    if (validPlans.length === 0) {
-      Alert.alert('Plan requis', 'Ajoutez au moins un plan à votre chantier.');
-      return;
-    }
 
     setIsSubmitting(true);
     const chantierId = genId();
@@ -118,9 +114,13 @@ export default function NewChantierScreen() {
 
     addChantier(newChantier, newPlans);
 
+    const planMsg = newPlans.length > 0
+      ? ` avec ${newPlans.length} plan${newPlans.length > 1 ? 's' : ''}.`
+      : '. Vous pouvez ajouter des plans depuis l\'onglet Plans.';
+
     Alert.alert(
       'Chantier créé',
-      `"${name.trim()}" a été créé avec ${newPlans.length} plan(s).`,
+      `"${name.trim()}" a été créé${planMsg}`,
       [{ text: 'OK', onPress: () => router.back() }]
     );
   }
@@ -181,14 +181,14 @@ export default function NewChantierScreen() {
         <View style={styles.plansSection}>
           <View style={styles.plansSectionHeader}>
             <Ionicons name="map-outline" size={16} color={C.primary} />
-            <Text style={styles.plansSectionTitle}>Plans associés</Text>
+            <Text style={styles.plansSectionTitle}>Plans associés (optionnel)</Text>
             <TouchableOpacity style={styles.addPlanBtn} onPress={addPlanRow}>
               <Ionicons name="add" size={14} color={C.primary} />
               <Text style={styles.addPlanText}>Ajouter</Text>
             </TouchableOpacity>
           </View>
           <Text style={styles.plansSectionSubtitle}>
-            Nommez vos plans et importez optionnellement les fichiers (PDF ou image).
+            Vous pouvez créer votre chantier maintenant et ajouter les plans plus tard depuis l'onglet Plans.
           </Text>
 
           {plans.map((plan, idx) => (

@@ -13,12 +13,27 @@ BuildTrack is a professional construction management mobile application built wi
 
 ## Key Features
 - Dashboard & Analytics (real-time project status)
-- Reserves/Punch list management
-- Plan viewer (PDF and DXF construction plans)
+- Reserves/Punch list management with global "+" FAB on every main tab
+- Plan viewer (PDF and DXF construction plans, with WebView-based mobile PDF rendering)
 - Internal communications (channels + direct messages)
-- Site journals, checklists, meeting reports
+- Site journals, checklists, meeting reports, OPR, site visits
 - Photo annotations and equipment tracking
 - Role-based access (Super Admin, Admin, Site Manager, Team Leader, Subcontractor)
+
+## Navigation Structure (5 tabs)
+- **Dashboard** — Project KPIs and overview
+- **Réserves** — Punch list management (with FAB for quick creation)
+- **Plans** — Interactive plan viewer with PDF support on mobile
+- **Messages** — Channels, DMs, groups (with FAB for quick reserve creation)
+- **Terrain** — Daily field tools: Journal, Pointage, OPR, Visites, Incidents + Documents + Admin
+
+## UX Improvements (April 2026)
+- Renamed "Modules" tab to "Terrain" with hammer icon — more intuitive for BTP workers
+- "Terrain quotidien" section promoted to top of Terrain tab (Journal, Pointage, OPR, Visites, Incidents)
+- Intégrations BTP demoted to Administration section (low-frequency feature)
+- Persistent "+" FAB added to Messages and Terrain tabs (already existed on Dashboard, Réserves, Plans)
+- PDF plans now render inline on mobile via WebView (no more "Ouvrir le plan" external redirect)
+- Chantier creation no longer requires a plan — plans section is now optional
 
 ## Project Structure
 ```

@@ -12,7 +12,7 @@ const TAB_ITEMS = [
   { name: 'reserves', title: 'Réserves',  icon: 'warning',       iconOutline: 'warning-outline' },
   { name: 'plans',    title: 'Plans',     icon: 'map',           iconOutline: 'map-outline' },
   { name: 'messages', title: 'Messages',  icon: 'chatbubbles',   iconOutline: 'chatbubbles-outline' },
-  { name: 'more',     title: 'Modules',   icon: 'apps',          iconOutline: 'apps-outline' },
+  { name: 'more',     title: 'Terrain',   icon: 'hammer',        iconOutline: 'hammer-outline' },
 ] as const;
 
 function TabIcon({ name, color, size, badge }: { name: any; color: string; size: number; badge?: number }) {
@@ -147,8 +147,8 @@ export default function TabLayout() {
       <Tabs.Screen
         name="more"
         options={{
-          title: 'Modules',
-          tabBarIcon: ({ color }) => <TabIcon name="apps-outline" color={color} size={26} />,
+          title: 'Terrain',
+          tabBarIcon: ({ color }) => <TabIcon name="hammer-outline" color={color} size={26} />,
         }}
       />
       <Tabs.Screen name="incidents" options={{ href: null }} />

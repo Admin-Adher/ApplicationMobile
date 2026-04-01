@@ -60,12 +60,20 @@ export default function MoreScreen() {
   const sections = useMemo<MenuSection[]>(() => {
     const result: MenuSection[] = [];
 
-    // Section Chantier — items fréquents
+    // Section Terrain quotidien — accès immédiat aux outils de chantier
+    const terrainItems: MenuItem[] = [
+      { icon: 'book', label: 'Journal chantier', subtitle: 'Saisie quotidienne', route: '/journal', color: '#059669' },
+      { icon: 'time', label: 'Pointage', subtitle: 'Arrivées & départs', route: '/pointage', color: '#0891B2' },
+      { icon: 'clipboard', label: 'OPR', subtitle: 'Opérations de réception', route: '/(tabs)/opr', color: '#7C3AED' },
+      { icon: 'eye', label: 'Visites chantier', subtitle: 'Compte-rendu visite', route: '/(tabs)/visites', color: '#F59E0B' },
+      { icon: 'shield', label: 'Incidents', subtitle: `${openIncidentsCount > 0 ? openIncidentsCount + ' non résolu' + (openIncidentsCount > 1 ? 's' : '') : incidents.length + ' au total'}`, route: '/(tabs)/incidents', color: '#EF4444', badge: openIncidentsCount || undefined },
+    ];
+    result.push({ title: 'Terrain quotidien', items: terrainItems });
+
+    // Section Chantier
     const chantierItems: MenuItem[] = [
       { icon: 'business', label: 'Chantiers', subtitle: chantiers.length > 0 ? `${chantiers.length} chantier${chantiers.length > 1 ? 's' : ''}${activeChantier ? ' · Actif: ' + activeChantier.name : ''}` : 'Aucun chantier', route: '/chantier/manage', color: C.primary },
-      { icon: 'shield', label: 'Incidents', subtitle: `${openIncidentsCount > 0 ? openIncidentsCount + ' non résolu' + (openIncidentsCount > 1 ? 's' : '') : incidents.length + ' au total'}`, route: '/(tabs)/incidents', color: '#EF4444', badge: openIncidentsCount || undefined },
       { icon: 'calendar', label: 'Planning', subtitle: `${tasks.length} tâche${tasks.length !== 1 ? 's' : ''}`, route: '/planning', color: C.closed, badge: delayedCount || undefined },
-      { icon: 'document-text', label: 'Rapports', subtitle: 'Journalier, hebdo', route: '/rapports', color: C.verification },
       { icon: 'bar-chart', label: 'Analytique', subtitle: 'Tendances & KPIs', route: '/analytics', color: '#0EA5E9' },
       { icon: 'search', label: 'Recherche', subtitle: 'Tout le chantier', route: '/search', color: '#8B5CF6' },
     ];
@@ -74,24 +82,23 @@ export default function MoreScreen() {
     }
     result.push({ title: 'Chantier', items: chantierItems });
 
-    // Section Outils
+    // Section Documents & Outils
     const outilsItems: MenuItem[] = [
+      { icon: 'document-text', label: 'Rapports', subtitle: 'Journalier, hebdo', route: '/rapports', color: C.verification },
       { icon: 'folder-open', label: 'Documents', subtitle: `${documents.length} fichier${documents.length !== 1 ? 's' : ''}`, route: '/documents', color: C.inProgress, badge: recentDocsCount || undefined },
       { icon: 'camera', label: 'Photos', subtitle: `${photos.length} photo${photos.length !== 1 ? 's' : ''}`, route: '/photos', color: C.medium },
-      { icon: 'git-network', label: 'Intégrations BTP', subtitle: 'Procore · BIM · URSSAF', route: '/integrations', color: '#6366F1' },
-      { icon: 'time', label: 'Pointage horaire', subtitle: 'Arrivées & départs', route: '/pointage', color: '#0891B2' },
-      { icon: 'checkbox', label: 'Checklists', subtitle: 'Contrôle qualité', route: '/checklist', color: '#06B6D4' },
       { icon: 'document-text', label: 'CR Réunions', subtitle: 'Comptes-rendus', route: '/meeting-report', color: '#7C3AED' },
-      { icon: 'book', label: 'Journal chantier', subtitle: 'Journal officiel', route: '/journal', color: '#059669' },
+      { icon: 'checkbox', label: 'Checklists', subtitle: 'Contrôle qualité', route: '/checklist', color: '#06B6D4' },
       { icon: 'document-lock', label: 'Docs réglementaires', subtitle: 'PPSPS · DICT · DOE', route: '/reglementaire', color: '#BE185D' },
     ];
-    result.push({ title: 'Outils', items: outilsItems });
+    result.push({ title: 'Documents', items: outilsItems });
 
     // Section Administration (admin/super_admin uniquement)
     if (isAdmin) {
       const adminItems: MenuItem[] = [
         { icon: 'shield-checkmark', label: 'Administration', subtitle: 'Utilisateurs & accès', route: '/(tabs)/admin', color: '#EF4444' },
         { icon: 'settings', label: 'Paramètres', subtitle: 'Projet & présences', route: '/settings', color: C.textSub },
+        { icon: 'git-network', label: 'Intégrations BTP', subtitle: 'Procore · BIM · URSSAF', route: '/integrations', color: '#6366F1' },
       ];
       if (user?.role === 'super_admin') {
         adminItems.push({ icon: 'globe', label: 'Super Admin', subtitle: 'Toutes les orgs', route: '/superadmin', color: '#7C3AED' });
@@ -100,6 +107,7 @@ export default function MoreScreen() {
     } else {
       result.push({ title: 'Compte', items: [
         { icon: 'settings', label: 'Paramètres', subtitle: 'Projet & présences', route: '/settings', color: C.textSub },
+        { icon: 'git-network', label: 'Intégrations BTP', subtitle: 'Procore · BIM · URSSAF', route: '/integrations', color: '#6366F1' },
       ]});
     }
 
@@ -121,8 +129,8 @@ export default function MoreScreen() {
       <View style={[styles.header, { paddingTop: topPad + 12 }]}>
         <View style={styles.headerRow}>
           <View style={{ flex: 1 }}>
-            <Text style={styles.title}>Plus</Text>
-            <Text style={styles.subtitle}>Modules & administration</Text>
+            <Text style={styles.title}>Terrain</Text>
+            <Text style={styles.subtitle}>Outils terrain quotidiens</Text>
           </View>
           {activeChantier ? (
             <TouchableOpacity style={styles.chantierPill} onPress={openChantierSwitcher} activeOpacity={0.8}>
@@ -232,6 +240,17 @@ export default function MoreScreen() {
           <Text style={styles.logoutFullText}>Se déconnecter</Text>
         </TouchableOpacity>
       </ScrollView>
+
+      {permissions.canCreate && (
+        <TouchableOpacity
+          style={styles.fab}
+          onPress={() => router.push('/reserve/new' as any)}
+          activeOpacity={0.85}
+        >
+          <Ionicons name="add" size={22} color="#fff" />
+          <Text style={styles.fabLabel}>Réserve</Text>
+        </TouchableOpacity>
+      )}
     </View>
   );
 }
@@ -326,4 +345,23 @@ const styles = StyleSheet.create({
     borderWidth: 1, borderColor: C.open + '30',
   },
   logoutFullText: { fontSize: 15, fontFamily: 'Inter_600SemiBold', color: C.open },
+  fab: {
+    position: 'absolute',
+    bottom: Platform.OS === 'web' ? 104 : 80,
+    right: 18,
+    zIndex: 100,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: C.primary,
+    paddingVertical: 14,
+    paddingHorizontal: 18,
+    borderRadius: 30,
+    elevation: 6,
+    ...Platform.select({
+      web: { boxShadow: '0px 4px 16px rgba(0,48,130,0.30)' } as any,
+      default: { shadowColor: C.primary, shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.35, shadowRadius: 10 },
+    }),
+  },
+  fabLabel: { fontSize: 14, fontFamily: 'Inter_700Bold', color: '#fff' },
 });

@@ -429,15 +429,32 @@ function PlanImageLayer({ uri, isPdfFile }: { uri: string; isPdfFile: boolean })
         </View>
       );
     }
+    const WebView = require('react-native-webview').default;
+    const encodedUri = encodeURI(uri);
+    const mobileHtml = `<!DOCTYPE html><html><head><meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=5">
+<style>
+*{margin:0;padding:0;box-sizing:border-box;}
+html,body{width:100%;height:100%;background:#0F1117;overflow:hidden;position:relative;}
+#loading{position:absolute;top:0;left:0;width:100%;height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;background:#0F1117;z-index:10;}
+#spinner{width:32px;height:32px;border:3px solid #1E3A5F;border-top-color:#003082;border-radius:50%;animation:spin 0.8s linear infinite;}
+#loading-text{color:#94A3B8;font-family:Arial;font-size:13px;}
+@keyframes spin{to{transform:rotate(360deg);}}
+iframe{position:absolute;top:0;left:0;width:100%;height:100%;border:none;}
+</style></head><body>
+<div id="loading"><div id="spinner"></div><div id="loading-text">Chargement du plan\u2026</div></div>
+<iframe src="${encodedUri}#toolbar=0&navpanes=0" onload="document.getElementById('loading').style.display='none';"></iframe>
+</body></html>`;
     return (
-      <View style={planImgStyles.pdfMobile}>
-        <Ionicons name="document-text-outline" size={36} color={C.primary} />
-        <Text style={planImgStyles.pdfText}>Plan PDF importé</Text>
-        <TouchableOpacity style={planImgStyles.pdfBtn} onPress={() => Linking.openURL(uri)}>
-          <Ionicons name="open-outline" size={14} color="#fff" />
-          <Text style={planImgStyles.pdfBtnText}>Ouvrir le plan</Text>
-        </TouchableOpacity>
-      </View>
+      <WebView
+        style={StyleSheet.absoluteFillObject}
+        source={{ html: mobileHtml }}
+        originWhitelist={['*']}
+        javaScriptEnabled
+        allowFileAccess
+        allowUniversalAccessFromFileURLs
+        allowingReadAccessToURL={uri}
+      />
     );
   }
 
