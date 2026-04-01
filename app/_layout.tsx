@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
+import { View, Text, TouchableOpacity, StyleSheet, Platform } from 'react-native';
 import { Stack, useRouter, useSegments } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import * as SplashScreen from 'expo-splash-screen';
@@ -23,6 +23,17 @@ import ChantierSwitcherSheet from '@/components/ChantierSwitcherSheet';
 import { reloadAppAsync } from 'expo';
 
 SplashScreen.preventAutoHideAsync();
+
+function SafeKeyboardProvider({ children }: { children: React.ReactNode }) {
+  if (Platform.OS === 'web') {
+    return <>{children}</>;
+  }
+  try {
+    return <KeyboardProvider>{children}</KeyboardProvider>;
+  } catch {
+    return <>{children}</>;
+  }
+}
 
 export function ErrorBoundary({ error }: { error: Error }) {
   return (
@@ -79,7 +90,7 @@ export default function RootLayout() {
     const timer = setTimeout(() => {
       setTimedOut(true);
       SplashScreen.hideAsync().catch(() => {});
-    }, 3000);
+    }, 1500);
     return () => clearTimeout(timer);
   }, []);
 
@@ -111,7 +122,7 @@ export default function RootLayout() {
           <NotificationsProvider>
             <GestureHandlerRootView style={{ flex: 1 }}>
               <SafeAreaProvider>
-                <KeyboardProvider>
+                <SafeKeyboardProvider>
                   <AuthGuard>
                     <Stack>
                       <Stack.Screen name="login" options={{ headerShown: false }} />
@@ -146,7 +157,7 @@ export default function RootLayout() {
                   <OfflineBanner />
                   <ChantierSwitcherSheet />
                   <StatusBar style="light" />
-                </KeyboardProvider>
+                </SafeKeyboardProvider>
               </SafeAreaProvider>
             </GestureHandlerRootView>
           </NotificationsProvider>
