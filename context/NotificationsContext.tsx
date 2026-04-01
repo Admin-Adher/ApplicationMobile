@@ -64,19 +64,21 @@ export function NotificationsProvider({ children }: { children: React.ReactNode 
       : reserves;
 
     for (const r of activeReserves) {
-      if (r.priority === 'critical' && r.status !== 'closed') {
+      const isCritical = r.priority === 'critical' && r.status !== 'closed';
+      const isLate = r.status !== 'closed' && isOverdue(r.deadline, r.status);
+
+      if (isCritical) {
         result.push({
           id: `crit_${r.id}`,
           type: 'critical_reserve',
           title: 'Réserve critique',
-          body: r.title,
+          body: isLate ? `${r.title} — critique et en retard` : r.title,
           route: '/reserve/[id]',
           routeParams: { id: r.id },
           createdAt: r.createdAt,
           read: seenIds.has(`crit_${r.id}`),
         });
-      }
-      if (r.status !== 'closed' && isOverdue(r.deadline, r.status)) {
+      } else if (isLate) {
         result.push({
           id: `late_${r.id}`,
           type: 'overdue_reserve',

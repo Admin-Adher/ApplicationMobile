@@ -3,6 +3,9 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { TimeEntry } from '@/constants/types';
 import { genId } from '@/lib/utils';
 
+// TODO (Fix 15): PointageContext est entièrement local (AsyncStorage uniquement).
+// Il n'y a pas de synchronisation Supabase pour les pointages (table `time_entries` à créer).
+// À implémenter : addEntry / updateEntry / deleteEntry avec supabase.from('time_entries').
 const POINTAGE_KEY = 'buildtrack_pointage_v1';
 
 interface PointageContextValue {

@@ -3,6 +3,9 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { RegulatoryDoc } from '@/constants/types';
 import { genId } from '@/lib/utils';
 
+// TODO (Fix 15): ReglementaireContext est entièrement local (AsyncStorage uniquement).
+// Il n'y a pas de synchronisation Supabase pour les documents réglementaires (table `regulatory_docs` à créer).
+// À implémenter : addDoc / updateDoc / deleteDoc avec supabase.from('regulatory_docs').
 const REG_DOCS_KEY = 'buildtrack_reglementaire_v1';
 
 interface ReglementaireContextValue {

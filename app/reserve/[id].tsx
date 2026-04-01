@@ -87,7 +87,7 @@ function buildReservePDF(reserve: Reserve, projectName: string, company: { color
     low: 'Faible', medium: 'Moyenne', high: 'Haute', critical: 'Critique',
   };
   const priorityColors: Record<string, string> = {
-    low: '#22C55E', medium: '#F59E0B', high: '#F97316', critical: '#7C3AED',
+    low: '#22C55E', medium: '#F59E0B', high: '#F97316', critical: '#EF4444',
   };
 
   const sColor = statusColors[reserve.status] ?? '#6B7280';

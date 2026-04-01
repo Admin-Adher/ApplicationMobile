@@ -78,11 +78,17 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
     const wasOffline = !prevOnlineRef.current;
     prevOnlineRef.current = isOnline;
     if (isOnline && wasOffline && queue.length > 0) {
-      console.warn(`[NetworkContext] Connexion rétablie — ${queue.length} opération(s) en attente dans la file hors-ligne.`);
+      console.warn(`[NetworkContext] Connexion rétablie — ${queue.length} opération(s) enregistrée(s) hors-ligne, non synchronisée(s).`);
       Alert.alert(
         'Connexion rétablie',
-        `${queue.length} opération${queue.length > 1 ? 's' : ''} en attente n'${queue.length > 1 ? 'ont' : 'a'} pas pu être synchronisée${queue.length > 1 ? 's' : ''} hors-ligne. Veuillez vérifier et ressaisir si nécessaire.`,
-        [{ text: 'OK' }]
+        `${queue.length} action${queue.length > 1 ? 's' : ''} effectuée${queue.length > 1 ? 's' : ''} hors-ligne n'a pas pu être synchronisée${queue.length > 1 ? 's' : ''} automatiquement. Ces données ont été perdues — veuillez ressaisir les modifications si nécessaire.`,
+        [{
+          text: 'Compris',
+          onPress: () => {
+            setQueue([]);
+            AsyncStorage.removeItem(OFFLINE_QUEUE_KEY).catch(() => {});
+          },
+        }]
       );
     }
   }, [isOnline, queue.length]);

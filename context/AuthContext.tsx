@@ -283,6 +283,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, [isLoading, user, seedStatus]);
 
   async function login(email: string, password: string): Promise<{ success: boolean; error?: string }> {
+    if (isSeedingRef.current) {
+      isSeedingRef.current = false;
+    }
     if (!isSupabaseConfigured) {
       const match = DEMO_USERS.find(u => u.email === email && u.password === password);
       if (!match) return { success: false, error: 'Email ou mot de passe incorrect.' };

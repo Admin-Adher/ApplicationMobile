@@ -1,11 +1,20 @@
 import React, { createContext, useContext, useEffect, useReducer, useRef, useState } from 'react';
 import { Alert } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { Reserve, Company, Task, Document, Photo, Message, Channel, Profile, Comment, ReserveStatus, ReservePriority, TaskStatus, Chantier, SitePlan, ChantierStatus, Visite, Lot, Opr, VisiteStatus, OprStatus } from '@/constants/types';
+import { Reserve, Company, Task, Document, Photo, Message, Channel, Profile, Comment, ReserveStatus, ReservePriority, TaskStatus, Chantier, SitePlan, ChantierStatus, Visite, Lot, Opr, VisiteStatus, OprStatus, UserRole } from '@/constants/types';
 import { supabase, isSupabaseConfigured } from '@/lib/supabase';
 import { initStorageBuckets } from '@/lib/storage';
 import { C } from '@/constants/colors';
-import { genId, nowTimestampFR } from '@/lib/utils';
+import { genId, nowTimestampFR, formatDateFR } from '@/lib/utils';
+
+const ROLE_LABELS: Record<UserRole, string> = {
+  super_admin: 'Super Administrateur',
+  admin: 'Administrateur',
+  conducteur: 'Conducteur de travaux',
+  chef_equipe: "Chef d'équipe",
+  observateur: 'Observateur',
+  sous_traitant: 'Sous-traitant',
+};
 
 export const STATIC_CHANNELS: Channel[] = [
   { id: 'general', name: 'Général', description: 'Canal principal du projet', icon: 'home', color: C.primary, type: 'general' },
@@ -642,7 +651,7 @@ interface AppContextValue extends AppState {
 
 const AppContext = createContext<AppContextValue | null>(null);
 
-const MOCK_TODAY = new Date().toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit', year: 'numeric' });
+const MOCK_TODAY = formatDateFR(new Date());
 
 const MOCK_COMPANIES: Company[] = [
   { id: 'co1', name: 'Maçonnerie Dubois', shortName: 'Dubois', color: '#3B82F6', plannedWorkers: 8, actualWorkers: 6, hoursWorked: 320, zone: 'Zone Nord', contact: 'M. Dubois' },
@@ -1095,7 +1104,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
               chantiers = [...missing, ...stored];
             }
           }
-          persistMockChantiers(chantiers);
         }
       } catch {
         const sc = await AsyncStorage.getItem(MOCK_CHANTIERS_KEY).catch(() => null);
@@ -1118,7 +1126,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
               sitePlans = [...missing, ...stored];
             }
           }
-          persistMockSitePlans(sitePlans);
         }
       } catch {
         const ssp = await AsyncStorage.getItem(MOCK_SITE_PLANS_KEY).catch(() => null);
@@ -1287,10 +1294,17 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     return () => clearTimeout(timer);
   }, [notification]);
 
+  const persistMessagesTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => {
     if (!isSupabaseConfigured) {
-      persistMockMessages(state.messages);
+      if (persistMessagesTimerRef.current) clearTimeout(persistMessagesTimerRef.current);
+      persistMessagesTimerRef.current = setTimeout(() => {
+        persistMockMessages(state.messages);
+      }, 1500);
     }
+    return () => {
+      if (persistMessagesTimerRef.current) clearTimeout(persistMessagesTimerRef.current);
+    };
   }, [state.messages]);
 
   function setCurrentUser(name: string) {
@@ -1352,11 +1366,18 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     channelsRef.current = channels;
   }, [channels]);
 
+  function frTimestampToISO(ts: string): string {
+    const match = ts.match(/^(\d{2})\/(\d{2})\/(\d{4}) (\d{2}):(\d{2})$/);
+    if (!match) return ts;
+    const [, dd, mm, yyyy, hh, min] = match;
+    return `${yyyy}-${mm}-${dd}T${hh}:${min}:00.000Z`;
+  }
+
   const unreadByChannel: Record<string, number> = {};
   for (const ch of channels) {
     const lastRead = state.lastReadByChannel[ch.id] ?? '0';
     unreadByChannel[ch.id] = state.messages.filter(
-      m => m.channelId === ch.id && !m.isMe && m.timestamp > lastRead
+      m => m.channelId === ch.id && !m.isMe && frTimestampToISO(m.timestamp) > lastRead
     ).length;
   }
 
@@ -1393,8 +1414,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }
 
   function removeCustomChannel(id: string) {
-    dispatch({ type: 'REMOVE_CUSTOM_CHANNEL', payload: id });
     const updated = stateRef.current.customChannels.filter(c => c.id !== id);
+    dispatch({ type: 'REMOVE_CUSTOM_CHANNEL', payload: id });
     saveCustomChannels(updated);
   }
 
@@ -1416,17 +1437,19 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }
 
   function removeGroupChannel(id: string) {
-    dispatch({ type: 'REMOVE_GROUP_CHANNEL', payload: id });
     const updated = stateRef.current.groupChannels.filter(c => c.id !== id);
+    dispatch({ type: 'REMOVE_GROUP_CHANNEL', payload: id });
     saveGroupChannels(updated);
   }
 
   function _updateAndPersistChannel(updatedCh: Channel) {
+    const newCustomChannels = stateRef.current.customChannels.map(c => c.id === updatedCh.id ? updatedCh : c);
+    const newGroupChannels = stateRef.current.groupChannels.map(c => c.id === updatedCh.id ? updatedCh : c);
     dispatch({ type: 'UPDATE_CHANNEL', payload: updatedCh });
     if (updatedCh.type === 'custom') {
-      saveCustomChannels(stateRef.current.customChannels.map(c => c.id === updatedCh.id ? updatedCh : c));
+      saveCustomChannels(newCustomChannels);
     } else if (updatedCh.type === 'group') {
-      saveGroupChannels(stateRef.current.groupChannels.map(c => c.id === updatedCh.id ? updatedCh : c));
+      saveGroupChannels(newGroupChannels);
     }
   }
 
@@ -1560,6 +1583,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
     updateReserve: (r) => {
       const previous = stateRef.current.reserves.find(res => res.id === r.id);
+      const newReserves = stateRef.current.reserves.map(res => res.id === r.id ? r : res);
       dispatch({ type: 'UPDATE_RESERVE', payload: r });
       if (isSupabaseConfigured) {
         supabase.from('reserves').update({
@@ -1587,12 +1611,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           }
         });
       } else {
-        persistMockReserves(stateRef.current.reserves.map(res => res.id === r.id ? r : res));
+        persistMockReserves(newReserves);
       }
     },
 
     updateReserveFields: (r) => {
       const previous = stateRef.current.reserves.find(res => res.id === r.id);
+      const newReserves = stateRef.current.reserves.map(res => res.id === r.id ? r : res);
       dispatch({ type: 'UPDATE_RESERVE_FIELDS', payload: r });
       if (isSupabaseConfigured) {
         supabase.from('reserves').update({
@@ -1611,12 +1636,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           }
         });
       } else {
-        persistMockReserves(stateRef.current.reserves.map(res => res.id === r.id ? r : res));
+        persistMockReserves(newReserves);
       }
     },
 
     deleteReserve: (id) => {
       const previous = stateRef.current.reserves.find(r => r.id === id);
+      const newReserves = stateRef.current.reserves.filter(r => r.id !== id);
       dispatch({ type: 'DELETE_RESERVE', payload: id });
       if (isSupabaseConfigured) {
         supabase.from('reserves').delete().eq('id', id).then(({ error }: { error: any }) => {
@@ -1626,7 +1652,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           }
         });
       } else {
-        persistMockReserves(stateRef.current.reserves.filter(r => r.id !== id));
+        persistMockReserves(newReserves);
       }
     },
 
@@ -1642,11 +1668,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         id: genId(),
         action: 'Statut modifié',
         author,
-        createdAt: new Date().toISOString().slice(0, 10),
+        createdAt: formatDateFR(new Date()),
         oldValue: labels[reserve.status],
         newValue: labels[status],
       };
-      const closedAt = status === 'closed' ? new Date().toISOString().slice(0, 10) : reserve.closedAt;
+      const closedAt = status === 'closed' ? formatDateFR(new Date()) : reserve.closedAt;
       const closedBy = status === 'closed' ? author : reserve.closedBy;
       const updated: Reserve = {
         ...reserve,
@@ -1704,7 +1730,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         id: genId(),
         author: actualAuthor,
         content,
-        createdAt: new Date().toISOString().slice(0, 10),
+        createdAt: formatDateFR(new Date()),
       };
       const updatedComments = [...reserve.comments, comment];
       dispatch({ type: 'ADD_COMMENT', payload: { reserveId, comment } });
@@ -1827,6 +1853,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
     deleteMessage: (id) => {
       const previous = stateRef.current.messages.find(m => m.id === id);
+      const newMessages = stateRef.current.messages.filter(m => m.id !== id);
       dispatch({ type: 'DELETE_MESSAGE', payload: id });
       if (isSupabaseConfigured) {
         supabase.from('messages').delete().eq('id', id).then(({ error }: { error: any }) => {
@@ -1836,12 +1863,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           }
         });
       } else {
-        persistMockMessages(stateRef.current.messages.filter(m => m.id !== id));
+        persistMockMessages(newMessages);
       }
     },
 
     updateMessage: (msg) => {
       const previous = stateRef.current.messages.find(m => m.id === msg.id);
+      const newMessages = stateRef.current.messages.map(m => m.id === msg.id ? msg : m);
       dispatch({ type: 'UPDATE_MESSAGE', payload: msg });
       if (isSupabaseConfigured) {
         supabase.from('messages').update(fromMessage(msg)).eq('id', msg.id).then(({ error }: { error: any }) => {
@@ -1851,7 +1879,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           }
         });
       } else {
-        persistMockMessages(stateRef.current.messages.map(m => m.id === msg.id ? msg : m));
+        persistMockMessages(newMessages);
       }
     },
 
@@ -1860,7 +1888,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     },
 
     setChannelRead: (channelId) => {
-      dispatch({ type: 'SET_CHANNEL_READ', payload: { channelId, timestamp: nowTimestampFR() } });
+      dispatch({ type: 'SET_CHANNEL_READ', payload: { channelId, timestamp: new Date().toISOString() } });
     },
 
     addTask: (t) => {
@@ -1885,12 +1913,14 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
     updateTask: (t) => {
       const previous = stateRef.current.tasks.find(tk => tk.id === t.id);
+      const newTasks = stateRef.current.tasks.map(tk => tk.id === t.id ? t : tk);
       dispatch({ type: 'UPDATE_TASK', payload: t });
       if (isSupabaseConfigured) {
         supabase.from('tasks').update({
           title: t.title, description: t.description, status: t.status,
           priority: t.priority, start_date: t.startDate ?? null, deadline: t.deadline,
           assignee: t.assignee, progress: t.progress, company: t.company,
+          chantier_id: t.chantierId ?? null, reserve_id: t.reserveId ?? null,
           comments: t.comments ?? [], history: t.history ?? [],
         }).eq('id', t.id).then(({ error }: { error: any }) => {
           if (error) {
@@ -1899,12 +1929,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           }
         });
       } else {
-        persistMockTasks(stateRef.current.tasks.map(tk => tk.id === t.id ? t : tk));
+        persistMockTasks(newTasks);
       }
     },
 
     deleteTask: (id) => {
       const previous = stateRef.current.tasks.find(t => t.id === id);
+      const newTasks = stateRef.current.tasks.filter(t => t.id !== id);
       dispatch({ type: 'DELETE_TASK', payload: id });
       if (isSupabaseConfigured) {
         supabase.from('tasks').delete().eq('id', id).then(({ error }: { error: any }) => {
@@ -1914,7 +1945,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           }
         });
       } else {
-        persistMockTasks(stateRef.current.tasks.filter(t => t.id !== id));
+        persistMockTasks(newTasks);
       }
     },
 
@@ -1924,9 +1955,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       const actualAuthor = currentUserNameRef.current || author;
       const comment: Comment = {
         id: genId(), author: actualAuthor, content,
-        createdAt: new Date().toISOString().slice(0, 10),
+        createdAt: formatDateFR(new Date()),
       };
       const updatedComments = [...(task.comments ?? []), comment];
+      const newTasks = stateRef.current.tasks.map(t =>
+        t.id === taskId ? { ...t, comments: updatedComments } : t
+      );
       dispatch({ type: 'ADD_TASK_COMMENT', payload: { taskId, comment } });
       if (isSupabaseConfigured) {
         supabase.from('tasks').update({ comments: updatedComments }).eq('id', taskId).then(({ error }: { error: any }) => {
@@ -1936,10 +1970,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           }
         });
       } else {
-        const updatedTasks = stateRef.current.tasks.map(t =>
-          t.id === taskId ? { ...t, comments: updatedComments } : t
-        );
-        persistMockTasks(updatedTasks);
+        persistMockTasks(newTasks);
       }
     },
 
@@ -1962,6 +1993,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
     deletePhoto: (id) => {
       const previous = stateRef.current.photos.find(p => p.id === id);
+      const newPhotos = stateRef.current.photos.filter(p => p.id !== id);
       dispatch({ type: 'DELETE_PHOTO', payload: id });
       if (isSupabaseConfigured) {
         supabase.from('photos').delete().eq('id', id).then(({ error }: { error: any }) => {
@@ -1971,7 +2003,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           }
         });
       } else {
-        persistMockPhotos(stateRef.current.photos.filter(p => p.id !== id));
+        persistMockPhotos(newPhotos);
       }
     },
 
@@ -2016,8 +2048,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     getOrCreateDMChannel,
 
     addVisite: (v) => {
+      const newVisites = [v, ...stateRef.current.visites];
       dispatch({ type: 'ADD_VISITE', payload: v });
-      persistMockVisites([v, ...stateRef.current.visites]);
+      persistMockVisites(newVisites);
       if (isSupabaseConfigured) {
         supabase.from('visites').insert(fromVisite(v)).then(({ error }: { error: any }) => {
           if (error) console.warn('Erreur sauvegarde visite:', error.message);
@@ -2026,8 +2059,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     },
     updateVisite: (v) => {
       const previous = stateRef.current.visites.find(x => x.id === v.id);
+      const newVisites = stateRef.current.visites.map(x => x.id === v.id ? v : x);
       dispatch({ type: 'UPDATE_VISITE', payload: v });
-      persistMockVisites(stateRef.current.visites.map(x => x.id === v.id ? v : x));
+      persistMockVisites(newVisites);
       if (isSupabaseConfigured) {
         const { id, ...fields } = fromVisite(v);
         supabase.from('visites').update(fields).eq('id', v.id).then(({ error }: { error: any }) => {
@@ -2040,8 +2074,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     },
     deleteVisite: (id) => {
       const previous = stateRef.current.visites.find(v => v.id === id);
+      const newVisites = stateRef.current.visites.filter(v => v.id !== id);
       dispatch({ type: 'DELETE_VISITE', payload: id });
-      persistMockVisites(stateRef.current.visites.filter(v => v.id !== id));
+      persistMockVisites(newVisites);
       if (isSupabaseConfigured) {
         supabase.from('visites').delete().eq('id', id).then(({ error }: { error: any }) => {
           if (error) {
@@ -2056,8 +2091,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       if (!visite) return;
       if (visite.reserveIds.includes(reserveId)) return;
       const updated = { ...visite, reserveIds: [...visite.reserveIds, reserveId] };
+      const newVisites = stateRef.current.visites.map(x => x.id === visiteId ? updated : x);
       dispatch({ type: 'UPDATE_VISITE', payload: updated });
-      persistMockVisites(stateRef.current.visites.map(x => x.id === visiteId ? updated : x));
+      persistMockVisites(newVisites);
       if (isSupabaseConfigured) {
         supabase.from('visites').update({ reserve_ids: updated.reserveIds }).eq('id', visiteId).then(({ error }: { error: any }) => {
           if (error) console.warn('Erreur liaison réserve/visite:', error.message);
@@ -2066,8 +2102,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     },
 
     addLot: (l) => {
+      const newLots = [...stateRef.current.lots, l];
       dispatch({ type: 'ADD_LOT', payload: l });
-      persistMockLots([...stateRef.current.lots, l]);
+      persistMockLots(newLots);
       if (isSupabaseConfigured) {
         supabase.from('lots').insert(fromLot(l)).then(({ error }: { error: any }) => {
           if (error) console.warn('Erreur sauvegarde lot:', error.message);
@@ -2076,8 +2113,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     },
     updateLot: (l) => {
       const previous = stateRef.current.lots.find(x => x.id === l.id);
+      const newLots = stateRef.current.lots.map(x => x.id === l.id ? l : x);
       dispatch({ type: 'UPDATE_LOT', payload: l });
-      persistMockLots(stateRef.current.lots.map(x => x.id === l.id ? l : x));
+      persistMockLots(newLots);
       if (isSupabaseConfigured) {
         const { id, ...fields } = fromLot(l);
         supabase.from('lots').update(fields).eq('id', l.id).then(({ error }: { error: any }) => {
@@ -2090,8 +2128,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     },
     deleteLot: (id) => {
       const previous = stateRef.current.lots.find(l => l.id === id);
+      const newLots = stateRef.current.lots.filter(l => l.id !== id);
       dispatch({ type: 'DELETE_LOT', payload: id });
-      persistMockLots(stateRef.current.lots.filter(l => l.id !== id));
+      persistMockLots(newLots);
       if (isSupabaseConfigured) {
         supabase.from('lots').delete().eq('id', id).then(({ error }: { error: any }) => {
           if (error) {
@@ -2108,7 +2147,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         open: 'Ouvert', in_progress: 'En cours', waiting: 'En attente',
         verification: 'Vérification', closed: 'Clôturé',
       };
-      const now = new Date().toISOString().slice(0, 10);
+      const now = formatDateFR(new Date());
       const previousReserves = stateRef.current.reserves.filter(r => ids.includes(r.id));
       const updated: Reserve[] = [];
       for (const id of ids) {
@@ -2179,10 +2218,31 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         revisionCode: revCode,
         isLatestRevision: true,
       };
+      const updatedPlans = allPlans.map(p => p.id === parentPlanId ? updatedParent : p).concat([versionedNew]);
       dispatch({ type: 'UPDATE_SITE_PLAN', payload: updatedParent });
       dispatch({ type: 'ADD_SITE_PLAN', payload: versionedNew });
-      const updatedPlans = allPlans.map(p => p.id === parentPlanId ? updatedParent : p).concat([versionedNew]);
-      persistMockSitePlans(updatedPlans);
+      if (isSupabaseConfigured) {
+        supabase.from('site_plans').update({ is_latest_revision: false }).eq('id', parentPlanId)
+          .then(({ error }: { error: any }) => { if (error) console.warn('Erreur maj plan parent:', error.message); });
+        supabase.from('site_plans').insert({
+          id: versionedNew.id,
+          chantier_id: versionedNew.chantierId,
+          name: versionedNew.name,
+          uri: versionedNew.uri ?? null,
+          file_type: versionedNew.fileType ?? null,
+          dxf_name: versionedNew.dxfName ?? null,
+          size: versionedNew.size ?? null,
+          building: versionedNew.building ?? null,
+          level: versionedNew.level ?? null,
+          revision_code: revCode,
+          revision_number: revNum,
+          parent_plan_id: parentPlanId,
+          is_latest_revision: true,
+          revision_note: versionedNew.revisionNote ?? null,
+        }).then(({ error }: { error: any }) => { if (error) console.warn('Erreur insertion version plan:', error.message); });
+      } else {
+        persistMockSitePlans(updatedPlans);
+      }
     },
 
     migrateReservesToPlan: (fromPlanId, toPlanId) => {
@@ -2191,18 +2251,28 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       );
       if (toMigrate.length === 0) return 0;
       const migrated = toMigrate.map(r => ({ ...r, planId: toPlanId }));
-      dispatch({ type: 'BATCH_UPDATE_RESERVES', payload: migrated });
       const allUpdated = stateRef.current.reserves.map(r => {
         const m = migrated.find(x => x.id === r.id);
         return m ?? r;
       });
-      persistMockReserves(allUpdated);
+      dispatch({ type: 'BATCH_UPDATE_RESERVES', payload: migrated });
+      if (isSupabaseConfigured) {
+        Promise.all(migrated.map(r =>
+          supabase.from('reserves').update({ plan_id: toPlanId }).eq('id', r.id)
+        )).then(results => {
+          const hasError = results.some(({ error }: { error: any }) => error);
+          if (hasError) console.warn('Erreur migration réserves vers nouveau plan');
+        });
+      } else {
+        persistMockReserves(allUpdated);
+      }
       return migrated.length;
     },
 
     addOpr: (o) => {
+      const newOprs = [o, ...stateRef.current.oprs];
       dispatch({ type: 'ADD_OPR', payload: o });
-      persistMockOprs([o, ...stateRef.current.oprs]);
+      persistMockOprs(newOprs);
       if (isSupabaseConfigured) {
         supabase.from('oprs').insert(fromOpr(o)).then(({ error }: { error: any }) => {
           if (error) console.warn('Erreur sauvegarde OPR:', error.message);
@@ -2211,8 +2281,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     },
     updateOpr: (o) => {
       const previous = stateRef.current.oprs.find(x => x.id === o.id);
+      const newOprs = stateRef.current.oprs.map(x => x.id === o.id ? o : x);
       dispatch({ type: 'UPDATE_OPR', payload: o });
-      persistMockOprs(stateRef.current.oprs.map(x => x.id === o.id ? o : x));
+      persistMockOprs(newOprs);
       if (isSupabaseConfigured) {
         const { id, ...fields } = fromOpr(o);
         supabase.from('oprs').update(fields).eq('id', o.id).then(({ error }: { error: any }) => {
@@ -2225,8 +2296,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     },
     deleteOpr: (id) => {
       const previous = stateRef.current.oprs.find(o => o.id === id);
+      const newOprs = stateRef.current.oprs.filter(o => o.id !== id);
       dispatch({ type: 'DELETE_OPR', payload: id });
-      persistMockOprs(stateRef.current.oprs.filter(o => o.id !== id));
+      persistMockOprs(newOprs);
       if (isSupabaseConfigured) {
         supabase.from('oprs').delete().eq('id', id).then(({ error }: { error: any }) => {
           if (error) {
@@ -2253,17 +2325,17 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     },
 
     updateChantier: (c: Chantier) => {
-      dispatch({ type: 'UPDATE_CHANTIER', payload: c });
       const updated = stateRef.current.chantiers.map(ch => ch.id === c.id ? c : ch);
+      dispatch({ type: 'UPDATE_CHANTIER', payload: c });
       persistMockChantiers(updated);
     },
 
     deleteChantier: (id: string) => {
-      dispatch({ type: 'DELETE_CHANTIER', payload: id });
       const newChantiers = stateRef.current.chantiers.filter(c => c.id !== id);
       const newSitePlans = stateRef.current.sitePlans.filter(p => p.chantierId !== id);
       const newReserves = stateRef.current.reserves.filter(r => r.chantierId !== id);
       const newTasks = stateRef.current.tasks.filter(t => t.chantierId !== id);
+      dispatch({ type: 'DELETE_CHANTIER', payload: id });
       persistMockChantiers(newChantiers);
       persistMockSitePlans(newSitePlans);
       persistMockReserves(newReserves);
@@ -2290,14 +2362,14 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     },
 
     updateSitePlan: (p: SitePlan) => {
-      dispatch({ type: 'UPDATE_SITE_PLAN', payload: p });
       const updated = stateRef.current.sitePlans.map(sp => sp.id === p.id ? p : sp);
+      dispatch({ type: 'UPDATE_SITE_PLAN', payload: p });
       persistMockSitePlans(updated);
     },
 
     deleteSitePlan: (id: string) => {
-      dispatch({ type: 'DELETE_SITE_PLAN', payload: id });
       const updated = stateRef.current.sitePlans.filter(p => p.id !== id);
+      dispatch({ type: 'DELETE_SITE_PLAN', payload: id });
       persistMockSitePlans(updated);
     },
   };

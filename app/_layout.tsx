@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet, Platform, LogBox } from 'react-native';
 import { Stack, useRouter, useSegments } from 'expo-router';
+import { ErrorBoundary as AppErrorBoundary } from '@/components/ErrorBoundary';
 import { StatusBar } from 'expo-status-bar';
 import * as SplashScreen from 'expo-splash-screen';
 import { useFonts } from 'expo-font';
@@ -46,12 +47,19 @@ function SafeKeyboardProvider({ children }: { children: React.ReactNode }) {
   }
 }
 
-export function ErrorBoundary({ error }: { error: Error }) {
+export function ErrorBoundary({ error, retry }: { error: Error; retry: () => void }) {
+  const handleRestart = () => {
+    if (Platform.OS !== 'web') {
+      retry();
+    } else {
+      reloadApp();
+    }
+  };
   return (
     <View style={eb.container}>
       <Text style={eb.title}>Une erreur est survenue</Text>
       <Text style={eb.message}>{error?.message ?? 'Erreur inconnue au démarrage.'}</Text>
-      <TouchableOpacity style={eb.button} onPress={reloadApp}>
+      <TouchableOpacity style={eb.button} onPress={handleRestart}>
         <Text style={eb.buttonText}>Redémarrer</Text>
       </TouchableOpacity>
     </View>
@@ -74,10 +82,11 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     if (isLoading) return;
     const PUBLIC_SEGMENTS = ['login', 'portal', 'opr-session'];
-    const inPublic = PUBLIC_SEGMENTS.includes(segments[0] as string);
+    const seg0 = segments.length > 0 ? (segments[0] as string) : undefined;
+    const inPublic = seg0 ? PUBLIC_SEGMENTS.includes(seg0) : true;
     if (!isAuthenticated && !inPublic) {
       router.replace('/login');
-    } else if (isAuthenticated && segments[0] === 'login') {
+    } else if (isAuthenticated && seg0 === 'login') {
       router.replace('/(tabs)');
     }
   }, [isAuthenticated, isLoading, segments]);
@@ -135,6 +144,7 @@ export default function RootLayout() {
               <SafeAreaProvider>
                 <SafeKeyboardProvider>
                   <AuthGuard>
+                    <AppErrorBoundary>
                     <Stack>
                       <Stack.Screen name="login" options={{ headerShown: false }} />
                       <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
@@ -173,6 +183,7 @@ export default function RootLayout() {
                       <Stack.Screen name="visite/[id]" options={{ headerShown: false }} />
                       <Stack.Screen name="+not-found" />
                     </Stack>
+                    </AppErrorBoundary>
                   </AuthGuard>
                   <NotificationBanner />
                   <OfflineBanner />

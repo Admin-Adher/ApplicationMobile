@@ -445,7 +445,7 @@ export default function NewReserveScreen() {
             <BottomSheetPicker
               label="Corps d'état (lot)"
               options={lots.map(lot => ({
-                label: `${(lot as any).number ? `${(lot as any).number}. ` : ''}${lot.name}`,
+                label: `${lot.number ? `${lot.number}. ` : ''}${lot.name}`,
                 value: lot.id,
                 color: lot.color,
               }))}
