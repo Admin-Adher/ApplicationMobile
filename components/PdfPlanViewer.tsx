@@ -8,6 +8,7 @@ import { C } from '@/constants/colors';
 import { PlanDrawing, PlanDrawingTool, Reserve } from '@/constants/types';
 import { genId } from '@/lib/utils';
 import * as FileSystem from 'expo-file-system';
+import * as pdfjsLib from 'pdfjs-dist/legacy/build/pdf';
 
 const STATUS_COLORS: Record<string, string> = {
   open: '#EF4444', in_progress: '#F59E0B', waiting: '#6B7280',
@@ -905,11 +906,10 @@ function WebViewer({ planUri, planId, annotations, onAnnotationsChange, reserves
     setLoading(true); setError(null);
     (async () => {
       try {
-        const lib = await import('pdfjs-dist');
-        if (!lib.GlobalWorkerOptions.workerSrc) {
-          lib.GlobalWorkerOptions.workerSrc = `https://unpkg.com/pdfjs-dist@${lib.version}/build/pdf.worker.min.mjs`;
+        if (!pdfjsLib.GlobalWorkerOptions.workerSrc) {
+          pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
         }
-        const doc = await lib.getDocument({ url: planUri, withCredentials: false }).promise;
+        const doc = await pdfjsLib.getDocument({ url: planUri, withCredentials: false }).promise;
         if (dead) return;
         pdfDocRef.current = doc;
         setPageCount(doc.numPages);
