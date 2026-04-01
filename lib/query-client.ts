@@ -1,7 +1,12 @@
+import { Platform } from 'react-native';
+
 export function getApiUrl(): string {
   const domain = process.env.EXPO_PUBLIC_DOMAIN;
   if (domain) {
     return `https://${domain}`;
+  }
+  if (Platform.OS === 'web') {
+    return '';
   }
   return 'http://localhost:5000';
 }
@@ -11,7 +16,8 @@ export async function apiRequest<T>(
   path: string,
   body?: unknown
 ): Promise<T> {
-  const url = new URL(path, getApiUrl()).toString();
+  const base = getApiUrl();
+  const url = base ? new URL(path, base).toString() : path;
   const response = await fetch(url, {
     method,
     headers: {
