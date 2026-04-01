@@ -63,39 +63,132 @@ async function fetchAutoWeather(): Promise<{ label: string; temp: number | null;
 }
 
 function buildJournalHTML(entries: JournalEntry[], projectName: string): string {
-  const rows = entries.map(e => `
-    <tr>
-      <td><strong>${e.date}</strong></td>
-      <td>${e.weather}</td>
-      <td>${e.workerCount} pers.</td>
-      <td>${e.workDone}</td>
-      <td>${e.incidents || '—'}</td>
-      <td>${e.author}</td>
-    </tr>
-  `).join('');
+  const exportDate = new Date().toLocaleDateString('fr-FR');
+  const exportTime = new Date().toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
+  const docRef = `JC-${new Date().toLocaleDateString('fr-FR').replace(/\//g, '')}`;
+
+  const totalWorkers = entries.reduce((s, e) => s + (e.workerCount || 0), 0);
+  const avgWorkers = entries.length > 0 ? Math.round(totalWorkers / entries.length) : 0;
+  const entriesWithIncidents = entries.filter(e => e.incidents && e.incidents.trim()).length;
+  const dateRange = entries.length > 0
+    ? `${entries[entries.length - 1].date} → ${entries[0].date}`
+    : '—';
+
+  const rows = entries.map((e, idx) => {
+    const hasMaterials = e.materials && e.materials.trim();
+    const hasObservations = e.observations && e.observations.trim();
+    const hasVisitors = e.visitors && e.visitors.trim();
+    const hasIncident = e.incidents && e.incidents.trim();
+    return `
+      <tr style="background:${idx % 2 === 0 ? '#fff' : '#F9FAFB'}">
+        <td style="padding:8px 10px;border-bottom:1px solid #EEF3FA;font-weight:700;white-space:nowrap;font-size:11px">${e.date}</td>
+        <td style="padding:8px 10px;border-bottom:1px solid #EEF3FA;font-size:12px">${e.weather}</td>
+        <td style="padding:8px 10px;border-bottom:1px solid #EEF3FA;text-align:center;font-weight:700;font-size:13px;color:#003082">${e.workerCount}</td>
+        <td style="padding:8px 10px;border-bottom:1px solid #EEF3FA;font-size:11px;line-height:1.5">
+          <div>${e.workDone}</div>
+          ${hasMaterials ? `<div style="color:#6B7280;margin-top:4px;font-size:10px">📦 ${e.materials}</div>` : ''}
+          ${hasObservations ? `<div style="color:#6B7280;margin-top:4px;font-size:10px">📝 ${e.observations}</div>` : ''}
+          ${hasVisitors ? `<div style="color:#3B82F6;margin-top:4px;font-size:10px">👤 Visiteurs : ${e.visitors}</div>` : ''}
+        </td>
+        <td style="padding:8px 10px;border-bottom:1px solid #EEF3FA;font-size:11px">
+          ${hasIncident
+            ? `<span style="color:#DC2626;font-weight:700">⚠ ${e.incidents}</span>`
+            : `<span style="color:#059669">—</span>`
+          }
+        </td>
+        <td style="padding:8px 10px;border-bottom:1px solid #EEF3FA;font-size:11px;color:#6B7280">${e.author}</td>
+      </tr>
+    `;
+  }).join('');
+
   return `<!DOCTYPE html><html lang="fr"><head><meta charset="UTF-8">
-  <style>
-    * { margin: 0; padding: 0; box-sizing: border-box; }
-    body { font-family: Arial, Helvetica, sans-serif; padding: 36px; color: #111; font-size: 12px; }
-    header { border-bottom: 3px solid #1A6FD8; padding-bottom: 16px; margin-bottom: 20px; }
-    h1 { color: #1A6FD8; font-size: 22px; margin-bottom: 4px; }
-    .meta { color: #666; font-size: 11px; }
-    table { width: 100%; border-collapse: collapse; margin-top: 10px; }
-    th { background: #1A6FD8; color: white; padding: 9px 10px; text-align: left; font-size: 11px; text-transform: uppercase; letter-spacing: 0.4px; }
-    td { padding: 8px 10px; border-bottom: 1px solid #e8e8e8; vertical-align: top; }
-    tr:nth-child(even) td { background: #f9fbff; }
-    footer { margin-top: 24px; color: #999; font-size: 10px; text-align: center; }
-  </style></head><body>
-  <header>
-    <h1>${projectName}</h1>
-    <p class="meta" style="font-size:16px;font-weight:bold;margin-top:4px;">Journal de chantier officiel</p>
-    <p class="meta">Exporté le ${new Date().toLocaleDateString('fr-FR')} à ${new Date().toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })} — ${entries.length} entrée${entries.length !== 1 ? 's' : ''}</p>
-  </header>
-  <table>
-    <thead><tr><th>Date</th><th>Météo</th><th>Effectif</th><th>Travaux réalisés</th><th>Incidents</th><th>Rédacteur</th></tr></thead>
-    <tbody>${rows || '<tr><td colspan="6" style="text-align:center;padding:20px;color:#999">Aucune entrée</td></tr>'}</tbody>
-  </table>
-  <footer>Document généré automatiquement par BuildTrack — ${projectName}</footer>
+    <style>
+      * { box-sizing: border-box; margin: 0; padding: 0; }
+      body { font-family: Arial, Helvetica, sans-serif; background: #fff; color: #1A2742; font-size: 12px; padding: 28px 32px; line-height: 1.5; }
+      @media print {
+        body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+        @page { margin: 15mm 12mm; }
+        tr { page-break-inside: avoid; }
+      }
+    </style>
+  </head><body>
+
+    <!-- Letterhead -->
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;padding-bottom:18px;border-bottom:3px solid #003082;margin-bottom:22px">
+      <div style="display:flex;align-items:center;gap:12px">
+        <div style="width:42px;height:42px;background:#003082;border-radius:8px;display:flex;align-items:center;justify-content:center;color:#fff;font-weight:800;font-size:18px">BT</div>
+        <div>
+          <div style="font-size:20px;font-weight:800;color:#003082">BuildTrack</div>
+          <div style="font-size:10px;color:#6B7280">Gestion de chantier numérique</div>
+        </div>
+      </div>
+      <div style="text-align:right">
+        <div style="font-size:15px;font-weight:700;color:#1A2742">Journal de chantier officiel</div>
+        <div style="font-size:11px;color:#6B7280;margin-top:3px">${dateRange}</div>
+        <div style="font-size:10px;color:#6B7280;margin-top:8px">Projet : <strong style="color:#1A2742">${projectName}</strong></div>
+        <div style="font-size:10px;color:#6B7280">Réf. : <strong style="color:#1A2742">${docRef}</strong> &nbsp;|&nbsp; Exporté le <strong style="color:#1A2742">${exportDate}</strong> à ${exportTime}</div>
+      </div>
+    </div>
+
+    <!-- KPIs -->
+    <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:20px">
+      ${[
+        { val: entries.length, label: 'Entrées journal', color: '#003082' },
+        { val: totalWorkers, label: 'Effectif cumulé', color: '#003082' },
+        { val: avgWorkers, label: 'Moy. journalière', color: '#1A2742' },
+        { val: entriesWithIncidents, label: 'Jours avec incidents', color: entriesWithIncidents > 0 ? '#DC2626' : '#059669' },
+      ].map(k => `
+        <div style="flex:1;min-width:90px;border:1.5px solid #DDE4EE;border-radius:10px;padding:12px 14px;text-align:center">
+          <div style="font-size:26px;font-weight:800;color:${k.color}">${k.val}</div>
+          <div style="font-size:10px;color:#6B7280;margin-top:2px">${k.label}</div>
+        </div>
+      `).join('')}
+    </div>
+
+    <!-- Section header -->
+    <div style="font-size:11px;font-weight:700;color:#6B7280;text-transform:uppercase;letter-spacing:0.7px;margin-bottom:10px;padding-bottom:6px;border-bottom:1.5px solid #DDE4EE">
+      Registre des journées (${entries.length} entrée${entries.length !== 1 ? 's' : ''})
+    </div>
+
+    <!-- Main table -->
+    <table style="width:100%;border-collapse:collapse">
+      <thead>
+        <tr>
+          <th style="background:#003082;color:#fff;padding:8px 10px;text-align:left;font-size:10px;text-transform:uppercase;letter-spacing:0.5px">Date</th>
+          <th style="background:#003082;color:#fff;padding:8px 10px;text-align:left;font-size:10px;text-transform:uppercase;letter-spacing:0.5px">Météo</th>
+          <th style="background:#003082;color:#fff;padding:8px 10px;text-align:center;font-size:10px;text-transform:uppercase;letter-spacing:0.5px">Effectif</th>
+          <th style="background:#003082;color:#fff;padding:8px 10px;text-align:left;font-size:10px;text-transform:uppercase;letter-spacing:0.5px">Travaux réalisés / Matériaux / Observations</th>
+          <th style="background:#003082;color:#fff;padding:8px 10px;text-align:left;font-size:10px;text-transform:uppercase;letter-spacing:0.5px">Incidents</th>
+          <th style="background:#003082;color:#fff;padding:8px 10px;text-align:left;font-size:10px;text-transform:uppercase;letter-spacing:0.5px">Rédacteur</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${rows || '<tr><td colspan="6" style="padding:20px;text-align:center;color:#6B7280">Aucune entrée dans le journal</td></tr>'}
+      </tbody>
+    </table>
+
+    <!-- Signature block -->
+    <div style="display:flex;gap:24px;margin-top:32px;padding-top:20px;border-top:2px solid #EEF3FA">
+      <div style="flex:1;border:1.5px solid #DDE4EE;border-radius:10px;padding:14px 18px;background:#FAFBFF">
+        <div style="font-size:9px;color:#6B7280;text-transform:uppercase;letter-spacing:0.6px;margin-bottom:30px;font-weight:700">Conducteur de travaux</div>
+        <div style="border-bottom:2px solid #1A2742;margin-bottom:6px"></div>
+        <div style="font-size:11px;color:#6B7280">Signature et cachet</div>
+      </div>
+      <div style="flex:1;border:1.5px solid #DDE4EE;border-radius:10px;padding:14px 18px;background:#FAFBFF">
+        <div style="font-size:9px;color:#6B7280;text-transform:uppercase;letter-spacing:0.6px;margin-bottom:30px;font-weight:700">Maître d'œuvre</div>
+        <div style="border-bottom:2px solid #1A2742;margin-bottom:6px"></div>
+        <div style="font-size:11px;color:#6B7280">Signature et cachet</div>
+      </div>
+      <div style="flex:1;border:1.5px solid #DDE4EE;border-radius:10px;padding:14px 18px;background:#FAFBFF">
+        <div style="font-size:9px;color:#6B7280;text-transform:uppercase;letter-spacing:0.6px;margin-bottom:8px;font-weight:700">Certification</div>
+        <div style="font-size:11px;color:#1A2742;line-height:1.5">Je soussigné(e) certifie l'exactitude des informations contenues dans ce journal de chantier.</div>
+      </div>
+    </div>
+
+    <div style="margin-top:20px;padding-top:12px;border-top:1.5px solid #DDE4EE;display:flex;justify-content:space-between;font-size:9px;color:#6B7280">
+      <span>Généré par BuildTrack — ${projectName}</span>
+      <span>Document officiel — Confidential — ${exportDate}</span>
+    </div>
   </body></html>`;
 }
 
@@ -193,8 +286,17 @@ export default function JournalScreen() {
     }
     const html = buildJournalHTML(entries, projectName);
     if (Platform.OS === 'web') {
-      const w = window.open('', '_blank');
-      if (w) { w.document.write(html); w.document.close(); w.focus(); setTimeout(() => w.print(), 400); }
+      const iframe = document.createElement('iframe');
+      iframe.style.cssText = 'position:fixed;right:0;bottom:0;width:0;height:0;border:0';
+      document.body.appendChild(iframe);
+      const doc = iframe.contentWindow?.document;
+      if (doc) {
+        doc.open(); doc.write(html); doc.close();
+        setTimeout(() => {
+          try { iframe.contentWindow?.print(); } catch {}
+          setTimeout(() => document.body.removeChild(iframe), 5000);
+        }, 300);
+      }
       return;
     }
     try {

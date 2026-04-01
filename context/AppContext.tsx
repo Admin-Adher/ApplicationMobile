@@ -499,6 +499,7 @@ interface AppContextValue extends AppState {
   deleteOpr: (id: string) => void;
   batchUpdateReserves: (ids: string[], updates: Partial<Pick<Reserve, 'status' | 'company' | 'deadline' | 'priority'>>, author?: string) => void;
   addSitePlanVersion: (parentPlanId: string, newPlan: SitePlan) => void;
+  migrateReservesToPlan: (fromPlanId: string, toPlanId: string) => number;
   realtimeConnected: boolean;
 }
 
@@ -1729,6 +1730,21 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       dispatch({ type: 'ADD_SITE_PLAN', payload: versionedNew });
       const updatedPlans = allPlans.map(p => p.id === parentPlanId ? updatedParent : p).concat([versionedNew]);
       persistMockSitePlans(updatedPlans);
+    },
+
+    migrateReservesToPlan: (fromPlanId, toPlanId) => {
+      const toMigrate = stateRef.current.reserves.filter(
+        r => r.planId === fromPlanId && r.status !== 'closed'
+      );
+      if (toMigrate.length === 0) return 0;
+      const migrated = toMigrate.map(r => ({ ...r, planId: toPlanId }));
+      dispatch({ type: 'BATCH_UPDATE_RESERVES', payload: migrated });
+      const allUpdated = stateRef.current.reserves.map(r => {
+        const m = migrated.find(x => x.id === r.id);
+        return m ?? r;
+      });
+      persistMockReserves(allUpdated);
+      return migrated.length;
     },
 
     addOpr: (o) => {

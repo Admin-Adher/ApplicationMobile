@@ -221,6 +221,22 @@ All 13 planned modules are implemented:
 - "Analytique" card added to Chantier section (bar-chart icon, sky blue)
 - "Intégrations BTP" card added to Outils section (git-network icon, indigo)
 
+## Session 13 — PDF Quality Overhaul + Plan Marker Migration
+
+**PDF infrastructure:**
+- **`lib/pdfBase.ts`** (nouveau) — Bibliothèque partagée de base pour les PDFs : `PDF_BASE_CSS`, `buildLetterhead()`, `buildInfoGrid()`, `buildKpiRow()`, `buildDocFooter()`, `wrapHTML()`, `exportPDF()`. Templates professionnels réutilisables.
+- **Web PDF export** — Remplacement du pattern `window.open + write + print` (qui ouvrait une fenêtre visible) par une approche iframe cachée : `iframe.contentWindow.print()` + suppression après 5s. Appliqué sur 8 fichiers : `rapports.tsx`, `meeting-report.tsx`, `journal.tsx`, `opr.tsx`, `reserve/[id].tsx`, `plans.tsx`, `visite/[id].tsx`, `analytics.tsx`.
+
+**PDF templates professionnels réécrits :**
+- **`app/rapports.tsx`** — Rapport journalier + hebdomadaire : en-tête BT letterhead (fond #003082), tableau météo + KPIs réserves + tableau tâches coloré + bloc signature. Rapport hebdo : barre de progression avancement global + tableau multi-jours + analyse entreprise.
+- **`app/meeting-report.tsx`** — CRR : en-tête officiel + grille infos + bloc participants stylisé + tableau actions/décisions + bloc résolutions + signature double (CT + MOA). Format contractuel conforme.
+- **`app/journal.tsx`** — Journal de chantier officiel : KPIs météo (🌡️/💧/💨/👁️) + tableau effectif entreprise + tableau tâches + incidents + tableau livraisons + signature directeur de travaux. `@media print` pour impression correcte.
+- **`app/rapports.tsx` → `buildCompanyReserveHTML`** — Bon de réserve par entreprise upgradé : doc-ref généré automatiquement, fiche entreprise avec contact, 4 KPI cards (total/à lever/levées/critiques), alerte rouge si réserves ouvertes, tableau avec alternance de couleurs et description tronquée, bloc instructions contractuel, double signature CT + entreprise.
+
+**Plan marker migration :**
+- **`context/AppContext.tsx`** — `migrateReservesToPlan(fromPlanId, toPlanId)` : filtre les réserves non-clôturées du plan source, dispatch `BATCH_UPDATE_RESERVES` avec `planId` mis à jour, persiste via `persistMockReserves`. Retourne le nombre de réserves migrées.
+- **`app/(tabs)/plans.tsx`** — `handleCreateRevision` : après création de la nouvelle révision, détecte les marqueurs ouverts sur l'ancien plan et propose à l'utilisateur de les migrer via `Alert.alert` avec rappel du nombre. Appelle `migrateReservesToPlan()` si confirmé.
+
 ## Archipad-Inspired Features (6 features)
 
 All 6 Archipad-inspired features are implemented:

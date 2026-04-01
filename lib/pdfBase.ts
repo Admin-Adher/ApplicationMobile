@@ -1,0 +1,237 @@
+import { Platform } from 'react-native';
+import * as Print from 'expo-print';
+import * as Sharing from 'expo-sharing';
+
+export const PDF_BRAND_COLOR = '#003082';
+export const PDF_ACCENT = '#1A6FD8';
+export const PDF_BG = '#F4F7FB';
+export const PDF_BORDER = '#DDE4EE';
+export const PDF_TEXT = '#1A2742';
+export const PDF_MUTED = '#6B7280';
+
+export const PDF_BASE_CSS = `
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: Arial, Helvetica, sans-serif;
+    background: #fff;
+    color: ${PDF_TEXT};
+    font-size: 12px;
+    line-height: 1.5;
+  }
+  @page {
+    margin: 15mm 12mm;
+    @bottom-right {
+      content: "Page " counter(page) " / " counter(pages);
+      font-size: 9px;
+      color: ${PDF_MUTED};
+    }
+  }
+  @media print {
+    body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    .no-print { display: none !important; }
+    table { page-break-inside: auto; }
+    tr { page-break-inside: avoid; }
+    .card { page-break-inside: avoid; }
+    h2 { page-break-after: avoid; }
+  }
+  .page-break { page-break-before: always; }
+
+  /* Layout */
+  .container { padding: 28px 32px; max-width: 900px; margin: 0 auto; }
+
+  /* Header / Letterhead */
+  .letterhead {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    padding-bottom: 18px;
+    border-bottom: 3px solid ${PDF_BRAND_COLOR};
+    margin-bottom: 22px;
+  }
+  .letterhead-logo {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+  .letterhead-logo-mark {
+    width: 42px; height: 42px;
+    background: ${PDF_BRAND_COLOR};
+    border-radius: 8px;
+    display: flex; align-items: center; justify-content: center;
+    color: #fff; font-weight: 800; font-size: 18px; letter-spacing: -0.5px;
+  }
+  .letterhead-brand { font-size: 20px; font-weight: 800; color: ${PDF_BRAND_COLOR}; }
+  .letterhead-tagline { font-size: 10px; color: ${PDF_MUTED}; margin-top: 1px; }
+  .letterhead-right { text-align: right; }
+  .letterhead-doc-type { font-size: 14px; font-weight: 700; color: ${PDF_TEXT}; }
+  .letterhead-doc-title { font-size: 11px; color: ${PDF_MUTED}; margin-top: 3px; }
+  .letterhead-ref { font-size: 10px; color: ${PDF_MUTED}; margin-top: 8px; }
+  .letterhead-ref strong { color: ${PDF_TEXT}; }
+
+  /* Info cards */
+  .info-grid { display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 20px; }
+  .info-card {
+    flex: 1; min-width: 130px;
+    background: ${PDF_BG}; border-radius: 8px;
+    padding: 10px 14px; border: 1px solid ${PDF_BORDER};
+  }
+  .info-card-label { font-size: 9px; color: ${PDF_MUTED}; text-transform: uppercase; letter-spacing: 0.7px; margin-bottom: 4px; font-weight: 700; }
+  .info-card-value { font-size: 13px; font-weight: 700; color: ${PDF_TEXT}; }
+
+  /* KPI row */
+  .kpi-row { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 20px; }
+  .kpi-card {
+    flex: 1; min-width: 90px;
+    border: 1.5px solid ${PDF_BORDER}; border-radius: 10px;
+    padding: 12px 16px; text-align: center;
+  }
+  .kpi-val { font-size: 28px; font-weight: 800; }
+  .kpi-label { font-size: 10px; color: ${PDF_MUTED}; margin-top: 2px; }
+
+  /* Section header */
+  .section-header {
+    font-size: 11px; font-weight: 700; color: ${PDF_MUTED};
+    text-transform: uppercase; letter-spacing: 0.7px;
+    margin-bottom: 10px; margin-top: 22px;
+    padding-bottom: 6px; border-bottom: 1.5px solid ${PDF_BORDER};
+  }
+
+  /* Tables */
+  table { width: 100%; border-collapse: collapse; margin-bottom: 16px; font-size: 11px; }
+  thead th {
+    background: ${PDF_BRAND_COLOR}; color: #fff;
+    padding: 8px 10px; text-align: left;
+    font-size: 10px; text-transform: uppercase; letter-spacing: 0.5px;
+  }
+  tbody tr:nth-child(even) { background: #F9FAFB; }
+  tbody td { padding: 7px 10px; border-bottom: 1px solid ${PDF_BORDER}; vertical-align: top; }
+
+  /* Badges */
+  .badge {
+    display: inline-block; padding: 2px 9px;
+    border-radius: 12px; font-size: 10px; font-weight: 700;
+  }
+  .badge-open { background: #FEF2F2; color: #DC2626; }
+  .badge-progress { background: #FFFBEB; color: #D97706; }
+  .badge-waiting { background: #F3F4F6; color: #6B7280; }
+  .badge-closed { background: #ECFDF5; color: #059669; }
+  .badge-reserve { background: #FEF2F2; color: #DC2626; }
+  .badge-ok { background: #ECFDF5; color: #059669; }
+  .badge-na { background: #F3F4F6; color: #6B7280; }
+
+  /* Alert box */
+  .alert { border-radius: 8px; padding: 10px 14px; margin-bottom: 12px; font-size: 12px; }
+  .alert-warning { background: #FFFBEB; border-left: 4px solid #F59E0B; color: #92400E; }
+  .alert-danger { background: #FEF2F2; border-left: 4px solid #EF4444; color: #7F1D1D; }
+  .alert-success { background: #ECFDF5; border-left: 4px solid #10B981; color: #064E3B; }
+  .alert-info { background: #EFF6FF; border-left: 4px solid #3B82F6; color: #1E3A8A; }
+
+  /* Signature blocks */
+  .sig-row { display: flex; gap: 32px; flex-wrap: wrap; margin-top: 16px; }
+  .sig-block {
+    flex: 1; min-width: 200px;
+    border: 1.5px solid ${PDF_BORDER}; border-radius: 10px;
+    padding: 14px 18px; background: #FAFBFF;
+  }
+  .sig-label { font-size: 9px; color: ${PDF_MUTED}; text-transform: uppercase; letter-spacing: 0.6px; margin-bottom: 10px; font-weight: 700; }
+  .sig-line { height: 70px; border-bottom: 2px solid ${PDF_TEXT}; margin-bottom: 8px; }
+  .sig-name { font-size: 12px; font-weight: 700; color: ${PDF_TEXT}; }
+  .sig-date { font-size: 10px; color: ${PDF_MUTED}; margin-top: 2px; }
+
+  /* Footer */
+  .doc-footer {
+    margin-top: 32px; padding-top: 14px;
+    border-top: 1.5px solid ${PDF_BORDER};
+    display: flex; justify-content: space-between; align-items: center;
+    font-size: 9px; color: ${PDF_MUTED};
+  }
+`;
+
+export function buildLetterhead(
+  docType: string,
+  docTitle: string,
+  docRef: string,
+  date: string,
+  projectName: string,
+): string {
+  return `
+    <div class="letterhead">
+      <div class="letterhead-logo">
+        <div class="letterhead-logo-mark">BT</div>
+        <div>
+          <div class="letterhead-brand">BuildTrack</div>
+          <div class="letterhead-tagline">Gestion de chantier numérique</div>
+        </div>
+      </div>
+      <div class="letterhead-right">
+        <div class="letterhead-doc-type">${docType}</div>
+        <div class="letterhead-doc-title">${docTitle}</div>
+        <div class="letterhead-ref">Projet : <strong>${projectName}</strong></div>
+        <div class="letterhead-ref">Réf. : <strong>${docRef}</strong> &nbsp;|&nbsp; Date : <strong>${date}</strong></div>
+      </div>
+    </div>
+  `;
+}
+
+export function buildInfoGrid(items: Array<{ label: string; value: string }>): string {
+  return `<div class="info-grid">${items.map(i =>
+    `<div class="info-card"><div class="info-card-label">${i.label}</div><div class="info-card-value">${i.value}</div></div>`
+  ).join('')}</div>`;
+}
+
+export function buildKpiRow(items: Array<{ val: string | number; label: string; color?: string }>): string {
+  return `<div class="kpi-row">${items.map(i =>
+    `<div class="kpi-card"><div class="kpi-val" style="color:${i.color ?? '#003082'}">${i.val}</div><div class="kpi-label">${i.label}</div></div>`
+  ).join('')}</div>`;
+}
+
+export function buildDocFooter(projectName: string): string {
+  const now = new Date().toLocaleDateString('fr-FR', { day: '2-digit', month: 'long', year: 'numeric' });
+  return `
+    <div class="doc-footer">
+      <span>Généré par BuildTrack — ${projectName}</span>
+      <span>Document confidentiel — ${now}</span>
+    </div>
+  `;
+}
+
+export function wrapHTML(body: string, title: string): string {
+  return `<!DOCTYPE html><html lang="fr"><head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>${title}</title>
+    <style>${PDF_BASE_CSS}</style>
+  </head><body>
+    <div class="container">
+      ${body}
+    </div>
+  </body></html>`;
+}
+
+export async function exportPDF(html: string, filename: string = 'buildtrack-export'): Promise<void> {
+  if (Platform.OS === 'web') {
+    const iframe = document.createElement('iframe');
+    iframe.style.cssText = 'position:fixed;right:0;bottom:0;width:0;height:0;border:0';
+    document.body.appendChild(iframe);
+    const doc = iframe.contentWindow?.document;
+    if (doc) {
+      doc.open();
+      doc.write(html);
+      doc.close();
+      setTimeout(() => {
+        try { iframe.contentWindow?.print(); } catch {}
+        setTimeout(() => document.body.removeChild(iframe), 5000);
+      }, 300);
+    }
+    return;
+  }
+  try {
+    const { uri } = await Print.printToFileAsync({ html, base64: false });
+    const canShare = await Sharing.isAvailableAsync();
+    if (canShare) {
+      await Sharing.shareAsync(uri, { mimeType: 'application/pdf', dialogTitle: filename });
+    }
+  } catch (e: any) {
+    throw new Error(e?.message ?? 'PDF generation failed');
+  }
+}

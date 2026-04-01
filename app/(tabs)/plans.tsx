@@ -384,11 +384,16 @@ function exportPlanPDF(
 </html>`;
 
   if (Platform.OS === 'web') {
-    const w = window.open('', '_blank');
-    if (w) {
-      w.document.write(html);
-      w.document.close();
-      setTimeout(() => w.print(), 800);
+    const iframe = document.createElement('iframe');
+    iframe.style.cssText = 'position:fixed;right:0;bottom:0;width:0;height:0;border:0';
+    document.body.appendChild(iframe);
+    const doc = iframe.contentWindow?.document;
+    if (doc) {
+      doc.open(); doc.write(html); doc.close();
+      setTimeout(() => {
+        try { iframe.contentWindow?.print(); } catch {}
+        setTimeout(() => document.body.removeChild(iframe), 5000);
+      }, 300);
     }
   } else {
     Alert.alert(
@@ -462,7 +467,7 @@ export default function PlansScreen() {
   const router = useRouter();
   const {
     reserves, companies, sitePlans, activeChantierId, activeChantier,
-    addSitePlan, updateSitePlan, deleteSitePlan, addSitePlanVersion,
+    addSitePlan, updateSitePlan, deleteSitePlan, addSitePlanVersion, migrateReservesToPlan,
   } = useApp();
   const { permissions } = useAuth();
 
@@ -761,7 +766,33 @@ export default function PlansScreen() {
         };
         addSitePlanVersion(currentPlan.id, newPlan);
         setActivePlanId(newPlan.id);
-        Alert.alert('Révision créée ✓', `Révision ${revisionModal.code.trim()} créée.${revisionModal.note.trim() ? `\n${revisionModal.note.trim()}` : ''}`);
+
+        const openMarkersCount = reserves.filter(r => r.planId === currentPlan.id && r.status !== 'closed').length;
+        if (openMarkersCount > 0) {
+          Alert.alert(
+            'Révision créée ✓',
+            `Révision ${revisionModal.code.trim()} créée.\n\n${openMarkersCount} marqueur${openMarkersCount > 1 ? 's' : ''} de réserve ouvert${openMarkersCount > 1 ? 's' : ''} détecté${openMarkersCount > 1 ? 's' : ''} sur le plan précédent.\n\nMigrer ces marqueurs vers la nouvelle révision ?`,
+            [
+              {
+                text: 'Ignorer',
+                style: 'cancel',
+                onPress: () => {},
+              },
+              {
+                text: `Migrer (${openMarkersCount})`,
+                onPress: () => {
+                  const count = migrateReservesToPlan(currentPlan.id, newPlan.id);
+                  Alert.alert(
+                    'Migration terminée ✓',
+                    `${count} marqueur${count > 1 ? 's' : ''} migré${count > 1 ? 's' : ''} vers la révision ${revisionModal.code.trim()}.`,
+                  );
+                },
+              },
+            ],
+          );
+        } else {
+          Alert.alert('Révision créée ✓', `Révision ${revisionModal.code.trim()} créée.${revisionModal.note.trim() ? `\n${revisionModal.note.trim()}` : ''}`);
+        }
       }
     } catch {
       Alert.alert('Erreur', "Impossible de créer la révision.");

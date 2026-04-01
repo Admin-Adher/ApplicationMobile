@@ -13,122 +13,267 @@ import BottomNavBar from '@/components/BottomNavBar';
 
 function buildDailyHTML(reserves: any[], companies: any[], tasks: any[], incidents: any[], stats: any, userName: string, projectName: string): string {
   const now = new Date().toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
-  const personnelRows = companies.map(c =>
-    `<tr><td>${c.name}</td><td>${c.actualWorkers}</td><td>${c.plannedWorkers}</td></tr>`
-  ).join('');
-  const taskRows = tasks.filter((t: any) => t.status === 'in_progress').map((t: any) =>
-    `<tr><td>${t.title}</td><td>${t.assignee}</td><td>${t.progress}%</td><td>${t.deadline}</td></tr>`
-  ).join('');
+  const today = new Date().toLocaleDateString('fr-FR');
+  const docRef = `RJ-${today.replace(/\//g, '')}`;
+
   const severityLabels: Record<string, string> = { minor: 'Mineur', moderate: 'Modéré', major: 'Majeur', critical: 'Critique' };
   const severityColors: Record<string, string> = { minor: '#6B7280', moderate: '#F59E0B', major: '#EF4444', critical: '#7F1D1D' };
   const incidentStatusLabels: Record<string, string> = { open: 'Ouvert', investigating: 'En cours', resolved: 'Résolu' };
+  const statusLabels: Record<string, string> = { open: 'Ouvert', in_progress: 'En cours', waiting: 'Attente', verification: 'Vérif.', closed: 'Clôturé' };
+  const statusColors: Record<string, string> = { open: '#DC2626', in_progress: '#D97706', waiting: '#6B7280', verification: '#7C3AED', closed: '#059669' };
+  const priorityLabels: Record<string, string> = { low: 'Basse', medium: 'Moyenne', high: 'Haute', critical: 'Critique' };
+  const pColor: Record<string, string> = { low: '#6B7280', medium: '#F59E0B', high: '#EF4444', critical: '#7C3AED' };
   const openIncidents = incidents.filter((i: any) => i.status !== 'resolved');
-  const incidentRows = openIncidents.map((i: any) =>
-    `<tr><td style="color:${severityColors[i.severity] || '#000'};font-weight:bold">${severityLabels[i.severity] || i.severity}</td><td>${i.title}</td><td>Bât. ${i.building} — ${i.location}</td><td>${incidentStatusLabels[i.status] || i.status}</td><td>${i.reportedAt}</td><td>${i.reportedBy}</td></tr>`
+  const activeReserves = reserves.filter((r: any) => r.status !== 'closed');
+
+  const personnelRows = companies.map((c: any) =>
+    `<tr><td>${c.name}</td><td style="text-align:center;font-weight:700">${c.actualWorkers}</td><td style="text-align:center">${c.plannedWorkers}</td><td style="text-align:center;color:${c.actualWorkers >= c.plannedWorkers ? '#059669' : '#DC2626'}">${c.actualWorkers >= c.plannedWorkers ? '✓' : '↓'}</td></tr>`
   ).join('');
-  return `<!DOCTYPE html><html><head><meta charset="UTF-8">
-  <style>
-    body { font-family: Arial, sans-serif; padding: 30px; color: #111; }
-    h1 { color: #1A6FD8; font-size: 22px; }
-    h2 { color: #333; font-size: 16px; border-bottom: 1px solid #ccc; padding-bottom: 4px; margin-top: 24px; }
-    table { width: 100%; border-collapse: collapse; margin-top: 10px; font-size: 13px; }
-    th { background: #1A6FD8; color: white; padding: 8px; text-align: left; }
-    td { padding: 6px 8px; border-bottom: 1px solid #eee; }
-    .meta { color: #666; font-size: 12px; margin-bottom: 20px; }
-    .kpi { display: flex; gap: 16px; flex-wrap: wrap; margin-top: 10px; }
-    .kpi-card { border: 1px solid #ccc; border-radius: 8px; padding: 12px 20px; text-align: center; }
-    .kpi-val { font-size: 28px; font-weight: bold; color: #1A6FD8; }
-    .kpi-label { font-size: 12px; color: #666; }
-    .incident-alert { background: #FEF2F2; border-left: 4px solid #EF4444; padding: 6px 10px; margin-bottom: 4px; font-size: 12px; }
-  </style></head><body>
-  <h1>${projectName} — Rapport journalier</h1>
-  <p class="meta">Date : ${now} | Rédigé par : ${userName}</p>
-  <h2>Indicateurs chantier</h2>
-  <div class="kpi">
-    <div class="kpi-card"><div class="kpi-val">${stats.total}</div><div class="kpi-label">Réserves totales</div></div>
-    <div class="kpi-card"><div class="kpi-val">${stats.open + stats.inProgress}</div><div class="kpi-label">En cours</div></div>
-    <div class="kpi-card"><div class="kpi-val">${stats.closed}</div><div class="kpi-label">Clôturées</div></div>
-    <div class="kpi-card"><div class="kpi-val">${stats.progress}%</div><div class="kpi-label">Avancement</div></div>
-    <div class="kpi-card"><div class="kpi-val" style="color:${openIncidents.length > 0 ? '#EF4444' : '#10B981'}">${openIncidents.length}</div><div class="kpi-label">Incidents ouverts</div></div>
-  </div>
-  <h2>Personnel présent</h2>
-  <table><thead><tr><th>Entreprise</th><th>Présents</th><th>Prévus</th></tr></thead>
-  <tbody>${personnelRows}</tbody></table>
-  <h2>Tâches en cours</h2>
-  <table><thead><tr><th>Tâche</th><th>Responsable</th><th>Avancement</th><th>Échéance</th></tr></thead>
-  <tbody>${taskRows || '<tr><td colspan="4">Aucune tâche en cours</td></tr>'}</tbody></table>
-  <h2>Incidents de sécurité non résolus (${openIncidents.length})</h2>
-  <table><thead><tr><th>Gravité</th><th>Titre</th><th>Lieu</th><th>Statut</th><th>Date</th><th>Signalé par</th></tr></thead>
-  <tbody>${incidentRows || '<tr><td colspan="6" style="color:#10B981">Aucun incident ouvert — chantier sécurisé</td></tr>'}</tbody></table>
-  <h2>Réserves actives</h2>
-  <table><thead><tr><th>ID</th><th>Titre</th><th>Bâtiment</th><th>Entreprise</th><th>Priorité</th><th>Statut</th><th>Échéance</th></tr></thead>
-  <tbody>${reserves.filter((r: any) => r.status !== 'closed').map((r: any) => {
-    const priorityLabels: Record<string, string> = { low: 'Basse', medium: 'Moyenne', high: 'Haute', critical: 'Critique' };
-    const statusLabels: Record<string, string> = { open: 'Ouvert', in_progress: 'En cours', waiting: 'En attente', verification: 'Vérification' };
-    const pColor: Record<string, string> = { low: '#6B7280', medium: '#F59E0B', high: '#EF4444', critical: '#7F1D1D' };
-    return `<tr><td><strong>${r.id}</strong></td><td>${r.title}</td><td>Bât. ${r.building} — ${r.level}</td><td>${r.company}</td><td style="color:${pColor[r.priority] || '#000'};font-weight:bold">${priorityLabels[r.priority] || r.priority}</td><td>${statusLabels[r.status] || r.status}</td><td>${r.deadline}</td></tr>`;
-  }).join('') || '<tr><td colspan="7">Aucune réserve active</td></tr>'}</tbody></table>
+  const taskRows = tasks.filter((t: any) => t.status === 'in_progress').map((t: any) =>
+    `<tr><td>${t.title}</td><td>${t.assignee}</td><td style="text-align:center">
+      <div style="background:#E8F0FE;border-radius:4px;height:8px;width:100%;margin-bottom:3px"><div style="background:#003082;height:8px;border-radius:4px;width:${t.progress}%"></div></div>
+      <span style="font-size:10px;color:#003082;font-weight:700">${t.progress}%</span>
+    </td><td>${t.deadline}</td></tr>`
+  ).join('');
+  const incidentRows = openIncidents.map((i: any) =>
+    `<tr>
+      <td><span style="color:${severityColors[i.severity] || '#000'};font-weight:700">${severityLabels[i.severity] || i.severity}</span></td>
+      <td>${i.title}</td><td>Bât. ${i.building} — ${i.location}</td>
+      <td>${incidentStatusLabels[i.status] || i.status}</td>
+      <td>${i.reportedAt}</td><td>${i.reportedBy}</td>
+    </tr>`
+  ).join('');
+  const reserveRows = activeReserves.map((r: any) =>
+    `<tr>
+      <td style="font-weight:700;font-size:10px">${r.id}</td>
+      <td>${r.title}</td>
+      <td>Bât. ${r.building} — ${r.level}</td>
+      <td>${r.company}</td>
+      <td><span style="color:${pColor[r.priority] || '#000'};font-weight:700">${priorityLabels[r.priority] || r.priority}</span></td>
+      <td><span style="color:${statusColors[r.status] || '#000'}">${statusLabels[r.status] || r.status}</span></td>
+      <td>${r.deadline}</td>
+    </tr>`
+  ).join('');
+
+  const progressBarHtml = `
+    <div style="background:#E8F0FE;border-radius:6px;height:14px;margin:10px 0 4px;overflow:hidden">
+      <div style="background:#003082;height:14px;border-radius:6px;width:${stats.progress}%;transition:width 0.3s"></div>
+    </div>
+    <div style="font-size:10px;color:#003082;font-weight:700;text-align:right">${stats.progress}% de clôture</div>
+  `;
+
+  const header = `
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;padding-bottom:18px;border-bottom:3px solid #003082;margin-bottom:22px">
+      <div style="display:flex;align-items:center;gap:12px">
+        <div style="width:42px;height:42px;background:#003082;border-radius:8px;display:flex;align-items:center;justify-content:center;color:#fff;font-weight:800;font-size:18px">BT</div>
+        <div>
+          <div style="font-size:20px;font-weight:800;color:#003082">BuildTrack</div>
+          <div style="font-size:10px;color:#6B7280">Gestion de chantier numérique</div>
+        </div>
+      </div>
+      <div style="text-align:right">
+        <div style="font-size:15px;font-weight:700;color:#1A2742">Rapport journalier</div>
+        <div style="font-size:11px;color:#6B7280;margin-top:3px">${now}</div>
+        <div style="font-size:10px;color:#6B7280;margin-top:6px">Projet : <strong style="color:#1A2742">${projectName}</strong></div>
+        <div style="font-size:10px;color:#6B7280">Réf. : <strong style="color:#1A2742">${docRef}</strong> &nbsp;|&nbsp; Rédigé par : <strong style="color:#1A2742">${userName}</strong></div>
+      </div>
+    </div>
+  `;
+
+  const kpis = `
+    <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:20px">
+      ${[
+        { val: stats.total, label: 'Réserves totales', color: '#003082' },
+        { val: stats.open + stats.inProgress, label: 'En cours', color: '#F59E0B' },
+        { val: stats.closed, label: 'Clôturées', color: '#059669' },
+        { val: stats.progress + '%', label: 'Taux clôture', color: '#003082' },
+        { val: openIncidents.length, label: 'Incidents ouverts', color: openIncidents.length > 0 ? '#DC2626' : '#059669' },
+        { val: companies.reduce((s: number, c: any) => s + (c.actualWorkers || 0), 0), label: 'Effectif présent', color: '#1A2742' },
+      ].map(k => `
+        <div style="flex:1;min-width:90px;border:1.5px solid #DDE4EE;border-radius:10px;padding:12px 14px;text-align:center">
+          <div style="font-size:26px;font-weight:800;color:${k.color}">${k.val}</div>
+          <div style="font-size:10px;color:#6B7280;margin-top:2px">${k.label}</div>
+        </div>
+      `).join('')}
+    </div>
+    ${progressBarHtml}
+  `;
+
+  const sectionH = (t: string) => `<div style="font-size:11px;font-weight:700;color:#6B7280;text-transform:uppercase;letter-spacing:0.7px;margin-bottom:10px;margin-top:22px;padding-bottom:6px;border-bottom:1.5px solid #DDE4EE">${t}</div>`;
+
+  const tableStyle = 'width:100%;border-collapse:collapse;margin-bottom:16px;font-size:11px';
+  const thStyle = `background:#003082;color:#fff;padding:8px 10px;text-align:left;font-size:10px;text-transform:uppercase;letter-spacing:0.5px`;
+  const tdStyle = 'padding:7px 10px;border-bottom:1px solid #EEF3FA;vertical-align:top';
+
+  const footer = `
+    <div style="margin-top:32px;padding-top:14px;border-top:1.5px solid #DDE4EE;display:flex;justify-content:space-between;font-size:9px;color:#6B7280">
+      <span>Généré par BuildTrack — ${projectName}</span>
+      <span>Document confidentiel — ${today}</span>
+    </div>
+  `;
+
+  const incidentAlert = openIncidents.length > 0
+    ? `<div style="background:#FEF2F2;border-left:4px solid #EF4444;padding:10px 14px;border-radius:0 8px 8px 0;margin-bottom:12px;font-size:12px;color:#7F1D1D">
+        ⚠️ <strong>${openIncidents.length} incident${openIncidents.length > 1 ? 's' : ''} de sécurité ouvert${openIncidents.length > 1 ? 's' : ''}</strong> — À traiter en priorité
+       </div>`
+    : `<div style="background:#ECFDF5;border-left:4px solid #10B981;padding:10px 14px;border-radius:0 8px 8px 0;margin-bottom:12px;font-size:12px;color:#064E3B">
+        ✅ Chantier sécurisé — Aucun incident ouvert
+       </div>`;
+
+  return `<!DOCTYPE html><html lang="fr"><head><meta charset="UTF-8">
+    <style>
+      * { box-sizing: border-box; margin: 0; padding: 0; }
+      body { font-family: Arial, Helvetica, sans-serif; background: #fff; color: #1A2742; font-size: 12px; padding: 28px 32px; }
+      @media print { body { -webkit-print-color-adjust: exact; print-color-adjust: exact; } @page { margin: 15mm 12mm; } }
+    </style>
+  </head><body>
+    ${header}
+    ${incidentAlert}
+    ${kpis}
+    ${sectionH('Personnel présent')}
+    <table style="${tableStyle}">
+      <thead><tr><th style="${thStyle}">Entreprise</th><th style="${thStyle}">Présents</th><th style="${thStyle}">Prévus</th><th style="${thStyle}">Écart</th></tr></thead>
+      <tbody>${personnelRows || `<tr><td style="${tdStyle}" colspan="4">Aucune donnée de personnel</td></tr>`}</tbody>
+    </table>
+    ${sectionH('Tâches en cours')}
+    <table style="${tableStyle}">
+      <thead><tr><th style="${thStyle}">Tâche</th><th style="${thStyle}">Responsable</th><th style="${thStyle};width:120px">Avancement</th><th style="${thStyle}">Échéance</th></tr></thead>
+      <tbody>${taskRows || `<tr><td style="${tdStyle}" colspan="4">Aucune tâche en cours</td></tr>`}</tbody>
+    </table>
+    ${sectionH(`Incidents de sécurité (${openIncidents.length} ouverts)`)}
+    <table style="${tableStyle}">
+      <thead><tr><th style="${thStyle}">Gravité</th><th style="${thStyle}">Titre</th><th style="${thStyle}">Lieu</th><th style="${thStyle}">Statut</th><th style="${thStyle}">Date</th><th style="${thStyle}">Signalé par</th></tr></thead>
+      <tbody>${incidentRows || `<tr><td style="${tdStyle};color:#059669" colspan="6">Aucun incident ouvert</td></tr>`}</tbody>
+    </table>
+    ${sectionH(`Réserves actives (${activeReserves.length})`)}
+    <table style="${tableStyle}">
+      <thead><tr><th style="${thStyle}">Réf.</th><th style="${thStyle}">Titre</th><th style="${thStyle}">Localisation</th><th style="${thStyle}">Entreprise</th><th style="${thStyle}">Priorité</th><th style="${thStyle}">Statut</th><th style="${thStyle}">Échéance</th></tr></thead>
+      <tbody>${reserveRows || `<tr><td style="${tdStyle};color:#059669" colspan="7">Aucune réserve active — Excellent !</td></tr>`}</tbody>
+    </table>
+    ${footer}
   </body></html>`;
 }
 
 function buildWeeklyHTML(reserves: any[], companies: any[], tasks: any[], incidents: any[], stats: any, userName: string, weekNum: number, projectName: string): string {
-  const criticalRows = reserves.filter((r: any) => r.priority === 'critical' && r.status !== 'closed').map((r: any) =>
-    `<tr><td>${r.id}</td><td>${r.title}</td><td>Bât. ${r.building}</td><td>${r.deadline}</td></tr>`
-  ).join('');
-  const reserveByStatus = [
-    { label: 'Ouvert', count: stats.open, color: '#EF4444' },
-    { label: 'En cours', count: stats.inProgress, color: '#F59E0B' },
-    { label: 'En attente', count: stats.waiting, color: '#6366F1' },
-    { label: 'Vérification', count: stats.verification, color: '#3B82F6' },
-    { label: 'Clôturé', count: stats.closed, color: '#10B981' },
-  ];
-  const statusRows = reserveByStatus.map(s =>
-    `<tr><td style="color:${s.color};font-weight:bold">${s.label}</td><td>${s.count}</td><td>${stats.total ? Math.round((s.count / stats.total) * 100) : 0}%</td></tr>`
-  ).join('');
+  const today = new Date().toLocaleDateString('fr-FR');
+  const docRef = `RH-S${weekNum}-${new Date().getFullYear()}`;
+
+  const openIncidents = incidents.filter((i: any) => i.status !== 'resolved');
+  const resolvedThisWeek = incidents.filter((i: any) => i.status === 'resolved');
   const severityLabels: Record<string, string> = { minor: 'Mineur', moderate: 'Modéré', major: 'Majeur', critical: 'Critique' };
   const severityColors: Record<string, string> = { minor: '#6B7280', moderate: '#F59E0B', major: '#EF4444', critical: '#7F1D1D' };
   const incStatusLabels: Record<string, string> = { open: 'Ouvert', investigating: 'En cours', resolved: 'Résolu' };
-  const openIncidents = incidents.filter((i: any) => i.status !== 'resolved');
-  const resolvedThisWeek = incidents.filter((i: any) => i.status === 'resolved');
-  const incidentRows = openIncidents.map((i: any) =>
-    `<tr><td style="color:${severityColors[i.severity]||'#000'};font-weight:bold">${severityLabels[i.severity]||i.severity}</td><td>${i.title}</td><td>Bât. ${i.building}</td><td>${incStatusLabels[i.status]||i.status}</td><td>${i.reportedAt}</td></tr>`
-  ).join('');
-  return `<!DOCTYPE html><html><head><meta charset="UTF-8">
-  <style>
-    body { font-family: Arial, sans-serif; padding: 30px; color: #111; }
-    h1 { color: #1A6FD8; font-size: 22px; }
-    h2 { color: #333; font-size: 16px; border-bottom: 1px solid #ccc; padding-bottom: 4px; margin-top: 24px; }
-    table { width: 100%; border-collapse: collapse; margin-top: 10px; font-size: 13px; }
-    th { background: #1A6FD8; color: white; padding: 8px; text-align: left; }
-    td { padding: 6px 8px; border-bottom: 1px solid #eee; }
-    .meta { color: #666; font-size: 12px; margin-bottom: 20px; }
-    .progress-bar { background: #eee; border-radius: 4px; height: 12px; margin-top: 8px; }
-    .progress-fill { background: #1A6FD8; height: 12px; border-radius: 4px; width: ${stats.progress}%; }
-    .kpi { display: flex; gap: 16px; flex-wrap: wrap; margin-top: 10px; }
-    .kpi-card { border: 1px solid #ccc; border-radius: 8px; padding: 12px 20px; text-align: center; }
-    .kpi-val { font-size: 28px; font-weight: bold; color: #1A6FD8; }
-    .kpi-label { font-size: 12px; color: #666; }
-  </style></head><body>
-  <h1>${projectName} — Rapport hebdomadaire — Semaine ${weekNum}</h1>
-  <p class="meta">Rédigé par : ${userName}</p>
-  <div class="kpi">
-    <div class="kpi-card"><div class="kpi-val">${stats.progress}%</div><div class="kpi-label">Avancement</div></div>
-    <div class="kpi-card"><div class="kpi-val">${stats.closed}/${stats.total}</div><div class="kpi-label">Réserves clôturées</div></div>
-    <div class="kpi-card"><div class="kpi-val" style="color:${openIncidents.length > 0 ? '#EF4444' : '#10B981'}">${openIncidents.length}</div><div class="kpi-label">Incidents ouverts</div></div>
-    <div class="kpi-card"><div class="kpi-val" style="color:#10B981">${resolvedThisWeek.length}</div><div class="kpi-label">Incidents résolus</div></div>
-  </div>
-  <h2>Avancement global</h2>
-  <p><strong>${stats.progress}%</strong> — ${stats.closed} / ${stats.total} réserves clôturées</p>
-  <div class="progress-bar"><div class="progress-fill"></div></div>
-  <h2>Répartition des réserves</h2>
-  <table><thead><tr><th>Statut</th><th>Nombre</th><th>%</th></tr></thead>
-  <tbody>${statusRows}</tbody></table>
-  <h2>Réserves critiques ouvertes</h2>
-  <table><thead><tr><th>ID</th><th>Titre</th><th>Bâtiment</th><th>Échéance</th></tr></thead>
-  <tbody>${criticalRows || '<tr><td colspan="4">Aucune réserve critique ouverte</td></tr>'}</tbody></table>
-  <h2>Incidents de sécurité — Semaine ${weekNum}</h2>
-  <table><thead><tr><th>Gravité</th><th>Titre</th><th>Bâtiment</th><th>Statut</th><th>Date</th></tr></thead>
-  <tbody>${incidentRows || '<tr><td colspan="5" style="color:#10B981">Aucun incident ouvert cette semaine</td></tr>'}</tbody></table>
+
+  const reserveByStatus = [
+    { label: 'Ouvert', count: stats.open, color: '#DC2626' },
+    { label: 'En cours', count: stats.inProgress, color: '#D97706' },
+    { label: 'En attente', count: stats.waiting, color: '#6366F1' },
+    { label: 'Vérification', count: stats.verification, color: '#3B82F6' },
+    { label: 'Clôturé', count: stats.closed, color: '#059669' },
+  ];
+  const criticalReserves = reserves.filter((r: any) => r.priority === 'critical' && r.status !== 'closed');
+  const thStyle = 'background:#003082;color:#fff;padding:8px 10px;text-align:left;font-size:10px;text-transform:uppercase;letter-spacing:0.5px';
+  const tdStyle = 'padding:7px 10px;border-bottom:1px solid #EEF3FA;font-size:11px';
+  const sH = (t: string) => `<div style="font-size:11px;font-weight:700;color:#6B7280;text-transform:uppercase;letter-spacing:0.7px;margin-bottom:10px;margin-top:22px;padding-bottom:6px;border-bottom:1.5px solid #DDE4EE">${t}</div>`;
+
+  return `<!DOCTYPE html><html lang="fr"><head><meta charset="UTF-8">
+    <style>
+      * { box-sizing: border-box; margin: 0; padding: 0; }
+      body { font-family: Arial, Helvetica, sans-serif; background: #fff; color: #1A2742; font-size: 12px; padding: 28px 32px; }
+      @media print { body { -webkit-print-color-adjust: exact; print-color-adjust: exact; } @page { margin: 15mm 12mm; } }
+    </style>
+  </head><body>
+
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;padding-bottom:18px;border-bottom:3px solid #003082;margin-bottom:22px">
+      <div style="display:flex;align-items:center;gap:12px">
+        <div style="width:42px;height:42px;background:#003082;border-radius:8px;display:flex;align-items:center;justify-content:center;color:#fff;font-weight:800;font-size:18px">BT</div>
+        <div>
+          <div style="font-size:20px;font-weight:800;color:#003082">BuildTrack</div>
+          <div style="font-size:10px;color:#6B7280">Gestion de chantier numérique</div>
+        </div>
+      </div>
+      <div style="text-align:right">
+        <div style="font-size:15px;font-weight:700;color:#1A2742">Rapport hebdomadaire — Semaine ${weekNum}</div>
+        <div style="font-size:11px;color:#6B7280;margin-top:3px">Rédigé par : ${userName}</div>
+        <div style="font-size:10px;color:#6B7280;margin-top:8px">Projet : <strong style="color:#1A2742">${projectName}</strong></div>
+        <div style="font-size:10px;color:#6B7280">Réf. : <strong style="color:#1A2742">${docRef}</strong> &nbsp;|&nbsp; <strong style="color:#1A2742">${today}</strong></div>
+      </div>
+    </div>
+
+    <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:20px">
+      ${[
+        { val: `${stats.progress}%`, label: 'Taux de clôture', color: '#003082' },
+        { val: `${stats.closed}/${stats.total}`, label: 'Réserves clôturées', color: '#059669' },
+        { val: openIncidents.length, label: 'Incidents ouverts', color: openIncidents.length > 0 ? '#DC2626' : '#059669' },
+        { val: resolvedThisWeek.length, label: 'Incidents résolus', color: '#059669' },
+        { val: criticalReserves.length, label: 'Réserves critiques', color: criticalReserves.length > 0 ? '#7C3AED' : '#059669' },
+      ].map(k => `
+        <div style="flex:1;min-width:90px;border:1.5px solid #DDE4EE;border-radius:10px;padding:12px 14px;text-align:center">
+          <div style="font-size:24px;font-weight:800;color:${k.color}">${k.val}</div>
+          <div style="font-size:10px;color:#6B7280;margin-top:2px">${k.label}</div>
+        </div>`).join('')}
+    </div>
+
+    <div style="background:#E8F0FE;border-radius:6px;height:14px;margin-bottom:4px;overflow:hidden">
+      <div style="background:#003082;height:14px;border-radius:6px;width:${stats.progress}%"></div>
+    </div>
+    <div style="font-size:10px;color:#003082;font-weight:700;text-align:right;margin-bottom:20px">${stats.progress}% de clôture globale</div>
+
+    ${sH('Répartition des réserves par statut')}
+    <table style="width:100%;border-collapse:collapse;margin-bottom:16px">
+      <thead><tr>
+        <th style="${thStyle}">Statut</th>
+        <th style="${thStyle};text-align:center">Nombre</th>
+        <th style="${thStyle};text-align:center">Proportion</th>
+        <th style="${thStyle}">Indicateur</th>
+      </tr></thead>
+      <tbody>
+        ${reserveByStatus.map(s => `
+          <tr>
+            <td style="${tdStyle}"><span style="color:${s.color};font-weight:700">${s.label}</span></td>
+            <td style="${tdStyle};text-align:center;font-weight:700">${s.count}</td>
+            <td style="${tdStyle};text-align:center">${stats.total ? Math.round((s.count / stats.total) * 100) : 0}%</td>
+            <td style="${tdStyle}">
+              <div style="background:#EEF3FA;border-radius:4px;height:8px;width:180px;overflow:hidden">
+                <div style="background:${s.color};height:8px;width:${stats.total ? Math.round((s.count / stats.total) * 100) : 0}%"></div>
+              </div>
+            </td>
+          </tr>`).join('')}
+      </tbody>
+    </table>
+
+    ${sH(`Réserves critiques ouvertes (${criticalReserves.length})`)}
+    <table style="width:100%;border-collapse:collapse;margin-bottom:16px">
+      <thead><tr>
+        <th style="${thStyle}">Réf.</th><th style="${thStyle}">Titre</th>
+        <th style="${thStyle}">Bâtiment</th><th style="${thStyle}">Entreprise</th><th style="${thStyle}">Échéance</th>
+      </tr></thead>
+      <tbody>${criticalReserves.map((r: any) =>
+        `<tr><td style="${tdStyle};font-weight:700">${r.id}</td><td style="${tdStyle}">${r.title}</td>
+         <td style="${tdStyle}">Bât. ${r.building}</td><td style="${tdStyle}">${r.company}</td>
+         <td style="${tdStyle};color:#DC2626;font-weight:600">${r.deadline}</td></tr>`
+      ).join('') || `<tr><td style="${tdStyle};color:#059669" colspan="5">Aucune réserve critique ouverte cette semaine</td></tr>`}</tbody>
+    </table>
+
+    ${sH(`Incidents de sécurité — Semaine ${weekNum}`)}
+    <table style="width:100%;border-collapse:collapse">
+      <thead><tr>
+        <th style="${thStyle}">Gravité</th><th style="${thStyle}">Titre</th>
+        <th style="${thStyle}">Bâtiment</th><th style="${thStyle}">Statut</th><th style="${thStyle}">Date</th>
+      </tr></thead>
+      <tbody>${openIncidents.map((i: any) =>
+        `<tr>
+          <td style="${tdStyle}"><span style="color:${severityColors[i.severity]||'#000'};font-weight:700">${severityLabels[i.severity]||i.severity}</span></td>
+          <td style="${tdStyle}">${i.title}</td><td style="${tdStyle}">Bât. ${i.building}</td>
+          <td style="${tdStyle}">${incStatusLabels[i.status]||i.status}</td><td style="${tdStyle}">${i.reportedAt}</td>
+        </tr>`
+      ).join('') || `<tr><td style="${tdStyle};color:#059669" colspan="5">Aucun incident ouvert cette semaine</td></tr>`}</tbody>
+    </table>
+
+    <div style="margin-top:32px;padding-top:14px;border-top:1.5px solid #DDE4EE;display:flex;justify-content:space-between;font-size:9px;color:#6B7280">
+      <span>Généré par BuildTrack — ${projectName}</span>
+      <span>Document confidentiel — ${today}</span>
+    </div>
   </body></html>`;
 }
 
@@ -174,54 +319,132 @@ function buildIncidentHTML(incident: any, projectName: string): string {
 
 function buildCompanyReserveHTML(company: any, companyReserves: any[], projectName: string): string {
   const now = new Date().toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' });
+  const today = new Date().toLocaleDateString('fr-FR');
+  const docRef = `BON-${company.name.slice(0, 4).toUpperCase().replace(/\s/g, '')}-${today.replace(/\//g, '')}`;
   const priorityLabels: Record<string, string> = { low: 'Basse', medium: 'Moyenne', high: 'Haute', critical: 'Critique' };
-  const priorityColors: Record<string, string> = { low: '#6B7280', medium: '#F59E0B', high: '#EF4444', critical: '#7F1D1D' };
+  const priorityColors: Record<string, string> = { low: '#6B7280', medium: '#D97706', high: '#DC2626', critical: '#7C3AED' };
   const statusLabels: Record<string, string> = { open: 'Ouvert', in_progress: 'En cours', waiting: 'En attente', verification: 'Vérification', closed: 'Clôturé' };
-  const statusColors: Record<string, string> = { open: '#EF4444', in_progress: '#F59E0B', waiting: '#6366F1', verification: '#3B82F6', closed: '#10B981' };
+  const statusColors: Record<string, string> = { open: '#DC2626', in_progress: '#D97706', waiting: '#6366F1', verification: '#3B82F6', closed: '#059669' };
   const openCount = companyReserves.filter((r: any) => r.status !== 'closed').length;
   const closedCount = companyReserves.filter((r: any) => r.status === 'closed').length;
-  const rows = companyReserves.map((r: any) =>
-    `<tr>
-      <td><strong>${r.id}</strong></td>
-      <td>${r.title}</td>
-      <td>Bât. ${r.building} — ${r.zone} — ${r.level}</td>
-      <td style="color:${priorityColors[r.priority]||'#000'};font-weight:bold">${priorityLabels[r.priority]||r.priority}</td>
-      <td style="color:${statusColors[r.status]||'#000'};font-weight:bold">${statusLabels[r.status]||r.status}</td>
-      <td>${r.deadline||'—'}</td>
-      <td>${r.closedAt||'—'}</td>
+  const criticalCount = companyReserves.filter((r: any) => r.priority === 'critical' && r.status !== 'closed').length;
+  const thStyle = 'background:#003082;color:#fff;padding:8px 10px;text-align:left;font-size:10px;text-transform:uppercase;letter-spacing:0.5px';
+  const tdStyle = 'padding:7px 10px;border-bottom:1px solid #EEF3FA;font-size:11px;vertical-align:top';
+
+  const rows = companyReserves.map((r: any, idx: number) =>
+    `<tr style="background:${idx % 2 === 0 ? '#fff' : '#F9FAFB'}">
+      <td style="${tdStyle};font-weight:700;white-space:nowrap">${r.id}</td>
+      <td style="${tdStyle}">${r.title}${r.description && r.description !== r.title ? `<div style="color:#6B7280;font-size:10px;margin-top:2px">${r.description.slice(0, 80)}${r.description.length > 80 ? '…' : ''}</div>` : ''}</td>
+      <td style="${tdStyle};white-space:nowrap">Bât. ${r.building}<br><span style="color:#6B7280;font-size:10px">${r.zone} — ${r.level}</span></td>
+      <td style="${tdStyle}"><span style="color:${priorityColors[r.priority]||'#000'};font-weight:700">${priorityLabels[r.priority]||r.priority}</span></td>
+      <td style="${tdStyle}"><span style="color:${statusColors[r.status]||'#000'};font-weight:700">${statusLabels[r.status]||r.status}</span></td>
+      <td style="${tdStyle};white-space:nowrap${r.deadline && r.deadline !== '—' && !r.closedAt ? ';color:#DC2626;font-weight:600' : ''}">${r.deadline||'—'}</td>
+      <td style="${tdStyle};color:#059669">${r.closedAt||'—'}</td>
     </tr>`
   ).join('');
-  return `<!DOCTYPE html><html><head><meta charset="UTF-8">
-  <style>
-    body { font-family: Arial, sans-serif; padding: 30px; color: #111; }
-    h1 { color: ${company.color||'#1A6FD8'}; font-size: 20px; margin-bottom: 4px; }
-    h2 { color: #333; font-size: 15px; border-bottom: 2px solid ${company.color||'#1A6FD8'}; padding-bottom: 4px; margin-top: 20px; }
-    .meta { color: #666; font-size: 12px; margin-bottom: 20px; }
-    table { width: 100%; border-collapse: collapse; margin-top: 10px; font-size: 12px; }
-    th { background: ${company.color||'#1A6FD8'}; color: white; padding: 8px; text-align: left; }
-    td { padding: 6px 8px; border-bottom: 1px solid #eee; vertical-align: top; }
-    .kpi { display: flex; gap: 16px; flex-wrap: wrap; margin: 16px 0; }
-    .kpi-card { border: 2px solid ${company.color||'#1A6FD8'}; border-radius: 8px; padding: 10px 18px; text-align: center; }
-    .kpi-val { font-size: 26px; font-weight: bold; color: ${company.color||'#1A6FD8'}; }
-    .kpi-label { font-size: 11px; color: #666; }
-    .footer { margin-top: 30px; border-top: 1px solid #ccc; padding-top: 12px; color: #666; font-size: 11px; }
-  </style></head><body>
-  <h1>Bon de réserve — ${company.name}</h1>
-  <p class="meta">Projet : ${projectName} | Date : ${now} | Contact : ${company.contact||'—'}</p>
-  <div class="kpi">
-    <div class="kpi-card"><div class="kpi-val">${companyReserves.length}</div><div class="kpi-label">Total réserves</div></div>
-    <div class="kpi-card"><div class="kpi-val" style="color:#EF4444">${openCount}</div><div class="kpi-label">À lever</div></div>
-    <div class="kpi-card"><div class="kpi-val" style="color:#10B981">${closedCount}</div><div class="kpi-label">Levées</div></div>
-  </div>
-  <h2>Liste des réserves</h2>
-  <table>
-    <thead><tr><th>Réf.</th><th>Intitulé</th><th>Localisation</th><th>Priorité</th><th>Statut</th><th>Échéance</th><th>Date levée</th></tr></thead>
-    <tbody>${rows || '<tr><td colspan="7" style="color:#10B981;text-align:center">Aucune réserve pour cette entreprise</td></tr>'}</tbody>
-  </table>
-  <div class="footer">
-    Document généré par BuildTrack — ${projectName} | À retourner signé au conducteur de travaux
-    <br><br>Signature de l'entreprise : ______________________&nbsp;&nbsp;&nbsp; Date : ___________
-  </div>
+
+  return `<!DOCTYPE html><html lang="fr"><head><meta charset="UTF-8">
+    <style>
+      * { box-sizing: border-box; margin: 0; padding: 0; }
+      body { font-family: Arial, Helvetica, sans-serif; background: #fff; color: #1A2742; font-size: 12px; padding: 28px 32px; line-height: 1.5; }
+      @media print {
+        body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+        @page { margin: 15mm 12mm; }
+        tr { page-break-inside: avoid; }
+      }
+    </style>
+  </head><body>
+
+    <!-- Letterhead -->
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;padding-bottom:18px;border-bottom:3px solid #003082;margin-bottom:22px">
+      <div style="display:flex;align-items:center;gap:12px">
+        <div style="width:42px;height:42px;background:#003082;border-radius:8px;display:flex;align-items:center;justify-content:center;color:#fff;font-weight:800;font-size:18px">BT</div>
+        <div>
+          <div style="font-size:20px;font-weight:800;color:#003082">BuildTrack</div>
+          <div style="font-size:10px;color:#6B7280">Gestion de chantier numérique</div>
+        </div>
+      </div>
+      <div style="text-align:right">
+        <div style="font-size:15px;font-weight:700;color:#1A2742">Bon de réserves</div>
+        <div style="font-size:12px;color:#6B7280;margin-top:3px">${company.name}</div>
+        <div style="font-size:10px;color:#6B7280;margin-top:8px">Projet : <strong style="color:#1A2742">${projectName}</strong></div>
+        <div style="font-size:10px;color:#6B7280">Réf. : <strong style="color:#1A2742">${docRef}</strong> &nbsp;|&nbsp; <strong style="color:#1A2742">${now}</strong></div>
+      </div>
+    </div>
+
+    <!-- Company info + KPIs -->
+    <div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:20px">
+      <div style="flex:2;min-width:200px;background:#F4F7FB;border-radius:8px;padding:12px 16px;border:1px solid #DDE4EE">
+        <div style="font-size:9px;color:#6B7280;text-transform:uppercase;letter-spacing:0.7px;margin-bottom:6px;font-weight:700">Entreprise</div>
+        <div style="font-size:16px;font-weight:800;color:#1A2742">${company.name}</div>
+        ${company.contact ? `<div style="font-size:11px;color:#6B7280;margin-top:4px">📞 ${company.contact}</div>` : ''}
+        ${company.email ? `<div style="font-size:11px;color:#6B7280">✉ ${company.email}</div>` : ''}
+        ${company.specialty ? `<div style="font-size:11px;color:#6B7280">🔧 ${company.specialty}</div>` : ''}
+      </div>
+      ${[
+        { val: companyReserves.length, label: 'Total réserves', color: '#003082' },
+        { val: openCount, label: 'À lever', color: openCount > 0 ? '#DC2626' : '#059669' },
+        { val: closedCount, label: 'Levées', color: '#059669' },
+        { val: criticalCount, label: 'Critiques', color: criticalCount > 0 ? '#7C3AED' : '#059669' },
+      ].map(k => `
+        <div style="flex:1;min-width:80px;border:1.5px solid #DDE4EE;border-radius:10px;padding:12px 14px;text-align:center">
+          <div style="font-size:26px;font-weight:800;color:${k.color}">${k.val}</div>
+          <div style="font-size:10px;color:#6B7280;margin-top:2px">${k.label}</div>
+        </div>`).join('')}
+    </div>
+
+    ${openCount > 0 ? `
+      <div style="background:#FEF2F2;border-left:4px solid #EF4444;padding:10px 14px;border-radius:0 8px 8px 0;margin-bottom:16px;font-size:12px;color:#7F1D1D">
+        ⚠️ <strong>${openCount} réserve${openCount > 1 ? 's' : ''} à lever</strong> — Délais contractuels à respecter
+      </div>` : `
+      <div style="background:#ECFDF5;border-left:4px solid #10B981;padding:10px 14px;border-radius:0 8px 8px 0;margin-bottom:16px;font-size:12px;color:#064E3B">
+        ✅ Toutes les réserves ont été levées — Merci de votre réactivité
+      </div>`}
+
+    <!-- Section header -->
+    <div style="font-size:11px;font-weight:700;color:#6B7280;text-transform:uppercase;letter-spacing:0.7px;margin-bottom:10px;padding-bottom:6px;border-bottom:1.5px solid #DDE4EE">
+      Liste des réserves (${companyReserves.length})
+    </div>
+
+    <table style="width:100%;border-collapse:collapse;margin-bottom:24px">
+      <thead><tr>
+        <th style="${thStyle}">Réf.</th>
+        <th style="${thStyle}">Intitulé</th>
+        <th style="${thStyle}">Localisation</th>
+        <th style="${thStyle}">Priorité</th>
+        <th style="${thStyle}">Statut</th>
+        <th style="${thStyle}">Échéance</th>
+        <th style="${thStyle}">Date levée</th>
+      </tr></thead>
+      <tbody>
+        ${rows || `<tr><td style="${tdStyle};color:#059669;text-align:center" colspan="7">Aucune réserve pour cette entreprise</td></tr>`}
+      </tbody>
+    </table>
+
+    <!-- Signature block -->
+    <div style="background:#FFFBEB;border:1.5px solid #FCD34D;border-radius:10px;padding:16px 20px;margin-bottom:20px;font-size:12px;color:#92400E">
+      <strong>Instructions :</strong> Ce bon de réserves est à retourner signé au conducteur de travaux dans les délais indiqués.
+      Toute levée de réserve doit être attestée sur site avant validation.
+    </div>
+    <div style="display:flex;gap:32px;flex-wrap:wrap">
+      <div style="flex:1;min-width:200px;border:1.5px solid #DDE4EE;border-radius:10px;padding:14px 18px;background:#FAFBFF">
+        <div style="font-size:9px;color:#6B7280;text-transform:uppercase;letter-spacing:0.6px;margin-bottom:30px;font-weight:700">Représentant de l'entreprise</div>
+        <div style="border-bottom:2px solid #1A2742;margin-bottom:8px"></div>
+        <div style="font-size:11px;color:#6B7280">Nom, prénom et cachet</div>
+        <div style="font-size:11px;color:#6B7280;margin-top:4px">Date : _______________</div>
+      </div>
+      <div style="flex:1;min-width:200px;border:1.5px solid #DDE4EE;border-radius:10px;padding:14px 18px;background:#FAFBFF">
+        <div style="font-size:9px;color:#6B7280;text-transform:uppercase;letter-spacing:0.6px;margin-bottom:30px;font-weight:700">Conducteur de travaux</div>
+        <div style="border-bottom:2px solid #1A2742;margin-bottom:8px"></div>
+        <div style="font-size:11px;color:#6B7280">Signature et cachet</div>
+        <div style="font-size:11px;color:#6B7280;margin-top:4px">Date : _______________</div>
+      </div>
+    </div>
+
+    <div style="margin-top:20px;padding-top:12px;border-top:1.5px solid #DDE4EE;display:flex;justify-content:space-between;font-size:9px;color:#6B7280">
+      <span>Généré par BuildTrack — ${projectName}</span>
+      <span>Document contractuel — À conserver — ${now}</span>
+    </div>
   </body></html>`;
 }
 
@@ -262,12 +485,16 @@ export default function RapportsScreen() {
         : buildWeeklyHTML(reserves, companies, tasks, incidents, stats, userName, weekNum, projectName);
 
       if (Platform.OS === 'web') {
-        const printWindow = window.open('', '_blank');
-        if (printWindow) {
-          printWindow.document.write(html);
-          printWindow.document.close();
-          printWindow.focus();
-          setTimeout(() => printWindow.print(), 400);
+        const iframe = document.createElement('iframe');
+        iframe.style.cssText = 'position:fixed;right:0;bottom:0;width:0;height:0;border:0';
+        document.body.appendChild(iframe);
+        const doc = iframe.contentWindow?.document;
+        if (doc) {
+          doc.open(); doc.write(html); doc.close();
+          setTimeout(() => {
+            try { iframe.contentWindow?.print(); } catch {}
+            setTimeout(() => document.body.removeChild(iframe), 5000);
+          }, 300);
         }
         return;
       }
@@ -440,8 +667,17 @@ export default function RapportsScreen() {
                       onPress={async () => {
                         const html = buildIncidentHTML(i, projectName);
                         if (Platform.OS === 'web') {
-                          const w = window.open('', '_blank');
-                          if (w) { w.document.write(html); w.document.close(); w.focus(); setTimeout(() => w.print(), 400); }
+                          const iframe = document.createElement('iframe');
+                          iframe.style.cssText = 'position:fixed;right:0;bottom:0;width:0;height:0;border:0';
+                          document.body.appendChild(iframe);
+                          const doc = iframe.contentWindow?.document;
+                          if (doc) {
+                            doc.open(); doc.write(html); doc.close();
+                            setTimeout(() => {
+                              try { iframe.contentWindow?.print(); } catch {}
+                              setTimeout(() => document.body.removeChild(iframe), 5000);
+                            }, 300);
+                          }
                         } else {
                           try {
                             const { uri } = await Print.printToFileAsync({ html, base64: false });
