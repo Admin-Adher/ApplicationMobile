@@ -162,6 +162,10 @@ export interface OprItem {
   status: 'ok' | 'reserve' | 'non_applicable';
   reserveId?: string;
   note?: string;
+  entreprise?: string;
+  deadline?: string;
+  verifiedAt?: string;
+  verifiedBy?: string;
 }
 
 export interface OprSignatory {
@@ -189,6 +193,7 @@ export interface Opr {
   conducteurSignature?: string;
   moSignature?: string;
   createdAt: string;
+  visitContradictoire?: string;
   signatories?: OprSignatory[];
   invitedEmails?: string[];
   sessionToken?: string;

@@ -313,6 +313,10 @@ export default function OprScreen() {
   const [inviteRole, setInviteRole] = useState('');
   const [inviteEmail, setInviteEmail] = useState('');
 
+  const [visitDateForm, setVisitDateForm] = useState('');
+  const [expandedItemId, setExpandedItemId] = useState<string | null>(null);
+  const [itemEdits, setItemEdits] = useState<Record<string, { entreprise: string; deadline: string; note: string }>>({});
+
   function addSignatory() {
     if (!inviteModal || !inviteName.trim()) return;
     const opr = inviteModal.opr;
@@ -361,11 +365,13 @@ export default function OprScreen() {
       status: 'draft',
       items,
       maireOuvrage: maireOuvrage.trim() || undefined,
+      visitContradictoire: visitDateForm.trim() || undefined,
       createdAt: new Date().toISOString().slice(0, 10),
     };
     addOpr(opr);
     setTitle('');
     setMaireOuvrage('');
+    setVisitDateForm('');
     setShowNew(false);
   }
 
@@ -439,14 +445,64 @@ export default function OprScreen() {
     setSignModalOpr(null);
   }
 
+  function isOverdue(deadline: string): boolean {
+    if (!deadline) return false;
+    const parts = deadline.split('/');
+    if (parts.length !== 3) return false;
+    const d = new Date(parseInt(parts[2]), parseInt(parts[1]) - 1, parseInt(parts[0]));
+    return d < new Date();
+  }
+
+  function toggleItemExpand(opr: Opr, itemId: string) {
+    if (expandedItemId === itemId) { setExpandedItemId(null); return; }
+    const item = opr.items.find(i => i.id === itemId);
+    setItemEdits(prev => ({
+      ...prev,
+      [itemId]: { entreprise: item?.entreprise ?? '', deadline: item?.deadline ?? '', note: item?.note ?? '' },
+    }));
+    setExpandedItemId(itemId);
+  }
+
+  function saveItemDetail(opr: Opr, itemId: string) {
+    const edit = itemEdits[itemId];
+    if (!edit) return;
+    const updated = opr.items.map(item =>
+      item.id === itemId
+        ? { ...item, entreprise: edit.entreprise.trim() || undefined, deadline: edit.deadline.trim() || undefined, note: edit.note.trim() || undefined }
+        : item
+    );
+    updateOpr({ ...opr, items: updated });
+    setExpandedItemId(null);
+  }
+
+  function verifyLevee(opr: Opr, itemId: string) {
+    const now = new Date().toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit', year: 'numeric' });
+    const updated = opr.items.map(item =>
+      item.id === itemId ? { ...item, verifiedAt: now, verifiedBy: user?.name ?? 'Conducteur' } : item
+    );
+    updateOpr({ ...opr, items: updated });
+    Alert.alert('Levée vérifiée ✓', 'La levée de la réserve a été confirmée et horodatée.');
+  }
+
   function cycleItemStatus(opr: Opr, itemId: string) {
     const order: Array<'ok' | 'reserve' | 'non_applicable'> = ['ok', 'reserve', 'non_applicable'];
-    const updated = opr.items.map(item => {
-      if (item.id !== itemId) return item;
-      const idx = order.indexOf(item.status);
-      return { ...item, status: order[(idx + 1) % order.length] };
-    });
+    const item = opr.items.find(i => i.id === itemId);
+    if (!item) return;
+    const idx = order.indexOf(item.status);
+    const newStatus = order[(idx + 1) % order.length];
+    const updated = opr.items.map(i =>
+      i.id === itemId ? { ...i, status: newStatus } : i
+    );
     updateOpr({ ...opr, items: updated });
+    if (newStatus === 'reserve') {
+      setItemEdits(prev => ({
+        ...prev,
+        [itemId]: { entreprise: item.entreprise ?? '', deadline: item.deadline ?? '', note: item.note ?? '' },
+      }));
+      setExpandedItemId(itemId);
+    } else if (expandedItemId === itemId) {
+      setExpandedItemId(null);
+    }
   }
 
   const STATUS_ORDER: Record<OprStatus, number> = { draft: 0, in_progress: 1, signed: 2 };
@@ -519,6 +575,16 @@ export default function OprScreen() {
               </View>
             </ScrollView>
 
+            <Text style={[styles.label, { marginTop: 10 }]}>Date de visite contradictoire</Text>
+            <TextInput
+              style={styles.input}
+              placeholder="JJ/MM/AAAA (optionnel)"
+              placeholderTextColor={C.textMuted}
+              value={visitDateForm}
+              onChangeText={setVisitDateForm}
+              keyboardType="numbers-and-punctuation"
+            />
+
             <View style={styles.formActions}>
               <TouchableOpacity style={styles.cancelBtn} onPress={() => setShowNew(false)}>
                 <Text style={styles.cancelBtnText}>Annuler</Text>
@@ -547,6 +613,14 @@ export default function OprScreen() {
             const cfg = STATUS_CFG[opr.status];
             const countOk = opr.items.filter(i => i.status === 'ok').length;
             const countRes = opr.items.filter(i => i.status === 'reserve').length;
+            const reserveItems = opr.items.filter(i => i.status === 'reserve');
+            const leveedCount = reserveItems.filter(i => {
+              const r = i.reserveId ? reserves.find(r2 => r2.id === i.reserveId) : undefined;
+              return r?.status === 'closed';
+            }).length;
+            const pctLevee = countRes > 0 ? Math.round((leveedCount / countRes) * 100) : 0;
+            const allVerified = reserveItems.length === 0 || reserveItems.every(i => !!i.verifiedAt);
+            const phaseStep = opr.status === 'signed' ? 4 : allVerified && reserveItems.length === 0 ? 1 : opr.visitContradictoire && allVerified ? 3 : opr.visitContradictoire ? 2 : 1;
             return (
               <View key={opr.id} style={styles.oprCard}>
                 <View style={styles.oprHeader}>
@@ -556,10 +630,44 @@ export default function OprScreen() {
                   <Text style={styles.oprDate}>{opr.date}</Text>
                 </View>
 
+                <View style={styles.phaseStepper}>
+                  {(['Création', 'Visite', 'Levée', 'Signé'] as const).map((label, idx) => {
+                    const stepNum = idx + 1;
+                    const done = stepNum < phaseStep;
+                    const active = stepNum === phaseStep;
+                    return (
+                      <View key={label} style={styles.phaseStepWrapper}>
+                        {idx > 0 && <View style={[styles.phaseConnector, done && styles.phaseConnectorDone]} />}
+                        <View style={[
+                          styles.phaseStepDot,
+                          done && styles.phaseStepDotDone,
+                          active && styles.phaseStepDotActive,
+                        ]}>
+                          {done
+                            ? <Ionicons name="checkmark" size={10} color="#fff" />
+                            : <Text style={[styles.phaseStepNum, active && { color: '#fff' }]}>{stepNum}</Text>
+                          }
+                        </View>
+                        <Text style={[
+                          styles.phaseStepLabel,
+                          done && { color: C.closed },
+                          active && { color: C.primary, fontFamily: 'Inter_600SemiBold' },
+                        ]}>{label}</Text>
+                      </View>
+                    );
+                  })}
+                </View>
+
                 <Text style={styles.oprTitle}>{opr.title}</Text>
                 <Text style={styles.oprMeta}>Bât. {opr.building} — {opr.level} · {opr.conducteur}</Text>
                 {opr.maireOuvrage ? (
                   <Text style={styles.oprMeta}>MO : {opr.maireOuvrage}</Text>
+                ) : null}
+                {opr.visitContradictoire ? (
+                  <View style={styles.visiteMeta}>
+                    <Ionicons name="people-outline" size={12} color="#7C3AED" />
+                    <Text style={styles.visiteMetaText}>Visite contradictoire : {opr.visitContradictoire}</Text>
+                  </View>
                 ) : null}
 
                 <View style={styles.oprStats}>
@@ -578,22 +686,167 @@ export default function OprScreen() {
                 <View style={styles.itemsList}>
                   {opr.items.map(item => {
                     const icfg = ITEM_STATUS_CFG[item.status];
+                    const isExpanded = expandedItemId === item.id;
+                    const edit = itemEdits[item.id] ?? { entreprise: '', deadline: '', note: '' };
+                    const linkedReserve = item.reserveId ? reserves.find(r => r.id === item.reserveId) : undefined;
+                    const isLevee = linkedReserve?.status === 'closed';
+                    const overdue = item.deadline ? isOverdue(item.deadline) : false;
                     return (
-                      <TouchableOpacity
-                        key={item.id}
-                        style={styles.itemRow}
-                        onPress={permissions.canEdit && opr.status !== 'signed' ? () => cycleItemStatus(opr, item.id) : undefined}
-                        activeOpacity={opr.status !== 'signed' ? 0.7 : 1}
-                      >
-                        <Ionicons name={icfg.icon as any} size={16} color={icfg.color} />
-                        <Text style={styles.itemText}>{item.lotName}</Text>
-                        {opr.status !== 'signed' && (
-                          <Ionicons name="chevron-forward" size={12} color={C.textMuted} />
+                      <View key={item.id}>
+                        <TouchableOpacity
+                          style={[styles.itemRow, item.status === 'reserve' && overdue && !isLevee && styles.itemRowOverdue]}
+                          onPress={() => {
+                            if (permissions.canEdit && opr.status !== 'signed') {
+                              if (item.status === 'reserve') {
+                                toggleItemExpand(opr, item.id);
+                              } else {
+                                cycleItemStatus(opr, item.id);
+                              }
+                            }
+                          }}
+                          onLongPress={permissions.canEdit && opr.status !== 'signed' ? () => cycleItemStatus(opr, item.id) : undefined}
+                          activeOpacity={opr.status !== 'signed' ? 0.7 : 1}
+                        >
+                          <Ionicons name={icfg.icon as any} size={16} color={icfg.color} />
+                          <View style={{ flex: 1 }}>
+                            <Text style={styles.itemText}>{item.lotName}</Text>
+                            {item.status === 'reserve' && (item.entreprise || item.deadline) && (
+                              <View style={styles.itemSubRow}>
+                                {item.entreprise ? <Text style={styles.itemSubText}>{item.entreprise}</Text> : null}
+                                {item.deadline ? <Text style={[styles.itemSubText, overdue && !isLevee && { color: C.open }]}>
+                                  {overdue && !isLevee ? '⚠ ' : ''}{item.deadline}
+                                </Text> : null}
+                                {item.verifiedAt ? <Text style={[styles.itemSubText, { color: C.closed }]}>✓ Vérifié</Text> : null}
+                              </View>
+                            )}
+                          </View>
+                          {opr.status !== 'signed' && item.status === 'reserve' && (
+                            <Ionicons name={isExpanded ? 'chevron-up' : 'chevron-down'} size={13} color={C.textMuted} />
+                          )}
+                          {opr.status !== 'signed' && item.status !== 'reserve' && (
+                            <Ionicons name="chevron-forward" size={12} color={C.textMuted} />
+                          )}
+                        </TouchableOpacity>
+
+                        {isExpanded && item.status === 'reserve' && opr.status !== 'signed' && (
+                          <View style={styles.itemDetailPanel}>
+                            <Text style={styles.detailPanelTitle}>Détail de la réserve</Text>
+
+                            <Text style={styles.detailLabel}>ENTREPRISE RESPONSABLE</Text>
+                            <TextInput
+                              style={styles.detailInput}
+                              placeholder="Nom de l'entreprise…"
+                              placeholderTextColor={C.textMuted}
+                              value={edit.entreprise}
+                              onChangeText={v => setItemEdits(prev => ({ ...prev, [item.id]: { ...edit, entreprise: v } }))}
+                            />
+
+                            <Text style={styles.detailLabel}>DÉLAI DE LEVÉE</Text>
+                            <TextInput
+                              style={styles.detailInput}
+                              placeholder="JJ/MM/AAAA"
+                              placeholderTextColor={C.textMuted}
+                              value={edit.deadline}
+                              onChangeText={v => setItemEdits(prev => ({ ...prev, [item.id]: { ...edit, deadline: v } }))}
+                              keyboardType="numbers-and-punctuation"
+                            />
+
+                            <Text style={styles.detailLabel}>OBSERVATION / NOTE</Text>
+                            <TextInput
+                              style={[styles.detailInput, { minHeight: 60, textAlignVertical: 'top' }]}
+                              placeholder="Description de l'observation…"
+                              placeholderTextColor={C.textMuted}
+                              value={edit.note}
+                              onChangeText={v => setItemEdits(prev => ({ ...prev, [item.id]: { ...edit, note: v } }))}
+                              multiline
+                            />
+
+                            <View style={styles.detailActions}>
+                              {isLevee && !item.verifiedAt && (
+                                <TouchableOpacity
+                                  style={styles.verifyBtn}
+                                  onPress={() => verifyLevee(opr, item.id)}
+                                >
+                                  <Ionicons name="checkmark-circle-outline" size={14} color={C.closed} />
+                                  <Text style={styles.verifyBtnText}>Vérifier la levée</Text>
+                                </TouchableOpacity>
+                              )}
+                              {item.verifiedAt && (
+                                <View style={styles.verifiedBadge}>
+                                  <Ionicons name="checkmark-circle" size={14} color={C.closed} />
+                                  <Text style={styles.verifiedBadgeText}>Levée vérifiée le {item.verifiedAt}</Text>
+                                </View>
+                              )}
+                              <TouchableOpacity style={styles.detailSaveBtn} onPress={() => saveItemDetail(opr, item.id)}>
+                                <Ionicons name="save-outline" size={14} color="#fff" />
+                                <Text style={styles.detailSaveBtnText}>Enregistrer</Text>
+                              </TouchableOpacity>
+                            </View>
+
+                            <TouchableOpacity style={styles.cycleBtnRow} onPress={() => cycleItemStatus(opr, item.id)}>
+                              <Ionicons name="sync-outline" size={13} color={C.textMuted} />
+                              <Text style={styles.cycleBtnText}>Changer statut (appui long sur la ligne)</Text>
+                            </TouchableOpacity>
+                          </View>
                         )}
-                      </TouchableOpacity>
+                      </View>
                     );
                   })}
                 </View>
+
+                {countRes > 0 && (
+                  <View style={styles.suiviSection}>
+                    <View style={styles.suiviHeader}>
+                      <Ionicons name="timer-outline" size={13} color={C.textSub} />
+                      <Text style={styles.suiviTitle}>Suivi des délais de levée</Text>
+                      <Text style={styles.suiviProgress}>{leveedCount}/{countRes} levée{countRes > 1 ? 's' : ''}</Text>
+                    </View>
+                    <View style={styles.progressBarBg}>
+                      <View style={[styles.progressBarFill, { width: `${pctLevee}%` as any }]} />
+                    </View>
+                    {reserveItems.map(item => {
+                      const r = item.reserveId ? reserves.find(r2 => r2.id === item.reserveId) : undefined;
+                      const isLev = r?.status === 'closed';
+                      const isVer = !!item.verifiedAt;
+                      const over = item.deadline ? isOverdue(item.deadline) : false;
+                      return (
+                        <View key={item.id} style={[styles.suiviRow, over && !isLev && styles.suiviRowOverdue]}>
+                          <View style={{ flex: 1 }}>
+                            <Text style={styles.suiviLot}>{item.lotName}</Text>
+                            {item.entreprise ? <Text style={styles.suiviEntreprise}>{item.entreprise}</Text> : null}
+                          </View>
+                          {item.deadline ? (
+                            <Text style={[styles.suiviDeadline, over && !isLev && { color: C.open, fontFamily: 'Inter_600SemiBold' }]}>
+                              {over && !isLev ? '⚠ ' : ''}{item.deadline}
+                            </Text>
+                          ) : null}
+                          <View style={[
+                            styles.suiviBadge,
+                            isVer ? styles.suiviBadgeVerified :
+                            isLev ? styles.suiviBadgeLevee :
+                            over ? styles.suiviBadgeOverdue :
+                            styles.suiviBadgePending,
+                          ]}>
+                            <Text style={[
+                              styles.suiviBadgeText,
+                              isVer ? { color: C.closed } :
+                              isLev ? { color: '#059669' } :
+                              over ? { color: C.open } :
+                              { color: C.textMuted },
+                            ]}>
+                              {isVer ? '✓ Vérifié' : isLev ? 'Levée' : over ? 'En retard' : 'En attente'}
+                            </Text>
+                          </View>
+                          {isLev && !isVer && permissions.canEdit && opr.status !== 'signed' && (
+                            <TouchableOpacity onPress={() => verifyLevee(opr, item.id)} hitSlop={8} style={{ marginLeft: 4 }}>
+                              <Ionicons name="checkmark-circle-outline" size={16} color={C.closed} />
+                            </TouchableOpacity>
+                          )}
+                        </View>
+                      );
+                    })}
+                  </View>
+                )}
 
                 <View style={styles.oprActions}>
                   {permissions.canExport && (
@@ -989,4 +1242,78 @@ const styles = StyleSheet.create({
   modalCancelText: { fontSize: 14, fontFamily: 'Inter_500Medium', color: C.textSub },
   modalConfirmBtn: { flex: 2, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, backgroundColor: C.primary, paddingVertical: 13, borderRadius: 12 },
   modalConfirmText: { fontSize: 14, fontFamily: 'Inter_600SemiBold', color: '#fff' },
+
+  phaseStepper: {
+    flexDirection: 'row', alignItems: 'center',
+    marginBottom: 12, marginTop: 2,
+  },
+  phaseStepWrapper: { flexDirection: 'column', alignItems: 'center', gap: 3 },
+  phaseConnector: { flex: 1, height: 2, backgroundColor: C.border, marginHorizontal: 2, marginBottom: 12 },
+  phaseConnectorDone: { backgroundColor: C.closed },
+  phaseStepDot: {
+    width: 20, height: 20, borderRadius: 10,
+    backgroundColor: C.bg, borderWidth: 2, borderColor: C.border,
+    alignItems: 'center', justifyContent: 'center',
+  },
+  phaseStepDotDone: { backgroundColor: C.closed, borderColor: C.closed },
+  phaseStepDotActive: { backgroundColor: C.primary, borderColor: C.primary },
+  phaseStepNum: { fontSize: 9, fontFamily: 'Inter_700Bold', color: C.textMuted },
+  phaseStepLabel: { fontSize: 9, fontFamily: 'Inter_400Regular', color: C.textMuted, marginTop: 2, textAlign: 'center' },
+
+  visiteMeta: { flexDirection: 'row', alignItems: 'center', gap: 5, marginBottom: 2 },
+  visiteMetaText: { fontSize: 12, fontFamily: 'Inter_500Medium', color: '#7C3AED' },
+
+  itemRowOverdue: { backgroundColor: '#FFF1F1' },
+  itemSubRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 2, flexWrap: 'wrap' },
+  itemSubText: { fontSize: 11, fontFamily: 'Inter_400Regular', color: C.textMuted },
+
+  itemDetailPanel: {
+    backgroundColor: '#F8F9FF', padding: 14, gap: 8,
+    borderBottomWidth: 1, borderColor: C.border,
+    borderLeftWidth: 3, borderLeftColor: C.primary,
+  },
+  detailPanelTitle: { fontSize: 12, fontFamily: 'Inter_700Bold', color: C.primary, marginBottom: 4 },
+  detailLabel: { fontSize: 10, fontFamily: 'Inter_600SemiBold', color: C.textSub, textTransform: 'uppercase', letterSpacing: 0.5, marginTop: 4 },
+  detailInput: {
+    backgroundColor: C.surface, borderWidth: 1, borderColor: C.border,
+    borderRadius: 8, paddingHorizontal: 10, paddingVertical: 8,
+    fontSize: 13, fontFamily: 'Inter_400Regular', color: C.text,
+  },
+  detailActions: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 4, flexWrap: 'wrap' },
+  verifyBtn: {
+    flexDirection: 'row', alignItems: 'center', gap: 5,
+    paddingHorizontal: 12, paddingVertical: 7, borderRadius: 8,
+    borderWidth: 1, borderColor: C.closed + '50', backgroundColor: C.closedBg,
+  },
+  verifyBtnText: { fontSize: 12, fontFamily: 'Inter_600SemiBold', color: C.closed },
+  verifiedBadge: { flexDirection: 'row', alignItems: 'center', gap: 5 },
+  verifiedBadgeText: { fontSize: 12, fontFamily: 'Inter_500Medium', color: C.closed },
+  detailSaveBtn: {
+    flexDirection: 'row', alignItems: 'center', gap: 5,
+    paddingHorizontal: 14, paddingVertical: 7, borderRadius: 8,
+    backgroundColor: C.primary,
+  },
+  detailSaveBtnText: { fontSize: 12, fontFamily: 'Inter_600SemiBold', color: '#fff' },
+  cycleBtnRow: { flexDirection: 'row', alignItems: 'center', gap: 5, marginTop: 2 },
+  cycleBtnText: { fontSize: 11, fontFamily: 'Inter_400Regular', color: C.textMuted, fontStyle: 'italic' },
+
+  suiviSection: {
+    marginTop: 8, paddingTop: 10, borderTopWidth: 1, borderTopColor: C.border, gap: 6,
+  },
+  suiviHeader: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 2 },
+  suiviTitle: { flex: 1, fontSize: 12, fontFamily: 'Inter_600SemiBold', color: C.textSub, textTransform: 'uppercase', letterSpacing: 0.4 },
+  suiviProgress: { fontSize: 11, fontFamily: 'Inter_600SemiBold', color: C.primary },
+  progressBarBg: { height: 5, backgroundColor: C.border, borderRadius: 3, overflow: 'hidden', marginBottom: 4 },
+  progressBarFill: { height: '100%', backgroundColor: C.closed, borderRadius: 3 },
+  suiviRow: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: 5, paddingHorizontal: 6, borderRadius: 7 },
+  suiviRowOverdue: { backgroundColor: '#FFF1F1' },
+  suiviLot: { fontSize: 12, fontFamily: 'Inter_500Medium', color: C.text },
+  suiviEntreprise: { fontSize: 11, fontFamily: 'Inter_400Regular', color: C.textMuted, marginTop: 1 },
+  suiviDeadline: { fontSize: 11, fontFamily: 'Inter_400Regular', color: C.textSub, minWidth: 70, textAlign: 'right' },
+  suiviBadge: { paddingHorizontal: 7, paddingVertical: 2, borderRadius: 8 },
+  suiviBadgeVerified: { backgroundColor: C.closedBg },
+  suiviBadgeLevee: { backgroundColor: '#ECFDF5' },
+  suiviBadgeOverdue: { backgroundColor: '#FEF2F2' },
+  suiviBadgePending: { backgroundColor: C.bg },
+  suiviBadgeText: { fontSize: 10, fontFamily: 'Inter_600SemiBold' },
 });
