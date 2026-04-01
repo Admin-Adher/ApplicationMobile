@@ -62,13 +62,13 @@ function buildOprPDF(opr: Opr, projectName: string): string {
 
   const rows = opr.items.map((item, idx) =>
     `<tr style="background:${idx % 2 === 0 ? '#fff' : '#F9FAFB'}">
-      <td style="padding:8px 10px;border-bottom:1px solid #EEF3FA;font-size:12px">${item.lotName}</td>
-      <td style="padding:8px 10px;border-bottom:1px solid #EEF3FA;font-size:12px">${item.description !== item.lotName ? item.description : '—'}</td>
+      <td style="padding:8px 10px;border-bottom:1px solid #EEF3FA;font-size:11px;font-weight:700">${item.lotName}</td>
+      <td style="padding:8px 10px;border-bottom:1px solid #EEF3FA;font-size:11px">${item.description !== item.lotName ? item.description : '—'}</td>
       <td style="padding:8px 10px;border-bottom:1px solid #EEF3FA;text-align:center">
-        <span style="background:${statusBg[item.status]};color:${statusColors[item.status]};font-weight:700;font-size:12px;padding:3px 10px;border-radius:12px">${statusIcons[item.status]} ${ITEM_STATUS_CFG[item.status].label}</span>
+        <span style="background:${statusBg[item.status]};color:${statusColors[item.status]};font-weight:700;font-size:11px;padding:3px 10px;border-radius:12px">${statusIcons[item.status]} ${ITEM_STATUS_CFG[item.status].label}</span>
       </td>
-      <td style="padding:8px 10px;border-bottom:1px solid #EEF3FA;font-size:12px;color:#6B7280">${item.status === 'reserve' ? (item.reserveId ?? '—') : '—'}</td>
-      <td style="padding:8px 10px;border-bottom:1px solid #EEF3FA;font-size:12px">${item.note ?? ''}</td>
+      <td style="padding:8px 10px;border-bottom:1px solid #EEF3FA;font-size:11px;color:#6B7280">${item.status === 'reserve' ? (item.reserveId ?? '—') : '—'}</td>
+      <td style="padding:8px 10px;border-bottom:1px solid #EEF3FA;font-size:11px">${item.note ?? ''}</td>
     </tr>`
   ).join('');
 
@@ -77,133 +77,81 @@ function buildOprPDF(opr: Opr, projectName: string): string {
   const totalNA = opr.items.filter(i => i.status === 'non_applicable').length;
   const pctConformite = opr.items.length > 0 ? Math.round((totalOk / opr.items.length) * 100) : 0;
   const signedDate = opr.signedAt ?? opr.date;
+  const today = new Date().toLocaleDateString('fr-FR');
 
-  const signatureBlock = opr.status === 'signed' ? `
-    <div style="margin-top:36px;padding-top:20px;border-top:2px solid #EEF3FA">
-      <div style="display:flex;align-items:center;gap:8px;margin-bottom:16px">
-        <span style="background:#ECFDF5;color:#059669;font-weight:700;font-size:13px;padding:4px 14px;border-radius:20px">✓ PV signé électroniquement le ${signedDate}</span>
-      </div>
-      <div style="display:flex;gap:32px;flex-wrap:wrap">
-        <div style="flex:1;min-width:220px;border:1.5px solid #DDE4EE;border-radius:10px;padding:14px 18px;background:#FAFBFF">
-          <div style="font-size:10px;color:#8FA3B5;text-transform:uppercase;letter-spacing:0.6px;margin-bottom:8px">Conducteur de travaux</div>
-          ${opr.conducteurSignature
-            ? `<img src="${opr.conducteurSignature}" style="width:100%;max-width:260px;height:80px;object-fit:contain;border-bottom:2px solid #1A2742;display:block;margin-bottom:6px" />`
-            : `<div style="height:60px;border-bottom:2px solid #1A2742;margin-bottom:6px"></div>`
-          }
-          <div style="font-size:13px;font-weight:700;color:#1A2742">${opr.conducteur}</div>
-          <div style="font-size:11px;color:#8FA3B5;margin-top:2px">Signé le ${signedDate}</div>
-        </div>
-        <div style="flex:1;min-width:220px;border:1.5px solid #DDE4EE;border-radius:10px;padding:14px 18px;background:#FAFBFF">
-          <div style="font-size:10px;color:#8FA3B5;text-transform:uppercase;letter-spacing:0.6px;margin-bottom:8px">Maître d'ouvrage</div>
-          ${opr.moSignature
-            ? `<img src="${opr.moSignature}" style="width:100%;max-width:260px;height:80px;object-fit:contain;border-bottom:2px solid #1A2742;display:block;margin-bottom:6px" />`
-            : `<div style="height:60px;border-bottom:2px solid #1A2742;margin-bottom:6px"></div>`
-          }
-          <div style="font-size:13px;font-weight:700;color:#1A2742">${opr.maireOuvrage ?? '—'}</div>
-          <div style="font-size:11px;color:#8FA3B5;margin-top:2px">Signé le ${signedDate}</div>
-        </div>
-      </div>
-    </div>` : `
-    <div style="margin-top:36px;padding-top:20px;border-top:2px solid #EEF3FA">
-      <div style="font-size:12px;font-weight:700;color:#5E738A;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:16px">Signatures</div>
-      <div style="display:flex;gap:32px;flex-wrap:wrap">
-        <div style="flex:1;min-width:220px;border:1.5px solid #DDE4EE;border-radius:10px;padding:14px 18px">
-          <div style="font-size:10px;color:#8FA3B5;text-transform:uppercase;letter-spacing:0.6px;margin-bottom:8px">Conducteur de travaux</div>
-          <div style="height:80px;border-bottom:2px solid #1A2742;margin-bottom:6px"></div>
-          <div style="font-size:13px;color:#1A2742">${opr.conducteur}</div>
-        </div>
-        <div style="flex:1;min-width:220px;border:1.5px solid #DDE4EE;border-radius:10px;padding:14px 18px">
-          <div style="font-size:10px;color:#8FA3B5;text-transform:uppercase;letter-spacing:0.6px;margin-bottom:8px">Maître d'ouvrage</div>
-          <div style="height:80px;border-bottom:2px solid #1A2742;margin-bottom:6px"></div>
-          <div style="font-size:13px;color:#1A2742">${opr.maireOuvrage ?? ''}</div>
-        </div>
-      </div>
-    </div>`;
+  const sigBlockHtml = opr.status === 'signed'
+    ? `<div class="section-header">Signatures électroniques</div>
+       <div class="alert alert-success">✓ PV signé électroniquement le ${signedDate}</div>
+       <div class="sig-row">
+         <div class="sig-block">
+           <div class="sig-label">Conducteur de travaux</div>
+           ${opr.conducteurSignature
+             ? `<img src="${opr.conducteurSignature}" style="width:100%;max-width:260px;height:80px;object-fit:contain;border-bottom:2px solid #1A2742;display:block;margin-bottom:6px" />`
+             : '<div class="sig-line"></div>'
+           }
+           <div class="sig-name">${opr.conducteur}</div>
+           <div class="sig-date">Signé le ${signedDate}</div>
+         </div>
+         <div class="sig-block">
+           <div class="sig-label">Maître d'ouvrage</div>
+           ${opr.moSignature
+             ? `<img src="${opr.moSignature}" style="width:100%;max-width:260px;height:80px;object-fit:contain;border-bottom:2px solid #1A2742;display:block;margin-bottom:6px" />`
+             : '<div class="sig-line"></div>'
+           }
+           <div class="sig-name">${opr.maireOuvrage ?? '—'}</div>
+           <div class="sig-date">Signé le ${signedDate}</div>
+         </div>
+       </div>`
+    : `<div class="section-header">Signatures</div>
+       <div class="sig-row">
+         <div class="sig-block">
+           <div class="sig-label">Conducteur de travaux</div>
+           <div class="sig-line"></div>
+           <div class="sig-name">${opr.conducteur}</div>
+           <div class="sig-date">Date : _______________</div>
+         </div>
+         <div class="sig-block">
+           <div class="sig-label">Maître d'ouvrage</div>
+           <div class="sig-line"></div>
+           <div class="sig-name">${opr.maireOuvrage ?? ''}</div>
+           <div class="sig-date">Date : _______________</div>
+         </div>
+       </div>`;
 
-  return `<!DOCTYPE html><html lang="fr"><head><meta charset="UTF-8">
-  <style>
-    * { box-sizing: border-box; margin: 0; padding: 0; }
-    body { font-family: Arial, Helvetica, sans-serif; background: #fff; color: #1A2742; }
-    @page { margin: 15mm 12mm; }
-    @media print { body { -webkit-print-color-adjust: exact; print-color-adjust: exact; } table { page-break-inside: auto; } tr { page-break-inside: avoid; } }
-  </style>
-  </head><body>
-  <div style="padding:32px 36px;max-width:860px;margin:0 auto">
+  const infoItems = [
+    { label: 'Localisation', value: `Bât. ${opr.building} — ${opr.level}` },
+    { label: 'Conducteur de travaux', value: opr.conducteur },
+    ...(opr.maireOuvrage ? [{ label: "Maître d'ouvrage", value: opr.maireOuvrage }] : []),
+    { label: 'Date de réception', value: opr.date },
+  ];
 
-    <div style="display:flex;justify-content:space-between;align-items:flex-start;padding-bottom:20px;border-bottom:3px solid #003082;margin-bottom:24px">
-      <div>
-        <div style="font-size:22px;font-weight:800;color:#003082;letter-spacing:-0.3px">Procès-verbal de réception</div>
-        <div style="font-size:14px;color:#5E738A;margin-top:4px">${opr.title}</div>
-      </div>
-      <div style="text-align:right">
-        <div style="font-size:11px;color:#8FA3B5">Réf. document</div>
-        <div style="font-size:13px;font-weight:700;color:#1A2742">${opr.id}</div>
-        <div style="font-size:11px;color:#8FA3B5;margin-top:4px">Date</div>
-        <div style="font-size:13px;font-weight:700;color:#1A2742">${opr.date}</div>
-      </div>
-    </div>
-
-    <div style="display:flex;gap:24px;flex-wrap:wrap;margin-bottom:24px">
-      <div style="flex:1;min-width:180px;background:#F4F7FB;border-radius:10px;padding:14px 16px">
-        <div style="font-size:10px;color:#8FA3B5;text-transform:uppercase;letter-spacing:0.6px;margin-bottom:6px">Projet</div>
-        <div style="font-size:14px;font-weight:700;color:#1A2742">${projectName}</div>
-      </div>
-      <div style="flex:1;min-width:140px;background:#F4F7FB;border-radius:10px;padding:14px 16px">
-        <div style="font-size:10px;color:#8FA3B5;text-transform:uppercase;letter-spacing:0.6px;margin-bottom:6px">Localisation</div>
-        <div style="font-size:14px;font-weight:700;color:#1A2742">Bât. ${opr.building} — ${opr.level}</div>
-      </div>
-      <div style="flex:1;min-width:140px;background:#F4F7FB;border-radius:10px;padding:14px 16px">
-        <div style="font-size:10px;color:#8FA3B5;text-transform:uppercase;letter-spacing:0.6px;margin-bottom:6px">Conducteur</div>
-        <div style="font-size:14px;font-weight:700;color:#1A2742">${opr.conducteur}</div>
-      </div>
-      ${opr.maireOuvrage ? `<div style="flex:1;min-width:140px;background:#F4F7FB;border-radius:10px;padding:14px 16px">
-        <div style="font-size:10px;color:#8FA3B5;text-transform:uppercase;letter-spacing:0.6px;margin-bottom:6px">Maître d'ouvrage</div>
-        <div style="font-size:14px;font-weight:700;color:#1A2742">${opr.maireOuvrage}</div>
-      </div>` : ''}
-    </div>
-
-    <div style="display:flex;gap:12px;margin-bottom:28px;flex-wrap:wrap">
-      <div style="border:1.5px solid #DDE4EE;border-radius:10px;padding:12px 20px;text-align:center;min-width:100px">
-        <div style="font-size:26px;font-weight:800;color:#059669">${totalOk}</div>
-        <div style="font-size:11px;color:#6B7280;margin-top:2px">Conforme${totalOk > 1 ? 's' : ''}</div>
-      </div>
-      <div style="border:1.5px solid #DDE4EE;border-radius:10px;padding:12px 20px;text-align:center;min-width:100px">
-        <div style="font-size:26px;font-weight:800;color:#DC2626">${totalRes}</div>
-        <div style="font-size:11px;color:#6B7280;margin-top:2px">Réserve${totalRes > 1 ? 's' : ''}</div>
-      </div>
-      <div style="border:1.5px solid #DDE4EE;border-radius:10px;padding:12px 20px;text-align:center;min-width:100px">
-        <div style="font-size:26px;font-weight:800;color:#6B7280">${totalNA}</div>
-        <div style="font-size:11px;color:#6B7280;margin-top:2px">Non applicable</div>
-      </div>
-      <div style="border:2px solid #003082;border-radius:10px;padding:12px 20px;text-align:center;min-width:100px;background:#EEF3FA">
-        <div style="font-size:26px;font-weight:800;color:#003082">${pctConformite}%</div>
-        <div style="font-size:11px;color:#003082;margin-top:2px">Conformité</div>
-      </div>
-    </div>
-
-    <div style="font-size:12px;font-weight:700;color:#5E738A;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:10px">Détail par lot</div>
-    <table style="width:100%;border-collapse:collapse;border:1.5px solid #DDE4EE;border-radius:10px;overflow:hidden">
+  const body = `
+    ${buildLetterhead('Procès-verbal de réception', opr.title, opr.id, today, projectName)}
+    ${buildInfoGrid(infoItems)}
+    ${buildKpiRow([
+      { val: totalOk, label: 'Conforme' + (totalOk > 1 ? 's' : ''), color: '#059669' },
+      { val: totalRes, label: 'Réserve' + (totalRes > 1 ? 's' : ''), color: '#DC2626' },
+      { val: totalNA, label: 'Non applicable', color: '#6B7280' },
+      { val: `${pctConformite}%`, label: 'Conformité', color: '#003082' },
+    ])}
+    <div class="section-header">Détail par lot</div>
+    <table>
       <thead>
-        <tr style="background:#003082">
-          <th style="padding:10px 10px;text-align:left;font-size:11px;color:#fff;font-weight:700;letter-spacing:0.4px">LOT</th>
-          <th style="padding:10px 10px;text-align:left;font-size:11px;color:#fff;font-weight:700;letter-spacing:0.4px">POINT DE CONTRÔLE</th>
-          <th style="padding:10px 10px;text-align:center;font-size:11px;color:#fff;font-weight:700;letter-spacing:0.4px">STATUT</th>
-          <th style="padding:10px 10px;text-align:left;font-size:11px;color:#fff;font-weight:700;letter-spacing:0.4px">N° RÉS.</th>
-          <th style="padding:10px 10px;text-align:left;font-size:11px;color:#fff;font-weight:700;letter-spacing:0.4px">OBSERVATIONS</th>
+        <tr>
+          <th>LOT</th>
+          <th>POINT DE CONTRÔLE</th>
+          <th style="text-align:center">STATUT</th>
+          <th>N° RÉS.</th>
+          <th>OBSERVATIONS</th>
         </tr>
       </thead>
-      <tbody>${rows}</tbody>
+      <tbody>${rows || '<tr><td colspan="5" style="padding:14px;text-align:center;color:#059669">Aucun point de contrôle</td></tr>'}</tbody>
     </table>
+    ${sigBlockHtml}
+    ${buildDocFooter(projectName)}
+  `;
 
-    ${signatureBlock}
-
-    <div style="margin-top:32px;padding-top:12px;border-top:1px solid #EEF3FA;display:flex;justify-content:space-between;align-items:center">
-      <div style="font-size:10px;color:#8FA3B5">BuildTrack — Gestion de chantier</div>
-      <div style="font-size:10px;color:#8FA3B5">Document généré le ${new Date().toLocaleDateString('fr-FR')}</div>
-    </div>
-
-  </div>
-  </body></html>`;
+  return wrapHTML(body, `PV de réception — ${opr.title}`);
 }
 
 async function buildPvLeveePDF(opr: Opr, reserves: Reserve[], projectName: string): Promise<string> {

@@ -7,7 +7,11 @@ import {
   exportPDF as exportPDFHelper,
   loadPhotoAsDataUrl,
   buildPhotoGrid,
-  PDF_BASE_CSS,
+  buildLetterhead,
+  buildInfoGrid,
+  buildKpiRow,
+  buildDocFooter,
+  wrapHTML,
 } from '@/lib/pdfBase';
 import { useApp } from '@/context/AppContext';
 import { useAuth } from '@/context/AuthContext';
@@ -48,19 +52,21 @@ function buildVisitePDF(visite: Visite, reserves: Reserve[], projectName: string
   const normalReserves = reserves.filter(r => r.priority !== 'critical' && r.priority !== 'high');
   const sortedReserves = [...criticalReserves, ...normalReserves];
 
+  const docRef = `CR-${visite.id}`;
+
   const rows = sortedReserves.map((r, idx) =>
     `<tr style="background:${idx % 2 === 0 ? '#fff' : '#F9FAFB'}">
-      <td style="padding:9px 10px;border-bottom:1px solid #EEF3FA;font-size:11px;font-weight:700;color:#5E738A;white-space:nowrap">${r.id}</td>
-      <td style="padding:9px 10px;border-bottom:1px solid #EEF3FA;font-size:12px;font-weight:600;color:#1A2742">${r.title}</td>
-      <td style="padding:9px 10px;border-bottom:1px solid #EEF3FA;font-size:12px;color:#5E738A;white-space:nowrap">Bât.${r.building} — ${r.level}</td>
-      <td style="padding:9px 10px;border-bottom:1px solid #EEF3FA;font-size:12px;color:#1A2742">${r.company}</td>
+      <td style="padding:9px 10px;border-bottom:1px solid #EEF3FA;font-size:11px;font-weight:700;white-space:nowrap">${r.id}</td>
+      <td style="padding:9px 10px;border-bottom:1px solid #EEF3FA;font-size:12px;font-weight:600">${r.title}</td>
+      <td style="padding:9px 10px;border-bottom:1px solid #EEF3FA;font-size:12px;white-space:nowrap">Bât.${r.building} — ${r.level}</td>
+      <td style="padding:9px 10px;border-bottom:1px solid #EEF3FA;font-size:12px">${r.company}</td>
       <td style="padding:9px 10px;border-bottom:1px solid #EEF3FA;text-align:center">
         <span style="background:${priorityBg[r.priority]||'#F9FAFB'};color:${priorityColors[r.priority]||'#6B7280'};font-size:11px;font-weight:700;padding:3px 10px;border-radius:10px">${PRIORITY_LABELS[r.priority]||r.priority}</span>
       </td>
       <td style="padding:9px 10px;border-bottom:1px solid #EEF3FA;text-align:center">
         <span style="background:${statusBg[r.status]||'#F9FAFB'};color:${statusColor[r.status]||'#6B7280'};font-size:11px;font-weight:700;padding:3px 10px;border-radius:10px">${RESERVE_STATUS_LABELS[r.status]||r.status}</span>
       </td>
-      <td style="padding:9px 10px;border-bottom:1px solid #EEF3FA;font-size:12px;color:#5E738A;white-space:nowrap">${r.deadline}</td>
+      <td style="padding:9px 10px;border-bottom:1px solid #EEF3FA;font-size:12px;white-space:nowrap">${r.deadline}</td>
     </tr>`
   ).join('');
 
@@ -69,143 +75,85 @@ function buildVisitePDF(visite: Visite, reserves: Reserve[], projectName: string
     : [];
 
   const photoGallery = reservesWithPhotos.length > 0
-    ? `<div style="margin-top:28px;padding-top:16px;border-top:2px solid #EEF3FA">
-        <div style="font-size:11px;font-weight:700;color:#6B7280;text-transform:uppercase;letter-spacing:0.7px;margin-bottom:14px">
-          Galerie photos des réserves (${reservesWithPhotos.reduce((acc, r) => acc + (reservePhotoMap!.get(r.id)?.length ?? 0), 0)} photos)
-        </div>
+    ? `<div class="section-header">Galerie photos (${reservesWithPhotos.reduce((acc, r) => acc + (reservePhotoMap!.get(r.id)?.length ?? 0), 0)} photos)</div>
         ${reservesWithPhotos.map(r => {
           const srcs = reservePhotoMap!.get(r.id) ?? [];
           const rawPhotos = r.photos ?? [];
-          return `
-            <div style="margin-bottom:18px;padding:12px 16px;border:1.5px solid #DDE4EE;border-radius:10px;page-break-inside:avoid">
-              <div style="font-size:11px;font-weight:700;color:#1A2742;margin-bottom:6px">${r.id} — ${r.title} <span style="color:#6B7280;font-weight:400">· ${r.company} · Bât.${r.building}</span></div>
-              ${buildPhotoGrid(srcs.slice(0, 4).map((src, i) => ({
-                src,
-                badge: (rawPhotos[i]?.kind === 'resolution') ? '🟢 Levée' : '🔴 Constat',
-                badgeColor: (rawPhotos[i]?.kind === 'resolution') ? '#ECFDF5' : '#FEF2F2',
-                badgeTextColor: (rawPhotos[i]?.kind === 'resolution') ? '#059669' : '#DC2626',
-              })))}
-            </div>
-          `;
-        }).join('')}
-      </div>`
+          return `<div style="margin-bottom:18px;padding:12px 16px;border:1.5px solid #DDE4EE;border-radius:10px;page-break-inside:avoid">
+            <div style="font-size:11px;font-weight:700;color:#1A2742;margin-bottom:6px">${r.id} — ${r.title} <span style="color:#6B7280;font-weight:400">· ${r.company} · Bât.${r.building}</span></div>
+            ${buildPhotoGrid(srcs.slice(0, 4).map((src, i) => ({
+              src,
+              badge: (rawPhotos[i]?.kind === 'resolution') ? '🟢 Levée' : '🔴 Constat',
+              badgeColor: (rawPhotos[i]?.kind === 'resolution') ? '#ECFDF5' : '#FEF2F2',
+              badgeTextColor: (rawPhotos[i]?.kind === 'resolution') ? '#059669' : '#DC2626',
+            })))}
+          </div>`;
+        }).join('')}`
     : '';
 
-  return `<!DOCTYPE html><html lang="fr"><head><meta charset="UTF-8">
-  <title>CR Visite ${visite.id}</title>
-  <style>${PDF_BASE_CSS}</style>
-  </head><body>
-  <div style="padding:32px 36px;max-width:860px;margin:0 auto">
+  const statusVisiteLabel = visite.status === 'completed' ? 'Terminée' : visite.status === 'in_progress' ? 'En cours' : 'Planifiée';
+  const infoItems = [
+    { label: 'Conducteur de travaux', value: visite.conducteur },
+    ...(visite.building ? [{ label: 'Localisation', value: `Bât. ${visite.building}${visite.level ? ` — ${visite.level}` : ''}` }] : []),
+    { label: 'Statut de la visite', value: statusVisiteLabel },
+    { label: 'Date de visite', value: visite.date },
+  ];
 
-    <div style="display:flex;justify-content:space-between;align-items:flex-start;padding-bottom:20px;border-bottom:3px solid #003082;margin-bottom:24px">
-      <div>
-        <div style="font-size:10px;color:#8FA3B5;text-transform:uppercase;letter-spacing:1px;margin-bottom:6px">Compte-rendu de visite de chantier</div>
-        <div style="font-size:22px;font-weight:800;color:#003082;letter-spacing:-0.3px">${visite.title}</div>
-        <div style="font-size:13px;color:#5E738A;margin-top:4px">${projectName}</div>
-      </div>
-      <div style="text-align:right">
-        <div style="font-size:11px;color:#8FA3B5">Réf.</div>
-        <div style="font-size:13px;font-weight:700;color:#1A2742">${visite.id}</div>
-        <div style="font-size:11px;color:#8FA3B5;margin-top:4px">Date de visite</div>
-        <div style="font-size:14px;font-weight:800;color:#003082">${visite.date}</div>
-      </div>
-    </div>
+  const conducteurSigHtml = visite.conducteurSignature
+    ? `<img src="${visite.conducteurSignature}" style="height:70px;width:100%;object-fit:contain;border-bottom:2px solid #1A2742;margin-bottom:8px;display:block" />`
+    : '<div style="height:70px;border-bottom:2px solid #1A2742;margin-bottom:8px"></div>';
+  const entrepriseSigHtml = visite.entrepriseSignature
+    ? `<img src="${visite.entrepriseSignature}" style="height:70px;width:100%;object-fit:contain;border-bottom:2px solid #1A2742;margin-bottom:8px;display:block" />`
+    : '<div style="height:70px;border-bottom:2px solid #1A2742;margin-bottom:8px"></div>';
 
-    <div style="display:flex;gap:16px;flex-wrap:wrap;margin-bottom:24px">
-      <div style="flex:1;min-width:160px;background:#F4F7FB;border-radius:10px;padding:12px 16px">
-        <div style="font-size:10px;color:#8FA3B5;text-transform:uppercase;letter-spacing:0.6px;margin-bottom:6px">Conducteur de travaux</div>
-        <div style="font-size:14px;font-weight:700;color:#1A2742">${visite.conducteur}</div>
-      </div>
-      ${visite.building ? `<div style="flex:1;min-width:140px;background:#F4F7FB;border-radius:10px;padding:12px 16px">
-        <div style="font-size:10px;color:#8FA3B5;text-transform:uppercase;letter-spacing:0.6px;margin-bottom:6px">Localisation</div>
-        <div style="font-size:14px;font-weight:700;color:#1A2742">Bât. ${visite.building} — ${visite.level || ''}</div>
-      </div>` : ''}
-      <div style="flex:1;min-width:140px;background:#F4F7FB;border-radius:10px;padding:12px 16px">
-        <div style="font-size:10px;color:#8FA3B5;text-transform:uppercase;letter-spacing:0.6px;margin-bottom:6px">Statut de la visite</div>
-        <div style="font-size:14px;font-weight:700;color:#${visite.status === 'completed' ? '059669' : visite.status === 'in_progress' ? '2563EB' : '6366F1'}">${visite.status === 'completed' ? 'Terminée' : visite.status === 'in_progress' ? 'En cours' : 'Planifiée'}</div>
-      </div>
-    </div>
-
-    <div style="display:flex;gap:12px;margin-bottom:24px;flex-wrap:wrap">
-      <div style="border:1.5px solid #DDE4EE;border-radius:10px;padding:12px 18px;text-align:center;min-width:90px">
-        <div style="font-size:28px;font-weight:800;color:#1A2742">${reserves.length}</div>
-        <div style="font-size:11px;color:#6B7280;margin-top:2px">Relevées</div>
-      </div>
-      <div style="border:1.5px solid #FEE2E2;border-radius:10px;padding:12px 18px;text-align:center;min-width:90px;background:#FEF2F2">
-        <div style="font-size:28px;font-weight:800;color:#DC2626">${totalOpen}</div>
-        <div style="font-size:11px;color:#DC2626;margin-top:2px">Ouvertes</div>
-      </div>
-      <div style="border:1.5px solid #BFDBFE;border-radius:10px;padding:12px 18px;text-align:center;min-width:90px;background:#EFF6FF">
-        <div style="font-size:28px;font-weight:800;color:#2563EB">${totalInProgress}</div>
-        <div style="font-size:11px;color:#2563EB;margin-top:2px">En cours</div>
-      </div>
-      <div style="border:1.5px solid #A7F3D0;border-radius:10px;padding:12px 18px;text-align:center;min-width:90px;background:#ECFDF5">
-        <div style="font-size:28px;font-weight:800;color:#059669">${totalClosed}</div>
-        <div style="font-size:11px;color:#059669;margin-top:2px">Clôturées</div>
-      </div>
-      ${totalCritical > 0 ? `<div style="border:2px solid #DC2626;border-radius:10px;padding:12px 18px;text-align:center;min-width:90px;background:#FEF2F2">
-        <div style="font-size:28px;font-weight:800;color:#DC2626">${totalCritical}</div>
-        <div style="font-size:11px;color:#DC2626;margin-top:2px">Priorité haute</div>
-      </div>` : ''}
-    </div>
-
+  const body = `
+    ${buildLetterhead('Compte-rendu de visite de chantier', visite.title, docRef, visite.date, projectName)}
+    ${buildInfoGrid(infoItems)}
+    ${buildKpiRow([
+      { val: reserves.length, label: 'Relevées', color: '#1A2742' },
+      { val: totalOpen, label: 'Ouvertes', color: '#DC2626' },
+      { val: totalInProgress, label: 'En cours', color: '#2563EB' },
+      { val: totalClosed, label: 'Clôturées', color: '#059669' },
+      ...(totalCritical > 0 ? [{ val: totalCritical, label: 'Priorité haute', color: '#7C3AED' }] : []),
+    ])}
     ${visite.notes ? `
-    <div style="margin-bottom:24px;background:#F4F7FB;border-left:4px solid #003082;border-radius:0 10px 10px 0;padding:14px 18px">
-      <div style="font-size:10px;color:#8FA3B5;text-transform:uppercase;letter-spacing:0.6px;margin-bottom:6px">Observations du conducteur</div>
-      <div style="font-size:13px;color:#1A2742;line-height:1.6">${visite.notes}</div>
-    </div>` : ''}
-
-    <div style="font-size:12px;font-weight:700;color:#5E738A;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:10px">
+      <div style="margin-bottom:20px;background:#F4F7FB;border-left:4px solid #003082;border-radius:0 10px 10px 0;padding:14px 18px">
+        <div style="font-size:10px;color:#6B7280;text-transform:uppercase;font-weight:700;letter-spacing:0.6px;margin-bottom:6px">Observations du conducteur</div>
+        <div style="font-size:13px;color:#1A2742;line-height:1.6">${visite.notes}</div>
+      </div>` : ''}
+    <div class="section-header">
       Liste des réserves relevées (${reserves.length})
       ${totalCritical > 0 ? '<span style="font-size:11px;background:#FEF2F2;color:#DC2626;padding:2px 10px;border-radius:10px;margin-left:8px;font-weight:700">⚠ Triées par priorité</span>' : ''}
     </div>
-    <table style="width:100%;border-collapse:collapse;border:1.5px solid #DDE4EE;border-radius:10px;overflow:hidden">
+    <table>
       <thead>
-        <tr style="background:#003082">
-          <th style="padding:10px;text-align:left;font-size:11px;color:#fff;font-weight:700;letter-spacing:0.4px">ID</th>
-          <th style="padding:10px;text-align:left;font-size:11px;color:#fff;font-weight:700;letter-spacing:0.4px">TITRE</th>
-          <th style="padding:10px;text-align:left;font-size:11px;color:#fff;font-weight:700;letter-spacing:0.4px">LIEU</th>
-          <th style="padding:10px;text-align:left;font-size:11px;color:#fff;font-weight:700;letter-spacing:0.4px">ENTREPRISE</th>
-          <th style="padding:10px;text-align:center;font-size:11px;color:#fff;font-weight:700;letter-spacing:0.4px">PRIORITÉ</th>
-          <th style="padding:10px;text-align:center;font-size:11px;color:#fff;font-weight:700;letter-spacing:0.4px">STATUT</th>
-          <th style="padding:10px;text-align:left;font-size:11px;color:#fff;font-weight:700;letter-spacing:0.4px">ÉCHÉANCE</th>
+        <tr>
+          <th>ID</th><th>TITRE</th><th>LIEU</th><th>ENTREPRISE</th>
+          <th style="text-align:center">PRIORITÉ</th><th style="text-align:center">STATUT</th><th>ÉCHÉANCE</th>
         </tr>
       </thead>
-      <tbody>${rows || `<tr><td colspan="7" style="padding:20px;text-align:center;color:#8FA3B5;font-size:13px">Aucune réserve rattachée à cette visite</td></tr>`}</tbody>
+      <tbody>${rows || '<tr><td colspan="7" style="padding:20px;text-align:center;color:#6B7280">Aucune réserve rattachée à cette visite</td></tr>'}</tbody>
     </table>
-
-    <div style="margin-top:36px;padding-top:20px;border-top:2px solid #EEF3FA">
-      <div style="display:flex;gap:32px;flex-wrap:wrap">
-        <div style="flex:1;min-width:200px;border:1.5px solid #DDE4EE;border-radius:10px;padding:14px 18px">
-          <div style="font-size:10px;color:#8FA3B5;text-transform:uppercase;letter-spacing:0.6px;margin-bottom:8px">Conducteur de travaux</div>
-          ${visite.conducteurSignature
-            ? `<img src="${visite.conducteurSignature}" style="height:70px;width:100%;object-fit:contain;border-bottom:2px solid #1A2742;margin-bottom:8px;display:block" />`
-            : `<div style="height:70px;border-bottom:2px solid #1A2742;margin-bottom:8px"></div>`
-          }
-          <div style="font-size:13px;color:#1A2742">${visite.conducteur}</div>
-          <div style="font-size:11px;color:#8FA3B5;margin-top:2px">Date : ${visite.signedAt ?? visite.date}</div>
-        </div>
-        <div style="flex:1;min-width:200px;border:1.5px solid #DDE4EE;border-radius:10px;padding:14px 18px">
-          <div style="font-size:10px;color:#8FA3B5;text-transform:uppercase;letter-spacing:0.6px;margin-bottom:8px">Lu et approuvé — Entreprise(s)</div>
-          ${visite.entrepriseSignature
-            ? `<img src="${visite.entrepriseSignature}" style="height:70px;width:100%;object-fit:contain;border-bottom:2px solid #1A2742;margin-bottom:8px;display:block" />`
-            : `<div style="height:70px;border-bottom:2px solid #1A2742;margin-bottom:8px"></div>`
-          }
-          <div style="font-size:13px;color:#1A2742">${visite.entrepriseSignataire ?? '&nbsp;'}</div>
-          <div style="font-size:11px;color:#8FA3B5;margin-top:2px">Date : ${visite.signedAt ?? '&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;'}</div>
-        </div>
+    <div class="section-header">Signatures</div>
+    <div class="sig-row">
+      <div class="sig-block">
+        <div class="sig-label">Conducteur de travaux</div>
+        ${conducteurSigHtml}
+        <div class="sig-name">${visite.conducteur}</div>
+        <div class="sig-date">Date : ${visite.signedAt ?? visite.date}</div>
+      </div>
+      <div class="sig-block">
+        <div class="sig-label">Lu et approuvé — Entreprise(s)</div>
+        ${entrepriseSigHtml}
+        <div class="sig-name">${visite.entrepriseSignataire ?? ''}</div>
+        <div class="sig-date">Date : ${visite.signedAt ?? ''}</div>
       </div>
     </div>
-
     ${photoGallery}
+    ${buildDocFooter(projectName)}
+  `;
 
-    <div style="margin-top:28px;padding-top:12px;border-top:1px solid #EEF3FA;display:flex;justify-content:space-between;align-items:center">
-      <div style="font-size:10px;color:#8FA3B5">BuildTrack — Gestion de chantier</div>
-      <div style="font-size:10px;color:#8FA3B5">Document généré le ${new Date().toLocaleDateString('fr-FR')}</div>
-    </div>
-
-  </div>
-  </body></html>`;
+  return wrapHTML(body, `CR Visite — ${visite.title}`);
 }
 
 export default function VisiteDetailScreen() {

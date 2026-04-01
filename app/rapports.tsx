@@ -5,7 +5,6 @@ import * as Sharing from 'expo-sharing';
 import { C } from '@/constants/colors';
 import {
   exportPDF as exportPDFHelper,
-  PDF_BASE_CSS,
   buildLetterhead,
   buildKpiRow,
   buildDocFooter,
@@ -249,79 +248,50 @@ function buildIncidentHTML(incident: any, projectName: string): string {
   const severityLabels: Record<string, string> = { minor: 'Mineur', moderate: 'Modéré', major: 'Majeur', critical: 'Critique' };
   const severityBg: Record<string, string> = { minor: '#F3F4F6', moderate: '#FFFBEB', major: '#FEF2F2', critical: '#FDF2F8' };
   const severityColor: Record<string, string> = { minor: '#6B7280', moderate: '#D97706', major: '#DC2626', critical: '#9D174D' };
-  const statusLabels: Record<string, string> = { open: 'Ouvert', investigating: 'En cours d\'investigation', resolved: 'Résolu' };
+  const statusLabels: Record<string, string> = { open: 'Ouvert', investigating: "En cours d'investigation", resolved: 'Résolu' };
   const statusColor: Record<string, string> = { open: '#DC2626', investigating: '#D97706', resolved: '#059669' };
   const statusBg: Record<string, string> = { open: '#FEF2F2', investigating: '#FFFBEB', resolved: '#ECFDF5' };
   const sevBg = severityBg[incident.severity] ?? '#F3F4F6';
   const sevCol = severityColor[incident.severity] ?? '#6B7280';
-  return `<!DOCTYPE html><html lang="fr"><head><meta charset="UTF-8">
-  <title>Fiche incident ${incident.id}</title>
-  <style>${PDF_BASE_CSS}
-    .inc-header { display:flex;justify-content:space-between;align-items:flex-start;border-bottom:3px solid #DC2626;padding-bottom:18px;margin-bottom:22px; }
-    .info-row { display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px; }
-    .field { background:#F9FAFB;border-radius:8px;padding:12px 16px; }
-    .field-label { font-size:9px;font-weight:700;color:#6B7280;text-transform:uppercase;letter-spacing:0.7px;margin-bottom:4px; }
-    .field-value { font-size:13px;color:#1A2742;font-weight:600; }
-    .content-block { background:#F9FAFB;border-radius:10px;padding:14px 18px;margin-bottom:14px;border-left:4px solid #E5E7EB; }
-    .content-label { font-size:10px;font-weight:700;color:#6B7280;text-transform:uppercase;letter-spacing:0.6px;margin-bottom:8px; }
-    .content-text { font-size:13px;color:#1A2742;line-height:1.6; }
-    .badge-sev { display:inline-block;padding:4px 14px;border-radius:14px;font-weight:700;font-size:12px; }
-    .badge-status { display:inline-block;padding:4px 14px;border-radius:14px;font-weight:700;font-size:12px; }
-  </style></head>
-  <body><div class="container">
-    <div class="inc-header">
-      <div>
-        <div style="font-size:9px;color:#6B7280;text-transform:uppercase;letter-spacing:1px;margin-bottom:4px">Fiche d'incident</div>
-        <div style="font-size:22px;font-weight:900;color:#DC2626">${incident.id}</div>
-        <div style="font-size:15px;font-weight:700;color:#1A2742;margin-top:4px">${incident.title}</div>
-        <div style="font-size:12px;color:#6B7280;margin-top:2px">${projectName}</div>
-        <div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap">
-          <span class="badge-sev" style="background:${sevBg};color:${sevCol}">⚠ ${severityLabels[incident.severity] ?? incident.severity}</span>
-          <span class="badge-status" style="background:${statusBg[incident.status]??'#F9FAFB'};color:${statusColor[incident.status]??'#6B7280'}">${statusLabels[incident.status] ?? incident.status}</span>
-        </div>
-      </div>
-      <div style="text-align:right;font-size:11px;color:#6B7280">
-        <div>Signalé le <strong style="color:#1A2742">${incident.reportedAt}</strong></div>
-        <div style="margin-top:4px">Par <strong style="color:#1A2742">${incident.reportedBy}</strong></div>
-        ${incident.closedAt ? `<div style="color:#059669;margin-top:6px;font-weight:700">✓ Résolu le ${incident.closedAt}</div>` : ''}
-      </div>
-    </div>
+  const today = new Date().toLocaleDateString('fr-FR');
+  const docRef = `INC-${incident.id}`;
 
-    <div class="info-row">
-      <div class="field"><div class="field-label">Localisation</div><div class="field-value">Bât. ${incident.building} — ${incident.location}</div></div>
-      <div class="field"><div class="field-label">Signalé par</div><div class="field-value">${incident.reportedBy}</div></div>
-    </div>
+  const infoItems = [
+    { label: 'Localisation', value: `Bât. ${incident.building} — ${incident.location}` },
+    { label: 'Signalé par', value: incident.reportedBy },
+    { label: 'Date du signalement', value: incident.reportedAt },
+    ...(incident.closedAt ? [{ label: 'Résolu le', value: incident.closedAt }] : []),
+  ];
 
-    <div class="content-block" style="border-left-color:#3B82F6">
-      <div class="content-label">Description de l'incident</div>
-      <div class="content-text">${incident.description || 'Aucune description.'}</div>
+  const body = `
+    ${buildLetterhead('Fiche d\'incident', incident.title, docRef, today, projectName)}
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px">
+      <span style="display:inline-block;padding:4px 14px;border-radius:14px;font-weight:700;font-size:12px;background:${sevBg};color:${sevCol}">⚠ ${severityLabels[incident.severity] ?? incident.severity}</span>
+      <span style="display:inline-block;padding:4px 14px;border-radius:14px;font-weight:700;font-size:12px;background:${statusBg[incident.status]??'#F9FAFB'};color:${statusColor[incident.status]??'#6B7280'}">${statusLabels[incident.status] ?? incident.status}</span>
+      ${incident.closedAt ? '<span style="display:inline-block;padding:4px 14px;border-radius:14px;font-weight:700;font-size:12px;background:#ECFDF5;color:#059669">✓ Résolu</span>' : ''}
     </div>
-
-    <div class="content-block" style="border-left-color:#6B7280">
-      <div class="content-label">Témoins</div>
-      <div class="content-text">${incident.witnesses || 'Aucun témoin renseigné.'}</div>
+    ${buildInfoGrid(infoItems)}
+    <div class="section-header">Description de l'incident</div>
+    <div style="background:#F9FAFB;border-radius:10px;padding:14px 18px;margin-bottom:14px;border-left:4px solid #3B82F6;font-size:13px;color:#1A2742;line-height:1.6">
+      ${incident.description || 'Aucune description.'}
     </div>
-
-    <div class="content-block" style="border-left-color:#F59E0B">
-      <div class="content-label">Actions correctives</div>
-      <div class="content-text">${incident.actions || 'Aucune action corrective renseignée.'}</div>
+    <div class="section-header">Témoins</div>
+    <div style="background:#F9FAFB;border-radius:10px;padding:14px 18px;margin-bottom:14px;border-left:4px solid #6B7280;font-size:13px;color:#1A2742;line-height:1.6">
+      ${incident.witnesses || 'Aucun témoin renseigné.'}
     </div>
-
+    <div class="section-header">Actions correctives</div>
+    <div style="background:#F9FAFB;border-radius:10px;padding:14px 18px;margin-bottom:14px;border-left:4px solid #F59E0B;font-size:13px;color:#1A2742;line-height:1.6">
+      ${incident.actions || 'Aucune action corrective renseignée.'}
+    </div>
     ${incident.closedAt ? `
-      <div class="content-block" style="border-left-color:#059669;background:#ECFDF5">
-        <div class="content-label">Clôture</div>
-        <div class="content-text">
-          Résolu le <strong>${incident.closedAt}</strong>
-          ${incident.closedBy ? ` par <strong>${incident.closedBy}</strong>` : ''}.
-        </div>
-      </div>
-    ` : ''}
+      <div class="section-header">Clôture</div>
+      <div style="background:#ECFDF5;border-radius:10px;padding:14px 18px;margin-bottom:14px;border-left:4px solid #059669;font-size:13px;color:#1A2742;line-height:1.6">
+        Résolu le <strong>${incident.closedAt}</strong>${incident.closedBy ? ` par <strong>${incident.closedBy}</strong>` : ''}.
+      </div>` : ''}
+    ${buildDocFooter(projectName)}
+  `;
 
-    <div class="doc-footer">
-      <span>Fiche incident générée par BuildTrack — ${projectName}</span>
-      <span>${new Date().toLocaleDateString('fr-FR')}</span>
-    </div>
-  </div></body></html>`;
+  return wrapHTML(body, `Fiche incident — ${incident.id}`);
 }
 
 async function buildCompanyReserveHTML(company: any, companyReserves: any[], projectName: string): Promise<string> {
