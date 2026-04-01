@@ -40,11 +40,29 @@ app/               # Expo Router routes
   task/            # Dynamic routes for task management
   login.tsx        # Auth entry point
 components/        # Reusable UI components
+  PdfPlanViewer.tsx  # PDF annotation viewer (web: HTML5 Canvas + SVG; native: fallback)
 context/           # AuthContext, AppContext (Supabase sync + mock fallback)
 lib/               # supabase.ts, schema.sql, storage helpers
 constants/         # TypeScript types and theme colors
 assets/            # Images, icons, splash screen
 ```
+
+## PDF Plan Annotation (PdfPlanViewer)
+
+`components/PdfPlanViewer.tsx` — platform-aware component:
+
+- **Web**: full HTML5 Canvas (pdfjs-dist for rendering) + SVG overlay for vector annotations
+  - 8 drawing tools: pen, line, arrow, rectangle, ellipse, text, cloud, highlight
+  - Pan/zoom: mouse drag + scroll wheel zoom-to-cursor + touch pinch
+  - Reserve pins: absolutely-positioned divs at (planX%, planY%) coordinates; clickable in view mode
+  - Tap-to-place: single click on empty canvas → fires `onPlanTap(x%, y%)`
+  - Undo stack, clear all, color picker, stroke-width picker
+  - Multi-page PDF navigation
+- **Native (iOS/Android)**: lightweight fallback with open-in-browser button
+
+Coordinate system: all annotation points and reserve pins stored as 0–100% values (resolution-independent).
+
+Used in `app/(tabs)/plans.tsx` when `isPdf(currentPlan.uri)` is true — renders in place of the standard pan/zoom plan view.
 
 ## Environment Variables
 

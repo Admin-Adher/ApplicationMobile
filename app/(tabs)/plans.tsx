@@ -20,6 +20,7 @@ import { genId } from '@/lib/utils';
 import { parseDxf, normalizeDxfPoint, DxfParseResult, DxfEntity } from '@/lib/dxfParser';
 import { openChantierSwitcher } from '@/components/ChantierSwitcherSheet';
 import QRCodeDisplay from '@/components/QRCodeDisplay';
+import PdfPlanViewer from '@/components/PdfPlanViewer';
 
 interface Room {
   id: string; label: string;
@@ -1227,7 +1228,33 @@ export default function PlansScreen() {
             </View>
           )}
 
-          <View style={styles.planViewport}>
+          <View style={[styles.planViewport, currentPlan?.uri && isPdf(currentPlan.uri) ? styles.planViewportPdf : null]}>
+            {currentPlan?.uri && isPdf(currentPlan.uri) ? (
+              <PdfPlanViewer
+                planUri={currentPlan.uri}
+                planId={currentPlanId!}
+                annotations={currentPlan.annotations ?? []}
+                onAnnotationsChange={(drawings) => updateSitePlan({ ...currentPlan!, annotations: drawings })}
+                reserves={allPlanReserves}
+                pinNumberMap={pinNumberMap}
+                onReserveSelect={setSelected}
+                onPlanTap={(px, py) => {
+                  if (!permissions.canCreate) return;
+                  router.push({
+                    pathname: '/reserve/new',
+                    params: {
+                      planId: currentPlanId ?? '',
+                      chantierId: activeChantierId ?? '',
+                      planX: String(Math.round(px)),
+                      planY: String(Math.round(py)),
+                    },
+                  } as any);
+                }}
+                canAnnotate={permissions.canCreate}
+                canCreate={permissions.canCreate}
+              />
+            ) : (
+            <>
             <Animated.View
               style={[styles.planAnimated, { transform: [{ scale }, { translateX }, { translateY }] }]}
               {...panResponder.panHandlers}
@@ -1366,6 +1393,8 @@ export default function PlansScreen() {
                   />
                 </View>
               </View>
+            )}
+            </>
             )}
           </View>
 
@@ -1725,6 +1754,7 @@ const styles = StyleSheet.create({
   addingHint: { flexDirection: 'row', alignItems: 'center', gap: 6, marginHorizontal: 14, marginBottom: 8, backgroundColor: C.surface2, borderRadius: 8, paddingHorizontal: 12, paddingVertical: 7 },
   addingHintText: { fontSize: 11, fontFamily: 'Inter_400Regular', color: C.textMuted, flex: 1 },
   planViewport: { overflow: 'hidden', height: PLAN_H + 20, alignItems: 'center', justifyContent: 'center', marginHorizontal: 14, marginBottom: 14, borderRadius: 10, backgroundColor: C.surface2 },
+  planViewportPdf: { height: 500, alignItems: 'stretch', justifyContent: 'flex-start' },
   planAnimated: { alignItems: 'center', justifyContent: 'center' },
   planView: { position: 'relative', borderRadius: 8, overflow: 'hidden', backgroundColor: '#0F1825' },
   room: { position: 'absolute', borderWidth: 1, borderColor: '#1E2D42', alignItems: 'center', justifyContent: 'center', padding: 3 },
