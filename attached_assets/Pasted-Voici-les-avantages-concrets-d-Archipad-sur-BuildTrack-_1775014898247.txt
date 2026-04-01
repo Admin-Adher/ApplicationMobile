@@ -1,0 +1,31 @@
+Voici les avantages concrets d'Archipad sur BuildTrack dans l'état actuel :
+
+1. Annotation PDF native sur plans
+Archipad permet d'ouvrir un vrai fichier PDF (plan d'architecte), de l'annoter directement avec stylet ou doigt, et d'épingler des réserves précisément dessus. BuildTrack a un écran "Plans" mais sans import PDF réel — les plans sont des images statiques sans annotation vectorielle.
+
+2. Export de rapports PDF professionnels
+Archipad génère automatiquement des procès-verbaux (PV de réception, OPR, levée de réserves) au format PDF avec en-tête chantier, photos intégrées, signatures, tableau récapitulatif par lot — prêts à envoyer au maître d'ouvrage. BuildTrack n'a pas encore d'export PDF natif.
+
+3. Signatures numériques
+Les intervenants signent directement sur l'écran dans Archipad (maître d'ouvrage, conducteur de travaux, entreprise). Ça valide juridiquement le PV de réception. Absent de BuildTrack.
+
+4. Workflow OPR (Opérations Préalables à la Réception)
+Archipad a un module dédié à la réception chantier : visite contradictoire, liste d'observations par lot, délais de levée, suivi de validation. BuildTrack couvre les réserves au quotidien mais pas ce processus formel de fin de chantier.
+
+5. Application iPad native optimisée
+Archipad est conçu pour iPad avec un affichage split-view (plan à gauche, liste à droite), une ergonomie pensée pour une tablette sur le terrain avec gants. BuildTrack est React Native, moins fluide sur tablette.
+
+6. Gestion multi-chantiers avec tableau de bord global
+Archipad propose une vue portefeuille pour les conducteurs de travaux qui gèrent plusieurs chantiers simultanément, avec alertes croisées.
+
+7. Partage client / portail de consultation
+Archipad permet de partager un lien de consultation en lecture seule aux maîtres d'ouvrage ou architectes sans qu'ils aient besoin de compte. BuildTrack n'a pas encore de portail externe.
+
+Ce que BuildTrack fait bien (ou mieux)
+
+Suivi de présence et pointage des équipes (absent d'Archipad)
+Gestion des incidents de sécurité avec workflow dédié
+Interface plus moderne et accessible
+Potentiel IA pour génération de réserves/rapports
+Les priorités pour combler l'écart seraient : l'export PDF rapport et l'annotation directe sur plan PDF.
+

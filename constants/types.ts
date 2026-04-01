@@ -12,6 +12,24 @@ export type ChantierStatus = 'active' | 'completed' | 'paused';
 export type VisiteStatus = 'planned' | 'in_progress' | 'completed';
 export type OprStatus = 'draft' | 'in_progress' | 'signed';
 export type AnnotationTool = 'dot' | 'arrow' | 'rect' | 'text' | 'measure';
+export type PlanDrawingTool = 'pen' | 'line' | 'arrow' | 'rect' | 'ellipse' | 'text' | 'cloud' | 'highlight';
+
+export interface PlanDrawingPoint {
+  x: number;
+  y: number;
+}
+
+export interface PlanDrawing {
+  id: string;
+  tool: PlanDrawingTool;
+  points: PlanDrawingPoint[];
+  color: string;
+  strokeWidth: number;
+  text?: string;
+  fontSize?: number;
+  opacity?: number;
+  page?: number;
+}
 
 export interface User {
   id: string;
@@ -103,6 +121,8 @@ export interface SitePlan {
   parentPlanId?: string;
   isLatestRevision?: boolean;
   revisionNote?: string;
+  annotations?: PlanDrawing[];
+  pdfPageCount?: number;
 }
 
 export interface Lot {
