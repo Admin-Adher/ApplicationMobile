@@ -63,11 +63,12 @@ function buildOprPDF(opr: Opr, projectName: string): string {
   const rows = opr.items.map((item, idx) =>
     `<tr style="background:${idx % 2 === 0 ? '#fff' : '#F9FAFB'}">
       <td style="padding:8px 10px;border-bottom:1px solid #EEF3FA;font-size:11px;font-weight:700">${item.lotName}</td>
-      <td style="padding:8px 10px;border-bottom:1px solid #EEF3FA;font-size:11px">${item.description !== item.lotName ? item.description : '—'}</td>
+      <td style="padding:8px 10px;border-bottom:1px solid #EEF3FA;font-size:11px;color:#6B7280">${item.entreprise ?? '—'}</td>
       <td style="padding:8px 10px;border-bottom:1px solid #EEF3FA;text-align:center">
         <span style="background:${statusBg[item.status]};color:${statusColors[item.status]};font-weight:700;font-size:11px;padding:3px 10px;border-radius:12px">${statusIcons[item.status]} ${ITEM_STATUS_CFG[item.status].label}</span>
       </td>
-      <td style="padding:8px 10px;border-bottom:1px solid #EEF3FA;font-size:11px;color:#6B7280">${item.status === 'reserve' ? (item.reserveId ?? '—') : '—'}</td>
+      <td style="padding:8px 10px;border-bottom:1px solid #EEF3FA;font-size:11px;${item.status === 'reserve' && item.deadline ? 'color:#DC2626;font-weight:700' : 'color:#6B7280'}">${item.status === 'reserve' ? (item.deadline ?? '—') : '—'}</td>
+      <td style="padding:8px 10px;border-bottom:1px solid #EEF3FA;font-size:11px;color:#003082;font-weight:700">${item.status === 'reserve' ? (item.reserveId ?? '—') : '—'}</td>
       <td style="padding:8px 10px;border-bottom:1px solid #EEF3FA;font-size:11px">${item.note ?? ''}</td>
     </tr>`
   ).join('');
@@ -123,7 +124,31 @@ function buildOprPDF(opr: Opr, projectName: string): string {
     { label: 'Conducteur de travaux', value: opr.conducteur },
     ...(opr.maireOuvrage ? [{ label: "Maître d'ouvrage", value: opr.maireOuvrage }] : []),
     { label: 'Date de réception', value: opr.date },
+    ...(opr.visitContradictoire ? [{ label: 'Visite contradictoire', value: opr.visitContradictoire }] : []),
   ];
+
+  const participants = opr.visitParticipants ?? [];
+  const participantsSection = participants.length > 0 ? `
+    <div class="section-header">Participants à la visite contradictoire</div>
+    <table>
+      <thead>
+        <tr>
+          <th>NOM</th>
+          <th>ENTREPRISE / FONCTION</th>
+          <th style="text-align:center">PRÉSENCE</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${participants.map((p, idx) => `
+          <tr style="background:${idx % 2 === 0 ? '#fff' : '#F9FAFB'}">
+            <td style="padding:7px 10px;border-bottom:1px solid #EEF3FA;font-size:11px;font-weight:700">${p.name}</td>
+            <td style="padding:7px 10px;border-bottom:1px solid #EEF3FA;font-size:11px;color:#6B7280">${p.company || '—'}</td>
+            <td style="padding:7px 10px;border-bottom:1px solid #EEF3FA;text-align:center">
+              <span style="background:${p.present ? '#ECFDF5' : '#FEF2F2'};color:${p.present ? '#059669' : '#DC2626'};font-weight:700;font-size:10px;padding:2px 8px;border-radius:10px">${p.present ? '✓ Présent' : '✗ Absent'}</span>
+            </td>
+          </tr>`).join('')}
+      </tbody>
+    </table>` : '';
 
   const body = `
     ${buildLetterhead('Procès-verbal de réception', opr.title, opr.id, today, projectName)}
@@ -134,18 +159,20 @@ function buildOprPDF(opr: Opr, projectName: string): string {
       { val: totalNA, label: 'Non applicable', color: '#6B7280' },
       { val: `${pctConformite}%`, label: 'Conformité', color: '#003082' },
     ])}
+    ${participantsSection}
     <div class="section-header">Détail par lot</div>
     <table>
       <thead>
         <tr>
           <th>LOT</th>
-          <th>POINT DE CONTRÔLE</th>
+          <th>ENTREPRISE</th>
           <th style="text-align:center">STATUT</th>
+          <th>DÉLAI LEVÉE</th>
           <th>N° RÉS.</th>
           <th>OBSERVATIONS</th>
         </tr>
       </thead>
-      <tbody>${rows || '<tr><td colspan="5" style="padding:14px;text-align:center;color:#059669">Aucun point de contrôle</td></tr>'}</tbody>
+      <tbody>${rows || '<tr><td colspan="6" style="padding:14px;text-align:center;color:#059669">Aucun point de contrôle</td></tr>'}</tbody>
     </table>
     ${sigBlockHtml}
     ${buildDocFooter(projectName)}
@@ -328,6 +355,9 @@ export default function OprScreen() {
   const [newParticipantCompany, setNewParticipantCompany] = useState('');
 
   const [linkReserveModal, setLinkReserveModal] = useState<{ opr: Opr; itemId: string } | null>(null);
+
+  const [editingVisitOprId, setEditingVisitOprId] = useState<string | null>(null);
+  const [editingVisitDate, setEditingVisitDate] = useState('');
 
   function addSignatory() {
     if (!inviteModal || !inviteName.trim()) return;
@@ -797,19 +827,59 @@ export default function OprScreen() {
                 ) : null}
                 {opr.visitContradictoire ? (
                   <View>
-                    <TouchableOpacity
-                      style={styles.visiteMeta}
-                      onPress={() => setExpandedParticipantsOpr(p => p === opr.id ? null : opr.id)}
-                    >
-                      <Ionicons name="people-outline" size={12} color="#7C3AED" />
-                      <Text style={styles.visiteMetaText}>Visite : {opr.visitContradictoire}</Text>
-                      <Text style={styles.participantsCountText}>
-                        {(opr.visitParticipants ?? []).length > 0
-                          ? `${(opr.visitParticipants ?? []).length} participant${(opr.visitParticipants ?? []).length > 1 ? 's' : ''}`
-                          : '+ Ajouter participants'}
-                      </Text>
-                      <Ionicons name={expandedParticipantsOpr === opr.id ? 'chevron-up' : 'chevron-down'} size={11} color="#7C3AED" />
-                    </TouchableOpacity>
+                    <View style={styles.visiteMeta}>
+                      <Ionicons name="calendar-outline" size={12} color="#7C3AED" />
+                      {editingVisitOprId === opr.id ? (
+                        <View style={styles.visitDateEditRow}>
+                          <TextInput
+                            style={styles.visitDateInput}
+                            value={editingVisitDate}
+                            onChangeText={setEditingVisitDate}
+                            placeholder="JJ/MM/AAAA"
+                            placeholderTextColor={C.textMuted}
+                            keyboardType="numbers-and-punctuation"
+                            autoFocus
+                          />
+                          <TouchableOpacity
+                            style={styles.visitDateSaveBtn}
+                            onPress={() => {
+                              const trimmed = editingVisitDate.trim();
+                              if (trimmed) updateOpr({ ...opr, visitContradictoire: trimmed });
+                              setEditingVisitOprId(null);
+                            }}
+                          >
+                            <Ionicons name="checkmark" size={13} color="#fff" />
+                          </TouchableOpacity>
+                          <TouchableOpacity onPress={() => setEditingVisitOprId(null)} hitSlop={8}>
+                            <Ionicons name="close" size={14} color={C.textMuted} />
+                          </TouchableOpacity>
+                        </View>
+                      ) : (
+                        <>
+                          <TouchableOpacity
+                            style={{ flex: 1, flexDirection: 'row', alignItems: 'center', gap: 6 }}
+                            onPress={() => setExpandedParticipantsOpr(p => p === opr.id ? null : opr.id)}
+                          >
+                            <Text style={styles.visiteMetaText}>Visite : {opr.visitContradictoire}</Text>
+                            <Text style={styles.participantsCountText}>
+                              {(opr.visitParticipants ?? []).length > 0
+                                ? `${(opr.visitParticipants ?? []).length} participant${(opr.visitParticipants ?? []).length > 1 ? 's' : ''}`
+                                : '+ Participants'}
+                            </Text>
+                            <Ionicons name={expandedParticipantsOpr === opr.id ? 'chevron-up' : 'chevron-down'} size={11} color="#7C3AED" />
+                          </TouchableOpacity>
+                          {permissions.canEdit && opr.status !== 'signed' && (
+                            <TouchableOpacity
+                              onPress={() => { setEditingVisitDate(opr.visitContradictoire ?? ''); setEditingVisitOprId(opr.id); }}
+                              hitSlop={8}
+                              style={{ paddingLeft: 4 }}
+                            >
+                              <Ionicons name="pencil-outline" size={13} color={C.textMuted} />
+                            </TouchableOpacity>
+                          )}
+                        </>
+                      )}
+                    </View>
 
                     {expandedParticipantsOpr === opr.id && (
                       <View style={styles.participantsPanel}>
@@ -861,6 +931,46 @@ export default function OprScreen() {
                           </View>
                         )}
                       </View>
+                    )}
+                  </View>
+                ) : permissions.canEdit && opr.status !== 'signed' ? (
+                  <View style={{ marginBottom: 2 }}>
+                    {editingVisitOprId === opr.id ? (
+                      <View style={styles.visiteMeta}>
+                        <Ionicons name="calendar-outline" size={12} color="#7C3AED" />
+                        <View style={styles.visitDateEditRow}>
+                          <TextInput
+                            style={styles.visitDateInput}
+                            value={editingVisitDate}
+                            onChangeText={setEditingVisitDate}
+                            placeholder="JJ/MM/AAAA"
+                            placeholderTextColor={C.textMuted}
+                            keyboardType="numbers-and-punctuation"
+                            autoFocus
+                          />
+                          <TouchableOpacity
+                            style={styles.visitDateSaveBtn}
+                            onPress={() => {
+                              const trimmed = editingVisitDate.trim();
+                              if (trimmed) updateOpr({ ...opr, visitContradictoire: trimmed });
+                              setEditingVisitOprId(null);
+                            }}
+                          >
+                            <Ionicons name="checkmark" size={13} color="#fff" />
+                          </TouchableOpacity>
+                          <TouchableOpacity onPress={() => setEditingVisitOprId(null)} hitSlop={8}>
+                            <Ionicons name="close" size={14} color={C.textMuted} />
+                          </TouchableOpacity>
+                        </View>
+                      </View>
+                    ) : (
+                      <TouchableOpacity
+                        style={styles.planifierVisiteBtn}
+                        onPress={() => { setEditingVisitDate(''); setEditingVisitOprId(opr.id); }}
+                      >
+                        <Ionicons name="calendar-outline" size={12} color="#7C3AED" />
+                        <Text style={styles.planifierVisiteText}>Planifier la visite contradictoire</Text>
+                      </TouchableOpacity>
                     )}
                   </View>
                 ) : null}
@@ -1529,6 +1639,23 @@ const styles = StyleSheet.create({
 
   visiteMeta: { flexDirection: 'row', alignItems: 'center', gap: 5, marginBottom: 2 },
   visiteMetaText: { fontSize: 12, fontFamily: 'Inter_500Medium', color: '#7C3AED' },
+  visitDateEditRow: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 6 },
+  visitDateInput: {
+    flex: 1, backgroundColor: C.bg, borderWidth: 1, borderColor: '#8B5CF6',
+    borderRadius: 8, paddingHorizontal: 10, paddingVertical: 5,
+    fontSize: 13, fontFamily: 'Inter_400Regular', color: C.text,
+  },
+  visitDateSaveBtn: {
+    backgroundColor: '#7C3AED', borderRadius: 7, width: 26, height: 26,
+    alignItems: 'center', justifyContent: 'center',
+  },
+  planifierVisiteBtn: {
+    flexDirection: 'row', alignItems: 'center', gap: 5,
+    paddingVertical: 5, paddingHorizontal: 10, borderRadius: 8,
+    borderWidth: 1, borderColor: '#8B5CF620', backgroundColor: '#F5F3FF',
+    alignSelf: 'flex-start', marginBottom: 2,
+  },
+  planifierVisiteText: { fontSize: 12, fontFamily: 'Inter_500Medium', color: '#7C3AED' },
 
   itemRowOverdue: { backgroundColor: '#FFF1F1' },
   itemSubRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 2, flexWrap: 'wrap' },
