@@ -1,7 +1,7 @@
 import React, { createContext, useContext, useEffect, useReducer, useRef, useState } from 'react';
 import { Alert } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { Reserve, Company, Task, Document, Photo, Message, Channel, Profile, Comment, ReserveStatus, ReservePriority, TaskStatus, Chantier, SitePlan, ChantierStatus, Visite, Lot, Opr } from '@/constants/types';
+import { Reserve, Company, Task, Document, Photo, Message, Channel, Profile, Comment, ReserveStatus, ReservePriority, TaskStatus, Chantier, SitePlan, ChantierStatus, Visite, Lot, Opr, VisiteStatus, OprStatus } from '@/constants/types';
 import { supabase, isSupabaseConfigured } from '@/lib/supabase';
 import { initStorageBuckets } from '@/lib/storage';
 import { C } from '@/constants/colors';
@@ -170,6 +170,97 @@ function toPhoto(row: any): Photo {
   return {
     id: row.id, comment: row.comment, location: row.location,
     takenAt: row.taken_at, takenBy: row.taken_by, colorCode: row.color_code, uri: row.uri ?? undefined,
+  };
+}
+
+function toVisite(row: any): Visite {
+  return {
+    id: row.id,
+    chantierId: row.chantier_id,
+    title: row.title,
+    date: row.date,
+    conducteur: row.conducteur,
+    status: row.status as VisiteStatus,
+    building: row.building ?? undefined,
+    level: row.level ?? undefined,
+    notes: row.notes ?? undefined,
+    reserveIds: row.reserve_ids ?? [],
+    createdAt: row.created_at,
+    conducteurSignature: row.conducteur_signature ?? undefined,
+    entrepriseSignature: row.entreprise_signature ?? undefined,
+    signedAt: row.signed_at ?? undefined,
+    entrepriseSignataire: row.entreprise_signataire ?? undefined,
+  };
+}
+
+function fromVisite(v: Visite): Record<string, any> {
+  return {
+    id: v.id, chantier_id: v.chantierId, title: v.title, date: v.date,
+    conducteur: v.conducteur, status: v.status,
+    building: v.building ?? null, level: v.level ?? null, notes: v.notes ?? null,
+    reserve_ids: v.reserveIds, created_at: v.createdAt,
+    conducteur_signature: v.conducteurSignature ?? null,
+    entreprise_signature: v.entrepriseSignature ?? null,
+    signed_at: v.signedAt ?? null,
+    entreprise_signataire: v.entrepriseSignataire ?? null,
+  };
+}
+
+function toLot(row: any): Lot {
+  return {
+    id: row.id, code: row.code, name: row.name, color: row.color,
+    chantierId: row.chantier_id ?? undefined,
+    companyId: row.company_id ?? undefined,
+    cctpRef: row.cctp_ref ?? undefined,
+    number: row.number ?? undefined,
+  };
+}
+
+function fromLot(l: Lot): Record<string, any> {
+  return {
+    id: l.id, code: l.code, name: l.name, color: l.color,
+    chantier_id: l.chantierId ?? null,
+    company_id: l.companyId ?? null,
+    cctp_ref: l.cctpRef ?? null,
+    number: l.number ?? null,
+  };
+}
+
+function toOpr(row: any): Opr {
+  return {
+    id: row.id, chantierId: row.chantier_id, title: row.title,
+    date: row.date, building: row.building, level: row.level,
+    conducteur: row.conducteur, status: row.status as OprStatus,
+    items: row.items ?? [],
+    signedBy: row.signed_by ?? undefined,
+    signedAt: row.signed_at ?? undefined,
+    maireOuvrage: row.maire_ouvrage ?? undefined,
+    conducteurSignature: row.conducteur_signature ?? undefined,
+    moSignature: row.mo_signature ?? undefined,
+    createdAt: row.created_at,
+    visitContradictoire: row.visit_contradictoire ?? undefined,
+    visitParticipants: row.visit_participants ?? undefined,
+    signatories: row.signatories ?? undefined,
+    invitedEmails: row.invited_emails ?? undefined,
+    sessionToken: row.session_token ?? undefined,
+  };
+}
+
+function fromOpr(o: Opr): Record<string, any> {
+  return {
+    id: o.id, chantier_id: o.chantierId, title: o.title,
+    date: o.date, building: o.building, level: o.level,
+    conducteur: o.conducteur, status: o.status,
+    items: o.items, signed_by: o.signedBy ?? null, signed_at: o.signedAt ?? null,
+    maire_ouvrage: o.maireOuvrage ?? null,
+    conducteur_signature: o.conducteurSignature ?? null,
+    mo_signature: o.moSignature ?? null,
+    created_at: o.createdAt,
+    visit_contradictoire: o.visitContradictoire ?? null,
+    visit_participants: o.visitParticipants ?? null,
+    signatories: o.signatories ?? null,
+    invited_emails: o.invitedEmails ?? null,
+    session_token: o.sessionToken ?? null,
   };
 }
 
@@ -977,6 +1068,53 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       dispatch({ type: 'SET_SITE_PLANS', payload: sitePlans });
       if (activeChantierId) dispatch({ type: 'SET_ACTIVE_CHANTIER', payload: activeChantierId });
 
+      let visites: Visite[] = MOCK_VISITES;
+      let lots: Lot[] = STANDARD_LOTS;
+      let oprs: Opr[] = [];
+
+      try {
+        const { data: visitesData, error: visitesErr } = await supabase.from('visites').select('*').order('created_at', { ascending: false });
+        if (!visitesErr && visitesData) {
+          visites = visitesData.map(toVisite);
+        } else {
+          const sv = await AsyncStorage.getItem(MOCK_VISITES_KEY).catch(() => null);
+          if (sv) { const p = JSON.parse(sv); if (Array.isArray(p)) visites = p; }
+        }
+      } catch {
+        const sv = await AsyncStorage.getItem(MOCK_VISITES_KEY).catch(() => null);
+        if (sv) { const p = JSON.parse(sv); if (Array.isArray(p)) visites = p; }
+      }
+
+      try {
+        const { data: lotsData, error: lotsErr } = await supabase.from('lots').select('*');
+        if (!lotsErr && lotsData && lotsData.length > 0) {
+          lots = lotsData.map(toLot);
+        } else {
+          const sl = await AsyncStorage.getItem(MOCK_LOTS_KEY).catch(() => null);
+          if (sl) { const p = JSON.parse(sl); if (Array.isArray(p) && p.length > 0) lots = p; }
+        }
+      } catch {
+        const sl = await AsyncStorage.getItem(MOCK_LOTS_KEY).catch(() => null);
+        if (sl) { const p = JSON.parse(sl); if (Array.isArray(p) && p.length > 0) lots = p; }
+      }
+
+      try {
+        const { data: oprsData, error: oprsErr } = await supabase.from('oprs').select('*').order('created_at', { ascending: false });
+        if (!oprsErr && oprsData) {
+          oprs = oprsData.map(toOpr);
+        } else {
+          const so = await AsyncStorage.getItem(MOCK_OPRS_KEY).catch(() => null);
+          if (so) { const p = JSON.parse(so); if (Array.isArray(p)) oprs = p; }
+        }
+      } catch {
+        const so = await AsyncStorage.getItem(MOCK_OPRS_KEY).catch(() => null);
+        if (so) { const p = JSON.parse(so); if (Array.isArray(p)) oprs = p; }
+      }
+
+      dispatch({ type: 'SET_VISITES', payload: visites });
+      dispatch({ type: 'SET_LOTS', payload: lots });
+      dispatch({ type: 'SET_OPRS', payload: oprs });
+
     } catch (err) {
       console.warn('Supabase load error:', err);
       dispatch({ type: 'SET_LOADING', payload: false });
@@ -1661,6 +1799,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           id: t.id, title: t.title, description: t.description, status: t.status,
           priority: t.priority, start_date: t.startDate ?? null, deadline: t.deadline,
           assignee: t.assignee, progress: t.progress, company: t.company,
+          chantier_id: t.chantierId ?? null, reserve_id: t.reserveId ?? null,
           comments: t.comments ?? [], history: t.history ?? [],
         }).then(({ error }: { error: any }) => {
           if (error) {
@@ -1808,14 +1947,38 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     addVisite: (v) => {
       dispatch({ type: 'ADD_VISITE', payload: v });
       persistMockVisites([v, ...stateRef.current.visites]);
+      if (isSupabaseConfigured) {
+        supabase.from('visites').insert(fromVisite(v)).then(({ error }: { error: any }) => {
+          if (error) console.warn('Erreur sauvegarde visite:', error.message);
+        });
+      }
     },
     updateVisite: (v) => {
+      const previous = stateRef.current.visites.find(x => x.id === v.id);
       dispatch({ type: 'UPDATE_VISITE', payload: v });
       persistMockVisites(stateRef.current.visites.map(x => x.id === v.id ? v : x));
+      if (isSupabaseConfigured) {
+        const { id, ...fields } = fromVisite(v);
+        supabase.from('visites').update(fields).eq('id', v.id).then(({ error }: { error: any }) => {
+          if (error) {
+            if (previous) dispatch({ type: 'UPDATE_VISITE', payload: previous });
+            console.warn('Erreur mise à jour visite:', error.message);
+          }
+        });
+      }
     },
     deleteVisite: (id) => {
+      const previous = stateRef.current.visites.find(v => v.id === id);
       dispatch({ type: 'DELETE_VISITE', payload: id });
       persistMockVisites(stateRef.current.visites.filter(v => v.id !== id));
+      if (isSupabaseConfigured) {
+        supabase.from('visites').delete().eq('id', id).then(({ error }: { error: any }) => {
+          if (error) {
+            if (previous) dispatch({ type: 'ADD_VISITE', payload: previous });
+            console.warn('Erreur suppression visite:', error.message);
+          }
+        });
+      }
     },
     linkReserveToVisite: (reserveId, visiteId) => {
       const visite = stateRef.current.visites.find(v => v.id === visiteId);
@@ -1824,19 +1987,48 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       const updated = { ...visite, reserveIds: [...visite.reserveIds, reserveId] };
       dispatch({ type: 'UPDATE_VISITE', payload: updated });
       persistMockVisites(stateRef.current.visites.map(x => x.id === visiteId ? updated : x));
+      if (isSupabaseConfigured) {
+        supabase.from('visites').update({ reserve_ids: updated.reserveIds }).eq('id', visiteId).then(({ error }: { error: any }) => {
+          if (error) console.warn('Erreur liaison réserve/visite:', error.message);
+        });
+      }
     },
 
     addLot: (l) => {
       dispatch({ type: 'ADD_LOT', payload: l });
       persistMockLots([...stateRef.current.lots, l]);
+      if (isSupabaseConfigured) {
+        supabase.from('lots').insert(fromLot(l)).then(({ error }: { error: any }) => {
+          if (error) console.warn('Erreur sauvegarde lot:', error.message);
+        });
+      }
     },
     updateLot: (l) => {
+      const previous = stateRef.current.lots.find(x => x.id === l.id);
       dispatch({ type: 'UPDATE_LOT', payload: l });
       persistMockLots(stateRef.current.lots.map(x => x.id === l.id ? l : x));
+      if (isSupabaseConfigured) {
+        const { id, ...fields } = fromLot(l);
+        supabase.from('lots').update(fields).eq('id', l.id).then(({ error }: { error: any }) => {
+          if (error) {
+            if (previous) dispatch({ type: 'UPDATE_LOT', payload: previous });
+            console.warn('Erreur mise à jour lot:', error.message);
+          }
+        });
+      }
     },
     deleteLot: (id) => {
+      const previous = stateRef.current.lots.find(l => l.id === id);
       dispatch({ type: 'DELETE_LOT', payload: id });
       persistMockLots(stateRef.current.lots.filter(l => l.id !== id));
+      if (isSupabaseConfigured) {
+        supabase.from('lots').delete().eq('id', id).then(({ error }: { error: any }) => {
+          if (error) {
+            if (previous) dispatch({ type: 'ADD_LOT', payload: previous });
+            console.warn('Erreur suppression lot:', error.message);
+          }
+        });
+      }
     },
 
     batchUpdateReserves: (ids, updates, author) => {
@@ -1940,14 +2132,38 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     addOpr: (o) => {
       dispatch({ type: 'ADD_OPR', payload: o });
       persistMockOprs([o, ...stateRef.current.oprs]);
+      if (isSupabaseConfigured) {
+        supabase.from('oprs').insert(fromOpr(o)).then(({ error }: { error: any }) => {
+          if (error) console.warn('Erreur sauvegarde OPR:', error.message);
+        });
+      }
     },
     updateOpr: (o) => {
+      const previous = stateRef.current.oprs.find(x => x.id === o.id);
       dispatch({ type: 'UPDATE_OPR', payload: o });
       persistMockOprs(stateRef.current.oprs.map(x => x.id === o.id ? o : x));
+      if (isSupabaseConfigured) {
+        const { id, ...fields } = fromOpr(o);
+        supabase.from('oprs').update(fields).eq('id', o.id).then(({ error }: { error: any }) => {
+          if (error) {
+            if (previous) dispatch({ type: 'UPDATE_OPR', payload: previous });
+            console.warn('Erreur mise à jour OPR:', error.message);
+          }
+        });
+      }
     },
     deleteOpr: (id) => {
+      const previous = stateRef.current.oprs.find(o => o.id === id);
       dispatch({ type: 'DELETE_OPR', payload: id });
       persistMockOprs(stateRef.current.oprs.filter(o => o.id !== id));
+      if (isSupabaseConfigured) {
+        supabase.from('oprs').delete().eq('id', id).then(({ error }: { error: any }) => {
+          if (error) {
+            if (previous) dispatch({ type: 'ADD_OPR', payload: previous });
+            console.warn('Erreur suppression OPR:', error.message);
+          }
+        });
+      }
     },
 
     activeChantier: state.chantiers.find(c => c.id === state.activeChantierId) ?? null,

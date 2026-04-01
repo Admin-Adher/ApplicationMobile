@@ -10,14 +10,7 @@ import { useSettings } from '@/context/SettingsContext';
 import Header from '@/components/Header';
 import BottomNavBar from '@/components/BottomNavBar';
 import { Reserve, ReserveWeekStat, CompanyClosureStat } from '@/constants/types';
-
-function isOverdue(deadline: string, status: string): boolean {
-  if (status === 'closed') return false;
-  if (!deadline || deadline === '—') return false;
-  const parts = deadline.split('/');
-  if (parts.length !== 3) return false;
-  return new Date(`${parts[2]}-${parts[1]}-${parts[0]}`) < new Date();
-}
+import { isOverdue } from '@/lib/reserveUtils';
 
 function getWeekLabel(date: Date): string {
   const monday = new Date(date);
