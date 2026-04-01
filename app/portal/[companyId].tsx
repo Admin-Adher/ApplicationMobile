@@ -8,9 +8,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { C } from '@/constants/colors';
 import { useAuth } from '@/context/AuthContext';
 import { useApp } from '@/context/AppContext';
-
-const SUPABASE_URL = process.env.EXPO_PUBLIC_SUPABASE_URL ?? '';
-const SUPABASE_ANON_KEY = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY ?? '';
+import { supabase, isSupabaseConfigured } from '@/lib/supabase';
 
 interface PortalReserve {
   id: string;
@@ -44,7 +42,7 @@ export default function PortalScreen() {
   const [error, setError] = useState<string | null>(null);
   const [statusFilter, setStatusFilter] = useState<string>('all');
 
-  const isSupabase = !!SUPABASE_URL && !!SUPABASE_ANON_KEY;
+  const isSupabase = isSupabaseConfigured;
 
   useEffect(() => {
     if (!companyId) return;
@@ -72,21 +70,20 @@ export default function PortalScreen() {
     if (isSupabase) {
       setLoading(true);
       Promise.all([
-        fetch(`${SUPABASE_URL}/rest/v1/companies?id=eq.${companyId}&select=name`, {
-          headers: { apikey: SUPABASE_ANON_KEY, Authorization: `Bearer ${SUPABASE_ANON_KEY}` },
-        }).then(r => r.json()),
-        fetch(`${SUPABASE_URL}/rest/v1/reserves?company_id=eq.${companyId}&select=id,title,status,priority,building,level,deadline,description,lot_id`, {
-          headers: { apikey: SUPABASE_ANON_KEY, Authorization: `Bearer ${SUPABASE_ANON_KEY}` },
-        }).then(r => r.json()),
-      ]).then(([companies, reservesData]) => {
-        if (companies[0]?.name) setCompanyName(companies[0].name);
-        if (Array.isArray(reservesData)) {
-          setRemoteReserves(reservesData.map((r: any) => ({
+        supabase.from('companies').select('name').eq('id', companyId).single(),
+        supabase.from('reserves').select('id,title,status,priority,building,level,deadline,description,lot_id').eq('company_id', companyId),
+      ]).then(([companyRes, reservesRes]) => {
+        if (!companyRes.error && companyRes.data?.name) setCompanyName(companyRes.data.name);
+        if (!reservesRes.error && Array.isArray(reservesRes.data)) {
+          setRemoteReserves(reservesRes.data.map((r: Record<string, string>) => ({
             id: r.id, title: r.title, status: r.status,
             priority: r.priority, building: r.building,
             level: r.level, deadline: r.deadline, description: r.description,
             lotId: r.lot_id,
           })));
+        }
+        if (companyRes.error || reservesRes.error) {
+          setError("Impossible de charger les données. Vérifiez votre connexion.");
         }
       }).catch(() => {
         setError("Impossible de charger les données. Vérifiez votre connexion.");

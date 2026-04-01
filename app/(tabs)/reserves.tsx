@@ -174,7 +174,7 @@ export default function ReservesScreen() {
   const applyBatch = useCallback(() => {
     if (selectedIds.size === 0) return;
     const ids = Array.from(selectedIds);
-    const updates: any = {};
+    const updates: Partial<{ status: ReserveStatus; company: string; deadline: string }> = {};
     if (batchAction === 'status') updates.status = batchStatus;
     if (batchAction === 'company' && batchCompany) updates.company = batchCompany;
     if (batchAction === 'deadline' && batchDeadline) updates.deadline = batchDeadline;

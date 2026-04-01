@@ -38,7 +38,7 @@ function genQueueId() {
 export function NetworkProvider({ children }: { children: React.ReactNode }) {
   const [isOnline, setIsOnline] = useState(true);
   const [queue, setQueue] = useState<QueuedOperation[]>([]);
-  const syncTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const prevOnlineRef = useRef(true);
 
   useEffect(() => {
     loadQueue();
@@ -73,6 +73,14 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
       return () => clearInterval(interval);
     }
   }, []);
+
+  useEffect(() => {
+    const wasOffline = !prevOnlineRef.current;
+    prevOnlineRef.current = isOnline;
+    if (isOnline && wasOffline && queue.length > 0) {
+      console.warn(`[NetworkContext] Connexion rétablie — ${queue.length} opération(s) en attente dans la file hors-ligne. La synchronisation automatique n'est pas encore implémentée.`);
+    }
+  }, [isOnline, queue.length]);
 
   async function loadQueue() {
     try {

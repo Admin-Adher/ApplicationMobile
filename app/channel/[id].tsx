@@ -144,7 +144,7 @@ export default function ChannelScreen() {
   const [attachmentUploading, setAttachmentUploading] = useState(false);
   const [mentionQuery, setMentionQuery] = useState('');
   const typingTimeouts = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
-  const typingChannelRef = useRef<any>(null);
+  const typingChannelRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
 
   useEffect(() => {
     setChannelRead(channelId!);

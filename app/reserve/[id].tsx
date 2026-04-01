@@ -74,7 +74,7 @@ const PRIORITY_COLORS: Record<string, string> = {
   low: '#22C55E', medium: '#F59E0B', high: '#F97316', critical: '#EF4444',
 };
 
-function buildReservePDF(reserve: Reserve, projectName: string, company: any, resolvedPhotoSrcs?: string[]): string {
+function buildReservePDF(reserve: Reserve, projectName: string, company: { color?: string } | undefined, resolvedPhotoSrcs?: string[]): string {
   const statusColors: Record<string, string> = {
     open: '#DC2626', in_progress: '#F59E0B', waiting: '#3B82F6',
     verification: '#8B5CF6', closed: '#059669',
@@ -272,7 +272,7 @@ export default function ReserveDetailScreen() {
 
   const [editTitle, setEditTitle] = useState('');
   const [editDescription, setEditDescription] = useState('');
-  const [editBuilding, setEditBuilding] = useState<string>(RESERVE_BUILDINGS[0]);
+  const [editBuilding, setEditBuilding] = useState<string>(reserve?.building ?? RESERVE_BUILDINGS[0]);
   const [editZone, setEditZone] = useState<string>(RESERVE_ZONES[0]);
   const [editLevel, setEditLevel] = useState<string>('RDC');
   const [editCompany, setEditCompany] = useState('');

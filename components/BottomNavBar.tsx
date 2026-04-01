@@ -25,7 +25,8 @@ export default function BottomNavBar({ activeTab = 'more' }: Props) {
   const bottomPad = Platform.OS === 'web' ? 34 : insets.bottom;
   const barHeight = 50 + bottomPad;
 
-  const activeIndex = ['dashboard', 'reserves', 'plans', 'messages', 'more'].indexOf(activeTab);
+  const TAB_KEYS = ['dashboard', 'reserves', 'plans', 'messages', 'more'] as const;
+  const activeIndex = TAB_KEYS.indexOf(activeTab);
 
   return (
     <View style={[styles.container, { height: barHeight, paddingBottom: bottomPad }]}>

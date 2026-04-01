@@ -76,14 +76,7 @@ const SignaturePad = forwardRef<SignaturePadRef>((_, ref) => {
 
   useImperativeHandle(ref, () => ({
     getSVGData: () => {
-      if (strokes.length === 0 && !canvasRef.current) return null;
-      if (Platform.OS === 'web' && canvasRef.current) {
-        try {
-          return (canvasRef.current as HTMLCanvasElement).toDataURL('image/png');
-        } catch {
-          return buildSVGString(strokes);
-        }
-      }
+      if (strokes.length === 0 || strokes.every(s => s.length === 0)) return null;
       return buildSVGString(strokes);
     },
     isEmpty: () => strokes.length === 0 || strokes.every(s => s.length === 0),

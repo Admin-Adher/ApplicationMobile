@@ -157,9 +157,18 @@ function DxfOverlay({ dxf, visibleLayers, planW, planH }: { dxf: DxfParseResult;
     }
   }
 
+  const isTruncated = entityIdx >= MAX_ENTITIES;
+
   return (
     <View style={{ position: 'absolute', top: 0, left: 0, width: planW, height: planH, pointerEvents: 'none' as any }}>
       {elements}
+      {isTruncated && (
+        <View style={{ position: 'absolute', bottom: 4, left: 4, right: 4, backgroundColor: '#78350F', borderRadius: 4, paddingHorizontal: 6, paddingVertical: 3 }}>
+          <Text style={{ fontSize: 9, color: '#FDE68A', textAlign: 'center' }}>
+            Plan tronqué — {MAX_ENTITIES} entités max affichées ({dxf.entities.length} au total)
+          </Text>
+        </View>
+      )}
     </View>
   );
 }

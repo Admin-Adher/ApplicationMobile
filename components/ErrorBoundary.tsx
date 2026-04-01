@@ -1,7 +1,12 @@
 import React from 'react';
-import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
+import { View, Text, TouchableOpacity, StyleSheet, Platform } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { reloadAppAsync } from 'expo';
+
+function reloadApp() {
+  if (Platform.OS === 'web') {
+    if (typeof window !== 'undefined') window.location.reload();
+  }
+}
 
 interface ErrorBoundaryState {
   hasError: boolean;
@@ -16,7 +21,7 @@ function ErrorFallback({ error }: { error: Error | null }) {
       <Text style={styles.message}>
         {error?.message ?? "L'application a rencontré un problème inattendu."}
       </Text>
-      <TouchableOpacity style={styles.button} onPress={() => reloadAppAsync()}>
+      <TouchableOpacity style={styles.button} onPress={reloadApp}>
         <Text style={styles.buttonText}>Redémarrer l'application</Text>
       </TouchableOpacity>
     </View>

@@ -36,7 +36,7 @@ const TOOLS: { id: PlanDrawingTool; icon: string; label: string }[] = [
 export interface PdfPlanViewerProps {
   planUri: string;
   planId: string;
-  annotations: PlanDrawing[];
+  annotations?: PlanDrawing[];
   onAnnotationsChange: (drawings: PlanDrawing[]) => void;
   reserves: Reserve[];
   pinNumberMap: Map<string, number>;
@@ -335,7 +335,6 @@ function setSvgSize(){
   pinsLayer.style.width=cw+'px';pinsLayer.style.height=ch+'px';
 }
 
-function genId(){return Date.now().toString()+Math.random().toString(36).substr(2,9);}
 
 pdfjsLib.GlobalWorkerOptions.workerSrc='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
 
@@ -543,17 +542,28 @@ function MobileViewer({
   const [resolvedUri, setResolvedUri] = useState<string>(isLocalUri ? '' : planUri);
   const [uriLoading, setUriLoading] = useState(isLocalUri);
 
+  const MAX_BASE64_SIZE = 10 * 1024 * 1024;
+
   useEffect(() => {
     let cancelled = false;
     if (planUri.startsWith('file://') || planUri.startsWith('content://')) {
       setUriLoading(true);
       setResolvedUri('');
-      FileSystem.readAsStringAsync(planUri, { encoding: FileSystem.EncodingType.Base64 })
-        .then(b64 => {
-          if (!cancelled) {
-            setResolvedUri(`data:application/pdf;base64,${b64}`);
+      FileSystem.getInfoAsync(planUri)
+        .then(info => {
+          if (cancelled) return;
+          const size = info.exists && 'size' in info ? (info.size as number) : 0;
+          if (size > MAX_BASE64_SIZE) {
+            setResolvedUri(planUri);
             setUriLoading(false);
+            return;
           }
+          return FileSystem.readAsStringAsync(planUri, { encoding: FileSystem.EncodingType.Base64 });
+        })
+        .then(b64 => {
+          if (cancelled || !b64) return;
+          setResolvedUri(`data:application/pdf;base64,${b64}`);
+          setUriLoading(false);
         })
         .catch(() => {
           if (!cancelled) {

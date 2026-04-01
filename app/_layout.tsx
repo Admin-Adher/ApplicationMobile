@@ -20,7 +20,10 @@ import { NotificationsProvider } from '@/context/NotificationsContext';
 import NotificationBanner from '@/components/NotificationBanner';
 import OfflineBanner from '@/components/OfflineBanner';
 import ChantierSwitcherSheet from '@/components/ChantierSwitcherSheet';
-import { reloadAppAsync } from 'expo';
+
+function reloadApp() {
+  if (Platform.OS === 'web' && typeof window !== 'undefined') window.location.reload();
+}
 
 if (Platform.OS === 'web') {
   LogBox.ignoreLogs([
@@ -48,7 +51,7 @@ export function ErrorBoundary({ error }: { error: Error }) {
     <View style={eb.container}>
       <Text style={eb.title}>Une erreur est survenue</Text>
       <Text style={eb.message}>{error?.message ?? 'Erreur inconnue au démarrage.'}</Text>
-      <TouchableOpacity style={eb.button} onPress={() => reloadAppAsync()}>
+      <TouchableOpacity style={eb.button} onPress={reloadApp}>
         <Text style={eb.buttonText}>Redémarrer</Text>
       </TouchableOpacity>
     </View>

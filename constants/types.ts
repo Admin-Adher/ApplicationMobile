@@ -361,6 +361,7 @@ export interface Profile {
   role: UserRole;
   roleLabel: string;
   email: string;
+  organizationId?: string;
 }
 
 export interface Incident {

@@ -229,15 +229,22 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setIsLoading(false);
     });
 
+    const fetchingProfileRef = { current: false };
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event: any, session: any) => {
       if (isSeedingRef.current) return;
+      if (fetchingProfileRef.current) return;
       if (session?.user) {
-        const profile = await fetchProfile(session.user.id);
-        if (profile) {
-          setUser(profile);
-        } else {
-          await supabase.auth.signOut();
-          setUser(null);
+        fetchingProfileRef.current = true;
+        try {
+          const profile = await fetchProfile(session.user.id);
+          if (profile) {
+            setUser(profile);
+          } else {
+            await supabase.auth.signOut();
+            setUser(null);
+          }
+        } finally {
+          fetchingProfileRef.current = false;
         }
       } else {
         setUser(null);

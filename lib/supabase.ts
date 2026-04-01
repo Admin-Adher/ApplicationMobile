@@ -38,7 +38,9 @@ const SsrSafeStorage = {
   },
 };
 
-export const supabase = SUPABASE_URL && SUPABASE_KEY
+type SupabaseClientType = ReturnType<typeof createClient>;
+
+export const supabase: SupabaseClientType = SUPABASE_URL && SUPABASE_KEY
   ? createClient(SUPABASE_URL, SUPABASE_KEY, {
       auth: {
         storage: SsrSafeStorage,
@@ -47,6 +49,6 @@ export const supabase = SUPABASE_URL && SUPABASE_KEY
         detectSessionInUrl: false,
       },
     })
-  : null as any;
+  : (null as unknown as SupabaseClientType);
 
 export const isSupabaseConfigured = Boolean(SUPABASE_URL && SUPABASE_KEY);
