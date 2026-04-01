@@ -2,6 +2,7 @@ import {
   View, Text, StyleSheet, ScrollView, TouchableOpacity, TextInput,
   Alert, Modal, ActivityIndicator, Image, Platform,
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useState, useMemo } from 'react';
 import * as ImagePicker from 'expo-image-picker';
@@ -66,6 +67,7 @@ type FilterSeverity = IncidentSeverity | 'all';
 type FilterStatus = IncidentStatus | 'all';
 
 export default function IncidentsScreen() {
+  const insets = useSafeAreaInsets();
   const { user, permissions } = useAuth();
   const { incidents, addIncident, updateIncident, deleteIncident } = useIncidents();
 
@@ -350,7 +352,7 @@ export default function IncidentsScreen() {
         onRequestClose={() => setModalMode(null)}
       >
         <TouchableOpacity style={styles.overlay} activeOpacity={1} onPress={() => setModalMode(null)}>
-          <TouchableOpacity activeOpacity={1} style={styles.sheet}>
+          <TouchableOpacity activeOpacity={1} style={[styles.sheet, { paddingBottom: Math.max(insets.bottom, 20) }]}>
             <View style={styles.sheetHandle} />
             <ScrollView showsVerticalScrollIndicator={false}>
               <Text style={styles.sheetTitle}>

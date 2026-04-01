@@ -391,106 +391,109 @@ export default function EquipesScreen() {
               </TouchableOpacity>
             </View>
 
-            <Text style={styles.fieldLabel}>Nom de l'entreprise *</Text>
-            <TextInput
-              style={styles.input}
-              placeholder="Ex: VINCI Construction"
-              placeholderTextColor={C.textMuted}
-              value={nom}
-              onChangeText={setNom}
-            />
+            <ScrollView showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
+              <Text style={styles.fieldLabel}>Nom de l'entreprise *</Text>
+              <TextInput
+                style={styles.input}
+                placeholder="Ex: VINCI Construction"
+                placeholderTextColor={C.textMuted}
+                value={nom}
+                onChangeText={setNom}
+              />
 
-            <Text style={styles.fieldLabel}>Nom court *</Text>
-            <TextInput
-              style={styles.input}
-              placeholder="Ex: VINCI"
-              placeholderTextColor={C.textMuted}
-              value={nomCourt}
-              onChangeText={setNomCourt}
-              autoCapitalize="characters"
-            />
+              <Text style={styles.fieldLabel}>Nom court *</Text>
+              <TextInput
+                style={styles.input}
+                placeholder="Ex: VINCI"
+                placeholderTextColor={C.textMuted}
+                value={nomCourt}
+                onChangeText={setNomCourt}
+                autoCapitalize="characters"
+              />
 
-            <Text style={styles.fieldLabel}>Effectif prévu *</Text>
-            <TextInput
-              style={styles.input}
-              placeholder="Ex: 20"
-              placeholderTextColor={C.textMuted}
-              value={effectif}
-              onChangeText={setEffectif}
-              keyboardType="numeric"
-            />
+              <Text style={styles.fieldLabel}>Effectif prévu *</Text>
+              <TextInput
+                style={styles.input}
+                placeholder="Ex: 20"
+                placeholderTextColor={C.textMuted}
+                value={effectif}
+                onChangeText={setEffectif}
+                keyboardType="numeric"
+              />
 
-            {editTarget && (
-              <>
-                <Text style={styles.fieldLabel}>Heures travaillées</Text>
-                <TextInput
-                  style={styles.input}
-                  placeholder="Ex: 120"
-                  placeholderTextColor={C.textMuted}
-                  value={heures}
-                  onChangeText={setHeures}
-                  keyboardType="numeric"
-                />
-              </>
-            )}
+              {editTarget && (
+                <>
+                  <Text style={styles.fieldLabel}>Heures travaillées</Text>
+                  <TextInput
+                    style={styles.input}
+                    placeholder="Ex: 120"
+                    placeholderTextColor={C.textMuted}
+                    value={heures}
+                    onChangeText={setHeures}
+                    keyboardType="numeric"
+                  />
+                </>
+              )}
 
-            <Text style={styles.fieldLabel}>Zone / Bâtiment</Text>
-            <TextInput
-              style={styles.input}
-              placeholder="Ex: Bâtiment B"
-              placeholderTextColor={C.textMuted}
-              value={zone}
-              onChangeText={setZone}
-            />
+              <Text style={styles.fieldLabel}>Zone / Bâtiment</Text>
+              <TextInput
+                style={styles.input}
+                placeholder="Ex: Bâtiment B"
+                placeholderTextColor={C.textMuted}
+                value={zone}
+                onChangeText={setZone}
+              />
 
-            <Text style={styles.fieldLabel}>Contact</Text>
-            <TextInput
-              style={styles.input}
-              placeholder="Ex: Jean Dupont — 06 12 34 56 78"
-              placeholderTextColor={C.textMuted}
-              value={contact}
-              onChangeText={setContact}
-            />
+              <Text style={styles.fieldLabel}>Contact</Text>
+              <TextInput
+                style={styles.input}
+                placeholder="Ex: Jean Dupont — 06 12 34 56 78"
+                placeholderTextColor={C.textMuted}
+                value={contact}
+                onChangeText={setContact}
+              />
 
-            <Text style={[styles.fieldLabel, { marginTop: 4 }]}>SIRET</Text>
-            <TextInput
-              style={styles.input}
-              placeholder="Ex: 123 456 789 00012"
-              placeholderTextColor={C.textMuted}
-              value={siret}
-              onChangeText={setSiret}
-              keyboardType="numeric"
-            />
+              <Text style={[styles.fieldLabel, { marginTop: 4 }]}>SIRET</Text>
+              <TextInput
+                style={styles.input}
+                placeholder="Ex: 123 456 789 00012"
+                placeholderTextColor={C.textMuted}
+                value={siret}
+                onChangeText={setSiret}
+                keyboardType="numeric"
+              />
 
-            <Text style={styles.fieldLabel}>Assurance décennale</Text>
-            <TextInput
-              style={styles.input}
-              placeholder="Ex: AXA — Police n°12345"
-              placeholderTextColor={C.textMuted}
-              value={insurance}
-              onChangeText={setInsurance}
-            />
+              <Text style={styles.fieldLabel}>Assurance décennale</Text>
+              <TextInput
+                style={styles.input}
+                placeholder="Ex: AXA — Police n°12345"
+                placeholderTextColor={C.textMuted}
+                value={insurance}
+                onChangeText={setInsurance}
+              />
 
-            <Text style={styles.fieldLabel}>Qualifications / Certifications</Text>
-            <TextInput
-              style={[styles.input, { minHeight: 60 }]}
-              placeholder="Ex: RGE, Qualibat 2111..."
-              placeholderTextColor={C.textMuted}
-              value={qualifications}
-              onChangeText={setQualifications}
-              multiline
-              numberOfLines={2}
-            />
+              <Text style={styles.fieldLabel}>Qualifications / Certifications</Text>
+              <TextInput
+                style={[styles.input, { minHeight: 60 }]}
+                placeholder="Ex: RGE, Qualibat 2111..."
+                placeholderTextColor={C.textMuted}
+                value={qualifications}
+                onChangeText={setQualifications}
+                multiline
+                numberOfLines={2}
+              />
 
-            <TouchableOpacity
-              style={[styles.confirmBtn, (!nom.trim() || !nomCourt.trim() || !effectif.trim()) && styles.confirmBtnDisabled]}
-              onPress={handleSave}
-              disabled={!nom.trim() || !nomCourt.trim() || !effectif.trim()}
-            >
-              <Text style={styles.confirmBtnText}>
-                {editTarget ? 'Enregistrer les modifications' : 'Ajouter l\'entreprise'}
-              </Text>
-            </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.confirmBtn, (!nom.trim() || !nomCourt.trim() || !effectif.trim()) && styles.confirmBtnDisabled]}
+                onPress={handleSave}
+                disabled={!nom.trim() || !nomCourt.trim() || !effectif.trim()}
+              >
+                <Text style={styles.confirmBtnText}>
+                  {editTarget ? 'Enregistrer les modifications' : 'Ajouter l\'entreprise'}
+                </Text>
+              </TouchableOpacity>
+              <View style={{ height: 8 }} />
+            </ScrollView>
           </View>
         </KeyboardAvoidingView>
       </Modal>
@@ -593,7 +596,7 @@ const styles = StyleSheet.create({
   taskBarBg: { height: 5, backgroundColor: C.border, borderRadius: 3, overflow: 'hidden' },
   taskBarFill: { height: '100%', borderRadius: 3 },
   modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.6)', justifyContent: 'center', alignItems: 'center', padding: 20 },
-  modalCard: { backgroundColor: C.surface, borderRadius: 18, padding: 20, width: '100%', maxWidth: 440, borderWidth: 1, borderColor: C.border },
+  modalCard: { backgroundColor: C.surface, borderRadius: 18, padding: 20, width: '100%', maxWidth: 440, maxHeight: '88%', borderWidth: 1, borderColor: C.border },
   modalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 },
   modalTitle: { fontSize: 18, fontFamily: 'Inter_700Bold', color: C.text },
   workerModalSub: { fontSize: 13, fontFamily: 'Inter_400Regular', color: C.textSub, marginBottom: 12 },

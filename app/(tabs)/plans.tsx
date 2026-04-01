@@ -1749,7 +1749,7 @@ const styles = StyleSheet.create({
   addReserveFromPlanBtn: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 16, paddingVertical: 10, borderRadius: 10, backgroundColor: C.primaryBg, borderWidth: 1, borderColor: C.primary + '40' },
   addReserveFromPlanText: { fontSize: 13, fontFamily: 'Inter_600SemiBold', color: C.primary },
   modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.6)', justifyContent: 'flex-end', padding: 16 },
-  modalCard: { backgroundColor: C.surface, borderRadius: 18, padding: 16, gap: 12 },
+  modalCard: { backgroundColor: C.surface, borderRadius: 18, padding: 16, gap: 12, maxHeight: '88%' },
   modalHeader: { flexDirection: 'row', gap: 12, alignItems: 'flex-start' },
   modalPin: { width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center', flexShrink: 0 },
   modalPinText: { fontSize: 12, fontFamily: 'Inter_700Bold', color: '#fff' },
