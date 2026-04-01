@@ -1,8 +1,9 @@
 import {
   View, Text, StyleSheet, TouchableOpacity, ScrollView, Platform,
   Modal, PanResponder, Animated, Image, KeyboardAvoidingView,
-  ActivityIndicator, Alert, Linking, TextInput,
+  ActivityIndicator, Alert, Linking, TextInput, useWindowDimensions,
 } from 'react-native';
+import { TABLET_RESERVE_PANEL_W } from '@/lib/useTablet';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useState, useRef, useMemo } from 'react';
@@ -526,6 +527,8 @@ export default function PlansScreen() {
   const [showVersionHistory, setShowVersionHistory] = useState(false);
   const [revisionModal, setRevisionModal] = useState<{ visible: boolean; code: string; note: string }>({ visible: false, code: '', note: '' });
   const topPad = Platform.OS === 'web' ? 67 : insets.top;
+  const { width: screenWidth } = useWindowDimensions();
+  const isTablet = screenWidth >= 768;
 
   const scale = useRef(new Animated.Value(1)).current;
   const translateX = useRef(new Animated.Value(0)).current;
@@ -1203,7 +1206,7 @@ export default function PlansScreen() {
         </View>
       )}
 
-      <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+      <ScrollView contentContainerStyle={isTablet ? styles.tabletContent : styles.content} showsVerticalScrollIndicator={false}>
         <View style={styles.planContainer}>
           <View style={styles.planTitleRow}>
             <View style={{ flex: 1 }}>
@@ -1413,7 +1416,7 @@ export default function PlansScreen() {
 
         </View>
 
-        {planReserves.length > 0 && (
+        {!isTablet && planReserves.length > 0 && (
           <View style={styles.listSection}>
             <View style={styles.listTitleRow}>
               <Text style={styles.listTitle}>
@@ -1455,7 +1458,7 @@ export default function PlansScreen() {
           </View>
         )}
 
-        {planReserves.length === 0 && (
+        {!isTablet && planReserves.length === 0 && (
           <View style={styles.noReservesCard}>
             <Ionicons name="checkmark-circle-outline" size={32} color={C.closed} />
             <Text style={styles.noReservesText}>Aucune réserve sur ce plan</Text>
@@ -1475,7 +1478,83 @@ export default function PlansScreen() {
         )}
       </ScrollView>
 
-      {permissions.canCreate && (
+      {isTablet && (
+        <View style={styles.tabletPanel}>
+          <View style={styles.tabletPanelHdr}>
+            <Ionicons name="list-outline" size={14} color={C.primary} />
+            <Text style={styles.tabletPanelTitle}>
+              {planReserves.length > 0
+                ? `${planReserves.length} réserve${planReserves.length > 1 ? 's' : ''}`
+                : 'Réserves'}
+            </Text>
+            <TouchableOpacity
+              style={styles.exportBtn}
+              onPress={() => exportPlanPDF(
+                currentPlan?.name ?? 'Plan',
+                activeChantier?.name ?? '',
+                planReserves,
+                pinNumberMap,
+                currentPlan?.uri ?? null,
+              )}
+            >
+              <Ionicons name="document-text-outline" size={13} color={C.primary} />
+              <Text style={styles.exportBtnText}>PDF</Text>
+            </TouchableOpacity>
+          </View>
+          <ScrollView contentContainerStyle={styles.tabletPanelContent} showsVerticalScrollIndicator={false}>
+            {planReserves.length === 0 ? (
+              <View style={[styles.noReservesCard, { marginTop: 16 }]}>
+                <Ionicons name="checkmark-circle-outline" size={28} color={C.closed} />
+                <Text style={styles.noReservesText}>Aucune réserve</Text>
+                {permissions.canCreate && (
+                  <TouchableOpacity
+                    style={styles.addReserveFromPlanBtn}
+                    onPress={() => router.push({
+                      pathname: '/reserve/new',
+                      params: { planId: currentPlanId ?? '', chantierId: activeChantierId ?? '' },
+                    } as any)}
+                  >
+                    <Ionicons name="add" size={14} color={C.primary} />
+                    <Text style={styles.addReserveFromPlanText}>Ajouter</Text>
+                  </TouchableOpacity>
+                )}
+              </View>
+            ) : (
+              planReserves.map(r => (
+                <TouchableOpacity
+                  key={r.id}
+                  style={[styles.reserveRow, selected?.id === r.id && styles.tabletReserveRowSelected]}
+                  onPress={() => setSelected(selected?.id === r.id ? null : r)}
+                  activeOpacity={0.75}
+                >
+                  <View style={[styles.pinBadge, { backgroundColor: STATUS_CONFIG[r.status].color, width: 34, height: 34, borderRadius: 17 }]}>
+                    <Text style={styles.pinBadgeText}>{pinNumberMap.get(r.id) ?? '—'}</Text>
+                  </View>
+                  <View style={styles.reserveInfo}>
+                    <Text style={styles.reserveTitle} numberOfLines={2}>{r.title}</Text>
+                    <Text style={styles.reserveMeta}>{r.company} · {r.level}</Text>
+                  </View>
+                  <StatusBadge status={r.status} size="sm" />
+                </TouchableOpacity>
+              ))
+            )}
+          </ScrollView>
+          {permissions.canCreate && (
+            <TouchableOpacity
+              style={styles.tabletAddBtn}
+              onPress={() => router.push({
+                pathname: '/reserve/new',
+                params: { planId: currentPlanId ?? '', chantierId: activeChantierId ?? '' },
+              } as any)}
+            >
+              <Ionicons name="add" size={18} color="#fff" />
+              <Text style={styles.tabletAddBtnText}>Nouvelle réserve</Text>
+            </TouchableOpacity>
+          )}
+        </View>
+      )}
+
+      {permissions.canCreate && !isTablet && (
         <TouchableOpacity
           style={styles.fab}
           onPress={() => router.push({
@@ -1753,6 +1832,48 @@ const styles = StyleSheet.create({
   filterDot: { width: 7, height: 7, borderRadius: 4 },
   levelChipActive: { backgroundColor: '#8B5CF620', borderColor: '#8B5CF6' },
   content: { padding: 16, paddingBottom: 48 },
+  tabletContent: { padding: 16, paddingBottom: 48, paddingRight: TABLET_RESERVE_PANEL_W + 16 },
+  tabletPanel: {
+    position: 'absolute',
+    right: 0,
+    top: 0,
+    bottom: 0,
+    width: TABLET_RESERVE_PANEL_W,
+    backgroundColor: C.surface,
+    borderLeftWidth: 1,
+    borderLeftColor: C.border,
+    ...Platform.select({
+      web: { boxShadow: '-2px 0 8px rgba(0,0,0,0.05)' } as any,
+      default: { shadowColor: '#000', shadowOffset: { width: -2, height: 0 }, shadowOpacity: 0.05, shadowRadius: 6 },
+    }),
+  },
+  tabletPanelHdr: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: C.border,
+    backgroundColor: C.surface,
+  },
+  tabletPanelTitle: { flex: 1, fontSize: 13, fontFamily: 'Inter_600SemiBold', color: C.textSub, textTransform: 'uppercase', letterSpacing: 0.4 },
+  tabletPanelContent: { padding: 10, paddingBottom: 80, gap: 6 },
+  tabletReserveRowSelected: { backgroundColor: C.primaryBg, borderColor: C.primary + '60' },
+  tabletAddBtn: {
+    position: 'absolute',
+    bottom: 16,
+    left: 12,
+    right: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    backgroundColor: C.primary,
+    borderRadius: 12,
+    paddingVertical: 13,
+  },
+  tabletAddBtnText: { fontSize: 14, fontFamily: 'Inter_600SemiBold', color: '#fff' },
   planContainer: { backgroundColor: C.surface, borderRadius: 16, borderWidth: 1, borderColor: C.border, marginBottom: 16, overflow: 'hidden' },
   planTitleRow: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', padding: 14, paddingBottom: 10 },
   planTitle: { fontSize: 14, fontFamily: 'Inter_600SemiBold', color: C.text },
