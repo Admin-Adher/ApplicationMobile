@@ -253,6 +253,8 @@ function reducer(state: AppState, action: Action): AppState {
         ...state,
         chantiers: state.chantiers.filter(c => c.id !== action.payload),
         sitePlans: state.sitePlans.filter(p => p.chantierId !== action.payload),
+        reserves: state.reserves.filter(r => r.chantierId !== action.payload),
+        tasks: state.tasks.filter(t => t.chantierId !== action.payload),
         activeChantierId: state.activeChantierId === action.payload
           ? (state.chantiers.find(c => c.id !== action.payload)?.id ?? null)
           : state.activeChantierId,
@@ -1849,8 +1851,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       dispatch({ type: 'DELETE_CHANTIER', payload: id });
       const newChantiers = stateRef.current.chantiers.filter(c => c.id !== id);
       const newSitePlans = stateRef.current.sitePlans.filter(p => p.chantierId !== id);
+      const newReserves = stateRef.current.reserves.filter(r => r.chantierId !== id);
+      const newTasks = stateRef.current.tasks.filter(t => t.chantierId !== id);
       persistMockChantiers(newChantiers);
       persistMockSitePlans(newSitePlans);
+      persistMockReserves(newReserves);
+      persistMockTasks(newTasks);
       const newActiveId = stateRef.current.activeChantierId === id
         ? (newChantiers[0]?.id ?? null)
         : stateRef.current.activeChantierId;
