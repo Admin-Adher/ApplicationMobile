@@ -194,6 +194,7 @@ export interface Opr {
   moSignature?: string;
   createdAt: string;
   visitContradictoire?: string;
+  visitParticipants?: Array<{ id: string; name: string; company: string; present: boolean }>;
   signatories?: OprSignatory[];
   invitedEmails?: string[];
   sessionToken?: string;

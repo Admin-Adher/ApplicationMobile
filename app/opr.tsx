@@ -317,6 +317,18 @@ export default function OprScreen() {
   const [expandedItemId, setExpandedItemId] = useState<string | null>(null);
   const [itemEdits, setItemEdits] = useState<Record<string, { entreprise: string; deadline: string; note: string }>>({});
 
+  const [formLots, setFormLots] = useState<Array<{ id: string; name: string; entreprise: string }>>(
+    () => DEFAULT_OPR_ITEMS.map(name => ({ id: Math.random().toString(36).slice(2), name, entreprise: '' }))
+  );
+  const [showLotsConfig, setShowLotsConfig] = useState(false);
+  const [newLotName, setNewLotName] = useState('');
+
+  const [expandedParticipantsOpr, setExpandedParticipantsOpr] = useState<string | null>(null);
+  const [newParticipantName, setNewParticipantName] = useState('');
+  const [newParticipantCompany, setNewParticipantCompany] = useState('');
+
+  const [linkReserveModal, setLinkReserveModal] = useState<{ opr: Opr; itemId: string } | null>(null);
+
   function addSignatory() {
     if (!inviteModal || !inviteName.trim()) return;
     const opr = inviteModal.opr;
@@ -346,13 +358,67 @@ export default function OprScreen() {
     [oprs, activeChantierId]
   );
 
+  const chantierReserves = useMemo(
+    () => reserves.filter(r => !activeChantierId || r.chantierId === activeChantierId),
+    [reserves, activeChantierId]
+  );
+
+  function setItemStatus(opr: Opr, itemId: string, newStatus: 'ok' | 'reserve' | 'non_applicable') {
+    const item = opr.items.find(i => i.id === itemId);
+    if (!item) return;
+    const updated = opr.items.map(i => i.id === itemId ? { ...i, status: newStatus } : i);
+    updateOpr({ ...opr, items: updated });
+    if (newStatus === 'reserve') {
+      setItemEdits(prev => ({
+        ...prev,
+        [itemId]: { entreprise: item.entreprise ?? '', deadline: item.deadline ?? '', note: item.note ?? '' },
+      }));
+      setExpandedItemId(itemId);
+    } else if (expandedItemId === itemId) {
+      setExpandedItemId(null);
+    }
+  }
+
+  function addParticipant(opr: Opr) {
+    if (!newParticipantName.trim()) return;
+    const p = { id: genId(), name: newParticipantName.trim(), company: newParticipantCompany.trim(), present: true };
+    updateOpr({ ...opr, visitParticipants: [...(opr.visitParticipants ?? []), p] });
+    setNewParticipantName('');
+    setNewParticipantCompany('');
+  }
+
+  function toggleParticipantPresent(opr: Opr, participantId: string) {
+    const updated = (opr.visitParticipants ?? []).map(p =>
+      p.id === participantId ? { ...p, present: !p.present } : p
+    );
+    updateOpr({ ...opr, visitParticipants: updated });
+  }
+
+  function removeParticipant(opr: Opr, participantId: string) {
+    updateOpr({ ...opr, visitParticipants: (opr.visitParticipants ?? []).filter(p => p.id !== participantId) });
+  }
+
+  function linkReserveToItem(opr: Opr, itemId: string, reserveId: string) {
+    const reserve = reserves.find(r => r.id === reserveId);
+    const updated = opr.items.map(item =>
+      item.id === itemId
+        ? { ...item, reserveId, status: 'reserve' as const, description: reserve?.title ?? item.description }
+        : item
+    );
+    updateOpr({ ...opr, items: updated });
+    setLinkReserveModal(null);
+  }
+
   function createOpr() {
     if (!title.trim()) { Alert.alert('Champ requis', 'Titre obligatoire.'); return; }
-    const items: OprItem[] = DEFAULT_OPR_ITEMS.map(desc => ({
+    const validLots = formLots.filter(l => l.name.trim());
+    if (validLots.length === 0) { Alert.alert('Lots requis', 'Ajoutez au moins un lot.'); return; }
+    const items: OprItem[] = validLots.map(lot => ({
       id: genId(),
-      lotName: desc,
-      description: desc,
+      lotName: lot.name.trim(),
+      description: lot.name.trim(),
       status: 'ok' as const,
+      entreprise: lot.entreprise.trim() || undefined,
     }));
     const opr: Opr = {
       id: 'OPR-' + genId().slice(0, 8).toUpperCase(),
@@ -372,6 +438,9 @@ export default function OprScreen() {
     setTitle('');
     setMaireOuvrage('');
     setVisitDateForm('');
+    setFormLots(DEFAULT_OPR_ITEMS.map(name => ({ id: genId(), name, entreprise: '' })));
+    setShowLotsConfig(false);
+    setNewLotName('');
     setShowNew(false);
   }
 
@@ -585,6 +654,69 @@ export default function OprScreen() {
               keyboardType="numbers-and-punctuation"
             />
 
+            <TouchableOpacity style={styles.lotsToggle} onPress={() => setShowLotsConfig(v => !v)}>
+              <Ionicons name="list-outline" size={14} color={C.primary} />
+              <Text style={styles.lotsToggleText}>
+                Corps d'état — {formLots.filter(l => l.name.trim()).length} lot{formLots.filter(l => l.name.trim()).length !== 1 ? 's' : ''}
+              </Text>
+              <Ionicons name={showLotsConfig ? 'chevron-up' : 'chevron-down'} size={14} color={C.primary} />
+            </TouchableOpacity>
+
+            {showLotsConfig && (
+              <View style={styles.lotsConfig}>
+                {formLots.map(lot => (
+                  <View key={lot.id} style={styles.lotConfigRow}>
+                    <View style={{ flex: 1, gap: 5 }}>
+                      <TextInput
+                        style={styles.lotNameInput}
+                        value={lot.name}
+                        onChangeText={v => setFormLots(prev => prev.map(l => l.id === lot.id ? { ...l, name: v } : l))}
+                        placeholder="Nom du lot"
+                        placeholderTextColor={C.textMuted}
+                      />
+                      <TextInput
+                        style={styles.lotEntrepriseInput}
+                        value={lot.entreprise}
+                        onChangeText={v => setFormLots(prev => prev.map(l => l.id === lot.id ? { ...l, entreprise: v } : l))}
+                        placeholder="Entreprise responsable"
+                        placeholderTextColor={C.textMuted}
+                      />
+                    </View>
+                    <TouchableOpacity
+                      onPress={() => setFormLots(prev => prev.filter(l => l.id !== lot.id))}
+                      hitSlop={8} style={{ padding: 4 }}
+                    >
+                      <Ionicons name="close-circle" size={18} color={C.textMuted} />
+                    </TouchableOpacity>
+                  </View>
+                ))}
+                <View style={styles.addLotRow}>
+                  <TextInput
+                    style={[styles.input, { flex: 1, marginBottom: 0 }]}
+                    value={newLotName}
+                    onChangeText={setNewLotName}
+                    placeholder="Ajouter un lot…"
+                    placeholderTextColor={C.textMuted}
+                    onSubmitEditing={() => {
+                      if (!newLotName.trim()) return;
+                      setFormLots(prev => [...prev, { id: genId(), name: newLotName.trim(), entreprise: '' }]);
+                      setNewLotName('');
+                    }}
+                  />
+                  <TouchableOpacity
+                    style={styles.addLotBtn}
+                    onPress={() => {
+                      if (!newLotName.trim()) return;
+                      setFormLots(prev => [...prev, { id: genId(), name: newLotName.trim(), entreprise: '' }]);
+                      setNewLotName('');
+                    }}
+                  >
+                    <Ionicons name="add" size={18} color={C.primary} />
+                  </TouchableOpacity>
+                </View>
+              </View>
+            )}
+
             <View style={styles.formActions}>
               <TouchableOpacity style={styles.cancelBtn} onPress={() => setShowNew(false)}>
                 <Text style={styles.cancelBtnText}>Annuler</Text>
@@ -664,9 +796,72 @@ export default function OprScreen() {
                   <Text style={styles.oprMeta}>MO : {opr.maireOuvrage}</Text>
                 ) : null}
                 {opr.visitContradictoire ? (
-                  <View style={styles.visiteMeta}>
-                    <Ionicons name="people-outline" size={12} color="#7C3AED" />
-                    <Text style={styles.visiteMetaText}>Visite contradictoire : {opr.visitContradictoire}</Text>
+                  <View>
+                    <TouchableOpacity
+                      style={styles.visiteMeta}
+                      onPress={() => setExpandedParticipantsOpr(p => p === opr.id ? null : opr.id)}
+                    >
+                      <Ionicons name="people-outline" size={12} color="#7C3AED" />
+                      <Text style={styles.visiteMetaText}>Visite : {opr.visitContradictoire}</Text>
+                      <Text style={styles.participantsCountText}>
+                        {(opr.visitParticipants ?? []).length > 0
+                          ? `${(opr.visitParticipants ?? []).length} participant${(opr.visitParticipants ?? []).length > 1 ? 's' : ''}`
+                          : '+ Ajouter participants'}
+                      </Text>
+                      <Ionicons name={expandedParticipantsOpr === opr.id ? 'chevron-up' : 'chevron-down'} size={11} color="#7C3AED" />
+                    </TouchableOpacity>
+
+                    {expandedParticipantsOpr === opr.id && (
+                      <View style={styles.participantsPanel}>
+                        {(opr.visitParticipants ?? []).length === 0 ? (
+                          <Text style={styles.participantsEmpty}>Aucun participant enregistré</Text>
+                        ) : (
+                          (opr.visitParticipants ?? []).map(p => (
+                            <View key={p.id} style={styles.participantRow}>
+                              <TouchableOpacity
+                                style={[styles.presenceBtn, p.present && styles.presenceBtnActive]}
+                                onPress={() => toggleParticipantPresent(opr, p.id)}
+                              >
+                                <Ionicons name={p.present ? 'checkmark' : 'close'} size={10} color={p.present ? '#fff' : C.textMuted} />
+                              </TouchableOpacity>
+                              <View style={{ flex: 1 }}>
+                                <Text style={styles.participantName}>{p.name}</Text>
+                                {p.company ? <Text style={styles.participantCompany}>{p.company}</Text> : null}
+                              </View>
+                              <Text style={[styles.participantBadge, p.present ? styles.participantPresent : styles.participantAbsent]}>
+                                {p.present ? 'Présent' : 'Absent'}
+                              </Text>
+                              {permissions.canEdit && opr.status !== 'signed' && (
+                                <TouchableOpacity onPress={() => removeParticipant(opr, p.id)} hitSlop={8}>
+                                  <Ionicons name="close" size={13} color={C.textMuted} />
+                                </TouchableOpacity>
+                              )}
+                            </View>
+                          ))
+                        )}
+                        {permissions.canEdit && opr.status !== 'signed' && (
+                          <View style={styles.addParticipantRow}>
+                            <TextInput
+                              style={[styles.detailInput, { flex: 1 }]}
+                              placeholder="Nom"
+                              placeholderTextColor={C.textMuted}
+                              value={newParticipantName}
+                              onChangeText={setNewParticipantName}
+                            />
+                            <TextInput
+                              style={[styles.detailInput, { flex: 1 }]}
+                              placeholder="Entreprise"
+                              placeholderTextColor={C.textMuted}
+                              value={newParticipantCompany}
+                              onChangeText={setNewParticipantCompany}
+                            />
+                            <TouchableOpacity style={styles.addParticipantBtn} onPress={() => addParticipant(opr)}>
+                              <Ionicons name="person-add-outline" size={16} color={C.primary} />
+                            </TouchableOpacity>
+                          </View>
+                        )}
+                      </View>
+                    )}
                   </View>
                 ) : null}
 
@@ -687,50 +882,61 @@ export default function OprScreen() {
                   {opr.items.map(item => {
                     const icfg = ITEM_STATUS_CFG[item.status];
                     const isExpanded = expandedItemId === item.id;
-                    const edit = itemEdits[item.id] ?? { entreprise: '', deadline: '', note: '' };
+                    const edit = itemEdits[item.id] ?? { entreprise: item.entreprise ?? '', deadline: item.deadline ?? '', note: item.note ?? '' };
                     const linkedReserve = item.reserveId ? reserves.find(r => r.id === item.reserveId) : undefined;
                     const isLevee = linkedReserve?.status === 'closed';
                     const overdue = item.deadline ? isOverdue(item.deadline) : false;
                     return (
                       <View key={item.id}>
-                        <TouchableOpacity
-                          style={[styles.itemRow, item.status === 'reserve' && overdue && !isLevee && styles.itemRowOverdue]}
-                          onPress={() => {
-                            if (permissions.canEdit && opr.status !== 'signed') {
-                              if (item.status === 'reserve') {
-                                toggleItemExpand(opr, item.id);
-                              } else {
-                                cycleItemStatus(opr, item.id);
-                              }
-                            }
-                          }}
-                          onLongPress={permissions.canEdit && opr.status !== 'signed' ? () => cycleItemStatus(opr, item.id) : undefined}
-                          activeOpacity={opr.status !== 'signed' ? 0.7 : 1}
-                        >
-                          <Ionicons name={icfg.icon as any} size={16} color={icfg.color} />
-                          <View style={{ flex: 1 }}>
+                        <View style={[styles.itemRow, item.status === 'reserve' && overdue && !isLevee && styles.itemRowOverdue]}>
+                          <TouchableOpacity
+                            style={{ flex: 1 }}
+                            onPress={item.status === 'reserve' ? () => toggleItemExpand(opr, item.id) : undefined}
+                            activeOpacity={item.status === 'reserve' ? 0.7 : 1}
+                          >
                             <Text style={styles.itemText}>{item.lotName}</Text>
-                            {item.status === 'reserve' && (item.entreprise || item.deadline) && (
+                            {item.status === 'reserve' && (item.entreprise || item.deadline || item.verifiedAt) && (
                               <View style={styles.itemSubRow}>
                                 {item.entreprise ? <Text style={styles.itemSubText}>{item.entreprise}</Text> : null}
-                                {item.deadline ? <Text style={[styles.itemSubText, overdue && !isLevee && { color: C.open }]}>
-                                  {overdue && !isLevee ? '⚠ ' : ''}{item.deadline}
-                                </Text> : null}
+                                {item.deadline ? (
+                                  <Text style={[styles.itemSubText, overdue && !isLevee && { color: C.open }]}>
+                                    {overdue && !isLevee ? '⚠ ' : ''}{item.deadline}
+                                  </Text>
+                                ) : null}
                                 {item.verifiedAt ? <Text style={[styles.itemSubText, { color: C.closed }]}>✓ Vérifié</Text> : null}
                               </View>
                             )}
-                          </View>
-                          {opr.status !== 'signed' && item.status === 'reserve' && (
-                            <Ionicons name={isExpanded ? 'chevron-up' : 'chevron-down'} size={13} color={C.textMuted} />
+                          </TouchableOpacity>
+
+                          {opr.status !== 'signed' && permissions.canEdit ? (
+                            <View style={styles.statusBtnGroup}>
+                              {(['ok', 'reserve', 'non_applicable'] as const).map(s => {
+                                const cfg = ITEM_STATUS_CFG[s];
+                                const active = item.status === s;
+                                return (
+                                  <TouchableOpacity
+                                    key={s}
+                                    style={[styles.statusBtn, active && { backgroundColor: cfg.color + '25', borderColor: cfg.color }]}
+                                    onPress={() => setItemStatus(opr, item.id, s)}
+                                  >
+                                    <Ionicons name={cfg.icon as any} size={14} color={active ? cfg.color : C.textMuted} />
+                                  </TouchableOpacity>
+                                );
+                              })}
+                              {item.status === 'reserve' && (
+                                <TouchableOpacity onPress={() => toggleItemExpand(opr, item.id)} hitSlop={8} style={{ paddingLeft: 4 }}>
+                                  <Ionicons name={isExpanded ? 'chevron-up' : 'chevron-down'} size={14} color={C.textMuted} />
+                                </TouchableOpacity>
+                              )}
+                            </View>
+                          ) : (
+                            <Ionicons name={icfg.icon as any} size={16} color={icfg.color} />
                           )}
-                          {opr.status !== 'signed' && item.status !== 'reserve' && (
-                            <Ionicons name="chevron-forward" size={12} color={C.textMuted} />
-                          )}
-                        </TouchableOpacity>
+                        </View>
 
                         {isExpanded && item.status === 'reserve' && opr.status !== 'signed' && (
                           <View style={styles.itemDetailPanel}>
-                            <Text style={styles.detailPanelTitle}>Détail de la réserve</Text>
+                            <Text style={styles.detailPanelTitle}>Détail — {item.lotName}</Text>
 
                             <Text style={styles.detailLabel}>ENTREPRISE RESPONSABLE</Text>
                             <TextInput
@@ -761,12 +967,36 @@ export default function OprScreen() {
                               multiline
                             />
 
+                            <Text style={styles.detailLabel}>RÉSERVE LIÉE</Text>
+                            {item.reserveId ? (
+                              <View style={styles.linkedReserveRow}>
+                                <Ionicons name="link" size={13} color={C.primary} />
+                                <Text style={styles.linkedReserveText} numberOfLines={1}>
+                                  {reserves.find(r => r.id === item.reserveId)?.title ?? item.reserveId}
+                                </Text>
+                                <TouchableOpacity
+                                  onPress={() => {
+                                    const updated = opr.items.map(i => i.id === item.id ? { ...i, reserveId: undefined } : i);
+                                    updateOpr({ ...opr, items: updated });
+                                  }}
+                                  hitSlop={8}
+                                >
+                                  <Ionicons name="close-circle" size={15} color={C.textMuted} />
+                                </TouchableOpacity>
+                              </View>
+                            ) : (
+                              <TouchableOpacity
+                                style={styles.linkReserveBtn}
+                                onPress={() => setLinkReserveModal({ opr, itemId: item.id })}
+                              >
+                                <Ionicons name="link-outline" size={13} color={C.primary} />
+                                <Text style={styles.linkReserveBtnText}>Lier une réserve existante</Text>
+                              </TouchableOpacity>
+                            )}
+
                             <View style={styles.detailActions}>
                               {isLevee && !item.verifiedAt && (
-                                <TouchableOpacity
-                                  style={styles.verifyBtn}
-                                  onPress={() => verifyLevee(opr, item.id)}
-                                >
+                                <TouchableOpacity style={styles.verifyBtn} onPress={() => verifyLevee(opr, item.id)}>
                                   <Ionicons name="checkmark-circle-outline" size={14} color={C.closed} />
                                   <Text style={styles.verifyBtnText}>Vérifier la levée</Text>
                                 </TouchableOpacity>
@@ -774,7 +1004,7 @@ export default function OprScreen() {
                               {item.verifiedAt && (
                                 <View style={styles.verifiedBadge}>
                                   <Ionicons name="checkmark-circle" size={14} color={C.closed} />
-                                  <Text style={styles.verifiedBadgeText}>Levée vérifiée le {item.verifiedAt}</Text>
+                                  <Text style={styles.verifiedBadgeText}>Vérifié le {item.verifiedAt}</Text>
                                 </View>
                               )}
                               <TouchableOpacity style={styles.detailSaveBtn} onPress={() => saveItemDetail(opr, item.id)}>
@@ -782,11 +1012,6 @@ export default function OprScreen() {
                                 <Text style={styles.detailSaveBtnText}>Enregistrer</Text>
                               </TouchableOpacity>
                             </View>
-
-                            <TouchableOpacity style={styles.cycleBtnRow} onPress={() => cycleItemStatus(opr, item.id)}>
-                              <Ionicons name="sync-outline" size={13} color={C.textMuted} />
-                              <Text style={styles.cycleBtnText}>Changer statut (appui long sur la ligne)</Text>
-                            </TouchableOpacity>
                           </View>
                         )}
                       </View>
@@ -988,6 +1213,48 @@ export default function OprScreen() {
             </View>
           </View>
         </KeyboardAvoidingView>
+      </Modal>
+
+      <Modal
+        visible={linkReserveModal !== null}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setLinkReserveModal(null)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={[styles.inviteSheet, { maxHeight: '75%' }]}>
+            <View style={styles.modalHandle} />
+            <Text style={styles.inviteTitle}>Lier une réserve existante</Text>
+            <Text style={[styles.label, { marginBottom: 10 }]}>Sélectionnez la réserve correspondant à ce lot</Text>
+            <ScrollView style={{ flex: 1 }} showsVerticalScrollIndicator={false}>
+              {chantierReserves.length === 0 ? (
+                <Text style={styles.participantsEmpty}>Aucune réserve dans ce chantier</Text>
+              ) : (
+                chantierReserves.map(r => (
+                  <TouchableOpacity
+                    key={r.id}
+                    style={styles.reservePickerRow}
+                    onPress={() => linkReserveModal && linkReserveToItem(linkReserveModal.opr, linkReserveModal.itemId, r.id)}
+                  >
+                    <View style={[styles.reservePickerDot, { backgroundColor: r.status === 'closed' ? C.closed : C.open }]} />
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.reservePickerTitle}>{r.title}</Text>
+                      <Text style={styles.reservePickerMeta}>{r.company} · {r.building} {r.level}</Text>
+                    </View>
+                    <View style={[styles.suiviBadge, r.status === 'closed' ? styles.suiviBadgeLevee : styles.suiviBadgePending]}>
+                      <Text style={[styles.suiviBadgeText, { color: r.status === 'closed' ? '#059669' : C.textMuted }]}>
+                        {r.status === 'closed' ? 'Levée' : 'Ouverte'}
+                      </Text>
+                    </View>
+                  </TouchableOpacity>
+                ))
+              )}
+            </ScrollView>
+            <TouchableOpacity style={[styles.cancelBtn, { marginTop: 12 }]} onPress={() => setLinkReserveModal(null)}>
+              <Text style={styles.cancelBtnText}>Fermer</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
       </Modal>
 
       <Modal
@@ -1316,4 +1583,90 @@ const styles = StyleSheet.create({
   suiviBadgeOverdue: { backgroundColor: '#FEF2F2' },
   suiviBadgePending: { backgroundColor: C.bg },
   suiviBadgeText: { fontSize: 10, fontFamily: 'Inter_600SemiBold' },
+
+  statusBtnGroup: { flexDirection: 'row', alignItems: 'center', gap: 4 },
+  statusBtn: {
+    width: 30, height: 30, borderRadius: 8,
+    alignItems: 'center', justifyContent: 'center',
+    borderWidth: 1.5, borderColor: C.border, backgroundColor: C.bg,
+  },
+
+  lotsToggle: {
+    flexDirection: 'row', alignItems: 'center', gap: 8,
+    backgroundColor: C.primaryBg, borderRadius: 10,
+    paddingHorizontal: 12, paddingVertical: 10,
+    borderWidth: 1, borderColor: C.primary + '30',
+    marginTop: 4, marginBottom: 8,
+  },
+  lotsToggleText: { flex: 1, fontSize: 13, fontFamily: 'Inter_600SemiBold', color: C.primary },
+  lotsConfig: {
+    backgroundColor: C.bg, borderRadius: 10, padding: 10,
+    borderWidth: 1, borderColor: C.border, marginBottom: 10, gap: 8,
+  },
+  lotConfigRow: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingBottom: 8, borderBottomWidth: 1, borderBottomColor: C.border },
+  lotNameInput: {
+    backgroundColor: C.surface, borderWidth: 1, borderColor: C.border,
+    borderRadius: 7, paddingHorizontal: 10, paddingVertical: 7,
+    fontSize: 13, fontFamily: 'Inter_500Medium', color: C.text,
+  },
+  lotEntrepriseInput: {
+    backgroundColor: C.surface, borderWidth: 1, borderColor: C.border,
+    borderRadius: 7, paddingHorizontal: 10, paddingVertical: 6,
+    fontSize: 12, fontFamily: 'Inter_400Regular', color: C.textSub,
+  },
+  addLotRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 4 },
+  addLotBtn: {
+    width: 38, height: 38, borderRadius: 9,
+    alignItems: 'center', justifyContent: 'center',
+    borderWidth: 1.5, borderColor: C.primary, backgroundColor: C.primaryBg,
+  },
+
+  participantsCountText: { fontSize: 11, fontFamily: 'Inter_500Medium', color: '#7C3AED', marginLeft: 'auto' as any, marginRight: 4 },
+  participantsPanel: {
+    backgroundColor: '#F5F3FF', borderRadius: 10, padding: 10,
+    borderWidth: 1, borderColor: '#DDD6FE', gap: 8, marginTop: 4, marginBottom: 6,
+  },
+  participantsEmpty: { fontSize: 12, fontFamily: 'Inter_400Regular', color: C.textMuted, fontStyle: 'italic', textAlign: 'center', paddingVertical: 4 },
+  participantRow: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: 4 },
+  presenceBtn: {
+    width: 22, height: 22, borderRadius: 11,
+    alignItems: 'center', justifyContent: 'center',
+    borderWidth: 1.5, borderColor: C.border, backgroundColor: C.bg,
+  },
+  presenceBtnActive: { backgroundColor: C.closed, borderColor: C.closed },
+  participantName: { fontSize: 13, fontFamily: 'Inter_500Medium', color: C.text },
+  participantCompany: { fontSize: 11, fontFamily: 'Inter_400Regular', color: C.textMuted, marginTop: 1 },
+  participantBadge: { fontSize: 10, fontFamily: 'Inter_600SemiBold', paddingHorizontal: 6, paddingVertical: 2, borderRadius: 6 },
+  participantPresent: { backgroundColor: C.closedBg, color: C.closed },
+  participantAbsent: { backgroundColor: '#FEF2F2', color: C.open },
+  addParticipantRow: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingTop: 6, borderTopWidth: 1, borderTopColor: '#DDD6FE' },
+  addParticipantBtn: {
+    width: 36, height: 36, borderRadius: 9,
+    alignItems: 'center', justifyContent: 'center',
+    backgroundColor: C.primaryBg, borderWidth: 1, borderColor: C.primary + '40',
+  },
+
+  linkedReserveRow: {
+    flexDirection: 'row', alignItems: 'center', gap: 7,
+    backgroundColor: C.primaryBg, borderRadius: 8,
+    paddingHorizontal: 10, paddingVertical: 8,
+    borderWidth: 1, borderColor: C.primary + '30',
+  },
+  linkedReserveText: { flex: 1, fontSize: 12, fontFamily: 'Inter_500Medium', color: C.primary },
+  linkReserveBtn: {
+    flexDirection: 'row', alignItems: 'center', gap: 7,
+    paddingHorizontal: 10, paddingVertical: 8,
+    borderRadius: 8, borderWidth: 1, borderStyle: 'dashed' as any,
+    borderColor: C.primary + '50',
+  },
+  linkReserveBtnText: { fontSize: 12, fontFamily: 'Inter_500Medium', color: C.primary },
+
+  reservePickerRow: {
+    flexDirection: 'row', alignItems: 'center', gap: 10,
+    paddingVertical: 12, paddingHorizontal: 4,
+    borderBottomWidth: 1, borderBottomColor: C.border,
+  },
+  reservePickerDot: { width: 10, height: 10, borderRadius: 5 },
+  reservePickerTitle: { fontSize: 13, fontFamily: 'Inter_500Medium', color: C.text },
+  reservePickerMeta: { fontSize: 11, fontFamily: 'Inter_400Regular', color: C.textMuted, marginTop: 2 },
 });
