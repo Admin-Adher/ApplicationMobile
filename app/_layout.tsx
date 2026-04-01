@@ -76,7 +76,10 @@ export default function RootLayout() {
   const fontsReady = fontsLoaded || !!fontError || timedOut;
 
   useEffect(() => {
-    const timer = setTimeout(() => setTimedOut(true), 5000);
+    const timer = setTimeout(() => {
+      setTimedOut(true);
+      SplashScreen.hideAsync().catch(() => {});
+    }, 3000);
     return () => clearTimeout(timer);
   }, []);
 
@@ -87,7 +90,13 @@ export default function RootLayout() {
   }, [fontsReady]);
 
   if (!fontsReady) {
-    return null;
+    return (
+      <View style={{ flex: 1, backgroundColor: '#0F1117', alignItems: 'center', justifyContent: 'center' }}>
+        <Text style={{ color: '#6B7280', fontSize: 12, fontFamily: undefined }}>
+          Chargement…
+        </Text>
+      </View>
+    );
   }
 
   return (
