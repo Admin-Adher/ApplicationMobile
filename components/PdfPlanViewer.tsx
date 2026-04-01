@@ -7,6 +7,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { C } from '@/constants/colors';
 import { PlanDrawing, PlanDrawingTool, Reserve } from '@/constants/types';
 import { genId } from '@/lib/utils';
+import * as FileSystem from 'expo-file-system';
 
 const STATUS_COLORS: Record<string, string> = {
   open: '#EF4444', in_progress: '#F59E0B', waiting: '#6B7280',
@@ -537,6 +538,35 @@ function MobileViewer({
   const WebView = require('react-native-webview').default;
   const webViewRef = useRef<any>(null);
 
+  const isLocalUri = planUri.startsWith('file://') || planUri.startsWith('content://');
+  const [resolvedUri, setResolvedUri] = useState<string>(isLocalUri ? '' : planUri);
+  const [uriLoading, setUriLoading] = useState(isLocalUri);
+
+  useEffect(() => {
+    let cancelled = false;
+    if (planUri.startsWith('file://') || planUri.startsWith('content://')) {
+      setUriLoading(true);
+      setResolvedUri('');
+      FileSystem.readAsStringAsync(planUri, { encoding: FileSystem.EncodingType.Base64 })
+        .then(b64 => {
+          if (!cancelled) {
+            setResolvedUri(`data:application/pdf;base64,${b64}`);
+            setUriLoading(false);
+          }
+        })
+        .catch(() => {
+          if (!cancelled) {
+            setResolvedUri(planUri);
+            setUriLoading(false);
+          }
+        });
+    } else {
+      setResolvedUri(planUri);
+      setUriLoading(false);
+    }
+    return () => { cancelled = true; };
+  }, [planUri]);
+
   const [mode, setMode] = useState<'view' | 'annotate'>('view');
   const [tool, setTool] = useState<PlanDrawingTool>('pen');
   const [color, setColor] = useState('#EF4444');
@@ -587,7 +617,9 @@ function MobileViewer({
     } catch {}
   }, [reserves, onPlanTap, onReserveSelect, onAnnotationsChange]);
 
-  const html = buildMobileHtml(planUri, annotations ?? [], reserves, pinNumberMap, canAnnotate, canCreate);
+  const html = resolvedUri
+    ? buildMobileHtml(resolvedUri, annotations ?? [], reserves, pinNumberMap, canAnnotate, canCreate)
+    : '';
 
   function changePage(n: number) {
     if (n < 1 || n > pageCount) return;
@@ -599,9 +631,16 @@ function MobileViewer({
 
   return (
     <View style={mob.root}>
+      {uriLoading && (
+        <View style={[mob.root, { alignItems: 'center', justifyContent: 'center', gap: 10 }]}>
+          <ActivityIndicator size="large" color={C.primary} />
+          <Text style={{ color: C.textMuted, fontSize: 12 }}>Préparation du plan…</Text>
+        </View>
+      )}
+      {!uriLoading && resolvedUri ? (
       <WebView
         ref={webViewRef}
-        key={planUri}
+        key={resolvedUri}
         source={{ html }}
         onMessage={onMessage}
         style={mob.webview}
@@ -612,7 +651,10 @@ function MobileViewer({
         bounces={false}
         overScrollMode="never"
         originWhitelist={['*']}
+        allowFileAccess
+        allowUniversalAccessFromFileURLs
       />
+      ) : null}
 
       <View style={mob.bar}>
         {pageCount > 1 && (

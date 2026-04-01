@@ -113,6 +113,7 @@ export interface SitePlan {
   building?: string;
   level?: string;
   uri?: string;
+  fileType?: 'pdf' | 'image' | 'dxf';
   dxfName?: string;
   uploadedAt: string;
   size?: string;

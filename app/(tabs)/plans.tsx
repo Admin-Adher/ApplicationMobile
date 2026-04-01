@@ -164,7 +164,13 @@ function DxfOverlay({ dxf, visibleLayers }: { dxf: DxfParseResult; visibleLayers
 
 function isPdf(uri?: string | null): boolean {
   if (!uri) return false;
-  return uri.toLowerCase().includes('.pdf') || uri.toLowerCase().includes('pdf');
+  return uri.toLowerCase().includes('.pdf') || uri.includes('application/pdf');
+}
+
+function isPlanPdf(plan?: SitePlan | null): boolean {
+  if (!plan) return false;
+  if (plan.fileType === 'pdf') return true;
+  return isPdf(plan.uri);
 }
 
 function isImage(name: string): boolean {
@@ -695,7 +701,12 @@ export default function PlansScreen() {
         const storageUrl = await uploadDocument(asset.uri, `plan_${currentPlanId}_${docName}`, asset.mimeType ?? undefined);
         const finalUri = storageUrl ?? asset.uri;
 
-        updateSitePlan({ ...currentPlan!, uri: finalUri, size: formatSize(asset.size) });
+        updateSitePlan({
+          ...currentPlan!,
+          uri: finalUri,
+          fileType: isPdfFile ? 'pdf' : 'image',
+          size: formatSize(asset.size),
+        });
 
         Alert.alert(
           'Plan importé',
@@ -725,7 +736,7 @@ export default function PlansScreen() {
 
   function openRevisionModal() {
     if (!currentPlan) return;
-    const siblings = chantierPlans.filter(p => p.id === currentPlan.id || p.previousVersionId === currentPlan.id || currentPlan.previousVersionId === p.id);
+    const siblings = chantierPlans.filter(p => p.id === currentPlan.id || p.parentPlanId === currentPlan.id || currentPlan.parentPlanId === p.id);
     const revCount = siblings.length;
     const nextCode = `R${String(revCount + 1).padStart(2, '0')}`;
     setRevisionModal({ visible: true, code: nextCode, note: '' });
@@ -751,6 +762,7 @@ export default function PlansScreen() {
         }
         const storageUrl = await uploadDocument(asset.uri, `plan_rev_${genId()}_${asset.name}`, asset.mimeType ?? undefined);
         const finalUri = storageUrl ?? asset.uri;
+        const revDocExt = asset.name.split('.').pop()?.toLowerCase() ?? '';
         const newPlan: SitePlan = {
           id: genId(),
           chantierId: currentPlan.chantierId,
@@ -758,6 +770,7 @@ export default function PlansScreen() {
           building: currentPlan.building,
           level: currentPlan.level,
           uri: finalUri,
+          fileType: revDocExt === 'pdf' ? 'pdf' : isImage(asset.name) ? 'image' : 'dxf',
           size: formatSize(asset.size),
           uploadedAt: new Date().toISOString().slice(0, 10),
           revisionCode: revisionModal.code.trim(),
@@ -1228,8 +1241,8 @@ export default function PlansScreen() {
             </View>
           )}
 
-          <View style={[styles.planViewport, currentPlan?.uri && isPdf(currentPlan.uri) ? styles.planViewportPdf : null]}>
-            {currentPlan?.uri && isPdf(currentPlan.uri) ? (
+          <View style={[styles.planViewport, isPlanPdf(currentPlan) ? styles.planViewportPdf : null]}>
+            {isPlanPdf(currentPlan) && currentPlan?.uri ? (
               <PdfPlanViewer
                 planUri={currentPlan.uri}
                 planId={currentPlanId!}
