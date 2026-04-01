@@ -28,6 +28,7 @@ const MOCK_VISITES_KEY = 'buildtrack_mock_visites_v1';
 const MOCK_LOTS_KEY = 'buildtrack_mock_lots_v1';
 const MOCK_OPRS_KEY = 'buildtrack_mock_oprs_v1';
 const ACTIVE_CHANTIER_KEY = 'buildtrack_active_chantier_v1';
+const PENDING_DM_KEY = 'buildtrack_pending_dm_channels_v1';
 const MAX_PINNED = 5;
 
 interface AppState {
@@ -263,6 +264,42 @@ function fromOpr(o: Opr): Record<string, any> {
     signatories: o.signatories ?? null,
     invited_emails: o.invitedEmails ?? null,
     session_token: o.sessionToken ?? null,
+  };
+}
+
+function toChantier(row: any): Chantier {
+  return {
+    id: row.id,
+    name: row.name,
+    address: row.address ?? undefined,
+    description: row.description ?? undefined,
+    startDate: row.start_date ?? undefined,
+    endDate: row.end_date ?? undefined,
+    status: row.status as ChantierStatus,
+    createdAt: row.created_at,
+    createdBy: row.created_by ?? '',
+  };
+}
+
+function toSitePlan(row: any): SitePlan {
+  return {
+    id: row.id,
+    chantierId: row.chantier_id,
+    name: row.name,
+    building: row.building ?? undefined,
+    level: row.level ?? undefined,
+    uri: row.uri ?? undefined,
+    fileType: row.file_type ?? undefined,
+    dxfName: row.dxf_name ?? undefined,
+    uploadedAt: row.uploaded_at ?? row.created_at,
+    size: row.size ?? undefined,
+    revisionCode: row.revision_code ?? undefined,
+    revisionNumber: row.revision_number ?? undefined,
+    parentPlanId: row.parent_plan_id ?? undefined,
+    isLatestRevision: row.is_latest_revision ?? undefined,
+    revisionNote: row.revision_note ?? undefined,
+    annotations: row.annotations ?? undefined,
+    pdfPageCount: row.pdf_page_count ?? undefined,
   };
 }
 
@@ -742,6 +779,15 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   const [notification, setNotification] = useState<{ msg: Message; channelName: string; channelColor: string; channelIcon: string } | null>(null);
   const [realtimeConnected, setRealtimeConnected] = useState(false);
+  const [pendingDmChannelIds, setPendingDmChannelIds] = useState<Set<string>>(new Set());
+
+  useEffect(() => {
+    AsyncStorage.getItem(PENDING_DM_KEY).then(raw => {
+      if (raw) {
+        try { setPendingDmChannelIds(new Set(JSON.parse(raw))); } catch {}
+      }
+    }).catch(() => {});
+  }, []);
 
   const currentUserNameRef = useRef<string>('');
   const activeChannelIdRef = useRef<string | null>(null);
@@ -1031,37 +1077,54 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
       let chantiers: Chantier[] = MOCK_CHANTIERS;
       let sitePlans: SitePlan[] = MOCK_SITE_PLANS;
-      let activeChantierId: string | null = MOCK_CHANTIERS[0]?.id ?? null;
+      let activeChantierId: string | null = null;
+
       try {
-        const sc = await AsyncStorage.getItem(MOCK_CHANTIERS_KEY);
-        if (sc) {
-          const p = JSON.parse(sc);
-          if (Array.isArray(p)) {
-            const stored: Chantier[] = p;
-            const storedIds = new Set(stored.map((c: Chantier) => c.id));
-            const missing = MOCK_CHANTIERS.filter(c => !storedIds.has(c.id));
-            chantiers = [...missing, ...stored];
-            persistMockChantiers(chantiers);
-          }
+        const { data: chantiersData, error: chantiersErr } = await supabase
+          .from('chantiers').select('*').order('created_at', { ascending: false });
+        if (!chantiersErr && chantiersData && chantiersData.length > 0) {
+          chantiers = chantiersData.map(toChantier);
         } else {
+          const sc = await AsyncStorage.getItem(MOCK_CHANTIERS_KEY);
+          if (sc) {
+            const p = JSON.parse(sc);
+            if (Array.isArray(p)) {
+              const stored: Chantier[] = p;
+              const storedIds = new Set(stored.map((c: Chantier) => c.id));
+              const missing = MOCK_CHANTIERS.filter(c => !storedIds.has(c.id));
+              chantiers = [...missing, ...stored];
+            }
+          }
           persistMockChantiers(chantiers);
         }
-      } catch {}
+      } catch {
+        const sc = await AsyncStorage.getItem(MOCK_CHANTIERS_KEY).catch(() => null);
+        if (sc) { const p = JSON.parse(sc); if (Array.isArray(p)) chantiers = p; }
+      }
+
       try {
-        const ssp = await AsyncStorage.getItem(MOCK_SITE_PLANS_KEY);
-        if (ssp) {
-          const p = JSON.parse(ssp);
-          if (Array.isArray(p)) {
-            const stored: SitePlan[] = p;
-            const storedIds = new Set(stored.map((s: SitePlan) => s.id));
-            const missing = MOCK_SITE_PLANS.filter(s => !storedIds.has(s.id));
-            sitePlans = [...missing, ...stored];
-            persistMockSitePlans(sitePlans);
-          }
+        const { data: sitePlansData, error: sitePlansErr } = await supabase
+          .from('site_plans').select('*').order('created_at', { ascending: false });
+        if (!sitePlansErr && sitePlansData && sitePlansData.length > 0) {
+          sitePlans = sitePlansData.map(toSitePlan);
         } else {
+          const ssp = await AsyncStorage.getItem(MOCK_SITE_PLANS_KEY);
+          if (ssp) {
+            const p = JSON.parse(ssp);
+            if (Array.isArray(p)) {
+              const stored: SitePlan[] = p;
+              const storedIds = new Set(stored.map((s: SitePlan) => s.id));
+              const missing = MOCK_SITE_PLANS.filter(s => !storedIds.has(s.id));
+              sitePlans = [...missing, ...stored];
+            }
+          }
           persistMockSitePlans(sitePlans);
         }
-      } catch {}
+      } catch {
+        const ssp = await AsyncStorage.getItem(MOCK_SITE_PLANS_KEY).catch(() => null);
+        if (ssp) { const p = JSON.parse(ssp); if (Array.isArray(p)) sitePlans = p; }
+      }
+
       try {
         const sac = await AsyncStorage.getItem(ACTIVE_CHANTIER_KEY);
         if (sac) activeChantierId = sac;
@@ -1232,20 +1295,18 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   function setCurrentUser(name: string) {
     currentUserNameRef.current = name;
-    if (!isSupabaseConfigured) {
-      dispatch({
-        type: 'INIT',
-        payload: {
-          reserves: stateRef.current.reserves,
-          companies: stateRef.current.companies,
-          tasks: stateRef.current.tasks,
-          documents: stateRef.current.documents,
-          photos: stateRef.current.photos,
-          messages: stateRef.current.messages.map(m => ({ ...m, isMe: m.sender === name })),
-          profiles: stateRef.current.profiles,
-        },
-      });
-    }
+    dispatch({
+      type: 'INIT',
+      payload: {
+        reserves: stateRef.current.reserves,
+        companies: stateRef.current.companies,
+        tasks: stateRef.current.tasks,
+        documents: stateRef.current.documents,
+        photos: stateRef.current.photos,
+        messages: stateRef.current.messages.map(m => ({ ...m, isMe: m.sender === name })),
+        profiles: stateRef.current.profiles,
+      },
+    });
   }
 
   const companyChannels: Channel[] = state.companies.map(co => ({
@@ -1257,11 +1318,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     type: 'company' as const,
   }));
 
-  const dmChannelIds = new Set(
-    state.messages
+  const dmChannelIds = new Set([
+    ...state.messages
       .filter(m => m.channelId.startsWith('dm-'))
-      .map(m => m.channelId)
-  );
+      .map(m => m.channelId),
+    ...Array.from(pendingDmChannelIds),
+  ]);
 
   const dmChannels: Channel[] = Array.from(dmChannelIds).map(chId => {
     const parts = chId.replace('dm-', '').split('__');
@@ -1298,15 +1360,19 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     ).length;
   }
 
+  const reservesForStats = state.activeChantierId
+    ? state.reserves.filter(r => r.chantierId === state.activeChantierId)
+    : state.reserves;
+
   const stats = {
-    total: state.reserves.length,
-    open: state.reserves.filter(r => r.status === 'open').length,
-    inProgress: state.reserves.filter(r => r.status === 'in_progress').length,
-    waiting: state.reserves.filter(r => r.status === 'waiting').length,
-    verification: state.reserves.filter(r => r.status === 'verification').length,
-    closed: state.reserves.filter(r => r.status === 'closed').length,
-    progress: state.reserves.length > 0
-      ? Math.round((state.reserves.filter(r => r.status === 'closed').length / state.reserves.length) * 100) : 0,
+    total: reservesForStats.length,
+    open: reservesForStats.filter(r => r.status === 'open').length,
+    inProgress: reservesForStats.filter(r => r.status === 'in_progress').length,
+    waiting: reservesForStats.filter(r => r.status === 'waiting').length,
+    verification: reservesForStats.filter(r => r.status === 'verification').length,
+    closed: reservesForStats.filter(r => r.status === 'closed').length,
+    progress: reservesForStats.length > 0
+      ? Math.round((reservesForStats.filter(r => r.status === 'closed').length / reservesForStats.length) * 100) : 0,
     totalWorkers: state.companies.reduce((s, c) => s + c.actualWorkers, 0),
     plannedWorkers: state.companies.reduce((s, c) => s + c.plannedWorkers, 0),
   };
@@ -1442,6 +1508,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     const chId = dmChannelId(myName, otherName);
     const existing = dmChannels.find(c => c.id === chId);
     if (existing) return existing;
+    const newPending = new Set(pendingDmChannelIds).add(chId);
+    setPendingDmChannelIds(newPending);
+    AsyncStorage.setItem(PENDING_DM_KEY, JSON.stringify([...newPending])).catch(() => {});
     return {
       id: chId,
       name: otherName,

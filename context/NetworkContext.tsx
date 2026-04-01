@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useEffect, useState, useRef, useCallback } from 'react';
-import { Platform } from 'react-native';
+import { Platform, Alert } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 const OFFLINE_QUEUE_KEY = 'buildtrack_offline_queue_v1';
@@ -69,7 +69,7 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
           } catch {}
         }
         setIsOnline(online);
-      }, 10000);
+      }, 30000);
       return () => clearInterval(interval);
     }
   }, []);
@@ -78,7 +78,12 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
     const wasOffline = !prevOnlineRef.current;
     prevOnlineRef.current = isOnline;
     if (isOnline && wasOffline && queue.length > 0) {
-      console.warn(`[NetworkContext] Connexion rétablie — ${queue.length} opération(s) en attente dans la file hors-ligne. La synchronisation automatique n'est pas encore implémentée.`);
+      console.warn(`[NetworkContext] Connexion rétablie — ${queue.length} opération(s) en attente dans la file hors-ligne.`);
+      Alert.alert(
+        'Connexion rétablie',
+        `${queue.length} opération${queue.length > 1 ? 's' : ''} en attente n'${queue.length > 1 ? 'ont' : 'a'} pas pu être synchronisée${queue.length > 1 ? 's' : ''} hors-ligne. Veuillez vérifier et ressaisir si nécessaire.`,
+        [{ text: 'OK' }]
+      );
     }
   }, [isOnline, queue.length]);
 

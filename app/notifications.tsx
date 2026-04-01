@@ -68,7 +68,7 @@ export default function NotificationsScreen() {
   function handlePress(id: string, route?: string, params?: Record<string, string>) {
     markRead(id);
     if (route) {
-      if (params) {
+      if (params && Object.keys(params).length > 0) {
         router.push({ pathname: route as any, params } as any);
       } else {
         router.push(route as any);

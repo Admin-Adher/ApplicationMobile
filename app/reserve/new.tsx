@@ -210,7 +210,7 @@ export default function NewReserveScreen() {
     if (isSubmitting) return;
     if (!title.trim()) { Alert.alert('Champ obligatoire', 'Le titre est requis.'); return; }
     if (!company) { Alert.alert('Champ obligatoire', "Sélectionnez l'entreprise responsable."); return; }
-    if (!building || !building.trim()) { Alert.alert('Champ obligatoire', 'Le bâtiment est requis.'); return; }
+    if (!effectiveChantierId && (!building || !building.trim())) { Alert.alert('Champ obligatoire', 'Le bâtiment est requis.'); return; }
     if (!level || !level.trim()) { Alert.alert('Champ obligatoire', 'Le niveau est requis.'); return; }
     if (deadline && !validateDeadline(deadline)) {
       Alert.alert('Date invalide', "Vérifiez que le jour, le mois et l'année sont corrects (ex : 30/04/2026).");
@@ -259,7 +259,7 @@ export default function NewReserveScreen() {
     Alert.alert(
       kind === 'observation' ? 'Observation créée' : 'Réserve créée',
       `${id} ajoutée avec succès.`,
-      [{ text: 'OK', onPress: () => router.back() }]
+      [{ text: 'OK', onPress: () => { setIsSubmitting(false); router.back(); } }]
     );
   }
 

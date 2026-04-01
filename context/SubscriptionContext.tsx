@@ -286,11 +286,16 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
       return { success: false, error: 'Cet utilisateur fait déjà partie de votre organisation.' };
     }
 
+    if (!user.organizationId && user.role !== 'super_admin') {
+      return { success: false, error: "Vous n'êtes pas associé à une organisation." };
+    }
+
     if (!isSupabaseConfigured) {
+      const orgId = user.organizationId ?? 'demo-org';
       const mockToken = Math.random().toString(36).substring(2, 18);
       const mockInv: Invitation = {
         id: 'inv-' + Date.now(),
-        organizationId: user.organizationId ?? 'demo-org',
+        organizationId: orgId,
         email: emailLower,
         role,
         invitedBy: user.id,
@@ -301,10 +306,6 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
       };
       setPendingInvitations(prev => [mockInv, ...prev]);
       return { success: true, token: mockToken };
-    }
-
-    if (!user.organizationId) {
-      return { success: false, error: "Vous n'êtes pas associé à une organisation." };
     }
 
     const now = new Date();
