@@ -12,7 +12,7 @@ import * as DocumentPicker from 'expo-document-picker';
 import { C } from '@/constants/colors';
 import { useApp } from '@/context/AppContext';
 import { useAuth } from '@/context/AuthContext';
-import { Reserve, SitePlan } from '@/constants/types';
+import { Reserve, SitePlan, ReserveStatus } from '@/constants/types';
 import StatusBadge from '@/components/StatusBadge';
 import { STATUS_CONFIG } from '@/components/StatusBadge';
 import PriorityBadge from '@/components/PriorityBadge';
@@ -476,8 +476,9 @@ export default function PlansScreen() {
   const {
     reserves, companies, sitePlans, activeChantierId, activeChantier,
     addSitePlan, updateSitePlan, deleteSitePlan, addSitePlanVersion, migrateReservesToPlan,
+    updateReserveStatus,
   } = useApp();
-  const { permissions } = useAuth();
+  const { permissions, user } = useAuth();
 
   const chantierPlans = useMemo(
     () => sitePlans.filter(p => p.chantierId === activeChantierId),
@@ -540,6 +541,7 @@ export default function PlansScreen() {
   const clusterSize = isTablet ? 56 : 30;
 
   const [highlightedReserveId, setHighlightedReserveId] = useState<string | null>(null);
+  const [panelView, setPanelView] = useState<'list' | 'detail'>('list');
   const reserveListRef = useRef<FlatList<Reserve> | null>(null);
 
   const scale = useRef(new Animated.Value(1)).current;
@@ -552,6 +554,9 @@ export default function PlansScreen() {
   const touchStartYRef = useRef(0);
   const isDraggingRef = useRef(false);
   const suppressNextPlanTapRef = useRef(false);
+  const isPinchingRef = useRef(false);
+  const pinchStartDistRef = useRef(0);
+  const pinchStartScaleRef = useRef(1);
 
   const vectorPlan = currentPlanId
     ? (DEMO_FLOOR_PLANS[currentPlanId] ?? GENERIC_FLOOR_PLAN)
@@ -594,22 +599,57 @@ export default function PlansScreen() {
     return Array.from(new Set(lvls)).sort();
   }, [reserves, currentPlanId]);
 
+  function getPinchDist(touches: any[]) {
+    const dx = touches[0].pageX - touches[1].pageX;
+    const dy = touches[0].pageY - touches[1].pageY;
+    return Math.sqrt(dx * dx + dy * dy);
+  }
+
   const panResponder = useRef(
     PanResponder.create({
       onStartShouldSetPanResponder: () => false,
-      onMoveShouldSetPanResponder: (_, gs) => Math.abs(gs.dx) + Math.abs(gs.dy) > 4,
+      onMoveShouldSetPanResponder: (e, gs) => {
+        if (e.nativeEvent.touches.length === 2) return true;
+        return Math.abs(gs.dx) + Math.abs(gs.dy) > 4;
+      },
       onPanResponderGrant: (e) => {
         touchStartXRef.current = e.nativeEvent.pageX;
         touchStartYRef.current = e.nativeEvent.pageY;
         isDraggingRef.current = false;
+        isPinchingRef.current = false;
+        pinchStartDistRef.current = 0;
       },
-      onPanResponderMove: (_, gs) => {
+      onPanResponderMove: (e, gs) => {
+        const touches = e.nativeEvent.touches;
+        if (touches.length === 2) {
+          isPinchingRef.current = true;
+          isDraggingRef.current = true;
+          const dist = getPinchDist(touches);
+          if (pinchStartDistRef.current === 0) {
+            pinchStartDistRef.current = dist;
+            pinchStartScaleRef.current = lastScale.current;
+            return;
+          }
+          const rawScale = (dist / pinchStartDistRef.current) * pinchStartScaleRef.current;
+          const clamped = Math.min(4, Math.max(0.4, rawScale));
+          lastScale.current = clamped;
+          scale.setValue(clamped);
+          return;
+        }
+        pinchStartDistRef.current = 0;
         const moved = Math.abs(gs.dx) + Math.abs(gs.dy);
         if (moved > 6) isDraggingRef.current = true;
         translateX.setValue(committedTX.current + gs.dx);
         translateY.setValue(committedTY.current + gs.dy);
       },
       onPanResponderRelease: (_, gs) => {
+        if (isPinchingRef.current) {
+          pinchStartDistRef.current = 0;
+          isPinchingRef.current = false;
+          setDisplayScale(lastScale.current);
+          setTimeout(() => { isDraggingRef.current = false; }, 80);
+          return;
+        }
         committedTX.current = committedTX.current + gs.dx;
         committedTY.current = committedTY.current + gs.dy;
         setTimeout(() => { isDraggingRef.current = false; }, 50);
@@ -1386,14 +1426,8 @@ export default function PlansScreen() {
                         } else {
                           const reserve = cluster.items[0];
                           if (isTablet) {
-                            const newId = highlightedReserveId === reserve.id ? null : reserve.id;
-                            setHighlightedReserveId(newId);
-                            if (newId) {
-                              const idx = planReserves.findIndex(r => r.id === newId);
-                              if (idx >= 0) {
-                                reserveListRef.current?.scrollToIndex({ index: idx, animated: true, viewPosition: 0.3 });
-                              }
-                            }
+                            setHighlightedReserveId(reserve.id);
+                            setPanelView('detail');
                           } else {
                             setSelected(reserve);
                           }
@@ -1508,88 +1542,184 @@ export default function PlansScreen() {
         )}
       </ScrollView>
 
-      {isTablet && (
-        <View style={[styles.tabletPanel, { width: TABLET_RESERVE_PANEL_W }]}>
-          <View style={styles.tabletPanelHdr}>
-            <Ionicons name="list-outline" size={14} color={C.primary} />
-            <Text style={styles.tabletPanelTitle}>
-              {planReserves.length > 0
-                ? `${planReserves.length} réserve${planReserves.length > 1 ? 's' : ''}`
-                : 'Réserves'}
-            </Text>
-            <TouchableOpacity
-              style={styles.exportBtn}
-              onPress={() => exportPlanPDF(
-                currentPlan?.name ?? 'Plan',
-                activeChantier?.name ?? '',
-                planReserves,
-                pinNumberMap,
-                currentPlan?.uri ?? null,
-              )}
-            >
-              <Ionicons name="document-text-outline" size={13} color={C.primary} />
-              <Text style={styles.exportBtnText}>PDF</Text>
-            </TouchableOpacity>
-          </View>
-          <FlatList
-            ref={reserveListRef}
-            data={planReserves}
-            keyExtractor={r => r.id}
-            contentContainerStyle={[styles.tabletPanelContent, planReserves.length === 0 && { flex: 1 }]}
-            showsVerticalScrollIndicator={false}
-            onScrollToIndexFailed={() => {}}
-            ListEmptyComponent={
-              <View style={[styles.noReservesCard, { marginTop: 16 }]}>
-                <Ionicons name="checkmark-circle-outline" size={28} color={C.closed} />
-                <Text style={styles.noReservesText}>Aucune réserve</Text>
+      {isTablet && (() => {
+        const detailReserve = planReserves.find(r => r.id === highlightedReserveId)
+          ?? allPlanReserves.find(r => r.id === highlightedReserveId);
+        const STATUS_ORDER: ReserveStatus[] = ['open', 'in_progress', 'waiting', 'verification', 'closed'];
+        return (
+          <View style={[styles.tabletPanel, { width: TABLET_RESERVE_PANEL_W }]}>
+
+            {panelView === 'detail' && detailReserve ? (
+              <>
+                <View style={styles.tabletPanelHdr}>
+                  <TouchableOpacity
+                    style={styles.tabletBackBtn}
+                    onPress={() => { setHighlightedReserveId(null); setPanelView('list'); }}
+                    hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                  >
+                    <Ionicons name="chevron-back" size={18} color={C.primary} />
+                    <Text style={styles.tabletBackBtnText}>Réserves</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    onPress={() => router.push(`/reserve/${detailReserve.id}` as any)}
+                    style={styles.tabletDetailEditBtn}
+                    hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                  >
+                    <Ionicons name="open-outline" size={15} color={C.primary} />
+                  </TouchableOpacity>
+                </View>
+
+                <ScrollView contentContainerStyle={styles.tabletDetailContent} showsVerticalScrollIndicator={false}>
+                  <View style={styles.tabletDetailHeaderRow}>
+                    <View style={[styles.pinBadge, { backgroundColor: STATUS_CONFIG[detailReserve.status].color, width: 40, height: 40, borderRadius: 20, marginRight: 10 }]}>
+                      <Text style={[styles.pinBadgeText, { fontSize: 16 }]}>{pinNumberMap.get(detailReserve.id) ?? '—'}</Text>
+                    </View>
+                    <Text style={styles.tabletDetailTitle} numberOfLines={3}>{detailReserve.title}</Text>
+                  </View>
+
+                  <View style={styles.tabletDetailMeta}>
+                    <Ionicons name="business-outline" size={12} color={C.textMuted} />
+                    <Text style={styles.tabletDetailMetaText}>{detailReserve.company}</Text>
+                    {detailReserve.level ? (
+                      <>
+                        <Text style={styles.tabletDetailMetaDot}>·</Text>
+                        <Ionicons name="layers-outline" size={12} color={C.textMuted} />
+                        <Text style={styles.tabletDetailMetaText}>{detailReserve.level}</Text>
+                      </>
+                    ) : null}
+                  </View>
+
+                  {detailReserve.deadline && detailReserve.deadline !== '—' && (
+                    <View style={styles.tabletDetailMeta}>
+                      <Ionicons name="calendar-outline" size={12} color={C.textMuted} />
+                      <Text style={styles.tabletDetailMetaText}>Échéance : {detailReserve.deadline}</Text>
+                    </View>
+                  )}
+
+                  {detailReserve.description ? (
+                    <Text style={styles.tabletDetailDesc}>{detailReserve.description}</Text>
+                  ) : null}
+
+                  <Text style={styles.tabletDetailSectionLabel}>Changer le statut</Text>
+                  <View style={styles.tabletStatusGrid}>
+                    {STATUS_ORDER.map(s => {
+                      const cfg = STATUS_CONFIG[s];
+                      const isActive = detailReserve.status === s;
+                      return (
+                        <TouchableOpacity
+                          key={s}
+                          style={[styles.tabletStatusBtn, { backgroundColor: isActive ? cfg.color : cfg.bg, borderColor: cfg.color }]}
+                          onPress={() => {
+                            if (!isActive) updateReserveStatus(detailReserve.id, s, user?.name ?? 'Chef de chantier');
+                          }}
+                          activeOpacity={0.75}
+                        >
+                          {isActive && <Ionicons name="checkmark" size={11} color="#fff" />}
+                          <Text style={[styles.tabletStatusBtnText, { color: isActive ? '#fff' : cfg.color }]}>{cfg.label}</Text>
+                        </TouchableOpacity>
+                      );
+                    })}
+                  </View>
+
+                  <View style={styles.tabletDetailActions}>
+                    <PriorityBadge priority={detailReserve.priority} size="sm" />
+                    {permissions.canCreate && (
+                      <TouchableOpacity
+                        style={styles.tabletDetailOpenBtn}
+                        onPress={() => router.push(`/reserve/${detailReserve.id}` as any)}
+                      >
+                        <Ionicons name="create-outline" size={14} color="#fff" />
+                        <Text style={styles.tabletDetailOpenBtnText}>Modifier</Text>
+                      </TouchableOpacity>
+                    )}
+                  </View>
+                </ScrollView>
+              </>
+            ) : (
+              <>
+                <View style={styles.tabletPanelHdr}>
+                  <Ionicons name="list-outline" size={14} color={C.primary} />
+                  <Text style={styles.tabletPanelTitle}>
+                    {planReserves.length > 0
+                      ? `${planReserves.length} réserve${planReserves.length > 1 ? 's' : ''}`
+                      : 'Réserves'}
+                  </Text>
+                  <TouchableOpacity
+                    style={styles.exportBtn}
+                    onPress={() => exportPlanPDF(
+                      currentPlan?.name ?? 'Plan',
+                      activeChantier?.name ?? '',
+                      planReserves,
+                      pinNumberMap,
+                      currentPlan?.uri ?? null,
+                    )}
+                  >
+                    <Ionicons name="document-text-outline" size={13} color={C.primary} />
+                    <Text style={styles.exportBtnText}>PDF</Text>
+                  </TouchableOpacity>
+                </View>
+                <FlatList
+                  ref={reserveListRef}
+                  data={planReserves}
+                  keyExtractor={r => r.id}
+                  contentContainerStyle={[styles.tabletPanelContent, planReserves.length === 0 && { flex: 1 }]}
+                  showsVerticalScrollIndicator={false}
+                  onScrollToIndexFailed={() => {}}
+                  ListEmptyComponent={
+                    <View style={[styles.noReservesCard, { marginTop: 16 }]}>
+                      <Ionicons name="checkmark-circle-outline" size={28} color={C.closed} />
+                      <Text style={styles.noReservesText}>Aucune réserve</Text>
+                      {permissions.canCreate && (
+                        <TouchableOpacity
+                          style={styles.addReserveFromPlanBtn}
+                          onPress={() => router.push({
+                            pathname: '/reserve/new',
+                            params: { planId: currentPlanId ?? '', chantierId: activeChantierId ?? '' },
+                          } as any)}
+                        >
+                          <Ionicons name="add" size={14} color={C.primary} />
+                          <Text style={styles.addReserveFromPlanText}>Ajouter</Text>
+                        </TouchableOpacity>
+                      )}
+                    </View>
+                  }
+                  renderItem={({ item: r }) => (
+                    <TouchableOpacity
+                      style={[styles.reserveRow, highlightedReserveId === r.id && styles.tabletReserveRowSelected]}
+                      onPress={() => {
+                        setHighlightedReserveId(r.id);
+                        setPanelView('detail');
+                      }}
+                      activeOpacity={0.75}
+                    >
+                      <View style={[styles.pinBadge, { backgroundColor: STATUS_CONFIG[r.status].color, width: 34, height: 34, borderRadius: 17 }]}>
+                        <Text style={styles.pinBadgeText}>{pinNumberMap.get(r.id) ?? '—'}</Text>
+                      </View>
+                      <View style={styles.reserveInfo}>
+                        <Text style={styles.reserveTitle} numberOfLines={2}>{r.title}</Text>
+                        <Text style={styles.reserveMeta}>{r.company} · {r.level}</Text>
+                      </View>
+                      <Ionicons name="chevron-forward" size={14} color={C.textMuted} />
+                    </TouchableOpacity>
+                  )}
+                />
                 {permissions.canCreate && (
                   <TouchableOpacity
-                    style={styles.addReserveFromPlanBtn}
+                    style={styles.tabletAddBtn}
                     onPress={() => router.push({
                       pathname: '/reserve/new',
                       params: { planId: currentPlanId ?? '', chantierId: activeChantierId ?? '' },
                     } as any)}
                   >
-                    <Ionicons name="add" size={14} color={C.primary} />
-                    <Text style={styles.addReserveFromPlanText}>Ajouter</Text>
+                    <Ionicons name="add" size={18} color="#fff" />
+                    <Text style={styles.tabletAddBtnText}>Nouvelle réserve</Text>
                   </TouchableOpacity>
                 )}
-              </View>
-            }
-            renderItem={({ item: r }) => (
-              <TouchableOpacity
-                style={[styles.reserveRow, highlightedReserveId === r.id && styles.tabletReserveRowSelected]}
-                onPress={() => {
-                  const newId = highlightedReserveId === r.id ? null : r.id;
-                  setHighlightedReserveId(newId);
-                }}
-                activeOpacity={0.75}
-              >
-                <View style={[styles.pinBadge, { backgroundColor: STATUS_CONFIG[r.status].color, width: 34, height: 34, borderRadius: 17 }]}>
-                  <Text style={styles.pinBadgeText}>{pinNumberMap.get(r.id) ?? '—'}</Text>
-                </View>
-                <View style={styles.reserveInfo}>
-                  <Text style={styles.reserveTitle} numberOfLines={2}>{r.title}</Text>
-                  <Text style={styles.reserveMeta}>{r.company} · {r.level}</Text>
-                </View>
-                <StatusBadge status={r.status} size="sm" />
-              </TouchableOpacity>
+              </>
             )}
-          />
-          {permissions.canCreate && (
-            <TouchableOpacity
-              style={styles.tabletAddBtn}
-              onPress={() => router.push({
-                pathname: '/reserve/new',
-                params: { planId: currentPlanId ?? '', chantierId: activeChantierId ?? '' },
-              } as any)}
-            >
-              <Ionicons name="add" size={18} color="#fff" />
-              <Text style={styles.tabletAddBtnText}>Nouvelle réserve</Text>
-            </TouchableOpacity>
-          )}
-        </View>
-      )}
+          </View>
+        );
+      })()}
       </View>
 
       {permissions.canCreate && !isTablet && (
@@ -1912,6 +2042,25 @@ const styles = StyleSheet.create({
     paddingVertical: 13,
   },
   tabletAddBtnText: { fontSize: 14, fontFamily: 'Inter_600SemiBold', color: '#fff' },
+
+  tabletBackBtn: { flexDirection: 'row', alignItems: 'center', gap: 2, flex: 1 },
+  tabletBackBtnText: { fontSize: 14, fontFamily: 'Inter_600SemiBold', color: C.primary },
+  tabletDetailEditBtn: { padding: 6 },
+  tabletDetailContent: { padding: 14, gap: 10, paddingBottom: 40 },
+  tabletDetailHeaderRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 0, marginBottom: 4 },
+  tabletDetailTitle: { flex: 1, fontSize: 15, fontFamily: 'Inter_600SemiBold', color: C.text, lineHeight: 22 },
+  tabletDetailMeta: { flexDirection: 'row', alignItems: 'center', gap: 5 },
+  tabletDetailMetaText: { fontSize: 12, fontFamily: 'Inter_400Regular', color: C.textSub, flex: 1 },
+  tabletDetailMetaDot: { fontSize: 12, color: C.textMuted, marginHorizontal: 2 },
+  tabletDetailDesc: { fontSize: 13, fontFamily: 'Inter_400Regular', color: C.textSub, lineHeight: 19, backgroundColor: C.surface2, borderRadius: 8, padding: 10, marginTop: 2 },
+  tabletDetailSectionLabel: { fontSize: 11, fontFamily: 'Inter_600SemiBold', color: C.textMuted, textTransform: 'uppercase', letterSpacing: 0.5, marginTop: 6 },
+  tabletStatusGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
+  tabletStatusBtn: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 10, paddingVertical: 8, borderRadius: 20, borderWidth: 1.5, minHeight: 36 },
+  tabletStatusBtnText: { fontSize: 12, fontFamily: 'Inter_600SemiBold' },
+  tabletDetailActions: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 8, paddingTop: 12, borderTopWidth: 1, borderTopColor: C.border },
+  tabletDetailOpenBtn: { flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: C.primary, paddingHorizontal: 14, paddingVertical: 9, borderRadius: 10 },
+  tabletDetailOpenBtnText: { fontSize: 13, fontFamily: 'Inter_600SemiBold', color: '#fff' },
+
   planContainer: { backgroundColor: C.surface, borderRadius: 16, borderWidth: 1, borderColor: C.border, marginBottom: 16, overflow: 'hidden' },
   planTitleRow: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', padding: 14, paddingBottom: 10 },
   planTitle: { fontSize: 14, fontFamily: 'Inter_600SemiBold', color: C.text },
