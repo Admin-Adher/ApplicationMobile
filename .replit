@@ -27,7 +27,7 @@ outputType = "webview"
 
 [[workflows.workflow.tasks]]
 task = "shell.exec"
-args = "npm run start"
+args = "node node_modules/expo/bin/cli start --web --port 5000 --clear"
 waitForPort = 5000
 
 [[ports]]
