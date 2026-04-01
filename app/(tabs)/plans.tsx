@@ -1,9 +1,9 @@
 import {
-  View, Text, StyleSheet, TouchableOpacity, ScrollView, Platform,
+  View, Text, StyleSheet, TouchableOpacity, ScrollView, FlatList, Platform,
   Modal, PanResponder, Animated, Image, KeyboardAvoidingView,
   ActivityIndicator, Alert, Linking, TextInput, useWindowDimensions,
 } from 'react-native';
-import { TABLET_RESERVE_PANEL_W } from '@/lib/useTablet';
+import { TABLET_SIDEBAR_W, TABLET_RESERVE_PANEL_W } from '@/lib/useTablet';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useState, useRef, useMemo } from 'react';
@@ -66,15 +66,15 @@ const GENERIC_FLOOR_PLAN: Room[] = [
 const PLAN_W = 360;
 const PLAN_H = 270;
 
-function DxfOverlay({ dxf, visibleLayers }: { dxf: DxfParseResult; visibleLayers?: string[] }) {
+function DxfOverlay({ dxf, visibleLayers, planW, planH }: { dxf: DxfParseResult; visibleLayers?: string[]; planW: number; planH: number }) {
   const MAX_ENTITIES = 2000;
   const elements: JSX.Element[] = [];
   let entityIdx = 0;
   const filterLayers = visibleLayers && visibleLayers.length > 0;
 
   function addLine(x1: number, y1: number, x2: number, y2: number, key: string) {
-    const p1 = normalizeDxfPoint(x1, y1, dxf, PLAN_W, PLAN_H, 8);
-    const p2 = normalizeDxfPoint(x2, y2, dxf, PLAN_W, PLAN_H, 8);
+    const p1 = normalizeDxfPoint(x1, y1, dxf, planW, planH, 8);
+    const p2 = normalizeDxfPoint(x2, y2, dxf, planW, planH, 8);
     const dx = p2.x - p1.x;
     const dy = p2.y - p1.y;
     const len = Math.sqrt(dx * dx + dy * dy);
@@ -112,9 +112,9 @@ function DxfOverlay({ dxf, visibleLayers }: { dxf: DxfParseResult; visibleLayers
         entityIdx++;
       }
     } else if (e.type === 'CIRCLE') {
-      const pc = normalizeDxfPoint(e.cx, e.cy, dxf, PLAN_W, PLAN_H, 8);
-      const scaleX = (PLAN_W - 16) / dxf.width;
-      const scaleY = (PLAN_H - 16) / dxf.height;
+      const pc = normalizeDxfPoint(e.cx, e.cy, dxf, planW, planH, 8);
+      const scaleX = (planW - 16) / dxf.width;
+      const scaleY = (planH - 16) / dxf.height;
       const rPx = e.r * Math.min(scaleX, scaleY);
       elements.push(
         <View
@@ -134,7 +134,7 @@ function DxfOverlay({ dxf, visibleLayers }: { dxf: DxfParseResult; visibleLayers
       );
       entityIdx++;
     } else if (e.type === 'TEXT') {
-      const pt = normalizeDxfPoint(e.x, e.y, dxf, PLAN_W, PLAN_H, 8);
+      const pt = normalizeDxfPoint(e.x, e.y, dxf, planW, planH, 8);
       elements.push(
         <Text
           key={`tx-${entityIdx}`}
@@ -157,7 +157,7 @@ function DxfOverlay({ dxf, visibleLayers }: { dxf: DxfParseResult; visibleLayers
   }
 
   return (
-    <View style={{ position: 'absolute', top: 0, left: 0, width: PLAN_W, height: PLAN_H, pointerEvents: 'none' as any }}>
+    <View style={{ position: 'absolute', top: 0, left: 0, width: planW, height: planH, pointerEvents: 'none' as any }}>
       {elements}
     </View>
   );
@@ -460,13 +460,13 @@ function PlanImageLayer({ uri, isPdfFile }: { uri: string; isPdfFile: boolean })
 }
 
 const planImgStyles = StyleSheet.create({
-  image: { position: 'absolute', top: 0, left: 0, width: PLAN_W, height: PLAN_H, borderRadius: 8 },
-  pdfContainer: { position: 'absolute', top: 0, left: 0, width: PLAN_W, height: PLAN_H },
-  pdfMobile: { position: 'absolute', top: 0, left: 0, width: PLAN_W, height: PLAN_H, alignItems: 'center', justifyContent: 'center', gap: 8, backgroundColor: C.surface2 },
+  image: { ...StyleSheet.absoluteFillObject, borderRadius: 8 },
+  pdfContainer: StyleSheet.absoluteFillObject,
+  pdfMobile: { ...StyleSheet.absoluteFillObject, alignItems: 'center', justifyContent: 'center', gap: 8, backgroundColor: C.surface2 },
   pdfText: { fontSize: 13, fontFamily: 'Inter_500Medium', color: C.text },
   pdfBtn: { flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: C.primary, paddingHorizontal: 14, paddingVertical: 8, borderRadius: 8 },
   pdfBtnText: { fontSize: 13, fontFamily: 'Inter_600SemiBold', color: '#fff' },
-  errorContainer: { position: 'absolute', top: 0, left: 0, width: PLAN_W, height: PLAN_H, alignItems: 'center', justifyContent: 'center', gap: 8, backgroundColor: C.surface2 },
+  errorContainer: { ...StyleSheet.absoluteFillObject, alignItems: 'center', justifyContent: 'center', gap: 8, backgroundColor: C.surface2 },
   errorText: { fontSize: 12, fontFamily: 'Inter_400Regular', color: C.textMuted },
 });
 
@@ -529,6 +529,18 @@ export default function PlansScreen() {
   const topPad = Platform.OS === 'web' ? 67 : insets.top;
   const { width: screenWidth } = useWindowDimensions();
   const isTablet = screenWidth >= 768;
+
+  const PLAN_RATIO = PLAN_H / PLAN_W;
+  const planAreaW = isTablet
+    ? screenWidth - TABLET_SIDEBAR_W - TABLET_RESERVE_PANEL_W - 32
+    : screenWidth - 32;
+  const dynW = Math.max(Math.floor(planAreaW), 260);
+  const dynH = Math.round(dynW * PLAN_RATIO);
+  const pinSize = isTablet ? 44 : 22;
+  const clusterSize = isTablet ? 56 : 30;
+
+  const [highlightedReserveId, setHighlightedReserveId] = useState<string | null>(null);
+  const reserveListRef = useRef<FlatList<Reserve> | null>(null);
 
   const scale = useRef(new Animated.Value(1)).current;
   const translateX = useRef(new Animated.Value(0)).current;
@@ -640,8 +652,8 @@ export default function PlansScreen() {
     const totalMove = Math.abs((pageX ?? 0) - touchStartXRef.current) + Math.abs((pageY ?? 0) - touchStartYRef.current);
     if (totalMove > 8) return;
     if (locationX === undefined || locationY === undefined) return;
-    const px = Math.min(100, Math.max(0, Math.round((locationX / PLAN_W) * 100)));
-    const py = Math.min(100, Math.max(0, Math.round((locationY / PLAN_H) * 100)));
+    const px = Math.min(100, Math.max(0, Math.round((locationX / dynW) * 100)));
+    const py = Math.min(100, Math.max(0, Math.round((locationY / dynH) * 100)));
     router.push({
       pathname: '/reserve/new',
       params: {
@@ -1206,7 +1218,8 @@ export default function PlansScreen() {
         </View>
       )}
 
-      <ScrollView contentContainerStyle={isTablet ? styles.tabletContent : styles.content} showsVerticalScrollIndicator={false}>
+      <View style={isTablet ? styles.tabletBodyRow : { flex: 1 }}>
+      <ScrollView style={{ flex: 1 }} contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
         <View style={styles.planContainer}>
           <View style={styles.planTitleRow}>
             <View style={{ flex: 1 }}>
@@ -1244,7 +1257,7 @@ export default function PlansScreen() {
             </View>
           )}
 
-          <View style={[styles.planViewport, isPlanPdf(currentPlan) ? styles.planViewportPdf : null]}>
+          <View style={[styles.planViewport, isPlanPdf(currentPlan) ? styles.planViewportPdf : { height: dynH + 20 }]}>
             {isPlanPdf(currentPlan) && currentPlan?.uri ? (
               <PdfPlanViewer
                 planUri={currentPlan.uri}
@@ -1275,7 +1288,7 @@ export default function PlansScreen() {
               style={[styles.planAnimated, { transform: [{ scale }, { translateX }, { translateY }] }]}
               {...panResponder.panHandlers}
             >
-              <View style={[styles.planView, { width: PLAN_W, height: PLAN_H }]} onTouchEnd={handlePlanTap}>
+              <View style={[styles.planView, { width: dynW, height: dynH }]} onTouchEnd={handlePlanTap}>
 
                 {currentPlan?.uri ? (
                   <PlanImageLayer uri={currentPlan.uri} isPdfFile={isPdf(currentPlan.uri)} />
@@ -1299,6 +1312,8 @@ export default function PlansScreen() {
                 {currentPlanId && dxfData[currentPlanId] && (
                   <DxfOverlay
                     dxf={dxfData[currentPlanId]}
+                    planW={dynW}
+                    planH={dynH}
                     visibleLayers={
                       visibleLayers[currentPlanId]?.length
                         ? visibleLayers[currentPlanId]
@@ -1309,6 +1324,7 @@ export default function PlansScreen() {
 
                 {ghostClusters.map((cluster, ci) => {
                   const isCluster = cluster.items.length > 1;
+                  const sz = isCluster ? clusterSize : pinSize;
                   const color = STATUS_CONFIG[cluster.dominantStatus as keyof typeof STATUS_CONFIG]?.color ?? C.primary;
                   return (
                     <View
@@ -1319,12 +1335,10 @@ export default function PlansScreen() {
                           left: `${cluster.cx}%` as any,
                           top: `${cluster.cy}%` as any,
                           backgroundColor: color,
-                          width: isCluster ? 30 : 22,
-                          height: isCluster ? 30 : 22,
-                          borderRadius: isCluster ? 15 : 11,
-                          transform: isCluster
-                            ? [{ translateX: -15 }, { translateY: -15 }]
-                            : [{ translateX: -11 }, { translateY: -11 }],
+                          width: sz,
+                          height: sz,
+                          borderRadius: sz / 2,
+                          transform: [{ translateX: -(sz / 2) }, { translateY: -(sz / 2) }],
                           opacity: 0.2,
                           pointerEvents: 'none' as any,
                         },
@@ -1332,10 +1346,10 @@ export default function PlansScreen() {
                     >
                       {isCluster ? (
                         <View style={styles.clusterInner}>
-                          <Text style={styles.clusterText}>{cluster.items.length}</Text>
+                          <Text style={[styles.clusterText, isTablet && { fontSize: 14 }]}>{cluster.items.length}</Text>
                         </View>
                       ) : (
-                        <Text style={styles.markerText}>{cluster.number}</Text>
+                        <Text style={[styles.markerText, isTablet && { fontSize: 14 }]}>{cluster.number}</Text>
                       )}
                     </View>
                   );
@@ -1343,7 +1357,9 @@ export default function PlansScreen() {
 
                 {pinClusters.map((cluster, ci) => {
                   const isCluster = cluster.items.length > 1;
+                  const sz = isCluster ? clusterSize : pinSize;
                   const color = STATUS_CONFIG[cluster.dominantStatus as keyof typeof STATUS_CONFIG]?.color ?? C.primary;
+                  const isHighlighted = !isCluster && highlightedReserveId === cluster.items[0]?.id;
                   return (
                     <TouchableOpacity
                       key={`cl-${ci}`}
@@ -1353,12 +1369,14 @@ export default function PlansScreen() {
                           left: `${cluster.cx}%` as any,
                           top: `${cluster.cy}%` as any,
                           backgroundColor: color,
-                          width: isCluster ? 30 : 22,
-                          height: isCluster ? 30 : 22,
-                          borderRadius: isCluster ? 15 : 11,
-                          transform: isCluster
-                            ? [{ translateX: -15 }, { translateY: -15 }]
-                            : [{ translateX: -11 }, { translateY: -11 }],
+                          width: sz,
+                          height: sz,
+                          borderRadius: sz / 2,
+                          transform: [{ translateX: -(sz / 2) }, { translateY: -(sz / 2) }],
+                          borderWidth: isHighlighted ? 3 : 2,
+                          borderColor: isHighlighted ? '#fff' : 'rgba(255,255,255,0.35)',
+                          shadowOpacity: isHighlighted ? 0.7 : 0.4,
+                          elevation: isHighlighted ? 8 : 4,
                         },
                       ]}
                       onPressIn={() => { suppressNextPlanTapRef.current = true; }}
@@ -1366,16 +1384,28 @@ export default function PlansScreen() {
                         if (isCluster) {
                           setStatusFilter('all');
                         } else {
-                          setSelected(cluster.items[0]);
+                          const reserve = cluster.items[0];
+                          if (isTablet) {
+                            const newId = highlightedReserveId === reserve.id ? null : reserve.id;
+                            setHighlightedReserveId(newId);
+                            if (newId) {
+                              const idx = planReserves.findIndex(r => r.id === newId);
+                              if (idx >= 0) {
+                                reserveListRef.current?.scrollToIndex({ index: idx, animated: true, viewPosition: 0.3 });
+                              }
+                            }
+                          } else {
+                            setSelected(reserve);
+                          }
                         }
                       }}
                     >
                       {isCluster ? (
                         <View style={styles.clusterInner}>
-                          <Text style={styles.clusterText}>{cluster.items.length}</Text>
+                          <Text style={[styles.clusterText, isTablet && { fontSize: 14 }]}>{cluster.items.length}</Text>
                         </View>
                       ) : (
-                        <Text style={styles.markerText}>{cluster.number}</Text>
+                        <Text style={[styles.markerText, isTablet && { fontSize: 14 }]}>{cluster.number}</Text>
                       )}
                     </TouchableOpacity>
                   );
@@ -1401,8 +1431,8 @@ export default function PlansScreen() {
                   })}
                   <View
                     style={[styles.miniMapViewport, {
-                      left: Math.max(0, (-committedTX.current / displayScale) * (MINI_W / PLAN_W)),
-                      top: Math.max(0, (-committedTY.current / displayScale) * (MINI_H / PLAN_H)),
+                      left: Math.max(0, (-committedTX.current / displayScale) * (MINI_W / dynW)),
+                      top: Math.max(0, (-committedTY.current / displayScale) * (MINI_H / dynH)),
                       width: Math.min(MINI_W, (MINI_W / displayScale)),
                       height: Math.min(MINI_H, (MINI_H / displayScale)),
                     }]}
@@ -1479,7 +1509,7 @@ export default function PlansScreen() {
       </ScrollView>
 
       {isTablet && (
-        <View style={styles.tabletPanel}>
+        <View style={[styles.tabletPanel, { width: TABLET_RESERVE_PANEL_W }]}>
           <View style={styles.tabletPanelHdr}>
             <Ionicons name="list-outline" size={14} color={C.primary} />
             <Text style={styles.tabletPanelTitle}>
@@ -1501,8 +1531,14 @@ export default function PlansScreen() {
               <Text style={styles.exportBtnText}>PDF</Text>
             </TouchableOpacity>
           </View>
-          <ScrollView contentContainerStyle={styles.tabletPanelContent} showsVerticalScrollIndicator={false}>
-            {planReserves.length === 0 ? (
+          <FlatList
+            ref={reserveListRef}
+            data={planReserves}
+            keyExtractor={r => r.id}
+            contentContainerStyle={[styles.tabletPanelContent, planReserves.length === 0 && { flex: 1 }]}
+            showsVerticalScrollIndicator={false}
+            onScrollToIndexFailed={() => {}}
+            ListEmptyComponent={
               <View style={[styles.noReservesCard, { marginTop: 16 }]}>
                 <Ionicons name="checkmark-circle-outline" size={28} color={C.closed} />
                 <Text style={styles.noReservesText}>Aucune réserve</Text>
@@ -1519,26 +1555,27 @@ export default function PlansScreen() {
                   </TouchableOpacity>
                 )}
               </View>
-            ) : (
-              planReserves.map(r => (
-                <TouchableOpacity
-                  key={r.id}
-                  style={[styles.reserveRow, selected?.id === r.id && styles.tabletReserveRowSelected]}
-                  onPress={() => setSelected(selected?.id === r.id ? null : r)}
-                  activeOpacity={0.75}
-                >
-                  <View style={[styles.pinBadge, { backgroundColor: STATUS_CONFIG[r.status].color, width: 34, height: 34, borderRadius: 17 }]}>
-                    <Text style={styles.pinBadgeText}>{pinNumberMap.get(r.id) ?? '—'}</Text>
-                  </View>
-                  <View style={styles.reserveInfo}>
-                    <Text style={styles.reserveTitle} numberOfLines={2}>{r.title}</Text>
-                    <Text style={styles.reserveMeta}>{r.company} · {r.level}</Text>
-                  </View>
-                  <StatusBadge status={r.status} size="sm" />
-                </TouchableOpacity>
-              ))
+            }
+            renderItem={({ item: r }) => (
+              <TouchableOpacity
+                style={[styles.reserveRow, highlightedReserveId === r.id && styles.tabletReserveRowSelected]}
+                onPress={() => {
+                  const newId = highlightedReserveId === r.id ? null : r.id;
+                  setHighlightedReserveId(newId);
+                }}
+                activeOpacity={0.75}
+              >
+                <View style={[styles.pinBadge, { backgroundColor: STATUS_CONFIG[r.status].color, width: 34, height: 34, borderRadius: 17 }]}>
+                  <Text style={styles.pinBadgeText}>{pinNumberMap.get(r.id) ?? '—'}</Text>
+                </View>
+                <View style={styles.reserveInfo}>
+                  <Text style={styles.reserveTitle} numberOfLines={2}>{r.title}</Text>
+                  <Text style={styles.reserveMeta}>{r.company} · {r.level}</Text>
+                </View>
+                <StatusBadge status={r.status} size="sm" />
+              </TouchableOpacity>
             )}
-          </ScrollView>
+          />
           {permissions.canCreate && (
             <TouchableOpacity
               style={styles.tabletAddBtn}
@@ -1553,6 +1590,7 @@ export default function PlansScreen() {
           )}
         </View>
       )}
+      </View>
 
       {permissions.canCreate && !isTablet && (
         <TouchableOpacity
@@ -1833,12 +1871,12 @@ const styles = StyleSheet.create({
   levelChipActive: { backgroundColor: '#8B5CF620', borderColor: '#8B5CF6' },
   content: { padding: 16, paddingBottom: 48 },
   tabletContent: { padding: 16, paddingBottom: 48, paddingRight: TABLET_RESERVE_PANEL_W + 16 },
+  tabletBodyRow: {
+    flex: 1,
+    flexDirection: 'row',
+  },
   tabletPanel: {
-    position: 'absolute',
-    right: 0,
-    top: 0,
-    bottom: 0,
-    width: TABLET_RESERVE_PANEL_W,
+    flex: 0,
     backgroundColor: C.surface,
     borderLeftWidth: 1,
     borderLeftColor: C.border,
