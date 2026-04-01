@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useEffect, useState, useCallback } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { AttendanceRecord, Company } from '@/constants/types';
+import { genId } from '@/lib/utils';
 
 const PROJECT_NAME_KEY = 'buildtrack_project_name_v1';
 const PROJECT_DESC_KEY = 'buildtrack_project_desc_v1';
@@ -21,10 +22,6 @@ interface SettingsContextValue {
 }
 
 const SettingsContext = createContext<SettingsContextValue | null>(null);
-
-function genId(): string {
-  return Date.now().toString() + Math.random().toString(36).substring(2, 8);
-}
 
 export function SettingsProvider({ children }: { children: React.ReactNode }) {
   const [projectName, setProjectNameState] = useState('Projet Horizon');

@@ -5,7 +5,7 @@ import { Reserve, Company, Task, Document, Photo, Message, Channel, Profile, Com
 import { supabase, isSupabaseConfigured } from '@/lib/supabase';
 import { initStorageBuckets } from '@/lib/storage';
 import { C } from '@/constants/colors';
-import { genId } from '@/lib/utils';
+import { genId, nowTimestampFR } from '@/lib/utils';
 
 export const STATIC_CHANNELS: Channel[] = [
   { id: 'general', name: 'Général', description: 'Canal principal du projet', icon: 'home', color: C.primary, type: 'general' },
@@ -1314,6 +1314,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     dismissNotification,
 
     addReserve: (r) => {
+      dispatch({ type: 'ADD_RESERVE', payload: r });
       if (isSupabaseConfigured) {
         supabase.from('reserves').insert({
           id: r.id, title: r.title, description: r.description, building: r.building,
@@ -1322,15 +1323,19 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           comments: r.comments, history: r.history, plan_x: r.planX, plan_y: r.planY,
           photo_uri: r.photoUri,
         }).then(({ error }: { error: any }) => {
-          if (error) console.warn('Erreur ajout réserve:', error.message);
+          if (error) {
+            dispatch({ type: 'DELETE_RESERVE', payload: r.id });
+            Alert.alert('Erreur de sauvegarde', "La réserve n'a pas pu être enregistrée. Vérifiez votre connexion et réessayez.");
+          }
         });
       } else {
         persistMockReserves([r, ...stateRef.current.reserves]);
       }
-      dispatch({ type: 'ADD_RESERVE', payload: r });
     },
 
     updateReserve: (r) => {
+      const previous = stateRef.current.reserves.find(res => res.id === r.id);
+      dispatch({ type: 'UPDATE_RESERVE', payload: r });
       if (isSupabaseConfigured) {
         supabase.from('reserves').update({
           title: r.title, description: r.description, building: r.building,
@@ -1338,38 +1343,48 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           status: r.status, deadline: r.deadline, comments: r.comments, history: r.history,
           plan_x: r.planX, plan_y: r.planY, photo_uri: r.photoUri,
         }).eq('id', r.id).then(({ error }: { error: any }) => {
-          if (error) console.warn('Erreur mise à jour réserve:', error.message);
+          if (error) {
+            if (previous) dispatch({ type: 'UPDATE_RESERVE', payload: previous });
+            Alert.alert('Erreur de sauvegarde', "La modification de la réserve n'a pas pu être enregistrée.");
+          }
         });
       } else {
         persistMockReserves(stateRef.current.reserves.map(res => res.id === r.id ? r : res));
       }
-      dispatch({ type: 'UPDATE_RESERVE', payload: r });
     },
 
     updateReserveFields: (r) => {
+      const previous = stateRef.current.reserves.find(res => res.id === r.id);
+      dispatch({ type: 'UPDATE_RESERVE_FIELDS', payload: r });
       if (isSupabaseConfigured) {
         supabase.from('reserves').update({
           title: r.title, description: r.description, building: r.building,
           zone: r.zone, level: r.level, company: r.company, priority: r.priority,
           deadline: r.deadline, history: r.history, photo_uri: r.photoUri ?? null,
         }).eq('id', r.id).then(({ error }: { error: any }) => {
-          if (error) console.warn('Erreur modification réserve:', error.message);
+          if (error) {
+            if (previous) dispatch({ type: 'UPDATE_RESERVE_FIELDS', payload: previous });
+            Alert.alert('Erreur de sauvegarde', "La modification de la réserve n'a pas pu être enregistrée.");
+          }
         });
       } else {
         persistMockReserves(stateRef.current.reserves.map(res => res.id === r.id ? r : res));
       }
-      dispatch({ type: 'UPDATE_RESERVE_FIELDS', payload: r });
     },
 
     deleteReserve: (id) => {
+      const previous = stateRef.current.reserves.find(r => r.id === id);
+      dispatch({ type: 'DELETE_RESERVE', payload: id });
       if (isSupabaseConfigured) {
         supabase.from('reserves').delete().eq('id', id).then(({ error }: { error: any }) => {
-          if (error) console.warn('Erreur suppression réserve:', error.message);
+          if (error) {
+            if (previous) dispatch({ type: 'ADD_RESERVE', payload: previous });
+            Alert.alert('Erreur de suppression', "La réserve n'a pas pu être supprimée. Veuillez réessayer.");
+          }
         });
       } else {
         persistMockReserves(stateRef.current.reserves.filter(r => r.id !== id));
       }
-      dispatch({ type: 'DELETE_RESERVE', payload: id });
     },
 
     updateReserveStatus: (id, status, author?: string) => {
@@ -1397,23 +1412,23 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         closedAt,
         closedBy,
       };
+      dispatch({ type: 'UPDATE_RESERVE_STATUS', payload: updated });
       if (isSupabaseConfigured) {
         supabase.from('reserves').update({
           status: updated.status, history: updated.history,
           closed_at: closedAt ?? null, closed_by: closedBy ?? null,
         }).eq('id', id).then(({ error }: { error: any }) => {
-          if (error) console.warn('Erreur statut réserve:', error.message);
+          if (error) {
+            dispatch({ type: 'UPDATE_RESERVE_STATUS', payload: reserve });
+            Alert.alert('Erreur de sauvegarde', "Le statut de la réserve n'a pas pu être mis à jour.");
+          }
         });
       }
-      dispatch({ type: 'UPDATE_RESERVE_STATUS', payload: updated });
 
       const company = stateRef.current.companies.find(c => c.name === reserve.company);
       if (company) {
         const notifChannelId = `company-${company.id}`;
-        const ts = new Date().toLocaleString('fr-FR', {
-          day: '2-digit', month: '2-digit', year: 'numeric',
-          hour: '2-digit', minute: '2-digit',
-        }).replace(',', '');
+        const ts = nowTimestampFR();
         const notifMsg: Message = {
           id: genId(),
           channelId: notifChannelId,
@@ -1429,12 +1444,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           mentions: [],
           reserveId: reserve.id,
         };
+        dispatch({ type: 'ADD_MESSAGE', payload: notifMsg });
         if (isSupabaseConfigured) {
           supabase.from('messages').insert(fromMessage(notifMsg)).then(({ error }: { error: any }) => {
             if (error) console.warn('Erreur notification canal:', error.message);
           });
         }
-        dispatch({ type: 'ADD_MESSAGE', payload: notifMsg });
       }
     },
 
@@ -1449,75 +1464,94 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         createdAt: new Date().toISOString().slice(0, 10),
       };
       const updatedComments = [...reserve.comments, comment];
+      dispatch({ type: 'ADD_COMMENT', payload: { reserveId, comment } });
       if (isSupabaseConfigured) {
         supabase.from('reserves').update({ comments: updatedComments }).eq('id', reserveId).then(({ error }: { error: any }) => {
-          if (error) console.warn('Erreur ajout commentaire:', error.message);
+          if (error) {
+            dispatch({ type: 'UPDATE_RESERVE', payload: reserve });
+            Alert.alert('Erreur de sauvegarde', "Le commentaire n'a pas pu être enregistré.");
+          }
         });
       }
-      dispatch({ type: 'ADD_COMMENT', payload: { reserveId, comment } });
     },
 
     addCompany: (c) => {
+      dispatch({ type: 'ADD_COMPANY', payload: c });
       if (isSupabaseConfigured) {
         supabase.from('companies').insert({
           id: c.id, name: c.name, short_name: c.shortName, color: c.color,
           planned_workers: c.plannedWorkers, actual_workers: c.actualWorkers,
           hours_worked: c.hoursWorked, zone: c.zone, contact: c.contact,
         }).then(({ error }: { error: any }) => {
-          if (error) console.warn('Erreur ajout entreprise:', error.message);
+          if (error) {
+            dispatch({ type: 'DELETE_COMPANY', payload: c.id });
+            Alert.alert('Erreur de sauvegarde', "L'entreprise n'a pas pu être enregistrée.");
+          }
         });
       }
-      dispatch({ type: 'ADD_COMPANY', payload: c });
     },
 
     updateCompanyWorkers: (id, actual) => {
+      const previous = stateRef.current.companies.find(c => c.id === id);
+      dispatch({ type: 'UPDATE_COMPANY', payload: { id, actualWorkers: actual } });
       if (isSupabaseConfigured) {
         supabase.from('companies').update({ actual_workers: actual }).eq('id', id).then(({ error }: { error: any }) => {
-          if (error) console.warn('Erreur mise à jour effectif:', error.message);
+          if (error) {
+            if (previous) dispatch({ type: 'UPDATE_COMPANY', payload: { id, actualWorkers: previous.actualWorkers } });
+            Alert.alert('Erreur de sauvegarde', "L'effectif n'a pas pu être mis à jour.");
+          }
         });
       }
-      dispatch({ type: 'UPDATE_COMPANY', payload: { id, actualWorkers: actual } });
     },
 
     updateCompanyFull: (c) => {
+      const previous = stateRef.current.companies.find(co => co.id === c.id);
+      dispatch({ type: 'UPDATE_COMPANY_FULL', payload: c });
       if (isSupabaseConfigured) {
         supabase.from('companies').update({
           name: c.name, short_name: c.shortName, color: c.color,
           planned_workers: c.plannedWorkers, actual_workers: c.actualWorkers,
           hours_worked: c.hoursWorked, zone: c.zone, contact: c.contact,
         }).eq('id', c.id).then(({ error }: { error: any }) => {
-          if (error) console.warn('Erreur mise à jour entreprise:', error.message);
+          if (error) {
+            if (previous) dispatch({ type: 'UPDATE_COMPANY_FULL', payload: previous });
+            Alert.alert('Erreur de sauvegarde', "L'entreprise n'a pas pu être mise à jour.");
+          }
         });
       }
-      dispatch({ type: 'UPDATE_COMPANY_FULL', payload: c });
     },
 
     deleteCompany: (id) => {
+      const previous = stateRef.current.companies.find(c => c.id === id);
+      dispatch({ type: 'DELETE_COMPANY', payload: id });
       if (isSupabaseConfigured) {
         supabase.from('companies').delete().eq('id', id).then(({ error }: { error: any }) => {
-          if (error) console.warn('Erreur suppression entreprise:', error.message);
+          if (error) {
+            if (previous) dispatch({ type: 'ADD_COMPANY', payload: previous });
+            Alert.alert('Erreur de suppression', "L'entreprise n'a pas pu être supprimée.");
+          }
         });
       }
-      dispatch({ type: 'DELETE_COMPANY', payload: id });
     },
 
     updateCompanyHours: (id, hours) => {
+      const previous = stateRef.current.companies.find(c => c.id === id);
+      dispatch({ type: 'UPDATE_COMPANY_HOURS', payload: { id, hours } });
       if (isSupabaseConfigured) {
         supabase.from('companies').update({ hours_worked: hours }).eq('id', id).then(({ error }: { error: any }) => {
-          if (error) console.warn('Erreur mise à jour heures:', error.message);
+          if (error) {
+            if (previous) dispatch({ type: 'UPDATE_COMPANY_HOURS', payload: { id, hours: previous.hoursWorked } });
+            Alert.alert('Erreur de sauvegarde', "Les heures n'ont pas pu être mises à jour.");
+          }
         });
       }
-      dispatch({ type: 'UPDATE_COMPANY_HOURS', payload: { id, hours } });
     },
 
     reload: loadAll,
     setCurrentUser,
 
     addMessage: (channelId, content, options = {}, sender = 'Moi') => {
-      const ts = new Date().toLocaleString('fr-FR', {
-        day: '2-digit', month: '2-digit', year: 'numeric',
-        hour: '2-digit', minute: '2-digit',
-      }).replace(',', '');
+      const ts = nowTimestampFR();
       const actualSender = currentUserNameRef.current || sender;
       const msg: Message = {
         id: genId(), channelId, sender: actualSender, content, timestamp: ts,
@@ -1527,38 +1561,49 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         replyToSender: options.replyToSender, attachmentUri: options.attachmentUri,
         reserveId: options.reserveId,
       };
+      dispatch({ type: 'ADD_MESSAGE', payload: msg });
       if (isSupabaseConfigured) {
         supabase.from('messages').insert(fromMessage(msg)).then(({ error }: { error: any }) => {
-          if (error) console.warn('Erreur envoi message:', error.message);
+          if (error) {
+            dispatch({ type: 'DELETE_MESSAGE', payload: msg.id });
+            Alert.alert('Erreur d\'envoi', "Le message n'a pas pu être envoyé. Vérifiez votre connexion.");
+          }
         });
       } else {
         persistMockMessages([...stateRef.current.messages, msg]);
       }
-      dispatch({ type: 'ADD_MESSAGE', payload: msg });
     },
 
     incomingMessage: (msg) => dispatch({ type: 'INCOMING_MESSAGE', payload: msg }),
 
     deleteMessage: (id) => {
+      const previous = stateRef.current.messages.find(m => m.id === id);
+      dispatch({ type: 'DELETE_MESSAGE', payload: id });
       if (isSupabaseConfigured) {
         supabase.from('messages').delete().eq('id', id).then(({ error }: { error: any }) => {
-          if (error) console.warn('Erreur suppression message:', error.message);
+          if (error) {
+            if (previous) dispatch({ type: 'ADD_MESSAGE', payload: previous });
+            Alert.alert('Erreur de suppression', "Le message n'a pas pu être supprimé.");
+          }
         });
       } else {
         persistMockMessages(stateRef.current.messages.filter(m => m.id !== id));
       }
-      dispatch({ type: 'DELETE_MESSAGE', payload: id });
     },
 
     updateMessage: (msg) => {
+      const previous = stateRef.current.messages.find(m => m.id === msg.id);
+      dispatch({ type: 'UPDATE_MESSAGE', payload: msg });
       if (isSupabaseConfigured) {
         supabase.from('messages').update(fromMessage(msg)).eq('id', msg.id).then(({ error }: { error: any }) => {
-          if (error) console.warn('Erreur mise à jour message:', error.message);
+          if (error) {
+            if (previous) dispatch({ type: 'UPDATE_MESSAGE', payload: previous });
+            Alert.alert('Erreur de sauvegarde', "La modification du message n'a pas pu être enregistrée.");
+          }
         });
       } else {
         persistMockMessages(stateRef.current.messages.map(m => m.id === msg.id ? msg : m));
       }
-      dispatch({ type: 'UPDATE_MESSAGE', payload: msg });
     },
 
     markMessagesRead: () => {
@@ -1566,14 +1611,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     },
 
     setChannelRead: (channelId) => {
-      const ts = new Date().toLocaleString('fr-FR', {
-        day: '2-digit', month: '2-digit', year: 'numeric',
-        hour: '2-digit', minute: '2-digit',
-      }).replace(',', '');
-      dispatch({ type: 'SET_CHANNEL_READ', payload: { channelId, timestamp: ts } });
+      dispatch({ type: 'SET_CHANNEL_READ', payload: { channelId, timestamp: nowTimestampFR() } });
     },
 
     addTask: (t) => {
+      dispatch({ type: 'ADD_TASK', payload: t });
       if (isSupabaseConfigured) {
         supabase.from('tasks').insert({
           id: t.id, title: t.title, description: t.description, status: t.status,
@@ -1581,15 +1623,19 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           assignee: t.assignee, progress: t.progress, company: t.company,
           comments: t.comments ?? [], history: t.history ?? [],
         }).then(({ error }: { error: any }) => {
-          if (error) console.warn('Erreur ajout tâche:', error.message);
+          if (error) {
+            dispatch({ type: 'DELETE_TASK', payload: t.id });
+            Alert.alert('Erreur de sauvegarde', "La tâche n'a pas pu être enregistrée.");
+          }
         });
       } else {
         persistMockTasks([t, ...stateRef.current.tasks]);
       }
-      dispatch({ type: 'ADD_TASK', payload: t });
     },
 
     updateTask: (t) => {
+      const previous = stateRef.current.tasks.find(tk => tk.id === t.id);
+      dispatch({ type: 'UPDATE_TASK', payload: t });
       if (isSupabaseConfigured) {
         supabase.from('tasks').update({
           title: t.title, description: t.description, status: t.status,
@@ -1597,23 +1643,29 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           assignee: t.assignee, progress: t.progress, company: t.company,
           comments: t.comments ?? [], history: t.history ?? [],
         }).eq('id', t.id).then(({ error }: { error: any }) => {
-          if (error) console.warn('Erreur mise à jour tâche:', error.message);
+          if (error) {
+            if (previous) dispatch({ type: 'UPDATE_TASK', payload: previous });
+            Alert.alert('Erreur de sauvegarde', "La tâche n'a pas pu être mise à jour.");
+          }
         });
       } else {
         persistMockTasks(stateRef.current.tasks.map(tk => tk.id === t.id ? t : tk));
       }
-      dispatch({ type: 'UPDATE_TASK', payload: t });
     },
 
     deleteTask: (id) => {
+      const previous = stateRef.current.tasks.find(t => t.id === id);
+      dispatch({ type: 'DELETE_TASK', payload: id });
       if (isSupabaseConfigured) {
         supabase.from('tasks').delete().eq('id', id).then(({ error }: { error: any }) => {
-          if (error) console.warn('Erreur suppression tâche:', error.message);
+          if (error) {
+            if (previous) dispatch({ type: 'ADD_TASK', payload: previous });
+            Alert.alert('Erreur de suppression', "La tâche n'a pas pu être supprimée.");
+          }
         });
       } else {
         persistMockTasks(stateRef.current.tasks.filter(t => t.id !== id));
       }
-      dispatch({ type: 'DELETE_TASK', payload: id });
     },
 
     addTaskComment: (taskId, content, author = 'Utilisateur') => {
@@ -1624,59 +1676,81 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         id: genId(), author: actualAuthor, content,
         createdAt: new Date().toISOString().slice(0, 10),
       };
+      const updatedComments = [...(task.comments ?? []), comment];
       dispatch({ type: 'ADD_TASK_COMMENT', payload: { taskId, comment } });
-      if (!isSupabaseConfigured) {
+      if (isSupabaseConfigured) {
+        supabase.from('tasks').update({ comments: updatedComments }).eq('id', taskId).then(({ error }: { error: any }) => {
+          if (error) {
+            dispatch({ type: 'UPDATE_TASK', payload: task });
+            Alert.alert('Erreur de sauvegarde', "Le commentaire n'a pas pu être enregistré.");
+          }
+        });
+      } else {
         const updatedTasks = stateRef.current.tasks.map(t =>
-          t.id === taskId ? { ...t, comments: [...(t.comments ?? []), comment] } : t
+          t.id === taskId ? { ...t, comments: updatedComments } : t
         );
         persistMockTasks(updatedTasks);
       }
     },
 
     addPhoto: (p) => {
+      dispatch({ type: 'ADD_PHOTO', payload: p });
       if (isSupabaseConfigured) {
         supabase.from('photos').insert({
           id: p.id, comment: p.comment, location: p.location,
           taken_at: p.takenAt, taken_by: p.takenBy, color_code: p.colorCode, uri: p.uri,
         }).then(({ error }: { error: any }) => {
-          if (error) console.warn('Erreur ajout photo:', error.message);
+          if (error) {
+            dispatch({ type: 'DELETE_PHOTO', payload: p.id });
+            Alert.alert('Erreur de sauvegarde', "La photo n'a pas pu être enregistrée sur le serveur.");
+          }
         });
       } else {
         persistMockPhotos([p, ...stateRef.current.photos]);
       }
-      dispatch({ type: 'ADD_PHOTO', payload: p });
     },
 
     deletePhoto: (id) => {
+      const previous = stateRef.current.photos.find(p => p.id === id);
+      dispatch({ type: 'DELETE_PHOTO', payload: id });
       if (isSupabaseConfigured) {
         supabase.from('photos').delete().eq('id', id).then(({ error }: { error: any }) => {
-          if (error) console.warn('Erreur suppression photo:', error.message);
+          if (error) {
+            if (previous) dispatch({ type: 'ADD_PHOTO', payload: previous });
+            Alert.alert('Erreur de suppression', "La photo n'a pas pu être supprimée.");
+          }
         });
       } else {
         persistMockPhotos(stateRef.current.photos.filter(p => p.id !== id));
       }
-      dispatch({ type: 'DELETE_PHOTO', payload: id });
     },
 
     addDocument: (d) => {
+      dispatch({ type: 'ADD_DOCUMENT', payload: d });
       if (isSupabaseConfigured) {
         supabase.from('documents').insert({
           id: d.id, name: d.name, type: d.type, category: d.category,
           uploaded_at: d.uploadedAt, size: d.size, version: d.version, uri: d.uri,
         }).then(({ error }: { error: any }) => {
-          if (error) console.warn('Erreur ajout document:', error.message);
+          if (error) {
+            dispatch({ type: 'DELETE_DOCUMENT', payload: d.id });
+            Alert.alert('Erreur de sauvegarde', "Le document n'a pas pu être enregistré sur le serveur.");
+          }
         });
       }
-      dispatch({ type: 'ADD_DOCUMENT', payload: d });
     },
 
     deleteDocument: (id) => {
+      const previous = stateRef.current.documents.find(d => d.id === id);
+      dispatch({ type: 'DELETE_DOCUMENT', payload: id });
       if (isSupabaseConfigured) {
         supabase.from('documents').delete().eq('id', id).then(({ error }: { error: any }) => {
-          if (error) console.warn('Erreur suppression document:', error.message);
+          if (error) {
+            if (previous) dispatch({ type: 'ADD_DOCUMENT', payload: previous });
+            Alert.alert('Erreur de suppression', "Le document n'a pas pu être supprimé.");
+          }
         });
       }
-      dispatch({ type: 'DELETE_DOCUMENT', payload: id });
     },
 
     addCustomChannel,
@@ -1732,6 +1806,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         verification: 'Vérification', closed: 'Clôturé',
       };
       const now = new Date().toISOString().slice(0, 10);
+      const previousReserves = stateRef.current.reserves.filter(r => ids.includes(r.id));
       const updated: Reserve[] = [];
       for (const id of ids) {
         const reserve = stateRef.current.reserves.find(r => r.id === id);
@@ -1758,18 +1833,27 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           closedBy: isClosing ? actualAuthor : reserve.closedBy,
         };
         updated.push(r);
-        if (isSupabaseConfigured) {
-          supabase.from('reserves').update({
-            status: r.status, company: r.company, deadline: r.deadline,
-            priority: r.priority, history: r.history,
-            closed_at: r.closedAt ?? null, closed_by: r.closedBy ?? null,
-          }).eq('id', id).then(({ error }: { error: any }) => {
-            if (error) console.warn('Erreur batch update réserve:', error.message);
-          });
-        }
       }
       dispatch({ type: 'BATCH_UPDATE_RESERVES', payload: updated });
-      if (!isSupabaseConfigured) {
+      if (isSupabaseConfigured) {
+        let hasError = false;
+        Promise.all(
+          updated.map(r =>
+            supabase.from('reserves').update({
+              status: r.status, company: r.company, deadline: r.deadline,
+              priority: r.priority, history: r.history,
+              closed_at: r.closedAt ?? null, closed_by: r.closedBy ?? null,
+            }).eq('id', r.id)
+          )
+        ).then(results => {
+          const failed = results.some((res: any) => res.error);
+          if (failed && !hasError) {
+            hasError = true;
+            dispatch({ type: 'BATCH_UPDATE_RESERVES', payload: previousReserves });
+            Alert.alert('Erreur de sauvegarde', "Certaines réserves n'ont pas pu être mises à jour. Les modifications ont été annulées.");
+          }
+        });
+      } else {
         const allReserves = stateRef.current.reserves.map(r => {
           const u = updated.find(x => x.id === r.id);
           return u ?? r;

@@ -1,4 +1,5 @@
 import React, { createContext, useContext, useEffect, useState, useCallback } from 'react';
+import { Alert } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Incident } from '@/constants/types';
 import { supabase, isSupabaseConfigured } from '@/lib/supabase';
@@ -84,16 +85,23 @@ export function IncidentsProvider({ children }: { children: React.ReactNode }) {
 
   async function persist(updated: Incident[]) {
     setIncidents(updated);
-    try { await AsyncStorage.setItem(INCIDENTS_KEY, JSON.stringify(updated)); } catch {}
+    try { await AsyncStorage.setItem(INCIDENTS_KEY, JSON.stringify(updated)); } catch (e) {
+      console.warn('Erreur sauvegarde locale incidents:', e);
+    }
   }
 
-  async function syncToSupabase(incident: Incident, mode: 'upsert' | 'delete') {
+  async function syncToSupabase(
+    incident: Incident,
+    mode: 'upsert' | 'delete',
+    onError?: (err: string) => void
+  ) {
     if (!isSupabaseConfigured) return;
     try {
       if (mode === 'delete') {
-        await supabase.from('incidents').delete().eq('id', incident.id);
+        const { error } = await supabase.from('incidents').delete().eq('id', incident.id);
+        if (error) throw error;
       } else {
-        await supabase.from('incidents').upsert({
+        const { error } = await supabase.from('incidents').upsert({
           id: incident.id,
           title: incident.title,
           description: incident.description,
@@ -109,24 +117,37 @@ export function IncidentsProvider({ children }: { children: React.ReactNode }) {
           closed_by: incident.closedBy ?? null,
           photo_uri: incident.photoUri ?? null,
         });
+        if (error) throw error;
       }
-    } catch {}
+    } catch (e: any) {
+      const msg = e?.message ?? 'Erreur réseau';
+      console.warn('Erreur sync incident Supabase:', msg);
+      onError?.(msg);
+    }
   }
 
   const addIncident = useCallback(async (incident: Incident) => {
     await persist([incident, ...incidents]);
-    await syncToSupabase(incident, 'upsert');
+    await syncToSupabase(incident, 'upsert', (err) => {
+      Alert.alert('Synchronisation échouée', `L'incident a été sauvegardé localement mais n'a pas pu être envoyé au serveur.\n${err}`);
+    });
   }, [incidents]);
 
   const updateIncident = useCallback(async (incident: Incident) => {
     await persist(incidents.map(i => i.id === incident.id ? incident : i));
-    await syncToSupabase(incident, 'upsert');
+    await syncToSupabase(incident, 'upsert', (err) => {
+      Alert.alert('Synchronisation échouée', `La modification a été sauvegardée localement mais n'a pas pu être envoyée au serveur.\n${err}`);
+    });
   }, [incidents]);
 
   const deleteIncident = useCallback(async (id: string) => {
     const target = incidents.find(i => i.id === id);
     await persist(incidents.filter(i => i.id !== id));
-    if (target) await syncToSupabase(target, 'delete');
+    if (target) {
+      await syncToSupabase(target, 'delete', (err) => {
+        Alert.alert('Synchronisation échouée', `La suppression locale a réussi mais n'a pas pu être propagée au serveur.\n${err}`);
+      });
+    }
   }, [incidents]);
 
   return (

@@ -1,12 +1,9 @@
 import React, { createContext, useContext, useEffect, useState, useCallback } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { RegulatoryDoc } from '@/constants/types';
+import { genId } from '@/lib/utils';
 
 const REG_DOCS_KEY = 'buildtrack_reglementaire_v1';
-
-function genId(): string {
-  return Date.now().toString() + Math.random().toString(36).substring(2, 8);
-}
 
 interface ReglementaireContextValue {
   docs: RegulatoryDoc[];

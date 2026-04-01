@@ -171,11 +171,39 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
         .single();
 
       if (subData) {
+        let resolvedStatus: Subscription['status'] = subData.status;
+        if (
+          resolvedStatus === 'trial' &&
+          subData.trial_ends_at &&
+          new Date(subData.trial_ends_at) < new Date()
+        ) {
+          resolvedStatus = 'expired';
+          supabase
+            .from('subscriptions')
+            .update({ status: 'expired' })
+            .eq('id', subData.id)
+            .then(({ error }) => {
+              if (error) console.warn('Erreur mise à jour statut abonnement expiré:', error.message);
+            });
+        } else if (
+          resolvedStatus === 'active' &&
+          subData.expires_at &&
+          new Date(subData.expires_at) < new Date()
+        ) {
+          resolvedStatus = 'expired';
+          supabase
+            .from('subscriptions')
+            .update({ status: 'expired' })
+            .eq('id', subData.id)
+            .then(({ error }) => {
+              if (error) console.warn('Erreur mise à jour statut abonnement expiré:', error.message);
+            });
+        }
         setSubscription({
           id: subData.id,
           organizationId: subData.organization_id,
           planId: subData.plan_id,
-          status: subData.status,
+          status: resolvedStatus,
           startedAt: subData.started_at,
           expiresAt: subData.expires_at ?? undefined,
           trialEndsAt: subData.trial_ends_at ?? undefined,

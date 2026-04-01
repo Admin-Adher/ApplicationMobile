@@ -1,12 +1,9 @@
 import React, { createContext, useContext, useEffect, useState, useCallback } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { TimeEntry } from '@/constants/types';
+import { genId } from '@/lib/utils';
 
 const POINTAGE_KEY = 'buildtrack_pointage_v1';
-
-function genId(): string {
-  return Date.now().toString() + Math.random().toString(36).substring(2, 8);
-}
 
 interface PointageContextValue {
   entries: TimeEntry[];

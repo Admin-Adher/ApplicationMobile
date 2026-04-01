@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { View, Text, TouchableOpacity, StyleSheet, Platform } from 'react-native';
+import { View, Text, TouchableOpacity, StyleSheet, Platform, LogBox } from 'react-native';
 import { Stack, useRouter, useSegments } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import * as SplashScreen from 'expo-splash-screen';
@@ -21,6 +21,14 @@ import NotificationBanner from '@/components/NotificationBanner';
 import OfflineBanner from '@/components/OfflineBanner';
 import ChantierSwitcherSheet from '@/components/ChantierSwitcherSheet';
 import { reloadAppAsync } from 'expo';
+
+if (Platform.OS === 'web') {
+  LogBox.ignoreLogs([
+    "Couldn't find real values for `KeyboardContext`",
+    'useNativeDriver is not supported',
+    '"shadow*" style props are deprecated',
+  ]);
+}
 
 SplashScreen.preventAutoHideAsync();
 

@@ -475,7 +475,7 @@ export default function OprScreen() {
   }
 
   async function shareOprLink(opr: Opr) {
-    const base = Platform.OS === 'web' ? window.location.origin : process.env.EXPO_PUBLIC_APP_URL ?? 'https://buildtrack.app';
+    const base = Platform.OS === 'web' ? window.location.origin : (process.env.EXPO_PUBLIC_DOMAIN ? `https://${process.env.EXPO_PUBLIC_DOMAIN}` : process.env.EXPO_PUBLIC_APP_URL ?? '');
     const url = `${base}/opr-session/${opr.id}`;
     if (Platform.OS === 'web') {
       try { await navigator.clipboard.writeText(url); Alert.alert('Lien copié', 'Partagez ce lien avec les signataires externes.'); } catch { Alert.alert('Lien de session', url); }

@@ -152,10 +152,21 @@ export default function NewReserveScreen() {
     setPhotoUploading(true);
     try {
       const filename = `reserve_photo_${Date.now()}.jpg`;
-      const storageUrl = await uploadPhoto(uri, filename);
-      const finalUri = storageUrl ?? uri;
       const author = user?.name ?? 'Conducteur de travaux';
       const today = new Date().toISOString().slice(0, 10);
+
+      let storageUrl: string | null = null;
+      let uploadFailed = false;
+      try {
+        storageUrl = await uploadPhoto(uri, filename);
+      } catch (uploadErr: any) {
+        uploadFailed = true;
+        Alert.alert(
+          'Upload échoué',
+          `La photo n'a pas pu être envoyée au serveur (${uploadErr?.message ?? 'erreur réseau'}). Elle est sauvegardée localement uniquement.`
+        );
+      }
+      const finalUri = storageUrl ?? uri;
 
       let gpsLat: number | undefined;
       let gpsLon: number | undefined;
@@ -180,16 +191,8 @@ export default function NewReserveScreen() {
         gpsLon,
       };
       setPhotos(prev => [...prev, newPhoto]);
-    } catch {
-      const today = new Date().toISOString().slice(0, 10);
-      const newPhoto: ReservePhoto = {
-        id: genId(),
-        uri,
-        kind: 'defect',
-        takenAt: today,
-        takenBy: user?.name ?? 'Conducteur de travaux',
-      };
-      setPhotos(prev => [...prev, newPhoto]);
+    } catch (e: any) {
+      Alert.alert('Erreur photo', `Impossible de traiter cette photo. ${e?.message ?? ''}`);
     } finally {
       setPhotoUploading(false);
     }
@@ -207,6 +210,8 @@ export default function NewReserveScreen() {
     if (isSubmitting) return;
     if (!title.trim()) { Alert.alert('Champ obligatoire', 'Le titre est requis.'); return; }
     if (!company) { Alert.alert('Champ obligatoire', "Sélectionnez l'entreprise responsable."); return; }
+    if (!building || !building.trim()) { Alert.alert('Champ obligatoire', 'Le bâtiment est requis.'); return; }
+    if (!level || !level.trim()) { Alert.alert('Champ obligatoire', 'Le niveau est requis.'); return; }
     if (deadline && !validateDeadline(deadline)) {
       Alert.alert('Date invalide', "Vérifiez que le jour, le mois et l'année sont corrects (ex : 30/04/2026).");
       return;
