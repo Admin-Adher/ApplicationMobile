@@ -998,7 +998,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         supabase.from('documents').select('*').order('uploaded_at', { ascending: false }),
         supabase.from('photos').select('*').order('taken_at', { ascending: false }),
         supabase.from('messages').select('*').order('timestamp', { ascending: true }),
-        supabase.from('profiles').select('id, name, role, email'),
+        supabase.from('profiles').select('id, name, role, role_label, email'),
       ]);
 
       if (reservesErr) {
@@ -1321,14 +1321,14 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       createdBy: currentUserNameRef.current,
     };
     dispatch({ type: 'ADD_CUSTOM_CHANNEL', payload: newCh });
-    const updated = [...state.customChannels, newCh];
+    const updated = [...stateRef.current.customChannels, newCh];
     saveCustomChannels(updated);
     return newCh;
   }
 
   function removeCustomChannel(id: string) {
     dispatch({ type: 'REMOVE_CUSTOM_CHANNEL', payload: id });
-    const updated = state.customChannels.filter(c => c.id !== id);
+    const updated = stateRef.current.customChannels.filter(c => c.id !== id);
     saveCustomChannels(updated);
   }
 
@@ -1344,14 +1344,14 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       createdBy: currentUserNameRef.current,
     };
     dispatch({ type: 'ADD_GROUP_CHANNEL', payload: newCh });
-    const updated = [...state.groupChannels, newCh];
+    const updated = [...stateRef.current.groupChannels, newCh];
     saveGroupChannels(updated);
     return newCh;
   }
 
   function removeGroupChannel(id: string) {
     dispatch({ type: 'REMOVE_GROUP_CHANNEL', payload: id });
-    const updated = state.groupChannels.filter(c => c.id !== id);
+    const updated = stateRef.current.groupChannels.filter(c => c.id !== id);
     saveGroupChannels(updated);
   }
 
@@ -1423,16 +1423,16 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }
 
   function pinChannel(id: string): { success: boolean; reason?: string } {
-    if (state.pinnedChannelIds.includes(id)) return { success: false, reason: 'already_pinned' };
-    if (state.pinnedChannelIds.length >= MAX_PINNED) return { success: false, reason: 'limit_reached' };
-    const updated = [...state.pinnedChannelIds, id];
+    if (stateRef.current.pinnedChannelIds.includes(id)) return { success: false, reason: 'already_pinned' };
+    if (stateRef.current.pinnedChannelIds.length >= MAX_PINNED) return { success: false, reason: 'limit_reached' };
+    const updated = [...stateRef.current.pinnedChannelIds, id];
     dispatch({ type: 'SET_PINNED_CHANNELS', payload: updated });
     savePinnedChannels(updated);
     return { success: true };
   }
 
   function unpinChannel(id: string) {
-    const updated = state.pinnedChannelIds.filter(pid => pid !== id);
+    const updated = stateRef.current.pinnedChannelIds.filter(pid => pid !== id);
     dispatch({ type: 'SET_PINNED_CHANNELS', payload: updated });
     savePinnedChannels(updated);
   }
