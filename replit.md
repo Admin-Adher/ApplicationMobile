@@ -12,7 +12,12 @@ Digital construction site management application built with Expo (React Native) 
 - **Data Fetching:** React Context (TanStack Query was installed but unused; removed from dependencies)
 - **Local Storage:** AsyncStorage
 - **Reporting:** `expo-print` (PDF), `expo-file-system` + `expo-sharing` (CSV natif)
-- **PDF system:** Shared `lib/pdfBase.ts` — CSS tokens, `exportPDF()`, `loadPhotoAsDataUrl()`, `buildPhotoGrid()`, `buildLetterhead()`, `buildKpiRow()`, `buildDocFooter()`, `wrapHTML()`
+- **PDF system:** Shared `lib/pdfBase.ts` — CSS tokens, `exportPDF()`, `loadPhotoAsDataUrl()`, `buildPhotoGrid()`, `buildLetterhead()`, `buildKpiRow()`, `buildDocFooter()`, `wrapHTML()`, `buildInfoGrid()`
+  - PDF documents: PV de Réception (OPR), **PV de Levée de Réserves** (new), Rapport journalier, Rapport hebdomadaire, Bon de réserves par entreprise (avec photos), Fiche Réserve, Fiche Incident, CR Visite, CR Réunion, Journal de Chantier, CSV
+  - `rapports.tsx` fully refactored to use `pdfBase.ts` utilities — no CSS duplication
+  - Daily/weekly reports include "Récapitulatif par entreprise (lots)" table with progress bars
+  - Bon de réserves embeds defect thumbnail photos via `loadPhotoAsDataUrl`
+  - PV de Levée de Réserves: appears on OPR cards with reserve items; includes before/after photos, lot table, dual signatures (conducteur + MO)
 
 ## Architecture — Chantier Model
 

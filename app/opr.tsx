@@ -15,11 +15,19 @@ import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { useState, useMemo, useRef } from 'react';
 import { C } from '@/constants/colors';
-import { exportPDF as exportPDFHelper } from '@/lib/pdfBase';
+import {
+  exportPDF as exportPDFHelper,
+  loadPhotoAsDataUrl,
+  buildLetterhead,
+  buildInfoGrid,
+  buildKpiRow,
+  buildDocFooter,
+  wrapHTML,
+} from '@/lib/pdfBase';
 import { useApp } from '@/context/AppContext';
 import { useAuth } from '@/context/AuthContext';
 import { useSettings } from '@/context/SettingsContext';
-import { Opr, OprItem, OprSignatory, OprStatus } from '@/constants/types';
+import { Opr, OprItem, OprSignatory, OprStatus, Reserve } from '@/constants/types';
 import Header from '@/components/Header';
 import BottomNavBar from '@/components/BottomNavBar';
 import SignaturePad, { SignaturePadRef } from '@/components/SignaturePad';
@@ -198,6 +206,139 @@ function buildOprPDF(opr: Opr, projectName: string): string {
   </body></html>`;
 }
 
+async function buildPvLeveePDF(opr: Opr, reserves: Reserve[], projectName: string): Promise<string> {
+  const dateShort = new Date().toLocaleDateString('fr-FR');
+  const docRef = `PVL-${opr.id}-${dateShort.replace(/\//g, '')}`;
+
+  const reserveItems = opr.items.filter(i => i.status === 'reserve');
+  const totalReserves = reserveItems.length;
+
+  const linked = reserveItems.map(item => {
+    const reserve = item.reserveId ? reserves.find(r => r.id === item.reserveId) : undefined;
+    return { item, reserve };
+  });
+  const leveed = linked.filter(({ reserve }) => reserve?.status === 'closed');
+  const pending = linked.filter(({ reserve }) => !reserve || reserve.status !== 'closed');
+
+  const photoData: Record<string, { defect?: string; resolution?: string }> = {};
+  await Promise.all(
+    leveed.map(async ({ reserve }) => {
+      if (!reserve?.photos?.length) return;
+      const defectPhoto = reserve.photos.find(p => p.kind === 'defect');
+      const resolutionPhoto = reserve.photos.find(p => p.kind === 'resolution');
+      const [dSrc, rSrc] = await Promise.all([
+        defectPhoto ? loadPhotoAsDataUrl(defectPhoto.uri) : Promise.resolve(''),
+        resolutionPhoto ? loadPhotoAsDataUrl(resolutionPhoto.uri) : Promise.resolve(''),
+      ]);
+      photoData[reserve.id] = { defect: dSrc || undefined, resolution: rSrc || undefined };
+    })
+  );
+
+  const rows = reserveItems.map((item, idx) => {
+    const reserve = item.reserveId ? reserves.find(r => r.id === item.reserveId) : undefined;
+    const isLevee = reserve?.status === 'closed';
+    return `<tr style="background:${idx % 2 === 0 ? '#fff' : '#F9FAFB'}">
+      <td style="padding:8px 10px;border-bottom:1px solid #EEF3FA;font-weight:700;font-size:11px">${item.lotName}</td>
+      <td style="padding:8px 10px;border-bottom:1px solid #EEF3FA;font-size:11px;color:#003082;font-weight:700">${item.reserveId ?? '—'}</td>
+      <td style="padding:8px 10px;border-bottom:1px solid #EEF3FA;font-size:11px">${item.description !== item.lotName ? item.description : (reserve?.title ?? '—')}</td>
+      <td style="padding:8px 10px;border-bottom:1px solid #EEF3FA;text-align:center">
+        ${isLevee
+          ? '<span style="background:#ECFDF5;color:#059669;font-weight:700;padding:3px 10px;border-radius:12px;font-size:10px">✓ Levée</span>'
+          : '<span style="background:#FEF2F2;color:#DC2626;font-weight:700;padding:3px 10px;border-radius:12px;font-size:10px">⚠ En attente</span>'}
+      </td>
+      <td style="padding:8px 10px;border-bottom:1px solid #EEF3FA;font-size:11px;color:#059669">${reserve?.closedAt ?? '—'}</td>
+      <td style="padding:8px 10px;border-bottom:1px solid #EEF3FA;font-size:11px;color:#6B7280">${reserve?.closedBy ?? '—'}</td>
+    </tr>`;
+  }).join('');
+
+  const leveedWithPhotos = leveed.filter(({ reserve }) => reserve && photoData[reserve.id] && (photoData[reserve.id].defect || photoData[reserve.id].resolution));
+  const photoSection = leveedWithPhotos.length > 0 ? `
+    <div class="section-header">Photographies — Avant / Après levée</div>
+    ${leveedWithPhotos.map(({ item, reserve }) => {
+      if (!reserve) return '';
+      const photos = photoData[reserve.id];
+      return `<div style="margin-bottom:20px;page-break-inside:avoid">
+        <div style="font-size:11px;font-weight:700;color:#1A2742;margin-bottom:8px;background:#F4F7FB;padding:6px 10px;border-radius:6px">${item.lotName} — ${reserve.title}</div>
+        <div style="display:flex;gap:16px;flex-wrap:wrap">
+          ${photos.defect ? `<div style="text-align:center"><img src="${photos.defect}" style="width:200px;height:140px;object-fit:cover;border-radius:8px;border:2px solid #FCA5A5" /><div style="font-size:10px;color:#DC2626;font-weight:700;margin-top:4px">🔴 Constat initial</div></div>` : ''}
+          ${photos.resolution ? `<div style="text-align:center"><img src="${photos.resolution}" style="width:200px;height:140px;object-fit:cover;border-radius:8px;border:2px solid #6EE7B7" /><div style="font-size:10px;color:#059669;font-weight:700;margin-top:4px">🟢 Levée constatée</div></div>` : ''}
+        </div>
+      </div>`;
+    }).join('')}
+  ` : '';
+
+  const conducteurSigHtml = opr.conducteurSignature
+    ? `<img src="${opr.conducteurSignature}" style="width:100%;max-width:240px;height:80px;object-fit:contain;border-bottom:2px solid #1A2742;display:block;margin-bottom:6px" />`
+    : '<div style="height:70px;border-bottom:2px solid #1A2742;margin-bottom:8px"></div>';
+  const moSigHtml = opr.moSignature
+    ? `<img src="${opr.moSignature}" style="width:100%;max-width:240px;height:80px;object-fit:contain;border-bottom:2px solid #1A2742;display:block;margin-bottom:6px" />`
+    : '<div style="height:70px;border-bottom:2px solid #1A2742;margin-bottom:8px"></div>';
+
+  const signatureBlock = `
+    <div style="margin-top:36px;padding-top:20px;border-top:2px solid #EEF3FA">
+      <div class="section-header">Certification de levée des réserves</div>
+      <div class="alert alert-info" style="margin-bottom:20px">
+        Les soussignés certifient avoir procédé à la vérification des réserves émises lors du procès-verbal de réception référencé <strong>${opr.id}</strong> et attestent que les réserves indiquées comme « Levée » ont été régulièrement exécutées et conformes aux prescriptions contractuelles.
+      </div>
+      <div class="sig-row">
+        <div class="sig-block">
+          <div class="sig-label">Conducteur de travaux</div>
+          ${conducteurSigHtml}
+          <div class="sig-name">${opr.conducteur}</div>
+          <div class="sig-date">Date : ${dateShort}</div>
+        </div>
+        <div class="sig-block">
+          <div class="sig-label">Maître d'ouvrage</div>
+          ${moSigHtml}
+          <div class="sig-name">${opr.maireOuvrage ?? '—'}</div>
+          <div class="sig-date">Date : ${dateShort}</div>
+        </div>
+      </div>
+    </div>`;
+
+  const infoItems = [
+    { label: 'Référence OPR', value: opr.id },
+    { label: 'Date réception', value: opr.date },
+    { label: 'Localisation', value: `Bât. ${opr.building} — ${opr.level}` },
+    { label: 'Conducteur', value: opr.conducteur },
+    ...(opr.maireOuvrage ? [{ label: "Maître d'ouvrage", value: opr.maireOuvrage }] : []),
+  ];
+
+  const body = `
+    ${buildLetterhead('Procès-Verbal de Levée de Réserves', opr.title, docRef, dateShort, projectName)}
+    ${buildInfoGrid(infoItems)}
+    ${buildKpiRow([
+      { val: totalReserves, label: 'Réserves au PV', color: '#003082' },
+      { val: leveed.length, label: 'Levées', color: '#059669' },
+      { val: pending.length, label: 'En attente', color: pending.length > 0 ? '#DC2626' : '#059669' },
+      { val: totalReserves > 0 ? Math.round((leveed.length / totalReserves) * 100) + '%' : '—', label: 'Taux de levée', color: '#003082' },
+    ])}
+    ${pending.length === 0
+      ? '<div class="alert alert-success">✅ Toutes les réserves ont été levées — La réception est définitive.</div>'
+      : `<div class="alert alert-warning">⚠️ <strong>${pending.length} réserve${pending.length > 1 ? 's' : ''} en attente</strong> — La réception définitive ne peut être prononcée qu'après levée de l'ensemble des réserves.</div>`
+    }
+    <div class="section-header">Tableau récapitulatif des réserves par lot</div>
+    <table>
+      <thead>
+        <tr>
+          <th>LOT</th>
+          <th>RÉSERVE</th>
+          <th>DESCRIPTION</th>
+          <th style="text-align:center">STATUT</th>
+          <th>DATE LEVÉE</th>
+          <th>LEVÉE PAR</th>
+        </tr>
+      </thead>
+      <tbody>${rows || '<tr><td colspan="6" style="text-align:center;color:#059669;padding:14px">Aucune réserve — Réception sans réserve</td></tr>'}</tbody>
+    </table>
+    ${photoSection}
+    ${signatureBlock}
+    ${buildDocFooter(projectName)}
+  `;
+
+  return wrapHTML(body, `PV de Levée — ${opr.id}`);
+}
+
 export default function OprScreen() {
   const router = useRouter();
   const { oprs, addOpr, updateOpr, deleteOpr, lots, reserves, activeChantierId, activeChantier } = useApp();
@@ -296,6 +437,15 @@ export default function OprScreen() {
     try {
       const html = buildOprPDF(opr, projectName);
       await exportPDFHelper(html, `PV ${opr.id}`);
+    } catch (e: any) {
+      Alert.alert('Erreur PDF', e?.message ?? '');
+    }
+  }
+
+  async function exportLeveePDF(opr: Opr) {
+    try {
+      const html = await buildPvLeveePDF(opr, reserves, projectName);
+      await exportPDFHelper(html, `PV Levée ${opr.id}`);
     } catch (e: any) {
       Alert.alert('Erreur PDF', e?.message ?? '');
     }
@@ -501,7 +651,16 @@ export default function OprScreen() {
                   {permissions.canExport && (
                     <TouchableOpacity style={styles.actionBtn} onPress={() => exportOprPDF(opr)}>
                       <Ionicons name="download-outline" size={14} color={C.primary} />
-                      <Text style={[styles.actionBtnText, { color: C.primary }]}>PDF</Text>
+                      <Text style={[styles.actionBtnText, { color: C.primary }]}>PV Réception</Text>
+                    </TouchableOpacity>
+                  )}
+                  {permissions.canExport && opr.items.some(i => i.status === 'reserve') && (
+                    <TouchableOpacity
+                      style={[styles.actionBtn, { borderColor: C.closed + '40', backgroundColor: C.closedBg }]}
+                      onPress={() => exportLeveePDF(opr)}
+                    >
+                      <Ionicons name="checkmark-done-outline" size={14} color={C.closed} />
+                      <Text style={[styles.actionBtnText, { color: C.closed }]}>PV Levée</Text>
                     </TouchableOpacity>
                   )}
                   <TouchableOpacity style={[styles.actionBtn, { borderColor: '#8B5CF620', backgroundColor: '#F5F3FF' }]} onPress={() => shareOprLink(opr)}>
