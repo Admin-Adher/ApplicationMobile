@@ -12,6 +12,7 @@ import { useIncidents } from '@/context/IncidentsContext';
 import { useNotifications } from '@/context/NotificationsContext';
 import { parseDeadline, isOverdue } from '@/lib/reserveUtils';
 import { Task, ReserveWeekStat, CompanyClosureStat } from '@/constants/types';
+import PortfolioDashboard from '@/components/PortfolioDashboard';
 
 function isTaskLate(t: Task): boolean {
   if (t.status === 'done') return false;
@@ -155,6 +156,9 @@ export default function DashboardScreen() {
   const topPad = Platform.OS === 'web' ? 67 : insets.top;
   const [refreshing, setRefreshing] = useState(false);
   const [analyticsTab, setAnalyticsTab] = useState<'trend' | 'companies'>('trend');
+  const [viewMode, setViewMode] = useState<'chantier' | 'portfolio'>('chantier');
+
+  const showPortfolioToggle = chantiers.length >= 2;
 
   const PRIORITY_LABELS: Record<string, string> = {
     low: 'Basse', medium: 'Moyenne', high: 'Haute', critical: 'Critique',
@@ -244,28 +248,68 @@ export default function DashboardScreen() {
               </View>
             )}
           </TouchableOpacity>
-          {activeChantier ? (
-            <TouchableOpacity
-              style={styles.chantierPill}
-              onPress={openChantierSwitcher}
-            >
-              <View style={styles.chantierPillDot} />
-              <Text style={styles.chantierPillText} numberOfLines={1}>{activeChantier.name}</Text>
-              <Ionicons name="chevron-down" size={11} color={C.primary} />
-            </TouchableOpacity>
-          ) : (
-            <TouchableOpacity
-              style={styles.chantierPillEmpty}
-              onPress={() => router.push('/chantier/new' as any)}
-            >
-              <Ionicons name="add" size={13} color={C.textMuted} />
-              <Text style={styles.chantierPillEmptyText}>Chantier</Text>
-            </TouchableOpacity>
+          {viewMode === 'chantier' && (
+            activeChantier ? (
+              <TouchableOpacity
+                style={styles.chantierPill}
+                onPress={openChantierSwitcher}
+              >
+                <View style={styles.chantierPillDot} />
+                <Text style={styles.chantierPillText} numberOfLines={1}>{activeChantier.name}</Text>
+                <Ionicons name="chevron-down" size={11} color={C.primary} />
+              </TouchableOpacity>
+            ) : (
+              <TouchableOpacity
+                style={styles.chantierPillEmpty}
+                onPress={() => router.push('/chantier/new' as any)}
+              >
+                <Ionicons name="add" size={13} color={C.textMuted} />
+                <Text style={styles.chantierPillEmptyText}>Chantier</Text>
+              </TouchableOpacity>
+            )
           )}
         </View>
       </View>
 
-      {permissions.canCreate && (
+      {showPortfolioToggle && (
+        <View style={styles.viewToggleBar}>
+          <TouchableOpacity
+            style={[styles.viewToggleBtn, viewMode === 'chantier' && styles.viewToggleBtnActive]}
+            onPress={() => setViewMode('chantier')}
+          >
+            <Ionicons
+              name="business-outline"
+              size={13}
+              color={viewMode === 'chantier' ? C.primary : C.textMuted}
+            />
+            <Text style={[styles.viewToggleText, viewMode === 'chantier' && styles.viewToggleTextActive]}>
+              {activeChantier?.name ?? 'Chantier'}
+            </Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[styles.viewToggleBtn, viewMode === 'portfolio' && styles.viewToggleBtnActive]}
+            onPress={() => setViewMode('portfolio')}
+          >
+            <Ionicons
+              name="grid-outline"
+              size={13}
+              color={viewMode === 'portfolio' ? C.primary : C.textMuted}
+            />
+            <Text style={[styles.viewToggleText, viewMode === 'portfolio' && styles.viewToggleTextActive]}>
+              Portefeuille
+            </Text>
+            <View style={styles.viewToggleBadge}>
+              <Text style={styles.viewToggleBadgeText}>{chantiers.length}</Text>
+            </View>
+          </TouchableOpacity>
+        </View>
+      )}
+
+      {viewMode === 'portfolio' && (
+        <PortfolioDashboard onSwitchToChantier={() => setViewMode('chantier')} />
+      )}
+
+      {viewMode === 'chantier' && permissions.canCreate && (
         <TouchableOpacity
           style={styles.fab}
           onPress={() => router.push('/reserve/new' as any)}
@@ -276,7 +320,7 @@ export default function DashboardScreen() {
         </TouchableOpacity>
       )}
 
-      <ScrollView
+      {viewMode === 'chantier' && <ScrollView
         contentContainerStyle={styles.content}
         showsVerticalScrollIndicator={false}
         refreshControl={
@@ -597,7 +641,7 @@ export default function DashboardScreen() {
             ))}
           </View>
         )}
-      </ScrollView>
+      </ScrollView>}
     </View>
   );
 }
@@ -659,6 +703,34 @@ const styles = StyleSheet.create({
     borderRadius: 22, borderWidth: 1.5, borderColor: C.border,
   },
   chantierPillEmptyText: { fontSize: 13, fontFamily: 'Inter_600SemiBold', color: C.textMuted },
+
+  viewToggleBar: {
+    flexDirection: 'row',
+    backgroundColor: C.surface,
+    borderBottomWidth: 1,
+    borderBottomColor: C.border,
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    gap: 6,
+  },
+  viewToggleBtn: {
+    flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6,
+    paddingVertical: 8, paddingHorizontal: 12, borderRadius: 10,
+    backgroundColor: C.surface2,
+  },
+  viewToggleBtnActive: {
+    backgroundColor: C.primaryBg,
+    borderWidth: 1.5,
+    borderColor: C.primary + '50',
+  },
+  viewToggleText: { fontSize: 13, fontFamily: 'Inter_500Medium', color: C.textMuted },
+  viewToggleTextActive: { fontFamily: 'Inter_700Bold', color: C.primary },
+  viewToggleBadge: {
+    backgroundColor: C.primary, borderRadius: 8,
+    minWidth: 18, height: 18, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 4,
+  },
+  viewToggleBadgeText: { fontSize: 10, fontFamily: 'Inter_700Bold', color: '#fff' },
+
   content: { padding: 14, paddingBottom: 36 },
   kpiGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10, marginBottom: 10 },
   kpiTouchable: { flex: 1, minWidth: '44%' },
