@@ -732,15 +732,11 @@ export default function RapportsScreen() {
                   {companyReserves.length > 0 ? (
                     <TouchableOpacity
                       style={styles.exportBtn}
-                      onPress={() => {
-                        const html = buildCompanyReserveHTML(company, companyReserves, projectName);
-                        const blob = new (window as any).Blob([html], { type: 'text/html' });
-                        const url = (window as any).URL.createObjectURL(blob);
-                        const a = (window as any).document.createElement('a');
-                        a.href = url;
-                        a.download = `bon-reserve-${company.name.replace(/\s+/g, '-').toLowerCase()}.html`;
-                        a.click();
-                        (window as any).URL.revokeObjectURL(url);
+                      onPress={async () => {
+                        try {
+                          const html = buildCompanyReserveHTML(company, companyReserves, projectName);
+                          await exportPDFHelper(html, `Bon réserves — ${company.name}`);
+                        } catch {}
                       }}
                     >
                       <Ionicons name="document-text-outline" size={13} color={C.primary} />
