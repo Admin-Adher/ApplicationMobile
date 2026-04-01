@@ -87,7 +87,7 @@ async function fetchProfile(userId: string): Promise<User | null> {
 
     let orgId: string | undefined = data.organization_id ?? undefined;
     let role: UserRole = data.role as UserRole;
-    let roleLabel: string = data.role_label;
+    let roleLabel: string = data.role_label ?? ROLE_LABELS[role] ?? role;
 
     if (!orgId && role !== 'super_admin') {
       const linkedOrgId = await linkPendingInvitation(userId, data.email);
@@ -96,7 +96,7 @@ async function fetchProfile(userId: string): Promise<User | null> {
         if (refreshed) {
           orgId = refreshed.organization_id ?? undefined;
           role = refreshed.role as UserRole;
-          roleLabel = refreshed.role_label;
+          roleLabel = refreshed.role_label ?? ROLE_LABELS[role] ?? role;
         }
       }
     }
@@ -255,7 +255,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           id: p.id,
           name: p.name,
           role: p.role as UserRole,
-          roleLabel: p.role_label,
+          roleLabel: p.role_label ?? ROLE_LABELS[p.role as UserRole] ?? p.role,
           email: p.email,
           organizationId: p.organization_id ?? undefined,
         })));

@@ -28,7 +28,7 @@ const PRIORITY_OPTS: { value: ReservePriority; label: string; color: string }[] 
 export default function NewTaskScreen() {
   const router = useRouter();
   const { reserveId } = useLocalSearchParams<{ reserveId?: string }>();
-  const { addTask, reserves, updateReserveFields, companies, tasks } = useApp();
+  const { addTask, reserves, updateReserveFields, companies, tasks, activeChantierId } = useApp();
   const { user, permissions } = useAuth();
 
   const sourceReserve = reserveId ? reserves.find(r => r.id === reserveId) : null;
@@ -97,6 +97,10 @@ export default function NewTaskScreen() {
       company: company.trim(),
       progress: Math.min(100, Math.max(0, parseInt(progress) || 0)),
       reserveId: sourceReserve?.id,
+      chantierId: activeChantierId ?? undefined,
+      comments: [],
+      history: [{ id: genId(), action: 'Tâche créée', author: user?.name ?? 'Système', createdAt: new Date().toISOString().slice(0, 10) }],
+      createdAt: new Date().toISOString().slice(0, 10),
     };
     addTask(task);
     if (sourceReserve) {

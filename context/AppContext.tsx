@@ -156,6 +156,8 @@ function toTask(row: any): Task {
     reserveId: row.reserve_id ?? row.reserveId ?? undefined,
     comments: row.comments ?? [],
     history: row.history ?? [],
+    chantierId: row.chantier_id ?? undefined,
+    createdAt: row.created_at ?? undefined,
   };
 }
 
@@ -1023,7 +1025,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           documents: (documents ?? []).map(toDocument),
           photos: (photos ?? []).map(toPhoto),
           messages: (messages ?? []).map((r: any) => toMessage(r, userName)),
-          profiles: (profilesData ?? []).map((p: any) => ({ id: p.id, name: p.name, role: p.role, email: p.email })),
+          profiles: (profilesData ?? []).map((p: any) => ({ id: p.id, name: p.name, role: p.role, roleLabel: p.role_label ?? ROLE_LABELS[p.role as UserRole] ?? p.role, email: p.email })),
         },
       });
 
@@ -1356,9 +1358,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   function _updateAndPersistChannel(updatedCh: Channel) {
     dispatch({ type: 'UPDATE_CHANNEL', payload: updatedCh });
     if (updatedCh.type === 'custom') {
-      saveCustomChannels(state.customChannels.map(c => c.id === updatedCh.id ? updatedCh : c));
+      saveCustomChannels(stateRef.current.customChannels.map(c => c.id === updatedCh.id ? updatedCh : c));
     } else if (updatedCh.type === 'group') {
-      saveGroupChannels(state.groupChannels.map(c => c.id === updatedCh.id ? updatedCh : c));
+      saveGroupChannels(stateRef.current.groupChannels.map(c => c.id === updatedCh.id ? updatedCh : c));
     }
   }
 
