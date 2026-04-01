@@ -6,6 +6,11 @@ on:
       - main
   workflow_dispatch:
 
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+  EXPO_PUBLIC_SUPABASE_URL: ${{ secrets.EXPO_PUBLIC_SUPABASE_URL || 'https://jzeojdpgglbxjdasjgta.supabase.co' }}
+  EXPO_PUBLIC_SUPABASE_KEY: ${{ secrets.EXPO_PUBLIC_SUPABASE_KEY || 'sb_publishable_82T9HBSLycSJ2T6OBaDNLA_01V1mXda' }}
+
 jobs:
   build:
     name: Build APK
@@ -35,9 +40,6 @@ jobs:
 
       - name: Generate native Android project
         run: npx expo prebuild --platform android --clean
-        env:
-          EXPO_PUBLIC_SUPABASE_URL: ${{ secrets.EXPO_PUBLIC_SUPABASE_URL }}
-          EXPO_PUBLIC_SUPABASE_KEY: ${{ secrets.EXPO_PUBLIC_SUPABASE_KEY }}
 
       - name: Make gradlew executable
         run: chmod +x android/gradlew
@@ -45,9 +47,6 @@ jobs:
       - name: Build APK
         working-directory: android
         run: ./gradlew assembleDebug --no-daemon
-        env:
-          EXPO_PUBLIC_SUPABASE_URL: ${{ secrets.EXPO_PUBLIC_SUPABASE_URL }}
-          EXPO_PUBLIC_SUPABASE_KEY: ${{ secrets.EXPO_PUBLIC_SUPABASE_KEY }}
 
       - name: Find APK location
         run: find android/app/build/outputs/apk -name "*.apk" | tee apk-paths.txt

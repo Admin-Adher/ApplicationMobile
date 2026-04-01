@@ -1,4 +1,5 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
+import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
 import { Stack, useRouter, useSegments } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import * as SplashScreen from 'expo-splash-screen';
@@ -19,9 +20,29 @@ import { NotificationsProvider } from '@/context/NotificationsContext';
 import NotificationBanner from '@/components/NotificationBanner';
 import OfflineBanner from '@/components/OfflineBanner';
 import ChantierSwitcherSheet from '@/components/ChantierSwitcherSheet';
-import { ErrorBoundary } from '@/components/ErrorBoundary';
+import { reloadAppAsync } from 'expo';
 
 SplashScreen.preventAutoHideAsync();
+
+export function ErrorBoundary({ error }: { error: Error }) {
+  return (
+    <View style={eb.container}>
+      <Text style={eb.title}>Une erreur est survenue</Text>
+      <Text style={eb.message}>{error?.message ?? 'Erreur inconnue au démarrage.'}</Text>
+      <TouchableOpacity style={eb.button} onPress={() => reloadAppAsync()}>
+        <Text style={eb.buttonText}>Redémarrer</Text>
+      </TouchableOpacity>
+    </View>
+  );
+}
+
+const eb = StyleSheet.create({
+  container: { flex: 1, backgroundColor: '#0F1117', alignItems: 'center', justifyContent: 'center', padding: 32, gap: 16 },
+  title: { fontSize: 20, fontWeight: '700', color: '#FFFFFF', textAlign: 'center' },
+  message: { fontSize: 13, color: '#9CA3AF', textAlign: 'center', lineHeight: 20 },
+  button: { backgroundColor: '#1D4ED8', paddingVertical: 14, paddingHorizontal: 32, borderRadius: 12, marginTop: 8 },
+  buttonText: { color: '#FFFFFF', fontSize: 15, fontWeight: '600' },
+});
 
 function AuthGuard({ children }: { children: React.ReactNode }) {
   const { isAuthenticated, isLoading } = useAuth();
@@ -50,12 +71,18 @@ export default function RootLayout() {
     Inter_700Bold,
     ionicons: require('../assets/fonts/ionicons.ttf'),
   });
+  const [timedOut, setTimedOut] = useState(false);
 
-  const fontsReady = fontsLoaded || !!fontError;
+  const fontsReady = fontsLoaded || !!fontError || timedOut;
+
+  useEffect(() => {
+    const timer = setTimeout(() => setTimedOut(true), 5000);
+    return () => clearTimeout(timer);
+  }, []);
 
   useEffect(() => {
     if (fontsReady) {
-      SplashScreen.hideAsync();
+      SplashScreen.hideAsync().catch(() => {});
     }
   }, [fontsReady]);
 
@@ -64,7 +91,6 @@ export default function RootLayout() {
   }
 
   return (
-    <ErrorBoundary>
     <AuthProvider>
       <SubscriptionProvider>
       <NetworkProvider>
@@ -123,6 +149,5 @@ export default function RootLayout() {
       </NetworkProvider>
       </SubscriptionProvider>
     </AuthProvider>
-    </ErrorBoundary>
   );
 }
