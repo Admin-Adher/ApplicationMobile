@@ -768,11 +768,33 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     } catch {}
     try {
       const sc = await AsyncStorage.getItem(MOCK_CHANTIERS_KEY);
-      if (sc) { const p = JSON.parse(sc); if (Array.isArray(p)) chantiers = p; }
+      if (sc) {
+        const p = JSON.parse(sc);
+        if (Array.isArray(p)) {
+          const stored: Chantier[] = p;
+          const storedIds = new Set(stored.map((c: Chantier) => c.id));
+          const missing = MOCK_CHANTIERS.filter(c => !storedIds.has(c.id));
+          chantiers = [...missing, ...stored];
+          persistMockChantiers(chantiers);
+        }
+      } else {
+        persistMockChantiers(chantiers);
+      }
     } catch {}
     try {
       const ssp = await AsyncStorage.getItem(MOCK_SITE_PLANS_KEY);
-      if (ssp) { const p = JSON.parse(ssp); if (Array.isArray(p)) sitePlans = p; }
+      if (ssp) {
+        const p = JSON.parse(ssp);
+        if (Array.isArray(p)) {
+          const stored: SitePlan[] = p;
+          const storedIds = new Set(stored.map((s: SitePlan) => s.id));
+          const missing = MOCK_SITE_PLANS.filter(s => !storedIds.has(s.id));
+          sitePlans = [...missing, ...stored];
+          persistMockSitePlans(sitePlans);
+        }
+      } else {
+        persistMockSitePlans(sitePlans);
+      }
     } catch {}
     try {
       const sac = await AsyncStorage.getItem(ACTIVE_CHANTIER_KEY);
@@ -906,6 +928,48 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           profiles: (profilesData ?? []).map((p: any) => ({ id: p.id, name: p.name, role: p.role, email: p.email })),
         },
       });
+
+      let chantiers: Chantier[] = MOCK_CHANTIERS;
+      let sitePlans: SitePlan[] = MOCK_SITE_PLANS;
+      let activeChantierId: string | null = MOCK_CHANTIERS[0]?.id ?? null;
+      try {
+        const sc = await AsyncStorage.getItem(MOCK_CHANTIERS_KEY);
+        if (sc) {
+          const p = JSON.parse(sc);
+          if (Array.isArray(p)) {
+            const stored: Chantier[] = p;
+            const storedIds = new Set(stored.map((c: Chantier) => c.id));
+            const missing = MOCK_CHANTIERS.filter(c => !storedIds.has(c.id));
+            chantiers = [...missing, ...stored];
+            persistMockChantiers(chantiers);
+          }
+        } else {
+          persistMockChantiers(chantiers);
+        }
+      } catch {}
+      try {
+        const ssp = await AsyncStorage.getItem(MOCK_SITE_PLANS_KEY);
+        if (ssp) {
+          const p = JSON.parse(ssp);
+          if (Array.isArray(p)) {
+            const stored: SitePlan[] = p;
+            const storedIds = new Set(stored.map((s: SitePlan) => s.id));
+            const missing = MOCK_SITE_PLANS.filter(s => !storedIds.has(s.id));
+            sitePlans = [...missing, ...stored];
+            persistMockSitePlans(sitePlans);
+          }
+        } else {
+          persistMockSitePlans(sitePlans);
+        }
+      } catch {}
+      try {
+        const sac = await AsyncStorage.getItem(ACTIVE_CHANTIER_KEY);
+        if (sac) activeChantierId = sac;
+      } catch {}
+      dispatch({ type: 'SET_CHANTIERS', payload: chantiers });
+      dispatch({ type: 'SET_SITE_PLANS', payload: sitePlans });
+      if (activeChantierId) dispatch({ type: 'SET_ACTIVE_CHANTIER', payload: activeChantierId });
+
     } catch (err) {
       console.warn('Supabase load error:', err);
       dispatch({ type: 'SET_LOADING', payload: false });
