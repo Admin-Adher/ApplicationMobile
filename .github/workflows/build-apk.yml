@@ -44,9 +44,22 @@ jobs:
       - name: Make gradlew executable
         run: chmod +x android/gradlew
 
+      - name: Force JS bundle embedding in APK
+        run: |
+          echo "bundleInDebug=true" >> android/gradle.properties
+          echo "hermesEnabled=true" >> android/gradle.properties
+
+      - name: Configure release signing with debug key
+        working-directory: android
+        run: |
+          cat >> app/build.gradle << 'EOF'
+
+          android.buildTypes.release.signingConfig = android.signingConfigs.debug
+          EOF
+
       - name: Build APK
         working-directory: android
-        run: ./gradlew assembleDebug --no-daemon
+        run: ./gradlew assembleRelease --no-daemon --stacktrace
 
       - name: Find APK location
         run: find android/app/build/outputs/apk -name "*.apk" | tee apk-paths.txt
@@ -54,7 +67,7 @@ jobs:
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: buildtrack-debug.apk
-          path: android/app/build/outputs/apk/**/*.apk
+          name: buildtrack-release.apk
+          path: android/app/build/outputs/apk/release/*.apk
           retention-days: 30
           if-no-files-found: error
