@@ -229,7 +229,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setIsLoading(false);
     });
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, session) => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event: any, session: any) => {
       if (isSeedingRef.current) return;
       if (session?.user) {
         const profile = await fetchProfile(session.user.id);
@@ -249,7 +249,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     if (!user || !isSupabaseConfigured) return;
-    supabase.from('profiles').select('id, name, role, role_label, email, organization_id').then(({ data }) => {
+    supabase.from('profiles').select('id, name, role, role_label, email, organization_id').then(({ data }: { data: any }) => {
       if (data && data.length > 0) {
         setUsers(data.map((p: any) => ({
           id: p.id,

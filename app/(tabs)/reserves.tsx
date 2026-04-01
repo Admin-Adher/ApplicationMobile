@@ -199,7 +199,7 @@ export default function ReservesScreen() {
                 : `${filtered.length} / ${chantierReserves.length} réserve${chantierReserves.length !== 1 ? 's' : ''}${overdueCount > 0 ? ` · ${overdueCount} en retard` : ''}`}
             </Text>
           </View>
-          {permissions.canUpdate && filtered.length > 0 && (
+          {permissions.canEdit && filtered.length > 0 && (
             <TouchableOpacity
               style={[styles.selectBtn, isSelectMode && styles.selectBtnActive]}
               onPress={toggleSelectMode}

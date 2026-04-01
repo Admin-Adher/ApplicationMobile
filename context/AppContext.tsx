@@ -926,7 +926,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           tasks: (tasks ?? []).map(toTask),
           documents: (documents ?? []).map(toDocument),
           photos: (photos ?? []).map(toPhoto),
-          messages: (messages ?? []).map(r => toMessage(r, userName)),
+          messages: (messages ?? []).map((r: any) => toMessage(r, userName)),
           profiles: (profilesData ?? []).map((p: any) => ({ id: p.id, name: p.name, role: p.role, email: p.email })),
         },
       });
@@ -989,7 +989,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       return;
     }
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event: any, session: any) => {
       if (event === 'SIGNED_IN' && session) {
         loadAll();
       } else if (event === 'SIGNED_OUT') {
@@ -998,7 +998,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       }
     });
 
-    supabase.auth.getSession().then(({ data: { session } }) => {
+    supabase.auth.getSession().then(({ data: { session } }: { data: { session: any } }) => {
       if (session) loadAll();
       else dispatch({ type: 'SET_LOADING', payload: false });
     });
@@ -1011,7 +1011,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
     const globalSub = supabase
       .channel('global-messages-v2')
-      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages' }, (payload) => {
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages' }, (payload: any) => {
         const userName = currentUserNameRef.current;
         const msg = toMessage(payload.new, userName);
         if (!msg.isMe) {
@@ -1028,11 +1028,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           }
         }
       })
-      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'messages' }, (payload) => {
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'messages' }, (payload: any) => {
         const userName = currentUserNameRef.current;
         dispatch({ type: 'UPDATE_MESSAGE', payload: toMessage(payload.new, userName) });
       })
-      .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'messages' }, (payload) => {
+      .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'messages' }, (payload: any) => {
         dispatch({ type: 'DELETE_MESSAGE', payload: payload.old.id });
       })
       .subscribe();
@@ -1045,15 +1045,15 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
     const reserveSub = supabase
       .channel('realtime-reserves-v1')
-      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'reserves' }, (payload) => {
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'reserves' }, (payload: any) => {
         const r = toReserve(payload.new);
         dispatch({ type: 'ADD_RESERVE', payload: r });
       })
-      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'reserves' }, (payload) => {
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'reserves' }, (payload: any) => {
         const r = toReserve(payload.new);
         dispatch({ type: 'UPDATE_RESERVE', payload: r });
       })
-      .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'reserves' }, (payload) => {
+      .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'reserves' }, (payload: any) => {
         dispatch({ type: 'DELETE_RESERVE', payload: payload.old.id });
       })
       .subscribe((status) => {

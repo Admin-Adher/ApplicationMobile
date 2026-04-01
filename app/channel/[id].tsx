@@ -153,7 +153,7 @@ export default function ChannelScreen() {
       return () => { setActiveChannelId(null); };
     }
     const typingCh = supabase.channel(`typing:${channelId}`);
-    typingCh.on('broadcast', { event: 'typing' }, ({ payload }) => {
+    typingCh.on('broadcast', { event: 'typing' }, ({ payload }: { payload: Record<string, unknown> }) => {
       const name = payload.userName as string;
       if (name === user?.name) return;
       setTypingUsers(prev => prev.includes(name) ? prev : [...prev, name]);

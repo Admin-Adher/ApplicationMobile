@@ -6,6 +6,7 @@ import {
 import { TABLET_SIDEBAR_W, TABLET_RESERVE_PANEL_W } from '@/lib/useTablet';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
+import { ReactElement } from 'react';
 import { useState, useRef, useMemo } from 'react';
 import { useRouter } from 'expo-router';
 import * as DocumentPicker from 'expo-document-picker';
@@ -68,7 +69,7 @@ const PLAN_H = 270;
 
 function DxfOverlay({ dxf, visibleLayers, planW, planH }: { dxf: DxfParseResult; visibleLayers?: string[]; planW: number; planH: number }) {
   const MAX_ENTITIES = 2000;
-  const elements: JSX.Element[] = [];
+  const elements: ReactElement[] = [];
   let entityIdx = 0;
   const filterLayers = visibleLayers && visibleLayers.length > 0;
 
@@ -1514,8 +1515,8 @@ export default function PlansScreen() {
                   <Text style={styles.reserveMeta}>{r.company} · {r.level}</Text>
                 </View>
                 <View style={{ gap: 4, alignItems: 'flex-end' }}>
-                  <StatusBadge status={r.status} size="sm" />
-                  <PriorityBadge priority={r.priority} size="sm" />
+                  <StatusBadge status={r.status} small />
+                  <PriorityBadge priority={r.priority} small />
                 </View>
               </TouchableOpacity>
             ))}
@@ -1622,7 +1623,7 @@ export default function PlansScreen() {
                   </View>
 
                   <View style={styles.tabletDetailActions}>
-                    <PriorityBadge priority={detailReserve.priority} size="sm" />
+                    <PriorityBadge priority={detailReserve.priority} small />
                     {permissions.canCreate && (
                       <TouchableOpacity
                         style={styles.tabletDetailOpenBtn}
@@ -1755,8 +1756,8 @@ export default function PlansScreen() {
                 <Text style={styles.modalDesc} numberOfLines={3}>{selected.description}</Text>
               ) : null}
               <View style={styles.modalBadges}>
-                <StatusBadge status={selected.status} size="sm" />
-                <PriorityBadge priority={selected.priority} size="sm" />
+                <StatusBadge status={selected.status} small />
+                <PriorityBadge priority={selected.priority} small />
                 {selected.deadline && selected.deadline !== '—' && (
                   <View style={styles.deadlineBadge}>
                     <Ionicons name="calendar-outline" size={11} color={C.textMuted} />

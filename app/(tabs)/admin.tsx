@@ -93,7 +93,7 @@ export default function AdminScreen() {
   }, [users, userSearch]);
 
   const roleCounts = useMemo(() => {
-    const counts: Record<UserRole, number> = { super_admin: 0, admin: 0, conducteur: 0, chef_equipe: 0, observateur: 0 };
+    const counts: Record<UserRole, number> = { super_admin: 0, admin: 0, conducteur: 0, chef_equipe: 0, observateur: 0, sous_traitant: 0 };
     users.forEach(u => { counts[u.role] = (counts[u.role] ?? 0) + 1; });
     return counts;
   }, [users]);

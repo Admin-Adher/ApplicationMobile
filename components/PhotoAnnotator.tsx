@@ -70,7 +70,7 @@ export function PhotoAnnotationOverlay({
     }
 
     const toolToType: Record<AnnotationTool, PhotoAnnotation['tool']> = {
-      point: 'point',
+      dot: 'dot',
       arrow: 'arrow',
       rect: 'rect',
       measure: 'measure',
@@ -287,7 +287,7 @@ export function PhotoAnnotationOverlay({
                 </View>
                 <View style={{ flex: 1 }}>
                   <Text style={styles.legendLabelText}>{m.label}</Text>
-                  {m.tool && m.tool !== 'point' && (
+                  {m.tool && m.tool !== 'dot' && (
                     <Text style={styles.legendToolText}>
                       {m.tool === 'text' ? 'Annotation texte' : m.tool === 'arrow' ? 'Flèche' : m.tool === 'rect' ? 'Zone délimitée' : 'Mesure'}
                     </Text>

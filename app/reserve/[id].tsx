@@ -309,6 +309,7 @@ export default function ReserveDetailScreen() {
   const companyChannel = company ? channels.find(ch => ch.id === `company-${company.id}`) : null;
 
   function openEdit() {
+    if (!reserve) return;
     setEditTitle(reserve.title);
     setEditDescription(reserve.description);
     setEditBuilding(reserve.building);
@@ -322,6 +323,7 @@ export default function ReserveDetailScreen() {
   }
 
   function handleSignatureSave() {
+    if (!reserve) return;
     if (sigPadRef.current?.isEmpty()) {
       Alert.alert('Signature requise', 'Veuillez apposer votre signature avant de valider.');
       return;
@@ -349,6 +351,7 @@ export default function ReserveDetailScreen() {
   }
 
   function handleEnterpriseAck() {
+    if (!reserve) return;
     Alert.alert(
       'Accuser réception',
       `Confirmer que vous avez bien pris connaissance de la réserve ${reserve.id} ?`,

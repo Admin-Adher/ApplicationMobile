@@ -134,6 +134,7 @@ export interface Lot {
   chantierId?: string;
   companyId?: string;
   cctpRef?: string;
+  number?: string;
 }
 
 export interface Visite {
@@ -175,6 +176,7 @@ export interface OprSignatory {
   email?: string;
   signature?: string;
   signedAt?: string;
+  signed?: boolean;
 }
 
 export interface Opr {
@@ -293,6 +295,8 @@ export interface Task {
   reserveId?: string;
   comments?: Comment[];
   history?: HistoryEntry[];
+  chantierId?: string;
+  createdAt?: string;
 }
 
 export interface Document {
@@ -498,6 +502,11 @@ export interface BTPIntegration {
   enabled: boolean;
   config?: Record<string, string>;
   lastSync?: string;
+  provider?: string;
+  description?: string;
+  logoUri?: string;
+  apiKey?: string;
+  webhookUrl?: string;
 }
 
 export interface ReserveWeekStat {

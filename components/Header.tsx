@@ -1,3 +1,4 @@
+import React from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, Platform } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -8,21 +9,28 @@ interface Props {
   title: string;
   subtitle?: string;
   showBack?: boolean;
+  onBack?: () => void;
   rightIcon?: string;
   onRightPress?: () => void;
   rightLabel?: string;
+  rightElement?: React.ReactNode;
 }
 
-export default function Header({ title, subtitle, showBack, rightIcon, onRightPress, rightLabel }: Props) {
+export default function Header({ title, subtitle, showBack, onBack, rightIcon, onRightPress, rightLabel, rightElement }: Props) {
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const topPad = Platform.OS === 'web' ? 67 : insets.top;
 
+  function handleBack() {
+    if (onBack) onBack();
+    else router.back();
+  }
+
   return (
     <View style={[styles.container, { paddingTop: topPad + 8 }]}>
       <View style={styles.row}>
-        {showBack && (
-          <TouchableOpacity onPress={() => router.back()} style={styles.backBtn} hitSlop={8}>
+        {(showBack || onBack) && (
+          <TouchableOpacity onPress={handleBack} style={styles.backBtn} hitSlop={8}>
             <Ionicons name="chevron-back" size={22} color={C.text} />
           </TouchableOpacity>
         )}
@@ -30,7 +38,7 @@ export default function Header({ title, subtitle, showBack, rightIcon, onRightPr
           <Text style={styles.title}>{title}</Text>
           {subtitle ? <Text style={styles.subtitle}>{subtitle}</Text> : null}
         </View>
-        {(rightIcon || rightLabel) ? (
+        {rightElement ?? ((rightIcon || rightLabel) ? (
           <TouchableOpacity onPress={onRightPress} style={rightLabel ? styles.rightPillBtn : styles.rightBtn} hitSlop={8}>
             {rightLabel ? (
               <Text style={styles.rightPillText}>{rightLabel}</Text>
@@ -38,7 +46,7 @@ export default function Header({ title, subtitle, showBack, rightIcon, onRightPr
               <Ionicons name={rightIcon as any} size={22} color={C.primary} />
             )}
           </TouchableOpacity>
-        ) : null}
+        ) : null)}
       </View>
     </View>
   );

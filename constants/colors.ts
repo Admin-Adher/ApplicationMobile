@@ -37,6 +37,7 @@ export const C = {
   textSub: '#5E738A',
   textMuted: '#8FA3B5',
 
+  inputBg: '#F8FAFC',
   tabBar: '#FFFFFF',
   tabBorder: '#DDE4EE',
 

@@ -88,7 +88,7 @@ export default function NewVisiteScreen() {
           />
 
           <Text style={styles.label}>Date</Text>
-          <DateInput value={date} onChange={setDate} style={styles.input} />
+          <DateInput value={date} onChange={setDate} />
         </View>
 
         <View style={styles.card}>
