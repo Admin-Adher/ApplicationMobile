@@ -226,13 +226,12 @@ export default function PortfolioDashboard({ onSwitchToChantier }: Props) {
   const chantierKPIs = useMemo((): ChantierKPI[] => {
     return chantiers.map(chantier => {
       const cReserves = reserves.filter(r => r.chantierId === chantier.id);
-      const cTasks = tasks.filter(t => (t as any).chantierId === chantier.id || !t.chantierId);
       const total = cReserves.length;
       const closed = cReserves.filter(r => r.status === 'closed').length;
       const critical = cReserves.filter(r => r.priority === 'critical' && r.status !== 'closed').length;
       const overdue = cReserves.filter(r => r.status !== 'closed' && r.priority !== 'critical' && isOverdue(r.deadline, r.status)).length;
       const progress = total > 0 ? Math.round((closed / total) * 100) : 0;
-      const lateTasksCount = chantier.id === activeChantierId ? cTasks.filter(isTaskLate).length : 0;
+      const lateTasksCount = chantier.id === activeChantierId ? tasks.filter(isTaskLate).length : 0;
       return { chantier, total, closed, critical, overdue, progress, lateTasksCount };
     });
   }, [chantiers, reserves, tasks, activeChantierId]);
