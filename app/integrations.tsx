@@ -13,6 +13,7 @@ const INTEGRATIONS_CATALOG: (Omit<BTPIntegration, 'enabled' | 'apiKey' | 'webhoo
   {
     id: 'procore',
     name: 'Procore',
+    type: 'procore',
     provider: 'Procore Technologies',
     logoUri: '',
     category: 'Gestion de projet',
@@ -23,6 +24,7 @@ const INTEGRATIONS_CATALOG: (Omit<BTPIntegration, 'enabled' | 'apiKey' | 'webhoo
   {
     id: 'archicad',
     name: 'ArchiCAD',
+    type: 'autodesk',
     provider: 'Graphisoft',
     logoUri: '',
     category: 'BIM/CAO',
@@ -33,6 +35,7 @@ const INTEGRATIONS_CATALOG: (Omit<BTPIntegration, 'enabled' | 'apiKey' | 'webhoo
   {
     id: 'revit',
     name: 'Autodesk Revit',
+    type: 'autodesk',
     provider: 'Autodesk',
     logoUri: '',
     category: 'BIM/CAO',
@@ -43,6 +46,7 @@ const INTEGRATIONS_CATALOG: (Omit<BTPIntegration, 'enabled' | 'apiKey' | 'webhoo
   {
     id: 'e-diffusion',
     name: 'e-Diffusion BTP',
+    type: 'generic',
     provider: 'e-Diffusion',
     logoUri: '',
     category: 'Documents réglementaires',
@@ -53,6 +57,7 @@ const INTEGRATIONS_CATALOG: (Omit<BTPIntegration, 'enabled' | 'apiKey' | 'webhoo
   {
     id: 'geosat',
     name: 'Géosat GPS',
+    type: 'generic',
     provider: 'Géosat',
     logoUri: '',
     category: 'Géolocalisation',
@@ -63,6 +68,7 @@ const INTEGRATIONS_CATALOG: (Omit<BTPIntegration, 'enabled' | 'apiKey' | 'webhoo
   {
     id: 'kizeo',
     name: 'Kizeo Forms',
+    type: 'generic',
     provider: 'Kizeo',
     logoUri: '',
     category: 'Formulaires terrain',
@@ -73,6 +79,7 @@ const INTEGRATIONS_CATALOG: (Omit<BTPIntegration, 'enabled' | 'apiKey' | 'webhoo
   {
     id: 'docuware',
     name: 'DocuWare',
+    type: 'google_drive',
     provider: 'DocuWare',
     logoUri: '',
     category: 'GED',
@@ -83,6 +90,7 @@ const INTEGRATIONS_CATALOG: (Omit<BTPIntegration, 'enabled' | 'apiKey' | 'webhoo
   {
     id: 'signaturit',
     name: 'Signaturit',
+    type: 'generic',
     provider: 'Signaturit',
     logoUri: '',
     category: 'Signature électronique',
@@ -93,6 +101,7 @@ const INTEGRATIONS_CATALOG: (Omit<BTPIntegration, 'enabled' | 'apiKey' | 'webhoo
   {
     id: 'meteofrance',
     name: 'Météo-France API',
+    type: 'generic',
     provider: 'Météo-France',
     logoUri: '',
     category: 'Météo',
@@ -103,6 +112,7 @@ const INTEGRATIONS_CATALOG: (Omit<BTPIntegration, 'enabled' | 'apiKey' | 'webhoo
   {
     id: 'urssaf-btp',
     name: 'URSSAF BTP',
+    type: 'generic',
     provider: 'URSSAF',
     logoUri: '',
     category: 'RH & Paie',

@@ -214,7 +214,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       return;
     }
 
-    supabase.auth.getSession().then(async ({ data: { session } }) => {
+    supabase.auth.getSession().then(async ({ data: { session } }: { data: { session: any } }) => {
       if (session?.user) {
         const profile = await fetchProfile(session.user.id);
         if (profile) {

@@ -1056,13 +1056,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'reserves' }, (payload: any) => {
         dispatch({ type: 'DELETE_RESERVE', payload: payload.old.id });
       })
-      .subscribe((status) => {
+      .subscribe((status: string) => {
         setRealtimeConnected(status === 'SUBSCRIBED');
       });
 
     const taskSub = supabase
       .channel('realtime-tasks-v1')
-      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'tasks' }, (payload) => {
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'tasks' }, (payload: any) => {
         dispatch({ type: 'UPDATE_TASK', payload: toTask(payload.new) });
       })
       .subscribe();
@@ -1231,7 +1231,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       if (company) {
         const updatedCompany = { ...company, name: newName };
         if (isSupabaseConfigured) {
-          supabase.from('companies').update({ name: newName }).eq('id', companyId).then(({ error }) => {
+          supabase.from('companies').update({ name: newName }).eq('id', companyId).then(({ error }: { error: any }) => {
             if (error) console.warn('Erreur renommage canal entreprise:', error.message);
           });
         }
@@ -1321,7 +1321,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           status: r.status, created_at: r.createdAt, deadline: r.deadline,
           comments: r.comments, history: r.history, plan_x: r.planX, plan_y: r.planY,
           photo_uri: r.photoUri,
-        }).then(({ error }) => {
+        }).then(({ error }: { error: any }) => {
           if (error) console.warn('Erreur ajout réserve:', error.message);
         });
       } else {
@@ -1337,7 +1337,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           zone: r.zone, level: r.level, company: r.company, priority: r.priority,
           status: r.status, deadline: r.deadline, comments: r.comments, history: r.history,
           plan_x: r.planX, plan_y: r.planY, photo_uri: r.photoUri,
-        }).eq('id', r.id).then(({ error }) => {
+        }).eq('id', r.id).then(({ error }: { error: any }) => {
           if (error) console.warn('Erreur mise à jour réserve:', error.message);
         });
       } else {
@@ -1352,7 +1352,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           title: r.title, description: r.description, building: r.building,
           zone: r.zone, level: r.level, company: r.company, priority: r.priority,
           deadline: r.deadline, history: r.history, photo_uri: r.photoUri ?? null,
-        }).eq('id', r.id).then(({ error }) => {
+        }).eq('id', r.id).then(({ error }: { error: any }) => {
           if (error) console.warn('Erreur modification réserve:', error.message);
         });
       } else {
@@ -1363,7 +1363,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
     deleteReserve: (id) => {
       if (isSupabaseConfigured) {
-        supabase.from('reserves').delete().eq('id', id).then(({ error }) => {
+        supabase.from('reserves').delete().eq('id', id).then(({ error }: { error: any }) => {
           if (error) console.warn('Erreur suppression réserve:', error.message);
         });
       } else {
@@ -1401,7 +1401,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         supabase.from('reserves').update({
           status: updated.status, history: updated.history,
           closed_at: closedAt ?? null, closed_by: closedBy ?? null,
-        }).eq('id', id).then(({ error }) => {
+        }).eq('id', id).then(({ error }: { error: any }) => {
           if (error) console.warn('Erreur statut réserve:', error.message);
         });
       }
@@ -1430,7 +1430,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           reserveId: reserve.id,
         };
         if (isSupabaseConfigured) {
-          supabase.from('messages').insert(fromMessage(notifMsg)).then(({ error }) => {
+          supabase.from('messages').insert(fromMessage(notifMsg)).then(({ error }: { error: any }) => {
             if (error) console.warn('Erreur notification canal:', error.message);
           });
         }
@@ -1450,7 +1450,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       };
       const updatedComments = [...reserve.comments, comment];
       if (isSupabaseConfigured) {
-        supabase.from('reserves').update({ comments: updatedComments }).eq('id', reserveId).then(({ error }) => {
+        supabase.from('reserves').update({ comments: updatedComments }).eq('id', reserveId).then(({ error }: { error: any }) => {
           if (error) console.warn('Erreur ajout commentaire:', error.message);
         });
       }
@@ -1463,7 +1463,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           id: c.id, name: c.name, short_name: c.shortName, color: c.color,
           planned_workers: c.plannedWorkers, actual_workers: c.actualWorkers,
           hours_worked: c.hoursWorked, zone: c.zone, contact: c.contact,
-        }).then(({ error }) => {
+        }).then(({ error }: { error: any }) => {
           if (error) console.warn('Erreur ajout entreprise:', error.message);
         });
       }
@@ -1472,7 +1472,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
     updateCompanyWorkers: (id, actual) => {
       if (isSupabaseConfigured) {
-        supabase.from('companies').update({ actual_workers: actual }).eq('id', id).then(({ error }) => {
+        supabase.from('companies').update({ actual_workers: actual }).eq('id', id).then(({ error }: { error: any }) => {
           if (error) console.warn('Erreur mise à jour effectif:', error.message);
         });
       }
@@ -1485,7 +1485,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           name: c.name, short_name: c.shortName, color: c.color,
           planned_workers: c.plannedWorkers, actual_workers: c.actualWorkers,
           hours_worked: c.hoursWorked, zone: c.zone, contact: c.contact,
-        }).eq('id', c.id).then(({ error }) => {
+        }).eq('id', c.id).then(({ error }: { error: any }) => {
           if (error) console.warn('Erreur mise à jour entreprise:', error.message);
         });
       }
@@ -1494,7 +1494,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
     deleteCompany: (id) => {
       if (isSupabaseConfigured) {
-        supabase.from('companies').delete().eq('id', id).then(({ error }) => {
+        supabase.from('companies').delete().eq('id', id).then(({ error }: { error: any }) => {
           if (error) console.warn('Erreur suppression entreprise:', error.message);
         });
       }
@@ -1503,7 +1503,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
     updateCompanyHours: (id, hours) => {
       if (isSupabaseConfigured) {
-        supabase.from('companies').update({ hours_worked: hours }).eq('id', id).then(({ error }) => {
+        supabase.from('companies').update({ hours_worked: hours }).eq('id', id).then(({ error }: { error: any }) => {
           if (error) console.warn('Erreur mise à jour heures:', error.message);
         });
       }
@@ -1528,7 +1528,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         reserveId: options.reserveId,
       };
       if (isSupabaseConfigured) {
-        supabase.from('messages').insert(fromMessage(msg)).then(({ error }) => {
+        supabase.from('messages').insert(fromMessage(msg)).then(({ error }: { error: any }) => {
           if (error) console.warn('Erreur envoi message:', error.message);
         });
       } else {
@@ -1541,7 +1541,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
     deleteMessage: (id) => {
       if (isSupabaseConfigured) {
-        supabase.from('messages').delete().eq('id', id).then(({ error }) => {
+        supabase.from('messages').delete().eq('id', id).then(({ error }: { error: any }) => {
           if (error) console.warn('Erreur suppression message:', error.message);
         });
       } else {
@@ -1552,7 +1552,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
     updateMessage: (msg) => {
       if (isSupabaseConfigured) {
-        supabase.from('messages').update(fromMessage(msg)).eq('id', msg.id).then(({ error }) => {
+        supabase.from('messages').update(fromMessage(msg)).eq('id', msg.id).then(({ error }: { error: any }) => {
           if (error) console.warn('Erreur mise à jour message:', error.message);
         });
       } else {
@@ -1580,7 +1580,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           priority: t.priority, start_date: t.startDate ?? null, deadline: t.deadline,
           assignee: t.assignee, progress: t.progress, company: t.company,
           comments: t.comments ?? [], history: t.history ?? [],
-        }).then(({ error }) => {
+        }).then(({ error }: { error: any }) => {
           if (error) console.warn('Erreur ajout tâche:', error.message);
         });
       } else {
@@ -1596,7 +1596,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           priority: t.priority, start_date: t.startDate ?? null, deadline: t.deadline,
           assignee: t.assignee, progress: t.progress, company: t.company,
           comments: t.comments ?? [], history: t.history ?? [],
-        }).eq('id', t.id).then(({ error }) => {
+        }).eq('id', t.id).then(({ error }: { error: any }) => {
           if (error) console.warn('Erreur mise à jour tâche:', error.message);
         });
       } else {
@@ -1607,7 +1607,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
     deleteTask: (id) => {
       if (isSupabaseConfigured) {
-        supabase.from('tasks').delete().eq('id', id).then(({ error }) => {
+        supabase.from('tasks').delete().eq('id', id).then(({ error }: { error: any }) => {
           if (error) console.warn('Erreur suppression tâche:', error.message);
         });
       } else {
@@ -1638,7 +1638,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         supabase.from('photos').insert({
           id: p.id, comment: p.comment, location: p.location,
           taken_at: p.takenAt, taken_by: p.takenBy, color_code: p.colorCode, uri: p.uri,
-        }).then(({ error }) => {
+        }).then(({ error }: { error: any }) => {
           if (error) console.warn('Erreur ajout photo:', error.message);
         });
       } else {
@@ -1649,7 +1649,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
     deletePhoto: (id) => {
       if (isSupabaseConfigured) {
-        supabase.from('photos').delete().eq('id', id).then(({ error }) => {
+        supabase.from('photos').delete().eq('id', id).then(({ error }: { error: any }) => {
           if (error) console.warn('Erreur suppression photo:', error.message);
         });
       } else {
@@ -1663,7 +1663,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         supabase.from('documents').insert({
           id: d.id, name: d.name, type: d.type, category: d.category,
           uploaded_at: d.uploadedAt, size: d.size, version: d.version, uri: d.uri,
-        }).then(({ error }) => {
+        }).then(({ error }: { error: any }) => {
           if (error) console.warn('Erreur ajout document:', error.message);
         });
       }
@@ -1672,7 +1672,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
     deleteDocument: (id) => {
       if (isSupabaseConfigured) {
-        supabase.from('documents').delete().eq('id', id).then(({ error }) => {
+        supabase.from('documents').delete().eq('id', id).then(({ error }: { error: any }) => {
           if (error) console.warn('Erreur suppression document:', error.message);
         });
       }
@@ -1763,7 +1763,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
             status: r.status, company: r.company, deadline: r.deadline,
             priority: r.priority, history: r.history,
             closed_at: r.closedAt ?? null, closed_by: r.closedBy ?? null,
-          }).eq('id', id).then(({ error }) => {
+          }).eq('id', id).then(({ error }: { error: any }) => {
             if (error) console.warn('Erreur batch update réserve:', error.message);
           });
         }

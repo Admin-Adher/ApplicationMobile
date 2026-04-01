@@ -382,6 +382,7 @@ export default function ReserveDetailScreen() {
   }
 
   function handleAnnotationSave(photoId: string, annotations: any[]) {
+    if (!reserve) return;
     const updatedPhotos: ReservePhoto[] = allPhotos.map(p =>
       p.id === photoId ? { ...p, annotations } : p
     );
@@ -447,6 +448,7 @@ export default function ReserveDetailScreen() {
   }
 
   function handleSaveEdit() {
+    if (!reserve) return;
     if (!editTitle.trim()) {
       Alert.alert('Champ obligatoire', 'Le titre est requis.');
       return;
@@ -498,6 +500,7 @@ export default function ReserveDetailScreen() {
   }
 
   async function handleExportPDF() {
+    if (!reserve) return;
     if (!permissions.canExport) return;
     try {
       const rawPhotos = reserve.photos && reserve.photos.length > 0
@@ -514,6 +517,7 @@ export default function ReserveDetailScreen() {
   }
 
   function handleDelete() {
+    if (!reserve) return;
     Alert.alert(
       'Supprimer la réserve',
       `Supprimer définitivement ${reserve.id} — "${reserve.title}" ?\n\nCette action est irréversible.`,
@@ -532,6 +536,7 @@ export default function ReserveDetailScreen() {
   }
 
   function handleContactCompany() {
+    if (!reserve) return;
     if (!companyChannel) {
       Alert.alert('Canal indisponible', `Le canal de "${reserve.company}" n'existe pas encore. Ajoutez d'abord l'entreprise dans l'onglet Équipes.`);
       return;
@@ -551,12 +556,14 @@ export default function ReserveDetailScreen() {
   }
 
   function handleStatusChange(newStatus: ReserveStatus) {
+    if (!reserve) return;
     updateReserveStatus(reserve.id, newStatus, user?.name ?? 'Conducteur de travaux');
     setSaveSuccess(true);
     setTimeout(() => setSaveSuccess(false), 2500);
   }
 
   function handleAddComment() {
+    if (!reserve) return;
     if (comment.trim().length === 0) return;
     addComment(reserve.id, comment.trim());
     setComment('');
@@ -1126,8 +1133,11 @@ export default function ReserveDetailScreen() {
       {/* Annotateur photo */}
       {annotatorPhoto && (
         <PhotoAnnotationOverlay
-          photo={annotatorPhoto}
-          onSave={(annotations) => handleAnnotationSave(annotatorPhoto.id, annotations)}
+          photoUri={annotatorPhoto.uri}
+          annotations={annotatorPhoto.annotations ?? []}
+          editable
+          visible
+          onSave={(annotations) => handleAnnotationSave(annotatorPhoto!.id, annotations)}
           onClose={() => setAnnotatorPhoto(null)}
         />
       )}

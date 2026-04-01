@@ -70,7 +70,7 @@ export function PhotoAnnotationOverlay({
     }
 
     const toolToType: Record<AnnotationTool, PhotoAnnotation['tool']> = {
-      dot: 'dot',
+      point: 'dot',
       arrow: 'arrow',
       rect: 'rect',
       measure: 'measure',
