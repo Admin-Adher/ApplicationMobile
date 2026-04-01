@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useEffect, useState, useCallback } from 'react';
+import React, { createContext, useContext, useEffect, useState, useCallback, useRef } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { AttendanceRecord, Company } from '@/constants/types';
 import { genId } from '@/lib/utils';
@@ -27,6 +27,8 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
   const [projectName, setProjectNameState] = useState('Projet Horizon');
   const [projectDescription, setProjectDescriptionState] = useState('Gestion de chantier numérique');
   const [attendanceHistory, setAttendanceHistory] = useState<AttendanceRecord[]>([]);
+  const attendanceHistoryRef = useRef(attendanceHistory);
+  useEffect(() => { attendanceHistoryRef.current = attendanceHistory; }, [attendanceHistory]);
   const [defaultArrivalTime, setDefaultArrivalTimeState] = useState('07:30');
 
   useEffect(() => {
@@ -74,16 +76,16 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
       hoursWorked: co.hoursWorked,
       savedBy,
     }));
-    const updated = [...attendanceHistory, ...records];
+    const updated = [...attendanceHistoryRef.current, ...records];
     setAttendanceHistory(updated);
     try { await AsyncStorage.setItem(ATTENDANCE_HISTORY_KEY, JSON.stringify(updated)); } catch {}
-  }, [attendanceHistory]);
+  }, []);
 
   const deleteAttendanceRecord = useCallback(async (id: string) => {
-    const updated = attendanceHistory.filter(r => r.id !== id);
+    const updated = attendanceHistoryRef.current.filter(r => r.id !== id);
     setAttendanceHistory(updated);
     try { await AsyncStorage.setItem(ATTENDANCE_HISTORY_KEY, JSON.stringify(updated)); } catch {}
-  }, [attendanceHistory]);
+  }, []);
 
   const clearAttendanceHistory = useCallback(async () => {
     setAttendanceHistory([]);

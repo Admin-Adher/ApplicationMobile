@@ -55,16 +55,20 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
         window.removeEventListener('offline', handleOffline);
       };
     } else {
+      const PING_URLS = [
+        'https://clients3.google.com/generate_204',
+        'https://connectivitycheck.gstatic.com/generate_204',
+        'https://www.apple.com/library/test/success.html',
+      ];
       const interval = setInterval(async () => {
-        try {
-          const res = await fetch('https://clients3.google.com/generate_204', {
-            method: 'HEAD',
-            cache: 'no-cache',
-          });
-          setIsOnline(res.ok);
-        } catch {
-          setIsOnline(false);
+        let online = false;
+        for (const url of PING_URLS) {
+          try {
+            const res = await fetch(url, { method: 'HEAD', cache: 'no-cache' });
+            if (res.ok || res.status === 204) { online = true; break; }
+          } catch {}
         }
+        setIsOnline(online);
       }, 10000);
       return () => clearInterval(interval);
     }

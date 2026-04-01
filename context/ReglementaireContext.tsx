@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useEffect, useState, useCallback } from 'react';
+import React, { createContext, useContext, useEffect, useState, useCallback, useRef } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { RegulatoryDoc } from '@/constants/types';
 import { genId } from '@/lib/utils';
@@ -16,6 +16,8 @@ const ReglementaireContext = createContext<ReglementaireContextValue | null>(nul
 
 export function ReglementaireProvider({ children }: { children: React.ReactNode }) {
   const [docs, setDocs] = useState<RegulatoryDoc[]>([]);
+  const docsRef = useRef(docs);
+  useEffect(() => { docsRef.current = docs; }, [docs]);
 
   useEffect(() => {
     AsyncStorage.getItem(REG_DOCS_KEY)
@@ -30,16 +32,16 @@ export function ReglementaireProvider({ children }: { children: React.ReactNode 
 
   const addDoc = useCallback(async (doc: Omit<RegulatoryDoc, 'id' | 'createdAt'>) => {
     const newDoc: RegulatoryDoc = { ...doc, id: genId(), createdAt: new Date().toISOString() };
-    await persist([...docs, newDoc]);
-  }, [docs]);
+    await persist([...docsRef.current, newDoc]);
+  }, []);
 
   const updateDoc = useCallback(async (id: string, updates: Partial<RegulatoryDoc>) => {
-    await persist(docs.map(d => d.id === id ? { ...d, ...updates } : d));
-  }, [docs]);
+    await persist(docsRef.current.map(d => d.id === id ? { ...d, ...updates } : d));
+  }, []);
 
   const deleteDoc = useCallback(async (id: string) => {
-    await persist(docs.filter(d => d.id !== id));
-  }, [docs]);
+    await persist(docsRef.current.filter(d => d.id !== id));
+  }, []);
 
   return (
     <ReglementaireContext.Provider value={{ docs, addDoc, updateDoc, deleteDoc }}>

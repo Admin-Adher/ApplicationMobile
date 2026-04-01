@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useEffect, useState, useCallback } from 'react';
+import React, { createContext, useContext, useEffect, useState, useCallback, useRef } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { TimeEntry } from '@/constants/types';
 import { genId } from '@/lib/utils';
@@ -17,6 +17,8 @@ const PointageContext = createContext<PointageContextValue | null>(null);
 
 export function PointageProvider({ children }: { children: React.ReactNode }) {
   const [entries, setEntries] = useState<TimeEntry[]>([]);
+  const entriesRef = useRef(entries);
+  useEffect(() => { entriesRef.current = entries; }, [entries]);
 
   useEffect(() => {
     AsyncStorage.getItem(POINTAGE_KEY)
@@ -31,20 +33,20 @@ export function PointageProvider({ children }: { children: React.ReactNode }) {
 
   const addEntry = useCallback(async (entry: Omit<TimeEntry, 'id'>) => {
     const newEntry: TimeEntry = { ...entry, id: genId() };
-    await persist([...entries, newEntry]);
-  }, [entries]);
+    await persist([...entriesRef.current, newEntry]);
+  }, []);
 
   const updateEntry = useCallback(async (id: string, updates: Partial<TimeEntry>) => {
-    await persist(entries.map(e => e.id === id ? { ...e, ...updates } : e));
-  }, [entries]);
+    await persist(entriesRef.current.map(e => e.id === id ? { ...e, ...updates } : e));
+  }, []);
 
   const deleteEntry = useCallback(async (id: string) => {
-    await persist(entries.filter(e => e.id !== id));
-  }, [entries]);
+    await persist(entriesRef.current.filter(e => e.id !== id));
+  }, []);
 
   const getEntriesForDate = useCallback((date: string) => {
-    return entries.filter(e => e.date === date);
-  }, [entries]);
+    return entriesRef.current.filter(e => e.date === date);
+  }, []);
 
   return (
     <PointageContext.Provider value={{ entries, addEntry, updateEntry, deleteEntry, getEntriesForDate }}>

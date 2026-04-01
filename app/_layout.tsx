@@ -158,6 +158,16 @@ export default function RootLayout() {
                       <Stack.Screen name="notifications" options={{ headerShown: false, title: 'Notifications' }} />
                       <Stack.Screen name="portal/[companyId]" options={{ headerShown: false }} />
                       <Stack.Screen name="opr-session/[id]" options={{ headerShown: false }} />
+                      <Stack.Screen name="analytics" options={{ headerShown: false }} />
+                      <Stack.Screen name="chantier/manage" options={{ headerShown: false }} />
+                      <Stack.Screen name="chantier/new" options={{ headerShown: false }} />
+                      <Stack.Screen name="integrations" options={{ headerShown: false }} />
+                      <Stack.Screen name="lots" options={{ headerShown: false }} />
+                      <Stack.Screen name="opr" options={{ headerShown: false }} />
+                      <Stack.Screen name="sous-traitant" options={{ headerShown: false }} />
+                      <Stack.Screen name="visites" options={{ headerShown: false }} />
+                      <Stack.Screen name="visite/new" options={{ headerShown: false }} />
+                      <Stack.Screen name="visite/[id]" options={{ headerShown: false }} />
                       <Stack.Screen name="+not-found" />
                     </Stack>
                   </AuthGuard>

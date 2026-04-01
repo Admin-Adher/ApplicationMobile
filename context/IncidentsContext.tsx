@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useEffect, useState, useCallback } from 'react';
+import React, { createContext, useContext, useEffect, useState, useCallback, useRef } from 'react';
 import { Alert } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Incident } from '@/constants/types';
@@ -55,6 +55,8 @@ function toIncident(row: any): Incident {
 
 export function IncidentsProvider({ children }: { children: React.ReactNode }) {
   const [incidents, setIncidents] = useState<Incident[]>([]);
+  const incidentsRef = useRef(incidents);
+  useEffect(() => { incidentsRef.current = incidents; }, [incidents]);
 
   useEffect(() => {
     async function load() {
@@ -127,28 +129,28 @@ export function IncidentsProvider({ children }: { children: React.ReactNode }) {
   }
 
   const addIncident = useCallback(async (incident: Incident) => {
-    await persist([incident, ...incidents]);
+    await persist([incident, ...incidentsRef.current]);
     await syncToSupabase(incident, 'upsert', (err) => {
       Alert.alert('Synchronisation échouée', `L'incident a été sauvegardé localement mais n'a pas pu être envoyé au serveur.\n${err}`);
     });
-  }, [incidents]);
+  }, []);
 
   const updateIncident = useCallback(async (incident: Incident) => {
-    await persist(incidents.map(i => i.id === incident.id ? incident : i));
+    await persist(incidentsRef.current.map(i => i.id === incident.id ? incident : i));
     await syncToSupabase(incident, 'upsert', (err) => {
       Alert.alert('Synchronisation échouée', `La modification a été sauvegardée localement mais n'a pas pu être envoyée au serveur.\n${err}`);
     });
-  }, [incidents]);
+  }, []);
 
   const deleteIncident = useCallback(async (id: string) => {
-    const target = incidents.find(i => i.id === id);
-    await persist(incidents.filter(i => i.id !== id));
+    const target = incidentsRef.current.find(i => i.id === id);
+    await persist(incidentsRef.current.filter(i => i.id !== id));
     if (target) {
       await syncToSupabase(target, 'delete', (err) => {
         Alert.alert('Synchronisation échouée', `La suppression locale a réussi mais n'a pas pu être propagée au serveur.\n${err}`);
       });
     }
-  }, [incidents]);
+  }, []);
 
   return (
     <IncidentsContext.Provider value={{ incidents, addIncident, updateIncident, deleteIncident }}>

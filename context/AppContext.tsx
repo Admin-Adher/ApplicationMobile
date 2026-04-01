@@ -1327,6 +1327,17 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           status: r.status, created_at: r.createdAt, deadline: r.deadline,
           comments: r.comments, history: r.history, plan_x: r.planX, plan_y: r.planY,
           photo_uri: r.photoUri,
+          lot_id: r.lotId ?? null,
+          kind: r.kind ?? null,
+          chantier_id: r.chantierId ?? null,
+          plan_id: r.planId ?? null,
+          visite_id: r.visiteId ?? null,
+          linked_task_id: r.linkedTaskId ?? null,
+          photos: r.photos ?? null,
+          photo_annotations: r.photoAnnotations ?? null,
+          enterprise_signature: r.enterpriseSignature ?? null,
+          enterprise_signataire: r.enterpriseSignataire ?? null,
+          enterprise_acknowledged_at: r.enterpriseAcknowledgedAt ?? null,
         }).then(({ error }: { error: any }) => {
           if (error) {
             dispatch({ type: 'DELETE_RESERVE', payload: r.id });
@@ -1347,6 +1358,19 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           zone: r.zone, level: r.level, company: r.company, priority: r.priority,
           status: r.status, deadline: r.deadline, comments: r.comments, history: r.history,
           plan_x: r.planX, plan_y: r.planY, photo_uri: r.photoUri,
+          lot_id: r.lotId ?? null,
+          kind: r.kind ?? null,
+          chantier_id: r.chantierId ?? null,
+          plan_id: r.planId ?? null,
+          visite_id: r.visiteId ?? null,
+          linked_task_id: r.linkedTaskId ?? null,
+          photos: r.photos ?? null,
+          photo_annotations: r.photoAnnotations ?? null,
+          closed_at: r.closedAt ?? null,
+          closed_by: r.closedBy ?? null,
+          enterprise_signature: r.enterpriseSignature ?? null,
+          enterprise_signataire: r.enterpriseSignataire ?? null,
+          enterprise_acknowledged_at: r.enterpriseAcknowledgedAt ?? null,
         }).eq('id', r.id).then(({ error }: { error: any }) => {
           if (error) {
             if (previous) dispatch({ type: 'UPDATE_RESERVE', payload: previous });
@@ -1365,7 +1389,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         supabase.from('reserves').update({
           title: r.title, description: r.description, building: r.building,
           zone: r.zone, level: r.level, company: r.company, priority: r.priority,
-          deadline: r.deadline, history: r.history, photo_uri: r.photoUri ?? null,
+          status: r.status, deadline: r.deadline, comments: r.comments, history: r.history,
+          photo_uri: r.photoUri ?? null,
+          lot_id: r.lotId ?? null,
+          kind: r.kind ?? null,
+          photos: r.photos ?? null,
+          photo_annotations: r.photoAnnotations ?? null,
         }).eq('id', r.id).then(({ error }: { error: any }) => {
           if (error) {
             if (previous) dispatch({ type: 'UPDATE_RESERVE_FIELDS', payload: previous });
