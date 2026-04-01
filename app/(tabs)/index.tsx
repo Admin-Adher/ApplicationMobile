@@ -236,6 +236,12 @@ export default function DashboardScreen() {
             <View style={styles.realtimeDot} />
           )}
           <TouchableOpacity
+            style={styles.iconHeaderBtn}
+            onPress={() => router.push('/search' as any)}
+          >
+            <Ionicons name="search-outline" size={20} color={C.text} />
+          </TouchableOpacity>
+          <TouchableOpacity
             style={styles.bellBtn}
             onPress={() => router.push('/notifications' as any)}
           >
@@ -663,6 +669,12 @@ const styles = StyleSheet.create({
   realtimeDot: {
     width: 8, height: 8, borderRadius: 4,
     backgroundColor: '#22C55E',
+  },
+  iconHeaderBtn: {
+    width: 36, height: 36,
+    borderRadius: 10,
+    backgroundColor: C.surface2,
+    alignItems: 'center', justifyContent: 'center',
   },
   bellBtn: {
     width: 36, height: 36,

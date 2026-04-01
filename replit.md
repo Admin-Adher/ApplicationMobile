@@ -35,6 +35,16 @@ BuildTrack is a professional construction management mobile application built wi
 - PDF plans now render inline on mobile via WebView (no more "Ouvrir le plan" external redirect)
 - Chantier creation no longer requires a plan — plans section is now optional
 
+## UX Fixes (Sprint 2 — April 2026)
+1. **BottomSheetPicker** (`components/BottomSheetPicker.tsx`) — reusable slide-up modal replacing all horizontal chip scroll pickers
+2. **Network indicator** — 8×8 dot in Header: green=online, red=offline with queued-action badge count
+3. **Search icon** — Dashboard header now has a search icon button; tablet sidebar BT logo is tappable
+4. **Journal CTA** — "Saisir l'entrée du jour" prominent button shown when no today entry exists yet
+5. **Default arrival time** — Configurable in Settings (Attendance tab); preset chips 06:30–08:30
+6. **Pointage presets** — Arrival (06:30–08:30) and departure (16:00–18:00) quick-select time chips; uses defaultArrivalTime as initial value
+7. **Reserve form order** — PHOTOS card moved to appear right after TYPE (before Templates/Titre)
+8. **Reserve form pickers** — LOT, PLAN, LOCALISATION (Zone/Niveau/Bâtiment), ENTREPRISE all use BottomSheetPicker
+
 ## Project Structure
 ```
 app/           # Expo Router file-based routes

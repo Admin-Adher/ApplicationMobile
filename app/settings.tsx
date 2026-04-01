@@ -45,7 +45,7 @@ const STATUS_COLORS = {
 
 export default function SettingsScreen() {
   const router = useRouter();
-  const { projectName, projectDescription, setProjectName, setProjectDescription, attendanceHistory, saveAttendanceSnapshot, clearAttendanceHistory } = useSettings();
+  const { projectName, projectDescription, setProjectName, setProjectDescription, attendanceHistory, saveAttendanceSnapshot, clearAttendanceHistory, defaultArrivalTime, setDefaultArrivalTime } = useSettings();
   const { companies } = useApp();
   const { user, logout } = useAuth();
   const { organization, plan, subscription, seatUsed, seatMax } = useSubscription();
@@ -321,6 +321,23 @@ export default function SettingsScreen() {
 
         {activeTab === 'attendance' && (
           <View>
+            <View style={[styles.card, { marginBottom: 14 }]}>
+              <Text style={styles.cardTitle}>Préférences pointage</Text>
+              <Text style={styles.label}>Heure d'arrivée par défaut</Text>
+              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 4 }}>
+                {['06:30', '07:00', '07:30', '08:00', '08:30'].map(t => (
+                  <TouchableOpacity
+                    key={t}
+                    style={[styles.timeChip, defaultArrivalTime === t && styles.timeChipActive]}
+                    onPress={() => setDefaultArrivalTime(t)}
+                  >
+                    <Text style={[styles.timeChipText, defaultArrivalTime === t && styles.timeChipTextActive]}>{t}</Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+              <Text style={[styles.emptyText, { marginTop: 6 }]}>Utilisée comme valeur pré-remplie dans le formulaire de pointage.</Text>
+            </View>
+
             <View style={styles.card}>
               <Text style={styles.cardTitle}>Présences aujourd'hui</Text>
               {companies.length === 0 ? (
@@ -640,6 +657,14 @@ const styles = StyleSheet.create({
     borderWidth: 1, borderColor: C.primary + '40',
   },
   snapshotBtnText: { fontSize: 14, fontFamily: 'Inter_600SemiBold', color: C.primary },
+
+  timeChip: {
+    paddingHorizontal: 14, paddingVertical: 7, borderRadius: 20,
+    backgroundColor: C.surface, borderWidth: 1, borderColor: C.border,
+  },
+  timeChipActive: { backgroundColor: C.primaryBg, borderColor: C.primary },
+  timeChipText: { fontSize: 13, fontFamily: 'Inter_500Medium', color: C.textSub },
+  timeChipTextActive: { color: C.primary, fontFamily: 'Inter_700Bold' },
 
   emptyHistory: { alignItems: 'center', paddingVertical: 40, gap: 10 },
   emptyTitle: { fontSize: 16, fontFamily: 'Inter_600SemiBold', color: C.text },

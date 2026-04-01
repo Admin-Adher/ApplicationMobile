@@ -9,6 +9,7 @@ import { C } from '@/constants/colors';
 import { useApp } from '@/context/AppContext';
 import { useAuth } from '@/context/AuthContext';
 import { usePointage } from '@/context/PointageContext';
+import { useSettings } from '@/context/SettingsContext';
 import Header from '@/components/Header';
 import { TimeEntry } from '@/constants/types';
 import BottomNavBar from '@/components/BottomNavBar';
@@ -35,10 +36,14 @@ function timeToMinutes(t: string): number {
   return h * 60 + m;
 }
 
+const ARRIVAL_PRESETS = ['06:30', '07:00', '07:30', '08:00', '08:30'];
+const DEPARTURE_PRESETS = ['16:00', '16:30', '17:00', '17:30', '18:00'];
+
 export default function PointageScreen() {
   const { companies } = useApp();
   const { user, permissions } = useAuth();
   const { entries, addEntry, updateEntry, deleteEntry } = usePointage();
+  const { defaultArrivalTime } = useSettings();
 
   const [selectedDate, setSelectedDate] = useState(todayISO());
   const [modalVisible, setModalVisible] = useState(false);
@@ -47,7 +52,7 @@ export default function PointageScreen() {
 
   const [workerName, setWorkerName] = useState('');
   const [selectedCompanyId, setSelectedCompanyId] = useState('');
-  const [arrivalTime, setArrivalTime] = useState('07:30');
+  const [arrivalTime, setArrivalTime] = useState(defaultArrivalTime);
   const [departureTime, setDepartureTime] = useState('');
   const [notes, setNotes] = useState('');
   const [depTime, setDepTime] = useState('17:00');
@@ -84,7 +89,7 @@ export default function PointageScreen() {
     setEditTarget(null);
     setWorkerName('');
     setSelectedCompanyId(companies[0]?.id ?? '');
-    setArrivalTime('07:30');
+    setArrivalTime(defaultArrivalTime);
     setDepartureTime('');
     setNotes('');
     setModalVisible(true);
@@ -349,31 +354,47 @@ export default function PointageScreen() {
               ))}
             </ScrollView>
 
-            <View style={styles.timeRow2}>
-              <View style={{ flex: 1 }}>
-                <Text style={styles.fieldLabel}>Heure d'arrivée *</Text>
-                <TextInput
-                  style={styles.input}
-                  placeholder="07:30"
-                  placeholderTextColor={C.textMuted}
-                  value={arrivalTime}
-                  onChangeText={setArrivalTime}
-                  keyboardType="numbers-and-punctuation"
-                />
-              </View>
-              <View style={{ width: 12 }} />
-              <View style={{ flex: 1 }}>
-                <Text style={styles.fieldLabel}>Heure de départ</Text>
-                <TextInput
-                  style={styles.input}
-                  placeholder="17:00 (optionnel)"
-                  placeholderTextColor={C.textMuted}
-                  value={departureTime}
-                  onChangeText={setDepartureTime}
-                  keyboardType="numbers-and-punctuation"
-                />
-              </View>
+            <Text style={styles.fieldLabel}>Heure d'arrivée *</Text>
+            <View style={styles.presetRow}>
+              {ARRIVAL_PRESETS.map(t => (
+                <TouchableOpacity
+                  key={t}
+                  style={[styles.presetChip, arrivalTime === t && styles.presetChipActive]}
+                  onPress={() => setArrivalTime(t)}
+                >
+                  <Text style={[styles.presetChipText, arrivalTime === t && styles.presetChipTextActive]}>{t}</Text>
+                </TouchableOpacity>
+              ))}
             </View>
+            <TextInput
+              style={[styles.input, { marginBottom: 12 }]}
+              placeholder="HH:MM"
+              placeholderTextColor={C.textMuted}
+              value={arrivalTime}
+              onChangeText={setArrivalTime}
+              keyboardType="numbers-and-punctuation"
+            />
+
+            <Text style={styles.fieldLabel}>Heure de départ</Text>
+            <View style={styles.presetRow}>
+              {DEPARTURE_PRESETS.map(t => (
+                <TouchableOpacity
+                  key={t}
+                  style={[styles.presetChip, departureTime === t && styles.presetChipActive]}
+                  onPress={() => setDepartureTime(t)}
+                >
+                  <Text style={[styles.presetChipText, departureTime === t && styles.presetChipTextActive]}>{t}</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+            <TextInput
+              style={[styles.input, { marginBottom: 12 }]}
+              placeholder="HH:MM (optionnel)"
+              placeholderTextColor={C.textMuted}
+              value={departureTime}
+              onChangeText={setDepartureTime}
+              keyboardType="numbers-and-punctuation"
+            />
 
             <Text style={styles.fieldLabel}>Notes</Text>
             <TextInput
@@ -464,6 +485,15 @@ const styles = StyleSheet.create({
   companyChipText: { fontSize: 12, fontFamily: 'Inter_500Medium', color: C.textSub },
   companyChipTextActive: { color: C.primary },
   companyDot: { width: 8, height: 8, borderRadius: 4 },
+
+  presetRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginBottom: 8 },
+  presetChip: {
+    paddingHorizontal: 10, paddingVertical: 6, borderRadius: 16,
+    borderWidth: 1, borderColor: C.border, backgroundColor: C.surface2,
+  },
+  presetChipActive: { backgroundColor: C.primaryBg, borderColor: C.primary },
+  presetChipText: { fontSize: 12, fontFamily: 'Inter_500Medium', color: C.textSub },
+  presetChipTextActive: { color: C.primary, fontFamily: 'Inter_600SemiBold' },
 
   list: { padding: 16, paddingBottom: 40 },
 

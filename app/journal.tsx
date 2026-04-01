@@ -201,6 +201,9 @@ export default function JournalScreen() {
   const [fetchingWeather, setFetchingWeather] = useState(false);
   const [weatherDetail, setWeatherDetail] = useState<{ temp: number | null; wind: number | null } | null>(null);
 
+  const todayFR = new Date().toLocaleDateString('fr-FR');
+  const hasTodayEntry = entries.some(e => e.date === todayFR);
+
   useEffect(() => {
     AsyncStorage.getItem(JOURNAL_KEY).then(raw => {
       if (raw) { try { setEntries(JSON.parse(raw)); } catch {} }
@@ -321,6 +324,25 @@ export default function JournalScreen() {
       />
 
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
+
+        {permissions.canCreate && !hasTodayEntry && !showNew && (
+          <TouchableOpacity
+            style={styles.todayCTA}
+            onPress={() => setShowNew(true)}
+            activeOpacity={0.82}
+          >
+            <View style={styles.todayCTALeft}>
+              <View style={styles.todayCTAIcon}>
+                <Ionicons name="journal" size={20} color="#fff" />
+              </View>
+              <View>
+                <Text style={styles.todayCTATitle}>Saisir l'entrée du jour</Text>
+                <Text style={styles.todayCTASub}>{todayFR} — aucune saisie ce jour</Text>
+              </View>
+            </View>
+            <Ionicons name="chevron-forward" size={18} color={C.primary} />
+          </TouchableOpacity>
+        )}
 
         {entries.length > 0 && (
           <View style={styles.statsRow}>
@@ -480,6 +502,18 @@ export default function JournalScreen() {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: C.bg },
   content: { padding: 16, paddingBottom: 40 },
+  todayCTA: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    backgroundColor: C.primaryBg, borderRadius: 14, padding: 14, marginBottom: 14,
+    borderWidth: 1.5, borderColor: C.primary + '50',
+  },
+  todayCTALeft: { flexDirection: 'row', alignItems: 'center', gap: 12, flex: 1 },
+  todayCTAIcon: {
+    width: 40, height: 40, borderRadius: 12, backgroundColor: C.primary,
+    alignItems: 'center', justifyContent: 'center',
+  },
+  todayCTATitle: { fontSize: 15, fontFamily: 'Inter_700Bold', color: C.primary },
+  todayCTASub: { fontSize: 12, fontFamily: 'Inter_400Regular', color: C.primary + 'AA', marginTop: 2 },
   statsRow: { flexDirection: 'row', gap: 8, marginBottom: 14, alignItems: 'center' },
   statCard: { flex: 1, backgroundColor: C.surface, borderRadius: 10, padding: 10, alignItems: 'center', borderWidth: 1, borderColor: C.border },
   statVal: { fontSize: 20, fontFamily: 'Inter_700Bold', color: C.primary },

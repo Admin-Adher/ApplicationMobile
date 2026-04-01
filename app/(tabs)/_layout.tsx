@@ -34,11 +34,16 @@ function TabletSidebar({ state, navigation }: BottomTabBarProps) {
 
   return (
     <View style={[styles.sidebar, { paddingTop: insets.top + 8, paddingBottom: insets.bottom + 8 }]}>
-      <View style={styles.sidebarLogo}>
+      <TouchableOpacity
+        style={styles.sidebarLogo}
+        onPress={() => navigation.navigate('index')}
+        activeOpacity={0.7}
+        hitSlop={8}
+      >
         <View style={styles.sidebarLogoMark}>
           <Text style={styles.sidebarLogoText}>BT</Text>
         </View>
-      </View>
+      </TouchableOpacity>
 
       <View style={styles.sidebarDivider} />
 

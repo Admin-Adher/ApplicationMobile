@@ -4,6 +4,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { C } from '@/constants/colors';
+import { useNetwork } from '@/context/NetworkContext';
 
 interface Props {
   title: string;
@@ -14,16 +15,27 @@ interface Props {
   onRightPress?: () => void;
   rightLabel?: string;
   rightElement?: React.ReactNode;
+  showSearch?: boolean;
+  onSearchPress?: () => void;
 }
 
-export default function Header({ title, subtitle, showBack, onBack, rightIcon, onRightPress, rightLabel, rightElement }: Props) {
+export default function Header({
+  title, subtitle, showBack, onBack, rightIcon, onRightPress,
+  rightLabel, rightElement, showSearch, onSearchPress,
+}: Props) {
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const topPad = Platform.OS === 'web' ? 67 : insets.top;
+  const { isOnline, queueCount } = useNetwork();
 
   function handleBack() {
     if (onBack) onBack();
     else router.back();
+  }
+
+  function handleSearch() {
+    if (onSearchPress) onSearchPress();
+    else router.push('/search' as any);
   }
 
   return (
@@ -35,18 +47,32 @@ export default function Header({ title, subtitle, showBack, onBack, rightIcon, o
           </TouchableOpacity>
         )}
         <View style={styles.titleWrap}>
-          <Text style={styles.title}>{title}</Text>
+          <View style={styles.titleRow}>
+            <Text style={styles.title}>{title}</Text>
+            <View style={[styles.networkDot, { backgroundColor: isOnline ? '#22C55E' : '#EF4444' }]}>
+              {!isOnline && queueCount > 0 && (
+                <Text style={styles.networkDotText}>{queueCount > 9 ? '9+' : queueCount}</Text>
+              )}
+            </View>
+          </View>
           {subtitle ? <Text style={styles.subtitle}>{subtitle}</Text> : null}
         </View>
-        {rightElement ?? ((rightIcon || rightLabel) ? (
-          <TouchableOpacity onPress={onRightPress} style={rightLabel ? styles.rightPillBtn : styles.rightBtn} hitSlop={8}>
-            {rightLabel ? (
-              <Text style={styles.rightPillText}>{rightLabel}</Text>
-            ) : (
-              <Ionicons name={rightIcon as any} size={22} color={C.primary} />
-            )}
-          </TouchableOpacity>
-        ) : null)}
+        <View style={styles.rightActions}>
+          {showSearch && (
+            <TouchableOpacity onPress={handleSearch} style={styles.iconBtn} hitSlop={8}>
+              <Ionicons name="search-outline" size={20} color={C.primary} />
+            </TouchableOpacity>
+          )}
+          {rightElement ?? ((rightIcon || rightLabel) ? (
+            <TouchableOpacity onPress={onRightPress} style={rightLabel ? styles.rightPillBtn : styles.rightBtn} hitSlop={8}>
+              {rightLabel ? (
+                <Text style={styles.rightPillText}>{rightLabel}</Text>
+              ) : (
+                <Ionicons name={rightIcon as any} size={22} color={C.primary} />
+              )}
+            </TouchableOpacity>
+          ) : null)}
+        </View>
       </View>
     </View>
   );
@@ -72,10 +98,28 @@ const styles = StyleSheet.create({
   titleWrap: {
     flex: 1,
   },
+  titleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
   title: {
     fontSize: 20,
     fontFamily: 'Inter_700Bold',
     color: C.text,
+  },
+  networkDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    marginTop: 2,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  networkDotText: {
+    fontSize: 6,
+    fontFamily: 'Inter_700Bold',
+    color: '#fff',
   },
   subtitle: {
     fontSize: 12,
@@ -83,12 +127,19 @@ const styles = StyleSheet.create({
     color: C.textSub,
     marginTop: 2,
   },
-  rightBtn: {
-    padding: 4,
+  rightActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
     marginLeft: 8,
   },
+  iconBtn: {
+    padding: 4,
+  },
+  rightBtn: {
+    padding: 4,
+  },
   rightPillBtn: {
-    marginLeft: 8,
     backgroundColor: C.primary,
     borderRadius: 20,
     paddingHorizontal: 14,

@@ -5,6 +5,7 @@ import { AttendanceRecord, Company } from '@/constants/types';
 const PROJECT_NAME_KEY = 'buildtrack_project_name_v1';
 const PROJECT_DESC_KEY = 'buildtrack_project_desc_v1';
 const ATTENDANCE_HISTORY_KEY = 'buildtrack_attendance_history_v1';
+const DEFAULT_ARRIVAL_TIME_KEY = 'buildtrack_default_arrival_time_v1';
 
 interface SettingsContextValue {
   projectName: string;
@@ -15,6 +16,8 @@ interface SettingsContextValue {
   saveAttendanceSnapshot: (companies: Company[], savedBy: string) => Promise<void>;
   deleteAttendanceRecord: (id: string) => Promise<void>;
   clearAttendanceHistory: () => Promise<void>;
+  defaultArrivalTime: string;
+  setDefaultArrivalTime: (time: string) => Promise<void>;
 }
 
 const SettingsContext = createContext<SettingsContextValue | null>(null);
@@ -27,18 +30,21 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
   const [projectName, setProjectNameState] = useState('Projet Horizon');
   const [projectDescription, setProjectDescriptionState] = useState('Gestion de chantier numérique');
   const [attendanceHistory, setAttendanceHistory] = useState<AttendanceRecord[]>([]);
+  const [defaultArrivalTime, setDefaultArrivalTimeState] = useState('07:30');
 
   useEffect(() => {
     async function load() {
       try {
-        const [name, desc, history] = await Promise.all([
+        const [name, desc, history, arrivalTime] = await Promise.all([
           AsyncStorage.getItem(PROJECT_NAME_KEY),
           AsyncStorage.getItem(PROJECT_DESC_KEY),
           AsyncStorage.getItem(ATTENDANCE_HISTORY_KEY),
+          AsyncStorage.getItem(DEFAULT_ARRIVAL_TIME_KEY),
         ]);
         if (name) setProjectNameState(name);
         if (desc) setProjectDescriptionState(desc);
         if (history) setAttendanceHistory(JSON.parse(history));
+        if (arrivalTime) setDefaultArrivalTimeState(arrivalTime);
       } catch {}
     }
     load();
@@ -52,6 +58,11 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
   const setProjectDescription = useCallback(async (desc: string) => {
     setProjectDescriptionState(desc);
     try { await AsyncStorage.setItem(PROJECT_DESC_KEY, desc); } catch {}
+  }, []);
+
+  const setDefaultArrivalTime = useCallback(async (time: string) => {
+    setDefaultArrivalTimeState(time);
+    try { await AsyncStorage.setItem(DEFAULT_ARRIVAL_TIME_KEY, time); } catch {}
   }, []);
 
   const saveAttendanceSnapshot = useCallback(async (companies: Company[], savedBy: string) => {
@@ -92,6 +103,8 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
       saveAttendanceSnapshot,
       deleteAttendanceRecord,
       clearAttendanceHistory,
+      defaultArrivalTime,
+      setDefaultArrivalTime,
     }}>
       {children}
     </SettingsContext.Provider>

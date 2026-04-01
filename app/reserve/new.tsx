@@ -13,6 +13,7 @@ import { useAuth } from '@/context/AuthContext';
 import { ReserveKind, ReservePriority, ReserveStatus, ReservePhoto } from '@/constants/types';
 import Header from '@/components/Header';
 import DateInput from '@/components/DateInput';
+import BottomSheetPicker from '@/components/BottomSheetPicker';
 import { uploadPhoto } from '@/lib/storage';
 import { genId } from '@/lib/utils';
 import {
@@ -301,6 +302,61 @@ export default function NewReserveScreen() {
           )}
         </View>
 
+        {/* PHOTOS — en premier pour capturer d'abord */}
+        <View style={styles.card}>
+          <View style={[styles.fieldGroup, { marginBottom: 0 }]}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+              <Text style={styles.label}>Photos ({photos.length}/6)</Text>
+              {photos.length > 0 && <Text style={styles.photoKindHint}>Appuyer sur une photo pour basculer Constat ↔ Levée</Text>}
+            </View>
+
+            {photos.length > 0 && (
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 10 }}>
+                <View style={{ flexDirection: 'row', gap: 8 }}>
+                  {photos.map(p => (
+                    <View key={p.id} style={styles.photoThumb}>
+                      <TouchableOpacity onPress={() => togglePhotoKind(p.id)} activeOpacity={0.85}>
+                        <Image source={{ uri: p.uri }} style={styles.photoThumbImg} resizeMode="cover" />
+                        <View style={[styles.photoKindBadge, { backgroundColor: p.kind === 'defect' ? '#EF444488' : '#22C55E88' }]}>
+                          <Text style={styles.photoKindBadgeText}>{p.kind === 'defect' ? 'Constat' : 'Levée'}</Text>
+                        </View>
+                        {p.gpsLat !== undefined && (
+                          <View style={styles.gpsIndicator}>
+                            <Ionicons name="location" size={9} color="#fff" />
+                          </View>
+                        )}
+                      </TouchableOpacity>
+                      <TouchableOpacity style={styles.photoRemoveBtn} onPress={() => removePhoto(p.id)}>
+                        <Ionicons name="close" size={11} color="#fff" />
+                      </TouchableOpacity>
+                    </View>
+                  ))}
+                </View>
+              </ScrollView>
+            )}
+
+            {photos.length < 6 && (
+              <View style={styles.photoRow}>
+                <TouchableOpacity style={[styles.photoBtn, { flex: 1 }]} onPress={handleCamera} disabled={photoUploading}>
+                  <Ionicons name="camera" size={18} color={C.primary} />
+                  <Text style={styles.photoBtnText}>Prendre une photo</Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={[styles.photoBtn, { flex: 1 }]} onPress={handlePickPhoto} disabled={photoUploading}>
+                  <Ionicons name="images-outline" size={18} color={C.inProgress} />
+                  <Text style={[styles.photoBtnText, { color: C.inProgress }]}>Galerie</Text>
+                </TouchableOpacity>
+              </View>
+            )}
+
+            {photoUploading && (
+              <View style={styles.uploadRow}>
+                <ActivityIndicator size="small" color={C.primary} />
+                <Text style={styles.uploadText}>Upload en cours...</Text>
+              </View>
+            )}
+          </View>
+        </View>
+
         {/* TEMPLATES */}
         {kind === 'reserve' && (
           <View style={styles.card}>
@@ -378,159 +434,95 @@ export default function NewReserveScreen() {
           </View>
         </View>
 
-        {/* PHOTOS */}
-        <View style={styles.card}>
-          <View style={[styles.fieldGroup, { marginBottom: 0 }]}>
-            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
-              <Text style={styles.label}>Photos ({photos.length}/6)</Text>
-              {photos.length > 0 && <Text style={styles.photoKindHint}>Appuyer sur une photo pour basculer Constat ↔ Levée</Text>}
-            </View>
-
-            {photos.length > 0 && (
-              <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 10 }}>
-                <View style={{ flexDirection: 'row', gap: 8 }}>
-                  {photos.map(p => (
-                    <View key={p.id} style={styles.photoThumb}>
-                      <TouchableOpacity onPress={() => togglePhotoKind(p.id)} activeOpacity={0.85}>
-                        <Image source={{ uri: p.uri }} style={styles.photoThumbImg} resizeMode="cover" />
-                        <View style={[styles.photoKindBadge, { backgroundColor: p.kind === 'defect' ? '#EF444488' : '#22C55E88' }]}>
-                          <Text style={styles.photoKindBadgeText}>{p.kind === 'defect' ? 'Constat' : 'Levée'}</Text>
-                        </View>
-                        {p.gpsLat !== undefined && (
-                          <View style={styles.gpsIndicator}>
-                            <Ionicons name="location" size={9} color="#fff" />
-                          </View>
-                        )}
-                      </TouchableOpacity>
-                      <TouchableOpacity style={styles.photoRemoveBtn} onPress={() => removePhoto(p.id)}>
-                        <Ionicons name="close" size={11} color="#fff" />
-                      </TouchableOpacity>
-                    </View>
-                  ))}
-                </View>
-              </ScrollView>
-            )}
-
-            {photos.length < 6 && (
-              <View style={styles.photoRow}>
-                <TouchableOpacity style={[styles.photoBtn, { flex: 1 }]} onPress={handleCamera} disabled={photoUploading}>
-                  <Ionicons name="camera" size={18} color={C.primary} />
-                  <Text style={styles.photoBtnText}>Prendre une photo</Text>
-                </TouchableOpacity>
-                <TouchableOpacity style={[styles.photoBtn, { flex: 1 }]} onPress={handlePickPhoto} disabled={photoUploading}>
-                  <Ionicons name="images-outline" size={18} color={C.inProgress} />
-                  <Text style={[styles.photoBtnText, { color: C.inProgress }]}>Galerie</Text>
-                </TouchableOpacity>
-              </View>
-            )}
-
-            {photoUploading && (
-              <View style={styles.uploadRow}>
-                <ActivityIndicator size="small" color={C.primary} />
-                <Text style={styles.uploadText}>Upload en cours...</Text>
-              </View>
-            )}
-          </View>
-        </View>
-
         {/* CORPS D'ÉTAT (LOT) */}
         {lots.length > 0 && (
           <View style={styles.card}>
-            <View style={styles.fieldGroup}>
-              <Text style={styles.label}>Corps d'état (lot)</Text>
-              <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-                <View style={styles.chipRow}>
-                  <TouchableOpacity style={[styles.chip, !lotId && styles.chipActive]} onPress={() => handleLotChange('')}>
-                    <Text style={[styles.chipText, !lotId && styles.chipTextActive]}>Aucun</Text>
-                  </TouchableOpacity>
-                  {lots.map(lot => (
-                    <TouchableOpacity
-                      key={lot.id}
-                      style={[styles.chip, lotId === lot.id && { backgroundColor: (lot.color ?? C.primary) + '20', borderColor: lot.color ?? C.primary }]}
-                      onPress={() => handleLotChange(lot.id)}
-                    >
-                      {lot.color && <View style={[styles.lotDot, { backgroundColor: lot.color }]} />}
-                      <Text style={[styles.chipText, lotId === lot.id && { color: lot.color ?? C.primary }]} numberOfLines={1}>
-                        {(lot as any).number ? `${(lot as any).number}. ` : ''}{lot.name}
-                      </Text>
-                    </TouchableOpacity>
-                  ))}
-                </View>
-              </ScrollView>
-              {selectedLot && (
-                <View style={styles.lotAutoFillHint}>
-                  <Ionicons name="information-circle-outline" size={12} color={C.primary} />
-                  <Text style={styles.lotAutoFillText}>
-                    Référence automatique : <Text style={{ fontFamily: 'Inter_700Bold' }}>{previewId}</Text>
-                    {selectedLot.companyId && companies.find(c => c.id === selectedLot.companyId)
-                      ? ` · Entreprise auto-remplie : ${companies.find(c => c.id === selectedLot.companyId)!.shortName}`
-                      : ''}
-                  </Text>
-                </View>
-              )}
-            </View>
+            <BottomSheetPicker
+              label="Corps d'état (lot)"
+              options={lots.map(lot => ({
+                label: `${(lot as any).number ? `${(lot as any).number}. ` : ''}${lot.name}`,
+                value: lot.id,
+                color: lot.color,
+              }))}
+              value={lotId}
+              onChange={handleLotChange}
+              allowNone
+              noneLabel="Aucun lot"
+            />
+            {selectedLot && (
+              <View style={styles.lotAutoFillHint}>
+                <Ionicons name="information-circle-outline" size={12} color={C.primary} />
+                <Text style={styles.lotAutoFillText}>
+                  Référence automatique : <Text style={{ fontFamily: 'Inter_700Bold' }}>{previewId}</Text>
+                  {selectedLot.companyId && companies.find(c => c.id === selectedLot.companyId)
+                    ? ` · Entreprise auto-remplie : ${companies.find(c => c.id === selectedLot.companyId)!.shortName}`
+                    : ''}
+                </Text>
+              </View>
+            )}
           </View>
         )}
 
         {/* PLAN */}
         {chantierPlans.length > 0 && (
           <View style={styles.card}>
-            <View style={styles.fieldGroup}>
-              <Text style={styles.label}>Plan associé</Text>
-              <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-                <View style={styles.chipRow}>
-                  <TouchableOpacity style={[styles.chip, !selectedPlanId && styles.chipActive]} onPress={() => setSelectedPlanId('')}>
-                    <Text style={[styles.chipText, !selectedPlanId && styles.chipTextActive]}>Aucun</Text>
-                  </TouchableOpacity>
-                  {chantierPlans.map(plan => (
-                    <TouchableOpacity key={plan.id} style={[styles.chip, selectedPlanId === plan.id && styles.chipActive]} onPress={() => setSelectedPlanId(plan.id)}>
-                      <Ionicons name="map-outline" size={12} color={selectedPlanId === plan.id ? C.primary : C.textSub} />
-                      <Text style={[styles.chipText, selectedPlanId === plan.id && styles.chipTextActive]} numberOfLines={1}>{plan.name}</Text>
-                    </TouchableOpacity>
-                  ))}
-                </View>
-              </ScrollView>
-            </View>
+            <BottomSheetPicker
+              label="Plan associé"
+              options={chantierPlans.map(p => ({ label: p.name, value: p.id }))}
+              value={selectedPlanId}
+              onChange={setSelectedPlanId}
+              allowNone
+              noneLabel="Aucun plan"
+            />
           </View>
         )}
 
         {/* LOCALISATION */}
         <View style={styles.card}>
           {(!effectiveChantierId && chantierPlans.length === 0) && (
-            <SelectRow label="Bâtiment" options={RESERVE_BUILDINGS} value={building} onChange={setBuilding} />
+            <BottomSheetPicker
+              label="Bâtiment"
+              options={RESERVE_BUILDINGS.map(b => ({ label: b, value: b }))}
+              value={building}
+              onChange={setBuilding}
+            />
           )}
-          <SelectRow label="Zone" options={RESERVE_ZONES} value={zone} onChange={setZone} />
-          <SelectRow label="Niveau" options={RESERVE_LEVELS} value={level} onChange={setLevel} />
+          <BottomSheetPicker
+            label="Zone"
+            options={RESERVE_ZONES.map(z => ({ label: z, value: z }))}
+            value={zone}
+            onChange={setZone}
+          />
+          <BottomSheetPicker
+            label="Niveau"
+            options={RESERVE_LEVELS.map(l => ({ label: l, value: l }))}
+            value={level}
+            onChange={setLevel}
+          />
         </View>
 
         {/* ENTREPRISE */}
         <View style={styles.card}>
-          <View style={[styles.fieldGroup, { marginBottom: 0 }]}>
-            <Text style={styles.label}>Entreprise responsable *</Text>
-            {companies.length === 0 ? (
-              <View style={styles.warningRow}>
-                <Ionicons name="alert-circle-outline" size={14} color={C.medium} />
-                <Text style={styles.warningText}>
-                  Aucune entreprise configurée. Ajoutez d'abord une entreprise dans l'onglet Équipes.
-                </Text>
-              </View>
-            ) : (
-              <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-                <View style={styles.chipRow}>
-                  {companies.map(co => (
-                    <TouchableOpacity
-                      key={co.id}
-                      style={[styles.chip, company === co.name && { ...styles.chipActive, borderColor: co.color }]}
-                      onPress={() => setCompany(co.name)}
-                    >
-                      <View style={[styles.coDot, { backgroundColor: co.color }]} />
-                      <Text style={[styles.chipText, company === co.name && { color: co.color }]}>{co.shortName}</Text>
-                    </TouchableOpacity>
-                  ))}
-                </View>
-              </ScrollView>
-            )}
-          </View>
+          {companies.length === 0 ? (
+            <View style={styles.warningRow}>
+              <Ionicons name="alert-circle-outline" size={14} color={C.medium} />
+              <Text style={styles.warningText}>
+                Aucune entreprise configurée. Ajoutez d'abord une entreprise dans l'onglet Équipes.
+              </Text>
+            </View>
+          ) : (
+            <BottomSheetPicker
+              label="Entreprise responsable *"
+              options={companies.map(co => ({
+                label: co.name,
+                value: co.name,
+                color: co.color,
+                secondaryLabel: co.shortName !== co.name ? co.shortName : undefined,
+              }))}
+              value={company}
+              onChange={setCompany}
+            />
+          )}
         </View>
 
         {/* PRIORITÉ */}
