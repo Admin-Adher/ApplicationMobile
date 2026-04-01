@@ -148,7 +148,7 @@ export default function DashboardScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const { stats, reserves, companies, tasks, reload, chantiers, activeChantier, realtimeConnected } = useApp();
-  const { user } = useAuth();
+  const { user, permissions } = useAuth();
   const { projectName } = useSettings();
   const { incidents } = useIncidents();
   const { unreadCount } = useNotifications();
@@ -264,6 +264,17 @@ export default function DashboardScreen() {
           )}
         </View>
       </View>
+
+      {permissions.canCreate && (
+        <TouchableOpacity
+          style={styles.fab}
+          onPress={() => router.push('/reserve/new' as any)}
+          activeOpacity={0.85}
+        >
+          <Ionicons name="add" size={28} color="#fff" />
+          <Text style={styles.fabLabel}>Nouvelle réserve</Text>
+        </TouchableOpacity>
+      )}
 
       <ScrollView
         contentContainerStyle={styles.content}
@@ -636,25 +647,25 @@ const styles = StyleSheet.create({
   brand: { fontSize: 16, fontFamily: 'Inter_700Bold', color: C.text },
   date: { fontSize: 11, fontFamily: 'Inter_400Regular', color: C.textSub, marginTop: 1 },
   chantierPill: {
-    flexDirection: 'row', alignItems: 'center', gap: 5,
-    backgroundColor: C.primaryBg, paddingHorizontal: 10, paddingVertical: 6,
-    borderRadius: 20, borderWidth: 1, borderColor: C.primary + '40', maxWidth: 160,
+    flexDirection: 'row', alignItems: 'center', gap: 6,
+    backgroundColor: C.primaryBg, paddingHorizontal: 14, paddingVertical: 9,
+    borderRadius: 22, borderWidth: 1.5, borderColor: C.primary + '60', maxWidth: 170,
   },
-  chantierPillDot: { width: 7, height: 7, borderRadius: 4, backgroundColor: C.primary },
-  chantierPillText: { fontSize: 12, fontFamily: 'Inter_600SemiBold', color: C.primary, flex: 1 },
+  chantierPillDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: C.primary },
+  chantierPillText: { fontSize: 13, fontFamily: 'Inter_700Bold', color: C.primary, flex: 1 },
   chantierPillEmpty: {
-    flexDirection: 'row', alignItems: 'center', gap: 5,
-    backgroundColor: C.surface2, paddingHorizontal: 10, paddingVertical: 6,
-    borderRadius: 20, borderWidth: 1, borderColor: C.border,
+    flexDirection: 'row', alignItems: 'center', gap: 6,
+    backgroundColor: C.surface2, paddingHorizontal: 14, paddingVertical: 9,
+    borderRadius: 22, borderWidth: 1.5, borderColor: C.border,
   },
-  chantierPillEmptyText: { fontSize: 12, fontFamily: 'Inter_500Medium', color: C.textMuted },
+  chantierPillEmptyText: { fontSize: 13, fontFamily: 'Inter_600SemiBold', color: C.textMuted },
   content: { padding: 14, paddingBottom: 36 },
   kpiGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10, marginBottom: 10 },
   kpiTouchable: { flex: 1, minWidth: '44%' },
   kpiCardTop: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 },
   kpiCard: {
     backgroundColor: C.surface,
-    borderRadius: 14, padding: 14, borderLeftWidth: 4,
+    borderRadius: 14, padding: 18, borderLeftWidth: 4,
     borderWidth: 1, borderColor: C.border, elevation: 1,
     ...Platform.select({
       web: { boxShadow: '0px 1px 6px rgba(0,48,130,0.06)' } as any,
@@ -806,4 +817,28 @@ const styles = StyleSheet.create({
   delayCountText: { fontSize: 11, fontFamily: 'Inter_700Bold', color: '#fff' },
   delayItem: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 8, borderTopWidth: 1, borderTopColor: C.border },
   delayDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: C.waiting },
+
+  fab: {
+    position: 'absolute',
+    bottom: Platform.OS === 'web' ? 104 : 80,
+    right: 18,
+    zIndex: 100,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    backgroundColor: C.primary,
+    paddingVertical: 14,
+    paddingHorizontal: 20,
+    borderRadius: 30,
+    elevation: 6,
+    ...Platform.select({
+      web: { boxShadow: '0px 4px 16px rgba(0,48,130,0.30)' } as any,
+      default: { shadowColor: C.primary, shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.35, shadowRadius: 10 },
+    }),
+  },
+  fabLabel: {
+    fontSize: 15,
+    fontFamily: 'Inter_700Bold',
+    color: '#fff',
+  },
 });

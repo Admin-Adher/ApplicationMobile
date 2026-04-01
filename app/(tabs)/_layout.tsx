@@ -30,9 +30,9 @@ export default function TabLayout() {
           backgroundColor: C.tabBar,
           borderTopColor: C.tabBorder,
           borderTopWidth: 1,
-          height: Platform.OS === 'web' ? 84 : 62,
-          paddingBottom: Platform.OS === 'web' ? 34 : 8,
-          paddingTop: 8,
+          height: Platform.OS === 'web' ? 90 : 72,
+          paddingBottom: Platform.OS === 'web' ? 34 : 12,
+          paddingTop: 10,
           elevation: 8,
           ...Platform.select({
             web: { boxShadow: '0px -2px 8px rgba(0,0,0,0.06)' } as any,
@@ -41,7 +41,10 @@ export default function TabLayout() {
         },
         tabBarLabelStyle: {
           fontFamily: 'Inter_600SemiBold',
-          fontSize: 10,
+          fontSize: 11,
+        },
+        tabBarIconStyle: {
+          marginBottom: 2,
         },
       }}
     >
@@ -49,29 +52,29 @@ export default function TabLayout() {
         name="index"
         options={{
           title: 'Dashboard',
-          tabBarIcon: ({ color, size }) => <TabIcon name="grid" color={color} size={size} />,
+          tabBarIcon: ({ color }) => <TabIcon name="grid" color={color} size={26} />,
         }}
       />
       <Tabs.Screen
         name="reserves"
         options={{
           title: 'Réserves',
-          tabBarIcon: ({ color, size }) => <TabIcon name="warning" color={color} size={size} />,
+          tabBarIcon: ({ color }) => <TabIcon name="warning" color={color} size={26} />,
         }}
       />
       <Tabs.Screen
         name="plans"
         options={{
           title: 'Plans',
-          tabBarIcon: ({ color, size }) => <TabIcon name="map" color={color} size={size} />,
+          tabBarIcon: ({ color }) => <TabIcon name="map" color={color} size={26} />,
         }}
       />
       <Tabs.Screen
         name="messages"
         options={{
           title: 'Messages',
-          tabBarIcon: ({ color, size }) => (
-            <TabIcon name="chatbubbles" color={color} size={size} badge={unreadCount} />
+          tabBarIcon: ({ color }) => (
+            <TabIcon name="chatbubbles" color={color} size={26} badge={unreadCount} />
           ),
         }}
       />
@@ -79,7 +82,7 @@ export default function TabLayout() {
         name="more"
         options={{
           title: 'Modules',
-          tabBarIcon: ({ color, size }) => <TabIcon name="apps-outline" color={color} size={size} />,
+          tabBarIcon: ({ color }) => <TabIcon name="apps-outline" color={color} size={26} />,
         }}
       />
       {/* Screens accessible via "Plus" menu — not shown in tab bar */}
