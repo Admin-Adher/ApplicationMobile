@@ -8,7 +8,7 @@ import { C } from '@/constants/colors';
 import { PlanDrawing, PlanDrawingTool, Reserve } from '@/constants/types';
 import { genId } from '@/lib/utils';
 import * as FileSystem from 'expo-file-system';
-import * as pdfjsLib from 'pdfjs-dist/legacy/build/pdf';
+import * as pdfjsLib from '@/lib/pdfjs';
 
 const STATUS_COLORS: Record<string, string> = {
   open: '#EF4444', in_progress: '#F59E0B', waiting: '#6B7280',
