@@ -64,8 +64,8 @@ export default function MoreScreen() {
     const terrainItems: MenuItem[] = [
       { icon: 'book', label: 'Journal chantier', subtitle: 'Saisie quotidienne', route: '/journal', color: '#059669' },
       { icon: 'time', label: 'Pointage', subtitle: 'Arrivées & départs', route: '/pointage', color: '#0891B2' },
-      { icon: 'clipboard', label: 'OPR', subtitle: 'Opérations de réception', route: '/(tabs)/opr', color: '#7C3AED' },
-      { icon: 'eye', label: 'Visites chantier', subtitle: 'Compte-rendu visite', route: '/(tabs)/visites', color: '#F59E0B' },
+      { icon: 'clipboard', label: 'OPR', subtitle: 'Opérations de réception', route: '/opr', color: '#7C3AED' },
+      { icon: 'eye', label: 'Visites chantier', subtitle: 'Compte-rendu visite', route: '/visites', color: '#F59E0B' },
       { icon: 'shield', label: 'Incidents', subtitle: `${openIncidentsCount > 0 ? openIncidentsCount + ' non résolu' + (openIncidentsCount > 1 ? 's' : '') : incidents.length + ' au total'}`, route: '/(tabs)/incidents', color: '#EF4444', badge: openIncidentsCount || undefined },
     ];
     result.push({ title: 'Terrain quotidien', items: terrainItems });
