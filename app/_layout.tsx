@@ -19,6 +19,7 @@ import { NotificationsProvider } from '@/context/NotificationsContext';
 import NotificationBanner from '@/components/NotificationBanner';
 import OfflineBanner from '@/components/OfflineBanner';
 import ChantierSwitcherSheet from '@/components/ChantierSwitcherSheet';
+import { ErrorBoundary } from '@/components/ErrorBoundary';
 
 SplashScreen.preventAutoHideAsync();
 
@@ -63,6 +64,7 @@ export default function RootLayout() {
   }
 
   return (
+    <ErrorBoundary>
     <AuthProvider>
       <SubscriptionProvider>
       <NetworkProvider>
@@ -121,5 +123,6 @@ export default function RootLayout() {
       </NetworkProvider>
       </SubscriptionProvider>
     </AuthProvider>
+    </ErrorBoundary>
   );
 }
