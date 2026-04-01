@@ -12,6 +12,7 @@ Digital construction site management application built with Expo (React Native) 
 - **Data Fetching:** React Context (TanStack Query was installed but unused; removed from dependencies)
 - **Local Storage:** AsyncStorage
 - **Reporting:** `expo-print` (PDF), `expo-file-system` + `expo-sharing` (CSV natif)
+- **PDF system:** Shared `lib/pdfBase.ts` — CSS tokens, `exportPDF()`, `loadPhotoAsDataUrl()`, `buildPhotoGrid()`, `buildLetterhead()`, `buildKpiRow()`, `buildDocFooter()`, `wrapHTML()`
 
 ## Architecture — Chantier Model
 

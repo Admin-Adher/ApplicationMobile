@@ -6,11 +6,17 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useState, useMemo, useRef } from 'react';
 import * as ImagePicker from 'expo-image-picker';
-import * as Print from 'expo-print';
-import * as Sharing from 'expo-sharing';
 import { C } from '@/constants/colors';
 import { useApp } from '@/context/AppContext';
 import { Reserve, ReservePriority, ReserveStatus, ReservePhoto } from '@/constants/types';
+import {
+  loadPhotoAsDataUrl,
+  exportPDF as exportPDFHelper,
+  buildPhotoGrid,
+  PDF_BASE_CSS,
+  PDF_MUTED,
+  PDF_BRAND_COLOR,
+} from '@/lib/pdfBase';
 import StatusBadge, { STATUS_CONFIG } from '@/components/StatusBadge';
 import PriorityBadge from '@/components/PriorityBadge';
 import Header from '@/components/Header';
@@ -68,7 +74,7 @@ const PRIORITY_COLORS: Record<string, string> = {
   low: '#22C55E', medium: '#F59E0B', high: '#F97316', critical: '#EF4444',
 };
 
-function buildReservePDF(reserve: Reserve, projectName: string, company: any): string {
+function buildReservePDF(reserve: Reserve, projectName: string, company: any, resolvedPhotoSrcs?: string[]): string {
   const statusColors: Record<string, string> = {
     open: '#DC2626', in_progress: '#F59E0B', waiting: '#3B82F6',
     verification: '#8B5CF6', closed: '#059669',
@@ -89,30 +95,26 @@ function buildReservePDF(reserve: Reserve, projectName: string, company: any): s
   const pColor = priorityColors[reserve.priority] ?? '#6B7280';
   const pLabel = priorityLabels[reserve.priority] ?? reserve.priority;
 
-  const allPhotos = reserve.photos && reserve.photos.length > 0
+  const rawPhotos = reserve.photos && reserve.photos.length > 0
     ? reserve.photos
     : reserve.photoUri
-      ? [{ uri: reserve.photoUri, kind: 'defect', takenAt: reserve.createdAt, takenBy: '', annotations: [] }]
+      ? [{ id: 'legacy', uri: reserve.photoUri, kind: 'defect' as const, takenAt: reserve.createdAt, takenBy: '' }]
       : [];
 
-  const photoSection = allPhotos.length > 0
-    ? `<div style="margin-top:24px">
-        <div style="font-size:11px;font-weight:700;color:#5E738A;text-transform:uppercase;letter-spacing:0.6px;margin-bottom:12px">
-          Photos (${allPhotos.length})
-        </div>
-        <div style="display:flex;gap:12px;flex-wrap:wrap">
-          ${allPhotos.slice(0, 4).map(p => `
-            <div style="text-align:center">
-              <img src="${p.uri}" style="width:200px;height:150px;object-fit:cover;border-radius:8px;border:1px solid #DDE4EE" />
-              <div style="font-size:9px;color:${p.kind === 'defect' ? '#DC2626' : '#059669'};margin-top:4px;font-weight:bold">
-                ${p.kind === 'defect' ? '🔴 Constat' : '🟢 Levée'}
-                ${(p as any).gpsLat ? ` · 📍 ${parseFloat((p as any).gpsLat).toFixed(5)}, ${parseFloat((p as any).gpsLon).toFixed(5)}` : ''}
-              </div>
-              ${(p.annotations ?? []).length > 0 ? `<div style="font-size:9px;color:#6B7280">${(p.annotations ?? []).length} annotation${(p.annotations ?? []).length > 1 ? 's' : ''}</div>` : ''}
-            </div>
-          `).join('')}
-        </div>
-      </div>`
+  const photoSection = rawPhotos.length > 0
+    ? buildPhotoGrid(
+        rawPhotos.slice(0, 6).map((p, i) => ({
+          src: resolvedPhotoSrcs?.[i] ?? p.uri,
+          badge: p.kind === 'defect' ? '🔴 Constat' : '🟢 Levée',
+          badgeColor: p.kind === 'defect' ? '#FEF2F2' : '#ECFDF5',
+          badgeTextColor: p.kind === 'defect' ? '#DC2626' : '#059669',
+          caption: [
+            p.takenBy ? `Par ${p.takenBy}` : '',
+            p.takenAt ? `le ${p.takenAt}` : '',
+            (p.annotations ?? []).length > 0 ? `${(p.annotations ?? []).length} annotation(s)` : '',
+          ].filter(Boolean).join(' · '),
+        }))
+      )
     : '';
 
   const gpsSection = (reserve as any).gpsLat
@@ -132,7 +134,7 @@ function buildReservePDF(reserve: Reserve, projectName: string, company: any): s
 
   const commentsSection = reserve.comments.length > 0
     ? `<div style="margin-top:20px">
-        <div style="font-size:11px;font-weight:700;color:#5E738A;text-transform:uppercase;letter-spacing:0.6px;margin-bottom:10px">Commentaires</div>
+        <div class="section-header">Commentaires</div>
         ${reserve.comments.slice(-5).map(c =>
           `<div style="background:#F9FAFB;border-radius:8px;padding:10px;margin-bottom:8px;border-left:3px solid #1A6FD8">
             <div style="font-size:10px;color:#5E738A;margin-bottom:4px"><strong>${c.author}</strong> · ${c.createdAt}</div>
@@ -144,7 +146,7 @@ function buildReservePDF(reserve: Reserve, projectName: string, company: any): s
 
   const sigSection = reserve.enterpriseSignature
     ? `<div style="margin-top:24px;padding-top:20px;border-top:2px solid #EEF3FA">
-        <div style="font-size:11px;font-weight:700;color:#5E738A;text-transform:uppercase;letter-spacing:0.6px;margin-bottom:16px">Signature de levée</div>
+        <div class="section-header">Signature de levée</div>
         <div style="border:1.5px solid #DDE4EE;border-radius:10px;padding:16px;display:inline-block;background:#FAFBFF">
           <div style="font-size:10px;color:#5E738A;margin-bottom:8px">Signataire : <strong>${reserve.enterpriseSignataire ?? 'N/A'}</strong></div>
           <img src="${reserve.enterpriseSignature}" style="width:240px;height:80px;object-fit:contain;border-bottom:2px solid #1A2742;display:block;margin-bottom:8px" />
@@ -152,7 +154,7 @@ function buildReservePDF(reserve: Reserve, projectName: string, company: any): s
         </div>
       </div>`
     : `<div style="margin-top:24px;padding-top:20px;border-top:2px solid #EEF3FA">
-        <div style="font-size:11px;font-weight:700;color:#5E738A;text-transform:uppercase;letter-spacing:0.6px;margin-bottom:12px">Zone de signature</div>
+        <div class="section-header">Zone de signature</div>
         <div style="display:flex;gap:40px">
           <div style="text-align:center">
             <div style="height:70px;width:220px;border-bottom:2px solid #1A2742;margin-bottom:8px"></div>
@@ -165,48 +167,44 @@ function buildReservePDF(reserve: Reserve, projectName: string, company: any): s
         </div>
       </div>`;
 
-  return `<!DOCTYPE html><html><head><meta charset="UTF-8">
-  <style>
-    body { font-family: Arial, sans-serif; padding: 32px; color: #1A2742; max-width: 800px; margin: 0 auto; }
-    .header { display: flex; justify-content: space-between; align-items: flex-start; border-bottom: 3px solid #1A6FD8; padding-bottom: 16px; margin-bottom: 24px; }
-    .reserve-id { font-size: 28px; font-weight: 900; color: #1A6FD8; }
-    .project { font-size: 13px; color: #5E738A; margin-top: 4px; }
-    .date { font-size: 11px; color: #8FA3B5; text-align: right; }
-    .status-badge { display: inline-block; padding: 5px 16px; border-radius: 20px; font-weight: 700; font-size: 13px; }
-    .priority-badge { display: inline-block; padding: 4px 12px; border-radius: 14px; font-size: 12px; font-weight: 600; }
-    .info-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-top: 20px; }
+  return `<!DOCTYPE html><html lang="fr"><head><meta charset="UTF-8">
+  <title>Fiche réserve ${reserve.id}</title>
+  <style>${PDF_BASE_CSS}
+    .reserve-header { display: flex; justify-content: space-between; align-items: flex-start; border-bottom: 3px solid ${PDF_BRAND_COLOR}; padding-bottom: 18px; margin-bottom: 22px; }
+    .reserve-id { font-size: 26px; font-weight: 900; color: ${PDF_BRAND_COLOR}; }
+    .status-badge { display: inline-block; padding: 4px 14px; border-radius: 18px; font-weight: 700; font-size: 12px; }
+    .priority-badge { display: inline-block; padding: 3px 12px; border-radius: 12px; font-size: 11px; font-weight: 600; }
+    .info-grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin: 18px 0; }
     .info-item { background: #F9FAFB; border-radius: 10px; padding: 12px 16px; }
-    .info-label { font-size: 10px; font-weight: 700; color: #8FA3B5; text-transform: uppercase; letter-spacing: 0.6px; margin-bottom: 4px; }
-    .info-value { font-size: 14px; color: #1A2742; font-weight: 600; }
-    .desc-box { background: #F9FAFB; border-radius: 10px; padding: 16px; margin-top: 20px; border-left: 4px solid #1A6FD8; }
-    .section-title { font-size: 11px; font-weight: 700; color: #5E738A; text-transform: uppercase; letter-spacing: 0.6px; margin-bottom: 10px; }
-    table { width: 100%; border-collapse: collapse; }
-    th { background: #1A6FD8; color: white; padding: 9px 10px; text-align: left; font-size: 11px; }
-    .footer { margin-top: 32px; padding-top: 14px; border-top: 1px solid #DDE4EE; font-size: 10px; color: #8FA3B5; text-align: center; }
+    .info-label { font-size: 10px; font-weight: 700; color: ${PDF_MUTED}; text-transform: uppercase; letter-spacing: 0.6px; margin-bottom: 4px; }
+    .info-value { font-size: 13px; color: #1A2742; font-weight: 600; }
+    .desc-box { background: #F9FAFB; border-radius: 10px; padding: 14px 18px; margin-top: 16px; border-left: 4px solid ${PDF_BRAND_COLOR}; }
   </style></head>
   <body>
-    <div class="header">
+  <div class="container">
+    <div class="reserve-header">
       <div>
+        <div style="font-size:9px;color:${PDF_MUTED};text-transform:uppercase;letter-spacing:1px;margin-bottom:4px">Fiche de réserve</div>
         <div class="reserve-id">${reserve.id}</div>
-        <div style="font-size:17px;font-weight:700;color:#1A2742;margin-top:4px">${reserve.title}</div>
-        <div class="project">${projectName}</div>
-        <div style="display:flex;gap:8px;margin-top:10px;align-items:center">
+        <div style="font-size:16px;font-weight:700;color:#1A2742;margin-top:4px">${reserve.title}</div>
+        <div style="font-size:12px;color:${PDF_MUTED};margin-top:2px">${projectName}</div>
+        <div style="display:flex;gap:8px;margin-top:10px;align-items:center;flex-wrap:wrap">
           <span class="status-badge" style="background:${sColor}22;color:${sColor}">${sLabel}</span>
           <span class="priority-badge" style="background:${pColor}18;color:${pColor}">${pLabel}</span>
           ${reserve.kind === 'observation' ? '<span class="priority-badge" style="background:#0EA5E915;color:#0EA5E9">Observation</span>' : ''}
         </div>
       </div>
-      <div class="date">
-        <div>Créé le ${reserve.createdAt}</div>
-        ${reserve.closedAt ? `<div style="color:#059669;margin-top:4px">Clôturé le ${reserve.closedAt}</div>` : ''}
-        <div style="margin-top:6px">Échéance : <strong>${reserve.deadline}</strong></div>
+      <div style="text-align:right;font-size:11px;color:${PDF_MUTED}">
+        <div>Créé le <strong style="color:#1A2742">${reserve.createdAt}</strong></div>
+        ${reserve.closedAt ? `<div style="color:#059669;margin-top:4px;font-weight:700">✓ Clôturé le ${reserve.closedAt}</div>` : ''}
+        <div style="margin-top:6px">Échéance : <strong style="color:${reserve.closedAt ? '#059669' : '#DC2626'}">${reserve.deadline}</strong></div>
       </div>
     </div>
 
-    <div class="info-grid">
+    <div class="info-grid-2">
       <div class="info-item">
         <div class="info-label">Entreprise</div>
-        <div class="info-value" style="color:${company?.color ?? '#1A6FD8'}">${reserve.company}</div>
+        <div class="info-value" style="color:${company?.color ?? PDF_BRAND_COLOR}">${reserve.company}</div>
       </div>
       <div class="info-item">
         <div class="info-label">Localisation</div>
@@ -217,15 +215,15 @@ function buildReservePDF(reserve: Reserve, projectName: string, company: any): s
         <div class="info-value">${reserve.history[0]?.author ?? 'N/A'}</div>
       </div>
       <div class="info-item">
-        <div class="info-label">Photos attachées</div>
-        <div class="info-value">${allPhotos.length} photo${allPhotos.length !== 1 ? 's' : ''}</div>
+        <div class="info-label">Photos</div>
+        <div class="info-value">${rawPhotos.length} photo${rawPhotos.length !== 1 ? 's' : ''} attachée${rawPhotos.length !== 1 ? 's' : ''}</div>
       </div>
     </div>
 
     ${gpsSection}
 
-    <div class="desc-box" style="margin-top:20px">
-      <div class="section-title">Description</div>
+    <div class="desc-box">
+      <div class="section-header" style="margin-top:0;border:none;padding:0;margin-bottom:8px">Description</div>
       <div style="font-size:13px;line-height:1.6;color:#1A2742">${reserve.description}</div>
     </div>
 
@@ -234,20 +232,20 @@ function buildReservePDF(reserve: Reserve, projectName: string, company: any): s
     ${commentsSection}
 
     ${reserve.history.length > 0 ? `
-      <div style="margin-top:24px">
-        <div class="section-title">Historique</div>
-        <table>
-          <thead><tr><th>Date</th><th>Action</th><th>Auteur</th><th>Détail</th></tr></thead>
-          <tbody>${historyRows}</tbody>
-        </table>
-      </div>
+      <div class="section-header">Historique (${Math.min(reserve.history.length, 8)} dernières actions)</div>
+      <table>
+        <thead><tr><th>Date</th><th>Action</th><th>Auteur</th><th>Détail</th></tr></thead>
+        <tbody>${historyRows}</tbody>
+      </table>
     ` : ''}
 
     ${sigSection}
 
-    <div class="footer">
-      Fiche réserve générée par BuildTrack — ${projectName} — ${new Date().toLocaleDateString('fr-FR')}
+    <div class="doc-footer">
+      <span>Fiche réserve générée par BuildTrack — ${projectName}</span>
+      <span>Document confidentiel — ${new Date().toLocaleDateString('fr-FR')}</span>
     </div>
+  </div>
   </body></html>`;
 }
 
@@ -498,27 +496,15 @@ export default function ReserveDetailScreen() {
 
   async function handleExportPDF() {
     if (!permissions.canExport) return;
-    const html = buildReservePDF(reserve, projectName, company);
-    if (Platform.OS === 'web') {
-      const iframe = document.createElement('iframe');
-      iframe.style.cssText = 'position:fixed;right:0;bottom:0;width:0;height:0;border:0';
-      document.body.appendChild(iframe);
-      const doc = iframe.contentWindow?.document;
-      if (doc) {
-        doc.open(); doc.write(html); doc.close();
-        setTimeout(() => {
-          try { iframe.contentWindow?.print(); } catch {}
-          setTimeout(() => document.body.removeChild(iframe), 5000);
-        }, 300);
-      }
-      return;
-    }
     try {
-      const { uri } = await Print.printToFileAsync({ html, base64: false });
-      const canShare = await Sharing.isAvailableAsync();
-      if (canShare) {
-        await Sharing.shareAsync(uri, { mimeType: 'application/pdf', dialogTitle: `Fiche ${reserve.id}` });
-      }
+      const rawPhotos = reserve.photos && reserve.photos.length > 0
+        ? reserve.photos
+        : reserve.photoUri
+          ? [{ id: 'legacy', uri: reserve.photoUri, kind: 'defect' as const, takenAt: reserve.createdAt, takenBy: '' }]
+          : [];
+      const resolvedSrcs = await Promise.all(rawPhotos.slice(0, 6).map(p => loadPhotoAsDataUrl(p.uri)));
+      const html = buildReservePDF(reserve, projectName, company, resolvedSrcs);
+      await exportPDFHelper(html, `Fiche ${reserve.id}`);
     } catch {
       Alert.alert('Erreur', "Impossible de générer le PDF.");
     }

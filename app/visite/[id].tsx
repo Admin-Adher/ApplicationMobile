@@ -2,9 +2,13 @@ import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert, Platform, 
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { useMemo, useRef, useState } from 'react';
-import * as Print from 'expo-print';
-import * as Sharing from 'expo-sharing';
 import { C } from '@/constants/colors';
+import {
+  exportPDF as exportPDFHelper,
+  loadPhotoAsDataUrl,
+  buildPhotoGrid,
+  PDF_BASE_CSS,
+} from '@/lib/pdfBase';
 import { useApp } from '@/context/AppContext';
 import { useAuth } from '@/context/AuthContext';
 import { Visite, Reserve, VisiteStatus, OprStatus } from '@/constants/types';
@@ -29,7 +33,7 @@ const RESERVE_STATUS_COLORS: Record<string, string> = {
 const PRIORITY_LABELS: Record<string, string> = { low: 'Faible', medium: 'Moyen', high: 'Haute', critical: 'Critique' };
 const PRIORITY_COLORS: Record<string, string> = { low: '#22C55E', medium: '#F59E0B', high: '#EF4444', critical: '#7C3AED' };
 
-function buildVisitePDF(visite: Visite, reserves: Reserve[], projectName: string): string {
+function buildVisitePDF(visite: Visite, reserves: Reserve[], projectName: string, reservePhotoMap?: Map<string, string[]>): string {
   const priorityColors: Record<string, string> = { low: '#22C55E', medium: '#F59E0B', high: '#EF4444', critical: '#7C3AED' };
   const priorityBg: Record<string, string> = { low: '#F0FDF4', medium: '#FFFBEB', high: '#FEF2F2', critical: '#F5F3FF' };
   const statusColor: Record<string, string> = { open: '#DC2626', in_progress: '#2563EB', waiting: '#D97706', verification: '#7C3AED', closed: '#059669' };
@@ -60,12 +64,36 @@ function buildVisitePDF(visite: Visite, reserves: Reserve[], projectName: string
     </tr>`
   ).join('');
 
+  const reservesWithPhotos = reservePhotoMap && reservePhotoMap.size > 0
+    ? sortedReserves.filter(r => (reservePhotoMap.get(r.id)?.length ?? 0) > 0)
+    : [];
+
+  const photoGallery = reservesWithPhotos.length > 0
+    ? `<div style="margin-top:28px;padding-top:16px;border-top:2px solid #EEF3FA">
+        <div style="font-size:11px;font-weight:700;color:#6B7280;text-transform:uppercase;letter-spacing:0.7px;margin-bottom:14px">
+          Galerie photos des réserves (${reservesWithPhotos.reduce((acc, r) => acc + (reservePhotoMap!.get(r.id)?.length ?? 0), 0)} photos)
+        </div>
+        ${reservesWithPhotos.map(r => {
+          const srcs = reservePhotoMap!.get(r.id) ?? [];
+          const rawPhotos = r.photos ?? [];
+          return `
+            <div style="margin-bottom:18px;padding:12px 16px;border:1.5px solid #DDE4EE;border-radius:10px;page-break-inside:avoid">
+              <div style="font-size:11px;font-weight:700;color:#1A2742;margin-bottom:6px">${r.id} — ${r.title} <span style="color:#6B7280;font-weight:400">· ${r.company} · Bât.${r.building}</span></div>
+              ${buildPhotoGrid(srcs.slice(0, 4).map((src, i) => ({
+                src,
+                badge: (rawPhotos[i]?.kind === 'resolution') ? '🟢 Levée' : '🔴 Constat',
+                badgeColor: (rawPhotos[i]?.kind === 'resolution') ? '#ECFDF5' : '#FEF2F2',
+                badgeTextColor: (rawPhotos[i]?.kind === 'resolution') ? '#059669' : '#DC2626',
+              })))}
+            </div>
+          `;
+        }).join('')}
+      </div>`
+    : '';
+
   return `<!DOCTYPE html><html lang="fr"><head><meta charset="UTF-8">
-  <style>
-    * { box-sizing: border-box; margin: 0; padding: 0; }
-    body { font-family: Arial, Helvetica, sans-serif; background: #fff; color: #1A2742; }
-    @media print { body { -webkit-print-color-adjust: exact; print-color-adjust: exact; } }
-  </style>
+  <title>CR Visite ${visite.id}</title>
+  <style>${PDF_BASE_CSS}</style>
   </head><body>
   <div style="padding:32px 36px;max-width:860px;margin:0 auto">
 
@@ -169,6 +197,8 @@ function buildVisitePDF(visite: Visite, reserves: Reserve[], projectName: string
       </div>
     </div>
 
+    ${photoGallery}
+
     <div style="margin-top:28px;padding-top:12px;border-top:1px solid #EEF3FA;display:flex;justify-content:space-between;align-items:center">
       <div style="font-size:10px;color:#8FA3B5">BuildTrack — Gestion de chantier</div>
       <div style="font-size:10px;color:#8FA3B5">Document généré le ${new Date().toLocaleDateString('fr-FR')}</div>
@@ -267,25 +297,21 @@ export default function VisiteDetailScreen() {
   }
 
   async function exportPDF() {
-    const html = buildVisitePDF(visite!, visiteReserves, projectName);
-    if (Platform.OS === 'web') {
-      const iframe = document.createElement('iframe');
-      iframe.style.cssText = 'position:fixed;right:0;bottom:0;width:0;height:0;border:0';
-      document.body.appendChild(iframe);
-      const doc = iframe.contentWindow?.document;
-      if (doc) {
-        doc.open(); doc.write(html); doc.close();
-        setTimeout(() => {
-          try { iframe.contentWindow?.print(); } catch {}
-          setTimeout(() => document.body.removeChild(iframe), 5000);
-        }, 300);
-      }
-      return;
-    }
     try {
-      const { uri } = await Print.printToFileAsync({ html, base64: false });
-      const canShare = await Sharing.isAvailableAsync();
-      if (canShare) await Sharing.shareAsync(uri, { mimeType: 'application/pdf', dialogTitle: 'Partager le CR de visite' });
+      const reservePhotoMap = new Map<string, string[]>();
+      await Promise.all(
+        visiteReserves.map(async r => {
+          const rawPhotos = r.photos && r.photos.length > 0
+            ? r.photos
+            : r.photoUri ? [{ uri: r.photoUri, kind: 'defect' as const }] : [];
+          if (rawPhotos.length > 0) {
+            const srcs = await Promise.all(rawPhotos.slice(0, 4).map(p => loadPhotoAsDataUrl(p.uri)));
+            reservePhotoMap.set(r.id, srcs);
+          }
+        })
+      );
+      const html = buildVisitePDF(visite!, visiteReserves, projectName, reservePhotoMap);
+      await exportPDFHelper(html, 'CR de visite');
     } catch (e: any) {
       Alert.alert('Erreur', e?.message ?? 'Impossible de générer le PDF');
     }

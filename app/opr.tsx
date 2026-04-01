@@ -14,9 +14,8 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { useState, useMemo, useRef } from 'react';
-import * as Print from 'expo-print';
-import * as Sharing from 'expo-sharing';
 import { C } from '@/constants/colors';
+import { exportPDF as exportPDFHelper } from '@/lib/pdfBase';
 import { useApp } from '@/context/AppContext';
 import { useAuth } from '@/context/AuthContext';
 import { useSettings } from '@/context/SettingsContext';
@@ -117,7 +116,8 @@ function buildOprPDF(opr: Opr, projectName: string): string {
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body { font-family: Arial, Helvetica, sans-serif; background: #fff; color: #1A2742; }
-    @media print { body { -webkit-print-color-adjust: exact; print-color-adjust: exact; } }
+    @page { margin: 15mm 12mm; }
+    @media print { body { -webkit-print-color-adjust: exact; print-color-adjust: exact; } table { page-break-inside: auto; } tr { page-break-inside: avoid; } }
   </style>
   </head><body>
   <div style="padding:32px 36px;max-width:860px;margin:0 auto">
@@ -293,25 +293,9 @@ export default function OprScreen() {
   }
 
   async function exportOprPDF(opr: Opr) {
-    const html = buildOprPDF(opr, projectName);
-    if (Platform.OS === 'web') {
-      const iframe = document.createElement('iframe');
-      iframe.style.cssText = 'position:fixed;right:0;bottom:0;width:0;height:0;border:0';
-      document.body.appendChild(iframe);
-      const doc = iframe.contentWindow?.document;
-      if (doc) {
-        doc.open(); doc.write(html); doc.close();
-        setTimeout(() => {
-          try { iframe.contentWindow?.print(); } catch {}
-          setTimeout(() => document.body.removeChild(iframe), 5000);
-        }, 300);
-      }
-      return;
-    }
     try {
-      const { uri } = await Print.printToFileAsync({ html, base64: false });
-      const canShare = await Sharing.isAvailableAsync();
-      if (canShare) await Sharing.shareAsync(uri, { mimeType: 'application/pdf', dialogTitle: 'Partager le PV' });
+      const html = buildOprPDF(opr, projectName);
+      await exportPDFHelper(html, `PV ${opr.id}`);
     } catch (e: any) {
       Alert.alert('Erreur PDF', e?.message ?? '');
     }

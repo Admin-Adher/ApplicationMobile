@@ -1,6 +1,7 @@
 import { Platform } from 'react-native';
 import * as Print from 'expo-print';
 import * as Sharing from 'expo-sharing';
+import * as FileSystem from 'expo-file-system';
 
 export const PDF_BRAND_COLOR = '#003082';
 export const PDF_ACCENT = '#1A6FD8';
@@ -33,6 +34,7 @@ export const PDF_BASE_CSS = `
     tr { page-break-inside: avoid; }
     .card { page-break-inside: avoid; }
     h2 { page-break-after: avoid; }
+    .photo-grid { page-break-inside: avoid; }
   }
   .page-break { page-break-before: always; }
 
@@ -138,6 +140,25 @@ export const PDF_BASE_CSS = `
   .sig-name { font-size: 12px; font-weight: 700; color: ${PDF_TEXT}; }
   .sig-date { font-size: 10px; color: ${PDF_MUTED}; margin-top: 2px; }
 
+  /* Photo grid */
+  .photo-grid { display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 20px; }
+  .photo-item { text-align: center; }
+  .photo-img {
+    width: 190px; height: 140px;
+    object-fit: cover; border-radius: 8px;
+    border: 1.5px solid ${PDF_BORDER}; display: block;
+  }
+  .photo-badge {
+    display: inline-block; margin-top: 6px;
+    padding: 2px 10px; border-radius: 10px;
+    font-size: 10px; font-weight: 700;
+  }
+  .photo-caption {
+    font-size: 10px; color: ${PDF_MUTED};
+    margin-top: 4px; max-width: 190px;
+    word-break: break-word;
+  }
+
   /* Footer */
   .doc-footer {
     margin-top: 32px; padding-top: 14px;
@@ -195,6 +216,34 @@ export function buildDocFooter(projectName: string): string {
   `;
 }
 
+export function buildPhotoGrid(
+  photos: Array<{
+    src: string;
+    caption?: string;
+    badge?: string;
+    badgeColor?: string;
+    badgeTextColor?: string;
+  }>
+): string {
+  if (!photos.length) return '';
+  return `
+    <div class="section-header">Photos (${photos.length})</div>
+    <div class="photo-grid">
+      ${photos.map(p => `
+        <div class="photo-item">
+          <img class="photo-img" src="${p.src}" onerror="this.style.opacity='0.2'" />
+          ${p.badge
+            ? `<span class="photo-badge" style="background:${p.badgeColor ?? PDF_BG};color:${p.badgeTextColor ?? PDF_TEXT}">${p.badge}</span>`
+            : ''}
+          ${p.caption
+            ? `<div class="photo-caption">${p.caption}</div>`
+            : ''}
+        </div>
+      `).join('')}
+    </div>
+  `;
+}
+
 export function wrapHTML(body: string, title: string): string {
   return `<!DOCTYPE html><html lang="fr"><head>
     <meta charset="UTF-8">
@@ -206,6 +255,29 @@ export function wrapHTML(body: string, title: string): string {
       ${body}
     </div>
   </body></html>`;
+}
+
+/**
+ * Converts any photo URI to a safe data URL for PDF embedding.
+ * - HTTP/HTTPS URLs → returned as-is (usable directly in <img>)
+ * - data: URIs → returned as-is
+ * - file:// URIs on native → read and base64-encoded as data URI
+ * - Anything else → returned as-is (best effort)
+ */
+export async function loadPhotoAsDataUrl(uri: string): Promise<string> {
+  if (!uri) return '';
+  if (uri.startsWith('data:') || uri.startsWith('http')) return uri;
+  if (Platform.OS !== 'web' && uri.startsWith('file://')) {
+    try {
+      const base64 = await FileSystem.readAsStringAsync(uri, {
+        encoding: FileSystem.EncodingType.Base64,
+      });
+      return `data:image/jpeg;base64,${base64}`;
+    } catch {
+      return uri;
+    }
+  }
+  return uri;
 }
 
 export async function exportPDF(html: string, filename: string = 'buildtrack-export'): Promise<void> {

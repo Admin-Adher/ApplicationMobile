@@ -1,9 +1,9 @@
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert, Platform } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import * as Print from 'expo-print';
-import * as Sharing from 'expo-sharing';
 import * as FileSystem from 'expo-file-system';
+import * as Sharing from 'expo-sharing';
 import { C } from '@/constants/colors';
+import { exportPDF as exportPDFHelper, PDF_BASE_CSS } from '@/lib/pdfBase';
 import { useApp } from '@/context/AppContext';
 import { useAuth } from '@/context/AuthContext';
 import { useSettings } from '@/context/SettingsContext';
@@ -279,42 +279,81 @@ function buildWeeklyHTML(reserves: any[], companies: any[], tasks: any[], incide
 
 function buildIncidentHTML(incident: any, projectName: string): string {
   const severityLabels: Record<string, string> = { minor: 'Mineur', moderate: 'Modéré', major: 'Majeur', critical: 'Critique' };
-  const severityColors: Record<string, string> = { minor: '#6B7280', moderate: '#F59E0B', major: '#EF4444', critical: '#7F1D1D' };
+  const severityBg: Record<string, string> = { minor: '#F3F4F6', moderate: '#FFFBEB', major: '#FEF2F2', critical: '#FDF2F8' };
+  const severityColor: Record<string, string> = { minor: '#6B7280', moderate: '#D97706', major: '#DC2626', critical: '#9D174D' };
   const statusLabels: Record<string, string> = { open: 'Ouvert', investigating: 'En cours d\'investigation', resolved: 'Résolu' };
-  return `<!DOCTYPE html><html><head><meta charset="UTF-8">
-  <style>
-    body { font-family: Arial, sans-serif; padding: 30px; color: #111; }
-    h1 { color: #EF4444; font-size: 22px; }
-    h2 { color: #333; font-size: 16px; border-bottom: 1px solid #ccc; padding-bottom: 4px; margin-top: 24px; }
-    .field { margin-bottom: 12px; }
-    .label { font-size: 11px; font-weight: bold; color: #666; text-transform: uppercase; letter-spacing: 0.5px; }
-    .value { font-size: 14px; color: #111; margin-top: 4px; }
-    .severity { display: inline-block; padding: 4px 12px; border-radius: 12px; font-weight: bold; color: white; }
-    .meta { color: #666; font-size: 12px; margin-bottom: 20px; }
-    .section { background: #f9fafb; border-radius: 8px; padding: 16px; margin-top: 16px; }
-  </style></head><body>
-  <h1>Fiche incident — ${incident.id}</h1>
-  <p class="meta">Projet : ${projectName}</p>
-  <div class="field"><div class="label">Titre</div><div class="value">${incident.title}</div></div>
-  <div class="field"><div class="label">Gravité</div><div class="value"><span class="severity" style="background:${severityColors[incident.severity]||'#666'}">${severityLabels[incident.severity]||incident.severity}</span></div></div>
-  <div class="field"><div class="label">Statut</div><div class="value">${statusLabels[incident.status]||incident.status}</div></div>
-  <div class="field"><div class="label">Lieu</div><div class="value">Bât. ${incident.building} — ${incident.location}</div></div>
-  <div class="field"><div class="label">Date</div><div class="value">${incident.reportedAt}</div></div>
-  <div class="field"><div class="label">Signalé par</div><div class="value">${incident.reportedBy}</div></div>
-  <div class="section">
-    <h2>Description</h2>
-    <p>${incident.description}</p>
-  </div>
-  <div class="section">
-    <h2>Témoins</h2>
-    <p>${incident.witnesses || 'Aucun témoin renseigné'}</p>
-  </div>
-  <div class="section">
-    <h2>Actions correctives</h2>
-    <p>${incident.actions || 'Aucune action renseignée'}</p>
-  </div>
-  ${incident.closedAt ? `<div class="section"><h2>Clôture</h2><div class="field"><div class="label">Date de clôture</div><div class="value">${incident.closedAt}</div></div><div class="field"><div class="label">Clôturé par</div><div class="value">${incident.closedBy||'—'}</div></div></div>` : ''}
-  </body></html>`;
+  const statusColor: Record<string, string> = { open: '#DC2626', investigating: '#D97706', resolved: '#059669' };
+  const statusBg: Record<string, string> = { open: '#FEF2F2', investigating: '#FFFBEB', resolved: '#ECFDF5' };
+  const sevBg = severityBg[incident.severity] ?? '#F3F4F6';
+  const sevCol = severityColor[incident.severity] ?? '#6B7280';
+  return `<!DOCTYPE html><html lang="fr"><head><meta charset="UTF-8">
+  <title>Fiche incident ${incident.id}</title>
+  <style>${PDF_BASE_CSS}
+    .inc-header { display:flex;justify-content:space-between;align-items:flex-start;border-bottom:3px solid #DC2626;padding-bottom:18px;margin-bottom:22px; }
+    .info-row { display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px; }
+    .field { background:#F9FAFB;border-radius:8px;padding:12px 16px; }
+    .field-label { font-size:9px;font-weight:700;color:#6B7280;text-transform:uppercase;letter-spacing:0.7px;margin-bottom:4px; }
+    .field-value { font-size:13px;color:#1A2742;font-weight:600; }
+    .content-block { background:#F9FAFB;border-radius:10px;padding:14px 18px;margin-bottom:14px;border-left:4px solid #E5E7EB; }
+    .content-label { font-size:10px;font-weight:700;color:#6B7280;text-transform:uppercase;letter-spacing:0.6px;margin-bottom:8px; }
+    .content-text { font-size:13px;color:#1A2742;line-height:1.6; }
+    .badge-sev { display:inline-block;padding:4px 14px;border-radius:14px;font-weight:700;font-size:12px; }
+    .badge-status { display:inline-block;padding:4px 14px;border-radius:14px;font-weight:700;font-size:12px; }
+  </style></head>
+  <body><div class="container">
+    <div class="inc-header">
+      <div>
+        <div style="font-size:9px;color:#6B7280;text-transform:uppercase;letter-spacing:1px;margin-bottom:4px">Fiche d'incident</div>
+        <div style="font-size:22px;font-weight:900;color:#DC2626">${incident.id}</div>
+        <div style="font-size:15px;font-weight:700;color:#1A2742;margin-top:4px">${incident.title}</div>
+        <div style="font-size:12px;color:#6B7280;margin-top:2px">${projectName}</div>
+        <div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap">
+          <span class="badge-sev" style="background:${sevBg};color:${sevCol}">⚠ ${severityLabels[incident.severity] ?? incident.severity}</span>
+          <span class="badge-status" style="background:${statusBg[incident.status]??'#F9FAFB'};color:${statusColor[incident.status]??'#6B7280'}">${statusLabels[incident.status] ?? incident.status}</span>
+        </div>
+      </div>
+      <div style="text-align:right;font-size:11px;color:#6B7280">
+        <div>Signalé le <strong style="color:#1A2742">${incident.reportedAt}</strong></div>
+        <div style="margin-top:4px">Par <strong style="color:#1A2742">${incident.reportedBy}</strong></div>
+        ${incident.closedAt ? `<div style="color:#059669;margin-top:6px;font-weight:700">✓ Résolu le ${incident.closedAt}</div>` : ''}
+      </div>
+    </div>
+
+    <div class="info-row">
+      <div class="field"><div class="field-label">Localisation</div><div class="field-value">Bât. ${incident.building} — ${incident.location}</div></div>
+      <div class="field"><div class="field-label">Signalé par</div><div class="field-value">${incident.reportedBy}</div></div>
+    </div>
+
+    <div class="content-block" style="border-left-color:#3B82F6">
+      <div class="content-label">Description de l'incident</div>
+      <div class="content-text">${incident.description || 'Aucune description.'}</div>
+    </div>
+
+    <div class="content-block" style="border-left-color:#6B7280">
+      <div class="content-label">Témoins</div>
+      <div class="content-text">${incident.witnesses || 'Aucun témoin renseigné.'}</div>
+    </div>
+
+    <div class="content-block" style="border-left-color:#F59E0B">
+      <div class="content-label">Actions correctives</div>
+      <div class="content-text">${incident.actions || 'Aucune action corrective renseignée.'}</div>
+    </div>
+
+    ${incident.closedAt ? `
+      <div class="content-block" style="border-left-color:#059669;background:#ECFDF5">
+        <div class="content-label">Clôture</div>
+        <div class="content-text">
+          Résolu le <strong>${incident.closedAt}</strong>
+          ${incident.closedBy ? ` par <strong>${incident.closedBy}</strong>` : ''}.
+        </div>
+      </div>
+    ` : ''}
+
+    <div class="doc-footer">
+      <span>Fiche incident générée par BuildTrack — ${projectName}</span>
+      <span>${new Date().toLocaleDateString('fr-FR')}</span>
+    </div>
+  </div></body></html>`;
 }
 
 function buildCompanyReserveHTML(company: any, companyReserves: any[], projectName: string): string {
@@ -483,29 +522,7 @@ export default function RapportsScreen() {
       const html = type === 'daily'
         ? buildDailyHTML(reserves, companies, tasks, incidents, stats, userName, projectName)
         : buildWeeklyHTML(reserves, companies, tasks, incidents, stats, userName, weekNum, projectName);
-
-      if (Platform.OS === 'web') {
-        const iframe = document.createElement('iframe');
-        iframe.style.cssText = 'position:fixed;right:0;bottom:0;width:0;height:0;border:0';
-        document.body.appendChild(iframe);
-        const doc = iframe.contentWindow?.document;
-        if (doc) {
-          doc.open(); doc.write(html); doc.close();
-          setTimeout(() => {
-            try { iframe.contentWindow?.print(); } catch {}
-            setTimeout(() => document.body.removeChild(iframe), 5000);
-          }, 300);
-        }
-        return;
-      }
-
-      const { uri } = await Print.printToFileAsync({ html, base64: false });
-      const canShare = await Sharing.isAvailableAsync();
-      if (canShare) {
-        await Sharing.shareAsync(uri, { mimeType: 'application/pdf', dialogTitle: 'Partager le rapport PDF' });
-      } else {
-        Alert.alert('PDF généré', `Fichier disponible : ${uri}`);
-      }
+      await exportPDFHelper(html, type === 'daily' ? 'Rapport journalier' : 'Rapport hebdomadaire');
     } catch (e: any) {
       Alert.alert('Erreur', `Impossible de générer le PDF : ${e?.message ?? e}`);
     }
@@ -665,26 +682,10 @@ export default function RapportsScreen() {
                   {permissions.canExport && (
                     <TouchableOpacity
                       onPress={async () => {
-                        const html = buildIncidentHTML(i, projectName);
-                        if (Platform.OS === 'web') {
-                          const iframe = document.createElement('iframe');
-                          iframe.style.cssText = 'position:fixed;right:0;bottom:0;width:0;height:0;border:0';
-                          document.body.appendChild(iframe);
-                          const doc = iframe.contentWindow?.document;
-                          if (doc) {
-                            doc.open(); doc.write(html); doc.close();
-                            setTimeout(() => {
-                              try { iframe.contentWindow?.print(); } catch {}
-                              setTimeout(() => document.body.removeChild(iframe), 5000);
-                            }, 300);
-                          }
-                        } else {
-                          try {
-                            const { uri } = await Print.printToFileAsync({ html, base64: false });
-                            const canShare = await Sharing.isAvailableAsync();
-                            if (canShare) await Sharing.shareAsync(uri, { mimeType: 'application/pdf' });
-                          } catch {}
-                        }
+                        try {
+                          const html = buildIncidentHTML(i, projectName);
+                          await exportPDFHelper(html, `Incident ${i.id}`);
+                        } catch {}
                       }}
                       style={[styles.exportBtn, { marginLeft: 8 }]}
                     >
