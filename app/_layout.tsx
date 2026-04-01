@@ -29,10 +29,11 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     if (isLoading) return;
-    const inAuth = segments[0] === 'login';
-    if (!isAuthenticated && !inAuth) {
+    const PUBLIC_SEGMENTS = ['login', 'portal', 'opr-session'];
+    const inPublic = PUBLIC_SEGMENTS.includes(segments[0] as string);
+    if (!isAuthenticated && !inPublic) {
       router.replace('/login');
-    } else if (isAuthenticated && inAuth) {
+    } else if (isAuthenticated && segments[0] === 'login') {
       router.replace('/(tabs)');
     }
   }, [isAuthenticated, isLoading, segments]);
@@ -99,6 +100,8 @@ export default function RootLayout() {
                       <Stack.Screen name="journal" options={{ headerShown: false, title: 'Journal de chantier' }} />
                       <Stack.Screen name="meeting-report" options={{ headerShown: false, title: 'CR Réunions' }} />
                       <Stack.Screen name="notifications" options={{ headerShown: false, title: 'Notifications' }} />
+                      <Stack.Screen name="portal/[companyId]" options={{ headerShown: false }} />
+                      <Stack.Screen name="opr-session/[id]" options={{ headerShown: false }} />
                       <Stack.Screen name="+not-found" />
                     </Stack>
                   </AuthGuard>

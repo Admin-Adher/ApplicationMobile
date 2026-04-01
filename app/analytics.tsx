@@ -114,7 +114,7 @@ function buildAnalyticsPDF(
 }
 
 export default function AnalyticsScreen() {
-  const { reserves, companies } = useApp();
+  const { reserves, companies, lots } = useApp();
   const { user, permissions } = useAuth();
   const { projectName } = useSettings();
   const userName = user?.name ?? 'Équipe BuildTrack';
@@ -352,6 +352,77 @@ export default function AnalyticsScreen() {
           })()}
         </View>
 
+        {/* Lot breakdown */}
+        {lots.length > 0 && (
+          <View style={styles.card}>
+            <Text style={styles.sectionTitle}>Répartition par lot (CCTP)</Text>
+            {(() => {
+              const lotsWithReserves = lots
+                .map(lot => {
+                  const lotReserves = reserves.filter(r => r.lotId === lot.id);
+                  return { lot, total: lotReserves.length, closed: lotReserves.filter(r => r.status === 'closed').length };
+                })
+                .filter(x => x.total > 0)
+                .sort((a, b) => b.total - a.total);
+              if (lotsWithReserves.length === 0) return <Text style={styles.emptyText}>Aucune réserve avec lot attribué</Text>;
+              const maxLot = Math.max(...lotsWithReserves.map(x => x.total), 1);
+              return lotsWithReserves.map(({ lot, total, closed }) => (
+                <View key={lot.id} style={styles.statRow}>
+                  <View style={[styles.statDot, { backgroundColor: lot.color }]} />
+                  <Text style={[styles.statLabel, { width: 90 }]} numberOfLines={1}>{lot.code} {lot.name}</Text>
+                  <MiniBar value={total} max={maxLot} color={lot.color} />
+                  <Text style={[styles.statVal, { color: lot.color }]}>{total}</Text>
+                  <Text style={styles.statPct}>{total > 0 ? `${Math.round((closed / total) * 100)}%` : '0%'} ✓</Text>
+                </View>
+              ));
+            })()}
+          </View>
+        )}
+
+        {/* Week-over-week comparison */}
+        {weekStats.length >= 2 && (() => {
+          const current = weekStats[weekStats.length - 1];
+          const previous = weekStats[weekStats.length - 2];
+          const createdDelta = current.created - previous.created;
+          const closedDelta = current.closed - previous.closed;
+          return (
+            <View style={styles.card}>
+              <Text style={styles.sectionTitle}>Semaine en cours vs précédente</Text>
+              <View style={styles.wowRow}>
+                <View style={styles.wowItem}>
+                  <Text style={styles.wowLabel}>Créées cette semaine</Text>
+                  <Text style={[styles.wowVal, { color: C.primary }]}>{current.created}</Text>
+                  <View style={[styles.wowDelta, { backgroundColor: createdDelta > 0 ? '#FEF2F2' : createdDelta < 0 ? '#ECFDF5' : C.surface2 }]}>
+                    <Ionicons
+                      name={createdDelta > 0 ? 'trending-up' : createdDelta < 0 ? 'trending-down' : 'remove'}
+                      size={11}
+                      color={createdDelta > 0 ? '#DC2626' : createdDelta < 0 ? '#059669' : C.textMuted}
+                    />
+                    <Text style={[styles.wowDeltaText, { color: createdDelta > 0 ? '#DC2626' : createdDelta < 0 ? '#059669' : C.textMuted }]}>
+                      {createdDelta > 0 ? '+' : ''}{createdDelta} vs S. préc.
+                    </Text>
+                  </View>
+                </View>
+                <View style={styles.wowDivider} />
+                <View style={styles.wowItem}>
+                  <Text style={styles.wowLabel}>Clôturées cette semaine</Text>
+                  <Text style={[styles.wowVal, { color: C.closed }]}>{current.closed}</Text>
+                  <View style={[styles.wowDelta, { backgroundColor: closedDelta > 0 ? '#ECFDF5' : closedDelta < 0 ? '#FEF2F2' : C.surface2 }]}>
+                    <Ionicons
+                      name={closedDelta > 0 ? 'trending-up' : closedDelta < 0 ? 'trending-down' : 'remove'}
+                      size={11}
+                      color={closedDelta > 0 ? '#059669' : closedDelta < 0 ? '#DC2626' : C.textMuted}
+                    />
+                    <Text style={[styles.wowDeltaText, { color: closedDelta > 0 ? '#059669' : closedDelta < 0 ? '#DC2626' : C.textMuted }]}>
+                      {closedDelta > 0 ? '+' : ''}{closedDelta} vs S. préc.
+                    </Text>
+                  </View>
+                </View>
+              </View>
+            </View>
+          );
+        })()}
+
       </ScrollView>
       <BottomNavBar />
     </View>
@@ -416,4 +487,11 @@ const styles = StyleSheet.create({
 
   buildingLabel: { fontSize: 12, fontFamily: 'Inter_600SemiBold', color: C.text, width: 50 },
   emptyText: { fontSize: 13, fontFamily: 'Inter_400Regular', color: C.textMuted, textAlign: 'center', paddingVertical: 12 },
+  wowRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 12 },
+  wowItem: { flex: 1, alignItems: 'center', gap: 4 },
+  wowLabel: { fontSize: 11, fontFamily: 'Inter_400Regular', color: C.textSub, textAlign: 'center' },
+  wowVal: { fontSize: 28, fontFamily: 'Inter_700Bold' },
+  wowDivider: { width: 1, backgroundColor: C.border, alignSelf: 'stretch', marginVertical: 4 },
+  wowDelta: { flexDirection: 'row', alignItems: 'center', gap: 4, borderRadius: 6, paddingHorizontal: 8, paddingVertical: 3 },
+  wowDeltaText: { fontSize: 11, fontFamily: 'Inter_500Medium' },
 });

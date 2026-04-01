@@ -9,6 +9,7 @@ import {
   Platform,
   Modal,
   KeyboardAvoidingView,
+  Share,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
@@ -279,6 +280,18 @@ export default function OprScreen() {
     setShowNew(false);
   }
 
+  async function shareOprLink(opr: Opr) {
+    const base = Platform.OS === 'web' ? window.location.origin : process.env.EXPO_PUBLIC_APP_URL ?? 'https://buildtrack.app';
+    const url = `${base}/opr-session/${opr.id}`;
+    if (Platform.OS === 'web') {
+      try { await navigator.clipboard.writeText(url); Alert.alert('Lien copié', 'Partagez ce lien avec les signataires externes.'); } catch { Alert.alert('Lien de session', url); }
+      return;
+    }
+    try {
+      await Share.share({ message: `Accès à la session OPR "${opr.title}" :\n${url}`, url });
+    } catch {}
+  }
+
   async function exportOprPDF(opr: Opr) {
     const html = buildOprPDF(opr, projectName);
     if (Platform.OS === 'web') {
@@ -498,6 +511,10 @@ export default function OprScreen() {
                       <Text style={[styles.actionBtnText, { color: C.primary }]}>PDF</Text>
                     </TouchableOpacity>
                   )}
+                  <TouchableOpacity style={[styles.actionBtn, { borderColor: '#8B5CF620', backgroundColor: '#F5F3FF' }]} onPress={() => shareOprLink(opr)}>
+                    <Ionicons name="link-outline" size={14} color="#7C3AED" />
+                    <Text style={[styles.actionBtnText, { color: '#7C3AED' }]}>Lien session</Text>
+                  </TouchableOpacity>
                   {permissions.canEdit && opr.status !== 'signed' && (
                     <TouchableOpacity style={[styles.actionBtn, styles.signBtn]} onPress={() => openSignModal(opr)}>
                       <Ionicons name="create-outline" size={14} color={C.closed} />

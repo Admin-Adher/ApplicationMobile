@@ -5,6 +5,7 @@ import { useState, useMemo } from 'react';
 import * as ImagePicker from 'expo-image-picker';
 import * as Sharing from 'expo-sharing';
 import * as FileSystem from 'expo-file-system';
+import * as Location from 'expo-location';
 import { C } from '@/constants/colors';
 import { useApp } from '@/context/AppContext';
 import { useAuth } from '@/context/AuthContext';
@@ -19,6 +20,7 @@ export default function PhotosScreen() {
   const { user, permissions } = useAuth();
   const [loading, setLoading] = useState(false);
   const [pendingUri, setPendingUri] = useState<string | null>(null);
+  const [pendingGps, setPendingGps] = useState<{ lat: number; lon: number; accuracy: number } | null>(null);
   const [commentInput, setCommentInput] = useState('');
   const [locationInput, setLocationInput] = useState('');
   const [modalVisible, setModalVisible] = useState(false);
@@ -108,11 +110,25 @@ export default function PhotosScreen() {
     ]);
   }
 
-  function openCommentModal(uri: string) {
+  async function openCommentModal(uri: string) {
     setPendingUri(uri);
+    setPendingGps(null);
     setCommentInput('');
     setLocationInput('');
     setModalVisible(true);
+    if (Platform.OS !== 'web') {
+      try {
+        const { status } = await Location.requestForegroundPermissionsAsync();
+        if (status === 'granted') {
+          const loc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
+          setPendingGps({
+            lat: loc.coords.latitude,
+            lon: loc.coords.longitude,
+            accuracy: Math.round(loc.coords.accuracy ?? 0),
+          });
+        }
+      } catch {}
+    }
   }
 
   async function blobUriToDataUri(blobUri: string): Promise<string> {
@@ -161,6 +177,9 @@ export default function PhotosScreen() {
         takenBy: user?.name ?? 'Équipe',
         colorCode: C.closed,
         uri: finalUri,
+        gpsLat: pendingGps?.lat,
+        gpsLon: pendingGps?.lon,
+        gpsAccuracy: pendingGps?.accuracy,
       };
       addPhoto(newPhoto);
       if (storageUrl) {
@@ -373,6 +392,15 @@ export default function PhotosScreen() {
                   {item.uri?.startsWith('http') ? 'Cloud' : 'Local'} — {item.takenAt}
                 </Text>
               </View>
+              {item.gpsLat !== undefined && item.gpsLon !== undefined && (
+                <View style={[styles.photoMeta, styles.gpsBadge]}>
+                  <Ionicons name="locate" size={10} color="#10B981" />
+                  <Text style={styles.gpsText}>
+                    {item.gpsLat.toFixed(5)}, {item.gpsLon.toFixed(5)}
+                    {item.gpsAccuracy ? ` ±${item.gpsAccuracy}m` : ''}
+                  </Text>
+                </View>
+              )}
               <View style={styles.photoActions}>
                 <TouchableOpacity style={styles.shareBtn} onPress={() => openShareModal(item)} activeOpacity={0.75}>
                   <Ionicons name="share-social-outline" size={12} color={C.primary} />
@@ -523,6 +551,20 @@ export default function PhotosScreen() {
               />
             </View>
 
+            {pendingGps ? (
+              <View style={styles.gpsIndicator}>
+                <Ionicons name="locate" size={12} color="#10B981" />
+                <Text style={styles.gpsIndicatorText}>
+                  GPS capturé : {pendingGps.lat.toFixed(5)}, {pendingGps.lon.toFixed(5)} ±{pendingGps.accuracy}m
+                </Text>
+              </View>
+            ) : Platform.OS !== 'web' ? (
+              <View style={[styles.gpsIndicator, { backgroundColor: C.surface2, borderColor: C.border }]}>
+                <Ionicons name="locate-outline" size={12} color={C.textMuted} />
+                <Text style={[styles.gpsIndicatorText, { color: C.textMuted }]}>Localisation GPS en cours...</Text>
+              </View>
+            ) : null}
+
             <View style={styles.modalBtns}>
               <TouchableOpacity style={styles.cancelBtn} onPress={cancelModal}>
                 <Text style={styles.cancelBtnText}>Annuler</Text>
@@ -612,4 +654,12 @@ const styles = StyleSheet.create({
   channelPickIcon: { width: 36, height: 36, borderRadius: 10, alignItems: 'center', justifyContent: 'center' },
   channelPickName: { fontSize: 14, fontFamily: 'Inter_600SemiBold', color: C.text },
   channelPickDesc: { fontSize: 12, fontFamily: 'Inter_400Regular', color: C.textSub, marginTop: 1 },
+  gpsBadge: { backgroundColor: '#ECFDF5', borderRadius: 6, paddingHorizontal: 5, paddingVertical: 2, marginTop: 2 },
+  gpsText: { fontSize: 9, fontFamily: 'Inter_400Regular', color: '#059669', flex: 1 },
+  gpsIndicator: {
+    flexDirection: 'row', alignItems: 'center', gap: 6,
+    backgroundColor: '#ECFDF5', borderRadius: 8, padding: 8,
+    borderWidth: 1, borderColor: '#6EE7B7', marginBottom: 12,
+  },
+  gpsIndicatorText: { fontSize: 11, fontFamily: 'Inter_400Regular', color: '#059669', flex: 1 },
 });

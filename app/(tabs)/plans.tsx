@@ -1,6 +1,6 @@
 import {
   View, Text, StyleSheet, TouchableOpacity, ScrollView, Platform,
-  Modal, PanResponder, Animated, Image,
+  Modal, PanResponder, Animated, Image, KeyboardAvoidingView,
   ActivityIndicator, Alert, Linking, TextInput,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -512,6 +512,7 @@ export default function PlansScreen() {
     visible: false, name: '', building: '', level: '',
   });
   const [showVersionHistory, setShowVersionHistory] = useState(false);
+  const [revisionModal, setRevisionModal] = useState<{ visible: boolean; code: string; note: string }>({ visible: false, code: '', note: '' });
   const topPad = Platform.OS === 'web' ? 67 : insets.top;
 
   const scale = useRef(new Animated.Value(1)).current;
@@ -714,6 +715,59 @@ export default function PlansScreen() {
         { text: 'Remplacer', style: 'destructive', onPress: handleImportPlan },
       ]
     );
+  }
+
+  function openRevisionModal() {
+    if (!currentPlan) return;
+    const siblings = chantierPlans.filter(p => p.id === currentPlan.id || p.previousVersionId === currentPlan.id || currentPlan.previousVersionId === p.id);
+    const revCount = siblings.length;
+    const nextCode = `R${String(revCount + 1).padStart(2, '0')}`;
+    setRevisionModal({ visible: true, code: nextCode, note: '' });
+    setShowVersionHistory(false);
+  }
+
+  async function handleCreateRevision() {
+    if (!currentPlan || !revisionModal.code.trim()) return;
+    setImporting(true);
+    setRevisionModal(prev => ({ ...prev, visible: false }));
+    try {
+      const result = await DocumentPicker.getDocumentAsync({
+        copyToCacheDirectory: true,
+        multiple: false,
+        type: ['image/*', 'application/pdf', '*/*'],
+      });
+      if (!result.canceled && result.assets[0]) {
+        const asset = result.assets[0];
+        const docExt = asset.name.split('.').pop()?.toLowerCase() ?? '';
+        if (!isImage(asset.name) && docExt !== 'pdf' && docExt !== 'dxf') {
+          Alert.alert('Format non supporté', 'Importez une image, un PDF ou un DXF.');
+          return;
+        }
+        const storageUrl = await uploadDocument(asset.uri, `plan_rev_${genId()}_${asset.name}`, asset.mimeType ?? undefined);
+        const finalUri = storageUrl ?? asset.uri;
+        const newPlan: SitePlan = {
+          id: genId(),
+          chantierId: currentPlan.chantierId,
+          name: `${currentPlan.name} — ${revisionModal.code.trim()}`,
+          building: currentPlan.building,
+          level: currentPlan.level,
+          uri: finalUri,
+          size: formatSize(asset.size),
+          uploadedAt: new Date().toISOString().slice(0, 10),
+          revisionCode: revisionModal.code.trim(),
+          revisionNote: revisionModal.note.trim() || undefined,
+          parentPlanId: currentPlan.id,
+          isLatestRevision: true,
+        };
+        addSitePlanVersion(currentPlan.id, newPlan);
+        setActivePlanId(newPlan.id);
+        Alert.alert('Révision créée ✓', `Révision ${revisionModal.code.trim()} créée.${revisionModal.note.trim() ? `\n${revisionModal.note.trim()}` : ''}`);
+      }
+    } catch {
+      Alert.alert('Erreur', "Impossible de créer la révision.");
+    } finally {
+      setImporting(false);
+    }
   }
 
   function handleAddPlan() {
@@ -970,17 +1024,7 @@ export default function PlansScreen() {
                 {permissions.canCreate && (
                   <TouchableOpacity
                     style={styles.newVersionBtn}
-                    onPress={() => {
-                      setShowVersionHistory(false);
-                      Alert.alert(
-                        'Nouvelle révision',
-                        'Importez un fichier plan pour créer une nouvelle révision de ce plan.',
-                        [
-                          { text: 'Annuler', style: 'cancel' },
-                          { text: 'Importer', onPress: handleImportPlan },
-                        ]
-                      );
-                    }}
+                    onPress={openRevisionModal}
                   >
                     <Ionicons name="cloud-upload-outline" size={13} color={C.primary} />
                     <Text style={styles.newVersionBtnText}>Créer une nouvelle révision</Text>
@@ -1451,6 +1495,71 @@ export default function PlansScreen() {
         </TouchableOpacity>
       </Modal>
 
+      {/* Revision modal */}
+      <Modal visible={revisionModal.visible} transparent animationType="fade" onRequestClose={() => setRevisionModal(p => ({ ...p, visible: false }))}>
+        <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={styles.modalOverlay}>
+          <TouchableOpacity activeOpacity={1} style={styles.modalCard} onPress={() => {}}>
+            <View style={styles.modalHeader}>
+              <View style={[styles.modalPin, { backgroundColor: '#7C3AED' }]}>
+                <Ionicons name="git-branch-outline" size={14} color="#fff" />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.modalTitle}>Nouvelle révision</Text>
+                <Text style={styles.modalMeta}>Plan : {currentPlan?.name}</Text>
+              </View>
+              <TouchableOpacity onPress={() => setRevisionModal(p => ({ ...p, visible: false }))}>
+                <Ionicons name="close" size={20} color={C.textMuted} />
+              </TouchableOpacity>
+            </View>
+
+            <View style={styles.newPlanField}>
+              <Text style={styles.newPlanLabel}>Code révision *</Text>
+              <TextInput
+                style={styles.newPlanInput}
+                placeholder="Ex : R02, IND-B, V3..."
+                placeholderTextColor={C.textMuted}
+                value={revisionModal.code}
+                onChangeText={v => setRevisionModal(p => ({ ...p, code: v }))}
+                autoCapitalize="characters"
+              />
+            </View>
+
+            <View style={styles.newPlanField}>
+              <Text style={styles.newPlanLabel}>Note de révision (optionnel)</Text>
+              <TextInput
+                style={[styles.newPlanInput, { height: 72, textAlignVertical: 'top' }]}
+                placeholder="Ex : Mise à jour suite à dérogation lot 03..."
+                placeholderTextColor={C.textMuted}
+                value={revisionModal.note}
+                onChangeText={v => setRevisionModal(p => ({ ...p, note: v }))}
+                multiline
+                numberOfLines={3}
+              />
+            </View>
+
+            <View style={[styles.newPlanField, { backgroundColor: '#F5F3FF', borderRadius: 10, padding: 10, borderWidth: 1, borderColor: '#DDD6FE' }]}>
+              <Text style={{ fontSize: 12, fontFamily: 'Inter_400Regular', color: '#5B21B6' }}>
+                Les réserves épinglées sur le plan actuel restent accessibles dans l'historique des révisions.
+              </Text>
+            </View>
+
+            <View style={styles.newPlanBtns}>
+              <TouchableOpacity style={styles.cancelBtn} onPress={() => setRevisionModal(p => ({ ...p, visible: false }))}>
+                <Text style={styles.cancelBtnText}>Annuler</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.confirmBtn, !revisionModal.code.trim() && { opacity: 0.5 }]}
+                onPress={handleCreateRevision}
+                disabled={!revisionModal.code.trim()}
+              >
+                <Ionicons name="cloud-upload-outline" size={15} color="#fff" />
+                <Text style={styles.confirmBtnText}>Importer fichier</Text>
+              </TouchableOpacity>
+            </View>
+          </TouchableOpacity>
+        </KeyboardAvoidingView>
+      </Modal>
+
       <Modal visible={newPlanModal.visible} transparent animationType="fade" onRequestClose={() => setNewPlanModal(p => ({ ...p, visible: false }))}>
         <TouchableOpacity style={styles.modalOverlay} activeOpacity={1} onPress={() => setNewPlanModal(p => ({ ...p, visible: false }))}>
           <TouchableOpacity activeOpacity={1} style={styles.modalCard} onPress={() => {}}>
@@ -1857,4 +1966,9 @@ const styles = StyleSheet.create({
     fontSize: 14, fontFamily: 'Inter_400Regular',
     color: C.text, borderWidth: 1, borderColor: C.border,
   },
+  newPlanBtns: { flexDirection: 'row', gap: 10, marginTop: 8 },
+  cancelBtn: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingVertical: 13, borderRadius: 12, borderWidth: 1.5, borderColor: C.border },
+  cancelBtnText: { fontSize: 14, fontFamily: 'Inter_600SemiBold', color: C.textSub },
+  confirmBtn: { flex: 2, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, paddingVertical: 13, borderRadius: 12, backgroundColor: '#7C3AED' },
+  confirmBtnText: { fontSize: 14, fontFamily: 'Inter_600SemiBold', color: '#fff' },
 });

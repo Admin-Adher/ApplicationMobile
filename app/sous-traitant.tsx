@@ -259,7 +259,7 @@ export default function SousTraitantScreen() {
               const baseUrl = Platform.OS === 'web' && typeof window !== 'undefined'
                 ? window.location.origin
                 : 'https://buildtrack.replit.app';
-              const portalUrl = `${baseUrl}/sous-traitant?company=${encodeURIComponent(displayCompany?.id ?? '')}`;
+              const portalUrl = `${baseUrl}/portal/${encodeURIComponent(displayCompany?.id ?? '')}`;
               const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=160x160&data=${encodeURIComponent(portalUrl)}&color=1E3A5F&bgcolor=FFFFFF&format=png&margin=4`;
 
               async function copyLink() {
