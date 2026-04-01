@@ -140,6 +140,11 @@ function toCompany(row: any): Company {
     id: row.id, name: row.name, shortName: row.short_name, color: row.color,
     plannedWorkers: row.planned_workers, actualWorkers: row.actual_workers,
     hoursWorked: row.hours_worked, zone: row.zone, contact: row.contact,
+    email: row.email ?? undefined,
+    lots: Array.isArray(row.lots) ? row.lots : (row.lots ? [row.lots] : undefined),
+    siret: row.siret ?? undefined,
+    insurance: row.insurance ?? undefined,
+    qualifications: row.qualifications ?? undefined,
   };
 }
 
@@ -1482,6 +1487,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           id: c.id, name: c.name, short_name: c.shortName, color: c.color,
           planned_workers: c.plannedWorkers, actual_workers: c.actualWorkers,
           hours_worked: c.hoursWorked, zone: c.zone, contact: c.contact,
+          email: c.email ?? null, lots: c.lots ?? null,
+          siret: c.siret ?? null, insurance: c.insurance ?? null,
+          qualifications: c.qualifications ?? null,
         }).then(({ error }: { error: any }) => {
           if (error) {
             dispatch({ type: 'DELETE_COMPANY', payload: c.id });
@@ -1512,6 +1520,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           name: c.name, short_name: c.shortName, color: c.color,
           planned_workers: c.plannedWorkers, actual_workers: c.actualWorkers,
           hours_worked: c.hoursWorked, zone: c.zone, contact: c.contact,
+          email: c.email ?? null, lots: c.lots ?? null,
+          siret: c.siret ?? null, insurance: c.insurance ?? null,
+          qualifications: c.qualifications ?? null,
         }).eq('id', c.id).then(({ error }: { error: any }) => {
           if (error) {
             if (previous) dispatch({ type: 'UPDATE_COMPANY_FULL', payload: previous });
