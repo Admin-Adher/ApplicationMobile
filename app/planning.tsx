@@ -810,7 +810,6 @@ export default function PlanningScreen() {
               <Text style={lStyles.modeBarLabel}>Grouper par :</Text>
               {([
                 { key: 'company' as const, label: 'Entreprise', icon: 'business-outline' },
-                { key: 'status' as const, label: 'Statut', icon: 'layers-outline' },
                 { key: 'priority' as const, label: 'Priorité', icon: 'flag-outline' },
               ]).map(opt => (
                 <TouchableOpacity
