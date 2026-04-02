@@ -217,6 +217,7 @@ var zoom=1,panX=0,panY=0;
 var panning=false,panSX=0,panSY=0,panSPX=0,panSPY=0;
 var pinchDist0=0,pinchZoom0=1;
 var touchSX=0,touchSY=0,isDragging=false,drawing=false;
+var isPinching=false,lastPinchEndTime=0;
 var pendingTextPos=null;
 var lastTapTime=0,lastTapX=0,lastTapY=0;
 
@@ -437,6 +438,7 @@ container.addEventListener('touchstart',function(e){
     var dx=t[0].clientX-t[1].clientX,dy=t[0].clientY-t[1].clientY;
     pinchDist0=Math.sqrt(dx*dx+dy*dy);
     pinchZoom0=zoom;
+    isPinching=true;
     panning=false;drawing=false;live=null;renderLive();
   } else if(t.length===1){
     touchSX=t[0].clientX;touchSY=t[0].clientY;isDragging=false;
@@ -497,6 +499,12 @@ container.addEventListener('touchmove',function(e){
 
 container.addEventListener('touchend',function(e){
   e.preventDefault();
+  if(isPinching&&e.touches.length===0){
+    isPinching=false;
+    lastPinchEndTime=Date.now();
+    panning=false;isDragging=false;
+    return;
+  }
   if(mode==='annotate'&&drawing&&live){
     drawing=false;
     if(live.points.length>=1){
@@ -508,7 +516,7 @@ container.addEventListener('touchend',function(e){
       post({type:'annotationsChange',annotations:draws});
     }
     live=null;renderLive();
-  } else if(!isDragging&&mode==='view'&&e.changedTouches.length===1){
+  } else if(!isDragging&&!isPinching&&(Date.now()-lastPinchEndTime>300)&&mode==='view'&&e.changedTouches.length===1&&e.touches.length===0){
     var ct=e.changedTouches[0];
     var now=Date.now();
     var dtx=Math.abs(ct.clientX-lastTapX),dty=Math.abs(ct.clientY-lastTapY);
