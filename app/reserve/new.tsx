@@ -3,6 +3,7 @@ import {
   Alert, Platform, Image, ActivityIndicator,
 } from 'react-native';
 import { useRouter, useLocalSearchParams } from 'expo-router';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useState, useMemo } from 'react';
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
@@ -53,6 +54,7 @@ function SelectRow<T extends string>({
 }
 
 export default function NewReserveScreen() {
+  const insets = useSafeAreaInsets();
   const router = useRouter();
   const { companies, addReserve, reserves, addPhoto, activeChantierId, sitePlans, lots, linkReserveToVisite, visites } = useApp();
   const { user, permissions } = useAuth();
@@ -268,7 +270,7 @@ export default function NewReserveScreen() {
     <View style={styles.container}>
       <Header title={kind === 'observation' ? 'Nouvelle observation' : 'Nouvelle réserve'} showBack rightLabel="Créer" onRightPress={handleSubmit} />
 
-      <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
+      <ScrollView contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + 32 }]} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
 
         {sourceVisite ? (
           <View style={styles.visiteCard}>

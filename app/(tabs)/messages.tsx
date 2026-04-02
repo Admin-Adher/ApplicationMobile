@@ -478,7 +478,7 @@ export default function MessagesTabScreen() {
         <TouchableWithoutFeedback onPress={() => setActionSheet(null)}>
           <View style={styles.overlay}>
             <TouchableWithoutFeedback>
-              <View style={styles.sheet}>
+              <View style={[styles.sheet, { paddingBottom: insets.bottom + 20 }]}>
                 {actionSheet && (
                   <>
                     <View style={styles.sheetHeader}>

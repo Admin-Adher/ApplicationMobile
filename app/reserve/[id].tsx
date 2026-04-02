@@ -3,6 +3,7 @@ import {
   TextInput, Alert, Image, Modal, ActivityIndicator, Platform,
 } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useState, useMemo, useRef } from 'react';
 import * as ImagePicker from 'expo-image-picker';
@@ -250,6 +251,7 @@ function buildReservePDF(reserve: Reserve, projectName: string, company: { color
 }
 
 export default function ReserveDetailScreen() {
+  const insets = useSafeAreaInsets();
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
   const { reserves, tasks, updateReserveStatus, updateReserveFields, deleteReserve, addComment, companies, channels, addPhoto } = useApp();
@@ -943,7 +945,7 @@ export default function ReserveDetailScreen() {
               </TouchableOpacity>
             </View>
 
-            <ScrollView contentContainerStyle={mStyles.content} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
+            <ScrollView contentContainerStyle={[mStyles.content, { paddingBottom: insets.bottom + 24 }]} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
               <Text style={mStyles.label}>TITRE *</Text>
               <TextInput style={mStyles.input} value={editTitle} onChangeText={setEditTitle} placeholder="Titre..." placeholderTextColor={C.textMuted} />
 
@@ -1049,7 +1051,10 @@ export default function ReserveDetailScreen() {
       {/* Photo plein écran — galerie multi-photos */}
       <Modal visible={photoFullScreen} transparent animationType="fade" onRequestClose={() => setPhotoFullScreen(false)}>
         <View style={styles.photoModal}>
-          <TouchableOpacity style={styles.photoCloseBtn} onPress={() => setPhotoFullScreen(false)}>
+          <TouchableOpacity
+            style={[styles.photoCloseBtn, { top: insets.top + 12 }]}
+            onPress={() => setPhotoFullScreen(false)}
+          >
             <Ionicons name="close" size={22} color="#fff" />
           </TouchableOpacity>
           {allPhotos.length > 0 && (
@@ -1060,7 +1065,7 @@ export default function ReserveDetailScreen() {
                 resizeMode="contain"
                 onError={() => {}}
               />
-              <View style={styles.photoNavRow}>
+              <View style={[styles.photoNavRow, { bottom: insets.bottom + 24 }]}>
                 <TouchableOpacity
                   onPress={() => setSelectedPhotoIndex(i => Math.max(0, i - 1))}
                   disabled={selectedPhotoIndex === 0}
@@ -1099,7 +1104,7 @@ export default function ReserveDetailScreen() {
                 <Text style={mStyles.saveBtnText}>Valider</Text>
               </TouchableOpacity>
             </View>
-            <ScrollView contentContainerStyle={mStyles.content} showsVerticalScrollIndicator={false}>
+            <ScrollView contentContainerStyle={[mStyles.content, { paddingBottom: insets.bottom + 24 }]} showsVerticalScrollIndicator={false}>
               <View style={styles.sigInfoBox}>
                 <Ionicons name="information-circle-outline" size={16} color={C.primary} />
                 <Text style={styles.sigInfoText}>

@@ -123,29 +123,29 @@ export default function TabLayout() {
         name="index"
         options={{
           title: 'Dashboard',
-          tabBarIcon: ({ color }) => <TabIcon name="grid" color={color} size={26} />,
+          tabBarIcon: ({ color, focused }) => <TabIcon name={focused ? 'grid' : 'grid-outline'} color={color} size={26} />,
         }}
       />
       <Tabs.Screen
         name="reserves"
         options={{
           title: 'Réserves',
-          tabBarIcon: ({ color }) => <TabIcon name="warning" color={color} size={26} />,
+          tabBarIcon: ({ color, focused }) => <TabIcon name={focused ? 'warning' : 'warning-outline'} color={color} size={26} />,
         }}
       />
       <Tabs.Screen
         name="plans"
         options={{
           title: 'Plans',
-          tabBarIcon: ({ color }) => <TabIcon name="map" color={color} size={26} />,
+          tabBarIcon: ({ color, focused }) => <TabIcon name={focused ? 'map' : 'map-outline'} color={color} size={26} />,
         }}
       />
       <Tabs.Screen
         name="messages"
         options={{
           title: 'Messages',
-          tabBarIcon: ({ color }) => (
-            <TabIcon name="chatbubbles" color={color} size={26} badge={unreadCount} />
+          tabBarIcon: ({ color, focused }) => (
+            <TabIcon name={focused ? 'chatbubbles' : 'chatbubbles-outline'} color={color} size={26} badge={unreadCount} />
           ),
         }}
       />

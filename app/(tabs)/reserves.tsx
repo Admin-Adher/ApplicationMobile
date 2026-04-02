@@ -550,7 +550,7 @@ export default function ReservesScreen() {
 
       <Modal visible={batchModalVisible} transparent animationType="slide" onRequestClose={() => setBatchModalVisible(false)}>
         <TouchableOpacity style={styles.modalOverlay} activeOpacity={1} onPress={() => setBatchModalVisible(false)}>
-          <TouchableOpacity activeOpacity={1} style={styles.bottomSheet}>
+          <TouchableOpacity activeOpacity={1} style={[styles.bottomSheet, { paddingBottom: insets.bottom + 32 }]}>
             <View style={styles.sheetHandle} />
             <View style={styles.sheetTitleRow}>
               <Text style={styles.sheetTitle}>
@@ -620,7 +620,7 @@ export default function ReservesScreen() {
 
       <Modal visible={sortModalVisible} transparent animationType="slide" onRequestClose={() => setSortModalVisible(false)}>
         <TouchableOpacity style={styles.modalOverlay} activeOpacity={1} onPress={() => setSortModalVisible(false)}>
-          <TouchableOpacity activeOpacity={1} style={styles.bottomSheet}>
+          <TouchableOpacity activeOpacity={1} style={[styles.bottomSheet, { paddingBottom: insets.bottom + 32 }]}>
             <View style={styles.sheetHandle} />
             <View style={styles.sheetTitleRow}>
               <Text style={styles.sheetTitle}>Trier par</Text>
@@ -651,7 +651,7 @@ export default function ReservesScreen() {
 
       <Modal visible={filterModalVisible} transparent animationType="slide" onRequestClose={() => setFilterModalVisible(false)}>
         <TouchableOpacity style={styles.modalOverlay} activeOpacity={1} onPress={() => setFilterModalVisible(false)}>
-          <TouchableOpacity activeOpacity={1} style={styles.bottomSheet}>
+          <TouchableOpacity activeOpacity={1} style={[styles.bottomSheet, { paddingBottom: insets.bottom + 32 }]}>
             <View style={styles.sheetHandle} />
             <View style={styles.sheetTitleRow}>
               <Text style={styles.sheetTitle}>Filtres avancés</Text>
