@@ -931,7 +931,7 @@ const mob = StyleSheet.create({
   widthSample: { width: 46, borderRadius: 3 },
 });
 
-const WebViewer = forwardRef<PdfPlanViewerHandle, PdfPlanViewerProps>(function WebViewerInner({ planUri, planId, annotations, onAnnotationsChange, reserves, pinNumberMap, onReserveSelect, onPlanTap, canAnnotate, canCreate, pinSize = 22, onZoomChange }, ref) {
+const WebViewer = forwardRef<PdfPlanViewerHandle, PdfPlanViewerProps>(function WebViewerInner({ planUri, planId, annotations, onAnnotationsChange, reserves, pinNumberMap, onReserveSelect, onPlanTap, canAnnotate, canCreate, pinSize = 22, onZoomChange, isImagePlan = false }, ref) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const innerRef = useRef<HTMLDivElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -991,28 +991,59 @@ const WebViewer = forwardRef<PdfPlanViewerHandle, PdfPlanViewerProps>(function W
   useEffect(() => {
     if (!planUri) return;
     let dead = false;
-    setLoading(true); setError(null);
-    (async () => {
-      try {
-        if (!pdfjsLib.GlobalWorkerOptions.workerSrc) {
-          pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
-        }
-        const doc = await pdfjsLib.getDocument({ url: planUri, withCredentials: false }).promise;
+    setLoading(true); setError(null); pdfDocRef.current = null; setPageCount(0);
+    if (isImagePlan) {
+      const img = new (window as any).Image() as HTMLImageElement;
+      img.crossOrigin = 'anonymous';
+      img.onload = () => {
         if (dead) return;
-        pdfDocRef.current = doc;
-        setPageCount(doc.numPages);
-        setPage(1);
-      } catch {
-        if (!dead) setError('Impossible de charger le PDF.');
-      } finally {
-        if (!dead) setLoading(false);
-      }
-    })();
+        const el = containerRef.current;
+        const W = el ? el.clientWidth || 600 : 600;
+        const aspect = img.naturalHeight / (img.naturalWidth || 1);
+        const newW = W, newH = Math.round(W * aspect);
+        const dpr = window.devicePixelRatio || 1;
+        const canvas = canvasRef.current!;
+        canvas.width = Math.round(newW * dpr);
+        canvas.height = Math.round(newH * dpr);
+        canvas.style.width = `${newW}px`;
+        canvas.style.height = `${newH}px`;
+        const ctx = canvas.getContext('2d')!;
+        ctx.scale(dpr, dpr);
+        ctx.drawImage(img, 0, 0, newW, newH);
+        setCw(newW); setCh(newH);
+        if (el) {
+          const cRect = el.getBoundingClientRect();
+          panXRef.current = Math.max(0, (cRect.width - newW) / 2);
+          panYRef.current = Math.max(0, (cRect.height - newH) / 2);
+          applyT();
+        }
+        setLoading(false);
+      };
+      img.onerror = () => { if (!dead) { setError("Impossible de charger l'image."); setLoading(false); } };
+      img.src = planUri;
+    } else {
+      (async () => {
+        try {
+          if (!pdfjsLib.GlobalWorkerOptions.workerSrc) {
+            pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+          }
+          const doc = await pdfjsLib.getDocument({ url: planUri, withCredentials: false }).promise;
+          if (dead) return;
+          pdfDocRef.current = doc;
+          setPageCount(doc.numPages);
+          setPage(1);
+        } catch {
+          if (!dead) setError('Impossible de charger le PDF.');
+        } finally {
+          if (!dead) setLoading(false);
+        }
+      })();
+    }
     return () => { dead = true; };
-  }, [planUri]);
+  }, [planUri, isImagePlan]);
 
   useEffect(() => {
-    if (loading || !pdfDocRef.current || !canvasRef.current) return;
+    if (isImagePlan || loading || !pdfDocRef.current || !canvasRef.current) return;
     let dead = false;
     (async () => {
       try {
@@ -1052,7 +1083,7 @@ const WebViewer = forwardRef<PdfPlanViewerHandle, PdfPlanViewerProps>(function W
       }
     })();
     return () => { dead = true; };
-  }, [page, planUri, loading]);
+  }, [page, planUri, loading, isImagePlan]);
 
   const onSvgDown = (e: React.PointerEvent<SVGSVGElement>) => {
     if (mode !== 'annotate') return;
@@ -1112,8 +1143,8 @@ const WebViewer = forwardRef<PdfPlanViewerHandle, PdfPlanViewerProps>(function W
       const moved = Math.abs(e.clientX - downPos.current.x) + Math.abs(e.clientY - downPos.current.y);
       if (moved < 6 && !(e.target as HTMLElement).closest('[data-pin]')) {
         const { x, y } = screenToCanvas(e.clientX, e.clientY);
-        const { px, py } = toPercent(x, y);
-        if (px >= 0 && px <= 100 && py >= 0 && py <= 100) {
+        if (x >= 0 && x <= cw && y >= 0 && y <= ch) {
+          const { px, py } = toPercent(x, y);
           onPlanTap(px, py);
         }
       }
@@ -1140,9 +1171,13 @@ const WebViewer = forwardRef<PdfPlanViewerHandle, PdfPlanViewerProps>(function W
       const dy = e.touches[0].clientY - e.touches[1].clientY;
       pinchDist.current = Math.sqrt(dx * dx + dy * dy);
       pinchZoom.current = zoomRef.current;
-    } else if (e.touches.length === 1 && mode === 'view') {
-      panning.current = true;
-      panStart.current = { x: e.touches[0].clientX, y: e.touches[0].clientY, px: panXRef.current, py: panYRef.current };
+      panning.current = false;
+    } else if (e.touches.length === 1) {
+      downPos.current = { x: e.touches[0].clientX, y: e.touches[0].clientY };
+      if (mode === 'view') {
+        panning.current = true;
+        panStart.current = { x: e.touches[0].clientX, y: e.touches[0].clientY, px: panXRef.current, py: panYRef.current };
+      }
     }
   };
 
@@ -1169,7 +1204,20 @@ const WebViewer = forwardRef<PdfPlanViewerHandle, PdfPlanViewerProps>(function W
     }
   };
 
-  const onTouchEnd = () => { panning.current = false; };
+  const onTouchEnd = (e: React.TouchEvent<HTMLDivElement>) => {
+    panning.current = false;
+    if (mode === 'view' && canCreate && cw > 0 && e.changedTouches.length === 1) {
+      const ct = e.changedTouches[0];
+      const moved = Math.abs(ct.clientX - downPos.current.x) + Math.abs(ct.clientY - downPos.current.y);
+      if (moved < 10 && !(ct.target as HTMLElement).closest('[data-pin]')) {
+        const { x, y } = screenToCanvas(ct.clientX, ct.clientY);
+        if (x >= 0 && x <= cw && y >= 0 && y <= ch) {
+          const { px, py } = toPercent(x, y);
+          onPlanTap(px, py);
+        }
+      }
+    }
+  };
 
   function doZoom(factor: number, cx?: number, cy?: number) {
     const el = containerRef.current;
