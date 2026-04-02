@@ -89,6 +89,20 @@ export default function NewReserveScreen() {
   const [showTemplates, setShowTemplates] = useState(false);
   const [expandedTemplateCat, setExpandedTemplateCat] = useState<string | null>(null);
 
+  const isDirty = title.trim().length > 0 || description.trim().length > 0 || photos.length > 0 || deadline.length > 0;
+
+  function handleBack() {
+    if (!isDirty) { router.back(); return; }
+    Alert.alert(
+      'Abandonner le formulaire ?',
+      'Vos saisies seront perdues si vous quittez maintenant.',
+      [
+        { text: 'Continuer la saisie', style: 'cancel' },
+        { text: 'Abandonner', style: 'destructive', onPress: () => router.back() },
+      ]
+    );
+  }
+
   const presetX = params.planX ? parseInt(params.planX) : null;
   const presetY = params.planY ? parseInt(params.planY) : null;
 
@@ -244,57 +258,62 @@ export default function NewReserveScreen() {
       return;
     }
     setIsSubmitting(true);
-    const author = user?.name ?? 'Conducteur de travaux';
-    const id = genReserveId(reserves, selectedLot);
-    const today = formatDateFR(new Date());
-    addReserve({
-      id,
-      kind,
-      title: title.trim(),
-      description: description.trim() || 'Aucune description fournie.',
-      building,
-      zone,
-      level,
-      company,
-      responsableNom: responsableNom.trim() || undefined,
-      priority,
-      status: 'open' as ReserveStatus,
-      createdAt: today,
-      deadline: deadline || '—',
-      comments: [],
-      history: [{ id: 'h0', action: kind === 'observation' ? 'Observation créée' : 'Réserve créée', author, createdAt: today }],
-      planX: presetX ?? undefined,
-      planY: presetY ?? undefined,
-      photoUri: photos[0]?.uri ?? undefined,
-      photos: photos.length > 0 ? photos : undefined,
-      chantierId: effectiveChantierId,
-      planId: selectedPlanId || undefined,
-      lotId: lotId || undefined,
-      visiteId: visiteId || undefined,
-    });
-    if (visiteId) linkReserveToVisite(id, visiteId);
-    photos.forEach(p => {
-      addPhoto({
-        id: genId(),
-        comment: `Photo ${kind === 'observation' ? 'observation' : 'réserve'} ${id} — ${title.trim()}`,
-        location: `Bât. ${building} - ${level}`,
-        takenAt: today,
-        takenBy: author,
-        colorCode: kind === 'observation' ? '#0EA5E9' : '#EF4444',
-        uri: p.uri,
-        reserveId: id,
+    try {
+      const author = user?.name ?? 'Conducteur de travaux';
+      const id = genReserveId(reserves, selectedLot);
+      const today = formatDateFR(new Date());
+      addReserve({
+        id,
+        kind,
+        title: title.trim(),
+        description: description.trim() || 'Aucune description fournie.',
+        building,
+        zone,
+        level,
+        company,
+        responsableNom: responsableNom.trim() || undefined,
+        priority,
+        status: 'open' as ReserveStatus,
+        createdAt: today,
+        deadline: deadline || '—',
+        comments: [],
+        history: [{ id: 'h0', action: kind === 'observation' ? 'Observation créée' : 'Réserve créée', author, createdAt: today }],
+        planX: presetX ?? undefined,
+        planY: presetY ?? undefined,
+        photoUri: photos[0]?.uri ?? undefined,
+        photos: photos.length > 0 ? photos : undefined,
+        chantierId: effectiveChantierId,
+        planId: selectedPlanId || undefined,
+        lotId: lotId || undefined,
+        visiteId: visiteId || undefined,
       });
-    });
-    Alert.alert(
-      kind === 'observation' ? 'Observation créée' : 'Réserve créée',
-      `${id} ajoutée avec succès.`,
-      [{ text: 'OK', onPress: () => { setIsSubmitting(false); router.back(); } }]
-    );
+      if (visiteId) linkReserveToVisite(id, visiteId);
+      photos.forEach(p => {
+        addPhoto({
+          id: genId(),
+          comment: `Photo ${kind === 'observation' ? 'observation' : 'réserve'} ${id} — ${title.trim()}`,
+          location: `Bât. ${building} - ${level}`,
+          takenAt: today,
+          takenBy: author,
+          colorCode: kind === 'observation' ? '#0EA5E9' : '#EF4444',
+          uri: p.uri,
+          reserveId: id,
+        });
+      });
+      Alert.alert(
+        kind === 'observation' ? 'Observation créée' : 'Réserve créée',
+        `${id} ajoutée avec succès.`,
+        [{ text: 'OK', onPress: () => { setIsSubmitting(false); router.back(); } }]
+      );
+    } catch (err) {
+      setIsSubmitting(false);
+      Alert.alert('Erreur', "Une erreur est survenue lors de la création. Veuillez réessayer.");
+    }
   }
 
   return (
     <View style={styles.container}>
-      <Header title={kind === 'observation' ? 'Nouvelle observation' : 'Nouvelle réserve'} showBack rightLabel="Créer" onRightPress={handleSubmit} />
+      <Header title={kind === 'observation' ? 'Nouvelle observation' : 'Nouvelle réserve'} showBack onBack={handleBack} rightLabel="Créer" onRightPress={handleSubmit} />
 
       <ScrollView contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + 32 }]} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
 

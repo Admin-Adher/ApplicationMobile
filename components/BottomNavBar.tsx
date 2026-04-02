@@ -22,8 +22,8 @@ export default function BottomNavBar({ activeTab = 'more' }: Props) {
   const router = useRouter();
   const { unreadCount } = useApp();
 
-  const bottomPad = Platform.OS === 'web' ? 34 : insets.bottom;
-  const barHeight = 50 + bottomPad;
+  const bottomPad = Platform.OS === 'web' ? 34 : insets.bottom + 12;
+  const barHeight = Platform.OS === 'web' ? 90 : 72 + insets.bottom;
 
   const TAB_KEYS = ['dashboard', 'reserves', 'plans', 'messages', 'more'] as const;
   const activeIndex = TAB_KEYS.indexOf(activeTab);

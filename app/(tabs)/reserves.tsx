@@ -88,6 +88,8 @@ export default function ReservesScreen() {
   const isWideScreen = width >= 768;
   const [selectedReserveId, setSelectedReserveId] = useState<string | null>(null);
 
+  const [nearDeadlineOnly, setNearDeadlineOnly] = useState(false);
+
   const [isSelectMode, setIsSelectMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [batchModalVisible, setBatchModalVisible] = useState(false);
@@ -157,6 +159,10 @@ export default function ReservesScreen() {
   );
 
   const filtered = useMemo(() => {
+    const now = new Date();
+    const in3Days = new Date(now);
+    in3Days.setDate(in3Days.getDate() + 3);
+
     let list = chantierReserves.filter(r => {
       const matchStatus =
         statusFilter === 'all' ? true :
@@ -180,13 +186,19 @@ export default function ReservesScreen() {
         r.description.toLowerCase().includes(q) ||
         r.zone.toLowerCase().includes(q) ||
         r.level.toLowerCase().includes(q);
-      return matchStatus && matchKind && matchBuilding && matchPriority && matchCompany && matchZone && matchLot && matchSearch;
+      const matchNearDeadline = !nearDeadlineOnly || (() => {
+        if (r.status === 'closed') return false;
+        const dl = parseDeadline(r.deadline);
+        if (!dl) return false;
+        return dl >= now && dl <= in3Days;
+      })();
+      return matchStatus && matchKind && matchBuilding && matchPriority && matchCompany && matchZone && matchLot && matchSearch && matchNearDeadline;
     });
 
     list = [...list].sort((a, b) => {
       switch (sortKey) {
-        case 'date_desc': return b.createdAt.localeCompare(a.createdAt);
-        case 'date_asc': return a.createdAt.localeCompare(b.createdAt);
+        case 'date_desc': return toSortableDate(b.createdAt).localeCompare(toSortableDate(a.createdAt));
+        case 'date_asc': return toSortableDate(a.createdAt).localeCompare(toSortableDate(b.createdAt));
         case 'priority': return PRIORITY_ORDER[a.priority] - PRIORITY_ORDER[b.priority];
         case 'deadline': return toSortableDate(a.deadline).localeCompare(toSortableDate(b.deadline));
         case 'status': return STATUS_ORDER_MAP[a.status] - STATUS_ORDER_MAP[b.status];
@@ -194,7 +206,7 @@ export default function ReservesScreen() {
       }
     });
     return list;
-  }, [chantierReserves, statusFilter, kindFilter, buildingFilter, priorityFilter, companyFilter, zoneFilter, lotFilter, sortKey, search]);
+  }, [chantierReserves, statusFilter, kindFilter, buildingFilter, priorityFilter, companyFilter, zoneFilter, lotFilter, sortKey, search, nearDeadlineOnly]);
 
   const isSortActive = sortKey !== 'date_desc';
   const obsCount = useMemo(() => chantierReserves.filter(r => r.kind === 'observation').length, [chantierReserves]);
@@ -300,16 +312,16 @@ export default function ReservesScreen() {
 
         {nearDeadlineReserves.length > 0 && (
           <TouchableOpacity
-            style={styles.deadlineReminderBanner}
-            onPress={() => setStatusFilter('all')}
+            style={[styles.deadlineReminderBanner, nearDeadlineOnly && styles.deadlineReminderBannerActive]}
+            onPress={() => setNearDeadlineOnly(v => !v)}
             activeOpacity={0.85}
           >
             <Ionicons name="alarm-outline" size={14} color="#D97706" />
             <Text style={styles.deadlineReminderText}>
               <Text style={{ fontFamily: 'Inter_700Bold' }}>{nearDeadlineReserves.length} réserve{nearDeadlineReserves.length > 1 ? 's' : ''}</Text>
-              {' '}expire{nearDeadlineReserves.length > 1 ? 'nt' : ''} dans moins de 3 jours — action requise
+              {' '}expire{nearDeadlineReserves.length > 1 ? 'nt' : ''} dans moins de 3 jours{nearDeadlineOnly ? ' — filtre actif' : ' — voir'}
             </Text>
-            <Ionicons name="chevron-forward" size={13} color="#D97706" />
+            <Ionicons name={nearDeadlineOnly ? 'close-circle' : 'chevron-forward'} size={13} color="#D97706" />
           </TouchableOpacity>
         )}
 
@@ -1059,4 +1071,16 @@ const styles = StyleSheet.create({
   detailEmpty: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 12, padding: 32 },
   detailEmptyText: { fontSize: 16, fontFamily: 'Inter_600SemiBold', color: C.textSub },
   detailEmptyHint: { fontSize: 13, fontFamily: 'Inter_400Regular', color: C.textMuted, textAlign: 'center', lineHeight: 19 },
+
+  deadlineReminderBanner: {
+    flexDirection: 'row', alignItems: 'center', gap: 8,
+    backgroundColor: '#FEF3C7', borderRadius: 8, paddingHorizontal: 12, paddingVertical: 9,
+    marginBottom: 10, borderWidth: 1, borderColor: '#FCD34D',
+  },
+  deadlineReminderBannerActive: {
+    backgroundColor: '#FFFBEB', borderColor: '#D97706',
+  },
+  deadlineReminderText: {
+    flex: 1, fontSize: 12, fontFamily: 'Inter_400Regular', color: '#92400E',
+  },
 });

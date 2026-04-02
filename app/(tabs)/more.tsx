@@ -40,7 +40,9 @@ export default function MoreScreen() {
   const { projectName } = useSettings();
   const { incidents } = useIncidents();
   const { width: screenWidth } = useWindowDimensions();
-  const cardWidth = (screenWidth - 42) / 2;
+  const isTablet = screenWidth >= 768;
+  const TABLET_SIDEBAR_W = 72;
+  const cardWidth = isTablet ? (screenWidth - TABLET_SIDEBAR_W - 42) / 2 : (screenWidth - 42) / 2;
   const topPad = insets.top;
   const bottomPad = Platform.OS === 'web' ? 0 : insets.bottom;
 
