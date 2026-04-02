@@ -762,42 +762,6 @@ export default function ReservesScreen() {
           </TouchableOpacity>
         </View>
 
-        {/* Kind filter row — separated from status */}
-        <View style={styles.kindRow}>
-          <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-            <TouchableOpacity
-              style={[styles.kindChip, kindFilter === 'all' && styles.kindChipActive]}
-              onPress={() => setKindFilter('all')}
-              accessibilityRole="button"
-              accessibilityLabel="Tous types"
-              accessibilityState={{ selected: kindFilter === 'all' }}
-            >
-              <Text style={[styles.kindChipText, kindFilter === 'all' && styles.kindChipTextActive]}>Tous types</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={[styles.kindChip, kindFilter === 'reserve' && styles.kindChipReserve]}
-              onPress={() => setKindFilter('reserve')}
-              accessibilityRole="button"
-              accessibilityLabel="Filtrer par réserves"
-              accessibilityState={{ selected: kindFilter === 'reserve' }}
-            >
-              <Ionicons name="warning-outline" size={11} color={kindFilter === 'reserve' ? '#EF4444' : C.textSub} />
-              <Text style={[styles.kindChipText, kindFilter === 'reserve' && { color: '#EF4444' }]}>Réserves</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={[styles.kindChip, kindFilter === 'observation' && styles.kindChipObs]}
-              onPress={() => setKindFilter('observation')}
-              accessibilityRole="button"
-              accessibilityLabel="Filtrer par observations"
-              accessibilityState={{ selected: kindFilter === 'observation' }}
-            >
-              <Ionicons name="eye-outline" size={11} color={kindFilter === 'observation' ? '#0EA5E9' : C.textSub} />
-              <Text style={[styles.kindChipText, kindFilter === 'observation' && { color: '#0EA5E9' }]}>
-                Observations{obsCount > 0 ? ` (${obsCount})` : ''}
-              </Text>
-            </TouchableOpacity>
-          </ScrollView>
-        </View>
       </View>
 
       {isWideScreen ? (
@@ -1211,6 +1175,43 @@ export default function ReservesScreen() {
             </View>
 
             <ScrollView showsVerticalScrollIndicator={false}>
+              <Text style={styles.sheetSectionLabel}>TYPE</Text>
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.chipScroll}>
+                <View style={styles.chipRowInline}>
+                  <TouchableOpacity
+                    style={[styles.chip, kindFilter === 'all' && styles.chipActive]}
+                    onPress={() => setKindFilter('all')}
+                    accessibilityRole="button"
+                    accessibilityLabel="Tous types"
+                    accessibilityState={{ selected: kindFilter === 'all' }}
+                  >
+                    <Text style={[styles.chipText, kindFilter === 'all' && styles.chipTextActive]}>Tous types</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[styles.chip, kindFilter === 'reserve' && { backgroundColor: '#EF444415', borderColor: '#EF4444' }]}
+                    onPress={() => setKindFilter('reserve')}
+                    accessibilityRole="button"
+                    accessibilityLabel="Réserves uniquement"
+                    accessibilityState={{ selected: kindFilter === 'reserve' }}
+                  >
+                    <Ionicons name="warning-outline" size={12} color={kindFilter === 'reserve' ? '#EF4444' : C.textSub} />
+                    <Text style={[styles.chipText, kindFilter === 'reserve' && { color: '#EF4444' }]}>Réserves</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[styles.chip, kindFilter === 'observation' && { backgroundColor: '#0EA5E915', borderColor: '#0EA5E9' }]}
+                    onPress={() => setKindFilter('observation')}
+                    accessibilityRole="button"
+                    accessibilityLabel="Observations uniquement"
+                    accessibilityState={{ selected: kindFilter === 'observation' }}
+                  >
+                    <Ionicons name="eye-outline" size={12} color={kindFilter === 'observation' ? '#0EA5E9' : C.textSub} />
+                    <Text style={[styles.chipText, kindFilter === 'observation' && { color: '#0EA5E9' }]}>
+                      Observations{obsCount > 0 ? ` (${obsCount})` : ''}
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+              </ScrollView>
+
               <Text style={styles.sheetSectionLabel}>BÂTIMENT</Text>
               <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.chipScroll}>
                 <View style={styles.chipRowInline}>

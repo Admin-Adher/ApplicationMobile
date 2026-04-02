@@ -77,10 +77,38 @@ export default function ReserveCard({ reserve, onPress, onLongPress, onSwipeRigh
           ) : null}
         </View>
         <View style={styles.topRight}>
-          {overdue && (
-            <View style={styles.overdueBadge}>
-              <Ionicons name="warning-outline" size={10} color={C.open} />
-              <Text style={styles.overdueText}>En retard</Text>
+          {showDeadline && (
+            <View style={[
+              styles.deadlinePill,
+              overdue
+                ? styles.deadlinePillOverdue
+                : daysLeft !== null && daysLeft <= 3
+                  ? styles.deadlinePillSoon
+                  : styles.deadlinePillNormal,
+            ]}>
+              <Ionicons
+                name={overdue ? 'warning-outline' : 'calendar-outline'}
+                size={10}
+                color={overdue ? C.open : daysLeft !== null && daysLeft <= 3 ? '#D97706' : C.textMuted}
+              />
+              <Text style={[
+                styles.deadlinePillText,
+                overdue
+                  ? { color: C.open, fontFamily: 'Inter_700Bold' }
+                  : daysLeft !== null && daysLeft <= 3
+                    ? { color: '#D97706', fontFamily: 'Inter_600SemiBold' }
+                    : { color: C.textMuted },
+              ]}>
+                {overdue
+                  ? `−${Math.abs(daysLeft ?? 0)}j`
+                  : daysLeft === 0
+                    ? "Auj."
+                    : daysLeft === 1
+                      ? 'Demain'
+                      : daysLeft !== null && daysLeft <= 7
+                        ? `J-${daysLeft}`
+                        : formatDate(reserve.deadline)}
+              </Text>
             </View>
           )}
           <StatusBadge status={reserve.status} small />
@@ -144,19 +172,6 @@ export default function ReserveCard({ reserve, onPress, onLongPress, onSwipeRigh
         </View>
       </View>
 
-      {showDeadline && (
-        <View style={[styles.deadline, overdue && styles.deadlineOverdue]}>
-          <Ionicons name="calendar-outline" size={11} color={overdue ? C.open : C.textMuted} />
-          <Text style={[styles.deadlineText, overdue && styles.deadlineTextOverdue]}>
-            {formatDate(reserve.deadline)}
-            {overdue
-              ? ` — En retard de ${Math.abs(daysLeft ?? 0)} j`
-              : daysLeft !== null && daysLeft <= 7 && daysLeft >= 0
-              ? ` — J-${daysLeft}`
-              : ''}
-          </Text>
-        </View>
-      )}
     </TouchableOpacity>
   );
 
@@ -355,25 +370,29 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: C.border,
   },
-  deadline: {
+  deadlinePill: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 4,
-    marginTop: 10,
-    paddingTop: 10,
-    borderTopWidth: 1,
-    borderTopColor: C.border,
+    gap: 3,
+    paddingHorizontal: 7,
+    paddingVertical: 3,
+    borderRadius: 20,
+    borderWidth: 1,
   },
-  deadlineOverdue: {
-    borderTopColor: C.open + '30',
+  deadlinePillNormal: {
+    backgroundColor: '#F4F7FB',
+    borderColor: '#DDE4EE',
   },
-  deadlineText: {
+  deadlinePillSoon: {
+    backgroundColor: '#FEF3C715',
+    borderColor: '#D9770640',
+  },
+  deadlinePillOverdue: {
+    backgroundColor: C.open + '10',
+    borderColor: C.open + '40',
+  },
+  deadlinePillText: {
     fontSize: 11,
-    fontFamily: 'Inter_400Regular',
-    color: C.textMuted,
-  },
-  deadlineTextOverdue: {
-    color: C.open,
     fontFamily: 'Inter_500Medium',
   },
   swipeRightAction: {
