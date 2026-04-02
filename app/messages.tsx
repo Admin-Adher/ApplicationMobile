@@ -145,7 +145,7 @@ export default function MessagesScreen() {
   const [showNewDM, setShowNewDM] = useState(false);
   const [showNewGroup, setShowNewGroup] = useState(false);
   const [actionSheet, setActionSheet] = useState<Channel | null>(null);
-  const topPad = Platform.OS === 'web' ? 67 : insets.top;
+  const topPad = insets.top;
 
   const totalUnread = Object.values(unreadByChannel).reduce((a, b) => a + b, 0);
 

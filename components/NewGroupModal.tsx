@@ -4,6 +4,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { C } from '@/constants/colors';
 import { Profile } from '@/constants/types';
+import { ROLE_LABELS } from '@/constants/roles';
 
 const AVATAR_COLORS = [C.primary, '#059669', '#D97706', '#7C3AED', '#DB2777', '#EA580C', '#0891B2'];
 const GROUP_COLORS = ['#7C3AED', '#059669', '#D97706', '#0A84FF', '#EC4899', '#EA580C', '#0891B2', '#65A30D', '#DC2626', '#6366F1'];
@@ -13,13 +14,6 @@ function getAvatarColor(name: string) {
   for (let i = 0; i < name.length; i++) hash = name.charCodeAt(i) + ((hash << 5) - hash);
   return AVATAR_COLORS[Math.abs(hash) % AVATAR_COLORS.length];
 }
-
-const ROLE_LABELS: Record<string, string> = {
-  admin: 'Administrateur',
-  conducteur: 'Conducteur de travaux',
-  chef_equipe: "Chef d'équipe",
-  observateur: 'Observateur',
-};
 
 interface Props {
   visible: boolean;

@@ -28,7 +28,7 @@ export default function EquipesScreen() {
     updateCompanyWorkers, addCompany, updateCompanyFull, deleteCompany, updateCompanyHours,
   } = useApp();
   const { saveAttendanceSnapshot } = useSettings();
-  const topPad = Platform.OS === 'web' ? 67 : insets.top;
+  const topPad = insets.top;
   const bottomPad = Platform.OS === 'web' ? 34 : insets.bottom;
 
   const [modalVisible, setModalVisible] = useState(false);

@@ -41,7 +41,7 @@ export default function MoreScreen() {
   const { incidents } = useIncidents();
   const { width: screenWidth } = useWindowDimensions();
   const cardWidth = (screenWidth - 42) / 2;
-  const topPad = Platform.OS === 'web' ? 67 : insets.top;
+  const topPad = insets.top;
   const bottomPad = Platform.OS === 'web' ? 0 : insets.bottom;
 
   const isAdmin = user?.role === 'admin' || user?.role === 'super_admin';

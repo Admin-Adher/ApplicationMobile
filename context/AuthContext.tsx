@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useEffect, useRef, useState } from 'react';
 import { supabase, isSupabaseConfigured } from '@/lib/supabase';
 import { User, UserRole } from '@/constants/types';
+import { ROLE_LABELS } from '@/constants/roles';
 
 const ROLE_PERMISSIONS: Record<UserRole, {
   canCreate: boolean; canEdit: boolean; canDelete: boolean;
@@ -13,15 +14,6 @@ const ROLE_PERMISSIONS: Record<UserRole, {
   chef_equipe:    { canCreate: true,  canEdit: true,  canDelete: false, canExport: false, canManageTeams: false, canViewTeams: true,  canUpdateAttendance: true  },
   observateur:    { canCreate: false, canEdit: false, canDelete: false, canExport: true,  canManageTeams: false, canViewTeams: false, canUpdateAttendance: false },
   sous_traitant:  { canCreate: false, canEdit: true,  canDelete: false, canExport: false, canManageTeams: false, canViewTeams: false, canUpdateAttendance: false },
-};
-
-const ROLE_LABELS: Record<UserRole, string> = {
-  super_admin: 'Super Administrateur',
-  admin: 'Administrateur',
-  conducteur: 'Conducteur de travaux',
-  chef_equipe: "Chef d'équipe",
-  observateur: 'Observateur',
-  sous_traitant: 'Sous-traitant',
 };
 
 const DEMO_USERS = [

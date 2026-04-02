@@ -52,7 +52,7 @@ function InitialAvatar({ name, color }: { name: string; color: string }) {
 
 export default function AdminScreen() {
   const insets = useSafeAreaInsets();
-  const topPad = Platform.OS === 'web' ? 67 : insets.top;
+  const topPad = insets.top;
   const bottomPad = Platform.OS === 'web' ? 0 : insets.bottom;
   const router = useRouter();
 

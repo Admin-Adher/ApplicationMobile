@@ -25,6 +25,7 @@ import DateInput from '@/components/DateInput';
 import { useAuth } from '@/context/AuthContext';
 import { useSettings } from '@/context/SettingsContext';
 import { uploadPhoto } from '@/lib/storage';
+import { isSupabaseConfigured } from '@/lib/supabase';
 import { genId, formatDateFR } from '@/lib/utils';
 import {
   RESERVE_BUILDINGS, RESERVE_ZONES, RESERVE_LEVELS, RESERVE_PRIORITIES,
@@ -423,6 +424,12 @@ export default function ReserveDetailScreen() {
       const today = formatDateFR(new Date());
       const newPhoto: ReservePhoto = { id: genId(), uri, kind: 'defect', takenAt: today, takenBy: user?.name ?? '' };
       setEditPhotos(prev => [...prev, newPhoto]);
+      if (isSupabaseConfigured) {
+        Alert.alert(
+          'Upload échoué',
+          "La photo a été ajoutée localement mais n'a pas pu être envoyée au serveur. Elle pourrait être perdue si le cache est effacé.",
+        );
+      }
     } finally {
       setEditPhotoUploading(false);
     }

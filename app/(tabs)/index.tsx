@@ -153,7 +153,7 @@ export default function DashboardScreen() {
   const { projectName } = useSettings();
   const { incidents } = useIncidents();
   const { unreadCount } = useNotifications();
-  const topPad = Platform.OS === 'web' ? 67 : insets.top;
+  const topPad = insets.top;
   const [refreshing, setRefreshing] = useState(false);
   const [analyticsTab, setAnalyticsTab] = useState<'trend' | 'companies'>('trend');
   const [viewMode, setViewMode] = useState<'chantier' | 'portfolio'>('chantier');

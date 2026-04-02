@@ -554,7 +554,7 @@ export default function PlansScreen() {
   });
   const [showVersionHistory, setShowVersionHistory] = useState(false);
   const [revisionModal, setRevisionModal] = useState<{ visible: boolean; code: string; note: string }>({ visible: false, code: '', note: '' });
-  const topPad = Platform.OS === 'web' ? 67 : insets.top;
+  const topPad = insets.top;
   const { width: screenWidth } = useWindowDimensions();
   const isTablet = screenWidth >= 768;
 

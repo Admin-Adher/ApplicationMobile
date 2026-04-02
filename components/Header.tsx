@@ -25,7 +25,7 @@ export default function Header({
 }: Props) {
   const insets = useSafeAreaInsets();
   const router = useRouter();
-  const topPad = Platform.OS === 'web' ? 67 : insets.top;
+  const topPad = insets.top;
   const { isOnline, queueCount } = useNetwork();
 
   function handleBack() {

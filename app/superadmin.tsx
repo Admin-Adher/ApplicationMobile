@@ -26,7 +26,7 @@ const ORG_COLORS = ['#3B82F6','#10B981','#8B5CF6','#F59E0B','#EF4444','#06B6D4',
 
 export default function SuperAdminScreen() {
   const insets = useSafeAreaInsets();
-  const topPad = Platform.OS === 'web' ? 67 : insets.top;
+  const topPad = insets.top;
   const bottomPad = Platform.OS === 'web' ? 34 : insets.bottom;
   const router = useRouter();
 

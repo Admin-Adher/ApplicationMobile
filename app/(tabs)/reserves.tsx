@@ -61,7 +61,7 @@ export default function ReservesScreen() {
   const [search, setSearch] = useState('');
   const [sortModalVisible, setSortModalVisible] = useState(false);
   const [filterModalVisible, setFilterModalVisible] = useState(false);
-  const topPad = Platform.OS === 'web' ? 67 : insets.top;
+  const topPad = insets.top;
   const { width } = useWindowDimensions();
   const isWideScreen = width >= 768;
   const [selectedReserveId, setSelectedReserveId] = useState<string | null>(null);

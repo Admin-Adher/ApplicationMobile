@@ -63,7 +63,7 @@ export default function NotificationsScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const { notifications, unreadCount, markRead, markAllRead } = useNotifications();
-  const topPad = Platform.OS === 'web' ? 67 : insets.top;
+  const topPad = insets.top;
 
   function handlePress(id: string, route?: string, params?: Record<string, string>) {
     markRead(id);

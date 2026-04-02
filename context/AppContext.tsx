@@ -6,15 +6,7 @@ import { supabase, isSupabaseConfigured } from '@/lib/supabase';
 import { initStorageBuckets } from '@/lib/storage';
 import { C } from '@/constants/colors';
 import { genId, nowTimestampFR, formatDateFR } from '@/lib/utils';
-
-const ROLE_LABELS: Record<UserRole, string> = {
-  super_admin: 'Super Administrateur',
-  admin: 'Administrateur',
-  conducteur: 'Conducteur de travaux',
-  chef_equipe: "Chef d'équipe",
-  observateur: 'Observateur',
-  sous_traitant: 'Sous-traitant',
-};
+import { ROLE_LABELS } from '@/constants/roles';
 
 export const STATIC_CHANNELS: Channel[] = [
   { id: 'general', name: 'Général', description: 'Canal principal du projet', icon: 'home', color: C.primary, type: 'general' },
@@ -1092,18 +1084,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       try {
         const { data: chantiersData, error: chantiersErr } = await supabase
           .from('chantiers').select('*').order('created_at', { ascending: false });
-        if (!chantiersErr && chantiersData && chantiersData.length > 0) {
+        if (!chantiersErr && chantiersData !== null) {
           chantiers = chantiersData.map(toChantier);
         } else {
           const sc = await AsyncStorage.getItem(MOCK_CHANTIERS_KEY);
           if (sc) {
             const p = JSON.parse(sc);
-            if (Array.isArray(p)) {
-              const stored: Chantier[] = p;
-              const storedIds = new Set(stored.map((c: Chantier) => c.id));
-              const missing = MOCK_CHANTIERS.filter(c => !storedIds.has(c.id));
-              chantiers = [...missing, ...stored];
-            }
+            if (Array.isArray(p)) chantiers = p;
           }
         }
       } catch {
@@ -1114,18 +1101,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       try {
         const { data: sitePlansData, error: sitePlansErr } = await supabase
           .from('site_plans').select('*').order('created_at', { ascending: false });
-        if (!sitePlansErr && sitePlansData && sitePlansData.length > 0) {
+        if (!sitePlansErr && sitePlansData !== null) {
           sitePlans = sitePlansData.map(toSitePlan);
         } else {
           const ssp = await AsyncStorage.getItem(MOCK_SITE_PLANS_KEY);
           if (ssp) {
             const p = JSON.parse(ssp);
-            if (Array.isArray(p)) {
-              const stored: SitePlan[] = p;
-              const storedIds = new Set(stored.map((s: SitePlan) => s.id));
-              const missing = MOCK_SITE_PLANS.filter(s => !storedIds.has(s.id));
-              sitePlans = [...missing, ...stored];
-            }
+            if (Array.isArray(p)) sitePlans = p;
           }
         }
       } catch {
