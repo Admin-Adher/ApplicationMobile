@@ -246,6 +246,15 @@ export default function PlansScreen() {
     AsyncStorage.getItem(HINT_KEY).then(v => { if (v === '1') setHintSeen(true); });
   }, []);
 
+  useEffect(() => {
+    setActivePlanId(null);
+    setSelectedBuilding('all');
+    setSelectedLevel('all');
+    setStatusFilter('all');
+    setCompanyFilter('all');
+    setLevelFilter('all');
+  }, [activeChantierId]);
+
   function dismissHint() {
     setHintSeen(true);
     AsyncStorage.setItem(HINT_KEY, '1');

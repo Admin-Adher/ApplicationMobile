@@ -2194,21 +2194,23 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       const allPlans = stateRef.current.sitePlans;
       const parent = allPlans.find(p => p.id === parentPlanId);
       if (!parent) return;
-      const revNum = (parent.revisionNumber ?? 1) + 1;
-      const revCode = `R${String(revNum).padStart(2, '0')}`;
-      const updatedParent: SitePlan = { ...parent, isLatestRevision: false };
+      const parentRevNum = parent.revisionNumber ?? 1;
+      const revNum = parentRevNum + 1;
+      const autoRevCode = `R${String(revNum).padStart(2, '0')}`;
+      const finalRevCode = newPlan.revisionCode?.trim() || autoRevCode;
+      const updatedParent: SitePlan = { ...parent, revisionNumber: parentRevNum, isLatestRevision: false };
       const versionedNew: SitePlan = {
         ...newPlan,
         parentPlanId,
         revisionNumber: revNum,
-        revisionCode: revCode,
+        revisionCode: finalRevCode,
         isLatestRevision: true,
       };
       const updatedPlans = allPlans.map(p => p.id === parentPlanId ? updatedParent : p).concat([versionedNew]);
       dispatch({ type: 'UPDATE_SITE_PLAN', payload: updatedParent });
       dispatch({ type: 'ADD_SITE_PLAN', payload: versionedNew });
       if (isSupabaseConfigured) {
-        supabase.from('site_plans').update({ is_latest_revision: false }).eq('id', parentPlanId)
+        supabase.from('site_plans').update({ is_latest_revision: false, revision_number: parentRevNum }).eq('id', parentPlanId)
           .then(({ error }: { error: any }) => { if (error) console.warn('Erreur maj plan parent:', error.message); });
         supabase.from('site_plans').insert({
           id: versionedNew.id,
@@ -2220,7 +2222,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           size: versionedNew.size ?? null,
           building: versionedNew.building ?? null,
           level: versionedNew.level ?? null,
-          revision_code: revCode,
+          revision_code: finalRevCode,
           revision_number: revNum,
           parent_plan_id: parentPlanId,
           is_latest_revision: true,
