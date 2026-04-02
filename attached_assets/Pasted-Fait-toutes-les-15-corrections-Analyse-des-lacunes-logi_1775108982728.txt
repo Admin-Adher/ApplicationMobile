@@ -1,0 +1,139 @@
+Fait toutes les 15 corrections : "Analyse des lacunes logiques — BuildTrack vs Archipad
+🔴 Lacunes critiques (bloquantes pour un usage professionnel)
+
+Le tunnel OPR ne met pas à jour les réserves en temps réel
+Dans Archipad, quand vous marquez un item OPR comme "levé", la réserve correspondante passe automatiquement en statut closed. Dans BuildTrack, l'OPR consulte le statut des réserves en lecture (reserve?.status === 'closed') mais ne l'écrit jamais en retour. Un conducteur qui clôture une réserve directement dans l'OPR doit aussi aller manuellement la clôturer dans le module Réserves — double travail, risque de désynchronisation.
+
+Zéro workflow d'approbation pour la clôture des réserves
+Le statut verification existe dans le code mais il n'y a aucun mécanisme pour qu'une entreprise demande formellement la levée, et qu'un conducteur l'approuve ou la rejette. N'importe quel rôle autorisé peut passer directement de open à closed. Archipad impose une étape de validation contradictoire (entreprise soumet → conducteur approuve).
+
+Pas de génération d'incidents → réserves
+Un incident "critique" ou "majeur" devrait pouvoir générer automatiquement une réserve liée. Actuellement les deux modules sont totalement cloisonnés — un conducteur doit créer manuellement une réserve séparée s'il veut tracer l'incident dans le suivi officiel.
+
+Pas de participants/signatures multiples sur les visites
+Une visite de chantier en France implique légalement la présence et la signature de plusieurs parties (conducteur, MO, entreprises). Actuellement la visite n'a qu'un champ conducteur (texte libre) et une seule signature globale. Archipad gère une liste de participants avec signature individuelle par personne.
+
+🟠 Lacunes importantes (différenciatrices par rapport à Archipad)
+5. L'OPR ne génère pas de lettre de convocation
+Archipad génère automatiquement un document officiel de convocation à l'OPR (avec les 8 jours de préavis légaux requis par le CCAG Travaux). BuildTrack crée directement l'OPR sans cette étape préalable.
+
+Les réserves n'ont pas de responsable individuel, seulement une entreprise
+Archipad permet d'assigner une réserve à une personne nominative dans l'entreprise (ex: "Jean Martin, Plomberie Dupont"). BuildTrack n'a qu'un champ company (texte). Il est impossible de savoir qui est le référent de l'entreprise pour cette réserve.
+
+Pas de récurrence/planification des visites
+Une visite hebdomadaire de chantier doit être créée manuellement chaque semaine. Archipad permet de définir une fréquence (hebdomadaire, bi-mensuelle) et génère les créneaux automatiquement. Le tunnel "visite" de BuildTrack est entièrement manuel.
+
+Les actions du compte-rendu de réunion ne sont pas liées aux réserves
+Un point d'action relevé en réunion ("Entreprise X doit réparer la fuite bâtiment B avant vendredi") n'est pas rattachable à une réserve existante. Dans Archipad, chaque action de CR peut référencer une réserve, créant une traçabilité complète entre la réunion et le suivi terrain.
+
+Pas d'export Excel/CSV
+Tous les exports sont en PDF. Les maîtres d'ouvrage et bureaux de contrôle demandent souvent un tableur pour filtrer et analyser les réserves par entreprise, par date, par statut. Archipad exporte en PDF et Excel. BuildTrack est limité au PDF.
+
+Le module Plans ne peut pas exporter un plan annoté
+Le plan interactif avec ses pins de réserves ne peut pas être exporté en PDF avec les annotations dessus. Archipad génère un PDF du plan avec toutes les punaises et légende colorée. C'est un livrable standard dans les réunions de chantier.
+
+🟡 Lacunes ergonomiques (friction quotidienne)
+11. Pas de délai suggéré automatiquement selon la priorité
+Quand on crée une réserve "critique", le champ délai reste vide. Archipad suggère automatiquement une date selon la criticité (critique = J+2, haute = J+7, moyenne = J+30). L'utilisateur peut toujours modifier, mais le délai est pré-rempli.
+
+Pas de rappels d'échéance
+Aucune notification push ni in-app n'est envoyée quand une réserve approche de son échéance. Le dashboard affiche les retards après coup mais il n'y a pas d'alerte préventive J-3, J-1. Archipad envoie des rappels configurables.
+
+Pas de mention @utilisateur dans les messages
+Les canaux de messagerie sont fonctionnels mais il n'y a pas de @mention qui notifie une personne spécifique. Dans un chantier actif, "eh @dupont regarde la réserve B-03" est une interaction quotidienne.
+
+La recherche est cloisonnée par module
+L'écran /search cherche dans les réserves mais pas simultanément dans les visites, les incidents ou les messages. Archipad a une barre de recherche globale qui traverse tous les objets.
+
+Le pointage n'a pas d'export périodique
+Les données de présence sont consultables jour par jour mais pas exportables sur une semaine ou un mois en un PDF ou CSV. Les entreprises générales ont besoin de ces données pour leurs bulletins de paie et rapports de sécurité."
+
+Let me start by thoroughly exploring the codebase to understand what's there before making any changes.
+
+Now let me read all the key files I'll need to modify simultaneously:
+
+Good, I now have a comprehensive picture. Let me read the remaining key files before implementing all 15 fixes:
+
+Now let me read the remaining files I need:
+
+Now let me read the final batch of files:
+
+I now have enough context. Let me read the remaining parts of channel and the plans tab, then implement all 15 fixes in parallel batches:
+
+Now let me read the remaining critical files in parallel:
+
+Now let me read the remaining key files before implementing:
+
+Now let me read more critical parts of the reserve detail, opr, and other files:
+
+Let me read a few more important sections before implementing:
+
+Now let me check how mention suggestions are rendered in the channel UI:
+
+Now I have everything I need. Let me implement all 15 fixes in parallel batches. Starting with the first batch:
+
+Now I have all the context I need. Let me implement all 15 fixes. Starting with the foundational types and working through each screen:
+
+Types are updated. Now let me read the files I need to edit in parallel:
+
+Let me read more key sections:
+
+Now I'll implement all the fixes across all files. Starting with reserve/new.tsx (Fix 6 - responsableNom field + Fix 11 - auto-deadline):
+
+Now add the auto-deadline helper function and update the priority handler:
+
+Now update the priority section to use the new handler and add responsableNom field after company section:
+
+Now add the responsableNom field after the company card:
+
+Now add responsableNom to the addReserve call:
+
+Good. Now let me fix reserve/[id].tsx to display responsableNom and add sous_traitant workflow restriction. First let me check how the role is identified:
+
+Let me check how user role is accessed in reserve/[id].tsx:
+
+Now let me add responsableNom display and sous_traitant workflow in reserve/[id].tsx:
+
+Now replace the status change section to add sous_traitant-specific workflow:
+
+Excellent. Now let me work on incidents.tsx (Fix 3), search.tsx (Fix 14), reserves.tsx (Fix 9 + 12), and visite/new.tsx (Fix 7 + 4) in parallel:
+
+Let me now implement incidents.tsx fix (Fix 3 - create reserve button on major/critical incidents):
+
+Now add the router to the component and the "Créer une réserve" button on major/critical cards:
+
+Add "Créer une réserve" button on major/critical incident cards:
+
+Now add the styles for the new button in incidents.tsx. Let me read the styles section:
+
+Now implement all remaining changes in parallel across multiple files:
+
+Now let me implement Fix 14 (search.tsx - add visites), Fix 9+12 (reserves.tsx - CSV export + deadline reminders), and Fix 7+4 (visite/new.tsx - recurrence + participants) in parallel:
+
+Add filteredVisites and update hasResults:
+
+Add visites results section in search.tsx:
+
+Now add CSV export + deadline reminders to reserves.tsx, and participants + recurrence to visite/new.tsx in parallel:
+
+Now implement visite/new.tsx with participants + recurrence (Fix 7 + Fix 4):
+
+Now update the component to add participants + recurrence state and logic:
+
+Add participants and recurrence UI sections to visite/new.tsx:
+
+Add the missing styles to visite/new.tsx:
+
+Now let me add CSV export + deadline reminders to reserves.tsx, and read opr.tsx + pointage.tsx in parallel:
+
+Let me read more of pointage.tsx to understand its header/export area, and read more of reserves.tsx for the right insertion point:
+
+Now implement CSV export + deadline reminders in reserves.tsx and export in pointage.tsx:
+
+Now add the export function, deadline reminder computation, and the UI elements to reserves.tsx:
+
+Now add the CSV export button and deadline reminder banner to the reserves.tsx UI:
+
+Add the deadline reminder banner after the sous-traitant banner:
+
+Let me now add the missing styles to reserves.tsx, implement pointage.tsx export, and read more of opr.tsx for the sync+convocation:
