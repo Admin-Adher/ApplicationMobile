@@ -314,6 +314,102 @@ async function buildPvLeveePDF(opr: Opr, reserves: Reserve[], projectName: strin
   return wrapHTML(body, `PV de Levée — ${opr.id}`);
 }
 
+function buildConvocationPDF(opr: Opr, projectName: string, conducteur: string): string {
+  const today = formatDateFR(new Date());
+  const docRef = `CONV-${opr.id}-${today.replace(/\//g, '')}`;
+  const reserveItems = opr.items.filter(i => i.status === 'reserve');
+  const totalItems = opr.items.length;
+  const signatories = opr.signatories ?? [];
+
+  const reserveRows = reserveItems.map((item, idx) =>
+    `<tr style="background:${idx % 2 === 0 ? '#fff' : '#F9FAFB'}">
+      <td style="padding:7px 10px;border-bottom:1px solid #EEF3FA;font-size:11px;font-weight:700">${item.lotName}</td>
+      <td style="padding:7px 10px;border-bottom:1px solid #EEF3FA;font-size:11px;color:#6B7280">${item.entreprise ?? '—'}</td>
+      <td style="padding:7px 10px;border-bottom:1px solid #EEF3FA;font-size:11px;color:#DC2626;font-weight:700">${item.deadline ?? '—'}</td>
+      <td style="padding:7px 10px;border-bottom:1px solid #EEF3FA;font-size:11px">${item.note ?? ''}</td>
+    </tr>`
+  ).join('');
+
+  const participants = signatories.length > 0
+    ? signatories.map(s =>
+        `<tr>
+          <td style="padding:7px 10px;border-bottom:1px solid #EEF3FA;font-size:11px;font-weight:600">${s.name}</td>
+          <td style="padding:7px 10px;border-bottom:1px solid #EEF3FA;font-size:11px;color:#6B7280">${s.role}</td>
+          <td style="padding:7px 10px;border-bottom:1px solid #EEF3FA;font-size:11px;color:#6B7280">${s.email ?? '—'}</td>
+          <td style="padding:7px 10px;border-bottom:1px solid #EEF3FA;text-align:center">
+            ${s.signedAt
+              ? '<span style="background:#ECFDF5;color:#059669;font-size:10px;font-weight:700;padding:2px 8px;border-radius:10px">✓ Confirmé</span>'
+              : '<span style="background:#F9FAFB;color:#6B7280;font-size:10px;font-weight:700;padding:2px 8px;border-radius:10px">Convoqué</span>'}
+          </td>
+        </tr>`
+      ).join('')
+    : `<tr><td colspan="4" style="padding:10px;text-align:center;color:#6B7280;font-style:italic;font-size:11px">Aucun signataire invité — à compléter avant envoi</td></tr>`;
+
+  const body = `
+    ${buildLetterhead('Lettre de Convocation — OPR', opr.title, docRef, today, projectName)}
+    <div style="background:#FFF8E1;border-left:4px solid #F59E0B;padding:12px 16px;border-radius:0 10px 10px 0;margin-bottom:22px;font-size:12px;color:#92400E">
+      <strong>Objet :</strong> Convocation aux Opérations Préalables à la Réception (OPR) — ${opr.title}
+    </div>
+    ${buildInfoGrid([
+      { label: 'Référence OPR', value: opr.id },
+      { label: 'Date de réception', value: opr.date },
+      { label: 'Localisation', value: `Bât. ${opr.building} — ${opr.level}` },
+      { label: 'Conducteur', value: conducteur },
+      ...(opr.maireOuvrage ? [{ label: "Maître d'ouvrage", value: opr.maireOuvrage }] : []),
+      ...(opr.visitContradictoire ? [{ label: 'Visite contradictoire', value: opr.visitContradictoire }] : []),
+    ])}
+    ${buildKpiRow([
+      { val: totalItems, label: 'Points de contrôle', color: '#003082' },
+      { val: reserveItems.length, label: 'Réserves émises', color: '#DC2626' },
+      { val: opr.items.filter(i => i.status === 'ok').length, label: 'Conformes', color: '#059669' },
+      { val: signatories.length, label: 'Convoqués', color: '#D97706' },
+    ])}
+    <div class="section-header">Objet de la convocation</div>
+    <div style="background:#F4F7FB;border-radius:10px;padding:14px 16px;border:1px solid #DDE4EE;font-size:12px;line-height:1.8;margin-bottom:16px">
+      Par la présente, vous êtes convoqué(e) à participer aux <strong>Opérations Préalables à la Réception (OPR)</strong>
+      du chantier <strong>${projectName}</strong> conformément aux dispositions contractuelles en vigueur.
+      <br/><br/>
+      La réception des travaux intervient à la fin de l'exécution du marché. Elle permet de constater l'état d'achèvement
+      des travaux et d'établir, le cas échéant, la liste des réserves à lever avant la réception définitive.
+    </div>
+    ${reserveItems.length > 0 ? `
+    <div class="section-header">Réserves à lever avant réception (${reserveItems.length})</div>
+    <table>
+      <thead><tr>
+        <th>LOT</th><th>ENTREPRISE</th><th>DÉLAI DE LEVÉE</th><th>OBSERVATIONS</th>
+      </tr></thead>
+      <tbody>${reserveRows}</tbody>
+    </table>
+    ` : `<div class="alert alert-success">✅ Aucune réserve — Réception envisagée sans réserve.</div>`}
+    <div class="section-header">Parties convoquées</div>
+    <table>
+      <thead><tr>
+        <th>NOM</th><th>QUALITÉ / RÔLE</th><th>EMAIL</th><th style="text-align:center">STATUT</th>
+      </tr></thead>
+      <tbody>${participants}</tbody>
+    </table>
+    <div style="margin-top:36px;padding-top:20px;border-top:2px solid #EEF3FA">
+      <div class="section-header">Signature du conducteur de travaux</div>
+      <div style="display:flex;gap:40px;margin-top:16px">
+        <div>
+          <div style="font-size:10px;color:#6B7280;text-transform:uppercase;letter-spacing:0.6px;margin-bottom:28px;font-weight:700">Conducteur de travaux</div>
+          <div style="height:60px;border-bottom:2px solid #1A2742;width:220px;margin-bottom:8px"></div>
+          <div style="font-size:12px;font-weight:700;color:#1A2742">${conducteur}</div>
+          <div style="font-size:10px;color:#6B7280">Date : ${today}</div>
+        </div>
+        <div>
+          <div style="font-size:10px;color:#6B7280;text-transform:uppercase;letter-spacing:0.6px;margin-bottom:28px;font-weight:700">Accusé de réception</div>
+          <div style="height:60px;border-bottom:2px solid #1A2742;width:220px;margin-bottom:8px"></div>
+          <div style="font-size:10px;color:#6B7280">Nom, date et signature du destinataire</div>
+        </div>
+      </div>
+    </div>
+    ${buildDocFooter(projectName)}
+  `;
+
+  return wrapHTML(body, `Convocation OPR — ${opr.id}`);
+}
+
 export default function OprScreen() {
   const router = useRouter();
   const { oprs, addOpr, updateOpr, deleteOpr, lots, reserves, activeChantierId, activeChantier, updateReserveStatus } = useApp();
@@ -508,6 +604,15 @@ export default function OprScreen() {
     try {
       const html = await buildPvLeveePDF(opr, reserves, projectName);
       await exportPDFHelper(html, `PV Levée ${opr.id}`);
+    } catch (e: any) {
+      Alert.alert('Erreur PDF', e?.message ?? '');
+    }
+  }
+
+  async function exportConvocationPDF(opr: Opr) {
+    try {
+      const html = buildConvocationPDF(opr, projectName, user?.name ?? 'Conducteur de travaux');
+      await exportPDFHelper(html, `Convocation OPR ${opr.id}`);
     } catch (e: any) {
       Alert.alert('Erreur PDF', e?.message ?? '');
     }
@@ -1197,6 +1302,15 @@ export default function OprScreen() {
                     <TouchableOpacity style={styles.actionBtn} onPress={() => exportOprPDF(opr)}>
                       <Ionicons name="download-outline" size={14} color={C.primary} />
                       <Text style={[styles.actionBtnText, { color: C.primary }]}>PV Réception</Text>
+                    </TouchableOpacity>
+                  )}
+                  {permissions.canExport && (
+                    <TouchableOpacity
+                      style={[styles.actionBtn, { borderColor: '#F59E0B40', backgroundColor: '#FFFBEB' }]}
+                      onPress={() => exportConvocationPDF(opr)}
+                    >
+                      <Ionicons name="mail-outline" size={14} color="#D97706" />
+                      <Text style={[styles.actionBtnText, { color: '#D97706' }]}>Convocation</Text>
                     </TouchableOpacity>
                   )}
                   {permissions.canExport && opr.items.some(i => i.status === 'reserve') && (

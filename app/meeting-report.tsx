@@ -9,7 +9,7 @@ import { useAuth } from '@/context/AuthContext';
 import { useSettings } from '@/context/SettingsContext';
 import { useApp } from '@/context/AppContext';
 import Header from '@/components/Header';
-import { MeetingReport } from '@/constants/types';
+import { MeetingReport, MeetingReportAction } from '@/constants/types';
 import BottomNavBar from '@/components/BottomNavBar';
 import { genId, formatDateFR } from '@/lib/utils';
 
@@ -200,6 +200,62 @@ export default function MeetingReportScreen() {
   const [decisions, setDecisions] = useState('');
   const [nextMeeting, setNextMeeting] = useState('');
 
+  const [expandedReportId, setExpandedReportId] = useState<string | null>(null);
+  const [showAddAction, setShowAddAction] = useState(false);
+  const [actionDesc, setActionDesc] = useState('');
+  const [actionResp, setActionResp] = useState('');
+  const [actionDeadline, setActionDeadline] = useState('');
+  const [actionReserveId, setActionReserveId] = useState('');
+  const [showReservePicker, setShowReservePicker] = useState(false);
+
+  function updateReportData(reportId: string, updater: (r: MeetingReport) => MeetingReport) {
+    setReports(prev => {
+      const updated = prev.map(r => r.id === reportId ? updater(r) : r);
+      AsyncStorage.setItem(MEETING_KEY, JSON.stringify(updated)).catch(() => {});
+      return updated;
+    });
+  }
+
+  function addActionToReport(reportId: string) {
+    if (!actionDesc.trim() || !actionResp.trim() || !actionDeadline.trim()) {
+      Alert.alert('Champs requis', 'Description, responsable et échéance sont obligatoires.');
+      return;
+    }
+    const action: MeetingReportAction = {
+      id: genId(),
+      description: actionDesc.trim(),
+      responsible: actionResp.trim(),
+      deadline: actionDeadline.trim(),
+      status: 'pending',
+      reserveId: actionReserveId.trim() || undefined,
+    };
+    updateReportData(reportId, r => ({ ...r, actions: [...r.actions, action] }));
+    setActionDesc(''); setActionResp(''); setActionDeadline(''); setActionReserveId('');
+    setShowAddAction(false);
+  }
+
+  function toggleAction(reportId: string, actionId: string) {
+    updateReportData(reportId, r => ({
+      ...r,
+      actions: r.actions.map(a =>
+        a.id === actionId ? { ...a, status: a.status === 'done' ? 'pending' : 'done' } : a
+      ),
+    }));
+  }
+
+  function removeAction(reportId: string, actionId: string) {
+    Alert.alert('Supprimer cette action ?', 'Cette opération est irréversible.', [
+      { text: 'Annuler', style: 'cancel' },
+      { text: 'Supprimer', style: 'destructive', onPress: () =>
+        updateReportData(reportId, r => ({ ...r, actions: r.actions.filter(a => a.id !== actionId) }))
+      },
+    ]);
+  }
+
+  const chantierReserves = reserves.filter(r =>
+    r.status !== 'closed' && (!activeChantierId || r.chantierId === activeChantierId)
+  );
+
   const resetForm = () => {
     setSubject(''); setDate(formatDateFR(new Date())); setLocation('');
     setParticipants(''); setAgenda(''); setNotes(''); setDecisions(''); setNextMeeting('');
@@ -348,38 +404,228 @@ export default function MeetingReportScreen() {
           </View>
         )}
 
-        {reports.map(report => (
-          <View key={report.id} style={styles.card}>
-            <View style={styles.reportHeader}>
-              <View style={{ flex: 1 }}>
-                <Text style={styles.reportTitle}>{report.subject}</Text>
-                <Text style={styles.reportMeta}>{report.date} — {report.location}</Text>
-                <Text style={styles.reportMeta}>Rédigé par {report.redactedBy}</Text>
+        {reports.map(report => {
+          const isExpanded = expandedReportId === report.id;
+          const doneCount = report.actions.filter(a => a.status === 'done').length;
+          return (
+            <View key={report.id} style={styles.card}>
+              <View style={styles.reportHeader}>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.reportTitle}>{report.subject}</Text>
+                  <Text style={styles.reportMeta}>{report.date} — {report.location}</Text>
+                  <Text style={styles.reportMeta}>Rédigé par {report.redactedBy}</Text>
+                </View>
+                {permissions.canExport && (
+                  <TouchableOpacity style={styles.pdfBtn} onPress={() => handleExportPDF(report)}>
+                    <Ionicons name="download-outline" size={14} color={C.primary} />
+                    <Text style={styles.pdfBtnText}>PDF</Text>
+                  </TouchableOpacity>
+                )}
               </View>
-              {permissions.canExport && (
-                <TouchableOpacity style={styles.pdfBtn} onPress={() => handleExportPDF(report)}>
-                  <Ionicons name="download-outline" size={14} color={C.primary} />
-                  <Text style={styles.pdfBtnText}>PDF</Text>
-                </TouchableOpacity>
+
+              {report.decisions.length > 0 && (
+                <View style={styles.decisionsBox}>
+                  <Text style={styles.decisionsTitle}>Décisions ({report.decisions.length})</Text>
+                  {report.decisions.map((d, i) => (
+                    <View key={i} style={styles.decisionRow}>
+                      <Ionicons name="checkmark-circle" size={14} color={C.closed} />
+                      <Text style={styles.decisionText}>{d}</Text>
+                    </View>
+                  ))}
+                </View>
+              )}
+
+              {report.notes ? (
+                <Text style={styles.notesText} numberOfLines={3}>{report.notes}</Text>
+              ) : null}
+
+              <TouchableOpacity
+                style={styles.actionsToggle}
+                onPress={() => {
+                  if (isExpanded) {
+                    setExpandedReportId(null);
+                    setShowAddAction(false);
+                  } else {
+                    setExpandedReportId(report.id);
+                    setShowAddAction(false);
+                  }
+                }}
+              >
+                <Ionicons name="checkmark-done-outline" size={14} color={C.primary} />
+                <Text style={styles.actionsToggleText}>
+                  Actions ({doneCount}/{report.actions.length} faites)
+                </Text>
+                <Ionicons name={isExpanded ? 'chevron-up' : 'chevron-down'} size={13} color={C.textMuted} />
+              </TouchableOpacity>
+
+              {isExpanded && (
+                <View style={styles.actionsPanel}>
+                  {report.actions.length === 0 && !showAddAction && (
+                    <Text style={styles.actionsEmpty}>Aucune action — appuyez sur + pour en ajouter</Text>
+                  )}
+                  {report.actions.map(action => {
+                    const linkedReserve = action.reserveId
+                      ? reserves.find(r => r.id === action.reserveId)
+                      : undefined;
+                    return (
+                      <View key={action.id} style={styles.actionRow}>
+                        <TouchableOpacity
+                          onPress={() => toggleAction(report.id, action.id!)}
+                          hitSlop={8}
+                          style={[
+                            styles.actionCheck,
+                            action.status === 'done' && styles.actionCheckDone,
+                          ]}
+                        >
+                          {action.status === 'done' && (
+                            <Ionicons name="checkmark" size={12} color="#fff" />
+                          )}
+                        </TouchableOpacity>
+                        <View style={{ flex: 1 }}>
+                          <Text style={[
+                            styles.actionDesc,
+                            action.status === 'done' && styles.actionDescDone,
+                          ]}>
+                            {action.description}
+                          </Text>
+                          <Text style={styles.actionMeta}>
+                            {action.responsible} · Éch. {action.deadline}
+                          </Text>
+                          {linkedReserve && (
+                            <View style={styles.actionReserveBadge}>
+                              <Ionicons name="link-outline" size={10} color={C.primary} />
+                              <Text style={styles.actionReserveBadgeText}>
+                                {linkedReserve.id} — {linkedReserve.title}
+                              </Text>
+                            </View>
+                          )}
+                        </View>
+                        {permissions.canCreate && (
+                          <TouchableOpacity
+                            onPress={() => removeAction(report.id, action.id!)}
+                            hitSlop={8}
+                          >
+                            <Ionicons name="close" size={15} color={C.textMuted} />
+                          </TouchableOpacity>
+                        )}
+                      </View>
+                    );
+                  })}
+
+                  {permissions.canCreate && !showAddAction && (
+                    <TouchableOpacity
+                      style={styles.addActionBtn}
+                      onPress={() => setShowAddAction(true)}
+                    >
+                      <Ionicons name="add-circle-outline" size={16} color={C.primary} />
+                      <Text style={styles.addActionBtnText}>Ajouter une action</Text>
+                    </TouchableOpacity>
+                  )}
+
+                  {showAddAction && (
+                    <View style={styles.addActionForm}>
+                      <TextInput
+                        style={styles.actionInput}
+                        placeholder="Description de l'action *"
+                        placeholderTextColor={C.textMuted}
+                        value={actionDesc}
+                        onChangeText={setActionDesc}
+                        autoFocus
+                      />
+                      <View style={styles.actionFormRow}>
+                        <TextInput
+                          style={[styles.actionInput, { flex: 1 }]}
+                          placeholder="Responsable *"
+                          placeholderTextColor={C.textMuted}
+                          value={actionResp}
+                          onChangeText={setActionResp}
+                        />
+                        <TextInput
+                          style={[styles.actionInput, { flex: 1 }]}
+                          placeholder="Échéance *"
+                          placeholderTextColor={C.textMuted}
+                          value={actionDeadline}
+                          onChangeText={setActionDeadline}
+                        />
+                      </View>
+                      <TouchableOpacity
+                        style={styles.actionReservePickerBtn}
+                        onPress={() => setShowReservePicker(true)}
+                      >
+                        <Ionicons name="link-outline" size={13} color={C.primary} />
+                        <Text style={styles.actionReservePickerText}>
+                          {actionReserveId
+                            ? reserves.find(r => r.id === actionReserveId)?.title ?? actionReserveId
+                            : 'Lier une réserve (optionnel)'}
+                        </Text>
+                        {actionReserveId && (
+                          <TouchableOpacity onPress={() => setActionReserveId('')} hitSlop={8}>
+                            <Ionicons name="close-circle" size={14} color={C.textMuted} />
+                          </TouchableOpacity>
+                        )}
+                      </TouchableOpacity>
+                      <View style={styles.actionFormRow}>
+                        <TouchableOpacity
+                          style={styles.actionCancelBtn}
+                          onPress={() => {
+                            setShowAddAction(false);
+                            setActionDesc(''); setActionResp(''); setActionDeadline(''); setActionReserveId('');
+                          }}
+                        >
+                          <Text style={styles.actionCancelBtnText}>Annuler</Text>
+                        </TouchableOpacity>
+                        <TouchableOpacity
+                          style={styles.actionSaveBtn}
+                          onPress={() => addActionToReport(report.id)}
+                        >
+                          <Text style={styles.actionSaveBtnText}>Enregistrer</Text>
+                        </TouchableOpacity>
+                      </View>
+                    </View>
+                  )}
+                </View>
               )}
             </View>
-            {report.decisions.length > 0 && (
-              <View style={styles.decisionsBox}>
-                <Text style={styles.decisionsTitle}>Décisions ({report.decisions.length})</Text>
-                {report.decisions.map((d, i) => (
-                  <View key={i} style={styles.decisionRow}>
-                    <Ionicons name="checkmark-circle" size={14} color={C.closed} />
-                    <Text style={styles.decisionText}>{d}</Text>
-                  </View>
-                ))}
-              </View>
-            )}
-            {report.notes ? (
-              <Text style={styles.notesText} numberOfLines={3}>{report.notes}</Text>
-            ) : null}
-          </View>
-        ))}
+          );
+        })}
       </ScrollView>
+
+      <Modal visible={showReservePicker} transparent animationType="slide" onRequestClose={() => setShowReservePicker(false)}>
+        <View style={styles.tplOverlay}>
+          <View style={[styles.tplSheet, { maxHeight: '70%' }]}>
+            <View style={styles.tplHandle} />
+            <Text style={styles.tplSheetTitle}>Lier une réserve</Text>
+            <Text style={styles.tplSheetSub}>Associez cette action à une réserve ouverte du chantier</Text>
+            <ScrollView showsVerticalScrollIndicator={false}>
+              {chantierReserves.length === 0 ? (
+                <Text style={{ fontSize: 13, color: C.textMuted, textAlign: 'center', paddingVertical: 20, fontFamily: 'Inter_400Regular' }}>
+                  Aucune réserve ouverte dans ce chantier
+                </Text>
+              ) : (
+                chantierReserves.map(r => (
+                  <TouchableOpacity
+                    key={r.id}
+                    style={[styles.tplRow, actionReserveId === r.id && { backgroundColor: C.primaryBg }]}
+                    onPress={() => { setActionReserveId(r.id); setShowReservePicker(false); }}
+                  >
+                    <View style={{ width: 10, height: 10, borderRadius: 5, backgroundColor: C.open, marginTop: 2 }} />
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.tplRowLabel}>{r.title}</Text>
+                      <Text style={styles.tplRowSub}>{r.id} · {r.company}</Text>
+                    </View>
+                    {actionReserveId === r.id && (
+                      <Ionicons name="checkmark-circle" size={16} color={C.primary} />
+                    )}
+                  </TouchableOpacity>
+                ))
+              )}
+            </ScrollView>
+            <TouchableOpacity style={styles.tplCancelBtn} onPress={() => setShowReservePicker(false)}>
+              <Text style={styles.tplCancelText}>Fermer</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
 
       <Modal visible={showTemplateModal} transparent animationType="slide" onRequestClose={() => setShowTemplateModal(false)}>
         <View style={styles.tplOverlay}>
@@ -470,4 +716,64 @@ const styles = StyleSheet.create({
   tplRowSub: { fontSize: 12, fontFamily: 'Inter_400Regular', color: C.textMuted, marginTop: 2 },
   tplCancelBtn: { alignItems: 'center', paddingVertical: 14, marginTop: 12 },
   tplCancelText: { fontSize: 15, fontFamily: 'Inter_500Medium', color: C.textSub },
+
+  actionsToggle: {
+    flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 12,
+    paddingTop: 12, borderTopWidth: 1, borderTopColor: C.border,
+  },
+  actionsToggleText: { flex: 1, fontSize: 13, fontFamily: 'Inter_600SemiBold', color: C.primary },
+  actionsPanel: { marginTop: 10, gap: 8 },
+  actionsEmpty: { fontSize: 12, fontFamily: 'Inter_400Regular', color: C.textMuted, fontStyle: 'italic', textAlign: 'center', paddingVertical: 8 },
+
+  actionRow: {
+    flexDirection: 'row', alignItems: 'flex-start', gap: 10,
+    backgroundColor: C.surface2, borderRadius: 10, padding: 10,
+    borderWidth: 1, borderColor: C.border,
+  },
+  actionCheck: {
+    width: 22, height: 22, borderRadius: 11, borderWidth: 2,
+    borderColor: C.textMuted, alignItems: 'center', justifyContent: 'center', marginTop: 1,
+  },
+  actionCheckDone: { borderColor: C.closed, backgroundColor: C.closed },
+  actionDesc: { fontSize: 13, fontFamily: 'Inter_500Medium', color: C.text },
+  actionDescDone: { textDecorationLine: 'line-through', color: C.textMuted },
+  actionMeta: { fontSize: 11, fontFamily: 'Inter_400Regular', color: C.textMuted, marginTop: 2 },
+  actionReserveBadge: {
+    flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 4,
+    backgroundColor: C.primaryBg, borderRadius: 6, paddingHorizontal: 6, paddingVertical: 2, alignSelf: 'flex-start',
+  },
+  actionReserveBadgeText: { fontSize: 10, fontFamily: 'Inter_500Medium', color: C.primary },
+
+  addActionBtn: {
+    flexDirection: 'row', alignItems: 'center', gap: 8, justifyContent: 'center',
+    paddingVertical: 10, borderRadius: 10, borderWidth: 1.5,
+    borderColor: C.primary + '40', borderStyle: 'dashed',
+  },
+  addActionBtnText: { fontSize: 13, fontFamily: 'Inter_600SemiBold', color: C.primary },
+
+  addActionForm: {
+    backgroundColor: C.surface2, borderRadius: 12, padding: 12,
+    borderWidth: 1, borderColor: C.border, gap: 8,
+  },
+  actionInput: {
+    backgroundColor: C.surface, borderRadius: 8, paddingHorizontal: 10, paddingVertical: 9,
+    fontSize: 13, fontFamily: 'Inter_400Regular', color: C.text, borderWidth: 1, borderColor: C.border,
+  },
+  actionFormRow: { flexDirection: 'row', gap: 8 },
+  actionReservePickerBtn: {
+    flexDirection: 'row', alignItems: 'center', gap: 6,
+    backgroundColor: C.primaryBg, borderRadius: 8, paddingHorizontal: 10, paddingVertical: 9,
+    borderWidth: 1, borderColor: C.primary + '30',
+  },
+  actionReservePickerText: { flex: 1, fontSize: 12, fontFamily: 'Inter_500Medium', color: C.primary },
+  actionCancelBtn: {
+    flex: 1, alignItems: 'center', paddingVertical: 10, borderRadius: 8,
+    borderWidth: 1, borderColor: C.border,
+  },
+  actionCancelBtnText: { fontSize: 13, fontFamily: 'Inter_500Medium', color: C.textSub },
+  actionSaveBtn: {
+    flex: 1, alignItems: 'center', paddingVertical: 10, borderRadius: 8,
+    backgroundColor: C.primary,
+  },
+  actionSaveBtnText: { fontSize: 13, fontFamily: 'Inter_600SemiBold', color: '#fff' },
 });

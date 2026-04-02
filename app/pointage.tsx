@@ -4,6 +4,8 @@ import {
 } from 'react-native';
 import { KeyboardAvoidingView } from 'react-native-keyboard-controller';
 import { useState, useMemo } from 'react';
+import * as FileSystem from 'expo-file-system';
+import * as Sharing from 'expo-sharing';
 import { Ionicons } from '@expo/vector-icons';
 import { C } from '@/constants/colors';
 import { useApp } from '@/context/AppContext';
@@ -184,6 +186,62 @@ export default function PointageScreen() {
     setSelectedDate(d.toISOString().slice(0, 10));
   }
 
+  async function handleExportCSV() {
+    const start = new Date(selectedDate);
+    const dayOfWeek = start.getDay();
+    const monday = new Date(start);
+    monday.setDate(start.getDate() - (dayOfWeek === 0 ? 6 : dayOfWeek - 1));
+    const weekDates = Array.from({ length: 7 }, (_, i) => {
+      const d = new Date(monday);
+      d.setDate(d.getDate() + i);
+      return d.toISOString().slice(0, 10);
+    });
+    const weekEntries = entries.filter(e => weekDates.includes(e.date))
+      .sort((a, b) => a.date.localeCompare(b.date) || a.arrivalTime.localeCompare(b.arrivalTime));
+    if (weekEntries.length === 0) {
+      Alert.alert('Aucune donnée', "Aucun pointage sur cette semaine pour exporter.");
+      return;
+    }
+    const header = 'Date,Ouvrier,Entreprise,Arrivée,Départ,Heures,Saisi par,Notes';
+    const rows = weekEntries.map(e => {
+      const h = calcHours(e.arrivalTime, e.departureTime);
+      const cols = [
+        formatDate(e.date),
+        e.workerName,
+        e.companyName,
+        e.arrivalTime,
+        e.departureTime ?? '',
+        h !== null ? String(h).replace('.', ',') : '',
+        e.recordedBy ?? '',
+        (e.notes ?? '').replace(/[\r\n,]/g, ' '),
+      ];
+      return cols.map(c => `"${c}"`).join(',');
+    });
+    const csv = [header, ...rows].join('\n');
+    const weekLabel = `${formatDate(weekDates[0])}_${formatDate(weekDates[6])}`.replace(/\//g, '-');
+    const filename = `Pointage_${weekLabel}.csv`;
+    if (Platform.OS === 'web') {
+      const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8;' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url; a.download = filename; a.click();
+      URL.revokeObjectURL(url);
+    } else {
+      try {
+        const uri = (FileSystem.cacheDirectory ?? '') + filename;
+        await FileSystem.writeAsStringAsync(uri, csv, { encoding: FileSystem.EncodingType.UTF8 });
+        const canShare = await Sharing.isAvailableAsync();
+        if (canShare) {
+          await Sharing.shareAsync(uri, { mimeType: 'text/csv', dialogTitle: 'Exporter le pointage hebdomadaire' });
+        } else {
+          Alert.alert('Export', `Fichier enregistré : ${uri}`);
+        }
+      } catch {
+        Alert.alert('Erreur', "Impossible d'exporter le CSV.");
+      }
+    }
+  }
+
   const canEdit = permissions.canUpdateAttendance || permissions.canCreate;
 
   return (
@@ -222,6 +280,10 @@ export default function PointageScreen() {
           <Text style={[styles.kpiVal, { color: C.medium }]}>{totalHours > 0 ? `${Math.round(totalHours * 10) / 10}h` : '—'}</Text>
           <Text style={styles.kpiLabel}>Total heures</Text>
         </View>
+        <TouchableOpacity style={styles.kpiExportBtn} onPress={handleExportCSV}>
+          <Ionicons name="download-outline" size={16} color={C.primary} />
+          <Text style={styles.kpiExportText}>CSV semaine</Text>
+        </TouchableOpacity>
       </View>
 
       {byCompany.length > 0 && (
@@ -473,6 +535,8 @@ const styles = StyleSheet.create({
   kpiCard: { flex: 1, alignItems: 'center' },
   kpiVal: { fontSize: 24, fontFamily: 'Inter_700Bold' },
   kpiLabel: { fontSize: 11, fontFamily: 'Inter_400Regular', color: C.textSub, marginTop: 2 },
+  kpiExportBtn: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 4 },
+  kpiExportText: { fontSize: 10, fontFamily: 'Inter_600SemiBold', color: C.primary, textAlign: 'center' },
 
   companyScroll: { backgroundColor: C.surface, borderBottomWidth: 1, borderBottomColor: C.border, maxHeight: 52 },
   companyScrollContent: { paddingHorizontal: 12, paddingVertical: 10, gap: 8, flexDirection: 'row' },
