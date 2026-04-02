@@ -29,6 +29,7 @@ import FiltersSheet from '@/components/plans/FiltersSheet';
 import ReservesSheet from '@/components/plans/ReservesSheet';
 
 const HINT_KEY = 'plans_hint_seen';
+const PIN_SIZE_KEY = 'plans_pin_size_scale';
 
 const STATUS_ORDER: ReserveStatus[] = ['open', 'in_progress', 'waiting', 'verification', 'closed'];
 
@@ -238,12 +239,14 @@ export default function PlansScreen() {
   const [hintSeen, setHintSeen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [planDimensions, setPlanDimensions] = useState({ width: 320, height: 240 });
+  const [pinSizeScale, setPinSizeScale] = useState(1.0);
 
   const pdfViewerRef = useRef<PdfPlanViewerHandle>(null);
   const reserveListRef = useRef<FlatList<Reserve> | null>(null);
 
   useEffect(() => {
     AsyncStorage.getItem(HINT_KEY).then(v => { if (v === '1') setHintSeen(true); });
+    AsyncStorage.getItem(PIN_SIZE_KEY).then(v => { if (v) { const n = parseFloat(v); if (!isNaN(n)) setPinSizeScale(n); } });
   }, []);
 
   useEffect(() => {
@@ -258,6 +261,14 @@ export default function PlansScreen() {
   function dismissHint() {
     setHintSeen(true);
     AsyncStorage.setItem(HINT_KEY, '1');
+  }
+
+  function changePinSize(delta: number) {
+    setPinSizeScale(prev => {
+      const next = Math.min(2.5, Math.max(0.5, parseFloat((prev + delta).toFixed(2))));
+      AsyncStorage.setItem(PIN_SIZE_KEY, String(next));
+      return next;
+    });
   }
 
   const buildings = useMemo(() => {
@@ -287,7 +298,8 @@ export default function PlansScreen() {
   );
   const pinNumberMap = useMemo(() => {
     const map = new Map<string, number>();
-    allPlanReserves.forEach((r, i) => map.set(r.id, i + 1));
+    const sorted = [...allPlanReserves].sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+    sorted.forEach((r, i) => map.set(r.id, i + 1));
     return map;
   }, [allPlanReserves]);
 
@@ -299,8 +311,8 @@ export default function PlansScreen() {
     return list;
   }, [allPlanReserves, statusFilter, companyFilter, levelFilter]);
 
-  const pinSize = isTablet ? 48 : 44;
-  const clusterSize = isTablet ? 60 : 52;
+  const pinSize = Math.round((isTablet ? 48 : 44) * pinSizeScale);
+  const clusterSize = Math.round((isTablet ? 60 : 52) * pinSizeScale);
   const dynW = planDimensions.width;
   const dynH = planDimensions.height;
 
@@ -895,7 +907,7 @@ export default function PlansScreen() {
                         opacity: 0.2, pointerEvents: 'none' as any, alignItems: 'center', justifyContent: 'center',
                         borderWidth: 2, borderColor: 'rgba(255,255,255,0.35)',
                       }}>
-                        <Text style={{ fontSize: isTablet ? 14 : 11, fontFamily: 'Inter_700Bold', color: '#fff' }}>{isCluster ? cluster.items.length : cluster.number}</Text>
+                        <Text style={{ fontSize: Math.round((isTablet ? 14 : 11) * pinSizeScale), fontFamily: 'Inter_700Bold', color: '#fff' }}>{isCluster ? cluster.items.length : cluster.number}</Text>
                       </View>
                     );
                   })}
@@ -940,7 +952,7 @@ export default function PlansScreen() {
                         }}
                         accessibilityLabel={isCluster ? `Groupe de ${cluster.items.length} réserves` : `Réserve ${cluster.number}`}
                       >
-                        <Text style={{ fontSize: isTablet ? 14 : 11, fontFamily: 'Inter_700Bold', color: '#fff' }}>
+                        <Text style={{ fontSize: Math.round((isTablet ? 14 : 11) * pinSizeScale), fontFamily: 'Inter_700Bold', color: '#fff' }}>
                           {isCluster ? cluster.items.length : cluster.number}
                         </Text>
                       </TouchableOpacity>
@@ -983,6 +995,16 @@ export default function PlansScreen() {
 
             {/* Zoom controls overlay — bottom right */}
             <View style={styles.zoomOverlay} pointerEvents="box-none">
+              <View style={[styles.zoomOverlayGroup, { marginBottom: 6 }]}>
+                <TouchableOpacity style={styles.zoomOverlayBtn} onPress={() => changePinSize(-0.25)} disabled={pinSizeScale <= 0.5} accessibilityLabel="Réduire la taille des pastilles">
+                  <Ionicons name="radio-button-off-outline" size={12} color={pinSizeScale <= 0.5 ? C.textMuted : C.text} />
+                </TouchableOpacity>
+                <Ionicons name="ellipse" size={10} color={C.primary} style={{ marginHorizontal: 2 }} />
+                <Text style={styles.zoomOverlayPct}>{Math.round(pinSizeScale * 100)}%</Text>
+                <TouchableOpacity style={styles.zoomOverlayBtn} onPress={() => changePinSize(0.25)} disabled={pinSizeScale >= 2.5} accessibilityLabel="Agrandir la taille des pastilles">
+                  <Ionicons name="ellipse" size={14} color={pinSizeScale >= 2.5 ? C.textMuted : C.text} />
+                </TouchableOpacity>
+              </View>
               <View style={styles.zoomOverlayGroup}>
                 <TouchableOpacity style={styles.zoomOverlayBtn} onPress={() => doZoom('out')} accessibilityLabel="Dézoomer">
                   <Ionicons name="remove" size={14} color={C.text} />
