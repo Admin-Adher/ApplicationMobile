@@ -673,11 +673,26 @@ export default function PlanningScreen() {
   const [filterStatus, setFilterStatus] = useState<TaskStatus | 'all'>('all');
   const [filterCompany, setFilterCompany] = useState<string>('all');
   const [search, setSearch] = useState('');
+  const [showSearch, setShowSearch] = useState(false);
 
-  const todo = tasks.filter(t => t.status === 'todo').length;
-  const inP = tasks.filter(t => t.status === 'in_progress').length;
-  const done = tasks.filter(t => t.status === 'done').length;
   const delayed = tasks.filter(t => t.status === 'delayed').length;
+  const inP = tasks.filter(t => t.status === 'in_progress').length;
+
+  const activeCompanies = useMemo(() =>
+    companies.filter(co =>
+      tasks.some(t =>
+        (t.company === co.id || t.company === co.name) &&
+        (t.status === 'in_progress' || t.status === 'delayed')
+      )
+    ).length,
+    [companies, tasks]
+  );
+
+  const avgProgress = useMemo(() => {
+    const active = tasks.filter(t => t.status !== 'done');
+    if (active.length === 0) return tasks.length > 0 ? 100 : 0;
+    return Math.round(active.reduce((s, t) => s + t.progress, 0) / active.length);
+  }, [tasks]);
 
   const filtered = useMemo(() => {
     let list = filterStatus === 'all' ? tasks : tasks.filter(t => t.status === filterStatus);
@@ -705,13 +720,6 @@ export default function PlanningScreen() {
     ]);
   }
 
-  const STATUS_FILTERS = [
-    { key: 'todo' as const, label: 'À faire', count: todo, color: C.textMuted },
-    { key: 'in_progress' as const, label: 'En cours', count: inP, color: C.inProgress },
-    { key: 'delayed' as const, label: 'Retard', count: delayed, color: C.waiting },
-    { key: 'done' as const, label: 'Terminé', count: done, color: C.closed },
-  ];
-
   const VIEW_TABS = [
     { key: 'list' as const, label: 'Liste', icon: 'list-outline' },
     { key: 'calendar' as const, label: 'Agenda', icon: 'today-outline' },
@@ -728,7 +736,7 @@ export default function PlanningScreen() {
         onRightPress={permissions.canCreate ? () => router.push('/task/new' as any) : undefined}
       />
 
-      {/* View mode tabs */}
+      {/* View mode tabs + search toggle */}
       <View style={styles.viewToggle}>
         {VIEW_TABS.map(tab => (
           <TouchableOpacity
@@ -740,28 +748,21 @@ export default function PlanningScreen() {
             <Text style={[styles.toggleLabel, viewMode === tab.key && styles.toggleLabelActive]}>{tab.label}</Text>
           </TouchableOpacity>
         ))}
+        <TouchableOpacity
+          style={[styles.searchToggleBtn, (showSearch || search.length > 0) && styles.searchToggleBtnActive]}
+          onPress={() => { setShowSearch(v => !v); if (showSearch) setSearch(''); }}
+          hitSlop={6}
+        >
+          <Ionicons
+            name={showSearch || search.length > 0 ? 'close' : 'search-outline'}
+            size={17}
+            color={(showSearch || search.length > 0) ? C.primary : C.textSub}
+          />
+        </TouchableOpacity>
       </View>
 
-      <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
-        {/* Stats row */}
-        <View style={styles.statsRow}>
-          {STATUS_FILTERS.map(sf => (
-            <TouchableOpacity
-              key={sf.key}
-              style={[
-                styles.statCard,
-                { borderTopColor: sf.color },
-                filterStatus === sf.key && { borderColor: sf.color + '40', backgroundColor: sf.color + '08' },
-              ]}
-              onPress={() => setFilterStatus(filterStatus === sf.key ? 'all' : sf.key)}
-            >
-              <Text style={[styles.statVal, { color: sf.color }]}>{sf.count}</Text>
-              <Text style={styles.statLabel}>{sf.label}</Text>
-            </TouchableOpacity>
-          ))}
-        </View>
-
-        {/* Search */}
+      {/* Search bar — dépliable */}
+      {(showSearch || search.length > 0) && (
         <View style={styles.searchRow}>
           <Ionicons name="search-outline" size={15} color={C.textMuted} />
           <TextInput
@@ -771,12 +772,49 @@ export default function PlanningScreen() {
             value={search}
             onChangeText={setSearch}
             returnKeyType="search"
+            autoFocus
           />
           {search.length > 0 && (
             <TouchableOpacity onPress={() => setSearch('')} hitSlop={8}>
               <Ionicons name="close-circle" size={15} color={C.textMuted} />
             </TouchableOpacity>
           )}
+        </View>
+      )}
+
+      <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+        {/* KPIs terrain — orientés entreprise */}
+        <View style={styles.statsRow}>
+          <TouchableOpacity
+            style={[styles.statCard, { borderTopColor: C.primary }, filterStatus === 'all' && filterCompany === 'all' && { borderColor: C.primary + '40', backgroundColor: C.primaryBg }]}
+            onPress={() => { setFilterStatus('all'); setFilterCompany('all'); }}
+          >
+            <Text style={[styles.statVal, { color: C.primary }]}>{activeCompanies}</Text>
+            <Text style={styles.statLabel}>Entreprises{'\n'}actives</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={[styles.statCard, { borderTopColor: C.waiting }, filterStatus === 'delayed' && { borderColor: C.waiting + '40', backgroundColor: C.waiting + '08' }]}
+            onPress={() => setFilterStatus(filterStatus === 'delayed' ? 'all' : 'delayed')}
+          >
+            <Text style={[styles.statVal, { color: delayed > 0 ? C.waiting : C.textMuted }]}>{delayed}</Text>
+            <Text style={styles.statLabel}>En{'\n'}retard</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={[styles.statCard, { borderTopColor: C.inProgress }, filterStatus === 'in_progress' && { borderColor: C.inProgress + '40', backgroundColor: C.inProgress + '08' }]}
+            onPress={() => setFilterStatus(filterStatus === 'in_progress' ? 'all' : 'in_progress')}
+          >
+            <Text style={[styles.statVal, { color: C.inProgress }]}>{inP}</Text>
+            <Text style={styles.statLabel}>En{'\n'}cours</Text>
+          </TouchableOpacity>
+
+          <View style={[styles.statCard, { borderTopColor: C.closed }]}>
+            <Text style={[styles.statVal, { color: avgProgress >= 80 ? C.closed : avgProgress >= 40 ? C.inProgress : C.textMuted }]}>
+              {avgProgress}%
+            </Text>
+            <Text style={styles.statLabel}>Avance{'\n'}moy.</Text>
+          </View>
         </View>
 
         {/* Company filter chips */}
@@ -821,12 +859,6 @@ export default function PlanningScreen() {
                   <Text style={[lStyles.modeBtnText, groupMode === opt.key && lStyles.modeBtnTextActive]}>{opt.label}</Text>
                 </TouchableOpacity>
               ))}
-              {permissions.canCreate && (
-                <TouchableOpacity style={styles.addBtn} onPress={() => router.push('/task/new' as any)}>
-                  <Ionicons name="add" size={15} color={C.primary} />
-                  <Text style={styles.addBtnText}>Nouvelle</Text>
-                </TouchableOpacity>
-              )}
             </View>
             <GroupedList
               tasks={filtered}
@@ -991,6 +1023,12 @@ const styles = StyleSheet.create({
   toggleBtnActive: { backgroundColor: C.primaryBg, borderColor: C.primary },
   toggleLabel: { fontSize: 12, fontFamily: 'Inter_600SemiBold', color: C.textSub },
   toggleLabelActive: { color: C.primary },
+  searchToggleBtn: {
+    width: 38, alignItems: 'center', justifyContent: 'center',
+    borderRadius: 10, backgroundColor: C.surface2,
+    borderWidth: 1, borderColor: C.border, paddingVertical: 8,
+  },
+  searchToggleBtnActive: { backgroundColor: C.primaryBg, borderColor: C.primary },
   content: { padding: 16, paddingBottom: 40 },
   statsRow: { flexDirection: 'row', gap: 8, marginBottom: 14 },
   statCard: {
