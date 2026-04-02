@@ -8,7 +8,7 @@ import { useAuth } from '@/context/AuthContext';
 import { DocumentType, Document } from '@/constants/types';
 import Header from '@/components/Header';
 import { uploadDocument } from '@/lib/storage';
-import { genId, formatSize } from '@/lib/utils';
+import { genId, formatSize, formatDateFR } from '@/lib/utils';
 import BottomNavBar from '@/components/BottomNavBar';
 
 const DOC_ICONS: Record<DocumentType, string> = {
@@ -91,7 +91,7 @@ export default function DocumentsScreen() {
                     name: asset.name,
                     type: 'plan',
                     category: `Plan-${building}`,
-                    uploadedAt: new Date().toLocaleDateString('fr-FR'),
+                    uploadedAt: formatDateFR(new Date()),
                     size: formatSize(asset.size),
                     version: existingVersions.length > 0 ? Math.max(...existingVersions) + 1 : 1,
                     uri: finalUri,
@@ -123,7 +123,7 @@ export default function DocumentsScreen() {
           name: asset.name,
           type: docType,
           category: docType === 'report' ? 'Rapports' : docType === 'technical' ? 'Fiches techniques' : docType === 'photo' ? 'Photos' : 'Documents',
-          uploadedAt: new Date().toLocaleDateString('fr-FR'),
+          uploadedAt: formatDateFR(new Date()),
           size: formatSize(asset.size),
           version: existingNonPlanVersions.length > 0 ? Math.max(...existingNonPlanVersions) + 1 : 1,
           uri: finalUri,

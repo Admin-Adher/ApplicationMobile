@@ -13,7 +13,7 @@ import { Incident, IncidentSeverity, IncidentStatus } from '@/constants/types';
 import Header from '@/components/Header';
 import DateInput from '@/components/DateInput';
 import { RESERVE_BUILDINGS } from '@/lib/reserveUtils';
-import { genId } from '@/lib/utils';
+import { genId, formatDateFR } from '@/lib/utils';
 
 const SEVERITY_CONFIG: Record<IncidentSeverity, { label: string; color: string; bg: string; icon: string }> = {
   minor:    { label: 'Mineur',   color: '#6B7280', bg: '#F3F4F6', icon: 'information-circle' },
@@ -56,7 +56,7 @@ const EMPTY_FORM: Omit<Incident, 'id' | 'reportedBy'> = {
   severity: 'moderate',
   location: '',
   building: 'A',
-  reportedAt: new Date().toLocaleDateString('fr-FR').replace(/\//g, '/'),
+  reportedAt: formatDateFR(new Date()),
   status: 'open',
   witnesses: '',
   actions: '',
@@ -126,11 +126,7 @@ export default function IncidentsScreen() {
   const openCount = incidents.filter(i => i.status !== 'resolved').length;
 
   function openAdd() {
-    const todayStr = (() => {
-      const d = new Date();
-      return `${String(d.getDate()).padStart(2,'0')}/${String(d.getMonth()+1).padStart(2,'0')}/${d.getFullYear()}`;
-    })();
-    setForm({ ...EMPTY_FORM, reportedAt: todayStr });
+    setForm({ ...EMPTY_FORM, reportedAt: formatDateFR(new Date()) });
     setPhotoUri(undefined);
     setEditTarget(null);
     setModalMode('add');
@@ -166,7 +162,7 @@ export default function IncidentsScreen() {
     setSaving(true);
     const isNowResolved = form.status === 'resolved';
     const wasResolved = editTarget?.status === 'resolved';
-    const closedAt = isNowResolved ? (wasResolved ? editTarget?.closedAt : new Date().toISOString().slice(0, 10)) : undefined;
+    const closedAt = isNowResolved ? (wasResolved ? editTarget?.closedAt : formatDateFR(new Date())) : undefined;
     const closedBy = isNowResolved ? (wasResolved ? editTarget?.closedBy : user?.name ?? 'Inconnu') : undefined;
 
     if (modalMode === 'edit' && editTarget) {

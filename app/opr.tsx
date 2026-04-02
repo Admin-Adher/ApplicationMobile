@@ -31,7 +31,7 @@ import { Opr, OprItem, OprSignatory, OprStatus, Reserve } from '@/constants/type
 import Header from '@/components/Header';
 import BottomNavBar from '@/components/BottomNavBar';
 import SignaturePad, { SignaturePadRef } from '@/components/SignaturePad';
-import { genId } from '@/lib/utils';
+import { genId, formatDateFR } from '@/lib/utils';
 import { RESERVE_BUILDINGS, RESERVE_LEVELS } from '@/lib/reserveUtils';
 
 const ITEM_STATUS_CFG = {
@@ -78,7 +78,7 @@ function buildOprPDF(opr: Opr, projectName: string): string {
   const totalNA = opr.items.filter(i => i.status === 'non_applicable').length;
   const pctConformite = opr.items.length > 0 ? Math.round((totalOk / opr.items.length) * 100) : 0;
   const signedDate = opr.signedAt ?? opr.date;
-  const today = new Date().toLocaleDateString('fr-FR');
+  const today = formatDateFR(new Date());
 
   const sigBlockHtml = opr.status === 'signed'
     ? `<div class="section-header">Signatures électroniques</div>
@@ -182,7 +182,7 @@ function buildOprPDF(opr: Opr, projectName: string): string {
 }
 
 async function buildPvLeveePDF(opr: Opr, reserves: Reserve[], projectName: string): Promise<string> {
-  const dateShort = new Date().toLocaleDateString('fr-FR');
+  const dateShort = formatDateFR(new Date());
   const docRef = `PVL-${opr.id}-${dateShort.replace(/\//g, '')}`;
 
   const reserveItems = opr.items.filter(i => i.status === 'reserve');
@@ -322,7 +322,7 @@ export default function OprScreen() {
 
   const [showNew, setShowNew] = useState(false);
   const [title, setTitle] = useState('');
-  const [date, setDate] = useState(new Date().toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit', year: 'numeric' }));
+  const [date, setDate] = useState(formatDateFR(new Date()));
   const [building, setBuilding] = useState(RESERVE_BUILDINGS[0]);
   const [level, setLevel] = useState('RDC');
   const [maireOuvrage, setMaireOuvrage] = useState('');
@@ -345,7 +345,7 @@ export default function OprScreen() {
   const [itemEdits, setItemEdits] = useState<Record<string, { entreprise: string; deadline: string; note: string }>>({});
 
   const [formLots, setFormLots] = useState<Array<{ id: string; name: string; entreprise: string }>>(
-    () => DEFAULT_OPR_ITEMS.map(name => ({ id: Math.random().toString(36).slice(2), name, entreprise: '' }))
+    () => DEFAULT_OPR_ITEMS.map(name => ({ id: genId(), name, entreprise: '' }))
   );
   const [showLotsConfig, setShowLotsConfig] = useState(false);
   const [newLotName, setNewLotName] = useState('');
@@ -530,7 +530,7 @@ export default function OprScreen() {
       return;
     }
 
-    const now = new Date().toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit', year: 'numeric' });
+    const now = formatDateFR(new Date());
     updateOpr({
       ...signModalOpr,
       status: 'signed',
@@ -575,7 +575,7 @@ export default function OprScreen() {
   }
 
   function verifyLevee(opr: Opr, itemId: string) {
-    const now = new Date().toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit', year: 'numeric' });
+    const now = formatDateFR(new Date());
     const updated = opr.items.map(item =>
       item.id === itemId ? { ...item, verifiedAt: now, verifiedBy: user?.name ?? 'Conducteur' } : item
     );

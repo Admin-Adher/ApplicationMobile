@@ -15,7 +15,9 @@ import {
 } from '@/lib/pdfBase';
 import { useApp } from '@/context/AppContext';
 import { useAuth } from '@/context/AuthContext';
+import { useSettings } from '@/context/SettingsContext';
 import { Visite, Reserve, VisiteStatus, OprStatus } from '@/constants/types';
+import { formatDateFR } from '@/lib/utils';
 import Header from '@/components/Header';
 import BottomNavBar from '@/components/BottomNavBar';
 import SignaturePad, { SignaturePadRef } from '@/components/SignaturePad';
@@ -161,7 +163,6 @@ export default function VisiteDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const { visites, reserves, updateVisite, deleteVisite, activeChantier, oprs } = useApp();
   const { permissions } = useAuth();
-  const { useSettings } = require('@/context/SettingsContext');
   const { projectName } = useSettings();
 
   const [signModalVisible, setSignModalVisible] = useState(false);
@@ -228,7 +229,7 @@ export default function VisiteDetailScreen() {
     try {
       const conducteurSig = conducteurSigRef.current?.getSVGData() ?? visite!.conducteurSignature ?? null;
       const entrepriseSig = entrepriseSigRef.current?.getSVGData() ?? visite!.entrepriseSignature ?? null;
-      const today = new Date().toLocaleDateString('fr-FR');
+      const today = formatDateFR(new Date());
       updateVisite({
         ...visite!,
         conducteurSignature: conducteurSig ?? undefined,
