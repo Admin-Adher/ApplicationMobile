@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect, useCallback, useImperativeHandle, forwardRef } from 'react';
 import {
   View, Text, TouchableOpacity, StyleSheet, Platform,
-  ActivityIndicator,
+  ActivityIndicator, ScrollView,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { C } from '@/constants/colors';
@@ -664,7 +664,6 @@ const MobileViewer = forwardRef<PdfPlanViewerHandle, PdfPlanViewerProps>(functio
   const [page, setPage] = useState(1);
   const [showPalette, setShowPalette] = useState(false);
   const [showWidths, setShowWidths] = useState(false);
-  const [showTools, setShowTools] = useState(false);
 
   const inject = useCallback((js: string) => {
     webViewRef.current?.injectJavaScript(`(function(){${js}})(); true;`);
@@ -753,103 +752,97 @@ const MobileViewer = forwardRef<PdfPlanViewerHandle, PdfPlanViewerProps>(functio
       />
       ) : null}
 
-      <View style={mob.bar}>
-        {pageCount > 1 && (
-          <View style={mob.pageNav}>
-            <TouchableOpacity style={[mob.ib, page === 1 && mob.ibOff]} onPress={() => changePage(page - 1)} disabled={page === 1}>
-              <Ionicons name="chevron-back" size={13} color={page === 1 ? C.textMuted : C.text} />
+      <View style={mob.barWrap}>
+        {/* Row 1: navigation + zoom + mode toggle */}
+        <View style={mob.barRow}>
+          {pageCount > 1 && (
+            <View style={mob.pageNav}>
+              <TouchableOpacity style={[mob.ib, page === 1 && mob.ibOff]} onPress={() => changePage(page - 1)} disabled={page === 1}>
+                <Ionicons name="chevron-back" size={13} color={page === 1 ? C.textMuted : C.text} />
+              </TouchableOpacity>
+              <Text style={mob.pageLabel}>{page}/{pageCount}</Text>
+              <TouchableOpacity style={[mob.ib, page === pageCount && mob.ibOff]} onPress={() => changePage(page + 1)} disabled={page === pageCount}>
+                <Ionicons name="chevron-forward" size={13} color={page === pageCount ? C.textMuted : C.text} />
+              </TouchableOpacity>
+            </View>
+          )}
+          <View style={mob.zoomRow}>
+            <TouchableOpacity style={mob.ib} onPress={() => inject('window.zoomOut();')}>
+              <Ionicons name="remove" size={15} color={C.text} />
             </TouchableOpacity>
-            <Text style={mob.pageLabel}>{page}/{pageCount}</Text>
-            <TouchableOpacity style={[mob.ib, page === pageCount && mob.ibOff]} onPress={() => changePage(page + 1)} disabled={page === pageCount}>
-              <Ionicons name="chevron-forward" size={13} color={page === pageCount ? C.textMuted : C.text} />
+            <TouchableOpacity style={mob.ib} onPress={() => inject('window.resetView();')}>
+              <Ionicons name="scan-outline" size={13} color={C.text} />
+            </TouchableOpacity>
+            <TouchableOpacity style={mob.ib} onPress={() => inject('window.zoomIn();')}>
+              <Ionicons name="add" size={15} color={C.text} />
             </TouchableOpacity>
           </View>
-        )}
-
-        <View style={mob.zoomRow}>
-          <TouchableOpacity style={mob.ib} onPress={() => inject('window.zoomOut();')}>
-            <Ionicons name="remove" size={15} color={C.text} />
-          </TouchableOpacity>
-          <TouchableOpacity style={mob.ib} onPress={() => inject('window.resetView();')}>
-            <Ionicons name="scan-outline" size={13} color={C.text} />
-          </TouchableOpacity>
-          <TouchableOpacity style={mob.ib} onPress={() => inject('window.zoomIn();')}>
-            <Ionicons name="add" size={15} color={C.text} />
-          </TouchableOpacity>
+          <View style={{ flex: 1 }} />
+          {canAnnotate && (
+            <TouchableOpacity
+              style={[mob.modeBtn, mode === 'annotate' && mob.modeBtnOn]}
+              onPress={() => {
+                const next = mode === 'view' ? 'annotate' : 'view';
+                setMode(next);
+                setShowPalette(false);
+                setShowWidths(false);
+              }}
+            >
+              <Ionicons
+                name={mode === 'annotate' ? 'eye-outline' : 'pencil-outline'}
+                size={13}
+                color={mode === 'annotate' ? '#fff' : C.primary}
+              />
+              <Text style={[mob.modeTxt, mode === 'annotate' && mob.modeTxtOn]}>
+                {mode === 'annotate' ? 'Vue' : 'Annoter'}
+              </Text>
+            </TouchableOpacity>
+          )}
         </View>
 
-        {canAnnotate && (
-          <TouchableOpacity
-            style={[mob.modeBtn, mode === 'annotate' && mob.modeBtnOn]}
-            onPress={() => {
-              const next = mode === 'view' ? 'annotate' : 'view';
-              setMode(next);
-              setShowPalette(false);
-              setShowWidths(false);
-              setShowTools(false);
-            }}
-          >
-            <Ionicons
-              name={mode === 'annotate' ? 'eye-outline' : 'pencil-outline'}
-              size={13}
-              color={mode === 'annotate' ? '#fff' : C.primary}
-            />
-            <Text style={[mob.modeTxt, mode === 'annotate' && mob.modeTxtOn]}>
-              {mode === 'annotate' ? 'Vue' : 'Annoter'}
-            </Text>
-          </TouchableOpacity>
-        )}
-
+        {/* Row 2: annotation tools (visible only in annotate mode) */}
         {mode === 'annotate' && (
-          <>
-            <View style={mob.sep} />
-            <TouchableOpacity
-              style={[mob.ib, showTools && { backgroundColor: C.primaryBg }]}
-              onPress={() => { setShowTools(v => !v); setShowPalette(false); setShowWidths(false); }}
-            >
-              <Ionicons name={TOOLS.find(t => t.id === tool)?.icon as any ?? 'pencil'} size={14} color={showTools ? C.primary : C.text} />
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={mob.colorBtn}
-              onPress={() => { setShowPalette(v => !v); setShowWidths(false); setShowTools(false); }}
-            >
-              <View style={[mob.colorDot, { backgroundColor: color }]} />
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={mob.widthBtn}
-              onPress={() => { setShowWidths(v => !v); setShowPalette(false); setShowTools(false); }}
-            >
-              <View style={[mob.widthLine, { height: sw + 2, backgroundColor: color }]} />
-            </TouchableOpacity>
-            <View style={mob.sep} />
-            <TouchableOpacity style={mob.ib} onPress={() => inject('window.undo();')}>
-              <Ionicons name="arrow-undo" size={13} color={C.text} />
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={[mob.ib, !hasAnns && mob.ibOff]}
-              onPress={() => inject('window.clearAll();')}
-              disabled={!hasAnns}
-            >
-              <Ionicons name="trash-outline" size={13} color={hasAnns ? '#EF4444' : C.textMuted} />
-            </TouchableOpacity>
-          </>
+          <View style={mob.annBar}>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={mob.toolScroll} style={{ flex: 1 }}>
+              {TOOLS.map(t => (
+                <TouchableOpacity
+                  key={t.id}
+                  style={[mob.toolChip, tool === t.id && mob.toolChipOn]}
+                  onPress={() => { setTool(t.id); setShowPalette(false); setShowWidths(false); }}
+                >
+                  <Ionicons name={t.icon as any} size={14} color={tool === t.id ? '#fff' : C.textSub} />
+                  <Text style={[mob.toolChipLbl, tool === t.id && mob.toolChipLblOn]}>{t.label}</Text>
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
+            <View style={mob.annActions}>
+              <TouchableOpacity
+                style={mob.colorBtn}
+                onPress={() => { setShowPalette(v => !v); setShowWidths(false); }}
+              >
+                <View style={[mob.colorDot, { backgroundColor: color }]} />
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={mob.widthBtn}
+                onPress={() => { setShowWidths(v => !v); setShowPalette(false); }}
+              >
+                <View style={[mob.widthLine, { height: sw + 2, backgroundColor: color }]} />
+              </TouchableOpacity>
+              <View style={mob.sep} />
+              <TouchableOpacity style={mob.ib} onPress={() => inject('window.undo();')}>
+                <Ionicons name="arrow-undo" size={13} color={C.text} />
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[mob.ib, !hasAnns && mob.ibOff]}
+                onPress={() => inject('window.clearAll();')}
+                disabled={!hasAnns}
+              >
+                <Ionicons name="trash-outline" size={13} color={hasAnns ? '#EF4444' : C.textMuted} />
+              </TouchableOpacity>
+            </View>
+          </View>
         )}
       </View>
-
-      {showTools && mode === 'annotate' && (
-        <View style={mob.toolPanel}>
-          {TOOLS.map(t => (
-            <TouchableOpacity
-              key={t.id}
-              style={[mob.toolRow, tool === t.id && mob.toolRowOn]}
-              onPress={() => { setTool(t.id); setShowTools(false); }}
-            >
-              <Ionicons name={t.icon as any} size={15} color={tool === t.id ? C.primary : C.text} />
-              <Text style={[mob.toolLabel, tool === t.id && { color: C.primary }]}>{t.label}</Text>
-            </TouchableOpacity>
-          ))}
-        </View>
-      )}
 
       {showPalette && mode === 'annotate' && (
         <View style={mob.palette}>
@@ -885,58 +878,36 @@ const MobileViewer = forwardRef<PdfPlanViewerHandle, PdfPlanViewerProps>(functio
 const mob = StyleSheet.create({
   root: { flex: 1, backgroundColor: '#0F1117', position: 'relative' as any },
   webview: { flex: 1 },
-  bar: {
-    flexDirection: 'row', alignItems: 'center', gap: 3,
-    paddingHorizontal: 8, paddingVertical: 5,
-    backgroundColor: C.surface, borderTopWidth: 1, borderTopColor: C.border, flexWrap: 'wrap' as any,
-  },
+  barWrap: { backgroundColor: C.surface, borderTopWidth: 1, borderTopColor: C.border },
+  barRow: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 8, paddingVertical: 5 },
+  annBar: { flexDirection: 'row', alignItems: 'center', borderTopWidth: 1, borderTopColor: C.border, paddingVertical: 4, paddingLeft: 6, paddingRight: 6 },
+  toolScroll: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingRight: 6 },
+  toolChip: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 9, paddingVertical: 5, borderRadius: 8, backgroundColor: C.surface2, borderWidth: 1, borderColor: C.border },
+  toolChipOn: { backgroundColor: C.primary, borderColor: C.primary },
+  toolChipLbl: { fontSize: 11, fontFamily: 'Inter_500Medium', color: C.textSub },
+  toolChipLblOn: { color: '#fff' },
+  annActions: { flexDirection: 'row', alignItems: 'center', gap: 3 },
   pageNav: { flexDirection: 'row', alignItems: 'center', gap: 2 },
   pageLabel: { fontSize: 11, fontFamily: 'Inter_500Medium', color: C.textSub, paddingHorizontal: 3 },
   zoomRow: { flexDirection: 'row', alignItems: 'center', gap: 2 },
   ib: { width: 27, height: 27, borderRadius: 6, alignItems: 'center', justifyContent: 'center', backgroundColor: C.surface2 },
   ibOff: { opacity: 0.35 },
-  modeBtn: {
-    flexDirection: 'row', alignItems: 'center', gap: 4,
-    paddingHorizontal: 9, paddingVertical: 5, borderRadius: 8,
-    borderWidth: 1.5, borderColor: C.primary,
-  },
+  modeBtn: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 9, paddingVertical: 5, borderRadius: 8, borderWidth: 1.5, borderColor: C.primary },
   modeBtnOn: { backgroundColor: C.primary },
   modeTxt: { fontSize: 11, fontFamily: 'Inter_600SemiBold', color: C.primary },
   modeTxtOn: { color: '#fff' },
   sep: { width: 1, height: 18, backgroundColor: C.border, marginHorizontal: 2 },
-  colorBtn: { width: 27, height: 27, borderRadius: 6, alignItems: 'center', justifyContent: 'center', backgroundColor: C.surface2 },
-  colorDot: { width: 15, height: 15, borderRadius: 8, borderWidth: 1.5, borderColor: C.border },
-  widthBtn: { width: 27, height: 27, borderRadius: 6, alignItems: 'center', justifyContent: 'center', backgroundColor: C.surface2, paddingHorizontal: 3 },
-  widthLine: { width: 17, borderRadius: 3 },
-  toolPanel: {
-    position: 'absolute' as any, bottom: 46, left: 8, right: 8,
-    backgroundColor: C.surface, borderRadius: 10, borderWidth: 1, borderColor: C.border,
-    padding: 6, flexDirection: 'row', flexWrap: 'wrap' as any, gap: 4,
-    shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.2, shadowRadius: 8, elevation: 8, zIndex: 100,
-  },
-  toolRow: {
-    flexDirection: 'row', alignItems: 'center', gap: 6,
-    paddingVertical: 8, paddingHorizontal: 12, borderRadius: 8,
-    width: '48%' as any,
-  },
-  toolRowOn: { backgroundColor: C.primaryBg },
-  toolLabel: { fontSize: 12, fontFamily: 'Inter_500Medium', color: C.text },
-  palette: {
-    position: 'absolute' as any, bottom: 46, left: 8,
-    flexDirection: 'row', gap: 5,
-    backgroundColor: C.surface, borderRadius: 10, borderWidth: 1, borderColor: C.border,
-    padding: 7, shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.15, shadowRadius: 8, elevation: 6, zIndex: 100,
-  },
-  palSwatch: { width: 24, height: 24, borderRadius: 12, borderWidth: 2, borderColor: 'transparent', alignItems: 'center', justifyContent: 'center' },
+  colorBtn: { width: 30, height: 30, borderRadius: 8, alignItems: 'center', justifyContent: 'center', backgroundColor: C.surface2, borderWidth: 1, borderColor: C.border },
+  colorDot: { width: 17, height: 17, borderRadius: 9, borderWidth: 1.5, borderColor: C.border },
+  widthBtn: { width: 30, height: 30, borderRadius: 8, alignItems: 'center', justifyContent: 'center', backgroundColor: C.surface2, paddingHorizontal: 4, borderWidth: 1, borderColor: C.border },
+  widthLine: { width: 18, borderRadius: 3 },
+  palette: { position: 'absolute' as any, bottom: 82, left: 8, flexDirection: 'row', gap: 6, backgroundColor: C.surface, borderRadius: 12, borderWidth: 1, borderColor: C.border, padding: 8, shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.18, shadowRadius: 8, elevation: 8, zIndex: 100 },
+  palSwatch: { width: 26, height: 26, borderRadius: 13, borderWidth: 2, borderColor: 'transparent', alignItems: 'center', justifyContent: 'center' },
   palSwatchOn: { borderColor: C.text },
-  widthPanel: {
-    position: 'absolute' as any, bottom: 46, left: 8,
-    backgroundColor: C.surface, borderRadius: 10, borderWidth: 1, borderColor: C.border,
-    padding: 6, gap: 4, shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.15, shadowRadius: 8, elevation: 6, zIndex: 100, minWidth: 70,
-  },
-  widthRow: { paddingVertical: 7, paddingHorizontal: 8, borderRadius: 6, alignItems: 'center' },
+  widthPanel: { position: 'absolute' as any, bottom: 82, left: 8, backgroundColor: C.surface, borderRadius: 12, borderWidth: 1, borderColor: C.border, padding: 6, gap: 4, shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.15, shadowRadius: 8, elevation: 8, zIndex: 100, minWidth: 80 },
+  widthRow: { paddingVertical: 8, paddingHorizontal: 10, borderRadius: 6, alignItems: 'center' },
   widthRowOn: { backgroundColor: C.primaryBg },
-  widthSample: { width: 46, borderRadius: 3 },
+  widthSample: { width: 50, borderRadius: 3 },
 });
 
 const WebViewer = forwardRef<PdfPlanViewerHandle, PdfPlanViewerProps>(function WebViewerInner({ planUri, planId, annotations, onAnnotationsChange, reserves, pinNumberMap, onReserveSelect, onPlanTap, canAnnotate, canCreate, pinSize = 22, onZoomChange, isImagePlan = false }, ref) {
@@ -1435,60 +1406,64 @@ const WebViewer = forwardRef<PdfPlanViewerHandle, PdfPlanViewerProps>(function W
         </div>
       )}
 
-      <View style={s.bar}>
-        {pageCount > 1 && (
-          <View style={s.pageNav}>
-            <TouchableOpacity style={[s.ib, page === 1 && s.ibOff]} onPress={() => setPage(p => Math.max(1, p - 1))} disabled={page === 1}>
-              <Ionicons name="chevron-back" size={13} color={page === 1 ? C.textMuted : C.text} />
-            </TouchableOpacity>
-            <Text style={s.pageLabel}>{page}/{pageCount}</Text>
-            <TouchableOpacity style={[s.ib, page === pageCount && s.ibOff]} onPress={() => setPage(p => Math.min(pageCount, p + 1))} disabled={page === pageCount}>
-              <Ionicons name="chevron-forward" size={13} color={page === pageCount ? C.textMuted : C.text} />
-            </TouchableOpacity>
+      <View style={s.barWrap}>
+        {/* Row 1: navigation + zoom + mode toggle */}
+        <View style={s.barRow}>
+          {pageCount > 1 && (
+            <View style={s.pageNav}>
+              <TouchableOpacity style={[s.ib, page === 1 && s.ibOff]} onPress={() => setPage(p => Math.max(1, p - 1))} disabled={page === 1}>
+                <Ionicons name="chevron-back" size={13} color={page === 1 ? C.textMuted : C.text} />
+              </TouchableOpacity>
+              <Text style={s.pageLabel}>{page}/{pageCount}</Text>
+              <TouchableOpacity style={[s.ib, page === pageCount && s.ibOff]} onPress={() => setPage(p => Math.min(pageCount, p + 1))} disabled={page === pageCount}>
+                <Ionicons name="chevron-forward" size={13} color={page === pageCount ? C.textMuted : C.text} />
+              </TouchableOpacity>
+            </View>
+          )}
+          <View style={s.zoomRow}>
+            <TouchableOpacity style={s.ib} onPress={() => doZoom(1 / 1.3)}><Ionicons name="remove" size={15} color={C.text} /></TouchableOpacity>
+            <TouchableOpacity style={s.ib} onPress={resetView}><Ionicons name="scan-outline" size={13} color={C.text} /></TouchableOpacity>
+            <TouchableOpacity style={s.ib} onPress={() => doZoom(1.3)}><Ionicons name="add" size={15} color={C.text} /></TouchableOpacity>
           </View>
-        )}
-
-        <View style={s.zoomRow}>
-          <TouchableOpacity style={s.ib} onPress={() => doZoom(1 / 1.3)}><Ionicons name="remove" size={15} color={C.text} /></TouchableOpacity>
-          <TouchableOpacity style={s.ib} onPress={resetView}><Ionicons name="scan-outline" size={13} color={C.text} /></TouchableOpacity>
-          <TouchableOpacity style={s.ib} onPress={() => doZoom(1.3)}><Ionicons name="add" size={15} color={C.text} /></TouchableOpacity>
+          <View style={{ flex: 1 }} />
+          {canAnnotate && (
+            <TouchableOpacity
+              style={[s.modeBtn, mode === 'annotate' && s.modeBtnOn]}
+              onPress={() => { setMode(m => m === 'view' ? 'annotate' : 'view'); setShowPalette(false); setShowWidths(false); }}
+            >
+              <Ionicons name={mode === 'annotate' ? 'eye-outline' : 'pencil-outline'} size={13} color={mode === 'annotate' ? '#fff' : C.primary} />
+              <Text style={[s.modeTxt, mode === 'annotate' && s.modeTxtOn]}>{mode === 'annotate' ? 'Vue' : 'Annoter'}</Text>
+            </TouchableOpacity>
+          )}
         </View>
 
-        {canAnnotate && (
-          <TouchableOpacity
-            style={[s.modeBtn, mode === 'annotate' && s.modeBtnOn]}
-            onPress={() => { setMode(m => m === 'view' ? 'annotate' : 'view'); setShowPalette(false); setShowWidths(false); }}
-          >
-            <Ionicons name={mode === 'annotate' ? 'eye-outline' : 'pencil-outline'} size={13} color={mode === 'annotate' ? '#fff' : C.primary} />
-            <Text style={[s.modeTxt, mode === 'annotate' && s.modeTxtOn]}>{mode === 'annotate' ? 'Vue' : 'Annoter'}</Text>
-          </TouchableOpacity>
-        )}
-
+        {/* Row 2: annotation tools (visible only in annotate mode) */}
         {mode === 'annotate' && (
-          <>
-            <View style={s.sep} />
-            <View style={s.toolRow}>
+          <View style={s.annBar}>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={s.toolScroll} style={{ flex: 1 }}>
               {TOOLS.map(t => (
-                <TouchableOpacity key={t.id} style={[s.tb, tool === t.id && s.tbOn]} onPress={() => { setTool(t.id); setShowPalette(false); setShowWidths(false); }}>
-                  <Ionicons name={t.icon as any} size={14} color={tool === t.id ? '#fff' : C.text} />
+                <TouchableOpacity key={t.id} style={[s.toolChip, tool === t.id && s.toolChipOn]} onPress={() => { setTool(t.id); setShowPalette(false); setShowWidths(false); }}>
+                  <Ionicons name={t.icon as any} size={14} color={tool === t.id ? '#fff' : C.textSub} />
+                  <Text style={[s.toolChipLbl, tool === t.id && s.toolChipLblOn]}>{t.label}</Text>
                 </TouchableOpacity>
               ))}
+            </ScrollView>
+            <View style={s.annActions}>
+              <TouchableOpacity style={s.colorBtn} onPress={() => { setShowPalette(v => !v); setShowWidths(false); }}>
+                <View style={[s.colorDot, { backgroundColor: color }]} />
+              </TouchableOpacity>
+              <TouchableOpacity style={s.widthBtn} onPress={() => { setShowWidths(v => !v); setShowPalette(false); }}>
+                <View style={[s.widthLine, { height: sw + 2, backgroundColor: color }]} />
+              </TouchableOpacity>
+              <View style={s.sep} />
+              <TouchableOpacity style={[s.ib, !undos.length && s.ibOff]} onPress={undo} disabled={!undos.length}>
+                <Ionicons name="arrow-undo" size={13} color={!undos.length ? C.textMuted : C.text} />
+              </TouchableOpacity>
+              <TouchableOpacity style={[s.ib, !draws.length && s.ibOff]} onPress={clearAll} disabled={!draws.length}>
+                <Ionicons name="trash-outline" size={13} color={!draws.length ? C.textMuted : '#EF4444'} />
+              </TouchableOpacity>
             </View>
-            <View style={s.sep} />
-            <TouchableOpacity style={s.colorBtn} onPress={() => { setShowPalette(v => !v); setShowWidths(false); }}>
-              <View style={[s.colorDot, { backgroundColor: color }]} />
-            </TouchableOpacity>
-            <TouchableOpacity style={s.widthBtn} onPress={() => { setShowWidths(v => !v); setShowPalette(false); }}>
-              <View style={[s.widthLine, { height: sw + 2, backgroundColor: color }]} />
-            </TouchableOpacity>
-            <View style={s.sep} />
-            <TouchableOpacity style={[s.ib, !undos.length && s.ibOff]} onPress={undo} disabled={!undos.length}>
-              <Ionicons name="arrow-undo" size={13} color={!undos.length ? C.textMuted : C.text} />
-            </TouchableOpacity>
-            <TouchableOpacity style={[s.ib, !draws.length && s.ibOff]} onPress={clearAll} disabled={!draws.length}>
-              <Ionicons name="trash-outline" size={13} color={!draws.length ? C.textMuted : '#EF4444'} />
-            </TouchableOpacity>
-          </>
+          </View>
         )}
       </View>
 
@@ -1520,7 +1495,15 @@ const s = StyleSheet.create({
   root: { flex: 1, backgroundColor: '#1A2742', position: 'relative' as any, overflow: 'hidden' as any },
   overlay: { ...StyleSheet.absoluteFillObject, alignItems: 'center', justifyContent: 'center', gap: 10, backgroundColor: '#1A2742', zIndex: 50 },
   overlayText: { fontSize: 12, color: C.textMuted, fontFamily: 'Inter_400Regular' },
-  bar: { flexDirection: 'row', alignItems: 'center', gap: 3, paddingHorizontal: 8, paddingVertical: 5, backgroundColor: C.surface, borderTopWidth: 1, borderTopColor: C.border, flexWrap: 'wrap' as any },
+  barWrap: { backgroundColor: C.surface, borderTopWidth: 1, borderTopColor: C.border },
+  barRow: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 8, paddingVertical: 5 },
+  annBar: { flexDirection: 'row', alignItems: 'center', borderTopWidth: 1, borderTopColor: C.border, paddingVertical: 4, paddingLeft: 6, paddingRight: 6 },
+  toolScroll: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingRight: 6 },
+  toolChip: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 9, paddingVertical: 5, borderRadius: 8, backgroundColor: C.surface2, borderWidth: 1, borderColor: C.border },
+  toolChipOn: { backgroundColor: C.primary, borderColor: C.primary },
+  toolChipLbl: { fontSize: 11, fontFamily: 'Inter_500Medium', color: C.textSub },
+  toolChipLblOn: { color: '#fff' },
+  annActions: { flexDirection: 'row', alignItems: 'center', gap: 3 },
   pageNav: { flexDirection: 'row', alignItems: 'center', gap: 2 },
   pageLabel: { fontSize: 11, fontFamily: 'Inter_500Medium', color: C.textSub, paddingHorizontal: 3 },
   zoomRow: { flexDirection: 'row', alignItems: 'center', gap: 2 },
@@ -1531,18 +1514,15 @@ const s = StyleSheet.create({
   modeTxt: { fontSize: 11, fontFamily: 'Inter_600SemiBold', color: C.primary },
   modeTxtOn: { color: '#fff' },
   sep: { width: 1, height: 18, backgroundColor: C.border, marginHorizontal: 2 },
-  toolRow: { flexDirection: 'row', alignItems: 'center', gap: 2 },
-  tb: { width: 27, height: 27, borderRadius: 6, alignItems: 'center', justifyContent: 'center', backgroundColor: C.surface2 },
-  tbOn: { backgroundColor: C.primary },
-  colorBtn: { width: 27, height: 27, borderRadius: 6, alignItems: 'center', justifyContent: 'center', backgroundColor: C.surface2 },
-  colorDot: { width: 15, height: 15, borderRadius: 8, borderWidth: 1.5, borderColor: C.border },
-  widthBtn: { width: 27, height: 27, borderRadius: 6, alignItems: 'center', justifyContent: 'center', backgroundColor: C.surface2, paddingHorizontal: 3 },
-  widthLine: { width: 17, borderRadius: 3 },
-  palette: { position: 'absolute' as any, bottom: 46, left: 8, flexDirection: 'row', gap: 5, backgroundColor: C.surface, borderRadius: 10, borderWidth: 1, borderColor: C.border, padding: 7, shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.15, shadowRadius: 8, elevation: 6, zIndex: 100 },
-  palSwatch: { width: 22, height: 22, borderRadius: 11, borderWidth: 2, borderColor: 'transparent', alignItems: 'center', justifyContent: 'center' },
+  colorBtn: { width: 30, height: 30, borderRadius: 8, alignItems: 'center', justifyContent: 'center', backgroundColor: C.surface2, borderWidth: 1, borderColor: C.border },
+  colorDot: { width: 17, height: 17, borderRadius: 9, borderWidth: 1.5, borderColor: C.border },
+  widthBtn: { width: 30, height: 30, borderRadius: 8, alignItems: 'center', justifyContent: 'center', backgroundColor: C.surface2, paddingHorizontal: 4, borderWidth: 1, borderColor: C.border },
+  widthLine: { width: 18, borderRadius: 3 },
+  palette: { position: 'absolute' as any, bottom: 82, left: 8, flexDirection: 'row', gap: 6, backgroundColor: C.surface, borderRadius: 12, borderWidth: 1, borderColor: C.border, padding: 8, shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.18, shadowRadius: 8, elevation: 8, zIndex: 100 },
+  palSwatch: { width: 26, height: 26, borderRadius: 13, borderWidth: 2, borderColor: 'transparent', alignItems: 'center', justifyContent: 'center' },
   palSwatchOn: { borderColor: C.text },
-  widthPanel: { position: 'absolute' as any, bottom: 46, left: 8, backgroundColor: C.surface, borderRadius: 10, borderWidth: 1, borderColor: C.border, padding: 6, gap: 4, shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.15, shadowRadius: 8, elevation: 6, zIndex: 100, minWidth: 70 },
-  widthRow: { paddingVertical: 7, paddingHorizontal: 8, borderRadius: 6, alignItems: 'center' },
+  widthPanel: { position: 'absolute' as any, bottom: 82, left: 8, backgroundColor: C.surface, borderRadius: 12, borderWidth: 1, borderColor: C.border, padding: 6, gap: 4, shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.15, shadowRadius: 8, elevation: 8, zIndex: 100, minWidth: 80 },
+  widthRow: { paddingVertical: 8, paddingHorizontal: 10, borderRadius: 6, alignItems: 'center' },
   widthRowOn: { backgroundColor: C.primaryBg },
-  widthSample: { width: 46, borderRadius: 3 },
+  widthSample: { width: 50, borderRadius: 3 },
 });
