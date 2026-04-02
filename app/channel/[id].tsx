@@ -500,7 +500,7 @@ export default function ChannelScreen() {
           </View>
         )}
 
-        <View style={styles.inputRow}>
+        <View style={[styles.inputRow, { paddingBottom: insets.bottom + 8 }]}>
           <TouchableOpacity style={styles.attachBtn} onPress={handleCamera} disabled={attachmentUploading}>
             <Ionicons name="camera-outline" size={20} color={C.textSub} />
           </TouchableOpacity>
@@ -533,7 +533,7 @@ export default function ChannelScreen() {
       {/* ── MODAL ACTIONS ── */}
       <Modal visible={actionModalVisible} transparent animationType="slide" onRequestClose={() => setActionModalVisible(false)}>
         <TouchableOpacity style={styles.modalOverlay} activeOpacity={1} onPress={() => setActionModalVisible(false)}>
-          <View style={styles.actionSheet}>
+          <View style={[styles.actionSheet, { paddingBottom: insets.bottom + 8 }]}>
             <View style={styles.actionSheetHandle} />
             {selectedMsg && (
               <View style={styles.actionPreview}>
@@ -576,7 +576,7 @@ export default function ChannelScreen() {
       {/* ── MODAL EMOJI ── */}
       <Modal visible={emojiModalVisible} transparent animationType="fade" onRequestClose={() => setEmojiModalVisible(false)}>
         <TouchableOpacity style={styles.modalOverlay} activeOpacity={1} onPress={() => setEmojiModalVisible(false)}>
-          <View style={styles.emojiSheet}>
+          <View style={[styles.emojiSheet, { paddingBottom: insets.bottom + 8 }]}>
             <Text style={styles.emojiTitle}>Réagir au message</Text>
             <View style={styles.emojiRow}>
               {REACTIONS.map(emoji => (
@@ -595,7 +595,7 @@ export default function ChannelScreen() {
       {/* ── MODAL ÉPINGLÉS ── */}
       <Modal visible={pinnedModalVisible} transparent animationType="slide" onRequestClose={() => setPinnedModalVisible(false)}>
         <TouchableOpacity style={styles.modalOverlay} activeOpacity={1} onPress={() => setPinnedModalVisible(false)}>
-          <View style={styles.actionSheet}>
+          <View style={[styles.actionSheet, { paddingBottom: insets.bottom + 8 }]}>
             <View style={styles.actionSheetHandle} />
             <Text style={styles.pinnedSheetTitle}>Messages épinglés ({pinnedMessages.length})</Text>
             {pinnedMessages.map(m => (
@@ -682,7 +682,7 @@ export default function ChannelScreen() {
       {/* ── MODAL AJOUTER MEMBRE ── */}
       <Modal visible={addMemberVisible} transparent animationType="slide" onRequestClose={() => setAddMemberVisible(false)}>
         <TouchableOpacity style={styles.modalOverlay} activeOpacity={1} onPress={() => setAddMemberVisible(false)}>
-          <TouchableOpacity activeOpacity={1} style={[styles.actionSheet, { maxHeight: '75%' }]}>
+          <TouchableOpacity activeOpacity={1} style={[styles.actionSheet, { maxHeight: '75%', paddingBottom: insets.bottom + 8 }]}>
             <View style={styles.actionSheetHandle} />
             <Text style={styles.pinnedSheetTitle}>Ajouter un membre</Text>
             {profiles.filter(p => p.name !== user?.name && !liveMembers.includes(p.name)).length === 0 ? (

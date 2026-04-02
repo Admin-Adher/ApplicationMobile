@@ -1,6 +1,7 @@
-import { View, Text, StyleSheet, Modal, TouchableOpacity, TextInput, ScrollView, Alert } from 'react-native';
+import { View, Text, StyleSheet, Modal, TouchableOpacity, TextInput, ScrollView, Alert, Platform } from 'react-native';
 import { useState } from 'react';
 import { Ionicons } from '@expo/vector-icons';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { C } from '@/constants/colors';
 
 const ICONS = [
@@ -22,6 +23,7 @@ interface Props {
 }
 
 export default function NewChannelModal({ visible, onClose, onCreate }: Props) {
+  const insets = useSafeAreaInsets();
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
   const [selectedIcon, setSelectedIcon] = useState('chatbubbles');
@@ -44,7 +46,7 @@ export default function NewChannelModal({ visible, onClose, onCreate }: Props) {
   return (
     <Modal visible={visible} animationType="slide" presentationStyle="pageSheet" onRequestClose={onClose}>
       <View style={styles.container}>
-        <View style={styles.header}>
+        <View style={[styles.header, Platform.OS === 'android' && { paddingTop: insets.top + 14 }]}>
           <TouchableOpacity onPress={onClose} style={styles.cancelBtn}>
             <Text style={styles.cancelText}>Annuler</Text>
           </TouchableOpacity>

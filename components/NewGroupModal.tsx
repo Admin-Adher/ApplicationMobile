@@ -1,6 +1,7 @@
-import { View, Text, StyleSheet, Modal, TouchableOpacity, TextInput, FlatList } from 'react-native';
+import { View, Text, StyleSheet, Modal, TouchableOpacity, TextInput, FlatList, Platform } from 'react-native';
 import { useState, useMemo } from 'react';
 import { Ionicons } from '@expo/vector-icons';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { C } from '@/constants/colors';
 import { Profile } from '@/constants/types';
 
@@ -29,6 +30,7 @@ interface Props {
 }
 
 export default function NewGroupModal({ visible, onClose, profiles, currentUserName, onCreate }: Props) {
+  const insets = useSafeAreaInsets();
   const [search, setSearch] = useState('');
   const [selected, setSelected] = useState<Profile[]>([]);
   const [groupName, setGroupName] = useState('');
@@ -81,7 +83,7 @@ export default function NewGroupModal({ visible, onClose, profiles, currentUserN
   return (
     <Modal visible={visible} animationType="slide" presentationStyle="pageSheet" onRequestClose={handleClose}>
       <View style={styles.container}>
-        <View style={styles.header}>
+        <View style={[styles.header, Platform.OS === 'android' && { paddingTop: insets.top + 14 }]}>
           <TouchableOpacity onPress={step === 'name' ? () => setStep('members') : handleClose} style={styles.closeBtn}>
             <Ionicons name={step === 'name' ? 'chevron-back' : 'close'} size={22} color={C.text} />
           </TouchableOpacity>

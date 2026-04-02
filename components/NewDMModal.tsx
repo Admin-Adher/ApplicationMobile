@@ -1,6 +1,7 @@
-import { View, Text, StyleSheet, Modal, TouchableOpacity, TextInput, FlatList } from 'react-native';
+import { View, Text, StyleSheet, Modal, TouchableOpacity, TextInput, FlatList, Platform } from 'react-native';
 import { useState, useMemo } from 'react';
 import { Ionicons } from '@expo/vector-icons';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { C } from '@/constants/colors';
 import { Profile } from '@/constants/types';
 
@@ -28,6 +29,7 @@ interface Props {
 }
 
 export default function NewDMModal({ visible, onClose, profiles, currentUserName, onSelect }: Props) {
+  const insets = useSafeAreaInsets();
   const [search, setSearch] = useState('');
 
   const filtered = useMemo(() => {
@@ -50,7 +52,7 @@ export default function NewDMModal({ visible, onClose, profiles, currentUserName
   return (
     <Modal visible={visible} animationType="slide" presentationStyle="pageSheet" onRequestClose={onClose}>
       <View style={styles.container}>
-        <View style={styles.header}>
+        <View style={[styles.header, Platform.OS === 'android' && { paddingTop: insets.top + 14 }]}>
           <TouchableOpacity onPress={onClose} style={styles.closeBtn}>
             <Ionicons name="close" size={22} color={C.text} />
           </TouchableOpacity>

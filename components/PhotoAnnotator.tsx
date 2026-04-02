@@ -177,7 +177,7 @@ export function PhotoAnnotationOverlay({
 
   return (
     <Modal visible={visible} animationType="slide" presentationStyle="pageSheet" onRequestClose={onClose}>
-      <View style={styles.container}>
+      <View style={[styles.container, { paddingBottom: insets.bottom }]}>
         <View style={[styles.header, { paddingTop: insets.top + 12 }]}>
           <TouchableOpacity onPress={onClose} style={styles.closeBtn}>
             <Ionicons name="close" size={22} color={C.text} />
@@ -197,7 +197,12 @@ export function PhotoAnnotationOverlay({
 
         {editable && (
           <>
-            <View style={styles.toolbarRow}>
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              style={styles.toolbarRow}
+              contentContainerStyle={styles.toolbarRowContent}
+            >
               <Text style={styles.toolbarLabel}>Outil :</Text>
               {TOOLS.map(t => (
                 <TouchableOpacity
@@ -209,7 +214,7 @@ export function PhotoAnnotationOverlay({
                   <Text style={[styles.toolBtnLabel, activeTool === t.key && styles.toolBtnLabelActive]}>{t.label}</Text>
                 </TouchableOpacity>
               ))}
-            </View>
+            </ScrollView>
 
             <View style={styles.colorRow}>
               <Text style={styles.toolbarLabel}>Couleur :</Text>
@@ -420,9 +425,12 @@ const styles = StyleSheet.create({
   saveBtnText: { fontSize: 14, fontFamily: 'Inter_600SemiBold', color: '#fff' },
 
   toolbarRow: {
-    flexDirection: 'row', alignItems: 'center', gap: 6,
-    paddingHorizontal: 12, paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: C.border,
+    borderBottomWidth: 1, borderBottomColor: C.border,
     backgroundColor: C.surface2,
+  },
+  toolbarRowContent: {
+    flexDirection: 'row', alignItems: 'center', gap: 6,
+    paddingHorizontal: 12, paddingVertical: 8,
   },
   toolbarLabel: { fontSize: 11, fontFamily: 'Inter_500Medium', color: C.textMuted, marginRight: 2 },
   toolBtn: {
@@ -503,7 +511,7 @@ const styles = StyleSheet.create({
   legendToolText: { fontSize: 10, fontFamily: 'Inter_400Regular', color: C.textMuted },
 
   editOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', alignItems: 'center', justifyContent: 'center' },
-  editModal: { backgroundColor: C.surface, borderRadius: 16, padding: 20, width: 300, gap: 14 },
+  editModal: { backgroundColor: C.surface, borderRadius: 16, padding: 20, width: '88%', maxWidth: 360, gap: 14 },
   editTitle: { fontSize: 15, fontFamily: 'Inter_600SemiBold', color: C.text, textAlign: 'center' },
   editInput: {
     backgroundColor: C.surface2, borderRadius: 10, padding: 12, fontSize: 14,

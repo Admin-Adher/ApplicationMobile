@@ -37,11 +37,12 @@ export default function MembersModal({
   removeChannelMember, removeCustomChannel, removeGroupChannel,
 }: Props) {
   const router = useRouter();
+  const insets = useSafeAreaInsets();
 
   return (
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
       <TouchableOpacity style={styles.overlay} activeOpacity={1} onPress={onClose}>
-        <TouchableOpacity activeOpacity={1} style={[styles.sheet, { maxHeight: '85%' }]}>
+        <TouchableOpacity activeOpacity={1} style={[styles.sheet, { maxHeight: '85%', paddingBottom: insets.bottom + 8 }]}>
           <View style={styles.handle} />
 
           <View style={styles.header}>
