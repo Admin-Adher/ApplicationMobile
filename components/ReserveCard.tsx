@@ -152,6 +152,18 @@ export default function ReserveCard({ reserve, onPress, onLongPress, onSwipeRigh
           </Text>
         </View>
         <View style={styles.rightRow}>
+          {reserve.planId && reserve.planX != null && (
+            <TouchableOpacity
+              style={styles.planPinBtn}
+              onPress={() => router.push({ pathname: '/(tabs)/plans', params: { focusPlanId: reserve.planId, focusReserveId: reserve.id } } as any)}
+              hitSlop={8}
+              accessibilityRole="button"
+              accessibilityLabel="Voir sur le plan"
+            >
+              <Ionicons name="location-outline" size={12} color={C.primary} />
+              <Text style={styles.planPinText}>Plan</Text>
+            </TouchableOpacity>
+          )}
           {!firstPhotoUri && reserve.photoUri ? (
             <View style={styles.iconBadge}>
               <Ionicons name="camera-outline" size={12} color={C.textMuted} />
@@ -394,6 +406,22 @@ const styles = StyleSheet.create({
   deadlinePillText: {
     fontSize: 11,
     fontFamily: 'Inter_500Medium',
+  },
+  planPinBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 3,
+    backgroundColor: C.primaryBg,
+    paddingHorizontal: 7,
+    paddingVertical: 3,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: C.primary + '40',
+  },
+  planPinText: {
+    fontSize: 11,
+    fontFamily: 'Inter_600SemiBold',
+    color: C.primary,
   },
   swipeRightAction: {
     backgroundColor: C.inProgress,
