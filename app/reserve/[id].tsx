@@ -621,9 +621,13 @@ export default function ReserveDetailScreen() {
 
   function handleApproveVerification() {
     if (!reserve) return;
+    const companyCount = reserveCompanyNames.length;
+    const notifLine = companyCount > 1
+      ? `\n\n${companyCount} entreprises seront notifiées.`
+      : '';
     Alert.alert(
       'Approuver la levée',
-      `Confirmer la levée définitive de la réserve ${reserve.id} ?\n\nCette action clôture la réserve.`,
+      `Confirmer la levée définitive de la réserve ${reserve.id} ?\n\nCette action clôture la réserve.${notifLine}`,
       [
         { text: 'Annuler', style: 'cancel' },
         {
@@ -641,14 +645,29 @@ export default function ReserveDetailScreen() {
   function handleRejectVerification() {
     if (!reserve) return;
     const reason = rejectReason.trim();
-    updateReserveStatus(reserve.id, 'in_progress', user?.name ?? 'Conducteur de travaux');
-    if (reason) {
-      addComment(reserve.id, `Levée rejetée : ${reason}`);
+    const companyCount = reserveCompanyNames.length;
+    const doReject = () => {
+      updateReserveStatus(reserve.id, 'in_progress', user?.name ?? 'Conducteur de travaux');
+      if (reason) {
+        addComment(reserve.id, `Levée rejetée : ${reason}`);
+      }
+      setShowRejectModal(false);
+      setRejectReason('');
+      setSaveSuccess(true);
+      setTimeout(() => setSaveSuccess(false), 2500);
+    };
+    if (companyCount > 1) {
+      Alert.alert(
+        'Rejeter la levée',
+        `${companyCount} entreprises seront notifiées du rejet.\n\nContinuer ?`,
+        [
+          { text: 'Annuler', style: 'cancel' },
+          { text: 'Rejeter', style: 'destructive', onPress: doReject },
+        ]
+      );
+    } else {
+      doReject();
     }
-    setShowRejectModal(false);
-    setRejectReason('');
-    setSaveSuccess(true);
-    setTimeout(() => setSaveSuccess(false), 2500);
   }
 
   function handleAddComment() {
@@ -661,6 +680,10 @@ export default function ReserveDetailScreen() {
 
   const ackDone = !!reserve.enterpriseAcknowledgedAt;
   const signDone = !!reserve.enterpriseSignature;
+  const isMultiCompany = reserveCompanyNames.length > 1;
+  const allCompaniesSignedInMulti = isMultiCompany &&
+    reserveCompanyNames.every(name => !!reserve.companySignatures?.[name]);
+  const multiSignCount = isMultiCompany ? Object.keys(reserve.companySignatures ?? {}).length : 0;
 
   return (
     <View style={styles.container}>
@@ -938,14 +961,16 @@ export default function ReserveDetailScreen() {
           <View style={styles.workflowDivider} />
 
           {/* Étape 2 : Signature de levée — par entreprise si multi-company, sinon globale */}
-          {reserveCompanyNames.length > 1 ? (
+          {isMultiCompany ? (
             <View style={{ marginBottom: 0 }}>
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 10 }}>
-                <View style={[styles.workflowStepNum, ackDone && styles.workflowStepNumDone, !ackDone && styles.workflowStepNumLocked]}>
-                  <Text style={styles.workflowStepNumText}>2</Text>
+                <View style={[styles.workflowStepNum, allCompaniesSignedInMulti && styles.workflowStepNumDone, !ackDone && styles.workflowStepNumLocked]}>
+                  {allCompaniesSignedInMulti
+                    ? <Ionicons name="checkmark" size={13} color="#fff" />
+                    : <Text style={styles.workflowStepNumText}>2</Text>}
                 </View>
                 <Text style={[styles.workflowStepTitle, !ackDone && { color: C.textMuted }]}>
-                  Signatures de levée ({Object.keys(reserve.companySignatures ?? {}).length}/{reserveCompanyNames.length})
+                  Signatures de levée ({multiSignCount}/{reserveCompanyNames.length})
                 </Text>
               </View>
               {!ackDone ? (
