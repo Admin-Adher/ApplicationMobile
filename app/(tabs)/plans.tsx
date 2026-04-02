@@ -548,7 +548,11 @@ export default function PlansScreen() {
         const storageUrl = await uploadDocument(asset.uri, `plan_${currentPlanId}_${docName}`, asset.mimeType ?? undefined);
         const finalUri = storageUrl ?? asset.uri;
         updateSitePlan({ ...currentPlan!, uri: finalUri, fileType: isPdfFile ? 'pdf' : 'image', size: formatSize(asset.size) });
-        Alert.alert('Plan importé', storageUrl ? `Plan uploadé sur Supabase Storage.` : `Plan importé localement.`);
+        if (storageUrl) {
+          Alert.alert('Plan importé ✓', 'Fichier uploadé sur le serveur. Il sera disponible sur tous vos appareils.');
+        } else {
+          Alert.alert('Plan importé (local uniquement)', 'Le fichier n\'a pas pu être uploadé sur le serveur. Le plan sera visible sur cet appareil uniquement et pourrait disparaître si le cache est effacé.\n\nVérifiez votre connexion ou les droits d\'accès Supabase.', [{ text: 'OK' }]);
+        }
       }
     } catch {
       Alert.alert('Erreur', "Impossible d'importer le plan.");
@@ -587,6 +591,9 @@ export default function PlansScreen() {
           return;
         }
         const storageUrl = await uploadDocument(asset.uri, `plan_rev_${genId()}_${asset.name}`, asset.mimeType ?? undefined);
+        if (!storageUrl) {
+          Alert.alert('Attention — stockage local', 'Le fichier de révision n\'a pas pu être uploadé sur le serveur. Il sera visible sur cet appareil uniquement.\n\nVérifiez votre connexion ou les droits d\'accès Supabase.', [{ text: 'Continuer' }]);
+        }
         const finalUri = storageUrl ?? asset.uri;
         const revDocExt = asset.name.split('.').pop()?.toLowerCase() ?? '';
         const newPlan: SitePlan = {

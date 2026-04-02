@@ -1103,16 +1103,22 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           .from('site_plans').select('*').order('created_at', { ascending: false });
         if (!sitePlansErr && sitePlansData !== null) {
           sitePlans = sitePlansData.map(toSitePlan);
+          // Always refresh local cache so the fallback is up-to-date
+          persistMockSitePlans(sitePlans);
         } else {
+          // Supabase returned an error — fall back to local cache
           const ssp = await AsyncStorage.getItem(MOCK_SITE_PLANS_KEY);
           if (ssp) {
             const p = JSON.parse(ssp);
             if (Array.isArray(p)) sitePlans = p;
           }
+          console.warn('Erreur chargement site_plans Supabase, utilisation du cache local:', sitePlansErr?.message);
         }
-      } catch {
+      } catch (e) {
+        // Network/unexpected error — fall back to local cache
         const ssp = await AsyncStorage.getItem(MOCK_SITE_PLANS_KEY).catch(() => null);
         if (ssp) { const p = JSON.parse(ssp); if (Array.isArray(p)) sitePlans = p; }
+        console.warn('Exception chargement site_plans, cache local utilisé:', e);
       }
 
       try {
@@ -2216,9 +2222,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       const updatedPlans = allPlans.map(p => p.id === parentPlanId ? updatedParent : p).concat([versionedNew]);
       dispatch({ type: 'UPDATE_SITE_PLAN', payload: updatedParent });
       dispatch({ type: 'ADD_SITE_PLAN', payload: versionedNew });
+      // Always persist locally as a cache/fallback so revisions survive Supabase failures
+      persistMockSitePlans(updatedPlans);
       if (isSupabaseConfigured) {
         supabase.from('site_plans').update({ is_latest_revision: false, revision_number: parentRevNum }).eq('id', parentPlanId)
-          .then(({ error }: { error: any }) => { if (error) console.warn('Erreur maj plan parent:', error.message); });
+          .then(({ error }: { error: any }) => { if (error) console.warn('Erreur maj plan parent Supabase:', error.message); });
         supabase.from('site_plans').insert({
           id: versionedNew.id,
           chantier_id: versionedNew.chantierId,
@@ -2234,9 +2242,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           parent_plan_id: parentPlanId,
           is_latest_revision: true,
           revision_note: versionedNew.revisionNote ?? null,
-        }).then(({ error }: { error: any }) => { if (error) console.warn('Erreur insertion version plan:', error.message); });
-      } else {
-        persistMockSitePlans(updatedPlans);
+        }).then(({ error }: { error: any }) => { if (error) console.warn('Erreur insertion version plan Supabase (données conservées localement):', error.message); });
       }
     },
 
@@ -2352,6 +2358,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
     addSitePlan: (p: SitePlan) => {
       dispatch({ type: 'ADD_SITE_PLAN', payload: p });
+      // Always persist locally as a cache/fallback so plans survive Supabase failures
+      const updated = [...stateRef.current.sitePlans, p];
+      persistMockSitePlans(updated);
       if (isSupabaseConfigured) {
         supabase.from('site_plans').insert({
           id: p.id,
@@ -2372,17 +2381,16 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           annotations: p.annotations ?? null,
           pdf_page_count: p.pdfPageCount ?? null,
         }).then(({ error }: { error: any }) => {
-          if (error) console.warn('Erreur sauvegarde plan:', error.message);
+          if (error) console.warn('Erreur sauvegarde plan Supabase (données conservées localement):', error.message);
         });
-      } else {
-        const updated = [...stateRef.current.sitePlans, p];
-        persistMockSitePlans(updated);
       }
     },
 
     updateSitePlan: (p: SitePlan) => {
       const updated = stateRef.current.sitePlans.map(sp => sp.id === p.id ? p : sp);
       dispatch({ type: 'UPDATE_SITE_PLAN', payload: p });
+      // Always persist locally as a cache/fallback
+      persistMockSitePlans(updated);
       if (isSupabaseConfigured) {
         supabase.from('site_plans').update({
           chantier_id: p.chantierId,
@@ -2402,22 +2410,20 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           annotations: p.annotations ?? null,
           pdf_page_count: p.pdfPageCount ?? null,
         }).eq('id', p.id).then(({ error }: { error: any }) => {
-          if (error) console.warn('Erreur mise à jour plan:', error.message);
+          if (error) console.warn('Erreur mise à jour plan Supabase (données conservées localement):', error.message);
         });
-      } else {
-        persistMockSitePlans(updated);
       }
     },
 
     deleteSitePlan: (id: string) => {
       const updated = stateRef.current.sitePlans.filter(p => p.id !== id);
       dispatch({ type: 'DELETE_SITE_PLAN', payload: id });
+      // Always persist locally as a cache/fallback
+      persistMockSitePlans(updated);
       if (isSupabaseConfigured) {
         supabase.from('site_plans').delete().eq('id', id).then(({ error }: { error: any }) => {
-          if (error) console.warn('Erreur suppression plan:', error.message);
+          if (error) console.warn('Erreur suppression plan Supabase (cache local mis à jour):', error.message);
         });
-      } else {
-        persistMockSitePlans(updated);
       }
     },
   };
