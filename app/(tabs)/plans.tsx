@@ -797,6 +797,25 @@ export default function PlansScreen() {
                   <Text style={styles.planSubtitle}>Schématique · {currentPlan?.uploadedAt ?? ''}</Text>
                 )}
               </View>
+              <View style={styles.pinSizeRow}>
+                <TouchableOpacity
+                  style={[styles.pinSizeBtn, pinSizeScale <= 0.5 && { opacity: 0.35 }]}
+                  onPress={() => changePinSize(-0.25)}
+                  disabled={pinSizeScale <= 0.5}
+                  accessibilityLabel="Réduire les pastilles"
+                >
+                  <Ionicons name="remove-circle-outline" size={18} color={C.textSub} />
+                </TouchableOpacity>
+                <Ionicons name="ellipse" size={9} color={C.primary} />
+                <TouchableOpacity
+                  style={[styles.pinSizeBtn, pinSizeScale >= 2.5 && { opacity: 0.35 }]}
+                  onPress={() => changePinSize(0.25)}
+                  disabled={pinSizeScale >= 2.5}
+                  accessibilityLabel="Agrandir les pastilles"
+                >
+                  <Ionicons name="add-circle-outline" size={18} color={C.textSub} />
+                </TouchableOpacity>
+              </View>
               {currentPlan?.uri && permissions.canCreate && (
                 <TouchableOpacity style={styles.removePlanBtn} onPress={handleRemovePlan} accessibilityLabel="Remplacer le plan">
                   <Ionicons name="swap-horizontal-outline" size={13} color={C.textSub} />
@@ -993,31 +1012,23 @@ export default function PlansScreen() {
               </View>
             )}
 
-            {/* Zoom controls overlay — bottom right */}
-            <View style={styles.zoomOverlay} pointerEvents="box-none">
-              <View style={[styles.zoomOverlayGroup, { marginBottom: 6 }]}>
-                <TouchableOpacity style={styles.zoomOverlayBtn} onPress={() => changePinSize(-0.25)} disabled={pinSizeScale <= 0.5} accessibilityLabel="Réduire la taille des pastilles">
-                  <Ionicons name="radio-button-off-outline" size={12} color={pinSizeScale <= 0.5 ? C.textMuted : C.text} />
-                </TouchableOpacity>
-                <Ionicons name="ellipse" size={10} color={C.primary} style={{ marginHorizontal: 2 }} />
-                <Text style={styles.zoomOverlayPct}>{Math.round(pinSizeScale * 100)}%</Text>
-                <TouchableOpacity style={styles.zoomOverlayBtn} onPress={() => changePinSize(0.25)} disabled={pinSizeScale >= 2.5} accessibilityLabel="Agrandir la taille des pastilles">
-                  <Ionicons name="ellipse" size={14} color={pinSizeScale >= 2.5 ? C.textMuted : C.text} />
-                </TouchableOpacity>
+            {/* Zoom controls overlay — bottom right (only for schematic/DXF, PDF viewer has its own) */}
+            {!isPlanFile && (
+              <View style={styles.zoomOverlay} pointerEvents="box-none">
+                <View style={styles.zoomOverlayGroup}>
+                  <TouchableOpacity style={styles.zoomOverlayBtn} onPress={() => doZoom('out')} accessibilityLabel="Dézoomer">
+                    <Ionicons name="remove" size={14} color={C.text} />
+                  </TouchableOpacity>
+                  <TouchableOpacity style={styles.zoomOverlayBtn} onPress={() => doZoom('reset')} accessibilityLabel="Réinitialiser le zoom">
+                    <Ionicons name="scan-outline" size={12} color={C.text} />
+                  </TouchableOpacity>
+                  <Text style={styles.zoomOverlayPct}>{currentZoomPct}</Text>
+                  <TouchableOpacity style={styles.zoomOverlayBtn} onPress={() => doZoom('in')} accessibilityLabel="Zoomer">
+                    <Ionicons name="add" size={14} color={C.text} />
+                  </TouchableOpacity>
+                </View>
               </View>
-              <View style={styles.zoomOverlayGroup}>
-                <TouchableOpacity style={styles.zoomOverlayBtn} onPress={() => doZoom('out')} accessibilityLabel="Dézoomer">
-                  <Ionicons name="remove" size={14} color={C.text} />
-                </TouchableOpacity>
-                <TouchableOpacity style={styles.zoomOverlayBtn} onPress={() => doZoom('reset')} accessibilityLabel="Réinitialiser le zoom">
-                  <Ionicons name="scan-outline" size={12} color={C.text} />
-                </TouchableOpacity>
-                <Text style={styles.zoomOverlayPct}>{currentZoomPct}</Text>
-                <TouchableOpacity style={styles.zoomOverlayBtn} onPress={() => doZoom('in')} accessibilityLabel="Zoomer">
-                  <Ionicons name="add" size={14} color={C.text} />
-                </TouchableOpacity>
-              </View>
-            </View>
+            )}
 
             {/* Fullscreen toggle — top right */}
             <TouchableOpacity
@@ -1428,9 +1439,11 @@ const styles = StyleSheet.create({
   tabletDetailOpenBtn: { flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: C.primary, paddingHorizontal: 14, paddingVertical: 9, borderRadius: 10 },
   tabletDetailOpenBtnText: { fontSize: 13, fontFamily: 'Inter_600SemiBold', color: '#fff' },
 
-  planTitleRow: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', paddingHorizontal: 16, paddingVertical: 10, backgroundColor: C.surface, borderBottomWidth: 1, borderBottomColor: C.border },
+  planTitleRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, paddingVertical: 8, backgroundColor: C.surface, borderBottomWidth: 1, borderBottomColor: C.border },
   planTitle: { fontSize: 14, fontFamily: 'Inter_600SemiBold', color: C.text },
   planSubtitle: { fontSize: 11, fontFamily: 'Inter_400Regular', color: C.textMuted, marginTop: 2 },
+  pinSizeRow: { flexDirection: 'row', alignItems: 'center', gap: 4, marginHorizontal: 8 },
+  pinSizeBtn: { padding: 4 },
   removePlanBtn: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 10, paddingVertical: 6, borderRadius: 8, backgroundColor: C.surface2, borderWidth: 1, borderColor: C.border },
   removePlanText: { fontSize: 11, fontFamily: 'Inter_500Medium', color: C.textSub },
   importHintBanner: { flexDirection: 'row', alignItems: 'center', gap: 8, marginHorizontal: 14, marginTop: 10, marginBottom: 0, backgroundColor: C.primaryBg, borderRadius: 10, padding: 12, borderWidth: 1, borderColor: C.primary + '30' },
