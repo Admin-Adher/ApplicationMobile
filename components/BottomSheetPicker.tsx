@@ -4,6 +4,7 @@ import {
   ScrollView, Platform,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { C } from '@/constants/colors';
 
 export interface PickerOption {
@@ -27,12 +28,15 @@ export default function BottomSheetPicker({
   label, options, value, onChange, placeholder, allowNone, noneLabel = 'Aucun',
 }: Props) {
   const [open, setOpen] = useState(false);
+  const insets = useSafeAreaInsets();
   const selected = options.find(o => o.value === value);
 
   function pick(v: string) {
     onChange(v);
     setOpen(false);
   }
+
+  const bottomPad = Platform.OS === 'web' ? 24 : Math.max(insets.bottom + 16, 32);
 
   return (
     <View style={styles.wrapper}>
@@ -68,7 +72,7 @@ export default function BottomSheetPicker({
           <ScrollView
             showsVerticalScrollIndicator={false}
             style={styles.list}
-            contentContainerStyle={{ paddingBottom: Platform.OS === 'web' ? 24 : 40 }}
+            contentContainerStyle={{ paddingBottom: bottomPad }}
           >
             {allowNone && (
               <TouchableOpacity

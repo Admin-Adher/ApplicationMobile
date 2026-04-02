@@ -484,7 +484,7 @@ export default function ReservesScreen() {
               <View style={{ flex: 1 }}>
                 <ReserveCard
                   reserve={item}
-                  onPress={r => isSelectMode ? toggleId(r.id) : undefined}
+                  onPress={r => isSelectMode ? toggleId(r.id) : router.push(`/reserve/${r.id}` as any)}
                 />
               </View>
             </View>

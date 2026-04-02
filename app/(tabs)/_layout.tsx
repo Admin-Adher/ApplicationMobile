@@ -153,7 +153,7 @@ export default function TabLayout() {
         name="more"
         options={{
           title: 'Terrain',
-          tabBarIcon: ({ color }) => <TabIcon name="hammer-outline" color={color} size={26} />,
+          tabBarIcon: ({ color, focused }) => <TabIcon name={focused ? 'hammer' : 'hammer-outline'} color={color} size={26} />,
         }}
       />
       <Tabs.Screen name="incidents" options={{ href: null }} />

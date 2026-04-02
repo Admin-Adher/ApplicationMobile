@@ -49,7 +49,11 @@ export default function Header({
         <View style={styles.titleWrap}>
           <View style={styles.titleRow}>
             <Text style={styles.title}>{title}</Text>
-            <View style={[styles.networkDot, { backgroundColor: isOnline ? '#22C55E' : '#EF4444' }]}>
+            <View style={[
+              styles.networkDot,
+              { backgroundColor: isOnline ? '#22C55E' : '#EF4444' },
+              (!isOnline && queueCount > 0) && styles.networkDotExpanded,
+            ]}>
               {!isOnline && queueCount > 0 && (
                 <Text style={styles.networkDotText}>{queueCount > 9 ? '9+' : queueCount}</Text>
               )}
@@ -116,8 +120,14 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
+  networkDotExpanded: {
+    width: 'auto',
+    height: 16,
+    borderRadius: 8,
+    paddingHorizontal: 5,
+  },
   networkDotText: {
-    fontSize: 6,
+    fontSize: 9,
     fontFamily: 'Inter_700Bold',
     color: '#fff',
   },
