@@ -75,6 +75,39 @@ export function PointageProvider({ children }: { children: React.ReactNode }) {
     load();
   }, []);
 
+  useEffect(() => {
+    if (!isSupabaseConfigured) return;
+    const sub = supabase
+      .channel('realtime-time-entries-v1')
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'time_entries' }, (payload: any) => {
+        const entry = toEntry(payload.new);
+        setEntries(prev => {
+          if (prev.find(e => e.id === entry.id)) return prev;
+          const updated = [entry, ...prev];
+          AsyncStorage.setItem(POINTAGE_KEY, JSON.stringify(updated)).catch(() => {});
+          return updated;
+        });
+      })
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'time_entries' }, (payload: any) => {
+        const entry = toEntry(payload.new);
+        setEntries(prev => {
+          const updated = prev.map(e => e.id === entry.id ? entry : e);
+          AsyncStorage.setItem(POINTAGE_KEY, JSON.stringify(updated)).catch(() => {});
+          return updated;
+        });
+      })
+      .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'time_entries' }, (payload: any) => {
+        const id = payload.old.id;
+        setEntries(prev => {
+          const updated = prev.filter(e => e.id !== id);
+          AsyncStorage.setItem(POINTAGE_KEY, JSON.stringify(updated)).catch(() => {});
+          return updated;
+        });
+      })
+      .subscribe();
+    return () => { supabase.removeChannel(sub); };
+  }, []);
+
   async function persistLocal(data: TimeEntry[]) {
     setEntries(data);
     try { await AsyncStorage.setItem(POINTAGE_KEY, JSON.stringify(data)); } catch {}

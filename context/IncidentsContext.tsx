@@ -86,6 +86,29 @@ export function IncidentsProvider({ children }: { children: React.ReactNode }) {
     load();
   }, []);
 
+  useEffect(() => {
+    if (!isSupabaseConfigured) return;
+    const sub = supabase
+      .channel('realtime-incidents-v1')
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'incidents' }, (payload: any) => {
+        const incident = toIncident(payload.new);
+        setIncidents(prev => {
+          if (prev.find(i => i.id === incident.id)) return prev;
+          return [incident, ...prev];
+        });
+      })
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'incidents' }, (payload: any) => {
+        const incident = toIncident(payload.new);
+        setIncidents(prev => prev.map(i => i.id === incident.id ? incident : i));
+      })
+      .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'incidents' }, (payload: any) => {
+        const id = payload.old.id;
+        setIncidents(prev => prev.filter(i => i.id !== id));
+      })
+      .subscribe();
+    return () => { supabase.removeChannel(sub); };
+  }, []);
+
   async function persist(updated: Incident[]) {
     setIncidents(updated);
     try { await AsyncStorage.setItem(INCIDENTS_KEY, JSON.stringify(updated)); } catch (e) {

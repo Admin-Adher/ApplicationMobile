@@ -98,8 +98,33 @@ Complete audit of all tabs for multi-user Supabase synchronization:
 
 ### New fixes (this sprint)
 - **Channels** — `addCustomChannel`, `removeCustomChannel`, `addGroupChannel`, `removeGroupChannel`, `_updateAndPersistChannel` all write to Supabase `channels` table; real-time subscription syncs channel creation/updates/deletions across all connected users instantly
-- **PointageContext** — Now loads from `time_entries` on startup, syncs add/update/delete to Supabase; falls back to AsyncStorage when Supabase unavailable
-- **Missing tables** — 6 new tables added to schema.sql with proper RLS policies
+- **PointageContext** — Now loads from `time_entries` on startup, syncs add/update/delete to Supabase; real-time subscription (`realtime-time-entries-v1`) propagates INSERT/UPDATE/DELETE to all connected users instantly
+- **IncidentsContext** — Real-time subscription (`realtime-incidents-v1`) added; INSERT/UPDATE/DELETE on `incidents` propagate to all connected users
+- **Tasks** — Extended from UPDATE-only to full CRUD real-time: INSERT and DELETE now also trigger real-time dispatch
+- **Chantiers** — Real-time subscription (`realtime-chantiers-v1`) added: full CRUD sync across users
+- **SitePlans** — Real-time subscription (`realtime-site-plans-v1`) added: full CRUD sync across users
+- **Visites** — Real-time subscription (`realtime-visites-v1`) added: full CRUD sync across users
+- **OPRs** — Real-time subscription (`realtime-oprs-v1`) added: full CRUD sync across users
+- **Lots** — Real-time subscription (`realtime-lots-v1`) added: full CRUD sync across users
+- **Missing tables** — All required tables added to schema.sql with proper RLS policies
+
+### Real-time Coverage (post-audit)
+Every table that supports multi-user collaboration now has full CRUD real-time subscriptions:
+| Entity | Write to Supabase | Real-time Sync |
+|--------|-------------------|----------------|
+| Reserves | ✅ | ✅ INSERT/UPDATE/DELETE |
+| Tasks | ✅ | ✅ INSERT/UPDATE/DELETE |
+| Messages | ✅ | ✅ INSERT/UPDATE/DELETE |
+| Channels | ✅ | ✅ INSERT/UPDATE/DELETE |
+| Time Entries | ✅ | ✅ INSERT/UPDATE/DELETE |
+| Incidents | ✅ | ✅ INSERT/UPDATE/DELETE |
+| Chantiers | ✅ | ✅ INSERT/UPDATE/DELETE |
+| Site Plans | ✅ | ✅ INSERT/UPDATE/DELETE |
+| Visites | ✅ | ✅ INSERT/UPDATE/DELETE |
+| OPRs | ✅ | ✅ INSERT/UPDATE/DELETE |
+| Lots | ✅ | ✅ INSERT/UPDATE/DELETE |
+| Documents / Photos | ✅ | Initial load only (user-scoped uploads) |
+| Companies | ✅ | Initial load only |
 
 ## Important Notes
 - `newArchEnabled: false` in app.json (uses legacy architecture)

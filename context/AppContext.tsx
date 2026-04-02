@@ -1344,14 +1344,97 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
     const taskSub = supabase
       .channel('realtime-tasks-v1')
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'tasks' }, (payload: any) => {
+        dispatch({ type: 'ADD_TASK', payload: toTask(payload.new) });
+      })
       .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'tasks' }, (payload: any) => {
         dispatch({ type: 'UPDATE_TASK', payload: toTask(payload.new) });
+      })
+      .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'tasks' }, (payload: any) => {
+        dispatch({ type: 'DELETE_TASK', payload: payload.old.id });
       })
       .subscribe();
 
     return () => {
       supabase.removeChannel(reserveSub);
       supabase.removeChannel(taskSub);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!isSupabaseConfigured) return;
+
+    const chantierSub = supabase
+      .channel('realtime-chantiers-v1')
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'chantiers' }, (payload: any) => {
+        dispatch({ type: 'ADD_CHANTIER', payload: toChantier(payload.new) });
+      })
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'chantiers' }, (payload: any) => {
+        dispatch({ type: 'UPDATE_CHANTIER', payload: toChantier(payload.new) });
+      })
+      .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'chantiers' }, (payload: any) => {
+        dispatch({ type: 'DELETE_CHANTIER', payload: payload.old.id });
+      })
+      .subscribe();
+
+    const sitePlanSub = supabase
+      .channel('realtime-site-plans-v1')
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'site_plans' }, (payload: any) => {
+        dispatch({ type: 'ADD_SITE_PLAN', payload: toSitePlan(payload.new) });
+      })
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'site_plans' }, (payload: any) => {
+        dispatch({ type: 'UPDATE_SITE_PLAN', payload: toSitePlan(payload.new) });
+      })
+      .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'site_plans' }, (payload: any) => {
+        dispatch({ type: 'DELETE_SITE_PLAN', payload: payload.old.id });
+      })
+      .subscribe();
+
+    const visiteSub = supabase
+      .channel('realtime-visites-v1')
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'visites' }, (payload: any) => {
+        dispatch({ type: 'ADD_VISITE', payload: toVisite(payload.new) });
+      })
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'visites' }, (payload: any) => {
+        dispatch({ type: 'UPDATE_VISITE', payload: toVisite(payload.new) });
+      })
+      .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'visites' }, (payload: any) => {
+        dispatch({ type: 'DELETE_VISITE', payload: payload.old.id });
+      })
+      .subscribe();
+
+    const oprSub = supabase
+      .channel('realtime-oprs-v1')
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'oprs' }, (payload: any) => {
+        dispatch({ type: 'ADD_OPR', payload: toOpr(payload.new) });
+      })
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'oprs' }, (payload: any) => {
+        dispatch({ type: 'UPDATE_OPR', payload: toOpr(payload.new) });
+      })
+      .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'oprs' }, (payload: any) => {
+        dispatch({ type: 'DELETE_OPR', payload: payload.old.id });
+      })
+      .subscribe();
+
+    const lotSub = supabase
+      .channel('realtime-lots-v1')
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'lots' }, (payload: any) => {
+        dispatch({ type: 'ADD_LOT', payload: toLot(payload.new) });
+      })
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'lots' }, (payload: any) => {
+        dispatch({ type: 'UPDATE_LOT', payload: toLot(payload.new) });
+      })
+      .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'lots' }, (payload: any) => {
+        dispatch({ type: 'DELETE_LOT', payload: payload.old.id });
+      })
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(chantierSub);
+      supabase.removeChannel(sitePlanSub);
+      supabase.removeChannel(visiteSub);
+      supabase.removeChannel(oprSub);
+      supabase.removeChannel(lotSub);
     };
   }, []);
 
