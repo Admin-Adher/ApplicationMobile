@@ -124,6 +124,7 @@ async function exportPlanPDF(
   numberMap: Map<string, number>,
   planUri?: string | null,
   fileType?: 'pdf' | 'image' | 'dxf' | null,
+  pinSizeScale: number = 1.0,
 ) {
   const STATUS_FR: Record<string, string> = {
     open: 'Ouvert', in_progress: 'En cours', waiting: 'En attente',
@@ -160,6 +161,9 @@ async function exportPlanPDF(
   const hasPlan = !!planUri;
   const isPdf = fileType === 'pdf';
   const RENDER_W = 720;
+  // Pin radius and font scale with the user's chosen pinSizeScale (base radius = 10px at 720px wide)
+  const PIN_R = Math.max(5, Math.round(10 * pinSizeScale));
+  const PIN_FONT = Math.max(7, Math.round(9 * pinSizeScale));
 
   // Canvas rendering script — runs inside the export iframe/window
   const canvasScript = hasPins ? `(function(){
@@ -169,14 +173,16 @@ var RENDER_W=${RENDER_W};
 var planUri=${hasPlan ? JSON.stringify(planUri) : 'null'};
 var isPdf=${isPdf ? 'true' : 'false'};
 var pins=${JSON.stringify(pinData)};
+var PIN_R=${PIN_R};
+var PIN_FONT=${PIN_FONT};
 
 function drawPins(W,H){
   pins.forEach(function(p){
     var x=(p.pctX/100)*W,y=(p.pctY/100)*H;
-    ctx.beginPath();ctx.arc(x,y,11,0,Math.PI*2);
+    ctx.beginPath();ctx.arc(x,y,PIN_R,0,Math.PI*2);
     ctx.fillStyle=p.color;ctx.fill();
-    ctx.strokeStyle='rgba(255,255,255,0.85)';ctx.lineWidth=2;ctx.stroke();
-    ctx.fillStyle='#fff';ctx.font='bold 10px Arial';
+    ctx.strokeStyle='rgba(255,255,255,0.85)';ctx.lineWidth=Math.max(1,PIN_R*0.18);ctx.stroke();
+    ctx.fillStyle='#fff';ctx.font='bold '+PIN_FONT+'px Arial';
     ctx.textAlign='center';ctx.textBaseline='middle';
     ctx.fillText(String(p.n),x,y);
   });
@@ -1165,7 +1171,7 @@ export default function PlansScreen() {
                   <View style={styles.tabletPanelHdr}>
                     <Ionicons name="list-outline" size={14} color={C.primary} />
                     <Text style={styles.tabletPanelTitle}>{planReserves.length > 0 ? `${planReserves.length} réserve${planReserves.length > 1 ? 's' : ''}` : 'Réserves'}</Text>
-                    <TouchableOpacity style={styles.exportBtn} onPress={() => exportPlanPDF(currentPlan?.name ?? 'Plan', activeChantier?.name ?? '', planReserves, pinNumberMap, currentPlan?.uri ?? null, currentPlan?.fileType ?? null)} accessibilityLabel="Exporter en PDF">
+                    <TouchableOpacity style={styles.exportBtn} onPress={() => exportPlanPDF(currentPlan?.name ?? 'Plan', activeChantier?.name ?? '', planReserves, pinNumberMap, currentPlan?.uri ?? null, currentPlan?.fileType ?? null, pinSizeScale)} accessibilityLabel="Exporter en PDF">
                       <Ionicons name="document-text-outline" size={13} color={C.primary} />
                       <Text style={styles.exportBtnText}>PDF</Text>
                     </TouchableOpacity>
@@ -1224,7 +1230,7 @@ export default function PlansScreen() {
           searchQuery={searchQuery}
           onSearchChange={setSearchQuery}
           onReservePress={(r) => { setSelected(r); }}
-          onExport={() => exportPlanPDF(currentPlan?.name ?? 'Plan', activeChantier?.name ?? '', planReserves, pinNumberMap, currentPlan?.uri ?? null, currentPlan?.fileType ?? null)}
+          onExport={() => exportPlanPDF(currentPlan?.name ?? 'Plan', activeChantier?.name ?? '', planReserves, pinNumberMap, currentPlan?.uri ?? null, currentPlan?.fileType ?? null, pinSizeScale)}
           canCreate={permissions.canCreate}
           currentPlan={currentPlan}
           activeChantierId={activeChantierId}
