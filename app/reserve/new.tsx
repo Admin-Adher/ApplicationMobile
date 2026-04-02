@@ -97,7 +97,7 @@ export default function NewReserveScreen() {
   const [building, setBuilding] = useState(params.building ?? RESERVE_BUILDINGS[0]);
   const [zone, setZone] = useState(RESERVE_ZONES[0]);
   const [level, setLevel] = useState('RDC');
-  const [company, setCompany] = useState(companies[0]?.name ?? '');
+  const [selectedCompanies, setSelectedCompanies] = useState<string[]>(companies[0] ? [companies[0].name] : []);
   const [responsableNom, setResponsableNom] = useState('');
   const [priority, setPriority] = useState<ReservePriority>('medium');
   const [deadline, setDeadline] = useState('');
@@ -186,9 +186,15 @@ export default function NewReserveScreen() {
       const lot = lots.find(l => l.id === id);
       if (lot?.companyId) {
         const co = companies.find(c => c.id === lot.companyId);
-        if (co) setCompany(co.name);
+        if (co) setSelectedCompanies([co.name]);
       }
     }
+  }
+
+  function toggleCompany(name: string) {
+    setSelectedCompanies(prev =>
+      prev.includes(name) ? prev.filter(n => n !== name) : [...prev, name]
+    );
   }
 
   async function handlePickPhoto() {
@@ -271,7 +277,7 @@ export default function NewReserveScreen() {
   function handleSubmit() {
     if (isSubmitting) return;
     if (!title.trim()) { Alert.alert('Champ obligatoire', 'Le titre est requis.'); return; }
-    if (!company) { Alert.alert('Champ obligatoire', "Sélectionnez l'entreprise responsable."); return; }
+    if (selectedCompanies.length === 0) { Alert.alert('Champ obligatoire', "Sélectionnez au moins une entreprise responsable."); return; }
     if (!effectiveChantierId && (!building || !building.trim())) { Alert.alert('Champ obligatoire', 'Le bâtiment est requis.'); return; }
     if (!level || !level.trim()) { Alert.alert('Champ obligatoire', 'Le niveau est requis.'); return; }
     if (deadline && !validateDeadline(deadline)) {
@@ -291,7 +297,8 @@ export default function NewReserveScreen() {
         building,
         zone,
         level,
-        company,
+        companies: selectedCompanies,
+        company: selectedCompanies[0] ?? '',
         responsableNom: responsableNom.trim() || undefined,
         priority,
         status: 'open' as ReserveStatus,
@@ -575,8 +582,9 @@ export default function NewReserveScreen() {
           />
         </View>
 
-        {/* ENTREPRISE */}
+        {/* ENTREPRISES */}
         <View style={styles.card}>
+          <Text style={styles.label}>Entreprises responsables *</Text>
           {companies.length === 0 ? (
             <View style={styles.warningRow}>
               <Ionicons name="alert-circle-outline" size={14} color={C.medium} />
@@ -585,17 +593,38 @@ export default function NewReserveScreen() {
               </Text>
             </View>
           ) : (
-            <BottomSheetPicker
-              label="Entreprise responsable *"
-              options={companies.map(co => ({
-                label: co.name,
-                value: co.name,
-                color: co.color,
-                secondaryLabel: co.shortName !== co.name ? co.shortName : undefined,
-              }))}
-              value={company}
-              onChange={setCompany}
-            />
+            <>
+              {companies.map(co => {
+                const selected = selectedCompanies.includes(co.name);
+                return (
+                  <TouchableOpacity
+                    key={co.id}
+                    style={[styles.companyRow, selected && { backgroundColor: co.color + '15', borderColor: co.color }]}
+                    onPress={() => toggleCompany(co.name)}
+                    activeOpacity={0.7}
+                  >
+                    <View style={[styles.companyColorDot, { backgroundColor: co.color }]} />
+                    <View style={{ flex: 1 }}>
+                      <Text style={[styles.companyRowName, selected && { color: co.color, fontFamily: 'Inter_600SemiBold' }]}>{co.name}</Text>
+                      {co.shortName && co.shortName !== co.name && (
+                        <Text style={styles.companyRowShort}>{co.shortName}</Text>
+                      )}
+                    </View>
+                    <View style={[styles.companyCheckbox, selected && { backgroundColor: co.color, borderColor: co.color }]}>
+                      {selected && <Ionicons name="checkmark" size={12} color="#fff" />}
+                    </View>
+                  </TouchableOpacity>
+                );
+              })}
+              {selectedCompanies.length > 1 && (
+                <View style={styles.multiCompanyHint}>
+                  <Ionicons name="information-circle-outline" size={12} color={C.primary} />
+                  <Text style={styles.multiCompanyHintText}>
+                    {selectedCompanies.length} entreprises sélectionnées — toutes seront notifiées.
+                  </Text>
+                </View>
+              )}
+            </>
           )}
         </View>
 
@@ -712,6 +741,13 @@ const styles = StyleSheet.create({
   lotAutoFillHint: { flexDirection: 'row', alignItems: 'flex-start', gap: 6, marginTop: 8, backgroundColor: C.primaryBg, borderRadius: 8, padding: 10, borderWidth: 1, borderColor: C.primary + '30' },
   lotAutoFillText: { flex: 1, fontSize: 11, fontFamily: 'Inter_400Regular', color: C.primary, lineHeight: 16 },
 
+  companyRow: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 10, paddingHorizontal: 10, borderRadius: 10, borderWidth: 1, borderColor: C.border, marginBottom: 6, backgroundColor: C.surface2 },
+  companyColorDot: { width: 10, height: 10, borderRadius: 5, flexShrink: 0 },
+  companyRowName: { fontSize: 13, fontFamily: 'Inter_500Medium', color: C.text },
+  companyRowShort: { fontSize: 11, fontFamily: 'Inter_400Regular', color: C.textMuted, marginTop: 1 },
+  companyCheckbox: { width: 20, height: 20, borderRadius: 5, borderWidth: 1.5, borderColor: C.border, backgroundColor: C.surface, alignItems: 'center', justifyContent: 'center', flexShrink: 0 },
+  multiCompanyHint: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 4, paddingHorizontal: 2 },
+  multiCompanyHintText: { fontSize: 11, fontFamily: 'Inter_400Regular', color: C.primary, flex: 1 },
   warningRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 8, backgroundColor: C.medium + '10', borderRadius: 10, padding: 12, borderWidth: 1, borderColor: C.medium + '30' },
   warningText: { flex: 1, fontSize: 13, fontFamily: 'Inter_400Regular', color: C.medium, lineHeight: 18 },
 

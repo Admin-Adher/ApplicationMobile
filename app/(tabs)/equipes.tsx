@@ -60,7 +60,10 @@ export default function EquipesScreen() {
     const map: Record<string, { openReserves: number; activeTasks: number }> = {};
     for (const co of companies) {
       map[co.id] = {
-        openReserves: reserves.filter(r => r.company === co.name && r.status !== 'closed').length,
+        openReserves: reserves.filter(r => {
+          const names = r.companies ?? (r.company ? [r.company] : []);
+          return names.includes(co.name) && r.status !== 'closed';
+        }).length,
         activeTasks: tasks.filter(t =>
           (t.company === co.id || t.company === co.name) &&
           (t.status === 'in_progress' || t.status === 'delayed')

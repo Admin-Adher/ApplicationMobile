@@ -104,6 +104,7 @@ export interface Chantier {
   status: ChantierStatus;
   createdAt: string;
   createdBy: string;
+  companyIds?: string[];
 }
 
 export interface SitePlan {
@@ -247,7 +248,8 @@ export interface Reserve {
   building: string;
   zone: string;
   level: string;
-  company: string;
+  companies?: string[];
+  company?: string;
   responsableNom?: string;
   priority: ReservePriority;
   status: ReserveStatus;

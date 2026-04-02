@@ -116,9 +116,17 @@ type Action =
   | { type: 'BATCH_UPDATE_RESERVES'; payload: Reserve[] };
 
 function toReserve(row: any): Reserve {
+  const companies: string[] = Array.isArray(row.companies) && row.companies.length > 0
+    ? row.companies
+    : row.company
+      ? [row.company]
+      : [];
   return {
     id: row.id, title: row.title, description: row.description, building: row.building,
-    zone: row.zone, level: row.level, company: row.company, priority: row.priority as ReservePriority,
+    zone: row.zone, level: row.level,
+    companies,
+    company: companies[0] ?? row.company,
+    priority: row.priority as ReservePriority,
     status: row.status as ReserveStatus, createdAt: row.created_at, deadline: row.deadline,
     comments: row.comments ?? [], history: row.history ?? [],
     planX: row.plan_x, planY: row.plan_y, photoUri: row.photo_uri ?? undefined,
@@ -280,6 +288,7 @@ function toChantier(row: any): Chantier {
     status: row.status as ChantierStatus,
     createdAt: row.created_at,
     createdBy: row.created_by ?? '',
+    companyIds: Array.isArray(row.company_ids) ? row.company_ids : undefined,
   };
 }
 
@@ -636,7 +645,7 @@ interface AppContextValue extends AppState {
   addOpr: (o: Opr) => void;
   updateOpr: (o: Opr) => void;
   deleteOpr: (id: string) => void;
-  batchUpdateReserves: (ids: string[], updates: Partial<Pick<Reserve, 'status' | 'company' | 'deadline' | 'priority'>>, author?: string) => void;
+  batchUpdateReserves: (ids: string[], updates: Partial<Pick<Reserve, 'status' | 'company' | 'companies' | 'deadline' | 'priority'>>, author?: string) => void;
   addSitePlanVersion: (parentPlanId: string, newPlan: SitePlan) => void;
   migrateReservesToPlan: (fromPlanId: string, toPlanId: string) => number;
   realtimeConnected: boolean;
@@ -664,6 +673,7 @@ const MOCK_CHANTIERS: Chantier[] = [
     status: 'active',
     createdAt: '2026-01-01',
     createdBy: 'Admin Système',
+    companyIds: ['co1', 'co2', 'co3', 'co4'],
   },
 ];
 
@@ -674,14 +684,14 @@ const MOCK_SITE_PLANS: SitePlan[] = [
 ];
 
 const MOCK_RESERVES: Reserve[] = [
-  { id: 'RSV-001', title: 'Fissure mur porteur RDC', description: 'Fissure horizontale de 2 mm sur le mur porteur nord, entre les axes B3 et B4.', building: 'A', zone: 'Zone Nord', level: 'RDC', company: 'Maçonnerie Dubois', priority: 'critical', status: 'open', createdAt: '2026-03-15', deadline: '25/03/2026', comments: [], history: [{ id: 'h1', action: 'Réserve créée', author: 'Jean Dupont', createdAt: '2026-03-15' }], planX: 20, planY: 30, chantierId: 'chan1', planId: 'sp-A' },
-  { id: 'RSV-002', title: 'Fuite canalisation sous-sol', description: 'Fuite eau froide au niveau du coude DN50, local technique.', building: 'B', zone: 'Zone Sud', level: 'Sous-sol', company: 'Plomberie Martin', priority: 'high', status: 'in_progress', createdAt: '2026-03-18', deadline: '22/03/2026', comments: [{ id: 'c1', author: 'Marie Martin', content: 'Intervention prévue demain matin.', createdAt: '2026-03-19' }], history: [{ id: 'h2', action: 'Réserve créée', author: 'Jean Dupont', createdAt: '2026-03-18' }, { id: 'h3', action: 'Statut modifié', author: 'Jean Dupont', createdAt: '2026-03-19', oldValue: 'Ouvert', newValue: 'En cours' }], planX: 55, planY: 70, chantierId: 'chan1', planId: 'sp-B' },
-  { id: 'RSV-003', title: 'Défaut prise électrique R+1', description: "Prise 16A non fonctionnelle chambre 12, vérification du circuit F7.", building: 'A', zone: 'Zone Est', level: 'R+1', company: 'Électricité Leroy', priority: 'medium', status: 'verification', createdAt: '2026-03-10', deadline: '30/03/2026', comments: [], history: [{ id: 'h4', action: 'Réserve créée', author: 'Admin Système', createdAt: '2026-03-10' }], planX: 75, planY: 45, chantierId: 'chan1', planId: 'sp-A' },
-  { id: 'RSV-004', title: 'Porte intérieure coincée', description: "Porte chambre 8 ferme mal, gêne au passage. Seuil à reprendre.", building: 'B', zone: 'Zone Ouest', level: 'R+2', company: 'Menuiserie Petit', priority: 'low', status: 'closed', createdAt: '2026-03-05', deadline: '15/03/2026', comments: [], history: [{ id: 'h5', action: 'Réserve créée', author: 'Jean Dupont', createdAt: '2026-03-05' }, { id: 'h6', action: 'Statut modifié', author: 'Marie Martin', createdAt: '2026-03-14', oldValue: 'En cours', newValue: 'Clôturé' }], planX: 30, planY: 60, chantierId: 'chan1', planId: 'sp-B' },
-  { id: 'RSV-005', title: 'Finition peinture escalier', description: "Reprise peinture nécessaire sur la cage d'escalier, côté palier R+1.", building: 'C', zone: 'Zone Centre', level: 'R+1', company: 'Maçonnerie Dubois', priority: 'low', status: 'waiting', createdAt: '2026-03-20', deadline: '—', comments: [], history: [{ id: 'h7', action: 'Réserve créée', author: 'Jean Dupont', createdAt: '2026-03-20' }], planX: 50, planY: 50, chantierId: 'chan1', planId: 'sp-C' },
-  { id: 'RSV-006', title: 'Infiltration toiture bât. C', description: "Trace d'humidité au plafond R+3, infiltration possible au niveau de l'acrotère.", building: 'C', zone: 'Zone Nord', level: 'R+3', company: 'Maçonnerie Dubois', priority: 'high', status: 'open', createdAt: '2026-03-22', deadline: '01/04/2026', comments: [], history: [{ id: 'h8', action: 'Réserve créée', author: 'Admin Système', createdAt: '2026-03-22' }], planX: 65, planY: 20, chantierId: 'chan1', planId: 'sp-C' },
-  { id: 'RSV-007', title: 'Câblage réseau salle serveur', description: 'Câbles réseau non étiquetés, brassage à revoir selon plan informatique.', building: 'A', zone: 'Zone Centre', level: 'Sous-sol', company: 'Électricité Leroy', priority: 'medium', status: 'in_progress', createdAt: '2026-03-25', deadline: '05/04/2026', comments: [], history: [{ id: 'h9', action: 'Réserve créée', author: 'Jean Dupont', createdAt: '2026-03-25' }], planX: 40, planY: 80, chantierId: 'chan1', planId: 'sp-A' },
-  { id: 'RSV-008', title: 'Carrelage fissuré salle de bain', description: 'Carrelage salle de bain appt 14, fissure diagonale 15 cm, risque éclat.', building: 'B', zone: 'Zone Est', level: 'R+2', company: 'Maçonnerie Dubois', priority: 'medium', status: 'open', createdAt: '2026-03-28', deadline: '10/04/2026', comments: [], history: [{ id: 'h10', action: 'Réserve créée', author: 'Marie Martin', createdAt: '2026-03-28' }], planX: 80, planY: 35, chantierId: 'chan1', planId: 'sp-B' },
+  { id: 'RSV-001', title: 'Fissure mur porteur RDC', description: 'Fissure horizontale de 2 mm sur le mur porteur nord, entre les axes B3 et B4.', building: 'A', zone: 'Zone Nord', level: 'RDC', companies: ['Maçonnerie Dubois'], company: 'Maçonnerie Dubois', priority: 'critical', status: 'open', createdAt: '2026-03-15', deadline: '25/03/2026', comments: [], history: [{ id: 'h1', action: 'Réserve créée', author: 'Jean Dupont', createdAt: '2026-03-15' }], planX: 20, planY: 30, chantierId: 'chan1', planId: 'sp-A' },
+  { id: 'RSV-002', title: 'Fuite canalisation sous-sol', description: 'Fuite eau froide au niveau du coude DN50, local technique.', building: 'B', zone: 'Zone Sud', level: 'Sous-sol', companies: ['Plomberie Martin'], company: 'Plomberie Martin', priority: 'high', status: 'in_progress', createdAt: '2026-03-18', deadline: '22/03/2026', comments: [{ id: 'c1', author: 'Marie Martin', content: 'Intervention prévue demain matin.', createdAt: '2026-03-19' }], history: [{ id: 'h2', action: 'Réserve créée', author: 'Jean Dupont', createdAt: '2026-03-18' }, { id: 'h3', action: 'Statut modifié', author: 'Jean Dupont', createdAt: '2026-03-19', oldValue: 'Ouvert', newValue: 'En cours' }], planX: 55, planY: 70, chantierId: 'chan1', planId: 'sp-B' },
+  { id: 'RSV-003', title: 'Défaut prise électrique R+1', description: "Prise 16A non fonctionnelle chambre 12, vérification du circuit F7.", building: 'A', zone: 'Zone Est', level: 'R+1', companies: ['Électricité Leroy'], company: 'Électricité Leroy', priority: 'medium', status: 'verification', createdAt: '2026-03-10', deadline: '30/03/2026', comments: [], history: [{ id: 'h4', action: 'Réserve créée', author: 'Admin Système', createdAt: '2026-03-10' }], planX: 75, planY: 45, chantierId: 'chan1', planId: 'sp-A' },
+  { id: 'RSV-004', title: 'Porte intérieure coincée', description: "Porte chambre 8 ferme mal, gêne au passage. Seuil à reprendre.", building: 'B', zone: 'Zone Ouest', level: 'R+2', companies: ['Menuiserie Petit'], company: 'Menuiserie Petit', priority: 'low', status: 'closed', createdAt: '2026-03-05', deadline: '15/03/2026', comments: [], history: [{ id: 'h5', action: 'Réserve créée', author: 'Jean Dupont', createdAt: '2026-03-05' }, { id: 'h6', action: 'Statut modifié', author: 'Marie Martin', createdAt: '2026-03-14', oldValue: 'En cours', newValue: 'Clôturé' }], planX: 30, planY: 60, chantierId: 'chan1', planId: 'sp-B' },
+  { id: 'RSV-005', title: 'Finition peinture escalier', description: "Reprise peinture nécessaire sur la cage d'escalier, côté palier R+1.", building: 'C', zone: 'Zone Centre', level: 'R+1', companies: ['Maçonnerie Dubois'], company: 'Maçonnerie Dubois', priority: 'low', status: 'waiting', createdAt: '2026-03-20', deadline: '—', comments: [], history: [{ id: 'h7', action: 'Réserve créée', author: 'Jean Dupont', createdAt: '2026-03-20' }], planX: 50, planY: 50, chantierId: 'chan1', planId: 'sp-C' },
+  { id: 'RSV-006', title: 'Infiltration toiture bât. C', description: "Trace d'humidité au plafond R+3, infiltration possible au niveau de l'acrotère.", building: 'C', zone: 'Zone Nord', level: 'R+3', companies: ['Maçonnerie Dubois', 'Plomberie Martin'], company: 'Maçonnerie Dubois', priority: 'high', status: 'open', createdAt: '2026-03-22', deadline: '01/04/2026', comments: [], history: [{ id: 'h8', action: 'Réserve créée', author: 'Admin Système', createdAt: '2026-03-22' }], planX: 65, planY: 20, chantierId: 'chan1', planId: 'sp-C' },
+  { id: 'RSV-007', title: 'Câblage réseau salle serveur', description: 'Câbles réseau non étiquetés, brassage à revoir selon plan informatique.', building: 'A', zone: 'Zone Centre', level: 'Sous-sol', companies: ['Électricité Leroy'], company: 'Électricité Leroy', priority: 'medium', status: 'in_progress', createdAt: '2026-03-25', deadline: '05/04/2026', comments: [], history: [{ id: 'h9', action: 'Réserve créée', author: 'Jean Dupont', createdAt: '2026-03-25' }], planX: 40, planY: 80, chantierId: 'chan1', planId: 'sp-A' },
+  { id: 'RSV-008', title: 'Carrelage fissuré salle de bain', description: 'Carrelage salle de bain appt 14, fissure diagonale 15 cm, risque éclat.', building: 'B', zone: 'Zone Est', level: 'R+2', companies: ['Maçonnerie Dubois', 'Menuiserie Petit'], company: 'Maçonnerie Dubois', priority: 'medium', status: 'open', createdAt: '2026-03-28', deadline: '10/04/2026', comments: [], history: [{ id: 'h10', action: 'Réserve créée', author: 'Marie Martin', createdAt: '2026-03-28' }], planX: 80, planY: 35, chantierId: 'chan1', planId: 'sp-B' },
 ];
 
 const MOCK_TASKS: Task[] = [
@@ -1722,7 +1732,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       if (isSupabaseConfigured) {
         supabase.from('reserves').insert({
           id: r.id, title: r.title, description: r.description, building: r.building,
-          zone: r.zone, level: r.level, company: r.company, priority: r.priority,
+          zone: r.zone, level: r.level,
+          company: (r.companies ?? (r.company ? [r.company] : []))[0] ?? null,
+          companies: r.companies ?? (r.company ? [r.company] : []),
+          priority: r.priority,
           status: r.status, created_at: r.createdAt, deadline: r.deadline,
           comments: r.comments, history: r.history,
           plan_x: r.planX ?? 50, plan_y: r.planY ?? 50,
@@ -1762,7 +1775,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       if (isSupabaseConfigured) {
         supabase.from('reserves').update({
           title: r.title, description: r.description, building: r.building,
-          zone: r.zone, level: r.level, company: r.company, priority: r.priority,
+          zone: r.zone, level: r.level,
+          company: (r.companies ?? (r.company ? [r.company] : []))[0] ?? null,
+          companies: r.companies ?? (r.company ? [r.company] : []),
+          priority: r.priority,
           status: r.status, deadline: r.deadline, comments: r.comments, history: r.history,
           plan_x: r.planX ?? 50, plan_y: r.planY ?? 50, photo_uri: r.photoUri ?? null,
           lot_id: r.lotId ?? null,
@@ -1798,13 +1814,19 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       if (isSupabaseConfigured) {
         supabase.from('reserves').update({
           title: r.title, description: r.description, building: r.building,
-          zone: r.zone, level: r.level, company: r.company, priority: r.priority,
+          zone: r.zone, level: r.level,
+          company: (r.companies ?? (r.company ? [r.company] : []))[0] ?? null,
+          companies: r.companies ?? (r.company ? [r.company] : []),
+          priority: r.priority,
           status: r.status, deadline: r.deadline, comments: r.comments, history: r.history,
           photo_uri: r.photoUri ?? null,
           lot_id: r.lotId ?? null,
           kind: r.kind ?? null,
           photos: r.photos ?? null,
           photo_annotations: r.photoAnnotations ?? null,
+          enterprise_signature: r.enterpriseSignature ?? null,
+          enterprise_signataire: r.enterpriseSignataire ?? null,
+          enterprise_acknowledged_at: r.enterpriseAcknowledgedAt ?? null,
         }).eq('id', r.id).then(({ error }: { error: any }) => {
           if (error) {
             if (previous) dispatch({ type: 'UPDATE_RESERVE_FIELDS', payload: previous });
@@ -1870,10 +1892,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         });
       }
 
-      const company = stateRef.current.companies.find(c => c.name === reserve.company);
-      if (company) {
+      const reserveCompanyNames = reserve.companies ?? (reserve.company ? [reserve.company] : []);
+      const notifiedCompanies = stateRef.current.companies.filter(c => reserveCompanyNames.includes(c.name));
+      const ts = nowTimestampFR();
+      for (const company of notifiedCompanies) {
         const notifChannelId = `company-${company.id}`;
-        const ts = nowTimestampFR();
         const notifMsg: Message = {
           id: genId(),
           channelId: notifChannelId,
@@ -2337,16 +2360,20 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
             oldValue: statusLabels[reserve.status], newValue: statusLabels[updates.status],
           });
         }
-        if (updates.company && updates.company !== reserve.company) {
+        const newCompanies = updates.companies ?? (updates.company ? [updates.company] : undefined);
+        const oldCompanies = reserve.companies ?? (reserve.company ? [reserve.company] : []);
+        if (newCompanies && JSON.stringify(newCompanies) !== JSON.stringify(oldCompanies)) {
           historyEntries.push({
-            id: genId(), action: 'Entreprise modifiée (lot)', author: actualAuthor, createdAt: now,
-            oldValue: reserve.company, newValue: updates.company,
+            id: genId(), action: 'Entreprises modifiées (lot)', author: actualAuthor, createdAt: now,
+            oldValue: oldCompanies.join(', '), newValue: newCompanies.join(', '),
           });
         }
         const isClosing = updates.status === 'closed' && reserve.status !== 'closed';
         const r: Reserve = {
           ...reserve,
           ...updates,
+          companies: newCompanies ?? oldCompanies,
+          company: (newCompanies ?? oldCompanies)[0] ?? reserve.company,
           history: [...reserve.history, ...historyEntries],
           closedAt: isClosing ? now : reserve.closedAt,
           closedBy: isClosing ? actualAuthor : reserve.closedBy,
@@ -2359,7 +2386,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         Promise.all(
           updated.map(r =>
             supabase.from('reserves').update({
-              status: r.status, company: r.company, deadline: r.deadline,
+              status: r.status,
+              company: (r.companies ?? (r.company ? [r.company] : []))[0] ?? null,
+              companies: r.companies ?? (r.company ? [r.company] : []),
+              deadline: r.deadline,
               priority: r.priority, history: r.history,
               closed_at: r.closedAt ?? null, closed_by: r.closedBy ?? null,
             }).eq('id', r.id)

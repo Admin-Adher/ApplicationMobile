@@ -24,7 +24,7 @@ interface PendingPlan {
 
 export default function NewChantierScreen() {
   const router = useRouter();
-  const { addChantier, chantiers } = useApp();
+  const { addChantier, chantiers, companies } = useApp();
   const { user } = useAuth();
 
   const [name, setName] = useState('');
@@ -35,8 +35,13 @@ export default function NewChantierScreen() {
   const [plans, setPlans] = useState<PendingPlan[]>([
     { id: genId(), name: 'Plan général' },
   ]);
+  const [selectedCompanyIds, setSelectedCompanyIds] = useState<string[]>([]);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [importingPlanId, setImportingPlanId] = useState<string | null>(null);
+
+  function toggleChantierCompany(id: string) {
+    setSelectedCompanyIds(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
+  }
 
   function addPlanRow() {
     setPlans(prev => [...prev, { id: genId(), name: '' }]);
@@ -102,6 +107,7 @@ export default function NewChantierScreen() {
       status: 'active',
       createdAt: todayFr,
       createdBy: user?.name ?? 'Inconnu',
+      companyIds: selectedCompanyIds.length > 0 ? selectedCompanyIds : undefined,
     };
 
     const newPlans: SitePlan[] = validPlans.map(p => ({
@@ -178,6 +184,35 @@ export default function NewChantierScreen() {
             </View>
           </View>
         </View>
+
+        {companies.length > 0 && (
+          <View style={styles.card}>
+            <Text style={styles.label}>Entreprises associées</Text>
+            <Text style={styles.hint}>Sélectionnez les entreprises intervenant sur ce chantier (optionnel).</Text>
+            {companies.map(co => {
+              const sel = selectedCompanyIds.includes(co.id);
+              return (
+                <TouchableOpacity
+                  key={co.id}
+                  style={[styles.coRow, sel && { borderColor: co.color, backgroundColor: co.color + '15' }]}
+                  onPress={() => toggleChantierCompany(co.id)}
+                  activeOpacity={0.7}
+                >
+                  <View style={[styles.coDot, { backgroundColor: co.color }]} />
+                  <View style={{ flex: 1 }}>
+                    <Text style={[styles.coName, sel && { color: co.color, fontFamily: 'Inter_600SemiBold' }]}>{co.name}</Text>
+                    {co.shortName && co.shortName !== co.name && (
+                      <Text style={styles.coShort}>{co.shortName}</Text>
+                    )}
+                  </View>
+                  <View style={[styles.coCheck, sel && { backgroundColor: co.color, borderColor: co.color }]}>
+                    {sel && <Ionicons name="checkmark" size={12} color="#fff" />}
+                  </View>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+        )}
 
         <View style={styles.plansSection}>
           <View style={styles.plansSectionHeader}>
@@ -277,6 +312,12 @@ const styles = StyleSheet.create({
   card: { backgroundColor: C.surface, borderRadius: 14, padding: 16, marginBottom: 14, borderWidth: 1, borderColor: C.border },
   fieldGroup: { marginBottom: 14 },
   label: { fontSize: 12, fontFamily: 'Inter_600SemiBold', color: C.textSub, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 8 },
+  hint: { fontSize: 12, fontFamily: 'Inter_400Regular', color: C.textMuted, marginBottom: 10, lineHeight: 17 },
+  coRow: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 10, paddingHorizontal: 10, borderRadius: 10, borderWidth: 1, borderColor: C.border, backgroundColor: C.surface2, marginBottom: 6 },
+  coDot: { width: 10, height: 10, borderRadius: 5, flexShrink: 0 },
+  coName: { fontSize: 13, fontFamily: 'Inter_500Medium', color: C.text },
+  coShort: { fontSize: 11, fontFamily: 'Inter_400Regular', color: C.textMuted, marginTop: 1 },
+  coCheck: { width: 20, height: 20, borderRadius: 5, borderWidth: 1.5, borderColor: C.border, backgroundColor: C.surface, alignItems: 'center', justifyContent: 'center', flexShrink: 0 },
   input: {
     backgroundColor: C.surface2, borderRadius: 10, paddingHorizontal: 14, paddingVertical: 12,
     color: C.text, fontFamily: 'Inter_400Regular', fontSize: 14,

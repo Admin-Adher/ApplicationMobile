@@ -61,7 +61,7 @@ export default function ReserveCard({ reserve, onPress, onLongPress, onSwipeRigh
       delayLongPress={400}
       activeOpacity={0.75}
       accessibilityRole="button"
-      accessibilityLabel={`Réserve ${reserve.id} — ${reserve.title} — statut ${reserve.status === 'open' ? 'Ouvert' : reserve.status === 'in_progress' ? 'En cours' : reserve.status === 'waiting' ? 'En attente' : reserve.status === 'verification' ? 'Vérification' : 'Clôturé'} — ${reserve.company}`}
+      accessibilityLabel={`Réserve ${reserve.id} — ${reserve.title} — statut ${reserve.status === 'open' ? 'Ouvert' : reserve.status === 'in_progress' ? 'En cours' : reserve.status === 'waiting' ? 'En attente' : reserve.status === 'verification' ? 'Vérification' : 'Clôturé'} — ${(reserve.companies ?? (reserve.company ? [reserve.company] : [])).join(', ')}`}
       accessibilityHint={onLongPress ? "Appuyer longuement pour changer le statut rapidement" : undefined}
     >
       <View style={styles.top}>
@@ -119,7 +119,9 @@ export default function ReserveCard({ reserve, onPress, onLongPress, onSwipeRigh
       <View style={styles.bottom}>
         <View style={styles.companyWrap}>
           <Ionicons name="people-outline" size={12} color={C.textMuted} />
-          <Text style={styles.company} numberOfLines={1}>{reserve.company}</Text>
+          <Text style={styles.company} numberOfLines={1}>
+            {(reserve.companies && reserve.companies.length > 0 ? reserve.companies : reserve.company ? [reserve.company] : ['—']).join(', ')}
+          </Text>
         </View>
         <View style={styles.rightRow}>
           {!firstPhotoUri && reserve.photoUri ? (

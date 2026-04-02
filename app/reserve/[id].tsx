@@ -280,7 +280,7 @@ export default function ReserveDetailScreen() {
   const [editBuilding, setEditBuilding] = useState<string>(reserve?.building ?? RESERVE_BUILDINGS[0]);
   const [editZone, setEditZone] = useState<string>(RESERVE_ZONES[0]);
   const [editLevel, setEditLevel] = useState<string>('RDC');
-  const [editCompany, setEditCompany] = useState('');
+  const [editCompanies, setEditCompanies] = useState<string[]>([]);
   const [editPriority, setEditPriority] = useState<ReservePriority>('medium');
   const [editDeadline, setEditDeadline] = useState('');
 
@@ -310,7 +310,9 @@ export default function ReserveDetailScreen() {
   const defectCount = allPhotos.filter(p => p.kind === 'defect').length;
   const resolutionCount = allPhotos.filter(p => p.kind === 'resolution').length;
 
-  const company = companies.find(c => c.name === reserve.company);
+  const reserveCompanyNames = reserve.companies ?? (reserve.company ? [reserve.company] : []);
+  const reserveCompanyObjects = companies.filter(c => reserveCompanyNames.includes(c.name));
+  const company = reserveCompanyObjects[0] ?? null;
   const companyChannel = company ? channels.find(ch => ch.id === `company-${company.id}`) : null;
 
   function openEdit() {
@@ -320,7 +322,7 @@ export default function ReserveDetailScreen() {
     setEditBuilding(reserve.building);
     setEditZone(reserve.zone);
     setEditLevel(reserve.level);
-    setEditCompany(reserve.company);
+    setEditCompanies(reserve.companies ?? (reserve.company ? [reserve.company] : []));
     setEditPriority(reserve.priority);
     setEditDeadline(reserve.deadline === '—' ? '' : reserve.deadline);
     setEditPhotos(reserve.photos ?? (reserve.photoUri ? [{ id: 'legacy', uri: reserve.photoUri, kind: 'defect', takenAt: reserve.createdAt, takenBy: '' }] : []));
@@ -451,7 +453,9 @@ export default function ReserveDetailScreen() {
     if (editBuilding !== r.building) changes.push({ label: 'Bâtiment', oldVal: r.building, newVal: editBuilding });
     if (editZone !== r.zone) changes.push({ label: 'Zone', oldVal: r.zone, newVal: editZone });
     if (editLevel !== r.level) changes.push({ label: 'Niveau', oldVal: r.level, newVal: editLevel });
-    if (editCompany !== r.company) changes.push({ label: 'Entreprise', oldVal: r.company, newVal: editCompany });
+    const oldNames = (r.companies ?? (r.company ? [r.company] : [])).join(', ');
+    const newNames = editCompanies.join(', ');
+    if (oldNames !== newNames) changes.push({ label: 'Entreprises', oldVal: oldNames, newVal: newNames });
     if (editPriority !== r.priority) changes.push({ label: 'Priorité', oldVal: PRIORITY_LABEL[r.priority], newVal: PRIORITY_LABEL[editPriority] });
     const newDl = editDeadline || '—';
     if (newDl !== r.deadline) changes.push({ label: 'Échéance', oldVal: r.deadline, newVal: newDl });
@@ -486,7 +490,8 @@ export default function ReserveDetailScreen() {
       building: editBuilding,
       zone: editZone,
       level: editLevel,
-      company: editCompany,
+      companies: editCompanies,
+      company: editCompanies[0] ?? reserve.company,
       priority: editPriority,
       deadline: editDeadline || '—',
       photoUri: editPhotos[0]?.uri ?? undefined,
@@ -546,19 +551,22 @@ export default function ReserveDetailScreen() {
     );
   }
 
-  function handleContactCompany() {
+  function handleContactCompany(targetCompany?: typeof company) {
     if (!reserve) return;
-    if (!companyChannel) {
-      Alert.alert('Canal indisponible', `Le canal de "${reserve.company}" n'existe pas encore. Ajoutez d'abord l'entreprise dans l'onglet Équipes.`);
+    const co = targetCompany ?? company;
+    if (!co) { Alert.alert('Aucune entreprise', 'Aucune entreprise associée à cette réserve.'); return; }
+    const ch = channels.find(c => c.id === `company-${co.id}`);
+    if (!ch) {
+      Alert.alert('Canal indisponible', `Le canal de "${co.name}" n'existe pas encore. Ajoutez d'abord l'entreprise dans l'onglet Équipes.`);
       return;
     }
     router.push({
       pathname: '/channel/[id]',
       params: {
-        id: companyChannel.id,
-        name: companyChannel.name,
-        color: companyChannel.color,
-        icon: companyChannel.icon,
+        id: ch.id,
+        name: ch.name,
+        color: ch.color,
+        icon: ch.icon,
         isDM: '0',
         isGroup: '0',
         members: '',
@@ -704,7 +712,7 @@ export default function ReserveDetailScreen() {
           <InfoRow icon="business-outline" label="Bâtiment" value={`Bâtiment ${reserve.building}`} />
           <InfoRow icon="location-outline" label="Zone" value={reserve.zone} />
           <InfoRow icon="layers-outline" label="Niveau" value={reserve.level} />
-          <InfoRow icon="people-outline" label="Entreprise" value={reserve.company} />
+          <InfoRow icon="people-outline" label={reserveCompanyNames.length > 1 ? 'Entreprises' : 'Entreprise'} value={reserveCompanyNames.join(', ') || '—'} />
           {reserve.responsableNom ? (
             <InfoRow icon="person-circle-outline" label="Responsable" value={reserve.responsableNom} />
           ) : null}
@@ -732,17 +740,20 @@ export default function ReserveDetailScreen() {
               last
             />
           )}
-          <TouchableOpacity
-            style={[styles.contactBtn, { borderColor: company?.color ?? C.primary, backgroundColor: (company?.color ?? C.primary) + '12' }]}
-            onPress={handleContactCompany}
-            activeOpacity={0.75}
-          >
-            <Ionicons name="chatbubbles" size={16} color={company?.color ?? C.primary} />
-            <Text style={[styles.contactBtnText, { color: company?.color ?? C.primary }]}>
-              Contacter {reserve.company}
-            </Text>
-            <Ionicons name="chevron-forward" size={14} color={company?.color ?? C.primary} />
-          </TouchableOpacity>
+          {reserveCompanyObjects.length === 0 ? null : reserveCompanyObjects.map(co => (
+            <TouchableOpacity
+              key={co.id}
+              style={[styles.contactBtn, { borderColor: co.color, backgroundColor: co.color + '12', marginTop: 4 }]}
+              onPress={() => handleContactCompany(co)}
+              activeOpacity={0.75}
+            >
+              <Ionicons name="chatbubbles" size={16} color={co.color} />
+              <Text style={[styles.contactBtnText, { color: co.color }]}>
+                Contacter {co.name}
+              </Text>
+              <Ionicons name="chevron-forward" size={14} color={co.color} />
+            </TouchableOpacity>
+          ))}
         </View>
 
         <View style={styles.card}>
@@ -1135,24 +1146,34 @@ export default function ReserveDetailScreen() {
               <Text style={mStyles.label}>NIVEAU</Text>
               <ChipSelect options={RESERVE_LEVELS} value={editLevel} onChange={setEditLevel} />
 
-              <Text style={mStyles.label}>ENTREPRISE</Text>
+              <Text style={mStyles.label}>ENTREPRISES</Text>
               {companies.length === 0 ? (
                 <Text style={mStyles.hint}>Aucune entreprise configurée.</Text>
               ) : (
-                <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 4 }}>
-                  <View style={{ flexDirection: 'row', gap: 8, paddingRight: 8 }}>
-                    {companies.map(co => (
+                <>
+                  {companies.map(co => {
+                    const sel = editCompanies.includes(co.name);
+                    return (
                       <TouchableOpacity
                         key={co.id}
-                        style={[mStyles.chip, editCompany === co.name && { borderColor: co.color, backgroundColor: co.color + '20' }]}
-                        onPress={() => setEditCompany(co.name)}
+                        style={[mStyles.coRow, sel && { borderColor: co.color, backgroundColor: co.color + '15' }]}
+                        onPress={() => setEditCompanies(prev => sel ? prev.filter(n => n !== co.name) : [...prev, co.name])}
+                        activeOpacity={0.7}
                       >
-                        <View style={{ width: 7, height: 7, borderRadius: 4, backgroundColor: co.color }} />
-                        <Text style={[mStyles.chipText, editCompany === co.name && { color: co.color }]}>{co.shortName}</Text>
+                        <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: co.color, flexShrink: 0 }} />
+                        <Text style={[mStyles.coRowText, sel && { color: co.color, fontFamily: 'Inter_600SemiBold' }]}>{co.name}</Text>
+                        <View style={[mStyles.coCheck, sel && { backgroundColor: co.color, borderColor: co.color }]}>
+                          {sel && <Ionicons name="checkmark" size={11} color="#fff" />}
+                        </View>
                       </TouchableOpacity>
-                    ))}
-                  </View>
-                </ScrollView>
+                    );
+                  })}
+                  {editCompanies.length > 1 && (
+                    <Text style={[mStyles.hint, { color: C.primary, marginTop: 4 }]}>
+                      {editCompanies.length} entreprises sélectionnées — toutes seront notifiées lors d'un changement de statut.
+                    </Text>
+                  )}
+                </>
               )}
 
               <Text style={mStyles.label}>PRIORITÉ</Text>
@@ -1446,4 +1467,7 @@ const mStyles = StyleSheet.create({
     backgroundColor: 'rgba(0,0,0,0.55)', width: 18, height: 18, borderRadius: 9,
     alignItems: 'center', justifyContent: 'center',
   },
+  coRow: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: 9, paddingHorizontal: 10, borderRadius: 10, borderWidth: 1, borderColor: C.border, backgroundColor: C.surface2, marginBottom: 6 },
+  coRowText: { flex: 1, fontSize: 13, fontFamily: 'Inter_500Medium', color: C.text },
+  coCheck: { width: 20, height: 20, borderRadius: 5, borderWidth: 1.5, borderColor: C.border, backgroundColor: C.surface, alignItems: 'center', justifyContent: 'center', flexShrink: 0 },
 });
