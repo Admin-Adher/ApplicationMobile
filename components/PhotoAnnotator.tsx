@@ -3,6 +3,7 @@ import {
   View, Text, StyleSheet, Modal, TouchableOpacity, Image,
   Platform, TextInput, ScrollView, Alert,
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { C } from '@/constants/colors';
 import { PhotoAnnotation } from '@/constants/types';
@@ -45,6 +46,7 @@ export function PhotoAnnotationOverlay({
   onClose,
   visible,
 }: Props) {
+  const insets = useSafeAreaInsets();
   const [markers, setMarkers] = useState<PhotoAnnotation[]>(annotations);
   const [selectedColor, setSelectedColor] = useState(MARKER_COLORS[0].value);
   const [activeTool, setActiveTool] = useState<AnnotationTool>('point');
@@ -176,7 +178,7 @@ export function PhotoAnnotationOverlay({
   return (
     <Modal visible={visible} animationType="slide" presentationStyle="pageSheet" onRequestClose={onClose}>
       <View style={styles.container}>
-        <View style={styles.header}>
+        <View style={[styles.header, { paddingTop: insets.top + 12 }]}>
           <TouchableOpacity onPress={onClose} style={styles.closeBtn}>
             <Ionicons name="close" size={22} color={C.text} />
           </TouchableOpacity>

@@ -12,6 +12,7 @@ import {
   Platform,
   TouchableOpacity,
   Text,
+  useWindowDimensions,
 } from 'react-native';
 import { C } from '@/constants/colors';
 
@@ -26,12 +27,12 @@ interface Point {
   y: number;
 }
 
-const PAD_WIDTH = 320;
+const PAD_MAX_WIDTH = 320;
 const PAD_HEIGHT = 140;
 const STROKE_COLOR = '#1A2742';
 const STROKE_WIDTH = 2.5;
 
-function buildSVGString(strokes: Point[][]): string {
+function buildSVGString(strokes: Point[][], padWidth: number): string {
   const pathDefs = strokes
     .filter(s => s.length > 0)
     .map(stroke => {
@@ -45,7 +46,7 @@ function buildSVGString(strokes: Point[][]): string {
       return `<path d="${d}" stroke="${STROKE_COLOR}" stroke-width="${STROKE_WIDTH}" fill="none" stroke-linecap="round" stroke-linejoin="round"/>`;
     })
     .join('');
-  return `<svg xmlns="http://www.w3.org/2000/svg" width="${PAD_WIDTH}" height="${PAD_HEIGHT}" style="background:white">${pathDefs}</svg>`;
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="${padWidth}" height="${PAD_HEIGHT}" style="background:white">${pathDefs}</svg>`;
 }
 
 const SignaturePad = forwardRef<SignaturePadRef>((_, ref) => {
@@ -54,6 +55,8 @@ const SignaturePad = forwardRef<SignaturePadRef>((_, ref) => {
   const isDrawingRef = useRef(false);
   const canvasRef = useRef<any>(null);
   const ctxRef = useRef<CanvasRenderingContext2D | null>(null);
+  const { width: screenWidth } = useWindowDimensions();
+  const PAD_WIDTH = Math.min(PAD_MAX_WIDTH, screenWidth - 48);
 
   const initCanvas = useCallback((el: any) => {
     if (!el) return;
@@ -77,7 +80,7 @@ const SignaturePad = forwardRef<SignaturePadRef>((_, ref) => {
   useImperativeHandle(ref, () => ({
     getSVGData: () => {
       if (strokes.length === 0 || strokes.every(s => s.length === 0)) return null;
-      return buildSVGString(strokes);
+      return buildSVGString(strokes, PAD_WIDTH);
     },
     isEmpty: () => strokes.length === 0 || strokes.every(s => s.length === 0),
     clear: () => {
@@ -98,6 +101,7 @@ const SignaturePad = forwardRef<SignaturePadRef>((_, ref) => {
           style={{
             width: PAD_WIDTH,
             height: PAD_HEIGHT,
+            maxWidth: '100%',
             border: '1.5px solid #DDE4EE',
             borderRadius: 10,
             backgroundColor: '#fff',
@@ -192,7 +196,7 @@ const SignaturePad = forwardRef<SignaturePadRef>((_, ref) => {
 
   return (
     <View style={styles.wrapper}>
-      <View style={styles.pad} {...panResponder.panHandlers}>
+      <View style={[styles.pad, { width: PAD_WIDTH }]} {...panResponder.panHandlers}>
         {dots.map(dot => (
           <View
             key={dot.key}
@@ -219,7 +223,6 @@ const styles = StyleSheet.create({
     marginVertical: 4,
   },
   pad: {
-    width: PAD_WIDTH,
     height: PAD_HEIGHT,
     backgroundColor: '#fff',
     borderRadius: 10,
