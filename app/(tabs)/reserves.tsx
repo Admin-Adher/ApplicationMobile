@@ -235,7 +235,10 @@ export default function ReservesScreen() {
   const chantierReserves = useMemo(() => {
     let list = chantierFilter === 'all' ? reserves : reserves.filter(r => r.chantierId === chantierFilter);
     if (isSousTraitant && sousTraitantCompanyName) {
-      list = list.filter(r => r.company === sousTraitantCompanyName);
+      list = list.filter(r => {
+        const names = r.companies ?? (r.company ? [r.company] : []);
+        return names.includes(sousTraitantCompanyName!);
+      });
     }
     return list;
   }, [reserves, chantierFilter, isSousTraitant, sousTraitantCompanyName]);
@@ -322,7 +325,7 @@ export default function ReservesScreen() {
         (!r.kind || r.kind === 'reserve');
       const matchBuilding = buildingFilter === 'all' || r.building === buildingFilter;
       const matchPriority = priorityFilter === 'all' || r.priority === priorityFilter;
-      const matchCompany = companyFilter === 'all' || r.company === companyFilter;
+      const matchCompany = companyFilter === 'all' || (r.companies ?? (r.company ? [r.company] : [])).includes(companyFilter);
       const matchZone = zoneFilter === 'all' || r.zone === zoneFilter;
       const matchLot = lotFilter === 'all' || r.lotId === lotFilter;
       const q = search.toLowerCase();
@@ -330,7 +333,7 @@ export default function ReservesScreen() {
       const matchSearch = !q ||
         r.title.toLowerCase().includes(q) ||
         r.id.toLowerCase().includes(q) ||
-        r.company.toLowerCase().includes(q) ||
+        (r.companies ?? (r.company ? [r.company] : [])).some(c => c.toLowerCase().includes(q)) ||
         r.building.toLowerCase().includes(q) ||
         r.description.toLowerCase().includes(q) ||
         r.zone.toLowerCase().includes(q) ||
@@ -370,8 +373,11 @@ export default function ReservesScreen() {
   const groupedByCompany = useMemo(() => {
     const coMap: Record<string, Reserve[]> = {};
     for (const r of filtered) {
-      if (!coMap[r.company]) coMap[r.company] = [];
-      coMap[r.company].push(r);
+      const names = r.companies && r.companies.length > 0 ? r.companies : r.company ? [r.company] : ['—'];
+      for (const name of names) {
+        if (!coMap[name]) coMap[name] = [];
+        coMap[name].push(r);
+      }
     }
     return Object.entries(coMap)
       .sort((a, b) => b[1].length - a[1].length)

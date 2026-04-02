@@ -247,6 +247,8 @@ alter table public.reserves add column if not exists enterprise_acknowledged_at 
 alter table public.reserves add column if not exists closed_at text;
 alter table public.reserves add column if not exists closed_by text;
 alter table public.reserves add column if not exists responsable_nom text;
+alter table public.reserves add column if not exists companies jsonb;
+alter table public.chantiers add column if not exists company_ids jsonb;
 alter table public.reserves enable row level security;
 drop policy if exists "Reserves lisibles par tous" on public.reserves;
 create policy "Reserves lisibles par tous" on public.reserves for select using (auth.role() = 'authenticated');

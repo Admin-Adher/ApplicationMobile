@@ -1,0 +1,34 @@
+Voici ce que je vois comme axes d'amélioration concrets, du plus important au moins urgent :
+
+Fonctionnel (ce qui manque vraiment)
+1. Filtrer les réserves par entreprise
+Aujourd'hui la liste des réserves n'a pas de filtre "par entreprise". Avec le multi-entreprise, c'est encore plus utile : un chef de chantier veut voir d'un coup toutes les réserves qui concernent Plomberie Martin, par exemple.
+
+2. Vue chantier → liste des entreprises liées
+On peut maintenant lier des entreprises à un chantier, mais nulle part dans l'appli on ne voit "ce chantier a 4 entreprises". Il faudrait une section dédiée dans la fiche chantier.
+
+3. Rôle "sous-traitant" incomplet
+Un utilisateur connecté en tant qu'entreprise sous-traitante ne voit que ses réserves, mais si une réserve lui est assignée avec d'autres entreprises, la logique de visibilité n'est pas encore adaptée au multi-entreprise.
+
+4. Signature de levée par entreprise
+Quand une réserve concerne plusieurs entreprises, une seule signature est possible. Idéalement chaque entreprise devrait pouvoir signer sa propre levée indépendamment.
+
+Technique (dette à résorber)
+5. Le champ company legacy
+On maintient deux champs (company et companies) en parallèle pour la compatibilité. À terme il faudrait une vraie migration Supabase pour ne garder que companies, sinon ça restera une source de confusion.
+
+6. Schéma SQL non mis à jour
+Le fichier schema.sql ne reflète pas encore la colonne companies (tableau). Si quelqu'un recrée la base depuis ce fichier, la colonne n'existera pas.
+
+7. Pas de recherche dans les réserves
+La liste des réserves ne propose pas de barre de recherche par mot-clé (titre, description, entreprise...). Avec beaucoup de réserves, c'est vite bloquant.
+
+Expérience utilisateur
+8. Aucune confirmation avant de notifier plusieurs entreprises
+Quand on change le statut d'une réserve multi-entreprises, 3 notifications partent sans avertissement. Un simple résumé ("3 entreprises seront notifiées — continuer ?") éviterait les envois accidentels.
+
+9. L'onglet Équipes ne montre pas les chantiers par entreprise
+On voit les stats globales d'une entreprise, mais pas "cette entreprise intervient sur quel(s) chantier(s)".
+
+Dis-moi si tu veux qu'on s'attaque à l'un d'eux, je te dis ce que ça implique.
+

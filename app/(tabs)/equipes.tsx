@@ -24,7 +24,7 @@ export default function EquipesScreen() {
   const router = useRouter();
   const { user, permissions } = useAuth();
   const {
-    companies, tasks, reserves, stats,
+    companies, tasks, reserves, stats, chantiers, activeChantierId,
     updateCompanyWorkers, addCompany, updateCompanyFull, deleteCompany, updateCompanyHours,
   } = useApp();
   const { saveAttendanceSnapshot } = useSettings();
@@ -393,6 +393,29 @@ export default function EquipesScreen() {
                   </View>
                 ) : null}
               </View>
+
+              {/* Chantiers liés */}
+              {(() => {
+                const linkedChantiers = chantiers.filter(ch => ch.companyIds?.includes(co.id));
+                if (linkedChantiers.length === 0) return null;
+                return (
+                  <View style={styles.chantierPillsSection}>
+                    <View style={styles.chantierPillsHeader}>
+                      <Ionicons name="business-outline" size={11} color={C.textMuted} />
+                      <Text style={styles.chantierPillsLabel}>Chantiers</Text>
+                    </View>
+                    <View style={styles.chantierPillsRow}>
+                      {linkedChantiers.map(ch => (
+                        <View key={ch.id} style={[styles.chantierPill, ch.id === activeChantierId && { borderColor: co.color + '80', backgroundColor: co.color + '12' }]}>
+                          <Text style={[styles.chantierPillText, ch.id === activeChantierId && { color: co.color }]} numberOfLines={1}>
+                            {ch.name}{ch.id === activeChantierId ? ' ●' : ''}
+                          </Text>
+                        </View>
+                      ))}
+                    </View>
+                  </View>
+                );
+              })()}
 
               {/* Filter toggle */}
               <TouchableOpacity
@@ -787,6 +810,13 @@ const styles = StyleSheet.create({
   coFooter: { gap: 4 },
   coContactItem: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   coContactText: { fontSize: 12, fontFamily: 'Inter_400Regular', color: C.textMuted },
+
+  chantierPillsSection: { marginTop: 8, marginBottom: 4 },
+  chantierPillsHeader: { flexDirection: 'row', alignItems: 'center', gap: 4, marginBottom: 5 },
+  chantierPillsLabel: { fontSize: 10, fontFamily: 'Inter_600SemiBold', color: C.textMuted, textTransform: 'uppercase', letterSpacing: 0.5 },
+  chantierPillsRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
+  chantierPill: { paddingHorizontal: 9, paddingVertical: 4, borderRadius: 10, borderWidth: 1, borderColor: C.border, backgroundColor: C.surface2 },
+  chantierPillText: { fontSize: 11, fontFamily: 'Inter_500Medium', color: C.textSub },
 
   filterToggleBtn: {
     flexDirection: 'row', alignItems: 'center', gap: 5, marginTop: 10,

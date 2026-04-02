@@ -273,6 +273,7 @@ export interface Reserve {
   enterpriseSignature?: string;
   enterpriseSignataire?: string;
   enterpriseAcknowledgedAt?: string;
+  companySignatures?: Record<string, { signature: string; signataire: string; signedAt: string }>;
   gpsLat?: number;
   gpsLon?: number;
 }

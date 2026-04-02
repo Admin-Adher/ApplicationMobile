@@ -18,7 +18,7 @@ const STATUS_LABELS: Record<string, { label: string; color: string; icon: string
 export default function ManageChantiersScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
-  const { chantiers, sitePlans, reserves, activeChantierId, setActiveChantier, deleteChantier } = useApp();
+  const { chantiers, sitePlans, reserves, activeChantierId, setActiveChantier, deleteChantier, companies } = useApp();
   const { permissions } = useAuth();
 
   function handleSetActive(id: string) {
@@ -116,6 +116,21 @@ export default function ManageChantiersScreen() {
                     <Text style={styles.chantierDesc} numberOfLines={2}>{chantier.description}</Text>
                   ) : null}
 
+                  {chantier.companyIds && chantier.companyIds.length > 0 && (
+                    <View style={styles.companyPillsRow}>
+                      {chantier.companyIds.map(cid => {
+                        const co = companies.find(c => c.id === cid);
+                        if (!co) return null;
+                        return (
+                          <View key={cid} style={[styles.companyPill, { backgroundColor: co.color + '20', borderColor: co.color + '60' }]}>
+                            <View style={[styles.companyPillDot, { backgroundColor: co.color }]} />
+                            <Text style={[styles.companyPillText, { color: co.color }]}>{co.shortName}</Text>
+                          </View>
+                        );
+                      })}
+                    </View>
+                  )}
+
                   <View style={styles.chantierActions}>
                     {!isActive && (
                       <TouchableOpacity
@@ -178,7 +193,11 @@ const styles = StyleSheet.create({
   statItem: { flexDirection: 'row', alignItems: 'center', gap: 5 },
   statText: { fontSize: 12, fontFamily: 'Inter_500Medium', color: C.textMuted },
   statDivider: { width: 1, height: 12, backgroundColor: C.border },
-  chantierDesc: { fontSize: 12, fontFamily: 'Inter_400Regular', color: C.textSub, lineHeight: 17, marginBottom: 12 },
+  chantierDesc: { fontSize: 12, fontFamily: 'Inter_400Regular', color: C.textSub, lineHeight: 17, marginBottom: 8 },
+  companyPillsRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginBottom: 12 },
+  companyPill: { flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: 9, paddingVertical: 4, borderRadius: 12, borderWidth: 1 },
+  companyPillDot: { width: 6, height: 6, borderRadius: 3 },
+  companyPillText: { fontSize: 11, fontFamily: 'Inter_600SemiBold' },
   chantierActions: { flexDirection: 'row', gap: 8 },
   actionBtn: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 12, paddingVertical: 8, borderRadius: 10, borderWidth: 1, borderColor: C.border },
   actionBtnText: { fontSize: 12, fontFamily: 'Inter_600SemiBold', color: C.primary },
