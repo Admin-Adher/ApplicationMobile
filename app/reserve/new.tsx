@@ -4,7 +4,7 @@ import {
 } from 'react-native';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 import * as Location from 'expo-location';
@@ -62,6 +62,7 @@ export default function NewReserveScreen() {
     building?: string; planX?: string; planY?: string;
     prefill_description?: string; prefill_source?: string;
     chantierId?: string; planId?: string; visiteId?: string;
+    quickPhotoUri?: string;
   }>();
 
   const effectiveChantierId = params.chantierId ?? activeChantierId ?? undefined;
@@ -111,6 +112,12 @@ export default function NewReserveScreen() {
   const [expandedTemplateCat, setExpandedTemplateCat] = useState<string | null>(null);
 
   const isDirty = title.trim().length > 0 || description.trim().length > 0 || photos.length > 0 || deadline.length > 0;
+
+  useEffect(() => {
+    if (params.quickPhotoUri && photos.length === 0) {
+      savePhoto(params.quickPhotoUri);
+    }
+  }, []);
 
   function handleBack() {
     if (!isDirty) { router.back(); return; }

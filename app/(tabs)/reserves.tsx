@@ -1,12 +1,13 @@
 import {
   View, Text, StyleSheet, FlatList, SectionList, TouchableOpacity, TextInput,
   Platform, ScrollView, Modal, ActivityIndicator, useWindowDimensions,
-  Image, Alert, Share,
+  Image, Alert, Share, Animated,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { useState, useMemo, useCallback, useRef } from 'react';
+import * as ImagePicker from 'expo-image-picker';
 import * as Print from 'expo-print';
 import * as Sharing from 'expo-sharing';
 import { C } from '@/constants/colors';
@@ -226,6 +227,33 @@ export default function ReservesScreen() {
 
   const [quickStatusReserve, setQuickStatusReserve] = useState<Reserve | null>(null);
   const [quickStatusVisible, setQuickStatusVisible] = useState(false);
+
+  const [fabOpen, setFabOpen] = useState(false);
+  const fabAnim = useRef(new Animated.Value(0)).current;
+
+  function toggleFab() {
+    const toValue = fabOpen ? 0 : 1;
+    Animated.spring(fabAnim, { toValue, useNativeDriver: true, tension: 60, friction: 10 }).start();
+    setFabOpen(v => !v);
+  }
+
+  async function handleQuickPhoto() {
+    setFabOpen(false);
+    Animated.spring(fabAnim, { toValue: 0, useNativeDriver: true, tension: 60, friction: 10 }).start();
+    if (Platform.OS === 'web') {
+      router.push('/reserve/new' as any);
+      return;
+    }
+    const { status } = await ImagePicker.requestCameraPermissionsAsync();
+    if (status !== 'granted') {
+      Alert.alert('Permission refusée', "L'accès à l'appareil photo est nécessaire.");
+      return;
+    }
+    const result = await ImagePicker.launchCameraAsync({ allowsEditing: true, quality: 0.8 });
+    if (!result.canceled && result.assets[0]) {
+      router.push({ pathname: '/reserve/new', params: { quickPhotoUri: result.assets[0].uri } } as any);
+    }
+  }
 
   const [tabletComment, setTabletComment] = useState('');
   const [tabletCommentSending, setTabletCommentSending] = useState(false);
@@ -981,15 +1009,67 @@ export default function ReservesScreen() {
       )}
 
       {!isSelectMode && permissions.canCreate && (
-        <TouchableOpacity
-          style={[styles.fab, { bottom: Platform.OS === 'web' ? 100 : insets.bottom + 61 }]}
-          onPress={() => router.push('/reserve/new' as any)}
-          activeOpacity={0.85}
-          accessibilityRole="button"
-          accessibilityLabel="Créer une nouvelle réserve"
-        >
-          <Ionicons name="add" size={26} color="#fff" />
-        </TouchableOpacity>
+        <View style={[styles.fabContainer, { bottom: Platform.OS === 'web' ? 94 : insets.bottom + 55 }]}>
+          {fabOpen && (
+            <Animated.View style={[styles.fabSubRow, { opacity: fabAnim }]}>
+              <TouchableOpacity
+                style={styles.fabSubLabel}
+                onPress={() => { setFabOpen(false); Animated.spring(fabAnim, { toValue: 0, useNativeDriver: true, tension: 60, friction: 10 }).start(); router.push('/reserve/new' as any); }}
+                activeOpacity={0.85}
+                accessibilityRole="button"
+                accessibilityLabel="Formulaire complet"
+              >
+                <Text style={styles.fabSubLabelText}>Formulaire complet</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.fabSubBtn}
+                onPress={() => { setFabOpen(false); Animated.spring(fabAnim, { toValue: 0, useNativeDriver: true, tension: 60, friction: 10 }).start(); router.push('/reserve/new' as any); }}
+                activeOpacity={0.85}
+                accessibilityRole="button"
+                accessibilityLabel="Formulaire complet"
+              >
+                <Ionicons name="create-outline" size={22} color="#fff" />
+              </TouchableOpacity>
+            </Animated.View>
+          )}
+
+          {fabOpen && (
+            <Animated.View style={[styles.fabSubRow, { opacity: fabAnim }]}>
+              <TouchableOpacity
+                style={styles.fabSubLabel}
+                onPress={handleQuickPhoto}
+                activeOpacity={0.85}
+                accessibilityRole="button"
+                accessibilityLabel="Photo rapide"
+              >
+                <Text style={styles.fabSubLabelText}>Photo rapide</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.fabSubBtn, { backgroundColor: '#0EA5E9' }]}
+                onPress={handleQuickPhoto}
+                activeOpacity={0.85}
+                accessibilityRole="button"
+                accessibilityLabel="Photo rapide"
+              >
+                <Ionicons name="camera-outline" size={22} color="#fff" />
+              </TouchableOpacity>
+            </Animated.View>
+          )}
+
+          <Animated.View style={{
+            transform: [{ rotate: fabAnim.interpolate({ inputRange: [0, 1], outputRange: ['0deg', '45deg'] }) }],
+          }}>
+            <TouchableOpacity
+              style={styles.fab}
+              onPress={toggleFab}
+              activeOpacity={0.85}
+              accessibilityRole="button"
+              accessibilityLabel={fabOpen ? 'Fermer le menu' : 'Créer une nouvelle réserve'}
+            >
+              <Ionicons name="add" size={26} color="#fff" />
+            </TouchableOpacity>
+          </Animated.View>
+        </View>
       )}
 
       {/* Quick Status Modal */}
@@ -1515,9 +1595,13 @@ const styles = StyleSheet.create({
   applyBtn: { marginTop: 20, marginBottom: 8, backgroundColor: C.primary, borderRadius: 12, paddingVertical: 14, alignItems: 'center' },
   applyBtnText: { fontSize: 15, fontFamily: 'Inter_600SemiBold', color: '#fff' },
 
-  fab: {
+  fabContainer: {
     position: 'absolute',
     right: 20,
+    alignItems: 'flex-end',
+    zIndex: 100,
+  },
+  fab: {
     width: 56,
     height: 56,
     borderRadius: 28,
@@ -1528,6 +1612,42 @@ const styles = StyleSheet.create({
       web: { boxShadow: '0px 4px 16px rgba(0,48,130,0.30)' } as any,
       default: { shadowColor: '#003082', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.30, shadowRadius: 10, elevation: 8 },
     }),
+  },
+  fabSubRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'flex-end',
+    gap: 10,
+    marginBottom: 10,
+  },
+  fabSubBtn: {
+    width: 46,
+    height: 46,
+    borderRadius: 23,
+    backgroundColor: C.primary,
+    alignItems: 'center',
+    justifyContent: 'center',
+    ...Platform.select({
+      web: { boxShadow: '0px 2px 10px rgba(0,48,130,0.25)' } as any,
+      default: { shadowColor: '#003082', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.25, shadowRadius: 6, elevation: 6 },
+    }),
+  },
+  fabSubLabel: {
+    backgroundColor: C.surface,
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    borderWidth: 1,
+    borderColor: C.border,
+    ...Platform.select({
+      web: { boxShadow: '0px 2px 8px rgba(0,0,0,0.10)' } as any,
+      default: { shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.10, shadowRadius: 6, elevation: 4 },
+    }),
+  },
+  fabSubLabelText: {
+    fontSize: 13,
+    fontFamily: 'Inter_600SemiBold',
+    color: C.text,
   },
 
   splitRow: { flex: 1, flexDirection: 'row' },
