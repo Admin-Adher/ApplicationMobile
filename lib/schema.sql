@@ -202,6 +202,8 @@ create policy "Companies modifiables par admin/conducteur"
   );
 
 -- ---- 3. TABLE RESERVES ----
+-- NOTE: `company` (text) is legacy — kept for backward compatibility. Use `companies` (jsonb array) instead.
+-- Migration cible : supprimer `company` et ne conserver que `companies` une fois tous les clients migrés.
 create table if not exists public.reserves (
   id text primary key,
   title text not null,
@@ -209,7 +211,7 @@ create table if not exists public.reserves (
   building text not null,
   zone text not null,
   level text not null,
-  company text not null,
+  company text not null default '',
   priority text not null default 'medium',
   status text not null default 'open',
   created_at text not null,
@@ -248,6 +250,7 @@ alter table public.reserves add column if not exists closed_at text;
 alter table public.reserves add column if not exists closed_by text;
 alter table public.reserves add column if not exists responsable_nom text;
 alter table public.reserves add column if not exists companies jsonb;
+alter table public.reserves add column if not exists company_signatures jsonb;
 alter table public.chantiers add column if not exists company_ids jsonb;
 alter table public.reserves enable row level security;
 drop policy if exists "Reserves lisibles par tous" on public.reserves;

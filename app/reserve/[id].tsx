@@ -272,6 +272,7 @@ export default function ReserveDetailScreen() {
   const [editPhotoUploading, setEditPhotoUploading] = useState(false);
   const [showRejectModal, setShowRejectModal] = useState(false);
   const [rejectReason, setRejectReason] = useState('');
+  const [signingForCompany, setSigningForCompany] = useState<string | null>(null);
 
   const reserve = reserves.find(r => r.id === id);
 
@@ -339,20 +340,42 @@ export default function ReserveDetailScreen() {
     if (!dataUrl) return;
     const today = formatDateFR(new Date());
     const author = user?.name ?? 'Conducteur de travaux';
-    const updated: Reserve = {
-      ...reserve,
-      enterpriseSignature: dataUrl,
-      enterpriseSignataire: signataireName.trim() || author,
-      enterpriseAcknowledgedAt: reserve.enterpriseAcknowledgedAt ?? today,
-      history: [...reserve.history, {
-        id: genId(),
-        action: 'Levée signée',
-        author: signataireName.trim() || author,
-        createdAt: today,
-      }],
-    };
+    const signataire = signataireName.trim() || author;
+
+    let updated: Reserve;
+    if (signingForCompany && reserveCompanyNames.length > 1) {
+      const existing = reserve.companySignatures ?? {};
+      updated = {
+        ...reserve,
+        companySignatures: {
+          ...existing,
+          [signingForCompany]: { signature: dataUrl, signataire, signedAt: today },
+        },
+        enterpriseAcknowledgedAt: reserve.enterpriseAcknowledgedAt ?? today,
+        history: [...reserve.history, {
+          id: genId(),
+          action: `Levée signée (${signingForCompany})`,
+          author: signataire,
+          createdAt: today,
+        }],
+      };
+    } else {
+      updated = {
+        ...reserve,
+        enterpriseSignature: dataUrl,
+        enterpriseSignataire: signataire,
+        enterpriseAcknowledgedAt: reserve.enterpriseAcknowledgedAt ?? today,
+        history: [...reserve.history, {
+          id: genId(),
+          action: 'Levée signée',
+          author: signataire,
+          createdAt: today,
+        }],
+      };
+    }
     updateReserveFields(updated);
     setSignatureModalVisible(false);
+    setSigningForCompany(null);
     setSaveSuccess(true);
     setTimeout(() => setSaveSuccess(false), 2500);
   }
@@ -576,9 +599,24 @@ export default function ReserveDetailScreen() {
 
   function handleStatusChange(newStatus: ReserveStatus) {
     if (!reserve) return;
-    updateReserveStatus(reserve.id, newStatus, user?.name ?? 'Conducteur de travaux');
-    setSaveSuccess(true);
-    setTimeout(() => setSaveSuccess(false), 2500);
+    const companyCount = reserveCompanyNames.length;
+    const doUpdate = () => {
+      updateReserveStatus(reserve.id, newStatus, user?.name ?? 'Conducteur de travaux');
+      setSaveSuccess(true);
+      setTimeout(() => setSaveSuccess(false), 2500);
+    };
+    if (companyCount > 1) {
+      Alert.alert(
+        'Changer le statut',
+        `${companyCount} entreprises seront notifiées de ce changement.\n\nContinuer ?`,
+        [
+          { text: 'Annuler', style: 'cancel' },
+          { text: 'Confirmer', onPress: doUpdate },
+        ]
+      );
+    } else {
+      doUpdate();
+    }
   }
 
   function handleApproveVerification() {
@@ -899,41 +937,110 @@ export default function ReserveDetailScreen() {
 
           <View style={styles.workflowDivider} />
 
-          {/* Étape 2 : Déclaration de levée (signature) */}
-          <View style={[styles.workflowStep, { marginBottom: 0 }]}>
-            <View style={[styles.workflowStepNum, signDone && styles.workflowStepNumDone, !ackDone && styles.workflowStepNumLocked]}>
-              {signDone
-                ? <Ionicons name="checkmark" size={13} color="#fff" />
-                : <Text style={styles.workflowStepNumText}>2</Text>}
-            </View>
-            <View style={{ flex: 1 }}>
-              <Text style={[styles.workflowStepTitle, !ackDone && { color: C.textMuted }]}>Signature de levée</Text>
-              {signDone ? (
-                <View>
-                  <Text style={styles.workflowStepDone}>
-                    Signé par {reserve.enterpriseSignataire}
-                  </Text>
-                  <Image
-                    source={{ uri: reserve.enterpriseSignature! }}
-                    style={styles.signaturePreview}
-                    resizeMode="contain"
-                  />
+          {/* Étape 2 : Signature de levée — par entreprise si multi-company, sinon globale */}
+          {reserveCompanyNames.length > 1 ? (
+            <View style={{ marginBottom: 0 }}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 10 }}>
+                <View style={[styles.workflowStepNum, ackDone && styles.workflowStepNumDone, !ackDone && styles.workflowStepNumLocked]}>
+                  <Text style={styles.workflowStepNumText}>2</Text>
                 </View>
-              ) : ackDone ? (
-                <>
-                  <Text style={styles.workflowStepDesc}>L'entreprise certifie avoir levé la réserve. Signature numérique requise.</Text>
-                  {permissions.canEdit && (
-                    <TouchableOpacity style={styles.workflowBtn} onPress={() => setSignatureModalVisible(true)} activeOpacity={0.8}>
-                      <Ionicons name="pencil-outline" size={14} color={C.primary} />
-                      <Text style={styles.workflowBtnText}>Signer la levée</Text>
-                    </TouchableOpacity>
-                  )}
-                </>
+                <Text style={[styles.workflowStepTitle, !ackDone && { color: C.textMuted }]}>
+                  Signatures de levée ({Object.keys(reserve.companySignatures ?? {}).length}/{reserveCompanyNames.length})
+                </Text>
+              </View>
+              {!ackDone ? (
+                <Text style={[styles.workflowStepDesc, { paddingLeft: 36 }]}>Disponible après accusé de réception.</Text>
               ) : (
-                <Text style={styles.workflowStepDesc}>Disponible après accusé de réception.</Text>
+                <View style={{ gap: 10 }}>
+                  {reserveCompanyNames.map(coName => {
+                    const co = companies.find(c => c.name === coName);
+                    const sig = reserve.companySignatures?.[coName];
+                    return (
+                      <View key={coName} style={[styles.companySignRow, { borderLeftColor: co?.color ?? C.primary }]}>
+                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: sig ? 6 : 4 }}>
+                          <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: co?.color ?? C.primary }} />
+                          <Text style={{ fontSize: 13, fontFamily: 'Inter_600SemiBold', color: C.text, flex: 1 }}>{coName}</Text>
+                          {sig ? (
+                            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                              <Ionicons name="checkmark-circle" size={14} color="#059669" />
+                              <Text style={{ fontSize: 11, fontFamily: 'Inter_500Medium', color: '#059669' }}>Signé</Text>
+                            </View>
+                          ) : (
+                            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                              <Ionicons name="ellipse-outline" size={13} color={C.textMuted} />
+                              <Text style={{ fontSize: 11, fontFamily: 'Inter_400Regular', color: C.textMuted }}>En attente</Text>
+                            </View>
+                          )}
+                        </View>
+                        {sig ? (
+                          <View>
+                            <Text style={{ fontSize: 11, fontFamily: 'Inter_400Regular', color: C.textSub, marginBottom: 4 }}>
+                              Signé par {sig.signataire} le {sig.signedAt}
+                            </Text>
+                            <Image source={{ uri: sig.signature }} style={styles.signaturePreview} resizeMode="contain" />
+                          </View>
+                        ) : permissions.canEdit ? (
+                          <TouchableOpacity
+                            style={[styles.workflowBtn, { borderColor: co?.color ?? C.primary }]}
+                            onPress={() => {
+                              setSigningForCompany(coName);
+                              setSignataireName('');
+                              setSignatureModalVisible(true);
+                            }}
+                            activeOpacity={0.8}
+                          >
+                            <Ionicons name="pencil-outline" size={14} color={co?.color ?? C.primary} />
+                            <Text style={[styles.workflowBtnText, { color: co?.color ?? C.primary }]}>
+                              Signer pour {co?.shortName ?? coName}
+                            </Text>
+                          </TouchableOpacity>
+                        ) : null}
+                      </View>
+                    );
+                  })}
+                </View>
               )}
             </View>
-          </View>
+          ) : (
+            <View style={[styles.workflowStep, { marginBottom: 0 }]}>
+              <View style={[styles.workflowStepNum, signDone && styles.workflowStepNumDone, !ackDone && styles.workflowStepNumLocked]}>
+                {signDone
+                  ? <Ionicons name="checkmark" size={13} color="#fff" />
+                  : <Text style={styles.workflowStepNumText}>2</Text>}
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={[styles.workflowStepTitle, !ackDone && { color: C.textMuted }]}>Signature de levée</Text>
+                {signDone ? (
+                  <View>
+                    <Text style={styles.workflowStepDone}>
+                      Signé par {reserve.enterpriseSignataire}
+                    </Text>
+                    <Image
+                      source={{ uri: reserve.enterpriseSignature! }}
+                      style={styles.signaturePreview}
+                      resizeMode="contain"
+                    />
+                  </View>
+                ) : ackDone ? (
+                  <>
+                    <Text style={styles.workflowStepDesc}>L'entreprise certifie avoir levé la réserve. Signature numérique requise.</Text>
+                    {permissions.canEdit && (
+                      <TouchableOpacity
+                        style={styles.workflowBtn}
+                        onPress={() => { setSigningForCompany(null); setSignatureModalVisible(true); }}
+                        activeOpacity={0.8}
+                      >
+                        <Ionicons name="pencil-outline" size={14} color={C.primary} />
+                        <Text style={styles.workflowBtnText}>Signer la levée</Text>
+                      </TouchableOpacity>
+                    )}
+                  </>
+                ) : (
+                  <Text style={styles.workflowStepDesc}>Disponible après accusé de réception.</Text>
+                )}
+              </View>
+            </View>
+          )}
         </View>
 
         {(() => {
@@ -1247,7 +1354,9 @@ export default function ReserveDetailScreen() {
               <TouchableOpacity onPress={() => setSignatureModalVisible(false)} style={mStyles.closeBtn}>
                 <Ionicons name="close" size={20} color={C.textSub} />
               </TouchableOpacity>
-              <Text style={mStyles.sheetTitle}>Signature de levée</Text>
+              <Text style={mStyles.sheetTitle}>
+                {signingForCompany ? `Signature — ${signingForCompany}` : 'Signature de levée'}
+              </Text>
               <TouchableOpacity onPress={handleSignatureSave} style={mStyles.saveBtn}>
                 <Text style={mStyles.saveBtnText}>Valider</Text>
               </TouchableOpacity>
@@ -1379,6 +1488,10 @@ const styles = StyleSheet.create({
   workflowBtnText: { fontSize: 13, fontFamily: 'Inter_600SemiBold', color: C.primary },
   workflowDivider: { height: 1, backgroundColor: C.border, marginVertical: 14, marginLeft: 40 },
   signaturePreview: { height: 54, width: 180, marginTop: 6, borderRadius: 6, backgroundColor: C.surface2 },
+  companySignRow: {
+    paddingLeft: 12, paddingVertical: 10, borderLeftWidth: 3, borderRadius: 4,
+    backgroundColor: C.surface2, paddingRight: 12,
+  },
   sigInfoBox: {
     flexDirection: 'row', gap: 10, backgroundColor: C.primaryBg, borderRadius: 10,
     padding: 12, marginBottom: 16, borderWidth: 1, borderColor: C.primary + '30',

@@ -142,6 +142,7 @@ function toReserve(row: any): Reserve {
     enterpriseSignature: row.enterprise_signature ?? undefined,
     enterpriseSignataire: row.enterprise_signataire ?? undefined,
     enterpriseAcknowledgedAt: row.enterprise_acknowledged_at ?? undefined,
+    companySignatures: row.company_signatures ?? undefined,
   };
 }
 
@@ -1751,6 +1752,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           enterprise_signature: r.enterpriseSignature ?? null,
           enterprise_signataire: r.enterpriseSignataire ?? null,
           enterprise_acknowledged_at: r.enterpriseAcknowledgedAt ?? null,
+          company_signatures: r.companySignatures ?? null,
         }).then(({ error }: { error: any }) => {
           if (error) {
             console.error('[Supabase] addReserve error:', error.code, error.message, error.details, error.hint);
@@ -1794,6 +1796,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           enterprise_signature: r.enterpriseSignature ?? null,
           enterprise_signataire: r.enterpriseSignataire ?? null,
           enterprise_acknowledged_at: r.enterpriseAcknowledgedAt ?? null,
+          company_signatures: r.companySignatures ?? null,
         }).eq('id', r.id).then(({ error }: { error: any }) => {
           if (error) {
             console.error('[Supabase] updateReserve error:', error.code, error.message, error.details, error.hint);
@@ -1827,6 +1830,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           enterprise_signature: r.enterpriseSignature ?? null,
           enterprise_signataire: r.enterpriseSignataire ?? null,
           enterprise_acknowledged_at: r.enterpriseAcknowledgedAt ?? null,
+          company_signatures: r.companySignatures ?? null,
         }).eq('id', r.id).then(({ error }: { error: any }) => {
           if (error) {
             if (previous) dispatch({ type: 'UPDATE_RESERVE_FIELDS', payload: previous });
