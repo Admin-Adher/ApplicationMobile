@@ -965,6 +965,8 @@ const WebViewer = forwardRef<PdfPlanViewerHandle, PdfPlanViewerProps>(function W
   const downPos = useRef({ x: 0, y: 0 });
   const pinchDist = useRef(0);
   const pinchZoom = useRef(1);
+  const lastTouchEndTime = useRef(0);
+  const lastTapRef = useRef<{ t: number; x: number; y: number }>({ t: 0, x: 0, y: 0 });
 
   const applyT = useCallback(() => {
     if (!innerRef.current) return;
@@ -1121,6 +1123,7 @@ const WebViewer = forwardRef<PdfPlanViewerHandle, PdfPlanViewerProps>(function W
   };
 
   const onContainerDown = (e: React.MouseEvent<HTMLDivElement>) => {
+    if (Date.now() - lastTouchEndTime.current < 500) return;
     downPos.current = { x: e.clientX, y: e.clientY };
     if (mode === 'annotate') return;
     if ((e.target as HTMLElement).closest('[data-pin]')) return;
@@ -1137,6 +1140,7 @@ const WebViewer = forwardRef<PdfPlanViewerHandle, PdfPlanViewerProps>(function W
   };
 
   const onContainerUp = (e: React.MouseEvent<HTMLDivElement>) => {
+    if (Date.now() - lastTouchEndTime.current < 500) return;
     panning.current = false;
     e.currentTarget.style.cursor = mode === 'annotate' ? 'crosshair' : 'grab';
     if (mode === 'view' && canCreate && cw > 0) {
@@ -1205,15 +1209,33 @@ const WebViewer = forwardRef<PdfPlanViewerHandle, PdfPlanViewerProps>(function W
   };
 
   const onTouchEnd = (e: React.TouchEvent<HTMLDivElement>) => {
+    lastTouchEndTime.current = Date.now();
     panning.current = false;
-    if (mode === 'view' && canCreate && cw > 0 && e.changedTouches.length === 1) {
+    if (mode === 'view' && e.changedTouches.length === 1) {
       const ct = e.changedTouches[0];
       const moved = Math.abs(ct.clientX - downPos.current.x) + Math.abs(ct.clientY - downPos.current.y);
       if (moved < 10 && !(ct.target as HTMLElement).closest('[data-pin]')) {
-        const { x, y } = screenToCanvas(ct.clientX, ct.clientY);
-        if (x >= 0 && x <= cw && y >= 0 && y <= ch) {
-          const { px, py } = toPercent(x, y);
-          onPlanTap(px, py);
+        const now = Date.now();
+        const dtx = Math.abs(ct.clientX - lastTapRef.current.x);
+        const dty = Math.abs(ct.clientY - lastTapRef.current.y);
+        const isDoubleTap = now - lastTapRef.current.t < 350 && dtx < 40 && dty < 40;
+        lastTapRef.current = { t: now, x: ct.clientX, y: ct.clientY };
+        if (isDoubleTap) {
+          lastTapRef.current.t = 0;
+          const el = containerRef.current;
+          if (el) {
+            const rect = el.getBoundingClientRect();
+            const cx = ct.clientX - rect.left;
+            const cy = ct.clientY - rect.top;
+            const factor = zoomRef.current >= 3 ? 1 / zoomRef.current : 2;
+            doZoom(factor, cx, cy);
+          }
+        } else if (canCreate && cw > 0) {
+          const { x, y } = screenToCanvas(ct.clientX, ct.clientY);
+          if (x >= 0 && x <= cw && y >= 0 && y <= ch) {
+            const { px, py } = toPercent(x, y);
+            onPlanTap(px, py);
+          }
         }
       }
     }
@@ -1322,6 +1344,7 @@ const WebViewer = forwardRef<PdfPlanViewerHandle, PdfPlanViewerProps>(function W
             cursor: mode === 'annotate' ? 'crosshair' : 'grab',
             userSelect: 'none', backgroundColor: '#1A2742',
             width: '100%', height: '100%',
+            touchAction: 'none',
           } as any}
         >
           <div
