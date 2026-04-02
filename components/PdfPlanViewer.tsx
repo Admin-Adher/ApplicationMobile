@@ -1012,7 +1012,7 @@ const WebViewer = forwardRef<PdfPlanViewerHandle, PdfPlanViewerProps>(function W
   }, [planUri]);
 
   useEffect(() => {
-    if (!pdfDocRef.current || !canvasRef.current) return;
+    if (loading || !pdfDocRef.current || !canvasRef.current) return;
     let dead = false;
     (async () => {
       try {
@@ -1052,7 +1052,7 @@ const WebViewer = forwardRef<PdfPlanViewerHandle, PdfPlanViewerProps>(function W
       }
     })();
     return () => { dead = true; };
-  }, [page, planUri, pdfDocRef.current]);
+  }, [page, planUri, loading]);
 
   const onSvgDown = (e: React.PointerEvent<SVGSVGElement>) => {
     if (mode !== 'annotate') return;
