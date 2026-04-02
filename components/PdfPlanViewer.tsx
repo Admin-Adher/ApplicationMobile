@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect, useCallback } from 'react';
+import React, { useState, useRef, useEffect, useCallback, useImperativeHandle, forwardRef } from 'react';
 import {
   View, Text, TouchableOpacity, StyleSheet, Platform,
   ActivityIndicator,
@@ -44,6 +44,12 @@ export interface PdfPlanViewerProps {
   onPlanTap: (planX: number, planY: number) => void;
   canAnnotate: boolean;
   canCreate: boolean;
+}
+
+export interface PdfPlanViewerHandle {
+  zoomIn(): void;
+  zoomOut(): void;
+  resetView(): void;
 }
 
 function cloudPath(x1: number, y1: number, x2: number, y2: number): string {
@@ -124,12 +130,14 @@ function annSvg(d: PlanDrawing, cw: number, ch: number): React.ReactElement | nu
   return null;
 }
 
-export default function PdfPlanViewer(props: PdfPlanViewerProps) {
+const PdfPlanViewer = forwardRef<PdfPlanViewerHandle, PdfPlanViewerProps>((props, ref) => {
   if (Platform.OS !== 'web') {
-    return <MobileViewer {...props} />;
+    return <MobileViewer {...props} ref={ref as any} />;
   }
-  return <WebViewer {...props} />;
-}
+  return <WebViewer {...props} ref={ref as any} />;
+});
+PdfPlanViewer.displayName = 'PdfPlanViewer';
+export default PdfPlanViewer;
 
 function buildMobileHtml(
   planUri: string,
@@ -530,11 +538,11 @@ window.resetView=function(){
 </body></html>`;
 }
 
-function MobileViewer({
+const MobileViewer = forwardRef<PdfPlanViewerHandle, PdfPlanViewerProps>(function MobileViewerInner({
   planUri, planId, annotations, onAnnotationsChange,
   reserves, pinNumberMap, onReserveSelect, onPlanTap,
   canAnnotate, canCreate,
-}: PdfPlanViewerProps) {
+}, ref) {
   const WebView = require('react-native-webview').default;
   const webViewRef = useRef<any>(null);
 
@@ -591,6 +599,12 @@ function MobileViewer({
   const inject = useCallback((js: string) => {
     webViewRef.current?.injectJavaScript(`(function(){${js}})(); true;`);
   }, []);
+
+  useImperativeHandle(ref, () => ({
+    zoomIn:    () => inject('window.zoomIn && window.zoomIn();'),
+    zoomOut:   () => inject('window.zoomOut && window.zoomOut();'),
+    resetView: () => inject('window.resetView && window.resetView();'),
+  }), [inject]);
 
   useEffect(() => {
     inject(`window.setState(${JSON.stringify({ mode, tool, color, strokeWidth: sw })});`);
@@ -794,7 +808,7 @@ function MobileViewer({
       )}
     </View>
   );
-}
+});
 
 const mob = StyleSheet.create({
   root: { flex: 1, backgroundColor: '#0F1117', position: 'relative' as any },
@@ -853,7 +867,7 @@ const mob = StyleSheet.create({
   widthSample: { width: 46, borderRadius: 3 },
 });
 
-function WebViewer({ planUri, planId, annotations, onAnnotationsChange, reserves, pinNumberMap, onReserveSelect, onPlanTap, canAnnotate, canCreate }: PdfPlanViewerProps) {
+const WebViewer = forwardRef<PdfPlanViewerHandle, PdfPlanViewerProps>(function WebViewerInner({ planUri, planId, annotations, onAnnotationsChange, reserves, pinNumberMap, onReserveSelect, onPlanTap, canAnnotate, canCreate }, ref) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const innerRef = useRef<HTMLDivElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -1115,6 +1129,12 @@ function WebViewer({ planUri, planId, annotations, onAnnotationsChange, reserves
     applyT();
   }
 
+  useImperativeHandle(ref, () => ({
+    zoomIn:    () => doZoom(1.3),
+    zoomOut:   () => doZoom(1 / 1.3),
+    resetView: () => resetView(),
+  }));
+
   function undo() {
     if (!undos.length) return;
     const prev = undos[undos.length - 1];
@@ -1335,7 +1355,7 @@ function WebViewer({ planUri, planId, annotations, onAnnotationsChange, reserves
       )}
     </View>
   );
-}
+});
 
 const s = StyleSheet.create({
   root: { flex: 1, backgroundColor: '#1A2742', position: 'relative' as any, overflow: 'hidden' as any },
