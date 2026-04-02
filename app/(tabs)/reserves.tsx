@@ -281,6 +281,7 @@ export default function ReservesScreen() {
         </View>
 
         <View style={styles.toolRow}>
+          <View style={styles.filterScrollContainer}>
           <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ flex: 1 }}>
             {STATUS_FILTERS.map(f => {
               const isActive = statusFilter === f.key;
@@ -328,6 +329,8 @@ export default function ReservesScreen() {
               </Text>
             </TouchableOpacity>
           </ScrollView>
+          <View style={styles.filterScrollFade} pointerEvents="none" />
+          </View>
 
           <TouchableOpacity
             style={[styles.toolBtn, activeFilterCount > 0 && styles.toolBtnActive]}
@@ -540,7 +543,7 @@ export default function ReservesScreen() {
 
       {!isSelectMode && permissions.canCreate && (
         <TouchableOpacity
-          style={styles.fab}
+          style={[styles.fab, { bottom: Platform.OS === 'web' ? 100 : insets.bottom + 61 }]}
           onPress={() => router.push('/reserve/new' as any)}
           activeOpacity={0.85}
         >
@@ -815,6 +818,14 @@ const styles = StyleSheet.create({
   },
   searchInput: { flex: 1, fontSize: 14, fontFamily: 'Inter_400Regular', color: C.text },
   toolRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 4 },
+  filterScrollContainer: { flex: 1, position: 'relative' },
+  filterScrollFade: {
+    position: 'absolute', right: 0, top: 0, bottom: 0, width: 32,
+    backgroundColor: C.surface,
+    opacity: 0.88,
+    borderTopRightRadius: 20,
+    borderBottomRightRadius: 20,
+  },
   filterChip: {
     paddingHorizontal: 14, paddingVertical: 7, borderRadius: 20, flexDirection: 'row', alignItems: 'center', gap: 4,
     backgroundColor: C.surface2, marginRight: 8, borderWidth: 1, borderColor: C.border,
@@ -930,7 +941,6 @@ const styles = StyleSheet.create({
 
   fab: {
     position: 'absolute',
-    bottom: Platform.OS === 'web' ? 100 : 24,
     right: 20,
     width: 56,
     height: 56,

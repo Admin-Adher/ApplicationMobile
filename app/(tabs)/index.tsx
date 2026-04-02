@@ -317,7 +317,7 @@ export default function DashboardScreen() {
 
       {viewMode === 'chantier' && permissions.canCreate && (
         <TouchableOpacity
-          style={styles.fab}
+          style={[styles.fab, { bottom: Platform.OS === 'web' ? 104 : insets.bottom + 61 }]}
           onPress={() => router.push('/reserve/new' as any)}
           activeOpacity={0.85}
         >
@@ -664,8 +664,8 @@ const styles = StyleSheet.create({
     borderBottomColor: C.border,
     backgroundColor: C.surface,
   },
-  headerLeft: { flexDirection: 'row', alignItems: 'center', gap: 10 },
-  headerRight: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  headerLeft: { flexDirection: 'row', alignItems: 'center', gap: 10, flexShrink: 1, minWidth: 0 },
+  headerRight: { flexDirection: 'row', alignItems: 'center', gap: 8, flexShrink: 0 },
   realtimeDot: {
     width: 8, height: 8, borderRadius: 4,
     backgroundColor: '#22C55E',
@@ -703,18 +703,18 @@ const styles = StyleSheet.create({
   brand: { fontSize: 16, fontFamily: 'Inter_700Bold', color: C.text },
   date: { fontSize: 11, fontFamily: 'Inter_400Regular', color: C.textSub, marginTop: 1 },
   chantierPill: {
-    flexDirection: 'row', alignItems: 'center', gap: 6,
-    backgroundColor: C.primaryBg, paddingHorizontal: 14, paddingVertical: 9,
-    borderRadius: 22, borderWidth: 1.5, borderColor: C.primary + '60', maxWidth: 170,
+    flexDirection: 'row', alignItems: 'center', gap: 4,
+    backgroundColor: C.primaryBg, paddingHorizontal: 10, paddingVertical: 7,
+    borderRadius: 22, borderWidth: 1.5, borderColor: C.primary + '60', maxWidth: 120,
   },
-  chantierPillDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: C.primary },
-  chantierPillText: { fontSize: 13, fontFamily: 'Inter_700Bold', color: C.primary, flex: 1 },
+  chantierPillDot: { width: 7, height: 7, borderRadius: 4, backgroundColor: C.primary },
+  chantierPillText: { fontSize: 11, fontFamily: 'Inter_700Bold', color: C.primary, flex: 1 },
   chantierPillEmpty: {
-    flexDirection: 'row', alignItems: 'center', gap: 6,
-    backgroundColor: C.surface2, paddingHorizontal: 14, paddingVertical: 9,
+    flexDirection: 'row', alignItems: 'center', gap: 4,
+    backgroundColor: C.surface2, paddingHorizontal: 10, paddingVertical: 7,
     borderRadius: 22, borderWidth: 1.5, borderColor: C.border,
   },
-  chantierPillEmptyText: { fontSize: 13, fontFamily: 'Inter_600SemiBold', color: C.textMuted },
+  chantierPillEmptyText: { fontSize: 11, fontFamily: 'Inter_600SemiBold', color: C.textMuted },
 
   viewToggleBar: {
     flexDirection: 'row',
@@ -904,7 +904,6 @@ const styles = StyleSheet.create({
 
   fab: {
     position: 'absolute',
-    bottom: Platform.OS === 'web' ? 104 : 80,
     right: 18,
     zIndex: 100,
     flexDirection: 'row',

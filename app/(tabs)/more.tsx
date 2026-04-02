@@ -1,4 +1,4 @@
-import { View, Text, StyleSheet, ScrollView, Platform, TouchableOpacity, Alert } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, Platform, TouchableOpacity, Alert, useWindowDimensions } from 'react-native';
 import { openChantierSwitcher } from '@/components/ChantierSwitcherSheet';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -39,6 +39,8 @@ export default function MoreScreen() {
   const { user, logout, permissions } = useAuth();
   const { projectName } = useSettings();
   const { incidents } = useIncidents();
+  const { width: screenWidth } = useWindowDimensions();
+  const cardWidth = (screenWidth - 42) / 2;
   const topPad = Platform.OS === 'web' ? 67 : insets.top;
   const bottomPad = Platform.OS === 'web' ? 0 : insets.bottom;
 
@@ -206,7 +208,7 @@ export default function MoreScreen() {
               {section.items.map(item => (
                 <TouchableOpacity
                   key={item.route}
-                  style={styles.menuCard}
+                  style={[styles.menuCard, { width: cardWidth }]}
                   onPress={() => router.push(item.route as any)}
                   activeOpacity={0.75}
                 >
@@ -243,7 +245,7 @@ export default function MoreScreen() {
 
       {permissions.canCreate && (
         <TouchableOpacity
-          style={styles.fab}
+          style={[styles.fab, { bottom: Platform.OS === 'web' ? 104 : insets.bottom + 61 }]}
           onPress={() => router.push('/reserve/new' as any)}
           activeOpacity={0.85}
         >
@@ -314,7 +316,7 @@ const styles = StyleSheet.create({
   },
   grid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
   menuCard: {
-    width: '47%', backgroundColor: C.surface, borderRadius: 16, padding: 16,
+    backgroundColor: C.surface, borderRadius: 16, padding: 16,
     borderWidth: 1, borderColor: C.border, alignItems: 'flex-start',
   },
   iconWrap: {
@@ -347,7 +349,6 @@ const styles = StyleSheet.create({
   logoutFullText: { fontSize: 15, fontFamily: 'Inter_600SemiBold', color: C.open },
   fab: {
     position: 'absolute',
-    bottom: Platform.OS === 'web' ? 104 : 80,
     right: 18,
     zIndex: 100,
     flexDirection: 'row',

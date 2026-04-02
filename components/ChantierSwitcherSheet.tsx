@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import {
   View, Text, StyleSheet, Modal, TouchableOpacity,
-  Animated, ScrollView, Platform,
+  Animated, ScrollView, Platform, useWindowDimensions,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -24,7 +24,8 @@ const STATUS_CFG: Record<string, { color: string; icon: string; label: string }>
 
 export default function ChantierSwitcherSheet() {
   const [visible, setVisible] = useState(false);
-  const translateY = useRef(new Animated.Value(600)).current;
+  const { height: screenHeight } = useWindowDimensions();
+  const translateY = useRef(new Animated.Value(screenHeight)).current;
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const { chantiers, activeChantierId, activeChantier, setActiveChantier, reserves, sitePlans } = useApp();
@@ -44,13 +45,13 @@ export default function ChantierSwitcherSheet() {
         useNativeDriver: true,
       }).start();
     } else {
-      translateY.setValue(600);
+      translateY.setValue(screenHeight);
     }
-  }, [visible]);
+  }, [visible, screenHeight]);
 
   function close() {
     Animated.timing(translateY, {
-      toValue: 600,
+      toValue: screenHeight,
       duration: 220,
       useNativeDriver: true,
     }).start(() => setVisible(false));
