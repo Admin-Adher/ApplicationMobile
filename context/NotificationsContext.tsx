@@ -5,6 +5,17 @@ import { parseDeadline, isOverdue } from '@/lib/reserveUtils';
 
 const SEEN_KEY = 'buildtrack_notif_seen_v1';
 
+function parseSortable(s: string): number {
+  if (!s || s === '—') return 0;
+  const fr = s.match(/^(\d{2})\/(\d{2})\/(\d{4})/);
+  if (fr) {
+    const t = new Date(`${fr[3]}-${fr[2]}-${fr[1]}`).getTime();
+    return isNaN(t) ? 0 : t;
+  }
+  const t = new Date(s).getTime();
+  return isNaN(t) ? 0 : t;
+}
+
 export type NotifType = 'critical_reserve' | 'overdue_reserve' | 'due_soon_reserve' | 'late_task' | 'system';
 
 export interface AppNotification {
@@ -133,7 +144,7 @@ export function NotificationsProvider({ children }: { children: React.ReactNode 
       }
     }
 
-    result.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+    result.sort((a, b) => parseSortable(b.createdAt) - parseSortable(a.createdAt));
     return result;
   }, [reserves, tasks, activeChantierId, seenIds]);
 

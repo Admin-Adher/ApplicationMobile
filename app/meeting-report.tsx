@@ -11,6 +11,7 @@ import { useApp } from '@/context/AppContext';
 import Header from '@/components/Header';
 import { MeetingReport } from '@/constants/types';
 import BottomNavBar from '@/components/BottomNavBar';
+import { genId, formatDateFR } from '@/lib/utils';
 
 const CRR_TEMPLATES = [
   {
@@ -48,7 +49,6 @@ const CRR_TEMPLATES = [
 ];
 
 const MEETING_KEY = 'buildtrack_meetings_v1';
-function genId() { return Math.random().toString(36).slice(2, 10); }
 
 function buildMeetingHTML(report: MeetingReport, projectName: string): string {
   const exportDate = new Date().toLocaleDateString('fr-FR');
@@ -192,7 +192,7 @@ export default function MeetingReportScreen() {
   const [showNew, setShowNew] = useState(false);
   const [showTemplateModal, setShowTemplateModal] = useState(false);
   const [subject, setSubject] = useState('');
-  const [date, setDate] = useState(new Date().toLocaleDateString('fr-FR'));
+  const [date, setDate] = useState(formatDateFR(new Date()));
   const [location, setLocation] = useState('');
   const [participants, setParticipants] = useState('');
   const [agenda, setAgenda] = useState('');
@@ -201,7 +201,7 @@ export default function MeetingReportScreen() {
   const [nextMeeting, setNextMeeting] = useState('');
 
   const resetForm = () => {
-    setSubject(''); setDate(new Date().toLocaleDateString('fr-FR')); setLocation('');
+    setSubject(''); setDate(formatDateFR(new Date())); setLocation('');
     setParticipants(''); setAgenda(''); setNotes(''); setDecisions(''); setNextMeeting('');
   };
 
@@ -239,7 +239,7 @@ export default function MeetingReportScreen() {
       actions: [],
       nextMeeting: nextMeeting.trim(),
       redactedBy: user?.name ?? 'Équipe',
-      createdAt: new Date().toLocaleDateString('fr-FR'),
+      createdAt: formatDateFR(new Date()),
     };
     setReports(prev => {
       const updated = [report, ...prev];

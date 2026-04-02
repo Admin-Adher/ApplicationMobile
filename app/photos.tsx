@@ -12,7 +12,7 @@ import { useAuth } from '@/context/AuthContext';
 import Header from '@/components/Header';
 import { Photo, Channel } from '@/constants/types';
 import { uploadPhoto } from '@/lib/storage';
-import { genId } from '@/lib/utils';
+import { genId, formatDateFR } from '@/lib/utils';
 import BottomNavBar from '@/components/BottomNavBar';
 
 export default function PhotosScreen() {
@@ -173,7 +173,7 @@ export default function PhotosScreen() {
         id: genId(),
         comment: commentInput.trim() || 'Photo chantier',
         location: locationInput.trim() || 'Zone non définie',
-        takenAt: new Date().toLocaleDateString('fr-FR'),
+        takenAt: formatDateFR(new Date()),
         takenBy: user?.name ?? 'Équipe',
         colorCode: C.closed,
         uri: finalUri,

@@ -12,9 +12,9 @@ import { useApp } from '@/context/AppContext';
 import Header from '@/components/Header';
 import { JournalEntry } from '@/constants/types';
 import BottomNavBar from '@/components/BottomNavBar';
+import { genId, formatDateFR, nowTimestampFR } from '@/lib/utils';
 
 const JOURNAL_KEY = 'buildtrack_journal_v2';
-function genId() { return Math.random().toString(36).slice(2, 10); }
 
 const WEATHER_OPTIONS = [
   '☀️ Ensoleillé',
@@ -201,7 +201,7 @@ export default function JournalScreen() {
   const [fetchingWeather, setFetchingWeather] = useState(false);
   const [weatherDetail, setWeatherDetail] = useState<{ temp: number | null; wind: number | null } | null>(null);
 
-  const todayFR = new Date().toLocaleDateString('fr-FR');
+  const todayFR = formatDateFR(new Date());
   const hasTodayEntry = entries.some(e => e.date === todayFR);
 
   useEffect(() => {
@@ -215,7 +215,7 @@ export default function JournalScreen() {
     });
   }, []);
 
-  const [date, setDate] = useState(new Date().toLocaleDateString('fr-FR'));
+  const [date, setDate] = useState(formatDateFR(new Date()));
   const [weather, setWeather] = useState('☀️ Ensoleillé');
   const [workerCount, setWorkerCount] = useState('');
   const [workDone, setWorkDone] = useState('');
@@ -225,7 +225,7 @@ export default function JournalScreen() {
   const [visiteur, setVisiteur] = useState('');
 
   const resetForm = () => {
-    setDate(new Date().toLocaleDateString('fr-FR'));
+    setDate(formatDateFR(new Date()));
     setWeather('☀️ Ensoleillé');
     setWorkerCount('');
     setWorkDone('');
@@ -271,7 +271,7 @@ export default function JournalScreen() {
       observations: observations.trim(),
       visitors: visiteur.trim(),
       author: user?.name ?? 'Équipe',
-      createdAt: new Date().toISOString(),
+      createdAt: nowTimestampFR(),
     };
     setEntries(prev => {
       const updated = [entry, ...prev];

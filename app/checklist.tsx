@@ -7,9 +7,9 @@ import { useAuth } from '@/context/AuthContext';
 import Header from '@/components/Header';
 import { Checklist, ChecklistItem } from '@/constants/types';
 import BottomNavBar from '@/components/BottomNavBar';
+import { genId, formatDateFR } from '@/lib/utils';
 
 const CHECKLIST_KEY = 'buildtrack_checklists_v1';
-function genId() { return Math.random().toString(36).slice(2, 10); }
 
 const TEMPLATE_ITEMS = [
   'Vérification des EPI sur site',
@@ -56,7 +56,7 @@ export default function ChecklistScreen() {
       level: '',
       status: 'in_progress',
       items,
-      createdAt: new Date().toLocaleDateString('fr-FR'),
+      createdAt: formatDateFR(new Date()),
       createdBy: user?.name ?? 'Équipe',
     };
     setChecklists(prev => {

@@ -1,7 +1,7 @@
 import React, { createContext, useContext, useEffect, useState, useCallback, useRef } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { RegulatoryDoc } from '@/constants/types';
-import { genId } from '@/lib/utils';
+import { genId, formatDateFR } from '@/lib/utils';
 
 // TODO (Fix 15): ReglementaireContext est entièrement local (AsyncStorage uniquement).
 // Il n'y a pas de synchronisation Supabase pour les documents réglementaires (table `regulatory_docs` à créer).
@@ -34,7 +34,7 @@ export function ReglementaireProvider({ children }: { children: React.ReactNode 
   }
 
   const addDoc = useCallback(async (doc: Omit<RegulatoryDoc, 'id' | 'createdAt'>) => {
-    const newDoc: RegulatoryDoc = { ...doc, id: genId(), createdAt: new Date().toISOString() };
+    const newDoc: RegulatoryDoc = { ...doc, id: genId(), createdAt: formatDateFR(new Date()) };
     await persist([...docsRef.current, newDoc]);
   }, []);
 

@@ -182,6 +182,7 @@ function toPhoto(row: any): Photo {
   return {
     id: row.id, comment: row.comment, location: row.location,
     takenAt: row.taken_at, takenBy: row.taken_by, colorCode: row.color_code, uri: row.uri ?? undefined,
+    reserveId: row.reserve_id ?? undefined,
   };
 }
 

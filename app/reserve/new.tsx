@@ -15,7 +15,7 @@ import Header from '@/components/Header';
 import DateInput from '@/components/DateInput';
 import BottomSheetPicker from '@/components/BottomSheetPicker';
 import { uploadPhoto } from '@/lib/storage';
-import { genId } from '@/lib/utils';
+import { genId, formatDateFR } from '@/lib/utils';
 import {
   RESERVE_BUILDINGS, RESERVE_ZONES, RESERVE_LEVELS, RESERVE_PRIORITIES, RESERVE_TEMPLATES,
   genReserveId, validateDeadline,
@@ -153,7 +153,7 @@ export default function NewReserveScreen() {
     try {
       const filename = `reserve_photo_${Date.now()}.jpg`;
       const author = user?.name ?? 'Conducteur de travaux';
-      const today = new Date().toISOString().slice(0, 10);
+      const today = formatDateFR(new Date());
 
       let storageUrl: string | null = null;
       let uploadFailed = false;
@@ -219,7 +219,7 @@ export default function NewReserveScreen() {
     setIsSubmitting(true);
     const author = user?.name ?? 'Conducteur de travaux';
     const id = genReserveId(reserves, selectedLot);
-    const today = new Date().toISOString().slice(0, 10);
+    const today = formatDateFR(new Date());
     addReserve({
       id,
       kind,
