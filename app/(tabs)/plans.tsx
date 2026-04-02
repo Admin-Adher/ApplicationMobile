@@ -290,8 +290,8 @@ export default function PlansScreen() {
     return list;
   }, [allPlanReserves, statusFilter, companyFilter, levelFilter]);
 
-  const pinSize = isTablet ? 44 : 32;
-  const clusterSize = isTablet ? 56 : 44;
+  const pinSize = isTablet ? 48 : 44;
+  const clusterSize = isTablet ? 60 : 52;
   const dynW = planDimensions.width;
   const dynH = planDimensions.height;
 
@@ -706,7 +706,12 @@ export default function PlansScreen() {
 
             <View style={styles.planActions}>
               {hasVersions && (
-                <TouchableOpacity style={styles.versionBtn} onPress={() => setShowVersionHistory(v => !v)}>
+                <TouchableOpacity
+                  style={styles.versionBtn}
+                  onPress={() => setShowVersionHistory(v => !v)}
+                  accessibilityLabel={`Historique des révisions – révision ${currentPlan?.revisionCode ?? 'R01'}`}
+                  accessibilityRole="button"
+                >
                   <Ionicons name="git-branch-outline" size={13} color={C.primary} />
                   <Text style={styles.versionBtnText}>{currentPlan?.revisionCode ?? 'R01'}</Text>
                 </TouchableOpacity>
@@ -756,39 +761,6 @@ export default function PlansScreen() {
             </View>
           )}
 
-          {/* Row 3: Status chips */}
-          <View style={styles.statusFilterRow}>
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 5, paddingHorizontal: 16, paddingVertical: 6 }}>
-              {[
-                { key: 'all', label: 'Tout', color: C.primary },
-                { key: 'open', label: 'Ouvert', color: '#EF4444' },
-                { key: 'in_progress', label: 'En cours', color: '#F59E0B' },
-                { key: 'waiting', label: 'Attente', color: '#6B7280' },
-                { key: 'verification', label: 'Vérif.', color: '#8B5CF6' },
-                { key: 'closed', label: 'Clôturé', color: '#10B981' },
-              ].map(s => {
-                const isActive = statusFilter === s.key;
-                const count = s.key === 'all' ? allPlanReserves.length : allPlanReserves.filter(r => r.status === s.key).length;
-                return (
-                  <TouchableOpacity
-                    key={s.key}
-                    style={[styles.statusChip, isActive && { backgroundColor: s.color + '20', borderColor: s.color }]}
-                    onPress={() => setStatusFilter(s.key)}
-                    accessibilityLabel={`Filtre statut: ${s.label}, ${count} réserves`}
-                    accessibilityState={{ selected: isActive }}
-                  >
-                    <View style={[styles.statusChipDot, { backgroundColor: s.color }]} />
-                    <Text style={[styles.statusChipText, isActive && { color: s.color, fontFamily: 'Inter_600SemiBold' }]}>{s.label}</Text>
-                    {count > 0 && (
-                      <View style={[styles.statusChipCount, { backgroundColor: isActive ? s.color : C.border }]}>
-                        <Text style={[styles.statusChipCountText, isActive && { color: '#fff' }]}>{count}</Text>
-                      </View>
-                    )}
-                  </TouchableOpacity>
-                );
-              })}
-            </ScrollView>
-          </View>
         </View>
       )}
 
@@ -813,10 +785,10 @@ export default function PlansScreen() {
             </View>
           )}
 
-          {!fullscreen && !currentPlan?.uri && permissions.canCreate && (
-            <TouchableOpacity style={styles.importHintBanner} onPress={handleImportPlan} disabled={importing} accessibilityLabel="Importer votre vrai plan">
+          {!fullscreen && !currentPlan?.uri && permissions.canCreate && hasDxf && (
+            <TouchableOpacity style={styles.importHintBanner} onPress={handleImportPlan} disabled={importing} accessibilityLabel="Importer votre vrai plan par-dessus le DXF">
               <Ionicons name="cloud-upload-outline" size={16} color={C.primary} />
-              <Text style={styles.importHintText}>Importez votre vrai plan (image ou PDF) pour ce chantier</Text>
+              <Text style={styles.importHintText}>Superposez une image ou un PDF à ce plan DXF</Text>
               <Ionicons name="chevron-forward" size={14} color={C.primary} />
             </TouchableOpacity>
           )}
@@ -869,11 +841,27 @@ export default function PlansScreen() {
                   ))}
 
                   {!hasDxf && (
-                    <View style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, alignItems: 'center', justifyContent: 'center', gap: 10 }}>
-                      <Ionicons name="map-outline" size={48} color="#1E3A5F" />
-                      <Text style={{ color: '#334155', fontFamily: 'Inter_500Medium', fontSize: 13 }}>Aucun plan importé</Text>
+                    <View style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, alignItems: 'center', justifyContent: 'center', gap: 16, paddingHorizontal: 32 }}>
+                      <View style={{ width: 72, height: 72, borderRadius: 20, backgroundColor: '#0D2045', alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: '#1E3A5F' }}>
+                        <Ionicons name="map-outline" size={36} color="#3B6FCC" />
+                      </View>
+                      <View style={{ alignItems: 'center', gap: 6 }}>
+                        <Text style={{ color: '#94A3B8', fontFamily: 'Inter_600SemiBold', fontSize: 15 }}>Aucun plan importé</Text>
+                        <Text style={{ color: '#475569', fontFamily: 'Inter_400Regular', fontSize: 12, textAlign: 'center', lineHeight: 18 }}>
+                          Importez une image, un PDF ou un fichier DXF pour afficher votre plan et placer des réserves
+                        </Text>
+                      </View>
                       {permissions.canCreate && (
-                        <Text style={{ color: '#475569', fontFamily: 'Inter_400Regular', fontSize: 11, textAlign: 'center', paddingHorizontal: 24 }}>Appuyez sur "Importer" pour charger votre plan</Text>
+                        <TouchableOpacity
+                          style={{ flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: '#003082', borderRadius: 12, paddingVertical: 12, paddingHorizontal: 20 }}
+                          onPress={handleImportPlan}
+                          disabled={importing}
+                          accessibilityLabel="Importer un plan"
+                          accessibilityRole="button"
+                        >
+                          <Ionicons name="cloud-upload-outline" size={16} color="#fff" />
+                          <Text style={{ color: '#fff', fontFamily: 'Inter_600SemiBold', fontSize: 14 }}>Importer un plan</Text>
+                        </TouchableOpacity>
                       )}
                     </View>
                   )}
@@ -1302,6 +1290,8 @@ export default function PlansScreen() {
       <FiltersSheet
         visible={showFilters}
         onClose={() => setShowFilters(false)}
+        statusFilter={statusFilter}
+        onStatusFilterChange={setStatusFilter}
         buildings={buildings}
         selectedBuilding={selectedBuilding}
         onBuildingChange={(b) => { setSelectedBuilding(b); setSelectedLevel('all'); setActivePlanId(null); }}
@@ -1377,13 +1367,6 @@ const styles = StyleSheet.create({
   latestChipText: { fontSize: 10, fontFamily: 'Inter_600SemiBold', color: C.closed },
   newVersionBtn: { flexDirection: 'row', alignItems: 'center', gap: 6, justifyContent: 'center', paddingVertical: 10, marginTop: 6, borderRadius: 10, borderWidth: 1, borderColor: C.primary + '30', backgroundColor: C.primaryBg },
   newVersionBtnText: { fontSize: 12, fontFamily: 'Inter_600SemiBold', color: C.primary },
-
-  statusFilterRow: { backgroundColor: C.surface },
-  statusChip: { flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: 10, paddingVertical: 6, borderRadius: 20, backgroundColor: C.surface2, borderWidth: 1, borderColor: C.border },
-  statusChipDot: { width: 7, height: 7, borderRadius: 4 },
-  statusChipText: { fontSize: 12, fontFamily: 'Inter_500Medium', color: C.textSub },
-  statusChipCount: { paddingHorizontal: 6, paddingVertical: 2, borderRadius: 10, minWidth: 20, alignItems: 'center' },
-  statusChipCountText: { fontSize: 10, fontFamily: 'Inter_700Bold', color: C.textSub },
 
   tabletBodyRow: { flex: 1, flexDirection: 'row' },
   tabletPanel: {

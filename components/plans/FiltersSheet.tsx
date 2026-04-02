@@ -6,9 +6,20 @@ import { Ionicons } from '@expo/vector-icons';
 import { C } from '@/constants/colors';
 import { Company } from '@/constants/types';
 
+const STATUSES = [
+  { key: 'all',          label: 'Tout',      color: '#003082' },
+  { key: 'open',         label: 'Ouvert',    color: '#EF4444' },
+  { key: 'in_progress',  label: 'En cours',  color: '#F59E0B' },
+  { key: 'waiting',      label: 'Attente',   color: '#6B7280' },
+  { key: 'verification', label: 'Vérif.',    color: '#8B5CF6' },
+  { key: 'closed',       label: 'Clôturé',   color: '#10B981' },
+] as const;
+
 interface FiltersSheetProps {
   visible: boolean;
   onClose: () => void;
+  statusFilter: string;
+  onStatusFilterChange: (s: string) => void;
   buildings: string[];
   selectedBuilding: string;
   onBuildingChange: (b: string) => void;
@@ -30,6 +41,7 @@ interface FiltersSheetProps {
 
 export default function FiltersSheet({
   visible, onClose,
+  statusFilter, onStatusFilterChange,
   buildings, selectedBuilding, onBuildingChange,
   planLevels, selectedLevel, onLevelChange,
   companies, companyFilter, onCompanyChange,
@@ -37,7 +49,7 @@ export default function FiltersSheet({
   dxfLayers, visibleLayers, onLayersChange,
   onReset, activeFiltersCount,
 }: FiltersSheetProps) {
-  const hasFilters = activeFiltersCount > 0 || selectedBuilding !== 'all' || selectedLevel !== 'all';
+  const hasFilters = activeFiltersCount > 0;
 
   return (
     <Modal
@@ -75,6 +87,38 @@ export default function FiltersSheet({
           </View>
 
           <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.content}>
+
+            {/* Status filter — always visible */}
+            <View style={styles.section}>
+              <View style={styles.sectionHeader}>
+                <Ionicons name="flag-outline" size={13} color={C.textSub} />
+                <Text style={styles.sectionTitle}>Statut</Text>
+              </View>
+              <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+                <View style={styles.chipRow}>
+                  {STATUSES.map(s => {
+                    const isActive = statusFilter === s.key;
+                    return (
+                      <TouchableOpacity
+                        key={s.key}
+                        style={[
+                          styles.chip,
+                          isActive && { backgroundColor: s.color + '20', borderColor: s.color },
+                        ]}
+                        onPress={() => onStatusFilterChange(s.key)}
+                        accessibilityLabel={`Filtre statut : ${s.label}`}
+                        accessibilityState={{ selected: isActive }}
+                      >
+                        <View style={[styles.statusDot, { backgroundColor: s.color }]} />
+                        <Text style={[styles.chipText, isActive && { color: s.color, fontFamily: 'Inter_600SemiBold' }]}>
+                          {s.label}
+                        </Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
+              </ScrollView>
+            </View>
 
             {buildings.length >= 2 && (
               <View style={styles.section}>
@@ -271,6 +315,7 @@ const styles = StyleSheet.create({
   levelChip: { backgroundColor: C.surface2, borderColor: C.border },
   levelChipActive: { backgroundColor: '#8B5CF620', borderColor: '#8B5CF6' },
   dot: { width: 8, height: 8, borderRadius: 4 },
+  statusDot: { width: 7, height: 7, borderRadius: 4 },
   layerGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
   layerChip: { flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: 10, paddingVertical: 7, borderRadius: 16, backgroundColor: C.surface2, borderWidth: 1, borderColor: C.border },
   layerChipActive: { backgroundColor: C.primaryBg, borderColor: C.primary + '60' },

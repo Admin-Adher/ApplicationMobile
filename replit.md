@@ -68,6 +68,15 @@ assets/        # Fonts and images
 - Supabase credentials should be stored as environment variables/secrets
 - Check `lib/supabase.ts` for the Supabase configuration
 
+## Plans Tab UX Audit Fixes (Sprint 3 — April 2026)
+1. **Pin sizes** — Minimum 44px touch targets on mobile (`pinSize = 44`, `clusterSize = 52`), larger on tablet (48/60)
+2. **Status filter moved to FiltersSheet** — Removed status chip row from header, now lives inside the Filtres bottom sheet with counts and colored dots
+3. **activeFilters count** — Corrected computation: no double-counting of statusFilter
+4. **Empty state CTA** — When no plan file is imported and no DXF data: prominent icon + description + "Importer un plan" button with navy background
+5. **ImportHintBanner** — Now only shows when DXF is loaded but no image/PDF overlaid (avoids duplication with the new empty state)
+6. **Accessibility** — Added `accessibilityLabel`/`accessibilityRole` to: empty-state import button, version history button
+7. **FiltersSheet** — Accepts `statusFilter` + `onStatusFilterChange` props; onReset clears status filter
+
 ## Important Notes
 - `newArchEnabled: false` in app.json (uses legacy architecture)
 - Web output uses Metro bundler (single output mode)
