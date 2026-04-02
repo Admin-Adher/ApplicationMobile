@@ -106,13 +106,19 @@ async function fetchProfile(userId: string): Promise<User | null> {
   }
 }
 
-async function seedOneUser(u: typeof DEMO_USERS[number]): Promise<void> {
+async function seedOneUser(u: typeof DEMO_USERS[number], shouldAbort: () => boolean): Promise<void> {
+  if (shouldAbort()) return;
   let authUserId: string | undefined;
 
   const { data: signInData, error: signInErr } = await supabase.auth.signInWithPassword({
     email: u.email,
     password: u.password,
   });
+
+  if (shouldAbort()) {
+    // A real user logged in during this seed — don't sign them out
+    return;
+  }
 
   if (!signInErr && signInData?.user?.id) {
     authUserId = signInData.user.id;
@@ -124,21 +130,24 @@ async function seedOneUser(u: typeof DEMO_USERS[number]): Promise<void> {
     if (signUpErr || !signUpData?.user?.id) return;
     authUserId = signUpData.user.id;
 
+    if (shouldAbort()) return;
     await supabase.auth.signOut();
+    if (shouldAbort()) return;
 
     const { data: reSign, error: reSignErr } = await supabase.auth.signInWithPassword({
       email: u.email,
       password: u.password,
     });
 
+    if (shouldAbort()) return;
     if (reSignErr) {
-      // Email confirmation likely required in Supabase — skip profile upsert
       return;
     }
     if (reSign?.user?.id) authUserId = reSign.user.id;
   }
 
   if (!authUserId) return;
+  if (shouldAbort()) return;
 
   const orgId = (u.role === 'super_admin') ? undefined : '00000000-0000-0000-0000-000000000001';
 
@@ -151,16 +160,18 @@ async function seedOneUser(u: typeof DEMO_USERS[number]): Promise<void> {
     organization_id: orgId ?? null,
   }, { onConflict: 'id' });
 
+  if (shouldAbort()) return;
   await supabase.auth.signOut();
 }
 
-async function seedDemoUsers(): Promise<'done' | 'error'> {
+async function seedDemoUsers(shouldAbort: () => boolean): Promise<'done' | 'error'> {
   const SEED_TIMEOUT_MS = 30_000;
 
   const doSeed = async (): Promise<'done' | 'error'> => {
     try {
       for (const u of DEMO_USERS) {
-        await seedOneUser(u).catch(() => {});
+        if (shouldAbort()) break;
+        await seedOneUser(u, shouldAbort).catch(() => {});
       }
       return 'done';
     } catch {
@@ -181,6 +192,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [seedStatus, setSeedStatus] = useState<'idle' | 'seeding' | 'done' | 'error'>('idle');
   const [users, setUsers] = useState<User[]>([]);
   const isSeedingRef = useRef(false);
+  const abortSeedingRef = useRef(false);
 
   useEffect(() => {
     if (!isSupabaseConfigured) {
@@ -267,7 +279,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     if (!isLoading && !user && seedStatus === 'idle') {
       setSeedStatus('seeding');
       isSeedingRef.current = true;
-      seedDemoUsers().then(result => {
+      abortSeedingRef.current = false;
+      seedDemoUsers(() => abortSeedingRef.current).then(result => {
         isSeedingRef.current = false;
         setSeedStatus(result);
       });
@@ -275,9 +288,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, [isLoading, user, seedStatus]);
 
   async function login(email: string, password: string): Promise<{ success: boolean; error?: string }> {
-    if (isSeedingRef.current) {
-      isSeedingRef.current = false;
-    }
+    // Abort any in-progress seeding so its signOut calls don't kick us out
+    abortSeedingRef.current = true;
+
     if (!isSupabaseConfigured) {
       const match = DEMO_USERS.find(u => u.email === email && u.password === password);
       if (!match) return { success: false, error: 'Email ou mot de passe incorrect.' };
@@ -293,8 +306,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       return { success: true };
     }
     try {
-      const { error } = await supabase.auth.signInWithPassword({ email, password });
+      const { data, error } = await supabase.auth.signInWithPassword({ email, password });
       if (error) {
+        abortSeedingRef.current = false;
         if (error.message?.toLowerCase().includes('email not confirmed') ||
             error.message?.toLowerCase().includes('email_not_confirmed')) {
           return {
@@ -304,8 +318,26 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         }
         return { success: false, error: 'Email ou mot de passe incorrect.' };
       }
-      return { success: true };
+
+      // Set the user directly here so we don't depend on onAuthStateChange,
+      // which may still receive stale signOut events from the seeding process.
+      const authUser = data?.user;
+      if (authUser) {
+        const profile = await fetchProfile(authUser.id);
+        if (profile) {
+          setUser(profile);
+          isSeedingRef.current = false;
+          setSeedStatus('done');
+          return { success: true };
+        }
+      }
+
+      // Profile missing — sign out cleanly
+      await supabase.auth.signOut();
+      isSeedingRef.current = false;
+      return { success: false, error: 'Profil introuvable. Contactez un administrateur.' };
     } catch {
+      abortSeedingRef.current = false;
       return { success: false, error: 'Impossible de se connecter. Vérifiez votre réseau.' };
     }
   }
