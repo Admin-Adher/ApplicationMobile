@@ -1,7 +1,7 @@
 import React, { createContext, useContext, useEffect, useState, useCallback, useRef } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { AttendanceRecord, Company } from '@/constants/types';
-import { genId } from '@/lib/utils';
+import { genId, formatDateFR } from '@/lib/utils';
 
 const PROJECT_NAME_KEY = 'buildtrack_project_name_v1';
 const PROJECT_DESC_KEY = 'buildtrack_project_desc_v1';
@@ -65,7 +65,7 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const saveAttendanceSnapshot = useCallback(async (companies: Company[], savedBy: string) => {
-    const today = new Date().toISOString().slice(0, 10);
+    const today = formatDateFR(new Date());
     const records: AttendanceRecord[] = companies.map(co => ({
       id: genId(),
       date: today,

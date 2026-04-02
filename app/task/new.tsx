@@ -9,7 +9,7 @@ import Header from '@/components/Header';
 import DateInput from '@/components/DateInput';
 import { Task, TaskStatus, ReservePriority } from '@/constants/types';
 import { validateDeadline } from '@/lib/reserveUtils';
-import { genId } from '@/lib/utils';
+import { genId, formatDateFR } from '@/lib/utils';
 
 const STATUS_OPTS: { value: TaskStatus; label: string; color: string }[] = [
   { value: 'todo', label: 'À faire', color: C.textMuted },
@@ -99,8 +99,8 @@ export default function NewTaskScreen() {
       reserveId: sourceReserve?.id,
       chantierId: activeChantierId ?? undefined,
       comments: [],
-      history: [{ id: genId(), action: 'Tâche créée', author: user?.name ?? 'Système', createdAt: new Date().toISOString().slice(0, 10) }],
-      createdAt: new Date().toISOString().slice(0, 10),
+      history: [{ id: genId(), action: 'Tâche créée', author: user?.name ?? 'Système', createdAt: formatDateFR(new Date()) }],
+      createdAt: formatDateFR(new Date()),
     };
     addTask(task);
     if (sourceReserve) {

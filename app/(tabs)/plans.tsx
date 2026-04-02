@@ -18,7 +18,7 @@ import StatusBadge from '@/components/StatusBadge';
 import { STATUS_CONFIG } from '@/components/StatusBadge';
 import PriorityBadge from '@/components/PriorityBadge';
 import { uploadDocument } from '@/lib/storage';
-import { genId } from '@/lib/utils';
+import { genId, formatDateFR } from '@/lib/utils';
 import { parseDxf, normalizeDxfPoint, DxfParseResult, DxfEntity } from '@/lib/dxfParser';
 import { openChantierSwitcher } from '@/components/ChantierSwitcherSheet';
 import QRCodeDisplay from '@/components/QRCodeDisplay';
@@ -854,7 +854,7 @@ export default function PlansScreen() {
           uri: finalUri,
           fileType: revDocExt === 'pdf' ? 'pdf' : isImage(asset.name) ? 'image' : 'dxf',
           size: formatSize(asset.size),
-          uploadedAt: new Date().toISOString().slice(0, 10),
+          uploadedAt: formatDateFR(new Date()),
           revisionCode: revisionModal.code.trim(),
           revisionNote: revisionModal.note.trim() || undefined,
           parentPlanId: currentPlan.id,
@@ -910,7 +910,7 @@ export default function PlansScreen() {
       name: newPlanModal.name.trim(),
       building: newPlanModal.building.trim() || undefined,
       level: newPlanModal.level.trim() || undefined,
-      uploadedAt: new Date().toLocaleDateString('fr-FR'),
+      uploadedAt: formatDateFR(new Date()),
     };
     addSitePlan(newPlan);
     setActivePlanId(newPlan.id);

@@ -10,6 +10,7 @@ import { useAuth } from '@/context/AuthContext';
 import { useApp } from '@/context/AppContext';
 import { Opr } from '@/constants/types';
 import SignaturePad, { SignaturePadRef } from '@/components/SignaturePad';
+import { formatDateFR } from '@/lib/utils';
 
 const ITEM_STATUS_CFG = {
   ok: { label: 'Conforme', color: '#10B981', icon: 'checkmark-circle' },
@@ -52,7 +53,7 @@ export default function OprSessionScreen() {
     }
     setSigning(true);
     try {
-      const now = new Date().toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit', year: 'numeric' });
+      const now = formatDateFR(new Date());
       const updatedSignatories = (opr.signatories ?? []).map(s =>
         s.name === signerName.trim() ? { ...s, signed: true, signedAt: now, signature: sigData } : s
       );

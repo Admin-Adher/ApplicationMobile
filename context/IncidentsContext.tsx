@@ -3,6 +3,7 @@ import { Alert } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Incident } from '@/constants/types';
 import { supabase, isSupabaseConfigured } from '@/lib/supabase';
+import { formatDateFR } from '@/lib/utils';
 
 const INCIDENTS_KEY = 'buildtrack_incidents_v1';
 
@@ -16,7 +17,7 @@ interface IncidentsContextValue {
 const IncidentsContext = createContext<IncidentsContextValue | null>(null);
 
 function makeMockIncidents(): Incident[] {
-  const today = new Date().toISOString().slice(0, 10);
+  const today = formatDateFR(new Date());
   return [
     {
       id: 'inc-001',

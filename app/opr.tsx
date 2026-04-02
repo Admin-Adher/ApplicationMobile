@@ -462,7 +462,7 @@ export default function OprScreen() {
       items,
       maireOuvrage: maireOuvrage.trim() || undefined,
       visitContradictoire: visitDateForm.trim() || undefined,
-      createdAt: new Date().toISOString().slice(0, 10),
+      createdAt: formatDateFR(new Date()),
     };
     addOpr(opr);
     setTitle('');

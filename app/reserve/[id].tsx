@@ -24,7 +24,7 @@ import DateInput from '@/components/DateInput';
 import { useAuth } from '@/context/AuthContext';
 import { useSettings } from '@/context/SettingsContext';
 import { uploadPhoto } from '@/lib/storage';
-import { genId } from '@/lib/utils';
+import { genId, formatDateFR } from '@/lib/utils';
 import {
   RESERVE_BUILDINGS, RESERVE_ZONES, RESERVE_LEVELS, RESERVE_PRIORITIES,
   isOverdue, formatDate, validateDeadline,
@@ -330,7 +330,7 @@ export default function ReserveDetailScreen() {
     }
     const dataUrl = sigPadRef.current?.getSVGData() ?? null;
     if (!dataUrl) return;
-    const today = new Date().toISOString().slice(0, 10);
+    const today = formatDateFR(new Date());
     const author = user?.name ?? 'Conducteur de travaux';
     const updated: Reserve = {
       ...reserve,
@@ -338,7 +338,7 @@ export default function ReserveDetailScreen() {
       enterpriseSignataire: signataireName.trim() || author,
       enterpriseAcknowledgedAt: reserve.enterpriseAcknowledgedAt ?? today,
       history: [...reserve.history, {
-        id: `h${Date.now()}`,
+        id: genId(),
         action: 'Levée signée',
         author: signataireName.trim() || author,
         createdAt: today,
@@ -360,13 +360,13 @@ export default function ReserveDetailScreen() {
         {
           text: 'Confirmer',
           onPress: () => {
-            const today = new Date().toISOString().slice(0, 10);
+            const today = formatDateFR(new Date());
             const author = user?.name ?? 'Entreprise';
             const updated: Reserve = {
               ...reserve,
               enterpriseAcknowledgedAt: reserve.enterpriseAcknowledgedAt ?? today,
               history: [...reserve.history, {
-                id: `h${Date.now()}`,
+                id: genId(),
                 action: 'Réception accusée',
                 author,
                 createdAt: today,
@@ -414,11 +414,11 @@ export default function ReserveDetailScreen() {
       const filename = `reserve_photo_${Date.now()}.jpg`;
       const storageUrl = await uploadPhoto(uri, filename);
       const finalUri = storageUrl ?? uri;
-      const today = new Date().toISOString().slice(0, 10);
+      const today = formatDateFR(new Date());
       const newPhoto: ReservePhoto = { id: genId(), uri: finalUri, kind: 'defect', takenAt: today, takenBy: user?.name ?? '' };
       setEditPhotos(prev => [...prev, newPhoto]);
     } catch {
-      const today = new Date().toISOString().slice(0, 10);
+      const today = formatDateFR(new Date());
       const newPhoto: ReservePhoto = { id: genId(), uri, kind: 'defect', takenAt: today, takenBy: user?.name ?? '' };
       setEditPhotos(prev => [...prev, newPhoto]);
     } finally {
@@ -458,10 +458,10 @@ export default function ReserveDetailScreen() {
       return;
     }
     const author = user?.name ?? 'Conducteur de travaux';
-    const today = new Date().toISOString().slice(0, 10);
+    const today = formatDateFR(new Date());
     const changes = buildChangeSummary(reserve);
     const historyEntry = {
-      id: `h${Date.now()}`,
+      id: genId(),
       action: 'Réserve modifiée',
       author,
       createdAt: today,

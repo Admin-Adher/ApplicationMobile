@@ -90,7 +90,6 @@ export default function NewChantierScreen() {
 
     setIsSubmitting(true);
     const chantierId = genId();
-    const today = new Date().toISOString().slice(0, 10);
     const todayFr = formatDateFR(new Date());
 
     const newChantier: Chantier = {
@@ -101,7 +100,7 @@ export default function NewChantierScreen() {
       startDate: startDate || undefined,
       endDate: endDate || undefined,
       status: 'active',
-      createdAt: today,
+      createdAt: todayFr,
       createdBy: user?.name ?? 'Inconnu',
     };
 
