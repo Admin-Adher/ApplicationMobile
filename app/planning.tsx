@@ -785,13 +785,10 @@ export default function PlanningScreen() {
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
         {/* KPIs terrain — orientés entreprise */}
         <View style={styles.statsRow}>
-          <TouchableOpacity
-            style={[styles.statCard, { borderTopColor: C.primary }, filterStatus === 'all' && filterCompany === 'all' && { borderColor: C.primary + '40', backgroundColor: C.primaryBg }]}
-            onPress={() => { setFilterStatus('all'); setFilterCompany('all'); }}
-          >
+          <View style={[styles.statCard, { borderTopColor: C.primary }]}>
             <Text style={[styles.statVal, { color: C.primary }]}>{activeCompanies}</Text>
             <Text style={styles.statLabel}>Entreprises{'\n'}actives</Text>
-          </TouchableOpacity>
+          </View>
 
           <TouchableOpacity
             style={[styles.statCard, { borderTopColor: C.waiting }, filterStatus === 'delayed' && { borderColor: C.waiting + '40', backgroundColor: C.waiting + '08' }]}
@@ -845,7 +842,6 @@ export default function PlanningScreen() {
         {viewMode === 'list' && (
           <>
             <View style={lStyles.modeBar}>
-              <Text style={lStyles.modeBarLabel}>Grouper par :</Text>
               {([
                 { key: 'company' as const, label: 'Entreprise', icon: 'business-outline' },
                 { key: 'priority' as const, label: 'Priorité', icon: 'flag-outline' },
@@ -1024,7 +1020,7 @@ const styles = StyleSheet.create({
   toggleLabel: { fontSize: 12, fontFamily: 'Inter_600SemiBold', color: C.textSub },
   toggleLabelActive: { color: C.primary },
   searchToggleBtn: {
-    width: 38, alignItems: 'center', justifyContent: 'center',
+    width: 44, alignItems: 'center', justifyContent: 'center',
     borderRadius: 10, backgroundColor: C.surface2,
     borderWidth: 1, borderColor: C.border, paddingVertical: 8,
   },
