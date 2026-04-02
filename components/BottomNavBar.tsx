@@ -10,7 +10,7 @@ const TABS = [
   { icon: 'warning', iconOff: 'warning-outline', label: 'Réserves', route: '/(tabs)/reserves' },
   { icon: 'map', iconOff: 'map-outline', label: 'Plans', route: '/(tabs)/plans' },
   { icon: 'chatbubbles', iconOff: 'chatbubbles-outline', label: 'Messages', route: '/(tabs)/messages' },
-  { icon: 'apps', iconOff: 'apps-outline', label: 'Modules', route: '/(tabs)/more' },
+  { icon: 'hammer', iconOff: 'hammer-outline', label: 'Terrain', route: '/(tabs)/more' },
 ] as const;
 
 interface Props {

@@ -547,7 +547,7 @@ export default function MessagesTabScreen() {
       {permissions.canCreate && (
         <TouchableOpacity
           style={styles.fab}
-          onPress={() => router.push('/reserve/new' as any)}
+          onPress={() => setShowNewChannel(true)}
           activeOpacity={0.85}
         >
           <Ionicons name="add" size={26} color="#fff" />

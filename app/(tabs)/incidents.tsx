@@ -504,7 +504,7 @@ export default function IncidentsScreen() {
       </Modal>
 
       {permissions.canCreate && (
-        <TouchableOpacity style={styles.fab} onPress={openAdd}>
+        <TouchableOpacity style={[styles.fab, { bottom: Platform.OS === 'web' ? 100 : insets.bottom + 24 }]} onPress={openAdd}>
           <Ionicons name="warning-outline" size={22} color="#fff" />
         </TouchableOpacity>
       )}

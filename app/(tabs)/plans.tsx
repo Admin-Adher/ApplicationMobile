@@ -1751,7 +1751,7 @@ export default function PlansScreen() {
 
       {permissions.canCreate && !isTablet && (
         <TouchableOpacity
-          style={styles.fab}
+          style={[styles.fab, { bottom: Platform.OS === 'web' ? 100 : insets.bottom + 24 }]}
           onPress={() => router.push({
             pathname: '/reserve/new',
             params: { planId: currentPlanId ?? '', chantierId: activeChantierId ?? '' },
