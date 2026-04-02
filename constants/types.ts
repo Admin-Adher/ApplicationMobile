@@ -137,6 +137,15 @@ export interface Lot {
   number?: string;
 }
 
+export interface VisiteParticipant {
+  id: string;
+  name: string;
+  company: string;
+  role?: string;
+  signature?: string;
+  signedAt?: string;
+}
+
 export interface Visite {
   id: string;
   chantierId: string;
@@ -153,6 +162,7 @@ export interface Visite {
   entrepriseSignature?: string;
   signedAt?: string;
   entrepriseSignataire?: string;
+  participants?: VisiteParticipant[];
 }
 
 export interface OprItem {

@@ -316,7 +316,7 @@ async function buildPvLeveePDF(opr: Opr, reserves: Reserve[], projectName: strin
 
 export default function OprScreen() {
   const router = useRouter();
-  const { oprs, addOpr, updateOpr, deleteOpr, lots, reserves, activeChantierId, activeChantier } = useApp();
+  const { oprs, addOpr, updateOpr, deleteOpr, lots, reserves, activeChantierId, activeChantier, updateReserveStatus } = useApp();
   const { user, permissions } = useAuth();
   const { projectName } = useSettings();
 
@@ -398,6 +398,15 @@ export default function OprScreen() {
     if (!item) return;
     const updated = opr.items.map(i => i.id === itemId ? { ...i, status: newStatus } : i);
     updateOpr({ ...opr, items: updated });
+
+    if (item.reserveId) {
+      if (newStatus === 'ok') {
+        updateReserveStatus(item.reserveId, 'closed', user?.name ?? 'OPR');
+      } else if (item.status === 'ok' && newStatus === 'reserve') {
+        updateReserveStatus(item.reserveId, 'in_progress', user?.name ?? 'OPR');
+      }
+    }
+
     if (newStatus === 'reserve') {
       setItemEdits(prev => ({
         ...prev,

@@ -270,6 +270,8 @@ export default function ReserveDetailScreen() {
   const [annotatorPhoto, setAnnotatorPhoto] = useState<ReservePhoto | null>(null);
   const [editPhotos, setEditPhotos] = useState<ReservePhoto[]>([]);
   const [editPhotoUploading, setEditPhotoUploading] = useState(false);
+  const [showRejectModal, setShowRejectModal] = useState(false);
+  const [rejectReason, setRejectReason] = useState('');
 
   const reserve = reserves.find(r => r.id === id);
 
@@ -571,6 +573,38 @@ export default function ReserveDetailScreen() {
     setTimeout(() => setSaveSuccess(false), 2500);
   }
 
+  function handleApproveVerification() {
+    if (!reserve) return;
+    Alert.alert(
+      'Approuver la levée',
+      `Confirmer la levée définitive de la réserve ${reserve.id} ?\n\nCette action clôture la réserve.`,
+      [
+        { text: 'Annuler', style: 'cancel' },
+        {
+          text: 'Approuver',
+          onPress: () => {
+            updateReserveStatus(reserve.id, 'closed', user?.name ?? 'Conducteur de travaux');
+            setSaveSuccess(true);
+            setTimeout(() => setSaveSuccess(false), 2500);
+          },
+        },
+      ]
+    );
+  }
+
+  function handleRejectVerification() {
+    if (!reserve) return;
+    const reason = rejectReason.trim();
+    updateReserveStatus(reserve.id, 'in_progress', user?.name ?? 'Conducteur de travaux');
+    if (reason) {
+      addComment(reserve.id, `Levée rejetée : ${reason}`);
+    }
+    setShowRejectModal(false);
+    setRejectReason('');
+    setSaveSuccess(true);
+    setTimeout(() => setSaveSuccess(false), 2500);
+  }
+
   function handleAddComment() {
     if (!reserve) return;
     if (comment.trim().length === 0) return;
@@ -733,6 +767,40 @@ export default function ReserveDetailScreen() {
                   </TouchableOpacity>
                 );
               })}
+            </View>
+          </View>
+        )}
+
+        {permissions.canEdit && reserve.status === 'verification' && (
+          <View style={[styles.card, { borderColor: '#7C3AED40', borderWidth: 1.5 }]}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 10 }}>
+              <View style={{ width: 28, height: 28, borderRadius: 14, backgroundColor: '#7C3AED20', alignItems: 'center', justifyContent: 'center' }}>
+                <Ionicons name="shield-checkmark-outline" size={15} color="#7C3AED" />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={[styles.sectionTitle, { color: '#7C3AED' }]}>Approbation de levée</Text>
+                <Text style={{ fontSize: 12, fontFamily: 'Inter_400Regular', color: C.textSub, marginTop: 2 }}>
+                  L'entreprise a déclaré cette réserve levée. Votre décision est requise.
+                </Text>
+              </View>
+            </View>
+            <View style={{ flexDirection: 'row', gap: 10 }}>
+              <TouchableOpacity
+                style={{ flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, backgroundColor: '#ECFDF5', borderRadius: 12, paddingVertical: 12, borderWidth: 1, borderColor: '#6EE7B7' }}
+                onPress={handleApproveVerification}
+                activeOpacity={0.8}
+              >
+                <Ionicons name="checkmark-circle" size={16} color="#059669" />
+                <Text style={{ fontSize: 14, fontFamily: 'Inter_600SemiBold', color: '#059669' }}>Approuver</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={{ flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, backgroundColor: '#FEF2F2', borderRadius: 12, paddingVertical: 12, borderWidth: 1, borderColor: '#FCA5A5' }}
+                onPress={() => { setRejectReason(''); setShowRejectModal(true); }}
+                activeOpacity={0.8}
+              >
+                <Ionicons name="close-circle" size={16} color="#DC2626" />
+                <Text style={{ fontSize: 14, fontFamily: 'Inter_600SemiBold', color: '#DC2626' }}>Rejeter</Text>
+              </TouchableOpacity>
             </View>
           </View>
         )}
