@@ -80,7 +80,7 @@ export default function ChecklistScreen() {
           ...cl,
           items: newItems,
           status: allChecked ? 'completed' : newItems.some(it => it.checked) ? 'in_progress' : 'draft',
-          completedAt: allChecked ? new Date().toLocaleDateString('fr-FR') : undefined,
+          completedAt: allChecked ? formatDateFR(new Date()) : undefined,
         } as Checklist;
       });
       AsyncStorage.setItem(CHECKLIST_KEY, JSON.stringify(updated)).catch(() => {});

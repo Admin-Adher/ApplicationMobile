@@ -63,9 +63,9 @@ async function fetchAutoWeather(): Promise<{ label: string; temp: number | null;
 }
 
 function buildJournalHTML(entries: JournalEntry[], projectName: string): string {
-  const exportDate = new Date().toLocaleDateString('fr-FR');
+  const exportDate = formatDateFR(new Date());
   const exportTime = new Date().toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
-  const docRef = `JC-${new Date().toLocaleDateString('fr-FR').replace(/\//g, '')}`;
+  const docRef = `JC-${formatDateFR(new Date()).replace(/\//g, '')}`;
 
   const totalWorkers = entries.reduce((s, e) => s + (e.workerCount || 0), 0);
   const avgWorkers = entries.length > 0 ? Math.round(totalWorkers / entries.length) : 0;

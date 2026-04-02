@@ -51,7 +51,7 @@ const CRR_TEMPLATES = [
 const MEETING_KEY = 'buildtrack_meetings_v1';
 
 function buildMeetingHTML(report: MeetingReport, projectName: string): string {
-  const exportDate = new Date().toLocaleDateString('fr-FR');
+  const exportDate = formatDateFR(new Date());
   const docRef = `CRR-${report.date.replace(/\//g, '')}-${report.id.slice(0, 6).toUpperCase()}`;
   const doneCount = report.actions.filter(a => a.status === 'done').length;
   const pendingCount = report.actions.length - doneCount;
