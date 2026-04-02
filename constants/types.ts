@@ -318,6 +318,7 @@ export interface Photo {
   takenBy: string;
   colorCode: string;
   uri?: string;
+  reserveId?: string;
   gpsLat?: number;
   gpsLon?: number;
   gpsAccuracy?: number;

@@ -8,7 +8,7 @@ import { useAuth } from '@/context/AuthContext';
 import { Visite, VisiteStatus } from '@/constants/types';
 import Header from '@/components/Header';
 import DateInput from '@/components/DateInput';
-import { genId } from '@/lib/utils';
+import { genId, formatDateFR } from '@/lib/utils';
 import { RESERVE_BUILDINGS, RESERVE_LEVELS } from '@/lib/reserveUtils';
 
 const STATUS_OPTIONS: { value: VisiteStatus; label: string; color: string }[] = [
@@ -23,7 +23,7 @@ export default function NewVisiteScreen() {
   const { user } = useAuth();
 
   const [title, setTitle] = useState('');
-  const [date, setDate] = useState(new Date().toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit', year: 'numeric' }));
+  const [date, setDate] = useState(formatDateFR(new Date()));
   const [conducteur, setConducteur] = useState(user?.name ?? '');
   const [status, setStatus] = useState<VisiteStatus>('planned');
   const [building, setBuilding] = useState(RESERVE_BUILDINGS[0]);
@@ -52,7 +52,7 @@ export default function NewVisiteScreen() {
       level,
       notes: notes.trim() || undefined,
       reserveIds: [],
-      createdAt: new Date().toISOString().slice(0, 10),
+      createdAt: formatDateFR(new Date()),
     };
     addVisite(visite);
     Alert.alert('Visite créée', `"${visite.title}" a été créée.`, [

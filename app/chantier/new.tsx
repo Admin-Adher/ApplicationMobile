@@ -8,10 +8,11 @@ import { Ionicons } from '@expo/vector-icons';
 import * as DocumentPicker from 'expo-document-picker';
 import { C } from '@/constants/colors';
 import { useApp } from '@/context/AppContext';
+import { useAuth } from '@/context/AuthContext';
 import Header from '@/components/Header';
 import DateInput from '@/components/DateInput';
 import { Chantier, SitePlan } from '@/constants/types';
-import { genId } from '@/lib/utils';
+import { genId, formatDateFR } from '@/lib/utils';
 import { uploadDocument } from '@/lib/storage';
 
 interface PendingPlan {
@@ -24,6 +25,7 @@ interface PendingPlan {
 export default function NewChantierScreen() {
   const router = useRouter();
   const { addChantier, chantiers } = useApp();
+  const { user } = useAuth();
 
   const [name, setName] = useState('');
   const [address, setAddress] = useState('');
@@ -89,7 +91,7 @@ export default function NewChantierScreen() {
     setIsSubmitting(true);
     const chantierId = genId();
     const today = new Date().toISOString().slice(0, 10);
-    const todayFr = new Date().toLocaleDateString('fr-FR');
+    const todayFr = formatDateFR(new Date());
 
     const newChantier: Chantier = {
       id: chantierId,
@@ -100,7 +102,7 @@ export default function NewChantierScreen() {
       endDate: endDate || undefined,
       status: 'active',
       createdAt: today,
-      createdBy: 'Admin',
+      createdBy: user?.name ?? 'Inconnu',
     };
 
     const newPlans: SitePlan[] = validPlans.map(p => ({
