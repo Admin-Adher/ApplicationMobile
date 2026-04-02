@@ -77,8 +77,12 @@ function TaskCard({ task, onDelete, canEdit, onPress }: {
   const deadline = parseDeadline(task.deadline);
   const today = sod(new Date());
   const isOverdue = deadline && sod(deadline) < today && task.status !== 'done';
+  const daysLeft = deadline ? Math.ceil((sod(deadline).getTime() - today.getTime()) / 86400000) : null;
+
   return (
     <TouchableOpacity style={[styles.taskCard, { borderLeftColor: cfg.color }]} onPress={onPress} activeOpacity={0.75}>
+
+      {/* Ligne 1 : badges + deadline en haut à droite */}
       <View style={styles.taskTop}>
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flexWrap: 'wrap', flex: 1 }}>
           <View style={[styles.statusBadge, { backgroundColor: cfg.color + '20' }]}>
@@ -91,8 +95,41 @@ function TaskCard({ task, onDelete, canEdit, onPress }: {
             </View>
           )}
         </View>
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-          <Text style={[styles.taskPct, { color: cfg.color }]}>{task.progress}%</Text>
+
+        {/* Deadline — visible immédiatement, en haut à droite */}
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+          {task.deadline ? (
+            <View style={[
+              styles.deadlinePill,
+              isOverdue
+                ? styles.deadlinePillOverdue
+                : daysLeft !== null && daysLeft <= 3
+                  ? styles.deadlinePillSoon
+                  : styles.deadlinePillNormal,
+            ]}>
+              <Ionicons
+                name="calendar-outline"
+                size={11}
+                color={isOverdue ? C.open : daysLeft !== null && daysLeft <= 3 ? C.waiting : C.textSub}
+              />
+              <Text style={[
+                styles.deadlinePillText,
+                isOverdue
+                  ? { color: C.open, fontFamily: 'Inter_700Bold' }
+                  : daysLeft !== null && daysLeft <= 3
+                    ? { color: C.waiting, fontFamily: 'Inter_600SemiBold' }
+                    : { color: C.textSub },
+              ]}>
+                {isOverdue
+                  ? `Retard ${formatDate(task.deadline)}`
+                  : daysLeft === 0
+                    ? "Aujourd'hui"
+                    : daysLeft === 1
+                      ? 'Demain'
+                      : formatDate(task.deadline)}
+              </Text>
+            </View>
+          ) : null}
           {canEdit && (
             <TouchableOpacity onPress={onDelete} hitSlop={8}>
               <Ionicons name="trash-outline" size={15} color={C.textMuted} />
@@ -100,23 +137,27 @@ function TaskCard({ task, onDelete, canEdit, onPress }: {
           )}
         </View>
       </View>
+
+      {/* Ligne 2 : titre */}
       <Text style={styles.taskTitle}>{task.title}</Text>
-      <Text style={styles.taskDesc} numberOfLines={1}>{task.description}</Text>
-      <View style={styles.taskProgress}>
-        <View style={styles.taskBarBg}>
-          <View style={[styles.taskBarFill, { width: `${task.progress}%` as any, backgroundColor: cfg.color }]} />
-        </View>
-      </View>
-      <View style={styles.taskBottom}>
-        <Ionicons name="people-outline" size={12} color={C.textMuted} />
-        <Text style={styles.taskAssignee}>{task.assignee}</Text>
-        {co && <View style={{ width: 7, height: 7, borderRadius: 4, backgroundColor: co.color }} />}
-        <Text style={styles.taskCompany} numberOfLines={1}>{companyName}</Text>
-        <Ionicons name="calendar-outline" size={12} color={isOverdue ? C.open : C.textMuted} />
-        <Text style={[styles.taskDeadline, isOverdue && { color: C.open, fontFamily: 'Inter_600SemiBold' }]}>
-          {formatDate(task.deadline)}{isOverdue ? ' ⚠' : ''}
+
+      {/* Ligne 3 : entreprise + responsable */}
+      <View style={styles.taskMeta}>
+        {co && <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: co.color }} />}
+        <Text style={styles.taskMetaText} numberOfLines={1}>
+          {companyName}
+          {task.assignee ? ` · ${task.assignee}` : ''}
         </Text>
       </View>
+
+      {/* Ligne 4 : barre de progression + % */}
+      <View style={styles.taskProgressRow}>
+        <View style={[styles.taskBarBg, { flex: 1 }]}>
+          <View style={[styles.taskBarFill, { width: `${task.progress}%` as any, backgroundColor: cfg.color }]} />
+        </View>
+        <Text style={[styles.taskPct, { color: cfg.color }]}>{task.progress}%</Text>
+      </View>
+
     </TouchableOpacity>
   );
 }
@@ -1057,16 +1098,21 @@ const styles = StyleSheet.create({
   taskTop: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 },
   statusBadge: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 20 },
   statusText: { fontSize: 11, fontFamily: 'Inter_600SemiBold' },
-  taskPct: { fontSize: 13, fontFamily: 'Inter_700Bold' },
-  taskTitle: { fontSize: 14, fontFamily: 'Inter_600SemiBold', color: C.text, marginBottom: 4 },
-  taskDesc: { fontSize: 12, fontFamily: 'Inter_400Regular', color: C.textSub, marginBottom: 10 },
-  taskProgress: { marginBottom: 10 },
-  taskBarBg: { height: 4, backgroundColor: C.border, borderRadius: 2, overflow: 'hidden' },
-  taskBarFill: { height: 4, borderRadius: 2 },
-  taskBottom: { flexDirection: 'row', alignItems: 'center', gap: 5, flexWrap: 'wrap' },
-  taskAssignee: { fontSize: 11, fontFamily: 'Inter_400Regular', color: C.textSub, marginRight: 4 },
-  taskCompany: { fontSize: 11, fontFamily: 'Inter_400Regular', color: C.textSub, marginRight: 4, flex: 1 },
-  taskDeadline: { fontSize: 11, fontFamily: 'Inter_500Medium', color: C.textSub },
+  taskPct: { fontSize: 12, fontFamily: 'Inter_700Bold', minWidth: 32, textAlign: 'right' },
+  taskTitle: { fontSize: 15, fontFamily: 'Inter_600SemiBold', color: C.text, marginBottom: 6 },
+  taskMeta: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 10 },
+  taskMetaText: { fontSize: 12, fontFamily: 'Inter_400Regular', color: C.textSub, flex: 1 },
+  taskProgressRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  taskBarBg: { height: 5, backgroundColor: C.border, borderRadius: 3, overflow: 'hidden' },
+  taskBarFill: { height: 5, borderRadius: 3 },
+  deadlinePill: {
+    flexDirection: 'row', alignItems: 'center', gap: 4,
+    paddingHorizontal: 8, paddingVertical: 3, borderRadius: 20, borderWidth: 1,
+  },
+  deadlinePillNormal: { backgroundColor: C.surface2, borderColor: C.border },
+  deadlinePillSoon: { backgroundColor: C.waiting + '15', borderColor: C.waiting + '60' },
+  deadlinePillOverdue: { backgroundColor: C.open + '12', borderColor: C.open + '50' },
+  deadlinePillText: { fontSize: 11, fontFamily: 'Inter_500Medium' },
   empty: { alignItems: 'center', paddingVertical: 40, gap: 10 },
   emptyText: { fontSize: 14, fontFamily: 'Inter_400Regular', color: C.textMuted },
   companyFilterRow: { flexDirection: 'row', gap: 6, paddingHorizontal: 2, alignItems: 'center' },
