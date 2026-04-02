@@ -158,7 +158,29 @@ drop policy if exists "Profil modifiable par son propriétaire" on public.profil
 create policy "Profil modifiable par son propriétaire"
   on public.profiles for update using (auth.uid() = id);
 
--- ---- 2. TABLE COMPANIES ----
+-- ---- 2. TABLE CHANTIERS ----
+create table if not exists public.chantiers (
+  id text primary key,
+  name text not null,
+  address text,
+  description text,
+  start_date text,
+  end_date text,
+  status text not null default 'active',
+  created_at timestamptz not null default now(),
+  created_by text
+);
+alter table public.chantiers enable row level security;
+drop policy if exists "Chantiers lisibles par tous les authentifiés" on public.chantiers;
+create policy "Chantiers lisibles par tous les authentifiés"
+  on public.chantiers for select using (auth.role() = 'authenticated');
+drop policy if exists "Chantiers modifiables par admin/conducteur" on public.chantiers;
+create policy "Chantiers modifiables par admin/conducteur"
+  on public.chantiers for all using (
+    exists (select 1 from public.profiles where id = auth.uid() and role in ('admin', 'conducteur'))
+  );
+
+-- ---- 3. TABLE COMPANIES ----
 create table if not exists public.companies (
   id text primary key,
   name text not null,
