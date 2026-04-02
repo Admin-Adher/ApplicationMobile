@@ -7,7 +7,6 @@ import { Ionicons } from '@expo/vector-icons';
 import { C } from '@/constants/colors';
 import { Reserve, SitePlan } from '@/constants/types';
 import StatusBadge from '@/components/StatusBadge';
-import { STATUS_CONFIG } from '@/components/StatusBadge';
 import PriorityBadge from '@/components/PriorityBadge';
 import { useRouter } from 'expo-router';
 
@@ -24,6 +23,12 @@ interface Props {
   activeChantierId: string | null;
   highlightedReserveId: string | null;
   sheetHeight: number;
+  companies: Array<{ name: string; color: string }>;
+}
+
+function getCompanyColor(companyName: string, companies: Array<{ name: string; color: string }>): string {
+  if (!companyName) return '#003082';
+  return companies.find(c => c.name === companyName)?.color ?? '#003082';
 }
 
 const PEEK_HEIGHT = 60;
@@ -31,7 +36,7 @@ const PEEK_HEIGHT = 60;
 export default function ReservesSheet({
   reserves, allReserves, pinNumberMap, searchQuery, onSearchChange,
   onReservePress, onExport, canCreate, currentPlan, activeChantierId,
-  highlightedReserveId, sheetHeight,
+  highlightedReserveId, sheetHeight, companies,
 }: Props) {
   const router = useRouter();
   const [expanded, setExpanded] = useState(false);
@@ -212,7 +217,7 @@ export default function ReservesSheet({
                 accessibilityLabel={`Réserve ${r.title}`}
                 accessibilityRole="button"
               >
-                <View style={[styles.pinBadge, { backgroundColor: STATUS_CONFIG[r.status]?.color ?? C.primary }]}>
+                <View style={[styles.pinBadge, { backgroundColor: getCompanyColor(r.company, companies) }]}>
                   <Text style={styles.pinText}>{pinNumberMap.get(r.id) ?? '—'}</Text>
                 </View>
                 <View style={styles.info}>

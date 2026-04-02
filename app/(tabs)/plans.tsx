@@ -37,6 +37,7 @@ interface PinCluster {
   cx: number; cy: number;
   items: Reserve[];
   dominantStatus: string;
+  dominantCompany: string;
   number: number;
 }
 
@@ -85,7 +86,9 @@ function computeClusters(reserves: Reserve[], scale: number, numberMap: Map<stri
     const dominant = group.reduce((prev, cur) =>
       (STO[cur.status] ?? 9) < (STO[prev.status] ?? 9) ? cur : prev
     );
-    clusters.push({ cx, cy, items: group, dominantStatus: dominant.status, number: numberMap.get(r.id) ?? clusters.length + 1 });
+    const uniqueCompanies = new Set(group.map(g => g.company));
+    const dominantCompany = uniqueCompanies.size === 1 ? group[0].company : '__mixed__';
+    clusters.push({ cx, cy, items: group, dominantStatus: dominant.status, dominantCompany, number: numberMap.get(r.id) ?? clusters.length + 1 });
   }
   return clusters;
 }
@@ -94,6 +97,11 @@ const STATUS_COLORS: Record<string, string> = {
   open: '#EF4444', in_progress: '#F59E0B', waiting: '#6B7280',
   verification: '#8B5CF6', closed: '#10B981',
 };
+
+function getCompanyColor(companyName: string, companies: Array<{ name: string; color: string }>): string {
+  if (!companyName || companyName === '__mixed__') return '#6B7280';
+  return companies.find(c => c.name === companyName)?.color ?? '#003082';
+}
 
 function isPdf(uri?: string | null): boolean {
   if (!uri) return false;
@@ -125,6 +133,7 @@ async function exportPlanPDF(
   planUri?: string | null,
   fileType?: 'pdf' | 'image' | 'dxf' | null,
   pinSizeScale: number = 1.0,
+  companiesForColor: Array<{ name: string; color: string }> = [],
 ) {
   const STATUS_FR: Record<string, string> = {
     open: 'Ouvert', in_progress: 'En cours', waiting: 'En attente',
@@ -140,12 +149,12 @@ async function exportPlanPDF(
     pctX: r.planX!,
     pctY: r.planY!,
     n: numberMap.get(r.id) ?? 0,
-    color: STATUS_COLORS[r.status] ?? '#003082',
+    color: getCompanyColor(r.company, companiesForColor),
   }));
 
   const rows = reserves.map(r => {
     const n = numberMap.get(r.id) ?? '—';
-    const color = STATUS_COLORS[r.status] ?? '#003082';
+    const color = getCompanyColor(r.company, companiesForColor);
     return `<tr>
       <td style="text-align:center;"><span style="display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px;border-radius:50%;background:${color};color:#fff;font-weight:700;font-size:11px;">${n}</span></td>
       <td style="font-weight:600;">${r.title}</td>
@@ -990,7 +999,7 @@ export default function PlansScreen() {
                   {ghostClusters.map((cluster, ci) => {
                     const isCluster = cluster.items.length > 1;
                     const sz = isCluster ? clusterSize : pinSize;
-                    const color = STATUS_CONFIG[cluster.dominantStatus as keyof typeof STATUS_CONFIG]?.color ?? C.primary;
+                    const color = getCompanyColor(cluster.dominantCompany, companies);
                     return (
                       <View key={`ghost-${ci}`} style={{
                         position: 'absolute', left: `${cluster.cx}%` as any, top: `${cluster.cy}%` as any,
@@ -1007,7 +1016,7 @@ export default function PlansScreen() {
                   {pinClusters.map((cluster, ci) => {
                     const isCluster = cluster.items.length > 1;
                     const sz = isCluster ? clusterSize : pinSize;
-                    const color = STATUS_CONFIG[cluster.dominantStatus as keyof typeof STATUS_CONFIG]?.color ?? C.primary;
+                    const color = getCompanyColor(cluster.dominantCompany, companies);
                     const isHighlighted = !isCluster && highlightedReserveId === cluster.items[0]?.id;
                     return (
                       <TouchableOpacity
@@ -1059,7 +1068,7 @@ export default function PlansScreen() {
               <View style={styles.miniMap} pointerEvents="none">
                 <View style={styles.miniMapInner}>
                   {allPlanReserves.filter(r => r.planX != null && r.planY != null).map(r => {
-                    const color = STATUS_CONFIG[r.status as keyof typeof STATUS_CONFIG]?.color ?? C.primary;
+                    const color = getCompanyColor(r.company, companies);
                     return (
                       <View key={r.id} style={[styles.miniMapDot, {
                         left: (r.planX! / 100) * 90 - 2,
@@ -1133,7 +1142,7 @@ export default function PlansScreen() {
                   </View>
                   <ScrollView contentContainerStyle={styles.tabletDetailContent} showsVerticalScrollIndicator={false}>
                     <View style={styles.tabletDetailHeaderRow}>
-                      <View style={[styles.pinBadge, { backgroundColor: STATUS_CONFIG[detailReserve.status].color, width: 40, height: 40, borderRadius: 20, marginRight: 10 }]}>
+                      <View style={[styles.pinBadge, { backgroundColor: getCompanyColor(detailReserve.company, companies), width: 40, height: 40, borderRadius: 20, marginRight: 10 }]}>
                         <Text style={[styles.pinBadgeText, { fontSize: 16 }]}>{pinNumberMap.get(detailReserve.id) ?? '—'}</Text>
                       </View>
                       <Text style={styles.tabletDetailTitle} numberOfLines={3}>{detailReserve.title}</Text>
@@ -1178,7 +1187,7 @@ export default function PlansScreen() {
                   <View style={styles.tabletPanelHdr}>
                     <Ionicons name="list-outline" size={14} color={C.primary} />
                     <Text style={styles.tabletPanelTitle}>{planReserves.length > 0 ? `${planReserves.length} réserve${planReserves.length > 1 ? 's' : ''}` : 'Réserves'}</Text>
-                    <TouchableOpacity style={styles.exportBtn} onPress={() => exportPlanPDF(currentPlan?.name ?? 'Plan', activeChantier?.name ?? '', planReserves, pinNumberMap, currentPlan?.uri ?? null, currentPlan?.fileType ?? null, pinSizeScale)} accessibilityLabel="Exporter en PDF">
+                    <TouchableOpacity style={styles.exportBtn} onPress={() => exportPlanPDF(currentPlan?.name ?? 'Plan', activeChantier?.name ?? '', planReserves, pinNumberMap, currentPlan?.uri ?? null, currentPlan?.fileType ?? null, pinSizeScale, companies)} accessibilityLabel="Exporter en PDF">
                       <Ionicons name="document-text-outline" size={13} color={C.primary} />
                       <Text style={styles.exportBtnText}>PDF</Text>
                     </TouchableOpacity>
@@ -1204,7 +1213,7 @@ export default function PlansScreen() {
                     }
                     renderItem={({ item: r }) => (
                       <TouchableOpacity style={[styles.reserveRow, highlightedReserveId === r.id && styles.tabletReserveRowSelected]} onPress={() => { setHighlightedReserveId(r.id); setPanelView('detail'); }} activeOpacity={0.75} accessibilityLabel={`Réserve ${r.title}`}>
-                        <View style={[styles.pinBadge, { backgroundColor: STATUS_CONFIG[r.status].color, width: 34, height: 34, borderRadius: 17 }]}>
+                        <View style={[styles.pinBadge, { backgroundColor: getCompanyColor(r.company, companies), width: 34, height: 34, borderRadius: 17 }]}>
                           <Text style={styles.pinBadgeText}>{pinNumberMap.get(r.id) ?? '—'}</Text>
                         </View>
                         <View style={styles.reserveInfo}>
@@ -1237,12 +1246,13 @@ export default function PlansScreen() {
           searchQuery={searchQuery}
           onSearchChange={setSearchQuery}
           onReservePress={(r) => { setSelected(r); }}
-          onExport={() => exportPlanPDF(currentPlan?.name ?? 'Plan', activeChantier?.name ?? '', planReserves, pinNumberMap, currentPlan?.uri ?? null, currentPlan?.fileType ?? null, pinSizeScale)}
+          onExport={() => exportPlanPDF(currentPlan?.name ?? 'Plan', activeChantier?.name ?? '', planReserves, pinNumberMap, currentPlan?.uri ?? null, currentPlan?.fileType ?? null, pinSizeScale, companies)}
           canCreate={permissions.canCreate}
           currentPlan={currentPlan}
           activeChantierId={activeChantierId}
           highlightedReserveId={highlightedReserveId}
           sheetHeight={screenHeight}
+          companies={companies}
         />
       )}
 
@@ -1264,7 +1274,7 @@ export default function PlansScreen() {
           {selected && (
             <TouchableOpacity activeOpacity={1} style={styles.modalCard} onPress={() => {}}>
               <View style={styles.modalHeader}>
-                <View style={[styles.modalPin, { backgroundColor: STATUS_CONFIG[selected.status].color }]}>
+                <View style={[styles.modalPin, { backgroundColor: getCompanyColor(selected.company, companies) }]}>
                   <Text style={styles.modalPinText}>{pinNumberMap.get(selected.id) ?? '#'}</Text>
                 </View>
                 <View style={{ flex: 1 }}>
