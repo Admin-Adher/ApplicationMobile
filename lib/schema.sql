@@ -1,5 +1,6 @@
 -- ============================================================
 -- BuildTrack — Schéma Supabase complet
+-- Idempotent : peut être relancé plusieurs fois sans erreur
 -- Coller et exécuter dans l'éditeur SQL de Supabase
 -- ============================================================
 
@@ -13,8 +14,10 @@ create table if not exists public.plans (
   features jsonb not null default '[]'
 );
 alter table public.plans enable row level security;
+drop policy if exists "Plans lisibles par tous les authentifiés" on public.plans;
 create policy "Plans lisibles par tous les authentifiés"
   on public.plans for select using (auth.role() = 'authenticated');
+drop policy if exists "Plans modifiables par super_admin" on public.plans;
 create policy "Plans modifiables par super_admin"
   on public.plans for all using (
     exists (select 1 from public.profiles where id = auth.uid() and role = 'super_admin')
@@ -33,11 +36,13 @@ create table if not exists public.organizations (
   created_at timestamptz not null default now()
 );
 alter table public.organizations enable row level security;
+drop policy if exists "Organizations lisibles par leurs membres" on public.organizations;
 create policy "Organizations lisibles par leurs membres"
   on public.organizations for select using (
     exists (select 1 from public.profiles where id = auth.uid() and organization_id = public.organizations.id)
     or exists (select 1 from public.profiles where id = auth.uid() and role = 'super_admin')
   );
+drop policy if exists "Organizations modifiables par super_admin" on public.organizations;
 create policy "Organizations modifiables par super_admin"
   on public.organizations for all using (
     exists (select 1 from public.profiles where id = auth.uid() and role = 'super_admin')
@@ -58,11 +63,13 @@ create table if not exists public.subscriptions (
   unique(organization_id)
 );
 alter table public.subscriptions enable row level security;
+drop policy if exists "Subscriptions visibles par membres et super_admin" on public.subscriptions;
 create policy "Subscriptions visibles par membres et super_admin"
   on public.subscriptions for select using (
     exists (select 1 from public.profiles where id = auth.uid() and organization_id = public.subscriptions.organization_id)
     or exists (select 1 from public.profiles where id = auth.uid() and role = 'super_admin')
   );
+drop policy if exists "Subscriptions modifiables par super_admin" on public.subscriptions;
 create policy "Subscriptions modifiables par super_admin"
   on public.subscriptions for all using (
     exists (select 1 from public.profiles where id = auth.uid() and role = 'super_admin')
@@ -90,6 +97,7 @@ create table if not exists public.invitations (
   expires_at timestamptz not null default (now() + interval '7 days')
 );
 alter table public.invitations enable row level security;
+drop policy if exists "Invitations visibles par admins de l''organisation" on public.invitations;
 create policy "Invitations visibles par admins de l''organisation"
   on public.invitations for select using (
     exists (
@@ -99,6 +107,7 @@ create policy "Invitations visibles par admins de l''organisation"
       and role in ('admin','super_admin')
     )
   );
+drop policy if exists "Invitations créables par admins" on public.invitations;
 create policy "Invitations créables par admins"
   on public.invitations for insert with check (
     exists (
@@ -108,6 +117,7 @@ create policy "Invitations créables par admins"
       and role in ('admin','super_admin')
     )
   );
+drop policy if exists "Invitations modifiables par admins" on public.invitations;
 create policy "Invitations modifiables par admins"
   on public.invitations for update using (
     exists (
@@ -117,6 +127,7 @@ create policy "Invitations modifiables par admins"
       and role in ('admin','super_admin')
     )
   );
+drop policy if exists "Invitations supprimables par admins" on public.invitations;
 create policy "Invitations supprimables par admins"
   on public.invitations for delete using (
     exists (
@@ -137,8 +148,10 @@ create table if not exists public.profiles (
   organization_id uuid references public.organizations(id)
 );
 alter table public.profiles enable row level security;
+drop policy if exists "Profiles visibles par tous les utilisateurs connectés" on public.profiles;
 create policy "Profiles visibles par tous les utilisateurs connectés"
   on public.profiles for select using (auth.role() = 'authenticated');
+drop policy if exists "Profil modifiable par son propriétaire" on public.profiles;
 create policy "Profil modifiable par son propriétaire"
   on public.profiles for update using (auth.uid() = id);
 
@@ -155,7 +168,9 @@ create table if not exists public.companies (
   contact text not null
 );
 alter table public.companies enable row level security;
+drop policy if exists "Companies lisibles par tous" on public.companies;
 create policy "Companies lisibles par tous" on public.companies for select using (auth.role() = 'authenticated');
+drop policy if exists "Companies modifiables par admin/conducteur" on public.companies;
 create policy "Companies modifiables par admin/conducteur"
   on public.companies for all using (
     exists (select 1 from public.profiles where id = auth.uid() and role in ('admin', 'conducteur'))
@@ -181,7 +196,9 @@ create table if not exists public.reserves (
   photo_uri text
 );
 alter table public.reserves enable row level security;
+drop policy if exists "Reserves lisibles par tous" on public.reserves;
 create policy "Reserves lisibles par tous" on public.reserves for select using (auth.role() = 'authenticated');
+drop policy if exists "Reserves modifiables (create/edit)" on public.reserves;
 create policy "Reserves modifiables (create/edit)"
   on public.reserves for all using (
     exists (select 1 from public.profiles where id = auth.uid() and role in ('admin', 'conducteur', 'chef_equipe'))
@@ -201,7 +218,9 @@ create table if not exists public.tasks (
   company text not null
 );
 alter table public.tasks enable row level security;
+drop policy if exists "Tasks lisibles par tous" on public.tasks;
 create policy "Tasks lisibles par tous" on public.tasks for select using (auth.role() = 'authenticated');
+drop policy if exists "Tasks modifiables" on public.tasks;
 create policy "Tasks modifiables"
   on public.tasks for all using (
     exists (select 1 from public.profiles where id = auth.uid() and role in ('admin', 'conducteur', 'chef_equipe'))
@@ -219,7 +238,9 @@ create table if not exists public.documents (
   uri text
 );
 alter table public.documents enable row level security;
+drop policy if exists "Documents lisibles par tous" on public.documents;
 create policy "Documents lisibles par tous" on public.documents for select using (auth.role() = 'authenticated');
+drop policy if exists "Documents modifiables" on public.documents;
 create policy "Documents modifiables"
   on public.documents for all using (
     exists (select 1 from public.profiles where id = auth.uid() and role in ('admin', 'conducteur', 'chef_equipe'))
@@ -236,7 +257,9 @@ create table if not exists public.photos (
   uri text
 );
 alter table public.photos enable row level security;
+drop policy if exists "Photos lisibles par tous" on public.photos;
 create policy "Photos lisibles par tous" on public.photos for select using (auth.role() = 'authenticated');
+drop policy if exists "Photos modifiables" on public.photos;
 create policy "Photos modifiables"
   on public.photos for all using (
     exists (select 1 from public.profiles where id = auth.uid() and role in ('admin', 'conducteur', 'chef_equipe'))
@@ -263,7 +286,9 @@ create table if not exists public.messages (
   reserve_id text
 );
 alter table public.messages enable row level security;
+drop policy if exists "Messages lisibles par tous" on public.messages;
 create policy "Messages lisibles par tous" on public.messages for select using (auth.role() = 'authenticated');
+drop policy if exists "Messages modifiables" on public.messages;
 create policy "Messages modifiables"
   on public.messages for all using (auth.role() = 'authenticated');
 
@@ -351,41 +376,33 @@ insert into public.messages (id, sender, content, timestamp, type, read, is_me) 
 on conflict (id) do nothing;
 
 -- ============================================================
--- COMPTES DEMO — À exécuter dans Supabase Authentication
--- Les 4 utilisateurs seront créés automatiquement au 1er lancement
--- de l'app via la fonction de seed intégrée.
--- ============================================================
-
--- ============================================================
 -- STORAGE — Buckets pour photos et documents
--- À exécuter dans l'éditeur SQL de Supabase (une seule fois)
 -- ============================================================
 
--- Créer les buckets publics
-INSERT INTO storage.buckets (id, name, public)
-VALUES ('photos', 'photos', true)
-ON CONFLICT (id) DO NOTHING;
+insert into storage.buckets (id, name, public)
+values ('photos', 'photos', true)
+on conflict (id) do nothing;
 
-INSERT INTO storage.buckets (id, name, public)
-VALUES ('documents', 'documents', true)
-ON CONFLICT (id) DO NOTHING;
+insert into storage.buckets (id, name, public)
+values ('documents', 'documents', true)
+on conflict (id) do nothing;
 
--- Politique : les utilisateurs authentifiés peuvent uploader des photos
-CREATE POLICY "authenticated_upload_photos"
-ON storage.objects FOR INSERT TO authenticated
-WITH CHECK (bucket_id = 'photos');
+drop policy if exists "authenticated_upload_photos" on storage.objects;
+create policy "authenticated_upload_photos"
+on storage.objects for insert to authenticated
+with check (bucket_id = 'photos');
 
--- Politique : lecture publique des photos
-CREATE POLICY "public_read_photos"
-ON storage.objects FOR SELECT
-USING (bucket_id = 'photos');
+drop policy if exists "public_read_photos" on storage.objects;
+create policy "public_read_photos"
+on storage.objects for select
+using (bucket_id = 'photos');
 
--- Politique : les utilisateurs authentifiés peuvent uploader des documents
-CREATE POLICY "authenticated_upload_documents"
-ON storage.objects FOR INSERT TO authenticated
-WITH CHECK (bucket_id = 'documents');
+drop policy if exists "authenticated_upload_documents" on storage.objects;
+create policy "authenticated_upload_documents"
+on storage.objects for insert to authenticated
+with check (bucket_id = 'documents');
 
--- Politique : lecture publique des documents
-CREATE POLICY "public_read_documents"
-ON storage.objects FOR SELECT
-USING (bucket_id = 'documents');
+drop policy if exists "public_read_documents" on storage.objects;
+create policy "public_read_documents"
+on storage.objects for select
+using (bucket_id = 'documents');
