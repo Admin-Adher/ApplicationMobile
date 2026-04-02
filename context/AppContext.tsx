@@ -1084,8 +1084,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         },
       });
 
-      let chantiers: Chantier[] = MOCK_CHANTIERS;
-      let sitePlans: SitePlan[] = MOCK_SITE_PLANS;
+      let chantiers: Chantier[] = [];
+      let sitePlans: SitePlan[] = [];
       let activeChantierId: string | null = null;
 
       try {
@@ -1573,6 +1573,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         }).then(({ error }: { error: any }) => {
           if (error) {
             dispatch({ type: 'DELETE_RESERVE', payload: r.id });
+            stateRef.current.photos
+              .filter(p => p.reserveId === r.id)
+              .forEach(p => dispatch({ type: 'DELETE_PHOTO', payload: p.id }));
             Alert.alert('Erreur de sauvegarde', "La réserve n'a pas pu être enregistrée. Vérifiez votre connexion et réessayez.");
           }
         });

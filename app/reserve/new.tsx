@@ -254,6 +254,7 @@ export default function NewReserveScreen() {
         takenBy: author,
         colorCode: kind === 'observation' ? '#0EA5E9' : '#EF4444',
         uri: p.uri,
+        reserveId: id,
       });
     });
     Alert.alert(
