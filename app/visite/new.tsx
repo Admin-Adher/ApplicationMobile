@@ -5,11 +5,19 @@ import { Ionicons } from '@expo/vector-icons';
 import { C } from '@/constants/colors';
 import { useApp } from '@/context/AppContext';
 import { useAuth } from '@/context/AuthContext';
-import { Visite, VisiteStatus } from '@/constants/types';
+import { Visite, VisiteParticipant, VisiteStatus } from '@/constants/types';
 import Header from '@/components/Header';
 import DateInput from '@/components/DateInput';
 import { genId, formatDateFR } from '@/lib/utils';
 import { RESERVE_BUILDINGS, RESERVE_LEVELS } from '@/lib/reserveUtils';
+
+type Recurrence = 'none' | 'weekly' | 'bimonthly';
+
+const RECURRENCE_OPTIONS: { value: Recurrence; label: string; desc: string }[] = [
+  { value: 'none',       label: 'Aucune',            desc: 'Visite unique' },
+  { value: 'weekly',     label: 'Hebdomadaire',       desc: '4 visites (4 semaines)' },
+  { value: 'bimonthly',  label: 'Bi-mensuelle',       desc: '4 visites (2 semaines)' },
+];
 
 const STATUS_OPTIONS: { value: VisiteStatus; label: string; color: string }[] = [
   { value: 'planned', label: 'Planifiée', color: '#6366F1' },
@@ -30,6 +38,41 @@ export default function NewVisiteScreen() {
   const [level, setLevel] = useState('RDC');
   const [notes, setNotes] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [recurrence, setRecurrence] = useState<Recurrence>('none');
+  const [participants, setParticipants] = useState<VisiteParticipant[]>([]);
+  const [newParticipantName, setNewParticipantName] = useState('');
+  const [newParticipantCompany, setNewParticipantCompany] = useState('');
+
+  function addParticipant() {
+    if (!newParticipantName.trim()) return;
+    const p: VisiteParticipant = {
+      id: genId(),
+      name: newParticipantName.trim(),
+      role: newParticipantCompany.trim() || undefined,
+      company: newParticipantCompany.trim() || undefined,
+    };
+    setParticipants(prev => [...prev, p]);
+    setNewParticipantName('');
+    setNewParticipantCompany('');
+  }
+
+  function removeParticipant(id: string) {
+    setParticipants(prev => prev.filter(p => p.id !== id));
+  }
+
+  function parseDate(dateStr: string): Date {
+    const parts = dateStr.split('/');
+    if (parts.length === 3) {
+      return new Date(parseInt(parts[2]), parseInt(parts[1]) - 1, parseInt(parts[0]));
+    }
+    return new Date();
+  }
+
+  function addDays(d: Date, days: number): string {
+    const next = new Date(d);
+    next.setDate(next.getDate() + days);
+    return formatDateFR(next);
+  }
 
   function handleSubmit() {
     if (!title.trim()) {
@@ -41,23 +84,44 @@ export default function NewVisiteScreen() {
       return;
     }
     setIsSubmitting(true);
-    const visite: Visite = {
-      id: 'VIS-' + genId().slice(0, 8).toUpperCase(),
-      chantierId: activeChantierId ?? 'chan1',
-      title: title.trim(),
-      date,
-      conducteur: conducteur.trim() || (user?.name ?? 'Équipe BuildTrack'),
-      status,
-      building,
-      level,
-      notes: notes.trim() || undefined,
-      reserveIds: [],
-      createdAt: formatDateFR(new Date()),
-    };
-    addVisite(visite);
-    Alert.alert('Visite créée', `"${visite.title}" a été créée.`, [
-      { text: 'OK', onPress: () => router.back() },
-    ]);
+    const today = formatDateFR(new Date());
+    const conducteurName = conducteur.trim() || (user?.name ?? 'Équipe BuildTrack');
+    const baseDate = parseDate(date);
+
+    const intervals: number[] = recurrence === 'weekly'
+      ? [0, 7, 14, 21]
+      : recurrence === 'bimonthly'
+      ? [0, 14, 28, 42]
+      : [0];
+
+    intervals.forEach((offsetDays, idx) => {
+      const visitDate = offsetDays === 0 ? date : addDays(baseDate, offsetDays);
+      const visitTitle = recurrence !== 'none' ? `${title.trim()} — S${idx + 1}` : title.trim();
+      const visite: Visite = {
+        id: 'VIS-' + genId().slice(0, 8).toUpperCase(),
+        chantierId: activeChantierId ?? 'chan1',
+        title: visitTitle,
+        date: visitDate,
+        conducteur: conducteurName,
+        status: idx === 0 ? status : 'planned',
+        building,
+        level,
+        notes: notes.trim() || undefined,
+        reserveIds: [],
+        participants: participants.length > 0 ? participants : undefined,
+        createdAt: today,
+      };
+      addVisite(visite);
+    });
+
+    const count = intervals.length;
+    Alert.alert(
+      count > 1 ? `${count} visites créées` : 'Visite créée',
+      count > 1
+        ? `Série "${title.trim()}" planifiée sur ${count} occurrences.`
+        : `"${title.trim()}" a été créée.`,
+      [{ text: 'OK', onPress: () => router.back() }]
+    );
     setIsSubmitting(false);
   }
 
@@ -154,13 +218,81 @@ export default function NewVisiteScreen() {
           />
         </View>
 
+        {/* PARTICIPANTS */}
+        <View style={styles.card}>
+          <Text style={styles.sectionLabel}>PARTICIPANTS ({participants.length})</Text>
+          {participants.map(p => (
+            <View key={p.id} style={styles.participantRow}>
+              <View style={styles.participantAvatar}>
+                <Text style={styles.participantAvatarText}>{p.name.charAt(0).toUpperCase()}</Text>
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.participantName}>{p.name}</Text>
+                {p.company ? <Text style={styles.participantCompany}>{p.company}</Text> : null}
+              </View>
+              <TouchableOpacity onPress={() => removeParticipant(p.id)} hitSlop={8}>
+                <Ionicons name="close-circle-outline" size={18} color={C.textMuted} />
+              </TouchableOpacity>
+            </View>
+          ))}
+          <TextInput
+            style={[styles.input, { marginBottom: 8, marginTop: participants.length > 0 ? 12 : 0 }]}
+            placeholder="Nom du participant *"
+            placeholderTextColor={C.textMuted}
+            value={newParticipantName}
+            onChangeText={setNewParticipantName}
+          />
+          <TextInput
+            style={[styles.input, { marginBottom: 8 }]}
+            placeholder="Entreprise / Fonction (optionnel)"
+            placeholderTextColor={C.textMuted}
+            value={newParticipantCompany}
+            onChangeText={setNewParticipantCompany}
+          />
+          <TouchableOpacity style={styles.addParticipantBtn} onPress={addParticipant} disabled={!newParticipantName.trim()}>
+            <Ionicons name="person-add-outline" size={14} color={newParticipantName.trim() ? C.primary : C.textMuted} />
+            <Text style={[styles.addParticipantBtnText, { color: newParticipantName.trim() ? C.primary : C.textMuted }]}>Ajouter le participant</Text>
+          </TouchableOpacity>
+        </View>
+
+        {/* RÉCURRENCE */}
+        <View style={styles.card}>
+          <Text style={styles.sectionLabel}>RÉCURRENCE</Text>
+          <View style={{ gap: 8 }}>
+            {RECURRENCE_OPTIONS.map(opt => (
+              <TouchableOpacity
+                key={opt.value}
+                style={[styles.recurrenceChip, recurrence === opt.value && styles.recurrenceChipActive]}
+                onPress={() => setRecurrence(opt.value)}
+                activeOpacity={0.8}
+              >
+                <View style={{ flex: 1 }}>
+                  <Text style={[styles.recurrenceChipLabel, recurrence === opt.value && { color: C.primary }]}>{opt.label}</Text>
+                  <Text style={styles.recurrenceChipDesc}>{opt.desc}</Text>
+                </View>
+                {recurrence === opt.value && <Ionicons name="checkmark-circle" size={18} color={C.primary} />}
+              </TouchableOpacity>
+            ))}
+          </View>
+          {recurrence !== 'none' && (
+            <View style={styles.recurrenceHint}>
+              <Ionicons name="repeat-outline" size={13} color={C.inProgress} />
+              <Text style={styles.recurrenceHintText}>
+                {recurrence === 'weekly' ? '4 visites' : '4 visites'} seront créées automatiquement à partir du {date}.
+              </Text>
+            </View>
+          )}
+        </View>
+
         <TouchableOpacity
           style={[styles.submitBtn, isSubmitting && { opacity: 0.6 }]}
           onPress={handleSubmit}
           disabled={isSubmitting}
         >
           <Ionicons name="checkmark-circle" size={18} color="#fff" />
-          <Text style={styles.submitBtnText}>Créer la visite</Text>
+          <Text style={styles.submitBtnText}>
+            {recurrence !== 'none' ? 'Créer la série de visites' : 'Créer la visite'}
+          </Text>
         </TouchableOpacity>
       </ScrollView>
     </View>
@@ -208,4 +340,19 @@ const styles = StyleSheet.create({
     gap: 8, backgroundColor: C.primary, borderRadius: 14, paddingVertical: 16,
   },
   submitBtnText: { fontSize: 16, fontFamily: 'Inter_700Bold', color: '#fff' },
+
+  participantRow: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: C.border },
+  participantAvatar: { width: 32, height: 32, borderRadius: 16, backgroundColor: C.primaryBg, alignItems: 'center', justifyContent: 'center' },
+  participantAvatarText: { fontSize: 14, fontFamily: 'Inter_700Bold', color: C.primary },
+  participantName: { fontSize: 13, fontFamily: 'Inter_600SemiBold', color: C.text },
+  participantCompany: { fontSize: 11, fontFamily: 'Inter_400Regular', color: C.textMuted, marginTop: 1 },
+  addParticipantBtn: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingVertical: 8, marginTop: 4 },
+  addParticipantBtnText: { fontSize: 13, fontFamily: 'Inter_600SemiBold' },
+
+  recurrenceChip: { flexDirection: 'row', alignItems: 'center', padding: 12, borderRadius: 10, borderWidth: 1, borderColor: C.border, backgroundColor: C.surface2 },
+  recurrenceChipActive: { borderColor: C.primary, backgroundColor: C.primaryBg },
+  recurrenceChipLabel: { fontSize: 13, fontFamily: 'Inter_600SemiBold', color: C.text },
+  recurrenceChipDesc: { fontSize: 11, fontFamily: 'Inter_400Regular', color: C.textMuted, marginTop: 2 },
+  recurrenceHint: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 10, backgroundColor: C.inProgress + '12', borderRadius: 8, padding: 10, borderWidth: 1, borderColor: C.inProgress + '30' },
+  recurrenceHintText: { flex: 1, fontSize: 12, fontFamily: 'Inter_400Regular', color: C.inProgress, lineHeight: 16 },
 });

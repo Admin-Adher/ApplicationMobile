@@ -1,4 +1,4 @@
-import { View, Text, StyleSheet, FlatList, TouchableOpacity, TextInput, Platform, ScrollView, Modal, ActivityIndicator, useWindowDimensions, Image, Alert } from 'react-native';
+import { View, Text, StyleSheet, FlatList, TouchableOpacity, TextInput, Platform, ScrollView, Modal, ActivityIndicator, useWindowDimensions, Image, Alert, Share } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
@@ -6,9 +6,31 @@ import { useState, useMemo, useCallback } from 'react';
 import { C } from '@/constants/colors';
 import { useApp } from '@/context/AppContext';
 import { useAuth } from '@/context/AuthContext';
-import { ReserveStatus, ReservePriority, ReserveKind } from '@/constants/types';
+import { Reserve, ReserveStatus, ReservePriority, ReserveKind } from '@/constants/types';
 import ReserveCard from '@/components/ReserveCard';
 import { isOverdue } from '@/lib/reserveUtils';
+
+function buildReservesCSV(reserves: Reserve[]): string {
+  const header = 'ID,Titre,Bâtiment,Zone,Niveau,Entreprise,Priorité,Statut,Créé le,Échéance,Description';
+  const PRIORITY_MAP: Record<string, string> = { low: 'Faible', medium: 'Moyenne', high: 'Haute', critical: 'Critique' };
+  const STATUS_MAP: Record<string, string> = { open: 'Ouvert', in_progress: 'En cours', waiting: 'En attente', verification: 'Vérification', closed: 'Clôturé' };
+  const rows = reserves.map(r => {
+    const esc = (v: string) => `"${(v ?? '').replace(/"/g, '""')}"`;
+    return [
+      esc(r.id), esc(r.title), esc(`Bât. ${r.building}`), esc(r.zone), esc(r.level),
+      esc(r.company), esc(PRIORITY_MAP[r.priority] ?? r.priority), esc(STATUS_MAP[r.status] ?? r.status),
+      esc(r.createdAt), esc(r.deadline ?? '—'), esc(r.description),
+    ].join(',');
+  });
+  return [header, ...rows].join('\n');
+}
+
+function parseDeadline(s: string): Date | null {
+  if (!s || s === '—') return null;
+  const parts = s.split('/');
+  if (parts.length === 3) return new Date(parseInt(parts[2]), parseInt(parts[1]) - 1, parseInt(parts[0]));
+  return null;
+}
 
 const STATUS_FILTERS: { key: 'all' | 'overdue' | ReserveStatus; label: string }[] = [
   { key: 'all', label: 'Tout' },
@@ -81,6 +103,36 @@ export default function ReservesScreen() {
     }
     return list;
   }, [reserves, chantierFilter, isSousTraitant, sousTraitantCompanyName]);
+
+  const nearDeadlineReserves = useMemo(() => {
+    const now = new Date();
+    const in3Days = new Date(now);
+    in3Days.setDate(in3Days.getDate() + 3);
+    return chantierReserves.filter(r => {
+      if (r.status === 'closed') return false;
+      const dl = parseDeadline(r.deadline);
+      if (!dl) return false;
+      return dl >= now && dl <= in3Days;
+    });
+  }, [chantierReserves]);
+
+  function handleExportCSV() {
+    const csv = buildReservesCSV(filtered);
+    if (Platform.OS === 'web') {
+      const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8;' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `reserves_export_${new Date().toISOString().slice(0, 10)}.csv`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } else {
+      Share.share({
+        title: 'Export réserves CSV',
+        message: csv,
+      }).catch(() => {});
+    }
+  }
 
   const buildings = useMemo(() => {
     const b = new Set(chantierReserves.map(r => r.building));
@@ -199,21 +251,29 @@ export default function ReservesScreen() {
                 : `${filtered.length} / ${chantierReserves.length} réserve${chantierReserves.length !== 1 ? 's' : ''}${overdueCount > 0 ? ` · ${overdueCount} en retard` : ''}`}
             </Text>
           </View>
-          {permissions.canEdit && filtered.length > 0 && (
-            <TouchableOpacity
-              style={[styles.selectBtn, isSelectMode && styles.selectBtnActive]}
-              onPress={toggleSelectMode}
-            >
-              <Ionicons
-                name={isSelectMode ? 'close-circle' : 'checkmark-circle-outline'}
-                size={15}
-                color={isSelectMode ? C.open : C.textSub}
-              />
-              <Text style={[styles.selectBtnText, isSelectMode && styles.selectBtnTextActive]}>
-                {isSelectMode ? 'Annuler' : 'Sélection'}
-              </Text>
-            </TouchableOpacity>
-          )}
+          <View style={{ flexDirection: 'row', gap: 8 }}>
+            {permissions.canExport && filtered.length > 0 && !isSelectMode && (
+              <TouchableOpacity style={styles.selectBtn} onPress={handleExportCSV}>
+                <Ionicons name="download-outline" size={15} color={C.textSub} />
+                <Text style={styles.selectBtnText}>CSV</Text>
+              </TouchableOpacity>
+            )}
+            {permissions.canEdit && filtered.length > 0 && (
+              <TouchableOpacity
+                style={[styles.selectBtn, isSelectMode && styles.selectBtnActive]}
+                onPress={toggleSelectMode}
+              >
+                <Ionicons
+                  name={isSelectMode ? 'close-circle' : 'checkmark-circle-outline'}
+                  size={15}
+                  color={isSelectMode ? C.open : C.textSub}
+                />
+                <Text style={[styles.selectBtnText, isSelectMode && styles.selectBtnTextActive]}>
+                  {isSelectMode ? 'Annuler' : 'Sélection'}
+                </Text>
+              </TouchableOpacity>
+            )}
+          </View>
         </View>
 
         {isSelectMode && (
@@ -236,6 +296,21 @@ export default function ReservesScreen() {
               Vue filtrée — uniquement vos réserves : <Text style={{ fontFamily: 'Inter_700Bold' }}>{sousTraitantCompanyName}</Text>
             </Text>
           </View>
+        )}
+
+        {nearDeadlineReserves.length > 0 && (
+          <TouchableOpacity
+            style={styles.deadlineReminderBanner}
+            onPress={() => setStatusFilter('all')}
+            activeOpacity={0.85}
+          >
+            <Ionicons name="alarm-outline" size={14} color="#D97706" />
+            <Text style={styles.deadlineReminderText}>
+              <Text style={{ fontFamily: 'Inter_700Bold' }}>{nearDeadlineReserves.length} réserve{nearDeadlineReserves.length > 1 ? 's' : ''}</Text>
+              {' '}expire{nearDeadlineReserves.length > 1 ? 'nt' : ''} dans moins de 3 jours — action requise
+            </Text>
+            <Ionicons name="chevron-forward" size={13} color="#D97706" />
+          </TouchableOpacity>
         )}
 
         {chantiers.length > 1 && (

@@ -248,6 +248,7 @@ export interface Reserve {
   zone: string;
   level: string;
   company: string;
+  responsableNom?: string;
   priority: ReservePriority;
   status: ReserveStatus;
   kind?: ReserveKind;
@@ -425,10 +426,12 @@ export interface Checklist {
 }
 
 export interface MeetingReportAction {
+  id?: string;
   description: string;
   responsible: string;
   deadline: string;
   status: 'done' | 'pending';
+  reserveId?: string;
 }
 
 export interface MeetingReport {

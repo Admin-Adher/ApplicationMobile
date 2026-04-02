@@ -5,6 +5,7 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useState, useMemo } from 'react';
+import { useRouter } from 'expo-router';
 import * as ImagePicker from 'expo-image-picker';
 import { C } from '@/constants/colors';
 import { useAuth } from '@/context/AuthContext';
@@ -68,6 +69,7 @@ type FilterStatus = IncidentStatus | 'all';
 
 export default function IncidentsScreen() {
   const insets = useSafeAreaInsets();
+  const router = useRouter();
   const { user, permissions } = useAuth();
   const { incidents, addIncident, updateIncident, deleteIncident } = useIncidents();
 
@@ -334,6 +336,26 @@ export default function IncidentsScreen() {
                     <Text style={styles.closedText}>Résolu le {incident.closedAt}{incident.closedBy ? ` par ${incident.closedBy}` : ''}</Text>
                   </View>
                 ) : null}
+                {(incident.severity === 'major' || incident.severity === 'critical') && permissions.canCreate ? (
+                  <TouchableOpacity
+                    style={styles.createReserveBtn}
+                    onPress={e => {
+                      e.stopPropagation?.();
+                      router.push({
+                        pathname: '/reserve/new',
+                        params: {
+                          prefill_description: `Issu d'un incident : ${incident.title}. ${incident.description}`,
+                          prefill_source: `Incident ${incident.severity === 'critical' ? 'critique' : 'majeur'} — ${incident.reportedAt}`,
+                          building: incident.building,
+                        },
+                      } as any);
+                    }}
+                    activeOpacity={0.8}
+                  >
+                    <Ionicons name="alert-circle-outline" size={13} color={C.open} />
+                    <Text style={styles.createReserveBtnText}>Créer une réserve</Text>
+                  </TouchableOpacity>
+                ) : null}
               </TouchableOpacity>
             );
           })
@@ -595,6 +617,8 @@ const styles = StyleSheet.create({
   photoPreviewWrap: { marginTop: 4, marginBottom: 8 },
   photoPreview: { width: '100%', height: 160, borderRadius: 10, marginBottom: 6 },
   removePhotoBtn: { flexDirection: 'row', alignItems: 'center', gap: 4 },
+  createReserveBtn: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 8, backgroundColor: C.open + '12', borderRadius: 8, padding: 8, borderWidth: 1, borderColor: C.open + '30' },
+  createReserveBtnText: { fontSize: 12, fontFamily: 'Inter_600SemiBold', color: C.open },
   removePhotoText: { fontSize: 13, fontFamily: 'Inter_400Regular', color: C.open },
   photoPickerRow: { flexDirection: 'row', gap: 10, marginTop: 4, marginBottom: 8 },
   photoPickerBtn: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, paddingVertical: 12, backgroundColor: C.primaryBg, borderRadius: 10, borderWidth: 1, borderColor: C.primary + '40' },

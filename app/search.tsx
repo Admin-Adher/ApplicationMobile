@@ -31,7 +31,7 @@ const INCIDENT_SEVERITY_COLORS: Record<string, string> = {
 
 export default function SearchScreen() {
   const router = useRouter();
-  const { reserves, tasks, documents } = useApp();
+  const { reserves, tasks, documents, visites } = useApp();
   const { incidents } = useIncidents();
   const [query, setQuery] = useState('');
 
@@ -75,7 +75,17 @@ export default function SearchScreen() {
     ).slice(0, 6);
   }, [incidents, q]);
 
-  const hasResults = filteredReserves.length > 0 || filteredTasks.length > 0 || filteredDocuments.length > 0 || filteredIncidents.length > 0;
+  const filteredVisites = useMemo(() => {
+    if (!q || q.length < 2) return [];
+    return (visites ?? []).filter(v =>
+      v.title.toLowerCase().includes(q) ||
+      v.conducteur.toLowerCase().includes(q) ||
+      (v.notes ?? '').toLowerCase().includes(q) ||
+      v.building.toLowerCase().includes(q)
+    ).slice(0, 6);
+  }, [visites, q]);
+
+  const hasResults = filteredReserves.length > 0 || filteredTasks.length > 0 || filteredDocuments.length > 0 || filteredIncidents.length > 0 || filteredVisites.length > 0;
   const hasQuery = q.length >= 2;
 
   return (
@@ -255,6 +265,39 @@ export default function SearchScreen() {
                     <Text style={styles.resultMetaText} numberOfLines={1}>{i.description}</Text>
                     <View style={[styles.resultMeta, { marginTop: 4 }]}>
                       <Text style={styles.resultMetaText}>Bât. {i.building} — {i.location} — {i.reportedAt}</Text>
+                    </View>
+                    <Ionicons name="chevron-forward" size={14} color={C.textMuted} style={styles.chevron} />
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+          )}
+
+          {filteredVisites.length > 0 && (
+            <View style={styles.section}>
+              <View style={styles.sectionHeader}>
+                <Ionicons name="eye-outline" size={14} color="#6366F1" />
+                <Text style={styles.sectionTitle}>Visites ({filteredVisites.length})</Text>
+              </View>
+              {filteredVisites.map(v => {
+                const vColor = v.status === 'completed' ? C.closed : v.status === 'in_progress' ? C.inProgress : '#6366F1';
+                const vLabel = v.status === 'completed' ? 'Terminée' : v.status === 'in_progress' ? 'En cours' : 'Planifiée';
+                return (
+                  <TouchableOpacity
+                    key={v.id}
+                    style={styles.resultCard}
+                    onPress={() => router.push(`/visite/${v.id}` as any)}
+                    activeOpacity={0.75}
+                  >
+                    <View style={styles.resultRow}>
+                      <Text style={styles.resultId}>{v.id.slice(0, 12)}</Text>
+                      <View style={[styles.statusPill, { backgroundColor: vColor + '20' }]}>
+                        <Text style={[styles.statusPillText, { color: vColor }]}>{vLabel}</Text>
+                      </View>
+                    </View>
+                    <Text style={styles.resultTitle} numberOfLines={1}>{v.title}</Text>
+                    <View style={styles.resultMeta}>
+                      <Text style={styles.resultMetaText}>Bât. {v.building} · {v.date} · {v.conducteur}</Text>
                     </View>
                     <Ionicons name="chevron-forward" size={14} color={C.textMuted} style={styles.chevron} />
                   </TouchableOpacity>

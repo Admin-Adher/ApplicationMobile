@@ -77,8 +77,10 @@ export default function NewReserveScreen() {
   const [zone, setZone] = useState(RESERVE_ZONES[0]);
   const [level, setLevel] = useState('RDC');
   const [company, setCompany] = useState(companies[0]?.name ?? '');
+  const [responsableNom, setResponsableNom] = useState('');
   const [priority, setPriority] = useState<ReservePriority>('medium');
   const [deadline, setDeadline] = useState('');
+  const [deadlineSuggested, setDeadlineSuggested] = useState(false);
   const [lotId, setLotId] = useState<string>('');
   const [selectedPlanId, setSelectedPlanId] = useState<string>(params.planId ?? chantierPlans[0]?.id ?? '');
   const [photos, setPhotos] = useState<ReservePhoto[]>([]);
@@ -111,6 +113,29 @@ export default function NewReserveScreen() {
         </TouchableOpacity>
       </View>
     );
+  }
+
+  function getSuggestedDeadlineDays(p: ReservePriority): number | null {
+    if (p === 'critical') return 2;
+    if (p === 'high') return 7;
+    if (p === 'medium') return 30;
+    return null;
+  }
+
+  function handlePriorityChange(p: ReservePriority) {
+    setPriority(p);
+    const days = getSuggestedDeadlineDays(p);
+    if (days !== null && !deadline) {
+      const d = new Date();
+      d.setDate(d.getDate() + days);
+      const dd = String(d.getDate()).padStart(2, '0');
+      const mm = String(d.getMonth() + 1).padStart(2, '0');
+      const yyyy = d.getFullYear();
+      setDeadline(`${dd}/${mm}/${yyyy}`);
+      setDeadlineSuggested(true);
+    } else {
+      setDeadlineSuggested(false);
+    }
   }
 
   function applyTemplate(item: { title: string; description: string }) {
@@ -231,6 +256,7 @@ export default function NewReserveScreen() {
       zone,
       level,
       company,
+      responsableNom: responsableNom.trim() || undefined,
       priority,
       status: 'open' as ReserveStatus,
       createdAt: today,
@@ -533,6 +559,20 @@ export default function NewReserveScreen() {
           )}
         </View>
 
+        {/* RESPONSABLE NOM */}
+        <View style={styles.card}>
+          <View style={[styles.fieldGroup, { marginBottom: 0 }]}>
+            <Text style={styles.label}>Responsable (contact)</Text>
+            <TextInput
+              style={styles.input}
+              placeholder="Nom du responsable chez l'entreprise..."
+              placeholderTextColor={C.textMuted}
+              value={responsableNom}
+              onChangeText={setResponsableNom}
+            />
+          </View>
+        </View>
+
         {/* PRIORITÉ */}
         <View style={styles.card}>
           <View style={[styles.fieldGroup, { marginBottom: 0 }]}>
@@ -542,7 +582,7 @@ export default function NewReserveScreen() {
                 <TouchableOpacity
                   key={p.value}
                   style={[styles.chip, priority === p.value && { backgroundColor: p.color + '20', borderColor: p.color }]}
-                  onPress={() => setPriority(p.value)}
+                  onPress={() => handlePriorityChange(p.value)}
                 >
                   <Text style={[styles.chipText, priority === p.value && { color: p.color }]}>{p.label}</Text>
                 </TouchableOpacity>
@@ -553,9 +593,17 @@ export default function NewReserveScreen() {
 
         {/* DATE LIMITE */}
         <View style={styles.card}>
-          <View style={[styles.fieldGroup, { marginBottom: 0 }]}>
-            <DateInput label="Date limite" value={deadline} onChange={setDeadline} optional />
+          <View style={styles.fieldGroup}>
+            <DateInput label="Date limite" value={deadline} onChange={v => { setDeadline(v); setDeadlineSuggested(false); }} optional />
           </View>
+          {deadlineSuggested && deadline ? (
+            <View style={styles.lotAutoFillHint}>
+              <Ionicons name="bulb-outline" size={12} color={C.primary} />
+              <Text style={styles.lotAutoFillText}>
+                Délai suggéré automatiquement selon la priorité ({getSuggestedDeadlineDays(priority)}j). Vous pouvez modifier la date.
+              </Text>
+            </View>
+          ) : null}
         </View>
 
         <TouchableOpacity

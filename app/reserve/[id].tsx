@@ -705,6 +705,9 @@ export default function ReserveDetailScreen() {
           <InfoRow icon="location-outline" label="Zone" value={reserve.zone} />
           <InfoRow icon="layers-outline" label="Niveau" value={reserve.level} />
           <InfoRow icon="people-outline" label="Entreprise" value={reserve.company} />
+          {reserve.responsableNom ? (
+            <InfoRow icon="person-circle-outline" label="Responsable" value={reserve.responsableNom} />
+          ) : null}
           <InfoRow icon="calendar-outline" label="Créé le" value={formatDate(reserve.createdAt)} />
           <InfoRow
             icon="timer-outline"
@@ -747,7 +750,56 @@ export default function ReserveDetailScreen() {
           <Text style={styles.description}>{reserve.description}</Text>
         </View>
 
-        {permissions.canEdit && (
+        {permissions.canEdit && user?.role === 'sous_traitant' && (
+          <View style={styles.card}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 10 }}>
+              <Ionicons name="construct-outline" size={15} color={C.textSub} />
+              <Text style={styles.sectionTitle}>Votre action</Text>
+            </View>
+            {reserve.status === 'verification' ? (
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: '#F5F3FF', borderRadius: 10, padding: 12, borderWidth: 1, borderColor: '#7C3AED40' }}>
+                <Ionicons name="time-outline" size={16} color="#7C3AED" />
+                <Text style={{ flex: 1, fontSize: 13, fontFamily: 'Inter_500Medium', color: '#7C3AED' }}>
+                  Demande de levée envoyée — en attente de validation
+                </Text>
+              </View>
+            ) : reserve.status === 'closed' ? (
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: '#ECFDF5', borderRadius: 10, padding: 12, borderWidth: 1, borderColor: '#6EE7B7' }}>
+                <Ionicons name="checkmark-circle" size={16} color="#059669" />
+                <Text style={{ flex: 1, fontSize: 13, fontFamily: 'Inter_500Medium', color: '#059669' }}>
+                  Réserve levée et approuvée
+                </Text>
+              </View>
+            ) : (
+              <>
+                <Text style={{ fontSize: 12, fontFamily: 'Inter_400Regular', color: C.textSub, marginBottom: 10 }}>
+                  Statut actuel : <Text style={{ fontFamily: 'Inter_600SemiBold', color: STATUS_CONFIG[reserve.status]?.color }}>{STATUS_CONFIG[reserve.status]?.label}</Text>
+                  {'\n'}Une fois les travaux réalisés, déclarez la levée pour validation par le conducteur.
+                </Text>
+                <TouchableOpacity
+                  style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, backgroundColor: '#7C3AED', borderRadius: 12, paddingVertical: 13, opacity: reserve.status === 'open' || reserve.status === 'in_progress' || reserve.status === 'waiting' ? 1 : 0.5 }}
+                  onPress={() => {
+                    Alert.alert(
+                      'Demander la levée',
+                      `Confirmer que les travaux de la réserve ${reserve.id} ont été réalisés ?\n\nLe conducteur de travaux sera notifié pour vérification.`,
+                      [
+                        { text: 'Annuler', style: 'cancel' },
+                        { text: 'Confirmer', onPress: () => handleStatusChange('verification') },
+                      ]
+                    );
+                  }}
+                  disabled={!['open', 'in_progress', 'waiting'].includes(reserve.status)}
+                  activeOpacity={0.8}
+                >
+                  <Ionicons name="checkmark-done-outline" size={16} color="#fff" />
+                  <Text style={{ fontSize: 14, fontFamily: 'Inter_600SemiBold', color: '#fff' }}>Demander la levée</Text>
+                </TouchableOpacity>
+              </>
+            )}
+          </View>
+        )}
+
+        {permissions.canEdit && user?.role !== 'sous_traitant' && (
           <View style={styles.card}>
             <Text style={styles.sectionTitle}>Modifier le statut</Text>
             <View style={styles.statusGrid}>
@@ -771,7 +823,7 @@ export default function ReserveDetailScreen() {
           </View>
         )}
 
-        {permissions.canEdit && reserve.status === 'verification' && (
+        {permissions.canEdit && user?.role !== 'sous_traitant' && reserve.status === 'verification' && (
           <View style={[styles.card, { borderColor: '#7C3AED40', borderWidth: 1.5 }]}>
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 10 }}>
               <View style={{ width: 28, height: 28, borderRadius: 14, backgroundColor: '#7C3AED20', alignItems: 'center', justifyContent: 'center' }}>
