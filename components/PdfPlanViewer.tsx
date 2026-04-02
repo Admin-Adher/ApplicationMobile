@@ -46,6 +46,7 @@ export interface PdfPlanViewerProps {
   canCreate: boolean;
   pinSize?: number;
   onZoomChange?: (zoom: number) => void;
+  isImagePlan?: boolean;
 }
 
 export interface PdfPlanViewerHandle {
@@ -149,6 +150,7 @@ function buildMobileHtml(
   canAnnotate: boolean,
   canCreate: boolean,
   pinSize: number = 22,
+  isImagePlan: boolean = false,
 ): string {
   const pinsData = reserves
     .filter(r => r.planX != null && r.planY != null)
@@ -201,6 +203,7 @@ html,body{width:100%;height:100%;overflow:hidden;background:#0F1117;touch-action
 <script>
 (function(){
 var PLAN_URI=${JSON.stringify(planUri)};
+var IS_IMAGE=${isImagePlan ? 'true' : 'false'};
 var draws=${safeAnns};
 var pinsData=${safePins};
 var CAN_ANNOTATE=${canAnnotate};
@@ -351,7 +354,9 @@ function setSvgSize(){
 }
 
 
-pdfjsLib.GlobalWorkerOptions.workerSrc='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+if(!IS_IMAGE){
+  pdfjsLib.GlobalWorkerOptions.workerSrc='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+}
 
 function renderPage(num){
   return pdfDoc.getPage(num).then(function(page){
@@ -380,17 +385,50 @@ function renderPage(num){
   });
 }
 
-pdfjsLib.getDocument({url:PLAN_URI,withCredentials:false}).promise.then(function(doc){
-  pdfDoc=doc;pageCount=doc.numPages;
-  post({type:'pageCount',count:pageCount});
-  return renderPage(1);
-}).then(function(){
-  loading.style.display='none';
-  container.style.display='block';
-}).catch(function(){
-  loading.style.display='none';
-  errMsg.style.display='flex';
-});
+if(IS_IMAGE){
+  var img=new Image();
+  img.crossOrigin='anonymous';
+  img.onload=function(){
+    var dpr=window.devicePixelRatio||1;
+    var W=window.innerWidth||600;
+    var aspect=img.naturalHeight/(img.naturalWidth||1);
+    cw=W;ch=Math.round(W*aspect);
+    pdfCanvas.width=Math.round(cw*dpr);
+    pdfCanvas.height=Math.round(ch*dpr);
+    pdfCanvas.style.width=cw+'px';
+    pdfCanvas.style.height=ch+'px';
+    setSvgSize();
+    var ctx2d=pdfCanvas.getContext('2d');
+    ctx2d.scale(dpr,dpr);
+    ctx2d.drawImage(img,0,0,cw,ch);
+    var contW=window.innerWidth,contH=window.innerHeight;
+    zoom=1;
+    panX=Math.max(0,(contW-cw)/2);
+    panY=Math.max(0,(contH-ch)/2);
+    applyT();
+    renderAnns();
+    renderPins();
+    loading.style.display='none';
+    container.style.display='block';
+  };
+  img.onerror=function(){
+    loading.style.display='none';
+    errMsg.style.display='flex';
+  };
+  img.src=PLAN_URI;
+}else{
+  pdfjsLib.getDocument({url:PLAN_URI,withCredentials:false}).promise.then(function(doc){
+    pdfDoc=doc;pageCount=doc.numPages;
+    post({type:'pageCount',count:pageCount});
+    return renderPage(1);
+  }).then(function(){
+    loading.style.display='none';
+    container.style.display='block';
+  }).catch(function(){
+    loading.style.display='none';
+    errMsg.style.display='flex';
+  });
+}
 
 container.addEventListener('touchstart',function(e){
   e.preventDefault();
@@ -562,7 +600,7 @@ window.resetView=function(){
 const MobileViewer = forwardRef<PdfPlanViewerHandle, PdfPlanViewerProps>(function MobileViewerInner({
   planUri, planId, annotations, onAnnotationsChange,
   reserves, pinNumberMap, onReserveSelect, onPlanTap,
-  canAnnotate, canCreate, pinSize = 22, onZoomChange,
+  canAnnotate, canCreate, pinSize = 22, onZoomChange, isImagePlan = false,
 }, ref) {
   const WebView = require('react-native-webview').default;
   const webViewRef = useRef<any>(null);
@@ -591,7 +629,10 @@ const MobileViewer = forwardRef<PdfPlanViewerHandle, PdfPlanViewerProps>(functio
         })
         .then(b64 => {
           if (cancelled || !b64) return;
-          setResolvedUri(`data:application/pdf;base64,${b64}`);
+          const mime = isImagePlan
+            ? (planUri.toLowerCase().endsWith('.png') ? 'image/png' : 'image/jpeg')
+            : 'application/pdf';
+          setResolvedUri(`data:${mime};base64,${b64}`);
           setUriLoading(false);
         })
         .catch(() => {
@@ -666,7 +707,7 @@ const MobileViewer = forwardRef<PdfPlanViewerHandle, PdfPlanViewerProps>(functio
   }, [reserves, onPlanTap, onReserveSelect, onAnnotationsChange, onZoomChange]);
 
   const html = resolvedUri
-    ? buildMobileHtml(resolvedUri, annotations ?? [], reserves, pinNumberMap, canAnnotate, canCreate, pinSize)
+    ? buildMobileHtml(resolvedUri, annotations ?? [], reserves, pinNumberMap, canAnnotate, canCreate, pinSize, isImagePlan)
     : '';
 
   function changePage(n: number) {
