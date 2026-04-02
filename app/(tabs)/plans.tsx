@@ -22,7 +22,7 @@ import { genId, formatDateFR } from '@/lib/utils';
 import { parseDxf, normalizeDxfPoint, DxfParseResult, DxfEntity } from '@/lib/dxfParser';
 import { openChantierSwitcher } from '@/components/ChantierSwitcherSheet';
 import QRCodeDisplay from '@/components/QRCodeDisplay';
-import PdfPlanViewer from '@/components/PdfPlanViewer';
+import PdfPlanViewer, { type PdfPlanViewerHandle } from '@/components/PdfPlanViewer';
 
 interface Room {
   id: string; label: string;
@@ -209,27 +209,53 @@ interface PinCluster {
 function computeClusters(reserves: Reserve[], scale: number, numberMap: Map<string, number>): PinCluster[] {
   const threshold = 8.33 / Math.max(scale, 0.3);
   const pins = reserves.filter(r => r.planX != null && r.planY != null);
+  if (pins.length === 0) return [];
+
+  const cellSize = threshold;
+  const grid = new Map<string, Reserve[]>();
+  const cellKey = (gx: number, gy: number) => `${gx},${gy}`;
+
+  for (const r of pins) {
+    const gx = Math.floor(r.planX! / cellSize);
+    const gy = Math.floor(r.planY! / cellSize);
+    const k = cellKey(gx, gy);
+    if (!grid.has(k)) grid.set(k, []);
+    grid.get(k)!.push(r);
+  }
+
   const assigned = new Set<string>();
   const clusters: PinCluster[] = [];
-  let clusterIdx = 0;
+  const STATUS_ORDER: Record<string, number> = { open: 0, in_progress: 1, waiting: 2, verification: 3, closed: 4 };
 
   for (const r of pins) {
     if (assigned.has(r.id)) continue;
-    const group: Reserve[] = [r];
-    assigned.add(r.id);
-    for (const r2 of pins) {
-      if (assigned.has(r2.id)) continue;
-      const d = Math.sqrt(Math.pow(r.planX! - r2.planX!, 2) + Math.pow(r.planY! - r2.planY!, 2));
-      if (d < threshold) { group.push(r2); assigned.add(r2.id); }
+    const group: Reserve[] = [];
+    const queue: Reserve[] = [r];
+    while (queue.length > 0) {
+      const cur = queue.pop()!;
+      if (assigned.has(cur.id)) continue;
+      assigned.add(cur.id);
+      group.push(cur);
+      const gx = Math.floor(cur.planX! / cellSize);
+      const gy = Math.floor(cur.planY! / cellSize);
+      for (let dx = -1; dx <= 1; dx++) {
+        for (let dy = -1; dy <= 1; dy++) {
+          const neighbors = grid.get(cellKey(gx + dx, gy + dy));
+          if (!neighbors) continue;
+          for (const n of neighbors) {
+            if (assigned.has(n.id)) continue;
+            const d = Math.sqrt(Math.pow(cur.planX! - n.planX!, 2) + Math.pow(cur.planY! - n.planY!, 2));
+            if (d < threshold) queue.push(n);
+          }
+        }
+      }
     }
     const cx = group.reduce((s, g) => s + g.planX!, 0) / group.length;
     const cy = group.reduce((s, g) => s + g.planY!, 0) / group.length;
-    const dominantStatus = group.reduce((prev, cur) => {
-      const order: Record<string, number> = { open: 0, in_progress: 1, waiting: 2, verification: 3, closed: 4 };
-      return (order[cur.status] ?? 9) < (order[prev.status] ?? 9) ? cur : prev;
-    }).status;
-    clusters.push({ cx, cy, items: group, dominantStatus, number: numberMap.get(r.id) ?? (clusterIdx + 1) });
-    clusterIdx++;
+    const dominant = group.reduce((prev, cur) =>
+      (STATUS_ORDER[cur.status] ?? 9) < (STATUS_ORDER[prev.status] ?? 9) ? cur : prev
+    );
+    clusters.push({ cx, cy, items: group, dominantStatus: dominant.status, number: numberMap.get(r.id) ?? clusters.length + 1 });
   }
   return clusters;
 }
@@ -570,6 +596,8 @@ export default function PlansScreen() {
   const [highlightedReserveId, setHighlightedReserveId] = useState<string | null>(null);
   const [panelView, setPanelView] = useState<'list' | 'detail'>('list');
   const reserveListRef = useRef<FlatList<Reserve> | null>(null);
+  const pdfViewerRef = useRef<PdfPlanViewerHandle>(null);
+  const [pdfZoomPct, setPdfZoomPct] = useState<number>(100);
 
   const scale = useRef(new Animated.Value(1)).current;
   const translateX = useRef(new Animated.Value(0)).current;
@@ -985,9 +1013,10 @@ export default function PlansScreen() {
                 <Ionicons name="layers-outline" size={14} color={showLayers ? C.primary : C.text} />
               </TouchableOpacity>
             )}
-            <TouchableOpacity style={styles.zoomBtn} onPress={zoomOut}><Ionicons name="remove" size={16} color={C.text} /></TouchableOpacity>
-            <TouchableOpacity style={styles.zoomBtn} onPress={resetView}><Ionicons name="scan-outline" size={14} color={C.text} /></TouchableOpacity>
-            <TouchableOpacity style={styles.zoomBtn} onPress={zoomIn}><Ionicons name="add" size={16} color={C.text} /></TouchableOpacity>
+            <TouchableOpacity style={styles.zoomBtn} onPress={isPlanPdf(currentPlan) ? () => pdfViewerRef.current?.zoomOut() : zoomOut}><Ionicons name="remove" size={16} color={C.text} /></TouchableOpacity>
+            <TouchableOpacity style={styles.zoomBtn} onPress={isPlanPdf(currentPlan) ? () => pdfViewerRef.current?.resetView() : resetView}><Ionicons name="scan-outline" size={14} color={C.text} /></TouchableOpacity>
+            <Text style={styles.zoomPctText}>{isPlanPdf(currentPlan) ? `${pdfZoomPct}%` : `${Math.round(displayScale * 100)}%`}</Text>
+            <TouchableOpacity style={styles.zoomBtn} onPress={isPlanPdf(currentPlan) ? () => pdfViewerRef.current?.zoomIn() : zoomIn}><Ionicons name="add" size={16} color={C.text} /></TouchableOpacity>
           </View>
         </View>
 
@@ -1327,11 +1356,12 @@ export default function PlansScreen() {
           <View style={[styles.planViewport, isPlanPdf(currentPlan) ? styles.planViewportPdf : { height: dynH + 20 }]}>
             {isPlanPdf(currentPlan) && currentPlan?.uri ? (
               <PdfPlanViewer
+                ref={pdfViewerRef}
                 planUri={currentPlan.uri}
                 planId={currentPlanId!}
                 annotations={currentPlan.annotations ?? []}
                 onAnnotationsChange={(drawings) => updateSitePlan({ ...currentPlan!, annotations: drawings })}
-                reserves={allPlanReserves}
+                reserves={planReserves}
                 pinNumberMap={pinNumberMap}
                 onReserveSelect={setSelected}
                 onPlanTap={(px, py) => {
@@ -1348,6 +1378,8 @@ export default function PlansScreen() {
                 }}
                 canAnnotate={permissions.canCreate}
                 canCreate={permissions.canCreate}
+                pinSize={isTablet ? 44 : 22}
+                onZoomChange={(z) => setPdfZoomPct(Math.round(z * 100))}
               />
             ) : (
             <>
@@ -1449,7 +1481,18 @@ export default function PlansScreen() {
                       onPressIn={() => { suppressNextPlanTapRef.current = true; }}
                       onPress={() => {
                         if (isCluster) {
-                          setStatusFilter('all');
+                          const nextScale = Math.min(lastScale.current * 2, 4);
+                          const targetTX = (dynW * lastScale.current / 2) - (cluster.cx / 100) * dynW * nextScale;
+                          const targetTY = (dynH * lastScale.current / 2) - (cluster.cy / 100) * dynH * nextScale;
+                          lastScale.current = nextScale;
+                          committedTX.current = targetTX;
+                          committedTY.current = targetTY;
+                          setDisplayScale(nextScale);
+                          Animated.parallel([
+                            Animated.spring(scale, { toValue: nextScale, useNativeDriver: true }),
+                            Animated.spring(translateX, { toValue: targetTX, useNativeDriver: true }),
+                            Animated.spring(translateY, { toValue: targetTY, useNativeDriver: true }),
+                          ]).start();
                         } else {
                           const reserve = cluster.items[0];
                           if (isTablet) {
@@ -1474,7 +1517,10 @@ export default function PlansScreen() {
               </View>
             </Animated.View>
 
-            {(allPlanReserves.length > 0 || displayScale !== 1) && (
+            </>
+            )}
+
+            {allPlanReserves.length > 0 && (
               <View style={[styles.miniMap, { pointerEvents: 'none' as any }]}>
                 <View style={styles.miniMapInner}>
                   {allPlanReserves.filter(r => r.planX != null && r.planY != null).map(r => {
@@ -1490,18 +1536,18 @@ export default function PlansScreen() {
                       />
                     );
                   })}
-                  <View
-                    style={[styles.miniMapViewport, {
-                      left: Math.max(0, (-committedTX.current / displayScale) * (MINI_W / dynW)),
-                      top: Math.max(0, (-committedTY.current / displayScale) * (MINI_H / dynH)),
-                      width: Math.min(MINI_W, (MINI_W / displayScale)),
-                      height: Math.min(MINI_H, (MINI_H / displayScale)),
-                    }]}
-                  />
+                  {!isPlanPdf(currentPlan) && (
+                    <View
+                      style={[styles.miniMapViewport, {
+                        left: Math.max(0, (-committedTX.current / displayScale) * (MINI_W / dynW)),
+                        top: Math.max(0, (-committedTY.current / displayScale) * (MINI_H / dynH)),
+                        width: Math.min(MINI_W, (MINI_W / displayScale)),
+                        height: Math.min(MINI_H, (MINI_H / displayScale)),
+                      }]}
+                    />
+                  )}
                 </View>
               </View>
-            )}
-            </>
             )}
           </View>
 
@@ -1981,6 +2027,7 @@ const styles = StyleSheet.create({
   chantierLabel: { fontSize: 12, fontFamily: 'Inter_400Regular', color: C.textMuted },
   zoomBtns: { flexDirection: 'row', gap: 6 },
   zoomBtn: { width: 34, height: 34, borderRadius: 10, backgroundColor: C.surface2, borderWidth: 1, borderColor: C.border, alignItems: 'center', justifyContent: 'center' },
+  zoomPctText: { fontSize: 11, fontFamily: 'Inter_600SemiBold', color: C.textMuted, minWidth: 36, textAlign: 'center' },
   filterToggleActive: { backgroundColor: C.primaryBg, borderColor: C.primary },
   filterBadge: { position: 'absolute', top: -4, right: -4, width: 16, height: 16, borderRadius: 8, backgroundColor: C.primary, alignItems: 'center', justifyContent: 'center' },
   filterBadgeText: { fontSize: 9, fontFamily: 'Inter_700Bold', color: '#fff' },

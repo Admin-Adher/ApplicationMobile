@@ -44,6 +44,8 @@ export interface PdfPlanViewerProps {
   onPlanTap: (planX: number, planY: number) => void;
   canAnnotate: boolean;
   canCreate: boolean;
+  pinSize?: number;
+  onZoomChange?: (zoom: number) => void;
 }
 
 export interface PdfPlanViewerHandle {
@@ -146,6 +148,7 @@ function buildMobileHtml(
   pinMap: Map<string, number>,
   canAnnotate: boolean,
   canCreate: boolean,
+  pinSize: number = 22,
 ): string {
   const pinsData = reserves
     .filter(r => r.planX != null && r.planY != null)
@@ -173,7 +176,7 @@ html,body{width:100%;height:100%;overflow:hidden;background:#0F1117;touch-action
 #cur-svg{position:absolute;top:0;left:0;pointer-events:all;}
 #pins-layer{position:absolute;top:0;left:0;}
 .pin{position:absolute;border-radius:50%;display:flex;align-items:center;justify-content:center;border:2px solid rgba(255,255,255,0.85);box-shadow:0 2px 8px rgba(0,0,0,0.5);cursor:pointer;transition:transform 0.1s;}
-.pin span{color:#fff;font-size:9px;font-weight:700;font-family:Arial;line-height:1;pointer-events:none;}
+.pin span{color:#fff;font-weight:700;font-family:Arial;line-height:1;pointer-events:none;}
 #loading{position:fixed;top:0;left:0;width:100%;height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;background:#0F1117;}
 #loading-spinner{width:36px;height:36px;border:3px solid #1E3A5F;border-top-color:#003082;border-radius:50%;animation:spin 0.8s linear infinite;}
 #loading-text{color:#94A3B8;font-family:Arial;font-size:13px;}
@@ -202,6 +205,7 @@ var draws=${safeAnns};
 var pinsData=${safePins};
 var CAN_ANNOTATE=${canAnnotate};
 var CAN_CREATE=${canCreate};
+var PIN_SIZE=${pinSize};
 
 var mode='view',tool='pen',color='#EF4444',sw=2;
 var live=null,undos=[];
@@ -211,6 +215,7 @@ var panning=false,panSX=0,panSY=0,panSPX=0,panSPY=0;
 var pinchDist0=0,pinchZoom0=1;
 var touchSX=0,touchSY=0,isDragging=false,drawing=false;
 var pendingTextPos=null;
+var lastTapTime=0,lastTapX=0,lastTapY=0;
 
 var container=document.getElementById('container');
 var inner=document.getElementById('inner');
@@ -315,16 +320,18 @@ function renderLive(){
 
 function renderPins(){
   pinsLayer.innerHTML='';
+  var half=PIN_SIZE/2;
   pinsData.forEach(function(pin){
     var div=document.createElement('div');
     div.className='pin';
-    div.style.width='22px';div.style.height='22px';
-    div.style.left=((pin.planX/100)*cw-11)+'px';
-    div.style.top=((pin.planY/100)*ch-11)+'px';
+    div.style.width=PIN_SIZE+'px';div.style.height=PIN_SIZE+'px';
+    div.style.left=((pin.planX/100)*cw-half)+'px';
+    div.style.top=((pin.planY/100)*ch-half)+'px';
     div.style.backgroundColor=pin.color;
     div.style.pointerEvents=(mode==='annotate')?'none':'all';
     var span=document.createElement('span');
     span.textContent=String(pin.num);
+    span.style.fontSize=Math.max(8,Math.round(PIN_SIZE*0.42))+'px';
     div.appendChild(span);
     div.addEventListener('touchstart',function(e){e.stopPropagation();},{passive:true});
     div.addEventListener('touchend',function(e){
@@ -406,7 +413,7 @@ container.addEventListener('touchstart',function(e){
         setTimeout(function(){textInput.focus();},50);
         drawing=false;
       } else {
-        live={id:'live',tool:tool,points:[{x:p.px,y:p.py}],color:color,strokeWidth:sw};
+        live={id:'live',tool:tool,points:[{x:p.px,y:p.py}],color:color,strokeWidth:sw,page:pageNum};
         renderLive();
       }
     } else {
@@ -463,12 +470,26 @@ container.addEventListener('touchend',function(e){
       post({type:'annotationsChange',annotations:draws});
     }
     live=null;renderLive();
-  } else if(!isDragging&&mode==='view'&&CAN_CREATE&&e.changedTouches.length===1){
+  } else if(!isDragging&&mode==='view'&&e.changedTouches.length===1){
     var ct=e.changedTouches[0];
-    var c=screenToCanvas(ct.clientX,ct.clientY);
-    var p=toPct(c.x,c.y);
-    if(c.x>=0&&c.x<=cw&&c.y>=0&&c.y<=ch){
-      post({type:'tap',planX:p.px,planY:p.py});
+    var now=Date.now();
+    var dtx=Math.abs(ct.clientX-lastTapX),dty=Math.abs(ct.clientY-lastTapY);
+    var isDoubleTap=now-lastTapTime<350&&dtx<40&&dty<40;
+    lastTapTime=now;lastTapX=ct.clientX;lastTapY=ct.clientY;
+    if(isDoubleTap){
+      var r=container.getBoundingClientRect();
+      var cx=ct.clientX-r.left,cy=ct.clientY-r.top;
+      var nz=zoom>=3?1:Math.min(8,zoom*2);
+      panX=cx-(cx-panX)*nz/zoom;panY=cy-(cy-panY)*nz/zoom;
+      zoom=nz;applyT();
+      post({type:'zoomChange',zoom:zoom});
+      lastTapTime=0;
+    } else if(CAN_CREATE){
+      var c=screenToCanvas(ct.clientX,ct.clientY);
+      var p=toPct(c.x,c.y);
+      if(c.x>=0&&c.x<=cw&&c.y>=0&&c.y<=ch){
+        post({type:'tap',planX:p.px,planY:p.py});
+      }
     }
   }
   panning=false;isDragging=false;
@@ -519,19 +540,19 @@ window.zoomIn=function(){
   var cx=window.innerWidth/2,cy=window.innerHeight/2;
   var nz=Math.min(8,zoom*1.35);
   panX=cx-(cx-panX)*nz/zoom;panY=cy-(cy-panY)*nz/zoom;
-  zoom=nz;applyT();
+  zoom=nz;applyT();post({type:'zoomChange',zoom:zoom});
 };
 window.zoomOut=function(){
   var cx=window.innerWidth/2,cy=window.innerHeight/2;
   var nz=Math.max(0.2,zoom/1.35);
   panX=cx-(cx-panX)*nz/zoom;panY=cy-(cy-panY)*nz/zoom;
-  zoom=nz;applyT();
+  zoom=nz;applyT();post({type:'zoomChange',zoom:zoom});
 };
 window.resetView=function(){
   zoom=1;
   panX=Math.max(0,(window.innerWidth-cw)/2);
   panY=Math.max(0,(window.innerHeight-ch)/2);
-  applyT();
+  applyT();post({type:'zoomChange',zoom:zoom});
 };
 })();
 </script>
@@ -541,7 +562,7 @@ window.resetView=function(){
 const MobileViewer = forwardRef<PdfPlanViewerHandle, PdfPlanViewerProps>(function MobileViewerInner({
   planUri, planId, annotations, onAnnotationsChange,
   reserves, pinNumberMap, onReserveSelect, onPlanTap,
-  canAnnotate, canCreate,
+  canAnnotate, canCreate, pinSize = 22, onZoomChange,
 }, ref) {
   const WebView = require('react-native-webview').default;
   const webViewRef = useRef<any>(null);
@@ -612,7 +633,7 @@ const MobileViewer = forwardRef<PdfPlanViewerHandle, PdfPlanViewerProps>(functio
 
   useEffect(() => {
     inject(`window.setAnnotations(${JSON.stringify(annotations ?? [])});`);
-  }, [planId]);
+  }, [planId, annotations]);
 
   useEffect(() => {
     const pinsData = reserves
@@ -638,12 +659,14 @@ const MobileViewer = forwardRef<PdfPlanViewerHandle, PdfPlanViewerProps>(functio
       } else if (msg.type === 'pageCount') {
         setPageCount(msg.count);
         setPage(1);
+      } else if (msg.type === 'zoomChange') {
+        onZoomChange?.(msg.zoom);
       }
     } catch {}
-  }, [reserves, onPlanTap, onReserveSelect, onAnnotationsChange]);
+  }, [reserves, onPlanTap, onReserveSelect, onAnnotationsChange, onZoomChange]);
 
   const html = resolvedUri
-    ? buildMobileHtml(resolvedUri, annotations ?? [], reserves, pinNumberMap, canAnnotate, canCreate)
+    ? buildMobileHtml(resolvedUri, annotations ?? [], reserves, pinNumberMap, canAnnotate, canCreate, pinSize)
     : '';
 
   function changePage(n: number) {
@@ -867,7 +890,7 @@ const mob = StyleSheet.create({
   widthSample: { width: 46, borderRadius: 3 },
 });
 
-const WebViewer = forwardRef<PdfPlanViewerHandle, PdfPlanViewerProps>(function WebViewerInner({ planUri, planId, annotations, onAnnotationsChange, reserves, pinNumberMap, onReserveSelect, onPlanTap, canAnnotate, canCreate }, ref) {
+const WebViewer = forwardRef<PdfPlanViewerHandle, PdfPlanViewerProps>(function WebViewerInner({ planUri, planId, annotations, onAnnotationsChange, reserves, pinNumberMap, onReserveSelect, onPlanTap, canAnnotate, canCreate, pinSize = 22, onZoomChange }, ref) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const innerRef = useRef<HTMLDivElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -1107,16 +1130,18 @@ const WebViewer = forwardRef<PdfPlanViewerHandle, PdfPlanViewerProps>(function W
 
   const onTouchEnd = () => { panning.current = false; };
 
-  function doZoom(factor: number) {
+  function doZoom(factor: number, cx?: number, cy?: number) {
     const el = containerRef.current;
     if (!el) return;
     const rect = el.getBoundingClientRect();
-    const cx = rect.width / 2, cy = rect.height / 2;
+    const pcx = cx ?? rect.width / 2;
+    const pcy = cy ?? rect.height / 2;
     const newZ = Math.min(8, Math.max(0.2, zoomRef.current * factor));
-    panXRef.current = cx - (cx - panXRef.current) * newZ / zoomRef.current;
-    panYRef.current = cy - (cy - panYRef.current) * newZ / zoomRef.current;
+    panXRef.current = pcx - (pcx - panXRef.current) * newZ / zoomRef.current;
+    panYRef.current = pcy - (pcy - panYRef.current) * newZ / zoomRef.current;
     zoomRef.current = newZ;
     applyT();
+    onZoomChange?.(newZ);
   }
 
   function resetView() {
@@ -1127,7 +1152,20 @@ const WebViewer = forwardRef<PdfPlanViewerHandle, PdfPlanViewerProps>(function W
     panXRef.current = (rect.width - cw * zoomRef.current) / 2;
     panYRef.current = (rect.height - ch * zoomRef.current) / 2;
     applyT();
+    onZoomChange?.(zoomRef.current);
   }
+
+  const lastClickRef = useRef<{ t: number; x: number; y: number }>({ t: 0, x: 0, y: 0 });
+
+  const onContainerDblClick = (e: React.MouseEvent<HTMLDivElement>) => {
+    if ((e.target as HTMLElement).closest('[data-pin]')) return;
+    const el = containerRef.current;
+    if (!el) return;
+    const rect = el.getBoundingClientRect();
+    const cx = e.clientX - rect.left, cy = e.clientY - rect.top;
+    const factor = zoomRef.current >= 3 ? 1 / zoomRef.current : 2;
+    doZoom(factor, cx, cy);
+  };
 
   useImperativeHandle(ref, () => ({
     zoomIn:    () => doZoom(1.3),
@@ -1189,6 +1227,7 @@ const WebViewer = forwardRef<PdfPlanViewerHandle, PdfPlanViewerProps>(function W
           onTouchStart={onTouchStart as any}
           onTouchMove={onTouchMove as any}
           onTouchEnd={onTouchEnd as any}
+          onDoubleClick={onContainerDblClick as any}
           style={{
             flex: 1, overflow: 'hidden', position: 'relative',
             cursor: mode === 'annotate' ? 'crosshair' : 'grab',
@@ -1233,9 +1272,9 @@ const WebViewer = forwardRef<PdfPlanViewerHandle, PdfPlanViewerProps>(function W
                   onClick={(e: any) => { e.stopPropagation(); onReserveSelect(r); }}
                   style={{
                     position: 'absolute',
-                    left: (r.planX! / 100) * cw - 11,
-                    top: (r.planY! / 100) * ch - 11,
-                    width: 22, height: 22, borderRadius: 11,
+                    left: (r.planX! / 100) * cw - pinSize / 2,
+                    top: (r.planY! / 100) * ch - pinSize / 2,
+                    width: pinSize, height: pinSize, borderRadius: pinSize / 2,
                     backgroundColor: col,
                     display: 'flex', alignItems: 'center', justifyContent: 'center',
                     cursor: 'pointer',
@@ -1249,7 +1288,7 @@ const WebViewer = forwardRef<PdfPlanViewerHandle, PdfPlanViewerProps>(function W
                   onMouseEnter={(e: any) => { e.currentTarget.style.transform = 'scale(1.25)'; }}
                   onMouseLeave={(e: any) => { e.currentTarget.style.transform = 'scale(1)'; }}
                 >
-                  <span style={{ color: '#fff', fontSize: 9, fontWeight: '700', fontFamily: 'Arial' } as any}>
+                  <span style={{ color: '#fff', fontSize: Math.max(8, Math.round(pinSize * 0.42)), fontWeight: '700', fontFamily: 'Arial' } as any}>
                     {num}
                   </span>
                 </div>
