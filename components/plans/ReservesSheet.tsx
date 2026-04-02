@@ -1,7 +1,7 @@
 import React, { useRef, useState, useEffect } from 'react';
 import {
   View, Text, StyleSheet, TouchableOpacity, FlatList,
-  Animated, TextInput, Platform, Keyboard,
+  Animated, TextInput, Platform, Keyboard, PanResponder,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { C } from '@/constants/colors';
@@ -27,7 +27,6 @@ interface Props {
 }
 
 const PEEK_HEIGHT = 60;
-const HANDLE_HEIGHT = 20;
 
 export default function ReservesSheet({
   reserves, allReserves, pinNumberMap, searchQuery, onSearchChange,
@@ -36,8 +35,16 @@ export default function ReservesSheet({
 }: Props) {
   const router = useRouter();
   const [expanded, setExpanded] = useState(false);
-  const animY = useRef(new Animated.Value(0)).current;
+  const animY = useRef(new Animated.Value(PEEK_HEIGHT)).current;
+
   const EXPANDED_H = Math.min(sheetHeight * 0.65, 500);
+
+  const expandedRef = useRef(false);
+  const expandedHRef = useRef(EXPANDED_H);
+  const baseHeightRef = useRef(PEEK_HEIGHT);
+
+  useEffect(() => { expandedHRef.current = EXPANDED_H; }, [EXPANDED_H]);
+  useEffect(() => { expandedRef.current = expanded; }, [expanded]);
 
   useEffect(() => {
     Animated.spring(animY, {
@@ -48,6 +55,54 @@ export default function ReservesSheet({
     }).start();
   }, [expanded, EXPANDED_H]);
 
+  function snapTo(shouldExpand: boolean) {
+    setExpanded(shouldExpand);
+    if (shouldExpand) Keyboard.dismiss();
+    Animated.spring(animY, {
+      toValue: shouldExpand ? expandedHRef.current : PEEK_HEIGHT,
+      useNativeDriver: false,
+      tension: 60,
+      friction: 12,
+    }).start();
+  }
+
+  const panResponder = useRef(
+    PanResponder.create({
+      onStartShouldSetPanResponder: () => true,
+      onMoveShouldSetPanResponder: (_, gs) => Math.abs(gs.dy) > 6,
+      onPanResponderGrant: () => {
+        baseHeightRef.current = expandedRef.current
+          ? expandedHRef.current
+          : PEEK_HEIGHT;
+      },
+      onPanResponderMove: (_, gs) => {
+        const EH = expandedHRef.current;
+        const newH = Math.min(EH, Math.max(PEEK_HEIGHT, baseHeightRef.current - gs.dy));
+        animY.setValue(newH);
+      },
+      onPanResponderRelease: (_, gs) => {
+        const EH = expandedHRef.current;
+        const isTap = Math.abs(gs.dx) < 8 && Math.abs(gs.dy) < 8;
+        if (isTap) {
+          snapTo(!expandedRef.current);
+          return;
+        }
+        const currentH = Math.min(EH, Math.max(PEEK_HEIGHT, baseHeightRef.current - gs.dy));
+        const midpoint = (PEEK_HEIGHT + EH) / 2;
+        const shouldExpand =
+          gs.vy < -0.4 ||
+          (Math.abs(gs.vy) <= 0.4 && currentH > midpoint);
+        snapTo(shouldExpand);
+      },
+      onPanResponderTerminate: (_, gs) => {
+        const EH = expandedHRef.current;
+        const currentH = Math.min(EH, Math.max(PEEK_HEIGHT, baseHeightRef.current - gs.dy));
+        const midpoint = (PEEK_HEIGHT + EH) / 2;
+        snapTo(currentH > midpoint);
+      },
+    })
+  ).current;
+
   const filteredReserves = searchQuery.trim()
     ? reserves.filter(r =>
         r.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -57,10 +112,9 @@ export default function ReservesSheet({
 
   return (
     <Animated.View style={[styles.sheet, { height: animY }]}>
-      <TouchableOpacity
+      <View
         style={styles.handle}
-        onPress={() => { setExpanded(v => !v); Keyboard.dismiss(); }}
-        activeOpacity={0.8}
+        {...panResponder.panHandlers}
         accessibilityLabel={expanded ? 'Réduire la liste des réserves' : 'Afficher la liste des réserves'}
         accessibilityRole="button"
       >
@@ -80,7 +134,7 @@ export default function ReservesSheet({
           <View style={styles.handleRight}>
             <TouchableOpacity
               style={styles.exportBadge}
-              onPress={e => { e.stopPropagation(); onExport(); }}
+              onPress={onExport}
               accessibilityLabel="Exporter en PDF"
             >
               <Ionicons name="document-text-outline" size={13} color={C.primary} />
@@ -93,7 +147,7 @@ export default function ReservesSheet({
             />
           </View>
         </View>
-      </TouchableOpacity>
+      </View>
 
       {expanded && (
         <>
@@ -193,7 +247,7 @@ const styles = StyleSheet.create({
       web: { boxShadow: '0 -3px 12px rgba(0,0,0,0.1)' } as any,
     }),
   },
-  handle: { paddingHorizontal: 16, paddingTop: 8, paddingBottom: 6 },
+  handle: { paddingHorizontal: 16, paddingTop: 8, paddingBottom: 6, cursor: 'grab' as any },
   handleBar: { width: 36, height: 4, borderRadius: 2, backgroundColor: C.border, alignSelf: 'center', marginBottom: 8 },
   handleContent: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   handleLeft: { flexDirection: 'row', alignItems: 'center', gap: 6 },
