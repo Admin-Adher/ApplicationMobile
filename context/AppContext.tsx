@@ -812,33 +812,73 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }
 
   async function loadCustomChannels() {
+    if (isSupabaseConfigured) {
+      try {
+        const { data, error } = await supabase.from('channels').select('*').eq('type', 'custom');
+        if (!error && data && data.length > 0) {
+          const channels: Channel[] = data.map((r: any) => ({
+            id: r.id, name: r.name, description: r.description ?? '',
+            icon: r.icon, color: r.color, type: 'custom' as const,
+            members: r.members ?? [], createdBy: r.created_by ?? undefined,
+          }));
+          dispatch({ type: 'SET_CUSTOM_CHANNELS', payload: channels });
+          await AsyncStorage.setItem(CUSTOM_CHANNELS_KEY, JSON.stringify(channels)).catch(() => {});
+          return;
+        }
+      } catch {}
+    }
     try {
       const stored = await AsyncStorage.getItem(CUSTOM_CHANNELS_KEY);
-      if (stored) {
-        dispatch({ type: 'SET_CUSTOM_CHANNELS', payload: JSON.parse(stored) });
-      }
+      if (stored) dispatch({ type: 'SET_CUSTOM_CHANNELS', payload: JSON.parse(stored) });
     } catch {}
   }
 
   async function saveCustomChannels(channels: Channel[]) {
-    try {
-      await AsyncStorage.setItem(CUSTOM_CHANNELS_KEY, JSON.stringify(channels));
-    } catch {}
+    try { await AsyncStorage.setItem(CUSTOM_CHANNELS_KEY, JSON.stringify(channels)); } catch {}
+    if (isSupabaseConfigured) {
+      for (const ch of channels) {
+        supabase.from('channels').upsert({
+          id: ch.id, name: ch.name, description: ch.description ?? null,
+          icon: ch.icon ?? 'chatbubbles', color: ch.color ?? '#10B981',
+          type: ch.type, members: ch.members ?? [], created_by: ch.createdBy ?? null,
+        }).then(({ error }: { error: any }) => { if (error) console.warn('Erreur sync canal:', error.message); });
+      }
+    }
   }
 
   async function loadGroupChannels() {
+    if (isSupabaseConfigured) {
+      try {
+        const { data, error } = await supabase.from('channels').select('*').eq('type', 'group');
+        if (!error && data && data.length > 0) {
+          const channels: Channel[] = data.map((r: any) => ({
+            id: r.id, name: r.name, description: r.description ?? '',
+            icon: r.icon, color: r.color, type: 'group' as const,
+            members: r.members ?? [], createdBy: r.created_by ?? undefined,
+          }));
+          dispatch({ type: 'SET_GROUP_CHANNELS', payload: channels });
+          await AsyncStorage.setItem(GROUP_CHANNELS_KEY, JSON.stringify(channels)).catch(() => {});
+          return;
+        }
+      } catch {}
+    }
     try {
       const stored = await AsyncStorage.getItem(GROUP_CHANNELS_KEY);
-      if (stored) {
-        dispatch({ type: 'SET_GROUP_CHANNELS', payload: JSON.parse(stored) });
-      }
+      if (stored) dispatch({ type: 'SET_GROUP_CHANNELS', payload: JSON.parse(stored) });
     } catch {}
   }
 
   async function saveGroupChannels(channels: Channel[]) {
-    try {
-      await AsyncStorage.setItem(GROUP_CHANNELS_KEY, JSON.stringify(channels));
-    } catch {}
+    try { await AsyncStorage.setItem(GROUP_CHANNELS_KEY, JSON.stringify(channels)); } catch {}
+    if (isSupabaseConfigured) {
+      for (const ch of channels) {
+        supabase.from('channels').upsert({
+          id: ch.id, name: ch.name, description: ch.description ?? null,
+          icon: ch.icon ?? 'people-circle', color: ch.color ?? '#10B981',
+          type: ch.type, members: ch.members ?? [], created_by: ch.createdBy ?? null,
+        }).then(({ error }: { error: any }) => { if (error) console.warn('Erreur sync groupe:', error.message); });
+      }
+    }
   }
 
   async function loadPinnedChannels() {
@@ -1251,6 +1291,40 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     if (!isSupabaseConfigured) return;
 
+    const channelSub = supabase
+      .channel('realtime-channels-v1')
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'channels' }, (payload: any) => {
+        const r = payload.new;
+        const ch: Channel = {
+          id: r.id, name: r.name, description: r.description ?? '',
+          icon: r.icon, color: r.color, type: r.type,
+          members: r.members ?? [], createdBy: r.created_by ?? undefined,
+        };
+        if (r.type === 'custom') dispatch({ type: 'ADD_CUSTOM_CHANNEL', payload: ch });
+        else if (r.type === 'group') dispatch({ type: 'ADD_GROUP_CHANNEL', payload: ch });
+      })
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'channels' }, (payload: any) => {
+        const r = payload.new;
+        const ch: Channel = {
+          id: r.id, name: r.name, description: r.description ?? '',
+          icon: r.icon, color: r.color, type: r.type,
+          members: r.members ?? [], createdBy: r.created_by ?? undefined,
+        };
+        dispatch({ type: 'UPDATE_CHANNEL', payload: ch });
+      })
+      .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'channels' }, (payload: any) => {
+        const r = payload.old;
+        if (r.type === 'custom') dispatch({ type: 'REMOVE_CUSTOM_CHANNEL', payload: r.id });
+        else if (r.type === 'group') dispatch({ type: 'REMOVE_GROUP_CHANNEL', payload: r.id });
+      })
+      .subscribe();
+
+    return () => { supabase.removeChannel(channelSub); };
+  }, []);
+
+  useEffect(() => {
+    if (!isSupabaseConfigured) return;
+
     const reserveSub = supabase
       .channel('realtime-reserves-v1')
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'reserves' }, (payload: any) => {
@@ -1410,6 +1484,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     const updated = stateRef.current.customChannels.filter(c => c.id !== id);
     dispatch({ type: 'REMOVE_CUSTOM_CHANNEL', payload: id });
     saveCustomChannels(updated);
+    if (isSupabaseConfigured) {
+      supabase.from('channels').delete().eq('id', id).then(({ error }: { error: any }) => {
+        if (error) console.warn('Erreur suppression canal:', error.message);
+      });
+    }
   }
 
   function addGroupChannel(name: string, members: string[], color: string): Channel {
@@ -1433,6 +1512,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     const updated = stateRef.current.groupChannels.filter(c => c.id !== id);
     dispatch({ type: 'REMOVE_GROUP_CHANNEL', payload: id });
     saveGroupChannels(updated);
+    if (isSupabaseConfigured) {
+      supabase.from('channels').delete().eq('id', id).then(({ error }: { error: any }) => {
+        if (error) console.warn('Erreur suppression groupe:', error.message);
+      });
+    }
   }
 
   function _updateAndPersistChannel(updatedCh: Channel) {
@@ -1443,6 +1527,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       saveCustomChannels(newCustomChannels);
     } else if (updatedCh.type === 'group') {
       saveGroupChannels(newGroupChannels);
+    }
+    if (isSupabaseConfigured) {
+      supabase.from('channels').upsert({
+        id: updatedCh.id, name: updatedCh.name, description: updatedCh.description ?? null,
+        icon: updatedCh.icon ?? 'chatbubbles', color: updatedCh.color ?? '#10B981',
+        type: updatedCh.type, members: updatedCh.members ?? [], created_by: updatedCh.createdBy ?? null,
+      }).then(({ error }: { error: any }) => { if (error) console.warn('Erreur mise à jour canal:', error.message); });
     }
   }
 

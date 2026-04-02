@@ -77,6 +77,30 @@ assets/        # Fonts and images
 6. **Accessibility** — Added `accessibilityLabel`/`accessibilityRole` to: empty-state import button, version history button
 7. **FiltersSheet** — Accepts `statusFilter` + `onStatusFilterChange` props; onReset clears status filter
 
+## Supabase Sync Audit — April 2026
+Complete audit of all tabs for multi-user Supabase synchronization:
+
+### Tables added to lib/schema.sql (must run in Supabase SQL Editor)
+- `incidents` — Safety incidents (IncidentsContext was already syncing but table was missing)
+- `visites` — Site visits / OPR preparation (AppContext syncs on add/update/delete)
+- `lots` — Construction lots with CCTP refs
+- `oprs` — OPR sessions with items, signatures, invited emails
+- `channels` — Custom & group channels (previously AsyncStorage-only, now shared between users)
+- `time_entries` — Attendance entries (PointageContext now fully syncs to Supabase)
+
+### What was already working
+- Reserves — Supabase sync + real-time subscription ✓
+- Tasks — Supabase sync + real-time subscription ✓
+- Messages — Supabase sync + real-time subscription ✓
+- Documents / Photos — Supabase sync ✓
+- Companies — Supabase sync ✓
+- Chantiers / Site Plans — Supabase sync + AsyncStorage fallback cache ✓
+
+### New fixes (this sprint)
+- **Channels** — `addCustomChannel`, `removeCustomChannel`, `addGroupChannel`, `removeGroupChannel`, `_updateAndPersistChannel` all write to Supabase `channels` table; real-time subscription syncs channel creation/updates/deletions across all connected users instantly
+- **PointageContext** — Now loads from `time_entries` on startup, syncs add/update/delete to Supabase; falls back to AsyncStorage when Supabase unavailable
+- **Missing tables** — 6 new tables added to schema.sql with proper RLS policies
+
 ## Important Notes
 - `newArchEnabled: false` in app.json (uses legacy architecture)
 - Web output uses Metro bundler (single output mode)

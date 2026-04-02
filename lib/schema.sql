@@ -387,6 +387,160 @@ create policy "Site plans modifiables"
     exists (select 1 from public.profiles where id = auth.uid() and role in ('admin', 'conducteur', 'chef_equipe'))
   );
 
+-- ---- 9. TABLE INCIDENTS ----
+create table if not exists public.incidents (
+  id text primary key,
+  title text not null,
+  description text,
+  severity text not null,
+  location text,
+  building text,
+  reported_at text not null,
+  reported_by text not null,
+  status text not null,
+  witnesses text,
+  actions text,
+  closed_at text,
+  closed_by text,
+  photo_uri text,
+  created_at timestamptz not null default now()
+);
+alter table public.incidents enable row level security;
+drop policy if exists "Incidents lisibles par tous" on public.incidents;
+create policy "Incidents lisibles par tous"
+  on public.incidents for select using (auth.role() = 'authenticated');
+drop policy if exists "Incidents modifiables" on public.incidents;
+create policy "Incidents modifiables"
+  on public.incidents for all using (auth.role() = 'authenticated');
+
+-- ---- 10. TABLE VISITES ----
+create table if not exists public.visites (
+  id text primary key,
+  chantier_id text,
+  title text not null,
+  date text not null,
+  conducteur text not null,
+  status text not null,
+  building text,
+  level text,
+  notes text,
+  reserve_ids jsonb not null default '[]',
+  conducteur_signature text,
+  entreprise_signature text,
+  signed_at text,
+  entreprise_signataire text,
+  created_at timestamptz not null default now()
+);
+alter table public.visites enable row level security;
+drop policy if exists "Visites lisibles par tous" on public.visites;
+create policy "Visites lisibles par tous"
+  on public.visites for select using (auth.role() = 'authenticated');
+drop policy if exists "Visites modifiables" on public.visites;
+create policy "Visites modifiables"
+  on public.visites for all using (
+    exists (select 1 from public.profiles where id = auth.uid() and role in ('admin', 'conducteur', 'chef_equipe'))
+  );
+
+-- ---- 11. TABLE LOTS ----
+create table if not exists public.lots (
+  id text primary key,
+  code text not null,
+  name text not null,
+  color text not null,
+  chantier_id text,
+  company_id text,
+  cctp_ref text,
+  number int,
+  created_at timestamptz not null default now()
+);
+alter table public.lots enable row level security;
+drop policy if exists "Lots lisibles par tous" on public.lots;
+create policy "Lots lisibles par tous"
+  on public.lots for select using (auth.role() = 'authenticated');
+drop policy if exists "Lots modifiables" on public.lots;
+create policy "Lots modifiables"
+  on public.lots for all using (
+    exists (select 1 from public.profiles where id = auth.uid() and role in ('admin', 'conducteur'))
+  );
+
+-- ---- 12. TABLE OPRS ----
+create table if not exists public.oprs (
+  id text primary key,
+  chantier_id text,
+  title text not null,
+  date text not null,
+  building text not null,
+  level text not null,
+  conducteur text not null,
+  status text not null,
+  items jsonb not null default '[]',
+  signed_by text,
+  signed_at text,
+  maire_ouvrage text,
+  conducteur_signature text,
+  mo_signature text,
+  visit_contradictoire boolean,
+  visit_participants jsonb,
+  signatories jsonb,
+  invited_emails jsonb,
+  session_token text,
+  created_at timestamptz not null default now()
+);
+alter table public.oprs enable row level security;
+drop policy if exists "OPRs lisibles par tous" on public.oprs;
+create policy "OPRs lisibles par tous"
+  on public.oprs for select using (auth.role() = 'authenticated');
+drop policy if exists "OPRs modifiables" on public.oprs;
+create policy "OPRs modifiables"
+  on public.oprs for all using (
+    exists (select 1 from public.profiles where id = auth.uid() and role in ('admin', 'conducteur'))
+  );
+
+-- ---- 13. TABLE CHANNELS (canaux personnalisés et groupes) ----
+create table if not exists public.channels (
+  id text primary key,
+  name text not null,
+  description text,
+  icon text not null default 'chatbubbles',
+  color text not null default '#10B981',
+  type text not null,
+  members jsonb not null default '[]',
+  created_by text,
+  organization_id uuid references public.organizations(id) on delete cascade,
+  created_at timestamptz not null default now()
+);
+alter table public.channels enable row level security;
+drop policy if exists "Channels lisibles par tous" on public.channels;
+create policy "Channels lisibles par tous"
+  on public.channels for select using (auth.role() = 'authenticated');
+drop policy if exists "Channels modifiables" on public.channels;
+create policy "Channels modifiables"
+  on public.channels for all using (auth.role() = 'authenticated');
+
+-- ---- 14. TABLE TIME_ENTRIES (pointage) ----
+create table if not exists public.time_entries (
+  id text primary key,
+  date text not null,
+  company_id text,
+  company_name text,
+  company_color text,
+  worker_name text not null,
+  arrival_time text not null,
+  departure_time text,
+  notes text,
+  recorded_by text,
+  created_at timestamptz not null default now()
+);
+alter table public.time_entries enable row level security;
+drop policy if exists "Pointage lisible par tous" on public.time_entries;
+create policy "Pointage lisible par tous"
+  on public.time_entries for select using (auth.role() = 'authenticated');
+drop policy if exists "Pointage modifiable" on public.time_entries;
+create policy "Pointage modifiable"
+  on public.time_entries for all using (
+    exists (select 1 from public.profiles where id = auth.uid() and role in ('admin', 'conducteur', 'chef_equipe'))
+  );
+
 -- ============================================================
 -- SEED DATA — Données initiales de démonstration
 -- ============================================================
