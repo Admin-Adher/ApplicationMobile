@@ -193,8 +193,34 @@ create table if not exists public.reserves (
   history jsonb not null default '[]',
   plan_x int not null default 50,
   plan_y int not null default 50,
-  photo_uri text
+  photo_uri text,
+  chantier_id text,
+  plan_id text,
+  lot_id text,
+  kind text,
+  visite_id text,
+  linked_task_id text,
+  photos jsonb,
+  photo_annotations jsonb,
+  enterprise_signature text,
+  enterprise_signataire text,
+  enterprise_acknowledged_at text,
+  closed_at text,
+  closed_by text
 );
+alter table public.reserves add column if not exists chantier_id text;
+alter table public.reserves add column if not exists plan_id text;
+alter table public.reserves add column if not exists lot_id text;
+alter table public.reserves add column if not exists kind text;
+alter table public.reserves add column if not exists visite_id text;
+alter table public.reserves add column if not exists linked_task_id text;
+alter table public.reserves add column if not exists photos jsonb;
+alter table public.reserves add column if not exists photo_annotations jsonb;
+alter table public.reserves add column if not exists enterprise_signature text;
+alter table public.reserves add column if not exists enterprise_signataire text;
+alter table public.reserves add column if not exists enterprise_acknowledged_at text;
+alter table public.reserves add column if not exists closed_at text;
+alter table public.reserves add column if not exists closed_by text;
 alter table public.reserves enable row level security;
 drop policy if exists "Reserves lisibles par tous" on public.reserves;
 create policy "Reserves lisibles par tous" on public.reserves for select using (auth.role() = 'authenticated');
@@ -215,8 +241,18 @@ create table if not exists public.tasks (
   deadline text not null,
   assignee text not null,
   progress int not null default 0,
-  company text not null
+  company text not null,
+  chantier_id text,
+  reserve_id text,
+  comments jsonb not null default '[]',
+  history jsonb not null default '[]',
+  created_at text
 );
+alter table public.tasks add column if not exists chantier_id text;
+alter table public.tasks add column if not exists reserve_id text;
+alter table public.tasks add column if not exists comments jsonb;
+alter table public.tasks add column if not exists history jsonb;
+alter table public.tasks add column if not exists created_at text;
 alter table public.tasks enable row level security;
 drop policy if exists "Tasks lisibles par tous" on public.tasks;
 create policy "Tasks lisibles par tous" on public.tasks for select using (auth.role() = 'authenticated');
@@ -254,8 +290,10 @@ create table if not exists public.photos (
   taken_at text not null,
   taken_by text not null,
   color_code text not null,
-  uri text
+  uri text,
+  reserve_id text
 );
+alter table public.photos add column if not exists reserve_id text;
 alter table public.photos enable row level security;
 drop policy if exists "Photos lisibles par tous" on public.photos;
 create policy "Photos lisibles par tous" on public.photos for select using (auth.role() = 'authenticated');
@@ -291,6 +329,37 @@ create policy "Messages lisibles par tous" on public.messages for select using (
 drop policy if exists "Messages modifiables" on public.messages;
 create policy "Messages modifiables"
   on public.messages for all using (auth.role() = 'authenticated');
+
+-- ---- 8. TABLE SITE_PLANS ----
+create table if not exists public.site_plans (
+  id text primary key,
+  chantier_id text,
+  name text not null,
+  building text,
+  level text,
+  uri text,
+  file_type text,
+  dxf_name text,
+  uploaded_at text,
+  size text,
+  revision_code text,
+  revision_number int,
+  parent_plan_id text references public.site_plans(id),
+  is_latest_revision boolean,
+  revision_note text,
+  annotations jsonb,
+  pdf_page_count int,
+  created_at timestamptz not null default now()
+);
+alter table public.site_plans enable row level security;
+drop policy if exists "Site plans lisibles par tous" on public.site_plans;
+create policy "Site plans lisibles par tous"
+  on public.site_plans for select using (auth.role() = 'authenticated');
+drop policy if exists "Site plans modifiables" on public.site_plans;
+create policy "Site plans modifiables"
+  on public.site_plans for all using (
+    exists (select 1 from public.profiles where id = auth.uid() and role in ('admin', 'conducteur', 'chef_equipe'))
+  );
 
 -- ============================================================
 -- SEED DATA — Données initiales de démonstration

@@ -1966,6 +1966,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         supabase.from('photos').insert({
           id: p.id, comment: p.comment, location: p.location,
           taken_at: p.takenAt, taken_by: p.takenBy, color_code: p.colorCode, uri: p.uri,
+          reserve_id: p.reserveId ?? null,
         }).then(({ error }: { error: any }) => {
           if (error) {
             dispatch({ type: 'DELETE_PHOTO', payload: p.id });
@@ -2345,20 +2346,73 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
     addSitePlan: (p: SitePlan) => {
       dispatch({ type: 'ADD_SITE_PLAN', payload: p });
-      const updated = [...stateRef.current.sitePlans, p];
-      persistMockSitePlans(updated);
+      if (isSupabaseConfigured) {
+        supabase.from('site_plans').insert({
+          id: p.id,
+          chantier_id: p.chantierId,
+          name: p.name,
+          building: p.building ?? null,
+          level: p.level ?? null,
+          uri: p.uri ?? null,
+          file_type: p.fileType ?? null,
+          dxf_name: p.dxfName ?? null,
+          uploaded_at: p.uploadedAt,
+          size: p.size ?? null,
+          revision_code: p.revisionCode ?? null,
+          revision_number: p.revisionNumber ?? null,
+          parent_plan_id: p.parentPlanId ?? null,
+          is_latest_revision: p.isLatestRevision ?? null,
+          revision_note: p.revisionNote ?? null,
+          annotations: p.annotations ?? null,
+          pdf_page_count: p.pdfPageCount ?? null,
+        }).then(({ error }: { error: any }) => {
+          if (error) console.warn('Erreur sauvegarde plan:', error.message);
+        });
+      } else {
+        const updated = [...stateRef.current.sitePlans, p];
+        persistMockSitePlans(updated);
+      }
     },
 
     updateSitePlan: (p: SitePlan) => {
       const updated = stateRef.current.sitePlans.map(sp => sp.id === p.id ? p : sp);
       dispatch({ type: 'UPDATE_SITE_PLAN', payload: p });
-      persistMockSitePlans(updated);
+      if (isSupabaseConfigured) {
+        supabase.from('site_plans').update({
+          chantier_id: p.chantierId,
+          name: p.name,
+          building: p.building ?? null,
+          level: p.level ?? null,
+          uri: p.uri ?? null,
+          file_type: p.fileType ?? null,
+          dxf_name: p.dxfName ?? null,
+          uploaded_at: p.uploadedAt,
+          size: p.size ?? null,
+          revision_code: p.revisionCode ?? null,
+          revision_number: p.revisionNumber ?? null,
+          parent_plan_id: p.parentPlanId ?? null,
+          is_latest_revision: p.isLatestRevision ?? null,
+          revision_note: p.revisionNote ?? null,
+          annotations: p.annotations ?? null,
+          pdf_page_count: p.pdfPageCount ?? null,
+        }).eq('id', p.id).then(({ error }: { error: any }) => {
+          if (error) console.warn('Erreur mise à jour plan:', error.message);
+        });
+      } else {
+        persistMockSitePlans(updated);
+      }
     },
 
     deleteSitePlan: (id: string) => {
       const updated = stateRef.current.sitePlans.filter(p => p.id !== id);
       dispatch({ type: 'DELETE_SITE_PLAN', payload: id });
-      persistMockSitePlans(updated);
+      if (isSupabaseConfigured) {
+        supabase.from('site_plans').delete().eq('id', id).then(({ error }: { error: any }) => {
+          if (error) console.warn('Erreur suppression plan:', error.message);
+        });
+      } else {
+        persistMockSitePlans(updated);
+      }
     },
   };
 

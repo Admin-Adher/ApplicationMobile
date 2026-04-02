@@ -62,6 +62,6 @@ export async function uploadDocument(
 }
 
 export async function initStorageBuckets(): Promise<void> {
-  // Les buckets doivent être créés via Supabase SQL Editor (voir lib/migration_subscription.sql).
+  // Les buckets doivent être créés via Supabase SQL Editor (voir lib/schema.sql).
   // La création programmatique via la clé anon est bloquée par RLS.
 }
