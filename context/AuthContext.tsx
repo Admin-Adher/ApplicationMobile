@@ -151,7 +151,7 @@ async function seedOneUser(u: typeof DEMO_USERS[number], shouldAbort: () => bool
 
   const orgId = (u.role === 'super_admin') ? undefined : '00000000-0000-0000-0000-000000000001';
 
-  await supabase.from('profiles').upsert({
+  const { error: upsertErr } = await supabase.from('profiles').upsert({
     id: authUserId,
     name: u.name,
     role: u.role,
@@ -159,6 +159,9 @@ async function seedOneUser(u: typeof DEMO_USERS[number], shouldAbort: () => bool
     email: u.email,
     organization_id: orgId ?? null,
   }, { onConflict: 'id' });
+  if (upsertErr) {
+    console.error('[Supabase] seedOneUser profile upsert failed:', upsertErr.code, upsertErr.message, '— Vérifiez que la politique INSERT est bien ajoutée sur public.profiles dans Supabase.');
+  }
 
   if (shouldAbort()) return;
   await supabase.auth.signOut();

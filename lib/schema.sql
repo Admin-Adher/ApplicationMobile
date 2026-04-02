@@ -151,6 +151,9 @@ alter table public.profiles enable row level security;
 drop policy if exists "Profiles visibles par tous les utilisateurs connectés" on public.profiles;
 create policy "Profiles visibles par tous les utilisateurs connectés"
   on public.profiles for select using (auth.role() = 'authenticated');
+drop policy if exists "Profil créable par son propriétaire" on public.profiles;
+create policy "Profil créable par son propriétaire"
+  on public.profiles for insert with check (auth.uid() = id);
 drop policy if exists "Profil modifiable par son propriétaire" on public.profiles;
 create policy "Profil modifiable par son propriétaire"
   on public.profiles for update using (auth.uid() = id);
@@ -221,6 +224,7 @@ alter table public.reserves add column if not exists enterprise_signataire text;
 alter table public.reserves add column if not exists enterprise_acknowledged_at text;
 alter table public.reserves add column if not exists closed_at text;
 alter table public.reserves add column if not exists closed_by text;
+alter table public.reserves add column if not exists responsable_nom text;
 alter table public.reserves enable row level security;
 drop policy if exists "Reserves lisibles par tous" on public.reserves;
 create policy "Reserves lisibles par tous" on public.reserves for select using (auth.role() = 'authenticated');

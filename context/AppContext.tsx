@@ -1540,8 +1540,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           id: r.id, title: r.title, description: r.description, building: r.building,
           zone: r.zone, level: r.level, company: r.company, priority: r.priority,
           status: r.status, created_at: r.createdAt, deadline: r.deadline,
-          comments: r.comments, history: r.history, plan_x: r.planX, plan_y: r.planY,
-          photo_uri: r.photoUri,
+          comments: r.comments, history: r.history,
+          plan_x: r.planX ?? 50, plan_y: r.planY ?? 50,
+          photo_uri: r.photoUri ?? null,
           lot_id: r.lotId ?? null,
           kind: r.kind ?? null,
           chantier_id: r.chantierId ?? null,
@@ -1555,11 +1556,14 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           enterprise_acknowledged_at: r.enterpriseAcknowledgedAt ?? null,
         }).then(({ error }: { error: any }) => {
           if (error) {
+            console.error('[Supabase] addReserve error:', error.code, error.message, error.details, error.hint);
             dispatch({ type: 'DELETE_RESERVE', payload: r.id });
             stateRef.current.photos
               .filter(p => p.reserveId === r.id)
               .forEach(p => dispatch({ type: 'DELETE_PHOTO', payload: p.id }));
-            Alert.alert('Erreur de sauvegarde', "La réserve n'a pas pu être enregistrée. Vérifiez votre connexion et réessayez.");
+            const detail = error.message ? `\n\nDétail : ${error.message}` : '';
+            const hint = error.hint ? `\nConseil : ${error.hint}` : '';
+            Alert.alert('Erreur de sauvegarde', `La réserve n'a pas pu être enregistrée.${detail}${hint}`);
           }
         });
       } else {
@@ -1576,7 +1580,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           title: r.title, description: r.description, building: r.building,
           zone: r.zone, level: r.level, company: r.company, priority: r.priority,
           status: r.status, deadline: r.deadline, comments: r.comments, history: r.history,
-          plan_x: r.planX, plan_y: r.planY, photo_uri: r.photoUri,
+          plan_x: r.planX ?? 50, plan_y: r.planY ?? 50, photo_uri: r.photoUri ?? null,
           lot_id: r.lotId ?? null,
           kind: r.kind ?? null,
           chantier_id: r.chantierId ?? null,
@@ -1592,8 +1596,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           enterprise_acknowledged_at: r.enterpriseAcknowledgedAt ?? null,
         }).eq('id', r.id).then(({ error }: { error: any }) => {
           if (error) {
+            console.error('[Supabase] updateReserve error:', error.code, error.message, error.details, error.hint);
             if (previous) dispatch({ type: 'UPDATE_RESERVE', payload: previous });
-            Alert.alert('Erreur de sauvegarde', "La modification de la réserve n'a pas pu être enregistrée.");
+            const detail = error.message ? `\n\nDétail : ${error.message}` : '';
+            Alert.alert('Erreur de sauvegarde', `La modification de la réserve n'a pas pu être enregistrée.${detail}`);
           }
         });
       } else {
