@@ -1658,7 +1658,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         oldValue: labels[reserve.status],
         newValue: labels[status],
       };
-      const closedAt = status === 'closed' ? formatDateFR(new Date()) : reserve.closedAt;
+      const closedAt = status === 'closed' ? new Date().toISOString().split('T')[0] : reserve.closedAt;
       const closedBy = status === 'closed' ? author : reserve.closedBy;
       const updated: Reserve = {
         ...reserve,
@@ -2133,7 +2133,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         open: 'Ouvert', in_progress: 'En cours', waiting: 'En attente',
         verification: 'Vérification', closed: 'Clôturé',
       };
-      const now = formatDateFR(new Date());
+      const now = new Date().toISOString().split('T')[0];
       const previousReserves = stateRef.current.reserves.filter(r => ids.includes(r.id));
       const updated: Reserve[] = [];
       for (const id of ids) {

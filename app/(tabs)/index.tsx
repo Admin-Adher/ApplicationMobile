@@ -38,6 +38,17 @@ function getWeekKey(date: Date): string {
   return d.toISOString().slice(0, 10);
 }
 
+function parseDateSafe(s: string): Date | null {
+  if (!s) return null;
+  const parts = s.split('/');
+  if (parts.length === 3) {
+    const d = new Date(parseInt(parts[2], 10), parseInt(parts[1], 10) - 1, parseInt(parts[0], 10));
+    return isNaN(d.getTime()) ? null : d;
+  }
+  const d = new Date(s);
+  return isNaN(d.getTime()) ? null : d;
+}
+
 function KPICard({
   label, value, color, icon, bg, onPress,
 }: {
@@ -195,14 +206,20 @@ export default function DashboardScreen() {
     }
     reserves.forEach(r => {
       if (r.createdAt) {
-        const key = getWeekKey(new Date(r.createdAt));
-        const w = weeks.get(key);
-        if (w) w.created += 1;
+        const d = parseDateSafe(r.createdAt);
+        if (d) {
+          const key = getWeekKey(d);
+          const w = weeks.get(key);
+          if (w) w.created += 1;
+        }
       }
       if (r.closedAt) {
-        const key = getWeekKey(new Date(r.closedAt));
-        const w = weeks.get(key);
-        if (w) w.closed += 1;
+        const d = parseDateSafe(r.closedAt);
+        if (d) {
+          const key = getWeekKey(d);
+          const w = weeks.get(key);
+          if (w) w.closed += 1;
+        }
       }
     });
     return Array.from(weeks.values());

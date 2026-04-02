@@ -899,7 +899,7 @@ export default function ReservesScreen() {
                   )}
                   <View style={styles.detailRow}>
                     <Ionicons name="time-outline" size={14} color={C.textMuted} />
-                    <Text style={styles.detailMeta}>Créée le {selectedReserve.createdAt}</Text>
+                    <Text style={styles.detailMeta}>Créée le {formatDate(selectedReserve.createdAt)}</Text>
                   </View>
                 </View>
 

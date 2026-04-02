@@ -16,7 +16,7 @@ import Header from '@/components/Header';
 import DateInput from '@/components/DateInput';
 import BottomSheetPicker from '@/components/BottomSheetPicker';
 import { uploadPhoto } from '@/lib/storage';
-import { genId, formatDateFR } from '@/lib/utils';
+import { genId } from '@/lib/utils';
 import {
   RESERVE_BUILDINGS, RESERVE_ZONES, RESERVE_LEVELS, RESERVE_PRIORITIES, RESERVE_TEMPLATES,
   genReserveId, validateDeadline,
@@ -215,7 +215,7 @@ export default function NewReserveScreen() {
     try {
       const filename = `reserve_photo_${Date.now()}.jpg`;
       const author = user?.name ?? 'Conducteur de travaux';
-      const today = formatDateFR(new Date());
+      const today = new Date().toISOString().split('T')[0];
 
       let storageUrl: string | null = null;
       let uploadFailed = false;
@@ -282,7 +282,7 @@ export default function NewReserveScreen() {
     try {
       const author = user?.name ?? 'Conducteur de travaux';
       const id = genReserveId(reserves, selectedLot);
-      const today = formatDateFR(new Date());
+      const isoToday = new Date().toISOString().split('T')[0];
       addReserve({
         id,
         kind,
@@ -295,10 +295,10 @@ export default function NewReserveScreen() {
         responsableNom: responsableNom.trim() || undefined,
         priority,
         status: 'open' as ReserveStatus,
-        createdAt: today,
+        createdAt: isoToday,
         deadline: deadline || '—',
         comments: [],
-        history: [{ id: 'h0', action: kind === 'observation' ? 'Observation créée' : 'Réserve créée', author, createdAt: today }],
+        history: [{ id: 'h0', action: kind === 'observation' ? 'Observation créée' : 'Réserve créée', author, createdAt: isoToday }],
         planX: presetX ?? undefined,
         planY: presetY ?? undefined,
         photoUri: photos[0]?.uri ?? undefined,
@@ -314,7 +314,7 @@ export default function NewReserveScreen() {
           id: genId(),
           comment: `Photo ${kind === 'observation' ? 'observation' : 'réserve'} ${id} — ${title.trim()}`,
           location: `Bât. ${building} - ${level}`,
-          takenAt: today,
+          takenAt: isoToday,
           takenBy: author,
           colorCode: kind === 'observation' ? '#0EA5E9' : '#EF4444',
           uri: p.uri,
