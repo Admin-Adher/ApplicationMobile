@@ -126,8 +126,18 @@ Every table that supports multi-user collaboration now has full CRUD real-time s
 | Documents / Photos | ✅ | Initial load only (user-scoped uploads) |
 | Companies | ✅ | Initial load only |
 
+## Tablet Sidebar Layout (Sprint 4 — April 2026)
+The tablet sidebar uses a **flex-row wrapper layout** in `app/(tabs)/_layout.tsx`:
+- On tablet (≥768px): `<View flexDirection="row"><TabletSidebar /><View flex1><Tabs /></View></View>`
+- The `TabletSidebar` is a self-contained component using `usePathname()` + `useRouter()` from Expo Router for navigation and active state — no React Navigation props needed
+- Active tab detection matches both `/(tabs)/name` and `/name` URL patterns (Expo Router drops group prefixes in URLs)
+- This avoids the `sceneContainerStyle` issue where `position:absolute` scene containers ignore CSS `margin`/`padding` properties
+- On mobile: renders `<Tabs>` directly with the default bottom tab bar
+- Sidebar features: 3px left border accent for active item, `backgroundColor: C.primaryBg` background, unread badge on Messages
+
 ## Important Notes
 - `newArchEnabled: false` in app.json (uses legacy architecture)
 - Web output uses Metro bundler (single output mode)
 - The `SafeKeyboardProvider` in `_layout.tsx` skips `KeyboardProvider` on web (not supported)
 - Font loading uses `@expo-google-fonts/inter` with splash screen gating
+- Header `paddingLeft` changed to 24px (from 16-20px) for cleaner visual offset from sidebar edge

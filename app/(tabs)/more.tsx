@@ -262,7 +262,7 @@ export default function MoreScreen() {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: C.bg },
   header: {
-    paddingHorizontal: 20, paddingBottom: 14,
+    paddingLeft: 24, paddingRight: 16, paddingBottom: 14,
     borderBottomWidth: 1, borderBottomColor: C.border, backgroundColor: C.surface,
   },
   headerRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },

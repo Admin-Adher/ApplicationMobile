@@ -672,7 +672,8 @@ export default function DashboardScreen() {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: C.bg },
   header: {
-    paddingHorizontal: 16,
+    paddingLeft: 24,
+    paddingRight: 16,
     paddingBottom: 14,
     flexDirection: 'row',
     justifyContent: 'space-between',

@@ -1425,7 +1425,8 @@ export default function ReservesScreen() {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: C.bg },
   header: {
-    paddingHorizontal: 16,
+    paddingLeft: 24,
+    paddingRight: 16,
     paddingBottom: 6,
     borderBottomWidth: 1,
     borderBottomColor: C.border,

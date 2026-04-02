@@ -1448,7 +1448,7 @@ export default function PlansScreen() {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: C.bg },
   header: { backgroundColor: C.surface, borderBottomWidth: 1, borderBottomColor: C.border, paddingBottom: 0 },
-  headerTop: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', paddingHorizontal: 16, paddingBottom: 10, paddingTop: 4 },
+  headerTop: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', paddingLeft: 24, paddingRight: 16, paddingBottom: 10, paddingTop: 4 },
   title: { fontSize: 22, fontFamily: 'Inter_700Bold', color: C.text },
   chantierLabelRow: { flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 2 },
   chantierLabel: { fontSize: 12, fontFamily: 'Inter_400Regular', color: C.textMuted },

@@ -1,18 +1,17 @@
-import { Tabs } from 'expo-router';
+import { Tabs, usePathname, useRouter } from 'expo-router';
 import { Platform, View, Text, StyleSheet, TouchableOpacity, useWindowDimensions } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { BottomTabBarProps } from '@react-navigation/bottom-tabs';
 import { C } from '@/constants/colors';
 import { useApp } from '@/context/AppContext';
 import { TABLET_SIDEBAR_W } from '@/lib/useTablet';
 
 const TAB_ITEMS = [
-  { name: 'index',    title: 'Dashboard', icon: 'grid',          iconOutline: 'grid-outline' },
-  { name: 'reserves', title: 'Réserves',  icon: 'warning',       iconOutline: 'warning-outline' },
-  { name: 'plans',    title: 'Plans',     icon: 'map',           iconOutline: 'map-outline' },
-  { name: 'messages', title: 'Messages',  icon: 'chatbubbles',   iconOutline: 'chatbubbles-outline' },
-  { name: 'more',     title: 'Terrain',   icon: 'hammer',        iconOutline: 'hammer-outline' },
+  { name: 'index',    title: 'Dashboard', icon: 'grid',          iconOutline: 'grid-outline',        path: '/(tabs)/' },
+  { name: 'reserves', title: 'Réserves',  icon: 'warning',       iconOutline: 'warning-outline',     path: '/(tabs)/reserves' },
+  { name: 'plans',    title: 'Plans',     icon: 'map',           iconOutline: 'map-outline',         path: '/(tabs)/plans' },
+  { name: 'messages', title: 'Messages',  icon: 'chatbubbles',   iconOutline: 'chatbubbles-outline', path: '/(tabs)/messages' },
+  { name: 'more',     title: 'Terrain',   icon: 'hammer',        iconOutline: 'hammer-outline',      path: '/(tabs)/more' },
 ] as const;
 
 function TabIcon({ name, color, size, badge }: { name: any; color: string; size: number; badge?: number }) {
@@ -28,15 +27,32 @@ function TabIcon({ name, color, size, badge }: { name: any; color: string; size:
   );
 }
 
-function TabletSidebar({ state, navigation }: BottomTabBarProps) {
-  const insets = useSafeAreaInsets();
+function TabletSidebar() {
+  const pathname = usePathname();
+  const router = useRouter();
   const { unreadCount } = useApp();
+  const insets = useSafeAreaInsets();
+
+  function getActiveTab(): string {
+    const p = pathname;
+    if (p === '/' || p === '' || p === '/index' || p === '/(tabs)' || p === '/(tabs)/') return 'index';
+    for (const tab of TAB_ITEMS) {
+      if (tab.name === 'index') continue;
+      if (p === `/${tab.name}` || p.startsWith(`/${tab.name}/`) ||
+          p === `/(tabs)/${tab.name}` || p.startsWith(`/(tabs)/${tab.name}/`)) {
+        return tab.name;
+      }
+    }
+    return 'index';
+  }
+
+  const activeTab = getActiveTab();
 
   return (
     <View style={[styles.sidebar, { paddingTop: insets.top + 8, paddingBottom: insets.bottom + 8 }]}>
       <TouchableOpacity
         style={styles.sidebarLogo}
-        onPress={() => navigation.navigate('index')}
+        onPress={() => router.push('/(tabs)/' as any)}
         activeOpacity={0.7}
         hitSlop={8}
       >
@@ -48,16 +64,14 @@ function TabletSidebar({ state, navigation }: BottomTabBarProps) {
       <View style={styles.sidebarDivider} />
 
       {TAB_ITEMS.map(tab => {
-        const routeIndex = state.routes.findIndex(r => r.name === tab.name);
-        if (routeIndex === -1) return null;
-        const isFocused = state.index === routeIndex;
+        const isFocused = activeTab === tab.name;
         const hasBadge = tab.name === 'messages' && unreadCount > 0;
 
         return (
           <TouchableOpacity
             key={tab.name}
             style={[styles.sidebarItem, isFocused && styles.sidebarItemActive]}
-            onPress={() => navigation.navigate(tab.name)}
+            onPress={() => router.push(tab.path as any)}
             activeOpacity={0.75}
           >
             <View style={styles.sidebarIconWrap}>
@@ -82,17 +96,13 @@ function TabletSidebar({ state, navigation }: BottomTabBarProps) {
   );
 }
 
-export default function TabLayout() {
+function TabsNavigator() {
   const { unreadCount } = useApp();
   const { width } = useWindowDimensions();
   const isTablet = width >= 768;
 
   return (
     <Tabs
-      {...(isTablet ? {
-        tabBar: (props) => <TabletSidebar {...props} />,
-        sceneContainerStyle: { marginLeft: TABLET_SIDEBAR_W },
-      } : {})}
       screenOptions={{
         headerShown: false,
         tabBarActiveTintColor: C.primary,
@@ -163,7 +173,32 @@ export default function TabLayout() {
   );
 }
 
+export default function TabLayout() {
+  const { width } = useWindowDimensions();
+  const isTablet = width >= 768;
+
+  if (isTablet) {
+    return (
+      <View style={styles.tabletWrapper}>
+        <TabletSidebar />
+        <View style={styles.tabletContent}>
+          <TabsNavigator />
+        </View>
+      </View>
+    );
+  }
+
+  return <TabsNavigator />;
+}
+
 const styles = StyleSheet.create({
+  tabletWrapper: {
+    flex: 1,
+    flexDirection: 'row',
+  },
+  tabletContent: {
+    flex: 1,
+  },
   badge: {
     position: 'absolute',
     top: -4,
@@ -182,19 +217,14 @@ const styles = StyleSheet.create({
     fontFamily: 'Inter_700Bold',
   },
   sidebar: {
-    position: 'absolute',
-    left: 0,
-    top: 0,
-    bottom: 0,
     width: TABLET_SIDEBAR_W,
     backgroundColor: C.tabBar,
     borderRightWidth: 1,
     borderRightColor: C.tabBorder,
     alignItems: 'center',
-    zIndex: 200,
     ...Platform.select({
-      web: { boxShadow: '2px 0 8px rgba(0,0,0,0.07)' } as any,
-      default: { shadowColor: '#000', shadowOffset: { width: 2, height: 0 }, shadowOpacity: 0.07, shadowRadius: 8 },
+      web: { boxShadow: '1px 0 4px rgba(0,0,0,0.08)' } as any,
+      default: { shadowColor: '#000', shadowOffset: { width: 1, height: 0 }, shadowOpacity: 0.08, shadowRadius: 4 },
     }),
   },
   sidebarLogo: {
@@ -227,11 +257,13 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingVertical: 10,
     paddingHorizontal: 4,
-    borderRadius: 0,
     marginBottom: 2,
+    borderLeftWidth: 3,
+    borderLeftColor: 'transparent',
   },
   sidebarItemActive: {
-    backgroundColor: C.primary + '12',
+    backgroundColor: C.primaryBg,
+    borderLeftColor: C.primary,
   },
   sidebarIconWrap: {
     position: 'relative',
@@ -250,7 +282,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 3,
   },
   sidebarLabel: {
-    fontSize: 9,
+    fontSize: 10,
     fontFamily: 'Inter_600SemiBold',
     color: C.textMuted,
     textAlign: 'center',

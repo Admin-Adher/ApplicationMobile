@@ -560,7 +560,7 @@ export default function MessagesTabScreen() {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: C.bg },
   header: {
-    paddingHorizontal: 16, paddingBottom: 12,
+    paddingLeft: 24, paddingRight: 16, paddingBottom: 12,
     borderBottomWidth: 1, borderBottomColor: C.border,
     backgroundColor: C.surface,
   },
