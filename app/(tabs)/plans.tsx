@@ -123,6 +123,7 @@ async function exportPlanPDF(
   reserves: Reserve[],
   numberMap: Map<string, number>,
   planUri?: string | null,
+  fileType?: 'pdf' | 'image' | 'dxf' | null,
 ) {
   const STATUS_FR: Record<string, string> = {
     open: 'Ouvert', in_progress: 'En cours', waiting: 'En attente',
@@ -132,13 +133,15 @@ async function exportPlanPDF(
     critical: 'Critique', high: 'Haute', medium: 'Moyenne', low: 'Basse',
   };
   const pinsWithCoords = reserves.filter(r => r.planX != null && r.planY != null);
-  const CANVAS_W = 720, CANVAS_H = 480;
+
+  // Pass raw percentages so canvas script can apply them to the actual rendered dimensions
   const pinData = pinsWithCoords.map(r => ({
-    x: Math.round((r.planX! / 100) * CANVAS_W),
-    y: Math.round((r.planY! / 100) * CANVAS_H),
+    pctX: r.planX!,
+    pctY: r.planY!,
     n: numberMap.get(r.id) ?? 0,
     color: STATUS_COLORS[r.status] ?? '#003082',
   }));
+
   const rows = reserves.map(r => {
     const n = numberMap.get(r.id) ?? '—';
     const color = STATUS_COLORS[r.status] ?? '#003082';
@@ -152,40 +155,97 @@ async function exportPlanPDF(
       <td>${r.deadline || '—'}</td>
     </tr>`;
   }).join('');
-  const canvasScript = pinsWithCoords.length > 0 ? `(function(){
-    const canvas=document.getElementById('plan-canvas');
-    const ctx=canvas.getContext('2d');
-    const W=${CANVAS_W},H=${CANVAS_H};
-    const planUri=${planUri ? JSON.stringify(planUri) : 'null'};
-    const pins=${JSON.stringify(pinData)};
-    function drawPins(){pins.forEach(function(p){ctx.beginPath();ctx.arc(p.x,p.y,12,0,Math.PI*2);ctx.fillStyle=p.color;ctx.fill();ctx.strokeStyle='rgba(255,255,255,0.8)';ctx.lineWidth=2;ctx.stroke();ctx.fillStyle='#fff';ctx.font='bold 11px Arial';ctx.textAlign='center';ctx.textBaseline='middle';ctx.fillText(String(p.n),p.x,p.y);});}
-    if(planUri){var img=new Image();img.crossOrigin='anonymous';img.onload=function(){ctx.drawImage(img,0,0,W,H);drawPins();};img.onerror=function(){ctx.fillStyle='#0F1825';ctx.fillRect(0,0,W,H);drawPins();};img.src=planUri;}else{ctx.fillStyle='#0F1825';ctx.fillRect(0,0,W,H);drawPins();}
-  })();` : '';
+
+  const hasPins = pinsWithCoords.length > 0;
+  const hasPlan = !!planUri;
+  const isPdf = fileType === 'pdf';
+  const RENDER_W = 720;
+
+  // Canvas rendering script — runs inside the export iframe/window
+  const canvasScript = hasPins ? `(function(){
+var canvas=document.getElementById('plan-canvas');
+var ctx=canvas.getContext('2d');
+var RENDER_W=${RENDER_W};
+var planUri=${hasPlan ? JSON.stringify(planUri) : 'null'};
+var isPdf=${isPdf ? 'true' : 'false'};
+var pins=${JSON.stringify(pinData)};
+
+function drawPins(W,H){
+  pins.forEach(function(p){
+    var x=(p.pctX/100)*W,y=(p.pctY/100)*H;
+    ctx.beginPath();ctx.arc(x,y,11,0,Math.PI*2);
+    ctx.fillStyle=p.color;ctx.fill();
+    ctx.strokeStyle='rgba(255,255,255,0.85)';ctx.lineWidth=2;ctx.stroke();
+    ctx.fillStyle='#fff';ctx.font='bold 10px Arial';
+    ctx.textAlign='center';ctx.textBaseline='middle';
+    ctx.fillText(String(p.n),x,y);
+  });
+}
+
+function drawFallback(){
+  ctx.fillStyle='#0F1825';ctx.fillRect(0,0,canvas.width,canvas.height);
+  drawPins(canvas.width,canvas.height);
+}
+
+if(!planUri){drawFallback();return;}
+
+if(isPdf){
+  // Use PDF.js to render the first page
+  var PDFJS_CDN='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js';
+  var script=document.createElement('script');
+  script.src=PDFJS_CDN;
+  script.onload=function(){
+    pdfjsLib.GlobalWorkerOptions.workerSrc='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+    pdfjsLib.getDocument({url:planUri,withCredentials:false}).promise.then(function(doc){
+      doc.getPage(1).then(function(page){
+        var vp1=page.getViewport({scale:1});
+        var scale=RENDER_W/vp1.width;
+        var vp=page.getViewport({scale:scale});
+        canvas.width=Math.round(vp.width);
+        canvas.height=Math.round(vp.height);
+        page.render({canvasContext:ctx,viewport:vp}).promise.then(function(){
+          drawPins(canvas.width,canvas.height);
+        });
+      });
+    }).catch(drawFallback);
+  };
+  script.onerror=drawFallback;
+  document.head.appendChild(script);
+} else {
+  // Image plan
+  var img=new Image();
+  img.crossOrigin='anonymous';
+  img.onload=function(){
+    var h=Math.round(RENDER_W*(img.naturalHeight/img.naturalWidth));
+    canvas.width=RENDER_W;canvas.height=h;
+    ctx.drawImage(img,0,0,RENDER_W,h);
+    drawPins(RENDER_W,h);
+  };
+  img.onerror=drawFallback;
+  img.src=planUri;
+}
+})();` : '';
+
   const html = `<!DOCTYPE html>
 <html lang="fr"><head><meta charset="UTF-8"><title>Plan : ${planName}</title>
-<style>*{box-sizing:border-box;margin:0;padding:0;}body{font-family:Arial,sans-serif;padding:28px;color:#111;background:#fff;}.hdr{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:20px;}.hdr h1{color:#003082;font-size:20px;margin-bottom:4px;}.hdr .meta{color:#666;font-size:12px;}.hdr-r{text-align:right;font-size:11px;color:#999;}.sec{margin-bottom:24px;}canvas{width:100%;height:auto;border-radius:8px;display:block;border:1px solid #e5e7eb;}.leg{font-size:11px;color:#888;margin-top:6px;}table{width:100%;border-collapse:collapse;font-size:12px;}th{background:#003082;color:#fff;padding:8px 10px;text-align:left;font-size:11px;text-transform:uppercase;letter-spacing:0.5px;}td{padding:7px 10px;border-bottom:1px solid #f0f0f0;vertical-align:middle;}tr:nth-child(even) td{background:#f8fafc;}.stitle{font-size:13px;font-weight:700;color:#003082;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:10px;border-bottom:2px solid #003082;padding-bottom:4px;}.footer{margin-top:28px;font-size:10px;color:#bbb;text-align:center;border-top:1px solid #eee;padding-top:12px;}@media print{body{padding:0;}@page{margin:16mm;}}</style>
+<style>*{box-sizing:border-box;margin:0;padding:0;}body{font-family:Arial,sans-serif;padding:28px;color:#111;background:#fff;}.hdr{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:20px;}.hdr-l h1{color:#003082;font-size:20px;margin-bottom:4px;}.hdr-l .meta{color:#666;font-size:12px;}.hdr-r{text-align:right;font-size:11px;color:#999;}.sec{margin-bottom:24px;}canvas{width:100%;height:auto;border-radius:8px;display:block;border:1px solid #e5e7eb;background:#0F1825;}.leg{font-size:11px;color:#888;margin-top:6px;}table{width:100%;border-collapse:collapse;font-size:12px;}th{background:#003082;color:#fff;padding:8px 10px;text-align:left;font-size:11px;text-transform:uppercase;letter-spacing:0.5px;}td{padding:7px 10px;border-bottom:1px solid #f0f0f0;vertical-align:middle;}tr:nth-child(even) td{background:#f8fafc;}.stitle{font-size:13px;font-weight:700;color:#003082;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:10px;border-bottom:2px solid #003082;padding-bottom:4px;}.footer{margin-top:28px;font-size:10px;color:#bbb;text-align:center;border-top:1px solid #eee;padding-top:12px;}@media print{body{padding:0;}@page{margin:16mm;}}</style>
 </head><body>
 <div class="hdr"><div class="hdr-l"><h1>Plan : ${planName}</h1><div class="meta">Chantier : <strong>${chantierName}</strong> &nbsp;·&nbsp; ${reserves.length} réserve${reserves.length !== 1 ? 's' : ''}</div></div>
 <div class="hdr-r">Exporté le ${new Date().toLocaleDateString('fr-FR')}<br>BuildTrack</div></div>
-${pinsWithCoords.length > 0 ? `<div class="sec"><div class="stitle">Plan annoté</div><canvas id="plan-canvas" width="${CANVAS_W}" height="${CANVAS_H}"></canvas><div class="leg">Les numéros correspondent aux réserves du tableau ci-dessous.</div></div>` : ''}
+${hasPins ? `<div class="sec"><div class="stitle">Plan annoté</div><canvas id="plan-canvas" width="${RENDER_W}" height="${Math.round(RENDER_W * 0.6)}"></canvas><div class="leg">Les numéros correspondent aux réserves du tableau ci-dessous.</div></div>` : ''}
 <div class="stitle">Liste des réserves</div>
 <table><thead><tr><th>#</th><th>Titre</th><th>Entreprise</th><th>Niveau</th><th>Statut</th><th>Priorité</th><th>Échéance</th></tr></thead>
 <tbody>${rows || '<tr><td colspan="7" style="text-align:center;color:#999;padding:20px;">Aucune réserve sur ce plan</td></tr>'}</tbody></table>
 <div class="footer">BuildTrack — Gestion de chantier numérique — ${new Date().toLocaleDateString('fr-FR')}</div>
-${pinsWithCoords.length > 0 ? `<script>${canvasScript}</script>` : ''}
+${hasPins ? `<script>${canvasScript}<\/script>` : ''}
 </body></html>`;
 
   if (Platform.OS === 'web') {
-    const iframe = document.createElement('iframe');
-    iframe.style.cssText = 'position:fixed;right:0;bottom:0;width:0;height:0;border:0';
-    document.body.appendChild(iframe);
-    const doc = iframe.contentWindow?.document;
-    if (doc) {
-      doc.open(); doc.write(html); doc.close();
-      setTimeout(() => {
-        try { iframe.contentWindow?.print(); } catch {}
-        setTimeout(() => document.body.removeChild(iframe), 5000);
-      }, 300);
+    const win = window.open('', '_blank');
+    if (win) {
+      win.document.open(); win.document.write(html); win.document.close();
+      // Give scripts (PDF.js) time to load before printing
+      setTimeout(() => { try { win.print(); } catch {} }, isPdf ? 2500 : 600);
     }
   } else {
     try {
@@ -1105,7 +1165,7 @@ export default function PlansScreen() {
                   <View style={styles.tabletPanelHdr}>
                     <Ionicons name="list-outline" size={14} color={C.primary} />
                     <Text style={styles.tabletPanelTitle}>{planReserves.length > 0 ? `${planReserves.length} réserve${planReserves.length > 1 ? 's' : ''}` : 'Réserves'}</Text>
-                    <TouchableOpacity style={styles.exportBtn} onPress={() => exportPlanPDF(currentPlan?.name ?? 'Plan', activeChantier?.name ?? '', planReserves, pinNumberMap, currentPlan?.uri ?? null)} accessibilityLabel="Exporter en PDF">
+                    <TouchableOpacity style={styles.exportBtn} onPress={() => exportPlanPDF(currentPlan?.name ?? 'Plan', activeChantier?.name ?? '', planReserves, pinNumberMap, currentPlan?.uri ?? null, currentPlan?.fileType ?? null)} accessibilityLabel="Exporter en PDF">
                       <Ionicons name="document-text-outline" size={13} color={C.primary} />
                       <Text style={styles.exportBtnText}>PDF</Text>
                     </TouchableOpacity>
@@ -1164,7 +1224,7 @@ export default function PlansScreen() {
           searchQuery={searchQuery}
           onSearchChange={setSearchQuery}
           onReservePress={(r) => { setSelected(r); }}
-          onExport={() => exportPlanPDF(currentPlan?.name ?? 'Plan', activeChantier?.name ?? '', planReserves, pinNumberMap, currentPlan?.uri ?? null)}
+          onExport={() => exportPlanPDF(currentPlan?.name ?? 'Plan', activeChantier?.name ?? '', planReserves, pinNumberMap, currentPlan?.uri ?? null, currentPlan?.fileType ?? null)}
           canCreate={permissions.canCreate}
           currentPlan={currentPlan}
           activeChantierId={activeChantierId}
