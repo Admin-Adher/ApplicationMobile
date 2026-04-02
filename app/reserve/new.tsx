@@ -67,6 +67,27 @@ export default function NewReserveScreen() {
   const effectiveChantierId = params.chantierId ?? activeChantierId ?? undefined;
   const chantierPlans = sitePlans.filter(p => p.chantierId === effectiveChantierId);
 
+  const chantierBuildings = useMemo(() => {
+    const existing = reserves
+      .filter(r => effectiveChantierId ? r.chantierId === effectiveChantierId : true)
+      .map(r => r.building).filter(Boolean);
+    return Array.from(new Set([...RESERVE_BUILDINGS, ...existing])).sort();
+  }, [reserves, effectiveChantierId]);
+
+  const chantierZones = useMemo(() => {
+    const existing = reserves
+      .filter(r => effectiveChantierId ? r.chantierId === effectiveChantierId : true)
+      .map(r => r.zone).filter(Boolean);
+    return Array.from(new Set([...RESERVE_ZONES, ...existing])).sort();
+  }, [reserves, effectiveChantierId]);
+
+  const chantierLevels = useMemo(() => {
+    const existing = reserves
+      .filter(r => effectiveChantierId ? r.chantierId === effectiveChantierId : true)
+      .map(r => r.level).filter(Boolean);
+    return Array.from(new Set([...RESERVE_LEVELS, ...existing])).sort();
+  }, [reserves, effectiveChantierId]);
+
   const visiteId = params.visiteId;
   const sourceVisite = visiteId ? visites.find(v => v.id === visiteId) : null;
 
@@ -535,20 +556,20 @@ export default function NewReserveScreen() {
           {(!effectiveChantierId && chantierPlans.length === 0) && (
             <BottomSheetPicker
               label="Bâtiment"
-              options={RESERVE_BUILDINGS.map(b => ({ label: b, value: b }))}
+              options={chantierBuildings.map(b => ({ label: b, value: b }))}
               value={building}
               onChange={setBuilding}
             />
           )}
           <BottomSheetPicker
             label="Zone"
-            options={RESERVE_ZONES.map(z => ({ label: z, value: z }))}
+            options={chantierZones.map(z => ({ label: z, value: z }))}
             value={zone}
             onChange={setZone}
           />
           <BottomSheetPicker
             label="Niveau"
-            options={RESERVE_LEVELS.map(l => ({ label: l, value: l }))}
+            options={chantierLevels.map(l => ({ label: l, value: l }))}
             value={level}
             onChange={setLevel}
           />

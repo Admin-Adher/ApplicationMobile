@@ -1,34 +1,68 @@
-import { View, Text, StyleSheet, TouchableOpacity, Platform } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, Platform, Image } from 'react-native';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
+import { Swipeable } from 'react-native-gesture-handler';
+import { useRef } from 'react';
 import { Reserve } from '@/constants/types';
 import { C } from '@/constants/colors';
 import StatusBadge from './StatusBadge';
 import PriorityBadge from './PriorityBadge';
-import { isOverdue, formatDate, deadlineDaysLeft } from '@/lib/reserveUtils';
+import { isOverdue, formatDate, deadlineDaysLeft, formatRelativeDate } from '@/lib/reserveUtils';
 import { useApp } from '@/context/AppContext';
 
 interface Props {
   reserve: Reserve;
   onPress?: (reserve: Reserve) => void;
+  onLongPress?: (reserve: Reserve) => void;
+  onSwipeRight?: (reserve: Reserve) => void;
+  onSwipeLeft?: (reserve: Reserve) => void;
   selected?: boolean;
 }
 
-export default function ReserveCard({ reserve, onPress, selected }: Props) {
+export default function ReserveCard({ reserve, onPress, onLongPress, onSwipeRight, onSwipeLeft, selected }: Props) {
   const router = useRouter();
   const { lots } = useApp();
+  const swipeRef = useRef<Swipeable>(null);
   const overdue = isOverdue(reserve.deadline, reserve.status);
   const daysLeft = deadlineDaysLeft(reserve.deadline);
   const showDeadline = reserve.deadline && reserve.deadline !== '—';
-
   const lot = reserve.lotId ? lots.find(l => l.id === reserve.lotId) : null;
   const isObservation = reserve.kind === 'observation';
+  const firstPhotoUri = reserve.photos?.[0]?.uri ?? reserve.photoUri ?? null;
+  const relativeDate = formatRelativeDate(reserve.createdAt);
 
-  return (
+  const renderRightActions = () => (
+    <TouchableOpacity
+      style={styles.swipeRightAction}
+      onPress={() => { swipeRef.current?.close(); onSwipeRight?.(reserve); }}
+      accessibilityLabel="Changer le statut de cette réserve"
+    >
+      <Ionicons name="swap-horizontal-outline" size={20} color="#fff" />
+      <Text style={styles.swipeActionText}>Statut</Text>
+    </TouchableOpacity>
+  );
+
+  const renderLeftActions = () => (
+    <TouchableOpacity
+      style={styles.swipeLeftAction}
+      onPress={() => { swipeRef.current?.close(); onSwipeLeft?.(reserve); }}
+      accessibilityLabel="Archiver cette réserve"
+    >
+      <Ionicons name="archive-outline" size={20} color="#fff" />
+      <Text style={styles.swipeActionText}>Archiver</Text>
+    </TouchableOpacity>
+  );
+
+  const card = (
     <TouchableOpacity
       style={[styles.card, overdue && styles.cardOverdue, isObservation && styles.cardObservation, selected && styles.cardSelected]}
       onPress={() => onPress ? onPress(reserve) : router.push(`/reserve/${reserve.id}` as any)}
+      onLongPress={() => onLongPress?.(reserve)}
+      delayLongPress={400}
       activeOpacity={0.75}
+      accessibilityRole="button"
+      accessibilityLabel={`Réserve ${reserve.id} — ${reserve.title} — statut ${reserve.status === 'open' ? 'Ouvert' : reserve.status === 'in_progress' ? 'En cours' : reserve.status === 'waiting' ? 'En attente' : reserve.status === 'verification' ? 'Vérification' : 'Clôturé'} — ${reserve.company}`}
+      accessibilityHint={onLongPress ? "Appuyer longuement pour changer le statut rapidement" : undefined}
     >
       <View style={styles.top}>
         <View style={styles.topLeft}>
@@ -53,21 +87,33 @@ export default function ReserveCard({ reserve, onPress, selected }: Props) {
         </View>
       </View>
 
-      <Text style={styles.title} numberOfLines={2}>{reserve.title}</Text>
+      <View style={styles.mainRow}>
+        <View style={{ flex: 1 }}>
+          <Text style={styles.title} numberOfLines={2}>{reserve.title}</Text>
 
-      <View style={styles.meta}>
-        <View style={styles.metaItem}>
-          <Ionicons name="business-outline" size={12} color={C.textMuted} />
-          <Text style={styles.metaText}>Bât. {reserve.building} — {reserve.zone} — {reserve.level}</Text>
-        </View>
-        {lot && (
-          <View style={styles.metaItem}>
-            <View style={[styles.lotDot, { backgroundColor: lot.color ?? C.textMuted }]} />
-            <Text style={[styles.metaText, { color: lot.color ?? C.textSub }]} numberOfLines={1}>
-              {lot.number ? `Lot ${lot.number} — ` : ''}{lot.name}
-            </Text>
+          <View style={styles.meta}>
+            <View style={styles.metaItem}>
+              <Ionicons name="business-outline" size={12} color={C.textMuted} />
+              <Text style={styles.metaText}>Bât. {reserve.building} — {reserve.zone} — {reserve.level}</Text>
+            </View>
+            {lot && (
+              <View style={styles.metaItem}>
+                <View style={[styles.lotDot, { backgroundColor: lot.color ?? C.textMuted }]} />
+                <Text style={[styles.metaText, { color: lot.color ?? C.textSub }]} numberOfLines={1}>
+                  {lot.number ? `Lot ${lot.number} — ` : ''}{lot.name}
+                </Text>
+              </View>
+            )}
+            <View style={styles.metaItem}>
+              <Ionicons name="time-outline" size={12} color={C.textMuted} />
+              <Text style={styles.metaText}>{relativeDate}</Text>
+            </View>
           </View>
-        )}
+        </View>
+
+        {firstPhotoUri ? (
+          <Image source={{ uri: firstPhotoUri }} style={styles.photoThumb} resizeMode="cover" accessibilityLabel="Photo de la réserve" />
+        ) : null}
       </View>
 
       <View style={styles.bottom}>
@@ -76,7 +122,7 @@ export default function ReserveCard({ reserve, onPress, selected }: Props) {
           <Text style={styles.company} numberOfLines={1}>{reserve.company}</Text>
         </View>
         <View style={styles.rightRow}>
-          {reserve.photoUri ? (
+          {!firstPhotoUri && reserve.photoUri ? (
             <View style={styles.iconBadge}>
               <Ionicons name="camera-outline" size={12} color={C.textMuted} />
             </View>
@@ -87,6 +133,11 @@ export default function ReserveCard({ reserve, onPress, selected }: Props) {
               <Text style={styles.iconBadgeCount}>{reserve.comments.length}</Text>
             </View>
           ) : null}
+          {(onLongPress || onSwipeRight) && (
+            <View style={styles.quickHint}>
+              <Ionicons name="hand-left-outline" size={10} color={C.textMuted} />
+            </View>
+          )}
           <PriorityBadge priority={reserve.priority} small />
         </View>
       </View>
@@ -105,6 +156,21 @@ export default function ReserveCard({ reserve, onPress, selected }: Props) {
         </View>
       )}
     </TouchableOpacity>
+  );
+
+  if (Platform.OS === 'web') return card;
+
+  return (
+    <Swipeable
+      ref={swipeRef}
+      renderRightActions={(onSwipeRight) ? renderRightActions : undefined}
+      renderLeftActions={(onSwipeLeft) ? renderLeftActions : undefined}
+      friction={2}
+      rightThreshold={60}
+      leftThreshold={60}
+    >
+      {card}
+    </Swipeable>
   );
 }
 
@@ -157,6 +223,11 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
+  },
+  mainRow: {
+    flexDirection: 'row',
+    gap: 10,
+    alignItems: 'flex-start',
   },
   idWrap: {
     backgroundColor: C.primaryBg,
@@ -226,6 +297,14 @@ const styles = StyleSheet.create({
     height: 7,
     borderRadius: 3.5,
   },
+  photoThumb: {
+    width: 64,
+    height: 64,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: C.border,
+    flexShrink: 0,
+  },
   bottom: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -264,6 +343,16 @@ const styles = StyleSheet.create({
     fontFamily: 'Inter_600SemiBold',
     color: C.textMuted,
   },
+  quickHint: {
+    width: 18,
+    height: 18,
+    borderRadius: 9,
+    backgroundColor: C.surface2,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: C.border,
+  },
   deadline: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -284,5 +373,28 @@ const styles = StyleSheet.create({
   deadlineTextOverdue: {
     color: C.open,
     fontFamily: 'Inter_500Medium',
+  },
+  swipeRightAction: {
+    backgroundColor: C.inProgress,
+    justifyContent: 'center',
+    alignItems: 'center',
+    width: 80,
+    marginBottom: 10,
+    borderRadius: 14,
+    gap: 4,
+  },
+  swipeLeftAction: {
+    backgroundColor: C.waiting,
+    justifyContent: 'center',
+    alignItems: 'center',
+    width: 80,
+    marginBottom: 10,
+    borderRadius: 14,
+    gap: 4,
+  },
+  swipeActionText: {
+    fontSize: 11,
+    fontFamily: 'Inter_600SemiBold',
+    color: '#fff',
   },
 });

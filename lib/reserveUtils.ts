@@ -170,3 +170,22 @@ export function validateDeadline(s: string): boolean {
   const date = new Date(y, m - 1, d);
   return date.getDate() === d && date.getMonth() === m - 1 && date.getFullYear() === y;
 }
+
+export function formatRelativeDate(dateStr: string): string {
+  if (!dateStr || dateStr === '—') return '—';
+  const date = parseDeadline(dateStr) ?? new Date(dateStr);
+  if (!date || isNaN(date.getTime())) return formatDate(dateStr);
+  const now = new Date();
+  now.setHours(0, 0, 0, 0);
+  const d = new Date(date);
+  d.setHours(0, 0, 0, 0);
+  const diffMs = now.getTime() - d.getTime();
+  const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+  if (diffDays === 0) return "aujourd'hui";
+  if (diffDays === 1) return 'hier';
+  if (diffDays > 1 && diffDays < 7) return `il y a ${diffDays} j`;
+  if (diffDays >= 7 && diffDays < 30) return `il y a ${Math.floor(diffDays / 7)} sem.`;
+  if (diffDays >= 30) return formatDate(dateStr);
+  if (diffDays < 0) return formatDate(dateStr);
+  return formatDate(dateStr);
+}

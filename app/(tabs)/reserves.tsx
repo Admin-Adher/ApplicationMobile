@@ -1,14 +1,22 @@
-import { View, Text, StyleSheet, FlatList, TouchableOpacity, TextInput, Platform, ScrollView, Modal, ActivityIndicator, useWindowDimensions, Image, Alert, Share } from 'react-native';
+import {
+  View, Text, StyleSheet, FlatList, SectionList, TouchableOpacity, TextInput,
+  Platform, ScrollView, Modal, ActivityIndicator, useWindowDimensions,
+  Image, Alert, Share,
+} from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
-import { useState, useMemo, useCallback } from 'react';
+import { useState, useMemo, useCallback, useRef } from 'react';
+import * as Print from 'expo-print';
+import * as Sharing from 'expo-sharing';
 import { C } from '@/constants/colors';
 import { useApp } from '@/context/AppContext';
 import { useAuth } from '@/context/AuthContext';
 import { Reserve, ReserveStatus, ReservePriority, ReserveKind } from '@/constants/types';
 import ReserveCard from '@/components/ReserveCard';
-import { isOverdue } from '@/lib/reserveUtils';
+import DateInput from '@/components/DateInput';
+import { isOverdue, formatDate } from '@/lib/reserveUtils';
+import { PDF_BASE_CSS, PDF_BRAND_COLOR, PDF_MUTED, PDF_TEXT } from '@/lib/pdfBase';
 
 function buildReservesCSV(reserves: Reserve[]): string {
   const header = 'ID,Titre,Bâtiment,Zone,Niveau,Entreprise,Priorité,Statut,Créé le,Échéance,Description';
@@ -32,14 +40,14 @@ function parseDeadline(s: string): Date | null {
   return null;
 }
 
-const STATUS_FILTERS: { key: 'all' | 'overdue' | ReserveStatus; label: string }[] = [
+const STATUS_FILTERS: { key: 'all' | 'overdue' | ReserveStatus; label: string; icon?: string }[] = [
   { key: 'all', label: 'Tout' },
   { key: 'open', label: 'Ouvert' },
   { key: 'in_progress', label: 'En cours' },
   { key: 'waiting', label: 'En attente' },
   { key: 'verification', label: 'Vérification' },
   { key: 'closed', label: 'Clôturé' },
-  { key: 'overdue', label: '⚠ En retard' },
+  { key: 'overdue', label: 'En retard', icon: 'warning-outline' },
 ];
 
 type SortKey = 'date_desc' | 'date_asc' | 'priority' | 'deadline' | 'status';
@@ -51,9 +59,14 @@ const SORT_OPTIONS: { key: SortKey; label: string }[] = [
   { key: 'status', label: 'Statut' },
 ];
 
+type ViewMode = 'list' | 'grouped_status' | 'grouped_company';
+
 const PRIORITY_ORDER: Record<ReservePriority, number> = { critical: 0, high: 1, medium: 2, low: 3 };
 const STATUS_ORDER_MAP: Record<ReserveStatus, number> = { open: 0, in_progress: 1, waiting: 2, verification: 3, closed: 4 };
 const STATUS_LABELS: Record<ReserveStatus, string> = { open: 'Ouvert', in_progress: 'En cours', waiting: 'En attente', verification: 'Vérification', closed: 'Clôturé' };
+const STATUS_COLORS: Record<ReserveStatus, string> = { open: C.open, in_progress: C.inProgress, waiting: C.waiting, verification: C.verification, closed: C.closed };
+const PRIORITY_COLORS: Record<ReservePriority, string> = { critical: '#EF4444', high: '#F97316', medium: '#F59E0B', low: '#22C55E' };
+const PRIORITY_LABELS: Record<ReservePriority, string> = { critical: 'Critique', high: 'Haute', medium: 'Moyenne', low: 'Basse' };
 
 function toSortableDate(s: string): string {
   if (!s || s === '—') return '9999-99-99';
@@ -61,16 +74,127 @@ function toSortableDate(s: string): string {
   return p.length === 3 ? `${p[2]}-${p[1]}-${p[0]}` : s;
 }
 
+async function generateReportPDF(
+  reserves: Reserve[],
+  chantierName: string,
+  lots: { id: string; name: string; color: string; number?: string }[],
+) {
+  const now = new Date();
+  const dateStr = now.toLocaleDateString('fr-FR');
+  const totalCount = reserves.length;
+  const overdueCount = reserves.filter(r => isOverdue(r.deadline, r.status)).length;
+
+  const byStatus: Record<ReserveStatus, number> = { open: 0, in_progress: 0, waiting: 0, verification: 0, closed: 0 };
+  for (const r of reserves) byStatus[r.status] = (byStatus[r.status] ?? 0) + 1;
+
+  const byCompany: Record<string, { total: number; closed: number; overdue: number }> = {};
+  for (const r of reserves) {
+    if (!byCompany[r.company]) byCompany[r.company] = { total: 0, closed: 0, overdue: 0 };
+    byCompany[r.company].total++;
+    if (r.status === 'closed') byCompany[r.company].closed++;
+    if (isOverdue(r.deadline, r.status)) byCompany[r.company].overdue++;
+  }
+
+  const companyRows = Object.entries(byCompany)
+    .sort((a, b) => b[1].total - a[1].total)
+    .map(([co, stats]) => {
+      const rate = stats.total > 0 ? Math.round((stats.closed / stats.total) * 100) : 0;
+      return `<tr>
+        <td>${co}</td>
+        <td style="text-align:center">${stats.total}</td>
+        <td style="text-align:center;color:${C.closed}">${stats.closed}</td>
+        <td style="text-align:center;color:${stats.overdue > 0 ? C.open : PDF_MUTED}">${stats.overdue}</td>
+        <td style="text-align:center"><span style="background:${rate >= 80 ? '#D1FAE5' : rate >= 50 ? '#FEF3C7' : '#FEE2E2'};color:${rate >= 80 ? '#065F46' : rate >= 50 ? '#92400E' : '#991B1B'};padding:2px 8px;border-radius:10px;font-weight:bold">${rate}%</span></td>
+      </tr>`;
+    }).join('');
+
+  const reserveRows = reserves
+    .sort((a, b) => STATUS_ORDER_MAP[a.status] - STATUS_ORDER_MAP[b.status] || PRIORITY_ORDER[a.priority] - PRIORITY_ORDER[b.priority])
+    .map(r => {
+      const overdue = isOverdue(r.deadline, r.status);
+      const lot = r.lotId ? lots.find(l => l.id === r.lotId) : null;
+      return `<tr style="${overdue ? 'background:#FFF1F2' : ''}">
+        <td style="font-weight:bold;color:${PDF_BRAND_COLOR}">${r.id}</td>
+        <td>${r.title}</td>
+        <td>${lot ? (lot.number ? `Lot ${lot.number} — ` : '') + lot.name : '—'}</td>
+        <td>Bât. ${r.building} — ${r.zone}</td>
+        <td>${r.company}</td>
+        <td><span style="background:${STATUS_COLORS[r.status]}20;color:${STATUS_COLORS[r.status]};padding:2px 8px;border-radius:8px;font-size:10px;font-weight:bold">${STATUS_LABELS[r.status]}</span></td>
+        <td><span style="background:${PRIORITY_COLORS[r.priority]}20;color:${PRIORITY_COLORS[r.priority]};padding:2px 8px;border-radius:8px;font-size:10px;font-weight:bold">${PRIORITY_LABELS[r.priority]}</span></td>
+        <td style="${overdue ? 'color:' + C.open + ';font-weight:bold' : ''}">${r.deadline ?? '—'}</td>
+      </tr>`;
+    }).join('');
+
+  const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>Rapport Réserves</title>
+  <style>
+    ${PDF_BASE_CSS}
+    table { width: 100%; border-collapse: collapse; margin-bottom: 20px; }
+    th { background: ${PDF_BRAND_COLOR}; color: #fff; padding: 8px 10px; text-align: left; font-size: 11px; }
+    td { padding: 7px 10px; border-bottom: 1px solid #DDE4EE; font-size: 11px; vertical-align: middle; }
+    tr:hover { background: #F4F7FB; }
+    .stat-grid { display: flex; gap: 12px; margin-bottom: 20px; flex-wrap: wrap; }
+    .stat-card { flex: 1; min-width: 100px; background: #F4F7FB; border-radius: 10px; padding: 12px 16px; border: 1px solid #DDE4EE; }
+    .stat-val { font-size: 24px; font-weight: bold; color: ${PDF_BRAND_COLOR}; }
+    .stat-lbl { font-size: 10px; color: ${PDF_MUTED}; margin-top: 2px; }
+    h2 { color: ${PDF_BRAND_COLOR}; font-size: 14px; margin: 20px 0 10px; border-bottom: 2px solid ${PDF_BRAND_COLOR}; padding-bottom: 4px; }
+  </style></head>
+  <body><div class="container">
+    <div class="letterhead">
+      <div class="letterhead-logo">
+        <div class="letterhead-logo-mark" style="background:${PDF_BRAND_COLOR};color:#fff;width:42px;height:42px;border-radius:10px;display:flex;align-items:center;justify-content:center;font-weight:bold;font-size:18px">B</div>
+        <div><div class="letterhead-brand">BuildTrack</div><div class="letterhead-sub">Rapport de réserves</div></div>
+      </div>
+      <div style="text-align:right;font-size:11px;color:${PDF_MUTED}">
+        <div style="font-weight:bold;color:${PDF_TEXT}">${chantierName}</div>
+        <div>Généré le ${dateStr}</div>
+      </div>
+    </div>
+
+    <div class="stat-grid">
+      <div class="stat-card"><div class="stat-val">${totalCount}</div><div class="stat-lbl">Total réserves</div></div>
+      <div class="stat-card"><div class="stat-val" style="color:${C.open}">${byStatus.open}</div><div class="stat-lbl">Ouvertes</div></div>
+      <div class="stat-card"><div class="stat-val" style="color:${C.inProgress}">${byStatus.in_progress}</div><div class="stat-lbl">En cours</div></div>
+      <div class="stat-card"><div class="stat-val" style="color:${C.verification}">${byStatus.verification}</div><div class="stat-lbl">Vérification</div></div>
+      <div class="stat-card"><div class="stat-val" style="color:${C.closed}">${byStatus.closed}</div><div class="stat-lbl">Clôturées</div></div>
+      <div class="stat-card"><div class="stat-val" style="color:${C.open}">${overdueCount}</div><div class="stat-lbl">En retard</div></div>
+    </div>
+
+    <h2>Récapitulatif par entreprise</h2>
+    <table>
+      <thead><tr><th>Entreprise</th><th>Total</th><th>Clôturées</th><th>En retard</th><th>Taux clôture</th></tr></thead>
+      <tbody>${companyRows}</tbody>
+    </table>
+
+    <h2>Liste détaillée (${totalCount} réserves)</h2>
+    <table>
+      <thead><tr><th>ID</th><th>Titre</th><th>Lot</th><th>Localisation</th><th>Entreprise</th><th>Statut</th><th>Priorité</th><th>Échéance</th></tr></thead>
+      <tbody>${reserveRows}</tbody>
+    </table>
+    ${overdueCount > 0 ? `<p style="color:${C.open};font-size:11px">* Les lignes surlignées en rouge indiquent des réserves en retard.</p>` : ''}
+  </div></body></html>`;
+
+  if (Platform.OS === 'web') {
+    const w = window.open('', '_blank');
+    if (w) { w.document.write(html); w.document.close(); w.print(); }
+    return;
+  }
+  const { uri } = await Print.printToFileAsync({ html, base64: false });
+  if (await Sharing.isAvailableAsync()) {
+    await Sharing.shareAsync(uri, { mimeType: 'application/pdf', UTI: 'com.adobe.pdf' });
+  }
+}
+
 export default function ReservesScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
-  const { reserves, companies, isLoading, chantiers, activeChantierId, lots, batchUpdateReserves } = useApp();
+  const { reserves, companies, isLoading, chantiers, activeChantierId, lots, batchUpdateReserves, updateReserveFields, deleteReserve, addComment } = useApp();
   const { permissions, user } = useAuth();
 
   const isSousTraitant = user?.role === 'sous_traitant';
   const sousTraitantCompanyName = isSousTraitant && user?.companyId
     ? companies.find(c => c.id === user.companyId)?.name ?? null
     : null;
+
   const [chantierFilter, setChantierFilter] = useState<string>(activeChantierId ?? 'all');
   const [statusFilter, setStatusFilter] = useState<'all' | 'overdue' | ReserveStatus>('all');
   const [kindFilter, setKindFilter] = useState<'all' | ReserveKind>('all');
@@ -83,20 +207,30 @@ export default function ReservesScreen() {
   const [search, setSearch] = useState('');
   const [sortModalVisible, setSortModalVisible] = useState(false);
   const [filterModalVisible, setFilterModalVisible] = useState(false);
+  const [viewMode, setViewMode] = useState<ViewMode>('list');
+  const [viewModeModalVisible, setViewModeModalVisible] = useState(false);
+
   const topPad = insets.top;
   const { width } = useWindowDimensions();
   const isWideScreen = width >= 768;
   const [selectedReserveId, setSelectedReserveId] = useState<string | null>(null);
-
   const [nearDeadlineOnly, setNearDeadlineOnly] = useState(false);
 
   const [isSelectMode, setIsSelectMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [batchModalVisible, setBatchModalVisible] = useState(false);
-  const [batchAction, setBatchAction] = useState<'status' | 'company' | 'deadline' | null>(null);
+  const [batchAction, setBatchAction] = useState<'status' | 'company' | 'deadline' | 'delete' | null>(null);
   const [batchStatus, setBatchStatus] = useState<ReserveStatus>('in_progress');
   const [batchCompany, setBatchCompany] = useState('');
   const [batchDeadline, setBatchDeadline] = useState('');
+
+  const [quickStatusReserve, setQuickStatusReserve] = useState<Reserve | null>(null);
+  const [quickStatusVisible, setQuickStatusVisible] = useState(false);
+
+  const [tabletComment, setTabletComment] = useState('');
+  const [tabletCommentSending, setTabletCommentSending] = useState(false);
+
+  const [pdfLoading, setPdfLoading] = useState(false);
 
   const chantierReserves = useMemo(() => {
     let list = chantierFilter === 'all' ? reserves : reserves.filter(r => r.chantierId === chantierFilter);
@@ -129,10 +263,22 @@ export default function ReservesScreen() {
       a.click();
       URL.revokeObjectURL(url);
     } else {
-      Share.share({
-        title: 'Export réserves CSV',
-        message: csv,
-      }).catch(() => {});
+      Share.share({ title: 'Export réserves CSV', message: buildReservesCSV(filtered) }).catch(() => {});
+    }
+  }
+
+  async function handleExportPDF() {
+    if (pdfLoading) return;
+    setPdfLoading(true);
+    try {
+      const chantierName = chantierFilter !== 'all'
+        ? chantiers.find(c => c.id === chantierFilter)?.name ?? 'Chantier'
+        : 'Tous les chantiers';
+      await generateReportPDF(filtered, chantierName, lots);
+    } catch (e) {
+      Alert.alert('Erreur', 'Impossible de générer le rapport PDF.');
+    } finally {
+      setPdfLoading(false);
     }
   }
 
@@ -151,7 +297,9 @@ export default function ReservesScreen() {
     + (companyFilter !== 'all' ? 1 : 0)
     + (zoneFilter !== 'all' ? 1 : 0)
     + (kindFilter !== 'all' ? 1 : 0)
-    + (lotFilter !== 'all' ? 1 : 0);
+    + (lotFilter !== 'all' ? 1 : 0)
+    + (statusFilter !== 'all' ? 1 : 0)
+    + (nearDeadlineOnly ? 1 : 0);
 
   const overdueCount = useMemo(
     () => chantierReserves.filter(r => isOverdue(r.deadline, r.status)).length,
@@ -178,6 +326,7 @@ export default function ReservesScreen() {
       const matchZone = zoneFilter === 'all' || r.zone === zoneFilter;
       const matchLot = lotFilter === 'all' || r.lotId === lotFilter;
       const q = search.toLowerCase();
+      const lot = r.lotId ? lots.find(l => l.id === r.lotId) : null;
       const matchSearch = !q ||
         r.title.toLowerCase().includes(q) ||
         r.id.toLowerCase().includes(q) ||
@@ -185,7 +334,9 @@ export default function ReservesScreen() {
         r.building.toLowerCase().includes(q) ||
         r.description.toLowerCase().includes(q) ||
         r.zone.toLowerCase().includes(q) ||
-        r.level.toLowerCase().includes(q);
+        r.level.toLowerCase().includes(q) ||
+        (lot?.name?.toLowerCase().includes(q) ?? false) ||
+        (lot?.number ? `lot ${lot.number}`.toLowerCase().includes(q) : false);
       const matchNearDeadline = !nearDeadlineOnly || (() => {
         if (r.status === 'closed') return false;
         const dl = parseDeadline(r.deadline);
@@ -206,7 +357,29 @@ export default function ReservesScreen() {
       }
     });
     return list;
-  }, [chantierReserves, statusFilter, kindFilter, buildingFilter, priorityFilter, companyFilter, zoneFilter, lotFilter, sortKey, search, nearDeadlineOnly]);
+  }, [chantierReserves, statusFilter, kindFilter, buildingFilter, priorityFilter, companyFilter, zoneFilter, lotFilter, sortKey, search, nearDeadlineOnly, lots]);
+
+  const groupedByStatus = useMemo(() => {
+    const ORDER: ReserveStatus[] = ['open', 'in_progress', 'waiting', 'verification', 'closed'];
+    return ORDER.map(s => {
+      const data = filtered.filter(r => r.status === s);
+      return { title: STATUS_LABELS[s], key: s, data, color: STATUS_COLORS[s] };
+    }).filter(s => s.data.length > 0);
+  }, [filtered]);
+
+  const groupedByCompany = useMemo(() => {
+    const coMap: Record<string, Reserve[]> = {};
+    for (const r of filtered) {
+      if (!coMap[r.company]) coMap[r.company] = [];
+      coMap[r.company].push(r);
+    }
+    return Object.entries(coMap)
+      .sort((a, b) => b[1].length - a[1].length)
+      .map(([company, data]) => {
+        const co = companies.find(c => c.name === company);
+        return { title: company, key: company, data, color: co?.color ?? C.primary };
+      });
+  }, [filtered, companies]);
 
   const isSortActive = sortKey !== 'date_desc';
   const obsCount = useMemo(() => chantierReserves.filter(r => r.kind === 'observation').length, [chantierReserves]);
@@ -238,6 +411,29 @@ export default function ReservesScreen() {
   const applyBatch = useCallback(() => {
     if (selectedIds.size === 0) return;
     const ids = Array.from(selectedIds);
+
+    if (batchAction === 'delete') {
+      Alert.alert(
+        'Confirmer la suppression',
+        `Supprimer ${ids.length} réserve${ids.length > 1 ? 's' : ''} ? Cette action est irréversible.`,
+        [
+          { text: 'Annuler', style: 'cancel' },
+          {
+            text: 'Supprimer', style: 'destructive',
+            onPress: () => {
+              ids.forEach(id => deleteReserve(id));
+              setBatchModalVisible(false);
+              setBatchAction(null);
+              setIsSelectMode(false);
+              setSelectedIds(new Set());
+              Alert.alert('Supprimé', `${ids.length} réserve${ids.length > 1 ? 's' : ''} supprimée${ids.length > 1 ? 's' : ''}.`);
+            },
+          },
+        ]
+      );
+      return;
+    }
+
     const updates: Partial<{ status: ReserveStatus; company: string; deadline: string }> = {};
     if (batchAction === 'status') updates.status = batchStatus;
     if (batchAction === 'company' && batchCompany) updates.company = batchCompany;
@@ -249,7 +445,117 @@ export default function ReservesScreen() {
     setIsSelectMode(false);
     setSelectedIds(new Set());
     Alert.alert('Mise à jour effectuée', `${ids.length} réserve${ids.length > 1 ? 's' : ''} mise${ids.length > 1 ? 's' : ''} à jour.`);
-  }, [selectedIds, batchAction, batchStatus, batchCompany, batchDeadline, batchUpdateReserves, user]);
+  }, [selectedIds, batchAction, batchStatus, batchCompany, batchDeadline, batchUpdateReserves, deleteReserve, user]);
+
+  function resetAllFilters() {
+    setBuildingFilter('all');
+    setPriorityFilter('all');
+    setCompanyFilter('all');
+    setZoneFilter('all');
+    setKindFilter('all');
+    setLotFilter('all');
+    setStatusFilter('all');
+    setNearDeadlineOnly(false);
+  }
+
+  function handleQuickStatusChange(reserve: Reserve) {
+    setQuickStatusReserve(reserve);
+    setQuickStatusVisible(true);
+  }
+
+  function applyQuickStatus(newStatus: ReserveStatus) {
+    if (!quickStatusReserve) return;
+    updateReserveFields({ ...quickStatusReserve, status: newStatus });
+    setQuickStatusVisible(false);
+    setQuickStatusReserve(null);
+  }
+
+  function handleSwipeLeft(reserve: Reserve) {
+    Alert.alert(
+      'Archiver cette réserve',
+      `Clôturer "${reserve.title}" ?`,
+      [
+        { text: 'Annuler', style: 'cancel' },
+        { text: 'Clôturer', onPress: () => updateReserveFields({ ...reserve, status: 'closed' }) },
+      ]
+    );
+  }
+
+  async function handleTabletComment(reserve: Reserve) {
+    if (!tabletComment.trim()) return;
+    setTabletCommentSending(true);
+    try {
+      await addComment(reserve.id, tabletComment.trim(), user?.name ?? 'Conducteur');
+      setTabletComment('');
+    } catch {
+      Alert.alert('Erreur', 'Impossible d\'envoyer le commentaire.');
+    } finally {
+      setTabletCommentSending(false);
+    }
+  }
+
+  const VIEW_MODE_LABELS: Record<ViewMode, string> = {
+    list: 'Liste',
+    grouped_status: 'Par statut',
+    grouped_company: 'Par entreprise',
+  };
+  const VIEW_MODE_ICONS: Record<ViewMode, string> = {
+    list: 'list-outline',
+    grouped_status: 'layers-outline',
+    grouped_company: 'people-outline',
+  };
+
+  const renderCard = (item: Reserve) => (
+    <View style={styles.selectableRow}>
+      {isSelectMode && (
+        <TouchableOpacity
+          onPress={() => toggleId(item.id)}
+          style={[styles.checkbox, selectedIds.has(item.id) && styles.checkboxChecked]}
+          accessibilityRole="checkbox"
+          accessibilityLabel={`Sélectionner réserve ${item.id}`}
+          accessibilityState={{ checked: selectedIds.has(item.id) }}
+        >
+          {selectedIds.has(item.id) && <Ionicons name="checkmark" size={14} color="#fff" />}
+        </TouchableOpacity>
+      )}
+      <View style={{ flex: 1 }}>
+        <ReserveCard
+          reserve={item}
+          onPress={r => isSelectMode ? toggleId(r.id) : (isWideScreen ? setSelectedReserveId(r.id === selectedReserveId ? null : r.id) : router.push(`/reserve/${r.id}` as any))}
+          onLongPress={permissions.canEdit ? handleQuickStatusChange : undefined}
+          onSwipeRight={permissions.canEdit ? handleQuickStatusChange : undefined}
+          onSwipeLeft={permissions.canEdit ? handleSwipeLeft : undefined}
+          selected={item.id === selectedReserveId}
+        />
+      </View>
+    </View>
+  );
+
+  const listEmpty = (
+    <View style={styles.empty}>
+      <View style={styles.emptyIcon}>
+        {chantierReserves.length === 0
+          ? <Ionicons name="document-text-outline" size={40} color={C.primary} />
+          : <Ionicons name="funnel-outline" size={40} color={C.primary} />}
+      </View>
+      <Text style={styles.emptyText}>
+        {chantierReserves.length === 0 ? 'Aucune réserve' : 'Aucun résultat'}
+      </Text>
+      <Text style={styles.emptyHint}>
+        {chantierReserves.length === 0
+          ? 'Créez la première réserve avec le bouton +'
+          : 'Modifiez vos filtres ou votre recherche'}
+      </Text>
+    </View>
+  );
+
+  const renderSectionHeader = ({ section }: { section: { title: string; color: string; data: Reserve[] } }) => (
+    <View style={[styles.sectionHeader, { borderLeftColor: section.color }]}>
+      <View style={[styles.sectionDot, { backgroundColor: section.color }]} />
+      <Text style={[styles.sectionTitle, { color: section.color }]}>{section.title}</Text>
+      <Text style={styles.sectionCount}>{section.data.length}</Text>
+    </View>
+  );
 
   return (
     <View style={styles.container}>
@@ -263,21 +569,30 @@ export default function ReservesScreen() {
                 : `${filtered.length} / ${chantierReserves.length} réserve${chantierReserves.length !== 1 ? 's' : ''}${overdueCount > 0 ? ` · ${overdueCount} en retard` : ''}`}
             </Text>
           </View>
-          <View style={{ flexDirection: 'row', gap: 8 }}>
+          <View style={{ flexDirection: 'row', gap: 6 }}>
             {permissions.canExport && filtered.length > 0 && !isSelectMode && (
-              <TouchableOpacity style={styles.selectBtn} onPress={handleExportCSV}>
-                <Ionicons name="download-outline" size={15} color={C.textSub} />
-                <Text style={styles.selectBtnText}>CSV</Text>
-              </TouchableOpacity>
+              <>
+                <TouchableOpacity style={styles.selectBtn} onPress={handleExportCSV} accessibilityLabel="Exporter en CSV">
+                  <Ionicons name="download-outline" size={14} color={C.textSub} />
+                  <Text style={styles.selectBtnText}>CSV</Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={styles.selectBtn} onPress={handleExportPDF} accessibilityLabel="Exporter rapport PDF" disabled={pdfLoading}>
+                  {pdfLoading
+                    ? <ActivityIndicator size="small" color={C.primary} />
+                    : <Ionicons name="document-text-outline" size={14} color={C.textSub} />}
+                  <Text style={styles.selectBtnText}>PDF</Text>
+                </TouchableOpacity>
+              </>
             )}
             {permissions.canEdit && filtered.length > 0 && (
               <TouchableOpacity
                 style={[styles.selectBtn, isSelectMode && styles.selectBtnActive]}
                 onPress={toggleSelectMode}
+                accessibilityLabel={isSelectMode ? 'Annuler la sélection' : 'Mode sélection multiple'}
               >
                 <Ionicons
                   name={isSelectMode ? 'close-circle' : 'checkmark-circle-outline'}
-                  size={15}
+                  size={14}
                   color={isSelectMode ? C.open : C.textSub}
                 />
                 <Text style={[styles.selectBtnText, isSelectMode && styles.selectBtnTextActive]}>
@@ -290,12 +605,12 @@ export default function ReservesScreen() {
 
         {isSelectMode && (
           <View style={styles.selectBar}>
-            <TouchableOpacity style={styles.selectBarBtn} onPress={selectAll}>
-              <Ionicons name="checkmark-done-outline" size={15} color={C.primary} />
+            <TouchableOpacity style={styles.selectBarBtn} onPress={selectAll} accessibilityLabel="Tout sélectionner">
+              <Ionicons name="checkmark-done-outline" size={14} color={C.primary} />
               <Text style={styles.selectBarBtnText}>Tout sélect.</Text>
             </TouchableOpacity>
-            <TouchableOpacity style={styles.selectBarBtn} onPress={() => setSelectedIds(new Set())}>
-              <Ionicons name="close-outline" size={15} color={C.textSub} />
+            <TouchableOpacity style={styles.selectBarBtn} onPress={() => setSelectedIds(new Set())} accessibilityLabel="Désélectionner tout">
+              <Ionicons name="close-outline" size={14} color={C.textSub} />
               <Text style={styles.selectBarBtnText}>Désélect.</Text>
             </TouchableOpacity>
           </View>
@@ -315,6 +630,8 @@ export default function ReservesScreen() {
             style={[styles.deadlineReminderBanner, nearDeadlineOnly && styles.deadlineReminderBannerActive]}
             onPress={() => setNearDeadlineOnly(v => !v)}
             activeOpacity={0.85}
+            accessibilityRole="button"
+            accessibilityLabel={`${nearDeadlineReserves.length} réserves expirent dans moins de 3 jours`}
           >
             <Ionicons name="alarm-outline" size={14} color="#D97706" />
             <Text style={styles.deadlineReminderText}>
@@ -330,6 +647,8 @@ export default function ReservesScreen() {
             <TouchableOpacity
               style={[styles.chantierChip, chantierFilter === 'all' && styles.chantierChipActive]}
               onPress={() => setChantierFilter('all')}
+              accessibilityRole="button"
+              accessibilityLabel="Tous les chantiers"
             >
               <Ionicons name="layers-outline" size={11} color={chantierFilter === 'all' ? '#fff' : C.textSub} />
               <Text style={[styles.chantierChipText, chantierFilter === 'all' && styles.chantierChipTextActive]}>
@@ -341,6 +660,8 @@ export default function ReservesScreen() {
                 key={c.id}
                 style={[styles.chantierChip, chantierFilter === c.id && styles.chantierChipActive]}
                 onPress={() => setChantierFilter(c.id)}
+                accessibilityRole="button"
+                accessibilityLabel={`Filtrer chantier ${c.name}`}
               >
                 <View style={styles.chantierDot} />
                 <Text style={[styles.chantierChipText, chantierFilter === c.id && styles.chantierChipTextActive]} numberOfLines={1}>
@@ -355,73 +676,58 @@ export default function ReservesScreen() {
           <Ionicons name="search-outline" size={16} color={C.textMuted} />
           <TextInput
             style={styles.searchInput}
-            placeholder="Titre, bâtiment, zone, entreprise..."
+            placeholder="Titre, bâtiment, zone, entreprise, lot..."
             placeholderTextColor={C.textMuted}
             value={search}
             onChangeText={setSearch}
+            accessibilityLabel="Rechercher dans les réserves"
           />
           {search.length > 0 && (
-            <TouchableOpacity onPress={() => setSearch('')}>
+            <TouchableOpacity onPress={() => setSearch('')} accessibilityLabel="Effacer la recherche">
               <Ionicons name="close-circle" size={16} color={C.textMuted} />
             </TouchableOpacity>
           )}
         </View>
 
+        {/* Status filter row */}
         <View style={styles.toolRow}>
           <View style={styles.filterScrollContainer}>
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ flex: 1 }}>
-            {STATUS_FILTERS.map(f => {
-              const isActive = statusFilter === f.key;
-              const isOverdueChip = f.key === 'overdue';
-              return (
-                <TouchableOpacity
-                  key={f.key}
-                  style={[
-                    styles.filterChip,
-                    isActive && (isOverdueChip ? styles.filterChipOverdue : styles.filterChipActive),
-                  ]}
-                  onPress={() => setStatusFilter(f.key)}
-                >
-                  <Text style={[
-                    styles.filterText,
-                    isActive && (isOverdueChip ? styles.filterTextOverdue : styles.filterTextActive),
-                  ]}>
-                    {f.label}
-                    {isOverdueChip && overdueCount > 0 ? ` (${overdueCount})` : ''}
-                  </Text>
-                </TouchableOpacity>
-              );
-            })}
-            <View style={styles.kindSep} />
-            <TouchableOpacity
-              style={[styles.filterChip, kindFilter === 'all' && styles.filterChipActive]}
-              onPress={() => setKindFilter('all')}
-            >
-              <Text style={[styles.filterText, kindFilter === 'all' && styles.filterTextActive]}>Tous types</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={[styles.filterChip, kindFilter === 'reserve' && styles.filterChipKindReserve]}
-              onPress={() => setKindFilter('reserve')}
-            >
-              <Ionicons name="warning-outline" size={11} color={kindFilter === 'reserve' ? '#EF4444' : C.textSub} />
-              <Text style={[styles.filterText, kindFilter === 'reserve' && { color: '#EF4444' }]}>Réserves</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={[styles.filterChip, kindFilter === 'observation' && styles.filterChipKindObs]}
-              onPress={() => setKindFilter('observation')}
-            >
-              <Ionicons name="eye-outline" size={11} color={kindFilter === 'observation' ? '#0EA5E9' : C.textSub} />
-              <Text style={[styles.filterText, kindFilter === 'observation' && { color: '#0EA5E9' }]}>
-                Observations{obsCount > 0 ? ` (${obsCount})` : ''}
-              </Text>
-            </TouchableOpacity>
-          </ScrollView>
-          <View style={styles.filterScrollFade} pointerEvents="none" />
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ flex: 1 }}>
+              {STATUS_FILTERS.map(f => {
+                const isActive = statusFilter === f.key;
+                const isOverdueChip = f.key === 'overdue';
+                return (
+                  <TouchableOpacity
+                    key={f.key}
+                    style={[
+                      styles.filterChip,
+                      isActive && (isOverdueChip ? styles.filterChipOverdue : styles.filterChipActive),
+                    ]}
+                    onPress={() => setStatusFilter(f.key)}
+                    accessibilityRole="button"
+                    accessibilityLabel={`Filtrer par statut : ${f.label}`}
+                    accessibilityState={{ selected: isActive }}
+                  >
+                    {f.icon && <Ionicons name={f.icon as any} size={11} color={isActive ? '#fff' : C.open} />}
+                    <Text style={[
+                      styles.filterText,
+                      isActive && (isOverdueChip ? styles.filterTextOverdue : styles.filterTextActive),
+                    ]}>
+                      {f.label}
+                      {isOverdueChip && overdueCount > 0 ? ` (${overdueCount})` : ''}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </ScrollView>
+            <View style={styles.filterScrollFade} pointerEvents="none" />
           </View>
 
           <TouchableOpacity
             style={[styles.toolBtn, activeFilterCount > 0 && styles.toolBtnActive]}
             onPress={() => setFilterModalVisible(true)}
+            accessibilityRole="button"
+            accessibilityLabel={`Filtres avancés${activeFilterCount > 0 ? `, ${activeFilterCount} actif${activeFilterCount > 1 ? 's' : ''}` : ''}`}
           >
             <Ionicons name="options-outline" size={15} color={activeFilterCount > 0 ? C.primary : C.textSub} />
             {activeFilterCount > 0 && (
@@ -434,57 +740,85 @@ export default function ReservesScreen() {
           <TouchableOpacity
             style={[styles.toolBtn, isSortActive && styles.toolBtnActive]}
             onPress={() => setSortModalVisible(true)}
+            accessibilityRole="button"
+            accessibilityLabel="Trier"
           >
             <Ionicons name="swap-vertical-outline" size={15} color={isSortActive ? C.primary : C.textSub} />
           </TouchableOpacity>
+
+          <TouchableOpacity
+            style={[styles.toolBtn, viewMode !== 'list' && styles.toolBtnActive]}
+            onPress={() => setViewModeModalVisible(true)}
+            accessibilityRole="button"
+            accessibilityLabel={`Mode d'affichage : ${VIEW_MODE_LABELS[viewMode]}`}
+          >
+            <Ionicons name={VIEW_MODE_ICONS[viewMode] as any} size={15} color={viewMode !== 'list' ? C.primary : C.textSub} />
+          </TouchableOpacity>
+        </View>
+
+        {/* Kind filter row — separated from status */}
+        <View style={styles.kindRow}>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+            <TouchableOpacity
+              style={[styles.kindChip, kindFilter === 'all' && styles.kindChipActive]}
+              onPress={() => setKindFilter('all')}
+              accessibilityRole="button"
+              accessibilityLabel="Tous types"
+              accessibilityState={{ selected: kindFilter === 'all' }}
+            >
+              <Text style={[styles.kindChipText, kindFilter === 'all' && styles.kindChipTextActive]}>Tous types</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.kindChip, kindFilter === 'reserve' && styles.kindChipReserve]}
+              onPress={() => setKindFilter('reserve')}
+              accessibilityRole="button"
+              accessibilityLabel="Filtrer par réserves"
+              accessibilityState={{ selected: kindFilter === 'reserve' }}
+            >
+              <Ionicons name="warning-outline" size={11} color={kindFilter === 'reserve' ? '#EF4444' : C.textSub} />
+              <Text style={[styles.kindChipText, kindFilter === 'reserve' && { color: '#EF4444' }]}>Réserves</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.kindChip, kindFilter === 'observation' && styles.kindChipObs]}
+              onPress={() => setKindFilter('observation')}
+              accessibilityRole="button"
+              accessibilityLabel="Filtrer par observations"
+              accessibilityState={{ selected: kindFilter === 'observation' }}
+            >
+              <Ionicons name="eye-outline" size={11} color={kindFilter === 'observation' ? '#0EA5E9' : C.textSub} />
+              <Text style={[styles.kindChipText, kindFilter === 'observation' && { color: '#0EA5E9' }]}>
+                Observations{obsCount > 0 ? ` (${obsCount})` : ''}
+              </Text>
+            </TouchableOpacity>
+          </ScrollView>
         </View>
       </View>
 
       {isWideScreen ? (
         <View style={styles.splitRow}>
-          <FlatList
-            data={filtered}
-            keyExtractor={item => item.id}
-            renderItem={({ item }) => (
-              <View style={styles.selectableRow}>
-                {isSelectMode && (
-                  <TouchableOpacity
-                    onPress={() => toggleId(item.id)}
-                    style={[styles.checkbox, selectedIds.has(item.id) && styles.checkboxChecked]}
-                  >
-                    {selectedIds.has(item.id) && <Ionicons name="checkmark" size={14} color="#fff" />}
-                  </TouchableOpacity>
-                )}
-                <View style={{ flex: 1 }}>
-                  <ReserveCard
-                    reserve={item}
-                    onPress={r => isSelectMode ? toggleId(r.id) : setSelectedReserveId(r.id === selectedReserveId ? null : r.id)}
-                    selected={item.id === selectedReserveId}
-                  />
-                </View>
-              </View>
+          <View style={styles.splitList}>
+            {viewMode === 'grouped_status' || viewMode === 'grouped_company' ? (
+              <SectionList
+                sections={viewMode === 'grouped_status' ? groupedByStatus : groupedByCompany}
+                keyExtractor={item => item.id}
+                renderItem={({ item }) => renderCard(item)}
+                renderSectionHeader={renderSectionHeader}
+                stickySectionHeadersEnabled
+                contentContainerStyle={styles.listNarrow}
+                showsVerticalScrollIndicator={false}
+                ListEmptyComponent={() => listEmpty}
+              />
+            ) : (
+              <FlatList
+                data={filtered}
+                keyExtractor={item => item.id}
+                renderItem={({ item }) => renderCard(item)}
+                contentContainerStyle={styles.listNarrow}
+                showsVerticalScrollIndicator={false}
+                ListEmptyComponent={() => listEmpty}
+              />
             )}
-            contentContainerStyle={styles.listNarrow}
-            showsVerticalScrollIndicator={false}
-            style={styles.splitList}
-            ListEmptyComponent={() => (
-              <View style={styles.empty}>
-                <View style={styles.emptyIcon}>
-                  {chantierReserves.length === 0
-                    ? <Ionicons name="document-text-outline" size={40} color={C.primary} />
-                    : <Ionicons name="funnel-outline" size={40} color={C.primary} />}
-                </View>
-                <Text style={styles.emptyText}>
-                  {chantierReserves.length === 0 ? 'Aucune réserve' : 'Aucun résultat'}
-                </Text>
-                <Text style={styles.emptyHint}>
-                  {chantierReserves.length === 0
-                    ? 'Créez la première réserve avec le bouton +'
-                    : 'Modifiez vos filtres ou votre recherche'}
-                </Text>
-              </View>
-            )}
-          />
+          </View>
           <View style={styles.splitDetail}>
             {selectedReserve ? (
               <ScrollView contentContainerStyle={styles.detailContent} showsVerticalScrollIndicator={false}>
@@ -498,8 +832,6 @@ export default function ReservesScreen() {
                   <Text style={styles.detailTitle}>{selectedReserve.title}</Text>
                   <View style={styles.detailBadgeRow}>
                     {(() => {
-                      const PRIORITY_COLORS: Record<string, string> = { critical: '#EF4444', high: '#F97316', medium: '#F59E0B', low: '#22C55E' };
-                      const PRIORITY_LABELS: Record<string, string> = { critical: 'Critique', high: 'Haute', medium: 'Moyenne', low: 'Basse' };
                       const pc = PRIORITY_COLORS[selectedReserve.priority] ?? '#6B7280';
                       return (
                         <View style={[styles.detailPriorityBadge, { backgroundColor: pc + '20', borderColor: pc }]}>
@@ -509,6 +841,37 @@ export default function ReservesScreen() {
                     })()}
                   </View>
                 </View>
+
+                {/* Quick status buttons */}
+                {permissions.canEdit && (
+                  <View style={styles.detailCard}>
+                    <Text style={styles.detailLabel}>CHANGER LE STATUT</Text>
+                    <View style={styles.quickStatusRow}>
+                      {(Object.entries(STATUS_LABELS) as [ReserveStatus, string][]).map(([s, label]) => {
+                        const active = selectedReserve.status === s;
+                        const color = STATUS_COLORS[s];
+                        return (
+                          <TouchableOpacity
+                            key={s}
+                            style={[styles.quickStatusBtn, { borderColor: color }, active && { backgroundColor: color }]}
+                            onPress={() => {
+                              if (!active) {
+                                updateReserveFields({ ...selectedReserve, status: s });
+                                setSelectedReserveId(null);
+                                setTimeout(() => setSelectedReserveId(selectedReserve.id), 50);
+                              }
+                            }}
+                            accessibilityRole="button"
+                            accessibilityLabel={`Changer statut en ${label}`}
+                            accessibilityState={{ selected: active }}
+                          >
+                            <Text style={[styles.quickStatusBtnText, { color: active ? '#fff' : color }]}>{label}</Text>
+                          </TouchableOpacity>
+                        );
+                      })}
+                    </View>
+                  </View>
+                )}
 
                 {selectedReserve.photoUri ? (
                   <Image source={{ uri: selectedReserve.photoUri }} style={styles.detailPhoto} resizeMode="cover" />
@@ -540,6 +903,36 @@ export default function ReservesScreen() {
                   </View>
                 </View>
 
+                {/* Quick comment */}
+                {permissions.canEdit && (
+                  <View style={styles.detailCard}>
+                    <Text style={styles.detailLabel}>AJOUTER UN COMMENTAIRE</Text>
+                    <View style={styles.tabletCommentRow}>
+                      <TextInput
+                        style={styles.tabletCommentInput}
+                        placeholder="Votre commentaire..."
+                        placeholderTextColor={C.textMuted}
+                        value={tabletComment}
+                        onChangeText={setTabletComment}
+                        multiline
+                        numberOfLines={2}
+                        accessibilityLabel="Saisir un commentaire"
+                      />
+                      <TouchableOpacity
+                        style={[styles.tabletCommentBtn, (!tabletComment.trim() || tabletCommentSending) && styles.tabletCommentBtnDisabled]}
+                        onPress={() => handleTabletComment(selectedReserve)}
+                        disabled={!tabletComment.trim() || tabletCommentSending}
+                        accessibilityRole="button"
+                        accessibilityLabel="Envoyer le commentaire"
+                      >
+                        {tabletCommentSending
+                          ? <ActivityIndicator size="small" color="#fff" />
+                          : <Ionicons name="send" size={16} color="#fff" />}
+                      </TouchableOpacity>
+                    </View>
+                  </View>
+                )}
+
                 <TouchableOpacity
                   style={styles.detailOpenBtn}
                   onPress={() => router.push(`/reserve/${selectedReserve.id}` as any)}
@@ -558,73 +951,62 @@ export default function ReservesScreen() {
           </View>
         </View>
       ) : (
-        <FlatList
-          data={filtered}
-          keyExtractor={item => item.id}
-          renderItem={({ item }) => (
-            <View style={styles.selectableRow}>
-              {isSelectMode && (
-                <TouchableOpacity
-                  onPress={() => toggleId(item.id)}
-                  style={[styles.checkbox, selectedIds.has(item.id) && styles.checkboxChecked]}
-                >
-                  {selectedIds.has(item.id) && <Ionicons name="checkmark" size={14} color="#fff" />}
-                </TouchableOpacity>
-              )}
-              <View style={{ flex: 1 }}>
-                <ReserveCard
-                  reserve={item}
-                  onPress={r => isSelectMode ? toggleId(r.id) : router.push(`/reserve/${r.id}` as any)}
-                />
-              </View>
-            </View>
-          )}
-          contentContainerStyle={styles.list}
-          showsVerticalScrollIndicator={false}
-          ListEmptyComponent={() => (
-            <View style={styles.empty}>
-              <View style={styles.emptyIcon}>
-                {chantierReserves.length === 0
-                  ? <Ionicons name="document-text-outline" size={40} color={C.primary} />
-                  : <Ionicons name="funnel-outline" size={40} color={C.primary} />}
-              </View>
-              <Text style={styles.emptyText}>
-                {chantierReserves.length === 0 ? 'Aucune réserve' : 'Aucun résultat'}
-              </Text>
-              <Text style={styles.emptyHint}>
-                {chantierReserves.length === 0
-                  ? 'Créez la première réserve avec le bouton +'
-                  : 'Modifiez vos filtres ou votre recherche'}
-              </Text>
-            </View>
-          )}
-        />
+        viewMode === 'grouped_status' || viewMode === 'grouped_company' ? (
+          <SectionList
+            sections={viewMode === 'grouped_status' ? groupedByStatus : groupedByCompany}
+            keyExtractor={item => item.id}
+            renderItem={({ item }) => renderCard(item)}
+            renderSectionHeader={renderSectionHeader}
+            stickySectionHeadersEnabled
+            contentContainerStyle={styles.list}
+            showsVerticalScrollIndicator={false}
+            ListEmptyComponent={() => listEmpty}
+          />
+        ) : (
+          <FlatList
+            data={filtered}
+            keyExtractor={item => item.id}
+            renderItem={({ item }) => renderCard(item)}
+            contentContainerStyle={styles.list}
+            showsVerticalScrollIndicator={false}
+            ListEmptyComponent={() => listEmpty}
+          />
+        )
       )}
 
       {isSelectMode && selectedIds.size > 0 && (
         <View style={styles.batchBar}>
-          <Text style={styles.batchBarCount}>{selectedIds.size} sélectionnée{selectedIds.size > 1 ? 's' : ''}</Text>
+          <Text style={styles.batchBarCount}>{selectedIds.size} sélect.</Text>
           <TouchableOpacity
             style={styles.batchBarBtn}
             onPress={() => { setBatchAction('status'); setBatchModalVisible(true); }}
           >
-            <Ionicons name="swap-horizontal-outline" size={16} color="#fff" />
+            <Ionicons name="swap-horizontal-outline" size={15} color="#fff" />
             <Text style={styles.batchBarBtnText}>Statut</Text>
           </TouchableOpacity>
           <TouchableOpacity
             style={styles.batchBarBtn}
             onPress={() => { setBatchAction('company'); setBatchModalVisible(true); }}
           >
-            <Ionicons name="people-outline" size={16} color="#fff" />
+            <Ionicons name="people-outline" size={15} color="#fff" />
             <Text style={styles.batchBarBtnText}>Entreprise</Text>
           </TouchableOpacity>
           <TouchableOpacity
             style={styles.batchBarBtn}
             onPress={() => { setBatchAction('deadline'); setBatchModalVisible(true); }}
           >
-            <Ionicons name="calendar-outline" size={16} color="#fff" />
+            <Ionicons name="calendar-outline" size={15} color="#fff" />
             <Text style={styles.batchBarBtnText}>Échéance</Text>
           </TouchableOpacity>
+          {permissions.canDelete && (
+            <TouchableOpacity
+              style={[styles.batchBarBtn, styles.batchBarBtnDelete]}
+              onPress={() => { setBatchAction('delete'); applyBatch(); }}
+            >
+              <Ionicons name="trash-outline" size={15} color="#fff" />
+              <Text style={styles.batchBarBtnText}>Supprimer</Text>
+            </TouchableOpacity>
+          )}
         </View>
       )}
 
@@ -633,11 +1015,51 @@ export default function ReservesScreen() {
           style={[styles.fab, { bottom: Platform.OS === 'web' ? 100 : insets.bottom + 61 }]}
           onPress={() => router.push('/reserve/new' as any)}
           activeOpacity={0.85}
+          accessibilityRole="button"
+          accessibilityLabel="Créer une nouvelle réserve"
         >
           <Ionicons name="add" size={26} color="#fff" />
         </TouchableOpacity>
       )}
 
+      {/* Quick Status Modal */}
+      <Modal visible={quickStatusVisible} transparent animationType="slide" onRequestClose={() => setQuickStatusVisible(false)}>
+        <TouchableOpacity style={styles.modalOverlay} activeOpacity={1} onPress={() => setQuickStatusVisible(false)}>
+          <TouchableOpacity activeOpacity={1} style={[styles.bottomSheet, { paddingBottom: insets.bottom + 32 }]}>
+            <View style={styles.sheetHandle} />
+            <View style={styles.sheetTitleRow}>
+              <Text style={styles.sheetTitle}>Changer le statut</Text>
+            </View>
+            {quickStatusReserve && (
+              <Text style={styles.batchDesc} numberOfLines={2}>{quickStatusReserve.title}</Text>
+            )}
+            {(Object.entries(STATUS_LABELS) as [ReserveStatus, string][]).map(([key, label]) => {
+              const isActive = quickStatusReserve?.status === key;
+              const color = STATUS_COLORS[key];
+              return (
+                <TouchableOpacity
+                  key={key}
+                  style={[styles.sheetItem, isActive && styles.sheetItemActive]}
+                  onPress={() => applyQuickStatus(key)}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Changer statut en ${label}`}
+                >
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+                    <View style={[styles.statusDot, { backgroundColor: color }]} />
+                    <Text style={[styles.sheetItemText, isActive && styles.sheetItemTextActive]}>{label}</Text>
+                  </View>
+                  {isActive && <Ionicons name="checkmark" size={16} color={C.primary} />}
+                </TouchableOpacity>
+              );
+            })}
+            <TouchableOpacity style={styles.cancelBtn} onPress={() => setQuickStatusVisible(false)}>
+              <Text style={styles.cancelText}>Annuler</Text>
+            </TouchableOpacity>
+          </TouchableOpacity>
+        </TouchableOpacity>
+      </Modal>
+
+      {/* Batch Modal */}
       <Modal visible={batchModalVisible} transparent animationType="slide" onRequestClose={() => setBatchModalVisible(false)}>
         <TouchableOpacity style={styles.modalOverlay} activeOpacity={1} onPress={() => setBatchModalVisible(false)}>
           <TouchableOpacity activeOpacity={1} style={[styles.bottomSheet, { paddingBottom: insets.bottom + 32 }]}>
@@ -659,7 +1081,10 @@ export default function ReservesScreen() {
                     style={[styles.sheetItem, batchStatus === key && styles.sheetItemActive]}
                     onPress={() => setBatchStatus(key)}
                   >
-                    <Text style={[styles.sheetItemText, batchStatus === key && styles.sheetItemTextActive]}>{label}</Text>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+                      <View style={[styles.statusDot, { backgroundColor: STATUS_COLORS[key] }]} />
+                      <Text style={[styles.sheetItemText, batchStatus === key && styles.sheetItemTextActive]}>{label}</Text>
+                    </View>
                     {batchStatus === key && <Ionicons name="checkmark" size={16} color={C.primary} />}
                   </TouchableOpacity>
                 ))}
@@ -686,14 +1111,11 @@ export default function ReservesScreen() {
 
             {batchAction === 'deadline' && (
               <View style={{ paddingVertical: 12 }}>
-                <Text style={styles.batchInputLabel}>Nouvelle date d'échéance (JJ/MM/AAAA)</Text>
-                <TextInput
-                  style={styles.batchInput}
-                  placeholder="ex: 31/12/2025"
-                  placeholderTextColor={C.textMuted}
+                <DateInput
+                  label="Nouvelle date d'échéance"
                   value={batchDeadline}
-                  onChangeText={setBatchDeadline}
-                  keyboardType="numbers-and-punctuation"
+                  onChange={setBatchDeadline}
+                  optional
                 />
               </View>
             )}
@@ -708,6 +1130,7 @@ export default function ReservesScreen() {
         </TouchableOpacity>
       </Modal>
 
+      {/* Sort Modal */}
       <Modal visible={sortModalVisible} transparent animationType="slide" onRequestClose={() => setSortModalVisible(false)}>
         <TouchableOpacity style={styles.modalOverlay} activeOpacity={1} onPress={() => setSortModalVisible(false)}>
           <TouchableOpacity activeOpacity={1} style={[styles.bottomSheet, { paddingBottom: insets.bottom + 32 }]}>
@@ -739,6 +1162,35 @@ export default function ReservesScreen() {
         </TouchableOpacity>
       </Modal>
 
+      {/* View mode Modal */}
+      <Modal visible={viewModeModalVisible} transparent animationType="slide" onRequestClose={() => setViewModeModalVisible(false)}>
+        <TouchableOpacity style={styles.modalOverlay} activeOpacity={1} onPress={() => setViewModeModalVisible(false)}>
+          <TouchableOpacity activeOpacity={1} style={[styles.bottomSheet, { paddingBottom: insets.bottom + 32 }]}>
+            <View style={styles.sheetHandle} />
+            <View style={styles.sheetTitleRow}>
+              <Text style={styles.sheetTitle}>Mode d'affichage</Text>
+            </View>
+            {(Object.entries(VIEW_MODE_LABELS) as [ViewMode, string][]).map(([mode, label]) => (
+              <TouchableOpacity
+                key={mode}
+                style={styles.sheetItem}
+                onPress={() => { setViewMode(mode); setViewModeModalVisible(false); }}
+              >
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+                  <Ionicons name={VIEW_MODE_ICONS[mode] as any} size={18} color={viewMode === mode ? C.primary : C.textSub} />
+                  <Text style={[styles.sheetItemText, viewMode === mode && styles.sheetItemTextActive]}>{label}</Text>
+                </View>
+                {viewMode === mode && <Ionicons name="checkmark" size={16} color={C.primary} />}
+              </TouchableOpacity>
+            ))}
+            <TouchableOpacity style={styles.cancelBtn} onPress={() => setViewModeModalVisible(false)}>
+              <Text style={styles.cancelText}>Fermer</Text>
+            </TouchableOpacity>
+          </TouchableOpacity>
+        </TouchableOpacity>
+      </Modal>
+
+      {/* Advanced Filters Modal */}
       <Modal visible={filterModalVisible} transparent animationType="slide" onRequestClose={() => setFilterModalVisible(false)}>
         <TouchableOpacity style={styles.modalOverlay} activeOpacity={1} onPress={() => setFilterModalVisible(false)}>
           <TouchableOpacity activeOpacity={1} style={[styles.bottomSheet, { paddingBottom: insets.bottom + 32 }]}>
@@ -746,8 +1198,8 @@ export default function ReservesScreen() {
             <View style={styles.sheetTitleRow}>
               <Text style={styles.sheetTitle}>Filtres avancés</Text>
               {activeFilterCount > 0 && (
-                <TouchableOpacity onPress={() => { setBuildingFilter('all'); setPriorityFilter('all'); setCompanyFilter('all'); setZoneFilter('all'); setKindFilter('all'); setLotFilter('all'); }}>
-                  <Text style={styles.resetText}>Réinitialiser</Text>
+                <TouchableOpacity onPress={resetAllFilters}>
+                  <Text style={styles.resetText}>Réinitialiser tout</Text>
                 </TouchableOpacity>
               )}
             </View>
@@ -761,6 +1213,8 @@ export default function ReservesScreen() {
                       key={b}
                       style={[styles.chip, buildingFilter === b && styles.chipActive]}
                       onPress={() => setBuildingFilter(b)}
+                      accessibilityRole="button"
+                      accessibilityLabel={b === 'all' ? 'Tous les bâtiments' : `Bâtiment ${b}`}
                     >
                       <Text style={[styles.chipText, buildingFilter === b && styles.chipTextActive]}>
                         {b === 'all' ? 'Tous' : `Bât. ${b}`}
@@ -784,6 +1238,8 @@ export default function ReservesScreen() {
                       key={p.key}
                       style={[styles.chip, priorityFilter === p.key && { backgroundColor: p.color + '20', borderColor: p.color }]}
                       onPress={() => setPriorityFilter(p.key as 'all' | ReservePriority)}
+                      accessibilityRole="button"
+                      accessibilityLabel={`Priorité ${p.label}`}
                     >
                       <Text style={[styles.chipText, priorityFilter === p.key && { color: p.color }]}>{p.label}</Text>
                     </TouchableOpacity>
@@ -799,6 +1255,8 @@ export default function ReservesScreen() {
                       key={z}
                       style={[styles.chip, zoneFilter === z && styles.chipActive]}
                       onPress={() => setZoneFilter(z)}
+                      accessibilityRole="button"
+                      accessibilityLabel={z === 'all' ? 'Toutes les zones' : `Zone ${z}`}
                     >
                       <Text style={[styles.chipText, zoneFilter === z && styles.chipTextActive]}>
                         {z === 'all' ? 'Toutes' : z}
@@ -814,6 +1272,8 @@ export default function ReservesScreen() {
                   <TouchableOpacity
                     style={[styles.chip, companyFilter === 'all' && styles.chipActive]}
                     onPress={() => setCompanyFilter('all')}
+                    accessibilityRole="button"
+                    accessibilityLabel="Toutes les entreprises"
                   >
                     <Text style={[styles.chipText, companyFilter === 'all' && styles.chipTextActive]}>Toutes</Text>
                   </TouchableOpacity>
@@ -822,6 +1282,8 @@ export default function ReservesScreen() {
                       key={co.id}
                       style={[styles.chip, companyFilter === co.name && { backgroundColor: co.color + '20', borderColor: co.color }]}
                       onPress={() => setCompanyFilter(co.name)}
+                      accessibilityRole="button"
+                      accessibilityLabel={`Entreprise ${co.name}`}
                     >
                       <View style={[styles.dot, { backgroundColor: co.color }]} />
                       <Text style={[styles.chipText, companyFilter === co.name && { color: co.color }]}>{co.shortName}</Text>
@@ -838,6 +1300,8 @@ export default function ReservesScreen() {
                       <TouchableOpacity
                         style={[styles.chip, lotFilter === 'all' && styles.chipActive]}
                         onPress={() => setLotFilter('all')}
+                        accessibilityRole="button"
+                        accessibilityLabel="Tous les lots"
                       >
                         <Text style={[styles.chipText, lotFilter === 'all' && styles.chipTextActive]}>Tous</Text>
                       </TouchableOpacity>
@@ -846,6 +1310,8 @@ export default function ReservesScreen() {
                           key={lot.id}
                           style={[styles.chip, lotFilter === lot.id && { backgroundColor: (lot.color ?? C.primary) + '20', borderColor: lot.color ?? C.primary }]}
                           onPress={() => setLotFilter(lot.id)}
+                          accessibilityRole="button"
+                          accessibilityLabel={`Lot ${lot.number ?? ''} ${lot.name}`}
                         >
                           {lot.color && <View style={[styles.dot, { backgroundColor: lot.color }]} />}
                           <Text style={[styles.chipText, lotFilter === lot.id && { color: lot.color ?? C.primary }]} numberOfLines={1}>
@@ -873,21 +1339,21 @@ const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: C.bg },
   header: {
     paddingHorizontal: 16,
-    paddingBottom: 8,
+    paddingBottom: 6,
     borderBottomWidth: 1,
     borderBottomColor: C.border,
     backgroundColor: C.surface,
   },
-  headerRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 12 },
+  headerRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 10 },
   title: { fontSize: 22, fontFamily: 'Inter_700Bold', color: C.text },
   subtitle: { fontSize: 12, fontFamily: 'Inter_400Regular', color: C.textSub, marginTop: 2 },
   selectBtn: {
-    flexDirection: 'row', alignItems: 'center', gap: 5,
-    paddingHorizontal: 12, paddingVertical: 8, borderRadius: 20,
+    flexDirection: 'row', alignItems: 'center', gap: 4,
+    paddingHorizontal: 10, paddingVertical: 7, borderRadius: 20,
     backgroundColor: C.surface2, borderWidth: 1, borderColor: C.border,
   },
   selectBtnActive: { backgroundColor: C.open + '15', borderColor: C.open },
-  selectBtnText: { fontSize: 12, fontFamily: 'Inter_500Medium', color: C.textSub },
+  selectBtnText: { fontSize: 11, fontFamily: 'Inter_500Medium', color: C.textSub },
   selectBtnTextActive: { color: C.open },
   selectBar: {
     flexDirection: 'row', gap: 10, marginBottom: 8,
@@ -901,10 +1367,20 @@ const styles = StyleSheet.create({
   searchWrap: {
     flexDirection: 'row', alignItems: 'center', gap: 8,
     backgroundColor: C.surface2, borderRadius: 10, paddingHorizontal: 12,
-    paddingVertical: 10, marginBottom: 10, borderWidth: 1, borderColor: C.border,
+    paddingVertical: 10, marginBottom: 8, borderWidth: 1, borderColor: C.border,
   },
   searchInput: { flex: 1, fontSize: 14, fontFamily: 'Inter_400Regular', color: C.text },
-  toolRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 4 },
+  toolRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 6 },
+  kindRow: { flexDirection: 'row', marginBottom: 4, paddingBottom: 2 },
+  kindChip: {
+    paddingHorizontal: 12, paddingVertical: 5, borderRadius: 16, flexDirection: 'row', alignItems: 'center', gap: 4,
+    backgroundColor: C.surface2, marginRight: 6, borderWidth: 1, borderColor: C.border,
+  },
+  kindChipActive: { backgroundColor: C.primary, borderColor: C.primary },
+  kindChipReserve: { backgroundColor: '#EF444415', borderColor: '#EF4444' },
+  kindChipObs: { backgroundColor: '#0EA5E915', borderColor: '#0EA5E9' },
+  kindChipText: { fontSize: 12, fontFamily: 'Inter_500Medium', color: C.textSub },
+  kindChipTextActive: { color: '#fff' },
   filterScrollContainer: { flex: 1, position: 'relative' },
   filterScrollFade: {
     position: 'absolute', right: 0, top: 0, bottom: 0, width: 32,
@@ -914,17 +1390,14 @@ const styles = StyleSheet.create({
     borderBottomRightRadius: 20,
   },
   filterChip: {
-    paddingHorizontal: 14, paddingVertical: 7, borderRadius: 20, flexDirection: 'row', alignItems: 'center', gap: 4,
-    backgroundColor: C.surface2, marginRight: 8, borderWidth: 1, borderColor: C.border,
+    paddingHorizontal: 12, paddingVertical: 6, borderRadius: 20, flexDirection: 'row', alignItems: 'center', gap: 4,
+    backgroundColor: C.surface2, marginRight: 6, borderWidth: 1, borderColor: C.border,
   },
   filterChipActive: { backgroundColor: C.primary, borderColor: C.primary },
   filterChipOverdue: { backgroundColor: C.open, borderColor: C.open },
-  filterChipKindReserve: { backgroundColor: '#EF444415', borderColor: '#EF4444' },
-  filterChipKindObs: { backgroundColor: '#0EA5E915', borderColor: '#0EA5E9' },
-  filterText: { fontSize: 13, fontFamily: 'Inter_500Medium', color: C.textSub },
+  filterText: { fontSize: 12, fontFamily: 'Inter_500Medium', color: C.textSub },
   filterTextActive: { color: '#fff' },
   filterTextOverdue: { color: '#fff' },
-  kindSep: { width: 1, height: 20, backgroundColor: C.border, marginHorizontal: 6, alignSelf: 'center' },
   toolBtn: {
     width: 34, height: 34, borderRadius: 10, backgroundColor: C.surface2,
     alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: C.border,
@@ -935,16 +1408,16 @@ const styles = StyleSheet.create({
     backgroundColor: C.primary, alignItems: 'center', justifyContent: 'center',
   },
   filterBadgeText: { fontSize: 9, fontFamily: 'Inter_700Bold', color: '#fff' },
-  chantierBar: { marginBottom: 10 },
+  chantierBar: { marginBottom: 8 },
   stBanner: {
     flexDirection: 'row', alignItems: 'center', gap: 8,
     backgroundColor: C.primaryBg, borderRadius: 8, paddingHorizontal: 12, paddingVertical: 8,
-    marginBottom: 10, borderWidth: 1, borderColor: C.primary + '30',
+    marginBottom: 8, borderWidth: 1, borderColor: C.primary + '30',
   },
   stBannerText: { fontSize: 12, fontFamily: 'Inter_400Regular', color: C.text, flex: 1 },
   chantierChip: {
     flexDirection: 'row', alignItems: 'center', gap: 6,
-    paddingHorizontal: 12, paddingVertical: 7, borderRadius: 20,
+    paddingHorizontal: 12, paddingVertical: 6, borderRadius: 20,
     backgroundColor: C.surface2, marginRight: 8, borderWidth: 1.5, borderColor: C.border,
   },
   chantierChipActive: { backgroundColor: C.primary, borderColor: C.primary },
@@ -965,36 +1438,45 @@ const styles = StyleSheet.create({
   },
   emptyText: { fontSize: 16, fontFamily: 'Inter_600SemiBold', color: C.text },
   emptyHint: { fontSize: 13, fontFamily: 'Inter_400Regular', color: C.textMuted, textAlign: 'center' },
+  sectionHeader: {
+    flexDirection: 'row', alignItems: 'center', gap: 8,
+    backgroundColor: C.bg, paddingHorizontal: 16, paddingVertical: 10,
+    borderLeftWidth: 3, marginBottom: 2,
+  },
+  sectionDot: { width: 8, height: 8, borderRadius: 4 },
+  sectionTitle: { fontSize: 13, fontFamily: 'Inter_700Bold', flex: 1 },
+  sectionCount: {
+    fontSize: 11, fontFamily: 'Inter_600SemiBold', color: C.textMuted,
+    backgroundColor: C.surface2, paddingHorizontal: 8, paddingVertical: 2, borderRadius: 10,
+    borderWidth: 1, borderColor: C.border,
+  },
   batchBar: {
     position: 'absolute',
     bottom: Platform.OS === 'web' ? 80 : 0,
     left: 0, right: 0,
     backgroundColor: C.primary,
     flexDirection: 'row', alignItems: 'center',
-    paddingHorizontal: 16, paddingVertical: 14, gap: 10,
-    paddingBottom: Platform.OS === 'ios' ? 28 : 14,
+    paddingHorizontal: 12, paddingVertical: 12, gap: 8,
+    paddingBottom: Platform.OS === 'ios' ? 28 : 12,
     ...Platform.select({
       web: { boxShadow: '0px -4px 16px rgba(0,48,130,0.25)' } as any,
       default: { shadowColor: '#003082', shadowOffset: { width: 0, height: -4 }, shadowOpacity: 0.25, shadowRadius: 10, elevation: 10 },
     }),
   },
-  batchBarCount: { fontSize: 13, fontFamily: 'Inter_600SemiBold', color: '#fff', flex: 1 },
+  batchBarCount: { fontSize: 12, fontFamily: 'Inter_600SemiBold', color: '#fff', flex: 1 },
   batchBarBtn: {
-    flexDirection: 'row', alignItems: 'center', gap: 5,
-    backgroundColor: 'rgba(255,255,255,0.20)', paddingHorizontal: 12, paddingVertical: 8, borderRadius: 10,
+    flexDirection: 'row', alignItems: 'center', gap: 4,
+    backgroundColor: 'rgba(255,255,255,0.20)', paddingHorizontal: 10, paddingVertical: 7, borderRadius: 10,
   },
-  batchBarBtnText: { fontSize: 12, fontFamily: 'Inter_600SemiBold', color: '#fff' },
+  batchBarBtnDelete: { backgroundColor: 'rgba(220,38,38,0.35)' },
+  batchBarBtnText: { fontSize: 11, fontFamily: 'Inter_600SemiBold', color: '#fff' },
   batchDesc: { fontSize: 13, fontFamily: 'Inter_400Regular', color: C.textSub, marginBottom: 14, fontStyle: 'italic' },
-  batchInputLabel: { fontSize: 12, fontFamily: 'Inter_600SemiBold', color: C.textSub, marginBottom: 8 },
-  batchInput: {
-    backgroundColor: C.surface2, borderRadius: 10, paddingHorizontal: 14, paddingVertical: 12,
-    fontSize: 15, fontFamily: 'Inter_400Regular', color: C.text, borderWidth: 1, borderColor: C.border,
-  },
   coDot: { width: 10, height: 10, borderRadius: 5 },
+  statusDot: { width: 10, height: 10, borderRadius: 5 },
   modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.45)', justifyContent: 'flex-end' },
   bottomSheet: {
     backgroundColor: C.surface, borderTopLeftRadius: 20, borderTopRightRadius: 20,
-    paddingHorizontal: 16, paddingBottom: 32, paddingTop: 12, maxHeight: '80%',
+    paddingHorizontal: 16, paddingBottom: 32, paddingTop: 12, maxHeight: '85%',
   },
   sheetHandle: { width: 40, height: 4, borderRadius: 2, backgroundColor: C.border, alignSelf: 'center', marginBottom: 16 },
   sheetTitleRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 },
@@ -1072,10 +1554,28 @@ const styles = StyleSheet.create({
   detailEmptyText: { fontSize: 16, fontFamily: 'Inter_600SemiBold', color: C.textSub },
   detailEmptyHint: { fontSize: 13, fontFamily: 'Inter_400Regular', color: C.textMuted, textAlign: 'center', lineHeight: 19 },
 
+  quickStatusRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 4 },
+  quickStatusBtn: {
+    paddingHorizontal: 12, paddingVertical: 6, borderRadius: 20, borderWidth: 1.5,
+  },
+  quickStatusBtnText: { fontSize: 12, fontFamily: 'Inter_600SemiBold' },
+
+  tabletCommentRow: { flexDirection: 'row', gap: 8, alignItems: 'flex-end' },
+  tabletCommentInput: {
+    flex: 1, backgroundColor: C.surface2, borderRadius: 10, borderWidth: 1, borderColor: C.border,
+    paddingHorizontal: 12, paddingVertical: 10, fontSize: 14, fontFamily: 'Inter_400Regular', color: C.text,
+    minHeight: 56,
+  },
+  tabletCommentBtn: {
+    width: 44, height: 44, borderRadius: 22, backgroundColor: C.primary,
+    alignItems: 'center', justifyContent: 'center',
+  },
+  tabletCommentBtnDisabled: { backgroundColor: C.border },
+
   deadlineReminderBanner: {
     flexDirection: 'row', alignItems: 'center', gap: 8,
     backgroundColor: '#FEF3C7', borderRadius: 8, paddingHorizontal: 12, paddingVertical: 9,
-    marginBottom: 10, borderWidth: 1, borderColor: '#FCD34D',
+    marginBottom: 8, borderWidth: 1, borderColor: '#FCD34D',
   },
   deadlineReminderBannerActive: {
     backgroundColor: '#FFFBEB', borderColor: '#D97706',
