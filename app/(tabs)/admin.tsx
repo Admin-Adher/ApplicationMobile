@@ -1,6 +1,6 @@
 import {
   View, Text, StyleSheet, ScrollView, TouchableOpacity, TextInput,
-  Alert, Modal, Platform, ActivityIndicator,
+  Alert, Modal, Platform, ActivityIndicator, Linking,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -86,7 +86,8 @@ export default function AdminScreen() {
   const [companyModal, setCompanyModal] = useState<{ mode: 'add' | 'edit'; company?: Company } | null>(null);
   const [nom, setNom] = useState('');
   const [nomCourt, setNomCourt] = useState('');
-  const [contact, setContact] = useState('');
+  const [phone, setPhone] = useState('');
+  const [email, setEmail] = useState('');
   const [zone, setZone] = useState('');
   const [effectif, setEffectif] = useState('');
 
@@ -196,13 +197,13 @@ export default function AdminScreen() {
   }
 
   function openAddCompany() {
-    setNom(''); setNomCourt(''); setContact(''); setZone(''); setEffectif('');
+    setNom(''); setNomCourt(''); setPhone(''); setEmail(''); setZone(''); setEffectif('');
     setCompanyModal({ mode: 'add' });
   }
 
   function openEditCompany(co: Company) {
-    setNom(co.name); setNomCourt(co.shortName); setContact(co.contact);
-    setZone(co.zone); setEffectif(String(co.plannedWorkers));
+    setNom(co.name); setNomCourt(co.shortName); setPhone(co.phone ?? '');
+    setEmail(co.email ?? ''); setZone(co.zone); setEffectif(String(co.plannedWorkers));
     setCompanyModal({ mode: 'edit', company: co });
   }
 
@@ -223,7 +224,8 @@ export default function AdminScreen() {
         shortName: nomCourt.trim().toUpperCase(),
         plannedWorkers: planned,
         zone: zone.trim() || 'À définir',
-        contact: contact.trim() || '—',
+        phone: phone.trim() || undefined,
+        email: email.trim() || undefined,
       });
     } else {
       const color = COMPANY_COLORS[companies.length % COMPANY_COLORS.length];
@@ -236,7 +238,8 @@ export default function AdminScreen() {
         actualWorkers: 0,
         hoursWorked: 0,
         zone: zone.trim() || 'À définir',
-        contact: contact.trim() || '—',
+        phone: phone.trim() || undefined,
+        email: email.trim() || undefined,
       });
     }
     setCompanyModal(null);
@@ -474,11 +477,23 @@ export default function AdminScreen() {
                       <Text style={styles.coStatVal}>{co.hoursWorked}h</Text>
                     </View>
                   </View>
-                  {co.contact !== '—' && (
-                    <View style={styles.coContact}>
-                      <Ionicons name="call-outline" size={12} color={C.textMuted} />
-                      <Text style={styles.coContactText}>{co.contact}</Text>
-                    </View>
+                  {co.phone && (
+                    <TouchableOpacity
+                      style={styles.coContact}
+                      onPress={() => Linking.openURL(`tel:${co.phone}`)}
+                    >
+                      <Ionicons name="call-outline" size={12} color={C.primary} />
+                      <Text style={[styles.coContactText, { color: C.primary }]}>{co.phone}</Text>
+                    </TouchableOpacity>
+                  )}
+                  {co.email && (
+                    <TouchableOpacity
+                      style={styles.coContact}
+                      onPress={() => Linking.openURL(`mailto:${co.email}`)}
+                    >
+                      <Ionicons name="mail-outline" size={12} color={C.primary} />
+                      <Text style={[styles.coContactText, { color: C.primary }]}>{co.email}</Text>
+                    </TouchableOpacity>
                   )}
                 </View>
               </View>
@@ -691,14 +706,26 @@ export default function AdminScreen() {
               />
             </View>
             <View style={styles.field}>
-              <Text style={styles.fieldLabel}>Contact</Text>
+              <Text style={styles.fieldLabel}>Téléphone</Text>
               <TextInput
                 style={styles.fieldInput}
-                value={contact}
-                onChangeText={setContact}
+                value={phone}
+                onChangeText={setPhone}
                 placeholder="Ex : 06 12 34 56 78"
                 placeholderTextColor={C.textMuted}
                 keyboardType="phone-pad"
+              />
+            </View>
+            <View style={styles.field}>
+              <Text style={styles.fieldLabel}>Email</Text>
+              <TextInput
+                style={styles.fieldInput}
+                value={email}
+                onChangeText={setEmail}
+                placeholder="Ex : contact@entreprise.fr"
+                placeholderTextColor={C.textMuted}
+                keyboardType="email-address"
+                autoCapitalize="none"
               />
             </View>
             <TouchableOpacity style={styles.saveBtn} onPress={handleSaveCompany}>

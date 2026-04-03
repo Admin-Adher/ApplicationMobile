@@ -150,7 +150,7 @@ function toCompany(row: any): Company {
   return {
     id: row.id, name: row.name, shortName: row.short_name, color: row.color,
     plannedWorkers: row.planned_workers, actualWorkers: row.actual_workers,
-    hoursWorked: row.hours_worked, zone: row.zone, contact: row.contact,
+    hoursWorked: row.hours_worked, zone: row.zone, phone: row.contact ?? undefined,
     email: row.email ?? undefined,
     lots: Array.isArray(row.lots) ? row.lots : (row.lots ? [row.lots] : undefined),
     siret: row.siret ?? undefined,
@@ -657,10 +657,10 @@ const AppContext = createContext<AppContextValue | null>(null);
 const MOCK_TODAY = formatDateFR(new Date());
 
 const MOCK_COMPANIES: Company[] = [
-  { id: 'co1', name: 'Maçonnerie Dubois', shortName: 'Dubois', color: '#3B82F6', plannedWorkers: 8, actualWorkers: 6, hoursWorked: 320, zone: 'Zone Nord', contact: 'M. Dubois' },
-  { id: 'co2', name: 'Plomberie Martin', shortName: 'Martin', color: '#10B981', plannedWorkers: 4, actualWorkers: 4, hoursWorked: 180, zone: 'Zone Sud', contact: 'Mme Martin' },
-  { id: 'co3', name: 'Électricité Leroy', shortName: 'Leroy', color: '#F59E0B', plannedWorkers: 5, actualWorkers: 3, hoursWorked: 210, zone: 'Zone Est', contact: 'M. Leroy' },
-  { id: 'co4', name: 'Menuiserie Petit', shortName: 'Petit', color: '#8B5CF6', plannedWorkers: 3, actualWorkers: 3, hoursWorked: 140, zone: 'Zone Ouest', contact: 'M. Petit' },
+  { id: 'co1', name: 'Maçonnerie Dubois', shortName: 'Dubois', color: '#3B82F6', plannedWorkers: 8, actualWorkers: 6, hoursWorked: 320, zone: 'Zone Nord' },
+  { id: 'co2', name: 'Plomberie Martin', shortName: 'Martin', color: '#10B981', plannedWorkers: 4, actualWorkers: 4, hoursWorked: 180, zone: 'Zone Sud' },
+  { id: 'co3', name: 'Électricité Leroy', shortName: 'Leroy', color: '#F59E0B', plannedWorkers: 5, actualWorkers: 3, hoursWorked: 210, zone: 'Zone Est' },
+  { id: 'co4', name: 'Menuiserie Petit', shortName: 'Petit', color: '#8B5CF6', plannedWorkers: 3, actualWorkers: 3, hoursWorked: 140, zone: 'Zone Ouest' },
 ];
 
 const MOCK_CHANTIERS: Chantier[] = [
@@ -2096,7 +2096,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         supabase.from('companies').insert({
           id: c.id, name: c.name, short_name: c.shortName, color: c.color,
           planned_workers: c.plannedWorkers, actual_workers: c.actualWorkers,
-          hours_worked: c.hoursWorked, zone: c.zone, contact: c.contact,
+          hours_worked: c.hoursWorked, zone: c.zone, contact: c.phone ?? null,
           email: c.email ?? null, lots: c.lots ?? null,
           siret: c.siret ?? null, insurance: c.insurance ?? null,
           qualifications: c.qualifications ?? null,
@@ -2129,7 +2129,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         supabase.from('companies').update({
           name: c.name, short_name: c.shortName, color: c.color,
           planned_workers: c.plannedWorkers, actual_workers: c.actualWorkers,
-          hours_worked: c.hoursWorked, zone: c.zone, contact: c.contact,
+          hours_worked: c.hoursWorked, zone: c.zone, contact: c.phone ?? null,
           email: c.email ?? null, lots: c.lots ?? null,
           siret: c.siret ?? null, insurance: c.insurance ?? null,
           qualifications: c.qualifications ?? null,

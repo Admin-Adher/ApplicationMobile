@@ -288,7 +288,7 @@ export interface Company {
   actualWorkers: number;
   hoursWorked: number;
   zone: string;
-  contact: string;
+  phone?: string;
   siret?: string;
   insurance?: string;
   qualifications?: string;

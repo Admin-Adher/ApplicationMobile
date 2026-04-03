@@ -1,4 +1,4 @@
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert, Image, Platform } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert, Image, Platform, Linking } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { useState, useMemo } from 'react';
@@ -196,7 +196,16 @@ export default function SousTraitantScreen() {
               </View>
               <View style={{ flex: 1 }}>
                 <Text style={styles.companyName}>{displayCompany.name}</Text>
-                <Text style={styles.companyContact}>{displayCompany.contact}</Text>
+                {displayCompany.phone ? (
+                  <TouchableOpacity onPress={() => Linking.openURL(`tel:${displayCompany.phone}`)}>
+                    <Text style={[styles.companyContact, { color: C.primary }]}>{displayCompany.phone}</Text>
+                  </TouchableOpacity>
+                ) : null}
+                {displayCompany.email ? (
+                  <TouchableOpacity onPress={() => Linking.openURL(`mailto:${displayCompany.email}`)}>
+                    <Text style={[styles.companyContact, { color: C.primary }]}>{displayCompany.email}</Text>
+                  </TouchableOpacity>
+                ) : null}
               </View>
             </View>
 

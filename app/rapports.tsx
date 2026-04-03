@@ -343,7 +343,7 @@ async function buildCompanyReserveHTML(company: any, companyReserves: any[], pro
   const body = `
     ${buildLetterhead('Bon de réserves', company.name, docRef, now, projectName)}
     ${buildInfoGrid([
-      ...(company.contact ? [{ label: 'Contact', value: company.contact }] : []),
+      ...(company.phone ? [{ label: 'Téléphone', value: company.phone }] : []),
       ...(company.email ? [{ label: 'Email', value: company.email }] : []),
       ...(company.specialty ? [{ label: 'Spécialité', value: company.specialty }] : []),
     ])}

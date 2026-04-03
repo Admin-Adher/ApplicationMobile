@@ -35,7 +35,7 @@ export default function EquipesScreen() {
   const [editTarget, setEditTarget] = useState<Company | null>(null);
   const [nom, setNom] = useState('');
   const [nomCourt, setNomCourt] = useState('');
-  const [contact, setContact] = useState('');
+  const [phone, setPhone] = useState('');
   const [email, setEmail] = useState('');
   const [zone, setZone] = useState('');
   const [lots, setLots] = useState('');
@@ -106,7 +106,7 @@ export default function EquipesScreen() {
 
   function openAdd() {
     setEditTarget(null);
-    setNom(''); setNomCourt(''); setContact(''); setEmail(''); setZone(''); setLots('');
+    setNom(''); setNomCourt(''); setPhone(''); setEmail(''); setZone(''); setLots('');
     setEffectif(''); setHeures(''); setSiret(''); setInsurance(''); setQualifications('');
     setSelectedColor(COMPANY_COLORS[companies.length % COMPANY_COLORS.length]);
     setModalVisible(true);
@@ -114,7 +114,7 @@ export default function EquipesScreen() {
 
   function openEdit(co: Company) {
     setEditTarget(co);
-    setNom(co.name); setNomCourt(co.shortName); setContact(co.contact);
+    setNom(co.name); setNomCourt(co.shortName); setPhone(co.phone ?? '');
     setEmail(co.email ?? ''); setZone(co.zone);
     setLots((co.lots ?? []).join(', '));
     setEffectif(String(co.plannedWorkers)); setHeures(String(co.hoursWorked));
@@ -125,7 +125,7 @@ export default function EquipesScreen() {
 
   function handleClose() {
     setModalVisible(false); setEditTarget(null);
-    setNom(''); setNomCourt(''); setContact(''); setEmail(''); setZone(''); setLots('');
+    setNom(''); setNomCourt(''); setPhone(''); setEmail(''); setZone(''); setLots('');
     setEffectif(''); setHeures(''); setSiret(''); setInsurance(''); setQualifications('');
   }
 
@@ -153,7 +153,7 @@ export default function EquipesScreen() {
         plannedWorkers: planned,
         hoursWorked: isNaN(hours) ? editTarget.hoursWorked : hours,
         zone: zone.trim() || 'À définir',
-        contact: contact.trim() || '—',
+        phone: phone.trim() || undefined,
         email: email.trim() || undefined,
         lots: parsedLots,
         siret: siret.trim() || undefined,
@@ -170,7 +170,7 @@ export default function EquipesScreen() {
         actualWorkers: 0,
         hoursWorked: 0,
         zone: zone.trim() || 'À définir',
-        contact: contact.trim() || '—',
+        phone: phone.trim() || undefined,
         email: email.trim() || undefined,
         lots: parsedLots,
         siret: siret.trim() || undefined,
@@ -373,10 +373,15 @@ export default function EquipesScreen() {
               </View>
 
               <View style={styles.coFooter}>
-                <View style={styles.coContactItem}>
-                  <Ionicons name="call-outline" size={12} color={C.textMuted} />
-                  <Text style={styles.coContactText}>{co.contact}</Text>
-                </View>
+                {co.phone ? (
+                  <TouchableOpacity
+                    style={styles.coContactItem}
+                    onPress={() => Linking.openURL(`tel:${co.phone}`)}
+                  >
+                    <Ionicons name="call-outline" size={12} color={C.primary} />
+                    <Text style={[styles.coContactText, { color: C.primary }]}>{co.phone}</Text>
+                  </TouchableOpacity>
+                ) : null}
                 {co.email ? (
                   <TouchableOpacity
                     style={styles.coContactItem}
@@ -623,13 +628,14 @@ export default function EquipesScreen() {
                 onChangeText={setLots}
               />
 
-              <Text style={styles.fieldLabel}>Contact (nom & téléphone)</Text>
+              <Text style={styles.fieldLabel}>Téléphone</Text>
               <TextInput
                 style={styles.input}
-                placeholder="Ex: Jean Dupont — 06 12 34 56 78"
+                placeholder="Ex: 06 12 34 56 78"
                 placeholderTextColor={C.textMuted}
-                value={contact}
-                onChangeText={setContact}
+                value={phone}
+                onChangeText={setPhone}
+                keyboardType="phone-pad"
               />
 
               <Text style={styles.fieldLabel}>Email</Text>
