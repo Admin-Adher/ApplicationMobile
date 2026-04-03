@@ -280,6 +280,54 @@ export async function loadPhotoAsDataUrl(uri: string): Promise<string> {
   return uri;
 }
 
+/**
+ * Convert a local file (PDF or image) to a base64 data URL for embedding in
+ * HTML passed to Print.printAsync — local file:// URIs are not accessible from
+ * within Print.printAsync's sandboxed WebView on mobile.
+ * On web, fetches via XHR/FileReader instead.
+ */
+export async function loadFileAsDataUrl(
+  uri: string,
+  fileType?: 'pdf' | 'image' | 'dxf' | null,
+): Promise<string> {
+  if (!uri) return uri;
+  if (uri.startsWith('data:')) return uri;
+
+  const lc = uri.toLowerCase();
+  const mimeType = fileType === 'pdf' || lc.includes('.pdf') || lc.includes('application/pdf')
+    ? 'application/pdf'
+    : lc.endsWith('.png') ? 'image/png'
+    : lc.endsWith('.webp') ? 'image/webp'
+    : lc.endsWith('.gif') ? 'image/gif'
+    : 'image/jpeg';
+
+  if (Platform.OS !== 'web') {
+    try {
+      const base64 = await FileSystem.readAsStringAsync(uri, {
+        encoding: FileSystem.EncodingType.Base64,
+      });
+      return `data:${mimeType};base64,${base64}`;
+    } catch {
+      return uri;
+    }
+  }
+
+  // Web: use fetch + FileReader
+  try {
+    const resp = await fetch(uri);
+    if (!resp.ok) throw new Error('fetch failed');
+    const blob = await resp.blob();
+    return await new Promise<string>((res, rej) => {
+      const reader = new FileReader();
+      reader.onloadend = () => res(reader.result as string);
+      reader.onerror = rej;
+      reader.readAsDataURL(blob);
+    });
+  } catch {
+    return uri;
+  }
+}
+
 export async function exportPDF(html: string, filename: string = 'buildtrack-export'): Promise<void> {
   if (Platform.OS === 'web') {
     const win = window.open('', '_blank');

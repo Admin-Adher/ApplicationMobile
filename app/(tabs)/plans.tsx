@@ -21,6 +21,7 @@ import { STATUS_CONFIG } from '@/components/StatusBadge';
 import PriorityBadge from '@/components/PriorityBadge';
 import { uploadDocument } from '@/lib/storage';
 import { genId, formatDateFR } from '@/lib/utils';
+import { loadFileAsDataUrl } from '@/lib/pdfBase';
 import { parseDxf, DxfParseResult } from '@/lib/dxfParser';
 import { openChantierSwitcher } from '@/components/ChantierSwitcherSheet';
 import QRCodeDisplay from '@/components/QRCodeDisplay';
