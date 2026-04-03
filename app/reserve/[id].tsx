@@ -260,7 +260,7 @@ if(isPdf){
         </div>
         <div style="flex:1;text-align:center">
           <div style="height:50px;border-bottom:2px solid #1A2742;margin-bottom:5px"></div>
-          <div style="font-size:10px;color:#5E738A">${reserve.company ?? 'Entreprise'}</div>
+          <div style="font-size:10px;color:#5E738A">${(reserve.companies && reserve.companies.length > 0 ? reserve.companies : reserve.company ? [reserve.company] : ['Entreprise']).join(', ')}</div>
         </div>
       </div>`;
 
@@ -441,7 +441,6 @@ export default function ReserveDetailScreen() {
   const reserveCompanyNames = reserve.companies ?? (reserve.company ? [reserve.company] : []);
   const reserveCompanyObjects = companies.filter(c => reserveCompanyNames.includes(c.name));
   const company = reserveCompanyObjects[0] ?? null;
-  const companyChannel = company ? channels.find(ch => ch.id === `company-${company.id}`) : null;
 
   function openEdit() {
     if (!reserve) return;
@@ -649,7 +648,8 @@ export default function ReserveDetailScreen() {
       history: changes.length > 0 ? [...reserve.history, historyEntry] : reserve.history,
     };
     updateReserveFields(updated);
-    editPhotos.forEach(p => {
+    const existingPhotoIds = new Set((reserve.photos ?? []).map(p => p.id));
+    editPhotos.filter(p => !existingPhotoIds.has(p.id)).forEach(p => {
       addPhoto({
         id: genId(),
         comment: `Photo réserve ${reserve.id} — ${editTitle.trim()}`,

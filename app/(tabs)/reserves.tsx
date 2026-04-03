@@ -27,7 +27,7 @@ function buildReservesCSV(reserves: Reserve[]): string {
     const esc = (v: string) => `"${(v ?? '').replace(/"/g, '""')}"`;
     return [
       esc(r.id), esc(r.title), esc(`Bât. ${r.building}`), esc(r.zone), esc(r.level),
-      esc(r.company), esc(PRIORITY_MAP[r.priority] ?? r.priority), esc(STATUS_MAP[r.status] ?? r.status),
+      esc((r.companies ?? (r.company ? [r.company] : [])).join('; ')), esc(PRIORITY_MAP[r.priority] ?? r.priority), esc(STATUS_MAP[r.status] ?? r.status),
       esc(r.createdAt), esc(r.deadline ?? '—'), esc(r.description),
     ].join(',');
   });
@@ -90,10 +90,13 @@ async function generateReportPDF(
 
   const byCompany: Record<string, { total: number; closed: number; overdue: number }> = {};
   for (const r of reserves) {
-    if (!byCompany[r.company]) byCompany[r.company] = { total: 0, closed: 0, overdue: 0 };
-    byCompany[r.company].total++;
-    if (r.status === 'closed') byCompany[r.company].closed++;
-    if (isOverdue(r.deadline, r.status)) byCompany[r.company].overdue++;
+    const coNames = r.companies && r.companies.length > 0 ? r.companies : r.company ? [r.company] : ['—'];
+    for (const coName of coNames) {
+      if (!byCompany[coName]) byCompany[coName] = { total: 0, closed: 0, overdue: 0 };
+      byCompany[coName].total++;
+      if (r.status === 'closed') byCompany[coName].closed++;
+      if (isOverdue(r.deadline, r.status)) byCompany[coName].overdue++;
+    }
   }
 
   const companyRows = Object.entries(byCompany)
@@ -119,7 +122,7 @@ async function generateReportPDF(
         <td>${r.title}</td>
         <td>${lot ? (lot.number ? `Lot ${lot.number} — ` : '') + lot.name : '—'}</td>
         <td>Bât. ${r.building} — ${r.zone}</td>
-        <td>${r.company}</td>
+        <td>${(r.companies && r.companies.length > 0 ? r.companies : r.company ? [r.company] : ['—']).join(', ')}</td>
         <td><span style="background:${STATUS_COLORS[r.status]}20;color:${STATUS_COLORS[r.status]};padding:2px 8px;border-radius:8px;font-size:10px;font-weight:bold">${STATUS_LABELS[r.status]}</span></td>
         <td><span style="background:${PRIORITY_COLORS[r.priority]}20;color:${PRIORITY_COLORS[r.priority]};padding:2px 8px;border-radius:8px;font-size:10px;font-weight:bold">${PRIORITY_LABELS[r.priority]}</span></td>
         <td style="${overdue ? 'color:' + C.open + ';font-weight:bold' : ''}">${r.deadline ?? '—'}</td>
