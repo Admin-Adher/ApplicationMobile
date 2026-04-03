@@ -77,7 +77,8 @@ const PRIORITY_COLORS: Record<string, string> = {
 };
 
 interface PlanData {
-  imageSrc: string;
+  planUri: string;
+  fileType: 'pdf' | 'image' | 'dxf' | undefined;
   planX: number;
   planY: number;
   planName: string;
@@ -140,21 +141,81 @@ function buildReservePDF(
       </div>`
     : '';
 
+  const PLAN_CANVAS_ID = 'reserve-plan-canvas';
+  const PLAN_RENDER_W = 520;
+  const PIN_R = 12;
+  const PIN_FONT = 10;
+
+  const planCanvasScript = planData
+    ? `(function(){
+var canvas=document.getElementById('${PLAN_CANVAS_ID}');
+var ctx=canvas.getContext('2d');
+var planUri=${JSON.stringify(planData.planUri)};
+var isPdf=${planData.fileType === 'pdf' ? 'true' : 'false'};
+var pctX=${planData.planX};
+var pctY=${planData.planY};
+var PIN_R=${PIN_R};
+var PIN_FONT=${PIN_FONT};
+
+function drawPin(W,H){
+  var x=(pctX/100)*W, y=(pctY/100)*H;
+  ctx.beginPath();ctx.arc(x,y,PIN_R,0,Math.PI*2);
+  ctx.fillStyle='#DC2626';ctx.fill();
+  ctx.strokeStyle='#fff';ctx.lineWidth=2.5;ctx.stroke();
+  ctx.fillStyle='#fff';ctx.font='bold '+PIN_FONT+'px Arial';
+  ctx.textAlign='center';ctx.textBaseline='middle';
+  ctx.fillText('!',x,y);
+}
+
+function drawFallback(){
+  ctx.fillStyle='#1A2B4A';ctx.fillRect(0,0,canvas.width,canvas.height);
+  ctx.fillStyle='rgba(255,255,255,0.12)';
+  for(var i=0;i<canvas.width;i+=32){ctx.fillRect(i,0,1,canvas.height);}
+  for(var j=0;j<canvas.height;j+=32){ctx.fillRect(0,j,canvas.width,1);}
+  drawPin(canvas.width,canvas.height);
+}
+
+if(!planUri){drawFallback();return;}
+
+if(isPdf){
+  var s=document.createElement('script');
+  s.src='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js';
+  s.onload=function(){
+    pdfjsLib.GlobalWorkerOptions.workerSrc='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+    pdfjsLib.getDocument({url:planUri,withCredentials:false}).promise.then(function(doc){
+      doc.getPage(1).then(function(page){
+        var vp1=page.getViewport({scale:1});
+        var scale=${PLAN_RENDER_W}/vp1.width;
+        var vp=page.getViewport({scale:scale});
+        canvas.width=Math.round(vp.width);
+        canvas.height=Math.round(vp.height);
+        page.render({canvasContext:ctx,viewport:vp}).promise.then(function(){
+          drawPin(canvas.width,canvas.height);
+        });
+      });
+    }).catch(drawFallback);
+  };
+  s.onerror=drawFallback;
+  document.head.appendChild(s);
+} else {
+  var img=new Image();img.crossOrigin='anonymous';
+  img.onload=function(){
+    var h=Math.round(${PLAN_RENDER_W}*(img.naturalHeight/img.naturalWidth));
+    canvas.width=${PLAN_RENDER_W};canvas.height=h;
+    ctx.drawImage(img,0,0,${PLAN_RENDER_W},h);
+    drawPin(${PLAN_RENDER_W},h);
+  };
+  img.onerror=drawFallback;img.src=planUri;
+}
+})();`
+    : '';
+
   const planSection = planData
-    ? `<div style="position:relative;width:100%;height:180px;border-radius:8px;overflow:hidden;border:1.5px solid #DDE4EE;background:#F4F7FB">
-        <img src="${planData.imageSrc}" onerror="this.style.display='none'"
-          style="width:100%;height:100%;object-fit:contain;display:block" />
-        <div style="position:absolute;left:${planData.planX}%;top:${planData.planY}%;transform:translate(-50%,-50%)">
-          <div style="position:relative;display:flex;align-items:center;justify-content:center">
-            <div style="width:28px;height:28px;border-radius:50%;background:#DC2626;border:3px solid #fff;
-              box-shadow:0 2px 6px rgba(0,0,0,0.45);display:flex;align-items:center;justify-content:center">
-              <span style="color:#fff;font-size:11px;font-weight:800;line-height:1">!</span>
-            </div>
-          </div>
-        </div>
-        <div style="position:absolute;bottom:0;left:0;right:0;background:rgba(0,0,0,0.45);
-          padding:3px 8px;font-size:9px;color:#fff;font-weight:600">
-          ${planData.planName}
+    ? `<div style="border-radius:8px;overflow:hidden;border:1.5px solid #DDE4EE;background:#1A2B4A">
+        <canvas id="${PLAN_CANVAS_ID}" width="${PLAN_RENDER_W}" height="${Math.round(PLAN_RENDER_W * 0.55)}"
+          style="width:100%;height:auto;display:block"></canvas>
+        <div style="padding:3px 8px;background:rgba(0,0,0,0.35);font-size:9px;color:#fff;font-weight:600">
+          📐 ${planData.planName} — pastille de localisation
         </div>
       </div>`
     : `<div style="width:100%;height:140px;border-radius:8px;border:1.5px dashed #DDE4EE;background:#F9FAFB;
@@ -312,7 +373,9 @@ function buildReservePDF(
       <span>Document confidentiel</span>
     </div>
 
-  </div></body></html>`;
+  </div>
+  ${planCanvasScript ? `<script>${planCanvasScript}<\/script>` : ''}
+  </body></html>`;
 }
 
 export default function ReserveDetailScreen() {
@@ -616,17 +679,10 @@ export default function ReserveDetailScreen() {
       let planData: PlanData | undefined;
       if (reserve.planId && reserve.planX !== undefined && reserve.planY !== undefined) {
         const matchedPlan = sitePlans.find(p => p.id === reserve.planId);
-        if (matchedPlan?.uri && matchedPlan.fileType === 'image') {
-          const planImageSrc = await loadPhotoAsDataUrl(matchedPlan.uri);
+        if (matchedPlan) {
           planData = {
-            imageSrc: planImageSrc,
-            planX: reserve.planX,
-            planY: reserve.planY,
-            planName: matchedPlan.name ?? 'Plan',
-          };
-        } else if (matchedPlan) {
-          planData = {
-            imageSrc: '',
+            planUri: matchedPlan.uri ?? '',
+            fileType: matchedPlan.fileType,
             planX: reserve.planX,
             planY: reserve.planY,
             planName: matchedPlan.name ?? 'Plan',

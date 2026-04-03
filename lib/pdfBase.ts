@@ -282,18 +282,11 @@ export async function loadPhotoAsDataUrl(uri: string): Promise<string> {
 
 export async function exportPDF(html: string, filename: string = 'buildtrack-export'): Promise<void> {
   if (Platform.OS === 'web') {
-    const iframe = document.createElement('iframe');
-    iframe.style.cssText = 'position:fixed;right:0;bottom:0;width:0;height:0;border:0';
-    document.body.appendChild(iframe);
-    const doc = iframe.contentWindow?.document;
-    if (doc) {
-      doc.open();
-      doc.write(html);
-      doc.close();
-      setTimeout(() => {
-        try { iframe.contentWindow?.print(); } catch {}
-        setTimeout(() => document.body.removeChild(iframe), 5000);
-      }, 300);
+    const win = window.open('', '_blank');
+    if (win) {
+      win.document.write(html);
+      win.document.close();
+      win.focus();
     }
     return;
   }
