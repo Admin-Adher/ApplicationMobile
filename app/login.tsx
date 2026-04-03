@@ -175,6 +175,15 @@ export default function LoginScreen() {
             <Text style={styles.demoHint}>Appuyez sur un compte pour le remplir automatiquement</Text>
           </View>
 
+          <TouchableOpacity
+            style={styles.registerLink}
+            onPress={() => router.push('/register')}
+            activeOpacity={0.7}
+          >
+            <Ionicons name="person-add-outline" size={15} color={C.primary} />
+            <Text style={styles.registerLinkText}>Nouveau client ? Créer un compte</Text>
+          </TouchableOpacity>
+
           <View style={{ height: insets.bottom + 24 }} />
         </View>
       </ScrollView>
@@ -338,4 +347,17 @@ const styles = StyleSheet.create({
     borderColor: C.border,
   },
   seedText: { fontSize: 12, fontFamily: 'Inter_400Regular', color: C.primary, flex: 1 },
+  registerLink: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    paddingVertical: 14,
+    marginTop: 4,
+  },
+  registerLinkText: {
+    fontSize: 14,
+    fontFamily: 'Inter_600SemiBold',
+    color: C.primary,
+  },
 });

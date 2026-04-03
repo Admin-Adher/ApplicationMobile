@@ -731,3 +731,46 @@ drop policy if exists "public_read_documents" on storage.objects;
 create policy "public_read_documents"
 on storage.objects for select
 using (bucket_id = 'documents');
+
+-- ============================================================
+-- POLITIQUES INSCRIPTION — Permettre la création de compte
+-- ============================================================
+
+-- Permettre à tout utilisateur authentifié de créer son organisation
+-- (lors de l'inscription d'un nouveau client)
+drop policy if exists "Organizations créables par tout utilisateur authentifié" on public.organizations;
+create policy "Organizations créables par tout utilisateur authentifié"
+  on public.organizations for insert with check (auth.role() = 'authenticated');
+
+-- Permettre à tout utilisateur authentifié de créer un abonnement
+-- (lors de l'inscription, l'org vient d'être créée par ce même utilisateur)
+drop policy if exists "Subscriptions créables par tout utilisateur authentifié" on public.subscriptions;
+create policy "Subscriptions créables par tout utilisateur authentifié"
+  on public.subscriptions for insert with check (auth.role() = 'authenticated');
+
+-- Permettre à un utilisateur de lire les invitations où il est invité (par email)
+-- Nécessaire pour que linkPendingInvitation fonctionne sans être admin
+drop policy if exists "Invitations lisibles par l''invité lui-même" on public.invitations;
+create policy "Invitations lisibles par l''invité lui-même"
+  on public.invitations for select using (
+    email = (select email from public.profiles where id = auth.uid())
+    or exists (
+      select 1 from public.profiles
+      where id = auth.uid()
+      and organization_id = public.invitations.organization_id
+      and role in ('admin','super_admin')
+    )
+  );
+
+-- Permettre à un invité de mettre à jour son invitation (passer en 'accepted')
+drop policy if exists "Invitations acceptables par l''invité" on public.invitations;
+create policy "Invitations acceptables par l''invité"
+  on public.invitations for update using (
+    email = (select email from public.profiles where id = auth.uid())
+    or exists (
+      select 1 from public.profiles
+      where id = auth.uid()
+      and organization_id = public.invitations.organization_id
+      and role in ('admin','super_admin')
+    )
+  );

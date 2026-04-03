@@ -1,0 +1,468 @@
+import {
+  View, Text, StyleSheet, TextInput, TouchableOpacity,
+  Platform, Alert, ScrollView, KeyboardAvoidingView,
+} from 'react-native';
+import { useState } from 'react';
+import { Ionicons } from '@expo/vector-icons';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useRouter } from 'expo-router';
+import { C } from '@/constants/colors';
+import { useAuth } from '@/context/AuthContext';
+
+type Mode = 'new_client' | 'invitation';
+
+export default function RegisterScreen() {
+  const insets = useSafeAreaInsets();
+  const router = useRouter();
+  const { register } = useAuth();
+
+  const [mode, setMode] = useState<Mode>('new_client');
+  const [name, setName] = useState('');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [organizationName, setOrganizationName] = useState('');
+  const [showPass, setShowPass] = useState(false);
+  const [showConfirmPass, setShowConfirmPass] = useState(false);
+  const [loading, setLoading] = useState(false);
+
+  async function handleRegister() {
+    if (!name.trim()) {
+      Alert.alert('Champ requis', 'Veuillez saisir votre nom complet.');
+      return;
+    }
+    if (!email.trim() || !email.includes('@')) {
+      Alert.alert('Email invalide', 'Veuillez saisir une adresse email valide.');
+      return;
+    }
+    if (password.length < 8) {
+      Alert.alert('Mot de passe trop court', 'Le mot de passe doit contenir au moins 8 caractères.');
+      return;
+    }
+    if (password !== confirmPassword) {
+      Alert.alert('Mots de passe différents', 'Les deux mots de passe ne correspondent pas.');
+      return;
+    }
+    if (mode === 'new_client' && !organizationName.trim()) {
+      Alert.alert('Champ requis', "Veuillez saisir le nom de votre organisation.");
+      return;
+    }
+
+    setLoading(true);
+    const result = await register({
+      name: name.trim(),
+      email: email.trim(),
+      password,
+      organizationName: mode === 'new_client' ? organizationName.trim() : undefined,
+    });
+    setLoading(false);
+
+    if (result.success) {
+      // AuthContext a déjà connecté l'utilisateur, AuthGuard redirigera
+    } else {
+      Alert.alert('Erreur', result.error ?? 'Une erreur est survenue.');
+    }
+  }
+
+  return (
+    <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+      <ScrollView
+        style={styles.container}
+        contentContainerStyle={{ flexGrow: 1 }}
+        keyboardShouldPersistTaps="handled"
+        showsVerticalScrollIndicator={false}
+      >
+        <View style={[styles.hero, { paddingTop: (Platform.OS === 'web' ? 0 : insets.top) + 20 }]}>
+          <View style={styles.logoRow}>
+            <View style={styles.logoBox}>
+              <Text style={styles.logoLetter}>B</Text>
+            </View>
+            <View>
+              <Text style={styles.brandName}>Bouygues</Text>
+              <Text style={styles.brandSub}>Construction</Text>
+            </View>
+          </View>
+          <View style={styles.heroDivider} />
+          <Text style={styles.heroTitle}>BuildTrack</Text>
+          <Text style={styles.heroTagline}>Créez votre compte</Text>
+        </View>
+
+        <View style={styles.formContainer}>
+          {/* Sélecteur de mode */}
+          <View style={styles.modeToggleCard}>
+            <TouchableOpacity
+              style={[styles.modeBtn, mode === 'new_client' && styles.modeBtnActive]}
+              onPress={() => setMode('new_client')}
+              activeOpacity={0.8}
+            >
+              <Ionicons
+                name="business-outline"
+                size={16}
+                color={mode === 'new_client' ? C.primary : C.textMuted}
+              />
+              <Text style={[styles.modeBtnText, mode === 'new_client' && styles.modeBtnTextActive]}>
+                Nouveau client
+              </Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.modeBtn, mode === 'invitation' && styles.modeBtnActive]}
+              onPress={() => setMode('invitation')}
+              activeOpacity={0.8}
+            >
+              <Ionicons
+                name="mail-outline"
+                size={16}
+                color={mode === 'invitation' ? C.primary : C.textMuted}
+              />
+              <Text style={[styles.modeBtnText, mode === 'invitation' && styles.modeBtnTextActive]}>
+                Invitation reçue
+              </Text>
+            </TouchableOpacity>
+          </View>
+
+          {/* Bannière d'info contextuelle */}
+          <View style={styles.infoBanner}>
+            <Ionicons
+              name={mode === 'new_client' ? 'information-circle-outline' : 'key-outline'}
+              size={15}
+              color={C.inProgress}
+            />
+            <Text style={styles.infoBannerText}>
+              {mode === 'new_client'
+                ? "Vous serez l'administrateur de votre organisation avec un essai gratuit de 30 jours."
+                : "Si vous avez été invité, créez votre compte avec l'email sur lequel vous avez reçu l'invitation."}
+            </Text>
+          </View>
+
+          <View style={styles.card}>
+            <Text style={styles.cardTitle}>
+              {mode === 'new_client' ? 'Créer mon organisation' : 'Rejoindre une organisation'}
+            </Text>
+
+            {/* Nom complet */}
+            <View style={styles.field}>
+              <Text style={styles.label}>Nom complet</Text>
+              <View style={styles.inputWrap}>
+                <Ionicons name="person-outline" size={18} color={C.textMuted} />
+                <TextInput
+                  style={styles.input}
+                  placeholder="Jean Dupont"
+                  placeholderTextColor={C.textMuted}
+                  value={name}
+                  onChangeText={setName}
+                  autoCorrect={false}
+                />
+              </View>
+            </View>
+
+            {/* Nom de l'organisation (seulement en mode nouveau client) */}
+            {mode === 'new_client' && (
+              <View style={styles.field}>
+                <Text style={styles.label}>Nom de l'organisation</Text>
+                <View style={styles.inputWrap}>
+                  <Ionicons name="business-outline" size={18} color={C.textMuted} />
+                  <TextInput
+                    style={styles.input}
+                    placeholder="Bouygues Construction"
+                    placeholderTextColor={C.textMuted}
+                    value={organizationName}
+                    onChangeText={setOrganizationName}
+                    autoCorrect={false}
+                  />
+                </View>
+              </View>
+            )}
+
+            {/* Email */}
+            <View style={styles.field}>
+              <Text style={styles.label}>Email</Text>
+              <View style={styles.inputWrap}>
+                <Ionicons name="mail-outline" size={18} color={C.textMuted} />
+                <TextInput
+                  style={styles.input}
+                  placeholder="votre@email.fr"
+                  placeholderTextColor={C.textMuted}
+                  value={email}
+                  onChangeText={setEmail}
+                  keyboardType="email-address"
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                />
+              </View>
+            </View>
+
+            {/* Mot de passe */}
+            <View style={styles.field}>
+              <Text style={styles.label}>Mot de passe</Text>
+              <View style={styles.inputWrap}>
+                <Ionicons name="lock-closed-outline" size={18} color={C.textMuted} />
+                <TextInput
+                  style={styles.input}
+                  placeholder="Min. 8 caractères"
+                  placeholderTextColor={C.textMuted}
+                  value={password}
+                  onChangeText={setPassword}
+                  secureTextEntry={!showPass}
+                />
+                <TouchableOpacity onPress={() => setShowPass(!showPass)} hitSlop={8}>
+                  <Ionicons name={showPass ? 'eye-off-outline' : 'eye-outline'} size={18} color={C.textMuted} />
+                </TouchableOpacity>
+              </View>
+            </View>
+
+            {/* Confirmer le mot de passe */}
+            <View style={styles.field}>
+              <Text style={styles.label}>Confirmer le mot de passe</Text>
+              <View style={[
+                styles.inputWrap,
+                confirmPassword.length > 0 && password !== confirmPassword && styles.inputWrapError,
+              ]}>
+                <Ionicons name="lock-closed-outline" size={18} color={C.textMuted} />
+                <TextInput
+                  style={styles.input}
+                  placeholder="Répétez le mot de passe"
+                  placeholderTextColor={C.textMuted}
+                  value={confirmPassword}
+                  onChangeText={setConfirmPassword}
+                  secureTextEntry={!showConfirmPass}
+                />
+                <TouchableOpacity onPress={() => setShowConfirmPass(!showConfirmPass)} hitSlop={8}>
+                  <Ionicons name={showConfirmPass ? 'eye-off-outline' : 'eye-outline'} size={18} color={C.textMuted} />
+                </TouchableOpacity>
+              </View>
+              {confirmPassword.length > 0 && password !== confirmPassword && (
+                <Text style={styles.errorHint}>Les mots de passe ne correspondent pas</Text>
+              )}
+            </View>
+
+            <TouchableOpacity
+              style={[styles.submitBtn, loading && styles.submitBtnDisabled]}
+              onPress={handleRegister}
+              disabled={loading}
+              activeOpacity={0.85}
+            >
+              {loading ? (
+                <Text style={styles.submitBtnText}>Création en cours...</Text>
+              ) : (
+                <>
+                  <Ionicons name="checkmark-circle-outline" size={20} color={C.primary} />
+                  <Text style={styles.submitBtnText}>
+                    {mode === 'new_client' ? 'Créer mon organisation' : 'Créer mon compte'}
+                  </Text>
+                </>
+              )}
+            </TouchableOpacity>
+          </View>
+
+          <TouchableOpacity style={styles.backToLogin} onPress={() => router.replace('/login')} activeOpacity={0.7}>
+            <Ionicons name="arrow-back-outline" size={15} color={C.primary} />
+            <Text style={styles.backToLoginText}>Déjà un compte ? Se connecter</Text>
+          </TouchableOpacity>
+
+          <View style={{ height: insets.bottom + 24 }} />
+        </View>
+      </ScrollView>
+    </KeyboardAvoidingView>
+  );
+}
+
+const styles = StyleSheet.create({
+  container: { flex: 1, backgroundColor: C.primary },
+  hero: {
+    backgroundColor: C.primary,
+    paddingHorizontal: 28,
+    paddingBottom: 40,
+  },
+  logoRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 14,
+    marginBottom: 28,
+  },
+  logoBox: {
+    width: 52,
+    height: 52,
+    backgroundColor: C.accent,
+    borderRadius: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  logoLetter: {
+    fontSize: 28,
+    fontFamily: 'Inter_700Bold',
+    color: C.primary,
+    lineHeight: 32,
+  },
+  brandName: {
+    fontSize: 20,
+    fontFamily: 'Inter_700Bold',
+    color: '#FFFFFF',
+    letterSpacing: 0.3,
+  },
+  brandSub: {
+    fontSize: 13,
+    fontFamily: 'Inter_400Regular',
+    color: 'rgba(255,255,255,0.65)',
+    marginTop: 1,
+  },
+  heroDivider: {
+    width: 40,
+    height: 3,
+    backgroundColor: C.accent,
+    borderRadius: 2,
+    marginBottom: 18,
+  },
+  heroTitle: {
+    fontSize: 36,
+    fontFamily: 'Inter_700Bold',
+    color: '#FFFFFF',
+    letterSpacing: -0.5,
+  },
+  heroTagline: {
+    fontSize: 15,
+    fontFamily: 'Inter_400Regular',
+    color: 'rgba(255,255,255,0.65)',
+    marginTop: 6,
+  },
+  formContainer: {
+    flex: 1,
+    backgroundColor: C.bg,
+    borderTopLeftRadius: 28,
+    borderTopRightRadius: 28,
+    paddingHorizontal: 20,
+    paddingTop: 24,
+  },
+  modeToggleCard: {
+    flexDirection: 'row',
+    backgroundColor: C.surface,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: C.border,
+    padding: 4,
+    marginBottom: 16,
+  },
+  modeBtn: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    paddingVertical: 10,
+    borderRadius: 10,
+  },
+  modeBtnActive: {
+    backgroundColor: C.primaryBg,
+    borderWidth: 1,
+    borderColor: C.primary + '30',
+  },
+  modeBtnText: {
+    fontSize: 13,
+    fontFamily: 'Inter_600SemiBold',
+    color: C.textMuted,
+  },
+  modeBtnTextActive: {
+    color: C.primary,
+  },
+  infoBanner: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 8,
+    backgroundColor: C.inProgressBg,
+    borderRadius: 10,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    marginBottom: 16,
+    borderWidth: 1,
+    borderColor: C.inProgress + '30',
+  },
+  infoBannerText: {
+    flex: 1,
+    fontSize: 12,
+    fontFamily: 'Inter_400Regular',
+    color: C.inProgress,
+    lineHeight: 17,
+  },
+  card: {
+    backgroundColor: C.surface,
+    borderRadius: 18,
+    padding: 24,
+    borderWidth: 1,
+    borderColor: C.border,
+    marginBottom: 16,
+    elevation: 2,
+    ...Platform.select({
+      web: { boxShadow: '0px 2px 12px rgba(0,48,130,0.06)' } as any,
+      default: { shadowColor: '#003082', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.06, shadowRadius: 12 },
+    }),
+  },
+  cardTitle: {
+    fontSize: 18,
+    fontFamily: 'Inter_700Bold',
+    color: C.text,
+    marginBottom: 20,
+  },
+  field: { marginBottom: 16 },
+  label: {
+    fontSize: 11,
+    fontFamily: 'Inter_600SemiBold',
+    color: C.textSub,
+    marginBottom: 8,
+    textTransform: 'uppercase',
+    letterSpacing: 0.6,
+  },
+  inputWrap: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    backgroundColor: C.surface2,
+    borderRadius: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 14,
+    borderWidth: 1,
+    borderColor: C.border,
+  },
+  inputWrapError: {
+    borderColor: C.open,
+  },
+  input: {
+    flex: 1,
+    fontSize: 15,
+    fontFamily: 'Inter_400Regular',
+    color: C.text,
+  },
+  errorHint: {
+    fontSize: 11,
+    fontFamily: 'Inter_400Regular',
+    color: C.open,
+    marginTop: 4,
+    marginLeft: 4,
+  },
+  submitBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    backgroundColor: C.accent,
+    borderRadius: 14,
+    paddingVertical: 16,
+    marginTop: 8,
+  },
+  submitBtnDisabled: { opacity: 0.6 },
+  submitBtnText: {
+    fontSize: 16,
+    fontFamily: 'Inter_700Bold',
+    color: C.primary,
+  },
+  backToLogin: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    paddingVertical: 14,
+  },
+  backToLoginText: {
+    fontSize: 14,
+    fontFamily: 'Inter_600SemiBold',
+    color: C.primary,
+  },
+});

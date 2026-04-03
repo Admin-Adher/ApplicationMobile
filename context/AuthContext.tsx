@@ -31,6 +31,12 @@ interface AuthContextValue {
   isAuthenticated: boolean;
   isLoading: boolean;
   login: (email: string, password: string) => Promise<{ success: boolean; error?: string }>;
+  register: (params: {
+    name: string;
+    email: string;
+    password: string;
+    organizationName?: string;
+  }) => Promise<{ success: boolean; error?: string }>;
   logout: () => Promise<void>;
   permissions: {
     canCreate: boolean; canEdit: boolean; canDelete: boolean;
@@ -291,6 +297,118 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   }, [isLoading, user, seedStatus]);
 
+  async function register({
+    name,
+    email,
+    password,
+    organizationName,
+  }: {
+    name: string;
+    email: string;
+    password: string;
+    organizationName?: string;
+  }): Promise<{ success: boolean; error?: string }> {
+    if (!isSupabaseConfigured) {
+      return { success: false, error: 'La création de compte nécessite une connexion au serveur.' };
+    }
+
+    abortSeedingRef.current = true;
+
+    try {
+      const { data: signUpData, error: signUpErr } = await supabase.auth.signUp({
+        email: email.trim().toLowerCase(),
+        password,
+      });
+
+      if (signUpErr || !signUpData?.user?.id) {
+        if (signUpErr?.message?.toLowerCase().includes('already registered') ||
+            signUpErr?.message?.toLowerCase().includes('already been registered') ||
+            signUpErr?.message?.toLowerCase().includes('user_already_exists')) {
+          return { success: false, error: 'Un compte existe déjà avec cet email.' };
+        }
+        return { success: false, error: signUpErr?.message ?? "Impossible de créer le compte." };
+      }
+
+      const userId = signUpData.user.id;
+
+      if (organizationName?.trim()) {
+        const slug = organizationName.trim()
+          .toLowerCase()
+          .normalize('NFD')
+          .replace(/[\u0300-\u036f]/g, '')
+          .replace(/[^a-z0-9]+/g, '-')
+          .replace(/^-|-$/g, '');
+
+        const uniqueSlug = slug + '-' + Date.now().toString(36);
+
+        const { data: orgData, error: orgErr } = await supabase
+          .from('organizations')
+          .insert({ name: organizationName.trim(), slug: uniqueSlug })
+          .select()
+          .single();
+
+        if (orgErr || !orgData) {
+          return { success: false, error: "Impossible de créer l'organisation. Réessayez." };
+        }
+
+        const orgId: string = orgData.id;
+
+        const { data: proPlans } = await supabase
+          .from('plans')
+          .select('id')
+          .eq('name', 'Pro')
+          .single();
+
+        if (proPlans?.id) {
+          await supabase.from('subscriptions').insert({
+            organization_id: orgId,
+            plan_id: proPlans.id,
+            status: 'trial',
+          });
+        }
+
+        await supabase.from('profiles').insert({
+          id: userId,
+          name: name.trim(),
+          email: email.trim().toLowerCase(),
+          role: 'admin',
+          role_label: ROLE_LABELS['admin'],
+          organization_id: orgId,
+        });
+      } else {
+        await supabase.from('profiles').insert({
+          id: userId,
+          name: name.trim(),
+          email: email.trim().toLowerCase(),
+          role: 'observateur',
+          role_label: ROLE_LABELS['observateur'],
+          organization_id: null,
+        });
+      }
+
+      const { data: signInData, error: signInErr } = await supabase.auth.signInWithPassword({
+        email: email.trim().toLowerCase(),
+        password,
+      });
+
+      if (signInErr || !signInData?.user?.id) {
+        return { success: false, error: "Compte créé. Connectez-vous avec vos identifiants." };
+      }
+
+      const profile = await fetchProfile(signInData.user.id);
+      if (profile) {
+        setUser(profile);
+        isSeedingRef.current = false;
+        setSeedStatus('done');
+        return { success: true };
+      }
+
+      return { success: false, error: "Compte créé. Connectez-vous pour continuer." };
+    } catch {
+      return { success: false, error: 'Erreur réseau. Vérifiez votre connexion.' };
+    }
+  }
+
   async function login(email: string, password: string): Promise<{ success: boolean; error?: string }> {
     // Abort any in-progress seeding so its signOut calls don't kick us out
     abortSeedingRef.current = true;
@@ -391,6 +509,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       isAuthenticated: !!user,
       isLoading,
       login,
+      register,
       logout,
       permissions,
       users,

@@ -81,7 +81,7 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     if (isLoading) return;
-    const PUBLIC_SEGMENTS = ['login', 'portal', 'opr-session'];
+    const PUBLIC_SEGMENTS = ['login', 'register', 'portal', 'opr-session'];
     const seg0 = segments.length > 0 ? (segments[0] as string) : undefined;
     const inPublic = seg0 ? PUBLIC_SEGMENTS.includes(seg0) : true;
     if (!isAuthenticated && !inPublic) {
@@ -147,6 +147,7 @@ export default function RootLayout() {
                     <AppErrorBoundary>
                     <Stack>
                       <Stack.Screen name="login" options={{ headerShown: false }} />
+                      <Stack.Screen name="register" options={{ headerShown: false }} />
                       <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
                       <Stack.Screen name="reserve/[id]" options={{ headerShown: false }} />
                       <Stack.Screen name="reserve/new" options={{ headerShown: false }} />

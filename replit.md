@@ -35,6 +35,14 @@ BuildTrack is a professional construction management mobile application built wi
 - PDF plans now render inline on mobile via WebView (no more "Ouvrir le plan" external redirect)
 - Chantier creation no longer requires a plan — plans section is now optional
 
+## Authentification & Onboarding (Avril 2026)
+- **Écran d'inscription** (`app/register.tsx`) — deux modes :
+  - **Nouveau client** : crée une organisation, abonnement trial Pro 30j, et compte admin
+  - **Invitation reçue** : crée un compte avec l'email de l'invitation ; la liaison org/rôle est automatique via `linkPendingInvitation`
+- **`AuthContext.register()`** — nouvelle fonction qui gère signUp + création org + profile en Supabase
+- **Lien "Créer un compte"** ajouté sur l'écran de connexion
+- **Politiques RLS** ajoutées dans `lib/schema.sql` : INSERT sur organizations, subscriptions, et invitations lisibles par l'invité
+
 ## UX Fixes (Sprint 2 — April 2026)
 1. **BottomSheetPicker** (`components/BottomSheetPicker.tsx`) — reusable slide-up modal replacing all horizontal chip scroll pickers
 2. **Network indicator** — 8×8 dot in Header: green=online, red=offline with queued-action badge count
