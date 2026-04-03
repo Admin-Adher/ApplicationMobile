@@ -12,10 +12,49 @@ export interface OrgSummary {
   seatMax: number;
 }
 
+const FREE_ROLES: UserRole[] = ['observateur', 'sous_traitant'];
+
 const DEMO_PLANS: Plan[] = [
-  { id: 'plan-starter', name: 'Starter', maxUsers: 5, priceMonthly: 49, features: ['Gestion des réserves', "Jusqu'à 5 utilisateurs", 'Support email'] },
-  { id: 'plan-pro', name: 'Pro', maxUsers: 20, priceMonthly: 149, features: ['Gestion des réserves', 'Rapports PDF/Excel', "Jusqu'à 20 utilisateurs", 'Support prioritaire', 'Pointage & présences'] },
-  { id: 'plan-entreprise', name: 'Entreprise', maxUsers: -1, priceMonthly: 399, features: ['Toutes les fonctionnalités', 'Utilisateurs illimités', 'Support dédié', 'API access', 'SSO'] },
+  {
+    id: 'plan-solo',
+    name: 'Solo',
+    maxUsers: 3,
+    priceMonthly: 79,
+    features: [
+      'Gestion des réserves',
+      "Jusqu'à 3 utilisateurs actifs",
+      'Sous-traitants & observateurs gratuits',
+      'Support email',
+    ],
+  },
+  {
+    id: 'plan-equipe',
+    name: 'Équipe',
+    maxUsers: 15,
+    priceMonthly: 199,
+    features: [
+      'Gestion des réserves',
+      "Jusqu'à 15 utilisateurs actifs",
+      'Sous-traitants & observateurs gratuits',
+      'Rapports PDF/Excel',
+      'Pointage & présences',
+      'Support prioritaire',
+    ],
+  },
+  {
+    id: 'plan-groupe',
+    name: 'Groupe',
+    maxUsers: -1,
+    priceMonthly: 499,
+    features: [
+      'Utilisateurs actifs illimités',
+      'Sous-traitants & observateurs gratuits',
+      'Toutes les fonctionnalités',
+      'Support dédié',
+      'API access',
+      'SSO',
+    ],
+  },
 ];
 
 const DEMO_ORG: Organization = {
@@ -28,7 +67,7 @@ const DEMO_ORG: Organization = {
 const DEMO_SUBSCRIPTION: Subscription = {
   id: 'sub-demo',
   organizationId: 'demo-org',
-  planId: 'plan-pro',
+  planId: 'plan-equipe',
   status: 'trial',
   startedAt: new Date().toISOString(),
   trialEndsAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
@@ -39,6 +78,8 @@ interface SubscriptionContextValue {
   plan: Plan | null;
   subscription: Subscription | null;
   orgUsers: User[];
+  activeOrgUsers: User[];
+  freeOrgUsers: User[];
   seatUsed: number;
   seatMax: number;
   canInvite: boolean;
@@ -85,7 +126,7 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
       setSubscription(DEMO_SUBSCRIPTION);
       setAllOrganizations([DEMO_ORG]);
       setAllPlans(DEMO_PLANS);
-      setOrgSummaries([{ org: DEMO_ORG, planName: 'Pro', planId: 'plan-pro', status: 'trial', seatMax: 20 }]);
+      setOrgSummaries([{ org: DEMO_ORG, planName: 'Équipe', planId: 'plan-equipe', status: 'trial', seatMax: 15 }]);
       setIsLoading(false);
       return;
     }
@@ -261,8 +302,11 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
     ? users.filter(u => u.organizationId === organization.id)
     : [];
 
-  const seatUsed = orgUsers.length;
-  const seatMax = plan?.maxUsers ?? (user?.role === 'super_admin' ? -1 : 5);
+  const activeOrgUsers = orgUsers.filter(u => !FREE_ROLES.includes(u.role as UserRole));
+  const freeOrgUsers = orgUsers.filter(u => FREE_ROLES.includes(u.role as UserRole));
+
+  const seatUsed = activeOrgUsers.length;
+  const seatMax = plan?.maxUsers ?? (user?.role === 'super_admin' ? -1 : 3);
   const canInvite = seatMax === -1 || seatUsed < seatMax;
 
   async function inviteUser(
@@ -270,10 +314,11 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
     role: UserRole
   ): Promise<{ success: boolean; error?: string; token?: string }> {
     if (!user) return { success: false, error: 'Non connecté.' };
-    if (!canInvite) {
+    const isFreeRole = FREE_ROLES.includes(role);
+    if (!isFreeRole && !canInvite) {
       return {
         success: false,
-        error: `Limite de sièges atteinte (${seatMax} utilisateurs). Passez à un plan supérieur.`,
+        error: `Limite de sièges atteinte (${seatMax} utilisateurs actifs). Passez à un plan supérieur.`,
       };
     }
 
@@ -421,6 +466,8 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
         plan,
         subscription,
         orgUsers,
+        activeOrgUsers,
+        freeOrgUsers,
         seatUsed,
         seatMax,
         canInvite,

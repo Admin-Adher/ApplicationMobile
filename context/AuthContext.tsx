@@ -353,16 +353,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
         const orgId: string = orgData.id;
 
-        const { data: proPlans } = await supabase
+        const { data: equipeplan } = await supabase
           .from('plans')
           .select('id')
-          .eq('name', 'Pro')
+          .eq('name', 'Équipe')
           .single();
 
-        if (proPlans?.id) {
+        if (equipeplan?.id) {
           await supabase.from('subscriptions').insert({
             organization_id: orgId,
-            plan_id: proPlans.id,
+            plan_id: equipeplan.id,
             status: 'trial',
           });
         }

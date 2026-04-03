@@ -24,9 +24,9 @@ create policy "Plans modifiables par super_admin"
   );
 
 insert into public.plans (name, max_users, price_monthly, features) values
-  ('Starter',   5,  49,  '["Gestion des réserves","Jusqu''à 5 utilisateurs","Support email"]'),
-  ('Pro',       20, 149, '["Gestion des réserves","Rapports PDF/Excel","Jusqu''à 20 utilisateurs","Support prioritaire","Pointage & présences"]'),
-  ('Entreprise',-1, 399, '["Toutes les fonctionnalités","Utilisateurs illimités","Support dédié","API access","SSO"]')
+  ('Solo',   3,   79,  '["Gestion des réserves","Jusqu''à 3 utilisateurs actifs","Sous-traitants & observateurs gratuits","Support email"]'),
+  ('Équipe', 15,  199, '["Gestion des réserves","Jusqu''à 15 utilisateurs actifs","Sous-traitants & observateurs gratuits","Rapports PDF/Excel","Pointage & présences","Support prioritaire"]'),
+  ('Groupe', -1,  499, '["Utilisateurs actifs illimités","Sous-traitants & observateurs gratuits","Toutes les fonctionnalités","Support dédié","API access","SSO"]')
 on conflict (name) do nothing;
 
 create table if not exists public.organizations (
@@ -78,7 +78,7 @@ create policy "Subscriptions modifiables par super_admin"
 insert into public.subscriptions (organization_id, plan_id, status, trial_ends_at)
   select
     '00000000-0000-0000-0000-000000000001',
-    (select id from public.plans where name = 'Pro'),
+    (select id from public.plans where name = 'Équipe'),
     'trial',
     now() + interval '30 days'
   where not exists (
@@ -774,3 +774,37 @@ create policy "Invitations acceptables par l''invité"
       and role in ('admin','super_admin')
     )
   );
+
+-- ============================================================
+-- MIGRATION PLANS v2 — À exécuter dans le SQL Editor Supabase
+-- si votre base existe déjà avec les anciens plans Starter/Pro/Entreprise
+-- ============================================================
+
+-- Renommer les anciens plans (si présents) vers les nouveaux noms
+update public.plans set
+  name          = 'Solo',
+  max_users     = 3,
+  price_monthly = 79,
+  features      = '["Gestion des réserves","Jusqu''à 3 utilisateurs actifs","Sous-traitants & observateurs gratuits","Support email"]'
+where name = 'Starter';
+
+update public.plans set
+  name          = 'Équipe',
+  max_users     = 15,
+  price_monthly = 199,
+  features      = '["Gestion des réserves","Jusqu''à 15 utilisateurs actifs","Sous-traitants & observateurs gratuits","Rapports PDF/Excel","Pointage & présences","Support prioritaire"]'
+where name = 'Pro';
+
+update public.plans set
+  name          = 'Groupe',
+  max_users     = -1,
+  price_monthly = 499,
+  features      = '["Utilisateurs actifs illimités","Sous-traitants & observateurs gratuits","Toutes les fonctionnalités","Support dédié","API access","SSO"]'
+where name = 'Entreprise';
+
+-- Insérer les nouveaux plans s'ils n'existent pas encore
+insert into public.plans (name, max_users, price_monthly, features) values
+  ('Solo',   3,   79,  '["Gestion des réserves","Jusqu''à 3 utilisateurs actifs","Sous-traitants & observateurs gratuits","Support email"]'),
+  ('Équipe', 15,  199, '["Gestion des réserves","Jusqu''à 15 utilisateurs actifs","Sous-traitants & observateurs gratuits","Rapports PDF/Excel","Pointage & présences","Support prioritaire"]'),
+  ('Groupe', -1,  499, '["Utilisateurs actifs illimités","Sous-traitants & observateurs gratuits","Toutes les fonctionnalités","Support dédié","API access","SSO"]')
+on conflict (name) do nothing;

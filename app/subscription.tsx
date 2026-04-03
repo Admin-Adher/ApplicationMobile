@@ -16,9 +16,9 @@ const STATUS_CONFIG: Record<SubscriptionStatus, { label: string; color: string; 
 };
 
 const PLAN_COLORS: Record<string, string> = {
-  Starter:    '#6B7280',
-  Pro:        '#3B82F6',
-  Entreprise: '#8B5CF6',
+  Solo:    '#10B981',
+  Équipe:  '#3B82F6',
+  Groupe:  '#8B5CF6',
 };
 
 function daysUntil(dateStr?: string): number | null {
@@ -33,7 +33,7 @@ export default function SubscriptionScreen() {
   const bottomPad = Platform.OS === 'web' ? 34 : insets.bottom;
   const router = useRouter();
 
-  const { organization, plan, subscription, seatUsed, seatMax, isLoading, orgUsers } = useSubscription();
+  const { organization, plan, subscription, seatUsed, seatMax, isLoading, orgUsers, activeOrgUsers, freeOrgUsers } = useSubscription();
 
   if (isLoading) {
     return (
@@ -104,7 +104,10 @@ export default function SubscriptionScreen() {
           <View style={styles.seatTopRow}>
             <View style={styles.seatLeft}>
               <Ionicons name="people" size={18} color={C.primary} />
-              <Text style={styles.seatTitle}>Utilisateurs</Text>
+              <View>
+                <Text style={styles.seatTitle}>Utilisateurs actifs</Text>
+                <Text style={styles.seatSubtitle}>Admin · Conducteur · Chef d'équipe</Text>
+              </View>
             </View>
             <Text style={styles.seatCount}>
               {seatUsed}
@@ -123,10 +126,18 @@ export default function SubscriptionScreen() {
               {seatRatio >= 1 ? 'Limite atteinte — passez à un plan supérieur pour inviter.' : 'Presque à la limite des sièges.'}
             </Text>
           )}
+          {freeOrgUsers.length > 0 && (
+            <View style={styles.freeBanner}>
+              <Ionicons name="gift-outline" size={14} color="#10B981" />
+              <Text style={styles.freeBannerTxt}>
+                {freeOrgUsers.length} sous-traitant{freeOrgUsers.length > 1 ? 's' : ''} / observateur{freeOrgUsers.length > 1 ? 's' : ''} — <Text style={{ fontFamily: 'Inter_600SemiBold' }}>gratuit{freeOrgUsers.length > 1 ? 's' : ''}</Text>
+              </Text>
+            </View>
+          )}
         </View>
 
-        <Text style={styles.sectionTitle}>Membres actuels</Text>
-        {orgUsers.map((u, i) => {
+        <Text style={styles.sectionTitle}>Utilisateurs actifs</Text>
+        {activeOrgUsers.map((u, i) => {
           const colors = ['#3B82F6','#10B981','#F59E0B','#8B5CF6','#EF4444','#06B6D4','#EC4899'];
           const col = colors[i % colors.length];
           const initials = u.name.split(' ').map((w: string) => w[0]).slice(0, 2).join('').toUpperCase();
@@ -145,6 +156,30 @@ export default function SubscriptionScreen() {
             </View>
           );
         })}
+
+        {freeOrgUsers.length > 0 && (
+          <>
+            <Text style={styles.sectionTitle}>Sous-traitants & Observateurs <Text style={styles.freeTag}>gratuit</Text></Text>
+            {freeOrgUsers.map((u, i) => {
+              const col = '#10B981';
+              const initials = u.name.split(' ').map((w: string) => w[0]).slice(0, 2).join('').toUpperCase();
+              return (
+                <View key={u.id} style={[styles.memberRow, { borderColor: '#10B98122' }]}>
+                  <View style={[styles.memberAvatar, { backgroundColor: '#10B98118' }]}>
+                    <Text style={[styles.memberAvatarTxt, { color: col }]}>{initials}</Text>
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.memberName}>{u.name}</Text>
+                    <Text style={styles.memberEmail}>{u.email}</Text>
+                  </View>
+                  <View style={[styles.memberRoleBadge, { backgroundColor: '#10B98118' }]}>
+                    <Text style={[styles.memberRoleTxt, { color: '#10B981' }]}>{u.roleLabel}</Text>
+                  </View>
+                </View>
+              );
+            })}
+          </>
+        )}
 
         <View style={styles.hintCard}>
           <Ionicons name="information-circle-outline" size={15} color={C.textMuted} />
@@ -216,13 +251,20 @@ const styles = StyleSheet.create({
   seatTopRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 },
   seatLeft: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   seatTitle: { fontSize: 15, fontFamily: 'Inter_600SemiBold', color: C.text },
+  seatSubtitle: { fontSize: 11, fontFamily: 'Inter_400Regular', color: C.textMuted, marginTop: 1 },
   seatCount: { fontSize: 22, fontFamily: 'Inter_700Bold', color: C.text },
   seatMax: { fontSize: 14, fontFamily: 'Inter_400Regular', color: C.textMuted },
   barBg: { height: 8, backgroundColor: C.border, borderRadius: 4, overflow: 'hidden' },
   barFill: { height: 8, borderRadius: 4 },
   seatWarning: { fontSize: 12, fontFamily: 'Inter_400Regular', color: '#EF4444', marginTop: 6 },
+  freeBanner: {
+    flexDirection: 'row', alignItems: 'center', gap: 6,
+    backgroundColor: '#10B98112', borderRadius: 8, padding: 10, marginTop: 10,
+  },
+  freeBannerTxt: { fontSize: 12, fontFamily: 'Inter_400Regular', color: '#10B981', flex: 1 },
 
   sectionTitle: { fontSize: 13, fontFamily: 'Inter_700Bold', color: C.text, marginTop: 4 },
+  freeTag: { fontSize: 11, fontFamily: 'Inter_600SemiBold', color: '#10B981' },
 
   memberRow: {
     flexDirection: 'row', alignItems: 'center', gap: 12,
