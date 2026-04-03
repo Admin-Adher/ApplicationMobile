@@ -28,7 +28,7 @@ const STATUS_OPTIONS: { value: VisiteStatus; label: string; color: string }[] = 
 export default function NewVisiteScreen() {
   const router = useRouter();
   const { addVisite, activeChantierId, activeChantier } = useApp();
-  const { user } = useAuth();
+  const { user, permissions } = useAuth();
 
   const [title, setTitle] = useState('');
   const [date, setDate] = useState(formatDateFR(new Date()));
@@ -42,6 +42,19 @@ export default function NewVisiteScreen() {
   const [participants, setParticipants] = useState<VisiteParticipant[]>([]);
   const [newParticipantName, setNewParticipantName] = useState('');
   const [newParticipantCompany, setNewParticipantCompany] = useState('');
+
+  if (!permissions.canCreate) {
+    return (
+      <View style={{ flex: 1, backgroundColor: C.bg, alignItems: 'center', justifyContent: 'center', padding: 32 }}>
+        <Header title="Nouvelle visite" />
+        <Ionicons name="lock-closed-outline" size={48} color="#9CA3AF" />
+        <Text style={{ marginTop: 16, fontSize: 16, fontFamily: 'Inter_600SemiBold', color: '#374151', textAlign: 'center' }}>Accès refusé</Text>
+        <Text style={{ marginTop: 8, fontSize: 14, fontFamily: 'Inter_400Regular', color: '#6B7280', textAlign: 'center' }}>
+          La création de visites chantier requiert les droits Conducteur ou Chef d'équipe.
+        </Text>
+      </View>
+    );
+  }
 
   function addParticipant() {
     if (!newParticipantName.trim()) return;

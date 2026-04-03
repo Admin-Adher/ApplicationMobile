@@ -455,6 +455,19 @@ export default function OprScreen() {
   const [editingVisitOprId, setEditingVisitOprId] = useState<string | null>(null);
   const [editingVisitDate, setEditingVisitDate] = useState('');
 
+  if (user?.role === 'sous_traitant') {
+    return (
+      <View style={{ flex: 1, backgroundColor: '#F8FAFC', alignItems: 'center', justifyContent: 'center', padding: 32 }}>
+        <Header title="OPR" />
+        <Ionicons name="lock-closed-outline" size={48} color="#9CA3AF" />
+        <Text style={{ marginTop: 16, fontSize: 16, fontFamily: 'Inter_600SemiBold', color: '#374151', textAlign: 'center' }}>Accès non autorisé</Text>
+        <Text style={{ marginTop: 8, fontSize: 14, fontFamily: 'Inter_400Regular', color: '#6B7280', textAlign: 'center' }}>
+          Les OPR (Opérations de réception) sont réservés aux conducteurs de travaux et chefs d'équipe.
+        </Text>
+      </View>
+    );
+  }
+
   function addSignatory() {
     if (!inviteModal || !inviteName.trim()) return;
     const opr = inviteModal.opr;

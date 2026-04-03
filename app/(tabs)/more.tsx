@@ -117,7 +117,6 @@ export default function MoreScreen() {
     } else {
       result.push({ title: 'Compte', items: [
         { icon: 'settings', label: 'Paramètres', subtitle: 'Projet & présences', route: '/settings', color: C.textSub },
-        { icon: 'git-network', label: 'Intégrations BTP', subtitle: 'Procore · BIM · URSSAF', route: '/integrations', color: '#6366F1' },
       ]});
     }
 
