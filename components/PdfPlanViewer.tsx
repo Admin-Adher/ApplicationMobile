@@ -15,6 +15,11 @@ const STATUS_COLORS: Record<string, string> = {
   verification: '#8B5CF6', closed: '#10B981',
 };
 
+function getCompanyColor(companyName: string | undefined | null, companies: Array<{ name: string; color: string }>): string {
+  if (!companyName || companyName === '__mixed__') return '#6B7280';
+  return companies.find(c => c.name === companyName)?.color ?? '#003082';
+}
+
 const PALETTE = [
   '#EF4444', '#F97316', '#EAB308', '#22C55E',
   '#3B82F6', '#8B5CF6', '#EC4899', '#1A2742', '#FFFFFF',
@@ -53,6 +58,7 @@ export interface PdfPlanViewerProps {
   onZoomChange?: (zoom: number) => void;
   isImagePlan?: boolean;
   onReady?: () => void;
+  companies?: Array<{ name: string; color: string }>;
 }
 
 export interface PdfPlanViewerHandle {
@@ -160,6 +166,7 @@ function buildMobileHtml(
   isImagePlan: boolean = false,
   ghostReserves: Reserve[] = [],
   pinSizes: Record<string, number> = {},
+  companies: Array<{ name: string; color: string }> = [],
 ): string {
   const pinsData = reserves
     .filter(r => r.planX != null && r.planY != null)
@@ -167,7 +174,7 @@ function buildMobileHtml(
       id: r.id,
       planX: r.planX,
       planY: r.planY,
-      color: STATUS_COLORS[r.status] ?? '#003082',
+      color: getCompanyColor(r.company, companies),
       num: pinMap.get(r.id) ?? '?',
       size: Math.round(pinSize * (pinSizes[r.id] ?? 1.0)),
     }));
@@ -177,7 +184,7 @@ function buildMobileHtml(
     .map(r => ({
       planX: r.planX,
       planY: r.planY,
-      color: STATUS_COLORS[r.status] ?? '#003082',
+      color: getCompanyColor(r.company, companies),
       num: pinMap.get(r.id) ?? '?',
     }));
 
@@ -761,6 +768,7 @@ const MobileViewer = forwardRef<PdfPlanViewerHandle, PdfPlanViewerProps>(functio
   reserves, ghostReserves = [], pinNumberMap, pinSizes = {}, focusedPinId,
   onReserveSelect, onPlanTap, onPinMove, onPinFocus,
   canAnnotate, canCreate, pinSize = 22, onZoomChange, isImagePlan = false, onReady,
+  companies = [],
 }, ref) {
   const WebView = require('react-native-webview').default;
   const webViewRef = useRef<any>(null);
@@ -851,7 +859,7 @@ const MobileViewer = forwardRef<PdfPlanViewerHandle, PdfPlanViewerProps>(functio
       .filter(r => r.planX != null && r.planY != null)
       .map(r => ({
         id: r.id, planX: r.planX, planY: r.planY,
-        color: STATUS_COLORS[r.status] ?? '#003082',
+        color: getCompanyColor(r.company, companies),
         num: pinNumberMap.get(r.id) ?? '?',
         size: Math.round(pinSize * (pinSizes[r.id] ?? 1.0)),
       }));
@@ -859,11 +867,11 @@ const MobileViewer = forwardRef<PdfPlanViewerHandle, PdfPlanViewerProps>(functio
       .filter(r => r.planX != null && r.planY != null)
       .map(r => ({
         planX: r.planX, planY: r.planY,
-        color: STATUS_COLORS[r.status] ?? '#003082',
+        color: getCompanyColor(r.company, companies),
         num: pinNumberMap.get(r.id) ?? '?',
       }));
     inject(`window.updatePins(${JSON.stringify(pinsData)},${JSON.stringify(ghostData)});`);
-  }, [reserves, ghostReserves, pinNumberMap, pinSizes, pinSize]);
+  }, [reserves, ghostReserves, pinNumberMap, pinSizes, pinSize, companies]);
 
   useEffect(() => {
     inject(`window.setFocusedPin && window.setFocusedPin(${focusedPinId ? JSON.stringify(focusedPinId) : 'null'});`);
@@ -900,7 +908,7 @@ const MobileViewer = forwardRef<PdfPlanViewerHandle, PdfPlanViewerProps>(functio
   }, [reserves, onPlanTap, onReserveSelect, onAnnotationsChange, onZoomChange, onPinMove, onPinFocus, onReady]);
 
   const html = resolvedUri
-    ? buildMobileHtml(resolvedUri, annotations ?? [], reserves, pinNumberMap, canAnnotate, canCreate, pinSize, isImagePlan, ghostReserves, pinSizes)
+    ? buildMobileHtml(resolvedUri, annotations ?? [], reserves, pinNumberMap, canAnnotate, canCreate, pinSize, isImagePlan, ghostReserves, pinSizes, companies)
     : '';
 
   function changePage(n: number) {
@@ -1096,7 +1104,7 @@ const mob = StyleSheet.create({
   widthSample: { width: 50, borderRadius: 3 },
 });
 
-const WebViewer = forwardRef<PdfPlanViewerHandle, PdfPlanViewerProps>(function WebViewerInner({ planUri, planId, annotations, onAnnotationsChange, reserves, ghostReserves = [], pinNumberMap, pinSizes = {}, focusedPinId, onReserveSelect, onPlanTap, onPinMove, onPinFocus, canAnnotate, canCreate, pinSize = 22, onZoomChange, isImagePlan = false, onReady }, ref) {
+const WebViewer = forwardRef<PdfPlanViewerHandle, PdfPlanViewerProps>(function WebViewerInner({ planUri, planId, annotations, onAnnotationsChange, reserves, ghostReserves = [], pinNumberMap, pinSizes = {}, focusedPinId, onReserveSelect, onPlanTap, onPinMove, onPinFocus, canAnnotate, canCreate, pinSize = 22, onZoomChange, isImagePlan = false, onReady, companies = [] }, ref) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const innerRef = useRef<HTMLDivElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -1641,7 +1649,7 @@ const WebViewer = forwardRef<PdfPlanViewerHandle, PdfPlanViewerProps>(function W
               </svg>
             )}
             {cw > 0 && ghostPinsOnPage.map(r => {
-              const col = STATUS_COLORS[r.status] ?? C.primary;
+              const col = getCompanyColor(r.company, companies);
               const num = pinNumberMap.get(r.id) ?? '?';
               return (
                 <div
@@ -1667,7 +1675,7 @@ const WebViewer = forwardRef<PdfPlanViewerHandle, PdfPlanViewerProps>(function W
               );
             })}
             {cw > 0 && pinsOnPage.map(r => {
-              const col = STATUS_COLORS[r.status] ?? C.primary;
+              const col = getCompanyColor(r.company, companies);
               const num = pinNumberMap.get(r.id) ?? '?';
               const sz = Math.round(pinSize * (pinSizes[r.id] ?? 1.0));
               const isFocused = focusedPinId === r.id;

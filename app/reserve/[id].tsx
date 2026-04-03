@@ -913,6 +913,7 @@ export default function ReserveDetailScreen() {
             canCreate={false}
             onZoomChange={() => {}}
             onReady={onCaptureViewerReady}
+            companies={companies}
           />
         </View>
       ) : null}

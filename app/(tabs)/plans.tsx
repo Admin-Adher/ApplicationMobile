@@ -1212,6 +1212,7 @@ export default function PlansScreen() {
                 canCreate={permissions.canCreate}
                 pinSize={pinSize}
                 onZoomChange={(z) => setPdfZoomPct(Math.round(z * 100))}
+                companies={companies}
               />
             ) : (
               <Animated.View
