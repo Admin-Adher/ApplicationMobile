@@ -893,6 +893,34 @@ export default function PlansScreen() {
     }
   }
 
+  const allVersions = useMemo(() => {
+    if (!currentPlan) return [];
+    // Walk up to find the root of this version family
+    let root = currentPlan;
+    const visited = new Set<string>();
+    while (root.parentPlanId && !visited.has(root.id)) {
+      visited.add(root.id);
+      const parent = chantierPlans.find(p => p.id === root.parentPlanId);
+      if (!parent) break;
+      root = parent;
+    }
+    // BFS from root to collect every version in the tree
+    const family: typeof chantierPlans = [];
+    const queue = [root.id];
+    const seen = new Set<string>();
+    while (queue.length > 0) {
+      const id = queue.shift()!;
+      if (seen.has(id)) continue;
+      seen.add(id);
+      const plan = chantierPlans.find(p => p.id === id);
+      if (plan) {
+        family.push(plan);
+        chantierPlans.filter(p => p.parentPlanId === id).forEach(child => queue.push(child.id));
+      }
+    }
+    return family.sort((a, b) => (b.revisionNumber ?? 0) - (a.revisionNumber ?? 0));
+  }, [currentPlan, chantierPlans]);
+
   if (!activeChantierId || chantierPlans.length === 0) {
     return (
       <View style={styles.container}>
@@ -954,33 +982,6 @@ export default function PlansScreen() {
     );
   }
 
-  const allVersions = useMemo(() => {
-    if (!currentPlan) return [];
-    // Walk up to find the root of this version family
-    let root = currentPlan;
-    const visited = new Set<string>();
-    while (root.parentPlanId && !visited.has(root.id)) {
-      visited.add(root.id);
-      const parent = chantierPlans.find(p => p.id === root.parentPlanId);
-      if (!parent) break;
-      root = parent;
-    }
-    // BFS from root to collect every version in the tree
-    const family: typeof chantierPlans = [];
-    const queue = [root.id];
-    const seen = new Set<string>();
-    while (queue.length > 0) {
-      const id = queue.shift()!;
-      if (seen.has(id)) continue;
-      seen.add(id);
-      const plan = chantierPlans.find(p => p.id === id);
-      if (plan) {
-        family.push(plan);
-        chantierPlans.filter(p => p.parentPlanId === id).forEach(child => queue.push(child.id));
-      }
-    }
-    return family.sort((a, b) => (b.revisionNumber ?? 0) - (a.revisionNumber ?? 0));
-  }, [currentPlan, chantierPlans]);
   const hasVersions = allVersions.length > 0 || currentPlan?.revisionCode;
 
   return (
