@@ -188,7 +188,7 @@ async function generateReportPDF(
 export default function ReservesScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
-  const { reserves, companies, isLoading, chantiers, activeChantierId, lots, batchUpdateReserves, updateReserveFields, deleteReserve, addComment } = useApp();
+  const { reserves, companies, isLoading, chantiers, activeChantierId, lots, batchUpdateReserves, updateReserveFields, updateReserveStatus, deleteReserve, addComment } = useApp();
   const { permissions, user } = useAuth();
 
   const isSousTraitant = user?.role === 'sous_traitant';
@@ -468,9 +468,12 @@ export default function ReservesScreen() {
       return;
     }
 
-    const updates: Partial<{ status: ReserveStatus; company: string; deadline: string }> = {};
+    const updates: Partial<{ status: ReserveStatus; company: string; companies: string[]; deadline: string }> = {};
     if (batchAction === 'status') updates.status = batchStatus;
-    if (batchAction === 'company' && batchCompany) updates.company = batchCompany;
+    if (batchAction === 'company' && batchCompany) {
+      updates.company = batchCompany;
+      updates.companies = [batchCompany];
+    }
     if (batchAction === 'deadline' && batchDeadline) updates.deadline = batchDeadline;
     if (Object.keys(updates).length === 0) return;
     batchUpdateReserves(ids, updates, user?.name);
@@ -499,7 +502,7 @@ export default function ReservesScreen() {
 
   function applyQuickStatus(newStatus: ReserveStatus) {
     if (!quickStatusReserve) return;
-    updateReserveFields({ ...quickStatusReserve, status: newStatus });
+    updateReserveStatus(quickStatusReserve.id, newStatus, user?.name ?? 'Conducteur de travaux');
     setQuickStatusVisible(false);
     setQuickStatusReserve(null);
   }
@@ -510,7 +513,7 @@ export default function ReservesScreen() {
       `Clôturer "${reserve.title}" ?`,
       [
         { text: 'Annuler', style: 'cancel' },
-        { text: 'Clôturer', onPress: () => updateReserveFields({ ...reserve, status: 'closed' }) },
+        { text: 'Clôturer', onPress: () => updateReserveStatus(reserve.id, 'closed', user?.name ?? 'Conducteur de travaux') },
       ]
     );
   }
@@ -854,7 +857,7 @@ export default function ReservesScreen() {
                             style={[styles.quickStatusBtn, { borderColor: color }, active && { backgroundColor: color }]}
                             onPress={() => {
                               if (!active) {
-                                updateReserveFields({ ...selectedReserve, status: s });
+                                updateReserveStatus(selectedReserve.id, s, user?.name ?? 'Conducteur de travaux');
                                 setSelectedReserveId(null);
                                 setTimeout(() => setSelectedReserveId(selectedReserve.id), 50);
                               }
@@ -871,8 +874,8 @@ export default function ReservesScreen() {
                   </View>
                 )}
 
-                {selectedReserve.photoUri ? (
-                  <Image source={{ uri: selectedReserve.photoUri }} style={styles.detailPhoto} resizeMode="cover" />
+                {(selectedReserve.photos?.[0]?.uri ?? selectedReserve.photoUri) ? (
+                  <Image source={{ uri: selectedReserve.photos?.[0]?.uri ?? selectedReserve.photoUri }} style={styles.detailPhoto} resizeMode="cover" />
                 ) : null}
 
                 <View style={styles.detailCard}>
@@ -887,7 +890,12 @@ export default function ReservesScreen() {
                   </View>
                   <View style={styles.detailRow}>
                     <Ionicons name="people-outline" size={14} color={C.textMuted} />
-                    <Text style={styles.detailMeta}>{selectedReserve.company}</Text>
+                    <Text style={styles.detailMeta}>
+                      {(selectedReserve.companies && selectedReserve.companies.length > 0
+                        ? selectedReserve.companies
+                        : selectedReserve.company ? [selectedReserve.company] : ['—']
+                      ).join(', ')}
+                    </Text>
                   </View>
                   {selectedReserve.deadline && selectedReserve.deadline !== '—' && (
                     <View style={styles.detailRow}>
