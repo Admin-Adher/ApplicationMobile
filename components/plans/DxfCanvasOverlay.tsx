@@ -11,7 +11,8 @@ interface Props {
 }
 
 function buildDxfHtml(dxf: DxfParseResult, visibleLayers: string[], W: number, H: number): string {
-  const entities = dxf.entities.slice(0, 8000);
+  const MAX_ENTITIES = 25000;
+  const entities = dxf.entities.slice(0, MAX_ENTITIES);
   const bounds = {
     minX: dxf.minX, minY: dxf.minY,
     maxX: dxf.maxX, maxY: dxf.maxY,
@@ -25,9 +26,9 @@ function buildDxfHtml(dxf: DxfParseResult, visibleLayers: string[], W: number, H
 <html><head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1">
-<style>*{margin:0;padding:0;}html,body{width:${W}px;height:${H}px;overflow:hidden;background:transparent;}canvas{display:block;}</style>
+<style>*{margin:0;padding:0;}html,body{width:${W}px;height:${H}px;overflow:hidden;background:transparent;}canvas{display:block;position:absolute;top:0;left:0;}</style>
 </head><body>
-<canvas id="c" width="${W}" height="${H}" style="width:${W}px;height:${H}px;"></canvas>
+<canvas id="c" style="width:${W}px;height:${H}px;"></canvas>
 <script>
 (function(){
 var entities=${entitiesJson};
@@ -35,7 +36,11 @@ var b=${boundsJson};
 var vis=${visJson};
 var W=${W},H=${H};
 var canvas=document.getElementById('c');
+var dpr=window.devicePixelRatio||1;
+canvas.width=Math.round(W*dpr);
+canvas.height=Math.round(H*dpr);
 var ctx=canvas.getContext('2d');
+ctx.scale(dpr,dpr);
 
 function norm(x,y){
   var pad=8;
@@ -50,9 +55,9 @@ function norm(x,y){
   };
 }
 
-ctx.strokeStyle='rgba(96,165,250,0.85)';
-ctx.fillStyle='rgba(147,197,253,0.8)';
-ctx.lineWidth=0.8;
+ctx.strokeStyle='rgba(96,165,250,0.9)';
+ctx.fillStyle='rgba(147,197,253,0.85)';
+ctx.lineWidth=0.7;
 ctx.font='5px Arial';
 
 entities.forEach(function(e){
@@ -60,7 +65,7 @@ entities.forEach(function(e){
   if(e.type==='LINE'){
     var p1=norm(e.x1,e.y1),p2=norm(e.x2,e.y2);
     var dx=p2.x-p1.x,dy=p2.y-p1.y;
-    if(dx*dx+dy*dy<0.09)return;
+    if(dx*dx+dy*dy<0.04)return;
     ctx.beginPath();ctx.moveTo(p1.x,p1.y);ctx.lineTo(p2.x,p2.y);ctx.stroke();
   }else if(e.type==='LWPOLYLINE'){
     var pts=e.closed?e.points.concat([e.points[0]]):e.points;
@@ -72,11 +77,13 @@ entities.forEach(function(e){
   }else if(e.type==='CIRCLE'){
     var scX=(W-16)/(b.width||1);var scY=(H-16)/(b.height||1);
     var r=e.r*Math.min(scX,scY);
+    if(r<0.3)return;
     var pc=norm(e.cx,e.cy);
     ctx.beginPath();ctx.arc(pc.x,pc.y,r,0,Math.PI*2);ctx.stroke();
   }else if(e.type==='ARC'){
     var scX2=(W-16)/(b.width||1);var scY2=(H-16)/(b.height||1);
     var r2=e.r*Math.min(scX2,scY2);
+    if(r2<0.3)return;
     var pa=norm(e.cx,e.cy);
     var sa=(360-e.endAngle)*Math.PI/180;var ea=(360-e.startAngle)*Math.PI/180;
     ctx.beginPath();ctx.arc(pa.x,pa.y,r2,sa,ea);ctx.stroke();
@@ -108,10 +115,10 @@ export default function DxfCanvasOverlay({ dxf, visibleLayers = [], planW, planH
           sandbox="allow-scripts"
           title="DXF overlay"
         />
-        {dxf.entities.length > 8000 && (
+        {dxf.entities.length > 25000 && (
           <View style={{ position: 'absolute', bottom: 4, left: 4, right: 4, backgroundColor: '#78350F', borderRadius: 4, paddingHorizontal: 6, paddingVertical: 3 }}>
             <Text style={{ fontSize: 9, color: '#FDE68A', textAlign: 'center' }}>
-              Plan tronqué — 8000 entités max ({dxf.entities.length} au total)
+              Plan tronqué — 25 000 entités max ({dxf.entities.length} au total)
             </Text>
           </View>
         )}
@@ -133,10 +140,10 @@ export default function DxfCanvasOverlay({ dxf, visibleLayers = [], planW, planH
         backgroundColor="transparent"
         scalesPageToFit={false}
       />
-      {dxf.entities.length > 8000 && (
+      {dxf.entities.length > 25000 && (
         <View style={{ position: 'absolute', bottom: 4, left: 4, right: 4, backgroundColor: '#78350F', borderRadius: 4, paddingHorizontal: 6, paddingVertical: 3 }}>
           <Text style={{ fontSize: 9, color: '#FDE68A', textAlign: 'center' }}>
-            Plan tronqué — 8000 entités max ({dxf.entities.length} au total)
+            Plan tronqué — 25 000 entités max ({dxf.entities.length} au total)
           </Text>
         </View>
       )}

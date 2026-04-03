@@ -359,49 +359,78 @@ if(!IS_IMAGE){
   pdfjsLib.GlobalWorkerOptions.workerSrc='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
 }
 
-function renderPage(num){
+var BASE_FIT_SCALE=1;
+var RENDER_QUALITY=3;
+var rerenderTimer=null;
+var isRerendering=false;
+
+function renderPageAtQuality(num,q,resetView){
+  if(isRerendering)return Promise.resolve();
+  isRerendering=true;
   return pdfDoc.getPage(num).then(function(page){
     var W=window.innerWidth||600;
     var vp1=page.getViewport({scale:1});
-    var scale=W/vp1.width;
-    var vp=page.getViewport({scale:scale});
-    var dpr=window.devicePixelRatio||1;
-    pdfCanvas.width=Math.round(vp.width*dpr);
-    pdfCanvas.height=Math.round(vp.height*dpr);
-    pdfCanvas.style.width=vp.width+'px';
-    pdfCanvas.style.height=vp.height+'px';
-    cw=vp.width;ch=vp.height;
-    setSvgSize();
+    var fitScale=W/vp1.width;
+    BASE_FIT_SCALE=fitScale;
+    var renderScale=fitScale*q;
+    var vp=page.getViewport({scale:renderScale});
+    var cssW=W;
+    var cssH=Math.round(vp.height/q);
+    pdfCanvas.width=Math.round(vp.width);
+    pdfCanvas.height=Math.round(vp.height);
+    pdfCanvas.style.width=cssW+'px';
+    pdfCanvas.style.height=cssH+'px';
+    if(resetView){cw=cssW;ch=cssH;setSvgSize();}
     var ctx=pdfCanvas.getContext('2d');
-    ctx.scale(dpr,dpr);
+    ctx.clearRect(0,0,pdfCanvas.width,pdfCanvas.height);
     return page.render({canvasContext:ctx,viewport:vp}).promise.then(function(){
-      var contW=window.innerWidth,contH=window.innerHeight;
-      zoom=1;
-      panX=Math.max(0,(contW-cw)/2);
-      panY=Math.max(0,(contH-ch)/2);
-      applyT();
-      renderAnns();
-      renderPins();
+      isRerendering=false;
+      if(resetView){
+        var contW=window.innerWidth,contH=window.innerHeight;
+        zoom=1;
+        panX=Math.max(0,(contW-cw)/2);
+        panY=Math.max(0,(contH-ch)/2);
+        applyT();
+        renderAnns();
+        renderPins();
+      }
     });
-  });
+  }).catch(function(){isRerendering=false;});
+}
+
+function renderPage(num){
+  return renderPageAtQuality(num,RENDER_QUALITY,true);
+}
+
+function scheduleAdaptiveRerender(){
+  if(!pdfDoc||IS_IMAGE)return;
+  clearTimeout(rerenderTimer);
+  rerenderTimer=setTimeout(function(){
+    var neededQ=Math.max(RENDER_QUALITY,Math.ceil(zoom*1.5)*2);
+    neededQ=Math.min(neededQ,12);
+    if(zoom>RENDER_QUALITY*0.85&&neededQ>RENDER_QUALITY){
+      renderPageAtQuality(pageNum,neededQ,false);
+    }
+  },450);
 }
 
 if(IS_IMAGE){
   var img=new Image();
   img.crossOrigin='anonymous';
   img.onload=function(){
-    var dpr=window.devicePixelRatio||1;
     var W=window.innerWidth||600;
     var aspect=img.naturalHeight/(img.naturalWidth||1);
+    var IQ=3;
     cw=W;ch=Math.round(W*aspect);
-    pdfCanvas.width=Math.round(cw*dpr);
-    pdfCanvas.height=Math.round(ch*dpr);
+    pdfCanvas.width=Math.round(cw*IQ);
+    pdfCanvas.height=Math.round(ch*IQ);
     pdfCanvas.style.width=cw+'px';
     pdfCanvas.style.height=ch+'px';
     setSvgSize();
     var ctx2d=pdfCanvas.getContext('2d');
-    ctx2d.scale(dpr,dpr);
-    ctx2d.drawImage(img,0,0,cw,ch);
+    ctx2d.imageSmoothingEnabled=true;
+    ctx2d.imageSmoothingQuality='high';
+    ctx2d.drawImage(img,0,0,Math.round(cw*IQ),Math.round(ch*IQ));
     var contW=window.innerWidth,contH=window.innerHeight;
     zoom=1;
     panX=Math.max(0,(contW-cw)/2);
@@ -473,7 +502,7 @@ container.addEventListener('touchmove',function(e){
     var midY=(t[0].clientY+t[1].clientY)/2;
     var r=container.getBoundingClientRect();
     var cx=midX-r.left,cy=midY-r.top;
-    var newZ=Math.min(8,Math.max(0.2,pinchZoom0*(dist/pinchDist0)));
+    var newZ=Math.min(12,Math.max(0.2,pinchZoom0*(dist/pinchDist0)));
     panX=cx-(cx-panX)*newZ/zoom;
     panY=cy-(cy-panY)*newZ/zoom;
     zoom=newZ;applyT();
@@ -503,6 +532,7 @@ container.addEventListener('touchend',function(e){
     isPinching=false;
     lastPinchEndTime=Date.now();
     panning=false;isDragging=false;
+    scheduleAdaptiveRerender();
     return;
   }
   if(mode==='annotate'&&drawing&&live){
@@ -525,10 +555,11 @@ container.addEventListener('touchend',function(e){
     if(isDoubleTap){
       var r=container.getBoundingClientRect();
       var cx=ct.clientX-r.left,cy=ct.clientY-r.top;
-      var nz=zoom>=3?1:Math.min(8,zoom*2);
+      var nz=zoom>=4?1:Math.min(12,zoom*2.5);
       panX=cx-(cx-panX)*nz/zoom;panY=cy-(cy-panY)*nz/zoom;
       zoom=nz;applyT();
       post({type:'zoomChange',zoom:zoom});
+      scheduleAdaptiveRerender();
       lastTapTime=0;
     } else if(CAN_CREATE){
       var c=screenToCanvas(ct.clientX,ct.clientY);
@@ -584,13 +615,14 @@ window.goPage=function(n){
 };
 window.zoomIn=function(){
   var cx=window.innerWidth/2,cy=window.innerHeight/2;
-  var nz=Math.min(8,zoom*1.35);
+  var nz=Math.min(12,zoom*1.4);
   panX=cx-(cx-panX)*nz/zoom;panY=cy-(cy-panY)*nz/zoom;
   zoom=nz;applyT();post({type:'zoomChange',zoom:zoom});
+  scheduleAdaptiveRerender();
 };
 window.zoomOut=function(){
   var cx=window.innerWidth/2,cy=window.innerHeight/2;
-  var nz=Math.max(0.2,zoom/1.35);
+  var nz=Math.max(0.2,zoom/1.4);
   panX=cx-(cx-panX)*nz/zoom;panY=cy-(cy-panY)*nz/zoom;
   zoom=nz;applyT();post({type:'zoomChange',zoom:zoom});
 };
@@ -982,15 +1014,16 @@ const WebViewer = forwardRef<PdfPlanViewerHandle, PdfPlanViewerProps>(function W
         const W = el ? el.clientWidth || 600 : 600;
         const aspect = img.naturalHeight / (img.naturalWidth || 1);
         const newW = W, newH = Math.round(W * aspect);
-        const dpr = window.devicePixelRatio || 1;
+        const IQ = 3;
         const canvas = canvasRef.current!;
-        canvas.width = Math.round(newW * dpr);
-        canvas.height = Math.round(newH * dpr);
+        canvas.width = Math.round(newW * IQ);
+        canvas.height = Math.round(newH * IQ);
         canvas.style.width = `${newW}px`;
         canvas.style.height = `${newH}px`;
         const ctx = canvas.getContext('2d')!;
-        ctx.scale(dpr, dpr);
-        ctx.drawImage(img, 0, 0, newW, newH);
+        ctx.imageSmoothingEnabled = true;
+        (ctx as any).imageSmoothingQuality = 'high';
+        ctx.drawImage(img, 0, 0, Math.round(newW * IQ), Math.round(newH * IQ));
         setCw(newW); setCh(newH);
         if (el) {
           const cRect = el.getBoundingClientRect();
@@ -1034,17 +1067,19 @@ const WebViewer = forwardRef<PdfPlanViewerHandle, PdfPlanViewerProps>(function W
         const el = containerRef.current;
         const w = el ? el.clientWidth || 600 : 600;
         const vp1 = pg.getViewport({ scale: 1 });
-        const scale = w / vp1.width;
-        const vp = pg.getViewport({ scale });
-        const dpr = window.devicePixelRatio || 1;
+        const WEB_QUALITY = 3;
+        const fitScale = w / vp1.width;
+        const renderScale = fitScale * WEB_QUALITY;
+        const vp = pg.getViewport({ scale: renderScale });
         const canvas = canvasRef.current!;
-        canvas.width = Math.round(vp.width * dpr);
-        canvas.height = Math.round(vp.height * dpr);
-        canvas.style.width = `${vp.width}px`;
-        canvas.style.height = `${vp.height}px`;
-        const newW = vp.width, newH = vp.height;
+        canvas.width = Math.round(vp.width);
+        canvas.height = Math.round(vp.height);
+        const newW = w;
+        const newH = Math.round(vp.height / WEB_QUALITY);
+        canvas.style.width = `${newW}px`;
+        canvas.style.height = `${newH}px`;
         const ctx = canvas.getContext('2d')!;
-        ctx.scale(dpr, dpr);
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
         const task = pg.render({ canvasContext: ctx, viewport: vp });
         renderTaskRef.current = task;
         await task.promise;
