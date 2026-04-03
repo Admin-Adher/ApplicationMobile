@@ -1136,9 +1136,37 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         const { data: chantiersData, error: chantiersErr } = await supabase
           .from('chantiers').select('*').order('created_at', { ascending: false });
         if (!chantiersErr && chantiersData !== null) {
-          chantiers = chantiersData.map(toChantier);
-          // Always refresh local cache so the fallback is up-to-date
-          persistMockChantiers(chantiers);
+          const supabaseChantiers = chantiersData.map(toChantier);
+          if (supabaseChantiers.length > 0) {
+            chantiers = supabaseChantiers;
+            persistMockChantiers(chantiers);
+          } else {
+            // Supabase returned 0 — check local cache before trusting this empty result
+            const sc = await AsyncStorage.getItem(MOCK_CHANTIERS_KEY).catch(() => null);
+            const localChantiers: Chantier[] = sc ? (JSON.parse(sc) ?? []) : [];
+            if (localChantiers.length > 0) {
+              // Local cache has data that Supabase doesn't — push it up automatically
+              console.log(`[AppContext] Supabase chantiers vide, synchronisation du cache local (${localChantiers.length} chantiers)...`);
+              chantiers = localChantiers;
+              (async () => {
+                for (const ch of localChantiers) {
+                  const { error: syncErr } = await supabase.from('chantiers').upsert({
+                    id: ch.id,
+                    name: ch.name,
+                    address: ch.address ?? null,
+                    description: ch.description ?? null,
+                    start_date: ch.startDate ?? null,
+                    end_date: ch.endDate ?? null,
+                    status: ch.status,
+                    created_by: ch.createdBy ?? null,
+                  });
+                  if (syncErr) console.warn('[AppContext] Échec sync chantier local→Supabase:', ch.name, syncErr.message);
+                }
+              })();
+            } else {
+              chantiers = [];
+            }
+          }
         } else {
           const sc = await AsyncStorage.getItem(MOCK_CHANTIERS_KEY);
           if (sc) {
@@ -1157,11 +1185,38 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         const { data: sitePlansData, error: sitePlansErr } = await supabase
           .from('site_plans').select('*').order('created_at', { ascending: false });
         if (!sitePlansErr && sitePlansData !== null) {
-          sitePlans = sitePlansData.map(toSitePlan);
-          // Always refresh local cache so the fallback is up-to-date
-          persistMockSitePlans(sitePlans);
+          const supabasePlans = sitePlansData.map(toSitePlan);
+          if (supabasePlans.length > 0) {
+            sitePlans = supabasePlans;
+            persistMockSitePlans(sitePlans);
+          } else {
+            // Supabase returned 0 — check local cache before overwriting
+            const ssp = await AsyncStorage.getItem(MOCK_SITE_PLANS_KEY).catch(() => null);
+            const localPlans: SitePlan[] = ssp ? (JSON.parse(ssp) ?? []) : [];
+            if (localPlans.length > 0) {
+              console.log(`[AppContext] Supabase site_plans vide, synchronisation du cache local (${localPlans.length} plans)...`);
+              sitePlans = localPlans;
+              (async () => {
+                for (const p of localPlans) {
+                  const { error: syncErr } = await supabase.from('site_plans').upsert({
+                    id: p.id,
+                    chantier_id: p.chantierId,
+                    name: p.name,
+                    building: p.building ?? null,
+                    level: p.level ?? null,
+                    uri: p.uri ?? null,
+                    file_type: p.fileType ?? null,
+                    uploaded_at: p.uploadedAt,
+                    size: p.size ?? null,
+                  });
+                  if (syncErr) console.warn('[AppContext] Échec sync plan local→Supabase:', p.name, syncErr.message);
+                }
+              })();
+            } else {
+              sitePlans = [];
+            }
+          }
         } else {
-          // Supabase returned an error — fall back to local cache
           const ssp = await AsyncStorage.getItem(MOCK_SITE_PLANS_KEY);
           if (ssp) {
             const p = JSON.parse(ssp);
@@ -1170,7 +1225,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           console.warn('Erreur chargement site_plans Supabase, utilisation du cache local:', sitePlansErr?.message);
         }
       } catch (e) {
-        // Network/unexpected error — fall back to local cache
         const ssp = await AsyncStorage.getItem(MOCK_SITE_PLANS_KEY).catch(() => null);
         if (ssp) { const p = JSON.parse(ssp); if (Array.isArray(p)) sitePlans = p; }
         console.warn('Exception chargement site_plans, cache local utilisé:', e);
@@ -2536,33 +2590,45 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       persistMockChantiers(newChantiers);
       persistMockSitePlans(newSitePlans);
       if (isSupabaseConfigured) {
-        supabase.from('chantiers').insert({
-          id: c.id,
-          name: c.name,
-          address: c.address ?? null,
-          description: c.description ?? null,
-          start_date: c.startDate ?? null,
-          end_date: c.endDate ?? null,
-          status: c.status,
-          created_by: c.createdBy ?? null,
-        }).then(({ error }: { error: any }) => {
-          if (error) console.warn('Erreur sauvegarde chantier Supabase (données conservées localement):', error.message);
-        });
-        plans.forEach(p => {
-          supabase.from('site_plans').insert({
-            id: p.id,
-            chantier_id: p.chantierId,
-            name: p.name,
-            building: p.building ?? null,
-            level: p.level ?? null,
-            uri: p.uri ?? null,
-            file_type: p.fileType ?? null,
-            uploaded_at: p.uploadedAt,
-            size: p.size ?? null,
-          }).then(({ error }: { error: any }) => {
-            if (error) console.warn('Erreur sauvegarde plan initial chantier Supabase:', error.message);
-          });
-        });
+        (async () => {
+          const chantierPayload = {
+            id: c.id,
+            name: c.name,
+            address: c.address ?? null,
+            description: c.description ?? null,
+            start_date: c.startDate ?? null,
+            end_date: c.endDate ?? null,
+            status: c.status,
+            created_by: c.createdBy ?? null,
+          };
+          let { error } = await supabase.from('chantiers').insert(chantierPayload);
+          if (error) {
+            await supabase.auth.refreshSession().catch(() => {});
+            const { error: err2 } = await supabase.from('chantiers').insert(chantierPayload);
+            if (err2) {
+              Alert.alert(
+                'Synchronisation incomplète',
+                `Le chantier "${c.name}" a été créé localement mais n'a pas pu être synchronisé avec le serveur (${err2.message}). Il sera automatiquement synchronisé à votre reconnexion.`,
+                [{ text: 'OK' }]
+              );
+            }
+          }
+          for (const p of plans) {
+            const planPayload = {
+              id: p.id,
+              chantier_id: p.chantierId,
+              name: p.name,
+              building: p.building ?? null,
+              level: p.level ?? null,
+              uri: p.uri ?? null,
+              file_type: p.fileType ?? null,
+              uploaded_at: p.uploadedAt,
+              size: p.size ?? null,
+            };
+            const { error: planErr } = await supabase.from('site_plans').insert(planPayload);
+            if (planErr) console.warn('Erreur sauvegarde plan initial chantier Supabase:', planErr.message);
+          }
+        })();
       }
     },
 
@@ -2571,16 +2637,22 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       dispatch({ type: 'UPDATE_CHANTIER', payload: c });
       persistMockChantiers(updated);
       if (isSupabaseConfigured) {
-        supabase.from('chantiers').update({
-          name: c.name,
-          address: c.address ?? null,
-          description: c.description ?? null,
-          start_date: c.startDate ?? null,
-          end_date: c.endDate ?? null,
-          status: c.status,
-        }).eq('id', c.id).then(({ error }: { error: any }) => {
-          if (error) console.warn('Erreur mise à jour chantier Supabase (données conservées localement):', error.message);
-        });
+        (async () => {
+          const updatePayload = {
+            name: c.name,
+            address: c.address ?? null,
+            description: c.description ?? null,
+            start_date: c.startDate ?? null,
+            end_date: c.endDate ?? null,
+            status: c.status,
+          };
+          const { error } = await supabase.from('chantiers').update(updatePayload).eq('id', c.id);
+          if (error) {
+            await supabase.auth.refreshSession().catch(() => {});
+            const { error: err2 } = await supabase.from('chantiers').update(updatePayload).eq('id', c.id);
+            if (err2) console.warn('Erreur mise à jour chantier Supabase (données conservées localement):', err2.message);
+          }
+        })();
       }
     },
 
