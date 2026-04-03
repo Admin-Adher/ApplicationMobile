@@ -399,12 +399,14 @@ function renderPins(){
       pinDrag=false;pinMoved=false;
       psx=e.touches[0].clientX;psy=e.touches[0].clientY;
       lpTimer=setTimeout(function(){
-        pinDrag=true;
         post({type:'pinFocus',reserveId:pin.id});
-        div.style.transform='scale(1.35)';
-        div.style.boxShadow='0 8px 28px rgba(0,0,0,0.75)';
-        div.style.zIndex='999';
-        div.style.transition='none';
+        if(CAN_CREATE){
+          pinDrag=true;
+          div.style.transform='scale(1.35)';
+          div.style.boxShadow='0 8px 28px rgba(0,0,0,0.75)';
+          div.style.zIndex='999';
+          div.style.transition='none';
+        }
       },480);
     },{passive:true});
 
@@ -1068,7 +1070,7 @@ const mob = StyleSheet.create({
   widthSample: { width: 50, borderRadius: 3 },
 });
 
-const WebViewer = forwardRef<PdfPlanViewerHandle, PdfPlanViewerProps>(function WebViewerInner({ planUri, planId, annotations, onAnnotationsChange, reserves, ghostReserves = [], pinNumberMap, onReserveSelect, onPlanTap, canAnnotate, canCreate, pinSize = 22, onZoomChange, isImagePlan = false }, ref) {
+const WebViewer = forwardRef<PdfPlanViewerHandle, PdfPlanViewerProps>(function WebViewerInner({ planUri, planId, annotations, onAnnotationsChange, reserves, ghostReserves = [], pinNumberMap, pinSizes = {}, focusedPinId, onReserveSelect, onPlanTap, onPinMove, onPinFocus, canAnnotate, canCreate, pinSize = 22, onZoomChange, isImagePlan = false }, ref) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const innerRef = useRef<HTMLDivElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -1104,6 +1106,12 @@ const WebViewer = forwardRef<PdfPlanViewerHandle, PdfPlanViewerProps>(function W
   const pinchZoom = useRef(1);
   const lastTouchEndTime = useRef(0);
   const lastTapRef = useRef<{ t: number; x: number; y: number }>({ t: 0, x: 0, y: 0 });
+
+  const pinDragRef = useRef<{ id: string; el: HTMLElement; startX: number; startY: number; origLeft: number; origTop: number; sz: number } | null>(null);
+  const pinDragActiveRef = useRef(false);
+  const pinDragDidMoveRef = useRef(false);
+  const pinJustMovedRef = useRef(false);
+  const pinLpTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const applyT = useCallback(() => {
     if (!innerRef.current) return;
@@ -1283,6 +1291,23 @@ const WebViewer = forwardRef<PdfPlanViewerHandle, PdfPlanViewerProps>(function W
   };
 
   const onContainerMove = (e: React.MouseEvent<HTMLDivElement>) => {
+    if (pinDragActiveRef.current && pinDragRef.current) {
+      const dx = (e.clientX - pinDragRef.current.startX) / zoomRef.current;
+      const dy = (e.clientY - pinDragRef.current.startY) / zoomRef.current;
+      pinDragRef.current.el.style.left = (pinDragRef.current.origLeft + dx - pinDragRef.current.sz / 2) + 'px';
+      pinDragRef.current.el.style.top = (pinDragRef.current.origTop + dy - pinDragRef.current.sz / 2) + 'px';
+      pinDragDidMoveRef.current = true;
+      return;
+    }
+    if (pinLpTimerRef.current && pinDragRef.current) {
+      const dx = e.clientX - pinDragRef.current.startX;
+      const dy = e.clientY - pinDragRef.current.startY;
+      if (Math.sqrt(dx * dx + dy * dy) > 8) {
+        clearTimeout(pinLpTimerRef.current);
+        pinLpTimerRef.current = null;
+        pinDragRef.current = null;
+      }
+    }
     if (!panning.current) return;
     panXRef.current = panStart.current.px + (e.clientX - panStart.current.x);
     panYRef.current = panStart.current.py + (e.clientY - panStart.current.y);
@@ -1290,6 +1315,28 @@ const WebViewer = forwardRef<PdfPlanViewerHandle, PdfPlanViewerProps>(function W
   };
 
   const onContainerUp = (e: React.MouseEvent<HTMLDivElement>) => {
+    if (pinLpTimerRef.current) { clearTimeout(pinLpTimerRef.current); pinLpTimerRef.current = null; }
+    if (pinDragActiveRef.current && pinDragRef.current) {
+      const d = pinDragRef.current;
+      if (pinDragDidMoveRef.current) {
+        const cx = parseFloat(d.el.style.left) + d.sz / 2;
+        const cy = parseFloat(d.el.style.top) + d.sz / 2;
+        const { px, py } = toPercent(cx, cy);
+        onPinMove?.(d.id, px, py);
+        pinJustMovedRef.current = true;
+      }
+      d.el.style.transform = '';
+      d.el.style.boxShadow = '0 2px 8px rgba(0,0,0,0.5)';
+      d.el.style.zIndex = '10';
+      d.el.style.transition = 'transform 0.12s';
+      pinDragRef.current = null;
+      pinDragActiveRef.current = false;
+      pinDragDidMoveRef.current = false;
+      if (Date.now() - lastTouchEndTime.current < 500) return;
+      panning.current = false;
+      e.currentTarget.style.cursor = mode === 'annotate' ? 'crosshair' : 'grab';
+      return;
+    }
     if (Date.now() - lastTouchEndTime.current < 500) return;
     panning.current = false;
     e.currentTarget.style.cursor = mode === 'annotate' ? 'crosshair' : 'grab';
@@ -1303,6 +1350,37 @@ const WebViewer = forwardRef<PdfPlanViewerHandle, PdfPlanViewerProps>(function W
         }
       }
     }
+  };
+
+  const onPinMouseDown = (e: React.MouseEvent<HTMLDivElement>, r: Reserve) => {
+    e.stopPropagation();
+    if (mode === 'annotate') return;
+    const sz = Math.round(pinSize * (pinSizes[r.id] ?? 1.0));
+    const el = e.currentTarget as HTMLElement;
+    const startX = e.clientX;
+    const startY = e.clientY;
+    pinDragDidMoveRef.current = false;
+    pinJustMovedRef.current = false;
+    pinDragRef.current = {
+      id: r.id,
+      el,
+      startX,
+      startY,
+      origLeft: (r.planX! / 100) * cw,
+      origTop: (r.planY! / 100) * ch,
+      sz,
+    };
+    pinLpTimerRef.current = setTimeout(() => {
+      pinLpTimerRef.current = null;
+      onPinFocus?.(r.id);
+      if (canCreate) {
+        pinDragActiveRef.current = true;
+        el.style.transform = 'scale(1.35)';
+        el.style.boxShadow = '0 8px 28px rgba(0,0,0,0.75)';
+        el.style.zIndex = '999';
+        el.style.transition = 'none';
+      }
+    }, 400);
   };
 
   const onWheel = (e: React.WheelEvent<HTMLDivElement>) => {
@@ -1554,30 +1632,36 @@ const WebViewer = forwardRef<PdfPlanViewerHandle, PdfPlanViewerProps>(function W
             {cw > 0 && pinsOnPage.map(r => {
               const col = STATUS_COLORS[r.status] ?? C.primary;
               const num = pinNumberMap.get(r.id) ?? '?';
+              const sz = Math.round(pinSize * (pinSizes[r.id] ?? 1.0));
+              const isFocused = focusedPinId === r.id;
               return (
                 <div
                   key={r.id}
                   data-pin
-                  onClick={(e: any) => { e.stopPropagation(); onReserveSelect(r); }}
+                  onMouseDown={(e: any) => onPinMouseDown(e, r)}
+                  onClick={(e: any) => {
+                    e.stopPropagation();
+                    if (!pinJustMovedRef.current) onReserveSelect(r);
+                  }}
                   style={{
                     position: 'absolute',
-                    left: (r.planX! / 100) * cw - pinSize / 2,
-                    top: (r.planY! / 100) * ch - pinSize / 2,
-                    width: pinSize, height: pinSize, borderRadius: pinSize / 2,
+                    left: (r.planX! / 100) * cw - sz / 2,
+                    top: (r.planY! / 100) * ch - sz / 2,
+                    width: sz, height: sz, borderRadius: sz / 2,
                     backgroundColor: col,
                     display: 'flex', alignItems: 'center', justifyContent: 'center',
                     cursor: 'pointer',
-                    border: '2px solid rgba(255,255,255,0.85)',
-                    boxShadow: '0 2px 8px rgba(0,0,0,0.5)',
-                    zIndex: 10,
+                    border: isFocused ? '3px solid #FFD700' : '2px solid rgba(255,255,255,0.85)',
+                    boxShadow: isFocused ? '0 0 0 3px rgba(255,215,0,0.55), 0 2px 8px rgba(0,0,0,0.5)' : '0 2px 8px rgba(0,0,0,0.5)',
+                    zIndex: isFocused ? 15 : 10,
                     pointerEvents: mode === 'annotate' ? 'none' : 'all',
                     transition: 'transform 0.12s',
                     userSelect: 'none',
                   } as any}
-                  onMouseEnter={(e: any) => { e.currentTarget.style.transform = 'scale(1.25)'; }}
-                  onMouseLeave={(e: any) => { e.currentTarget.style.transform = 'scale(1)'; }}
+                  onMouseEnter={(e: any) => { if (!pinDragActiveRef.current) e.currentTarget.style.transform = 'scale(1.25)'; }}
+                  onMouseLeave={(e: any) => { if (!pinDragActiveRef.current) e.currentTarget.style.transform = 'scale(1)'; }}
                 >
-                  <span style={{ color: '#fff', fontSize: Math.max(8, Math.round(pinSize * 0.42)), fontWeight: '700', fontFamily: 'Arial' } as any}>
+                  <span style={{ color: '#fff', fontSize: Math.max(8, Math.round(sz * 0.42)), fontWeight: '700', fontFamily: 'Arial' } as any}>
                     {num}
                   </span>
                 </div>
