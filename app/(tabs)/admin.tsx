@@ -161,6 +161,8 @@ export default function AdminScreen() {
 
   const [workerLocalMap, setWorkerLocalMap] = useState<Record<string, number>>({});
   const [hoursLocalMap, setHoursLocalMap] = useState<Record<string, number>>({});
+  const [hoursEditId, setHoursEditId] = useState<string | null>(null);
+  const [hoursInputVal, setHoursInputVal] = useState('');
 
   useEffect(() => {
     const w: Record<string, number> = {};
@@ -328,21 +330,23 @@ export default function AdminScreen() {
     showToast('Rôle mis à jour');
   }
 
-  function handleDeleteUser(u: { id: string; name: string }) {
+  function handleDeleteUser(u: { id: string; name: string; role: string }) {
     if (u.id === user?.id) {
       Alert.alert('Action impossible', 'Vous ne pouvez pas supprimer votre propre compte.');
       return;
     }
+    const isPaidSeat = !FREE_ROLES.includes(u.role as UserRole);
+    const seatNote = isPaidSeat ? '\n\nCela libèrera 1 siège dans votre quota.' : '';
     Alert.alert(
-      'Supprimer le profil',
-      `Supprimer le profil de "${u.name}" ?\n\nL'utilisateur n'apparaîtra plus dans l'application. Note : son compte de connexion reste actif — il ne pourra simplement plus accéder à votre organisation.`,
+      'Retirer l\'utilisateur',
+      `Retirer "${u.name}" de l'organisation ?${seatNote}\n\nIl ne pourra plus accéder à BuildTrack.`,
       [
         { text: 'Annuler', style: 'cancel' },
         {
-          text: 'Supprimer', style: 'destructive',
+          text: 'Retirer', style: 'destructive',
           onPress: async () => {
             await deleteUserProfile(u.id);
-            showToast(`Profil de ${u.name} supprimé`);
+            showToast(`${u.name} retiré`);
           },
         },
       ]
@@ -400,6 +404,10 @@ export default function AdminScreen() {
     );
     if (duplicate) {
       Alert.alert('Doublon', `Une entreprise nommée "${nom.trim()}" existe déjà.`);
+      return;
+    }
+    if (email.trim() && !/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(email.trim())) {
+      Alert.alert('Email invalide', 'Vérifiez l\'adresse email de contact.');
       return;
     }
     const resolvedZone = zone.trim() || '';

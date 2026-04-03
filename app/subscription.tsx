@@ -22,6 +22,15 @@ const PLAN_COLORS: Record<string, string> = {
   Groupe:  '#8B5CF6',
 };
 
+const ROLE_COLORS: Record<string, { color: string; bg: string; label: string }> = {
+  admin:        { color: '#EF4444', bg: '#FEF2F2', label: 'Administrateur' },
+  conducteur:   { color: '#3B82F6', bg: '#EFF6FF', label: 'Conducteur de travaux' },
+  chef_equipe:  { color: '#F59E0B', bg: '#FFFBEB', label: "Chef d'équipe" },
+  observateur:  { color: '#6B7280', bg: '#F3F4F6', label: 'Observateur' },
+  sous_traitant:{ color: '#10B981', bg: '#ECFDF5', label: 'Sous-traitant' },
+  super_admin:  { color: '#7C3AED', bg: '#F5F3FF', label: 'Super Admin' },
+};
+
 const AVATAR_COLORS = ['#3B82F6','#10B981','#F59E0B','#8B5CF6','#EF4444','#06B6D4','#EC4899'];
 
 function hashColor(id: string): string {
@@ -114,6 +123,11 @@ export default function SubscriptionScreen() {
               {subscription.status === 'active' && subscription.expiresAt && (
                 <Text style={[styles.statusSub, { color: statusCfg.color }]}>
                   Valide jusqu'au {formatDate(subscription.expiresAt)}
+                </Text>
+              )}
+              {subscription.status === 'active' && !subscription.expiresAt && (
+                <Text style={[styles.statusSub, { color: statusCfg.color }]}>
+                  Renouvellement automatique
                 </Text>
               )}
             </View>
@@ -212,6 +226,7 @@ export default function SubscriptionScreen() {
             </Text>
             {activeOrgUsers.map(u => {
               const col = hashColor(u.id);
+              const rc = ROLE_COLORS[u.role] ?? { color: col, bg: col + '18', label: u.roleLabel };
               const initials = u.name.split(' ').map((w: string) => w[0]).slice(0, 2).join('').toUpperCase();
               return (
                 <View key={u.id} style={styles.memberRow}>
@@ -222,8 +237,8 @@ export default function SubscriptionScreen() {
                     <Text style={styles.memberName}>{u.name}</Text>
                     <Text style={styles.memberEmail}>{u.email}</Text>
                   </View>
-                  <View style={[styles.memberRoleBadge, { backgroundColor: col + '18' }]}>
-                    <Text style={[styles.memberRoleTxt, { color: col }]}>{u.roleLabel}</Text>
+                  <View style={[styles.memberRoleBadge, { backgroundColor: rc.bg }]}>
+                    <Text style={[styles.memberRoleTxt, { color: rc.color }]}>{rc.label}</Text>
                   </View>
                 </View>
               );
@@ -239,18 +254,20 @@ export default function SubscriptionScreen() {
               <Text style={styles.freeTag}> gratuit</Text>
             </Text>
             {freeOrgUsers.map(u => {
+              const col = hashColor(u.id);
+              const rc = ROLE_COLORS[u.role] ?? { color: col, bg: col + '18', label: u.roleLabel };
               const initials = u.name.split(' ').map((w: string) => w[0]).slice(0, 2).join('').toUpperCase();
               return (
-                <View key={u.id} style={[styles.memberRow, { borderColor: '#10B98122' }]}>
-                  <View style={[styles.memberAvatar, { backgroundColor: '#10B98118' }]}>
-                    <Text style={[styles.memberAvatarTxt, { color: '#10B981' }]}>{initials}</Text>
+                <View key={u.id} style={[styles.memberRow, { borderColor: rc.color + '22' }]}>
+                  <View style={[styles.memberAvatar, { backgroundColor: col + '22' }]}>
+                    <Text style={[styles.memberAvatarTxt, { color: col }]}>{initials}</Text>
                   </View>
                   <View style={{ flex: 1 }}>
                     <Text style={styles.memberName}>{u.name}</Text>
                     <Text style={styles.memberEmail}>{u.email}</Text>
                   </View>
-                  <View style={[styles.memberRoleBadge, { backgroundColor: '#10B98118' }]}>
-                    <Text style={[styles.memberRoleTxt, { color: '#10B981' }]}>{u.roleLabel}</Text>
+                  <View style={[styles.memberRoleBadge, { backgroundColor: rc.bg }]}>
+                    <Text style={[styles.memberRoleTxt, { color: rc.color }]}>{rc.label}</Text>
                   </View>
                 </View>
               );
