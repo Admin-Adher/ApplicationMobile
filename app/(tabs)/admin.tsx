@@ -4,7 +4,7 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect, useRef } from 'react';
 import { useRouter } from 'expo-router';
 import { C } from '@/constants/colors';
 import { useApp } from '@/context/AppContext';
@@ -22,6 +22,8 @@ const ROLES: { value: UserRole; label: string; color: string; bg: string; descri
   { value: 'sous_traitant', label: 'Sous-traitant',         color: '#10B981', bg: '#ECFDF5', description: 'Portail entreprise — voir et traiter ses propres réserves (gratuit)' },
 ];
 
+const FREE_ROLES: UserRole[] = ['observateur', 'sous_traitant'];
+
 const ASSIGNABLE_ROLES = ROLES.filter(r => r.value !== 'super_admin' as UserRole);
 
 const PLAN_COLORS: Record<string, string> = {
@@ -30,10 +32,25 @@ const PLAN_COLORS: Record<string, string> = {
   Groupe: '#8B5CF6',
 };
 
+const STATUS_CONFIG: Record<string, { label: string; color: string; bg: string; icon: any }> = {
+  trial:     { label: "Période d'essai", color: '#F59E0B', bg: '#FFFBEB', icon: 'time-outline' },
+  active:    { label: 'Actif',           color: '#10B981', bg: '#ECFDF5', icon: 'checkmark-circle-outline' },
+  suspended: { label: 'Suspendu',        color: '#EF4444', bg: '#FEF2F2', icon: 'warning-outline' },
+  expired:   { label: 'Expiré',          color: '#6B7280', bg: '#F3F4F6', icon: 'close-circle-outline' },
+};
+
 const COMPANY_COLORS = [
   '#3B82F6','#10B981','#F59E0B','#EF4444','#8B5CF6',
   '#06B6D4','#F97316','#EC4899','#14B8A6','#84CC16',
 ];
+
+const AVATAR_COLORS = ['#3B82F6','#10B981','#F59E0B','#8B5CF6','#EF4444','#06B6D4','#EC4899'];
+
+function hashColor(id: string, palette: string[]): string {
+  let h = 0;
+  for (let i = 0; i < id.length; i++) h = (h * 31 + id.charCodeAt(i)) & 0x7fffffff;
+  return palette[h % palette.length];
+}
 
 function RoleBadge({ role }: { role: UserRole }) {
   const r = ROLES.find(x => x.value === role) ?? ROLES[3];
@@ -60,20 +77,31 @@ export default function AdminScreen() {
   const router = useRouter();
 
   const { user, updateUserRole, deleteUserProfile } = useAuth();
-  const { companies, addCompany, updateCompanyFull, deleteCompany, updateCompanyWorkers, updateCompanyHours } = useApp();
+  const { companies, addCompany, updateCompanyFull, deleteCompany, updateCompanyWorkers } = useApp();
   const {
     plan, subscription, seatUsed, seatMax, canInvite,
     pendingInvitations, inviteUser, cancelInvitation, orgUsers,
+    activeOrgUsers, freeOrgUsers,
   } = useSubscription();
-
-  const users = orgUsers;
 
   const isAdmin = user?.role === 'admin' || user?.role === 'super_admin';
 
   const [activeTab, setActiveTab] = useState<'users' | 'companies' | 'abonnement'>('users');
 
+  const [toast, setToast] = useState<string | null>(null);
+  const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  function showToast(msg: string) {
+    if (toastTimer.current) clearTimeout(toastTimer.current);
+    setToast(msg);
+    toastTimer.current = setTimeout(() => setToast(null), 2500);
+  }
+
+  useEffect(() => () => { if (toastTimer.current) clearTimeout(toastTimer.current); }, []);
+
   const [inviteModal, setInviteModal] = useState(false);
   const [inviteEmail, setInviteEmail] = useState('');
+  const [inviteEmailError, setInviteEmailError] = useState('');
   const [inviteRole, setInviteRole] = useState<UserRole>('observateur');
   const [inviteCompanyId, setInviteCompanyId] = useState<string>('');
   const [inviteSending, setInviteSending] = useState(false);
@@ -83,6 +111,7 @@ export default function AdminScreen() {
   const [roleModal, setRoleModal] = useState<{ id: string; name: string; currentRole: UserRole } | null>(null);
   const [saving, setSaving] = useState(false);
 
+  const [companySearch, setCompanySearch] = useState('');
   const [companyModal, setCompanyModal] = useState<{ mode: 'add' | 'edit'; company?: Company } | null>(null);
   const [nom, setNom] = useState('');
   const [nomCourt, setNomCourt] = useState('');
@@ -90,20 +119,38 @@ export default function AdminScreen() {
   const [email, setEmail] = useState('');
   const [zone, setZone] = useState('');
   const [effectif, setEffectif] = useState('');
+  const [selectedColor, setSelectedColor] = useState(COMPANY_COLORS[0]);
 
   const filteredUsers = useMemo(() => {
-    if (!userSearch.trim()) return users;
+    if (!userSearch.trim()) return orgUsers;
     const q = userSearch.toLowerCase();
-    return users.filter(u =>
+    return orgUsers.filter(u =>
       u.name.toLowerCase().includes(q) || u.email.toLowerCase().includes(q)
     );
-  }, [users, userSearch]);
+  }, [orgUsers, userSearch]);
+
+  const filteredCompanies = useMemo(() => {
+    if (!companySearch.trim()) return companies;
+    const q = companySearch.toLowerCase();
+    return companies.filter(co =>
+      co.name.toLowerCase().includes(q) ||
+      co.shortName.toLowerCase().includes(q) ||
+      (co.zone ?? '').toLowerCase().includes(q)
+    );
+  }, [companies, companySearch]);
 
   const roleCounts = useMemo(() => {
     const counts: Record<UserRole, number> = { super_admin: 0, admin: 0, conducteur: 0, chef_equipe: 0, observateur: 0, sous_traitant: 0 };
-    users.forEach(u => { counts[u.role] = (counts[u.role] ?? 0) + 1; });
+    orgUsers.forEach(u => { counts[u.role] = (counts[u.role] ?? 0) + 1; });
     return counts;
-  }, [users]);
+  }, [orgUsers]);
+
+  const trialDaysLeft = useMemo(() => {
+    if (!subscription?.trialEndsAt) return null;
+    return Math.max(0, Math.ceil((new Date(subscription.trialEndsAt).getTime() - Date.now()) / (1000 * 60 * 60 * 24)));
+  }, [subscription]);
+
+  const statusCfg = subscription ? (STATUS_CONFIG[subscription.status] ?? STATUS_CONFIG.trial) : null;
 
   if (user && !isAdmin) {
     router.replace('/(tabs)/' as any);
@@ -111,10 +158,16 @@ export default function AdminScreen() {
   }
 
   async function handleSendInvite() {
-    if (!inviteEmail.trim()) return;
+    const emailTrimmed = inviteEmail.trim();
+    if (!emailTrimmed) return;
+    if (!emailTrimmed.includes('@') || !emailTrimmed.includes('.')) {
+      setInviteEmailError('Adresse email invalide.');
+      return;
+    }
+    setInviteEmailError('');
     setInviteSending(true);
     const result = await inviteUser(
-      inviteEmail.trim(),
+      emailTrimmed,
       inviteRole,
       inviteRole === 'sous_traitant' && inviteCompanyId ? inviteCompanyId : undefined
     );
@@ -129,6 +182,7 @@ export default function AdminScreen() {
   function handleCloseInviteModal() {
     setInviteModal(false);
     setInviteEmail('');
+    setInviteEmailError('');
     setInviteRole('observateur');
     setInviteCompanyId('');
     setInviteToken(null);
@@ -176,6 +230,7 @@ export default function AdminScreen() {
     await updateUserRole(roleModal.id, newRole);
     setSaving(false);
     setRoleModal(null);
+    showToast('Rôle mis à jour');
   }
 
   function handleDeleteUser(u: { id: string; name: string }) {
@@ -190,7 +245,10 @@ export default function AdminScreen() {
         { text: 'Annuler', style: 'cancel' },
         {
           text: 'Supprimer', style: 'destructive',
-          onPress: async () => { await deleteUserProfile(u.id); },
+          onPress: async () => {
+            await deleteUserProfile(u.id);
+            showToast(`Profil de ${u.name} supprimé`);
+          },
         },
       ]
     );
@@ -198,12 +256,14 @@ export default function AdminScreen() {
 
   function openAddCompany() {
     setNom(''); setNomCourt(''); setPhone(''); setEmail(''); setZone(''); setEffectif('');
+    setSelectedColor(COMPANY_COLORS[companies.length % COMPANY_COLORS.length]);
     setCompanyModal({ mode: 'add' });
   }
 
   function openEditCompany(co: Company) {
     setNom(co.name); setNomCourt(co.shortName); setPhone(co.phone ?? '');
     setEmail(co.email ?? ''); setZone(co.zone); setEffectif(String(co.plannedWorkers));
+    setSelectedColor(co.color);
     setCompanyModal({ mode: 'edit', company: co });
   }
 
@@ -217,6 +277,14 @@ export default function AdminScreen() {
       Alert.alert('Valeur invalide', 'L\'effectif doit être un entier positif.');
       return;
     }
+    const duplicate = companies.find(c =>
+      c.name.toLowerCase() === nom.trim().toLowerCase() &&
+      (companyModal?.mode === 'add' || c.id !== companyModal?.company?.id)
+    );
+    if (duplicate) {
+      Alert.alert('Doublon', `Une entreprise nommée "${nom.trim()}" existe déjà.`);
+      return;
+    }
     if (companyModal?.mode === 'edit' && companyModal.company) {
       updateCompanyFull({
         ...companyModal.company,
@@ -226,14 +294,15 @@ export default function AdminScreen() {
         zone: zone.trim() || 'À définir',
         phone: phone.trim() || undefined,
         email: email.trim() || undefined,
+        color: selectedColor,
       });
+      showToast('Entreprise mise à jour');
     } else {
-      const color = COMPANY_COLORS[companies.length % COMPANY_COLORS.length];
       addCompany({
         id: genId(),
         name: nom.trim(),
         shortName: nomCourt.trim().toUpperCase(),
-        color,
+        color: selectedColor,
         plannedWorkers: planned,
         actualWorkers: 0,
         hoursWorked: 0,
@@ -241,6 +310,7 @@ export default function AdminScreen() {
         phone: phone.trim() || undefined,
         email: email.trim() || undefined,
       });
+      showToast('Entreprise ajoutée');
     }
     setCompanyModal(null);
   }
@@ -251,15 +321,38 @@ export default function AdminScreen() {
       `Supprimer "${co.name}" définitivement ?\n\nLes réserves associées resteront mais sans entreprise assignée.`,
       [
         { text: 'Annuler', style: 'cancel' },
-        { text: 'Supprimer', style: 'destructive', onPress: () => deleteCompany(co.id) },
+        {
+          text: 'Supprimer', style: 'destructive',
+          onPress: () => {
+            deleteCompany(co.id);
+            showToast(`"${co.name}" supprimée`);
+          },
+        },
       ]
     );
   }
 
-  const avatarColors = ['#3B82F6','#10B981','#F59E0B','#8B5CF6','#EF4444','#06B6D4','#EC4899'];
+  function handleWorkerCount(co: Company, delta: number) {
+    const next = Math.max(0, co.actualWorkers + delta);
+    updateCompanyWorkers(co.id, next);
+  }
+
+  const seatRatio = seatMax === -1 ? 0 : seatUsed / seatMax;
+  const seatBarColor = seatRatio >= 0.9 ? '#EF4444' : seatRatio >= 0.7 ? '#F59E0B' : '#10B981';
+
+  const isSeatFull = !canInvite;
+  const isSelectedRoleFree = FREE_ROLES.includes(inviteRole);
+  const sendDisabled = isSeatFull && !isSelectedRoleFree;
 
   return (
     <View style={styles.container}>
+      {toast && (
+        <View style={styles.toast} pointerEvents="none">
+          <Ionicons name="checkmark-circle" size={16} color="#fff" />
+          <Text style={styles.toastText}>{toast}</Text>
+        </View>
+      )}
+
       <View style={[styles.header, { paddingTop: topPad + 12 }]}>
         <View style={styles.headerRow}>
           <TouchableOpacity onPress={() => router.back()} style={styles.backBtn} hitSlop={8}>
@@ -286,9 +379,14 @@ export default function AdminScreen() {
             </Text>
             <View style={[styles.tabCount, activeTab === 'users' && styles.tabCountActive]}>
               <Text style={[styles.tabCountText, activeTab === 'users' && styles.tabCountTextActive]}>
-                {users.length}
+                {orgUsers.length}
               </Text>
             </View>
+            {pendingInvitations.length > 0 && (
+              <View style={[styles.tabCount, styles.tabCountBadge]}>
+                <Text style={[styles.tabCountText, { color: '#fff' }]}>{pendingInvitations.length}</Text>
+              </View>
+            )}
           </TouchableOpacity>
           <TouchableOpacity
             style={[styles.tabBtn, activeTab === 'companies' && styles.tabBtnActive]}
@@ -312,11 +410,6 @@ export default function AdminScreen() {
             <Text style={[styles.tabBtnText, activeTab === 'abonnement' && styles.tabBtnTextActive]}>
               Abonnement
             </Text>
-            {pendingInvitations.length > 0 && (
-              <View style={[styles.tabCount, styles.tabCountBadge]}>
-                <Text style={[styles.tabCountText, { color: '#fff' }]}>{pendingInvitations.length}</Text>
-              </View>
-            )}
           </TouchableOpacity>
         </ScrollView>
       </View>
@@ -335,6 +428,19 @@ export default function AdminScreen() {
             ))}
           </View>
 
+          <View style={styles.sectionHeaderRow}>
+            <Text style={styles.sectionTitle}>
+              {orgUsers.length} utilisateur{orgUsers.length !== 1 ? 's' : ''}
+            </Text>
+            <TouchableOpacity
+              style={styles.addBtn}
+              onPress={() => setInviteModal(true)}
+            >
+              <Ionicons name="person-add-outline" size={17} color="#fff" />
+              <Text style={styles.addBtnText}>Inviter</Text>
+            </TouchableOpacity>
+          </View>
+
           <View style={styles.searchWrap}>
             <Ionicons name="search-outline" size={15} color={C.textMuted} />
             <TextInput
@@ -351,19 +457,6 @@ export default function AdminScreen() {
             )}
           </View>
 
-          <View style={styles.sectionHeaderRow}>
-            <Text style={styles.sectionTitle}>
-              {orgUsers.length} utilisateur{orgUsers.length !== 1 ? 's' : ''}
-            </Text>
-            <TouchableOpacity
-              style={[styles.addBtn, !canInvite && styles.addBtnDisabled]}
-              onPress={() => canInvite ? setInviteModal(true) : Alert.alert('Limite atteinte', `Votre plan ${plan?.name} permet ${seatMax} utilisateurs. Passez à un plan supérieur.`)}
-            >
-              <Ionicons name="person-add-outline" size={17} color="#fff" />
-              <Text style={styles.addBtnText}>Inviter</Text>
-            </TouchableOpacity>
-          </View>
-
           {!isSupabaseConfigured && (
             <View style={styles.infoBanner}>
               <Ionicons name="information-circle-outline" size={15} color={C.inProgress} />
@@ -377,8 +470,8 @@ export default function AdminScreen() {
               <Text style={styles.emptyText}>Aucun utilisateur trouvé</Text>
             </View>
           ) : (
-            filteredUsers.map((u, i) => {
-              const avatarColor = avatarColors[i % avatarColors.length];
+            filteredUsers.map(u => {
+              const avatarColor = hashColor(u.id, AVATAR_COLORS);
               const isCurrentUser = u.id === user?.id;
               return (
                 <View key={u.id} style={[styles.userCard, isCurrentUser && styles.userCardSelf]}>
@@ -421,7 +514,7 @@ export default function AdminScreen() {
           <View style={styles.hintCard}>
             <Ionicons name="key-outline" size={16} color={C.textMuted} />
             <Text style={styles.hintText}>
-              Pour inviter un nouveau membre, utilisez le bouton "Inviter" ci-dessus. La personne recevra un lien d'accès par e-mail.
+              Pour inviter un nouveau membre, utilisez le bouton "Inviter" ci-dessus. Un code d'accès sera généré à partager manuellement avec la personne.
             </Text>
           </View>
         </ScrollView>
@@ -442,14 +535,35 @@ export default function AdminScreen() {
             </TouchableOpacity>
           </View>
 
+          <View style={styles.searchWrap}>
+            <Ionicons name="search-outline" size={15} color={C.textMuted} />
+            <TextInput
+              style={styles.searchInput}
+              placeholder="Nom, sigle ou zone..."
+              placeholderTextColor={C.textMuted}
+              value={companySearch}
+              onChangeText={setCompanySearch}
+            />
+            {companySearch.length > 0 && (
+              <TouchableOpacity onPress={() => setCompanySearch('')}>
+                <Ionicons name="close-circle" size={15} color={C.textMuted} />
+              </TouchableOpacity>
+            )}
+          </View>
+
           {companies.length === 0 ? (
             <View style={styles.empty}>
               <Ionicons name="business-outline" size={36} color={C.textMuted} />
               <Text style={styles.emptyText}>Aucune entreprise</Text>
               <Text style={styles.emptyHint}>Ajoutez la première avec le bouton ci-dessus</Text>
             </View>
+          ) : filteredCompanies.length === 0 ? (
+            <View style={styles.empty}>
+              <Ionicons name="search-outline" size={36} color={C.textMuted} />
+              <Text style={styles.emptyText}>Aucun résultat</Text>
+            </View>
           ) : (
-            companies.map(co => (
+            filteredCompanies.map(co => (
               <View key={co.id} style={styles.coCard}>
                 <View style={[styles.coAccent, { backgroundColor: co.color }]} />
                 <View style={styles.coBody}>
@@ -476,18 +590,27 @@ export default function AdminScreen() {
                   <View style={styles.coStatsRow}>
                     <View style={styles.coStat}>
                       <View style={[styles.coStatDot, { backgroundColor: co.color }]} />
-                      <Text style={styles.coStatLabel}>Effectif prévu</Text>
+                      <Text style={styles.coStatLabel}>Prévu</Text>
                       <Text style={[styles.coStatVal, { color: co.color }]}>{co.plannedWorkers}</Text>
                     </View>
-                    <View style={styles.coStat}>
+                    <View style={[styles.coStat, { flex: 1 }]}>
                       <View style={[styles.coStatDot, { backgroundColor: C.inProgress }]} />
                       <Text style={styles.coStatLabel}>Présents</Text>
+                      <TouchableOpacity
+                        onPress={() => handleWorkerCount(co, -1)}
+                        hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                        style={styles.workerBtn}
+                      >
+                        <Ionicons name="remove" size={13} color={C.textSub} />
+                      </TouchableOpacity>
                       <Text style={[styles.coStatVal, { color: C.inProgress }]}>{co.actualWorkers}</Text>
-                    </View>
-                    <View style={styles.coStat}>
-                      <View style={[styles.coStatDot, { backgroundColor: C.textMuted }]} />
-                      <Text style={styles.coStatLabel}>Heures</Text>
-                      <Text style={styles.coStatVal}>{co.hoursWorked}h</Text>
+                      <TouchableOpacity
+                        onPress={() => handleWorkerCount(co, 1)}
+                        hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                        style={styles.workerBtn}
+                      >
+                        <Ionicons name="add" size={13} color={C.textSub} />
+                      </TouchableOpacity>
                     </View>
                   </View>
                   {co.phone && (
@@ -520,6 +643,22 @@ export default function AdminScreen() {
           contentContainerStyle={[styles.content, { paddingBottom: bottomPad + 32 }]}
           showsVerticalScrollIndicator={false}
         >
+          {statusCfg && subscription && (
+            <View style={[styles.statusBanner, { backgroundColor: statusCfg.bg, borderColor: statusCfg.color + '44' }]}>
+              <Ionicons name={statusCfg.icon} size={18} color={statusCfg.color} />
+              <View style={{ flex: 1 }}>
+                <Text style={[styles.statusLabel, { color: statusCfg.color }]}>{statusCfg.label}</Text>
+                {subscription.status === 'trial' && trialDaysLeft !== null && (
+                  <Text style={[styles.statusSub, { color: statusCfg.color }]}>
+                    {trialDaysLeft > 0
+                      ? `${trialDaysLeft} jour${trialDaysLeft > 1 ? 's' : ''} restant${trialDaysLeft > 1 ? 's' : ''}`
+                      : 'Essai terminé'}
+                  </Text>
+                )}
+              </View>
+            </View>
+          )}
+
           {plan && (
             <View style={[styles.planCard, { borderTopColor: PLAN_COLORS[plan.name] ?? C.primary }]}>
               <View style={styles.planTopRow}>
@@ -557,38 +696,35 @@ export default function AdminScreen() {
             {seatMax !== -1 && (
               <View style={styles.barBg}>
                 <View style={[styles.barFill, {
-                  width: `${Math.min((seatUsed / seatMax) * 100, 100)}%` as any,
-                  backgroundColor: seatUsed / seatMax >= 0.9 ? '#EF4444' : seatUsed / seatMax >= 0.7 ? '#F59E0B' : '#10B981',
+                  width: `${Math.min(seatRatio * 100, 100)}%` as any,
+                  backgroundColor: seatBarColor,
                 }]} />
               </View>
+            )}
+            {freeOrgUsers.length > 0 && (
+              <View style={styles.freeBanner}>
+                <Ionicons name="gift-outline" size={13} color="#10B981" />
+                <Text style={styles.freeBannerTxt}>
+                  {freeOrgUsers.length} sous-traitant{freeOrgUsers.length > 1 ? 's' : ''} / observateur{freeOrgUsers.length > 1 ? 's' : ''} — <Text style={{ fontFamily: 'Inter_600SemiBold' }}>gratuit{freeOrgUsers.length > 1 ? 's' : ''}</Text>, hors quota
+                </Text>
+              </View>
+            )}
+            {seatMax !== -1 && seatRatio >= 0.9 && (
+              <Text style={styles.seatWarning}>
+                {seatRatio >= 1 ? 'Limite atteinte — passez à un plan supérieur pour inviter des utilisateurs actifs.' : 'Vous approchez la limite de sièges.'}
+              </Text>
             )}
           </View>
 
           <View style={styles.sectionHeaderRow}>
             <Text style={styles.sectionTitle}>Invitations en attente ({pendingInvitations.length})</Text>
-            <TouchableOpacity
-              style={[styles.addBtn, !canInvite && styles.addBtnDisabled]}
-              onPress={() => canInvite ? setInviteModal(true) : Alert.alert('Limite atteinte', `Votre plan ${plan?.name} permet ${seatMax} utilisateurs. Passez à un plan supérieur.`)}
-            >
-              <Ionicons name="mail-outline" size={15} color="#fff" />
-              <Text style={styles.addBtnText}>Inviter</Text>
-            </TouchableOpacity>
           </View>
-
-          {!canInvite && (
-            <View style={styles.limitBanner}>
-              <Ionicons name="warning-outline" size={15} color="#EF4444" />
-              <Text style={styles.limitBannerTxt}>
-                Limite de {seatMax} utilisateurs atteinte. Passez à un plan supérieur pour inviter.
-              </Text>
-            </View>
-          )}
 
           {pendingInvitations.length === 0 ? (
             <View style={styles.empty}>
               <Ionicons name="mail-outline" size={36} color={C.textMuted} />
               <Text style={styles.emptyText}>Aucune invitation en attente</Text>
-              <Text style={styles.emptyHint}>Invitez un collaborateur par email</Text>
+              <Text style={styles.emptyHint}>Invitez des collaborateurs depuis l'onglet Utilisateurs</Text>
             </View>
           ) : (
             pendingInvitations.map(inv => {
@@ -743,6 +879,20 @@ export default function AdminScreen() {
                     autoCapitalize="none"
                   />
                 </View>
+                <View style={styles.field}>
+                  <Text style={styles.fieldLabel}>Couleur</Text>
+                  <View style={styles.colorRow}>
+                    {COMPANY_COLORS.map(c => (
+                      <TouchableOpacity
+                        key={c}
+                        style={[styles.colorDot, { backgroundColor: c }, selectedColor === c && styles.colorDotSelected]}
+                        onPress={() => setSelectedColor(c)}
+                      >
+                        {selectedColor === c && <Ionicons name="checkmark" size={14} color="#fff" />}
+                      </TouchableOpacity>
+                    ))}
+                  </View>
+                </View>
                 <TouchableOpacity style={styles.saveBtn} onPress={handleSaveCompany}>
                   <Text style={styles.saveBtnText}>
                     {companyModal?.mode === 'edit' ? 'Enregistrer les modifications' : 'Ajouter l\'entreprise'}
@@ -775,7 +925,7 @@ export default function AdminScreen() {
                 </View>
                 <Text style={styles.sheetTitle}>Invitation créée !</Text>
                 <Text style={styles.inviteSuccessMsg}>
-                  Partagez ce code ou lien avec {inviteEmail} pour qu'il rejoigne votre organisation.
+                  Partagez ce code avec {inviteEmail} pour qu'il rejoigne votre organisation.
                 </Text>
                 <View style={styles.tokenBox}>
                   <Text style={styles.tokenTxt} selectable>{inviteToken}</Text>
@@ -794,7 +944,7 @@ export default function AdminScreen() {
                   </Text>
                 </TouchableOpacity>
                 <Text style={styles.inviteHint}>
-                  L'invitation est valable 7 jours. L'utilisateur doit créer un compte avec l'adresse {inviteEmail} — l'accès est lié à l'email, pas au code.
+                  Ce code est valable 7 jours. L'utilisateur doit créer un compte avec l'adresse {inviteEmail} et saisir ce code — l'accès est lié à l'email, pas au code.
                 </Text>
                 <TouchableOpacity style={styles.saveBtn} onPress={handleCloseInviteModal}>
                   <Text style={styles.saveBtnText}>Fermer</Text>
@@ -804,41 +954,72 @@ export default function AdminScreen() {
               <>
                 <Text style={styles.sheetTitle}>Inviter un collaborateur</Text>
                 <Text style={styles.sheetSubtitle}>
-                  {seatMax === -1 ? `Sièges : illimité` : `Sièges : ${seatUsed} / ${seatMax} utilisés`}
+                  {seatMax === -1 ? 'Sièges : illimité' : `Sièges : ${seatUsed} / ${seatMax} utilisés`}
                 </Text>
+
+                {isSeatFull && (
+                  <View style={styles.seatFullBanner}>
+                    <Ionicons name="information-circle-outline" size={15} color="#3B82F6" />
+                    <Text style={styles.seatFullBannerTxt}>
+                      Limite de {seatMax} sièges atteinte. Vous pouvez encore inviter des <Text style={{ fontFamily: 'Inter_600SemiBold' }}>Observateurs</Text> et <Text style={{ fontFamily: 'Inter_600SemiBold' }}>Sous-traitants</Text> (gratuits, hors quota).
+                    </Text>
+                  </View>
+                )}
 
                 <View style={styles.field}>
                   <Text style={styles.fieldLabel}>Adresse email *</Text>
                   <TextInput
-                    style={styles.fieldInput}
+                    style={[styles.fieldInput, inviteEmailError ? { borderColor: '#EF4444' } : {}]}
                     value={inviteEmail}
-                    onChangeText={setInviteEmail}
+                    onChangeText={v => { setInviteEmail(v); if (inviteEmailError) setInviteEmailError(''); }}
                     placeholder="prenom.nom@exemple.fr"
                     placeholderTextColor={C.textMuted}
                     keyboardType="email-address"
                     autoCapitalize="none"
                     autoCorrect={false}
                   />
+                  {inviteEmailError ? (
+                    <Text style={styles.fieldError}>{inviteEmailError}</Text>
+                  ) : null}
                 </View>
 
                 <View style={styles.field}>
                   <Text style={styles.fieldLabel}>Rôle</Text>
-                  {ROLES.map(r => (
-                    <TouchableOpacity
-                      key={r.value}
-                      style={[styles.roleOption, inviteRole === r.value && { backgroundColor: r.bg, borderColor: r.color }]}
-                      onPress={() => { setInviteRole(r.value); setInviteCompanyId(''); }}
-                    >
-                      <View style={[styles.roleOptionDot, { backgroundColor: r.color }]} />
-                      <View style={{ flex: 1 }}>
-                        <Text style={[styles.roleOptionText, inviteRole === r.value && { color: r.color, fontFamily: 'Inter_600SemiBold' }]}>
-                          {r.label}
-                        </Text>
-                        <Text style={styles.roleOptionDesc}>{r.description}</Text>
-                      </View>
-                      {inviteRole === r.value && <Ionicons name="checkmark-circle" size={18} color={r.color} />}
-                    </TouchableOpacity>
-                  ))}
+                  {ROLES.map(r => {
+                    const isFree = FREE_ROLES.includes(r.value);
+                    const isBlocked = isSeatFull && !isFree;
+                    return (
+                      <TouchableOpacity
+                        key={r.value}
+                        style={[
+                          styles.roleOption,
+                          inviteRole === r.value && { backgroundColor: r.bg, borderColor: r.color },
+                          isBlocked && { opacity: 0.4 },
+                        ]}
+                        onPress={() => {
+                          if (isBlocked) return;
+                          setInviteRole(r.value);
+                          setInviteCompanyId('');
+                        }}
+                      >
+                        <View style={[styles.roleOptionDot, { backgroundColor: r.color }]} />
+                        <View style={{ flex: 1 }}>
+                          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                            <Text style={[styles.roleOptionText, inviteRole === r.value && { color: r.color, fontFamily: 'Inter_600SemiBold' }]}>
+                              {r.label}
+                            </Text>
+                            {isFree && (
+                              <View style={styles.freeTag}>
+                                <Text style={styles.freeTagTxt}>gratuit</Text>
+                              </View>
+                            )}
+                          </View>
+                          <Text style={styles.roleOptionDesc}>{r.description}</Text>
+                        </View>
+                        {inviteRole === r.value && <Ionicons name="checkmark-circle" size={18} color={r.color} />}
+                      </TouchableOpacity>
+                    );
+                  })}
                 </View>
 
                 {inviteRole === 'sous_traitant' && companies.length > 0 && (
@@ -870,9 +1051,9 @@ export default function AdminScreen() {
                   <ActivityIndicator size="large" color={C.primary} style={{ marginVertical: 20 }} />
                 ) : (
                   <TouchableOpacity
-                    style={[styles.saveBtn, !inviteEmail.trim() && { opacity: 0.5 }]}
+                    style={[styles.saveBtn, (!inviteEmail.trim() || sendDisabled) && { opacity: 0.4 }]}
                     onPress={handleSendInvite}
-                    disabled={!inviteEmail.trim()}
+                    disabled={!inviteEmail.trim() || sendDisabled}
                   >
                     <Text style={styles.saveBtnText}>Envoyer l'invitation</Text>
                   </TouchableOpacity>
@@ -893,6 +1074,17 @@ export default function AdminScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: C.bg },
+
+  toast: {
+    position: 'absolute', top: 60, alignSelf: 'center', zIndex: 999,
+    flexDirection: 'row', alignItems: 'center', gap: 8,
+    backgroundColor: '#1F2937', borderRadius: 20, paddingHorizontal: 16, paddingVertical: 10,
+    ...Platform.select({
+      web: { boxShadow: '0 4px 12px rgba(0,0,0,0.2)' } as any,
+      default: { shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.2, shadowRadius: 8, elevation: 6 },
+    }),
+  },
+  toastText: { fontSize: 13, fontFamily: 'Inter_600SemiBold', color: '#fff' },
 
   header: {
     backgroundColor: C.surface,
@@ -916,7 +1108,6 @@ const styles = StyleSheet.create({
   },
   adminBadgeText: { fontSize: 11, fontFamily: 'Inter_600SemiBold', color: '#EF4444' },
 
-  tabRow: { flexDirection: 'row', gap: 6, paddingBottom: 12 },
   tabBtn: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6,
     paddingVertical: 9, paddingHorizontal: 14, borderRadius: 10, backgroundColor: C.bg,
@@ -932,6 +1123,10 @@ const styles = StyleSheet.create({
   tabCountActive: { backgroundColor: C.primary + '22' },
   tabCountText: { fontSize: 10, fontFamily: 'Inter_700Bold', color: C.textMuted },
   tabCountTextActive: { color: C.primary },
+  tabCountBadge: { backgroundColor: '#EF4444' },
+
+  tabScrollRow: { paddingBottom: 12 },
+  tabRowContent: { flexDirection: 'row', gap: 6, paddingHorizontal: 0, paddingVertical: 0 },
 
   content: { paddingHorizontal: 16, paddingTop: 16, gap: 10 },
 
@@ -943,6 +1138,14 @@ const styles = StyleSheet.create({
   },
   statNum: { fontSize: 22, fontFamily: 'Inter_700Bold' },
   statLabel: { fontSize: 10, fontFamily: 'Inter_400Regular', color: C.textMuted, textAlign: 'center', marginTop: 2 },
+
+  sectionHeaderRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 },
+  sectionTitle: { fontSize: 14, fontFamily: 'Inter_600SemiBold', color: C.textSub },
+  addBtn: {
+    flexDirection: 'row', alignItems: 'center', gap: 5,
+    backgroundColor: C.primary, borderRadius: 10, paddingHorizontal: 14, paddingVertical: 8,
+  },
+  addBtnText: { fontSize: 13, fontFamily: 'Inter_600SemiBold', color: '#fff' },
 
   searchWrap: {
     flexDirection: 'row', alignItems: 'center', gap: 8,
@@ -992,14 +1195,6 @@ const styles = StyleSheet.create({
   },
   hintText: { flex: 1, fontSize: 12, fontFamily: 'Inter_400Regular', color: C.textMuted, lineHeight: 18 },
 
-  sectionHeaderRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 },
-  sectionTitle: { fontSize: 14, fontFamily: 'Inter_600SemiBold', color: C.textSub },
-  addBtn: {
-    flexDirection: 'row', alignItems: 'center', gap: 5,
-    backgroundColor: C.primary, borderRadius: 10, paddingHorizontal: 14, paddingVertical: 8,
-  },
-  addBtnText: { fontSize: 13, fontFamily: 'Inter_600SemiBold', color: '#fff' },
-
   coCard: {
     flexDirection: 'row', backgroundColor: C.surface, borderRadius: 12,
     borderWidth: 1, borderColor: C.border, overflow: 'hidden',
@@ -1009,61 +1204,41 @@ const styles = StyleSheet.create({
   coTopRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 8 },
   coName: { fontSize: 14, fontFamily: 'Inter_600SemiBold', color: C.text },
   coZone: { fontSize: 11, fontFamily: 'Inter_400Regular', color: C.textMuted, marginTop: 2 },
-  coStatsRow: { flexDirection: 'row', gap: 12 },
+  coStatsRow: { flexDirection: 'row', gap: 12, alignItems: 'center' },
   coStat: { flexDirection: 'row', alignItems: 'center', gap: 5 },
   coStatDot: { width: 6, height: 6, borderRadius: 3 },
   coStatLabel: { fontSize: 11, fontFamily: 'Inter_400Regular', color: C.textMuted },
   coStatVal: { fontSize: 13, fontFamily: 'Inter_700Bold', color: C.text },
+  workerBtn: {
+    width: 22, height: 22, borderRadius: 11, backgroundColor: C.border,
+    alignItems: 'center', justifyContent: 'center',
+  },
   coContact: { flexDirection: 'row', alignItems: 'center', gap: 5 },
   coContactText: { fontSize: 11, fontFamily: 'Inter_400Regular', color: C.textMuted },
 
+  colorRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 10, marginTop: 4 },
+  colorDot: {
+    width: 30, height: 30, borderRadius: 15,
+    alignItems: 'center', justifyContent: 'center',
+  },
+  colorDotSelected: {
+    borderWidth: 2, borderColor: '#fff',
+    ...Platform.select({
+      web: { boxShadow: '0 0 0 2px rgba(0,0,0,0.3)' } as any,
+      default: { shadowColor: '#000', shadowOffset: { width: 0, height: 0 }, shadowOpacity: 0.3, shadowRadius: 2, elevation: 3 },
+    }),
+  },
+
   empty: { alignItems: 'center', paddingVertical: 40, gap: 8 },
   emptyText: { fontSize: 16, fontFamily: 'Inter_600SemiBold', color: C.textSub },
-  emptyHint: { fontSize: 13, fontFamily: 'Inter_400Regular', color: C.textMuted },
+  emptyHint: { fontSize: 13, fontFamily: 'Inter_400Regular', color: C.textMuted, textAlign: 'center' },
 
-  overlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.45)', justifyContent: 'flex-end' },
-  sheet: {
-    backgroundColor: C.surface, borderTopLeftRadius: 20, borderTopRightRadius: 20,
-    padding: 20, paddingBottom: Platform.OS === 'ios' ? 36 : 24, gap: 10,
-    maxHeight: '90%',
+  statusBanner: {
+    flexDirection: 'row', alignItems: 'center', gap: 10,
+    borderRadius: 12, padding: 14, borderWidth: 1,
   },
-  sheetHandle: {
-    width: 36, height: 4, backgroundColor: C.border, borderRadius: 2,
-    alignSelf: 'center', marginBottom: 6,
-  },
-  sheetTitle: { fontSize: 17, fontFamily: 'Inter_700Bold', color: C.text, textAlign: 'center' },
-  sheetSubtitle: { fontSize: 13, fontFamily: 'Inter_400Regular', color: C.textMuted, textAlign: 'center', marginBottom: 4 },
-
-  roleOption: {
-    flexDirection: 'row', alignItems: 'center', gap: 12,
-    padding: 14, borderRadius: 12, borderWidth: 1, borderColor: C.border,
-    marginBottom: 6,
-  },
-  roleOptionDot: { width: 10, height: 10, borderRadius: 5, flexShrink: 0 },
-  roleOptionText: { fontSize: 14, fontFamily: 'Inter_400Regular', color: C.text },
-  roleOptionDesc: { fontSize: 11, fontFamily: 'Inter_400Regular', color: C.textMuted, marginTop: 2, lineHeight: 15 },
-
-  field: { gap: 4 },
-  fieldLabel: { fontSize: 12, fontFamily: 'Inter_600SemiBold', color: C.textSub },
-  fieldInput: {
-    backgroundColor: C.bg, borderRadius: 10, paddingHorizontal: 12, paddingVertical: 10,
-    fontSize: 14, fontFamily: 'Inter_400Regular', color: C.text,
-    borderWidth: 1, borderColor: C.border,
-  },
-
-  saveBtn: {
-    backgroundColor: C.primary, borderRadius: 12, paddingVertical: 14, alignItems: 'center', marginTop: 4,
-  },
-  saveBtnText: { fontSize: 15, fontFamily: 'Inter_600SemiBold', color: '#fff' },
-  cancelBtn: {
-    backgroundColor: C.bg, borderRadius: 12, paddingVertical: 12, alignItems: 'center',
-    borderWidth: 1, borderColor: C.border,
-  },
-  cancelBtnText: { fontSize: 14, fontFamily: 'Inter_600SemiBold', color: C.textSub },
-
-  tabScrollRow: { paddingBottom: 12 },
-  tabRowContent: { flexDirection: 'row', gap: 6, paddingHorizontal: 0, paddingVertical: 0 },
-  tabCountBadge: { backgroundColor: '#EF4444' },
+  statusLabel: { fontSize: 14, fontFamily: 'Inter_600SemiBold' },
+  statusSub: { fontSize: 12, fontFamily: 'Inter_400Regular', marginTop: 1 },
 
   planCard: {
     backgroundColor: C.surface, borderRadius: 14, padding: 14,
@@ -1100,15 +1275,12 @@ const styles = StyleSheet.create({
   seatMax: { fontSize: 13, fontFamily: 'Inter_400Regular', color: C.textMuted },
   barBg: { height: 7, backgroundColor: C.border, borderRadius: 4, overflow: 'hidden' },
   barFill: { height: 7, borderRadius: 4 },
-
-  limitBanner: {
-    flexDirection: 'row', alignItems: 'center', gap: 8,
-    backgroundColor: '#FEF2F2', borderRadius: 10, padding: 10,
-    borderWidth: 1, borderColor: '#FECACA',
+  seatWarning: { fontSize: 12, fontFamily: 'Inter_400Regular', color: '#EF4444', marginTop: 8 },
+  freeBanner: {
+    flexDirection: 'row', alignItems: 'center', gap: 6,
+    backgroundColor: '#10B98112', borderRadius: 8, padding: 10, marginTop: 10,
   },
-  limitBannerTxt: { flex: 1, fontSize: 12, fontFamily: 'Inter_400Regular', color: '#EF4444' },
-
-  addBtnDisabled: { opacity: 0.5 },
+  freeBannerTxt: { fontSize: 12, fontFamily: 'Inter_400Regular', color: '#10B981', flex: 1 },
 
   inviteCard: {
     flexDirection: 'row', alignItems: 'center', gap: 12,
@@ -1123,6 +1295,57 @@ const styles = StyleSheet.create({
   inviteRoleBadge: { borderRadius: 6, paddingHorizontal: 8, paddingVertical: 3, alignSelf: 'flex-start', marginBottom: 4 },
   inviteRoleTxt: { fontSize: 11, fontFamily: 'Inter_600SemiBold' },
   inviteExpiry: { fontSize: 11, fontFamily: 'Inter_400Regular', color: C.textMuted },
+
+  overlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.45)', justifyContent: 'flex-end' },
+  sheet: {
+    backgroundColor: C.surface, borderTopLeftRadius: 20, borderTopRightRadius: 20,
+    padding: 20, paddingBottom: Platform.OS === 'ios' ? 36 : 24, gap: 10,
+    maxHeight: '90%',
+  },
+  sheetHandle: {
+    width: 36, height: 4, backgroundColor: C.border, borderRadius: 2,
+    alignSelf: 'center', marginBottom: 6,
+  },
+  sheetTitle: { fontSize: 17, fontFamily: 'Inter_700Bold', color: C.text, textAlign: 'center' },
+  sheetSubtitle: { fontSize: 13, fontFamily: 'Inter_400Regular', color: C.textMuted, textAlign: 'center', marginBottom: 4 },
+
+  roleOption: {
+    flexDirection: 'row', alignItems: 'center', gap: 12,
+    padding: 14, borderRadius: 12, borderWidth: 1, borderColor: C.border,
+    marginBottom: 6,
+  },
+  roleOptionDot: { width: 10, height: 10, borderRadius: 5, flexShrink: 0 },
+  roleOptionText: { fontSize: 14, fontFamily: 'Inter_400Regular', color: C.text },
+  roleOptionDesc: { fontSize: 11, fontFamily: 'Inter_400Regular', color: C.textMuted, marginTop: 2, lineHeight: 15 },
+
+  freeTag: { backgroundColor: '#ECFDF5', borderRadius: 4, paddingHorizontal: 5, paddingVertical: 1 },
+  freeTagTxt: { fontSize: 10, fontFamily: 'Inter_600SemiBold', color: '#10B981' },
+
+  field: { gap: 4 },
+  fieldLabel: { fontSize: 12, fontFamily: 'Inter_600SemiBold', color: C.textSub },
+  fieldInput: {
+    backgroundColor: C.bg, borderRadius: 10, paddingHorizontal: 12, paddingVertical: 10,
+    fontSize: 14, fontFamily: 'Inter_400Regular', color: C.text,
+    borderWidth: 1, borderColor: C.border,
+  },
+  fieldError: { fontSize: 11, fontFamily: 'Inter_400Regular', color: '#EF4444', marginTop: 2 },
+
+  seatFullBanner: {
+    flexDirection: 'row', alignItems: 'flex-start', gap: 8,
+    backgroundColor: '#EFF6FF', borderRadius: 10, padding: 12,
+    borderWidth: 1, borderColor: '#BFDBFE',
+  },
+  seatFullBannerTxt: { flex: 1, fontSize: 12, fontFamily: 'Inter_400Regular', color: '#1D4ED8', lineHeight: 17 },
+
+  saveBtn: {
+    backgroundColor: C.primary, borderRadius: 12, paddingVertical: 14, alignItems: 'center', marginTop: 4,
+  },
+  saveBtnText: { fontSize: 15, fontFamily: 'Inter_600SemiBold', color: '#fff' },
+  cancelBtn: {
+    backgroundColor: C.bg, borderRadius: 12, paddingVertical: 12, alignItems: 'center',
+    borderWidth: 1, borderColor: C.border,
+  },
+  cancelBtnText: { fontSize: 14, fontFamily: 'Inter_600SemiBold', color: C.textSub },
 
   inviteSuccessIcon: { alignItems: 'center', marginBottom: 8 },
   inviteSuccessMsg: {
