@@ -9,7 +9,7 @@ import { useState, useMemo, useRef } from 'react';
 import * as ImagePicker from 'expo-image-picker';
 import { C } from '@/constants/colors';
 import { useApp } from '@/context/AppContext';
-import { Reserve, ReservePriority, ReserveStatus, ReservePhoto } from '@/constants/types';
+import { Reserve, ReservePriority, ReserveStatus, ReservePhoto, SitePlan } from '@/constants/types';
 import {
   loadPhotoAsDataUrl,
   exportPDF as exportPDFHelper,
@@ -76,7 +76,20 @@ const PRIORITY_COLORS: Record<string, string> = {
   low: '#22C55E', medium: '#F59E0B', high: '#F97316', critical: '#EF4444',
 };
 
-function buildReservePDF(reserve: Reserve, projectName: string, company: { color?: string } | undefined, resolvedPhotoSrcs?: string[]): string {
+interface PlanData {
+  imageSrc: string;
+  planX: number;
+  planY: number;
+  planName: string;
+}
+
+function buildReservePDF(
+  reserve: Reserve,
+  projectName: string,
+  company: { color?: string } | undefined,
+  resolvedPhotoSrcs?: string[],
+  planData?: PlanData,
+): string {
   const statusColors: Record<string, string> = {
     open: '#DC2626', in_progress: '#F59E0B', waiting: '#3B82F6',
     verification: '#8B5CF6', closed: '#059669',
@@ -103,159 +116,210 @@ function buildReservePDF(reserve: Reserve, projectName: string, company: { color
       ? [{ id: 'legacy', uri: reserve.photoUri, kind: 'defect' as const, takenAt: reserve.createdAt, takenBy: '' }]
       : [];
 
-  const photoSection = rawPhotos.length > 0
-    ? buildPhotoGrid(
-        rawPhotos.slice(0, 6).map((p, i) => ({
-          src: resolvedPhotoSrcs?.[i] ?? p.uri,
-          badge: p.kind === 'defect' ? '🔴 Constat' : '🟢 Levée',
-          badgeColor: p.kind === 'defect' ? '#FEF2F2' : '#ECFDF5',
-          badgeTextColor: p.kind === 'defect' ? '#DC2626' : '#059669',
-          caption: [
-            p.takenBy ? `Par ${p.takenBy}` : '',
-            p.takenAt ? `le ${p.takenAt}` : '',
-            (p.annotations ?? []).length > 0 ? `${(p.annotations ?? []).length} annotation(s)` : '',
-          ].filter(Boolean).join(' · '),
-        }))
-      )
-    : '';
-
-  const gpsSection = (reserve as any).gpsLat
-    ? `<div style="margin-top:8px;padding:10px 14px;background:#F0FDF4;border:1px solid #BBF7D0;border-radius:8px;font-size:12px;color:#166534">
-        📍 <strong>Coordonnées GPS :</strong> ${parseFloat((reserve as any).gpsLat).toFixed(6)}, ${parseFloat((reserve as any).gpsLon).toFixed(6)}
+  const MAX_PHOTOS = 3;
+  const photosToShow = rawPhotos.slice(0, MAX_PHOTOS);
+  const photoRowHtml = photosToShow.length > 0
+    ? `<div style="margin-top:10px">
+        <div style="font-size:9px;font-weight:700;color:#6B7280;text-transform:uppercase;letter-spacing:0.7px;margin-bottom:6px;padding-bottom:4px;border-bottom:1px solid #DDE4EE">
+          Photos (${photosToShow.length}${rawPhotos.length > MAX_PHOTOS ? ` sur ${rawPhotos.length}` : ''})
+        </div>
+        <div style="display:flex;gap:8px;flex-wrap:nowrap">
+          ${photosToShow.map((p, i) => {
+            const src = resolvedPhotoSrcs?.[i] ?? p.uri;
+            const isDefect = p.kind === 'defect';
+            return `<div style="flex:1;min-width:0;text-align:center">
+              <img src="${src}" onerror="this.style.opacity='0.15'"
+                style="width:100%;height:110px;object-fit:cover;border-radius:6px;border:1.5px solid #DDE4EE;display:block" />
+              <span style="display:inline-block;margin-top:4px;padding:1px 7px;border-radius:8px;font-size:9px;font-weight:700;
+                background:${isDefect ? '#FEF2F2' : '#ECFDF5'};color:${isDefect ? '#DC2626' : '#059669'}">
+                ${isDefect ? '● Constat' : '● Levée'}
+              </span>
+            </div>`;
+          }).join('')}
+        </div>
       </div>`
     : '';
 
-  const historyRows = [...reserve.history].reverse().slice(0, 8).map(h =>
+  const planSection = planData
+    ? `<div style="position:relative;width:100%;height:180px;border-radius:8px;overflow:hidden;border:1.5px solid #DDE4EE;background:#F4F7FB">
+        <img src="${planData.imageSrc}" onerror="this.style.display='none'"
+          style="width:100%;height:100%;object-fit:contain;display:block" />
+        <div style="position:absolute;left:${planData.planX}%;top:${planData.planY}%;transform:translate(-50%,-50%)">
+          <div style="position:relative;display:flex;align-items:center;justify-content:center">
+            <div style="width:28px;height:28px;border-radius:50%;background:#DC2626;border:3px solid #fff;
+              box-shadow:0 2px 6px rgba(0,0,0,0.45);display:flex;align-items:center;justify-content:center">
+              <span style="color:#fff;font-size:11px;font-weight:800;line-height:1">!</span>
+            </div>
+          </div>
+        </div>
+        <div style="position:absolute;bottom:0;left:0;right:0;background:rgba(0,0,0,0.45);
+          padding:3px 8px;font-size:9px;color:#fff;font-weight:600">
+          ${planData.planName}
+        </div>
+      </div>`
+    : `<div style="width:100%;height:140px;border-radius:8px;border:1.5px dashed #DDE4EE;background:#F9FAFB;
+        display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px">
+        <span style="font-size:22px">📐</span>
+        <span style="font-size:10px;color:#9CA3AF">Aucun plan associé</span>
+      </div>`;
+
+  const commentsHtml = reserve.comments.length > 0
+    ? reserve.comments.slice(-3).map(c =>
+        `<div style="padding:6px 10px;background:#F9FAFB;border-radius:6px;margin-bottom:5px;border-left:3px solid #1A6FD8">
+          <div style="font-size:9px;color:#5E738A;margin-bottom:2px"><strong>${c.author}</strong> · ${c.createdAt}</div>
+          <div style="font-size:11px;color:#1A2742">${c.content}</div>
+        </div>`
+      ).join('')
+    : '';
+
+  const historyRows = [...reserve.history].reverse().slice(0, 5).map(h =>
     `<tr>
-      <td style="padding:7px 10px;font-size:11px;border-bottom:1px solid #EEF3FA">${h.createdAt}</td>
-      <td style="padding:7px 10px;font-size:11px;border-bottom:1px solid #EEF3FA;font-weight:600">${h.action}</td>
-      <td style="padding:7px 10px;font-size:11px;border-bottom:1px solid #EEF3FA;color:#6B7280">${h.author}</td>
-      ${h.oldValue && h.newValue ? `<td style="padding:7px 10px;font-size:10px;color:#6B7280;border-bottom:1px solid #EEF3FA">${h.oldValue} → ${h.newValue}</td>` : '<td></td>'}
+      <td style="padding:4px 8px;font-size:10px;border-bottom:1px solid #EEF3FA;white-space:nowrap">${h.createdAt}</td>
+      <td style="padding:4px 8px;font-size:10px;border-bottom:1px solid #EEF3FA;font-weight:600">${h.action}</td>
+      <td style="padding:4px 8px;font-size:10px;border-bottom:1px solid #EEF3FA;color:#6B7280">${h.author}</td>
+      ${h.oldValue && h.newValue
+        ? `<td style="padding:4px 8px;font-size:9px;color:#6B7280;border-bottom:1px solid #EEF3FA">${h.oldValue} → ${h.newValue}</td>`
+        : '<td></td>'}
     </tr>`
   ).join('');
 
-  const commentsSection = reserve.comments.length > 0
-    ? `<div style="margin-top:20px">
-        <div class="section-header">Commentaires</div>
-        ${reserve.comments.slice(-5).map(c =>
-          `<div style="background:#F9FAFB;border-radius:8px;padding:10px;margin-bottom:8px;border-left:3px solid #1A6FD8">
-            <div style="font-size:10px;color:#5E738A;margin-bottom:4px"><strong>${c.author}</strong> · ${c.createdAt}</div>
-            <div style="font-size:12px;color:#1A2742">${c.content}</div>
-          </div>`
-        ).join('')}
-      </div>`
-    : '';
-
   const sigSection = reserve.enterpriseSignature
-    ? `<div style="margin-top:24px;padding-top:20px;border-top:2px solid #EEF3FA">
-        <div class="section-header">Signature de levée</div>
-        <div style="border:1.5px solid #DDE4EE;border-radius:10px;padding:16px;display:inline-block;background:#FAFBFF">
-          <div style="font-size:10px;color:#5E738A;margin-bottom:8px">Signataire : <strong>${reserve.enterpriseSignataire ?? 'N/A'}</strong></div>
-          <img src="${reserve.enterpriseSignature}" style="width:240px;height:80px;object-fit:contain;border-bottom:2px solid #1A2742;display:block;margin-bottom:8px" />
-          ${reserve.enterpriseAcknowledgedAt ? `<div style="font-size:10px;color:#059669">✓ Levée reconnue le ${reserve.enterpriseAcknowledgedAt}</div>` : ''}
+    ? `<div style="display:flex;gap:12px;align-items:flex-start">
+        <div style="flex:1;border:1.5px solid #DDE4EE;border-radius:8px;padding:10px 14px;background:#FAFBFF">
+          <div style="font-size:9px;color:#5E738A;text-transform:uppercase;letter-spacing:0.6px;font-weight:700;margin-bottom:6px">Signature de levée</div>
+          <div style="font-size:10px;color:#5E738A;margin-bottom:6px">Signataire : <strong>${reserve.enterpriseSignataire ?? 'N/A'}</strong></div>
+          <img src="${reserve.enterpriseSignature}" style="width:180px;height:55px;object-fit:contain;border-bottom:2px solid #1A2742;display:block;margin-bottom:4px" />
+          ${reserve.enterpriseAcknowledgedAt ? `<div style="font-size:9px;color:#059669">✓ Levée reconnue le ${reserve.enterpriseAcknowledgedAt}</div>` : ''}
         </div>
       </div>`
-    : `<div style="margin-top:24px;padding-top:20px;border-top:2px solid #EEF3FA">
-        <div class="section-header">Zone de signature</div>
-        <div style="display:flex;gap:40px">
-          <div style="text-align:center">
-            <div style="height:70px;width:220px;border-bottom:2px solid #1A2742;margin-bottom:8px"></div>
-            <div style="font-size:11px;color:#5E738A">Conducteur de travaux</div>
-          </div>
-          <div style="text-align:center">
-            <div style="height:70px;width:220px;border-bottom:2px solid #1A2742;margin-bottom:8px"></div>
-            <div style="font-size:11px;color:#5E738A">${reserve.company}</div>
-          </div>
+    : `<div style="display:flex;gap:20px">
+        <div style="flex:1;text-align:center">
+          <div style="height:50px;border-bottom:2px solid #1A2742;margin-bottom:5px"></div>
+          <div style="font-size:10px;color:#5E738A">Conducteur de travaux</div>
+        </div>
+        <div style="flex:1;text-align:center">
+          <div style="height:50px;border-bottom:2px solid #1A2742;margin-bottom:5px"></div>
+          <div style="font-size:10px;color:#5E738A">${reserve.company ?? 'Entreprise'}</div>
         </div>
       </div>`;
 
   return `<!DOCTYPE html><html lang="fr"><head><meta charset="UTF-8">
   <title>Fiche réserve ${reserve.id}</title>
-  <style>${PDF_BASE_CSS}
-    .reserve-header { display: flex; justify-content: space-between; align-items: flex-start; border-bottom: 3px solid ${PDF_BRAND_COLOR}; padding-bottom: 18px; margin-bottom: 22px; }
-    .reserve-id { font-size: 26px; font-weight: 900; color: ${PDF_BRAND_COLOR}; }
-    .status-badge { display: inline-block; padding: 4px 14px; border-radius: 18px; font-weight: 700; font-size: 12px; }
-    .priority-badge { display: inline-block; padding: 3px 12px; border-radius: 12px; font-size: 11px; font-weight: 600; }
-    .info-grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin: 18px 0; }
-    .info-item { background: #F9FAFB; border-radius: 10px; padding: 12px 16px; }
-    .info-label { font-size: 10px; font-weight: 700; color: ${PDF_MUTED}; text-transform: uppercase; letter-spacing: 0.6px; margin-bottom: 4px; }
-    .info-value { font-size: 13px; color: #1A2742; font-weight: 600; }
-    .desc-box { background: #F9FAFB; border-radius: 10px; padding: 14px 18px; margin-top: 16px; border-left: 4px solid ${PDF_BRAND_COLOR}; }
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: Arial, Helvetica, sans-serif; background: #fff; color: #1A2742; font-size: 11px; line-height: 1.4; }
+    @page { size: A4 portrait; margin: 10mm 12mm; }
+    @media print {
+      body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+      .page { page-break-inside: avoid; }
+    }
+    .container { padding: 0; max-width: 780px; margin: 0 auto; }
+    .top-bar { display: flex; justify-content: space-between; align-items: flex-start;
+      border-bottom: 3px solid #003082; padding-bottom: 10px; margin-bottom: 10px; }
+    .badge { display: inline-block; padding: 2px 9px; border-radius: 10px; font-size: 9px; font-weight: 700; }
+    .col2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 10px; }
+    .col3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; margin-bottom: 10px; }
+    .info-cell { background: #F4F7FB; border-radius: 6px; padding: 7px 10px; border: 1px solid #DDE4EE; }
+    .lbl { font-size: 8px; font-weight: 700; color: #6B7280; text-transform: uppercase; letter-spacing: 0.6px; margin-bottom: 2px; }
+    .val { font-size: 11px; color: #1A2742; font-weight: 600; }
+    .desc-box { background: #F4F7FB; border-radius: 6px; padding: 8px 12px; border-left: 3px solid #003082; margin-bottom: 10px; font-size: 11px; line-height: 1.5; }
+    .sh { font-size: 9px; font-weight: 700; color: #6B7280; text-transform: uppercase; letter-spacing: 0.6px;
+      padding-bottom: 4px; border-bottom: 1px solid #DDE4EE; margin-bottom: 6px; margin-top: 10px; }
+    table { width: 100%; border-collapse: collapse; font-size: 10px; }
+    thead th { background: #003082; color: #fff; padding: 5px 8px; text-align: left; font-size: 9px; text-transform: uppercase; }
+    tbody td { padding: 4px 8px; border-bottom: 1px solid #EEF3FA; vertical-align: top; }
+    tbody tr:nth-child(even) { background: #F9FAFB; }
+    .doc-footer { margin-top: 10px; padding-top: 8px; border-top: 1px solid #DDE4EE;
+      display: flex; justify-content: space-between; font-size: 8px; color: #9CA3AF; }
   </style></head>
-  <body>
-  <div class="container">
-    <div class="reserve-header">
+  <body><div class="container">
+
+    <div class="top-bar">
       <div>
-        <div style="font-size:9px;color:${PDF_MUTED};text-transform:uppercase;letter-spacing:1px;margin-bottom:4px">Fiche de réserve</div>
-        <div class="reserve-id">${reserve.id}</div>
-        <div style="font-size:16px;font-weight:700;color:#1A2742;margin-top:4px">${reserve.title}</div>
-        <div style="font-size:12px;color:${PDF_MUTED};margin-top:2px">${projectName}</div>
-        <div style="display:flex;gap:8px;margin-top:10px;align-items:center;flex-wrap:wrap">
-          <span class="status-badge" style="background:${sColor}22;color:${sColor}">${sLabel}</span>
-          <span class="priority-badge" style="background:${pColor}18;color:${pColor}">${pLabel}</span>
-          ${reserve.kind === 'observation' ? '<span class="priority-badge" style="background:#0EA5E915;color:#0EA5E9">Observation</span>' : ''}
+        <div style="font-size:8px;color:#6B7280;text-transform:uppercase;letter-spacing:1px;margin-bottom:2px">Fiche de réserve · BuildTrack</div>
+        <div style="font-size:22px;font-weight:900;color:#003082;line-height:1">${reserve.id}</div>
+        <div style="font-size:14px;font-weight:700;color:#1A2742;margin-top:2px">${reserve.title}</div>
+        <div style="font-size:10px;color:#6B7280">${projectName}</div>
+        <div style="display:flex;gap:6px;margin-top:6px;align-items:center;flex-wrap:wrap">
+          <span class="badge" style="background:${sColor}22;color:${sColor}">${sLabel}</span>
+          <span class="badge" style="background:${pColor}18;color:${pColor}">${pLabel}</span>
+          ${reserve.kind === 'observation' ? '<span class="badge" style="background:#0EA5E915;color:#0EA5E9">Observation</span>' : ''}
         </div>
       </div>
-      <div style="text-align:right;font-size:11px;color:${PDF_MUTED}">
+      <div style="text-align:right;font-size:10px;color:#6B7280;flex-shrink:0;margin-left:16px">
         <div>Créé le <strong style="color:#1A2742">${reserve.createdAt}</strong></div>
-        ${reserve.closedAt ? `<div style="color:#059669;margin-top:4px;font-weight:700">✓ Clôturé le ${reserve.closedAt}</div>` : ''}
-        <div style="margin-top:6px">Échéance : <strong style="color:${reserve.closedAt ? '#059669' : '#DC2626'}">${reserve.deadline}</strong></div>
+        ${reserve.closedAt ? `<div style="color:#059669;margin-top:2px;font-weight:700">✓ Clôturé le ${reserve.closedAt}</div>` : ''}
+        <div style="margin-top:4px">Échéance : <strong style="color:${reserve.closedAt ? '#059669' : '#DC2626'}">${reserve.deadline}</strong></div>
+        <div style="font-size:9px;color:#9CA3AF;margin-top:4px">${new Date().toLocaleDateString('fr-FR')}</div>
       </div>
     </div>
 
-    <div class="info-grid-2">
-      <div class="info-item">
-        <div class="info-label">Entreprise</div>
-        <div class="info-value" style="color:${company?.color ?? PDF_BRAND_COLOR}">${reserve.company}</div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px">
+      <div>
+        <div class="col2" style="margin-bottom:8px">
+          <div class="info-cell">
+            <div class="lbl">Entreprise</div>
+            <div class="val" style="color:${company?.color ?? '#003082'}">${reserve.company ?? '—'}</div>
+          </div>
+          <div class="info-cell">
+            <div class="lbl">Localisation</div>
+            <div class="val">Bât. ${reserve.building} · ${reserve.level}</div>
+          </div>
+          <div class="info-cell">
+            <div class="lbl">Zone</div>
+            <div class="val">${reserve.zone}</div>
+          </div>
+          <div class="info-cell">
+            <div class="lbl">Créé par</div>
+            <div class="val">${reserve.history[0]?.author ?? 'N/A'}</div>
+          </div>
+        </div>
+        <div class="desc-box">
+          <div class="lbl" style="margin-bottom:4px">Description</div>
+          ${reserve.description}
+        </div>
       </div>
-      <div class="info-item">
-        <div class="info-label">Localisation</div>
-        <div class="info-value">Bât. ${reserve.building} · ${reserve.level} · ${reserve.zone}</div>
-      </div>
-      <div class="info-item">
-        <div class="info-label">Créé par</div>
-        <div class="info-value">${reserve.history[0]?.author ?? 'N/A'}</div>
-      </div>
-      <div class="info-item">
-        <div class="info-label">Photos</div>
-        <div class="info-value">${rawPhotos.length} photo${rawPhotos.length !== 1 ? 's' : ''} attachée${rawPhotos.length !== 1 ? 's' : ''}</div>
+      <div>
+        <div class="lbl" style="margin-bottom:6px">Plan de localisation</div>
+        ${planSection}
       </div>
     </div>
 
-    ${gpsSection}
+    ${photoRowHtml}
 
-    <div class="desc-box">
-      <div class="section-header" style="margin-top:0;border:none;padding:0;margin-bottom:8px">Description</div>
-      <div style="font-size:13px;line-height:1.6;color:#1A2742">${reserve.description}</div>
-    </div>
+    ${reserve.comments.length > 0 || reserve.history.length > 0 ? `
+    <div style="display:grid;grid-template-columns:${reserve.comments.length > 0 && reserve.history.length > 0 ? '1fr 1fr' : '1fr'};gap:10px;margin-top:10px">
+      ${reserve.comments.length > 0 ? `
+      <div>
+        <div class="sh">Commentaires (${Math.min(reserve.comments.length, 3)})</div>
+        ${commentsHtml}
+      </div>` : ''}
+      ${reserve.history.length > 0 ? `
+      <div>
+        <div class="sh">Historique (${Math.min(reserve.history.length, 5)} dernières actions)</div>
+        <table>
+          <thead><tr><th>Date</th><th>Action</th><th>Auteur</th><th>Détail</th></tr></thead>
+          <tbody>${historyRows}</tbody>
+        </table>
+      </div>` : ''}
+    </div>` : ''}
 
-    ${photoSection}
-
-    ${commentsSection}
-
-    ${reserve.history.length > 0 ? `
-      <div class="section-header">Historique (${Math.min(reserve.history.length, 8)} dernières actions)</div>
-      <table>
-        <thead><tr><th>Date</th><th>Action</th><th>Auteur</th><th>Détail</th></tr></thead>
-        <tbody>${historyRows}</tbody>
-      </table>
-    ` : ''}
-
+    <div class="sh" style="margin-top:10px">Signatures</div>
     ${sigSection}
 
     <div class="doc-footer">
       <span>Fiche réserve générée par BuildTrack — ${projectName}</span>
-      <span>Document confidentiel — ${new Date().toLocaleDateString('fr-FR')}</span>
+      <span>Document confidentiel</span>
     </div>
-  </div>
-  </body></html>`;
+
+  </div></body></html>`;
 }
 
 export default function ReserveDetailScreen() {
   const insets = useSafeAreaInsets();
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
-  const { reserves, tasks, updateReserveStatus, updateReserveFields, deleteReserve, addComment, companies, channels, addPhoto } = useApp();
+  const { reserves, tasks, updateReserveStatus, updateReserveFields, deleteReserve, addComment, companies, channels, addPhoto, sitePlans } = useApp();
   const { user, permissions } = useAuth();
   const { projectName } = useSettings();
   const [comment, setComment] = useState('');
@@ -547,8 +611,30 @@ export default function ReserveDetailScreen() {
         : reserve.photoUri
           ? [{ id: 'legacy', uri: reserve.photoUri, kind: 'defect' as const, takenAt: reserve.createdAt, takenBy: '' }]
           : [];
-      const resolvedSrcs = await Promise.all(rawPhotos.slice(0, 6).map(p => loadPhotoAsDataUrl(p.uri)));
-      const html = buildReservePDF(reserve, projectName, company, resolvedSrcs);
+      const resolvedSrcs = await Promise.all(rawPhotos.slice(0, 3).map(p => loadPhotoAsDataUrl(p.uri)));
+
+      let planData: PlanData | undefined;
+      if (reserve.planId && reserve.planX !== undefined && reserve.planY !== undefined) {
+        const matchedPlan = sitePlans.find(p => p.id === reserve.planId);
+        if (matchedPlan?.uri && matchedPlan.fileType === 'image') {
+          const planImageSrc = await loadPhotoAsDataUrl(matchedPlan.uri);
+          planData = {
+            imageSrc: planImageSrc,
+            planX: reserve.planX,
+            planY: reserve.planY,
+            planName: matchedPlan.name ?? 'Plan',
+          };
+        } else if (matchedPlan) {
+          planData = {
+            imageSrc: '',
+            planX: reserve.planX,
+            planY: reserve.planY,
+            planName: matchedPlan.name ?? 'Plan',
+          };
+        }
+      }
+
+      const html = buildReservePDF(reserve, projectName, company, resolvedSrcs, planData);
       await exportPDFHelper(html, `Fiche ${reserve.id}`);
     } catch {
       Alert.alert('Erreur', "Impossible de générer le PDF.");
