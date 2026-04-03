@@ -1,6 +1,6 @@
 import {
   View, Text, StyleSheet, ScrollView, TouchableOpacity, TextInput,
-  Alert, Modal, ActivityIndicator, Image, Platform, RefreshControl,
+  Alert, Modal, ActivityIndicator, Image, Platform, RefreshControl, KeyboardAvoidingView,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -391,6 +391,7 @@ export default function IncidentsScreen() {
         animationType="slide"
         onRequestClose={() => setModalMode(null)}
       >
+        <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
         <TouchableOpacity style={styles.overlay} activeOpacity={1} onPress={() => setModalMode(null)}>
           <TouchableOpacity activeOpacity={1} style={[styles.sheet, { paddingBottom: Math.max(insets.bottom, 20) }]}>
             <View style={styles.sheetHandle} />
@@ -545,6 +546,7 @@ export default function IncidentsScreen() {
             </ScrollView>
           </TouchableOpacity>
         </TouchableOpacity>
+        </KeyboardAvoidingView>
       </Modal>
 
       {permissions.canCreate && (
@@ -603,10 +605,10 @@ const styles = StyleSheet.create({
   actionsRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 8, backgroundColor: C.inProgress + '12', borderRadius: 8, padding: 8 },
   actionsText: { flex: 1, fontSize: 12, fontFamily: 'Inter_400Regular', color: C.inProgress },
 
-  overlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.4)', justifyContent: 'flex-end' },
+  overlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.4)', justifyContent: 'flex-end', alignItems: 'center' },
   sheet: {
     backgroundColor: C.surface, borderTopLeftRadius: 20, borderTopRightRadius: 20,
-    padding: 20, maxHeight: '90%',
+    padding: 20, maxHeight: '90%', width: '100%', maxWidth: 640,
   },
   sheetHandle: { width: 36, height: 4, backgroundColor: C.border, borderRadius: 2, alignSelf: 'center', marginBottom: 16 },
   sheetTitle: { fontSize: 18, fontFamily: 'Inter_700Bold', color: C.text, marginBottom: 16 },

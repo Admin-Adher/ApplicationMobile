@@ -1673,8 +1673,8 @@ const styles = StyleSheet.create({
   signedBadge: { flexDirection: 'row', alignItems: 'center', gap: 5 },
   signedText: { fontSize: 12, fontFamily: 'Inter_500Medium', color: C.closed },
 
-  modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' },
-  modalScrollWrap: { maxHeight: '92%' },
+  modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end', alignItems: 'center' },
+  modalScrollWrap: { maxHeight: '92%', width: '100%', maxWidth: 640 },
   modalSheet: {
     backgroundColor: C.surface, borderTopLeftRadius: 20, borderTopRightRadius: 20,
     padding: 20, paddingBottom: 40,
@@ -1725,8 +1725,8 @@ const styles = StyleSheet.create({
   sigPendingBadge: { paddingHorizontal: 8, paddingVertical: 3, borderRadius: 8, backgroundColor: '#FEF3C7' },
   sigPendingText: { fontSize: 10, fontFamily: 'Inter_500Medium', color: '#92400E' },
 
-  inviteOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' },
-  inviteSheet: { backgroundColor: C.surface, borderTopLeftRadius: 20, borderTopRightRadius: 20, padding: 20, paddingBottom: 40 },
+  inviteOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end', alignItems: 'center' },
+  inviteSheet: { backgroundColor: C.surface, borderTopLeftRadius: 20, borderTopRightRadius: 20, padding: 20, paddingBottom: 40, width: '100%', maxWidth: 640 },
   inviteTitle: { fontSize: 17, fontFamily: 'Inter_700Bold', color: C.text, marginBottom: 14 },
   inviteActions: { flexDirection: 'row', gap: 10, marginTop: 8 },
 
