@@ -24,8 +24,6 @@ const ROLES: { value: UserRole; label: string; color: string; bg: string; descri
 
 const FREE_ROLES: UserRole[] = ['observateur', 'sous_traitant'];
 
-const ASSIGNABLE_ROLES = ROLES.filter(r => r.value !== 'super_admin' as UserRole);
-
 const PLAN_COLORS: Record<string, string> = {
   Solo: '#6B7280',
   'Équipe': '#3B82F6',
@@ -77,7 +75,7 @@ export default function AdminScreen() {
   const router = useRouter();
 
   const { user, updateUserRole, deleteUserProfile } = useAuth();
-  const { companies, addCompany, updateCompanyFull, deleteCompany, updateCompanyWorkers } = useApp();
+  const { companies, addCompany, updateCompanyFull, deleteCompany, updateCompanyWorkers, updateCompanyHours } = useApp();
   const {
     plan, subscription, seatUsed, seatMax, canInvite,
     pendingInvitations, inviteUser, cancelInvitation, orgUsers,
@@ -119,14 +117,18 @@ export default function AdminScreen() {
   const [email, setEmail] = useState('');
   const [zone, setZone] = useState('');
   const [effectif, setEffectif] = useState('');
+  const [heures, setHeures] = useState('');
   const [selectedColor, setSelectedColor] = useState(COMPANY_COLORS[0]);
 
+  const isCompanyFormDirty = !!(nom.trim() || nomCourt.trim() || phone.trim() || email.trim() || zone.trim() || effectif.trim());
+
   const filteredUsers = useMemo(() => {
-    if (!userSearch.trim()) return orgUsers;
-    const q = userSearch.toLowerCase();
-    return orgUsers.filter(u =>
-      u.name.toLowerCase().includes(q) || u.email.toLowerCase().includes(q)
-    );
+    let list = [...orgUsers];
+    if (userSearch.trim()) {
+      const q = userSearch.toLowerCase();
+      list = list.filter(u => u.name.toLowerCase().includes(q) || u.email.toLowerCase().includes(q));
+    }
+    return list.sort((a, b) => a.name.localeCompare(b.name, 'fr', { sensitivity: 'base' }));
   }, [orgUsers, userSearch]);
 
   const filteredCompanies = useMemo(() => {
@@ -211,17 +213,20 @@ export default function AdminScreen() {
       `Annuler l'invitation envoyée à ${email} ?`,
       [
         { text: 'Non', style: 'cancel' },
-        { text: 'Annuler l\'invitation', style: 'destructive', onPress: () => cancelInvitation(id) },
+        {
+          text: 'Annuler l\'invitation',
+          style: 'destructive',
+          onPress: async () => {
+            await cancelInvitation(id);
+            showToast('Invitation annulée');
+          },
+        },
       ]
     );
   }
 
   async function handleRoleChange(newRole: UserRole) {
     if (!roleModal) return;
-    if (newRole === 'super_admin') {
-      Alert.alert('Action impossible', 'Le rôle Super Administrateur ne peut pas être attribué depuis ce panneau.');
-      return;
-    }
     if (roleModal.id === user?.id && newRole !== 'admin') {
       Alert.alert('Action impossible', 'Vous ne pouvez pas retirer votre propre rôle admin.');
       return;
@@ -255,7 +260,7 @@ export default function AdminScreen() {
   }
 
   function openAddCompany() {
-    setNom(''); setNomCourt(''); setPhone(''); setEmail(''); setZone(''); setEffectif('');
+    setNom(''); setNomCourt(''); setPhone(''); setEmail(''); setZone(''); setEffectif(''); setHeures('0');
     setSelectedColor(COMPANY_COLORS[companies.length % COMPANY_COLORS.length]);
     setCompanyModal({ mode: 'add' });
   }
@@ -263,8 +268,20 @@ export default function AdminScreen() {
   function openEditCompany(co: Company) {
     setNom(co.name); setNomCourt(co.shortName); setPhone(co.phone ?? '');
     setEmail(co.email ?? ''); setZone(co.zone); setEffectif(String(co.plannedWorkers));
+    setHeures(String(co.hoursWorked ?? 0));
     setSelectedColor(co.color);
     setCompanyModal({ mode: 'edit', company: co });
+  }
+
+  function tryCloseCompanyModal() {
+    if (companyModal?.mode === 'add' && isCompanyFormDirty) {
+      Alert.alert('Abandonner ?', 'Les données saisies seront perdues.', [
+        { text: 'Continuer', style: 'cancel' },
+        { text: 'Abandonner', style: 'destructive', onPress: () => setCompanyModal(null) },
+      ]);
+    } else {
+      setCompanyModal(null);
+    }
   }
 
   function handleSaveCompany() {
@@ -277,6 +294,7 @@ export default function AdminScreen() {
       Alert.alert('Valeur invalide', 'L\'effectif doit être un entier positif.');
       return;
     }
+    const hrs = parseFloat(heures) || 0;
     const duplicate = companies.find(c =>
       c.name.toLowerCase() === nom.trim().toLowerCase() &&
       (companyModal?.mode === 'add' || c.id !== companyModal?.company?.id)
@@ -291,6 +309,7 @@ export default function AdminScreen() {
         name: nom.trim(),
         shortName: nomCourt.trim().toUpperCase(),
         plannedWorkers: planned,
+        hoursWorked: hrs,
         zone: zone.trim() || 'À définir',
         phone: phone.trim() || undefined,
         email: email.trim() || undefined,
@@ -305,7 +324,7 @@ export default function AdminScreen() {
         color: selectedColor,
         plannedWorkers: planned,
         actualWorkers: 0,
-        hoursWorked: 0,
+        hoursWorked: hrs,
         zone: zone.trim() || 'À définir',
         phone: phone.trim() || undefined,
         email: email.trim() || undefined,
@@ -337,6 +356,11 @@ export default function AdminScreen() {
     updateCompanyWorkers(co.id, next);
   }
 
+  function handleHoursChange(co: Company, delta: number) {
+    const next = Math.max(0, (co.hoursWorked ?? 0) + delta);
+    updateCompanyHours(co.id, next);
+  }
+
   const seatRatio = seatMax === -1 ? 0 : seatUsed / seatMax;
   const seatBarColor = seatRatio >= 0.9 ? '#EF4444' : seatRatio >= 0.7 ? '#F59E0B' : '#10B981';
 
@@ -347,7 +371,7 @@ export default function AdminScreen() {
   return (
     <View style={styles.container}>
       {toast && (
-        <View style={styles.toast} pointerEvents="none">
+        <View style={[styles.toast, { top: topPad + 12, pointerEvents: 'none' }]}>
           <Ionicons name="checkmark-circle" size={16} color="#fff" />
           <Text style={styles.toastText}>{toast}</Text>
         </View>
@@ -362,7 +386,7 @@ export default function AdminScreen() {
             <Text style={styles.title}>Administration</Text>
             <Text style={styles.subtitle}>Gestion des accès et des équipes</Text>
           </View>
-          <View style={[styles.adminBadge]}>
+          <View style={styles.adminBadge}>
             <Ionicons name="shield-checkmark" size={14} color="#EF4444" />
             <Text style={styles.adminBadgeText}>Admin</Text>
           </View>
@@ -374,13 +398,9 @@ export default function AdminScreen() {
             onPress={() => setActiveTab('users')}
           >
             <Ionicons name="people" size={14} color={activeTab === 'users' ? C.primary : C.textMuted} />
-            <Text style={[styles.tabBtnText, activeTab === 'users' && styles.tabBtnTextActive]}>
-              Utilisateurs
-            </Text>
+            <Text style={[styles.tabBtnText, activeTab === 'users' && styles.tabBtnTextActive]}>Utilisateurs</Text>
             <View style={[styles.tabCount, activeTab === 'users' && styles.tabCountActive]}>
-              <Text style={[styles.tabCountText, activeTab === 'users' && styles.tabCountTextActive]}>
-                {orgUsers.length}
-              </Text>
+              <Text style={[styles.tabCountText, activeTab === 'users' && styles.tabCountTextActive]}>{orgUsers.length}</Text>
             </View>
             {pendingInvitations.length > 0 && (
               <View style={[styles.tabCount, styles.tabCountBadge]}>
@@ -393,13 +413,9 @@ export default function AdminScreen() {
             onPress={() => setActiveTab('companies')}
           >
             <Ionicons name="business" size={14} color={activeTab === 'companies' ? C.primary : C.textMuted} />
-            <Text style={[styles.tabBtnText, activeTab === 'companies' && styles.tabBtnTextActive]}>
-              Entreprises
-            </Text>
+            <Text style={[styles.tabBtnText, activeTab === 'companies' && styles.tabBtnTextActive]}>Entreprises</Text>
             <View style={[styles.tabCount, activeTab === 'companies' && styles.tabCountActive]}>
-              <Text style={[styles.tabCountText, activeTab === 'companies' && styles.tabCountTextActive]}>
-                {companies.length}
-              </Text>
+              <Text style={[styles.tabCountText, activeTab === 'companies' && styles.tabCountTextActive]}>{companies.length}</Text>
             </View>
           </TouchableOpacity>
           <TouchableOpacity
@@ -407,19 +423,18 @@ export default function AdminScreen() {
             onPress={() => setActiveTab('abonnement')}
           >
             <Ionicons name="card" size={14} color={activeTab === 'abonnement' ? C.primary : C.textMuted} />
-            <Text style={[styles.tabBtnText, activeTab === 'abonnement' && styles.tabBtnTextActive]}>
-              Abonnement
-            </Text>
+            <Text style={[styles.tabBtnText, activeTab === 'abonnement' && styles.tabBtnTextActive]}>Abonnement</Text>
           </TouchableOpacity>
         </ScrollView>
       </View>
 
+      {/* ─── ONGLET UTILISATEURS ─── */}
       {activeTab === 'users' && (
         <ScrollView
           contentContainerStyle={[styles.content, { paddingBottom: bottomPad + 32 }]}
           showsVerticalScrollIndicator={false}
         >
-          <View style={styles.statsRow}>
+          <View style={styles.statsGrid}>
             {ROLES.map(r => (
               <View key={r.value} style={[styles.statCard, { borderTopColor: r.color }]}>
                 <Text style={[styles.statNum, { color: r.color }]}>{roleCounts[r.value]}</Text>
@@ -429,13 +444,8 @@ export default function AdminScreen() {
           </View>
 
           <View style={styles.sectionHeaderRow}>
-            <Text style={styles.sectionTitle}>
-              {orgUsers.length} utilisateur{orgUsers.length !== 1 ? 's' : ''}
-            </Text>
-            <TouchableOpacity
-              style={styles.addBtn}
-              onPress={() => setInviteModal(true)}
-            >
+            <Text style={styles.sectionTitle}>{orgUsers.length} utilisateur{orgUsers.length !== 1 ? 's' : ''}</Text>
+            <TouchableOpacity style={styles.addBtn} onPress={() => setInviteModal(true)}>
               <Ionicons name="person-add-outline" size={17} color="#fff" />
               <Text style={styles.addBtnText}>Inviter</Text>
             </TouchableOpacity>
@@ -489,13 +499,15 @@ export default function AdminScreen() {
                     <RoleBadge role={u.role} />
                   </View>
                   <View style={styles.userActions}>
-                    <TouchableOpacity
-                      style={styles.iconBtn}
-                      onPress={() => setRoleModal({ id: u.id, name: u.name, currentRole: u.role })}
-                      hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                    >
-                      <Ionicons name="shield-outline" size={17} color={C.primary} />
-                    </TouchableOpacity>
+                    {!isCurrentUser && (
+                      <TouchableOpacity
+                        style={styles.iconBtn}
+                        onPress={() => setRoleModal({ id: u.id, name: u.name, currentRole: u.role })}
+                        hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                      >
+                        <Ionicons name="create-outline" size={17} color={C.primary} />
+                      </TouchableOpacity>
+                    )}
                     {!isCurrentUser && (
                       <TouchableOpacity
                         style={[styles.iconBtn, styles.iconBtnDanger]}
@@ -520,6 +532,7 @@ export default function AdminScreen() {
         </ScrollView>
       )}
 
+      {/* ─── ONGLET ENTREPRISES ─── */}
       {activeTab === 'companies' && (
         <ScrollView
           contentContainerStyle={[styles.content, { paddingBottom: bottomPad + 32 }]}
@@ -527,7 +540,9 @@ export default function AdminScreen() {
         >
           <View style={styles.sectionHeaderRow}>
             <Text style={styles.sectionTitle}>
-              {companies.length} entreprise{companies.length !== 1 ? 's' : ''} sur chantier
+              {companySearch.trim()
+                ? `${filteredCompanies.length} / ${companies.length} entreprise${companies.length !== 1 ? 's' : ''}`
+                : `${companies.length} entreprise${companies.length !== 1 ? 's' : ''} sur chantier`}
             </Text>
             <TouchableOpacity style={styles.addBtn} onPress={openAddCompany}>
               <Ionicons name="add" size={17} color="#fff" />
@@ -587,6 +602,7 @@ export default function AdminScreen() {
                       <Ionicons name="trash-outline" size={16} color={C.open} />
                     </TouchableOpacity>
                   </View>
+
                   <View style={styles.coStatsRow}>
                     <View style={styles.coStat}>
                       <View style={[styles.coStatDot, { backgroundColor: co.color }]} />
@@ -612,21 +628,35 @@ export default function AdminScreen() {
                         <Ionicons name="add" size={13} color={C.textSub} />
                       </TouchableOpacity>
                     </View>
+                    <View style={[styles.coStat, { flex: 1 }]}>
+                      <View style={[styles.coStatDot, { backgroundColor: C.textMuted }]} />
+                      <Text style={styles.coStatLabel}>Heures</Text>
+                      <TouchableOpacity
+                        onPress={() => handleHoursChange(co, -1)}
+                        hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                        style={styles.workerBtn}
+                      >
+                        <Ionicons name="remove" size={13} color={C.textSub} />
+                      </TouchableOpacity>
+                      <Text style={styles.coStatVal}>{co.hoursWorked ?? 0}h</Text>
+                      <TouchableOpacity
+                        onPress={() => handleHoursChange(co, 1)}
+                        hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                        style={styles.workerBtn}
+                      >
+                        <Ionicons name="add" size={13} color={C.textSub} />
+                      </TouchableOpacity>
+                    </View>
                   </View>
+
                   {co.phone && (
-                    <TouchableOpacity
-                      style={styles.coContact}
-                      onPress={() => Linking.openURL(`tel:${co.phone}`)}
-                    >
+                    <TouchableOpacity style={styles.coContact} onPress={() => Linking.openURL(`tel:${co.phone}`)}>
                       <Ionicons name="call-outline" size={12} color={C.primary} />
                       <Text style={[styles.coContactText, { color: C.primary }]}>{co.phone}</Text>
                     </TouchableOpacity>
                   )}
                   {co.email && (
-                    <TouchableOpacity
-                      style={styles.coContact}
-                      onPress={() => Linking.openURL(`mailto:${co.email}`)}
-                    >
+                    <TouchableOpacity style={styles.coContact} onPress={() => Linking.openURL(`mailto:${co.email}`)}>
                       <Ionicons name="mail-outline" size={12} color={C.primary} />
                       <Text style={[styles.coContactText, { color: C.primary }]}>{co.email}</Text>
                     </TouchableOpacity>
@@ -638,6 +668,7 @@ export default function AdminScreen() {
         </ScrollView>
       )}
 
+      {/* ─── ONGLET ABONNEMENT ─── */}
       {activeTab === 'abonnement' && (
         <ScrollView
           contentContainerStyle={[styles.content, { paddingBottom: bottomPad + 32 }]}
@@ -695,10 +726,7 @@ export default function AdminScreen() {
             </View>
             {seatMax !== -1 && (
               <View style={styles.barBg}>
-                <View style={[styles.barFill, {
-                  width: `${Math.min(seatRatio * 100, 100)}%` as any,
-                  backgroundColor: seatBarColor,
-                }]} />
+                <View style={[styles.barFill, { width: `${Math.min(seatRatio * 100, 100)}%` as any, backgroundColor: seatBarColor }]} />
               </View>
             )}
             {freeOrgUsers.length > 0 && (
@@ -716,10 +744,53 @@ export default function AdminScreen() {
             )}
           </View>
 
-          <View style={styles.sectionHeaderRow}>
-            <Text style={styles.sectionTitle}>Invitations en attente ({pendingInvitations.length})</Text>
-          </View>
+          {activeOrgUsers.length > 0 && (
+            <>
+              <Text style={styles.subSectionTitle}>Utilisateurs actifs ({activeOrgUsers.length})</Text>
+              {activeOrgUsers.map((u, i) => {
+                const col = hashColor(u.id, AVATAR_COLORS);
+                const initials = u.name.split(' ').map((w: string) => w[0]).slice(0, 2).join('').toUpperCase();
+                return (
+                  <View key={u.id} style={styles.memberRow}>
+                    <View style={[styles.memberAvatar, { backgroundColor: col + '22' }]}>
+                      <Text style={[styles.memberAvatarTxt, { color: col }]}>{initials}</Text>
+                    </View>
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.memberName}>{u.name}</Text>
+                      <Text style={styles.memberEmail}>{u.email}</Text>
+                    </View>
+                    <RoleBadge role={u.role} />
+                  </View>
+                );
+              })}
+            </>
+          )}
 
+          {freeOrgUsers.length > 0 && (
+            <>
+              <Text style={styles.subSectionTitle}>
+                Gratuits — hors quota ({freeOrgUsers.length})
+              </Text>
+              {freeOrgUsers.map(u => {
+                const col = '#10B981';
+                const initials = u.name.split(' ').map((w: string) => w[0]).slice(0, 2).join('').toUpperCase();
+                return (
+                  <View key={u.id} style={[styles.memberRow, { borderColor: '#10B98122' }]}>
+                    <View style={[styles.memberAvatar, { backgroundColor: '#10B98118' }]}>
+                      <Text style={[styles.memberAvatarTxt, { color: col }]}>{initials}</Text>
+                    </View>
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.memberName}>{u.name}</Text>
+                      <Text style={styles.memberEmail}>{u.email}</Text>
+                    </View>
+                    <RoleBadge role={u.role} />
+                  </View>
+                );
+              })}
+            </>
+          )}
+
+          <Text style={styles.subSectionTitle}>Invitations en attente ({pendingInvitations.length})</Text>
           {pendingInvitations.length === 0 ? (
             <View style={styles.empty}>
               <Ionicons name="mail-outline" size={36} color={C.textMuted} />
@@ -758,12 +829,8 @@ export default function AdminScreen() {
         </ScrollView>
       )}
 
-      <Modal
-        visible={!!roleModal}
-        transparent
-        animationType="slide"
-        onRequestClose={() => setRoleModal(null)}
-      >
+      {/* ─── MODAL CHANGEMENT DE RÔLE ─── */}
+      <Modal visible={!!roleModal} transparent animationType="slide" onRequestClose={() => setRoleModal(null)}>
         <TouchableOpacity style={styles.overlay} activeOpacity={1} onPress={() => setRoleModal(null)}>
           <TouchableOpacity activeOpacity={1} style={styles.sheet}>
             <View style={styles.sheetHandle} />
@@ -772,7 +839,7 @@ export default function AdminScreen() {
             {saving ? (
               <ActivityIndicator size="large" color={C.primary} style={{ marginVertical: 24 }} />
             ) : (
-              ASSIGNABLE_ROLES.map(r => {
+              ROLES.map(r => {
                 const isSelected = roleModal?.currentRole === r.value;
                 return (
                   <TouchableOpacity
@@ -799,14 +866,10 @@ export default function AdminScreen() {
         </TouchableOpacity>
       </Modal>
 
-      <Modal
-        visible={!!companyModal}
-        transparent
-        animationType="slide"
-        onRequestClose={() => setCompanyModal(null)}
-      >
+      {/* ─── MODAL ENTREPRISE ─── */}
+      <Modal visible={!!companyModal} transparent animationType="slide" onRequestClose={tryCloseCompanyModal}>
         <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
-          <TouchableOpacity style={styles.overlay} activeOpacity={1} onPress={() => setCompanyModal(null)}>
+          <TouchableOpacity style={styles.overlay} activeOpacity={1} onPress={tryCloseCompanyModal}>
             <TouchableOpacity activeOpacity={1} style={styles.sheet}>
               <View style={styles.sheetHandle} />
               <Text style={styles.sheetTitle}>
@@ -815,69 +878,40 @@ export default function AdminScreen() {
               <ScrollView showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled" contentContainerStyle={{ gap: 10 }}>
                 <View style={styles.field}>
                   <Text style={styles.fieldLabel}>Nom complet *</Text>
-                  <TextInput
-                    style={styles.fieldInput}
-                    value={nom}
-                    onChangeText={setNom}
-                    placeholder="Ex : Maçonnerie Dupont"
-                    placeholderTextColor={C.textMuted}
-                  />
+                  <TextInput style={styles.fieldInput} value={nom} onChangeText={setNom}
+                    placeholder="Ex : Maçonnerie Dupont" placeholderTextColor={C.textMuted} />
                 </View>
                 <View style={styles.field}>
                   <Text style={styles.fieldLabel}>Sigle *</Text>
-                  <TextInput
-                    style={styles.fieldInput}
-                    value={nomCourt}
-                    onChangeText={setNomCourt}
-                    placeholder="Ex : MD"
-                    placeholderTextColor={C.textMuted}
-                    autoCapitalize="characters"
-                    maxLength={6}
-                  />
+                  <TextInput style={styles.fieldInput} value={nomCourt} onChangeText={setNomCourt}
+                    placeholder="Ex : MD" placeholderTextColor={C.textMuted}
+                    autoCapitalize="characters" maxLength={6} />
                 </View>
                 <View style={styles.field}>
                   <Text style={styles.fieldLabel}>Effectif prévu *</Text>
-                  <TextInput
-                    style={styles.fieldInput}
-                    value={effectif}
-                    onChangeText={setEffectif}
-                    placeholder="Ex : 8"
-                    placeholderTextColor={C.textMuted}
-                    keyboardType="numeric"
-                  />
+                  <TextInput style={styles.fieldInput} value={effectif} onChangeText={setEffectif}
+                    placeholder="Ex : 8" placeholderTextColor={C.textMuted} keyboardType="numeric" />
+                </View>
+                <View style={styles.field}>
+                  <Text style={styles.fieldLabel}>Heures travaillées</Text>
+                  <TextInput style={styles.fieldInput} value={heures} onChangeText={setHeures}
+                    placeholder="Ex : 240" placeholderTextColor={C.textMuted} keyboardType="numeric" />
                 </View>
                 <View style={styles.field}>
                   <Text style={styles.fieldLabel}>Zone d'intervention</Text>
-                  <TextInput
-                    style={styles.fieldInput}
-                    value={zone}
-                    onChangeText={setZone}
-                    placeholder="Ex : Zone Nord — Bâtiment A"
-                    placeholderTextColor={C.textMuted}
-                  />
+                  <TextInput style={styles.fieldInput} value={zone} onChangeText={setZone}
+                    placeholder="Ex : Zone Nord — Bâtiment A" placeholderTextColor={C.textMuted} />
                 </View>
                 <View style={styles.field}>
                   <Text style={styles.fieldLabel}>Téléphone</Text>
-                  <TextInput
-                    style={styles.fieldInput}
-                    value={phone}
-                    onChangeText={setPhone}
-                    placeholder="Ex : 06 12 34 56 78"
-                    placeholderTextColor={C.textMuted}
-                    keyboardType="phone-pad"
-                  />
+                  <TextInput style={styles.fieldInput} value={phone} onChangeText={setPhone}
+                    placeholder="Ex : 06 12 34 56 78" placeholderTextColor={C.textMuted} keyboardType="phone-pad" />
                 </View>
                 <View style={styles.field}>
                   <Text style={styles.fieldLabel}>Email</Text>
-                  <TextInput
-                    style={styles.fieldInput}
-                    value={email}
-                    onChangeText={setEmail}
-                    placeholder="Ex : contact@entreprise.fr"
-                    placeholderTextColor={C.textMuted}
-                    keyboardType="email-address"
-                    autoCapitalize="none"
-                  />
+                  <TextInput style={styles.fieldInput} value={email} onChangeText={setEmail}
+                    placeholder="Ex : contact@entreprise.fr" placeholderTextColor={C.textMuted}
+                    keyboardType="email-address" autoCapitalize="none" />
                 </View>
                 <View style={styles.field}>
                   <Text style={styles.fieldLabel}>Couleur</Text>
@@ -898,7 +932,7 @@ export default function AdminScreen() {
                     {companyModal?.mode === 'edit' ? 'Enregistrer les modifications' : 'Ajouter l\'entreprise'}
                   </Text>
                 </TouchableOpacity>
-                <TouchableOpacity style={styles.cancelBtn} onPress={() => setCompanyModal(null)}>
+                <TouchableOpacity style={styles.cancelBtn} onPress={tryCloseCompanyModal}>
                   <Text style={styles.cancelBtnText}>Annuler</Text>
                 </TouchableOpacity>
               </ScrollView>
@@ -907,12 +941,8 @@ export default function AdminScreen() {
         </KeyboardAvoidingView>
       </Modal>
 
-      <Modal
-        visible={inviteModal}
-        transparent
-        animationType="slide"
-        onRequestClose={handleCloseInviteModal}
-      >
+      {/* ─── MODAL INVITATION ─── */}
+      <Modal visible={inviteModal} transparent animationType="slide" onRequestClose={handleCloseInviteModal}>
         <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
         <TouchableOpacity style={styles.overlay} activeOpacity={1} onPress={handleCloseInviteModal}>
           <TouchableOpacity activeOpacity={1} style={styles.sheet}>
@@ -925,7 +955,7 @@ export default function AdminScreen() {
                 </View>
                 <Text style={styles.sheetTitle}>Invitation créée !</Text>
                 <Text style={styles.inviteSuccessMsg}>
-                  Partagez ce code avec {inviteEmail} pour qu'il rejoigne votre organisation.
+                  Partagez ce code pour rejoindre votre organisation avec {inviteEmail}.
                 </Text>
                 <View style={styles.tokenBox}>
                   <Text style={styles.tokenTxt} selectable>{inviteToken}</Text>
@@ -978,9 +1008,7 @@ export default function AdminScreen() {
                     autoCapitalize="none"
                     autoCorrect={false}
                   />
-                  {inviteEmailError ? (
-                    <Text style={styles.fieldError}>{inviteEmailError}</Text>
-                  ) : null}
+                  {inviteEmailError ? <Text style={styles.fieldError}>{inviteEmailError}</Text> : null}
                 </View>
 
                 <View style={styles.field}>
@@ -1076,7 +1104,7 @@ const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: C.bg },
 
   toast: {
-    position: 'absolute', top: 60, alignSelf: 'center', zIndex: 999,
+    position: 'absolute', alignSelf: 'center', zIndex: 999,
     flexDirection: 'row', alignItems: 'center', gap: 8,
     backgroundColor: '#1F2937', borderRadius: 20, paddingHorizontal: 16, paddingVertical: 10,
     ...Platform.select({
@@ -1087,11 +1115,8 @@ const styles = StyleSheet.create({
   toastText: { fontSize: 13, fontFamily: 'Inter_600SemiBold', color: '#fff' },
 
   header: {
-    backgroundColor: C.surface,
-    borderBottomWidth: 1,
-    borderBottomColor: C.border,
-    paddingHorizontal: 16,
-    paddingBottom: 0,
+    backgroundColor: C.surface, borderBottomWidth: 1, borderBottomColor: C.border,
+    paddingHorizontal: 16, paddingBottom: 0,
     ...Platform.select({
       web: { boxShadow: '0 1px 4px rgba(0,0,0,0.06)' } as any,
       default: { shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.06, shadowRadius: 4, elevation: 2 },
@@ -1108,8 +1133,10 @@ const styles = StyleSheet.create({
   },
   adminBadgeText: { fontSize: 11, fontFamily: 'Inter_600SemiBold', color: '#EF4444' },
 
+  tabScrollRow: { paddingBottom: 12 },
+  tabRowContent: { flexDirection: 'row', gap: 6 },
   tabBtn: {
-    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6,
+    flexDirection: 'row', alignItems: 'center', gap: 6,
     paddingVertical: 9, paddingHorizontal: 14, borderRadius: 10, backgroundColor: C.bg,
     borderWidth: 1, borderColor: C.border,
   },
@@ -1125,22 +1152,22 @@ const styles = StyleSheet.create({
   tabCountTextActive: { color: C.primary },
   tabCountBadge: { backgroundColor: '#EF4444' },
 
-  tabScrollRow: { paddingBottom: 12 },
-  tabRowContent: { flexDirection: 'row', gap: 6, paddingHorizontal: 0, paddingVertical: 0 },
-
   content: { paddingHorizontal: 16, paddingTop: 16, gap: 10 },
 
-  statsRow: { flexDirection: 'row', gap: 8, marginBottom: 4 },
+  statsGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 4 },
   statCard: {
-    flex: 1, backgroundColor: C.surface, borderRadius: 10, padding: 10,
+    flexBasis: '30%', flexGrow: 1,
+    backgroundColor: C.surface, borderRadius: 10, padding: 10,
     borderTopWidth: 3, alignItems: 'center',
     borderWidth: 1, borderColor: C.border,
   },
-  statNum: { fontSize: 22, fontFamily: 'Inter_700Bold' },
-  statLabel: { fontSize: 10, fontFamily: 'Inter_400Regular', color: C.textMuted, textAlign: 'center', marginTop: 2 },
+  statNum: { fontSize: 20, fontFamily: 'Inter_700Bold' },
+  statLabel: { fontSize: 11, fontFamily: 'Inter_400Regular', color: C.textMuted, textAlign: 'center', marginTop: 2 },
 
   sectionHeaderRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 },
   sectionTitle: { fontSize: 14, fontFamily: 'Inter_600SemiBold', color: C.textSub },
+  subSectionTitle: { fontSize: 13, fontFamily: 'Inter_700Bold', color: C.text, marginTop: 4 },
+
   addBtn: {
     flexDirection: 'row', alignItems: 'center', gap: 5,
     backgroundColor: C.primary, borderRadius: 10, paddingHorizontal: 14, paddingVertical: 8,
@@ -1156,8 +1183,7 @@ const styles = StyleSheet.create({
 
   infoBanner: {
     flexDirection: 'row', alignItems: 'center', gap: 8,
-    backgroundColor: '#EFF6FF', borderRadius: 10, padding: 10,
-    borderWidth: 1, borderColor: '#BFDBFE',
+    backgroundColor: '#EFF6FF', borderRadius: 10, padding: 10, borderWidth: 1, borderColor: '#BFDBFE',
   },
   infoBannerText: { flex: 1, fontSize: 12, fontFamily: 'Inter_400Regular', color: C.inProgress },
 
@@ -1167,16 +1193,12 @@ const styles = StyleSheet.create({
     borderWidth: 1, borderColor: C.border,
   },
   userCardSelf: { borderColor: C.primary + '44', backgroundColor: C.primaryBg },
-  avatar: {
-    width: 44, height: 44, borderRadius: 22, alignItems: 'center', justifyContent: 'center',
-  },
+  avatar: { width: 44, height: 44, borderRadius: 22, alignItems: 'center', justifyContent: 'center' },
   avatarText: { fontSize: 16, fontFamily: 'Inter_700Bold' },
   userInfo: { flex: 1, gap: 4 },
   userNameRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   userName: { fontSize: 14, fontFamily: 'Inter_600SemiBold', color: C.text },
-  selfBadge: {
-    backgroundColor: C.primaryBg, borderRadius: 6, paddingHorizontal: 6, paddingVertical: 2,
-  },
+  selfBadge: { backgroundColor: C.primaryBg, borderRadius: 6, paddingHorizontal: 6, paddingVertical: 2 },
   selfBadgeText: { fontSize: 10, fontFamily: 'Inter_600SemiBold', color: C.primary },
   userEmail: { fontSize: 11, fontFamily: 'Inter_400Regular', color: C.textMuted },
   roleBadge: { alignSelf: 'flex-start', borderRadius: 6, paddingHorizontal: 8, paddingVertical: 3 },
@@ -1204,8 +1226,8 @@ const styles = StyleSheet.create({
   coTopRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 8 },
   coName: { fontSize: 14, fontFamily: 'Inter_600SemiBold', color: C.text },
   coZone: { fontSize: 11, fontFamily: 'Inter_400Regular', color: C.textMuted, marginTop: 2 },
-  coStatsRow: { flexDirection: 'row', gap: 12, alignItems: 'center' },
-  coStat: { flexDirection: 'row', alignItems: 'center', gap: 5 },
+  coStatsRow: { flexDirection: 'row', gap: 8, alignItems: 'center', flexWrap: 'wrap' },
+  coStat: { flexDirection: 'row', alignItems: 'center', gap: 4 },
   coStatDot: { width: 6, height: 6, borderRadius: 3 },
   coStatLabel: { fontSize: 11, fontFamily: 'Inter_400Regular', color: C.textMuted },
   coStatVal: { fontSize: 13, fontFamily: 'Inter_700Bold', color: C.text },
@@ -1218,8 +1240,7 @@ const styles = StyleSheet.create({
 
   colorRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 10, marginTop: 4 },
   colorDot: {
-    width: 30, height: 30, borderRadius: 15,
-    alignItems: 'center', justifyContent: 'center',
+    width: 30, height: 30, borderRadius: 15, alignItems: 'center', justifyContent: 'center',
   },
   colorDotSelected: {
     borderWidth: 2, borderColor: '#fff',
@@ -1261,8 +1282,7 @@ const styles = StyleSheet.create({
   detailLinkTxt: { fontSize: 13, fontFamily: 'Inter_600SemiBold', color: C.primary },
 
   seatCard: {
-    backgroundColor: C.surface, borderRadius: 14, padding: 14,
-    borderWidth: 1, borderColor: C.border,
+    backgroundColor: C.surface, borderRadius: 14, padding: 14, borderWidth: 1, borderColor: C.border,
     ...Platform.select({
       web: { boxShadow: '0 1px 4px rgba(0,0,0,0.06)' } as any,
       default: { shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.06, shadowRadius: 4, elevation: 2 },
@@ -1282,6 +1302,16 @@ const styles = StyleSheet.create({
   },
   freeBannerTxt: { fontSize: 12, fontFamily: 'Inter_400Regular', color: '#10B981', flex: 1 },
 
+  memberRow: {
+    flexDirection: 'row', alignItems: 'center', gap: 12,
+    backgroundColor: C.surface, borderRadius: 12, padding: 12,
+    borderWidth: 1, borderColor: C.border,
+  },
+  memberAvatar: { width: 38, height: 38, borderRadius: 19, alignItems: 'center', justifyContent: 'center' },
+  memberAvatarTxt: { fontSize: 13, fontFamily: 'Inter_700Bold' },
+  memberName: { fontSize: 14, fontFamily: 'Inter_600SemiBold', color: C.text },
+  memberEmail: { fontSize: 12, fontFamily: 'Inter_400Regular', color: C.textMuted, marginTop: 1 },
+
   inviteCard: {
     flexDirection: 'row', alignItems: 'center', gap: 12,
     backgroundColor: C.surface, borderRadius: 12, padding: 12,
@@ -1299,8 +1329,7 @@ const styles = StyleSheet.create({
   overlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.45)', justifyContent: 'flex-end' },
   sheet: {
     backgroundColor: C.surface, borderTopLeftRadius: 20, borderTopRightRadius: 20,
-    padding: 20, paddingBottom: Platform.OS === 'ios' ? 36 : 24, gap: 10,
-    maxHeight: '90%',
+    padding: 20, paddingBottom: Platform.OS === 'ios' ? 36 : 24, gap: 10, maxHeight: '90%',
   },
   sheetHandle: {
     width: 36, height: 4, backgroundColor: C.border, borderRadius: 2,
@@ -1311,8 +1340,7 @@ const styles = StyleSheet.create({
 
   roleOption: {
     flexDirection: 'row', alignItems: 'center', gap: 12,
-    padding: 14, borderRadius: 12, borderWidth: 1, borderColor: C.border,
-    marginBottom: 6,
+    padding: 14, borderRadius: 12, borderWidth: 1, borderColor: C.border, marginBottom: 6,
   },
   roleOptionDot: { width: 10, height: 10, borderRadius: 5, flexShrink: 0 },
   roleOptionText: { fontSize: 14, fontFamily: 'Inter_400Regular', color: C.text },
@@ -1332,14 +1360,11 @@ const styles = StyleSheet.create({
 
   seatFullBanner: {
     flexDirection: 'row', alignItems: 'flex-start', gap: 8,
-    backgroundColor: '#EFF6FF', borderRadius: 10, padding: 12,
-    borderWidth: 1, borderColor: '#BFDBFE',
+    backgroundColor: '#EFF6FF', borderRadius: 10, padding: 12, borderWidth: 1, borderColor: '#BFDBFE',
   },
   seatFullBannerTxt: { flex: 1, fontSize: 12, fontFamily: 'Inter_400Regular', color: '#1D4ED8', lineHeight: 17 },
 
-  saveBtn: {
-    backgroundColor: C.primary, borderRadius: 12, paddingVertical: 14, alignItems: 'center', marginTop: 4,
-  },
+  saveBtn: { backgroundColor: C.primary, borderRadius: 12, paddingVertical: 14, alignItems: 'center', marginTop: 4 },
   saveBtnText: { fontSize: 15, fontFamily: 'Inter_600SemiBold', color: '#fff' },
   cancelBtn: {
     backgroundColor: C.bg, borderRadius: 12, paddingVertical: 12, alignItems: 'center',
@@ -1353,16 +1378,14 @@ const styles = StyleSheet.create({
     textAlign: 'center', lineHeight: 18, marginBottom: 12,
   },
   tokenBox: {
-    backgroundColor: C.bg, borderRadius: 10, padding: 14,
-    borderWidth: 1, borderColor: C.border, marginBottom: 10,
+    backgroundColor: C.bg, borderRadius: 10, padding: 14, borderWidth: 1, borderColor: C.border, marginBottom: 10,
   },
   tokenTxt: { fontSize: 13, fontFamily: 'Inter_500Medium', color: C.text, textAlign: 'center', letterSpacing: 1 },
   inviteHint: { fontSize: 12, fontFamily: 'Inter_400Regular', color: C.textMuted, textAlign: 'center', marginBottom: 12, lineHeight: 17 },
 
   copyBtn: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8,
-    borderRadius: 12, paddingVertical: 12, borderWidth: 1,
-    borderColor: C.primary, backgroundColor: C.primaryBg,
+    borderRadius: 12, paddingVertical: 12, borderWidth: 1, borderColor: C.primary, backgroundColor: C.primaryBg,
   },
   copyBtnDone: { borderColor: '#10B981', backgroundColor: '#ECFDF5' },
   copyBtnTxt: { fontSize: 14, fontFamily: 'Inter_600SemiBold', color: C.primary },
