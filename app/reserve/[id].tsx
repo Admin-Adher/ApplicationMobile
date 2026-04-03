@@ -18,6 +18,7 @@ import {
   PDF_BASE_CSS,
   PDF_MUTED,
   PDF_BRAND_COLOR,
+  svgStringToDataUrl,
 } from '@/lib/pdfBase';
 import StatusBadge, { STATUS_CONFIG } from '@/components/StatusBadge';
 import PriorityBadge from '@/components/PriorityBadge';
@@ -253,7 +254,7 @@ if(isPdf){
         <div style="flex:1;border:1.5px solid #DDE4EE;border-radius:8px;padding:10px 14px;background:#FAFBFF">
           <div style="font-size:9px;color:#5E738A;text-transform:uppercase;letter-spacing:0.6px;font-weight:700;margin-bottom:6px">Signature de levée</div>
           <div style="font-size:10px;color:#5E738A;margin-bottom:6px">Signataire : <strong>${reserve.enterpriseSignataire ?? 'N/A'}</strong></div>
-          <img src="${reserve.enterpriseSignature}" style="width:180px;height:55px;object-fit:contain;border-bottom:2px solid #1A2742;display:block;margin-bottom:4px" />
+          <img src="${svgStringToDataUrl(reserve.enterpriseSignature!)}" style="width:180px;height:55px;object-fit:contain;border-bottom:2px solid #1A2742;display:block;margin-bottom:4px" />
           ${reserve.enterpriseAcknowledgedAt ? `<div style="font-size:9px;color:#059669">✓ Levée reconnue le ${reserve.enterpriseAcknowledgedAt}</div>` : ''}
         </div>
       </div>`
@@ -1190,7 +1191,7 @@ export default function ReserveDetailScreen() {
                       Signé par {reserve.enterpriseSignataire}
                     </Text>
                     <Image
-                      source={{ uri: reserve.enterpriseSignature! }}
+                      source={{ uri: svgStringToDataUrl(reserve.enterpriseSignature!) }}
                       style={styles.signaturePreview}
                       resizeMode="contain"
                     />

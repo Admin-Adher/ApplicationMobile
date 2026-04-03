@@ -1,4 +1,4 @@
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Platform } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Platform, Alert } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useMemo } from 'react';
 import * as Print from 'expo-print';
@@ -178,7 +178,9 @@ export default function AnalyticsScreen() {
       const { uri } = await Print.printToFileAsync({ html, base64: false });
       const canShare = await Sharing.isAvailableAsync();
       if (canShare) await Sharing.shareAsync(uri, { mimeType: 'application/pdf', dialogTitle: 'Tableau de bord analytique' });
-    } catch {}
+    } catch (e: any) {
+      Alert.alert('Erreur', e?.message ?? 'Impossible de générer le PDF');
+    }
   }
 
   return (

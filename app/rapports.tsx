@@ -591,7 +591,9 @@ export default function RapportsScreen() {
                         try {
                           const html = buildIncidentHTML(i, projectName);
                           await exportPDFHelper(html, `Incident ${i.id}`);
-                        } catch {}
+                        } catch (e: any) {
+                          Alert.alert('Erreur', e?.message ?? 'Impossible de générer le PDF');
+                        }
                       }}
                       style={[styles.exportBtn, { marginLeft: 8 }]}
                     >
@@ -642,7 +644,9 @@ export default function RapportsScreen() {
                         try {
                           const html = await buildCompanyReserveHTML(company, companyReserves, projectName);
                           await exportPDFHelper(html, `Bon réserves — ${company.name}`);
-                        } catch {}
+                        } catch (e: any) {
+                          Alert.alert('Erreur', e?.message ?? 'Impossible de générer le PDF');
+                        }
                       }}
                     >
                       <Ionicons name="document-text-outline" size={13} color={C.primary} />
