@@ -620,6 +620,23 @@ export default function PlansScreen() {
     } as any);
   }
 
+  function handleWebPlanClick(e: any) {
+    if (suppressNextPlanTapRef.current) { suppressNextPlanTapRef.current = false; return; }
+    if (isDraggingRef.current) return;
+    if (focusedPinId) { setFocusedPinId(null); return; }
+    if (!permissions.canCreate) return;
+    const rect = e.currentTarget?.getBoundingClientRect?.();
+    if (!rect) return;
+    const locationX = e.clientX - rect.left;
+    const locationY = e.clientY - rect.top;
+    const px = Math.min(100, Math.max(0, Math.round((locationX / dynW) * 100)));
+    const py = Math.min(100, Math.max(0, Math.round((locationY / dynH) * 100)));
+    router.push({
+      pathname: '/reserve/new',
+      params: { planId: currentPlanId ?? '', chantierId: activeChantierId ?? '', planX: String(px), planY: String(py) },
+    } as any);
+  }
+
   function handleSelectPlan(planId: string) {
     setActivePlanId(planId);
     setDisplayScale(1);
@@ -1066,6 +1083,7 @@ export default function PlansScreen() {
                 <View
                   style={{ width: dynW, height: dynH, position: 'relative', borderRadius: 8, overflow: 'hidden', backgroundColor: '#0F1117' }}
                   onTouchEnd={handlePlanTap}
+                  {...(Platform.OS === 'web' ? { onClick: handleWebPlanClick } : {})}
                 >
                   {[1, 2, 3, 4].map(i => (
                     <View key={`h${i}`} style={{ position: 'absolute', left: 0, right: 0, top: `${i * 20}%` as any, height: 1, backgroundColor: '#1E293B', opacity: 0.6 }} />

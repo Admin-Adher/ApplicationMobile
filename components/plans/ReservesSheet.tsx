@@ -109,10 +109,16 @@ export default function ReservesSheet({
   ).current;
 
   const filteredReserves = searchQuery.trim()
-    ? reserves.filter(r =>
-        r.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        (r.company ?? '').toLowerCase().includes(searchQuery.toLowerCase())
-      )
+    ? reserves.filter(r => {
+        const q = searchQuery.toLowerCase();
+        const num = pinNumberMap.get(r.id);
+        return (
+          r.title.toLowerCase().includes(q) ||
+          (r.company ?? '').toLowerCase().includes(q) ||
+          (r.description ?? '').toLowerCase().includes(q) ||
+          (num !== undefined && String(num).includes(q))
+        );
+      })
     : reserves;
 
   return (
