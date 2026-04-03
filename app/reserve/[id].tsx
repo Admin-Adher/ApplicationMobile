@@ -485,8 +485,10 @@ export default function ReserveDetailScreen() {
   const defectCount = allPhotos.filter(p => p.kind === 'defect').length;
   const resolutionCount = allPhotos.filter(p => p.kind === 'resolution').length;
 
-  const reserveCompanyNames = reserve.companies ?? (reserve.company ? [reserve.company] : []);
-  const reserveCompanyObjects = companies.filter(c => reserveCompanyNames.includes(c.name));
+  const reserveCompanyNames = [...new Set(reserve.companies ?? (reserve.company ? [reserve.company] : []))];
+  const reserveCompanyObjects = companies
+    .filter(c => reserveCompanyNames.includes(c.name))
+    .filter((c, i, arr) => arr.findIndex(x => x.name === c.name) === i);
   const company = reserveCompanyObjects[0] ?? null;
 
   function openEdit() {
