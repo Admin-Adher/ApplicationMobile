@@ -1,4 +1,4 @@
-import { View, Text, StyleSheet, ScrollView, TextInput, TouchableOpacity, Alert } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TextInput, TouchableOpacity, Alert, KeyboardAvoidingView, Platform } from 'react-native';
 import * as Haptics from 'expo-haptics';
 import { useState, useCallback, useEffect } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -100,7 +100,7 @@ export default function ChecklistScreen() {
   };
 
   return (
-    <View style={styles.container}>
+    <KeyboardAvoidingView style={styles.container} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
       <Header
         title="Check-listes qualité"
         subtitle="Contrôle qualité chantier"
@@ -225,7 +225,7 @@ export default function ChecklistScreen() {
         })}
       </ScrollView>
       <BottomNavBar />
-    </View>
+    </KeyboardAvoidingView>
   );
 }
 

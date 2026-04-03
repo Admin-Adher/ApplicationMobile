@@ -1,6 +1,6 @@
 import {
   View, Text, StyleSheet, ScrollView, TouchableOpacity,
-  Platform, Alert, Linking, Switch, TextInput, Modal,
+  Platform, Alert, Linking, Switch, TextInput, Modal, KeyboardAvoidingView,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useState } from 'react';

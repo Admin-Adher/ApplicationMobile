@@ -1,4 +1,4 @@
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert, TextInput } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert, TextInput, KeyboardAvoidingView, Platform } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { useState, useMemo } from 'react';
@@ -92,7 +92,7 @@ export default function LotsScreen() {
   }
 
   return (
-    <View style={styles.container}>
+    <KeyboardAvoidingView style={styles.container} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
       <Header
         title="Lots de travaux"
         subtitle={`${lots.length} lot${lots.length !== 1 ? 's' : ''}`}
@@ -197,7 +197,7 @@ export default function LotsScreen() {
       </ScrollView>
 
       <BottomNavBar />
-    </View>
+    </KeyboardAvoidingView>
   );
 }
 

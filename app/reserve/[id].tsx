@@ -1,6 +1,6 @@
 import {
   View, Text, StyleSheet, ScrollView, TouchableOpacity,
-  TextInput, Alert, Image, Modal, ActivityIndicator, Platform,
+  TextInput, Alert, Image, Modal, ActivityIndicator, Platform, KeyboardAvoidingView,
 } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -903,7 +903,7 @@ export default function ReserveDetailScreen() {
   const multiSignCount = isMultiCompany ? Object.keys(reserve.companySignatures ?? {}).length : 0;
 
   return (
-    <View style={styles.container}>
+    <KeyboardAvoidingView style={styles.container} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
       {captureViewerUri ? (
         <View
           style={{ position: 'absolute', width: 600, height: 450, opacity: 0.01, zIndex: -10, pointerEvents: 'none' as any }}
@@ -1668,7 +1668,7 @@ export default function ReserveDetailScreen() {
           onClose={() => setAnnotatorPhoto(null)}
         />
       )}
-    </View>
+    </KeyboardAvoidingView>
   );
 }
 
