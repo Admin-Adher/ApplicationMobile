@@ -75,21 +75,32 @@ const eb = StyleSheet.create({
 });
 
 function AuthGuard({ children }: { children: React.ReactNode }) {
-  const { isAuthenticated, isLoading } = useAuth();
+  const { isAuthenticated, isLoading, user } = useAuth();
   const segments = useSegments();
   const router = useRouter();
 
   useEffect(() => {
     if (isLoading) return;
-    const PUBLIC_SEGMENTS = ['login', 'register', 'portal', 'opr-session'];
+    const PUBLIC_SEGMENTS = ['login', 'register', 'portal', 'opr-session', 'pending-invite'];
     const seg0 = segments.length > 0 ? (segments[0] as string) : undefined;
     const inPublic = seg0 ? PUBLIC_SEGMENTS.includes(seg0) : true;
+
     if (!isAuthenticated && !inPublic) {
       router.replace('/login');
     } else if (isAuthenticated && seg0 === 'login') {
       router.replace('/(tabs)');
+    } else if (
+      isAuthenticated &&
+      user &&
+      !user.organizationId &&
+      user.role !== 'super_admin' &&
+      seg0 !== 'pending-invite'
+    ) {
+      router.replace('/pending-invite');
+    } else if (isAuthenticated && seg0 === 'pending-invite' && user?.organizationId) {
+      router.replace('/(tabs)');
     }
-  }, [isAuthenticated, isLoading, segments]);
+  }, [isAuthenticated, isLoading, segments, user?.organizationId, user?.role]);
 
   return <>{children}</>;
 }
@@ -148,6 +159,7 @@ export default function RootLayout() {
                     <Stack>
                       <Stack.Screen name="login" options={{ headerShown: false }} />
                       <Stack.Screen name="register" options={{ headerShown: false }} />
+                      <Stack.Screen name="pending-invite" options={{ headerShown: false }} />
                       <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
                       <Stack.Screen name="reserve/[id]" options={{ headerShown: false }} />
                       <Stack.Screen name="reserve/new" options={{ headerShown: false }} />

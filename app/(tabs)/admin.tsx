@@ -18,9 +18,11 @@ const ROLES: { value: UserRole; label: string; color: string; bg: string; descri
   { value: 'admin',         label: 'Administrateur',        color: '#EF4444', bg: '#FEF2F2', description: 'Gestion complète — utilisateurs, entreprises, abonnement' },
   { value: 'conducteur',   label: 'Conducteur de travaux',  color: '#3B82F6', bg: '#EFF6FF', description: 'Pilotage chantier — réserves, plans, OPR, rapports' },
   { value: 'chef_equipe',  label: "Chef d'équipe",          color: '#F59E0B', bg: '#FFFBEB', description: 'Terrain — réserves, pointage, incidents (pas de suppression)' },
-  { value: 'observateur',  label: 'Observateur',            color: '#6B7280', bg: '#F3F4F6', description: 'Lecture seule — consultation et export des données' },
-  { value: 'sous_traitant', label: 'Sous-traitant',         color: '#10B981', bg: '#ECFDF5', description: 'Portail entreprise — voir et répondre aux réserves qui la concernent' },
+  { value: 'observateur',  label: 'Observateur',            color: '#6B7280', bg: '#F3F4F6', description: 'Lecture seule — consultation et export des données (gratuit)' },
+  { value: 'sous_traitant', label: 'Sous-traitant',         color: '#10B981', bg: '#ECFDF5', description: 'Portail entreprise — voir et traiter ses propres réserves (gratuit)' },
 ];
+
+const ASSIGNABLE_ROLES = ROLES.filter(r => r.value !== 'super_admin' as UserRole);
 
 const PLAN_COLORS: Record<string, string> = {
   Solo: '#6B7280',
@@ -161,6 +163,10 @@ export default function AdminScreen() {
 
   async function handleRoleChange(newRole: UserRole) {
     if (!roleModal) return;
+    if (newRole === 'super_admin') {
+      Alert.alert('Action impossible', 'Le rôle Super Administrateur ne peut pas être attribué depuis ce panneau.');
+      return;
+    }
     if (roleModal.id === user?.id && newRole !== 'admin') {
       Alert.alert('Action impossible', 'Vous ne pouvez pas retirer votre propre rôle admin.');
       return;
@@ -602,7 +608,7 @@ export default function AdminScreen() {
             {saving ? (
               <ActivityIndicator size="large" color={C.primary} style={{ marginVertical: 24 }} />
             ) : (
-              ROLES.map(r => {
+              ASSIGNABLE_ROLES.map(r => {
                 const isSelected = roleModal?.currentRole === r.value;
                 return (
                   <TouchableOpacity

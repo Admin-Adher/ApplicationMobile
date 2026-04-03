@@ -21,9 +21,11 @@ const DEMO_PLANS: Plan[] = [
     maxUsers: 3,
     priceMonthly: 79,
     features: [
-      'Gestion des réserves',
       "Jusqu'à 3 utilisateurs actifs",
       'Sous-traitants & observateurs gratuits',
+      'Réserves, plans, OPR, visites',
+      'Rapports PDF/Excel',
+      'Pointage & présences',
       'Support email',
     ],
   },
@@ -33,9 +35,9 @@ const DEMO_PLANS: Plan[] = [
     maxUsers: 15,
     priceMonthly: 199,
     features: [
-      'Gestion des réserves',
       "Jusqu'à 15 utilisateurs actifs",
       'Sous-traitants & observateurs gratuits',
+      'Réserves, plans, OPR, visites',
       'Rapports PDF/Excel',
       'Pointage & présences',
       'Support prioritaire',
@@ -49,10 +51,10 @@ const DEMO_PLANS: Plan[] = [
     features: [
       'Utilisateurs actifs illimités',
       'Sous-traitants & observateurs gratuits',
-      'Toutes les fonctionnalités',
-      'Support dédié',
-      'API access',
-      'SSO',
+      'Réserves, plans, OPR, visites',
+      'Rapports PDF/Excel',
+      'Pointage & présences',
+      'Support dédié + API + SSO',
     ],
   },
 ];
@@ -308,7 +310,8 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
 
   const seatUsed = activeOrgUsers.length;
   const seatMax = plan?.maxUsers ?? (user?.role === 'super_admin' ? -1 : 3);
-  const canInvite = seatMax === -1 || seatUsed < seatMax;
+  const subscriptionActive = !subscription || subscription.status === 'active' || subscription.status === 'trial';
+  const canInvite = subscriptionActive && (seatMax === -1 || seatUsed < seatMax);
 
   async function inviteUser(
     email: string,
@@ -317,11 +320,19 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
   ): Promise<{ success: boolean; error?: string; token?: string }> {
     if (!user) return { success: false, error: 'Non connecté.' };
     const isFreeRole = FREE_ROLES.includes(role);
-    if (!isFreeRole && !canInvite) {
-      return {
-        success: false,
-        error: `Limite de sièges atteinte (${seatMax} utilisateurs actifs). Passez à un plan supérieur.`,
-      };
+    if (!isFreeRole) {
+      if (!subscriptionActive) {
+        return {
+          success: false,
+          error: "Votre abonnement est suspendu ou expiré. Contactez le support pour réactiver votre compte.",
+        };
+      }
+      if (!canInvite) {
+        return {
+          success: false,
+          error: `Limite de sièges atteinte (${seatMax} utilisateurs actifs). Passez à un plan supérieur.`,
+        };
+      }
     }
 
     const emailLower = email.trim().toLowerCase();
