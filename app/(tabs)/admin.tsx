@@ -122,6 +122,17 @@ export default function AdminScreen() {
 
   const isCompanyFormDirty = !!(nom.trim() || nomCourt.trim() || phone.trim() || email.trim() || zone.trim() || effectif.trim());
 
+  const isEditDirty = companyModal?.mode === 'edit' && !!companyModal.company && (
+    nom.trim() !== companyModal.company.name ||
+    nomCourt.trim().toUpperCase() !== companyModal.company.shortName ||
+    effectif !== String(companyModal.company.plannedWorkers) ||
+    heures !== String(companyModal.company.hoursWorked ?? 0) ||
+    zone.trim() !== (companyModal.company.zone ?? '') ||
+    (phone.trim() || '') !== (companyModal.company.phone ?? '') ||
+    (email.trim() || '') !== (companyModal.company.email ?? '') ||
+    selectedColor !== companyModal.company.color
+  );
+
   const filteredUsers = useMemo(() => {
     let list = [...orgUsers];
     if (userSearch.trim()) {
@@ -227,6 +238,10 @@ export default function AdminScreen() {
 
   async function handleRoleChange(newRole: UserRole) {
     if (!roleModal) return;
+    if (newRole === roleModal.currentRole) {
+      setRoleModal(null);
+      return;
+    }
     if (roleModal.id === user?.id && newRole !== 'admin') {
       Alert.alert('Action impossible', 'Vous ne pouvez pas retirer votre propre rôle admin.');
       return;
@@ -274,11 +289,16 @@ export default function AdminScreen() {
   }
 
   function tryCloseCompanyModal() {
-    if (companyModal?.mode === 'add' && isCompanyFormDirty) {
-      Alert.alert('Abandonner ?', 'Les données saisies seront perdues.', [
-        { text: 'Continuer', style: 'cancel' },
-        { text: 'Abandonner', style: 'destructive', onPress: () => setCompanyModal(null) },
-      ]);
+    const isDirty = (companyModal?.mode === 'add' && isCompanyFormDirty) || isEditDirty;
+    if (isDirty) {
+      Alert.alert(
+        'Abandonner les modifications ?',
+        companyModal?.mode === 'edit' ? 'Les modifications non enregistrées seront perdues.' : 'Les données saisies seront perdues.',
+        [
+          { text: 'Continuer l\'édition', style: 'cancel' },
+          { text: 'Abandonner', style: 'destructive', onPress: () => setCompanyModal(null) },
+        ]
+      );
     } else {
       setCompanyModal(null);
     }
@@ -402,11 +422,6 @@ export default function AdminScreen() {
             <View style={[styles.tabCount, activeTab === 'users' && styles.tabCountActive]}>
               <Text style={[styles.tabCountText, activeTab === 'users' && styles.tabCountTextActive]}>{orgUsers.length}</Text>
             </View>
-            {pendingInvitations.length > 0 && (
-              <View style={[styles.tabCount, styles.tabCountBadge]}>
-                <Text style={[styles.tabCountText, { color: '#fff' }]}>{pendingInvitations.length}</Text>
-              </View>
-            )}
           </TouchableOpacity>
           <TouchableOpacity
             style={[styles.tabBtn, activeTab === 'companies' && styles.tabBtnActive]}
@@ -424,6 +439,11 @@ export default function AdminScreen() {
           >
             <Ionicons name="card" size={14} color={activeTab === 'abonnement' ? C.primary : C.textMuted} />
             <Text style={[styles.tabBtnText, activeTab === 'abonnement' && styles.tabBtnTextActive]}>Abonnement</Text>
+            {pendingInvitations.length > 0 && (
+              <View style={[styles.tabCount, styles.tabCountBadge]}>
+                <Text style={[styles.tabCountText, { color: '#fff' }]}>{pendingInvitations.length}</Text>
+              </View>
+            )}
           </TouchableOpacity>
         </ScrollView>
       </View>
@@ -444,7 +464,11 @@ export default function AdminScreen() {
           </View>
 
           <View style={styles.sectionHeaderRow}>
-            <Text style={styles.sectionTitle}>{orgUsers.length} utilisateur{orgUsers.length !== 1 ? 's' : ''}</Text>
+            <Text style={styles.sectionTitle}>
+              {userSearch.trim()
+                ? `${filteredUsers.length} / ${orgUsers.length} utilisateur${orgUsers.length !== 1 ? 's' : ''}`
+                : `${orgUsers.length} utilisateur${orgUsers.length !== 1 ? 's' : ''}`}
+            </Text>
             <TouchableOpacity style={styles.addBtn} onPress={() => setInviteModal(true)}>
               <Ionicons name="person-add-outline" size={17} color="#fff" />
               <Text style={styles.addBtnText}>Inviter</Text>
@@ -476,8 +500,13 @@ export default function AdminScreen() {
 
           {filteredUsers.length === 0 ? (
             <View style={styles.empty}>
-              <Ionicons name="people-outline" size={36} color={C.textMuted} />
-              <Text style={styles.emptyText}>Aucun utilisateur trouvé</Text>
+              <Ionicons name={orgUsers.length === 0 ? 'people-outline' : 'search-outline'} size={36} color={C.textMuted} />
+              <Text style={styles.emptyText}>
+                {orgUsers.length === 0 ? 'Aucun utilisateur dans l\'organisation' : 'Aucun résultat pour cette recherche'}
+              </Text>
+              {orgUsers.length === 0 && (
+                <Text style={styles.emptyHint}>Utilisez le bouton "Inviter" pour ajouter des membres</Text>
+              )}
             </View>
           ) : (
             filteredUsers.map(u => {
@@ -632,7 +661,7 @@ export default function AdminScreen() {
                       <View style={[styles.coStatDot, { backgroundColor: C.textMuted }]} />
                       <Text style={styles.coStatLabel}>Heures</Text>
                       <TouchableOpacity
-                        onPress={() => handleHoursChange(co, -1)}
+                        onPress={() => handleHoursChange(co, -8)}
                         hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
                         style={styles.workerBtn}
                       >
@@ -640,7 +669,7 @@ export default function AdminScreen() {
                       </TouchableOpacity>
                       <Text style={styles.coStatVal}>{co.hoursWorked ?? 0}h</Text>
                       <TouchableOpacity
-                        onPress={() => handleHoursChange(co, 1)}
+                        onPress={() => handleHoursChange(co, 8)}
                         hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
                         style={styles.workerBtn}
                       >
@@ -746,6 +775,7 @@ export default function AdminScreen() {
 
           {activeOrgUsers.length > 0 && (
             <>
+              <View style={styles.sectionSep} />
               <Text style={styles.subSectionTitle}>Utilisateurs actifs ({activeOrgUsers.length})</Text>
               {activeOrgUsers.map((u, i) => {
                 const col = hashColor(u.id, AVATAR_COLORS);
@@ -768,6 +798,7 @@ export default function AdminScreen() {
 
           {freeOrgUsers.length > 0 && (
             <>
+              <View style={styles.sectionSep} />
               <Text style={styles.subSectionTitle}>
                 Gratuits — hors quota ({freeOrgUsers.length})
               </Text>
@@ -790,6 +821,7 @@ export default function AdminScreen() {
             </>
           )}
 
+          <View style={styles.sectionSep} />
           <Text style={styles.subSectionTitle}>Invitations en attente ({pendingInvitations.length})</Text>
           {pendingInvitations.length === 0 ? (
             <View style={styles.empty}>
@@ -1166,7 +1198,8 @@ const styles = StyleSheet.create({
 
   sectionHeaderRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 },
   sectionTitle: { fontSize: 14, fontFamily: 'Inter_600SemiBold', color: C.textSub },
-  subSectionTitle: { fontSize: 13, fontFamily: 'Inter_700Bold', color: C.text, marginTop: 4 },
+  subSectionTitle: { fontSize: 12, fontFamily: 'Inter_700Bold', color: C.textMuted, letterSpacing: 0.5, textTransform: 'uppercase', marginTop: 4, marginBottom: 2 },
+  sectionSep: { height: 1, backgroundColor: C.border, marginVertical: 12 },
 
   addBtn: {
     flexDirection: 'row', alignItems: 'center', gap: 5,
