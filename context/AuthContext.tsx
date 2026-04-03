@@ -14,7 +14,7 @@ const ROLE_PERMISSIONS: Record<UserRole, {
   conducteur:     { canCreate: true,  canEdit: true,  canDelete: false, canExport: true,  canManageTeams: true,  canViewTeams: true,  canUpdateAttendance: true  },
   chef_equipe:    { canCreate: true,  canEdit: true,  canDelete: false, canExport: false, canManageTeams: false, canViewTeams: true,  canUpdateAttendance: true  },
   observateur:    { canCreate: false, canEdit: false, canDelete: false, canExport: true,  canManageTeams: false, canViewTeams: false, canUpdateAttendance: false },
-  sous_traitant:  { canCreate: false, canEdit: true,  canDelete: false, canExport: false, canManageTeams: false, canViewTeams: false, canUpdateAttendance: false },
+  sous_traitant:  { canCreate: false, canEdit: false, canDelete: false, canExport: false, canManageTeams: false, canViewTeams: false, canUpdateAttendance: false },
 };
 
 const DEMO_USERS = [

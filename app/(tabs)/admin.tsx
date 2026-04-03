@@ -23,9 +23,9 @@ const ROLES: { value: UserRole; label: string; color: string; bg: string; descri
 ];
 
 const PLAN_COLORS: Record<string, string> = {
-  Starter: '#6B7280',
-  Pro: '#3B82F6',
-  Entreprise: '#8B5CF6',
+  Solo: '#6B7280',
+  'Équipe': '#3B82F6',
+  Groupe: '#8B5CF6',
 };
 
 const COMPANY_COLORS = [
@@ -66,6 +66,8 @@ export default function AdminScreen() {
 
   const users = orgUsers;
 
+  const isAdmin = user?.role === 'admin' || user?.role === 'super_admin';
+
   const [activeTab, setActiveTab] = useState<'users' | 'companies' | 'abonnement'>('users');
 
   const [inviteModal, setInviteModal] = useState(false);
@@ -99,6 +101,11 @@ export default function AdminScreen() {
     users.forEach(u => { counts[u.role] = (counts[u.role] ?? 0) + 1; });
     return counts;
   }, [users]);
+
+  if (user && !isAdmin) {
+    router.replace('/(tabs)/' as any);
+    return null;
+  }
 
   async function handleSendInvite() {
     if (!inviteEmail.trim()) return;

@@ -964,7 +964,7 @@ export default function ReserveDetailScreen() {
           <Text style={styles.description}>{reserve.description}</Text>
         </View>
 
-        {permissions.canEdit && user?.role === 'sous_traitant' && (
+        {user?.role === 'sous_traitant' && (
           <View style={styles.card}>
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 10 }}>
               <Ionicons name="construct-outline" size={15} color={C.textSub} />
@@ -1146,7 +1146,7 @@ export default function ReserveDetailScreen() {
                             </Text>
                             <Image source={{ uri: sig.signature }} style={styles.signaturePreview} resizeMode="contain" />
                           </View>
-                        ) : permissions.canEdit ? (
+                        ) : (permissions.canEdit || user?.role === 'sous_traitant') ? (
                           <TouchableOpacity
                             style={[styles.workflowBtn, { borderColor: co?.color ?? C.primary }]}
                             onPress={() => {
@@ -1191,7 +1191,7 @@ export default function ReserveDetailScreen() {
                 ) : ackDone ? (
                   <>
                     <Text style={styles.workflowStepDesc}>L'entreprise certifie avoir levé la réserve. Signature numérique requise.</Text>
-                    {permissions.canEdit && (
+                    {(permissions.canEdit || user?.role === 'sous_traitant') && (
                       <TouchableOpacity
                         style={styles.workflowBtn}
                         onPress={() => { setSigningForCompany(null); setSignatureModalVisible(true); }}

@@ -16,6 +16,7 @@ const ROLE_COLORS: Record<string, string> = {
   conducteur: C.primary,
   chef_equipe: C.inProgress,
   observateur: C.textSub,
+  sous_traitant: '#10B981',
 };
 
 interface MenuItem {
