@@ -30,6 +30,7 @@ import ReservesSheet from '@/components/plans/ReservesSheet';
 
 const HINT_KEY = 'plans_hint_seen';
 const PIN_SIZE_KEY = 'plans_pin_size_scale';
+const PIN_SIZES_KEY = 'plans_pin_sizes_v2';
 
 const STATUS_ORDER: ReserveStatus[] = ['open', 'in_progress', 'waiting', 'verification', 'closed'];
 
@@ -277,7 +278,7 @@ export default function PlansScreen() {
   const {
     reserves, companies, sitePlans, activeChantierId, activeChantier,
     addSitePlan, updateSitePlan, deleteSitePlan, addSitePlanVersion, migrateReservesToPlan,
-    updateReserveStatus,
+    updateReserveStatus, updateReserveFields,
   } = useApp();
   const { permissions, user } = useAuth();
   const { width: screenWidth, height: screenHeight } = useWindowDimensions();
@@ -315,6 +316,9 @@ export default function PlansScreen() {
   const [searchQuery, setSearchQuery] = useState('');
   const [planDimensions, setPlanDimensions] = useState({ width: 320, height: 240 });
   const [pinSizeScale, setPinSizeScale] = useState(1.0);
+  const [pinSizes, setPinSizes] = useState<Record<string, number>>({});
+  const [focusedPinId, setFocusedPinId] = useState<string | null>(null);
+  const [draggingPinState, setDraggingPinState] = useState<{ id: string; x: number; y: number } | null>(null);
 
   const pdfViewerRef = useRef<PdfPlanViewerHandle>(null);
   const reserveListRef = useRef<FlatList<Reserve> | null>(null);
@@ -322,6 +326,7 @@ export default function PlansScreen() {
   useEffect(() => {
     AsyncStorage.getItem(HINT_KEY).then(v => { if (v === '1') setHintSeen(true); });
     AsyncStorage.getItem(PIN_SIZE_KEY).then(v => { if (v) { const n = parseFloat(v); if (!isNaN(n)) setPinSizeScale(n); } });
+    AsyncStorage.getItem(PIN_SIZES_KEY).then(v => { if (v) { try { setPinSizes(JSON.parse(v)); } catch {} } });
   }, []);
 
   useEffect(() => {
@@ -339,11 +344,28 @@ export default function PlansScreen() {
   }
 
   function changePinSize(delta: number) {
-    setPinSizeScale(prev => {
-      const next = Math.min(2.5, Math.max(0.5, parseFloat((prev + delta).toFixed(2))));
-      AsyncStorage.setItem(PIN_SIZE_KEY, String(next));
-      return next;
-    });
+    if (focusedPinId) {
+      setPinSizes(prev => {
+        const current = prev[focusedPinId] ?? 1.0;
+        const next = Math.min(3.0, Math.max(0.4, parseFloat((current + delta).toFixed(2))));
+        const updated = { ...prev, [focusedPinId]: next };
+        AsyncStorage.setItem(PIN_SIZES_KEY, JSON.stringify(updated));
+        return updated;
+      });
+      if (focusedPinTimerRef.current) clearTimeout(focusedPinTimerRef.current);
+      focusedPinTimerRef.current = setTimeout(() => setFocusedPinId(null), 4000);
+    } else {
+      setPinSizeScale(prev => {
+        const next = Math.min(2.5, Math.max(0.5, parseFloat((prev + delta).toFixed(2))));
+        AsyncStorage.setItem(PIN_SIZE_KEY, String(next));
+        return next;
+      });
+    }
+  }
+
+  function getPinDisplaySize(id: string, base: number): number {
+    const individualScale = pinSizes[id] ?? 1.0;
+    return Math.round(base * individualScale);
   }
 
   const buildings = useMemo(() => {
@@ -428,6 +450,24 @@ export default function PlansScreen() {
   const pinchStartDistRef = useRef(0);
   const pinchStartScaleRef = useRef(1);
 
+  const draggingPinIdRef = useRef<string | null>(null);
+  const draggingPinStartRef = useRef<{ cx: number; cy: number } | null>(null);
+  const draggingPinPosRef = useRef<{ x: number; y: number } | null>(null);
+  const draggingPinMovedRef = useRef(false);
+  const dynWRef = useRef(320);
+  const dynHRef = useRef(240);
+  const reservesRef = useRef(reserves);
+  const updateReserveFieldsRef = useRef(updateReserveFields);
+  const focusedPinTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const setDraggingPinStateRef = useRef(setDraggingPinState);
+  const setFocusedPinIdRef = useRef(setFocusedPinId);
+  const setPinSizesRef = useRef(setPinSizes);
+  const pinSizesRef = useRef(pinSizes);
+
+  React.useEffect(() => { reservesRef.current = reserves; }, [reserves]);
+  React.useEffect(() => { updateReserveFieldsRef.current = updateReserveFields; }, [updateReserveFields]);
+  React.useEffect(() => { pinSizesRef.current = pinSizes; }, [pinSizes]);
+
   function getPinchDist(touches: any[]) {
     const dx = touches[0].pageX - touches[1].pageX;
     const dy = touches[0].pageY - touches[1].pageY;
@@ -438,6 +478,7 @@ export default function PlansScreen() {
     PanResponder.create({
       onStartShouldSetPanResponder: () => false,
       onMoveShouldSetPanResponder: (e, gs) => {
+        if (draggingPinIdRef.current) return true;
         if (e.nativeEvent.touches.length === 2) return true;
         return Math.abs(gs.dx) + Math.abs(gs.dy) > 4;
       },
@@ -447,8 +488,19 @@ export default function PlansScreen() {
         isDraggingRef.current = false;
         isPinchingRef.current = false;
         pinchStartDistRef.current = 0;
+        draggingPinMovedRef.current = false;
       },
       onPanResponderMove: (e, gs) => {
+        if (draggingPinIdRef.current) {
+          draggingPinMovedRef.current = true;
+          isDraggingRef.current = true;
+          const s = lastScale.current;
+          const newX = Math.min(100, Math.max(0, draggingPinStartRef.current!.cx + (gs.dx / dynWRef.current / s) * 100));
+          const newY = Math.min(100, Math.max(0, draggingPinStartRef.current!.cy + (gs.dy / dynHRef.current / s) * 100));
+          draggingPinPosRef.current = { x: newX, y: newY };
+          setDraggingPinStateRef.current({ id: draggingPinIdRef.current, x: newX, y: newY });
+          return;
+        }
         const touches = e.nativeEvent.touches;
         if (touches.length === 2) {
           isPinchingRef.current = true;
@@ -465,6 +517,26 @@ export default function PlansScreen() {
         translateY.setValue(committedTY.current + gs.dy);
       },
       onPanResponderRelease: (_, gs) => {
+        if (draggingPinIdRef.current) {
+          const pinId = draggingPinIdRef.current;
+          const moved = draggingPinMovedRef.current;
+          const finalPos = draggingPinPosRef.current;
+          draggingPinIdRef.current = null;
+          draggingPinPosRef.current = null;
+          setDraggingPinStateRef.current(null);
+          if (moved && finalPos) {
+            const reserve = reservesRef.current.find(r => r.id === pinId);
+            if (reserve) {
+              updateReserveFieldsRef.current({ ...reserve, planX: Math.round(finalPos.x), planY: Math.round(finalPos.y) });
+            }
+          } else {
+            setFocusedPinIdRef.current(pinId);
+            if (focusedPinTimerRef.current) clearTimeout(focusedPinTimerRef.current);
+            focusedPinTimerRef.current = setTimeout(() => { setFocusedPinIdRef.current(null); }, 4000);
+          }
+          setTimeout(() => { isDraggingRef.current = false; }, 80);
+          return;
+        }
         if (isPinchingRef.current) {
           pinchStartDistRef.current = 0; isPinchingRef.current = false;
           setDisplayScale(lastScale.current);
@@ -500,6 +572,7 @@ export default function PlansScreen() {
   function handlePlanTap(e: any) {
     if (suppressNextPlanTapRef.current) { suppressNextPlanTapRef.current = false; return; }
     if (isDraggingRef.current) return;
+    if (focusedPinId) { setFocusedPinId(null); return; }
     if (!permissions.canCreate) return;
     const { locationX, locationY, pageX, pageY } = e.nativeEvent;
     const totalMove = Math.abs((pageX ?? 0) - touchStartXRef.current) + Math.abs((pageY ?? 0) - touchStartYRef.current);
@@ -880,22 +953,25 @@ export default function PlansScreen() {
                 )}
               </View>
               <View style={styles.pinSizeRow}>
+                {focusedPinId && (
+                  <Text style={{ fontSize: 10, color: '#FBBF24', fontFamily: 'Inter_600SemiBold', marginRight: 2 }}>
+                    #{pinNumberMap.get(focusedPinId) ?? '?'}
+                  </Text>
+                )}
                 <TouchableOpacity
-                  style={[styles.pinSizeBtn, pinSizeScale <= 0.5 && { opacity: 0.35 }]}
+                  style={[styles.pinSizeBtn, !focusedPinId && pinSizeScale <= 0.5 && { opacity: 0.35 }]}
                   onPress={() => changePinSize(-0.25)}
-                  disabled={pinSizeScale <= 0.5}
-                  accessibilityLabel="Réduire les pastilles"
+                  accessibilityLabel={focusedPinId ? 'Réduire cette pastille' : 'Réduire les pastilles'}
                 >
-                  <Ionicons name="remove-circle-outline" size={18} color={C.textSub} />
+                  <Ionicons name="remove-circle-outline" size={18} color={focusedPinId ? '#FBBF24' : C.textSub} />
                 </TouchableOpacity>
-                <Ionicons name="ellipse" size={9} color={C.primary} />
+                <Ionicons name="ellipse" size={9} color={focusedPinId ? '#FBBF24' : C.primary} />
                 <TouchableOpacity
-                  style={[styles.pinSizeBtn, pinSizeScale >= 2.5 && { opacity: 0.35 }]}
+                  style={[styles.pinSizeBtn, !focusedPinId && pinSizeScale >= 2.5 && { opacity: 0.35 }]}
                   onPress={() => changePinSize(0.25)}
-                  disabled={pinSizeScale >= 2.5}
-                  accessibilityLabel="Agrandir les pastilles"
+                  accessibilityLabel={focusedPinId ? 'Agrandir cette pastille' : 'Agrandir les pastilles'}
                 >
-                  <Ionicons name="add-circle-outline" size={18} color={C.textSub} />
+                  <Ionicons name="add-circle-outline" size={18} color={focusedPinId ? '#FBBF24' : C.textSub} />
                 </TouchableOpacity>
               </View>
               {currentPlan?.uri && permissions.canCreate && (
@@ -920,7 +996,11 @@ export default function PlansScreen() {
             style={{ flex: 1, overflow: 'hidden' as any }}
             onLayout={e => {
               const { width, height } = e.nativeEvent.layout;
-              if (width > 0 && height > 0) setPlanDimensions({ width, height });
+              if (width > 0 && height > 0) {
+                setPlanDimensions({ width, height });
+                dynWRef.current = width;
+                dynHRef.current = height;
+              }
             }}
           >
             {isPlanFile ? (
@@ -998,7 +1078,8 @@ export default function PlansScreen() {
 
                   {ghostClusters.map((cluster, ci) => {
                     const isCluster = cluster.items.length > 1;
-                    const sz = isCluster ? clusterSize : pinSize;
+                    const baseId = cluster.items[0]?.id ?? '';
+                    const sz = isCluster ? clusterSize : getPinDisplaySize(baseId, pinSize);
                     const color = getCompanyColor(cluster.dominantCompany, companies);
                     return (
                       <View key={`ghost-${ci}`} style={{
@@ -1008,16 +1089,19 @@ export default function PlansScreen() {
                         opacity: 0.2, pointerEvents: 'none' as any, alignItems: 'center', justifyContent: 'center',
                         borderWidth: 2, borderColor: 'rgba(255,255,255,0.35)',
                       }}>
-                        <Text style={{ fontSize: Math.round((isTablet ? 14 : 11) * pinSizeScale), fontFamily: 'Inter_700Bold', color: '#fff' }}>{isCluster ? cluster.items.length : cluster.number}</Text>
+                        <Text style={{ fontSize: Math.round((isTablet ? 14 : 11) * pinSizeScale * (pinSizes[baseId] ?? 1.0)), fontFamily: 'Inter_700Bold', color: '#fff' }}>{isCluster ? cluster.items.length : cluster.number}</Text>
                       </View>
                     );
                   })}
 
                   {pinClusters.map((cluster, ci) => {
                     const isCluster = cluster.items.length > 1;
-                    const sz = isCluster ? clusterSize : pinSize;
+                    const pinId = cluster.items[0]?.id ?? '';
+                    const sz = isCluster ? clusterSize : getPinDisplaySize(pinId, pinSize);
                     const color = getCompanyColor(cluster.dominantCompany, companies);
-                    const isHighlighted = !isCluster && highlightedReserveId === cluster.items[0]?.id;
+                    const isHighlighted = !isCluster && highlightedReserveId === pinId;
+                    const isFocused = !isCluster && focusedPinId === pinId;
+                    const isDraggingThis = draggingPinState?.id === pinId;
                     return (
                       <TouchableOpacity
                         key={`cl-${ci}`}
@@ -1026,13 +1110,18 @@ export default function PlansScreen() {
                           position: 'absolute', left: `${cluster.cx}%` as any, top: `${cluster.cy}%` as any,
                           backgroundColor: color, width: sz, height: sz, borderRadius: sz / 2,
                           transform: [{ translateX: -(sz / 2) }, { translateY: -(sz / 2) }],
-                          borderWidth: isHighlighted ? 3 : 2,
-                          borderColor: isHighlighted ? '#fff' : 'rgba(255,255,255,0.35)',
-                          shadowColor: '#000', shadowOpacity: isHighlighted ? 0.7 : 0.4, shadowRadius: 3, elevation: isHighlighted ? 8 : 4,
+                          borderWidth: isFocused ? 3 : isHighlighted ? 3 : 2,
+                          borderColor: isFocused ? '#FBBF24' : isHighlighted ? '#fff' : 'rgba(255,255,255,0.35)',
+                          shadowColor: isFocused ? '#FBBF24' : '#000',
+                          shadowOpacity: isFocused ? 0.9 : isHighlighted ? 0.7 : 0.4,
+                          shadowRadius: isFocused ? 6 : 3,
+                          elevation: isFocused ? 12 : isHighlighted ? 8 : 4,
                           alignItems: 'center', justifyContent: 'center',
+                          opacity: isDraggingThis ? 0.35 : 1,
                         }}
                         onPressIn={() => { suppressNextPlanTapRef.current = true; }}
                         onPress={() => {
+                          if (focusedPinId === pinId) { setFocusedPinId(null); return; }
                           if (isCluster) {
                             const nextScale = Math.min(lastScale.current * 2, 4);
                             const targetTX = (dynW * lastScale.current / 2) - (cluster.cx / 100) * dynW * nextScale;
@@ -1051,14 +1140,50 @@ export default function PlansScreen() {
                             else { setSelected(reserve); }
                           }
                         }}
+                        onLongPress={() => {
+                          if (!isCluster && permissions.canCreate) {
+                            suppressNextPlanTapRef.current = true;
+                            draggingPinIdRef.current = pinId;
+                            draggingPinStartRef.current = { cx: cluster.cx, cy: cluster.cy };
+                            draggingPinMovedRef.current = false;
+                            draggingPinPosRef.current = null;
+                          }
+                        }}
+                        delayLongPress={400}
                         accessibilityLabel={isCluster ? `Groupe de ${cluster.items.length} réserves` : `Réserve ${cluster.number}`}
                       >
-                        <Text style={{ fontSize: Math.round((isTablet ? 14 : 11) * pinSizeScale), fontFamily: 'Inter_700Bold', color: '#fff' }}>
+                        <Text style={{ fontSize: Math.round((isTablet ? 14 : 11) * pinSizeScale * (isCluster ? 1.0 : (pinSizes[pinId] ?? 1.0))), fontFamily: 'Inter_700Bold', color: '#fff' }}>
                           {isCluster ? cluster.items.length : cluster.number}
                         </Text>
                       </TouchableOpacity>
                     );
                   })}
+
+                  {draggingPinState && (() => {
+                    const reserve = reserves.find(r => r.id === draggingPinState.id);
+                    const num = pinNumberMap.get(draggingPinState.id) ?? '?';
+                    const color = getCompanyColor(reserve?.company ?? '', companies);
+                    const sz = getPinDisplaySize(draggingPinState.id, pinSize);
+                    return (
+                      <View
+                        pointerEvents="none"
+                        style={{
+                          position: 'absolute',
+                          left: `${draggingPinState.x}%` as any,
+                          top: `${draggingPinState.y}%` as any,
+                          width: sz, height: sz, borderRadius: sz / 2,
+                          backgroundColor: color,
+                          transform: [{ translateX: -(sz / 2) }, { translateY: -(sz / 2) }],
+                          borderWidth: 3, borderColor: '#fff',
+                          shadowColor: '#000', shadowOpacity: 0.8, shadowRadius: 8, elevation: 20,
+                          alignItems: 'center', justifyContent: 'center',
+                          opacity: 0.95,
+                        }}
+                      >
+                        <Text style={{ fontSize: Math.round((isTablet ? 14 : 11) * pinSizeScale * (pinSizes[draggingPinState.id] ?? 1.0)), fontFamily: 'Inter_700Bold', color: '#fff' }}>{num}</Text>
+                      </View>
+                    );
+                  })()}
                 </View>
               </Animated.View>
             )}
