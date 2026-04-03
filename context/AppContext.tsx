@@ -1099,6 +1099,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         { data: photos },
         { data: messages },
         { data: profilesData },
+        storedActiveChantierIdEarly,
       ] = await Promise.all([
         supabase.from('reserves').select('*').order('created_at', { ascending: false }),
         supabase.from('companies').select('*'),
@@ -1107,6 +1108,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         supabase.from('photos').select('*').order('taken_at', { ascending: false }),
         supabase.from('messages').select('*').order('timestamp', { ascending: true }),
         supabase.from('profiles').select('id, name, role, role_label, email'),
+        AsyncStorage.getItem(ACTIVE_CHANTIER_KEY).catch(() => null),
       ]);
 
       if (reservesErr) {
@@ -1136,6 +1138,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           profiles: (profilesData ?? []).map((p: any) => ({ id: p.id, name: p.name, role: p.role, roleLabel: p.role_label ?? ROLE_LABELS[p.role as UserRole] ?? p.role, email: p.email })),
         },
       });
+      if (storedActiveChantierIdEarly) {
+        dispatch({ type: 'SET_ACTIVE_CHANTIER', payload: storedActiveChantierIdEarly });
+      }
 
       let chantiers: Chantier[] = [];
       let sitePlans: SitePlan[] = [];
