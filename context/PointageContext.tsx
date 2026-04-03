@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useEffect, useState, useCallback, useRef } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { Alert } from 'react-native';
 import { TimeEntry } from '@/constants/types';
 import { supabase, isSupabaseConfigured } from '@/lib/supabase';
 import { genId } from '@/lib/utils';
@@ -118,7 +119,11 @@ export function PointageProvider({ children }: { children: React.ReactNode }) {
     await persistLocal([...entriesRef.current, newEntry]);
     if (isSupabaseConfigured) {
       supabase.from('time_entries').insert(fromEntry(newEntry)).then(({ error }: { error: any }) => {
-        if (error) console.warn('Erreur sauvegarde pointage:', error.message);
+        if (error) {
+          console.warn('Erreur sauvegarde pointage:', error.message);
+          persistLocal(entriesRef.current.filter(e => e.id !== newEntry.id));
+          Alert.alert('Erreur de sauvegarde', "Le pointage n'a pas pu être enregistré sur le serveur.");
+        }
       });
     }
   }, []);

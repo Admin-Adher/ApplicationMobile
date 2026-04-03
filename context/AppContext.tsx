@@ -1524,12 +1524,48 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       })
       .subscribe();
 
+    const companySub = supabase
+      .channel('realtime-companies-v1')
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'companies' }, (payload: any) => {
+        dispatch({ type: 'ADD_COMPANY', payload: toCompany(payload.new) });
+      })
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'companies' }, (payload: any) => {
+        dispatch({ type: 'UPDATE_COMPANY_FULL', payload: toCompany(payload.new) });
+      })
+      .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'companies' }, (payload: any) => {
+        dispatch({ type: 'DELETE_COMPANY', payload: payload.old.id });
+      })
+      .subscribe();
+
+    const photoSub = supabase
+      .channel('realtime-photos-v1')
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'photos' }, (payload: any) => {
+        dispatch({ type: 'ADD_PHOTO', payload: toPhoto(payload.new) });
+      })
+      .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'photos' }, (payload: any) => {
+        dispatch({ type: 'DELETE_PHOTO', payload: payload.old.id });
+      })
+      .subscribe();
+
+    const documentSub = supabase
+      .channel('realtime-documents-v1')
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'documents' }, (payload: any) => {
+        dispatch({ type: 'ADD_DOCUMENT', payload: toDocument(payload.new) });
+      })
+      .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'documents' }, (payload: any) => {
+        dispatch({ type: 'DELETE_DOCUMENT', payload: payload.old.id });
+      })
+      .subscribe();
+
     return () => {
       supabase.removeChannel(chantierSub);
       supabase.removeChannel(sitePlanSub);
       supabase.removeChannel(visiteSub);
       supabase.removeChannel(oprSub);
       supabase.removeChannel(lotSub);
+      supabase.removeChannel(companySub);
+      supabase.removeChannel(photoSub);
+      supabase.removeChannel(documentSub);
     };
   }, []);
 

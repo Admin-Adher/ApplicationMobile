@@ -69,25 +69,35 @@ export default function PortalScreen() {
 
     if (isSupabase) {
       setLoading(true);
-      Promise.all([
-        supabase.from('companies').select('name').eq('id', companyId).single(),
-        supabase.from('reserves').select('id,title,status,priority,building,level,deadline,description,lot_id').eq('company_id', companyId),
-      ]).then(([companyRes, reservesRes]) => {
-        if (!companyRes.error && companyRes.data?.name) setCompanyName(companyRes.data.name);
-        if (!reservesRes.error && Array.isArray(reservesRes.data)) {
-          setRemoteReserves(reservesRes.data.map((r: Record<string, string>) => ({
-            id: r.id, title: r.title, status: r.status,
-            priority: r.priority, building: r.building,
-            level: r.level, deadline: r.deadline, description: r.description,
-            lotId: r.lot_id,
-          })));
-        }
-        if (companyRes.error || reservesRes.error) {
+      supabase.from('companies').select('name').eq('id', companyId).single()
+        .then(async ({ data: companyData, error: companyError }) => {
+          if (companyError || !companyData?.name) {
+            setError("Impossible de charger les données de l'entreprise. Vérifiez votre connexion.");
+            return;
+          }
+          const name = companyData.name;
+          setCompanyName(name);
+          const { data: reservesData, error: reservesError } = await supabase
+            .from('reserves')
+            .select('id,title,status,priority,building,level,deadline,description,lot_id')
+            .or(`company.eq.${name},companies.cs.["${name}"]`);
+          if (reservesError) {
+            setError("Impossible de charger les réserves. Vérifiez votre connexion.");
+            return;
+          }
+          if (Array.isArray(reservesData)) {
+            setRemoteReserves(reservesData.map((r: Record<string, string>) => ({
+              id: r.id, title: r.title, status: r.status,
+              priority: r.priority, building: r.building,
+              level: r.level, deadline: r.deadline, description: r.description,
+              lotId: r.lot_id,
+            })));
+          }
+        })
+        .catch(() => {
           setError("Impossible de charger les données. Vérifiez votre connexion.");
-        }
-      }).catch(() => {
-        setError("Impossible de charger les données. Vérifiez votre connexion.");
-      }).finally(() => setLoading(false));
+        })
+        .finally(() => setLoading(false));
     }
   }, [companyId, isAuthenticated]);
 

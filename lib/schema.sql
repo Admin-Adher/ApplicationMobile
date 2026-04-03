@@ -546,6 +546,77 @@ create policy "Pointage modifiable"
     exists (select 1 from public.profiles where id = auth.uid() and role in ('admin', 'conducteur', 'chef_equipe'))
   );
 
+-- ---- COLONNES MANQUANTES — companies ----
+alter table public.companies add column if not exists email text;
+alter table public.companies add column if not exists lots jsonb;
+alter table public.companies add column if not exists siret text;
+alter table public.companies add column if not exists insurance text;
+alter table public.companies add column if not exists qualifications text;
+
+-- ---- POLITIQUES MANQUANTES — profiles ----
+-- Permet aux admins de mettre à jour les profils d'autres utilisateurs (updateUserRole)
+drop policy if exists "Profil modifiable par admin de la même organisation" on public.profiles;
+create policy "Profil modifiable par admin de la même organisation"
+  on public.profiles for update using (
+    exists (
+      select 1 from public.profiles p
+      where p.id = auth.uid()
+      and p.organization_id = public.profiles.organization_id
+      and p.role in ('admin', 'super_admin')
+    )
+  );
+
+-- Permet aux admins de supprimer des profils (deleteUserProfile)
+drop policy if exists "Profil supprimable par admin de la même organisation" on public.profiles;
+create policy "Profil supprimable par admin de la même organisation"
+  on public.profiles for delete using (
+    exists (
+      select 1 from public.profiles p
+      where p.id = auth.uid()
+      and p.organization_id = public.profiles.organization_id
+      and p.role in ('admin', 'super_admin')
+    )
+    or auth.uid() = id
+  );
+
+-- ---- POLITIQUE MANQUANTE — subscriptions auto-expiration ----
+-- Permet à un membre d'organisation de mettre à jour le statut de son abonnement
+-- uniquement pour passer en 'expired' (gestion de l'expiration côté client)
+drop policy if exists "Subscriptions auto-expiration par membres" on public.subscriptions;
+create policy "Subscriptions auto-expiration par membres"
+  on public.subscriptions for update using (
+    exists (
+      select 1 from public.profiles
+      where id = auth.uid()
+      and organization_id = public.subscriptions.organization_id
+    )
+  ) with check (status = 'expired');
+
+-- ---- 15. TABLE REGULATORY_DOCS ----
+create table if not exists public.regulatory_docs (
+  id text primary key,
+  type text not null,
+  title text not null,
+  company text,
+  reference text,
+  issue_date text,
+  expiry_date text,
+  status text not null default 'valid',
+  notes text,
+  uri text,
+  created_at text not null,
+  created_by text not null
+);
+alter table public.regulatory_docs enable row level security;
+drop policy if exists "Docs réglementaires lisibles par tous" on public.regulatory_docs;
+create policy "Docs réglementaires lisibles par tous"
+  on public.regulatory_docs for select using (auth.role() = 'authenticated');
+drop policy if exists "Docs réglementaires modifiables" on public.regulatory_docs;
+create policy "Docs réglementaires modifiables"
+  on public.regulatory_docs for all using (
+    exists (select 1 from public.profiles where id = auth.uid() and role in ('admin', 'conducteur', 'chef_equipe'))
+  );
+
 -- ============================================================
 -- SEED DATA — Données initiales de démonstration
 -- ============================================================

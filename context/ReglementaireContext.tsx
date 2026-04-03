@@ -2,10 +2,8 @@ import React, { createContext, useContext, useEffect, useState, useCallback, use
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { RegulatoryDoc } from '@/constants/types';
 import { genId, formatDateFR } from '@/lib/utils';
+import { supabase, isSupabaseConfigured } from '@/lib/supabase';
 
-// TODO (Fix 15): ReglementaireContext est entièrement local (AsyncStorage uniquement).
-// Il n'y a pas de synchronisation Supabase pour les documents réglementaires (table `regulatory_docs` à créer).
-// À implémenter : addDoc / updateDoc / deleteDoc avec supabase.from('regulatory_docs').
 const REG_DOCS_KEY = 'buildtrack_reglementaire_v1';
 
 interface ReglementaireContextValue {
@@ -17,33 +15,137 @@ interface ReglementaireContextValue {
 
 const ReglementaireContext = createContext<ReglementaireContextValue | null>(null);
 
+function toDoc(row: any): RegulatoryDoc {
+  return {
+    id: row.id,
+    type: row.type,
+    title: row.title,
+    company: row.company ?? undefined,
+    reference: row.reference ?? undefined,
+    issueDate: row.issue_date ?? undefined,
+    expiryDate: row.expiry_date ?? undefined,
+    status: row.status,
+    notes: row.notes ?? undefined,
+    uri: row.uri ?? undefined,
+    createdAt: row.created_at ?? row.createdAt ?? '',
+    createdBy: row.created_by ?? row.createdBy ?? '',
+  };
+}
+
+function fromDoc(doc: RegulatoryDoc): Record<string, any> {
+  return {
+    id: doc.id,
+    type: doc.type,
+    title: doc.title,
+    company: doc.company ?? null,
+    reference: doc.reference ?? null,
+    issue_date: doc.issueDate ?? null,
+    expiry_date: doc.expiryDate ?? null,
+    status: doc.status,
+    notes: doc.notes ?? null,
+    uri: doc.uri ?? null,
+    created_at: doc.createdAt,
+    created_by: doc.createdBy,
+  };
+}
+
 export function ReglementaireProvider({ children }: { children: React.ReactNode }) {
   const [docs, setDocs] = useState<RegulatoryDoc[]>([]);
   const docsRef = useRef(docs);
   useEffect(() => { docsRef.current = docs; }, [docs]);
 
   useEffect(() => {
-    AsyncStorage.getItem(REG_DOCS_KEY)
-      .then(raw => { if (raw) setDocs(JSON.parse(raw)); })
-      .catch(() => {});
+    async function load() {
+      if (isSupabaseConfigured) {
+        try {
+          const { data, error } = await supabase
+            .from('regulatory_docs')
+            .select('*')
+            .order('created_at', { ascending: false });
+          if (!error && data) {
+            const loaded = data.map(toDoc);
+            setDocs(loaded);
+            AsyncStorage.setItem(REG_DOCS_KEY, JSON.stringify(loaded)).catch(() => {});
+            return;
+          }
+        } catch {}
+      }
+      try {
+        const raw = await AsyncStorage.getItem(REG_DOCS_KEY);
+        if (raw) setDocs(JSON.parse(raw));
+      } catch {}
+    }
+    load();
   }, []);
 
-  async function persist(data: RegulatoryDoc[]) {
+  useEffect(() => {
+    if (!isSupabaseConfigured) return;
+    const sub = supabase
+      .channel('realtime-regulatory-docs-v1')
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'regulatory_docs' }, (payload: any) => {
+        const doc = toDoc(payload.new);
+        setDocs(prev => {
+          if (prev.find(d => d.id === doc.id)) return prev;
+          const updated = [doc, ...prev];
+          AsyncStorage.setItem(REG_DOCS_KEY, JSON.stringify(updated)).catch(() => {});
+          return updated;
+        });
+      })
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'regulatory_docs' }, (payload: any) => {
+        const doc = toDoc(payload.new);
+        setDocs(prev => {
+          const updated = prev.map(d => d.id === doc.id ? doc : d);
+          AsyncStorage.setItem(REG_DOCS_KEY, JSON.stringify(updated)).catch(() => {});
+          return updated;
+        });
+      })
+      .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'regulatory_docs' }, (payload: any) => {
+        const id = payload.old.id;
+        setDocs(prev => {
+          const updated = prev.filter(d => d.id !== id);
+          AsyncStorage.setItem(REG_DOCS_KEY, JSON.stringify(updated)).catch(() => {});
+          return updated;
+        });
+      })
+      .subscribe();
+    return () => { supabase.removeChannel(sub); };
+  }, []);
+
+  async function persistLocal(data: RegulatoryDoc[]) {
     setDocs(data);
     try { await AsyncStorage.setItem(REG_DOCS_KEY, JSON.stringify(data)); } catch {}
   }
 
   const addDoc = useCallback(async (doc: Omit<RegulatoryDoc, 'id' | 'createdAt'>) => {
     const newDoc: RegulatoryDoc = { ...doc, id: genId(), createdAt: formatDateFR(new Date()) };
-    await persist([...docsRef.current, newDoc]);
+    await persistLocal([newDoc, ...docsRef.current]);
+    if (isSupabaseConfigured) {
+      supabase.from('regulatory_docs').insert(fromDoc(newDoc)).then(({ error }: { error: any }) => {
+        if (error) console.warn('Erreur sauvegarde doc réglementaire:', error.message);
+      });
+    }
   }, []);
 
   const updateDoc = useCallback(async (id: string, updates: Partial<RegulatoryDoc>) => {
-    await persist(docsRef.current.map(d => d.id === id ? { ...d, ...updates } : d));
+    const updated = docsRef.current.map(d => d.id === id ? { ...d, ...updates } : d);
+    await persistLocal(updated);
+    if (isSupabaseConfigured) {
+      const full = updated.find(d => d.id === id);
+      if (full) {
+        supabase.from('regulatory_docs').update(fromDoc(full)).eq('id', id).then(({ error }: { error: any }) => {
+          if (error) console.warn('Erreur mise à jour doc réglementaire:', error.message);
+        });
+      }
+    }
   }, []);
 
   const deleteDoc = useCallback(async (id: string) => {
-    await persist(docsRef.current.filter(d => d.id !== id));
+    await persistLocal(docsRef.current.filter(d => d.id !== id));
+    if (isSupabaseConfigured) {
+      supabase.from('regulatory_docs').delete().eq('id', id).then(({ error }: { error: any }) => {
+        if (error) console.warn('Erreur suppression doc réglementaire:', error.message);
+      });
+    }
   }, []);
 
   return (
