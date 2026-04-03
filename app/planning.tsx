@@ -1,8 +1,9 @@
 import {
-  View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert, TextInput,
+  View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert, TextInput, RefreshControl,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useCallback } from 'react';
+import * as Haptics from 'expo-haptics';
 import { useRouter } from 'expo-router';
 import { C } from '@/constants/colors';
 import { useApp } from '@/context/AppContext';
@@ -706,8 +707,14 @@ function GroupedList({ tasks, groupBy, canEdit, onDelete, onPress }: {
 // ─── Main Screen ──────────────────────────────────────────────────────────────
 
 export default function PlanningScreen() {
-  const { tasks, deleteTask, companies } = useApp();
+  const { tasks, deleteTask, companies, reload } = useApp();
   const { permissions } = useAuth();
+  const [refreshing, setRefreshing] = useState(false);
+
+  const onRefresh = useCallback(async () => {
+    setRefreshing(true);
+    try { await Promise.resolve(reload()); } finally { setRefreshing(false); }
+  }, [reload]);
   const router = useRouter();
   const [viewMode, setViewMode] = useState<ViewMode>('list');
   const [groupMode, setGroupMode] = useState<GroupMode>('company');
@@ -757,7 +764,12 @@ export default function PlanningScreen() {
   function handleDelete(id: string, title: string) {
     Alert.alert('Supprimer', `Supprimer la tâche "${title}" ?`, [
       { text: 'Annuler', style: 'cancel' },
-      { text: 'Supprimer', style: 'destructive', onPress: () => deleteTask(id) },
+      {
+        text: 'Supprimer', style: 'destructive', onPress: () => {
+          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
+          deleteTask(id);
+        },
+      },
     ]);
   }
 
@@ -823,7 +835,11 @@ export default function PlanningScreen() {
         </View>
       )}
 
-      <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+      <ScrollView
+        contentContainerStyle={styles.content}
+        showsVerticalScrollIndicator={false}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={C.primary} colors={[C.primary]} />}
+      >
         {/* KPIs terrain — orientés entreprise */}
         <View style={styles.statsRow}>
           <View style={[styles.statCard, { borderTopColor: C.primary }]}>

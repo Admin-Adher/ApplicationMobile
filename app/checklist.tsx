@@ -1,4 +1,5 @@
 import { View, Text, StyleSheet, ScrollView, TextInput, TouchableOpacity, Alert } from 'react-native';
+import * as Haptics from 'expo-haptics';
 import { useState, useCallback, useEffect } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Ionicons } from '@expo/vector-icons';
@@ -76,6 +77,11 @@ export default function ChecklistScreen() {
         if (cl.id !== checklistId) return cl;
         const newItems = cl.items.map(it => it.id === itemId ? { ...it, checked: !it.checked } : it);
         const allChecked = newItems.length > 0 && newItems.every(it => it.checked);
+        if (allChecked) {
+          Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
+        } else {
+          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+        }
         return {
           ...cl,
           items: newItems,

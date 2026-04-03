@@ -1,15 +1,17 @@
 import {
   View, Text, StyleSheet, ScrollView, TouchableOpacity, TextInput,
-  Alert, Modal, ActivityIndicator, Image, Platform,
+  Alert, Modal, ActivityIndicator, Image, Platform, RefreshControl,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useCallback } from 'react';
 import { useRouter } from 'expo-router';
+import * as Haptics from 'expo-haptics';
 import * as ImagePicker from 'expo-image-picker';
 import { C } from '@/constants/colors';
 import { useAuth } from '@/context/AuthContext';
 import { useIncidents } from '@/context/IncidentsContext';
+import { useApp } from '@/context/AppContext';
 import { Incident, IncidentSeverity, IncidentStatus } from '@/constants/types';
 import Header from '@/components/Header';
 import DateInput from '@/components/DateInput';
@@ -72,10 +74,17 @@ export default function IncidentsScreen() {
   const router = useRouter();
   const { user, permissions } = useAuth();
   const { incidents, addIncident, updateIncident, deleteIncident } = useIncidents();
+  const { reload } = useApp();
 
   const [search, setSearch] = useState('');
   const [filterSeverity, setFilterSeverity] = useState<FilterSeverity>('all');
   const [filterStatus, setFilterStatus] = useState<FilterStatus>('all');
+  const [refreshing, setRefreshing] = useState(false);
+
+  const onRefresh = useCallback(async () => {
+    setRefreshing(true);
+    try { await Promise.resolve(reload()); } finally { setRefreshing(false); }
+  }, [reload]);
 
   const [modalMode, setModalMode] = useState<'add' | 'edit' | null>(null);
   const [editTarget, setEditTarget] = useState<Incident | null>(null);
@@ -179,6 +188,7 @@ export default function IncidentsScreen() {
         closedBy,
       });
     }
+    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
     setSaving(false);
     setModalMode(null);
   }
@@ -189,7 +199,12 @@ export default function IncidentsScreen() {
       `Supprimer "${i.title}" définitivement ?`,
       [
         { text: 'Annuler', style: 'cancel' },
-        { text: 'Supprimer', style: 'destructive', onPress: () => deleteIncident(i.id) },
+        {
+          text: 'Supprimer', style: 'destructive', onPress: () => {
+            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
+            deleteIncident(i.id);
+          },
+        },
       ]
     );
   }
@@ -270,7 +285,11 @@ export default function IncidentsScreen() {
         </View>
       </View>
 
-      <ScrollView contentContainerStyle={styles.list} showsVerticalScrollIndicator={false}>
+      <ScrollView
+        contentContainerStyle={styles.list}
+        showsVerticalScrollIndicator={false}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={C.primary} colors={[C.primary]} />}
+      >
         {filtered.length === 0 ? (
           <View style={styles.empty}>
             <Ionicons name="shield-checkmark-outline" size={48} color={C.closed} />

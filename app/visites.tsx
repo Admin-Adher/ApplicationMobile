@@ -1,7 +1,8 @@
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert, RefreshControl } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
-import { useMemo } from 'react';
+import { useMemo, useState, useCallback } from 'react';
+import * as Haptics from 'expo-haptics';
 import { C } from '@/constants/colors';
 import { useApp } from '@/context/AppContext';
 import { useAuth } from '@/context/AuthContext';
@@ -68,8 +69,14 @@ function VisiteCard({
 
 export default function VisitesScreen() {
   const router = useRouter();
-  const { visites, reserves, deleteVisite, activeChantierId } = useApp();
+  const { visites, reserves, deleteVisite, activeChantierId, reload } = useApp();
   const { permissions } = useAuth();
+  const [refreshing, setRefreshing] = useState(false);
+
+  const onRefresh = useCallback(async () => {
+    setRefreshing(true);
+    try { await Promise.resolve(reload()); } finally { setRefreshing(false); }
+  }, [reload]);
 
   const chantierVisites = useMemo(
     () => visites.filter(v => !activeChantierId || v.chantierId === activeChantierId)
@@ -87,7 +94,12 @@ export default function VisitesScreen() {
   function handleDelete(v: Visite) {
     Alert.alert('Supprimer la visite', `Supprimer "${v.title}" ?`, [
       { text: 'Annuler', style: 'cancel' },
-      { text: 'Supprimer', style: 'destructive', onPress: () => deleteVisite(v.id) },
+      {
+        text: 'Supprimer', style: 'destructive', onPress: () => {
+          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
+          deleteVisite(v.id);
+        },
+      },
     ]);
   }
 
@@ -101,7 +113,11 @@ export default function VisitesScreen() {
         onRightPress={permissions.canCreate ? () => router.push('/visite/new' as any) : undefined}
       />
 
-      <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+      <ScrollView
+        contentContainerStyle={styles.content}
+        showsVerticalScrollIndicator={false}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={C.primary} colors={[C.primary]} />}
+      >
         <View style={styles.statsRow}>
           {[
             { label: 'Planifiées', count: stats.planned, color: '#6366F1' },

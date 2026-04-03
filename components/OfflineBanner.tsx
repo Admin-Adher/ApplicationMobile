@@ -4,6 +4,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useNetwork } from '@/context/NetworkContext';
 import { C } from '@/constants/colors';
+import { isSupabaseConfigured } from '@/lib/supabase';
 
 export default function OfflineBanner() {
   const { isOnline, queueCount } = useNetwork();
@@ -54,31 +55,41 @@ export default function OfflineBanner() {
     };
   }, [isOnline]);
 
-  if (!visible) return null;
-
   const bottomPad = Platform.OS === 'web' ? 16 : insets.bottom + 8;
 
   return (
-    <Animated.View
-      style={[styles.wrapper, { bottom: bottomPad, transform: [{ translateY }], pointerEvents: 'none' as any }]}
-    >
-      <View style={[styles.banner, showReconnect ? styles.bannerOnline : styles.bannerOffline]}>
-        <Ionicons
-          name={showReconnect ? 'wifi' : 'wifi-outline'}
-          size={16}
-          color={showReconnect ? '#10B981' : '#F59E0B'}
-        />
-        <Text style={[styles.text, { color: showReconnect ? '#10B981' : '#F59E0B' }]}>
-          {showReconnect
-            ? queueCount > 0
-              ? `Reconnecté — sync de ${queueCount} opération${queueCount > 1 ? 's' : ''}…`
-              : 'Connexion rétablie'
-            : queueCount > 0
-              ? `Hors connexion — ${queueCount} opération${queueCount > 1 ? 's' : ''} en attente`
-              : 'Hors connexion — données sauvegardées localement'}
-        </Text>
-      </View>
-    </Animated.View>
+    <>
+      {!isSupabaseConfigured && (
+        <View style={[styles.demoWrapper, { bottom: visible ? bottomPad + 52 : bottomPad, pointerEvents: 'none' } as any]}>
+          <View style={styles.demoBanner}>
+            <Ionicons name="flask-outline" size={13} color="#7C3AED" />
+            <Text style={styles.demoText}>Mode démo — données locales uniquement</Text>
+          </View>
+        </View>
+      )}
+      {visible && (
+        <Animated.View
+          style={[styles.wrapper, { bottom: bottomPad, transform: [{ translateY }], pointerEvents: 'none' as any }]}
+        >
+          <View style={[styles.banner, showReconnect ? styles.bannerOnline : styles.bannerOffline]}>
+            <Ionicons
+              name={showReconnect ? 'wifi' : 'wifi-outline'}
+              size={16}
+              color={showReconnect ? '#10B981' : '#F59E0B'}
+            />
+            <Text style={[styles.text, { color: showReconnect ? '#10B981' : '#F59E0B' }]}>
+              {showReconnect
+                ? queueCount > 0
+                  ? `Reconnecté — sync de ${queueCount} opération${queueCount > 1 ? 's' : ''}…`
+                  : 'Connexion rétablie'
+                : queueCount > 0
+                  ? `Hors connexion — ${queueCount} opération${queueCount > 1 ? 's' : ''} en attente`
+                  : 'Hors connexion — données sauvegardées localement'}
+            </Text>
+          </View>
+        </Animated.View>
+      )}
+    </>
   );
 }
 
@@ -110,5 +121,28 @@ const styles = StyleSheet.create({
     flex: 1,
     fontSize: 12,
     fontFamily: 'Inter_500Medium',
+  },
+  demoWrapper: {
+    position: 'absolute',
+    left: 12,
+    right: 12,
+    zIndex: 9997,
+  },
+  demoBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 7,
+    borderRadius: 12,
+    paddingVertical: 8,
+    paddingHorizontal: 14,
+    borderWidth: 1,
+    backgroundColor: '#F5F3FF',
+    borderColor: '#7C3AED30',
+  },
+  demoText: {
+    flex: 1,
+    fontSize: 11,
+    fontFamily: 'Inter_500Medium',
+    color: '#7C3AED',
   },
 });

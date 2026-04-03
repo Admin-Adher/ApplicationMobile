@@ -1,8 +1,9 @@
 import {
   View, Text, StyleSheet, FlatList, SectionList, TouchableOpacity, TextInput,
   Platform, ScrollView, Modal, ActivityIndicator, useWindowDimensions,
-  Image, Alert, Share, Animated,
+  Image, Alert, Share, Animated, RefreshControl,
 } from 'react-native';
+import * as Haptics from 'expo-haptics';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
@@ -191,7 +192,7 @@ async function generateReportPDF(
 export default function ReservesScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
-  const { reserves, companies, isLoading, chantiers, activeChantierId, lots, batchUpdateReserves, updateReserveFields, updateReserveStatus, deleteReserve, addComment } = useApp();
+  const { reserves, companies, isLoading, chantiers, activeChantierId, lots, batchUpdateReserves, updateReserveFields, updateReserveStatus, deleteReserve, addComment, reload } = useApp();
   const { permissions, user } = useAuth();
 
   const isSousTraitant = user?.role === 'sous_traitant';
@@ -233,6 +234,12 @@ export default function ReservesScreen() {
 
   const [fabOpen, setFabOpen] = useState(false);
   const fabAnim = useRef(new Animated.Value(0)).current;
+  const [refreshing, setRefreshing] = useState(false);
+
+  const onRefresh = useCallback(async () => {
+    setRefreshing(true);
+    try { await Promise.resolve(reload()); } finally { setRefreshing(false); }
+  }, [reload]);
 
   function toggleFab() {
     const toValue = fabOpen ? 0 : 1;
@@ -479,6 +486,7 @@ export default function ReservesScreen() {
     }
     if (batchAction === 'deadline' && batchDeadline) updates.deadline = batchDeadline;
     if (Object.keys(updates).length === 0) return;
+    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
     batchUpdateReserves(ids, updates, user?.name);
     setBatchModalVisible(false);
     setBatchAction(null);
@@ -505,6 +513,7 @@ export default function ReservesScreen() {
 
   function applyQuickStatus(newStatus: ReserveStatus) {
     if (!quickStatusReserve) return;
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
     updateReserveStatus(quickStatusReserve.id, newStatus, user?.name ?? 'Conducteur de travaux');
     setQuickStatusVisible(false);
     setQuickStatusReserve(null);
@@ -516,7 +525,12 @@ export default function ReservesScreen() {
       `Clôturer "${reserve.title}" ?`,
       [
         { text: 'Annuler', style: 'cancel' },
-        { text: 'Clôturer', onPress: () => updateReserveStatus(reserve.id, 'closed', user?.name ?? 'Conducteur de travaux') },
+        {
+          text: 'Clôturer', onPress: () => {
+            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
+            updateReserveStatus(reserve.id, 'closed', user?.name ?? 'Conducteur de travaux');
+          },
+        },
       ]
     );
   }
@@ -583,9 +597,23 @@ export default function ReservesScreen() {
       </Text>
       <Text style={styles.emptyHint}>
         {chantierReserves.length === 0
-          ? 'Créez la première réserve avec le bouton +'
+          ? 'Commencez par créer votre première réserve'
           : 'Modifiez vos filtres ou votre recherche'}
       </Text>
+      {chantierReserves.length === 0 && permissions.canCreate && (
+        <TouchableOpacity
+          style={styles.emptyBtn}
+          onPress={() => router.push('/reserve/new' as any)}
+        >
+          <Ionicons name="add-circle-outline" size={16} color="#fff" />
+          <Text style={styles.emptyBtnText}>Créer une réserve</Text>
+        </TouchableOpacity>
+      )}
+      {chantierReserves.length > 0 && (
+        <TouchableOpacity style={styles.emptyBtnSecondary} onPress={resetAllFilters}>
+          <Text style={styles.emptyBtnSecondaryText}>Réinitialiser les filtres</Text>
+        </TouchableOpacity>
+      )}
     </View>
   );
 
@@ -811,6 +839,7 @@ export default function ReservesScreen() {
                 contentContainerStyle={styles.listNarrow}
                 showsVerticalScrollIndicator={false}
                 ListEmptyComponent={() => listEmpty}
+                refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={C.primary} colors={[C.primary]} />}
               />
             ) : (
               <FlatList
@@ -820,6 +849,7 @@ export default function ReservesScreen() {
                 contentContainerStyle={styles.listNarrow}
                 showsVerticalScrollIndicator={false}
                 ListEmptyComponent={() => listEmpty}
+                refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={C.primary} colors={[C.primary]} />}
               />
             )}
           </View>
@@ -970,6 +1000,7 @@ export default function ReservesScreen() {
             contentContainerStyle={styles.list}
             showsVerticalScrollIndicator={false}
             ListEmptyComponent={() => listEmpty}
+            refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={C.primary} colors={[C.primary]} />}
           />
         ) : (
           <FlatList
@@ -979,6 +1010,7 @@ export default function ReservesScreen() {
             contentContainerStyle={styles.list}
             showsVerticalScrollIndicator={false}
             ListEmptyComponent={() => listEmpty}
+            refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={C.primary} colors={[C.primary]} />}
           />
         )
       )}
@@ -1559,6 +1591,17 @@ const styles = StyleSheet.create({
   },
   emptyText: { fontSize: 16, fontFamily: 'Inter_600SemiBold', color: C.text },
   emptyHint: { fontSize: 13, fontFamily: 'Inter_400Regular', color: C.textMuted, textAlign: 'center' },
+  emptyBtn: {
+    flexDirection: 'row', alignItems: 'center', gap: 8,
+    backgroundColor: C.primary, paddingHorizontal: 20, paddingVertical: 12,
+    borderRadius: 12, marginTop: 8,
+  },
+  emptyBtnText: { fontSize: 14, fontFamily: 'Inter_600SemiBold', color: '#fff' },
+  emptyBtnSecondary: {
+    paddingHorizontal: 20, paddingVertical: 10, borderRadius: 10,
+    borderWidth: 1, borderColor: C.border, marginTop: 4,
+  },
+  emptyBtnSecondaryText: { fontSize: 13, fontFamily: 'Inter_500Medium', color: C.textSub },
   sectionHeader: {
     flexDirection: 'row', alignItems: 'center', gap: 8,
     backgroundColor: C.bg, paddingHorizontal: 16, paddingVertical: 10,
