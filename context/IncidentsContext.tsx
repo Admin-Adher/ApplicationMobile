@@ -9,6 +9,7 @@ const INCIDENTS_KEY = 'buildtrack_incidents_v2';
 
 interface IncidentsContextValue {
   incidents: Incident[];
+  isLoading: boolean;
   addIncident: (incident: Incident) => Promise<void>;
   updateIncident: (incident: Incident) => Promise<void>;
   deleteIncident: (id: string) => Promise<void>;
@@ -41,16 +42,19 @@ function toIncident(row: any): Incident {
 
 export function IncidentsProvider({ children }: { children: React.ReactNode }) {
   const [incidents, setIncidents] = useState<Incident[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
   const incidentsRef = useRef(incidents);
   useEffect(() => { incidentsRef.current = incidents; }, [incidents]);
 
   useEffect(() => {
     async function load() {
+      setIsLoading(true);
       if (isSupabaseConfigured) {
         try {
           const { data, error } = await supabase.from('incidents').select('*').order('reported_at', { ascending: false });
           if (!error && data && data.length > 0) {
             setIncidents(data.map(toIncident));
+            setIsLoading(false);
             return;
           }
         } catch {}
@@ -67,6 +71,7 @@ export function IncidentsProvider({ children }: { children: React.ReactNode }) {
       } catch {
         setIncidents(makeMockIncidents());
       }
+      setIsLoading(false);
     }
     load();
   }, []);
@@ -162,7 +167,7 @@ export function IncidentsProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   return (
-    <IncidentsContext.Provider value={{ incidents, addIncident, updateIncident, deleteIncident }}>
+    <IncidentsContext.Provider value={{ incidents, isLoading, addIncident, updateIncident, deleteIncident }}>
       {children}
     </IncidentsContext.Provider>
   );

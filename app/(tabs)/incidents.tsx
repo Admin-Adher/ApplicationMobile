@@ -15,6 +15,7 @@ import { useApp } from '@/context/AppContext';
 import { Incident, IncidentSeverity, IncidentStatus } from '@/constants/types';
 import Header from '@/components/Header';
 import DateInput from '@/components/DateInput';
+import SkeletonCard from '@/components/SkeletonCard';
 import { RESERVE_BUILDINGS } from '@/lib/reserveUtils';
 import { genId, formatDateFR } from '@/lib/utils';
 
@@ -73,7 +74,7 @@ export default function IncidentsScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const { user, permissions } = useAuth();
-  const { incidents, addIncident, updateIncident, deleteIncident } = useIncidents();
+  const { incidents, isLoading, addIncident, updateIncident, deleteIncident } = useIncidents();
   const { reload } = useApp();
 
   const [search, setSearch] = useState('');
@@ -290,7 +291,9 @@ export default function IncidentsScreen() {
         showsVerticalScrollIndicator={false}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={C.primary} colors={[C.primary]} />}
       >
-        {filtered.length === 0 ? (
+        {isLoading ? (
+          [0, 1, 2, 3].map(i => <SkeletonCard key={i} />)
+        ) : filtered.length === 0 ? (
           <View style={styles.empty}>
             <Ionicons name="shield-checkmark-outline" size={48} color={C.closed} />
             <Text style={styles.emptyTitle}>Aucun incident</Text>

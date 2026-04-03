@@ -238,6 +238,8 @@ export default function ReservesScreen() {
   const [contextMenuVisible, setContextMenuVisible] = useState(false);
   const [contextStatusSubVisible, setContextStatusSubVisible] = useState(false);
 
+  const [flashId, setFlashId] = useState<string | null>(null);
+
   const [fabOpen, setFabOpen] = useState(false);
   const fabAnim = useRef(new Animated.Value(0)).current;
   const [refreshing, setRefreshing] = useState(false);
@@ -433,6 +435,8 @@ export default function ReservesScreen() {
 
   const isSortActive = sortKey !== 'date_desc';
   const obsCount = useMemo(() => chantierReserves.filter(r => r.kind === 'observation').length, [chantierReserves]);
+  const closedCount = useMemo(() => chantierReserves.filter(r => r.status === 'closed').length, [chantierReserves]);
+  const progressPct = chantierReserves.length > 0 ? Math.round((closedCount / chantierReserves.length) * 100) : 0;
   const selectedReserve = useMemo(
     () => filtered.find(r => r.id === selectedReserveId) ?? null,
     [filtered, selectedReserveId]
@@ -519,10 +523,69 @@ export default function ReservesScreen() {
 
   function applyQuickStatus(newStatus: ReserveStatus) {
     if (!quickStatusReserve) return;
+    const id = quickStatusReserve.id;
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
-    updateReserveStatus(quickStatusReserve.id, newStatus, user?.name ?? 'Conducteur de travaux');
+    updateReserveStatus(id, newStatus, user?.name ?? 'Conducteur de travaux');
     setQuickStatusVisible(false);
     setQuickStatusReserve(null);
+    setFlashId(id);
+    setTimeout(() => setFlashId(null), 900);
+  }
+
+  function handleContextMenu(reserve: Reserve) {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
+    setContextMenuReserve(reserve);
+    setContextStatusSubVisible(false);
+    setContextMenuVisible(true);
+  }
+
+  function handleContextStatusApply(newStatus: ReserveStatus) {
+    if (!contextMenuReserve) return;
+    const id = contextMenuReserve.id;
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+    updateReserveStatus(id, newStatus, user?.name ?? 'Conducteur de travaux');
+    setContextMenuVisible(false);
+    setContextMenuReserve(null);
+    setContextStatusSubVisible(false);
+    setFlashId(id);
+    setTimeout(() => setFlashId(null), 900);
+  }
+
+  function handleContextDuplicate(reserve: Reserve) {
+    setContextMenuVisible(false);
+    setContextMenuReserve(null);
+    const newR: Reserve = {
+      ...reserve,
+      id: genId('R'),
+      title: `${reserve.title} (copie)`,
+      status: 'open',
+      createdAt: new Date().toLocaleDateString('fr-FR'),
+      deadline: '',
+      comments: [],
+      photos: [],
+      photoUri: undefined,
+    };
+    addReserve(newR);
+    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
+  }
+
+  function handleContextDelete(reserve: Reserve) {
+    setContextMenuVisible(false);
+    setContextMenuReserve(null);
+    Alert.alert(
+      'Supprimer cette réserve',
+      `Supprimer "${reserve.title}" ? Cette action est irréversible.`,
+      [
+        { text: 'Annuler', style: 'cancel' },
+        {
+          text: 'Supprimer', style: 'destructive',
+          onPress: () => {
+            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
+            deleteReserve(reserve.id);
+          },
+        },
+      ]
+    );
   }
 
   function handleSwipeLeft(reserve: Reserve) {
@@ -582,10 +645,11 @@ export default function ReservesScreen() {
         <ReserveCard
           reserve={item}
           onPress={r => isSelectMode ? toggleId(r.id) : (isWideScreen ? setSelectedReserveId(r.id === selectedReserveId ? null : r.id) : router.push(`/reserve/${r.id}` as any))}
-          onLongPress={permissions.canEdit ? handleQuickStatusChange : undefined}
+          onLongPress={permissions.canEdit ? handleContextMenu : undefined}
           onSwipeRight={permissions.canEdit ? handleQuickStatusChange : undefined}
           onSwipeLeft={permissions.canEdit ? handleSwipeLeft : undefined}
           selected={item.id === selectedReserveId}
+          isFlashed={item.id === flashId}
         />
       </View>
     </View>
@@ -687,6 +751,35 @@ export default function ReservesScreen() {
               <Ionicons name="close-outline" size={14} color={C.textSub} />
               <Text style={styles.selectBarBtnText}>Désélect.</Text>
             </TouchableOpacity>
+          </View>
+        )}
+
+        {chantierReserves.length > 0 && !isLoading && (
+          <View style={styles.progressBanner}>
+            <View style={styles.progressTextRow}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}>
+                <Ionicons name="checkmark-circle-outline" size={13} color={C.closed} />
+                <Text style={styles.progressLabel}>
+                  <Text style={{ fontFamily: 'Inter_700Bold', color: C.closed }}>{closedCount}</Text>
+                  <Text style={{ color: C.textSub }}> / {chantierReserves.length} levées</Text>
+                </Text>
+              </View>
+              <Text style={[
+                styles.progressPct,
+                { color: progressPct >= 75 ? C.closed : progressPct >= 40 ? C.inProgress : C.open },
+              ]}>
+                {progressPct} %
+              </Text>
+            </View>
+            <View style={styles.progressTrack}>
+              <View style={[
+                styles.progressFill,
+                {
+                  width: `${progressPct}%` as any,
+                  backgroundColor: progressPct >= 75 ? C.closed : progressPct >= 40 ? C.inProgress : C.open,
+                },
+              ]} />
+            </View>
           </View>
         )}
 
@@ -835,7 +928,9 @@ export default function ReservesScreen() {
       {isWideScreen ? (
         <View style={styles.splitRow}>
           <View style={styles.splitList}>
-            {viewMode === 'grouped_status' || viewMode === 'grouped_company' ? (
+            {isLoading ? (
+              <SkeletonList count={5} type="reserve" />
+            ) : viewMode === 'grouped_status' || viewMode === 'grouped_company' ? (
               <SectionList
                 sections={viewMode === 'grouped_status' ? groupedByStatus : groupedByCompany}
                 keyExtractor={item => item.id}
@@ -995,6 +1090,8 @@ export default function ReservesScreen() {
             )}
           </View>
         </View>
+      ) : isLoading ? (
+        <SkeletonList count={5} type="reserve" />
       ) : (
         viewMode === 'grouped_status' || viewMode === 'grouped_company' ? (
           <SectionList
@@ -1306,6 +1403,112 @@ export default function ReservesScreen() {
             <TouchableOpacity style={styles.cancelBtn} onPress={() => setViewModeModalVisible(false)}>
               <Text style={styles.cancelText}>Fermer</Text>
             </TouchableOpacity>
+          </TouchableOpacity>
+        </TouchableOpacity>
+      </Modal>
+
+      {/* Context Menu Modal */}
+      <Modal visible={contextMenuVisible} transparent animationType="fade" onRequestClose={() => { setContextMenuVisible(false); setContextStatusSubVisible(false); }}>
+        <TouchableOpacity
+          style={styles.modalOverlay}
+          activeOpacity={1}
+          onPress={() => { setContextMenuVisible(false); setContextStatusSubVisible(false); }}
+        >
+          <TouchableOpacity activeOpacity={1} style={[styles.bottomSheet, { paddingBottom: insets.bottom + 24 }]}>
+            <View style={styles.sheetHandle} />
+            {contextMenuReserve && (
+              <>
+                <View style={styles.sheetTitleRow}>
+                  <View style={styles.contextIdWrap}>
+                    <Text style={styles.contextId}>{contextMenuReserve.id}</Text>
+                  </View>
+                  <Text style={styles.contextTitle} numberOfLines={1}>{contextMenuReserve.title}</Text>
+                </View>
+
+                {!contextStatusSubVisible ? (
+                  <>
+                    <TouchableOpacity
+                      style={styles.contextItem}
+                      onPress={() => { setContextMenuVisible(false); router.push(`/reserve/${contextMenuReserve.id}` as any); }}
+                    >
+                      <View style={styles.contextItemIcon}>
+                        <Ionicons name="open-outline" size={18} color={C.primary} />
+                      </View>
+                      <Text style={styles.contextItemText}>Ouvrir la fiche</Text>
+                      <Ionicons name="chevron-forward" size={16} color={C.textMuted} />
+                    </TouchableOpacity>
+
+                    {permissions.canEdit && (
+                      <TouchableOpacity
+                        style={styles.contextItem}
+                        onPress={() => setContextStatusSubVisible(true)}
+                      >
+                        <View style={styles.contextItemIcon}>
+                          <Ionicons name="swap-horizontal-outline" size={18} color={C.inProgress} />
+                        </View>
+                        <Text style={styles.contextItemText}>Changer le statut</Text>
+                        <Ionicons name="chevron-forward" size={16} color={C.textMuted} />
+                      </TouchableOpacity>
+                    )}
+
+                    {permissions.canCreate && (
+                      <TouchableOpacity
+                        style={styles.contextItem}
+                        onPress={() => handleContextDuplicate(contextMenuReserve)}
+                      >
+                        <View style={styles.contextItemIcon}>
+                          <Ionicons name="copy-outline" size={18} color={C.textSub} />
+                        </View>
+                        <Text style={styles.contextItemText}>Dupliquer</Text>
+                      </TouchableOpacity>
+                    )}
+
+                    {permissions.canDelete && (
+                      <TouchableOpacity
+                        style={[styles.contextItem, styles.contextItemDanger]}
+                        onPress={() => handleContextDelete(contextMenuReserve)}
+                      >
+                        <View style={[styles.contextItemIcon, { backgroundColor: C.open + '18' }]}>
+                          <Ionicons name="trash-outline" size={18} color={C.open} />
+                        </View>
+                        <Text style={[styles.contextItemText, { color: C.open }]}>Supprimer</Text>
+                      </TouchableOpacity>
+                    )}
+                  </>
+                ) : (
+                  <>
+                    <TouchableOpacity style={styles.contextBackBtn} onPress={() => setContextStatusSubVisible(false)}>
+                      <Ionicons name="arrow-back" size={15} color={C.primary} />
+                      <Text style={styles.contextBackText}>Retour</Text>
+                    </TouchableOpacity>
+                    {(Object.entries(STATUS_LABELS) as [ReserveStatus, string][]).map(([key, label]) => {
+                      const isActive = contextMenuReserve.status === key;
+                      const color = STATUS_COLORS[key];
+                      return (
+                        <TouchableOpacity
+                          key={key}
+                          style={[styles.sheetItem, isActive && styles.sheetItemActive]}
+                          onPress={() => handleContextStatusApply(key)}
+                        >
+                          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+                            <View style={[styles.statusDot, { backgroundColor: color }]} />
+                            <Text style={[styles.sheetItemText, isActive && styles.sheetItemTextActive]}>{label}</Text>
+                          </View>
+                          {isActive && <Ionicons name="checkmark" size={16} color={C.primary} />}
+                        </TouchableOpacity>
+                      );
+                    })}
+                  </>
+                )}
+
+                <TouchableOpacity
+                  style={styles.cancelBtn}
+                  onPress={() => { setContextMenuVisible(false); setContextStatusSubVisible(false); }}
+                >
+                  <Text style={styles.cancelText}>Fermer</Text>
+                </TouchableOpacity>
+              </>
+            )}
           </TouchableOpacity>
         </TouchableOpacity>
       </Modal>
@@ -1792,5 +1995,57 @@ const styles = StyleSheet.create({
   },
   deadlineReminderText: {
     flex: 1, fontSize: 12, fontFamily: 'Inter_400Regular', color: '#92400E',
+  },
+
+  progressBanner: {
+    backgroundColor: C.surface, borderRadius: 10, paddingHorizontal: 14, paddingVertical: 10,
+    marginBottom: 8, borderWidth: 1, borderColor: C.border,
+  },
+  progressTextRow: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6,
+  },
+  progressLabel: {
+    fontSize: 13, fontFamily: 'Inter_400Regular', color: C.textSub,
+  },
+  progressPct: {
+    fontSize: 14, fontFamily: 'Inter_700Bold',
+  },
+  progressTrack: {
+    height: 5, borderRadius: 3, backgroundColor: C.border, overflow: 'hidden',
+  },
+  progressFill: {
+    height: 5, borderRadius: 3,
+  },
+
+  contextIdWrap: {
+    backgroundColor: C.primaryBg, paddingHorizontal: 8, paddingVertical: 3,
+    borderRadius: 6, flexShrink: 0,
+  },
+  contextId: {
+    fontSize: 11, fontFamily: 'Inter_700Bold', color: C.primary, letterSpacing: 0.5,
+  },
+  contextTitle: {
+    flex: 1, fontSize: 14, fontFamily: 'Inter_600SemiBold', color: C.text, marginLeft: 8,
+  },
+  contextItem: {
+    flexDirection: 'row', alignItems: 'center', gap: 12,
+    paddingVertical: 14, paddingHorizontal: 4,
+    borderBottomWidth: 1, borderBottomColor: C.border + '60',
+  },
+  contextItemDanger: {},
+  contextItemIcon: {
+    width: 36, height: 36, borderRadius: 10, backgroundColor: C.surface2,
+    alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: C.border,
+    flexShrink: 0,
+  },
+  contextItemText: {
+    flex: 1, fontSize: 15, fontFamily: 'Inter_500Medium', color: C.text,
+  },
+  contextBackBtn: {
+    flexDirection: 'row', alignItems: 'center', gap: 6,
+    paddingVertical: 10, paddingHorizontal: 4, marginBottom: 4,
+  },
+  contextBackText: {
+    fontSize: 13, fontFamily: 'Inter_600SemiBold', color: C.primary,
   },
 });

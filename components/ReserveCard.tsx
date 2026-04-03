@@ -1,8 +1,8 @@
-import { View, Text, StyleSheet, TouchableOpacity, Platform, Image } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, Platform, Image, Animated } from 'react-native';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { Swipeable } from 'react-native-gesture-handler';
-import { useRef } from 'react';
+import { useRef, useEffect } from 'react';
 import { Reserve } from '@/constants/types';
 import { C } from '@/constants/colors';
 import StatusBadge from './StatusBadge';
@@ -17,12 +17,22 @@ interface Props {
   onSwipeRight?: (reserve: Reserve) => void;
   onSwipeLeft?: (reserve: Reserve) => void;
   selected?: boolean;
+  isFlashed?: boolean;
 }
 
-export default function ReserveCard({ reserve, onPress, onLongPress, onSwipeRight, onSwipeLeft, selected }: Props) {
+export default function ReserveCard({ reserve, onPress, onLongPress, onSwipeRight, onSwipeLeft, selected, isFlashed }: Props) {
   const router = useRouter();
   const { lots } = useApp();
   const swipeRef = useRef<Swipeable>(null);
+  const flashAnim = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    if (isFlashed) {
+      flashAnim.setValue(1);
+      Animated.timing(flashAnim, { toValue: 0, duration: 800, useNativeDriver: true }).start();
+    }
+  }, [isFlashed]);
+
   const overdue = isOverdue(reserve.deadline, reserve.status);
   const daysLeft = deadlineDaysLeft(reserve.deadline);
   const showDeadline = reserve.deadline && reserve.deadline !== '—';
@@ -62,8 +72,11 @@ export default function ReserveCard({ reserve, onPress, onLongPress, onSwipeRigh
       activeOpacity={0.75}
       accessibilityRole="button"
       accessibilityLabel={`Réserve ${reserve.id} — ${reserve.title} — statut ${reserve.status === 'open' ? 'Ouvert' : reserve.status === 'in_progress' ? 'En cours' : reserve.status === 'waiting' ? 'En attente' : reserve.status === 'verification' ? 'Vérification' : 'Clôturé'} — ${(reserve.companies ?? (reserve.company ? [reserve.company] : [])).join(', ')}`}
-      accessibilityHint={onLongPress ? "Appuyer longuement pour changer le statut rapidement" : undefined}
+      accessibilityHint={onLongPress ? "Appuyer longuement pour ouvrir le menu rapide" : undefined}
     >
+      <Animated.View
+        style={[styles.flashOverlay, { opacity: flashAnim, pointerEvents: 'none' }]}
+      />
       <View style={styles.top}>
         <View style={styles.topLeft}>
           <View style={styles.idWrap}>
@@ -445,5 +458,11 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontFamily: 'Inter_600SemiBold',
     color: '#fff',
+  },
+  flashOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: '#22C55E',
+    borderRadius: 14,
+    zIndex: 10,
   },
 });
