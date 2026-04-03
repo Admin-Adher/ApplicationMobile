@@ -95,6 +95,7 @@ function buildReservePDF(
   company: { color?: string } | undefined,
   resolvedPhotoSrcs?: string[],
   planData?: PlanData,
+  pinNum: number = 1,
 ): string {
   const statusColors: Record<string, string> = {
     open: '#DC2626', in_progress: '#F59E0B', waiting: '#3B82F6',
@@ -115,6 +116,7 @@ function buildReservePDF(
   const sLabel = statusLabels[reserve.status] ?? reserve.status;
   const pColor = priorityColors[reserve.priority] ?? '#6B7280';
   const pLabel = priorityLabels[reserve.priority] ?? reserve.priority;
+  const pinColor = company?.color ?? '#003082';
 
   const rawPhotos = reserve.photos && reserve.photos.length > 0
     ? reserve.photos
@@ -165,8 +167,8 @@ function buildReservePDF(
 
   // SVG pin drawn over the plan image
   const svgPin = planData ? (
-    `<circle cx="${planData.planX}%" cy="${planData.planY}%" r="${PIN_R}" fill="#DC2626" stroke="#fff" stroke-width="2.5"/>` +
-    `<text x="${planData.planX}%" y="${planData.planY}%" text-anchor="middle" dominant-baseline="central" fill="#fff" font-size="${PIN_FONT}" font-weight="bold" font-family="Arial,sans-serif">!</text>`
+    `<circle cx="${planData.planX}%" cy="${planData.planY}%" r="${PIN_R}" fill="${pinColor}" stroke="#fff" stroke-width="2.5"/>` +
+    `<text x="${planData.planX}%" y="${planData.planY}%" text-anchor="middle" dominant-baseline="central" fill="#fff" font-size="${PIN_FONT}" font-weight="bold" font-family="Arial,sans-serif">${pinNum}</text>`
   ) : '';
 
   // Fallback canvas+script (only for native PDF plans that couldn't pre-render)
@@ -183,11 +185,11 @@ var PIN_FONT=${PIN_FONT};
 function drawPin(W,H){
   var x=(pctX/100)*W,y=(pctY/100)*H;
   ctx.beginPath();ctx.arc(x,y,PIN_R,0,Math.PI*2);
-  ctx.fillStyle='#DC2626';ctx.fill();
+  ctx.fillStyle='${pinColor}';ctx.fill();
   ctx.strokeStyle='#fff';ctx.lineWidth=2.5;ctx.stroke();
   ctx.fillStyle='#fff';ctx.font='bold '+PIN_FONT+'px Arial';
   ctx.textAlign='center';ctx.textBaseline='middle';
-  ctx.fillText('!',x,y);
+  ctx.fillText('${pinNum}',x,y);
 }
 function drawFallback(){
   ctx.fillStyle='#1E3A5F';ctx.fillRect(0,0,canvas.width,canvas.height);
@@ -755,7 +757,13 @@ export default function ReserveDetailScreen() {
         }
       }
 
-      const html = buildReservePDF(reserve, projectName, company, resolvedSrcs, planData);
+      // Compute this reserve's sequential pin number (same logic as plans.tsx pinNumberMap)
+      const planReservesForNum = reserves
+        .filter(r => r.planId === reserve.planId && r.planX != null && r.planY != null)
+        .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+      const pinNumInPlan = (planReservesForNum.findIndex(r => r.id === reserve.id) + 1) || 1;
+
+      const html = buildReservePDF(reserve, projectName, company, resolvedSrcs, planData, pinNumInPlan);
       await exportPDFHelper(html, `Fiche ${reserve.id}`);
     } catch {
       Alert.alert('Erreur', "Impossible de générer le PDF.");
