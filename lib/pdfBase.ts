@@ -258,33 +258,77 @@ export function wrapHTML(body: string, title: string): string {
 }
 
 /**
- * Converts any photo URI to a safe data URL for PDF embedding.
- * - HTTP/HTTPS URLs → returned as-is (usable directly in <img>)
- * - data: URIs → returned as-is
- * - file:// URIs on native → read and base64-encoded as data URI
- * - Anything else → returned as-is (best effort)
+ * Converts any photo URI to a safe base64 data URL for embedding in a PDF.
+ *
+ * Print.printAsync's WebView on Android/iOS is sandboxed — it cannot load
+ * external HTTPS URLs or local file:// paths. Every image must be embedded as
+ * a data URL before the HTML is passed to Print.printAsync.
+ *
+ * Strategy:
+ *  - data: URIs        → returned as-is
+ *  - https:// on native → downloaded to a temp cache file, read as base64
+ *  - https:// on web   → returned as-is (browser handles it)
+ *  - file:// on native → read directly with FileSystem
+ *  - anything else     → returned as-is (best-effort fallback)
  */
 export async function loadPhotoAsDataUrl(uri: string): Promise<string> {
   if (!uri) return '';
-  if (uri.startsWith('data:') || uri.startsWith('http')) return uri;
-  if (Platform.OS !== 'web' && uri.startsWith('file://')) {
-    try {
-      const base64 = await FileSystem.readAsStringAsync(uri, {
-        encoding: FileSystem.EncodingType.Base64,
-      });
-      return `data:image/jpeg;base64,${base64}`;
-    } catch {
-      return uri;
+  if (uri.startsWith('data:')) return uri;
+
+  const lc = uri.toLowerCase();
+  const imgMime = lc.endsWith('.png') ? 'image/png'
+    : lc.endsWith('.webp') ? 'image/webp'
+    : lc.endsWith('.gif') ? 'image/gif'
+    : 'image/jpeg';
+
+  if (Platform.OS !== 'web') {
+    if (uri.startsWith('http://') || uri.startsWith('https://')) {
+      // Download the remote image to a temp file, then base64-encode it.
+      try {
+        const ext = lc.split('?')[0].split('.').pop() ?? 'jpg';
+        const safeExt = ['jpg', 'jpeg', 'png', 'webp', 'gif'].includes(ext) ? ext : 'jpg';
+        const tempUri = `${FileSystem.cacheDirectory ?? ''}ph_${Date.now()}.${safeExt}`;
+        const { uri: localUri, status } = await FileSystem.downloadAsync(uri, tempUri);
+        if (status !== 200) throw new Error(`HTTP ${status}`);
+        const base64 = await FileSystem.readAsStringAsync(localUri, {
+          encoding: FileSystem.EncodingType.Base64,
+        });
+        FileSystem.deleteAsync(localUri, { idempotent: true }).catch(() => {});
+        return `data:${imgMime};base64,${base64}`;
+      } catch {
+        return uri;
+      }
     }
+    if (uri.startsWith('file://')) {
+      try {
+        const base64 = await FileSystem.readAsStringAsync(uri, {
+          encoding: FileSystem.EncodingType.Base64,
+        });
+        return `data:${imgMime};base64,${base64}`;
+      } catch {
+        return uri;
+      }
+    }
+    return uri;
   }
+
+  // Web: browser can load HTTPS directly
   return uri;
 }
 
 /**
- * Convert a local file (PDF or image) to a base64 data URL for embedding in
- * HTML passed to Print.printAsync — local file:// URIs are not accessible from
- * within Print.printAsync's sandboxed WebView on mobile.
- * On web, fetches via XHR/FileReader instead.
+ * Converts a plan file URI (image or PDF) to a base64 data URL so it can be
+ * safely embedded in HTML passed to Print.printAsync.
+ *
+ * Same sandboxing constraint as loadPhotoAsDataUrl — all non-data URIs must be
+ * converted before they reach the WebView.
+ *
+ * Strategy:
+ *  - data: URIs           → returned as-is
+ *  - https:// on native   → FileSystem.downloadAsync → base64
+ *  - file:// on native    → FileSystem.readAsStringAsync → base64
+ *  - https:// on web      → fetch → FileReader → base64
+ *  - anything else        → returned as-is
  */
 export async function loadFileAsDataUrl(
   uri: string,
@@ -302,6 +346,26 @@ export async function loadFileAsDataUrl(
     : 'image/jpeg';
 
   if (Platform.OS !== 'web') {
+    if (uri.startsWith('http://') || uri.startsWith('https://')) {
+      // Remote URL on native: download to cache, then read as base64.
+      // FileSystem.readAsStringAsync() does NOT support network URLs —
+      // it is only for local paths.
+      try {
+        const ext = fileType === 'pdf' ? 'pdf' : 'jpg';
+        const tempUri = `${FileSystem.cacheDirectory ?? ''}plan_${Date.now()}.${ext}`;
+        const { uri: localUri, status } = await FileSystem.downloadAsync(uri, tempUri);
+        if (status !== 200) throw new Error(`HTTP ${status}`);
+        const base64 = await FileSystem.readAsStringAsync(localUri, {
+          encoding: FileSystem.EncodingType.Base64,
+        });
+        FileSystem.deleteAsync(localUri, { idempotent: true }).catch(() => {});
+        return `data:${mimeType};base64,${base64}`;
+      } catch {
+        return uri;
+      }
+    }
+
+    // Local file:// path
     try {
       const base64 = await FileSystem.readAsStringAsync(uri, {
         encoding: FileSystem.EncodingType.Base64,
