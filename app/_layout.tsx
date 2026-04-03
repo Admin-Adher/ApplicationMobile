@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { View, Text, TouchableOpacity, StyleSheet, Platform, LogBox } from 'react-native';
+import { View, Text, TouchableOpacity, StyleSheet, Platform, LogBox, ActivityIndicator } from 'react-native';
 import { Stack, useRouter, useSegments } from 'expo-router';
 import { ErrorBoundary as AppErrorBoundary } from '@/components/ErrorBoundary';
 import { StatusBar } from 'expo-status-bar';
@@ -102,8 +102,58 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
     }
   }, [isAuthenticated, isLoading, segments, user?.organizationId, user?.role]);
 
+  // Block any content from showing while the auth state is being determined.
+  // Without this, there is a flash of unauthenticated UI between the moment
+  // fonts finish loading and the moment getSession() resolves.
+  if (isLoading) {
+    return (
+      <View style={authGuardStyles.container}>
+        <View style={authGuardStyles.logoMark}>
+          <Text style={authGuardStyles.logoText}>BT</Text>
+        </View>
+        <Text style={authGuardStyles.brand}>BuildTrack</Text>
+        <ActivityIndicator
+          size="small"
+          color="rgba(255,255,255,0.5)"
+          style={{ marginTop: 32 }}
+        />
+      </View>
+    );
+  }
+
   return <>{children}</>;
 }
+
+const authGuardStyles = StyleSheet.create({
+  container: {
+    flex: 1,
+    backgroundColor: '#003082',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+  },
+  logoMark: {
+    width: 56,
+    height: 56,
+    borderRadius: 14,
+    backgroundColor: 'rgba(255,255,255,0.15)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 4,
+  },
+  logoText: {
+    color: '#fff',
+    fontSize: 22,
+    fontWeight: '800',
+    letterSpacing: -0.5,
+  },
+  brand: {
+    color: '#fff',
+    fontSize: 22,
+    fontWeight: '800',
+    letterSpacing: -0.3,
+  },
+});
 
 export default function RootLayout() {
   const [fontsLoaded, fontError] = useFonts({
