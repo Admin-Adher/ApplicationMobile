@@ -1,4 +1,5 @@
 import { View, Text, StyleSheet, ScrollView, TextInput, TouchableOpacity, Alert, Platform, ActivityIndicator } from 'react-native';
+import DateInput from '@/components/DateInput';
 import { useState, useCallback, useEffect, useRef } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Ionicons } from '@expo/vector-icons';
@@ -373,8 +374,7 @@ export default function JournalScreen() {
           <View style={styles.card}>
             <Text style={styles.sectionTitle}>Nouvelle entrée journal</Text>
 
-            <Text style={styles.label}>Date</Text>
-            <TextInput style={styles.input} placeholder="JJ/MM/AAAA" placeholderTextColor={C.textMuted} value={date} onChangeText={setDate} />
+            <DateInput label="Date" value={date} onChange={setDate} />
 
             <View style={styles.weatherHeader}>
               <Text style={styles.label}>Météo</Text>

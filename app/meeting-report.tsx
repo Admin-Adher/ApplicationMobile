@@ -1,4 +1,5 @@
 import { View, Text, StyleSheet, ScrollView, TextInput, TouchableOpacity, Alert, Platform, Modal } from 'react-native';
+import DateInput from '@/components/DateInput';
 import { useState, useCallback, useEffect } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Ionicons } from '@expo/vector-icons';
@@ -370,7 +371,7 @@ export default function MeetingReportScreen() {
             <Text style={styles.label}>Objet *</Text>
             <TextInput style={styles.input} placeholder="Ex: Réunion de chantier hebdomadaire" placeholderTextColor={C.textMuted} value={subject} onChangeText={setSubject} />
             <Text style={styles.label}>Date</Text>
-            <TextInput style={styles.input} placeholder="JJ/MM/AAAA" placeholderTextColor={C.textMuted} value={date} onChangeText={setDate} />
+            <DateInput value={date} onChange={setDate} />
             <Text style={styles.label}>Lieu</Text>
             <TextInput style={styles.input} placeholder="Ex: Salle de réunion, Bâtiment A" placeholderTextColor={C.textMuted} value={location} onChangeText={setLocation} />
             <Text style={styles.label}>Participants</Text>

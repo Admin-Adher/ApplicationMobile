@@ -12,6 +12,7 @@ import {
   Share,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import DateInput from '@/components/DateInput';
 import { useRouter } from 'expo-router';
 import { useState, useMemo, useRef } from 'react';
 import { C } from '@/constants/colors';
@@ -802,15 +803,9 @@ export default function OprScreen() {
               </View>
             </ScrollView>
 
-            <Text style={[styles.label, { marginTop: 10 }]}>Date de visite contradictoire</Text>
-            <TextInput
-              style={styles.input}
-              placeholder="JJ/MM/AAAA (optionnel)"
-              placeholderTextColor={C.textMuted}
-              value={visitDateForm}
-              onChangeText={setVisitDateForm}
-              keyboardType="numbers-and-punctuation"
-            />
+            <View style={{ marginTop: 10 }}>
+              <DateInput label="Date de visite contradictoire" value={visitDateForm} onChange={setVisitDateForm} optional />
+            </View>
 
             <TouchableOpacity style={styles.lotsToggle} onPress={() => setShowLotsConfig(v => !v)}>
               <Ionicons name="list-outline" size={14} color={C.primary} />
@@ -1186,13 +1181,10 @@ export default function OprScreen() {
                             />
 
                             <Text style={styles.detailLabel}>DÉLAI DE LEVÉE</Text>
-                            <TextInput
-                              style={styles.detailInput}
-                              placeholder="JJ/MM/AAAA"
-                              placeholderTextColor={C.textMuted}
+                            <DateInput
                               value={edit.deadline}
-                              onChangeText={v => setItemEdits(prev => ({ ...prev, [item.id]: { ...edit, deadline: v } }))}
-                              keyboardType="numbers-and-punctuation"
+                              onChange={v => setItemEdits(prev => ({ ...prev, [item.id]: { ...edit, deadline: v } }))}
+                              optional
                             />
 
                             <Text style={styles.detailLabel}>OBSERVATION / NOTE</Text>

@@ -2,6 +2,7 @@ import {
   View, Text, StyleSheet, SectionList, TouchableOpacity, Modal,
   TextInput, Platform, Alert, TouchableWithoutFeedback, ScrollView,
 } from 'react-native';
+import DateInput from '@/components/DateInput';
 import { KeyboardAvoidingView } from 'react-native-keyboard-controller';
 import { useState, useMemo } from 'react';
 import { Ionicons } from '@expo/vector-icons';
@@ -339,25 +340,11 @@ export default function ReglementaireScreen() {
 
               <View style={styles.twoCol}>
                 <View style={{ flex: 1 }}>
-                  <Text style={styles.fieldLabel}>Date d'émission</Text>
-                  <TextInput
-                    style={styles.input}
-                    placeholder="JJ/MM/AAAA"
-                    placeholderTextColor={C.textMuted}
-                    value={issueDate}
-                    onChangeText={setIssueDate}
-                  />
+                  <DateInput label="Date d'émission" value={issueDate} onChange={setIssueDate} optional />
                 </View>
                 <View style={{ width: 12 }} />
                 <View style={{ flex: 1 }}>
-                  <Text style={styles.fieldLabel}>Date d'expiration</Text>
-                  <TextInput
-                    style={styles.input}
-                    placeholder="JJ/MM/AAAA"
-                    placeholderTextColor={C.textMuted}
-                    value={expiryDate}
-                    onChangeText={setExpiryDate}
-                  />
+                  <DateInput label="Date d'expiration" value={expiryDate} onChange={setExpiryDate} optional />
                 </View>
               </View>
 
