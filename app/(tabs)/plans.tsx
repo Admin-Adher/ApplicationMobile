@@ -319,6 +319,7 @@ export default function PlansScreen() {
   const [pinSizes, setPinSizes] = useState<Record<string, number>>({});
   const [focusedPinId, setFocusedPinId] = useState<string | null>(null);
   const [draggingPinState, setDraggingPinState] = useState<{ id: string; x: number; y: number } | null>(null);
+  const [dxfLoading, setDxfLoading] = useState(false);
 
   const pdfViewerRef = useRef<PdfPlanViewerHandle>(null);
   const reserveListRef = useRef<FlatList<Reserve> | null>(null);
@@ -469,6 +470,23 @@ export default function PlansScreen() {
   React.useEffect(() => { updateReserveFieldsRef.current = updateReserveFields; }, [updateReserveFields]);
   React.useEffect(() => { pinSizesRef.current = pinSizes; }, [pinSizes]);
 
+  // Auto-load DXF when plan has fileType=dxf and is not yet parsed in memory
+  React.useEffect(() => {
+    if (!currentPlanId || !currentPlan?.uri || currentPlan.fileType !== 'dxf') return;
+    if (dxfData[currentPlanId]) return;
+    setDxfLoading(true);
+    fetch(currentPlan.uri)
+      .then(r => r.text())
+      .then(text => {
+        const parsed = parseDxf(text);
+        if (parsed.entities.length > 0) {
+          setDxfData(prev => ({ ...prev, [currentPlanId]: parsed }));
+        }
+      })
+      .catch(() => {})
+      .finally(() => setDxfLoading(false));
+  }, [currentPlanId, currentPlan?.uri, currentPlan?.fileType]);
+
   function getPinchDist(touches: any[]) {
     const dx = touches[0].pageX - touches[1].pageX;
     const dy = touches[0].pageY - touches[1].pageY;
@@ -612,7 +630,7 @@ export default function PlansScreen() {
   }
 
   async function handleImportPlan() {
-    if (!currentPlanId) return;
+    if (!currentPlanId || !currentPlan) return;
     setImporting(true);
     try {
       const result = await DocumentPicker.getDocumentAsync({
@@ -638,14 +656,20 @@ export default function PlansScreen() {
             Alert.alert('DXF vide', "Le fichier DXF ne contient aucune entité reconnue.");
             return;
           }
+          const storageUrl = await uploadDocument(asset.uri, `plan_dxf_${currentPlanId}_${docName}`, 'application/octet-stream');
+          const dxfUri = storageUrl ?? asset.uri;
           setDxfData(prev => ({ ...prev, [currentPlanId]: parsed }));
-          updateSitePlan({ ...currentPlan!, dxfName: docName, size: formatSize(asset.size) });
-          Alert.alert('Plan DXF importé ✓', `${parsed.entities.length} entités chargées depuis "${docName}".`);
+          updateSitePlan({ ...currentPlan, uri: dxfUri, fileType: 'dxf', dxfName: docName, size: formatSize(asset.size) });
+          if (storageUrl) {
+            Alert.alert('Plan DXF importé ✓', `${parsed.entities.length} entités chargées depuis "${docName}".`);
+          } else {
+            Alert.alert('Plan DXF importé (local uniquement)', `${parsed.entities.length} entités chargées depuis "${docName}".\n\nLe fichier n'a pas pu être uploadé sur le serveur : le plan sera visible sur cet appareil uniquement.`, [{ text: 'OK' }]);
+          }
           return;
         }
         const storageUrl = await uploadDocument(asset.uri, `plan_${currentPlanId}_${docName}`, asset.mimeType ?? undefined);
         const finalUri = storageUrl ?? asset.uri;
-        updateSitePlan({ ...currentPlan!, uri: finalUri, fileType: isPdfFile ? 'pdf' : 'image', size: formatSize(asset.size) });
+        updateSitePlan({ ...currentPlan, uri: finalUri, fileType: isPdfFile ? 'pdf' : 'image', size: formatSize(asset.size) });
         if (storageUrl) {
           Alert.alert('Plan importé ✓', 'Fichier uploadé sur le serveur. Il sera disponible sur tous vos appareils.');
         } else {
@@ -742,9 +766,9 @@ export default function PlansScreen() {
     setNewPlanModal({ visible: false, name: '', building: '', level: '' });
   }
 
-  const isPlanFile = !!(currentPlan?.uri);
+  const isPlanFile = !!(currentPlan?.uri) && currentPlan?.fileType !== 'dxf';
   const isPlanPdfPlan = isPlanPdf(currentPlan);
-  const isImagePlan = !!(currentPlan?.uri && isImage(currentPlan.uri));
+  const isImagePlan = currentPlan?.fileType === 'image' || (!!currentPlan?.uri && !isPlanPdfPlan && currentPlan?.fileType !== 'dxf' && isImage(currentPlan.uri!));
   const hasDxf = !!(currentPlanId && dxfData[currentPlanId]);
   const currentZoomPct = isPlanFile ? `${pdfZoomPct}%` : `${Math.round(displayScale * 100)}%`;
 
@@ -872,12 +896,12 @@ export default function PlansScreen() {
                       accessibilityState={{ selected: isActive }}
                     >
                       <View style={styles.planTabThumb}>
-                        {plan.uri && isImage(plan.uri) ? (
+                        {plan.fileType === 'image' || (plan.uri && plan.fileType !== 'dxf' && isImage(plan.uri)) ? (
                           <Image source={{ uri: plan.uri }} style={styles.planTabThumbImg} resizeMode="cover" />
-                        ) : plan.uri ? (
+                        ) : plan.fileType === 'dxf' || dxfData[plan.id] ? (
+                          <Ionicons name="grid-outline" size={13} color={isActive ? C.primary : C.textMuted} />
+                        ) : plan.fileType === 'pdf' || plan.uri ? (
                           <Ionicons name="document-text-outline" size={13} color={isActive ? C.primary : C.textMuted} />
-                        ) : dxfData[plan.id] ? (
-                          <Ionicons name="grid-outline" size={13} color={C.primary} />
                         ) : (
                           <Ionicons name="map-outline" size={13} color={isActive ? C.primary : C.textMuted} />
                         )}
@@ -999,14 +1023,6 @@ export default function PlansScreen() {
             </View>
           )}
 
-          {!fullscreen && !currentPlan?.uri && permissions.canCreate && hasDxf && (
-            <TouchableOpacity style={styles.importHintBanner} onPress={handleImportPlan} disabled={importing} accessibilityLabel="Importer votre vrai plan par-dessus le DXF">
-              <Ionicons name="cloud-upload-outline" size={16} color={C.primary} />
-              <Text style={styles.importHintText}>Superposez une image ou un PDF à ce plan DXF</Text>
-              <Ionicons name="chevron-forward" size={14} color={C.primary} />
-            </TouchableOpacity>
-          )}
-
           {/* Plan viewport — takes all remaining space */}
           <View
             style={{ flex: 1, overflow: 'hidden' as any }}
@@ -1092,6 +1108,13 @@ export default function PlansScreen() {
                     />
                   )}
 
+                  {dxfLoading && (
+                    <View style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(15,17,23,0.75)' }}>
+                      <ActivityIndicator size="large" color={C.primary} />
+                      <Text style={{ color: C.textMuted, fontFamily: 'Inter_400Regular', fontSize: 13, marginTop: 12 }}>Chargement du plan DXF…</Text>
+                    </View>
+                  )}
+
                   {ghostClusters.map((cluster, ci) => {
                     const isCluster = cluster.items.length > 1;
                     const baseId = cluster.items[0]?.id ?? '';
@@ -1140,8 +1163,8 @@ export default function PlansScreen() {
                           if (focusedPinId === pinId) { setFocusedPinId(null); return; }
                           if (isCluster) {
                             const nextScale = Math.min(lastScale.current * 2, 4);
-                            const targetTX = (dynW * lastScale.current / 2) - (cluster.cx / 100) * dynW * nextScale;
-                            const targetTY = (dynH * lastScale.current / 2) - (cluster.cy / 100) * dynH * nextScale;
+                            const targetTX = dynW * (0.5 - cluster.cx / 100) * nextScale;
+                            const targetTY = dynH * (0.5 - cluster.cy / 100) * nextScale;
                             lastScale.current = nextScale;
                             committedTX.current = targetTX; committedTY.current = targetTY;
                             setDisplayScale(nextScale);

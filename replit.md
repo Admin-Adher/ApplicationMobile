@@ -164,6 +164,23 @@ Modèle en 3 niveaux calé sur la réalité du BTP — les rôles passifs sont *
 - Schéma SQL : plans Solo/Équipe/Groupe avec migration depuis anciens noms Starter/Pro/Entreprise
 - Nouveau compte → trial Équipe 30j
 
+## Plans Tab — Audit & Correctifs (Avril 2026)
+Audit complet des 1755 lignes de `app/(tabs)/plans.tsx`. Correctifs appliqués :
+
+1. **DXF persisté via URI** — Les plans DXF sont désormais uploadés sur Supabase Storage à l'import (comme PDF/images). L'URI est stockée dans `currentPlan.uri` avec `fileType: 'dxf'`. Un `useEffect` recharge automatiquement le DXF au démarrage si le plan a `fileType=dxf` et que les données ne sont pas en mémoire. Plus de perte de plan DXF au redémarrage.
+2. **`isPlanFile` exclut les DXF** — `isPlanFile = !!uri && fileType !== 'dxf'`. Empêche l'envoi de fichiers DXF dans `PdfPlanViewer`.
+3. **`isImagePlan` préfère `fileType`** — Utilise `fileType === 'image'` en priorité, avec fallback sur l'extension URI. Plus robuste pour les URLs Supabase.
+4. **Centrage cluster corrigé** — La formule `targetTX/TY` pour le zoom-sur-cluster était mathématiquement incorrecte. Corrigée : `dynW * (0.5 - cx/100) * nextScale`.
+5. **Guard null `currentPlan`** — `handleImportPlan` vérifie maintenant `!currentPlanId || !currentPlan` avant de continuer.
+6. **Onglets DXF** — Les miniatures des plans dans la barre d'onglets affichent correctement l'icône grille pour `fileType === 'dxf'`.
+7. **Overlay chargement DXF** — Animation de chargement affichée pendant la récupération/parse du DXF.
+8. **Bannière import DXF obsolète supprimée** — La bannière "Superposez un plan sur ce DXF" n'est plus pertinente depuis que les DXF ont leur propre URI.
+
+### Patterns clés DXF
+- Import DXF → upload Supabase → store `uri` + `fileType: 'dxf'` dans le plan → parse en mémoire (`dxfData[planId]`)
+- Au démarrage : si `fileType=dxf` + `uri` + pas de `dxfData[planId]` → fetch + parseDxf automatique
+- `hasDxf = !!(currentPlanId && dxfData[currentPlanId])` — contrôle l'affichage de `DxfCanvasOverlay`
+
 ## Important Notes
 - `newArchEnabled: false` in app.json (uses legacy architecture)
 - Web output uses Metro bundler (single output mode)
