@@ -1244,8 +1244,23 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
       try {
         const { data: visitesData, error: visitesErr } = await supabase.from('visites').select('*').order('created_at', { ascending: false });
-        if (!visitesErr && visitesData) {
-          visites = visitesData.map(toVisite);
+        if (!visitesErr && visitesData !== null) {
+          if (visitesData.length > 0) {
+            visites = visitesData.map(toVisite);
+          } else {
+            const sv = await AsyncStorage.getItem(MOCK_VISITES_KEY).catch(() => null);
+            const localVisites: Visite[] = sv ? (JSON.parse(sv) ?? []) : [];
+            if (localVisites.length > 0) {
+              console.log(`[AppContext] Supabase visites vide, sync cache local (${localVisites.length} visites)...`);
+              visites = localVisites;
+              (async () => {
+                for (const v of localVisites) {
+                  const { error: syncErr } = await supabase.from('visites').upsert(fromVisite(v));
+                  if (syncErr) console.warn('[AppContext] Échec sync visite local→Supabase:', v.title, syncErr.message);
+                }
+              })();
+            }
+          }
         } else {
           const sv = await AsyncStorage.getItem(MOCK_VISITES_KEY).catch(() => null);
           if (sv) { const p = JSON.parse(sv); if (Array.isArray(p)) visites = p; }
@@ -1270,8 +1285,23 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
       try {
         const { data: oprsData, error: oprsErr } = await supabase.from('oprs').select('*').order('created_at', { ascending: false });
-        if (!oprsErr && oprsData) {
-          oprs = oprsData.map(toOpr);
+        if (!oprsErr && oprsData !== null) {
+          if (oprsData.length > 0) {
+            oprs = oprsData.map(toOpr);
+          } else {
+            const so = await AsyncStorage.getItem(MOCK_OPRS_KEY).catch(() => null);
+            const localOprs: Opr[] = so ? (JSON.parse(so) ?? []) : [];
+            if (localOprs.length > 0) {
+              console.log(`[AppContext] Supabase OPRs vide, sync cache local (${localOprs.length} OPRs)...`);
+              oprs = localOprs;
+              (async () => {
+                for (const o of localOprs) {
+                  const { error: syncErr } = await supabase.from('oprs').upsert(fromOpr(o));
+                  if (syncErr) console.warn('[AppContext] Échec sync OPR local→Supabase:', o.title, syncErr.message);
+                }
+              })();
+            }
+          }
         } else {
           const so = await AsyncStorage.getItem(MOCK_OPRS_KEY).catch(() => null);
           if (so) { const p = JSON.parse(so); if (Array.isArray(p)) oprs = p; }
@@ -2311,7 +2341,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       persistMockVisites(newVisites);
       if (isSupabaseConfigured) {
         supabase.from('visites').insert(fromVisite(v)).then(({ error }: { error: any }) => {
-          if (error) console.warn('Erreur sauvegarde visite:', error.message);
+          if (error) {
+            dispatch({ type: 'DELETE_VISITE', payload: v.id });
+            Alert.alert('Erreur de sauvegarde', `La visite "${v.title}" n'a pas pu être enregistrée sur le serveur.`);
+          }
         });
       }
     },
@@ -2325,7 +2358,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         supabase.from('visites').update(fields).eq('id', v.id).then(({ error }: { error: any }) => {
           if (error) {
             if (previous) dispatch({ type: 'UPDATE_VISITE', payload: previous });
-            console.warn('Erreur mise à jour visite:', error.message);
+            Alert.alert('Erreur de sauvegarde', "La modification de la visite n'a pas pu être enregistrée.");
           }
         });
       }
@@ -2339,7 +2372,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         supabase.from('visites').delete().eq('id', id).then(({ error }: { error: any }) => {
           if (error) {
             if (previous) dispatch({ type: 'ADD_VISITE', payload: previous });
-            console.warn('Erreur suppression visite:', error.message);
+            Alert.alert('Erreur de suppression', "La visite n'a pas pu être supprimée.");
           }
         });
       }
@@ -2365,7 +2398,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       persistMockLots(newLots);
       if (isSupabaseConfigured) {
         supabase.from('lots').insert(fromLot(l)).then(({ error }: { error: any }) => {
-          if (error) console.warn('Erreur sauvegarde lot:', error.message);
+          if (error) {
+            dispatch({ type: 'DELETE_LOT', payload: l.id });
+            Alert.alert('Erreur de sauvegarde', `Le lot "${l.name}" n'a pas pu être enregistré sur le serveur.`);
+          }
         });
       }
     },
@@ -2379,7 +2415,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         supabase.from('lots').update(fields).eq('id', l.id).then(({ error }: { error: any }) => {
           if (error) {
             if (previous) dispatch({ type: 'UPDATE_LOT', payload: previous });
-            console.warn('Erreur mise à jour lot:', error.message);
+            Alert.alert('Erreur de sauvegarde', "La modification du lot n'a pas pu être enregistrée.");
           }
         });
       }
@@ -2393,7 +2429,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         supabase.from('lots').delete().eq('id', id).then(({ error }: { error: any }) => {
           if (error) {
             if (previous) dispatch({ type: 'ADD_LOT', payload: previous });
-            console.warn('Erreur suppression lot:', error.message);
+            Alert.alert('Erreur de suppression', "Le lot n'a pas pu être supprimé.");
           }
         });
       }
@@ -2542,7 +2578,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       persistMockOprs(newOprs);
       if (isSupabaseConfigured) {
         supabase.from('oprs').insert(fromOpr(o)).then(({ error }: { error: any }) => {
-          if (error) console.warn('Erreur sauvegarde OPR:', error.message);
+          if (error) {
+            dispatch({ type: 'DELETE_OPR', payload: o.id });
+            Alert.alert('Erreur de sauvegarde', `L'OPR "${o.title}" n'a pas pu être enregistré sur le serveur.`);
+          }
         });
       }
     },
@@ -2556,7 +2595,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         supabase.from('oprs').update(fields).eq('id', o.id).then(({ error }: { error: any }) => {
           if (error) {
             if (previous) dispatch({ type: 'UPDATE_OPR', payload: previous });
-            console.warn('Erreur mise à jour OPR:', error.message);
+            Alert.alert('Erreur de sauvegarde', "La modification de l'OPR n'a pas pu être enregistrée.");
           }
         });
       }
@@ -2570,7 +2609,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         supabase.from('oprs').delete().eq('id', id).then(({ error }: { error: any }) => {
           if (error) {
             if (previous) dispatch({ type: 'ADD_OPR', payload: previous });
-            console.warn('Erreur suppression OPR:', error.message);
+            Alert.alert('Erreur de suppression', "L'OPR n'a pas pu être supprimé.");
           }
         });
       }
@@ -2714,12 +2753,16 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           annotations: p.annotations ?? null,
           pdf_page_count: p.pdfPageCount ?? null,
         }).then(({ error }: { error: any }) => {
-          if (error) console.warn('Erreur sauvegarde plan Supabase (données conservées localement):', error.message);
+          if (error) {
+            dispatch({ type: 'DELETE_SITE_PLAN', payload: p.id });
+            Alert.alert('Erreur de sauvegarde', `Le plan "${p.name}" n'a pas pu être enregistré sur le serveur.`);
+          }
         });
       }
     },
 
     updateSitePlan: (p: SitePlan) => {
+      const previous = stateRef.current.sitePlans.find(sp => sp.id === p.id);
       const updated = stateRef.current.sitePlans.map(sp => sp.id === p.id ? p : sp);
       dispatch({ type: 'UPDATE_SITE_PLAN', payload: p });
       // Always persist locally as a cache/fallback
@@ -2743,7 +2786,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           annotations: p.annotations ?? null,
           pdf_page_count: p.pdfPageCount ?? null,
         }).eq('id', p.id).then(({ error }: { error: any }) => {
-          if (error) console.warn('Erreur mise à jour plan Supabase (données conservées localement):', error.message);
+          if (error) {
+            if (previous) dispatch({ type: 'UPDATE_SITE_PLAN', payload: previous });
+            Alert.alert('Erreur de sauvegarde', "La modification du plan n'a pas pu être enregistrée.");
+          }
         });
       }
     },
