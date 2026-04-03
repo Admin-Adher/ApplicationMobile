@@ -205,7 +205,13 @@ export default function DashboardScreen() {
   const overdueNonCritical = visibleReserves.filter(
     r => r.status !== 'closed' && r.priority !== 'critical' && isOverdue(r.deadline, r.status)
   );
-  const lateTasks = tasks.filter(isTaskLate);
+  const lateTasks = useMemo(() => {
+    const all = tasks.filter(isTaskLate);
+    if (isSousTraitant && user?.companyId) {
+      return all.filter(t => t.company === user.companyId);
+    }
+    return all;
+  }, [tasks, isSousTraitant, user?.companyId]);
   const openIncidents = incidents.filter(i => i.status !== 'resolved');
 
   const today = new Date().toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' });
@@ -328,8 +334,8 @@ export default function DashboardScreen() {
           )}
           {isSousTraitant && activeChantier && (
             <View style={styles.chantierPillReadOnly}>
-              <View style={styles.chantierPillDot} />
-              <Text style={styles.chantierPillText} numberOfLines={1}>{activeChantier.name}</Text>
+              <View style={styles.chantierPillReadOnlyDot} />
+              <Text style={styles.chantierPillReadOnlyText} numberOfLines={1}>{activeChantier.name}</Text>
             </View>
           )}
         </View>
@@ -788,6 +794,8 @@ const styles = StyleSheet.create({
     backgroundColor: C.surface2, paddingHorizontal: 10, paddingVertical: 7,
     borderRadius: 22, borderWidth: 1.5, borderColor: C.border, maxWidth: 120,
   },
+  chantierPillReadOnlyDot: { width: 7, height: 7, borderRadius: 4, backgroundColor: C.textMuted },
+  chantierPillReadOnlyText: { fontSize: 11, fontFamily: 'Inter_600SemiBold', color: C.textMuted, flex: 1 },
   chantierPillDot: { width: 7, height: 7, borderRadius: 4, backgroundColor: C.primary },
   chantierPillText: { fontSize: 11, fontFamily: 'Inter_700Bold', color: C.primary, flex: 1 },
   chantierPillEmpty: {
