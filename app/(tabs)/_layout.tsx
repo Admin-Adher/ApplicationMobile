@@ -4,6 +4,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { C } from '@/constants/colors';
 import { useApp } from '@/context/AppContext';
+import { useIncidents } from '@/context/IncidentsContext';
 import { TABLET_SIDEBAR_W } from '@/lib/useTablet';
 
 const TAB_ITEMS = [
@@ -30,7 +31,9 @@ function TabIcon({ name, color, size, badge }: { name: any; color: string; size:
 function TabletSidebar() {
   const pathname = usePathname();
   const router = useRouter();
-  const { unreadCount } = useApp();
+  const { unreadCount, stats } = useApp();
+  const { incidents } = useIncidents();
+  const openIncidentsCount = incidents.filter(i => i.status !== 'resolved').length;
   const insets = useSafeAreaInsets();
 
   function getActiveTab(): string {
@@ -65,7 +68,12 @@ function TabletSidebar() {
 
       {TAB_ITEMS.map(tab => {
         const isFocused = activeTab === tab.name;
-        const hasBadge = tab.name === 'messages' && unreadCount > 0;
+        const badgeCount =
+          tab.name === 'messages' ? unreadCount :
+          tab.name === 'reserves' ? stats.open :
+          tab.name === 'more' ? openIncidentsCount :
+          0;
+        const hasBadge = badgeCount > 0;
 
         return (
           <TouchableOpacity
@@ -82,7 +90,7 @@ function TabletSidebar() {
               />
               {hasBadge && (
                 <View style={styles.sidebarBadge}>
-                  <Text style={styles.badgeText}>{unreadCount > 9 ? '9+' : unreadCount}</Text>
+                  <Text style={styles.badgeText}>{badgeCount > 9 ? '9+' : badgeCount}</Text>
                 </View>
               )}
             </View>
@@ -97,7 +105,9 @@ function TabletSidebar() {
 }
 
 function TabsNavigator() {
-  const { unreadCount } = useApp();
+  const { unreadCount, stats } = useApp();
+  const { incidents } = useIncidents();
+  const openIncidentsCount = incidents.filter(i => i.status !== 'resolved').length;
   const { width } = useWindowDimensions();
   const isTablet = width >= 768;
 
@@ -140,7 +150,7 @@ function TabsNavigator() {
         name="reserves"
         options={{
           title: 'Réserves',
-          tabBarIcon: ({ color, focused }) => <TabIcon name={focused ? 'warning' : 'warning-outline'} color={color} size={26} />,
+          tabBarIcon: ({ color, focused }) => <TabIcon name={focused ? 'warning' : 'warning-outline'} color={color} size={26} badge={stats.open} />,
         }}
       />
       <Tabs.Screen
@@ -163,7 +173,7 @@ function TabsNavigator() {
         name="more"
         options={{
           title: 'Terrain',
-          tabBarIcon: ({ color, focused }) => <TabIcon name={focused ? 'hammer' : 'hammer-outline'} color={color} size={26} />,
+          tabBarIcon: ({ color, focused }) => <TabIcon name={focused ? 'hammer' : 'hammer-outline'} color={color} size={26} badge={openIncidentsCount} />,
         }}
       />
       <Tabs.Screen name="incidents" options={{ href: null }} />

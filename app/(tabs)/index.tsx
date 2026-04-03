@@ -4,6 +4,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { openChantierSwitcher } from '@/components/ChantierSwitcherSheet';
 import { useState, useCallback, useMemo } from 'react';
+import GlobalSearch from '@/components/GlobalSearch';
 import { C } from '@/constants/colors';
 import { useApp } from '@/context/AppContext';
 import { useAuth } from '@/context/AuthContext';
@@ -168,6 +169,7 @@ export default function DashboardScreen() {
   const [refreshing, setRefreshing] = useState(false);
   const [analyticsTab, setAnalyticsTab] = useState<'trend' | 'companies'>('trend');
   const [viewMode, setViewMode] = useState<'chantier' | 'portfolio'>('chantier');
+  const [globalSearchVisible, setGlobalSearchVisible] = useState(false);
 
   const isSousTraitant = user?.role === 'sous_traitant';
 
@@ -293,7 +295,7 @@ export default function DashboardScreen() {
           )}
           <TouchableOpacity
             style={styles.iconHeaderBtn}
-            onPress={() => router.push('/search' as any)}
+            onPress={() => setGlobalSearchVisible(true)}
           >
             <Ionicons name="search-outline" size={20} color={C.text} />
           </TouchableOpacity>

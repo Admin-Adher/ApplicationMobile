@@ -7,7 +7,9 @@ import * as Haptics from 'expo-haptics';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
-import { useState, useMemo, useCallback, useRef } from 'react';
+import { useState, useMemo, useCallback, useRef, useEffect } from 'react';
+import { SkeletonList } from '@/components/SkeletonCard';
+import { genId } from '@/lib/utils';
 import * as ImagePicker from 'expo-image-picker';
 import * as Print from 'expo-print';
 import * as Sharing from 'expo-sharing';
@@ -192,7 +194,7 @@ async function generateReportPDF(
 export default function ReservesScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
-  const { reserves, companies, isLoading, chantiers, activeChantierId, lots, batchUpdateReserves, updateReserveFields, updateReserveStatus, deleteReserve, addComment, reload } = useApp();
+  const { reserves, companies, isLoading, chantiers, activeChantierId, lots, batchUpdateReserves, updateReserveFields, updateReserveStatus, deleteReserve, addComment, addReserve, reload } = useApp();
   const { permissions, user } = useAuth();
 
   const isSousTraitant = user?.role === 'sous_traitant';
@@ -231,6 +233,10 @@ export default function ReservesScreen() {
 
   const [quickStatusReserve, setQuickStatusReserve] = useState<Reserve | null>(null);
   const [quickStatusVisible, setQuickStatusVisible] = useState(false);
+
+  const [contextMenuReserve, setContextMenuReserve] = useState<Reserve | null>(null);
+  const [contextMenuVisible, setContextMenuVisible] = useState(false);
+  const [contextStatusSubVisible, setContextStatusSubVisible] = useState(false);
 
   const [fabOpen, setFabOpen] = useState(false);
   const fabAnim = useRef(new Animated.Value(0)).current;
