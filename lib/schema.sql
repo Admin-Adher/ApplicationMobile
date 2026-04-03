@@ -803,26 +803,30 @@ create policy "Invitations acceptables par l''invité"
 -- ============================================================
 
 -- Renommer les anciens plans (si présents) vers les nouveaux noms
+-- La condition "and not exists" évite un conflit si le plan cible existe déjà
 update public.plans set
   name          = 'Solo',
   max_users     = 3,
   price_monthly = 79,
   features      = '["Gestion des réserves","Jusqu''à 3 utilisateurs actifs","Sous-traitants & observateurs gratuits","Support email"]'
-where name = 'Starter';
+where name = 'Starter'
+  and not exists (select 1 from public.plans where name = 'Solo');
 
 update public.plans set
   name          = 'Équipe',
   max_users     = 15,
   price_monthly = 199,
   features      = '["Gestion des réserves","Jusqu''à 15 utilisateurs actifs","Sous-traitants & observateurs gratuits","Rapports PDF/Excel","Pointage & présences","Support prioritaire"]'
-where name = 'Pro';
+where name = 'Pro'
+  and not exists (select 1 from public.plans where name = 'Équipe');
 
 update public.plans set
   name          = 'Groupe',
   max_users     = -1,
   price_monthly = 499,
   features      = '["Utilisateurs actifs illimités","Sous-traitants & observateurs gratuits","Toutes les fonctionnalités","Support dédié","API access","SSO"]'
-where name = 'Entreprise';
+where name = 'Entreprise'
+  and not exists (select 1 from public.plans where name = 'Groupe');
 
 -- Insérer les nouveaux plans s'ils n'existent pas encore
 insert into public.plans (name, max_users, price_monthly, features) values
