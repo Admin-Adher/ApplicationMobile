@@ -25,9 +25,13 @@ const ROLES: { value: UserRole; label: string; color: string; bg: string; descri
 const FREE_ROLES: UserRole[] = ['observateur', 'sous_traitant'];
 
 const PLAN_COLORS: Record<string, string> = {
-  Solo: '#6B7280',
+  Solo:    '#10B981',
   'Équipe': '#3B82F6',
-  Groupe: '#8B5CF6',
+  Groupe:  '#8B5CF6',
+};
+
+const ROLE_EXTRA: Record<string, { label: string; color: string; bg: string }> = {
+  super_admin: { label: 'Super Admin', color: '#7C3AED', bg: '#F5F3FF' },
 };
 
 const STATUS_CONFIG: Record<string, { label: string; color: string; bg: string; icon: any; hint?: string }> = {
@@ -68,8 +72,9 @@ function formatDate(iso?: string): string {
   return d.toLocaleDateString('fr-FR', { day: '2-digit', month: 'long', year: 'numeric' });
 }
 
-function RoleBadge({ role }: { role: UserRole }) {
-  const r = ROLES.find(x => x.value === role) ?? ROLES[3];
+function RoleBadge({ role }: { role: string }) {
+  const r = ROLES.find(x => x.value === role) ?? ROLE_EXTRA[role];
+  if (!r) return null;
   return (
     <View style={[styles.roleBadge, { backgroundColor: r.bg }]}>
       <Text style={[styles.roleBadgeText, { color: r.color }]}>{r.label}</Text>
@@ -199,7 +204,8 @@ export default function AdminScreen() {
       co.shortName.toLowerCase().includes(q) ||
       (co.zone && co.zone !== 'À définir' && co.zone.toLowerCase().includes(q)) ||
       (co.email ?? '').toLowerCase().includes(q) ||
-      (co.phone ?? '').includes(q)
+      (co.phone ?? '').includes(q) ||
+      (co.siret ?? '').replace(/\s/g, '').includes(q.replace(/\s/g, ''))
     );
   }, [companies, companySearch]);
 
@@ -217,9 +223,9 @@ export default function AdminScreen() {
     return Math.max(0, Math.ceil((new Date(subscription.trialEndsAt).getTime() - Date.now()) / (1000 * 60 * 60 * 24)));
   }, [subscription]);
 
-  const expiresAt = subscription?.trialEndsAt ?? subscription?.expiresAt;
-
   const statusCfg = subscription ? (STATUS_CONFIG[subscription.status] ?? STATUS_CONFIG.trial) : null;
+
+  const rolesTotal = useMemo(() => Object.values(roleCounts).reduce((s, n) => s + n, 0), [roleCounts]);
 
   const seatRatio = seatMax === -1 ? 0 : seatUsed / seatMax;
   const seatBarColor = seatRatio >= 0.9 ? '#EF4444' : seatRatio >= 0.7 ? '#F59E0B' : '#10B981';
@@ -492,7 +498,7 @@ export default function AdminScreen() {
             <Ionicons name="people" size={14} color={activeTab === 'users' ? C.primary : C.textMuted} />
             <Text style={[styles.tabBtnText, activeTab === 'users' && styles.tabBtnTextActive]}>Utilisateurs</Text>
             <View style={[styles.tabCount, activeTab === 'users' && styles.tabCountActive]}>
-              <Text style={[styles.tabCountText, activeTab === 'users' && styles.tabCountTextActive]}>{orgUsers.length}</Text>
+              <Text style={[styles.tabCountText, activeTab === 'users' && styles.tabCountTextActive]}>{rolesTotal}</Text>
             </View>
             {pendingInvitations.length > 0 && (
               <View style={styles.tabBadgeDot}>
@@ -753,20 +759,23 @@ export default function AdminScreen() {
                           </View>
                         )}
                       </View>
-                      <TouchableOpacity
-                        style={styles.iconBtnLabelled}
-                        onPress={() => openEditCompany(co)}
-                      >
-                        <Ionicons name="pencil-outline" size={15} color={C.primary} />
-                        <Text style={styles.iconBtnLabelText}>Éditer</Text>
-                      </TouchableOpacity>
-                      <TouchableOpacity
-                        style={[styles.iconBtnLabelled, styles.iconBtnLabelledDanger]}
-                        onPress={() => handleDeleteCompany(co)}
-                      >
-                        <Ionicons name="trash-outline" size={15} color={C.open} />
-                        <Text style={[styles.iconBtnLabelText, { color: C.open }]}>Suppr.</Text>
-                      </TouchableOpacity>
+                      <View style={styles.coActionBtns}>
+                        <TouchableOpacity
+                          style={styles.iconBtnLabelled}
+                          onPress={() => openEditCompany(co)}
+                        >
+                          <Ionicons name="pencil-outline" size={15} color={C.primary} />
+                          <Text style={styles.iconBtnLabelText}>Éditer</Text>
+                        </TouchableOpacity>
+                        <View style={styles.coActionSep} />
+                        <TouchableOpacity
+                          style={[styles.iconBtnLabelled, styles.iconBtnLabelledDanger]}
+                          onPress={() => handleDeleteCompany(co)}
+                        >
+                          <Ionicons name="trash-outline" size={15} color={C.open} />
+                          <Text style={[styles.iconBtnLabelText, { color: C.open }]}>Suppr.</Text>
+                        </TouchableOpacity>
+                      </View>
                     </View>
 
                     <View style={styles.coStatsRow}>
@@ -776,7 +785,7 @@ export default function AdminScreen() {
                         <Text style={[styles.coStatVal, { color: co.color }]}>{co.plannedWorkers}</Text>
                       </View>
                       <View style={[styles.coStat, { flex: 1 }]}>
-                        <View style={[styles.coStatDot, { backgroundColor: C.inProgress }]} />
+                        <View style={[styles.coStatDot, { backgroundColor: workers > co.plannedWorkers ? '#EF4444' : C.inProgress }]} />
                         <Text style={styles.coStatLabel}>Présents</Text>
                         <TouchableOpacity
                           onPress={() => handleWorkerCount(co, -1)}
@@ -785,7 +794,9 @@ export default function AdminScreen() {
                         >
                           <Ionicons name="remove" size={13} color={C.textSub} />
                         </TouchableOpacity>
-                        <Text style={[styles.coStatVal, { color: C.inProgress }]}>{workers}</Text>
+                        <Text style={[styles.coStatVal, { color: workers > co.plannedWorkers ? '#EF4444' : C.inProgress }]}>
+                          {workers}{workers > co.plannedWorkers ? ' ↑' : ''}
+                        </Text>
                         <TouchableOpacity
                           onPress={() => handleWorkerCount(co, 1)}
                           hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
@@ -815,32 +826,38 @@ export default function AdminScreen() {
                       </View>
                     </View>
 
-                    <View style={styles.coContactRow}>
-                      {co.siret && (
-                        <View style={styles.coContactItem}>
-                          <Ionicons name="document-text-outline" size={12} color={C.textMuted} />
-                          <Text style={styles.coContactText}>SIRET {co.siret}</Text>
-                        </View>
-                      )}
-                      {co.insurance && (
-                        <View style={styles.coContactItem}>
-                          <Ionicons name="shield-outline" size={12} color={C.textMuted} />
-                          <Text style={styles.coContactText}>{co.insurance}</Text>
-                        </View>
-                      )}
-                      {co.phone && (
-                        <TouchableOpacity style={styles.coContactItem} onPress={() => Linking.openURL(`tel:${co.phone}`)}>
-                          <Ionicons name="call-outline" size={12} color={C.primary} />
-                          <Text style={[styles.coContactText, { color: C.primary }]}>{co.phone}</Text>
-                        </TouchableOpacity>
-                      )}
-                      {co.email && (
-                        <TouchableOpacity style={styles.coContactItem} onPress={() => Linking.openURL(`mailto:${co.email}`)}>
-                          <Ionicons name="mail-outline" size={12} color={C.primary} />
-                          <Text style={[styles.coContactText, { color: C.primary }]}>{co.email}</Text>
-                        </TouchableOpacity>
-                      )}
-                    </View>
+                    {(co.siret || co.insurance) && (
+                      <View style={styles.coLegalRow}>
+                        {co.siret && (
+                          <View style={styles.coLegalItem}>
+                            <Ionicons name="document-text-outline" size={11} color={C.textMuted} />
+                            <Text style={styles.coLegalText}>SIRET {co.siret}</Text>
+                          </View>
+                        )}
+                        {co.insurance && (
+                          <View style={styles.coLegalItem}>
+                            <Ionicons name="shield-outline" size={11} color={C.textMuted} />
+                            <Text style={styles.coLegalText}>{co.insurance}</Text>
+                          </View>
+                        )}
+                      </View>
+                    )}
+                    {(co.phone || co.email) && (
+                      <View style={styles.coContactRow}>
+                        {co.phone && (
+                          <TouchableOpacity style={styles.coContactItem} onPress={() => Linking.openURL(`tel:${co.phone}`)}>
+                            <Ionicons name="call-outline" size={12} color={C.primary} />
+                            <Text style={[styles.coContactText, { color: C.primary }]}>{co.phone}</Text>
+                          </TouchableOpacity>
+                        )}
+                        {co.email && (
+                          <TouchableOpacity style={styles.coContactItem} onPress={() => Linking.openURL(`mailto:${co.email}`)}>
+                            <Ionicons name="mail-outline" size={12} color={C.primary} />
+                            <Text style={[styles.coContactText, { color: C.primary }]}>{co.email}</Text>
+                          </TouchableOpacity>
+                        )}
+                      </View>
+                    )}
                   </View>
                 </View>
               );
@@ -870,6 +887,11 @@ export default function AdminScreen() {
                 {subscription.status === 'active' && subscription.expiresAt && (
                   <Text style={[styles.statusSub, { color: statusCfg.color }]}>
                     Valide jusqu'au {formatDate(subscription.expiresAt)}
+                  </Text>
+                )}
+                {subscription.status === 'active' && !subscription.expiresAt && (
+                  <Text style={[styles.statusSub, { color: statusCfg.color }]}>
+                    Renouvellement automatique
                   </Text>
                 )}
                 {statusCfg.hint && (
@@ -1047,7 +1069,7 @@ export default function AdminScreen() {
                   <Text style={styles.fieldLabel}>N° SIRET</Text>
                   <TextInput style={styles.fieldInput} value={siret} onChangeText={setSiret}
                     placeholder="Ex : 123 456 789 00012" placeholderTextColor={C.textMuted}
-                    keyboardType="numeric" />
+                    keyboardType="numbers-and-punctuation" />
                 </View>
                 <View style={styles.field}>
                   <Text style={styles.fieldLabel}>Assurance décennale</Text>
@@ -1152,21 +1174,6 @@ export default function AdminScreen() {
                     )}
 
                     <View style={styles.field}>
-                      <Text style={styles.fieldLabel}>Adresse email *</Text>
-                      <TextInput
-                        style={[styles.fieldInput, inviteEmailError ? { borderColor: '#EF4444' } : {}]}
-                        value={inviteEmail}
-                        onChangeText={v => { setInviteEmail(v); if (inviteEmailError) setInviteEmailError(''); }}
-                        placeholder="prenom.nom@exemple.fr"
-                        placeholderTextColor={C.textMuted}
-                        keyboardType="email-address"
-                        autoCapitalize="none"
-                        autoCorrect={false}
-                      />
-                      {inviteEmailError ? <Text style={styles.fieldError}>{inviteEmailError}</Text> : null}
-                    </View>
-
-                    <View style={styles.field}>
                       <Text style={styles.fieldLabel}>Rôle</Text>
                       {ROLES.map(r => {
                         const isFree = FREE_ROLES.includes(r.value);
@@ -1229,6 +1236,21 @@ export default function AdminScreen() {
                         ))}
                       </View>
                     )}
+
+                    <View style={styles.field}>
+                      <Text style={styles.fieldLabel}>Adresse email *</Text>
+                      <TextInput
+                        style={[styles.fieldInput, inviteEmailError ? { borderColor: '#EF4444' } : {}]}
+                        value={inviteEmail}
+                        onChangeText={v => { setInviteEmail(v); if (inviteEmailError) setInviteEmailError(''); }}
+                        placeholder="prenom.nom@exemple.fr"
+                        placeholderTextColor={C.textMuted}
+                        keyboardType="email-address"
+                        autoCapitalize="none"
+                        autoCorrect={false}
+                      />
+                      {inviteEmailError ? <Text style={styles.fieldError}>{inviteEmailError}</Text> : null}
+                    </View>
 
                     {inviteSending ? (
                       <ActivityIndicator size="large" color={C.primary} style={{ marginVertical: 20 }} />
@@ -1410,6 +1432,13 @@ const styles = StyleSheet.create({
     width: 22, height: 22, borderRadius: 11, backgroundColor: C.border,
     alignItems: 'center', justifyContent: 'center',
   },
+  coActionBtns: { flexDirection: 'column', gap: 5, alignItems: 'flex-end' },
+  coActionSep: { height: 1, width: '100%', backgroundColor: C.border },
+
+  coLegalRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  coLegalItem: { flexDirection: 'row', alignItems: 'center', gap: 3 },
+  coLegalText: { fontSize: 10, fontFamily: 'Inter_400Regular', color: C.textMuted },
+
   coContactRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
   coContactItem: { flexDirection: 'row', alignItems: 'center', gap: 4 },
   coContactText: { fontSize: 11, fontFamily: 'Inter_400Regular', color: C.textMuted },
