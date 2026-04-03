@@ -19,6 +19,7 @@ import {
   PDF_MUTED,
   PDF_BRAND_COLOR,
   svgStringToDataUrl,
+  preRenderPdfPageToDataUrl,
 } from '@/lib/pdfBase';
 import StatusBadge, { STATUS_CONFIG } from '@/components/StatusBadge';
 import PriorityBadge from '@/components/PriorityBadge';
@@ -84,6 +85,7 @@ interface PlanData {
   planX: number;
   planY: number;
   planName: string;
+  preRenderedDataUrl?: string;
 }
 
 function buildReservePDF(
@@ -143,24 +145,42 @@ function buildReservePDF(
       </div>`
     : '';
 
-  const PLAN_CANVAS_ID = 'reserve-plan-canvas';
   const PLAN_RENDER_W = 520;
   const PIN_R = 12;
   const PIN_FONT = 10;
 
-  const planCanvasScript = planData
+  // ── Plan section: use static <img> + SVG pin overlay when possible ────────
+  // This avoids the async timing bug where Print.printAsync captures the page
+  // before the canvas+pdfjs script finishes rendering (leaving a black box).
+  // Strategy:
+  //   • Image plans  → planUri is already a data URL → <img> synchronous, always works
+  //   • PDF plans with preRenderedDataUrl → pre-rendered JPEG → <img> synchronous
+  //   • PDF plans without preRenderedDataUrl (native fallback) → canvas + pdfjs script
+
+  const isPdfPlan = planData?.fileType === 'pdf';
+  const imgSrc = planData
+    ? (planData.preRenderedDataUrl ?? (!isPdfPlan ? planData.planUri : null))
+    : null;
+
+  // SVG pin drawn over the plan image
+  const svgPin = planData ? (
+    `<circle cx="${planData.planX}%" cy="${planData.planY}%" r="${PIN_R}" fill="#DC2626" stroke="#fff" stroke-width="2.5"/>` +
+    `<text x="${planData.planX}%" y="${planData.planY}%" text-anchor="middle" dominant-baseline="central" fill="#fff" font-size="${PIN_FONT}" font-weight="bold" font-family="Arial,sans-serif">!</text>`
+  ) : '';
+
+  // Fallback canvas+script (only for native PDF plans that couldn't pre-render)
+  const PLAN_CANVAS_ID = 'reserve-plan-canvas';
+  const planCanvasScript = (planData && isPdfPlan && !planData.preRenderedDataUrl)
     ? `(function(){
 var canvas=document.getElementById('${PLAN_CANVAS_ID}');
 var ctx=canvas.getContext('2d');
 var planUri=${JSON.stringify(planData.planUri)};
-var isPdf=${planData.fileType === 'pdf' ? 'true' : 'false'};
 var pctX=${planData.planX};
 var pctY=${planData.planY};
 var PIN_R=${PIN_R};
 var PIN_FONT=${PIN_FONT};
-
 function drawPin(W,H){
-  var x=(pctX/100)*W, y=(pctY/100)*H;
+  var x=(pctX/100)*W,y=(pctY/100)*H;
   ctx.beginPath();ctx.arc(x,y,PIN_R,0,Math.PI*2);
   ctx.fillStyle='#DC2626';ctx.fill();
   ctx.strokeStyle='#fff';ctx.lineWidth=2.5;ctx.stroke();
@@ -168,61 +188,49 @@ function drawPin(W,H){
   ctx.textAlign='center';ctx.textBaseline='middle';
   ctx.fillText('!',x,y);
 }
-
 function drawFallback(){
-  ctx.fillStyle='#1A2B4A';ctx.fillRect(0,0,canvas.width,canvas.height);
-  ctx.fillStyle='rgba(255,255,255,0.12)';
-  for(var i=0;i<canvas.width;i+=32){ctx.fillRect(i,0,1,canvas.height);}
-  for(var j=0;j<canvas.height;j+=32){ctx.fillRect(0,j,canvas.width,1);}
+  ctx.fillStyle='#1E3A5F';ctx.fillRect(0,0,canvas.width,canvas.height);
   drawPin(canvas.width,canvas.height);
 }
-
 if(!planUri){drawFallback();return;}
-
-if(isPdf){
-  var s=document.createElement('script');
-  s.src='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js';
-  s.onload=function(){
-    pdfjsLib.GlobalWorkerOptions.workerSrc='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
-    var docSrc=planUri.startsWith('data:')
-      ?{data:atob(planUri.split(',')[1])}
-      :{url:planUri,withCredentials:false};
-    pdfjsLib.getDocument(docSrc).promise.then(function(doc){
-      doc.getPage(1).then(function(page){
-        var vp1=page.getViewport({scale:1});
-        var scale=${PLAN_RENDER_W}/vp1.width;
-        var vp=page.getViewport({scale:scale});
-        canvas.width=Math.round(vp.width);
-        canvas.height=Math.round(vp.height);
-        page.render({canvasContext:ctx,viewport:vp}).promise.then(function(){
-          drawPin(canvas.width,canvas.height);
-        });
-      });
-    }).catch(drawFallback);
-  };
-  s.onerror=drawFallback;
-  document.head.appendChild(s);
-} else {
-  var img=new Image();img.crossOrigin='anonymous';
-  img.onload=function(){
-    var h=Math.round(${PLAN_RENDER_W}*(img.naturalHeight/img.naturalWidth));
-    canvas.width=${PLAN_RENDER_W};canvas.height=h;
-    ctx.drawImage(img,0,0,${PLAN_RENDER_W},h);
-    drawPin(${PLAN_RENDER_W},h);
-  };
-  img.onerror=drawFallback;img.src=planUri;
-}
+var s=document.createElement('script');
+s.src='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js';
+s.onload=function(){
+  pdfjsLib.GlobalWorkerOptions.workerSrc='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+  var docSrc=planUri.startsWith('data:')?{data:atob(planUri.split(',')[1])}:{url:planUri,withCredentials:false};
+  pdfjsLib.getDocument(docSrc).promise.then(function(doc){
+    doc.getPage(1).then(function(page){
+      var vp1=page.getViewport({scale:1});
+      var scale=${PLAN_RENDER_W}/vp1.width;
+      var vp=page.getViewport({scale:scale});
+      canvas.width=Math.round(vp.width);canvas.height=Math.round(vp.height);
+      page.render({canvasContext:ctx,viewport:vp}).promise.then(function(){drawPin(canvas.width,canvas.height);});
+    });
+  }).catch(drawFallback);
+};
+s.onerror=drawFallback;
+document.head.appendChild(s);
 })();`
     : '';
 
   const planSection = planData
-    ? `<div style="border-radius:8px;overflow:hidden;border:1.5px solid #DDE4EE;background:#1A2B4A">
-        <canvas id="${PLAN_CANVAS_ID}" width="${PLAN_RENDER_W}" height="${Math.round(PLAN_RENDER_W * 0.55)}"
-          style="width:100%;height:auto;display:block"></canvas>
-        <div style="padding:3px 8px;background:rgba(0,0,0,0.35);font-size:9px;color:#fff;font-weight:600">
-          📐 ${planData.planName} — pastille de localisation
-        </div>
-      </div>`
+    ? (imgSrc
+      // Static <img> + SVG pin overlay — synchronous, no timing issues
+      ? `<div style="position:relative;border-radius:8px;overflow:hidden;border:1.5px solid #DDE4EE">
+          <img src="${imgSrc}" style="width:100%;height:auto;display:block" />
+          <svg xmlns="http://www.w3.org/2000/svg" style="position:absolute;top:0;left:0;width:100%;height:100%;overflow:visible">${svgPin}</svg>
+          <div style="padding:3px 8px;background:rgba(0,0,0,0.45);font-size:9px;color:#fff;font-weight:600">
+            📐 ${planData.planName} — pastille de localisation
+          </div>
+        </div>`
+      // Fallback: canvas + async pdfjs script (native PDF, best effort)
+      : `<div style="border-radius:8px;overflow:hidden;border:1.5px solid #DDE4EE;background:#1E3A5F">
+          <canvas id="${PLAN_CANVAS_ID}" width="${PLAN_RENDER_W}" height="${Math.round(PLAN_RENDER_W * 0.55)}"
+            style="width:100%;height:auto;display:block"></canvas>
+          <div style="padding:3px 8px;background:rgba(0,0,0,0.35);font-size:9px;color:#fff;font-weight:600">
+            📐 ${planData.planName} — pastille de localisation
+          </div>
+        </div>`)
     : `<div style="width:100%;height:140px;border-radius:8px;border:1.5px dashed #DDE4EE;background:#F9FAFB;
         display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px">
         <span style="font-size:22px">📐</span>
@@ -685,15 +693,26 @@ export default function ReserveDetailScreen() {
       if (reserve.planId && reserve.planX !== undefined && reserve.planY !== undefined) {
         const matchedPlan = sitePlans.find(p => p.id === reserve.planId);
         if (matchedPlan && matchedPlan.uri) {
-          // Convert to data URL on all platforms so Print.printAsync's sandboxed WebView
-          // can access the file (file:// URIs are blocked in the sandbox on mobile).
+          // Convert to data URL so Print.printAsync's sandboxed WebView can access it
+          // (file:// URIs are blocked in the WebView sandbox on mobile).
           const resolvedPlanUri = await loadFileAsDataUrl(matchedPlan.uri, matchedPlan.fileType);
+
+          // For PDF plans: pre-render the first page to a JPEG data URL in the app
+          // context (web only). This avoids the async timing bug where the WebView
+          // captures the page before pdfjs finishes rendering → black rectangle.
+          let preRenderedDataUrl: string | undefined;
+          if (matchedPlan.fileType === 'pdf') {
+            const rendered = await preRenderPdfPageToDataUrl(resolvedPlanUri, 520);
+            if (rendered) preRenderedDataUrl = rendered;
+          }
+
           planData = {
             planUri: resolvedPlanUri,
             fileType: matchedPlan.fileType,
             planX: reserve.planX,
             planY: reserve.planY,
             planName: matchedPlan.name ?? 'Plan',
+            preRenderedDataUrl,
           };
         }
       }

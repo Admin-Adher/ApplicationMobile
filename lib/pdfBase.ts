@@ -329,6 +329,39 @@ export async function loadFileAsDataUrl(
 }
 
 /**
+ * Pre-renders the first page of a PDF (given as a data URL or remote URL)
+ * to a JPEG data URL using PDF.js.
+ *
+ * Only works on web (requires document + canvas API).
+ * Returns null on native or if rendering fails.
+ */
+export async function preRenderPdfPageToDataUrl(
+  pdfUri: string,
+  renderW: number,
+): Promise<string | null> {
+  if (typeof document === 'undefined') return null;
+  try {
+    const { getDocument } = await import('@/lib/pdfjs.web');
+    const srcArg = pdfUri.startsWith('data:')
+      ? { data: atob(pdfUri.split(',')[1]) }
+      : { url: pdfUri, withCredentials: false };
+    const pdfDoc = await (getDocument(srcArg) as any).promise;
+    const page = await pdfDoc.getPage(1);
+    const vp1 = page.getViewport({ scale: 1 });
+    const scale = renderW / vp1.width;
+    const vp = page.getViewport({ scale });
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.round(vp.width);
+    canvas.height = Math.round(vp.height);
+    const ctx = canvas.getContext('2d')!;
+    await page.render({ canvasContext: ctx, viewport: vp }).promise;
+    return canvas.toDataURL('image/jpeg', 0.88);
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Converts a raw SVG string (returned by SignaturePad.getSVGData()) to a
  * data URL safe for use in <img src="...">.
  * A plain SVG string is not a valid URL — it must be encoded first.

@@ -21,7 +21,7 @@ import { STATUS_CONFIG } from '@/components/StatusBadge';
 import PriorityBadge from '@/components/PriorityBadge';
 import { uploadDocument } from '@/lib/storage';
 import { genId, formatDateFR } from '@/lib/utils';
-import { loadFileAsDataUrl } from '@/lib/pdfBase';
+import { loadFileAsDataUrl, preRenderPdfPageToDataUrl } from '@/lib/pdfBase';
 import { parseDxf, DxfParseResult } from '@/lib/dxfParser';
 import { openChantierSwitcher } from '@/components/ChantierSwitcherSheet';
 import QRCodeDisplay from '@/components/QRCodeDisplay';
@@ -202,17 +202,43 @@ async function exportPlanPDF(
   const PIN_R = Math.max(5, Math.round(10 * pinSizeScale));
   const PIN_FONT = Math.max(7, Math.round(9 * pinSizeScale));
 
-  // Canvas rendering script — runs inside the export iframe/window
-  const canvasScript = hasPins ? `(function(){
+  // ── Pre-render PDF page to JPEG data URL (web only) ──────────────────────
+  // This avoids the async timing problem: Print.printAsync captures the page
+  // before canvas+pdfjs scripts finish rendering, leaving a black rectangle.
+  let preRenderedPdfDataUrl: string | null = null;
+  if (hasPlan && isPdf && exportUri) {
+    preRenderedPdfDataUrl = await preRenderPdfPageToDataUrl(exportUri, RENDER_W);
+  }
+
+  // ── Build plan image section HTML ─────────────────────────────────────────
+  // For image plans and pre-rendered PDF plans, use a static <img> + SVG pin
+  // overlay so everything is synchronous — no timing issues in the WebView.
+  // For PDF plans that could not be pre-rendered (native), fall back to the
+  // canvas + pdfjs script approach.
+  const buildSvgPins = (imgDataUrl: string): string => {
+    if (!hasPins) return `<img src="${imgDataUrl}" style="width:100%;height:auto;display:block;border-radius:8px;border:1px solid #e5e7eb" />`;
+    const circles = pinData.map(p =>
+      `<circle cx="${p.pctX}%" cy="${p.pctY}%" r="${PIN_R}" fill="${p.color}" stroke="rgba(255,255,255,0.85)" stroke-width="${Math.max(1, PIN_R * 0.18)}"/>` +
+      `<text x="${p.pctX}%" y="${p.pctY}%" text-anchor="middle" dominant-baseline="central" fill="#fff" font-size="${PIN_FONT}" font-weight="bold" font-family="Arial,sans-serif">${p.n}</text>`
+    ).join('');
+    return `<div style="position:relative;width:100%">` +
+      `<img src="${imgDataUrl}" style="width:100%;height:auto;display:block;border-radius:8px;border:1px solid #e5e7eb" />` +
+      `<svg xmlns="http://www.w3.org/2000/svg" style="position:absolute;top:0;left:0;width:100%;height:100%;overflow:visible">${circles}</svg>` +
+      `</div>`;
+  };
+
+  const useStaticImg = hasPlan && (!isPdf || !!preRenderedPdfDataUrl);
+  const staticImgSrc = isPdf ? (preRenderedPdfDataUrl ?? '') : (exportUri ?? '');
+
+  // Fallback canvas+script for native PDF plans that couldn't pre-render
+  const fallbackCanvasScript = (!useStaticImg && hasPins) ? `(function(){
 var canvas=document.getElementById('plan-canvas');
 var ctx=canvas.getContext('2d');
 var RENDER_W=${RENDER_W};
 var planUri=${hasPlan ? JSON.stringify(exportUri) : 'null'};
-var isPdf=${isPdf ? 'true' : 'false'};
 var pins=${JSON.stringify(pinData)};
 var PIN_R=${PIN_R};
 var PIN_FONT=${PIN_FONT};
-
 function drawPins(W,H){
   pins.forEach(function(p){
     var x=(p.pctX/100)*W,y=(p.pctY/100)*H;
@@ -224,75 +250,61 @@ function drawPins(W,H){
     ctx.fillText(String(p.n),x,y);
   });
 }
-
 function drawFallback(){
-  ctx.fillStyle='#0F1825';ctx.fillRect(0,0,canvas.width,canvas.height);
+  ctx.fillStyle='#1E3A5F';ctx.fillRect(0,0,canvas.width,canvas.height);
   drawPins(canvas.width,canvas.height);
 }
-
 if(!planUri){drawFallback();return;}
-
-if(isPdf){
-  // Use PDF.js to render the first page
-  var PDFJS_CDN='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js';
-  var script=document.createElement('script');
-  script.src=PDFJS_CDN;
-  script.onload=function(){
-    pdfjsLib.GlobalWorkerOptions.workerSrc='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
-    // Support both data URLs (pre-fetched) and remote URLs
-    var docSrc=planUri.startsWith('data:')
-      ?{data:atob(planUri.split(',')[1])}
-      :{url:planUri,withCredentials:false};
-    pdfjsLib.getDocument(docSrc).promise.then(function(doc){
-      doc.getPage(1).then(function(page){
-        var vp1=page.getViewport({scale:1});
-        var scale=RENDER_W/vp1.width;
-        var vp=page.getViewport({scale:scale});
-        canvas.width=Math.round(vp.width);
-        canvas.height=Math.round(vp.height);
-        page.render({canvasContext:ctx,viewport:vp}).promise.then(function(){
-          drawPins(canvas.width,canvas.height);
-        });
-      });
-    }).catch(drawFallback);
-  };
-  script.onerror=drawFallback;
-  document.head.appendChild(script);
-} else {
-  // Image plan — data URL avoids any CORS restriction
-  var img=new Image();
-  if(!planUri.startsWith('data:'))img.crossOrigin='anonymous';
-  img.onload=function(){
-    var h=Math.round(RENDER_W*(img.naturalHeight/img.naturalWidth));
-    canvas.width=RENDER_W;canvas.height=h;
-    ctx.drawImage(img,0,0,RENDER_W,h);
-    drawPins(RENDER_W,h);
-  };
-  img.onerror=drawFallback;
-  img.src=planUri;
-}
+var s=document.createElement('script');
+s.src='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js';
+s.onload=function(){
+  pdfjsLib.GlobalWorkerOptions.workerSrc='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+  var docSrc=planUri.startsWith('data:')?{data:atob(planUri.split(',')[1])}:{url:planUri,withCredentials:false};
+  pdfjsLib.getDocument(docSrc).promise.then(function(doc){
+    doc.getPage(1).then(function(page){
+      var vp1=page.getViewport({scale:1});
+      var scale=RENDER_W/vp1.width;
+      var vp=page.getViewport({scale:scale});
+      canvas.width=Math.round(vp.width);canvas.height=Math.round(vp.height);
+      page.render({canvasContext:ctx,viewport:vp}).promise.then(function(){drawPins(canvas.width,canvas.height);});
+    });
+  }).catch(drawFallback);
+};
+s.onerror=drawFallback;
+document.head.appendChild(s);
 })();` : '';
+
+  const planAnnotatedSection = (hasPins || hasPlan) ? `
+<div class="sec">
+  <div class="stitle">Plan annoté</div>
+  ${useStaticImg && staticImgSrc
+    ? buildSvgPins(staticImgSrc)
+    : `<canvas id="plan-canvas" width="${RENDER_W}" height="${Math.round(RENDER_W * 0.6)}" style="width:100%;height:auto;border-radius:8px;display:block;border:1px solid #e5e7eb;background:#1E3A5F"></canvas>`
+  }
+  <div class="leg">Les numéros correspondent aux réserves du tableau ci-dessous.</div>
+</div>` : '';
 
   const html = `<!DOCTYPE html>
 <html lang="fr"><head><meta charset="UTF-8"><title>Plan : ${planName}</title>
-<style>*{box-sizing:border-box;margin:0;padding:0;}body{font-family:Arial,sans-serif;padding:28px;color:#111;background:#fff;}.hdr{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:20px;}.hdr-l h1{color:#003082;font-size:20px;margin-bottom:4px;}.hdr-l .meta{color:#666;font-size:12px;}.hdr-r{text-align:right;font-size:11px;color:#999;}.sec{margin-bottom:24px;}canvas{width:100%;height:auto;border-radius:8px;display:block;border:1px solid #e5e7eb;background:#0F1825;}.leg{font-size:11px;color:#888;margin-top:6px;}table{width:100%;border-collapse:collapse;font-size:12px;}th{background:#003082;color:#fff;padding:8px 10px;text-align:left;font-size:11px;text-transform:uppercase;letter-spacing:0.5px;}td{padding:7px 10px;border-bottom:1px solid #f0f0f0;vertical-align:middle;}tr:nth-child(even) td{background:#f8fafc;}.stitle{font-size:13px;font-weight:700;color:#003082;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:10px;border-bottom:2px solid #003082;padding-bottom:4px;}.footer{margin-top:28px;font-size:10px;color:#bbb;text-align:center;border-top:1px solid #eee;padding-top:12px;}@media print{body{padding:0;}@page{margin:16mm;}}</style>
+<style>*{box-sizing:border-box;margin:0;padding:0;}body{font-family:Arial,sans-serif;padding:28px;color:#111;background:#fff;}.hdr{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:20px;}.hdr-l h1{color:#003082;font-size:20px;margin-bottom:4px;}.hdr-l .meta{color:#666;font-size:12px;}.hdr-r{text-align:right;font-size:11px;color:#999;}.sec{margin-bottom:24px;}.leg{font-size:11px;color:#888;margin-top:6px;}table{width:100%;border-collapse:collapse;font-size:12px;}th{background:#003082;color:#fff;padding:8px 10px;text-align:left;font-size:11px;text-transform:uppercase;letter-spacing:0.5px;}td{padding:7px 10px;border-bottom:1px solid #f0f0f0;vertical-align:middle;}tr:nth-child(even) td{background:#f8fafc;}.stitle{font-size:13px;font-weight:700;color:#003082;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:10px;border-bottom:2px solid #003082;padding-bottom:4px;}.footer{margin-top:28px;font-size:10px;color:#bbb;text-align:center;border-top:1px solid #eee;padding-top:12px;}@media print{body{padding:0;}@page{margin:16mm;}}</style>
 </head><body>
 <div class="hdr"><div class="hdr-l"><h1>Plan : ${planName}</h1><div class="meta">Chantier : <strong>${chantierName}</strong> &nbsp;·&nbsp; ${reserves.length} réserve${reserves.length !== 1 ? 's' : ''}</div></div>
 <div class="hdr-r">Exporté le ${new Date().toLocaleDateString('fr-FR')}<br>BuildTrack</div></div>
-${hasPins ? `<div class="sec"><div class="stitle">Plan annoté</div><canvas id="plan-canvas" width="${RENDER_W}" height="${Math.round(RENDER_W * 0.6)}"></canvas><div class="leg">Les numéros correspondent aux réserves du tableau ci-dessous.</div></div>` : ''}
+${planAnnotatedSection}
 <div class="stitle">Liste des réserves</div>
 <table><thead><tr><th>#</th><th>Titre</th><th>Entreprise</th><th>Niveau</th><th>Statut</th><th>Priorité</th><th>Échéance</th></tr></thead>
 <tbody>${rows || '<tr><td colspan="7" style="text-align:center;color:#999;padding:20px;">Aucune réserve sur ce plan</td></tr>'}</tbody></table>
 <div class="footer">BuildTrack — Gestion de chantier numérique — ${new Date().toLocaleDateString('fr-FR')}</div>
-${hasPins ? `<script>${canvasScript}<\/script>` : ''}
+${fallbackCanvasScript ? `<script>${fallbackCanvasScript}<\/script>` : ''}
 </body></html>`;
 
   if (Platform.OS === 'web') {
     const win = window.open('', '_blank');
     if (win) {
       win.document.open(); win.document.write(html); win.document.close();
-      // Give scripts (PDF.js) time to load before printing
-      setTimeout(() => { try { win.print(); } catch {} }, isPdf ? 2500 : 600);
+      // Only need delay for the native PDF fallback canvas (which shouldn't happen on web
+      // since pre-rendering succeeds). Keep a small delay for safety.
+      setTimeout(() => { try { win.print(); } catch {} }, (!useStaticImg && isPdf) ? 2500 : 400);
     }
   } else {
     try {
