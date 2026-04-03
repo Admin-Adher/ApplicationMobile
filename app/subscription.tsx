@@ -22,6 +22,20 @@ const PLAN_COLORS: Record<string, string> = {
   Groupe:  '#8B5CF6',
 };
 
+const AVATAR_COLORS = ['#3B82F6','#10B981','#F59E0B','#8B5CF6','#EF4444','#06B6D4','#EC4899'];
+
+function hashColor(id: string): string {
+  let h = 0;
+  for (let i = 0; i < id.length; i++) h = (h * 31 + id.charCodeAt(i)) & 0x7fffffff;
+  return AVATAR_COLORS[h % AVATAR_COLORS.length];
+}
+
+function formatDate(iso?: string): string {
+  if (!iso) return '—';
+  const d = new Date(iso);
+  return d.toLocaleDateString('fr-FR', { day: '2-digit', month: 'long', year: 'numeric' });
+}
+
 function daysUntil(dateStr?: string): number | null {
   if (!dateStr) return null;
   const d = Math.ceil((new Date(dateStr).getTime() - Date.now()) / (1000 * 60 * 60 * 24));
@@ -30,12 +44,15 @@ function daysUntil(dateStr?: string): number | null {
 
 export default function SubscriptionScreen() {
   const insets = useSafeAreaInsets();
-  const topPad = insets.top;
+  const topPad = Platform.OS === 'web' ? 67 : insets.top;
   const bottomPad = Platform.OS === 'web' ? 34 : insets.bottom;
   const router = useRouter();
 
   const { user } = useAuth();
-  const { organization, plan, subscription, seatUsed, seatMax, isLoading, orgUsers, activeOrgUsers, freeOrgUsers } = useSubscription();
+  const {
+    organization, plan, subscription, seatUsed, seatMax,
+    isLoading, orgUsers, activeOrgUsers, freeOrgUsers,
+  } = useSubscription();
 
   const isAdmin = user?.role === 'admin' || user?.role === 'super_admin';
 
@@ -43,9 +60,9 @@ export default function SubscriptionScreen() {
     return (
       <View style={[styles.container, styles.center]}>
         <Ionicons name="lock-closed-outline" size={48} color={C.textMuted} />
-        <Text style={[styles.sectionTitle, { marginTop: 16, textAlign: 'center' }]}>Accès réservé aux administrateurs</Text>
-        <TouchableOpacity onPress={() => router.back()} style={{ marginTop: 20, paddingHorizontal: 20, paddingVertical: 10, backgroundColor: C.primary, borderRadius: 10 }}>
-          <Text style={{ color: '#fff', fontFamily: 'Inter_600SemiBold', fontSize: 14 }}>Retour</Text>
+        <Text style={styles.lockedTitle}>Accès réservé aux administrateurs</Text>
+        <TouchableOpacity onPress={() => router.back()} style={styles.backPill}>
+          <Text style={styles.backPillTxt}>Retour</Text>
         </TouchableOpacity>
       </View>
     );
@@ -81,20 +98,54 @@ export default function SubscriptionScreen() {
         contentContainerStyle={[styles.content, { paddingBottom: bottomPad + 32 }]}
         showsVerticalScrollIndicator={false}
       >
+        {/* Statut + dates */}
         {subscription && (
           <View style={[styles.statusBanner, { backgroundColor: statusCfg.bg, borderColor: statusCfg.color + '44' }]}>
-            <Ionicons name={statusCfg.icon} size={18} color={statusCfg.color} />
+            <Ionicons name={statusCfg.icon} size={20} color={statusCfg.color} />
             <View style={{ flex: 1 }}>
               <Text style={[styles.statusLabel, { color: statusCfg.color }]}>{statusCfg.label}</Text>
               {subscription.status === 'trial' && trialDays !== null && (
                 <Text style={[styles.statusSub, { color: statusCfg.color }]}>
-                  {trialDays > 0 ? `${trialDays} jour${trialDays > 1 ? 's' : ''} restant${trialDays > 1 ? 's' : ''}` : "Essai terminé"}
+                  {trialDays > 0
+                    ? `${trialDays} jour${trialDays > 1 ? 's' : ''} restant${trialDays > 1 ? 's' : ''} — se termine le ${formatDate(subscription.trialEndsAt)}`
+                    : 'Essai terminé'}
+                </Text>
+              )}
+              {subscription.status === 'active' && subscription.expiresAt && (
+                <Text style={[styles.statusSub, { color: statusCfg.color }]}>
+                  Valide jusqu'au {formatDate(subscription.expiresAt)}
                 </Text>
               )}
             </View>
           </View>
         )}
 
+        {/* Infos organisation */}
+        {organization && (
+          <View style={styles.orgCard}>
+            <Text style={styles.orgCardTitle}>Organisation</Text>
+            <View style={styles.orgRow}>
+              <Text style={styles.orgLabel}>Nom</Text>
+              <Text style={styles.orgValue}>{organization.name}</Text>
+            </View>
+            <View style={styles.orgRow}>
+              <Text style={styles.orgLabel}>Identifiant</Text>
+              <Text style={styles.orgValue}>{organization.slug}</Text>
+            </View>
+            <View style={styles.orgRow}>
+              <Text style={styles.orgLabel}>Créée le</Text>
+              <Text style={styles.orgValue}>{formatDate(organization.createdAt)}</Text>
+            </View>
+            {subscription?.startedAt && (
+              <View style={styles.orgRow}>
+                <Text style={styles.orgLabel}>Abonnement depuis</Text>
+                <Text style={styles.orgValue}>{formatDate(subscription.startedAt)}</Text>
+              </View>
+            )}
+          </View>
+        )}
+
+        {/* Plan */}
         {plan && (
           <View style={[styles.planCard, { borderTopColor: planColor }]}>
             <View style={styles.planTopRow}>
@@ -116,6 +167,7 @@ export default function SubscriptionScreen() {
           </View>
         )}
 
+        {/* Sièges */}
         <View style={styles.seatCard}>
           <View style={styles.seatTopRow}>
             <View style={styles.seatLeft}>
@@ -127,7 +179,7 @@ export default function SubscriptionScreen() {
             </View>
             <Text style={styles.seatCount}>
               {seatUsed}
-              <Text style={styles.seatMax}>
+              <Text style={styles.seatMaxTxt}>
                 {seatMax === -1 ? ' / ∞' : ` / ${seatMax}`}
               </Text>
             </Text>
@@ -139,50 +191,59 @@ export default function SubscriptionScreen() {
           )}
           {seatMax !== -1 && seatRatio >= 0.9 && (
             <Text style={styles.seatWarning}>
-              {seatRatio >= 1 ? 'Limite atteinte — passez à un plan supérieur pour inviter.' : 'Presque à la limite des sièges.'}
+              {seatRatio >= 1 ? 'Limite atteinte — contactez le support pour passer à un plan supérieur.' : 'Vous approchez la limite de sièges.'}
             </Text>
           )}
           {freeOrgUsers.length > 0 && (
             <View style={styles.freeBanner}>
               <Ionicons name="gift-outline" size={14} color="#10B981" />
               <Text style={styles.freeBannerTxt}>
-                {freeOrgUsers.length} sous-traitant{freeOrgUsers.length > 1 ? 's' : ''} / observateur{freeOrgUsers.length > 1 ? 's' : ''} — <Text style={{ fontFamily: 'Inter_600SemiBold' }}>gratuit{freeOrgUsers.length > 1 ? 's' : ''}</Text>
+                {freeOrgUsers.length} sous-traitant{freeOrgUsers.length > 1 ? 's' : ''} / observateur{freeOrgUsers.length > 1 ? 's' : ''} — <Text style={{ fontFamily: 'Inter_600SemiBold' }}>gratuit{freeOrgUsers.length > 1 ? 's' : ''}</Text>, hors quota
               </Text>
             </View>
           )}
         </View>
 
-        <Text style={styles.sectionTitle}>Utilisateurs actifs</Text>
-        {activeOrgUsers.map((u, i) => {
-          const colors = ['#3B82F6','#10B981','#F59E0B','#8B5CF6','#EF4444','#06B6D4','#EC4899'];
-          const col = colors[i % colors.length];
-          const initials = u.name.split(' ').map((w: string) => w[0]).slice(0, 2).join('').toUpperCase();
-          return (
-            <View key={u.id} style={styles.memberRow}>
-              <View style={[styles.memberAvatar, { backgroundColor: col + '22' }]}>
-                <Text style={[styles.memberAvatarTxt, { color: col }]}>{initials}</Text>
-              </View>
-              <View style={{ flex: 1 }}>
-                <Text style={styles.memberName}>{u.name}</Text>
-                <Text style={styles.memberEmail}>{u.email}</Text>
-              </View>
-              <View style={styles.memberRoleBadge}>
-                <Text style={styles.memberRoleTxt}>{u.roleLabel}</Text>
-              </View>
-            </View>
-          );
-        })}
+        {/* Membres actifs */}
+        {activeOrgUsers.length > 0 && (
+          <>
+            <Text style={styles.sectionTitle}>
+              Membres actifs <Text style={styles.sectionCount}>({activeOrgUsers.length})</Text>
+            </Text>
+            {activeOrgUsers.map(u => {
+              const col = hashColor(u.id);
+              const initials = u.name.split(' ').map((w: string) => w[0]).slice(0, 2).join('').toUpperCase();
+              return (
+                <View key={u.id} style={styles.memberRow}>
+                  <View style={[styles.memberAvatar, { backgroundColor: col + '22' }]}>
+                    <Text style={[styles.memberAvatarTxt, { color: col }]}>{initials}</Text>
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.memberName}>{u.name}</Text>
+                    <Text style={styles.memberEmail}>{u.email}</Text>
+                  </View>
+                  <View style={[styles.memberRoleBadge, { backgroundColor: col + '18' }]}>
+                    <Text style={[styles.memberRoleTxt, { color: col }]}>{u.roleLabel}</Text>
+                  </View>
+                </View>
+              );
+            })}
+          </>
+        )}
 
+        {/* Membres gratuits */}
         {freeOrgUsers.length > 0 && (
           <>
-            <Text style={styles.sectionTitle}>Sous-traitants & Observateurs <Text style={styles.freeTag}>gratuit</Text></Text>
-            {freeOrgUsers.map((u, i) => {
-              const col = '#10B981';
+            <Text style={styles.sectionTitle}>
+              Gratuits — hors quota <Text style={styles.sectionCount}>({freeOrgUsers.length})</Text>
+              <Text style={styles.freeTag}> gratuit</Text>
+            </Text>
+            {freeOrgUsers.map(u => {
               const initials = u.name.split(' ').map((w: string) => w[0]).slice(0, 2).join('').toUpperCase();
               return (
                 <View key={u.id} style={[styles.memberRow, { borderColor: '#10B98122' }]}>
                   <View style={[styles.memberAvatar, { backgroundColor: '#10B98118' }]}>
-                    <Text style={[styles.memberAvatarTxt, { color: col }]}>{initials}</Text>
+                    <Text style={[styles.memberAvatarTxt, { color: '#10B981' }]}>{initials}</Text>
                   </View>
                   <View style={{ flex: 1 }}>
                     <Text style={styles.memberName}>{u.name}</Text>
@@ -197,10 +258,17 @@ export default function SubscriptionScreen() {
           </>
         )}
 
+        {orgUsers.length === 0 && (
+          <View style={styles.empty}>
+            <Ionicons name="people-outline" size={36} color={C.textMuted} />
+            <Text style={styles.emptyText}>Aucun membre dans l'organisation</Text>
+          </View>
+        )}
+
         <View style={styles.hintCard}>
           <Ionicons name="information-circle-outline" size={15} color={C.textMuted} />
           <Text style={styles.hintText}>
-            Pour changer de formule ou intégrer un paiement, contactez votre administrateur BuildTrack.
+            Pour changer de formule, ajouter des sièges ou gérer la facturation, contactez le support BuildTrack à support@buildtrack.fr.
           </Text>
         </View>
       </ScrollView>
@@ -211,6 +279,10 @@ export default function SubscriptionScreen() {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: C.bg },
   center: { alignItems: 'center', justifyContent: 'center' },
+
+  lockedTitle: { fontSize: 16, fontFamily: 'Inter_600SemiBold', color: C.textSub, marginTop: 16, textAlign: 'center' },
+  backPill: { marginTop: 20, paddingHorizontal: 20, paddingVertical: 10, backgroundColor: C.primary, borderRadius: 10 },
+  backPillTxt: { color: '#fff', fontFamily: 'Inter_600SemiBold', fontSize: 14 },
 
   header: {
     backgroundColor: C.surface,
@@ -233,11 +305,24 @@ const styles = StyleSheet.create({
   content: { paddingHorizontal: 16, paddingTop: 16, gap: 12 },
 
   statusBanner: {
-    flexDirection: 'row', alignItems: 'center', gap: 10,
+    flexDirection: 'row', alignItems: 'flex-start', gap: 12,
     borderRadius: 12, padding: 14, borderWidth: 1,
   },
   statusLabel: { fontSize: 14, fontFamily: 'Inter_600SemiBold' },
-  statusSub: { fontSize: 12, fontFamily: 'Inter_400Regular', marginTop: 1 },
+  statusSub: { fontSize: 12, fontFamily: 'Inter_400Regular', marginTop: 2 },
+
+  orgCard: {
+    backgroundColor: C.surface, borderRadius: 14, padding: 16,
+    borderWidth: 1, borderColor: C.border, gap: 8,
+    ...Platform.select({
+      web: { boxShadow: '0 1px 4px rgba(0,0,0,0.06)' } as any,
+      default: { shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.06, shadowRadius: 4, elevation: 2 },
+    }),
+  },
+  orgCardTitle: { fontSize: 12, fontFamily: 'Inter_700Bold', color: C.textMuted, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 2 },
+  orgRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  orgLabel: { fontSize: 13, fontFamily: 'Inter_400Regular', color: C.textMuted },
+  orgValue: { fontSize: 13, fontFamily: 'Inter_600SemiBold', color: C.text },
 
   planCard: {
     backgroundColor: C.surface, borderRadius: 14, padding: 16,
@@ -269,7 +354,7 @@ const styles = StyleSheet.create({
   seatTitle: { fontSize: 15, fontFamily: 'Inter_600SemiBold', color: C.text },
   seatSubtitle: { fontSize: 11, fontFamily: 'Inter_400Regular', color: C.textMuted, marginTop: 1 },
   seatCount: { fontSize: 22, fontFamily: 'Inter_700Bold', color: C.text },
-  seatMax: { fontSize: 14, fontFamily: 'Inter_400Regular', color: C.textMuted },
+  seatMaxTxt: { fontSize: 14, fontFamily: 'Inter_400Regular', color: C.textMuted },
   barBg: { height: 8, backgroundColor: C.border, borderRadius: 4, overflow: 'hidden' },
   barFill: { height: 8, borderRadius: 4 },
   seatWarning: { fontSize: 12, fontFamily: 'Inter_400Regular', color: '#EF4444', marginTop: 6 },
@@ -280,6 +365,7 @@ const styles = StyleSheet.create({
   freeBannerTxt: { fontSize: 12, fontFamily: 'Inter_400Regular', color: '#10B981', flex: 1 },
 
   sectionTitle: { fontSize: 13, fontFamily: 'Inter_700Bold', color: C.text, marginTop: 4 },
+  sectionCount: { fontFamily: 'Inter_400Regular', color: C.textMuted },
   freeTag: { fontSize: 11, fontFamily: 'Inter_600SemiBold', color: '#10B981' },
 
   memberRow: {
@@ -291,8 +377,11 @@ const styles = StyleSheet.create({
   memberAvatarTxt: { fontSize: 13, fontFamily: 'Inter_700Bold' },
   memberName: { fontSize: 14, fontFamily: 'Inter_600SemiBold', color: C.text },
   memberEmail: { fontSize: 12, fontFamily: 'Inter_400Regular', color: C.textMuted, marginTop: 1 },
-  memberRoleBadge: { backgroundColor: C.primaryBg, borderRadius: 6, paddingHorizontal: 8, paddingVertical: 3 },
-  memberRoleTxt: { fontSize: 11, fontFamily: 'Inter_600SemiBold', color: C.primary },
+  memberRoleBadge: { borderRadius: 6, paddingHorizontal: 8, paddingVertical: 3 },
+  memberRoleTxt: { fontSize: 11, fontFamily: 'Inter_600SemiBold' },
+
+  empty: { alignItems: 'center', paddingVertical: 30, gap: 8 },
+  emptyText: { fontSize: 15, fontFamily: 'Inter_600SemiBold', color: C.textSub },
 
   hintCard: {
     flexDirection: 'row', alignItems: 'flex-start', gap: 8,
