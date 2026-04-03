@@ -1858,7 +1858,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }
 
   const value: AppContextValue = {
-    ...state, stats, unreadCount, channels, unreadByChannel, notification, realtimeConnected,
+    ...state,
+    companies: state.companies.filter((c, i, arr) => arr.findIndex(x => x.name === c.name) === i),
+    stats, unreadCount, channels, unreadByChannel, notification, realtimeConnected,
     setActiveChannelId,
     dismissNotification,
 
@@ -2460,6 +2462,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     },
 
     addLot: (l) => {
+      const duplicateLot = stateRef.current.lots.some(
+        existing => existing.name.trim().toLowerCase() === l.name.trim().toLowerCase()
+      );
+      if (duplicateLot) {
+        Alert.alert('Lot existant', `Un lot nommé "${l.name}" existe déjà.`);
+        return;
+      }
       const newLots = [...stateRef.current.lots, l];
       dispatch({ type: 'ADD_LOT', payload: l });
       persistMockLots(newLots);
@@ -2689,6 +2698,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     activeChantier: state.chantiers.find(c => c.id === state.activeChantierId) ?? null,
 
     addChantier: (c: Chantier, plans: SitePlan[]) => {
+      const duplicateChantier = stateRef.current.chantiers.some(
+        existing => existing.name.trim().toLowerCase() === c.name.trim().toLowerCase()
+      );
+      if (duplicateChantier) {
+        Alert.alert('Chantier existant', `Un chantier nommé "${c.name}" existe déjà.`);
+        return;
+      }
       const newChantiers = [...stateRef.current.chantiers, c];
       const newSitePlans = [...stateRef.current.sitePlans, ...plans];
       dispatch({ type: 'ADD_CHANTIER', payload: c });
