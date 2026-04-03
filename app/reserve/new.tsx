@@ -338,7 +338,8 @@ export default function NewReserveScreen() {
       Alert.alert(
         kind === 'observation' ? 'Observation créée' : 'Réserve créée',
         `${id} ajoutée avec succès.`,
-        [{ text: 'OK', onPress: () => { setIsSubmitting(false); router.back(); } }]
+        [{ text: 'OK', onPress: () => { setIsSubmitting(false); router.back(); } }],
+        { cancelable: false }
       );
     } catch (err) {
       setIsSubmitting(false);
