@@ -7,7 +7,6 @@ import {
   TouchableOpacity,
   Modal,
   Pressable,
-  ScrollView,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { C } from '@/constants/colors';
@@ -34,7 +33,11 @@ function parseFR(s: string): Date | null {
   const [d, m, y] = parts.map(Number);
   if (!d || !m || !y || y < 2000) return null;
   const date = new Date(y, m - 1, d);
-  if (date.getFullYear() !== y || date.getMonth() !== m - 1 || date.getDate() !== d) return null;
+  if (
+    date.getFullYear() !== y ||
+    date.getMonth() !== m - 1 ||
+    date.getDate() !== d
+  ) return null;
   return date;
 }
 
@@ -77,33 +80,42 @@ function buildCalendar(year: number, month: number): (Date | null)[][] {
 }
 
 function isSameDay(a: Date, b: Date) {
-  return a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
+  return (
+    a.getFullYear() === b.getFullYear() &&
+    a.getMonth() === b.getMonth() &&
+    a.getDate() === b.getDate()
+  );
 }
 
-function CalendarModal({
-  visible,
+export default function DateInput({
   value,
-  onSelect,
-  onClose,
-}: {
-  visible: boolean;
-  value: string;
-  onSelect: (val: string) => void;
-  onClose: () => void;
-}) {
+  onChange,
+  placeholder,
+  label,
+  optional,
+}: DateInputProps) {
+  const [focused, setFocused] = useState(false);
+  const [calendarOpen, setCalendarOpen] = useState(false);
+
   const today = new Date();
   const selectedDate = parseFR(value);
 
-  const [viewYear, setViewYear] = useState(() => {
-    if (selectedDate) return selectedDate.getFullYear();
-    return today.getFullYear();
-  });
-  const [viewMonth, setViewMonth] = useState(() => {
-    if (selectedDate) return selectedDate.getMonth();
-    return today.getMonth();
-  });
+  const [viewYear, setViewYear] = useState(
+    selectedDate ? selectedDate.getFullYear() : today.getFullYear()
+  );
+  const [viewMonth, setViewMonth] = useState(
+    selectedDate ? selectedDate.getMonth() : today.getMonth()
+  );
 
   const weeks = useMemo(() => buildCalendar(viewYear, viewMonth), [viewYear, viewMonth]);
+
+  const hasValue = Boolean(value && value !== '—' && value.length > 0);
+  const isValid = !value || value === '—' || validateDeadline(value);
+  const showError = Boolean(hasValue && !isValid);
+
+  const borderColor = focused || calendarOpen
+    ? showError ? C.open : C.primary
+    : showError ? C.open : C.border;
 
   function prevMonth() {
     if (viewMonth === 0) { setViewMonth(11); setViewYear(y => y - 1); }
@@ -113,90 +125,20 @@ function CalendarModal({
     if (viewMonth === 11) { setViewMonth(0); setViewYear(y => y + 1); }
     else setViewMonth(m => m + 1);
   }
+  function openCalendar() {
+    const d = parseFR(value);
+    if (d) { setViewYear(d.getFullYear()); setViewMonth(d.getMonth()); }
+    else { setViewYear(today.getFullYear()); setViewMonth(today.getMonth()); }
+    setCalendarOpen(true);
+  }
   function selectDay(day: Date) {
-    onSelect(formatFR(day));
-    onClose();
+    onChange(formatFR(day));
+    setCalendarOpen(false);
   }
   function selectToday() {
-    onSelect(formatFR(today));
-    onClose();
+    onChange(formatFR(today));
+    setCalendarOpen(false);
   }
-
-  return (
-    <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
-      <Pressable style={styles.overlay} onPress={onClose}>
-        <Pressable style={styles.modal} onPress={() => {}}>
-          <View style={styles.modalHeader}>
-            <TouchableOpacity onPress={prevMonth} style={styles.navBtn} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
-              <Ionicons name="chevron-back" size={20} color={C.primary} />
-            </TouchableOpacity>
-            <Text style={styles.monthTitle}>{MONTHS_FR[viewMonth]} {viewYear}</Text>
-            <TouchableOpacity onPress={nextMonth} style={styles.navBtn} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
-              <Ionicons name="chevron-forward" size={20} color={C.primary} />
-            </TouchableOpacity>
-          </View>
-
-          <View style={styles.dowRow}>
-            {DAYS_FR.map(d => (
-              <Text key={d} style={styles.dowLabel}>{d}</Text>
-            ))}
-          </View>
-
-          {weeks.map((week, wi) => (
-            <View key={wi} style={styles.weekRow}>
-              {week.map((day, di) => {
-                if (!day) return <View key={di} style={styles.dayCell} />;
-                const isToday = isSameDay(day, today);
-                const isSelected = selectedDate ? isSameDay(day, selectedDate) : false;
-                return (
-                  <TouchableOpacity
-                    key={di}
-                    style={[
-                      styles.dayCell,
-                      isSelected && styles.dayCellSelected,
-                      !isSelected && isToday && styles.dayCellToday,
-                    ]}
-                    onPress={() => selectDay(day)}
-                    activeOpacity={0.7}
-                  >
-                    <Text style={[
-                      styles.dayText,
-                      isSelected && styles.dayTextSelected,
-                      !isSelected && isToday && styles.dayTextToday,
-                    ]}>
-                      {day.getDate()}
-                    </Text>
-                  </TouchableOpacity>
-                );
-              })}
-            </View>
-          ))}
-
-          <TouchableOpacity style={styles.todayBtn} onPress={selectToday} activeOpacity={0.8}>
-            <Ionicons name="today-outline" size={15} color={C.primary} style={{ marginRight: 6 }} />
-            <Text style={styles.todayBtnText}>Aujourd'hui</Text>
-          </TouchableOpacity>
-        </Pressable>
-      </Pressable>
-    </Modal>
-  );
-}
-
-export default function DateInput({ value, onChange, placeholder, label, optional }: DateInputProps) {
-  const [focused, setFocused] = useState(false);
-  const [calendarOpen, setCalendarOpen] = useState(false);
-
-  const hasValue = Boolean(value && value !== '—' && value.length > 0);
-  const isValid = !value || value === '—' || validateDeadline(value);
-  const showError = Boolean(hasValue && !isValid);
-
-  function handleChange(raw: string) {
-    onChange(autoFormat(raw, value));
-  }
-
-  const borderColor = focused || calendarOpen
-    ? (showError ? C.open : C.primary)
-    : (showError ? C.open : C.border);
 
   return (
     <View style={styles.container}>
@@ -208,18 +150,21 @@ export default function DateInput({ value, onChange, placeholder, label, optiona
       ) : null}
 
       <View style={[styles.inputWrap, { borderColor }]}>
-        <TouchableOpacity onPress={() => setCalendarOpen(true)} hitSlop={{ top: 8, bottom: 8, left: 4, right: 4 }}>
+        <TouchableOpacity
+          onPress={openCalendar}
+          hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+        >
           <Ionicons
             name="calendar-outline"
             size={18}
-            color={calendarOpen ? C.primary : showError ? C.open : focused ? C.primary : C.textMuted}
+            color={calendarOpen ? C.primary : focused ? C.primary : C.textMuted}
             style={styles.icon}
           />
         </TouchableOpacity>
         <TextInput
           style={styles.input}
           value={value}
-          onChangeText={handleChange}
+          onChangeText={raw => onChange(autoFormat(raw, value))}
           placeholder={placeholder ?? 'JJ/MM/AAAA'}
           placeholderTextColor={C.textMuted}
           keyboardType="numbers-and-punctuation"
@@ -228,33 +173,130 @@ export default function DateInput({ value, onChange, placeholder, label, optiona
           onBlur={() => setFocused(false)}
         />
         {hasValue ? (
-          <TouchableOpacity onPress={() => onChange('')} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+          <TouchableOpacity
+            onPress={() => onChange('')}
+            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+          >
             <Ionicons name="close-circle" size={16} color={C.textMuted} />
           </TouchableOpacity>
         ) : null}
         {hasValue && isValid ? (
-          <Ionicons name="checkmark-circle" size={16} color={C.closed} style={{ marginLeft: 4 }} />
+          <Ionicons
+            name="checkmark-circle"
+            size={16}
+            color={C.closed}
+            style={{ marginLeft: 4 }}
+          />
         ) : null}
       </View>
 
       {showError ? (
-        <Text style={styles.errorText}>Date invalide — utilisez le format JJ/MM/AAAA</Text>
-      ) : null}
-      {!showError && !hasValue ? (
-        <Text style={styles.hint}>Tapez ou appuyez sur l'icône pour choisir</Text>
+        <Text style={styles.errorText}>Date invalide — format JJ/MM/AAAA</Text>
+      ) : !hasValue ? (
+        <Text style={styles.hint}>Appuyez sur l'icône pour ouvrir le calendrier</Text>
       ) : null}
 
-      <CalendarModal
+      <Modal
         visible={calendarOpen}
-        value={value}
-        onSelect={onChange}
-        onClose={() => setCalendarOpen(false)}
-      />
+        transparent
+        animationType="slide"
+        onRequestClose={() => setCalendarOpen(false)}
+        statusBarTranslucent
+      >
+        <Pressable style={styles.overlay} onPress={() => setCalendarOpen(false)}>
+          <Pressable style={styles.modal} onPress={e => e.stopPropagation()}>
+
+            <View style={styles.modalHandle} />
+
+            <Text style={styles.modalTitle}>Choisir une date</Text>
+
+            <View style={styles.modalHeader}>
+              <TouchableOpacity
+                onPress={prevMonth}
+                style={styles.navBtn}
+                hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+              >
+                <Ionicons name="chevron-back" size={20} color={C.primary} />
+              </TouchableOpacity>
+              <Text style={styles.monthTitle}>
+                {MONTHS_FR[viewMonth]} {viewYear}
+              </Text>
+              <TouchableOpacity
+                onPress={nextMonth}
+                style={styles.navBtn}
+                hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+              >
+                <Ionicons name="chevron-forward" size={20} color={C.primary} />
+              </TouchableOpacity>
+            </View>
+
+            <View style={styles.dowRow}>
+              {DAYS_FR.map(d => (
+                <Text key={d} style={styles.dowLabel}>{d}</Text>
+              ))}
+            </View>
+
+            {weeks.map((week, wi) => (
+              <View key={wi} style={styles.weekRow}>
+                {week.map((day, di) => {
+                  if (!day) return <View key={di} style={styles.dayCell} />;
+                  const isToday = isSameDay(day, today);
+                  const isSelected = selectedDate ? isSameDay(day, selectedDate) : false;
+                  return (
+                    <TouchableOpacity
+                      key={di}
+                      style={[
+                        styles.dayCell,
+                        isSelected && styles.dayCellSelected,
+                        !isSelected && isToday && styles.dayCellToday,
+                      ]}
+                      onPress={() => selectDay(day)}
+                      activeOpacity={0.7}
+                    >
+                      <Text
+                        style={[
+                          styles.dayText,
+                          isSelected && styles.dayTextSelected,
+                          !isSelected && isToday && styles.dayTextToday,
+                        ]}
+                      >
+                        {day.getDate()}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+            ))}
+
+            <TouchableOpacity
+              style={styles.todayBtn}
+              onPress={selectToday}
+              activeOpacity={0.8}
+            >
+              <Ionicons
+                name="today-outline"
+                size={15}
+                color={C.primary}
+                style={{ marginRight: 6 }}
+              />
+              <Text style={styles.todayBtnText}>Aujourd'hui</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={styles.cancelBtn}
+              onPress={() => setCalendarOpen(false)}
+            >
+              <Text style={styles.cancelBtnText}>Annuler</Text>
+            </TouchableOpacity>
+
+          </Pressable>
+        </Pressable>
+      </Modal>
     </View>
   );
 }
 
-const CELL_SIZE = 40;
+const CELL_SIZE = 42;
 
 const styles = StyleSheet.create({
   container: { marginBottom: 2 },
@@ -303,22 +345,31 @@ const styles = StyleSheet.create({
   },
   overlay: {
     flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.45)',
-    justifyContent: 'center',
-    alignItems: 'center',
-    paddingHorizontal: 20,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    justifyContent: 'flex-end',
   },
   modal: {
     backgroundColor: C.surface,
-    borderRadius: 20,
-    padding: 20,
-    width: '100%',
-    maxWidth: 360,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.18,
-    shadowRadius: 24,
-    elevation: 12,
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    paddingHorizontal: 20,
+    paddingBottom: 32,
+    paddingTop: 12,
+  },
+  modalHandle: {
+    width: 40,
+    height: 4,
+    backgroundColor: C.border,
+    borderRadius: 2,
+    alignSelf: 'center',
+    marginBottom: 16,
+  },
+  modalTitle: {
+    fontSize: 17,
+    fontFamily: 'Inter_600SemiBold',
+    color: C.text,
+    textAlign: 'center',
+    marginBottom: 16,
   },
   modalHeader: {
     flexDirection: 'row',
@@ -327,9 +378,9 @@ const styles = StyleSheet.create({
     marginBottom: 16,
   },
   navBtn: {
-    width: 36,
-    height: 36,
-    borderRadius: 10,
+    width: 40,
+    height: 40,
+    borderRadius: 12,
     backgroundColor: C.surface2,
     justifyContent: 'center',
     alignItems: 'center',
@@ -341,12 +392,12 @@ const styles = StyleSheet.create({
   },
   dowRow: {
     flexDirection: 'row',
-    marginBottom: 6,
+    marginBottom: 8,
   },
   dowLabel: {
     flex: 1,
     textAlign: 'center',
-    fontSize: 11,
+    fontSize: 12,
     fontFamily: 'Inter_600SemiBold',
     color: C.textMuted,
     textTransform: 'uppercase',
@@ -361,7 +412,7 @@ const styles = StyleSheet.create({
     height: CELL_SIZE,
     justifyContent: 'center',
     alignItems: 'center',
-    borderRadius: 10,
+    borderRadius: 12,
   },
   dayCellSelected: {
     backgroundColor: C.primary,
@@ -372,7 +423,7 @@ const styles = StyleSheet.create({
     borderColor: C.accent,
   },
   dayText: {
-    fontSize: 14,
+    fontSize: 15,
     fontFamily: 'Inter_400Regular',
     color: C.text,
   },
@@ -388,16 +439,26 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    marginTop: 12,
-    paddingVertical: 10,
+    marginTop: 16,
+    paddingVertical: 12,
     backgroundColor: C.primaryBg,
-    borderRadius: 10,
+    borderRadius: 12,
     borderWidth: 1,
     borderColor: C.border,
   },
   todayBtnText: {
-    fontSize: 14,
+    fontSize: 15,
     fontFamily: 'Inter_600SemiBold',
     color: C.primary,
+  },
+  cancelBtn: {
+    alignItems: 'center',
+    paddingVertical: 12,
+    marginTop: 8,
+  },
+  cancelBtnText: {
+    fontSize: 15,
+    fontFamily: 'Inter_400Regular',
+    color: C.textMuted,
   },
 });
