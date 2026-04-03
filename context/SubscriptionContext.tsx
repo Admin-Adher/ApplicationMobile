@@ -288,6 +288,7 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
               status: i.status,
               createdAt: i.created_at,
               expiresAt: i.expires_at,
+              companyId: i.company_id ?? undefined,
             }))
           );
         }

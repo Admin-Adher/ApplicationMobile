@@ -261,6 +261,24 @@ create policy "Reserves modifiables (create/edit)"
     exists (select 1 from public.profiles where id = auth.uid() and role in ('admin', 'conducteur', 'chef_equipe'))
   );
 
+-- Sous-traitant peut mettre à jour le statut des réserves de son entreprise (demande de levée + signature)
+drop policy if exists "Reserves: sous_traitant peut requêter la levée" on public.reserves;
+create policy "Reserves: sous_traitant peut requêter la levée"
+  on public.reserves for update using (
+    exists (
+      select 1 from public.profiles p
+      left join public.companies co on co.id = p.company_id
+      where p.id = auth.uid()
+      and p.role = 'sous_traitant'
+      and p.company_id is not null
+      and (
+        public.reserves.company = co.name
+        or (public.reserves.companies is not null
+            and public.reserves.companies::jsonb ? p.company_id)
+      )
+    )
+  );
+
 -- ---- 4. TABLE TASKS ----
 create table if not exists public.tasks (
   id text primary key,
