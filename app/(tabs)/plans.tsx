@@ -1171,6 +1171,7 @@ export default function PlansScreen() {
                   else { setSelected(r); }
                 }}
                 onPlanTap={(px, py) => {
+                  if (focusedPinId) { setFocusedPinId(null); return; }
                   if (!permissions.canCreate) return;
                   router.push({ pathname: '/reserve/new', params: { planId: currentPlanId ?? '', chantierId: activeChantierId ?? '', planX: String(Math.round(px)), planY: String(Math.round(py)) } } as any);
                 }}
@@ -1178,6 +1179,13 @@ export default function PlansScreen() {
                   const reserve = reservesRef.current.find(r => r.id === reserveId);
                   if (reserve) updateReserveFieldsRef.current({ ...reserve, planX: Math.round(planX), planY: Math.round(planY) });
                 }}
+                onPinFocus={(reserveId) => {
+                  setFocusedPinIdRef.current(reserveId);
+                  if (focusedPinTimerRef.current) clearTimeout(focusedPinTimerRef.current);
+                  focusedPinTimerRef.current = setTimeout(() => setFocusedPinIdRef.current(null), 5000);
+                }}
+                pinSizes={pinSizes}
+                focusedPinId={focusedPinId}
                 canAnnotate={permissions.canCreate}
                 canCreate={permissions.canCreate}
                 pinSize={pinSize}

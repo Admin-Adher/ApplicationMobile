@@ -41,9 +41,12 @@ export interface PdfPlanViewerProps {
   reserves: Reserve[];
   ghostReserves?: Reserve[];
   pinNumberMap: Map<string, number>;
+  pinSizes?: Record<string, number>;
+  focusedPinId?: string | null;
   onReserveSelect: (reserve: Reserve) => void;
   onPlanTap: (planX: number, planY: number) => void;
   onPinMove?: (reserveId: string, planX: number, planY: number) => void;
+  onPinFocus?: (reserveId: string) => void;
   canAnnotate: boolean;
   canCreate: boolean;
   pinSize?: number;
@@ -154,6 +157,7 @@ function buildMobileHtml(
   pinSize: number = 22,
   isImagePlan: boolean = false,
   ghostReserves: Reserve[] = [],
+  pinSizes: Record<string, number> = {},
 ): string {
   const pinsData = reserves
     .filter(r => r.planX != null && r.planY != null)
@@ -163,6 +167,7 @@ function buildMobileHtml(
       planY: r.planY,
       color: STATUS_COLORS[r.status] ?? '#003082',
       num: pinMap.get(r.id) ?? '?',
+      size: Math.round(pinSize * (pinSizes[r.id] ?? 1.0)),
     }));
 
   const ghostPinsData = ghostReserves
@@ -226,6 +231,7 @@ var CAN_ANNOTATE=${canAnnotate};
 var CAN_CREATE=${canCreate};
 var PIN_SIZE=${pinSize};
 
+var focusedPinId=null;
 var mode='view',tool='pen',color='#EF4444',sw=2;
 var live=null,undos=[];
 var cw=0,ch=0,pageNum=1,pageCount=0,pdfDoc=null;
@@ -363,18 +369,24 @@ function renderGhostPins(){
 
 function renderPins(){
   pinsLayer.innerHTML='';
-  var half=PIN_SIZE/2;
   pinsData.forEach(function(pin){
+    var sz=pin.size||PIN_SIZE;
+    var half=sz/2;
+    var isFocused=(focusedPinId&&pin.id===focusedPinId);
     var div=document.createElement('div');
     div.className='pin';
-    div.style.width=PIN_SIZE+'px';div.style.height=PIN_SIZE+'px';
+    div.style.width=sz+'px';div.style.height=sz+'px';
     div.style.left=((pin.planX/100)*cw-half)+'px';
     div.style.top=((pin.planY/100)*ch-half)+'px';
     div.style.backgroundColor=pin.color;
     div.style.pointerEvents=(mode==='annotate')?'none':'all';
+    if(isFocused){
+      div.style.border='3px solid #FBBF24';
+      div.style.boxShadow='0 0 0 2px rgba(251,191,36,0.35), 0 2px 8px rgba(0,0,0,0.5)';
+    }
     var span=document.createElement('span');
     span.textContent=String(pin.num);
-    span.style.fontSize=Math.max(8,Math.round(PIN_SIZE*0.42))+'px';
+    span.style.fontSize=Math.max(8,Math.round(sz*0.42))+'px';
     div.appendChild(span);
 
     var lpTimer=null,pinDrag=false,pinMoved=false,psx=0,psy=0;
@@ -388,6 +400,7 @@ function renderPins(){
       psx=e.touches[0].clientX;psy=e.touches[0].clientY;
       lpTimer=setTimeout(function(){
         pinDrag=true;
+        post({type:'pinFocus',reserveId:pin.id});
         div.style.transform='scale(1.35)';
         div.style.boxShadow='0 8px 28px rgba(0,0,0,0.75)';
         div.style.zIndex='999';
@@ -409,15 +422,19 @@ function renderPins(){
     div.addEventListener('touchend',function(e){
       e.preventDefault();e.stopPropagation();
       clearTimeout(lpTimer);lpTimer=null;
-      div.style.transform='';div.style.boxShadow='';div.style.zIndex='';div.style.transition='';
+      div.style.transform='';div.style.zIndex='';div.style.transition='';
       if(pinDrag&&pinMoved){
         var cx=parseFloat(div.style.left)+half;
         var cy=parseFloat(div.style.top)+half;
         var p=toPct(cx,cy);
         pin.planX=p.px;pin.planY=p.py;
         post({type:'pinMove',reserveId:pin.id,planX:p.px,planY:p.py});
+        div.style.boxShadow='';
       } else if(!pinDrag){
         post({type:'pinSelect',reserveId:pin.id});
+        div.style.boxShadow='';
+      } else {
+        div.style.boxShadow='';
       }
       pinDrag=false;pinMoved=false;
     },{passive:false});
@@ -691,6 +708,7 @@ window.setState=function(s){
 };
 window.setAnnotations=function(anns){draws=anns;renderAnns();};
 window.updatePins=function(newPins,newGhosts){pinsData=newPins;if(newGhosts)ghostPinsData=newGhosts;renderGhostPins();renderPins();};
+window.setFocusedPin=function(id){focusedPinId=id;renderPins();};
 window.undo=function(){
   if(!undos.length)return;
   draws=undos.pop();renderAnns();
@@ -730,7 +748,8 @@ window.resetView=function(){
 
 const MobileViewer = forwardRef<PdfPlanViewerHandle, PdfPlanViewerProps>(function MobileViewerInner({
   planUri, planId, annotations, onAnnotationsChange,
-  reserves, ghostReserves = [], pinNumberMap, onReserveSelect, onPlanTap, onPinMove,
+  reserves, ghostReserves = [], pinNumberMap, pinSizes = {}, focusedPinId,
+  onReserveSelect, onPlanTap, onPinMove, onPinFocus,
   canAnnotate, canCreate, pinSize = 22, onZoomChange, isImagePlan = false,
 }, ref) {
   const WebView = require('react-native-webview').default;
@@ -813,6 +832,7 @@ const MobileViewer = forwardRef<PdfPlanViewerHandle, PdfPlanViewerProps>(functio
         id: r.id, planX: r.planX, planY: r.planY,
         color: STATUS_COLORS[r.status] ?? '#003082',
         num: pinNumberMap.get(r.id) ?? '?',
+        size: Math.round(pinSize * (pinSizes[r.id] ?? 1.0)),
       }));
     const ghostData = ghostReserves
       .filter(r => r.planX != null && r.planY != null)
@@ -822,7 +842,11 @@ const MobileViewer = forwardRef<PdfPlanViewerHandle, PdfPlanViewerProps>(functio
         num: pinNumberMap.get(r.id) ?? '?',
       }));
     inject(`window.updatePins(${JSON.stringify(pinsData)},${JSON.stringify(ghostData)});`);
-  }, [reserves, ghostReserves, pinNumberMap]);
+  }, [reserves, ghostReserves, pinNumberMap, pinSizes, pinSize]);
+
+  useEffect(() => {
+    inject(`window.setFocusedPin && window.setFocusedPin(${focusedPinId ? JSON.stringify(focusedPinId) : 'null'});`);
+  }, [focusedPinId]);
 
   const onMessage = useCallback((event: any) => {
     try {
@@ -834,6 +858,8 @@ const MobileViewer = forwardRef<PdfPlanViewerHandle, PdfPlanViewerProps>(functio
         if (r) onReserveSelect(r);
       } else if (msg.type === 'pinMove') {
         onPinMove?.(msg.reserveId, msg.planX, msg.planY);
+      } else if (msg.type === 'pinFocus') {
+        onPinFocus?.(msg.reserveId);
       } else if (msg.type === 'annotationsChange') {
         onAnnotationsChange(msg.annotations);
       } else if (msg.type === 'pageCount') {
@@ -843,10 +869,10 @@ const MobileViewer = forwardRef<PdfPlanViewerHandle, PdfPlanViewerProps>(functio
         onZoomChange?.(msg.zoom);
       }
     } catch {}
-  }, [reserves, onPlanTap, onReserveSelect, onAnnotationsChange, onZoomChange, onPinMove]);
+  }, [reserves, onPlanTap, onReserveSelect, onAnnotationsChange, onZoomChange, onPinMove, onPinFocus]);
 
   const html = resolvedUri
-    ? buildMobileHtml(resolvedUri, annotations ?? [], reserves, pinNumberMap, canAnnotate, canCreate, pinSize, isImagePlan, ghostReserves)
+    ? buildMobileHtml(resolvedUri, annotations ?? [], reserves, pinNumberMap, canAnnotate, canCreate, pinSize, isImagePlan, ghostReserves, pinSizes)
     : '';
 
   function changePage(n: number) {
