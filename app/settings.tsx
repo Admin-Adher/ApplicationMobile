@@ -29,11 +29,12 @@ function formatDate(iso: string): string {
 }
 
 const ROLE_COLORS: Record<string, string> = {
-  super_admin: '#8B5CF6',
-  admin:       '#EF4444',
-  conducteur:  '#3B82F6',
-  chef_equipe: '#10B981',
-  observateur: '#6B7280',
+  super_admin:  '#8B5CF6',
+  admin:        '#EF4444',
+  conducteur:   '#3B82F6',
+  chef_equipe:  '#F59E0B',
+  observateur:  '#6B7280',
+  sous_traitant:'#10B981',
 };
 
 const STATUS_COLORS = {
@@ -47,14 +48,13 @@ export default function SettingsScreen() {
   const router = useRouter();
   const { projectName, projectDescription, setProjectName, setProjectDescription, attendanceHistory, saveAttendanceSnapshot, clearAttendanceHistory, defaultArrivalTime, setDefaultArrivalTime } = useSettings();
   const { companies } = useApp();
-  const { user, logout } = useAuth();
+  const { user, logout, permissions } = useAuth();
   const { organization, plan, subscription, seatUsed, seatMax } = useSubscription();
 
   const [nameInput, setNameInput] = useState(projectName);
   const [descInput, setDescInput] = useState(projectDescription);
   const [saving, setSaving] = useState(false);
   const [activeTab, setActiveTab] = useState<'compte' | 'project' | 'attendance' | 'integrations'>('compte');
-  const [integrationStates, setIntegrationStates] = useState<Record<string, boolean>>({});
   const isAdmin = user?.role === 'admin' || user?.role === 'super_admin';
 
   const grouped = useMemo(() => {
@@ -360,10 +360,12 @@ export default function SettingsScreen() {
                   </View>
                 ))
               )}
-              <TouchableOpacity style={styles.snapshotBtn} onPress={handleSaveAttendance}>
-                <Ionicons name="save-outline" size={16} color={C.primary} />
-                <Text style={styles.snapshotBtnText}>Sauvegarder l'instantané du jour</Text>
-              </TouchableOpacity>
+              {permissions.canUpdateAttendance && (
+                <TouchableOpacity style={styles.snapshotBtn} onPress={handleSaveAttendance}>
+                  <Ionicons name="save-outline" size={16} color={C.primary} />
+                  <Text style={styles.snapshotBtnText}>Sauvegarder l'instantané du jour</Text>
+                </TouchableOpacity>
+              )}
             </View>
 
             {grouped.length === 0 ? (
@@ -378,9 +380,11 @@ export default function SettingsScreen() {
               <>
                 <View style={styles.historyHeader}>
                   <Text style={styles.historyTitle}>Historique ({totalDays} jours)</Text>
-                  <TouchableOpacity onPress={handleClearHistory}>
-                    <Text style={styles.clearText}>Tout effacer</Text>
-                  </TouchableOpacity>
+                  {permissions.canUpdateAttendance && (
+                    <TouchableOpacity onPress={handleClearHistory}>
+                      <Text style={styles.clearText}>Tout effacer</Text>
+                    </TouchableOpacity>
+                  )}
                 </View>
                 {grouped.map(([date, records]) => {
                   const totalWorkers = records.reduce((a, r) => a + r.workers, 0);
@@ -419,114 +423,52 @@ export default function SettingsScreen() {
                 </Text>
               </View>
             ) : (<>
+            {(subscription?.status === 'suspended' || subscription?.status === 'expired') && (
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: '#FEF2F2', borderRadius: 12, padding: 14, borderWidth: 1, borderColor: '#FCA5A5', marginBottom: 12 }}>
+                <Ionicons name={subscription.status === 'expired' ? 'time-outline' : 'pause-circle-outline'} size={20} color="#EF4444" />
+                <Text style={{ flex: 1, fontSize: 13, fontFamily: 'Inter_400Regular', color: '#EF4444', lineHeight: 18 }}>
+                  {subscription.status === 'expired'
+                    ? 'Votre abonnement a expiré. Renouvelez-le pour configurer les intégrations.'
+                    : 'Votre abonnement est suspendu. Contactez le support pour le réactiver.'}
+                </Text>
+              </View>
+            )}
             <View style={styles.integroBanner}>
               <Ionicons name="apps" size={28} color={C.primary} />
               <View style={{ flex: 1 }}>
                 <Text style={styles.introBannerTitle}>Écosystème BTP</Text>
-                <Text style={styles.introBannerSub}>Connectez BuildTrack à vos outils métier</Text>
+                <Text style={styles.introBannerSub}>10 intégrations disponibles — Procore, Revit, Kizeo, Météo-France…</Text>
               </View>
             </View>
-
             {[
-              {
-                cat: 'Gestion documentaire',
-                icon: 'folder-open-outline',
-                color: '#3B82F6',
-                items: [
-                  { id: 'bimtrack', name: 'BIM Track', desc: 'Synchronisation des revues BIM et des issues', badge: 'BIM' },
-                  { id: 'autodesk', name: 'Autodesk Docs', desc: 'Import de plans et maquettes Revit/AutoCAD', badge: 'CAO' },
-                  { id: 'procore', name: 'Procore', desc: 'Partage des réserves et rapports chantier', badge: 'GC' },
-                ],
-              },
-              {
-                cat: 'Planning & ressources',
-                icon: 'calendar-outline',
-                color: '#10B981',
-                items: [
-                  { id: 'ms_project', name: 'MS Project', desc: 'Import du planning Gantt et jalons', badge: 'Planning' },
-                  { id: 'primavera', name: 'Primavera P6', desc: 'Synchronisation des WBS et activités', badge: 'Planning' },
-                  { id: 'batigest', name: 'Batigest', desc: 'Suivi des heures et de la main-d\'œuvre', badge: 'RH' },
-                ],
-              },
-              {
-                cat: 'Comptabilité & devis',
-                icon: 'receipt-outline',
-                color: '#F59E0B',
-                items: [
-                  { id: 'sage', name: 'Sage 50 Bâtiment', desc: 'Synchronisation des devis et factures', badge: 'Compta' },
-                  { id: 'batiprix', name: 'Batiprix', desc: 'Import des prix unitaires CSTB', badge: 'CSTB' },
-                  { id: 'chorus', name: 'Chorus Pro', desc: 'Dépôt des factures marchés publics', badge: 'Marché' },
-                ],
-              },
-              {
-                cat: 'Contrôle technique & réglementaire',
-                icon: 'shield-checkmark-outline',
-                color: '#8B5CF6',
-                items: [
-                  { id: 'veritas', name: 'Bureau Veritas', desc: 'Import des rapports de contrôle technique', badge: 'CT' },
-                  { id: 'socotec', name: 'Socotec', desc: 'Synchronisation des avis et observations', badge: 'CT' },
-                  { id: 'apave', name: 'Apave', desc: 'Gestion des vérifications réglementaires', badge: 'Réglementaire' },
-                ],
-              },
-            ].map(section => (
-              <View key={section.cat} style={styles.integroSection}>
-                <View style={styles.integroSectionHeader}>
-                  <View style={[styles.integroSectionIcon, { backgroundColor: section.color + '18' }]}>
-                    <Ionicons name={section.icon as any} size={14} color={section.color} />
-                  </View>
-                  <Text style={styles.integroSectionTitle}>{section.cat}</Text>
+              { icon: 'construct-outline',        label: 'Gestion de projet',              desc: 'Procore',               color: C.primary },
+              { icon: 'cube-outline',             label: 'BIM / CAO',                     desc: 'ArchiCAD, Autodesk Revit', color: '#7C3AED' },
+              { icon: 'document-text-outline',    label: 'Documents réglementaires',      desc: 'e-Diffusion BTP',       color: '#0891B2' },
+              { icon: 'location-outline',         label: 'Géolocalisation',               desc: 'Géosat GPS',            color: '#059669' },
+              { icon: 'receipt-outline',          label: 'Formulaires terrain',           desc: 'Kizeo Forms',           color: C.inProgress },
+              { icon: 'cloud-outline',            label: 'GED & Signature',               desc: 'DocuWare, Signaturit',  color: '#BE185D' },
+              { icon: 'partly-sunny-outline',     label: 'Météo & RH',                    desc: 'Météo-France, URSSAF',  color: '#F59E0B' },
+            ].map(item => (
+              <View key={item.label} style={[styles.integroCard, { marginBottom: 8 }]}>
+                <View style={[styles.integroSectionIcon, { backgroundColor: item.color + '18', marginRight: 10 }]}>
+                  <Ionicons name={item.icon as any} size={14} color={item.color} />
                 </View>
-                {section.items.map(item => {
-                  const enabled = integrationStates[item.id] ?? false;
-                  return (
-                    <View key={item.id} style={styles.integroCard}>
-                      <View style={styles.integroCardLeft}>
-                        <View style={[styles.integroBadge, { backgroundColor: section.color + '18' }]}>
-                          <Text style={[styles.integroBadgeText, { color: section.color }]}>{item.badge}</Text>
-                        </View>
-                        <View style={{ flex: 1 }}>
-                          <Text style={styles.integroName}>{item.name}</Text>
-                          <Text style={styles.integroDesc} numberOfLines={2}>{item.desc}</Text>
-                        </View>
-                      </View>
-                      <TouchableOpacity
-                        style={[styles.integroToggle, enabled && { backgroundColor: section.color + '18', borderColor: section.color }]}
-                        onPress={() => {
-                          if (enabled) {
-                            Alert.alert('Déconnecter', `Déconnecter ${item.name} ?`, [
-                              { text: 'Annuler', style: 'cancel' },
-                              { text: 'Déconnecter', style: 'destructive', onPress: () => setIntegrationStates(s => ({ ...s, [item.id]: false })) },
-                            ]);
-                          } else {
-                            Alert.alert(`Connecter ${item.name}`, `L'intégration avec ${item.name} sera activée. Un compte ${item.name} est requis.`, [
-                              { text: 'Annuler', style: 'cancel' },
-                              { text: 'Connecter', onPress: () => setIntegrationStates(s => ({ ...s, [item.id]: true })) },
-                            ]);
-                          }
-                        }}
-                      >
-                        <Ionicons
-                          name={enabled ? 'checkmark-circle' : 'add-circle-outline'}
-                          size={15}
-                          color={enabled ? section.color : C.textMuted}
-                        />
-                        <Text style={[styles.integroToggleText, enabled && { color: section.color }]}>
-                          {enabled ? 'Connecté' : 'Connecter'}
-                        </Text>
-                      </TouchableOpacity>
-                    </View>
-                  );
-                })}
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.integroName}>{item.label}</Text>
+                  <Text style={styles.integroDesc}>{item.desc}</Text>
+                </View>
               </View>
             ))}
-
-            <View style={styles.integroFooter}>
-              <Ionicons name="lock-closed-outline" size={14} color={C.textMuted} />
-              <Text style={styles.integroFooterText}>
-                Toutes les intégrations utilisent OAuth 2.0 ou des jetons API sécurisés. Vos données restent sur vos serveurs.
-              </Text>
-            </View>
+            <TouchableOpacity
+              style={[styles.saveBtn, { marginTop: 8 }]}
+              onPress={() => router.push('/integrations')}
+            >
+              <Ionicons name="apps-outline" size={18} color="#fff" />
+              <Text style={styles.saveBtnText}>Gérer les intégrations</Text>
+            </TouchableOpacity>
             <View style={{ height: 40 }} />
+            </>
+            )}
           </View>
         )}
       </ScrollView>
