@@ -5,6 +5,7 @@ import {
   ActivityIndicator, Alert, TextInput, useWindowDimensions,
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import * as Haptics from 'expo-haptics';
 import * as Print from 'expo-print';
 import { TABLET_RESERVE_PANEL_W } from '@/lib/useTablet';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -371,16 +372,18 @@ export default function PlansScreen() {
   }
 
   function changePinSize(delta: number) {
-    if (focusedPinId) {
+    // Use ref to always read the latest focusedPinId — avoids stale closure when called immediately after long-press
+    const pinId = focusedPinIdRef.current;
+    if (pinId) {
       setPinSizes(prev => {
-        const current = prev[focusedPinId] ?? 1.0;
+        const current = prev[pinId] ?? 1.0;
         const next = Math.min(3.0, Math.max(0.4, parseFloat((current + delta).toFixed(2))));
-        const updated = { ...prev, [focusedPinId]: next };
+        const updated = { ...prev, [pinId]: next };
         AsyncStorage.setItem(PIN_SIZES_KEY, JSON.stringify(updated));
         return updated;
       });
       if (focusedPinTimerRef.current) clearTimeout(focusedPinTimerRef.current);
-      focusedPinTimerRef.current = setTimeout(() => setFocusedPinId(null), 4000);
+      focusedPinTimerRef.current = setTimeout(() => setFocusedPinIdRef.current(null), 5000);
     } else {
       setPinSizeScale(prev => {
         const next = Math.min(2.5, Math.max(0.5, parseFloat((prev + delta).toFixed(2))));
@@ -495,10 +498,13 @@ export default function PlansScreen() {
   const setFocusedPinIdRef = useRef(setFocusedPinId);
   const setPinSizesRef = useRef(setPinSizes);
   const pinSizesRef = useRef(pinSizes);
+  // Always-current mirror of focusedPinId state — used inside callbacks to avoid stale closures
+  const focusedPinIdRef = useRef<string | null>(null);
 
   React.useEffect(() => { reservesRef.current = reserves; }, [reserves]);
   React.useEffect(() => { updateReserveFieldsRef.current = updateReserveFields; }, [updateReserveFields]);
   React.useEffect(() => { pinSizesRef.current = pinSizes; }, [pinSizes]);
+  React.useEffect(() => { focusedPinIdRef.current = focusedPinId; }, [focusedPinId]);
 
   // Auto-load DXF when plan has fileType=dxf and is not yet parsed in memory
   React.useEffect(() => {
@@ -628,6 +634,20 @@ export default function PlansScreen() {
         committedTY.current = committedTY.current + gs.dy;
         setTimeout(() => { isDraggingRef.current = false; }, 50);
       },
+      // System cancelled the gesture (incoming call, notification, etc.) — always clean up
+      onPanResponderTerminate: () => {
+        if (draggingPinIdRef.current) {
+          draggingPinIdRef.current = null;
+          draggingPinPosRef.current = null;
+          draggingPinMovedRef.current = false;
+          setDraggingPinStateRef.current(null);
+          suppressPlanTapUntilRef.current = 0;
+        }
+        isPinchingRef.current = false;
+        pinchStartDistRef.current = 0;
+        isDraggingRef.current = false;
+      },
+      onPanResponderTerminationRequest: () => true,
     })
   ).current;
 
@@ -1087,21 +1107,32 @@ export default function PlansScreen() {
                     #{pinNumberMap.get(focusedPinId) ?? '?'}
                   </Text>
                 )}
-                <TouchableOpacity
-                  style={[styles.pinSizeBtn, !focusedPinId && pinSizeScale <= 0.5 && { opacity: 0.35 }]}
-                  onPress={() => changePinSize(-0.25)}
-                  accessibilityLabel={focusedPinId ? 'Réduire cette pastille' : 'Réduire les pastilles'}
-                >
-                  <Ionicons name="remove-circle-outline" size={18} color={focusedPinId ? '#FBBF24' : C.textSub} />
-                </TouchableOpacity>
-                <Ionicons name="ellipse" size={9} color={focusedPinId ? '#FBBF24' : C.primary} />
-                <TouchableOpacity
-                  style={[styles.pinSizeBtn, !focusedPinId && pinSizeScale >= 2.5 && { opacity: 0.35 }]}
-                  onPress={() => changePinSize(0.25)}
-                  accessibilityLabel={focusedPinId ? 'Agrandir cette pastille' : 'Agrandir les pastilles'}
-                >
-                  <Ionicons name="add-circle-outline" size={18} color={focusedPinId ? '#FBBF24' : C.textSub} />
-                </TouchableOpacity>
+                {(() => {
+                  const indivScale = focusedPinId ? (pinSizes[focusedPinId] ?? 1.0) : null;
+                  const minusDisabled = focusedPinId ? (indivScale! <= 0.4) : pinSizeScale <= 0.5;
+                  const plusDisabled  = focusedPinId ? (indivScale! >= 3.0) : pinSizeScale >= 2.5;
+                  return (
+                    <>
+                      <TouchableOpacity
+                        style={[styles.pinSizeBtn, minusDisabled && { opacity: 0.35 }]}
+                        onPress={() => changePinSize(-0.25)}
+                        disabled={minusDisabled}
+                        accessibilityLabel={focusedPinId ? 'Réduire cette pastille' : 'Réduire les pastilles'}
+                      >
+                        <Ionicons name="remove-circle-outline" size={18} color={focusedPinId ? '#FBBF24' : C.textSub} />
+                      </TouchableOpacity>
+                      <Ionicons name="ellipse" size={9} color={focusedPinId ? '#FBBF24' : C.primary} />
+                      <TouchableOpacity
+                        style={[styles.pinSizeBtn, plusDisabled && { opacity: 0.35 }]}
+                        onPress={() => changePinSize(0.25)}
+                        disabled={plusDisabled}
+                        accessibilityLabel={focusedPinId ? 'Agrandir cette pastille' : 'Agrandir les pastilles'}
+                      >
+                        <Ionicons name="add-circle-outline" size={18} color={focusedPinId ? '#FBBF24' : C.textSub} />
+                      </TouchableOpacity>
+                    </>
+                  );
+                })()}
               </View>
               {currentPlan?.uri && permissions.canCreate && (
                 <TouchableOpacity style={styles.removePlanBtn} onPress={handleRemovePlan} accessibilityLabel="Remplacer le plan">
@@ -1282,6 +1313,10 @@ export default function PlansScreen() {
                             suppressNextPlanTapRef.current = true;
                             // Block plan tap for 1.2s so Android double touch-end doesn't clear focus
                             suppressPlanTapUntilRef.current = Date.now() + 1200;
+                            // Haptic confirmation that drag/focus mode is active
+                            if (Platform.OS !== 'web') {
+                              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
+                            }
                             // Immediately focus pin so +/− buttons work right away
                             setFocusedPinIdRef.current(pinId);
                             if (focusedPinTimerRef.current) clearTimeout(focusedPinTimerRef.current);
