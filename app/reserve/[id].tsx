@@ -5,7 +5,7 @@ import {
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
-import { useState, useMemo, useRef } from 'react';
+import { useState, useMemo, useRef, useCallback } from 'react';
 import * as ImagePicker from 'expo-image-picker';
 import { C } from '@/constants/colors';
 import { useApp } from '@/context/AppContext';
@@ -21,6 +21,7 @@ import {
   svgStringToDataUrl,
   preRenderPdfPageToDataUrl,
 } from '@/lib/pdfBase';
+import PdfPlanViewer, { type PdfPlanViewerHandle } from '@/components/PdfPlanViewer';
 import StatusBadge, { STATUS_CONFIG } from '@/components/StatusBadge';
 import PriorityBadge from '@/components/PriorityBadge';
 import Header from '@/components/Header';
@@ -414,6 +415,37 @@ export default function ReserveDetailScreen() {
   const [rejectReason, setRejectReason] = useState('');
   const [signingForCompany, setSigningForCompany] = useState<string | null>(null);
 
+  const planViewerRef = useRef<PdfPlanViewerHandle>(null);
+  const captureResolveRef = useRef<((url: string | null) => void) | null>(null);
+  const [captureViewerUri, setCaptureViewerUri] = useState<string | null>(null);
+  const [captureViewerIsImage, setCaptureViewerIsImage] = useState(false);
+
+  const onCaptureViewerReady = useCallback(() => {
+    const resolve = captureResolveRef.current;
+    if (!resolve) return;
+    captureResolveRef.current = null;
+    setTimeout(async () => {
+      const url = await planViewerRef.current?.captureImageDataUrl() ?? null;
+      resolve(url);
+      setCaptureViewerUri(null);
+    }, 400);
+  }, []);
+
+  function captureHiddenPlan(uri: string, fileType: 'pdf' | 'image' | 'dxf' | undefined): Promise<string | null> {
+    return new Promise((resolve) => {
+      captureResolveRef.current = resolve;
+      setCaptureViewerIsImage(fileType !== 'pdf');
+      setCaptureViewerUri(uri);
+      setTimeout(() => {
+        if (captureResolveRef.current) {
+          captureResolveRef.current(null);
+          captureResolveRef.current = null;
+          setCaptureViewerUri(null);
+        }
+      }, 15000);
+    });
+  }
+
   const reserve = reserves.find(r => r.id === id);
 
   const [editTitle, setEditTitle] = useState('');
@@ -697,13 +729,19 @@ export default function ReserveDetailScreen() {
           // (file:// URIs are blocked in the WebView sandbox on mobile).
           const resolvedPlanUri = await loadFileAsDataUrl(matchedPlan.uri, matchedPlan.fileType);
 
-          // For PDF plans: pre-render the first page to a JPEG data URL in the app
-          // context (web only). This avoids the async timing bug where the WebView
-          // captures the page before pdfjs finishes rendering → black rectangle.
+          // For PDF plans: pre-render first page as JPEG so Print.printAsync
+          // gets a static <img> — avoids CDN PDF.js timing / sandbox issues.
+          // On web: PDF.js runs in the DOM context. On native: capture the
+          // already-rendered PdfPlanViewer canvas via a hidden viewer.
           let preRenderedDataUrl: string | undefined;
           if (matchedPlan.fileType === 'pdf') {
-            const rendered = await preRenderPdfPageToDataUrl(resolvedPlanUri, 520);
-            if (rendered) preRenderedDataUrl = rendered;
+            if (Platform.OS === 'web') {
+              const rendered = await preRenderPdfPageToDataUrl(resolvedPlanUri, 520);
+              if (rendered) preRenderedDataUrl = rendered;
+            } else {
+              const captured = await captureHiddenPlan(resolvedPlanUri, 'pdf');
+              if (captured) preRenderedDataUrl = captured;
+            }
           }
 
           planData = {
@@ -856,6 +894,28 @@ export default function ReserveDetailScreen() {
 
   return (
     <View style={styles.container}>
+      {captureViewerUri ? (
+        <View
+          style={{ position: 'absolute', width: 300, height: 300, opacity: 0, zIndex: -10, pointerEvents: 'none' }}
+        >
+          <PdfPlanViewer
+            ref={planViewerRef}
+            planUri={captureViewerUri}
+            planId="__capture__"
+            isImagePlan={captureViewerIsImage}
+            annotations={[]}
+            onAnnotationsChange={() => {}}
+            reserves={[]}
+            pinNumberMap={new Map()}
+            onReserveSelect={() => {}}
+            onPlanTap={() => {}}
+            canAnnotate={false}
+            canCreate={false}
+            onZoomChange={() => {}}
+            onReady={onCaptureViewerReady}
+          />
+        </View>
+      ) : null}
       <Header
         title={reserve.id}
         subtitle={reserve.title}

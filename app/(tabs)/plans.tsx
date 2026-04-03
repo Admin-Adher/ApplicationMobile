@@ -153,6 +153,7 @@ async function exportPlanPDF(
   fileType?: 'pdf' | 'image' | 'dxf' | null,
   pinSizeScale: number = 1.0,
   companiesForColor: Array<{ name: string; color: string }> = [],
+  captureRef?: React.RefObject<PdfPlanViewerHandle> | null,
 ) {
   const STATUS_FR: Record<string, string> = {
     open: 'Ouvert', in_progress: 'En cours', waiting: 'En attente',
@@ -202,12 +203,17 @@ async function exportPlanPDF(
   const PIN_R = Math.max(5, Math.round(10 * pinSizeScale));
   const PIN_FONT = Math.max(7, Math.round(9 * pinSizeScale));
 
-  // ── Pre-render PDF page to JPEG data URL (web only) ──────────────────────
-  // This avoids the async timing problem: Print.printAsync captures the page
-  // before canvas+pdfjs scripts finish rendering, leaving a black rectangle.
+  // ── Pre-render PDF page to JPEG data URL ─────────────────────────────────
+  // On web: use PDF.js directly (has DOM access). On native: capture the
+  // already-rendered WebView canvas via captureRef — avoids CDN PDF.js call
+  // which is blocked in Print.printAsync's sandboxed WebView (→ dark rectangle).
   let preRenderedPdfDataUrl: string | null = null;
   if (hasPlan && isPdf && exportUri) {
-    preRenderedPdfDataUrl = await preRenderPdfPageToDataUrl(exportUri, RENDER_W);
+    if (Platform.OS === 'web') {
+      preRenderedPdfDataUrl = await preRenderPdfPageToDataUrl(exportUri, RENDER_W);
+    } else if (captureRef?.current) {
+      preRenderedPdfDataUrl = await captureRef.current.captureImageDataUrl();
+    }
   }
 
   // ── Build plan image section HTML ─────────────────────────────────────────
@@ -1522,7 +1528,7 @@ export default function PlansScreen() {
                   <View style={styles.tabletPanelHdr}>
                     <Ionicons name="list-outline" size={14} color={C.primary} />
                     <Text style={styles.tabletPanelTitle}>{planReserves.length > 0 ? `${planReserves.length} réserve${planReserves.length > 1 ? 's' : ''}` : 'Réserves'}</Text>
-                    <TouchableOpacity style={styles.exportBtn} onPress={() => exportPlanPDF(currentPlan?.name ?? 'Plan', activeChantier?.name ?? '', planReserves, pinNumberMap, currentPlan?.uri ?? null, currentPlan?.fileType ?? null, pinSizeScale, companies)} accessibilityLabel="Exporter en PDF">
+                    <TouchableOpacity style={styles.exportBtn} onPress={() => exportPlanPDF(currentPlan?.name ?? 'Plan', activeChantier?.name ?? '', planReserves, pinNumberMap, currentPlan?.uri ?? null, currentPlan?.fileType ?? null, pinSizeScale, companies, pdfViewerRef)} accessibilityLabel="Exporter en PDF">
                       <Ionicons name="document-text-outline" size={13} color={C.primary} />
                       <Text style={styles.exportBtnText}>PDF</Text>
                     </TouchableOpacity>
@@ -1581,7 +1587,7 @@ export default function PlansScreen() {
           searchQuery={searchQuery}
           onSearchChange={setSearchQuery}
           onReservePress={(r) => { setSelected(r); }}
-          onExport={() => exportPlanPDF(currentPlan?.name ?? 'Plan', activeChantier?.name ?? '', planReserves, pinNumberMap, currentPlan?.uri ?? null, currentPlan?.fileType ?? null, pinSizeScale, companies)}
+          onExport={() => exportPlanPDF(currentPlan?.name ?? 'Plan', activeChantier?.name ?? '', planReserves, pinNumberMap, currentPlan?.uri ?? null, currentPlan?.fileType ?? null, pinSizeScale, companies, pdfViewerRef)}
           canCreate={permissions.canCreate}
           currentPlan={currentPlan}
           activeChantierId={activeChantierId}

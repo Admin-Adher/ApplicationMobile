@@ -52,12 +52,14 @@ export interface PdfPlanViewerProps {
   pinSize?: number;
   onZoomChange?: (zoom: number) => void;
   isImagePlan?: boolean;
+  onReady?: () => void;
 }
 
 export interface PdfPlanViewerHandle {
   zoomIn(): void;
   zoomOut(): void;
   resetView(): void;
+  captureImageDataUrl(): Promise<string | null>;
 }
 
 function cloudPath(x1: number, y1: number, x2: number, y2: number): string {
@@ -550,6 +552,7 @@ if(IS_IMAGE){
     renderPins();
     loading.style.display='none';
     container.style.display='block';
+    post({type:'planReady'});
   };
   img.onerror=function(){
     loading.style.display='none';
@@ -564,6 +567,7 @@ if(IS_IMAGE){
   }).then(function(){
     loading.style.display='none';
     container.style.display='block';
+    post({type:'planReady'});
   }).catch(function(){
     loading.style.display='none';
     errMsg.style.display='flex';
@@ -743,6 +747,10 @@ window.resetView=function(){
   panY=Math.max(0,(window.innerHeight-ch)/2);
   applyT();post({type:'zoomChange',zoom:zoom});
 };
+window.captureCanvas=function(){
+  try{var d=pdfCanvas.toDataURL('image/jpeg',0.85);post({type:'canvasCapture',dataUrl:d});}
+  catch(e){post({type:'canvasCapture',dataUrl:null});}
+};
 })();
 </script>
 </body></html>`;
@@ -752,10 +760,11 @@ const MobileViewer = forwardRef<PdfPlanViewerHandle, PdfPlanViewerProps>(functio
   planUri, planId, annotations, onAnnotationsChange,
   reserves, ghostReserves = [], pinNumberMap, pinSizes = {}, focusedPinId,
   onReserveSelect, onPlanTap, onPinMove, onPinFocus,
-  canAnnotate, canCreate, pinSize = 22, onZoomChange, isImagePlan = false,
+  canAnnotate, canCreate, pinSize = 22, onZoomChange, isImagePlan = false, onReady,
 }, ref) {
   const WebView = require('react-native-webview').default;
   const webViewRef = useRef<any>(null);
+  const captureResolveRef = useRef<((url: string | null) => void) | null>(null);
 
   const isLocalUri = planUri.startsWith('file://') || planUri.startsWith('content://');
   const [resolvedUri, setResolvedUri] = useState<string>(isLocalUri ? '' : planUri);
@@ -817,6 +826,16 @@ const MobileViewer = forwardRef<PdfPlanViewerHandle, PdfPlanViewerProps>(functio
     zoomIn:    () => inject('window.zoomIn && window.zoomIn();'),
     zoomOut:   () => inject('window.zoomOut && window.zoomOut();'),
     resetView: () => inject('window.resetView && window.resetView();'),
+    captureImageDataUrl: () => new Promise<string | null>((resolve) => {
+      captureResolveRef.current = resolve;
+      inject('window.captureCanvas && window.captureCanvas();');
+      setTimeout(() => {
+        if (captureResolveRef.current) {
+          captureResolveRef.current(null);
+          captureResolveRef.current = null;
+        }
+      }, 8000);
+    }),
   }), [inject]);
 
   useEffect(() => {
@@ -867,11 +886,18 @@ const MobileViewer = forwardRef<PdfPlanViewerHandle, PdfPlanViewerProps>(functio
       } else if (msg.type === 'pageCount') {
         setPageCount(msg.count);
         setPage(1);
+      } else if (msg.type === 'planReady') {
+        onReady?.();
+      } else if (msg.type === 'canvasCapture') {
+        if (captureResolveRef.current) {
+          captureResolveRef.current(msg.dataUrl ?? null);
+          captureResolveRef.current = null;
+        }
       } else if (msg.type === 'zoomChange') {
         onZoomChange?.(msg.zoom);
       }
     } catch {}
-  }, [reserves, onPlanTap, onReserveSelect, onAnnotationsChange, onZoomChange, onPinMove, onPinFocus]);
+  }, [reserves, onPlanTap, onReserveSelect, onAnnotationsChange, onZoomChange, onPinMove, onPinFocus, onReady]);
 
   const html = resolvedUri
     ? buildMobileHtml(resolvedUri, annotations ?? [], reserves, pinNumberMap, canAnnotate, canCreate, pinSize, isImagePlan, ghostReserves, pinSizes)
@@ -1070,7 +1096,7 @@ const mob = StyleSheet.create({
   widthSample: { width: 50, borderRadius: 3 },
 });
 
-const WebViewer = forwardRef<PdfPlanViewerHandle, PdfPlanViewerProps>(function WebViewerInner({ planUri, planId, annotations, onAnnotationsChange, reserves, ghostReserves = [], pinNumberMap, pinSizes = {}, focusedPinId, onReserveSelect, onPlanTap, onPinMove, onPinFocus, canAnnotate, canCreate, pinSize = 22, onZoomChange, isImagePlan = false }, ref) {
+const WebViewer = forwardRef<PdfPlanViewerHandle, PdfPlanViewerProps>(function WebViewerInner({ planUri, planId, annotations, onAnnotationsChange, reserves, ghostReserves = [], pinNumberMap, pinSizes = {}, focusedPinId, onReserveSelect, onPlanTap, onPinMove, onPinFocus, canAnnotate, canCreate, pinSize = 22, onZoomChange, isImagePlan = false, onReady }, ref) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const innerRef = useRef<HTMLDivElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -1176,6 +1202,7 @@ const WebViewer = forwardRef<PdfPlanViewerHandle, PdfPlanViewerProps>(function W
           applyT();
         }
         setLoading(false);
+        onReady?.();
       };
       img.onerror = () => { if (!dead) { setError("Impossible de charger l'image."); setLoading(false); } };
       img.src = planUri;
@@ -1237,6 +1264,7 @@ const WebViewer = forwardRef<PdfPlanViewerHandle, PdfPlanViewerProps>(function W
             panYRef.current = Math.max(0, (cRect.height - newH) / 2);
             applyT();
           }
+          onReady?.();
         }
       } catch (e: any) {
         if (!dead && e?.name !== 'RenderingCancelledException') setError('Erreur de rendu.');
@@ -1510,6 +1538,15 @@ const WebViewer = forwardRef<PdfPlanViewerHandle, PdfPlanViewerProps>(function W
     zoomIn:    () => doZoom(1.3),
     zoomOut:   () => doZoom(1 / 1.3),
     resetView: () => resetView(),
+    captureImageDataUrl: () => {
+      try {
+        const canvas = canvasRef.current;
+        if (!canvas) return Promise.resolve(null);
+        return Promise.resolve(canvas.toDataURL('image/jpeg', 0.85));
+      } catch {
+        return Promise.resolve(null);
+      }
+    },
   }));
 
   function undo() {
