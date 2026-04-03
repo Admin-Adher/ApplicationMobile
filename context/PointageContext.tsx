@@ -129,23 +129,31 @@ export function PointageProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const updateEntry = useCallback(async (id: string, updates: Partial<TimeEntry>) => {
+    const previous = entriesRef.current.find(e => e.id === id);
     const updated = entriesRef.current.map(e => e.id === id ? { ...e, ...updates } : e);
     await persistLocal(updated);
     if (isSupabaseConfigured) {
       const full = updated.find(e => e.id === id);
       if (full) {
         supabase.from('time_entries').update(fromEntry(full)).eq('id', id).then(({ error }: { error: any }) => {
-          if (error) console.warn('Erreur mise à jour pointage:', error.message);
+          if (error) {
+            if (previous) persistLocal(entriesRef.current.map(e => e.id === id ? previous : e));
+            Alert.alert('Erreur de sauvegarde', "La modification du pointage n'a pas pu être enregistrée sur le serveur.");
+          }
         });
       }
     }
   }, []);
 
   const deleteEntry = useCallback(async (id: string) => {
+    const previous = entriesRef.current.find(e => e.id === id);
     await persistLocal(entriesRef.current.filter(e => e.id !== id));
     if (isSupabaseConfigured) {
       supabase.from('time_entries').delete().eq('id', id).then(({ error }: { error: any }) => {
-        if (error) console.warn('Erreur suppression pointage:', error.message);
+        if (error) {
+          if (previous) persistLocal([...entriesRef.current, previous]);
+          Alert.alert('Erreur de suppression', "Le pointage n'a pas pu être supprimé du serveur.");
+        }
       });
     }
   }, []);

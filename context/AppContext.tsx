@@ -1011,6 +1011,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       const so = await AsyncStorage.getItem(MOCK_OPRS_KEY);
       if (so) { const p = JSON.parse(so); if (Array.isArray(p)) oprs = p; }
     } catch {}
+    let documents: Document[] = MOCK_DOCUMENTS;
+    try {
+      const sd = await AsyncStorage.getItem('buildtrack_mock_documents_v1');
+      if (sd) { const p = JSON.parse(sd); if (Array.isArray(p) && p.length > 0) documents = p; }
+    } catch {}
 
     dispatch({
       type: 'INIT',
@@ -1018,7 +1023,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         reserves,
         companies: MOCK_COMPANIES,
         tasks,
-        documents: MOCK_DOCUMENTS,
+        documents,
         photos,
         messages,
         profiles: MOCK_PROFILES,
@@ -1058,6 +1063,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }
   function persistMockOprs(oprs: Opr[]) {
     AsyncStorage.setItem(MOCK_OPRS_KEY, JSON.stringify(oprs)).catch(() => {});
+  }
+
+  function persistMockDocuments(documents: Document[]) {
+    AsyncStorage.setItem('buildtrack_mock_documents_v1', JSON.stringify(documents)).catch(() => {});
   }
 
   async function loadAll() {
@@ -2332,6 +2341,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     },
 
     addDocument: (d) => {
+      const newDocuments = [d, ...stateRef.current.documents];
       dispatch({ type: 'ADD_DOCUMENT', payload: d });
       if (isSupabaseConfigured) {
         supabase.from('documents').insert({
@@ -2343,11 +2353,14 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
             Alert.alert('Erreur de sauvegarde', "Le document n'a pas pu être enregistré sur le serveur.");
           }
         });
+      } else {
+        persistMockDocuments(newDocuments);
       }
     },
 
     deleteDocument: (id) => {
       const previous = stateRef.current.documents.find(d => d.id === id);
+      const newDocuments = stateRef.current.documents.filter(d => d.id !== id);
       dispatch({ type: 'DELETE_DOCUMENT', payload: id });
       if (isSupabaseConfigured) {
         supabase.from('documents').delete().eq('id', id).then(({ error }: { error: any }) => {
@@ -2356,6 +2369,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
             Alert.alert('Erreur de suppression', "Le document n'a pas pu être supprimé.");
           }
         });
+      } else {
+        persistMockDocuments(newDocuments);
       }
     },
 
@@ -2423,7 +2438,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       persistMockVisites(newVisites);
       if (isSupabaseConfigured) {
         supabase.from('visites').update({ reserve_ids: updated.reserveIds }).eq('id', visiteId).then(({ error }: { error: any }) => {
-          if (error) console.warn('Erreur liaison réserve/visite:', error.message);
+          if (error) {
+            dispatch({ type: 'UPDATE_VISITE', payload: visite });
+            persistMockVisites(stateRef.current.visites.map(x => x.id === visiteId ? visite : x));
+            Alert.alert('Erreur de sauvegarde', "La liaison réserve/visite n'a pas pu être enregistrée sur le serveur.");
+          }
         });
       }
     },
@@ -2589,6 +2608,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         r => r.planId === fromPlanId && r.status !== 'closed'
       );
       if (toMigrate.length === 0) return 0;
+      const previousReserves = stateRef.current.reserves;
       const migrated = toMigrate.map(r => ({ ...r, planId: toPlanId }));
       const allUpdated = stateRef.current.reserves.map(r => {
         const m = migrated.find(x => x.id === r.id);
@@ -2600,7 +2620,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           supabase.from('reserves').update({ plan_id: toPlanId }).eq('id', r.id)
         )).then(results => {
           const hasError = results.some(({ error }: { error: any }) => error);
-          if (hasError) console.warn('Erreur migration réserves vers nouveau plan');
+          if (hasError) {
+            dispatch({ type: 'BATCH_UPDATE_RESERVES', payload: previousReserves.filter(r => toMigrate.find(m => m.id === r.id)) });
+            Alert.alert('Erreur de migration', "Certaines réserves n'ont pas pu être migrées vers le nouveau plan. Veuillez réessayer.");
+          }
         });
       } else {
         persistMockReserves(allUpdated);

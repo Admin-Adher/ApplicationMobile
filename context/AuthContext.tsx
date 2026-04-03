@@ -1,4 +1,5 @@
 import React, { createContext, useContext, useEffect, useRef, useState } from 'react';
+import { Alert } from 'react-native';
 import { supabase, isSupabaseConfigured } from '@/lib/supabase';
 import { User, UserRole } from '@/constants/types';
 import { ROLE_LABELS } from '@/constants/roles';
@@ -357,10 +358,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   async function updateUserRole(userId: string, newRole: UserRole): Promise<void> {
     const newLabel = ROLE_LABELS[newRole];
     if (isSupabaseConfigured) {
-      await supabase.from('profiles').update({
+      const { error } = await supabase.from('profiles').update({
         role: newRole,
         role_label: newLabel,
       }).eq('id', userId);
+      if (error) {
+        Alert.alert('Erreur', "Le rôle n'a pas pu être modifié. Vérifiez vos permissions.");
+        return;
+      }
     }
     setUsers(prev => prev.map(u =>
       u.id === userId ? { ...u, role: newRole, roleLabel: newLabel } : u
@@ -369,7 +374,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   async function deleteUserProfile(userId: string): Promise<void> {
     if (isSupabaseConfigured) {
-      await supabase.from('profiles').delete().eq('id', userId);
+      const { error } = await supabase.from('profiles').delete().eq('id', userId);
+      if (error) {
+        Alert.alert('Erreur', "Le profil n'a pas pu être supprimé. Vérifiez vos permissions.");
+        return;
+      }
     }
     setUsers(prev => prev.filter(u => u.id !== userId));
   }

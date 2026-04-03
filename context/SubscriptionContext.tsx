@@ -1,4 +1,5 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
+import { Alert } from 'react-native';
 import { supabase, isSupabaseConfigured } from '@/lib/supabase';
 import { useAuth } from '@/context/AuthContext';
 import { Organization, Plan, Subscription, Invitation, UserRole, User } from '@/constants/types';
@@ -356,7 +357,11 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
 
   async function cancelInvitation(id: string): Promise<void> {
     if (isSupabaseConfigured) {
-      await supabase.from('invitations').delete().eq('id', id);
+      const { error } = await supabase.from('invitations').delete().eq('id', id);
+      if (error) {
+        Alert.alert('Erreur', "L'invitation n'a pas pu être annulée. Veuillez réessayer.");
+        return;
+      }
     }
     setPendingInvitations(prev => prev.filter(i => i.id !== id));
   }
