@@ -39,6 +39,7 @@ export interface PdfPlanViewerProps {
   annotations?: PlanDrawing[];
   onAnnotationsChange: (drawings: PlanDrawing[]) => void;
   reserves: Reserve[];
+  ghostReserves?: Reserve[];
   pinNumberMap: Map<string, number>;
   onReserveSelect: (reserve: Reserve) => void;
   onPlanTap: (planX: number, planY: number) => void;
@@ -151,6 +152,7 @@ function buildMobileHtml(
   canCreate: boolean,
   pinSize: number = 22,
   isImagePlan: boolean = false,
+  ghostReserves: Reserve[] = [],
 ): string {
   const pinsData = reserves
     .filter(r => r.planX != null && r.planY != null)
@@ -162,8 +164,18 @@ function buildMobileHtml(
       num: pinMap.get(r.id) ?? '?',
     }));
 
+  const ghostPinsData = ghostReserves
+    .filter(r => r.planX != null && r.planY != null)
+    .map(r => ({
+      planX: r.planX,
+      planY: r.planY,
+      color: STATUS_COLORS[r.status] ?? '#003082',
+      num: pinMap.get(r.id) ?? '?',
+    }));
+
   const safeAnns = JSON.stringify(annotations ?? []);
   const safePins = JSON.stringify(pinsData);
+  const safeGhostPins = JSON.stringify(ghostPinsData);
 
   return `<!DOCTYPE html>
 <html><head><meta charset="UTF-8">
@@ -176,6 +188,7 @@ html,body{width:100%;height:100%;overflow:hidden;background:#0F1117;touch-action
 #pdf-canvas{display:block;box-shadow:0 4px 24px rgba(0,0,0,0.5);}
 #ann-svg{position:absolute;top:0;left:0;pointer-events:none;}
 #cur-svg{position:absolute;top:0;left:0;pointer-events:all;}
+#ghost-layer{position:absolute;top:0;left:0;}
 #pins-layer{position:absolute;top:0;left:0;}
 .pin{position:absolute;border-radius:50%;display:flex;align-items:center;justify-content:center;border:2px solid rgba(255,255,255,0.85);box-shadow:0 2px 8px rgba(0,0,0,0.5);cursor:pointer;transition:transform 0.1s;}
 .pin span{color:#fff;font-weight:700;font-family:Arial;line-height:1;pointer-events:none;}
@@ -195,6 +208,7 @@ html,body{width:100%;height:100%;overflow:hidden;background:#0F1117;touch-action
     <canvas id="pdf-canvas"></canvas>
     <svg id="ann-svg" xmlns="http://www.w3.org/2000/svg"></svg>
     <svg id="cur-svg" xmlns="http://www.w3.org/2000/svg"></svg>
+    <div id="ghost-layer"></div>
     <div id="pins-layer"></div>
   </div>
 </div>
@@ -206,6 +220,7 @@ var PLAN_URI=${JSON.stringify(planUri)};
 var IS_IMAGE=${isImagePlan ? 'true' : 'false'};
 var draws=${safeAnns};
 var pinsData=${safePins};
+var ghostPinsData=${safeGhostPins};
 var CAN_ANNOTATE=${canAnnotate};
 var CAN_CREATE=${canCreate};
 var PIN_SIZE=${pinSize};
@@ -226,6 +241,7 @@ var inner=document.getElementById('inner');
 var pdfCanvas=document.getElementById('pdf-canvas');
 var annSvg=document.getElementById('ann-svg');
 var curSvg=document.getElementById('cur-svg');
+var ghostLayer=document.getElementById('ghost-layer');
 var pinsLayer=document.getElementById('pins-layer');
 var loading=document.getElementById('loading');
 var errMsg=document.getElementById('error-msg');
@@ -322,6 +338,28 @@ function renderLive(){
   if(live){var el=drawingToEl(live);if(el)curSvg.appendChild(el);}
 }
 
+function renderGhostPins(){
+  ghostLayer.innerHTML='';
+  var half=PIN_SIZE/2;
+  ghostPinsData.forEach(function(pin){
+    var div=document.createElement('div');
+    div.className='pin';
+    div.style.width=PIN_SIZE+'px';div.style.height=PIN_SIZE+'px';
+    div.style.left=((pin.planX/100)*cw-half)+'px';
+    div.style.top=((pin.planY/100)*ch-half)+'px';
+    div.style.backgroundColor=pin.color;
+    div.style.opacity='0.2';
+    div.style.pointerEvents='none';
+    div.style.border='2px solid rgba(255,255,255,0.35)';
+    div.style.boxShadow='none';
+    var span=document.createElement('span');
+    span.textContent=String(pin.num);
+    span.style.fontSize=Math.max(8,Math.round(PIN_SIZE*0.42))+'px';
+    div.appendChild(span);
+    ghostLayer.appendChild(div);
+  });
+}
+
 function renderPins(){
   pinsLayer.innerHTML='';
   var half=PIN_SIZE/2;
@@ -351,6 +389,7 @@ function setSvgSize(){
     s.setAttribute('width',cw);s.setAttribute('height',ch);
     s.style.width=cw+'px';s.style.height=ch+'px';
   });
+  ghostLayer.style.width=cw+'px';ghostLayer.style.height=ch+'px';
   pinsLayer.style.width=cw+'px';pinsLayer.style.height=ch+'px';
 }
 
@@ -392,6 +431,7 @@ function renderPageAtQuality(num,q,resetView){
         panY=Math.max(0,(contH-ch)/2);
         applyT();
         renderAnns();
+        renderGhostPins();
         renderPins();
       }
     });
@@ -437,6 +477,7 @@ if(IS_IMAGE){
     panY=Math.max(0,(contH-ch)/2);
     applyT();
     renderAnns();
+    renderGhostPins();
     renderPins();
     loading.style.display='none';
     container.style.display='block';
@@ -593,13 +634,13 @@ function commitText(){
 }
 
 window.setState=function(s){
-  if(s.mode!==undefined){mode=s.mode;renderPins();}
+  if(s.mode!==undefined){mode=s.mode;renderGhostPins();renderPins();}
   if(s.tool!==undefined)tool=s.tool;
   if(s.color!==undefined)color=s.color;
   if(s.strokeWidth!==undefined)sw=s.strokeWidth;
 };
 window.setAnnotations=function(anns){draws=anns;renderAnns();};
-window.updatePins=function(newPins){pinsData=newPins;renderPins();};
+window.updatePins=function(newPins,newGhosts){pinsData=newPins;if(newGhosts)ghostPinsData=newGhosts;renderGhostPins();renderPins();};
 window.undo=function(){
   if(!undos.length)return;
   draws=undos.pop();renderAnns();
@@ -639,7 +680,7 @@ window.resetView=function(){
 
 const MobileViewer = forwardRef<PdfPlanViewerHandle, PdfPlanViewerProps>(function MobileViewerInner({
   planUri, planId, annotations, onAnnotationsChange,
-  reserves, pinNumberMap, onReserveSelect, onPlanTap,
+  reserves, ghostReserves = [], pinNumberMap, onReserveSelect, onPlanTap,
   canAnnotate, canCreate, pinSize = 22, onZoomChange, isImagePlan = false,
 }, ref) {
   const WebView = require('react-native-webview').default;
@@ -723,8 +764,15 @@ const MobileViewer = forwardRef<PdfPlanViewerHandle, PdfPlanViewerProps>(functio
         color: STATUS_COLORS[r.status] ?? '#003082',
         num: pinNumberMap.get(r.id) ?? '?',
       }));
-    inject(`window.updatePins(${JSON.stringify(pinsData)});`);
-  }, [reserves, pinNumberMap]);
+    const ghostData = ghostReserves
+      .filter(r => r.planX != null && r.planY != null)
+      .map(r => ({
+        planX: r.planX, planY: r.planY,
+        color: STATUS_COLORS[r.status] ?? '#003082',
+        num: pinNumberMap.get(r.id) ?? '?',
+      }));
+    inject(`window.updatePins(${JSON.stringify(pinsData)},${JSON.stringify(ghostData)});`);
+  }, [reserves, ghostReserves, pinNumberMap]);
 
   const onMessage = useCallback((event: any) => {
     try {
@@ -746,7 +794,7 @@ const MobileViewer = forwardRef<PdfPlanViewerHandle, PdfPlanViewerProps>(functio
   }, [reserves, onPlanTap, onReserveSelect, onAnnotationsChange, onZoomChange]);
 
   const html = resolvedUri
-    ? buildMobileHtml(resolvedUri, annotations ?? [], reserves, pinNumberMap, canAnnotate, canCreate, pinSize, isImagePlan)
+    ? buildMobileHtml(resolvedUri, annotations ?? [], reserves, pinNumberMap, canAnnotate, canCreate, pinSize, isImagePlan, ghostReserves)
     : '';
 
   function changePage(n: number) {
@@ -942,7 +990,7 @@ const mob = StyleSheet.create({
   widthSample: { width: 50, borderRadius: 3 },
 });
 
-const WebViewer = forwardRef<PdfPlanViewerHandle, PdfPlanViewerProps>(function WebViewerInner({ planUri, planId, annotations, onAnnotationsChange, reserves, pinNumberMap, onReserveSelect, onPlanTap, canAnnotate, canCreate, pinSize = 22, onZoomChange, isImagePlan = false }, ref) {
+const WebViewer = forwardRef<PdfPlanViewerHandle, PdfPlanViewerProps>(function WebViewerInner({ planUri, planId, annotations, onAnnotationsChange, reserves, ghostReserves = [], pinNumberMap, onReserveSelect, onPlanTap, canAnnotate, canCreate, pinSize = 22, onZoomChange, isImagePlan = false }, ref) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const innerRef = useRef<HTMLDivElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -999,7 +1047,17 @@ const WebViewer = forwardRef<PdfPlanViewerHandle, PdfPlanViewerProps>(function W
     py: Math.min(100, Math.max(0, (canvasY / (ch || 1)) * 100)),
   });
 
-  useEffect(() => { setDraws(annotations ?? []); }, [planId]);
+  const annotationsJsonRef = useRef(JSON.stringify(annotations ?? []));
+  const lastPlanIdForAnnotRef = useRef(planId);
+  useEffect(() => {
+    const json = JSON.stringify(annotations ?? []);
+    const planChanged = planId !== lastPlanIdForAnnotRef.current;
+    lastPlanIdForAnnotRef.current = planId;
+    if (planChanged || json !== annotationsJsonRef.current) {
+      annotationsJsonRef.current = json;
+      setDraws(annotations ?? []);
+    }
+  }, [planId, annotations]);
 
   useEffect(() => {
     if (!planUri) return;
@@ -1326,6 +1384,7 @@ const WebViewer = forwardRef<PdfPlanViewerHandle, PdfPlanViewerProps>(function W
 
   const pageAnns = draws.filter(d => !d.page || d.page === page);
   const pinsOnPage = reserves.filter(r => r.planX != null && r.planY != null);
+  const ghostPinsOnPage = ghostReserves.filter(r => r.planX != null && r.planY != null);
 
   return (
     <View style={s.root}>
@@ -1388,6 +1447,32 @@ const WebViewer = forwardRef<PdfPlanViewerHandle, PdfPlanViewerProps>(function W
                 {live && annSvg(live, cw, ch)}
               </svg>
             )}
+            {cw > 0 && ghostPinsOnPage.map(r => {
+              const col = STATUS_COLORS[r.status] ?? C.primary;
+              const num = pinNumberMap.get(r.id) ?? '?';
+              return (
+                <div
+                  key={`ghost-${r.id}`}
+                  style={{
+                    position: 'absolute',
+                    left: (r.planX! / 100) * cw - pinSize / 2,
+                    top: (r.planY! / 100) * ch - pinSize / 2,
+                    width: pinSize, height: pinSize, borderRadius: pinSize / 2,
+                    backgroundColor: col,
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    border: '2px solid rgba(255,255,255,0.35)',
+                    zIndex: 8,
+                    pointerEvents: 'none',
+                    opacity: 0.2,
+                    userSelect: 'none',
+                  } as any}
+                >
+                  <span style={{ color: '#fff', fontSize: Math.max(8, Math.round(pinSize * 0.42)), fontWeight: '700', fontFamily: 'Arial' } as any}>
+                    {num}
+                  </span>
+                </div>
+              );
+            })}
             {cw > 0 && pinsOnPage.map(r => {
               const col = STATUS_COLORS[r.status] ?? C.primary;
               const num = pinNumberMap.get(r.id) ?? '?';

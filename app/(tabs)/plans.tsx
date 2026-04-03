@@ -126,6 +126,22 @@ function formatSize(bytes: number | undefined): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)} Mo`;
 }
 
+async function fetchAsDataUrl(uri: string): Promise<string> {
+  try {
+    const resp = await fetch(uri);
+    if (!resp.ok) throw new Error('fetch failed');
+    const blob = await resp.blob();
+    return await new Promise<string>((res, rej) => {
+      const reader = new FileReader();
+      reader.onloadend = () => res(reader.result as string);
+      reader.onerror = rej;
+      reader.readAsDataURL(blob);
+    });
+  } catch {
+    return uri;
+  }
+}
+
 async function exportPlanPDF(
   planName: string,
   chantierName: string,
@@ -167,8 +183,14 @@ async function exportPlanPDF(
     </tr>`;
   }).join('');
 
+  // Pre-fetch plan as data URL to avoid CORS issues in the export popup
+  let exportUri = planUri ?? null;
+  if (planUri && Platform.OS === 'web') {
+    exportUri = await fetchAsDataUrl(planUri);
+  }
+
   const hasPins = pinsWithCoords.length > 0;
-  const hasPlan = !!planUri;
+  const hasPlan = !!exportUri;
   const isPdf = fileType === 'pdf';
   const RENDER_W = 720;
   // Pin radius and font scale with the user's chosen pinSizeScale (base radius = 10px at 720px wide)
@@ -180,7 +202,7 @@ async function exportPlanPDF(
 var canvas=document.getElementById('plan-canvas');
 var ctx=canvas.getContext('2d');
 var RENDER_W=${RENDER_W};
-var planUri=${hasPlan ? JSON.stringify(planUri) : 'null'};
+var planUri=${hasPlan ? JSON.stringify(exportUri) : 'null'};
 var isPdf=${isPdf ? 'true' : 'false'};
 var pins=${JSON.stringify(pinData)};
 var PIN_R=${PIN_R};
@@ -212,7 +234,11 @@ if(isPdf){
   script.src=PDFJS_CDN;
   script.onload=function(){
     pdfjsLib.GlobalWorkerOptions.workerSrc='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
-    pdfjsLib.getDocument({url:planUri,withCredentials:false}).promise.then(function(doc){
+    // Support both data URLs (pre-fetched) and remote URLs
+    var docSrc=planUri.startsWith('data:')
+      ?{data:atob(planUri.split(',')[1])}
+      :{url:planUri,withCredentials:false};
+    pdfjsLib.getDocument(docSrc).promise.then(function(doc){
       doc.getPage(1).then(function(page){
         var vp1=page.getViewport({scale:1});
         var scale=RENDER_W/vp1.width;
@@ -228,9 +254,9 @@ if(isPdf){
   script.onerror=drawFallback;
   document.head.appendChild(script);
 } else {
-  // Image plan
+  // Image plan — data URL avoids any CORS restriction
   var img=new Image();
-  img.crossOrigin='anonymous';
+  if(!planUri.startsWith('data:'))img.crossOrigin='anonymous';
   img.onload=function(){
     var h=Math.round(RENDER_W*(img.naturalHeight/img.naturalWidth));
     canvas.width=RENDER_W;canvas.height=h;
@@ -418,11 +444,14 @@ export default function PlansScreen() {
     () => computeClusters(planReserves, displayScale, pinNumberMap),
     [planReserves, displayScale, pinNumberMap]
   );
-  const ghostClusters = useMemo(() => {
+  const ghostReserves = useMemo(() => {
     const activeIds = new Set(planReserves.map(r => r.id));
-    const ghosts = allPlanReserves.filter(r => !activeIds.has(r.id));
-    return computeClusters(ghosts, displayScale, pinNumberMap);
-  }, [allPlanReserves, planReserves, displayScale, pinNumberMap]);
+    return allPlanReserves.filter(r => !activeIds.has(r.id));
+  }, [allPlanReserves, planReserves]);
+  const ghostClusters = useMemo(
+    () => computeClusters(ghostReserves, displayScale, pinNumberMap),
+    [ghostReserves, displayScale, pinNumberMap]
+  );
 
   const activeFilters = [statusFilter, companyFilter, levelFilter].filter(f => f !== 'all').length
     + (selectedBuilding !== 'all' ? 1 : 0)
@@ -862,11 +891,33 @@ export default function PlansScreen() {
     );
   }
 
-  const allVersions = currentPlan ? chantierPlans.filter(p =>
-    p.id === currentPlanId || p.parentPlanId === currentPlanId ||
-    p.id === currentPlan.parentPlanId ||
-    (currentPlan.parentPlanId && (p.parentPlanId === currentPlan.parentPlanId || p.id === currentPlan.parentPlanId))
-  ).sort((a, b) => (b.revisionNumber ?? 0) - (a.revisionNumber ?? 0)) : [];
+  const allVersions = useMemo(() => {
+    if (!currentPlan) return [];
+    // Walk up to find the root of this version family
+    let root = currentPlan;
+    const visited = new Set<string>();
+    while (root.parentPlanId && !visited.has(root.id)) {
+      visited.add(root.id);
+      const parent = chantierPlans.find(p => p.id === root.parentPlanId);
+      if (!parent) break;
+      root = parent;
+    }
+    // BFS from root to collect every version in the tree
+    const family: typeof chantierPlans = [];
+    const queue = [root.id];
+    const seen = new Set<string>();
+    while (queue.length > 0) {
+      const id = queue.shift()!;
+      if (seen.has(id)) continue;
+      seen.add(id);
+      const plan = chantierPlans.find(p => p.id === id);
+      if (plan) {
+        family.push(plan);
+        chantierPlans.filter(p => p.parentPlanId === id).forEach(child => queue.push(child.id));
+      }
+    }
+    return family.sort((a, b) => (b.revisionNumber ?? 0) - (a.revisionNumber ?? 0));
+  }, [currentPlan, chantierPlans]);
   const hasVersions = allVersions.length > 0 || currentPlan?.revisionCode;
 
   return (
@@ -1061,6 +1112,7 @@ export default function PlansScreen() {
                 annotations={currentPlan!.annotations ?? []}
                 onAnnotationsChange={(drawings) => updateSitePlan({ ...currentPlan!, annotations: drawings })}
                 reserves={planReserves}
+                ghostReserves={ghostReserves}
                 pinNumberMap={pinNumberMap}
                 onReserveSelect={(r) => {
                   if (isTablet) { setHighlightedReserveId(r.id); setPanelView('detail'); }
