@@ -1,4 +1,4 @@
-import { View, Text, StyleSheet, ScrollView, TextInput, TouchableOpacity, Alert, Platform, Modal } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TextInput, TouchableOpacity, Alert, Platform, Modal, KeyboardAvoidingView } from 'react-native';
 import DateInput from '@/components/DateInput';
 import { useState, useCallback, useEffect } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -337,7 +337,7 @@ export default function MeetingReportScreen() {
   }
 
   return (
-    <View style={styles.container}>
+    <KeyboardAvoidingView style={styles.container} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
       <Header
         title="CR de réunion"
         subtitle="Comptes-rendus chantier"
@@ -654,7 +654,7 @@ export default function MeetingReportScreen() {
       </Modal>
 
       <BottomNavBar />
-    </View>
+    </KeyboardAvoidingView>
   );
 }
 

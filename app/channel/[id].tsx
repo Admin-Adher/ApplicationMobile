@@ -1,8 +1,7 @@
 import {
   View, Text, StyleSheet, FlatList, TouchableOpacity, TextInput, Alert,
-  Modal, Platform, ActivityIndicator, Animated,
+  Modal, Platform, ActivityIndicator, Animated, KeyboardAvoidingView,
 } from 'react-native';
-import { KeyboardAvoidingView } from 'react-native-keyboard-controller';
 import * as Clipboard from 'expo-clipboard';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';

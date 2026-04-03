@@ -1,6 +1,6 @@
 import {
   View, Text, StyleSheet, ScrollView, TextInput, TouchableOpacity,
-  Alert, Platform, Image, ActivityIndicator,
+  Alert, Platform, Image, ActivityIndicator, KeyboardAvoidingView,
 } from 'react-native';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -330,7 +330,7 @@ export default function NewReserveScreen() {
   }
 
   return (
-    <View style={styles.container}>
+    <KeyboardAvoidingView style={styles.container} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
       <Header title={kind === 'observation' ? 'Nouvelle observation' : 'Nouvelle réserve'} showBack onBack={handleBack} rightLabel="Créer" onRightPress={handleSubmit} />
 
       <ScrollView contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + 32 }]} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
@@ -657,7 +657,7 @@ export default function NewReserveScreen() {
           </Text>
         </TouchableOpacity>
       </ScrollView>
-    </View>
+    </KeyboardAvoidingView>
   );
 }
 

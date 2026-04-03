@@ -1,6 +1,6 @@
 import {
   View, Text, StyleSheet, ScrollView, TextInput, TouchableOpacity,
-  Alert, ActivityIndicator, Platform,
+  Alert, ActivityIndicator, Platform, KeyboardAvoidingView,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useState } from 'react';
@@ -153,7 +153,7 @@ export default function NewChantierScreen() {
   }
 
   return (
-    <View style={styles.container}>
+    <KeyboardAvoidingView style={styles.container} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
       <Header title="Nouveau chantier" showBack rightLabel="Créer" onRightPress={handleSubmit} />
 
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
@@ -322,7 +322,7 @@ export default function NewChantierScreen() {
           </View>
         )}
       </ScrollView>
-    </View>
+    </KeyboardAvoidingView>
   );
 }
 
