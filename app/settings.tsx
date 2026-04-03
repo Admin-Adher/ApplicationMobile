@@ -1,5 +1,5 @@
 import {
-  View, Text, StyleSheet, ScrollView, TextInput, TouchableOpacity, Alert, Platform,
+  View, Text, StyleSheet, ScrollView, TextInput, TouchableOpacity, Alert, Platform, KeyboardAvoidingView,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useState, useMemo } from 'react';
@@ -126,7 +126,7 @@ export default function SettingsScreen() {
   const userInitials = user ? user.name.split(' ').map(w => w[0]).slice(0, 2).join('').toUpperCase() : '??';
 
   return (
-    <View style={styles.container}>
+    <KeyboardAvoidingView style={styles.container} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
       <Header title="Paramètres" subtitle="Compte & projet" showBack />
 
       <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.tabScroll} contentContainerStyle={styles.tabRow}>
@@ -473,7 +473,7 @@ export default function SettingsScreen() {
         )}
       </ScrollView>
       <BottomNavBar />
-    </View>
+    </KeyboardAvoidingView>
   );
 }
 

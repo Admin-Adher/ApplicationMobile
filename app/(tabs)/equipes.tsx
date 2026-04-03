@@ -1,8 +1,7 @@
 import {
   View, Text, StyleSheet, ScrollView, Platform, TouchableOpacity,
-  Alert, Modal, TextInput, TouchableWithoutFeedback, Linking,
+  Alert, Modal, TextInput, TouchableWithoutFeedback, Linking, KeyboardAvoidingView,
 } from 'react-native';
-import { KeyboardAvoidingView } from 'react-native-keyboard-controller';
 import { useState, useMemo } from 'react';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';

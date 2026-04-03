@@ -1,4 +1,4 @@
-import { View, Text, StyleSheet, ScrollView, TextInput, TouchableOpacity, Alert, Platform, ActivityIndicator } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TextInput, TouchableOpacity, Alert, Platform, ActivityIndicator, KeyboardAvoidingView } from 'react-native';
 import DateInput from '@/components/DateInput';
 import { useState, useCallback, useEffect, useRef } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -315,7 +315,7 @@ export default function JournalScreen() {
   const totalWorkers = entries.reduce((acc, e) => acc + e.workerCount, 0);
 
   return (
-    <View style={styles.container}>
+    <KeyboardAvoidingView style={styles.container} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
       <Header
         title="Journal de chantier"
         subtitle={`${entries.length} entrées — ${projectName}`}
@@ -495,7 +495,7 @@ export default function JournalScreen() {
         ))}
       </ScrollView>
       <BottomNavBar />
-    </View>
+    </KeyboardAvoidingView>
   );
 }
 

@@ -1,6 +1,6 @@
 import {
   View, Text, StyleSheet, ScrollView, TouchableOpacity, TextInput,
-  Alert, Modal, Platform, ActivityIndicator, Linking,
+  Alert, Modal, Platform, ActivityIndicator, Linking, KeyboardAvoidingView,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -656,88 +656,92 @@ export default function AdminScreen() {
         animationType="slide"
         onRequestClose={() => setCompanyModal(null)}
       >
-        <TouchableOpacity style={styles.overlay} activeOpacity={1} onPress={() => setCompanyModal(null)}>
-          <TouchableOpacity activeOpacity={1} style={styles.sheet}>
-            <View style={styles.sheetHandle} />
-            <Text style={styles.sheetTitle}>
-              {companyModal?.mode === 'edit' ? 'Modifier l\'entreprise' : 'Ajouter une entreprise'}
-            </Text>
-            <View style={styles.field}>
-              <Text style={styles.fieldLabel}>Nom complet *</Text>
-              <TextInput
-                style={styles.fieldInput}
-                value={nom}
-                onChangeText={setNom}
-                placeholder="Ex : Maçonnerie Dupont"
-                placeholderTextColor={C.textMuted}
-              />
-            </View>
-            <View style={styles.field}>
-              <Text style={styles.fieldLabel}>Sigle *</Text>
-              <TextInput
-                style={styles.fieldInput}
-                value={nomCourt}
-                onChangeText={setNomCourt}
-                placeholder="Ex : MD"
-                placeholderTextColor={C.textMuted}
-                autoCapitalize="characters"
-                maxLength={6}
-              />
-            </View>
-            <View style={styles.field}>
-              <Text style={styles.fieldLabel}>Effectif prévu *</Text>
-              <TextInput
-                style={styles.fieldInput}
-                value={effectif}
-                onChangeText={setEffectif}
-                placeholder="Ex : 8"
-                placeholderTextColor={C.textMuted}
-                keyboardType="numeric"
-              />
-            </View>
-            <View style={styles.field}>
-              <Text style={styles.fieldLabel}>Zone d'intervention</Text>
-              <TextInput
-                style={styles.fieldInput}
-                value={zone}
-                onChangeText={setZone}
-                placeholder="Ex : Zone Nord — Bâtiment A"
-                placeholderTextColor={C.textMuted}
-              />
-            </View>
-            <View style={styles.field}>
-              <Text style={styles.fieldLabel}>Téléphone</Text>
-              <TextInput
-                style={styles.fieldInput}
-                value={phone}
-                onChangeText={setPhone}
-                placeholder="Ex : 06 12 34 56 78"
-                placeholderTextColor={C.textMuted}
-                keyboardType="phone-pad"
-              />
-            </View>
-            <View style={styles.field}>
-              <Text style={styles.fieldLabel}>Email</Text>
-              <TextInput
-                style={styles.fieldInput}
-                value={email}
-                onChangeText={setEmail}
-                placeholder="Ex : contact@entreprise.fr"
-                placeholderTextColor={C.textMuted}
-                keyboardType="email-address"
-                autoCapitalize="none"
-              />
-            </View>
-            <TouchableOpacity style={styles.saveBtn} onPress={handleSaveCompany}>
-              <Text style={styles.saveBtnText}>
-                {companyModal?.mode === 'edit' ? 'Enregistrer les modifications' : 'Ajouter l\'entreprise'}
+        <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
+          <TouchableOpacity style={styles.overlay} activeOpacity={1} onPress={() => setCompanyModal(null)}>
+            <TouchableOpacity activeOpacity={1} style={styles.sheet}>
+              <View style={styles.sheetHandle} />
+              <Text style={styles.sheetTitle}>
+                {companyModal?.mode === 'edit' ? 'Modifier l\'entreprise' : 'Ajouter une entreprise'}
               </Text>
-            </TouchableOpacity>
-            <TouchableOpacity style={styles.cancelBtn} onPress={() => setCompanyModal(null)}>
-              <Text style={styles.cancelBtnText}>Annuler</Text>
+              <ScrollView showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled" contentContainerStyle={{ gap: 10 }}>
+                <View style={styles.field}>
+                  <Text style={styles.fieldLabel}>Nom complet *</Text>
+                  <TextInput
+                    style={styles.fieldInput}
+                    value={nom}
+                    onChangeText={setNom}
+                    placeholder="Ex : Maçonnerie Dupont"
+                    placeholderTextColor={C.textMuted}
+                  />
+                </View>
+                <View style={styles.field}>
+                  <Text style={styles.fieldLabel}>Sigle *</Text>
+                  <TextInput
+                    style={styles.fieldInput}
+                    value={nomCourt}
+                    onChangeText={setNomCourt}
+                    placeholder="Ex : MD"
+                    placeholderTextColor={C.textMuted}
+                    autoCapitalize="characters"
+                    maxLength={6}
+                  />
+                </View>
+                <View style={styles.field}>
+                  <Text style={styles.fieldLabel}>Effectif prévu *</Text>
+                  <TextInput
+                    style={styles.fieldInput}
+                    value={effectif}
+                    onChangeText={setEffectif}
+                    placeholder="Ex : 8"
+                    placeholderTextColor={C.textMuted}
+                    keyboardType="numeric"
+                  />
+                </View>
+                <View style={styles.field}>
+                  <Text style={styles.fieldLabel}>Zone d'intervention</Text>
+                  <TextInput
+                    style={styles.fieldInput}
+                    value={zone}
+                    onChangeText={setZone}
+                    placeholder="Ex : Zone Nord — Bâtiment A"
+                    placeholderTextColor={C.textMuted}
+                  />
+                </View>
+                <View style={styles.field}>
+                  <Text style={styles.fieldLabel}>Téléphone</Text>
+                  <TextInput
+                    style={styles.fieldInput}
+                    value={phone}
+                    onChangeText={setPhone}
+                    placeholder="Ex : 06 12 34 56 78"
+                    placeholderTextColor={C.textMuted}
+                    keyboardType="phone-pad"
+                  />
+                </View>
+                <View style={styles.field}>
+                  <Text style={styles.fieldLabel}>Email</Text>
+                  <TextInput
+                    style={styles.fieldInput}
+                    value={email}
+                    onChangeText={setEmail}
+                    placeholder="Ex : contact@entreprise.fr"
+                    placeholderTextColor={C.textMuted}
+                    keyboardType="email-address"
+                    autoCapitalize="none"
+                  />
+                </View>
+                <TouchableOpacity style={styles.saveBtn} onPress={handleSaveCompany}>
+                  <Text style={styles.saveBtnText}>
+                    {companyModal?.mode === 'edit' ? 'Enregistrer les modifications' : 'Ajouter l\'entreprise'}
+                  </Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={styles.cancelBtn} onPress={() => setCompanyModal(null)}>
+                  <Text style={styles.cancelBtnText}>Annuler</Text>
+                </TouchableOpacity>
+              </ScrollView>
             </TouchableOpacity>
           </TouchableOpacity>
-        </TouchableOpacity>
+        </KeyboardAvoidingView>
       </Modal>
 
       <Modal
@@ -746,8 +750,10 @@ export default function AdminScreen() {
         animationType="slide"
         onRequestClose={handleCloseInviteModal}
       >
+        <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
         <TouchableOpacity style={styles.overlay} activeOpacity={1} onPress={handleCloseInviteModal}>
           <TouchableOpacity activeOpacity={1} style={styles.sheet}>
+            <ScrollView showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled" contentContainerStyle={{ gap: 10 }}>
             <View style={styles.sheetHandle} />
             {inviteToken ? (
               <>
@@ -863,8 +869,10 @@ export default function AdminScreen() {
                 </TouchableOpacity>
               </>
             )}
+            </ScrollView>
           </TouchableOpacity>
         </TouchableOpacity>
+        </KeyboardAvoidingView>
       </Modal>
     </View>
   );
