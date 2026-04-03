@@ -454,6 +454,7 @@ export default function PlansScreen() {
   const draggingPinStartRef = useRef<{ cx: number; cy: number } | null>(null);
   const draggingPinPosRef = useRef<{ x: number; y: number } | null>(null);
   const draggingPinMovedRef = useRef(false);
+  const longPressTimeRef = useRef<number>(0);
   const dynWRef = useRef(320);
   const dynHRef = useRef(240);
   const reservesRef = useRef(reserves);
@@ -478,7 +479,16 @@ export default function PlansScreen() {
     PanResponder.create({
       onStartShouldSetPanResponder: () => false,
       onMoveShouldSetPanResponder: (e, gs) => {
-        if (draggingPinIdRef.current) return true;
+        if (draggingPinIdRef.current) {
+          // Expire stale drag state (long-press fired but user released without moving)
+          if (Date.now() - longPressTimeRef.current > 2000) {
+            draggingPinIdRef.current = null;
+            draggingPinPosRef.current = null;
+            draggingPinMovedRef.current = false;
+          } else {
+            return true;
+          }
+        }
         if (e.nativeEvent.touches.length === 2) return true;
         return Math.abs(gs.dx) + Math.abs(gs.dy) > 4;
       },
@@ -492,13 +502,19 @@ export default function PlansScreen() {
       },
       onPanResponderMove: (e, gs) => {
         if (draggingPinIdRef.current) {
-          draggingPinMovedRef.current = true;
-          isDraggingRef.current = true;
-          const s = lastScale.current;
-          const newX = Math.min(100, Math.max(0, draggingPinStartRef.current!.cx + (gs.dx / dynWRef.current / s) * 100));
-          const newY = Math.min(100, Math.max(0, draggingPinStartRef.current!.cy + (gs.dy / dynHRef.current / s) * 100));
-          draggingPinPosRef.current = { x: newX, y: newY };
-          setDraggingPinStateRef.current({ id: draggingPinIdRef.current, x: newX, y: newY });
+          // Require at least 10px of movement before treating as a real drag
+          const dragDist = Math.sqrt(gs.dx * gs.dx + gs.dy * gs.dy);
+          if (dragDist > 10) {
+            draggingPinMovedRef.current = true;
+          }
+          if (draggingPinMovedRef.current) {
+            isDraggingRef.current = true;
+            const s = lastScale.current;
+            const newX = Math.min(100, Math.max(0, draggingPinStartRef.current!.cx + (gs.dx / dynWRef.current / s) * 100));
+            const newY = Math.min(100, Math.max(0, draggingPinStartRef.current!.cy + (gs.dy / dynHRef.current / s) * 100));
+            draggingPinPosRef.current = { x: newX, y: newY };
+            setDraggingPinStateRef.current({ id: draggingPinIdRef.current, x: newX, y: newY });
+          }
           return;
         }
         const touches = e.nativeEvent.touches;
@@ -1141,12 +1157,20 @@ export default function PlansScreen() {
                           }
                         }}
                         onLongPress={() => {
-                          if (!isCluster && permissions.canCreate) {
+                          if (!isCluster) {
                             suppressNextPlanTapRef.current = true;
-                            draggingPinIdRef.current = pinId;
-                            draggingPinStartRef.current = { cx: cluster.cx, cy: cluster.cy };
-                            draggingPinMovedRef.current = false;
-                            draggingPinPosRef.current = null;
+                            // Immediately focus pin so +/− buttons work right away
+                            setFocusedPinIdRef.current(pinId);
+                            if (focusedPinTimerRef.current) clearTimeout(focusedPinTimerRef.current);
+                            focusedPinTimerRef.current = setTimeout(() => setFocusedPinIdRef.current(null), 4000);
+                            // Set up drag state in case user starts dragging
+                            if (permissions.canCreate) {
+                              longPressTimeRef.current = Date.now();
+                              draggingPinIdRef.current = pinId;
+                              draggingPinStartRef.current = { cx: cluster.cx, cy: cluster.cy };
+                              draggingPinMovedRef.current = false;
+                              draggingPinPosRef.current = null;
+                            }
                           }
                         }}
                         delayLongPress={400}
