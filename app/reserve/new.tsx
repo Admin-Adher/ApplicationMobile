@@ -98,7 +98,6 @@ export default function NewReserveScreen() {
   const [zone, setZone] = useState(RESERVE_ZONES[0]);
   const [level, setLevel] = useState('RDC');
   const [selectedCompanies, setSelectedCompanies] = useState<string[]>(companies[0] ? [companies[0].name] : []);
-  const [responsableNom, setResponsableNom] = useState('');
   const [priority, setPriority] = useState<ReservePriority>('medium');
   const [deadline, setDeadline] = useState('');
   const [deadlineSuggested, setDeadlineSuggested] = useState(false);
@@ -290,7 +289,6 @@ export default function NewReserveScreen() {
         level,
         companies: selectedCompanies,
         company: selectedCompanies[0] ?? '',
-        responsableNom: responsableNom.trim() || undefined,
         priority,
         status: 'open' as ReserveStatus,
         createdAt: isoToday,
@@ -613,20 +611,6 @@ export default function NewReserveScreen() {
               )}
             </>
           )}
-        </View>
-
-        {/* RESPONSABLE NOM */}
-        <View style={styles.card}>
-          <View style={[styles.fieldGroup, { marginBottom: 0 }]}>
-            <Text style={styles.label}>Responsable (contact)</Text>
-            <TextInput
-              style={styles.input}
-              placeholder="Nom du responsable chez l'entreprise..."
-              placeholderTextColor={C.textMuted}
-              value={responsableNom}
-              onChangeText={setResponsableNom}
-            />
-          </View>
         </View>
 
         {/* PRIORITÉ */}
