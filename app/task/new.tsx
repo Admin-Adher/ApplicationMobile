@@ -1,4 +1,4 @@
-import { View, Text, StyleSheet, ScrollView, TextInput, TouchableOpacity, Alert } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TextInput, TouchableOpacity, Alert, ActivityIndicator } from 'react-native';
 import { useState } from 'react';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
@@ -46,6 +46,7 @@ export default function NewTaskScreen() {
     companies.find(c => c.name === sourceReserve?.company)?.id ?? companies[0]?.id ?? ''
   );
   const [progress, setProgress] = useState('0');
+  const [isSaving, setIsSaving] = useState(false);
 
   if (!permissions.canCreate) {
     return (
@@ -68,6 +69,7 @@ export default function NewTaskScreen() {
   }
 
   function handleSave() {
+    if (isSaving) return;
     if (!title.trim()) {
       Alert.alert('Champ requis', 'Le titre est obligatoire.');
       return;
@@ -84,6 +86,7 @@ export default function NewTaskScreen() {
       Alert.alert('Date invalide', "Vérifiez que le jour, le mois et l'année sont corrects (ex : 30/04/2026).");
       return;
     }
+    setIsSaving(true);
     const newId = genId();
     const task: Task = {
       id: newId,
@@ -109,6 +112,7 @@ export default function NewTaskScreen() {
     Alert.alert('Tâche créée', `"${task.title}" a été ajoutée au planning.`, [
       { text: 'OK', onPress: () => router.back() },
     ]);
+    setIsSaving(false);
   }
 
   return (
@@ -198,8 +202,13 @@ export default function NewTaskScreen() {
             placeholder="0"
             placeholderTextColor={C.textMuted}
             value={progress}
-            onChangeText={setProgress}
+            onChangeText={v => {
+              const n = parseInt(v.replace(/[^0-9]/g, ''), 10);
+              if (v === '') { setProgress(''); return; }
+              setProgress(String(Math.min(100, Math.max(0, isNaN(n) ? 0 : n))));
+            }}
             keyboardType="number-pad"
+            maxLength={3}
           />
         </View>
 
@@ -235,9 +244,16 @@ export default function NewTaskScreen() {
           </View>
         </View>
 
-        <TouchableOpacity style={styles.saveBtn} onPress={handleSave} activeOpacity={0.85}>
-          <Ionicons name="checkmark-circle" size={20} color="#fff" />
-          <Text style={styles.saveBtnText}>Créer la tâche</Text>
+        <TouchableOpacity
+          style={[styles.saveBtn, isSaving && { opacity: 0.6 }]}
+          onPress={handleSave}
+          disabled={isSaving}
+          activeOpacity={0.85}
+        >
+          {isSaving
+            ? <ActivityIndicator size="small" color="#fff" />
+            : <><Ionicons name="checkmark-circle" size={20} color="#fff" /><Text style={styles.saveBtnText}>Créer la tâche</Text></>
+          }
         </TouchableOpacity>
       </ScrollView>
     </View>

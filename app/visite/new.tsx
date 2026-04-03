@@ -1,4 +1,4 @@
-import { View, Text, StyleSheet, ScrollView, TextInput, TouchableOpacity, Alert } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TextInput, TouchableOpacity, Alert, ActivityIndicator } from 'react-native';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { useState } from 'react';
 import { Ionicons } from '@expo/vector-icons';
@@ -133,9 +133,8 @@ export default function NewVisiteScreen() {
       count > 1
         ? `Série "${title.trim()}" planifiée sur ${count} occurrences.`
         : `"${title.trim()}" a été créée.`,
-      [{ text: 'OK', onPress: () => router.back() }]
+      [{ text: 'OK', onPress: () => { setIsSubmitting(false); router.back(); } }]
     );
-    setIsSubmitting(false);
   }
 
   return (
@@ -301,11 +300,17 @@ export default function NewVisiteScreen() {
           style={[styles.submitBtn, isSubmitting && { opacity: 0.6 }]}
           onPress={handleSubmit}
           disabled={isSubmitting}
+          activeOpacity={0.85}
         >
-          <Ionicons name="checkmark-circle" size={18} color="#fff" />
-          <Text style={styles.submitBtnText}>
-            {recurrence !== 'none' ? 'Créer la série de visites' : 'Créer la visite'}
-          </Text>
+          {isSubmitting
+            ? <ActivityIndicator size="small" color="#fff" />
+            : <>
+                <Ionicons name="checkmark-circle" size={18} color="#fff" />
+                <Text style={styles.submitBtnText}>
+                  {recurrence !== 'none' ? 'Créer la série de visites' : 'Créer la visite'}
+                </Text>
+              </>
+          }
         </TouchableOpacity>
       </ScrollView>
     </View>

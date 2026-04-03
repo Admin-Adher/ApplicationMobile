@@ -1,4 +1,4 @@
-import { View, Text, StyleSheet, TextInput, TouchableOpacity, Platform, Alert, ScrollView } from 'react-native';
+import { View, Text, StyleSheet, TextInput, TouchableOpacity, Platform, Alert, ScrollView, Keyboard } from 'react-native';
 import { KeyboardAvoidingView } from 'react-native-keyboard-controller';
 import { useState, useEffect } from 'react';
 import { Ionicons } from '@expo/vector-icons';
@@ -50,6 +50,7 @@ export default function LoginScreen() {
       Alert.alert('Champs requis', 'Veuillez saisir votre email et mot de passe.');
       return;
     }
+    Keyboard.dismiss();
     setLoading(true);
     const trimmedEmail = email.trim();
     const result = await login(trimmedEmail, password);
