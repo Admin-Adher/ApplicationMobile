@@ -2082,6 +2082,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     },
 
     addCompany: (c) => {
+      const duplicate = stateRef.current.companies.some(
+        existing => existing.name.trim().toLowerCase() === c.name.trim().toLowerCase()
+      );
+      if (duplicate) {
+        Alert.alert('Entreprise existante', `Une entreprise nommée "${c.name}" existe déjà.`);
+        return;
+      }
       dispatch({ type: 'ADD_COMPANY', payload: c });
       if (isSupabaseConfigured) {
         supabase.from('companies').insert({
