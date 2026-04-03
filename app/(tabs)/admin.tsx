@@ -14,11 +14,12 @@ import { UserRole, Company } from '@/constants/types';
 import { isSupabaseConfigured } from '@/lib/supabase';
 import { genId } from '@/lib/utils';
 
-const ROLES: { value: UserRole; label: string; color: string; bg: string }[] = [
-  { value: 'admin',       label: 'Administrateur',         color: '#EF4444', bg: '#FEF2F2' },
-  { value: 'conducteur',  label: 'Conducteur de travaux',  color: '#3B82F6', bg: '#EFF6FF' },
-  { value: 'chef_equipe', label: "Chef d'équipe",          color: '#F59E0B', bg: '#FFFBEB' },
-  { value: 'observateur', label: 'Observateur',            color: '#6B7280', bg: '#F3F4F6' },
+const ROLES: { value: UserRole; label: string; color: string; bg: string; description: string }[] = [
+  { value: 'admin',         label: 'Administrateur',        color: '#EF4444', bg: '#FEF2F2', description: 'Gestion complète — utilisateurs, entreprises, abonnement' },
+  { value: 'conducteur',   label: 'Conducteur de travaux',  color: '#3B82F6', bg: '#EFF6FF', description: 'Pilotage chantier — réserves, plans, OPR, rapports' },
+  { value: 'chef_equipe',  label: "Chef d'équipe",          color: '#F59E0B', bg: '#FFFBEB', description: 'Terrain — réserves, pointage, incidents (pas de suppression)' },
+  { value: 'observateur',  label: 'Observateur',            color: '#6B7280', bg: '#F3F4F6', description: 'Lecture seule — consultation et export des données' },
+  { value: 'sous_traitant', label: 'Sous-traitant',         color: '#10B981', bg: '#ECFDF5', description: 'Portail entreprise — voir et répondre aux réserves qui la concernent' },
 ];
 
 const PLAN_COLORS: Record<string, string> = {
@@ -597,9 +598,12 @@ export default function AdminScreen() {
                     onPress={() => handleRoleChange(r.value)}
                   >
                     <View style={[styles.roleOptionDot, { backgroundColor: r.color }]} />
-                    <Text style={[styles.roleOptionText, isSelected && { color: r.color, fontFamily: 'Inter_600SemiBold' }]}>
-                      {r.label}
-                    </Text>
+                    <View style={{ flex: 1 }}>
+                      <Text style={[styles.roleOptionText, isSelected && { color: r.color, fontFamily: 'Inter_600SemiBold' }]}>
+                        {r.label}
+                      </Text>
+                      <Text style={styles.roleOptionDesc}>{r.description}</Text>
+                    </View>
                     {isSelected && <Ionicons name="checkmark-circle" size={18} color={r.color} />}
                   </TouchableOpacity>
                 );
@@ -761,9 +765,12 @@ export default function AdminScreen() {
                       onPress={() => setInviteRole(r.value)}
                     >
                       <View style={[styles.roleOptionDot, { backgroundColor: r.color }]} />
-                      <Text style={[styles.roleOptionText, inviteRole === r.value && { color: r.color, fontFamily: 'Inter_600SemiBold' }]}>
-                        {r.label}
-                      </Text>
+                      <View style={{ flex: 1 }}>
+                        <Text style={[styles.roleOptionText, inviteRole === r.value && { color: r.color, fontFamily: 'Inter_600SemiBold' }]}>
+                          {r.label}
+                        </Text>
+                        <Text style={styles.roleOptionDesc}>{r.description}</Text>
+                      </View>
                       {inviteRole === r.value && <Ionicons name="checkmark-circle" size={18} color={r.color} />}
                     </TouchableOpacity>
                   ))}
@@ -938,9 +945,11 @@ const styles = StyleSheet.create({
   roleOption: {
     flexDirection: 'row', alignItems: 'center', gap: 12,
     padding: 14, borderRadius: 12, borderWidth: 1, borderColor: C.border,
+    marginBottom: 6,
   },
-  roleOptionDot: { width: 10, height: 10, borderRadius: 5 },
-  roleOptionText: { flex: 1, fontSize: 14, fontFamily: 'Inter_400Regular', color: C.text },
+  roleOptionDot: { width: 10, height: 10, borderRadius: 5, flexShrink: 0 },
+  roleOptionText: { fontSize: 14, fontFamily: 'Inter_400Regular', color: C.text },
+  roleOptionDesc: { fontSize: 11, fontFamily: 'Inter_400Regular', color: C.textMuted, marginTop: 2, lineHeight: 15 },
 
   field: { gap: 4 },
   fieldLabel: { fontSize: 12, fontFamily: 'Inter_600SemiBold', color: C.textSub },
