@@ -25,7 +25,7 @@ interface PendingPlan {
 export default function NewChantierScreen() {
   const router = useRouter();
   const { addChantier, chantiers, companies } = useApp();
-  const { user } = useAuth();
+  const { user, permissions } = useAuth();
 
   const [name, setName] = useState('');
   const [address, setAddress] = useState('');
@@ -38,6 +38,26 @@ export default function NewChantierScreen() {
   const [selectedCompanyIds, setSelectedCompanyIds] = useState<string[]>([]);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [importingPlanId, setImportingPlanId] = useState<string | null>(null);
+
+  if (!permissions.canCreate) {
+    return (
+      <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: '#0F1117', padding: 32 }}>
+        <Ionicons name="lock-closed-outline" size={48} color="#6B7280" />
+        <Text style={{ fontSize: 17, fontFamily: 'Inter_600SemiBold', color: '#F9FAFB', marginTop: 16, textAlign: 'center' }}>
+          Accès refusé
+        </Text>
+        <Text style={{ fontSize: 14, fontFamily: 'Inter_400Regular', color: '#9CA3AF', marginTop: 8, textAlign: 'center' }}>
+          Votre rôle ne permet pas de créer un chantier.
+        </Text>
+        <TouchableOpacity
+          onPress={() => router.back()}
+          style={{ marginTop: 24, paddingHorizontal: 20, paddingVertical: 10, backgroundColor: '#1D4ED8', borderRadius: 10 }}
+        >
+          <Text style={{ color: '#fff', fontFamily: 'Inter_600SemiBold', fontSize: 14 }}>Retour</Text>
+        </TouchableOpacity>
+      </View>
+    );
+  }
 
   function toggleChantierCompany(id: string) {
     setSelectedCompanyIds(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);

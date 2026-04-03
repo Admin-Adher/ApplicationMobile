@@ -6,6 +6,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { C } from '@/constants/colors';
 import { useSubscription } from '@/context/SubscriptionContext';
+import { useAuth } from '@/context/AuthContext';
 import { SubscriptionStatus } from '@/constants/types';
 
 const STATUS_CONFIG: Record<SubscriptionStatus, { label: string; color: string; bg: string; icon: any }> = {
@@ -33,7 +34,22 @@ export default function SubscriptionScreen() {
   const bottomPad = Platform.OS === 'web' ? 34 : insets.bottom;
   const router = useRouter();
 
+  const { user } = useAuth();
   const { organization, plan, subscription, seatUsed, seatMax, isLoading, orgUsers, activeOrgUsers, freeOrgUsers } = useSubscription();
+
+  const isAdmin = user?.role === 'admin' || user?.role === 'super_admin';
+
+  if (!isLoading && !isAdmin) {
+    return (
+      <View style={[styles.container, styles.center]}>
+        <Ionicons name="lock-closed-outline" size={48} color={C.textMuted} />
+        <Text style={[styles.sectionTitle, { marginTop: 16, textAlign: 'center' }]}>Accès réservé aux administrateurs</Text>
+        <TouchableOpacity onPress={() => router.back()} style={{ marginTop: 20, paddingHorizontal: 20, paddingVertical: 10, backgroundColor: C.primary, borderRadius: 10 }}>
+          <Text style={{ color: '#fff', fontFamily: 'Inter_600SemiBold', fontSize: 14 }}>Retour</Text>
+        </TouchableOpacity>
+      </View>
+    );
+  }
 
   if (isLoading) {
     return (

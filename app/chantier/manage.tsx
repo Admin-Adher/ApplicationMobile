@@ -141,7 +141,7 @@ export default function ManageChantiersScreen() {
                         <Text style={styles.actionBtnText}>Activer</Text>
                       </TouchableOpacity>
                     )}
-                    {permissions.canCreate && (
+                    {permissions.canDelete && (
                       <TouchableOpacity
                         style={[styles.actionBtn, { borderColor: C.open + '50' }]}
                         onPress={() => handleDelete(chantier.id, chantier.name)}
