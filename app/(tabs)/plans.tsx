@@ -19,7 +19,7 @@ import { Reserve, SitePlan, ReserveStatus } from '@/constants/types';
 import StatusBadge from '@/components/StatusBadge';
 import { STATUS_CONFIG } from '@/components/StatusBadge';
 import PriorityBadge from '@/components/PriorityBadge';
-import { uploadDocument } from '@/lib/storage';
+import { uploadDocumentDetailed } from '@/lib/storage';
 import { genId, formatDateFR } from '@/lib/utils';
 import { loadFileAsDataUrl, preRenderPdfPageToDataUrl } from '@/lib/pdfBase';
 import { parseDxf, DxfParseResult } from '@/lib/dxfParser';
@@ -759,24 +759,24 @@ export default function PlansScreen() {
             Alert.alert('DXF vide', "Le fichier DXF ne contient aucune entité reconnue.");
             return;
           }
-          const storageUrl = await uploadDocument(asset.uri, `plan_dxf_${currentPlanId}_${docName}`, 'application/octet-stream');
-          const dxfUri = storageUrl ?? asset.uri;
+          const { url: dxfStorageUrl, error: dxfUploadError } = await uploadDocumentDetailed(asset.uri, `plan_dxf_${currentPlanId}_${docName}`, 'application/octet-stream');
+          const dxfUri = dxfStorageUrl ?? asset.uri;
           setDxfData(prev => ({ ...prev, [currentPlanId]: parsed }));
           updateSitePlan({ ...currentPlan, uri: dxfUri, fileType: 'dxf', dxfName: docName, size: formatSize(asset.size) });
-          if (storageUrl) {
+          if (dxfStorageUrl) {
             Alert.alert('Plan DXF importé ✓', `${parsed.entities.length} entités chargées depuis "${docName}".`);
           } else {
-            Alert.alert('Plan DXF importé (local uniquement)', `${parsed.entities.length} entités chargées depuis "${docName}".\n\nLe fichier n'a pas pu être uploadé sur le serveur : le plan sera visible sur cet appareil uniquement.`, [{ text: 'OK' }]);
+            Alert.alert('Plan DXF importé (local uniquement)', `${parsed.entities.length} entités chargées depuis "${docName}".\n\nErreur upload : ${dxfUploadError ?? 'inconnue'}\n\nLe plan sera visible sur cet appareil uniquement.`, [{ text: 'OK' }]);
           }
           return;
         }
-        const storageUrl = await uploadDocument(asset.uri, `plan_${currentPlanId}_${docName}`, asset.mimeType ?? undefined);
+        const { url: storageUrl, error: uploadError } = await uploadDocumentDetailed(asset.uri, `plan_${currentPlanId}_${docName}`, asset.mimeType ?? undefined);
         const finalUri = storageUrl ?? asset.uri;
         updateSitePlan({ ...currentPlan, uri: finalUri, fileType: isPdfFile ? 'pdf' : 'image', size: formatSize(asset.size) });
         if (storageUrl) {
           Alert.alert('Plan importé ✓', 'Fichier uploadé sur le serveur. Il sera disponible sur tous vos appareils.');
         } else {
-          Alert.alert('Plan importé (local uniquement)', 'Le fichier n\'a pas pu être uploadé sur le serveur. Le plan sera visible sur cet appareil uniquement et pourrait disparaître si le cache est effacé.\n\nVérifiez votre connexion ou les droits d\'accès Supabase.', [{ text: 'OK' }]);
+          Alert.alert('Plan importé (local uniquement)', `Le fichier n'a pas pu être uploadé sur le serveur.\n\nErreur : ${uploadError ?? 'inconnue'}\n\nLe plan sera visible sur cet appareil uniquement.`, [{ text: 'OK' }]);
         }
       }
     } catch {
@@ -815,9 +815,9 @@ export default function PlansScreen() {
           Alert.alert('Format non supporté', 'Importez une image, un PDF ou un DXF.');
           return;
         }
-        const storageUrl = await uploadDocument(asset.uri, `plan_rev_${genId()}_${asset.name}`, asset.mimeType ?? undefined);
+        const { url: storageUrl, error: revUploadError } = await uploadDocumentDetailed(asset.uri, `plan_rev_${genId()}_${asset.name}`, asset.mimeType ?? undefined);
         if (!storageUrl) {
-          Alert.alert('Attention — stockage local', 'Le fichier de révision n\'a pas pu être uploadé sur le serveur. Il sera visible sur cet appareil uniquement.\n\nVérifiez votre connexion ou les droits d\'accès Supabase.', [{ text: 'Continuer' }]);
+          Alert.alert('Attention — stockage local', `Le fichier de révision n'a pas pu être uploadé sur le serveur.\n\nErreur : ${revUploadError ?? 'inconnue'}\n\nIl sera visible sur cet appareil uniquement.`, [{ text: 'Continuer' }]);
         }
         const finalUri = storageUrl ?? asset.uri;
         const revDocExt = asset.name.split('.').pop()?.toLowerCase() ?? '';

@@ -42,7 +42,16 @@ export async function uploadDocument(
   filename: string,
   mimeType?: string
 ): Promise<string | null> {
-  if (!isSupabaseConfigured) return null;
+  const { url } = await uploadDocumentDetailed(uri, filename, mimeType);
+  return url;
+}
+
+export async function uploadDocumentDetailed(
+  uri: string,
+  filename: string,
+  mimeType?: string
+): Promise<{ url: string | null; error: string | null }> {
+  if (!isSupabaseConfigured) return { url: null, error: 'Supabase non configuré (variables EXPO_PUBLIC_SUPABASE_URL / EXPO_PUBLIC_SUPABASE_KEY manquantes).' };
   try {
     const blob = await uriToBlob(uri);
     const path = `${Date.now()}_${filename.replace(/[^a-zA-Z0-9._-]/g, '_')}`;
@@ -51,13 +60,14 @@ export async function uploadDocument(
       .upload(path, blob, { contentType: mimeType || blob.type || 'application/octet-stream', upsert: false });
     if (error) {
       console.warn('uploadDocument Supabase error:', error.message);
-      return null;
+      return { url: null, error: error.message };
     }
     const { data: urlData } = supabase.storage.from('documents').getPublicUrl(data.path);
-    return urlData.publicUrl;
-  } catch (e) {
-    console.warn('uploadDocument failed, using local URI:', e);
-    return null;
+    return { url: urlData.publicUrl, error: null };
+  } catch (e: unknown) {
+    const msg = e instanceof Error ? e.message : String(e);
+    console.warn('uploadDocument failed:', msg);
+    return { url: null, error: msg };
   }
 }
 
