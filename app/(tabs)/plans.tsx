@@ -1174,6 +1174,10 @@ export default function PlansScreen() {
                   if (!permissions.canCreate) return;
                   router.push({ pathname: '/reserve/new', params: { planId: currentPlanId ?? '', chantierId: activeChantierId ?? '', planX: String(Math.round(px)), planY: String(Math.round(py)) } } as any);
                 }}
+                onPinMove={(reserveId, planX, planY) => {
+                  const reserve = reservesRef.current.find(r => r.id === reserveId);
+                  if (reserve) updateReserveFieldsRef.current({ ...reserve, planX: Math.round(planX), planY: Math.round(planY) });
+                }}
                 canAnnotate={permissions.canCreate}
                 canCreate={permissions.canCreate}
                 pinSize={pinSize}
