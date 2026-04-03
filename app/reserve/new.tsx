@@ -7,7 +7,6 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useState, useMemo, useEffect } from 'react';
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
-import * as Location from 'expo-location';
 import { C } from '@/constants/colors';
 import { useApp } from '@/context/AppContext';
 import { useAuth } from '@/context/AuthContext';
@@ -243,27 +242,12 @@ export default function NewReserveScreen() {
       }
       const finalUri = storageUrl ?? uri;
 
-      let gpsLat: number | undefined;
-      let gpsLon: number | undefined;
-      if (Platform.OS !== 'web') {
-        try {
-          const { status } = await Location.requestForegroundPermissionsAsync();
-          if (status === 'granted') {
-            const loc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
-            gpsLat = loc.coords.latitude;
-            gpsLon = loc.coords.longitude;
-          }
-        } catch {}
-      }
-
       const newPhoto: ReservePhoto = {
         id: genId(),
         uri: finalUri,
         kind: 'defect',
         takenAt: today,
         takenBy: author,
-        gpsLat,
-        gpsLon,
       };
       setPhotos(prev => [...prev, newPhoto]);
     } catch (e: any) {
@@ -409,11 +393,6 @@ export default function NewReserveScreen() {
                         <View style={[styles.photoKindBadge, { backgroundColor: p.kind === 'defect' ? '#EF444488' : '#22C55E88' }]}>
                           <Text style={styles.photoKindBadgeText}>{p.kind === 'defect' ? 'Constat' : 'Levée'}</Text>
                         </View>
-                        {p.gpsLat !== undefined && (
-                          <View style={styles.gpsIndicator}>
-                            <Ionicons name="location" size={9} color="#fff" />
-                          </View>
-                        )}
                       </TouchableOpacity>
                       <TouchableOpacity style={styles.photoRemoveBtn} onPress={() => removePhoto(p.id)}>
                         <Ionicons name="close" size={11} color="#fff" />

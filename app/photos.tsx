@@ -5,7 +5,6 @@ import { useState, useMemo } from 'react';
 import * as ImagePicker from 'expo-image-picker';
 import * as Sharing from 'expo-sharing';
 import * as FileSystem from 'expo-file-system';
-import * as Location from 'expo-location';
 import { C } from '@/constants/colors';
 import { useApp } from '@/context/AppContext';
 import { useAuth } from '@/context/AuthContext';
@@ -20,7 +19,6 @@ export default function PhotosScreen() {
   const { user, permissions } = useAuth();
   const [loading, setLoading] = useState(false);
   const [pendingUri, setPendingUri] = useState<string | null>(null);
-  const [pendingGps, setPendingGps] = useState<{ lat: number; lon: number; accuracy: number } | null>(null);
   const [commentInput, setCommentInput] = useState('');
   const [locationInput, setLocationInput] = useState('');
   const [modalVisible, setModalVisible] = useState(false);
@@ -110,25 +108,11 @@ export default function PhotosScreen() {
     ]);
   }
 
-  async function openCommentModal(uri: string) {
+  function openCommentModal(uri: string) {
     setPendingUri(uri);
-    setPendingGps(null);
     setCommentInput('');
     setLocationInput('');
     setModalVisible(true);
-    if (Platform.OS !== 'web') {
-      try {
-        const { status } = await Location.requestForegroundPermissionsAsync();
-        if (status === 'granted') {
-          const loc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
-          setPendingGps({
-            lat: loc.coords.latitude,
-            lon: loc.coords.longitude,
-            accuracy: Math.round(loc.coords.accuracy ?? 0),
-          });
-        }
-      } catch {}
-    }
   }
 
   async function blobUriToDataUri(blobUri: string): Promise<string> {
@@ -177,9 +161,6 @@ export default function PhotosScreen() {
         takenBy: user?.name ?? 'Équipe',
         colorCode: C.closed,
         uri: finalUri,
-        gpsLat: pendingGps?.lat,
-        gpsLon: pendingGps?.lon,
-        gpsAccuracy: pendingGps?.accuracy,
       };
       addPhoto(newPhoto);
       if (storageUrl) {
@@ -392,15 +373,6 @@ export default function PhotosScreen() {
                   {item.uri?.startsWith('http') ? 'Cloud' : 'Local'} — {item.takenAt}
                 </Text>
               </View>
-              {item.gpsLat !== undefined && item.gpsLon !== undefined && (
-                <View style={[styles.photoMeta, styles.gpsBadge]}>
-                  <Ionicons name="locate" size={10} color="#10B981" />
-                  <Text style={styles.gpsText}>
-                    {item.gpsLat.toFixed(5)}, {item.gpsLon.toFixed(5)}
-                    {item.gpsAccuracy ? ` ±${item.gpsAccuracy}m` : ''}
-                  </Text>
-                </View>
-              )}
               <View style={styles.photoActions}>
                 <TouchableOpacity style={styles.shareBtn} onPress={() => openShareModal(item)} activeOpacity={0.75}>
                   <Ionicons name="share-social-outline" size={12} color={C.primary} />
