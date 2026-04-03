@@ -71,6 +71,7 @@ export default function AdminScreen() {
   const [inviteModal, setInviteModal] = useState(false);
   const [inviteEmail, setInviteEmail] = useState('');
   const [inviteRole, setInviteRole] = useState<UserRole>('observateur');
+  const [inviteCompanyId, setInviteCompanyId] = useState<string>('');
   const [inviteSending, setInviteSending] = useState(false);
   const [inviteToken, setInviteToken] = useState<string | null>(null);
   const [tokenCopied, setTokenCopied] = useState(false);
@@ -102,7 +103,11 @@ export default function AdminScreen() {
   async function handleSendInvite() {
     if (!inviteEmail.trim()) return;
     setInviteSending(true);
-    const result = await inviteUser(inviteEmail.trim(), inviteRole);
+    const result = await inviteUser(
+      inviteEmail.trim(),
+      inviteRole,
+      inviteRole === 'sous_traitant' && inviteCompanyId ? inviteCompanyId : undefined
+    );
     setInviteSending(false);
     if (result.success) {
       setInviteToken(result.token ?? null);
@@ -115,6 +120,7 @@ export default function AdminScreen() {
     setInviteModal(false);
     setInviteEmail('');
     setInviteRole('observateur');
+    setInviteCompanyId('');
     setInviteToken(null);
     setTokenCopied(false);
   }
@@ -762,7 +768,7 @@ export default function AdminScreen() {
                     <TouchableOpacity
                       key={r.value}
                       style={[styles.roleOption, inviteRole === r.value && { backgroundColor: r.bg, borderColor: r.color }]}
-                      onPress={() => setInviteRole(r.value)}
+                      onPress={() => { setInviteRole(r.value); setInviteCompanyId(''); }}
                     >
                       <View style={[styles.roleOptionDot, { backgroundColor: r.color }]} />
                       <View style={{ flex: 1 }}>
@@ -775,6 +781,31 @@ export default function AdminScreen() {
                     </TouchableOpacity>
                   ))}
                 </View>
+
+                {inviteRole === 'sous_traitant' && companies.length > 0 && (
+                  <View style={styles.field}>
+                    <Text style={styles.fieldLabel}>Entreprise rattachée <Text style={{ color: C.textMuted, fontFamily: 'Inter_400Regular' }}>(optionnel)</Text></Text>
+                    {companies.map(co => (
+                      <TouchableOpacity
+                        key={co.id}
+                        style={[
+                          styles.roleOption,
+                          inviteCompanyId === co.id && { backgroundColor: co.color + '18', borderColor: co.color },
+                        ]}
+                        onPress={() => setInviteCompanyId(inviteCompanyId === co.id ? '' : co.id)}
+                      >
+                        <View style={[styles.roleOptionDot, { backgroundColor: co.color }]} />
+                        <View style={{ flex: 1 }}>
+                          <Text style={[styles.roleOptionText, inviteCompanyId === co.id && { color: co.color, fontFamily: 'Inter_600SemiBold' }]}>
+                            {co.name}
+                          </Text>
+                          <Text style={styles.roleOptionDesc}>{co.shortName} · {co.plannedWorkers} pers. prévues</Text>
+                        </View>
+                        {inviteCompanyId === co.id && <Ionicons name="checkmark-circle" size={18} color={co.color} />}
+                      </TouchableOpacity>
+                    ))}
+                  </View>
+                )}
 
                 {inviteSending ? (
                   <ActivityIndicator size="large" color={C.primary} style={{ marginVertical: 20 }} />

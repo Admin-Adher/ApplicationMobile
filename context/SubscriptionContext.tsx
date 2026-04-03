@@ -88,7 +88,7 @@ interface SubscriptionContextValue {
   allOrganizations: Organization[];
   allPlans: Plan[];
   orgSummaries: OrgSummary[];
-  inviteUser: (email: string, role: UserRole) => Promise<{ success: boolean; error?: string; token?: string }>;
+  inviteUser: (email: string, role: UserRole, companyId?: string) => Promise<{ success: boolean; error?: string; token?: string }>;
   cancelInvitation: (id: string) => Promise<void>;
   refreshSubscription: () => void;
   updateOrgPlan: (orgId: string, planId: string) => Promise<{ success: boolean; error?: string }>;
@@ -311,7 +311,8 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
 
   async function inviteUser(
     email: string,
-    role: UserRole
+    role: UserRole,
+    companyId?: string
   ): Promise<{ success: boolean; error?: string; token?: string }> {
     if (!user) return { success: false, error: 'Non connecté.' };
     const isFreeRole = FREE_ROLES.includes(role);
@@ -349,6 +350,7 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
         status: 'pending',
         createdAt: new Date().toISOString(),
         expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
+        companyId: companyId ?? undefined,
       };
       setPendingInvitations(prev => [mockInv, ...prev]);
       return { success: true, token: mockToken };
@@ -373,6 +375,7 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
           email: emailLower,
           role,
           invited_by: user.id,
+          ...(companyId ? { company_id: companyId } : {}),
         })
         .select()
         .single();
@@ -391,6 +394,7 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
         status: data.status,
         createdAt: data.created_at,
         expiresAt: data.expires_at,
+        companyId: data.company_id ?? undefined,
       };
 
       setPendingInvitations(prev => [newInv, ...prev]);

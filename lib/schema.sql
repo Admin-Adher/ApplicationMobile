@@ -553,6 +553,10 @@ alter table public.companies add column if not exists siret text;
 alter table public.companies add column if not exists insurance text;
 alter table public.companies add column if not exists qualifications text;
 
+-- ---- COLONNES MANQUANTES — invitations & profiles ----
+alter table public.invitations add column if not exists company_id text;
+alter table public.profiles add column if not exists company_id text;
+
 -- ---- POLITIQUES MANQUANTES — profiles ----
 -- Permet aux admins de mettre à jour les profils d'autres utilisateurs (updateUserRole)
 drop policy if exists "Profil modifiable par admin de la même organisation" on public.profiles;

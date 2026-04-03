@@ -69,6 +69,7 @@ async function linkPendingInvitation(userId: string, email: string): Promise<str
       organization_id: inv.organization_id,
       role: inv.role,
       role_label: ROLE_LABELS[inv.role as UserRole] ?? inv.role,
+      ...(inv.company_id ? { company_id: inv.company_id } : {}),
     }).eq('id', userId);
 
     await supabase.from('invitations').update({ status: 'accepted' }).eq('id', inv.id);
@@ -88,6 +89,8 @@ async function fetchProfile(userId: string): Promise<User | null> {
     let role: UserRole = data.role as UserRole;
     let roleLabel: string = data.role_label ?? ROLE_LABELS[role] ?? role;
 
+    let companyId: string | undefined = data.company_id ?? undefined;
+
     if (!orgId && role !== 'super_admin') {
       const linkedOrgId = await linkPendingInvitation(userId, data.email);
       if (linkedOrgId) {
@@ -96,6 +99,7 @@ async function fetchProfile(userId: string): Promise<User | null> {
           orgId = refreshed.organization_id ?? undefined;
           role = refreshed.role as UserRole;
           roleLabel = refreshed.role_label ?? ROLE_LABELS[role] ?? role;
+          companyId = refreshed.company_id ?? undefined;
         }
       }
     }
@@ -107,6 +111,7 @@ async function fetchProfile(userId: string): Promise<User | null> {
       roleLabel,
       email: data.email,
       organizationId: orgId,
+      companyId,
     };
   } catch {
     return null;
@@ -270,7 +275,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     if (!user || !isSupabaseConfigured) return;
-    supabase.from('profiles').select('id, name, role, role_label, email, organization_id').then(({ data }: { data: any }) => {
+    supabase.from('profiles').select('id, name, role, role_label, email, organization_id, company_id').then(({ data }: { data: any }) => {
       if (data && data.length > 0) {
         setUsers(data.map((p: any) => ({
           id: p.id,
@@ -279,6 +284,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           roleLabel: p.role_label ?? ROLE_LABELS[p.role as UserRole] ?? p.role,
           email: p.email,
           organizationId: p.organization_id ?? undefined,
+          companyId: p.company_id ?? undefined,
         })));
       }
     }).catch(() => {});

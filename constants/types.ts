@@ -76,6 +76,7 @@ export interface Invitation {
   status: 'pending' | 'accepted' | 'expired';
   createdAt: string;
   expiresAt: string;
+  companyId?: string;
 }
 
 export interface Comment {
