@@ -12,6 +12,7 @@ import { useApp } from '@/context/AppContext';
 import { Reserve, ReservePriority, ReserveStatus, ReservePhoto, SitePlan } from '@/constants/types';
 import {
   loadPhotoAsDataUrl,
+  loadFileAsDataUrl,
   exportPDF as exportPDFHelper,
   buildPhotoGrid,
   PDF_BASE_CSS,
@@ -182,7 +183,10 @@ if(isPdf){
   s.src='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js';
   s.onload=function(){
     pdfjsLib.GlobalWorkerOptions.workerSrc='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
-    pdfjsLib.getDocument({url:planUri,withCredentials:false}).promise.then(function(doc){
+    var docSrc=planUri.startsWith('data:')
+      ?{data:atob(planUri.split(',')[1])}
+      :{url:planUri,withCredentials:false};
+    pdfjsLib.getDocument(docSrc).promise.then(function(doc){
       doc.getPage(1).then(function(page){
         var vp1=page.getViewport({scale:1});
         var scale=${PLAN_RENDER_W}/vp1.width;
@@ -679,9 +683,12 @@ export default function ReserveDetailScreen() {
       let planData: PlanData | undefined;
       if (reserve.planId && reserve.planX !== undefined && reserve.planY !== undefined) {
         const matchedPlan = sitePlans.find(p => p.id === reserve.planId);
-        if (matchedPlan) {
+        if (matchedPlan && matchedPlan.uri) {
+          // Convert to data URL on all platforms so Print.printAsync's sandboxed WebView
+          // can access the file (file:// URIs are blocked in the sandbox on mobile).
+          const resolvedPlanUri = await loadFileAsDataUrl(matchedPlan.uri, matchedPlan.fileType);
           planData = {
-            planUri: matchedPlan.uri ?? '',
+            planUri: resolvedPlanUri,
             fileType: matchedPlan.fileType,
             planX: reserve.planX,
             planY: reserve.planY,

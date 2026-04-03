@@ -185,10 +185,13 @@ async function exportPlanPDF(
     </tr>`;
   }).join('');
 
-  // Pre-fetch plan as data URL to avoid CORS issues in the export popup
+  // Convert plan URI to a data URL on all platforms.
+  // On mobile, file:// paths are inaccessible from Print.printAsync's sandboxed WebView,
+  // so we must read and base64-encode the file first (expo-file-system).
+  // On web, we fetch via XHR/FileReader as before.
   let exportUri = planUri ?? null;
-  if (planUri && Platform.OS === 'web') {
-    exportUri = await fetchAsDataUrl(planUri);
+  if (planUri) {
+    exportUri = await loadFileAsDataUrl(planUri, fileType);
   }
 
   const hasPins = pinsWithCoords.length > 0;
