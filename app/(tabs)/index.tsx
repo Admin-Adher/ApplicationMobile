@@ -169,14 +169,40 @@ export default function DashboardScreen() {
   const [analyticsTab, setAnalyticsTab] = useState<'trend' | 'companies'>('trend');
   const [viewMode, setViewMode] = useState<'chantier' | 'portfolio'>('chantier');
 
-  const showPortfolioToggle = chantiers.length >= 2;
+  const isSousTraitant = user?.role === 'sous_traitant';
+
+  const userCompany = useMemo(() => {
+    if (!isSousTraitant || !user?.companyId) return null;
+    return companies.find(c => c.id === user.companyId) ?? null;
+  }, [isSousTraitant, user?.companyId, companies]);
+
+  const visibleReserves = useMemo(() => {
+    if (isSousTraitant && userCompany) {
+      return reserves.filter(r => r.company === userCompany.name);
+    }
+    return reserves;
+  }, [isSousTraitant, userCompany, reserves]);
+
+  const visibleStats = useMemo(() => {
+    if (!isSousTraitant) return stats;
+    const total = visibleReserves.length;
+    const open = visibleReserves.filter(r => r.status === 'open').length;
+    const inProgress = visibleReserves.filter(r => r.status === 'in_progress').length;
+    const waiting = visibleReserves.filter(r => r.status === 'waiting').length;
+    const verification = visibleReserves.filter(r => r.status === 'verification').length;
+    const closed = visibleReserves.filter(r => r.status === 'closed').length;
+    const progress = total > 0 ? Math.round((closed / total) * 100) : 0;
+    return { ...stats, total, open, inProgress, waiting, verification, closed, progress };
+  }, [isSousTraitant, visibleReserves, stats]);
+
+  const showPortfolioToggle = !isSousTraitant && chantiers.length >= 2;
 
   const PRIORITY_LABELS: Record<string, string> = {
     low: 'Basse', medium: 'Moyenne', high: 'Haute', critical: 'Critique',
   };
 
-  const criticalReserves = reserves.filter(r => r.priority === 'critical' && r.status !== 'closed');
-  const overdueNonCritical = reserves.filter(
+  const criticalReserves = visibleReserves.filter(r => r.priority === 'critical' && r.status !== 'closed');
+  const overdueNonCritical = visibleReserves.filter(
     r => r.status !== 'closed' && r.priority !== 'critical' && isOverdue(r.deadline, r.status)
   );
   const lateTasks = tasks.filter(isTaskLate);
@@ -204,7 +230,7 @@ export default function DashboardScreen() {
       const label = getWeekLabel(d);
       weeks.set(key, { week: key, label, created: 0, closed: 0 });
     }
-    reserves.forEach(r => {
+    visibleReserves.forEach(r => {
       if (r.createdAt) {
         const d = parseDateSafe(r.createdAt);
         if (d) {
@@ -223,7 +249,7 @@ export default function DashboardScreen() {
       }
     });
     return Array.from(weeks.values());
-  }, [reserves]);
+  }, [visibleReserves]);
 
   const companyStats = useMemo((): CompanyClosureStat[] => {
     return companies.map(co => {
@@ -235,6 +261,13 @@ export default function DashboardScreen() {
       return { companyName: co.name, color: co.color, total, closed, rate, overdue };
     }).filter(c => c.total > 0).sort((a, b) => b.rate - a.rate);
   }, [reserves, companies]);
+
+  const visibleCompanies = useMemo(() => {
+    if (isSousTraitant && userCompany) {
+      return companies.filter(c => c.id === userCompany.id);
+    }
+    return companies;
+  }, [isSousTraitant, userCompany, companies]);
 
   return (
     <View style={styles.container}>
@@ -271,7 +304,7 @@ export default function DashboardScreen() {
               </View>
             )}
           </TouchableOpacity>
-          {viewMode === 'chantier' && (
+          {!isSousTraitant && viewMode === 'chantier' && (
             activeChantier ? (
               <TouchableOpacity
                 style={styles.chantierPill}
@@ -282,14 +315,22 @@ export default function DashboardScreen() {
                 <Ionicons name="chevron-down" size={11} color={C.primary} />
               </TouchableOpacity>
             ) : (
-              <TouchableOpacity
-                style={styles.chantierPillEmpty}
-                onPress={() => router.push('/chantier/new' as any)}
-              >
-                <Ionicons name="add" size={13} color={C.textMuted} />
-                <Text style={styles.chantierPillEmptyText}>Chantier</Text>
-              </TouchableOpacity>
+              permissions.canCreate && (
+                <TouchableOpacity
+                  style={styles.chantierPillEmpty}
+                  onPress={() => router.push('/chantier/new' as any)}
+                >
+                  <Ionicons name="add" size={13} color={C.textMuted} />
+                  <Text style={styles.chantierPillEmptyText}>Chantier</Text>
+                </TouchableOpacity>
+              )
             )
+          )}
+          {isSousTraitant && activeChantier && (
+            <View style={styles.chantierPillReadOnly}>
+              <View style={styles.chantierPillDot} />
+              <Text style={styles.chantierPillText} numberOfLines={1}>{activeChantier.name}</Text>
+            </View>
           )}
         </View>
       </View>
@@ -350,10 +391,17 @@ export default function DashboardScreen() {
           <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={C.primary} colors={[C.primary]} />
         }
       >
+        {isSousTraitant && userCompany && (
+          <View style={styles.scopeBanner}>
+            <View style={[styles.scopeDot, { backgroundColor: userCompany.color }]} />
+            <Text style={styles.scopeText}>Données filtrées pour <Text style={styles.scopeBold}>{userCompany.name}</Text></Text>
+          </View>
+        )}
+
         <View style={styles.kpiGrid}>
           <KPICard
             label="Total réserves"
-            value={stats.total}
+            value={visibleStats.total}
             color={C.primary}
             icon="list"
             bg={C.primaryBg}
@@ -361,7 +409,7 @@ export default function DashboardScreen() {
           />
           <KPICard
             label="Actives"
-            value={stats.open + stats.inProgress}
+            value={visibleStats.open + visibleStats.inProgress}
             color={C.open}
             icon="alert-circle"
             bg={C.openBg}
@@ -377,7 +425,7 @@ export default function DashboardScreen() {
           />
           <KPICard
             label="Clôturées"
-            value={stats.closed}
+            value={visibleStats.closed}
             color={C.closed}
             icon="checkmark-circle"
             bg={C.closedBg}
@@ -431,7 +479,7 @@ export default function DashboardScreen() {
           <Ionicons name="chevron-forward" size={16} color={C.textMuted} />
         </TouchableOpacity>
 
-        {chantiers.length === 0 && (
+        {chantiers.length === 0 && permissions.canCreate && (
           <View style={[styles.onboardCard, { borderColor: C.primary + '40', borderWidth: 1.5 }]}>
             <View style={styles.onboardIconWrap}>
               <Ionicons name="business-outline" size={32} color={C.primary} />
@@ -452,7 +500,7 @@ export default function DashboardScreen() {
           </View>
         )}
 
-        {chantiers.length > 0 && stats.total === 0 && companies.length === 0 && (
+        {chantiers.length > 0 && visibleStats.total === 0 && companies.length === 0 && permissions.canCreate && (
           <View style={styles.onboardCard}>
             <View style={styles.onboardIconWrap}>
               <Ionicons name="construct" size={32} color={C.primary} />
@@ -469,77 +517,81 @@ export default function DashboardScreen() {
                 <Ionicons name="add-circle-outline" size={16} color="#fff" />
                 <Text style={styles.onboardBtnText}>Créer une réserve</Text>
               </TouchableOpacity>
-              <TouchableOpacity
-                style={styles.onboardBtnSecondary}
-                onPress={() => router.push('/(tabs)/equipes' as any)}
-              >
-                <Ionicons name="people-outline" size={16} color={C.primary} />
-                <Text style={styles.onboardBtnSecondaryText}>Configurer les équipes</Text>
-              </TouchableOpacity>
+              {permissions.canManageTeams && (
+                <TouchableOpacity
+                  style={styles.onboardBtnSecondary}
+                  onPress={() => router.push('/(tabs)/equipes' as any)}
+                >
+                  <Ionicons name="people-outline" size={16} color={C.primary} />
+                  <Text style={styles.onboardBtnSecondaryText}>Configurer les équipes</Text>
+                </TouchableOpacity>
+              )}
             </View>
           </View>
         )}
 
-        {stats.total > 0 && (
+        {visibleStats.total > 0 && (
           <View style={styles.card}>
             <View style={styles.cardHeader}>
               <Text style={styles.cardTitle}>Avancement global</Text>
               <View style={styles.pctBadge}>
-                <Text style={styles.pct}>{stats.progress}%</Text>
+                <Text style={styles.pct}>{visibleStats.progress}%</Text>
               </View>
             </View>
             <View style={styles.progressBg}>
-              <View style={[styles.progressFill, { width: `${stats.progress}%` as any }]} />
+              <View style={[styles.progressFill, { width: `${visibleStats.progress}%` as any }]} />
             </View>
-            <Text style={styles.progressHint}>{stats.closed} / {stats.total} réserves clôturées</Text>
+            <Text style={styles.progressHint}>{visibleStats.closed} / {visibleStats.total} réserves clôturées</Text>
           </View>
         )}
 
-        {stats.total > 0 && (
+        {visibleStats.total > 0 && (
           <View style={styles.card}>
             <Text style={styles.cardTitle}>Répartition des réserves</Text>
             <View style={styles.statusBars}>
-              <ReserveStatusBar label="Ouvert" count={stats.open} total={stats.total} color={C.open} />
-              <ReserveStatusBar label="En cours" count={stats.inProgress} total={stats.total} color={C.inProgress} />
-              <ReserveStatusBar label="En attente" count={stats.waiting} total={stats.total} color={C.waiting} />
-              <ReserveStatusBar label="Vérification" count={stats.verification} total={stats.total} color={C.verification} />
-              <ReserveStatusBar label="Clôturé" count={stats.closed} total={stats.total} color={C.closed} />
+              <ReserveStatusBar label="Ouvert" count={visibleStats.open} total={visibleStats.total} color={C.open} />
+              <ReserveStatusBar label="En cours" count={visibleStats.inProgress} total={visibleStats.total} color={C.inProgress} />
+              <ReserveStatusBar label="En attente" count={visibleStats.waiting} total={visibleStats.total} color={C.waiting} />
+              <ReserveStatusBar label="Vérification" count={visibleStats.verification} total={visibleStats.total} color={C.verification} />
+              <ReserveStatusBar label="Clôturé" count={visibleStats.closed} total={visibleStats.total} color={C.closed} />
             </View>
           </View>
         )}
 
-        {stats.total > 0 && (
+        {visibleStats.total > 0 && (
           <View style={styles.card}>
             <View style={styles.cardHeader}>
               <Text style={styles.cardTitle}>Analyse & tendances</Text>
-              <View style={styles.tabSwitch}>
-                <TouchableOpacity
-                  style={[styles.tabSwitchBtn, analyticsTab === 'trend' && styles.tabSwitchBtnActive]}
-                  onPress={() => setAnalyticsTab('trend')}
-                >
-                  <Text style={[styles.tabSwitchText, analyticsTab === 'trend' && styles.tabSwitchTextActive]}>
-                    Évolution
-                  </Text>
-                </TouchableOpacity>
-                <TouchableOpacity
-                  style={[styles.tabSwitchBtn, analyticsTab === 'companies' && styles.tabSwitchBtnActive]}
-                  onPress={() => setAnalyticsTab('companies')}
-                >
-                  <Text style={[styles.tabSwitchText, analyticsTab === 'companies' && styles.tabSwitchTextActive]}>
-                    Entreprises
-                  </Text>
-                </TouchableOpacity>
-              </View>
+              {!isSousTraitant && (
+                <View style={styles.tabSwitch}>
+                  <TouchableOpacity
+                    style={[styles.tabSwitchBtn, analyticsTab === 'trend' && styles.tabSwitchBtnActive]}
+                    onPress={() => setAnalyticsTab('trend')}
+                  >
+                    <Text style={[styles.tabSwitchText, analyticsTab === 'trend' && styles.tabSwitchTextActive]}>
+                      Évolution
+                    </Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[styles.tabSwitchBtn, analyticsTab === 'companies' && styles.tabSwitchBtnActive]}
+                    onPress={() => setAnalyticsTab('companies')}
+                  >
+                    <Text style={[styles.tabSwitchText, analyticsTab === 'companies' && styles.tabSwitchTextActive]}>
+                      Entreprises
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+              )}
             </View>
 
-            {analyticsTab === 'trend' && (
+            {(isSousTraitant || analyticsTab === 'trend') && (
               <>
                 <Text style={styles.chartSubtitle}>8 dernières semaines</Text>
                 <WeekTrendChart weekStats={weekStats} />
               </>
             )}
 
-            {analyticsTab === 'companies' && (
+            {!isSousTraitant && analyticsTab === 'companies' && (
               <>
                 {companyStats.length === 0 ? (
                   <Text style={styles.emptyAnalytics}>Aucune donnée entreprise disponible</Text>
@@ -554,30 +606,36 @@ export default function DashboardScreen() {
           </View>
         )}
 
-        <View style={styles.card}>
-          <View style={styles.cardHeader}>
-            <Text style={styles.cardTitle}>Personnel aujourd'hui</Text>
-            <Text style={styles.cardSub}>{stats.totalWorkers} / {stats.plannedWorkers} personnes</Text>
-          </View>
-          {companies.map(co => {
-            const pct = co.plannedWorkers > 0 ? (co.actualWorkers / co.plannedWorkers) * 100 : 0;
-            const isOver = co.actualWorkers > co.plannedWorkers;
-            const isUnder = co.plannedWorkers > 0 && co.actualWorkers < co.plannedWorkers * 0.7;
-            const barColor = isOver ? C.waiting : isUnder ? C.open : co.color;
-            return (
-              <View key={co.id} style={styles.coRow}>
-                <View style={[styles.coDot, { backgroundColor: co.color }]} />
-                <Text style={styles.coName}>{co.shortName}</Text>
-                <View style={styles.coBarWrap}>
-                  <View style={[styles.coBarFill, { width: `${Math.min(pct, 100)}%` as any, backgroundColor: barColor }]} />
+        {permissions.canViewTeams && (
+          <View style={styles.card}>
+            <View style={styles.cardHeader}>
+              <Text style={styles.cardTitle}>Personnel aujourd'hui</Text>
+              <Text style={styles.cardSub}>
+                {isSousTraitant && userCompany
+                  ? `${userCompany.actualWorkers} / ${userCompany.plannedWorkers} personnes`
+                  : `${stats.totalWorkers} / ${stats.plannedWorkers} personnes`}
+              </Text>
+            </View>
+            {visibleCompanies.map(co => {
+              const pct = co.plannedWorkers > 0 ? (co.actualWorkers / co.plannedWorkers) * 100 : 0;
+              const isOver = co.actualWorkers > co.plannedWorkers;
+              const isUnder = co.plannedWorkers > 0 && co.actualWorkers < co.plannedWorkers * 0.7;
+              const barColor = isOver ? C.waiting : isUnder ? C.open : co.color;
+              return (
+                <View key={co.id} style={styles.coRow}>
+                  <View style={[styles.coDot, { backgroundColor: co.color }]} />
+                  <Text style={styles.coName}>{co.shortName}</Text>
+                  <View style={styles.coBarWrap}>
+                    <View style={[styles.coBarFill, { width: `${Math.min(pct, 100)}%` as any, backgroundColor: barColor }]} />
+                  </View>
+                  <Text style={[styles.coCount, { color: isOver ? C.waiting : isUnder ? C.open : co.color }]}>
+                    {co.actualWorkers}/{co.plannedWorkers}{isOver ? ' ↑' : isUnder ? ' ↓' : ''}
+                  </Text>
                 </View>
-                <Text style={[styles.coCount, { color: isOver ? C.waiting : isUnder ? C.open : co.color }]}>
-                  {co.actualWorkers}/{co.plannedWorkers}{isOver ? ' ↑' : isUnder ? ' ↓' : ''}
-                </Text>
-              </View>
-            );
-          })}
-        </View>
+              );
+            })}
+          </View>
+        )}
 
         {criticalReserves.length > 0 && (
           <View style={styles.alertCard}>
@@ -725,6 +783,11 @@ const styles = StyleSheet.create({
     backgroundColor: C.primaryBg, paddingHorizontal: 10, paddingVertical: 7,
     borderRadius: 22, borderWidth: 1.5, borderColor: C.primary + '60', maxWidth: 120,
   },
+  chantierPillReadOnly: {
+    flexDirection: 'row', alignItems: 'center', gap: 4,
+    backgroundColor: C.surface2, paddingHorizontal: 10, paddingVertical: 7,
+    borderRadius: 22, borderWidth: 1.5, borderColor: C.border, maxWidth: 120,
+  },
   chantierPillDot: { width: 7, height: 7, borderRadius: 4, backgroundColor: C.primary },
   chantierPillText: { fontSize: 11, fontFamily: 'Inter_700Bold', color: C.primary, flex: 1 },
   chantierPillEmpty: {
@@ -760,6 +823,17 @@ const styles = StyleSheet.create({
     minWidth: 18, height: 18, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 4,
   },
   viewToggleBadgeText: { fontSize: 10, fontFamily: 'Inter_700Bold', color: '#fff' },
+
+  scopeBanner: {
+    flexDirection: 'row', alignItems: 'center', gap: 8,
+    backgroundColor: C.primaryBg, borderRadius: 10,
+    paddingHorizontal: 12, paddingVertical: 8,
+    marginBottom: 10,
+    borderWidth: 1, borderColor: C.primary + '30',
+  },
+  scopeDot: { width: 8, height: 8, borderRadius: 4 },
+  scopeText: { fontSize: 12, fontFamily: 'Inter_400Regular', color: C.primary },
+  scopeBold: { fontFamily: 'Inter_700Bold' },
 
   content: { padding: 14, paddingBottom: 36 },
   kpiGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10, marginBottom: 10 },
