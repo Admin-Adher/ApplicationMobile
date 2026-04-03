@@ -37,7 +37,7 @@ BuildTrack is a professional construction management mobile application built wi
 
 ## Authentification & Onboarding (Avril 2026)
 - **Écran d'inscription** (`app/register.tsx`) — deux modes :
-  - **Nouveau client** : crée une organisation, abonnement trial Pro 30j, et compte admin
+  - **Nouveau client** : crée une organisation, abonnement trial Équipe 30j, et compte admin
   - **Invitation reçue** : crée un compte avec l'email de l'invitation ; la liaison org/rôle est automatique via `linkPendingInvitation`
 - **`AuthContext.register()`** — nouvelle fonction qui gère signUp + création org + profile en Supabase
 - **Lien "Créer un compte"** ajouté sur l'écran de connexion
@@ -142,6 +142,27 @@ The tablet sidebar uses a **flex-row wrapper layout** in `app/(tabs)/_layout.tsx
 - This avoids the `sceneContainerStyle` issue where `position:absolute` scene containers ignore CSS `margin`/`padding` properties
 - On mobile: renders `<Tabs>` directly with the default bottom tab bar
 - Sidebar features: 3px left border accent for active item, `backgroundColor: C.primaryBg` background, unread badge on Messages
+
+## Modèle de tarification hybride (Avril 2026)
+Modèle en 3 niveaux calé sur la réalité du BTP — les rôles passifs sont **toujours gratuits** :
+
+| Plan   | Prix      | Utilisateurs actifs | Sous-traitants | Observateurs |
+|--------|-----------|---------------------|----------------|--------------|
+| Solo   | 79 €/mois | 3                   | Gratuits        | Gratuits     |
+| Équipe | 199 €/mois| 15                  | Gratuits        | Gratuits     |
+| Groupe | 499 €/mois| Illimité            | Gratuits        | Gratuits     |
+
+**Rôles actifs facturés** : `admin`, `conducteur`, `chef_equipe`
+**Rôles gratuits** (`FREE_ROLES`) : `observateur`, `sous_traitant`
+
+### Implémentation
+- `FREE_ROLES` défini dans `context/SubscriptionContext.tsx`
+- `activeOrgUsers` / `freeOrgUsers` calculés et exposés via le context
+- `canInvite` ignore la limite de sièges pour les rôles gratuits (`inviteUser()`)
+- `seatUsed` = seulement les utilisateurs actifs (pas les gratuits)
+- Écran `app/subscription.tsx` : affiche 2 sections séparées (actifs vs gratuits/icône cadeau)
+- Schéma SQL : plans Solo/Équipe/Groupe avec migration depuis anciens noms Starter/Pro/Entreprise
+- Nouveau compte → trial Équipe 30j
 
 ## Important Notes
 - `newArchEnabled: false` in app.json (uses legacy architecture)
