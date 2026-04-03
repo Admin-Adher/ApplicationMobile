@@ -953,29 +953,24 @@ export default function OprScreen() {
                     <View style={styles.visiteMeta}>
                       <Ionicons name="calendar-outline" size={12} color="#7C3AED" />
                       {editingVisitOprId === opr.id ? (
-                        <View style={styles.visitDateEditRow}>
-                          <TextInput
-                            style={styles.visitDateInput}
-                            value={editingVisitDate}
-                            onChangeText={setEditingVisitDate}
-                            placeholder="JJ/MM/AAAA"
-                            placeholderTextColor={C.textMuted}
-                            keyboardType="numbers-and-punctuation"
-                            autoFocus
-                          />
-                          <TouchableOpacity
-                            style={styles.visitDateSaveBtn}
-                            onPress={() => {
-                              const trimmed = editingVisitDate.trim();
-                              if (trimmed) updateOpr({ ...opr, visitContradictoire: trimmed });
-                              setEditingVisitOprId(null);
-                            }}
-                          >
-                            <Ionicons name="checkmark" size={13} color="#fff" />
-                          </TouchableOpacity>
-                          <TouchableOpacity onPress={() => setEditingVisitOprId(null)} hitSlop={8}>
-                            <Ionicons name="close" size={14} color={C.textMuted} />
-                          </TouchableOpacity>
+                        <View style={{ flex: 1 }}>
+                          <DateInput value={editingVisitDate} onChange={setEditingVisitDate} />
+                          <View style={styles.visitDateEditRow}>
+                            <TouchableOpacity
+                              style={styles.visitDateSaveBtn}
+                              onPress={() => {
+                                const trimmed = editingVisitDate.trim();
+                                if (trimmed) updateOpr({ ...opr, visitContradictoire: trimmed });
+                                setEditingVisitOprId(null);
+                              }}
+                            >
+                              <Ionicons name="checkmark" size={13} color="#fff" />
+                              <Text style={styles.visitDateSaveBtnText}>Confirmer</Text>
+                            </TouchableOpacity>
+                            <TouchableOpacity onPress={() => setEditingVisitOprId(null)} hitSlop={8}>
+                              <Ionicons name="close" size={14} color={C.textMuted} />
+                            </TouchableOpacity>
+                          </View>
                         </View>
                       ) : (
                         <>
@@ -1059,18 +1054,9 @@ export default function OprScreen() {
                 ) : permissions.canEdit && opr.status !== 'signed' ? (
                   <View style={{ marginBottom: 2 }}>
                     {editingVisitOprId === opr.id ? (
-                      <View style={styles.visiteMeta}>
-                        <Ionicons name="calendar-outline" size={12} color="#7C3AED" />
+                      <View style={{ marginBottom: 4 }}>
+                        <DateInput value={editingVisitDate} onChange={setEditingVisitDate} />
                         <View style={styles.visitDateEditRow}>
-                          <TextInput
-                            style={styles.visitDateInput}
-                            value={editingVisitDate}
-                            onChangeText={setEditingVisitDate}
-                            placeholder="JJ/MM/AAAA"
-                            placeholderTextColor={C.textMuted}
-                            keyboardType="numbers-and-punctuation"
-                            autoFocus
-                          />
                           <TouchableOpacity
                             style={styles.visitDateSaveBtn}
                             onPress={() => {
@@ -1080,6 +1066,7 @@ export default function OprScreen() {
                             }}
                           >
                             <Ionicons name="checkmark" size={13} color="#fff" />
+                            <Text style={styles.visitDateSaveBtnText}>Confirmer</Text>
                           </TouchableOpacity>
                           <TouchableOpacity onPress={() => setEditingVisitOprId(null)} hitSlop={8}>
                             <Ionicons name="close" size={14} color={C.textMuted} />
@@ -1768,15 +1755,19 @@ const styles = StyleSheet.create({
 
   visiteMeta: { flexDirection: 'row', alignItems: 'center', gap: 5, marginBottom: 2 },
   visiteMetaText: { fontSize: 12, fontFamily: 'Inter_500Medium', color: '#7C3AED' },
-  visitDateEditRow: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 6 },
+  visitDateEditRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 8 },
   visitDateInput: {
     flex: 1, backgroundColor: C.bg, borderWidth: 1, borderColor: '#8B5CF6',
     borderRadius: 8, paddingHorizontal: 10, paddingVertical: 5,
     fontSize: 13, fontFamily: 'Inter_400Regular', color: C.text,
   },
   visitDateSaveBtn: {
-    backgroundColor: '#7C3AED', borderRadius: 7, width: 26, height: 26,
-    alignItems: 'center', justifyContent: 'center',
+    backgroundColor: '#7C3AED', borderRadius: 8,
+    paddingHorizontal: 14, paddingVertical: 7,
+    flexDirection: 'row', alignItems: 'center', gap: 5,
+  },
+  visitDateSaveBtnText: {
+    fontSize: 13, fontFamily: 'Inter_600SemiBold', color: '#fff',
   },
   planifierVisiteBtn: {
     flexDirection: 'row', alignItems: 'center', gap: 5,
