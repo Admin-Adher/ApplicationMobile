@@ -41,7 +41,7 @@
     "pdfjs-dist": "^3.11.174",
     "react": "19.0.0",
     "react-dom": "19.0.0",
-    "react-native": "^0.79.7",
+    "react-native": "0.79.6",
     "react-native-gesture-handler": "~2.24.0",
     "react-native-keyboard-controller": "^1.21.3",
     "react-native-reanimated": "~3.17.0",
@@ -52,6 +52,10 @@
     "xlsx": "^0.18.5",
     "zod": "^4.3.6",
     "zod-validation-error": "^5.0.0"
+  },
+  "overrides": {
+    "react": "19.0.0",
+    "react-dom": "19.0.0"
   },
   "devDependencies": {
     "@babel/core": "^7.29.0",
