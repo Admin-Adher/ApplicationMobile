@@ -130,10 +130,9 @@ export default function DxfCanvasOverlay({ dxf, visibleLayers = [], planW, planH
   return (
     <View style={{ position: 'absolute', top: 0, left: 0, width: planW, height: planH, pointerEvents: 'none' as any }}>
       <WebView
-        style={{ width: planW, height: planH, backgroundColor: 'transparent' }}
+        style={{ width: planW, height: planH, backgroundColor: 'transparent', pointerEvents: 'none' as any }}
         source={{ html }}
         scrollEnabled={false}
-        pointerEvents="none"
         javaScriptEnabled
         originWhitelist={['*']}
         mixedContentMode="always"

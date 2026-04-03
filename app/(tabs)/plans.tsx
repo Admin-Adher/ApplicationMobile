@@ -1382,7 +1382,6 @@ export default function PlansScreen() {
                     const sz = getPinDisplaySize(draggingPinState.id, pinSize);
                     return (
                       <View
-                        pointerEvents="none"
                         style={{
                           position: 'absolute',
                           left: `${draggingPinState.x}%` as any,
@@ -1394,6 +1393,7 @@ export default function PlansScreen() {
                           shadowColor: '#000', shadowOpacity: 0.8, shadowRadius: 8, elevation: 20,
                           alignItems: 'center', justifyContent: 'center',
                           opacity: 0.95,
+                          pointerEvents: 'none' as any,
                         }}
                       >
                         <Text style={{ fontSize: Math.round((isTablet ? 14 : 11) * pinSizeScale * (pinSizes[draggingPinState.id] ?? 1.0)), fontFamily: 'Inter_700Bold', color: '#fff' }}>{num}</Text>
@@ -1406,7 +1406,7 @@ export default function PlansScreen() {
 
             {/* Mini map overlay */}
             {allPlanReserves.length > 0 && !isPlanFile && (
-              <View style={styles.miniMap} pointerEvents="none">
+              <View style={styles.miniMap}>
                 <View style={styles.miniMapInner}>
                   {allPlanReserves.filter(r => r.planX != null && r.planY != null).map(r => {
                     const color = getCompanyColor(r.company, companies);
@@ -1424,7 +1424,7 @@ export default function PlansScreen() {
 
             {/* Dismissible hint overlay */}
             {!hintSeen && permissions.canCreate && !fullscreen && !isPlanFile && (
-              <View style={styles.hintOverlay} pointerEvents="box-none">
+              <View style={styles.hintOverlay}>
                 <View style={styles.hintBanner}>
                   <Ionicons name="finger-print-outline" size={14} color={C.textMuted} />
                   <Text style={styles.hintText}>Tapez sur le plan pour créer une réserve</Text>
@@ -1437,7 +1437,7 @@ export default function PlansScreen() {
 
             {/* Zoom controls overlay — bottom right (only for schematic/DXF, PDF viewer has its own) */}
             {!isPlanFile && (
-              <View style={styles.zoomOverlay} pointerEvents="box-none">
+              <View style={styles.zoomOverlay}>
                 <View style={styles.zoomOverlayGroup}>
                   <TouchableOpacity style={styles.zoomOverlayBtn} onPress={() => doZoom('out')} accessibilityLabel="Dézoomer">
                     <Ionicons name="remove" size={14} color={C.text} />
@@ -1873,7 +1873,7 @@ const styles = StyleSheet.create({
   importHintBanner: { flexDirection: 'row', alignItems: 'center', gap: 8, marginHorizontal: 14, marginTop: 10, marginBottom: 0, backgroundColor: C.primaryBg, borderRadius: 10, padding: 12, borderWidth: 1, borderColor: C.primary + '30' },
   importHintText: { flex: 1, fontSize: 12, fontFamily: 'Inter_400Regular', color: C.primary, lineHeight: 16 },
 
-  hintOverlay: { position: 'absolute', bottom: 64, left: 0, right: 0, alignItems: 'center', zIndex: 10 },
+  hintOverlay: { position: 'absolute', bottom: 64, left: 0, right: 0, alignItems: 'center', zIndex: 10, pointerEvents: 'box-none' as any },
   hintBanner: { flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: 'rgba(15,17,23,0.85)', borderRadius: 20, paddingHorizontal: 14, paddingVertical: 9, borderWidth: 1, borderColor: C.border },
   hintText: { fontSize: 12, fontFamily: 'Inter_400Regular', color: C.textMuted, flex: 1 },
 
@@ -1884,7 +1884,7 @@ const styles = StyleSheet.create({
 
   fullscreenBtn: { position: 'absolute', top: 10, right: 10, width: 34, height: 34, borderRadius: 10, backgroundColor: 'rgba(0,0,0,0.55)', alignItems: 'center', justifyContent: 'center', zIndex: 30, borderWidth: 1, borderColor: 'rgba(255,255,255,0.1)' },
 
-  miniMap: { position: 'absolute', top: 10, left: 10, zIndex: 10 },
+  miniMap: { position: 'absolute', top: 10, left: 10, zIndex: 10, pointerEvents: 'none' as any },
   miniMapInner: { width: 90, height: 68, backgroundColor: 'rgba(15,17,23,0.75)', borderRadius: 6, borderWidth: 1, borderColor: C.border, overflow: 'hidden' },
   miniMapDot: { position: 'absolute', width: 5, height: 5, borderRadius: 3 },
 

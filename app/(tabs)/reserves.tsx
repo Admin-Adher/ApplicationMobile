@@ -760,7 +760,7 @@ export default function ReservesScreen() {
                 );
               })}
             </ScrollView>
-            <View style={styles.filterScrollFade} pointerEvents="none" />
+            <View style={styles.filterScrollFade} />
           </View>
 
           <TouchableOpacity
@@ -1506,6 +1506,7 @@ const styles = StyleSheet.create({
     position: 'absolute', right: 0, top: 0, bottom: 0, width: 32,
     backgroundColor: C.surface,
     opacity: 0.88,
+    pointerEvents: 'none' as any,
     borderTopRightRadius: 20,
     borderBottomRightRadius: 20,
   },

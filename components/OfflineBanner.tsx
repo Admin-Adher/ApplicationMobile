@@ -60,8 +60,7 @@ export default function OfflineBanner() {
 
   return (
     <Animated.View
-      style={[styles.wrapper, { bottom: bottomPad, transform: [{ translateY }] }]}
-      pointerEvents="none"
+      style={[styles.wrapper, { bottom: bottomPad, transform: [{ translateY }], pointerEvents: 'none' as any }]}
     >
       <View style={[styles.banner, showReconnect ? styles.bannerOnline : styles.bannerOffline]}>
         <Ionicons

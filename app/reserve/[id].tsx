@@ -896,7 +896,7 @@ export default function ReserveDetailScreen() {
     <View style={styles.container}>
       {captureViewerUri ? (
         <View
-          style={{ position: 'absolute', width: 300, height: 300, opacity: 0, zIndex: -10, pointerEvents: 'none' }}
+          style={{ position: 'absolute', width: 600, height: 450, opacity: 0.01, zIndex: -10, pointerEvents: 'none' as any }}
         >
           <PdfPlanViewer
             ref={planViewerRef}
