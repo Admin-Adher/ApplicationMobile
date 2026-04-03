@@ -328,6 +328,17 @@ export async function loadFileAsDataUrl(
   }
 }
 
+/**
+ * Converts a raw SVG string (returned by SignaturePad.getSVGData()) to a
+ * data URL safe for use in <img src="...">.
+ * A plain SVG string is not a valid URL — it must be encoded first.
+ */
+export function svgStringToDataUrl(svg: string): string {
+  if (!svg) return '';
+  if (svg.startsWith('data:')) return svg;
+  return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
+}
+
 export async function exportPDF(html: string, filename: string = 'buildtrack-export'): Promise<void> {
   if (Platform.OS === 'web') {
     const win = window.open('', '_blank');

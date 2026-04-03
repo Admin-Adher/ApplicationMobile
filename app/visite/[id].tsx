@@ -6,6 +6,7 @@ import { C } from '@/constants/colors';
 import {
   exportPDF as exportPDFHelper,
   loadPhotoAsDataUrl,
+  svgStringToDataUrl,
   buildPhotoGrid,
   buildLetterhead,
   buildInfoGrid,
@@ -102,10 +103,10 @@ function buildVisitePDF(visite: Visite, reserves: Reserve[], projectName: string
   ];
 
   const conducteurSigHtml = visite.conducteurSignature
-    ? `<img src="${visite.conducteurSignature}" style="height:70px;width:100%;object-fit:contain;border-bottom:2px solid #1A2742;margin-bottom:8px;display:block" />`
+    ? `<img src="${svgStringToDataUrl(visite.conducteurSignature)}" style="height:70px;width:100%;object-fit:contain;border-bottom:2px solid #1A2742;margin-bottom:8px;display:block" />`
     : '<div style="height:70px;border-bottom:2px solid #1A2742;margin-bottom:8px"></div>';
   const entrepriseSigHtml = visite.entrepriseSignature
-    ? `<img src="${visite.entrepriseSignature}" style="height:70px;width:100%;object-fit:contain;border-bottom:2px solid #1A2742;margin-bottom:8px;display:block" />`
+    ? `<img src="${svgStringToDataUrl(visite.entrepriseSignature)}" style="height:70px;width:100%;object-fit:contain;border-bottom:2px solid #1A2742;margin-bottom:8px;display:block" />`
     : '<div style="height:70px;border-bottom:2px solid #1A2742;margin-bottom:8px"></div>';
 
   const body = `

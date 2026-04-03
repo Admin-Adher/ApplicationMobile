@@ -18,6 +18,7 @@ import { C } from '@/constants/colors';
 import {
   exportPDF as exportPDFHelper,
   loadPhotoAsDataUrl,
+  svgStringToDataUrl,
   buildLetterhead,
   buildInfoGrid,
   buildKpiRow,
@@ -87,7 +88,7 @@ function buildOprPDF(opr: Opr, projectName: string): string {
          <div class="sig-block">
            <div class="sig-label">Conducteur de travaux</div>
            ${opr.conducteurSignature
-             ? `<img src="${opr.conducteurSignature}" style="width:100%;max-width:260px;height:80px;object-fit:contain;border-bottom:2px solid #1A2742;display:block;margin-bottom:6px" />`
+             ? `<img src="${svgStringToDataUrl(opr.conducteurSignature)}" style="width:100%;max-width:260px;height:80px;object-fit:contain;border-bottom:2px solid #1A2742;display:block;margin-bottom:6px" />`
              : '<div class="sig-line"></div>'
            }
            <div class="sig-name">${opr.conducteur}</div>
@@ -96,7 +97,7 @@ function buildOprPDF(opr: Opr, projectName: string): string {
          <div class="sig-block">
            <div class="sig-label">Maître d'ouvrage</div>
            ${opr.moSignature
-             ? `<img src="${opr.moSignature}" style="width:100%;max-width:260px;height:80px;object-fit:contain;border-bottom:2px solid #1A2742;display:block;margin-bottom:6px" />`
+             ? `<img src="${svgStringToDataUrl(opr.moSignature)}" style="width:100%;max-width:260px;height:80px;object-fit:contain;border-bottom:2px solid #1A2742;display:block;margin-bottom:6px" />`
              : '<div class="sig-line"></div>'
            }
            <div class="sig-name">${opr.maireOuvrage ?? '—'}</div>
@@ -243,10 +244,10 @@ async function buildPvLeveePDF(opr: Opr, reserves: Reserve[], projectName: strin
   ` : '';
 
   const conducteurSigHtml = opr.conducteurSignature
-    ? `<img src="${opr.conducteurSignature}" style="width:100%;max-width:240px;height:80px;object-fit:contain;border-bottom:2px solid #1A2742;display:block;margin-bottom:6px" />`
+    ? `<img src="${svgStringToDataUrl(opr.conducteurSignature)}" style="width:100%;max-width:240px;height:80px;object-fit:contain;border-bottom:2px solid #1A2742;display:block;margin-bottom:6px" />`
     : '<div style="height:70px;border-bottom:2px solid #1A2742;margin-bottom:8px"></div>';
   const moSigHtml = opr.moSignature
-    ? `<img src="${opr.moSignature}" style="width:100%;max-width:240px;height:80px;object-fit:contain;border-bottom:2px solid #1A2742;display:block;margin-bottom:6px" />`
+    ? `<img src="${svgStringToDataUrl(opr.moSignature)}" style="width:100%;max-width:240px;height:80px;object-fit:contain;border-bottom:2px solid #1A2742;display:block;margin-bottom:6px" />`
     : '<div style="height:70px;border-bottom:2px solid #1A2742;margin-bottom:8px"></div>';
 
   const signatureBlock = `
