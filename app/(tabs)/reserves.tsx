@@ -999,7 +999,28 @@ export default function ReservesScreen() {
           {permissions.canDelete && (
             <TouchableOpacity
               style={[styles.batchBarBtn, styles.batchBarBtnDelete]}
-              onPress={() => { setBatchAction('delete'); applyBatch(); }}
+              onPress={() => {
+                if (selectedIds.size === 0) return;
+                const ids = Array.from(selectedIds);
+                Alert.alert(
+                  'Confirmer la suppression',
+                  `Supprimer ${ids.length} réserve${ids.length > 1 ? 's' : ''} ? Cette action est irréversible.`,
+                  [
+                    { text: 'Annuler', style: 'cancel' },
+                    {
+                      text: 'Supprimer', style: 'destructive',
+                      onPress: () => {
+                        ids.forEach(id => deleteReserve(id));
+                        setBatchModalVisible(false);
+                        setBatchAction(null);
+                        setIsSelectMode(false);
+                        setSelectedIds(new Set());
+                        Alert.alert('Supprimé', `${ids.length} réserve${ids.length > 1 ? 's' : ''} supprimée${ids.length > 1 ? 's' : ''}.`);
+                      },
+                    },
+                  ]
+                );
+              }}
             >
               <Ionicons name="trash-outline" size={15} color="#fff" />
               <Text style={styles.batchBarBtnText}>Supprimer</Text>

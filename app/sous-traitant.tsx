@@ -49,7 +49,7 @@ function ReserveCard({
 
   const isOpen = reserve.status === 'open';
   const isInProgress = reserve.status === 'in_progress';
-  const isClosed = reserve.status === 'closed';
+  const isClosed = reserve.status === 'closed' || reserve.status === 'verification';
   const isObservation = reserve.kind === 'observation';
 
   return (
@@ -96,12 +96,12 @@ function ReserveCard({
           )}
           {(isOpen || isInProgress) && (
             <TouchableOpacity
-              style={[styles.actionBtn, { borderColor: C.closed + '60', backgroundColor: C.closed + '10' }]}
+              style={[styles.actionBtn, { borderColor: C.verification + '60', backgroundColor: C.verification + '10' }]}
               onPress={(e) => { e.stopPropagation?.(); onMarkDone(); }}
               activeOpacity={0.75}
             >
-              <Ionicons name="checkmark-circle-outline" size={13} color={C.closed} />
-              <Text style={[styles.actionBtnText, { color: C.closed }]}>Marquer traité</Text>
+              <Ionicons name="checkmark-done-outline" size={13} color={C.verification} />
+              <Text style={[styles.actionBtnText, { color: C.verification }]}>Demander la levée</Text>
             </TouchableOpacity>
           )}
         </View>
@@ -330,7 +330,7 @@ export default function SousTraitantScreen() {
                   onPress={() => router.push(`/reserve/${r.id}` as any)}
                   canEdit={permissions.canEditOwn}
                   onMarkInProgress={() => updateReserveStatus(r.id, 'in_progress', authorName)}
-                  onMarkDone={() => updateReserveStatus(r.id, 'closed', authorName)}
+                  onMarkDone={() => updateReserveStatus(r.id, 'verification', authorName)}
                 />
               ))
             )}
