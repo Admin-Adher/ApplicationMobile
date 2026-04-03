@@ -362,6 +362,7 @@ export default function IntegrationsScreen() {
 
       {/* Config modal */}
       <Modal visible={!!configModal} transparent animationType="slide" onRequestClose={() => setConfigModal(null)}>
+        <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
         <View style={styles.modalOverlay}>
           <View style={styles.modalContent}>
             {configModal && (() => {
@@ -431,6 +432,7 @@ export default function IntegrationsScreen() {
             })()}
           </View>
         </View>
+        </KeyboardAvoidingView>
       </Modal>
 
       <BottomNavBar />

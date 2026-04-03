@@ -1443,6 +1443,7 @@ export default function ReserveDetailScreen() {
 
       {/* Modal d'édition */}
       <Modal visible={editModalVisible} transparent animationType="slide" onRequestClose={() => setEditModalVisible(false)}>
+        <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
         <View style={mStyles.overlay}>
           <View style={mStyles.sheet}>
             <View style={mStyles.sheetHeader}>
@@ -1566,6 +1567,7 @@ export default function ReserveDetailScreen() {
             </ScrollView>
           </View>
         </View>
+        </KeyboardAvoidingView>
       </Modal>
 
       {/* Photo plein écran — galerie multi-photos */}
@@ -1613,6 +1615,7 @@ export default function ReserveDetailScreen() {
 
       {/* Modal signature de levée */}
       <Modal visible={signatureModalVisible} transparent animationType="slide" onRequestClose={() => setSignatureModalVisible(false)}>
+        <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
         <View style={mStyles.overlay}>
           <View style={mStyles.sheet}>
             <View style={mStyles.sheetHeader}>
@@ -1655,6 +1658,7 @@ export default function ReserveDetailScreen() {
             </ScrollView>
           </View>
         </View>
+        </KeyboardAvoidingView>
       </Modal>
 
       {/* Annotateur photo */}

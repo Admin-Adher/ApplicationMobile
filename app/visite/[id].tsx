@@ -433,6 +433,7 @@ export default function VisiteDetailScreen() {
       </ScrollView>
 
       <Modal visible={signModalVisible} transparent animationType="slide" onRequestClose={() => setSignModalVisible(false)}>
+        <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
         <View style={styles.modalOverlay}>
           <View style={styles.signModal}>
             <View style={styles.signModalHeader}>
@@ -513,6 +514,7 @@ export default function VisiteDetailScreen() {
             </TouchableOpacity>
           </View>
         </View>
+        </KeyboardAvoidingView>
       </Modal>
 
       <BottomNavBar />
