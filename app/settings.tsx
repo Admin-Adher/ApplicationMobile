@@ -175,7 +175,7 @@ export default function SettingsScreen() {
               </View>
             )}
 
-            {(user?.role === 'admin' || user?.role === 'super_admin' || plan) && (
+            {(user?.role === 'admin' || user?.role === 'super_admin') && (
               <TouchableOpacity style={styles.navRow} onPress={() => router.push('/subscription')}>
                 <View style={[styles.navIcon, { backgroundColor: '#EFF6FF' }]}>
                   <Ionicons name="card-outline" size={18} color="#3B82F6" />
@@ -273,40 +273,48 @@ export default function SettingsScreen() {
               </View>
             )}
 
-            <View style={styles.card}>
-              <Text style={styles.cardTitle}>Informations du projet</Text>
+            {isAdmin ? (
+              <View style={styles.card}>
+                <Text style={styles.cardTitle}>Informations du projet</Text>
 
-              <Text style={styles.label}>Nom du projet *</Text>
-              <TextInput
-                style={styles.input}
-                value={nameInput}
-                onChangeText={setNameInput}
-                placeholder="Ex : Résidence Les Pins"
-                placeholderTextColor={C.textMuted}
-                maxLength={60}
-              />
+                <Text style={styles.label}>Nom du projet *</Text>
+                <TextInput
+                  style={styles.input}
+                  value={nameInput}
+                  onChangeText={setNameInput}
+                  placeholder="Ex : Résidence Les Pins"
+                  placeholderTextColor={C.textMuted}
+                  maxLength={60}
+                />
 
-              <Text style={styles.label}>Description</Text>
-              <TextInput
-                style={[styles.input, styles.textArea]}
-                value={descInput}
-                onChangeText={setDescInput}
-                placeholder="Ex : Chantier de construction — 48 logements"
-                placeholderTextColor={C.textMuted}
-                multiline
-                numberOfLines={3}
-                maxLength={200}
-              />
+                <Text style={styles.label}>Description</Text>
+                <TextInput
+                  style={[styles.input, styles.textArea]}
+                  value={descInput}
+                  onChangeText={setDescInput}
+                  placeholder="Ex : Chantier de construction — 48 logements"
+                  placeholderTextColor={C.textMuted}
+                  multiline
+                  numberOfLines={3}
+                  maxLength={200}
+                />
 
-              <TouchableOpacity
-                style={[styles.saveBtn, saving && { opacity: 0.6 }]}
-                onPress={handleSave}
-                disabled={saving}
-              >
-                <Ionicons name="checkmark-circle" size={18} color="#fff" />
-                <Text style={styles.saveBtnText}>{saving ? 'Enregistrement...' : 'Enregistrer'}</Text>
-              </TouchableOpacity>
-            </View>
+                <TouchableOpacity
+                  style={[styles.saveBtn, saving && { opacity: 0.6 }]}
+                  onPress={handleSave}
+                  disabled={saving}
+                >
+                  <Ionicons name="checkmark-circle" size={18} color="#fff" />
+                  <Text style={styles.saveBtnText}>{saving ? 'Enregistrement...' : 'Enregistrer'}</Text>
+                </TouchableOpacity>
+              </View>
+            ) : (
+              <View style={[styles.card, { alignItems: 'center', paddingVertical: 28 }]}>
+                <Ionicons name="lock-closed-outline" size={32} color={C.textMuted} />
+                <Text style={[styles.cardTitle, { marginTop: 10, textAlign: 'center' }]}>Paramètres projet réservés aux administrateurs</Text>
+                <Text style={[styles.emptyText, { textAlign: 'center', marginTop: 4 }]}>Nom du projet : {projectName}</Text>
+              </View>
+            )}
 
             <View style={styles.infoCard}>
               <View style={styles.infoRow}>
@@ -402,6 +410,15 @@ export default function SettingsScreen() {
 
         {activeTab === 'integrations' && (
           <View>
+            {!isAdmin ? (
+              <View style={{ alignItems: 'center', justifyContent: 'center', paddingVertical: 60, paddingHorizontal: 32 }}>
+                <Ionicons name="lock-closed-outline" size={40} color={C.textMuted} />
+                <Text style={[styles.cardTitle, { marginTop: 14, textAlign: 'center' }]}>Accès réservé aux administrateurs</Text>
+                <Text style={[styles.emptyText, { textAlign: 'center', marginTop: 6 }]}>
+                  La gestion des intégrations BTP requiert les droits administrateur.
+                </Text>
+              </View>
+            ) : (<>
             <View style={styles.integroBanner}>
               <Ionicons name="apps" size={28} color={C.primary} />
               <View style={{ flex: 1 }}>

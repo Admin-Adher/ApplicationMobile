@@ -8,6 +8,8 @@ import { C } from '@/constants/colors';
 import Header from '@/components/Header';
 import BottomNavBar from '@/components/BottomNavBar';
 import { BTPIntegration } from '@/constants/types';
+import { useAuth } from '@/context/AuthContext';
+import { useRouter } from 'expo-router';
 
 const INTEGRATIONS_CATALOG: (Omit<BTPIntegration, 'enabled' | 'apiKey' | 'webhookUrl' | 'lastSync'> & { category: string; docsUrl: string; features: string[] })[] = [
   {
@@ -135,12 +137,37 @@ const CATEGORY_COLORS: Record<string, string> = {
 };
 
 export default function IntegrationsScreen() {
+  const { user } = useAuth();
+  const router = useRouter();
+
   const [enabledMap, setEnabledMap] = useState<Record<string, boolean>>({});
   const [configModal, setConfigModal] = useState<string | null>(null);
   const [apiKeyInput, setApiKeyInput] = useState('');
   const [webhookInput, setWebhookInput] = useState('');
   const [apiKeysStored, setApiKeysStored] = useState<Record<string, string>>({});
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
+
+  const isAdmin = user?.role === 'admin' || user?.role === 'super_admin';
+
+  if (!isAdmin) {
+    return (
+      <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: C.bg, padding: 32 }}>
+        <Ionicons name="lock-closed-outline" size={48} color={C.textMuted} />
+        <Text style={{ fontSize: 17, fontFamily: 'Inter_600SemiBold', color: C.text, marginTop: 16, textAlign: 'center' }}>
+          Accès réservé aux administrateurs
+        </Text>
+        <Text style={{ fontSize: 14, fontFamily: 'Inter_400Regular', color: C.textMuted, marginTop: 8, textAlign: 'center' }}>
+          La configuration des intégrations BTP requiert les droits administrateur.
+        </Text>
+        <TouchableOpacity
+          onPress={() => router.back()}
+          style={{ marginTop: 24, paddingHorizontal: 20, paddingVertical: 10, backgroundColor: C.primary, borderRadius: 10 }}
+        >
+          <Text style={{ color: '#fff', fontFamily: 'Inter_600SemiBold', fontSize: 14 }}>Retour</Text>
+        </TouchableOpacity>
+      </View>
+    );
+  }
 
   const categories = [...new Set(INTEGRATIONS_CATALOG.map(i => i.category))];
   const filtered = selectedCategory
