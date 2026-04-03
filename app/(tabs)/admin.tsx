@@ -351,6 +351,19 @@ export default function AdminScreen() {
             )}
           </View>
 
+          <View style={styles.sectionHeaderRow}>
+            <Text style={styles.sectionTitle}>
+              {orgUsers.length} utilisateur{orgUsers.length !== 1 ? 's' : ''}
+            </Text>
+            <TouchableOpacity
+              style={[styles.addBtn, !canInvite && styles.addBtnDisabled]}
+              onPress={() => canInvite ? setInviteModal(true) : Alert.alert('Limite atteinte', `Votre plan ${plan?.name} permet ${seatMax} utilisateurs. Passez à un plan supérieur.`)}
+            >
+              <Ionicons name="person-add-outline" size={17} color="#fff" />
+              <Text style={styles.addBtnText}>Inviter</Text>
+            </TouchableOpacity>
+          </View>
+
           {!isSupabaseConfigured && (
             <View style={styles.infoBanner}>
               <Ionicons name="information-circle-outline" size={15} color={C.inProgress} />
