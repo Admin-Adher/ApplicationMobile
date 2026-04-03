@@ -19,16 +19,16 @@ const CUSTOM_CHANNELS_KEY = 'customChannels_v1';
 const GROUP_CHANNELS_KEY = 'groupChannels_v1';
 const PINNED_CHANNELS_KEY = 'pinnedChannels_v1';
 const CHANNEL_MEMBERS_OVERRIDE_KEY = 'channelMembersOverride_v1';
-const MOCK_RESERVES_KEY = 'buildtrack_mock_reserves_v2';
-const MOCK_TASKS_KEY = 'buildtrack_mock_tasks_v2';
-const MOCK_PHOTOS_KEY = 'buildtrack_mock_photos_v3';
-const MOCK_MESSAGES_KEY = 'buildtrack_mock_messages_v1';
-const MOCK_CHANTIERS_KEY = 'buildtrack_mock_chantiers_v1';
-const MOCK_SITE_PLANS_KEY = 'buildtrack_mock_site_plans_v1';
-const MOCK_VISITES_KEY = 'buildtrack_mock_visites_v1';
-const MOCK_LOTS_KEY = 'buildtrack_mock_lots_v1';
-const MOCK_OPRS_KEY = 'buildtrack_mock_oprs_v1';
-const ACTIVE_CHANTIER_KEY = 'buildtrack_active_chantier_v1';
+const MOCK_RESERVES_KEY = 'buildtrack_mock_reserves_v3';
+const MOCK_TASKS_KEY = 'buildtrack_mock_tasks_v3';
+const MOCK_PHOTOS_KEY = 'buildtrack_mock_photos_v4';
+const MOCK_MESSAGES_KEY = 'buildtrack_mock_messages_v2';
+const MOCK_CHANTIERS_KEY = 'buildtrack_mock_chantiers_v2';
+const MOCK_SITE_PLANS_KEY = 'buildtrack_mock_site_plans_v2';
+const MOCK_VISITES_KEY = 'buildtrack_mock_visites_v2';
+const MOCK_LOTS_KEY = 'buildtrack_mock_lots_v2';
+const MOCK_OPRS_KEY = 'buildtrack_mock_oprs_v2';
+const ACTIVE_CHANTIER_KEY = 'buildtrack_active_chantier_v2';
 const PENDING_DM_KEY = 'buildtrack_pending_dm_channels_v1';
 const MAX_PINNED = 5;
 
@@ -656,72 +656,21 @@ const AppContext = createContext<AppContextValue | null>(null);
 
 const MOCK_TODAY = formatDateFR(new Date());
 
-const MOCK_COMPANIES: Company[] = [
-  { id: 'co1', name: 'Maçonnerie Dubois', shortName: 'Dubois', color: '#3B82F6', plannedWorkers: 8, actualWorkers: 6, hoursWorked: 320, zone: 'Zone Nord' },
-  { id: 'co2', name: 'Plomberie Martin', shortName: 'Martin', color: '#10B981', plannedWorkers: 4, actualWorkers: 4, hoursWorked: 180, zone: 'Zone Sud' },
-  { id: 'co3', name: 'Électricité Leroy', shortName: 'Leroy', color: '#F59E0B', plannedWorkers: 5, actualWorkers: 3, hoursWorked: 210, zone: 'Zone Est' },
-  { id: 'co4', name: 'Menuiserie Petit', shortName: 'Petit', color: '#8B5CF6', plannedWorkers: 3, actualWorkers: 3, hoursWorked: 140, zone: 'Zone Ouest' },
-];
+const MOCK_COMPANIES: Company[] = [];
 
-const MOCK_CHANTIERS: Chantier[] = [
-  {
-    id: 'chan1',
-    name: 'Projet Horizon',
-    address: '25 rue des Bâtisseurs, 75001 Paris',
-    description: 'Construction immeuble résidentiel R+3, 3 bâtiments, 24 logements.',
-    startDate: '01/01/2026',
-    endDate: '31/12/2026',
-    status: 'active',
-    createdAt: '2026-01-01',
-    createdBy: 'Admin Système',
-    companyIds: ['co1', 'co2', 'co3', 'co4'],
-  },
-];
+const MOCK_CHANTIERS: Chantier[] = [];
 
-const MOCK_SITE_PLANS: SitePlan[] = [
-  { id: 'sp-A', chantierId: 'chan1', name: 'Bâtiment A — Plan masse', uploadedAt: '15/02/2026', size: '2.4 Mo' },
-  { id: 'sp-B', chantierId: 'chan1', name: 'Bâtiment B — Plan masse', uploadedAt: '15/02/2026', size: '1.8 Mo' },
-  { id: 'sp-C', chantierId: 'chan1', name: 'Bâtiment C — Plan masse', uploadedAt: '20/02/2026', size: '2.1 Mo' },
-];
+const MOCK_SITE_PLANS: SitePlan[] = [];
 
-const MOCK_RESERVES: Reserve[] = [
-  { id: 'RSV-001', title: 'Fissure mur porteur RDC', description: 'Fissure horizontale de 2 mm sur le mur porteur nord, entre les axes B3 et B4.', building: 'A', zone: 'Zone Nord', level: 'RDC', companies: ['Maçonnerie Dubois'], company: 'Maçonnerie Dubois', priority: 'critical', status: 'open', createdAt: '2026-03-15', deadline: '25/03/2026', comments: [], history: [{ id: 'h1', action: 'Réserve créée', author: 'Jean Dupont', createdAt: '2026-03-15' }], planX: 20, planY: 30, chantierId: 'chan1', planId: 'sp-A' },
-  { id: 'RSV-002', title: 'Fuite canalisation sous-sol', description: 'Fuite eau froide au niveau du coude DN50, local technique.', building: 'B', zone: 'Zone Sud', level: 'Sous-sol', companies: ['Plomberie Martin'], company: 'Plomberie Martin', priority: 'high', status: 'in_progress', createdAt: '2026-03-18', deadline: '22/03/2026', comments: [{ id: 'c1', author: 'Marie Martin', content: 'Intervention prévue demain matin.', createdAt: '2026-03-19' }], history: [{ id: 'h2', action: 'Réserve créée', author: 'Jean Dupont', createdAt: '2026-03-18' }, { id: 'h3', action: 'Statut modifié', author: 'Jean Dupont', createdAt: '2026-03-19', oldValue: 'Ouvert', newValue: 'En cours' }], planX: 55, planY: 70, chantierId: 'chan1', planId: 'sp-B' },
-  { id: 'RSV-003', title: 'Défaut prise électrique R+1', description: "Prise 16A non fonctionnelle chambre 12, vérification du circuit F7.", building: 'A', zone: 'Zone Est', level: 'R+1', companies: ['Électricité Leroy'], company: 'Électricité Leroy', priority: 'medium', status: 'verification', createdAt: '2026-03-10', deadline: '30/03/2026', comments: [], history: [{ id: 'h4', action: 'Réserve créée', author: 'Admin Système', createdAt: '2026-03-10' }], planX: 75, planY: 45, chantierId: 'chan1', planId: 'sp-A' },
-  { id: 'RSV-004', title: 'Porte intérieure coincée', description: "Porte chambre 8 ferme mal, gêne au passage. Seuil à reprendre.", building: 'B', zone: 'Zone Ouest', level: 'R+2', companies: ['Menuiserie Petit'], company: 'Menuiserie Petit', priority: 'low', status: 'closed', createdAt: '2026-03-05', deadline: '15/03/2026', comments: [], history: [{ id: 'h5', action: 'Réserve créée', author: 'Jean Dupont', createdAt: '2026-03-05' }, { id: 'h6', action: 'Statut modifié', author: 'Marie Martin', createdAt: '2026-03-14', oldValue: 'En cours', newValue: 'Clôturé' }], planX: 30, planY: 60, chantierId: 'chan1', planId: 'sp-B' },
-  { id: 'RSV-005', title: 'Finition peinture escalier', description: "Reprise peinture nécessaire sur la cage d'escalier, côté palier R+1.", building: 'C', zone: 'Zone Centre', level: 'R+1', companies: ['Maçonnerie Dubois'], company: 'Maçonnerie Dubois', priority: 'low', status: 'waiting', createdAt: '2026-03-20', deadline: '—', comments: [], history: [{ id: 'h7', action: 'Réserve créée', author: 'Jean Dupont', createdAt: '2026-03-20' }], planX: 50, planY: 50, chantierId: 'chan1', planId: 'sp-C' },
-  { id: 'RSV-006', title: 'Infiltration toiture bât. C', description: "Trace d'humidité au plafond R+3, infiltration possible au niveau de l'acrotère.", building: 'C', zone: 'Zone Nord', level: 'R+3', companies: ['Maçonnerie Dubois', 'Plomberie Martin'], company: 'Maçonnerie Dubois', priority: 'high', status: 'open', createdAt: '2026-03-22', deadline: '01/04/2026', comments: [], history: [{ id: 'h8', action: 'Réserve créée', author: 'Admin Système', createdAt: '2026-03-22' }], planX: 65, planY: 20, chantierId: 'chan1', planId: 'sp-C' },
-  { id: 'RSV-007', title: 'Câblage réseau salle serveur', description: 'Câbles réseau non étiquetés, brassage à revoir selon plan informatique.', building: 'A', zone: 'Zone Centre', level: 'Sous-sol', companies: ['Électricité Leroy'], company: 'Électricité Leroy', priority: 'medium', status: 'in_progress', createdAt: '2026-03-25', deadline: '05/04/2026', comments: [], history: [{ id: 'h9', action: 'Réserve créée', author: 'Jean Dupont', createdAt: '2026-03-25' }], planX: 40, planY: 80, chantierId: 'chan1', planId: 'sp-A' },
-  { id: 'RSV-008', title: 'Carrelage fissuré salle de bain', description: 'Carrelage salle de bain appt 14, fissure diagonale 15 cm, risque éclat.', building: 'B', zone: 'Zone Est', level: 'R+2', companies: ['Maçonnerie Dubois', 'Menuiserie Petit'], company: 'Maçonnerie Dubois', priority: 'medium', status: 'open', createdAt: '2026-03-28', deadline: '10/04/2026', comments: [], history: [{ id: 'h10', action: 'Réserve créée', author: 'Marie Martin', createdAt: '2026-03-28' }], planX: 80, planY: 35, chantierId: 'chan1', planId: 'sp-B' },
-];
+const MOCK_RESERVES: Reserve[] = [];
 
-const MOCK_TASKS: Task[] = [
-  { id: 'tsk1', title: 'Coulage dalle bâtiment A', description: 'Préparation et coulage dalle béton niveau RDC.', status: 'done', priority: 'high', startDate: '2026-03-01', deadline: '15/03/2026', assignee: 'Jean Dupont', progress: 100, company: 'co1', comments: [], history: [{ id: 'ht1', action: 'Tâche créée', author: 'Admin Système', createdAt: '2026-03-01' }] },
-  { id: 'tsk2', title: 'Installation réseau plomberie', description: 'Pose canalisations eau froide/chaude bâtiments A et B.', status: 'in_progress', priority: 'high', startDate: '2026-03-10', deadline: '31/03/2026', assignee: 'Marie Martin', progress: 65, company: 'co2', comments: [{ id: 'tc1', author: 'Marie Martin', content: 'Bâtiment A terminé, B en cours.', createdAt: '2026-03-20' }], history: [{ id: 'ht2', action: 'Tâche créée', author: 'Admin Système', createdAt: '2026-03-10' }] },
-  { id: 'tsk3', title: 'Câblage électrique R+1', description: 'Tirage câbles et pose tableaux électriques niveau R+1.', status: 'in_progress', priority: 'medium', startDate: '2026-03-15', deadline: '05/04/2026', assignee: 'Pierre Lambert', progress: 40, company: 'co3', comments: [], history: [{ id: 'ht3', action: 'Tâche créée', author: 'Admin Système', createdAt: '2026-03-15' }] },
-  { id: 'tsk4', title: 'Pose menuiseries extérieures', description: 'Installation fenêtres double vitrage et portes palières.', status: 'todo', priority: 'medium', startDate: '2026-04-01', deadline: '20/04/2026', assignee: 'Jean Dupont', progress: 0, company: 'co4', comments: [], history: [{ id: 'ht4', action: 'Tâche créée', author: 'Admin Système', createdAt: '2026-03-28' }] },
-  { id: 'tsk5', title: 'Finitions peinture intérieure', description: "Peinture blanche deux couches sur l'ensemble des pièces.", status: 'todo', priority: 'low', startDate: '2026-04-15', deadline: '30/04/2026', assignee: 'Admin Système', progress: 0, company: 'co1', comments: [], history: [{ id: 'ht5', action: 'Tâche créée', author: 'Admin Système', createdAt: '2026-03-28' }] },
-];
+const MOCK_TASKS: Task[] = [];
 
-const MOCK_DOCUMENTS: Document[] = [
-  { id: 'doc1', name: 'Plan masse - Bâtiment A.pdf', type: 'plan', category: 'Plans', uploadedAt: '2026-02-15', size: '2.4 Mo', version: 3 },
-  { id: 'doc2', name: 'CCTP Plomberie.pdf', type: 'technical', category: 'Marchés', uploadedAt: '2026-01-20', size: '1.1 Mo', version: 1 },
-  { id: 'doc3', name: 'Calendrier prévisionnel.xlsx', type: 'other', category: 'Planning', uploadedAt: '2026-03-01', size: '340 Ko', version: 2 },
-];
+const MOCK_DOCUMENTS: Document[] = [];
 
-const MOCK_PHOTOS: Photo[] = [
-  { id: 'ph1', comment: 'Fissure mur nord RSV-001', location: 'Bât. A - RDC', takenAt: '2026-03-15', takenBy: 'Jean Dupont', colorCode: '#EF4444', uri: 'https://images.unsplash.com/photo-1504307651254-35680f356dfd?w=400&q=80' },
-  { id: 'ph2', comment: 'État avancement dalle béton', location: 'Bât. A - RDC', takenAt: '2026-03-10', takenBy: 'Admin Système', colorCode: '#10B981', uri: 'https://images.unsplash.com/photo-1581578731548-c64695cc6952?w=400&q=80' },
-  { id: 'ph3', comment: 'Salle serveur — câblage réseau', location: 'Bât. A - Sous-sol', takenAt: '2026-03-25', takenBy: 'Jean Dupont', colorCode: '#F59E0B', uri: 'https://images.unsplash.com/photo-1590496793929-36417d3117de?w=400&q=80' },
-];
+const MOCK_PHOTOS: Photo[] = [];
 
-const MOCK_MESSAGES: Message[] = [
-  { id: 'msg1', channelId: 'general', sender: 'Jean Dupont', content: "Bonjour à tous, réunion de chantier à 14h aujourd'hui.", timestamp: `${MOCK_TODAY} 08:15`, type: 'message', read: false, isMe: false, reactions: {}, isPinned: false, readBy: [], mentions: [] },
-  { id: 'msg2', channelId: 'general', sender: 'Marie Martin', content: 'Présent. Je prépare le point sur les réserves en cours.', timestamp: `${MOCK_TODAY} 08:32`, type: 'message', read: false, isMe: false, reactions: {}, isPinned: false, readBy: [], mentions: [] },
-  { id: 'msg3', channelId: 'building-a', sender: 'Jean Dupont', content: 'La fissure RSV-001 a été confirmée ce matin. Priorité critique.', timestamp: `${MOCK_TODAY} 09:05`, type: 'message', read: false, isMe: false, reactions: {}, isPinned: false, readBy: [], mentions: [] },
-  { id: 'msg4', channelId: 'building-b', sender: 'Marie Martin', content: 'Intervention plomberie confirmée pour demain 8h.', timestamp: `${MOCK_TODAY} 09:45`, type: 'message', read: false, isMe: false, reactions: {}, isPinned: false, readBy: [], mentions: [] },
-  { id: 'msg5', channelId: 'building-c', sender: 'Pierre Lambert', content: "Infiltration toiture RSV-006 vérifiée. Rapport transmis à l'architecte.", timestamp: `${MOCK_TODAY} 10:12`, type: 'message', read: false, isMe: false, reactions: {}, isPinned: false, readBy: [], mentions: [] },
-];
+const MOCK_MESSAGES: Message[] = [];
 
 const MOCK_PROFILES: Profile[] = [
   { id: 'demo-0', name: 'Admin Système', role: 'admin', roleLabel: 'Administrateur', email: 'admin@buildtrack.fr' },
@@ -750,34 +699,7 @@ export const STANDARD_LOTS: Lot[] = [
   { id: 'lot-16', code: '16', name: 'Sécurité incendie / SSI', color: '#F43F5E', cctpRef: 'CCTP Titre V — Lot 16 SSI' },
 ];
 
-const MOCK_VISITES: Visite[] = [
-  {
-    id: 'vis-001',
-    chantierId: 'chan1',
-    title: 'Visite de contrôle — Semaine 12',
-    date: '25/03/2026',
-    conducteur: 'Jean Dupont',
-    status: 'completed',
-    building: 'A',
-    level: 'RDC',
-    notes: 'Visite complète bâtiment A, relevé des désordres structurels et finitions.',
-    reserveIds: ['RSV-001', 'RSV-003', 'RSV-007'],
-    createdAt: '2026-03-25',
-  },
-  {
-    id: 'vis-002',
-    chantierId: 'chan1',
-    title: 'Visite plomberie — Bât. B',
-    date: '28/03/2026',
-    conducteur: 'Jean Dupont',
-    status: 'completed',
-    building: 'B',
-    level: 'Sous-sol',
-    notes: 'Contrôle réseau plomberie suite fuite RSV-002.',
-    reserveIds: ['RSV-002', 'RSV-008'],
-    createdAt: '2026-03-28',
-  },
-];
+const MOCK_VISITES: Visite[] = [];
 
 export function AppProvider({ children }: { children: React.ReactNode }) {
   const [state, dispatch] = useReducer(reducer, {
@@ -1013,7 +935,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     } catch {}
     let documents: Document[] = MOCK_DOCUMENTS;
     try {
-      const sd = await AsyncStorage.getItem('buildtrack_mock_documents_v1');
+      const sd = await AsyncStorage.getItem('buildtrack_mock_documents_v2');
       if (sd) { const p = JSON.parse(sd); if (Array.isArray(p) && p.length > 0) documents = p; }
     } catch {}
 
@@ -1066,7 +988,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }
 
   function persistMockDocuments(documents: Document[]) {
-    AsyncStorage.setItem('buildtrack_mock_documents_v1', JSON.stringify(documents)).catch(() => {});
+    AsyncStorage.setItem('buildtrack_mock_documents_v2', JSON.stringify(documents)).catch(() => {});
   }
 
   async function loadAll() {

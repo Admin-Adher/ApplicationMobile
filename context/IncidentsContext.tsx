@@ -5,7 +5,7 @@ import { Incident } from '@/constants/types';
 import { supabase, isSupabaseConfigured } from '@/lib/supabase';
 import { formatDateFR } from '@/lib/utils';
 
-const INCIDENTS_KEY = 'buildtrack_incidents_v1';
+const INCIDENTS_KEY = 'buildtrack_incidents_v2';
 
 interface IncidentsContextValue {
   incidents: Incident[];
@@ -17,22 +17,7 @@ interface IncidentsContextValue {
 const IncidentsContext = createContext<IncidentsContextValue | null>(null);
 
 function makeMockIncidents(): Incident[] {
-  const today = formatDateFR(new Date());
-  return [
-    {
-      id: 'inc-001',
-      title: 'Chute de matériaux bâtiment A',
-      description: 'Chute de briques depuis l\'échafaudage niveau R+2 lors du décoffrage. Aucune victime. Zone sécurisée immédiatement.',
-      severity: 'moderate',
-      location: 'Échafaudage Est',
-      building: 'A',
-      reportedAt: today,
-      reportedBy: 'Jean Dupont',
-      status: 'investigating',
-      witnesses: 'Marie Martin, Pierre Lambert',
-      actions: 'Zone condamnée. Inspection de l\'échafaudage programmée demain.',
-    },
-  ];
+  return [];
 }
 
 function toIncident(row: any): Incident {
