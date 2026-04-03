@@ -410,6 +410,10 @@ export default function AdminScreen() {
       Alert.alert('Email invalide', 'Vérifiez l\'adresse email de contact.');
       return;
     }
+    if (siret.trim() && !/^\d{14}$/.test(siret.trim().replace(/\s/g, ''))) {
+      Alert.alert('SIRET invalide', 'Le numéro SIRET doit contenir exactement 14 chiffres.');
+      return;
+    }
     const resolvedZone = zone.trim() || '';
     if (companyModal?.mode === 'edit' && companyModal.company) {
       updateCompanyFull({
@@ -472,6 +476,21 @@ export default function AdminScreen() {
     const next = Math.max(0, prev + delta);
     setHoursLocalMap(m => ({ ...m, [co.id]: next }));
     debouncedHoursUpdate(co.id, next);
+  }
+
+  function startHoursEdit(co: Company) {
+    const current = hoursLocalMap[co.id] ?? (co.hoursWorked ?? 0);
+    setHoursEditId(co.id);
+    setHoursInputVal(String(current));
+  }
+
+  function commitHoursEdit(co: Company) {
+    const parsed = parseFloat(hoursInputVal.replace(',', '.'));
+    const next = isNaN(parsed) ? (hoursLocalMap[co.id] ?? 0) : Math.max(0, parsed);
+    setHoursLocalMap(m => ({ ...m, [co.id]: next }));
+    debouncedHoursUpdate(co.id, next);
+    setHoursEditId(null);
+    setHoursInputVal('');
   }
 
   return (
@@ -566,8 +585,8 @@ export default function AdminScreen() {
           <View style={styles.sectionHeaderRow}>
             <Text style={styles.sectionTitle}>
               {userSearch.trim() || roleFilter !== 'all'
-                ? `${filteredUsers.length} / ${orgUsers.length} utilisateur${orgUsers.length !== 1 ? 's' : ''}`
-                : `${orgUsers.length} utilisateur${orgUsers.length !== 1 ? 's' : ''}`}
+                ? `${filteredUsers.length} / ${rolesTotal} utilisateur${rolesTotal !== 1 ? 's' : ''}`
+                : `${rolesTotal} utilisateur${rolesTotal !== 1 ? 's' : ''}`}
             </Text>
             <TouchableOpacity style={styles.addBtn} onPress={() => setInviteModal(true)}>
               <Ionicons name="person-add-outline" size={17} color="#fff" />
@@ -637,6 +656,7 @@ export default function AdminScreen() {
                         <Text style={styles.iconBtnLabelText}>Rôle</Text>
                       </TouchableOpacity>
                     )}
+                    {!isCurrentUser && <View style={styles.coActionSep} />}
                     {!isCurrentUser && (
                       <TouchableOpacity
                         style={[styles.iconBtnLabelled, styles.iconBtnLabelledDanger]}
@@ -660,18 +680,21 @@ export default function AdminScreen() {
                 const roleInfo = ROLES.find(r => r.value === inv.role) ?? ROLES[3];
                 const expiresIn = Math.ceil((new Date(inv.expiresAt).getTime() - Date.now()) / (1000 * 60 * 60 * 24));
                 const inviterName = getInviterName(inv.invitedBy);
+                const isExpired = expiresIn <= 0;
                 return (
-                  <View key={inv.id} style={styles.inviteCard}>
-                    <View style={styles.inviteIconWrap}>
-                      <Ionicons name="mail-outline" size={20} color={C.primary} />
+                  <View key={inv.id} style={[styles.inviteCard, isExpired && styles.inviteCardExpired]}>
+                    <View style={[styles.inviteIconWrap, isExpired && { backgroundColor: '#FEF2F2' }]}>
+                      <Ionicons name="mail-outline" size={20} color={isExpired ? '#EF4444' : C.primary} />
                     </View>
                     <View style={{ flex: 1 }}>
                       <Text style={styles.inviteEmail}>{inv.email}</Text>
                       <View style={[styles.inviteRoleBadge, { backgroundColor: roleInfo.bg }]}>
                         <Text style={[styles.inviteRoleTxt, { color: roleInfo.color }]}>{roleInfo.label}</Text>
                       </View>
-                      <Text style={styles.inviteExpiry}>
-                        Invité par {inviterName} · {expiresIn > 0 ? `expire dans ${expiresIn}j` : 'expirée'}
+                      <Text style={[styles.inviteExpiry, isExpired && { color: '#EF4444' }]}>
+                        {isExpired
+                          ? 'Invitation expirée'
+                          : `Invité par ${inviterName} · expire dans ${expiresIn}j`}
                       </Text>
                     </View>
                     <TouchableOpacity
@@ -687,12 +710,14 @@ export default function AdminScreen() {
             </>
           )}
 
-          <View style={styles.hintCard}>
-            <Ionicons name="key-outline" size={16} color={C.textMuted} />
-            <Text style={styles.hintText}>
-              Pour inviter un nouveau membre, utilisez le bouton "Inviter" ci-dessus. Un code d'accès sera généré à partager avec la personne.
-            </Text>
-          </View>
+          {orgUsers.length === 0 && (
+            <View style={styles.hintCard}>
+              <Ionicons name="key-outline" size={16} color={C.textMuted} />
+              <Text style={styles.hintText}>
+                Pour inviter un nouveau membre, utilisez le bouton "Inviter" ci-dessus. Un code d'accès sera généré à partager avec la personne.
+              </Text>
+            </View>
+          )}
         </ScrollView>
       )}
 
@@ -718,7 +743,7 @@ export default function AdminScreen() {
             <Ionicons name="search-outline" size={15} color={C.textMuted} />
             <TextInput
               style={styles.searchInput}
-              placeholder="Nom, sigle, zone ou contact..."
+              placeholder="Nom, sigle, SIRET, zone ou contact..."
               placeholderTextColor={C.textMuted}
               value={companySearch}
               onChangeText={setCompanySearch}
@@ -740,6 +765,11 @@ export default function AdminScreen() {
             <View style={styles.empty}>
               <Ionicons name="search-outline" size={36} color={C.textMuted} />
               <Text style={styles.emptyText}>Aucun résultat</Text>
+              <Text style={styles.emptyHint}>Aucune entreprise ne correspond à "{companySearch}"</Text>
+              <TouchableOpacity style={styles.clearFilterBtn} onPress={() => setCompanySearch('')}>
+                <Ionicons name="close-circle-outline" size={15} color={C.primary} />
+                <Text style={styles.clearFilterTxt}>Effacer le filtre</Text>
+              </TouchableOpacity>
             </View>
           ) : (
             filteredCompanies.map(co => {
@@ -816,21 +846,47 @@ export default function AdminScreen() {
                       <View style={[styles.coStat, { flex: 1 }]}>
                         <View style={[styles.coStatDot, { backgroundColor: C.textMuted }]} />
                         <Text style={styles.coStatLabel}>Heures</Text>
-                        <TouchableOpacity
-                          onPress={() => handleHoursChange(co, -8)}
-                          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                          style={styles.workerBtn}
-                        >
-                          <Ionicons name="remove" size={13} color={C.textSub} />
-                        </TouchableOpacity>
-                        <Text style={styles.coStatVal}>{hours}h</Text>
-                        <TouchableOpacity
-                          onPress={() => handleHoursChange(co, 8)}
-                          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                          style={styles.workerBtn}
-                        >
-                          <Ionicons name="add" size={13} color={C.textSub} />
-                        </TouchableOpacity>
+                        {hoursEditId === co.id ? (
+                          <>
+                            <TextInput
+                              style={styles.hoursInput}
+                              value={hoursInputVal}
+                              onChangeText={setHoursInputVal}
+                              keyboardType="numeric"
+                              autoFocus
+                              selectTextOnFocus
+                              onBlur={() => commitHoursEdit(co)}
+                              onSubmitEditing={() => commitHoursEdit(co)}
+                            />
+                            <TouchableOpacity
+                              onPress={() => commitHoursEdit(co)}
+                              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                              style={[styles.workerBtn, { backgroundColor: C.primary + '22' }]}
+                            >
+                              <Ionicons name="checkmark" size={13} color={C.primary} />
+                            </TouchableOpacity>
+                          </>
+                        ) : (
+                          <>
+                            <TouchableOpacity
+                              onPress={() => handleHoursChange(co, -8)}
+                              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                              style={styles.workerBtn}
+                            >
+                              <Ionicons name="remove" size={13} color={C.textSub} />
+                            </TouchableOpacity>
+                            <TouchableOpacity onPress={() => startHoursEdit(co)} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                              <Text style={[styles.coStatVal, { textDecorationLine: 'underline', textDecorationStyle: 'dotted' }]}>{hours}h</Text>
+                            </TouchableOpacity>
+                            <TouchableOpacity
+                              onPress={() => handleHoursChange(co, 8)}
+                              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                              style={styles.workerBtn}
+                            >
+                              <Ionicons name="add" size={13} color={C.textSub} />
+                            </TouchableOpacity>
+                          </>
+                        )}
                       </View>
                     </View>
 
@@ -930,6 +986,31 @@ export default function AdminScreen() {
                   <Text style={styles.featureTxt}>{f}</Text>
                 </View>
               ))}
+              {activeOrgUsers.length > 0 && (
+                <View style={styles.memberPreview}>
+                  {activeOrgUsers.slice(0, 3).map(u => {
+                    const col = hashColor(u.id, AVATAR_COLORS);
+                    const rc = ROLES.find(r => r.value === u.role) ?? ROLE_EXTRA[u.role];
+                    const initials = u.name.split(' ').map((w: string) => w[0]).slice(0, 2).join('').toUpperCase();
+                    return (
+                      <View key={u.id} style={styles.memberPreviewRow}>
+                        <View style={[styles.memberPreviewAvatar, { backgroundColor: col + '22' }]}>
+                          <Text style={[styles.memberPreviewInitials, { color: col }]}>{initials}</Text>
+                        </View>
+                        <Text style={styles.memberPreviewName} numberOfLines={1}>{u.name}</Text>
+                        {rc && (
+                          <View style={[styles.memberPreviewBadge, { backgroundColor: rc.bg }]}>
+                            <Text style={[styles.memberPreviewBadgeTxt, { color: rc.color }]}>{rc.label}</Text>
+                          </View>
+                        )}
+                      </View>
+                    );
+                  })}
+                  {activeOrgUsers.length > 3 && (
+                    <Text style={styles.memberPreviewMore}>+{activeOrgUsers.length - 3} autres membres actifs</Text>
+                  )}
+                </View>
+              )}
               <TouchableOpacity style={styles.detailLink} onPress={() => router.push('/subscription')}>
                 <Text style={styles.detailLinkTxt}>Voir l'historique et les membres</Text>
                 <Ionicons name="chevron-forward" size={14} color={C.primary} />
@@ -1546,6 +1627,7 @@ const styles = StyleSheet.create({
     backgroundColor: C.surface, borderRadius: 12, padding: 12,
     borderWidth: 1, borderColor: C.border,
   },
+  inviteCardExpired: { backgroundColor: '#FEF2F2', borderColor: '#FECACA' },
   inviteIconWrap: {
     width: 40, height: 40, borderRadius: 20,
     backgroundColor: C.primaryBg, alignItems: 'center', justifyContent: 'center',
@@ -1623,4 +1705,30 @@ const styles = StyleSheet.create({
   copyBtnDone: { borderColor: '#10B981', backgroundColor: '#ECFDF5' },
   copyBtnTxt: { fontSize: 14, fontFamily: 'Inter_600SemiBold', color: C.primary },
   copyBtnTxtDone: { color: '#10B981' },
+
+  clearFilterBtn: {
+    flexDirection: 'row', alignItems: 'center', gap: 6,
+    marginTop: 4, paddingHorizontal: 14, paddingVertical: 8,
+    backgroundColor: C.primaryBg, borderRadius: 10, borderWidth: 1, borderColor: C.primary + '44',
+  },
+  clearFilterTxt: { fontSize: 13, fontFamily: 'Inter_600SemiBold', color: C.primary },
+
+  hoursInput: {
+    fontSize: 13, fontFamily: 'Inter_700Bold', color: C.text,
+    borderBottomWidth: 1, borderBottomColor: C.primary,
+    minWidth: 36, textAlign: 'center', paddingVertical: 0, paddingHorizontal: 2,
+  },
+
+  memberPreview: {
+    borderTopWidth: 1, borderTopColor: C.border, marginTop: 10, paddingTop: 10, gap: 8,
+  },
+  memberPreviewRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  memberPreviewAvatar: {
+    width: 28, height: 28, borderRadius: 14, alignItems: 'center', justifyContent: 'center', flexShrink: 0,
+  },
+  memberPreviewInitials: { fontSize: 10, fontFamily: 'Inter_700Bold' },
+  memberPreviewName: { fontSize: 12, fontFamily: 'Inter_600SemiBold', color: C.text, flex: 1 },
+  memberPreviewBadge: { borderRadius: 5, paddingHorizontal: 6, paddingVertical: 2 },
+  memberPreviewBadgeTxt: { fontSize: 10, fontFamily: 'Inter_600SemiBold' },
+  memberPreviewMore: { fontSize: 11, fontFamily: 'Inter_400Regular', color: C.textMuted, textAlign: 'center', marginTop: 2 },
 });
