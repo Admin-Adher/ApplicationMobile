@@ -299,7 +299,7 @@ export default function SousTraitantScreen() {
               );
             })()}
 
-            {permissions.canEdit && (
+            {(permissions.canEdit || user?.role === 'sous_traitant') && (
               <View style={styles.infoHint}>
                 <Ionicons name="information-circle-outline" size={13} color={C.primary} />
                 <Text style={styles.infoHintText}>Appuyez sur "Marquer en cours" ou "Marquer traité" pour mettre à jour le statut directement.</Text>
@@ -328,7 +328,7 @@ export default function SousTraitantScreen() {
                   key={r.id}
                   reserve={r}
                   onPress={() => router.push(`/reserve/${r.id}` as any)}
-                  canEdit={permissions.canEdit}
+                  canEdit={permissions.canEdit || user?.role === 'sous_traitant'}
                   onMarkInProgress={() => updateReserveStatus(r.id, 'in_progress', authorName)}
                   onMarkDone={() => updateReserveStatus(r.id, 'closed', authorName)}
                 />

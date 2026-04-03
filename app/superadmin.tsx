@@ -17,9 +17,9 @@ const STATUS_CONFIG = {
 } as const;
 
 const PLAN_COLORS: Record<string, string> = {
-  Starter:    '#6B7280',
-  Pro:        '#3B82F6',
-  Entreprise: '#8B5CF6',
+  Solo:     '#6B7280',
+  'Équipe': '#3B82F6',
+  Groupe:   '#8B5CF6',
 };
 
 const ORG_COLORS = ['#3B82F6','#10B981','#8B5CF6','#F59E0B','#EF4444','#06B6D4','#EC4899'];
