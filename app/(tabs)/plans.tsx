@@ -476,6 +476,7 @@ export default function PlansScreen() {
   const touchStartYRef = useRef(0);
   const isDraggingRef = useRef(false);
   const suppressNextPlanTapRef = useRef(false);
+  const suppressPlanTapUntilRef = useRef<number>(0);
   const isPinchingRef = useRef(false);
   const pinchStartDistRef = useRef(0);
   const pinchStartScaleRef = useRef(1);
@@ -525,10 +526,25 @@ export default function PlansScreen() {
   const panResponder = useRef(
     PanResponder.create({
       onStartShouldSetPanResponder: () => false,
+      // Capture phase: fires before children, lets parent steal drag after long-press on Android
+      onMoveShouldSetPanResponderCapture: (e, gs) => {
+        if (draggingPinIdRef.current) {
+          const age = Date.now() - longPressTimeRef.current;
+          if (age > 3000) {
+            draggingPinIdRef.current = null;
+            draggingPinPosRef.current = null;
+            draggingPinMovedRef.current = false;
+            return false;
+          }
+          const dist = Math.abs(gs.dx) + Math.abs(gs.dy);
+          return dist > 4;
+        }
+        return false;
+      },
       onMoveShouldSetPanResponder: (e, gs) => {
         if (draggingPinIdRef.current) {
           // Expire stale drag state (long-press fired but user released without moving)
-          if (Date.now() - longPressTimeRef.current > 2000) {
+          if (Date.now() - longPressTimeRef.current > 3000) {
             draggingPinIdRef.current = null;
             draggingPinPosRef.current = null;
             draggingPinMovedRef.current = false;
@@ -586,7 +602,10 @@ export default function PlansScreen() {
           const finalPos = draggingPinPosRef.current;
           draggingPinIdRef.current = null;
           draggingPinPosRef.current = null;
+          draggingPinMovedRef.current = false;
           setDraggingPinStateRef.current(null);
+          // Clear timestamp suppress so regular taps work immediately after drag
+          suppressPlanTapUntilRef.current = 0;
           if (moved && finalPos) {
             const reserve = reservesRef.current.find(r => r.id === pinId);
             if (reserve) {
@@ -595,7 +614,7 @@ export default function PlansScreen() {
           } else {
             setFocusedPinIdRef.current(pinId);
             if (focusedPinTimerRef.current) clearTimeout(focusedPinTimerRef.current);
-            focusedPinTimerRef.current = setTimeout(() => { setFocusedPinIdRef.current(null); }, 4000);
+            focusedPinTimerRef.current = setTimeout(() => { setFocusedPinIdRef.current(null); }, 5000);
           }
           setTimeout(() => { isDraggingRef.current = false; }, 80);
           return;
@@ -634,6 +653,7 @@ export default function PlansScreen() {
 
   function handlePlanTap(e: any) {
     if (suppressNextPlanTapRef.current) { suppressNextPlanTapRef.current = false; return; }
+    if (Date.now() < suppressPlanTapUntilRef.current) return;
     if (isDraggingRef.current) return;
     if (focusedPinId) { setFocusedPinId(null); return; }
     if (!permissions.canCreate) return;
@@ -651,6 +671,7 @@ export default function PlansScreen() {
 
   function handleWebPlanClick(e: any) {
     if (suppressNextPlanTapRef.current) { suppressNextPlanTapRef.current = false; return; }
+    if (Date.now() < suppressPlanTapUntilRef.current) return;
     if (isDraggingRef.current) return;
     if (focusedPinId) { setFocusedPinId(null); return; }
     if (!permissions.canCreate) return;
@@ -1229,6 +1250,13 @@ export default function PlansScreen() {
                           opacity: isDraggingThis ? 0.35 : 1,
                         }}
                         onPressIn={() => { suppressNextPlanTapRef.current = true; }}
+                        onPressOut={() => {
+                          // If the PanResponder didn't take over (no real drag movement),
+                          // clear the stale drag pin reference so it doesn't block future gestures
+                          if (draggingPinIdRef.current === pinId && !draggingPinMovedRef.current) {
+                            draggingPinIdRef.current = null;
+                          }
+                        }}
                         onPress={() => {
                           if (focusedPinId === pinId) { setFocusedPinId(null); return; }
                           if (isCluster) {
@@ -1252,10 +1280,12 @@ export default function PlansScreen() {
                         onLongPress={() => {
                           if (!isCluster) {
                             suppressNextPlanTapRef.current = true;
+                            // Block plan tap for 1.2s so Android double touch-end doesn't clear focus
+                            suppressPlanTapUntilRef.current = Date.now() + 1200;
                             // Immediately focus pin so +/− buttons work right away
                             setFocusedPinIdRef.current(pinId);
                             if (focusedPinTimerRef.current) clearTimeout(focusedPinTimerRef.current);
-                            focusedPinTimerRef.current = setTimeout(() => setFocusedPinIdRef.current(null), 4000);
+                            focusedPinTimerRef.current = setTimeout(() => setFocusedPinIdRef.current(null), 5000);
                             // Set up drag state in case user starts dragging
                             if (permissions.canCreate) {
                               longPressTimeRef.current = Date.now();
