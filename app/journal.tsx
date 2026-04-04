@@ -6,6 +6,7 @@ import { Ionicons } from '@expo/vector-icons';
 import * as Print from 'expo-print';
 import * as Sharing from 'expo-sharing';
 import * as Location from 'expo-location';
+import { router } from 'expo-router';
 import { C } from '@/constants/colors';
 import { useAuth } from '@/context/AuthContext';
 import { useSettings } from '@/context/SettingsContext';
@@ -14,6 +15,7 @@ import Header from '@/components/Header';
 import { JournalEntry } from '@/constants/types';
 import BottomNavBar from '@/components/BottomNavBar';
 import { genId, formatDateFR, nowTimestampFR } from '@/lib/utils';
+import { validateDeadline } from '@/lib/reserveUtils';
 
 const JOURNAL_KEY = 'buildtrack_journal_v2';
 
@@ -63,6 +65,12 @@ async function fetchAutoWeather(): Promise<{ label: string; temp: number | null;
   }
 }
 
+function frToISO(frDate: string): string {
+  const parts = frDate.split('/');
+  if (parts.length !== 3) return '';
+  return `${parts[2]}-${parts[1]}-${parts[0]}`;
+}
+
 function buildJournalHTML(entries: JournalEntry[], projectName: string): string {
   const exportDate = formatDateFR(new Date());
   const exportTime = new Date().toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
@@ -80,10 +88,13 @@ function buildJournalHTML(entries: JournalEntry[], projectName: string): string 
     const hasObservations = e.observations && e.observations.trim();
     const hasVisitors = e.visitors && e.visitors.trim();
     const hasIncident = e.incidents && e.incidents.trim();
+    const weatherExtra = (e.weatherTemp != null || e.weatherWind != null)
+      ? ` (${e.weatherTemp != null ? `${Math.round(e.weatherTemp)}°C` : ''}${e.weatherTemp != null && e.weatherWind != null ? ' · ' : ''}${e.weatherWind != null ? `${Math.round(e.weatherWind)} km/h` : ''})`
+      : '';
     return `
       <tr style="background:${idx % 2 === 0 ? '#fff' : '#F9FAFB'}">
         <td style="padding:8px 10px;border-bottom:1px solid #EEF3FA;font-weight:700;white-space:nowrap;font-size:11px">${e.date}</td>
-        <td style="padding:8px 10px;border-bottom:1px solid #EEF3FA;font-size:12px">${e.weather}</td>
+        <td style="padding:8px 10px;border-bottom:1px solid #EEF3FA;font-size:12px">${e.weather}${weatherExtra}</td>
         <td style="padding:8px 10px;border-bottom:1px solid #EEF3FA;text-align:center;font-weight:700;font-size:13px;color:#003082">${e.workerCount}</td>
         <td style="padding:8px 10px;border-bottom:1px solid #EEF3FA;font-size:11px;line-height:1.5">
           <div>${e.workDone}</div>
@@ -203,7 +214,6 @@ export default function JournalScreen() {
   const [weatherDetail, setWeatherDetail] = useState<{ temp: number | null; wind: number | null } | null>(null);
 
   const todayFR = formatDateFR(new Date());
-  const todayISO = new Date().toISOString().slice(0, 10);
   const hasTodayEntry = entries.some(e => e.date === todayFR);
 
   useEffect(() => {
@@ -221,33 +231,40 @@ export default function JournalScreen() {
   const [weather, setWeather] = useState('☀️ Ensoleillé');
   const [workerCount, setWorkerCount] = useState('');
   const [workDone, setWorkDone] = useState('');
+  const [workDoneTouched, setWorkDoneTouched] = useState(false);
   const [materials, setMaterials] = useState('');
   const [incidents, setIncidents] = useState('');
   const [observations, setObservations] = useState('');
-  const [visiteur, setVisiteur] = useState('');
+  const [visitors, setVisitors] = useState('');
   const [workerCountFromPointage, setWorkerCountFromPointage] = useState(0);
+  const [submitAttempted, setSubmitAttempted] = useState(false);
 
   useEffect(() => {
-    if (showNew) {
-      const pointageEntries = getEntriesForDate(todayISO);
-      if (pointageEntries.length > 0) {
-        setWorkerCountFromPointage(pointageEntries.length);
-        setWorkerCount(prev => (prev.trim() === '' ? String(pointageEntries.length) : prev));
-      }
+    if (!showNew) return;
+    const isoDate = frToISO(date);
+    if (!isoDate) return;
+    const pointageEntries = getEntriesForDate(isoDate);
+    if (pointageEntries.length > 0) {
+      setWorkerCountFromPointage(pointageEntries.length);
+      setWorkerCount(prev => (prev.trim() === '' ? String(pointageEntries.length) : prev));
+    } else {
+      setWorkerCountFromPointage(0);
     }
-  }, [showNew, todayISO, getEntriesForDate]);
+  }, [showNew, date, getEntriesForDate]);
 
   const resetForm = () => {
     setDate(formatDateFR(new Date()));
     setWeather('☀️ Ensoleillé');
     setWorkerCount('');
     setWorkDone('');
+    setWorkDoneTouched(false);
     setMaterials('');
     setIncidents('');
     setObservations('');
-    setVisiteur('');
+    setVisitors('');
     setWeatherDetail(null);
     setWorkerCountFromPointage(0);
+    setSubmitAttempted(false);
   };
 
   const handleAutoWeather = useCallback(async () => {
@@ -269,32 +286,65 @@ export default function JournalScreen() {
     }
   }, []);
 
+  const handleWorkerCountChange = (val: string) => {
+    const digits = val.replace(/[^0-9]/g, '');
+    setWorkerCount(digits);
+  };
+
   const handleCreate = useCallback(() => {
+    setSubmitAttempted(true);
+
+    if (!validateDeadline(date) || !date) {
+      Alert.alert('Date invalide', 'Veuillez saisir une date valide au format JJ/MM/AAAA.');
+      return;
+    }
+
     if (!workDone.trim()) {
       Alert.alert('Champ requis', 'Veuillez décrire les travaux réalisés.');
       return;
     }
-    const entry: JournalEntry = {
-      id: genId(),
-      date,
-      weather,
-      workerCount: parseInt(workerCount) || 0,
-      workDone: workDone.trim(),
-      materials: materials.trim(),
-      incidents: incidents.trim(),
-      observations: observations.trim(),
-      visitors: visiteur.trim(),
-      author: user?.name ?? 'Équipe',
-      createdAt: nowTimestampFR(),
+
+    const save = () => {
+      const parsedWorkers = parseInt(workerCount, 10);
+      const entry: JournalEntry = {
+        id: genId(),
+        date,
+        weather,
+        workerCount: isNaN(parsedWorkers) || parsedWorkers < 0 ? 0 : parsedWorkers,
+        workDone: workDone.trim(),
+        materials: materials.trim(),
+        incidents: incidents.trim(),
+        observations: observations.trim(),
+        visitors: visitors.trim(),
+        author: user?.name ?? 'Équipe',
+        createdAt: nowTimestampFR(),
+        weatherTemp: weatherDetail?.temp ?? undefined,
+        weatherWind: weatherDetail?.wind ?? undefined,
+      };
+      setEntries(prev => {
+        const updated = [entry, ...prev];
+        AsyncStorage.setItem(JOURNAL_KEY, JSON.stringify(updated)).catch(() => {});
+        return updated;
+      });
+      resetForm();
+      setShowNew(false);
     };
-    setEntries(prev => {
-      const updated = [entry, ...prev];
-      AsyncStorage.setItem(JOURNAL_KEY, JSON.stringify(updated)).catch(() => {});
-      return updated;
-    });
-    resetForm();
-    setShowNew(false);
-  }, [date, weather, workerCount, workDone, materials, incidents, observations, visiteur, user]);
+
+    const duplicateEntry = entries.find(e => e.date === date);
+    if (duplicateEntry) {
+      Alert.alert(
+        'Entrée existante',
+        `Une entrée existe déjà pour le ${date}. Voulez-vous quand même créer une nouvelle entrée pour cette date ?`,
+        [
+          { text: 'Annuler', style: 'cancel' },
+          { text: 'Créer quand même', style: 'destructive', onPress: save },
+        ]
+      );
+      return;
+    }
+
+    save();
+  }, [date, weather, workerCount, workDone, materials, incidents, observations, visitors, weatherDetail, user, entries]);
 
   async function handleExportPDF() {
     if (!permissions.canExport) {
@@ -326,6 +376,7 @@ export default function JournalScreen() {
   }
 
   const totalWorkers = entries.reduce((acc, e) => acc + e.workerCount, 0);
+  const workDoneError = (submitAttempted || workDoneTouched) && !workDone.trim();
 
   return (
     <KeyboardAvoidingView style={styles.container} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
@@ -334,7 +385,7 @@ export default function JournalScreen() {
         subtitle={`${entries.length} entrées — ${projectName}`}
         showBack
         rightLabel={permissions.canCreate ? (showNew ? 'Annuler' : 'Ajouter') : undefined}
-        onRightPress={permissions.canCreate ? () => setShowNew(s => !s) : undefined}
+        onRightPress={permissions.canCreate ? () => { resetForm(); setShowNew(s => !s); } : undefined}
       />
 
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
@@ -425,7 +476,7 @@ export default function JournalScreen() {
                   <TouchableOpacity
                     key={w}
                     style={[styles.chip, weather === w && styles.chipSelected]}
-                    onPress={() => setWeather(w)}
+                    onPress={() => { setWeather(w); setWeatherDetail(null); }}
                   >
                     <Text style={[styles.chipText, weather === w && styles.chipTextSelected]}>{w}</Text>
                   </TouchableOpacity>
@@ -439,24 +490,66 @@ export default function JournalScreen() {
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: C.closedBg, paddingHorizontal: 8, paddingVertical: 3, borderRadius: 8 }}>
                   <Ionicons name="checkmark-circle" size={12} color={C.closed} />
                   <Text style={{ fontSize: 11, fontFamily: 'Inter_500Medium', color: C.closed }}>
-                    Depuis le pointage
+                    Depuis le pointage ({date})
                   </Text>
                 </View>
               )}
             </View>
-            <TextInput style={styles.input} placeholder="Nombre de personnes" placeholderTextColor={C.textMuted} value={workerCount} onChangeText={setWorkerCount} keyboardType="numeric" />
+            <TextInput
+              style={styles.input}
+              placeholder="Nombre de personnes"
+              placeholderTextColor={C.textMuted}
+              value={workerCount}
+              onChangeText={handleWorkerCountChange}
+              keyboardType="numeric"
+            />
 
-            <Text style={styles.label}>Travaux réalisés *</Text>
-            <TextInput style={[styles.input, styles.multiline]} placeholder="Description détaillée des travaux effectués aujourd'hui..." placeholderTextColor={C.textMuted} value={workDone} onChangeText={setWorkDone} multiline numberOfLines={4} />
+            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6, marginTop: 4 }}>
+              <Text style={styles.label}>
+                Travaux réalisés <Text style={styles.required}>*</Text>
+              </Text>
+              {workDoneError && (
+                <Text style={styles.fieldError}>Champ obligatoire</Text>
+              )}
+            </View>
+            <TextInput
+              style={[styles.input, styles.multiline, workDoneError && styles.inputError]}
+              placeholder="Description détaillée des travaux effectués aujourd'hui..."
+              placeholderTextColor={C.textMuted}
+              value={workDone}
+              onChangeText={setWorkDone}
+              onBlur={() => setWorkDoneTouched(true)}
+              multiline
+              numberOfLines={4}
+            />
 
             <Text style={styles.label}>Matériaux / Livraisons</Text>
             <TextInput style={[styles.input, styles.multiline]} placeholder="Livraisons reçues, matériaux consommés..." placeholderTextColor={C.textMuted} value={materials} onChangeText={setMaterials} multiline numberOfLines={2} />
 
-            <Text style={styles.label}>Incidents / Problèmes</Text>
+            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6, marginTop: 4 }}>
+              <Text style={styles.label}>Incidents / Problèmes</Text>
+              {incidents.trim().length > 0 && (
+                <TouchableOpacity
+                  style={styles.escalateBtn}
+                  onPress={() => router.push('/incidents')}
+                >
+                  <Ionicons name="warning-outline" size={12} color={C.waiting} />
+                  <Text style={styles.escalateBtnText}>Créer un incident formel</Text>
+                </TouchableOpacity>
+              )}
+            </View>
             <TextInput style={[styles.input, styles.multiline]} placeholder="Signalement d'incidents ou difficultés rencontrées..." placeholderTextColor={C.textMuted} value={incidents} onChangeText={setIncidents} multiline numberOfLines={2} />
+            {incidents.trim().length > 0 && (
+              <View style={styles.incidentHint}>
+                <Ionicons name="information-circle-outline" size={13} color={C.waiting} />
+                <Text style={styles.incidentHintText}>
+                  Pour un incident grave, utilisez le module Incidents pour un suivi formel complet.
+                </Text>
+              </View>
+            )}
 
             <Text style={styles.label}>Visiteurs</Text>
-            <TextInput style={styles.input} placeholder="Ex: MOA, Bureau de contrôle, Architecte..." placeholderTextColor={C.textMuted} value={visiteur} onChangeText={setVisiteur} />
+            <TextInput style={styles.input} placeholder="Ex: MOA, Bureau de contrôle, Architecte..." placeholderTextColor={C.textMuted} value={visitors} onChangeText={setVisitors} />
 
             <Text style={styles.label}>Observations générales</Text>
             <TextInput style={[styles.input, styles.multiline]} placeholder="Notes complémentaires..." placeholderTextColor={C.textMuted} value={observations} onChangeText={setObservations} multiline numberOfLines={2} />
@@ -489,6 +582,13 @@ export default function JournalScreen() {
                 <Text style={styles.entryDate}>{entry.date}</Text>
               </View>
               <Text style={styles.entryWeather}>{entry.weather}</Text>
+              {(entry.weatherTemp != null || entry.weatherWind != null) && (
+                <Text style={styles.entryWeatherDetail}>
+                  {entry.weatherTemp != null ? `${Math.round(entry.weatherTemp)}°C` : ''}
+                  {entry.weatherTemp != null && entry.weatherWind != null ? ' · ' : ''}
+                  {entry.weatherWind != null ? `${Math.round(entry.weatherWind)} km/h` : ''}
+                </Text>
+              )}
               <View style={styles.entryWorkers}>
                 <Ionicons name="people" size={14} color={C.textSub} />
                 <Text style={styles.entryWorkersText}>{entry.workerCount} pers.</Text>
@@ -546,7 +646,10 @@ const styles = StyleSheet.create({
   card: { backgroundColor: C.surface, borderRadius: 14, padding: 16, marginBottom: 14, borderWidth: 1, borderColor: C.border },
   sectionTitle: { fontSize: 13, fontFamily: 'Inter_600SemiBold', color: C.textSub, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 14 },
   label: { fontSize: 12, fontFamily: 'Inter_600SemiBold', color: C.textSub, marginBottom: 6, marginTop: 4 },
+  required: { color: C.open, fontFamily: 'Inter_700Bold' },
+  fieldError: { fontSize: 11, fontFamily: 'Inter_500Medium', color: C.open },
   input: { backgroundColor: C.surface2, borderRadius: 10, paddingHorizontal: 12, paddingVertical: 12, fontSize: 14, fontFamily: 'Inter_400Regular', color: C.text, borderWidth: 1, borderColor: C.border, marginBottom: 12 },
+  inputError: { borderColor: C.open, borderWidth: 1.5 },
   multiline: { minHeight: 80, textAlignVertical: 'top' },
   weatherHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6, marginTop: 4 },
   autoWeatherBtn: {
@@ -566,6 +669,18 @@ const styles = StyleSheet.create({
   chipSelected: { backgroundColor: C.primaryBg, borderColor: C.primary },
   chipText: { fontSize: 13, fontFamily: 'Inter_400Regular', color: C.textSub },
   chipTextSelected: { color: C.primary, fontFamily: 'Inter_600SemiBold' },
+  escalateBtn: {
+    flexDirection: 'row', alignItems: 'center', gap: 4,
+    backgroundColor: C.waiting + '15', paddingHorizontal: 8, paddingVertical: 3,
+    borderRadius: 8, borderWidth: 1, borderColor: C.waiting + '40',
+  },
+  escalateBtnText: { fontSize: 11, fontFamily: 'Inter_500Medium', color: C.waiting },
+  incidentHint: {
+    flexDirection: 'row', alignItems: 'flex-start', gap: 6,
+    backgroundColor: C.waiting + '10', borderRadius: 8, paddingHorizontal: 10, paddingVertical: 8,
+    marginTop: -4, marginBottom: 12, borderWidth: 1, borderColor: C.waiting + '30',
+  },
+  incidentHintText: { flex: 1, fontSize: 11, fontFamily: 'Inter_400Regular', color: C.waiting, lineHeight: 16 },
   createBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, backgroundColor: C.primary, borderRadius: 12, paddingVertical: 14 },
   createBtnText: { fontSize: 15, fontFamily: 'Inter_600SemiBold', color: '#fff' },
   emptyBox: { alignItems: 'center', paddingVertical: 60, gap: 12 },
@@ -578,6 +693,7 @@ const styles = StyleSheet.create({
   entryDateBadge: { backgroundColor: C.primaryBg, paddingHorizontal: 10, paddingVertical: 4, borderRadius: 8 },
   entryDate: { fontSize: 13, fontFamily: 'Inter_600SemiBold', color: C.primary },
   entryWeather: { fontSize: 16 },
+  entryWeatherDetail: { fontSize: 11, fontFamily: 'Inter_400Regular', color: C.textSub },
   entryWorkers: { flexDirection: 'row', alignItems: 'center', gap: 4 },
   entryWorkersText: { fontSize: 12, fontFamily: 'Inter_400Regular', color: C.textSub },
   entryAuthor: { fontSize: 11, fontFamily: 'Inter_400Regular', color: C.textMuted, marginLeft: 'auto' },
