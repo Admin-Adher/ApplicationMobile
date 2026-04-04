@@ -896,7 +896,6 @@ export default function ReservesScreen() {
                 );
               })}
             </ScrollView>
-            <View style={styles.filterScrollFade} />
           </View>
 
           <TouchableOpacity
@@ -1775,14 +1774,6 @@ const styles = StyleSheet.create({
   kindChipText: { fontSize: 12, fontFamily: 'Inter_500Medium', color: C.textSub },
   kindChipTextActive: { color: '#fff' },
   filterScrollContainer: { flex: 1, position: 'relative' },
-  filterScrollFade: {
-    position: 'absolute', right: 0, top: 0, bottom: 0, width: 32,
-    backgroundColor: C.surface,
-    opacity: 0.88,
-    pointerEvents: 'none' as any,
-    borderTopRightRadius: 20,
-    borderBottomRightRadius: 20,
-  },
   filterChip: {
     paddingHorizontal: 12, paddingVertical: 6, borderRadius: 20, flexDirection: 'row', alignItems: 'center', gap: 4,
     backgroundColor: C.surface2, marginRight: 6, borderWidth: 1, borderColor: C.border,
