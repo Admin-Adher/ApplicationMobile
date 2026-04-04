@@ -2252,10 +2252,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           assignee: t.assignee, progress: t.progress, company: t.company,
           chantier_id: t.chantierId ?? null, reserve_id: t.reserveId ?? null,
           comments: t.comments ?? [], history: t.history ?? [],
+          created_at: t.createdAt ?? null,
         }).then(({ error }: { error: any }) => {
           if (error) {
-            dispatch({ type: 'DELETE_TASK', payload: t.id });
-            Alert.alert('Erreur de sauvegarde', "La tâche n'a pas pu être enregistrée.");
+            console.warn('[addTask] Supabase error:', error.message);
+            persistMockTasks([t, ...stateRef.current.tasks]);
           }
         });
       } else {
