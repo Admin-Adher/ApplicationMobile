@@ -460,51 +460,55 @@ export default function DashboardScreen() {
           />
         </View>
 
-        <TouchableOpacity
-          style={[styles.kpiWide, { borderLeftColor: lateTasks.length > 0 ? C.waiting : C.closed }]}
-          onPress={() => router.push('/planning' as any)}
-          activeOpacity={0.75}
-        >
-          <View style={[styles.kpiIconWrap, { backgroundColor: lateTasks.length > 0 ? C.waiting + '20' : C.closedBg }]}>
-            <Ionicons
-              name="time-outline"
-              size={18}
-              color={lateTasks.length > 0 ? C.waiting : C.closed}
-            />
-          </View>
-          <View style={{ flex: 1 }}>
-            <Text style={[styles.kpiValue, { fontSize: 24, color: lateTasks.length > 0 ? C.waiting : C.closed }]}>
-              {lateTasks.length}
-            </Text>
-            <Text style={styles.kpiLabel}>
-              {lateTasks.length === 0 ? 'Aucune tâche en retard' : `Tâche${lateTasks.length > 1 ? 's' : ''} en retard`}
-            </Text>
-          </View>
-          <Ionicons name="chevron-forward" size={16} color={C.textMuted} />
-        </TouchableOpacity>
+        {!isSousTraitant && (
+          <TouchableOpacity
+            style={[styles.kpiWide, { borderLeftColor: lateTasks.length > 0 ? C.waiting : C.closed }]}
+            onPress={() => router.push('/planning' as any)}
+            activeOpacity={0.75}
+          >
+            <View style={[styles.kpiIconWrap, { backgroundColor: lateTasks.length > 0 ? C.waiting + '20' : C.closedBg }]}>
+              <Ionicons
+                name="time-outline"
+                size={18}
+                color={lateTasks.length > 0 ? C.waiting : C.closed}
+              />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={[styles.kpiValue, { fontSize: 24, color: lateTasks.length > 0 ? C.waiting : C.closed }]}>
+                {lateTasks.length}
+              </Text>
+              <Text style={styles.kpiLabel}>
+                {lateTasks.length === 0 ? 'Aucune tâche en retard' : `Tâche${lateTasks.length > 1 ? 's' : ''} en retard`}
+              </Text>
+            </View>
+            <Ionicons name="chevron-forward" size={16} color={C.textMuted} />
+          </TouchableOpacity>
+        )}
 
-        <TouchableOpacity
-          style={[styles.kpiWide, { borderLeftColor: openIncidents.length > 0 ? '#EF4444' : C.closed }]}
-          onPress={() => router.push('/incidents' as any)}
-          activeOpacity={0.75}
-        >
-          <View style={[styles.kpiIconWrap, { backgroundColor: openIncidents.length > 0 ? '#EF444420' : C.closedBg }]}>
-            <Ionicons
-              name="shield-outline"
-              size={18}
-              color={openIncidents.length > 0 ? '#EF4444' : C.closed}
-            />
-          </View>
-          <View style={{ flex: 1 }}>
-            <Text style={[styles.kpiValue, { fontSize: 24, color: openIncidents.length > 0 ? '#EF4444' : C.closed }]}>
-              {openIncidents.length}
-            </Text>
-            <Text style={styles.kpiLabel}>
-              {openIncidents.length === 0 ? 'Aucun incident ouvert' : `Incident${openIncidents.length > 1 ? 's' : ''} non résolu${openIncidents.length > 1 ? 's' : ''}`}
-            </Text>
-          </View>
-          <Ionicons name="chevron-forward" size={16} color={C.textMuted} />
-        </TouchableOpacity>
+        {!isSousTraitant && (
+          <TouchableOpacity
+            style={[styles.kpiWide, { borderLeftColor: openIncidents.length > 0 ? '#EF4444' : C.closed }]}
+            onPress={() => router.push('/incidents' as any)}
+            activeOpacity={0.75}
+          >
+            <View style={[styles.kpiIconWrap, { backgroundColor: openIncidents.length > 0 ? '#EF444420' : C.closedBg }]}>
+              <Ionicons
+                name="shield-outline"
+                size={18}
+                color={openIncidents.length > 0 ? '#EF4444' : C.closed}
+              />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={[styles.kpiValue, { fontSize: 24, color: openIncidents.length > 0 ? '#EF4444' : C.closed }]}>
+                {openIncidents.length}
+              </Text>
+              <Text style={styles.kpiLabel}>
+                {openIncidents.length === 0 ? 'Aucun incident ouvert' : `Incident${openIncidents.length > 1 ? 's' : ''} non résolu${openIncidents.length > 1 ? 's' : ''}`}
+              </Text>
+            </View>
+            <Ionicons name="chevron-forward" size={16} color={C.textMuted} />
+          </TouchableOpacity>
+        )}
 
         {chantiers.length === 0 && permissions.canCreate && (
           <View style={[styles.onboardCard, { borderColor: C.primary + '40', borderWidth: 1.5 }]}>
