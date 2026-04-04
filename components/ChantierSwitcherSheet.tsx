@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import {
   View, Text, StyleSheet, Modal, TouchableOpacity,
-  Animated, ScrollView, Platform, useWindowDimensions,
+  Animated, ScrollView, Platform, useWindowDimensions, PanResponder,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -27,6 +27,31 @@ export default function ChantierSwitcherSheet() {
   const { height: screenHeight } = useWindowDimensions();
   const translateY = useRef(new Animated.Value(screenHeight)).current;
   const insets = useSafeAreaInsets();
+  const scrollOffsetRef = useRef(0);
+
+  const panResponder = useRef(
+    PanResponder.create({
+      onStartShouldSetPanResponder: () => false,
+      onStartShouldSetPanResponderCapture: () => false,
+      onMoveShouldSetPanResponder: (_, g) => {
+        return g.dy > 8 && g.dy > Math.abs(g.dx) && scrollOffsetRef.current <= 0;
+      },
+      onMoveShouldSetPanResponderCapture: () => false,
+      onPanResponderMove: (_, g) => {
+        if (g.dy > 0) translateY.setValue(g.dy);
+      },
+      onPanResponderRelease: (_, g) => {
+        if (g.dy > 80 || g.vy > 0.5) {
+          close();
+        } else {
+          Animated.spring(translateY, { toValue: 0, useNativeDriver: true, tension: 70, friction: 14 }).start();
+        }
+      },
+      onPanResponderTerminate: () => {
+        Animated.spring(translateY, { toValue: 0, useNativeDriver: true, tension: 70, friction: 14 }).start();
+      },
+    })
+  ).current;
   const router = useRouter();
   const { chantiers, activeChantierId, activeChantier, setActiveChantier, reserves, sitePlans } = useApp();
   const { permissions } = useAuth();
@@ -71,6 +96,7 @@ export default function ChantierSwitcherSheet() {
       <TouchableOpacity style={styles.overlay} activeOpacity={1} onPress={close}>
         <Animated.View
           style={[styles.sheet, { paddingBottom: bottomPad, transform: [{ translateY }] }]}
+          {...panResponder.panHandlers}
         >
           <TouchableOpacity activeOpacity={1} onPress={() => {}}>
             <View style={styles.handle} />
@@ -88,6 +114,8 @@ export default function ChantierSwitcherSheet() {
               style={styles.list}
               showsVerticalScrollIndicator={false}
               bounces={false}
+              scrollEventThrottle={16}
+              onScroll={(e) => { scrollOffsetRef.current = e.nativeEvent.contentOffset.y; }}
             >
               {chantiers.length === 0 && (
                 <View style={styles.emptyWrap}>

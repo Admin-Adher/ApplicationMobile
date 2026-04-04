@@ -1,6 +1,6 @@
-import React from 'react';
+import React, { useRef } from 'react';
 import {
-  View, Text, StyleSheet, TouchableOpacity, ScrollView, Modal, Platform,
+  View, Text, StyleSheet, TouchableOpacity, ScrollView, Modal, Platform, PanResponder,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { C } from '@/constants/colors';
@@ -51,6 +51,16 @@ export default function FiltersSheet({
 }: FiltersSheetProps) {
   const hasFilters = activeFiltersCount > 0;
 
+  const handlePan = useRef(
+    PanResponder.create({
+      onStartShouldSetPanResponder: () => false,
+      onMoveShouldSetPanResponder: (_, g) => g.dy > 8 && g.dy > Math.abs(g.dx),
+      onPanResponderRelease: (_, g) => {
+        if (g.dy > 60 || g.vy > 0.5) onClose();
+      },
+    })
+  ).current;
+
   return (
     <Modal
       visible={visible}
@@ -61,7 +71,9 @@ export default function FiltersSheet({
     >
       <TouchableOpacity style={styles.overlay} activeOpacity={1} onPress={onClose}>
         <TouchableOpacity activeOpacity={1} style={styles.sheet} onPress={() => {}}>
-          <View style={styles.handle} />
+          <View style={styles.handleHitArea} {...handlePan.panHandlers}>
+            <View style={styles.handle} />
+          </View>
 
           <View style={styles.header}>
             <View style={styles.headerLeft}>
@@ -292,7 +304,8 @@ const styles = StyleSheet.create({
     maxHeight: '85%',
     paddingBottom: Platform.OS === 'ios' ? 32 : 16,
   },
-  handle: { width: 40, height: 4, borderRadius: 2, backgroundColor: C.border, alignSelf: 'center', marginTop: 10, marginBottom: 4 },
+  handleHitArea: { alignSelf: 'stretch', alignItems: 'center', paddingVertical: 10 },
+  handle: { width: 40, height: 4, borderRadius: 2, backgroundColor: C.border, alignSelf: 'center' },
   header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: C.border },
   headerLeft: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   headerRight: { flexDirection: 'row', alignItems: 'center', gap: 8 },

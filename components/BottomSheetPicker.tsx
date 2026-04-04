@@ -1,7 +1,7 @@
-import React, { useState } from 'react';
+import React, { useRef, useState } from 'react';
 import {
   View, Text, StyleSheet, TouchableOpacity, Modal,
-  ScrollView, Platform,
+  ScrollView, Platform, PanResponder,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -30,6 +30,16 @@ export default function BottomSheetPicker({
   const [open, setOpen] = useState(false);
   const insets = useSafeAreaInsets();
   const selected = options.find(o => o.value === value);
+
+  const handlePan = useRef(
+    PanResponder.create({
+      onStartShouldSetPanResponder: () => false,
+      onMoveShouldSetPanResponder: (_, g) => g.dy > 8 && g.dy > Math.abs(g.dx),
+      onPanResponderRelease: (_, g) => {
+        if (g.dy > 60 || g.vy > 0.5) setOpen(false);
+      },
+    })
+  ).current;
 
   function pick(v: string) {
     onChange(v);
@@ -66,7 +76,9 @@ export default function BottomSheetPicker({
           onPress={() => setOpen(false)}
         />
         <View style={styles.sheet}>
-          <View style={styles.handle} />
+          <View style={styles.handleHitArea} {...handlePan.panHandlers}>
+            <View style={styles.handle} />
+          </View>
           <Text style={styles.sheetTitle}>{label}</Text>
 
           <ScrollView
@@ -167,13 +179,17 @@ const styles = StyleSheet.create({
       },
     }),
   },
+  handleHitArea: {
+    alignSelf: 'stretch',
+    alignItems: 'center',
+    paddingVertical: 10,
+    marginBottom: 4,
+  },
   handle: {
-    alignSelf: 'center',
     width: 36,
     height: 4,
     borderRadius: 2,
     backgroundColor: C.border,
-    marginBottom: 14,
   },
   sheetTitle: {
     fontSize: 16,

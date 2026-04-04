@@ -97,10 +97,18 @@ export default function IncidentsScreen() {
   const [form, setForm] = useState(EMPTY_FORM);
 
   const sheetTranslateY = useRef(new Animated.Value(0)).current;
+  const scrollOffsetRef = useRef(0);
+
   const sheetPanResponder = useRef(
     PanResponder.create({
       onStartShouldSetPanResponder: () => false,
-      onMoveShouldSetPanResponder: (_, g) => g.dy > 4 && Math.abs(g.dy) > Math.abs(g.dx),
+      onStartShouldSetPanResponderCapture: () => false,
+      onMoveShouldSetPanResponder: (_, g) => {
+        const isSwipingDown = g.dy > 8 && g.dy > Math.abs(g.dx);
+        const isAtTop = scrollOffsetRef.current <= 0;
+        return isSwipingDown && isAtTop;
+      },
+      onMoveShouldSetPanResponderCapture: () => false,
       onPanResponderMove: (_, g) => {
         if (g.dy > 0) sheetTranslateY.setValue(g.dy);
       },
@@ -432,11 +440,17 @@ export default function IncidentsScreen() {
         <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
         <View style={styles.overlay}>
           <TouchableOpacity style={StyleSheet.absoluteFillObject} activeOpacity={1} onPress={() => setModalMode(null)} />
-          <Animated.View style={[styles.sheet, { paddingBottom: Math.max(insets.bottom, 20), transform: [{ translateY: sheetTranslateY }] }]}>
-            <View style={styles.sheetHandleHitArea} {...sheetPanResponder.panHandlers}>
+          <Animated.View style={[styles.sheet, { paddingBottom: Math.max(insets.bottom, 20), transform: [{ translateY: sheetTranslateY }] }]} {...sheetPanResponder.panHandlers}>
+            <View style={styles.sheetHandleHitArea}>
               <View style={styles.sheetHandle} />
             </View>
-            <ScrollView showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled" bounces={true}>
+            <ScrollView
+              showsVerticalScrollIndicator={false}
+              keyboardShouldPersistTaps="handled"
+              bounces={true}
+              scrollEventThrottle={16}
+              onScroll={(e) => { scrollOffsetRef.current = e.nativeEvent.contentOffset.y; }}
+            >
               <Text style={styles.sheetTitle}>
                 {modalMode === 'edit' ? 'Modifier l\'incident' : 'Signaler un incident'}
               </Text>
