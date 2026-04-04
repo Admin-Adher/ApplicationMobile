@@ -305,6 +305,41 @@ export default function NewChantierScreen() {
                   <Text style={styles.planIndexText}>{idx + 1}</Text>
                 </View>
                 <View style={{ flex: 1, gap: 8 }}>
+                  {/* 1. Import du fichier en premier */}
+                  <View style={styles.planFileRow}>
+                    {plan.uri ? (
+                      <View style={styles.planFileChip}>
+                        <Ionicons
+                          name={plan.uri.toLowerCase().includes('pdf') ? 'document-text-outline' : 'image-outline'}
+                          size={12}
+                          color={C.closed}
+                        />
+                        <Text style={styles.planFileChipText} numberOfLines={1}>
+                          {plan.size ? `Fichier importé · ${plan.size}` : 'Fichier importé'}
+                        </Text>
+                        <TouchableOpacity onPress={() => setPlans(prev => prev.map(p => p.id === plan.id ? { ...p, uri: undefined, size: undefined } : p))}>
+                          <Ionicons name="close-circle" size={14} color={C.textMuted} />
+                        </TouchableOpacity>
+                      </View>
+                    ) : (
+                      <TouchableOpacity
+                        style={styles.importFileBtn}
+                        onPress={() => importPlanFile(plan.id)}
+                        disabled={importingPlanId === plan.id}
+                      >
+                        {importingPlanId === plan.id ? (
+                          <ActivityIndicator size="small" color={C.primary} />
+                        ) : (
+                          <>
+                            <Ionicons name="cloud-upload-outline" size={13} color={C.primary} />
+                            <Text style={styles.importFileBtnText}>Importer PDF / image</Text>
+                          </>
+                        )}
+                      </TouchableOpacity>
+                    )}
+                  </View>
+
+                  {/* 2. Nom du plan */}
                   <View>
                     <Text style={styles.planNameLabel}>Nom du plan</Text>
                     <TextInput
@@ -316,13 +351,12 @@ export default function NewChantierScreen() {
                     />
                   </View>
 
-                  {/* Sélection Bâtiment + Niveau — uniquement si une structure est configurée */}
+                  {/* 3. Localisation — uniquement si une structure est configurée */}
                   {buildings.length > 0 && (
                     <View style={styles.planHierarchyBlock}>
                       <Text style={styles.planHierarchyLabel}>Localisation du plan</Text>
                       <ScrollView horizontal showsHorizontalScrollIndicator={false}>
                         <View style={styles.planChipRow}>
-                          {/* Chip "Général" — actif quand aucun bâtiment n'est sélectionné */}
                           <TouchableOpacity
                             style={[styles.planChip, !plan.buildingId && styles.planChipActive]}
                             onPress={() => clearPlanBuilding(plan.id)}
@@ -360,39 +394,6 @@ export default function NewChantierScreen() {
                       )}
                     </View>
                   )}
-
-                  <View style={styles.planFileRow}>
-                    {plan.uri ? (
-                      <View style={styles.planFileChip}>
-                        <Ionicons
-                          name={plan.uri.toLowerCase().includes('pdf') ? 'document-text-outline' : 'image-outline'}
-                          size={12}
-                          color={C.closed}
-                        />
-                        <Text style={styles.planFileChipText} numberOfLines={1}>
-                          {plan.size ? `Fichier importé · ${plan.size}` : 'Fichier importé'}
-                        </Text>
-                        <TouchableOpacity onPress={() => setPlans(prev => prev.map(p => p.id === plan.id ? { ...p, uri: undefined, size: undefined } : p))}>
-                          <Ionicons name="close-circle" size={14} color={C.textMuted} />
-                        </TouchableOpacity>
-                      </View>
-                    ) : (
-                      <TouchableOpacity
-                        style={styles.importFileBtn}
-                        onPress={() => importPlanFile(plan.id)}
-                        disabled={importingPlanId === plan.id}
-                      >
-                        {importingPlanId === plan.id ? (
-                          <ActivityIndicator size="small" color={C.primary} />
-                        ) : (
-                          <>
-                            <Ionicons name="cloud-upload-outline" size={13} color={C.primary} />
-                            <Text style={styles.importFileBtnText}>Importer PDF / image</Text>
-                          </>
-                        )}
-                      </TouchableOpacity>
-                    )}
-                  </View>
                 </View>
                 {plans.length > 1 && (
                   <TouchableOpacity onPress={() => removePlanRow(plan.id)} style={styles.removePlanBtn}>
@@ -456,7 +457,7 @@ const styles = StyleSheet.create({
   addPlanBtn: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 10, paddingVertical: 6, backgroundColor: C.primaryBg, borderRadius: 8, borderWidth: 1, borderColor: C.primary + '40' },
   addPlanText: { fontSize: 12, fontFamily: 'Inter_600SemiBold', color: C.primary },
   planRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 10, marginBottom: 12 },
-  planIndexBadge: { width: 26, height: 26, borderRadius: 13, backgroundColor: C.primary, alignItems: 'center', justifyContent: 'center', marginTop: 22, flexShrink: 0 },
+  planIndexBadge: { width: 26, height: 26, borderRadius: 13, backgroundColor: C.primary, alignItems: 'center', justifyContent: 'center', marginTop: 6, flexShrink: 0 },
   planIndexText: { fontSize: 11, fontFamily: 'Inter_700Bold', color: '#fff' },
   planNameLabel: {
     fontSize: 11, fontFamily: 'Inter_600SemiBold', color: C.textSub,
