@@ -33,7 +33,7 @@ import Header from '@/components/Header';
 import BottomNavBar from '@/components/BottomNavBar';
 import SignaturePad, { SignaturePadRef } from '@/components/SignaturePad';
 import { genId, formatDateFR } from '@/lib/utils';
-import { RESERVE_BUILDINGS, RESERVE_LEVELS } from '@/lib/reserveUtils';
+import LocationPicker from '@/components/LocationPicker';
 
 const ITEM_STATUS_CFG = {
   ok: { label: 'Conforme', color: C.closed, icon: 'checkmark-circle' },
@@ -419,8 +419,9 @@ export default function OprScreen() {
   const [showNew, setShowNew] = useState(false);
   const [title, setTitle] = useState('');
   const [date, setDate] = useState(formatDateFR(new Date()));
-  const [building, setBuilding] = useState(RESERVE_BUILDINGS[0]);
-  const [level, setLevel] = useState('RDC');
+  const [building, setBuilding] = useState('');
+  const [level, setLevel] = useState('');
+  const [zone, setZone] = useState('');
   const [maireOuvrage, setMaireOuvrage] = useState('');
 
   const [signModalOpr, setSignModalOpr] = useState<Opr | null>(null);
@@ -585,8 +586,9 @@ export default function OprScreen() {
     addOpr(opr);
     setTitle('');
     setDate(formatDateFR(new Date()));
-    setBuilding(RESERVE_BUILDINGS[0]);
-    setLevel('RDC');
+    setBuilding('');
+    setLevel('');
+    setZone('');
     setMaireOuvrage('');
     setVisitDateForm('');
     setFormLots(DEFAULT_OPR_ITEMS.map(name => ({ id: genId(), name, entreprise: '' })));
@@ -763,41 +765,16 @@ export default function OprScreen() {
               accessibilityLabel="Nom du maître d'ouvrage"
             />
 
-            <Text style={styles.label}>Bâtiment</Text>
-            <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-              <View style={styles.chipRow}>
-                {RESERVE_BUILDINGS.map(b => (
-                  <TouchableOpacity
-                    key={b}
-                    style={[styles.chip, building === b && styles.chipActive]}
-                    onPress={() => setBuilding(b)}
-                    accessibilityRole="radio"
-                    accessibilityState={{ checked: building === b }}
-                    accessibilityLabel={`Bâtiment ${b}`}
-                  >
-                    <Text style={[styles.chipText, building === b && styles.chipTextActive]}>Bât. {b}</Text>
-                  </TouchableOpacity>
-                ))}
-              </View>
-            </ScrollView>
-
-            <Text style={[styles.label, { marginTop: 10 }]}>Niveau</Text>
-            <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-              <View style={styles.chipRow}>
-                {RESERVE_LEVELS.map(l => (
-                  <TouchableOpacity
-                    key={l}
-                    style={[styles.chip, level === l && styles.chipActive]}
-                    onPress={() => setLevel(l)}
-                    accessibilityRole="radio"
-                    accessibilityState={{ checked: level === l }}
-                    accessibilityLabel={`Niveau ${l}`}
-                  >
-                    <Text style={[styles.chipText, level === l && styles.chipTextActive]}>{l}</Text>
-                  </TouchableOpacity>
-                ))}
-              </View>
-            </ScrollView>
+            <Text style={styles.label}>Localisation</Text>
+            <LocationPicker
+              buildings={activeChantier?.buildings ?? []}
+              building={building}
+              level={level}
+              zone={zone}
+              onBuildingChange={setBuilding}
+              onLevelChange={setLevel}
+              onZoneChange={setZone}
+            />
 
             <View style={{ marginTop: 4, marginBottom: 2 }}>
               <DateInput label="Date de réception *" value={date} onChange={setDate} />

@@ -11,7 +11,8 @@ import { useApp } from '@/context/AppContext';
 import { useAuth } from '@/context/AuthContext';
 import Header from '@/components/Header';
 import DateInput from '@/components/DateInput';
-import { Chantier, SitePlan } from '@/constants/types';
+import LocationTreeEditor from '@/components/LocationTreeEditor';
+import { Chantier, SitePlan, ChantierBuilding } from '@/constants/types';
 import { genId, formatDateFR } from '@/lib/utils';
 import { uploadDocument } from '@/lib/storage';
 
@@ -36,6 +37,7 @@ export default function NewChantierScreen() {
     { id: genId(), name: 'Plan général' },
   ]);
   const [selectedCompanyIds, setSelectedCompanyIds] = useState<string[]>([]);
+  const [buildings, setBuildings] = useState<ChantierBuilding[]>([]);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [importingPlanId, setImportingPlanId] = useState<string | null>(null);
 
@@ -128,6 +130,7 @@ export default function NewChantierScreen() {
       createdAt: todayFr,
       createdBy: user?.name ?? 'Inconnu',
       companyIds: selectedCompanyIds.length > 0 ? selectedCompanyIds : undefined,
+      buildings: buildings.length > 0 ? buildings : undefined,
     };
 
     const newPlans: SitePlan[] = validPlans.map(p => ({
@@ -234,6 +237,19 @@ export default function NewChantierScreen() {
           </View>
         )}
 
+        {/* STRUCTURE DU BÂTIMENT */}
+        <View style={styles.card}>
+          <View style={styles.sectionHeader}>
+            <Ionicons name="business-outline" size={16} color={C.primary} />
+            <Text style={styles.sectionTitle}>Structure du bâtiment</Text>
+          </View>
+          <Text style={styles.hint}>
+            Définissez les bâtiments, niveaux et zones pour activer la localisation hiérarchique dans toute l'application.
+            Vous pouvez modifier cette structure à tout moment dans les paramètres du chantier.
+          </Text>
+          <LocationTreeEditor buildings={buildings} onChange={setBuildings} />
+        </View>
+
         <View style={styles.plansSection}>
           <View style={styles.plansSectionHeader}>
             <Ionicons name="map-outline" size={16} color={C.primary} />
@@ -332,7 +348,9 @@ const styles = StyleSheet.create({
   card: { backgroundColor: C.surface, borderRadius: 14, padding: 16, marginBottom: 14, borderWidth: 1, borderColor: C.border },
   fieldGroup: { marginBottom: 14 },
   label: { fontSize: 12, fontFamily: 'Inter_600SemiBold', color: C.textSub, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 8 },
-  hint: { fontSize: 12, fontFamily: 'Inter_400Regular', color: C.textMuted, marginBottom: 10, lineHeight: 17 },
+  hint: { fontSize: 12, fontFamily: 'Inter_400Regular', color: C.textMuted, marginBottom: 14, lineHeight: 17 },
+  sectionHeader: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 6 },
+  sectionTitle: { fontSize: 14, fontFamily: 'Inter_600SemiBold', color: C.text },
   coRow: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 10, paddingHorizontal: 10, borderRadius: 10, borderWidth: 1, borderColor: C.border, backgroundColor: C.surface2, marginBottom: 6 },
   coDot: { width: 10, height: 10, borderRadius: 5, flexShrink: 0 },
   coName: { fontSize: 13, fontFamily: 'Inter_500Medium', color: C.text },

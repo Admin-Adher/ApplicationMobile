@@ -32,9 +32,10 @@ import { uploadPhoto } from '@/lib/storage';
 import { isSupabaseConfigured } from '@/lib/supabase';
 import { genId, formatDateFR } from '@/lib/utils';
 import {
-  RESERVE_BUILDINGS, RESERVE_ZONES, RESERVE_LEVELS, RESERVE_PRIORITIES,
+  RESERVE_PRIORITIES,
   isOverdue, formatDate, validateDeadline,
 } from '@/lib/reserveUtils';
+import LocationPicker from '@/components/LocationPicker';
 import SignaturePad, { SignaturePadRef } from '@/components/SignaturePad';
 import { PhotoAnnotationOverlay } from '@/components/PhotoAnnotator';
 
@@ -398,7 +399,7 @@ export default function ReserveDetailScreen() {
   const insets = useSafeAreaInsets();
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
-  const { reserves, tasks, updateReserveStatus, updateReserveFields, deleteReserve, addComment, companies, channels, addPhoto, sitePlans } = useApp();
+  const { reserves, tasks, updateReserveStatus, updateReserveFields, deleteReserve, addComment, companies, channels, addPhoto, sitePlans, activeChantierId, chantiers } = useApp();
   const { user, permissions } = useAuth();
   const { projectName } = useSettings();
   const [comment, setComment] = useState('');
@@ -452,9 +453,10 @@ export default function ReserveDetailScreen() {
 
   const [editTitle, setEditTitle] = useState('');
   const [editDescription, setEditDescription] = useState('');
-  const [editBuilding, setEditBuilding] = useState<string>(reserve?.building ?? RESERVE_BUILDINGS[0]);
-  const [editZone, setEditZone] = useState<string>(RESERVE_ZONES[0]);
-  const [editLevel, setEditLevel] = useState<string>('RDC');
+  const activeChantier = chantiers.find(c => c.id === (reserve?.chantierId ?? activeChantierId));
+  const [editBuilding, setEditBuilding] = useState<string>(reserve?.building ?? '');
+  const [editZone, setEditZone] = useState<string>(reserve?.zone ?? '');
+  const [editLevel, setEditLevel] = useState<string>(reserve?.level ?? '');
   const [editCompanies, setEditCompanies] = useState<string[]>([]);
   const [editPriority, setEditPriority] = useState<ReservePriority>('medium');
   const [editDeadline, setEditDeadline] = useState('');
@@ -1510,14 +1512,16 @@ export default function ReserveDetailScreen() {
                 </View>
               )}
 
-              <Text style={mStyles.label}>BÂTIMENT</Text>
-              <ChipSelect options={RESERVE_BUILDINGS} value={editBuilding} onChange={setEditBuilding} />
-
-              <Text style={mStyles.label}>ZONE</Text>
-              <ChipSelect options={RESERVE_ZONES} value={editZone} onChange={setEditZone} />
-
-              <Text style={mStyles.label}>NIVEAU</Text>
-              <ChipSelect options={RESERVE_LEVELS} value={editLevel} onChange={setEditLevel} />
+              <Text style={mStyles.label}>LOCALISATION</Text>
+              <LocationPicker
+                buildings={activeChantier?.buildings ?? []}
+                building={editBuilding}
+                level={editLevel}
+                zone={editZone}
+                onBuildingChange={setEditBuilding}
+                onLevelChange={setEditLevel}
+                onZoneChange={setEditZone}
+              />
 
               <Text style={mStyles.label}>ENTREPRISES</Text>
               {companies.length === 0 ? (

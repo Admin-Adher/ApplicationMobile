@@ -279,6 +279,12 @@ function fromOpr(o: Opr): Record<string, any> {
 }
 
 function toChantier(row: any): Chantier {
+  let buildings = undefined;
+  if (row.buildings) {
+    try {
+      buildings = typeof row.buildings === 'string' ? JSON.parse(row.buildings) : row.buildings;
+    } catch { buildings = undefined; }
+  }
   return {
     id: row.id,
     name: row.name,
@@ -290,6 +296,7 @@ function toChantier(row: any): Chantier {
     createdAt: row.created_at,
     createdBy: row.created_by ?? '',
     companyIds: Array.isArray(row.company_ids) ? row.company_ids : undefined,
+    buildings: Array.isArray(buildings) ? buildings : undefined,
   };
 }
 
@@ -2648,6 +2655,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
             end_date: c.endDate ?? null,
             status: c.status,
             created_by: c.createdBy ?? null,
+            buildings: c.buildings ? JSON.stringify(c.buildings) : null,
           };
           let { error } = await supabase.from('chantiers').insert(chantierPayload);
           if (error) {
@@ -2693,6 +2701,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
             start_date: c.startDate ?? null,
             end_date: c.endDate ?? null,
             status: c.status,
+            buildings: c.buildings ? JSON.stringify(c.buildings) : null,
           };
           const { error } = await supabase.from('chantiers').update(updatePayload).eq('id', c.id);
           if (error) {

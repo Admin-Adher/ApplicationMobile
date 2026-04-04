@@ -95,6 +95,23 @@ export interface HistoryEntry {
   newValue?: string;
 }
 
+export interface ChantierZone {
+  id: string;
+  name: string;
+}
+
+export interface ChantierLevel {
+  id: string;
+  name: string;
+  zones: ChantierZone[];
+}
+
+export interface ChantierBuilding {
+  id: string;
+  name: string;
+  levels: ChantierLevel[];
+}
+
 export interface Chantier {
   id: string;
   name: string;
@@ -106,6 +123,7 @@ export interface Chantier {
   createdAt: string;
   createdBy: string;
   companyIds?: string[];
+  buildings?: ChantierBuilding[];
 }
 
 export interface SitePlan {
@@ -157,6 +175,7 @@ export interface Visite {
   status: VisiteStatus;
   building?: string;
   level?: string;
+  zone?: string;
   notes?: string;
   reserveIds: string[];
   createdAt: string;

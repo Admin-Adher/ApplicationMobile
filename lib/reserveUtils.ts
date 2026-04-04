@@ -1,9 +1,9 @@
 import { ReserveStatus, ReservePriority } from '@/constants/types';
 import { C } from '@/constants/colors';
 
-export const RESERVE_BUILDINGS = ['A', 'B', 'C'];
-export const RESERVE_ZONES = ['Zone Nord', 'Zone Sud', 'Zone Est', 'Zone Ouest', 'Zone Centre'];
-export const RESERVE_LEVELS = ['Sous-sol', 'RDC', 'R+1', 'R+2', 'R+3'];
+export const RESERVE_BUILDINGS: string[] = [];
+export const RESERVE_ZONES: string[] = [];
+export const RESERVE_LEVELS: string[] = [];
 export const RESERVE_PRIORITIES: { value: ReservePriority; label: string; color: string }[] = [
   { value: 'low', label: 'Basse', color: C.low },
   { value: 'medium', label: 'Moyenne', color: C.medium },

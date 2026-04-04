@@ -17,9 +17,10 @@ import BottomSheetPicker from '@/components/BottomSheetPicker';
 import { uploadPhoto } from '@/lib/storage';
 import { genId } from '@/lib/utils';
 import {
-  RESERVE_BUILDINGS, RESERVE_ZONES, RESERVE_LEVELS, RESERVE_PRIORITIES, RESERVE_TEMPLATES,
+  RESERVE_PRIORITIES, RESERVE_TEMPLATES,
   genReserveId, validateDeadline,
 } from '@/lib/reserveUtils';
+import LocationPicker from '@/components/LocationPicker';
 
 function SelectRow<T extends string>({
   label, options, value, onChange, colorFn,
@@ -55,7 +56,7 @@ function SelectRow<T extends string>({
 export default function NewReserveScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
-  const { companies, addReserve, reserves, addPhoto, activeChantierId, sitePlans, lots, linkReserveToVisite, visites } = useApp();
+  const { companies, addReserve, reserves, addPhoto, activeChantierId, chantiers, sitePlans, lots, linkReserveToVisite, visites } = useApp();
   const { user, permissions } = useAuth();
   const params = useLocalSearchParams<{
     building?: string; planX?: string; planY?: string;
@@ -67,26 +68,7 @@ export default function NewReserveScreen() {
   const effectiveChantierId = params.chantierId ?? activeChantierId ?? undefined;
   const chantierPlans = sitePlans.filter(p => p.chantierId === effectiveChantierId);
 
-  const chantierBuildings = useMemo(() => {
-    const existing = reserves
-      .filter(r => effectiveChantierId ? r.chantierId === effectiveChantierId : true)
-      .map(r => r.building).filter(Boolean);
-    return Array.from(new Set([...RESERVE_BUILDINGS, ...existing])).sort();
-  }, [reserves, effectiveChantierId]);
-
-  const chantierZones = useMemo(() => {
-    const existing = reserves
-      .filter(r => effectiveChantierId ? r.chantierId === effectiveChantierId : true)
-      .map(r => r.zone).filter(Boolean);
-    return Array.from(new Set([...RESERVE_ZONES, ...existing])).sort();
-  }, [reserves, effectiveChantierId]);
-
-  const chantierLevels = useMemo(() => {
-    const existing = reserves
-      .filter(r => effectiveChantierId ? r.chantierId === effectiveChantierId : true)
-      .map(r => r.level).filter(Boolean);
-    return Array.from(new Set([...RESERVE_LEVELS, ...existing])).sort();
-  }, [reserves, effectiveChantierId]);
+  const activeChantier = chantiers.find(c => c.id === effectiveChantierId);
 
   const visiteId = params.visiteId;
   const sourceVisite = visiteId ? visites.find(v => v.id === visiteId) : null;
@@ -94,9 +76,9 @@ export default function NewReserveScreen() {
   const [kind, setKind] = useState<ReserveKind>('reserve');
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState(params.prefill_description ?? '');
-  const [building, setBuilding] = useState(params.building ?? RESERVE_BUILDINGS[0]);
-  const [zone, setZone] = useState(RESERVE_ZONES[0]);
-  const [level, setLevel] = useState('RDC');
+  const [building, setBuilding] = useState(params.building ?? '');
+  const [zone, setZone] = useState('');
+  const [level, setLevel] = useState('');
   const [selectedCompanies, setSelectedCompanies] = useState<string[]>(companies[0] ? [companies[0].name] : []);
   const [priority, setPriority] = useState<ReservePriority>('medium');
   const [deadline, setDeadline] = useState('');
@@ -545,25 +527,14 @@ export default function NewReserveScreen() {
 
         {/* LOCALISATION */}
         <View style={styles.card}>
-          {(!effectiveChantierId && chantierPlans.length === 0) && (
-            <BottomSheetPicker
-              label="Bâtiment"
-              options={chantierBuildings.map(b => ({ label: b, value: b }))}
-              value={building}
-              onChange={setBuilding}
-            />
-          )}
-          <BottomSheetPicker
-            label="Zone"
-            options={chantierZones.map(z => ({ label: z, value: z }))}
-            value={zone}
-            onChange={setZone}
-          />
-          <BottomSheetPicker
-            label="Niveau"
-            options={chantierLevels.map(l => ({ label: l, value: l }))}
-            value={level}
-            onChange={setLevel}
+          <LocationPicker
+            buildings={activeChantier?.buildings ?? []}
+            building={building}
+            level={level}
+            zone={zone}
+            onBuildingChange={setBuilding}
+            onLevelChange={setLevel}
+            onZoneChange={setZone}
           />
         </View>
 

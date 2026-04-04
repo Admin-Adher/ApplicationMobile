@@ -16,7 +16,7 @@ import { Incident, IncidentSeverity, IncidentStatus } from '@/constants/types';
 import Header from '@/components/Header';
 import DateInput from '@/components/DateInput';
 import SkeletonCard from '@/components/SkeletonCard';
-import { RESERVE_BUILDINGS } from '@/lib/reserveUtils';
+import LocationPicker from '@/components/LocationPicker';
 import { genId, formatDateFR } from '@/lib/utils';
 
 const SEVERITY_CONFIG: Record<IncidentSeverity, { label: string; color: string; bg: string; icon: string }> = {
@@ -75,7 +75,8 @@ export default function IncidentsScreen() {
   const router = useRouter();
   const { user, permissions } = useAuth();
   const { incidents, isLoading, addIncident, updateIncident, deleteIncident } = useIncidents();
-  const { reload } = useApp();
+  const { reload, activeChantierId, chantiers } = useApp();
+  const activeChantier = chantiers.find(c => c.id === activeChantierId);
 
   const [search, setSearch] = useState('');
   const [filterSeverity, setFilterSeverity] = useState<FilterSeverity>('all');
@@ -438,17 +439,11 @@ export default function IncidentsScreen() {
               />
 
               <Text style={styles.fieldLabel}>Bâtiment</Text>
-              <View style={styles.chipRow}>
-                {RESERVE_BUILDINGS.map(b => (
-                  <TouchableOpacity
-                    key={b}
-                    style={[styles.chip, form.building === b && styles.chipActive]}
-                    onPress={() => setForm(f => ({ ...f, building: b }))}
-                  >
-                    <Text style={[styles.chipText, form.building === b && styles.chipTextActive]}>Bât. {b}</Text>
-                  </TouchableOpacity>
-                ))}
-              </View>
+              <LocationPicker
+                buildings={activeChantier?.buildings ?? []}
+                building={form.building ?? ''}
+                onBuildingChange={b => setForm(f => ({ ...f, building: b }))}
+              />
 
               <Text style={styles.fieldLabel}>Gravité</Text>
               <View style={styles.chipRow}>

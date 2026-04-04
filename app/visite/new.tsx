@@ -9,7 +9,7 @@ import { Visite, VisiteParticipant, VisiteStatus } from '@/constants/types';
 import Header from '@/components/Header';
 import DateInput from '@/components/DateInput';
 import { genId, formatDateFR } from '@/lib/utils';
-import { RESERVE_BUILDINGS, RESERVE_LEVELS } from '@/lib/reserveUtils';
+import LocationPicker from '@/components/LocationPicker';
 
 type Recurrence = 'none' | 'weekly' | 'bimonthly';
 
@@ -34,8 +34,9 @@ export default function NewVisiteScreen() {
   const [date, setDate] = useState(formatDateFR(new Date()));
   const [conducteur, setConducteur] = useState(user?.name ?? '');
   const [status, setStatus] = useState<VisiteStatus>('planned');
-  const [building, setBuilding] = useState(RESERVE_BUILDINGS[0]);
-  const [level, setLevel] = useState('RDC');
+  const [building, setBuilding] = useState('');
+  const [level, setLevel] = useState('');
+  const [zone, setZone] = useState('');
   const [notes, setNotes] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [recurrence, setRecurrence] = useState<Recurrence>('none');
@@ -117,8 +118,9 @@ export default function NewVisiteScreen() {
         date: visitDate,
         conducteur: conducteurName,
         status: idx === 0 ? status : 'planned',
-        building,
-        level,
+        building: building || undefined,
+        level: level || undefined,
+        zone: zone || undefined,
         notes: notes.trim() || undefined,
         reserveIds: [],
         participants: participants.length > 0 ? participants : undefined,
@@ -169,36 +171,15 @@ export default function NewVisiteScreen() {
 
         <View style={styles.card}>
           <Text style={styles.sectionLabel}>LOCALISATION</Text>
-
-          <Text style={styles.label}>Bâtiment</Text>
-          <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-            <View style={styles.chipRow}>
-              {RESERVE_BUILDINGS.map(b => (
-                <TouchableOpacity
-                  key={b}
-                  style={[styles.chip, building === b && styles.chipActive]}
-                  onPress={() => setBuilding(b)}
-                >
-                  <Text style={[styles.chipText, building === b && styles.chipTextActive]}>Bât. {b}</Text>
-                </TouchableOpacity>
-              ))}
-            </View>
-          </ScrollView>
-
-          <Text style={[styles.label, { marginTop: 14 }]}>Niveau</Text>
-          <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-            <View style={styles.chipRow}>
-              {RESERVE_LEVELS.map(l => (
-                <TouchableOpacity
-                  key={l}
-                  style={[styles.chip, level === l && styles.chipActive]}
-                  onPress={() => setLevel(l)}
-                >
-                  <Text style={[styles.chipText, level === l && styles.chipTextActive]}>{l}</Text>
-                </TouchableOpacity>
-              ))}
-            </View>
-          </ScrollView>
+          <LocationPicker
+            buildings={activeChantier?.buildings ?? []}
+            building={building}
+            level={level}
+            zone={zone}
+            onBuildingChange={setBuilding}
+            onLevelChange={setLevel}
+            onZoneChange={setZone}
+          />
         </View>
 
         <View style={styles.card}>
