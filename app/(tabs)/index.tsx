@@ -8,7 +8,6 @@ import GlobalSearch from '@/components/GlobalSearch';
 import { C } from '@/constants/colors';
 import { useApp } from '@/context/AppContext';
 import { useAuth } from '@/context/AuthContext';
-import { useSettings } from '@/context/SettingsContext';
 import { useIncidents } from '@/context/IncidentsContext';
 import { useNotifications } from '@/context/NotificationsContext';
 import { parseDeadline, isOverdue } from '@/lib/reserveUtils';
@@ -162,7 +161,6 @@ export default function DashboardScreen() {
   const router = useRouter();
   const { stats, reserves, companies, tasks, reload, chantiers, activeChantier, realtimeConnected } = useApp();
   const { user, permissions } = useAuth();
-  const { projectName } = useSettings();
   const { incidents } = useIncidents();
   const { unreadCount } = useNotifications();
   const topPad = insets.top;
@@ -398,7 +396,7 @@ export default function DashboardScreen() {
         <PortfolioDashboard onSwitchToChantier={() => setViewMode('chantier')} />
       )}
 
-      {viewMode === 'chantier' && permissions.canCreate && (
+      {viewMode === 'chantier' && permissions.canCreate && activeChantier && (
         <TouchableOpacity
           style={[styles.fab, { bottom: Platform.OS === 'web' ? 104 : insets.bottom + 61 }]}
           onPress={() => router.push('/reserve/new' as any)}
@@ -748,6 +746,11 @@ export default function DashboardScreen() {
           </View>
         )}
       </ScrollView>}
+
+      <GlobalSearch
+        visible={globalSearchVisible}
+        onClose={() => setGlobalSearchVisible(false)}
+      />
     </View>
   );
 }
