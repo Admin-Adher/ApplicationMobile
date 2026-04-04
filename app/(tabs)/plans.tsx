@@ -1220,11 +1220,6 @@ export default function PlansScreen() {
                   )}
                 </TouchableOpacity>
               )}
-              {permissions.canCreate && (
-                <TouchableOpacity style={styles.addPlanBtn} onPress={handleAddPlan} accessibilityLabel="Ajouter un plan">
-                  <Ionicons name="add" size={16} color={C.textSub} />
-                </TouchableOpacity>
-              )}
             </View>
           </View>
 
@@ -1791,7 +1786,7 @@ export default function PlansScreen() {
       )}
 
       {/* Mobile FAB */}
-      {permissions.canCreate && !isTablet && !fullscreen && (
+      {permissions.canCreate && !isTablet && !fullscreen && !!currentPlanId && (
         <TouchableOpacity
           style={[styles.fab, { bottom: Platform.OS === 'web' ? 100 : insets.bottom + 80 }]}
           onPress={() => router.push({ pathname: '/reserve/new', params: { planId: currentPlanId ?? '', chantierId: activeChantierId ?? '', building: currentPlan?.building ?? '', level: currentPlan?.level ?? '', buildingId: currentPlan?.buildingId ?? '', levelId: currentPlan?.levelId ?? '' } } as any)}
