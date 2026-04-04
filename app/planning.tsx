@@ -806,8 +806,8 @@ export default function PlanningScreen() {
         title="Planning"
         subtitle={`${tasks.length} tâche${tasks.length !== 1 ? 's' : ''} au total`}
         showBack
-        rightLabel={permissions.canCreate ? '+ Nouvelle tâche' : undefined}
-        onRightPress={permissions.canCreate ? () => router.push('/task/new' as any) : undefined}
+        rightLabel={permissions.canCreate && tasks.length > 0 ? '+ Nouvelle tâche' : undefined}
+        onRightPress={permissions.canCreate && tasks.length > 0 ? () => router.push('/task/new' as any) : undefined}
       />
 
       {/* View mode tabs + search toggle */}
