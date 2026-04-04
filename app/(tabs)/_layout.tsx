@@ -9,8 +9,8 @@ import { TABLET_SIDEBAR_W } from '@/lib/useTablet';
 
 const TAB_ITEMS = [
   { name: 'index',    title: 'Dashboard', icon: 'grid',          iconOutline: 'grid-outline',        path: '/(tabs)/' },
-  { name: 'reserves', title: 'Réserves',  icon: 'warning',       iconOutline: 'warning-outline',     path: '/(tabs)/reserves' },
   { name: 'plans',    title: 'Plans',     icon: 'map',           iconOutline: 'map-outline',         path: '/(tabs)/plans' },
+  { name: 'reserves', title: 'Réserves',  icon: 'warning',       iconOutline: 'warning-outline',     path: '/(tabs)/reserves' },
   { name: 'messages', title: 'Messages',  icon: 'chatbubbles',   iconOutline: 'chatbubbles-outline', path: '/(tabs)/messages' },
   { name: 'more',     title: 'Terrain',   icon: 'hammer',        iconOutline: 'hammer-outline',      path: '/(tabs)/more' },
 ] as const;
@@ -149,17 +149,17 @@ function TabsNavigator() {
         }}
       />
       <Tabs.Screen
-        name="reserves"
-        options={{
-          title: 'Réserves',
-          tabBarIcon: ({ color, focused }) => <TabIcon name={focused ? 'warning' : 'warning-outline'} color={color} size={26} badge={stats.open} />,
-        }}
-      />
-      <Tabs.Screen
         name="plans"
         options={{
           title: 'Plans',
           tabBarIcon: ({ color, focused }) => <TabIcon name={focused ? 'map' : 'map-outline'} color={color} size={26} />,
+        }}
+      />
+      <Tabs.Screen
+        name="reserves"
+        options={{
+          title: 'Réserves',
+          tabBarIcon: ({ color, focused }) => <TabIcon name={focused ? 'warning' : 'warning-outline'} color={color} size={26} badge={stats.open} />,
         }}
       />
       <Tabs.Screen
