@@ -1145,8 +1145,8 @@ export default function PlansScreen() {
             const bldg = chantierHierarchyBuildings.find(b => b.id === selectedBuilding);
             if (!bldg || bldg.levels.length === 0) return null;
             return (
-              <View style={[styles.hierarchyRow, styles.hierarchyRowLevel]}>
-                <View style={[styles.hierarchyChips, { flexWrap: 'wrap' }]}>
+              <View style={styles.hierarchyRowLevel}>
+                <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.hierarchyChipsLevel}>
                   <TouchableOpacity
                     style={[styles.hierarchyChipLevel, selectedLevel === 'all' && styles.hierarchyChipLevelActive]}
                     onPress={() => { setSelectedLevel('all'); setActivePlanId(null); }}
@@ -1162,7 +1162,7 @@ export default function PlansScreen() {
                       <Text style={[styles.hierarchyChipLevelText, selectedLevel === l.id && { color: C.primary, fontFamily: 'Inter_600SemiBold' }]}>{l.name}</Text>
                     </TouchableOpacity>
                   ))}
-                </View>
+                </ScrollView>
               </View>
             );
           })()}
@@ -2027,24 +2027,25 @@ const styles = StyleSheet.create({
   filterBadgeText: { fontSize: 10, fontFamily: 'Inter_700Bold', color: '#fff' },
 
   hierarchyRow: { paddingHorizontal: 12, paddingVertical: 6, borderBottomWidth: 1, borderBottomColor: C.border + '60' },
-  hierarchyRowLevel: { backgroundColor: C.surface2, paddingVertical: 5 },
+  hierarchyRowLevel: { paddingVertical: 7, paddingHorizontal: 0, borderBottomWidth: 1, borderBottomColor: C.border + '60' },
   hierarchyChips: { flexDirection: 'row', gap: 6, paddingVertical: 2 },
+  hierarchyChipsLevel: { flexDirection: 'row', gap: 6, paddingHorizontal: 12, paddingVertical: 2 },
   hierarchyChip: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 10, paddingVertical: 5, borderRadius: 16, backgroundColor: C.surface2, borderWidth: 1, borderColor: C.border },
   hierarchyChipActive: { backgroundColor: C.primaryBg, borderColor: C.primary },
   hierarchyChipText: { fontSize: 12, fontFamily: 'Inter_500Medium', color: C.textSub },
   hierarchyChipTextActive: { color: C.primary, fontFamily: 'Inter_600SemiBold' },
-  hierarchyChipLevel: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 12, backgroundColor: C.surface, borderWidth: 1, borderColor: C.border, marginRight: 4, marginBottom: 4 },
-  hierarchyChipLevelActive: { backgroundColor: C.primaryBg + '80', borderColor: C.primary + '80' },
-  hierarchyChipLevelText: { fontSize: 11, fontFamily: 'Inter_400Regular', color: C.textSub },
-  planTabsBar: { flexDirection: 'row', alignItems: 'center', paddingBottom: 10, borderBottomWidth: 1, borderBottomColor: C.border },
+  hierarchyChipLevel: { paddingHorizontal: 11, paddingVertical: 5, borderRadius: 14, backgroundColor: C.surface, borderWidth: 1, borderColor: C.border },
+  hierarchyChipLevelActive: { backgroundColor: C.primaryBg, borderColor: C.primary },
+  hierarchyChipLevelText: { fontSize: 12, fontFamily: 'Inter_500Medium', color: C.textSub },
+  planTabsBar: { flexDirection: 'row', alignItems: 'center', paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: C.border },
   planTabsRow: { flexDirection: 'row', paddingHorizontal: 12, gap: 6 },
-  planTab: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 10, paddingVertical: 7, borderRadius: 20, backgroundColor: C.surface2, borderWidth: 1.5, borderColor: C.border, maxWidth: 180 },
-  planTabActive: { backgroundColor: C.primaryBg, borderColor: C.primary },
-  planTabThumb: { width: 24, height: 18, borderRadius: 4, backgroundColor: C.surface, borderWidth: 1, borderColor: C.border, alignItems: 'center', justifyContent: 'center', overflow: 'hidden' },
-  planTabThumbImg: { width: 24, height: 18 },
+  planTab: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 10, paddingVertical: 6, borderRadius: 10, backgroundColor: C.surface2, borderWidth: 1, borderColor: C.border, maxWidth: 200 },
+  planTabActive: { backgroundColor: C.primaryBg, borderColor: C.primary + 'A0' },
+  planTabThumb: { width: 20, height: 16, borderRadius: 3, backgroundColor: C.surface, borderWidth: 1, borderColor: C.border, alignItems: 'center', justifyContent: 'center', overflow: 'hidden' },
+  planTabThumbImg: { width: 20, height: 16 },
   planTabText: { fontSize: 12, fontFamily: 'Inter_500Medium', color: C.textSub, flexShrink: 1 },
   planTabTextActive: { color: C.primary, fontFamily: 'Inter_600SemiBold' },
-  planTabBadge: { paddingHorizontal: 5, paddingVertical: 2, borderRadius: 8, backgroundColor: C.border, minWidth: 18, alignItems: 'center' },
+  planTabBadge: { paddingHorizontal: 5, paddingVertical: 1, borderRadius: 8, backgroundColor: C.border, minWidth: 17, alignItems: 'center' },
   planTabBadgeText: { fontSize: 10, fontFamily: 'Inter_700Bold', color: C.textSub },
 
   planActions: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingRight: 12 },
