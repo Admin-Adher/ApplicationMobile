@@ -178,12 +178,20 @@ export default function DashboardScreen() {
     return companies.find(c => c.id === user.companyId) ?? null;
   }, [isSousTraitant, user?.companyId, companies]);
 
+  const chantieredReserves = useMemo(() => {
+    if (!activeChantier) return reserves;
+    return reserves.filter(r => r.chantierId === activeChantier.id);
+  }, [reserves, activeChantier]);
+
   const visibleReserves = useMemo(() => {
     if (isSousTraitant && userCompany) {
-      return reserves.filter(r => r.company === userCompany.name);
+      return chantieredReserves.filter(r =>
+        r.company === userCompany.name ||
+        (Array.isArray(r.companies) && r.companies.includes(userCompany.name))
+      );
     }
-    return reserves;
-  }, [isSousTraitant, userCompany, reserves]);
+    return chantieredReserves;
+  }, [isSousTraitant, userCompany, chantieredReserves]);
 
   const visibleStats = useMemo(() => {
     if (!isSousTraitant) return stats;
@@ -208,12 +216,18 @@ export default function DashboardScreen() {
     r => r.status !== 'closed' && r.priority !== 'critical' && isOverdue(r.deadline, r.status)
   );
   const lateTasks = useMemo(() => {
-    const all = tasks.filter(isTaskLate);
-    if (isSousTraitant && user?.companyId) {
-      return all.filter(t => t.company === user.companyId);
+    let all = tasks.filter(isTaskLate);
+    if (activeChantier) {
+      all = all.filter(t => t.chantierId === activeChantier.id);
+    }
+    if (isSousTraitant && (user?.companyId || userCompany)) {
+      return all.filter(t =>
+        t.company === user?.companyId ||
+        (userCompany && t.company === userCompany.name)
+      );
     }
     return all;
-  }, [tasks, isSousTraitant, user?.companyId]);
+  }, [tasks, isSousTraitant, user?.companyId, userCompany, activeChantier]);
   const openIncidents = incidents.filter(i => i.status !== 'resolved');
 
   const today = new Date().toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' });
@@ -261,14 +275,17 @@ export default function DashboardScreen() {
 
   const companyStats = useMemo((): CompanyClosureStat[] => {
     return companies.map(co => {
-      const coReserves = reserves.filter(r => r.company === co.name);
+      const coReserves = chantieredReserves.filter(r =>
+        r.company === co.name ||
+        (Array.isArray(r.companies) && r.companies.includes(co.name))
+      );
       const closed = coReserves.filter(r => r.status === 'closed').length;
       const total = coReserves.length;
       const overdue = coReserves.filter(r => r.status !== 'closed' && isOverdue(r.deadline, r.status)).length;
       const rate = total > 0 ? Math.round((closed / total) * 100) : 0;
       return { companyName: co.name, color: co.color, total, closed, rate, overdue };
     }).filter(c => c.total > 0).sort((a, b) => b.rate - a.rate);
-  }, [reserves, companies]);
+  }, [chantieredReserves, companies]);
 
   const visibleCompanies = useMemo(() => {
     if (isSousTraitant && userCompany) {
@@ -665,7 +682,7 @@ export default function DashboardScreen() {
                 <View style={styles.alertDot} />
                 <View style={{ flex: 1 }}>
                   <Text style={styles.alertText}>{r.title}</Text>
-                  <Text style={styles.alertSub}>Bât. {r.building} — Échéance : {r.deadline}</Text>
+                  <Text style={styles.alertSub}>{r.building ? `Bât. ${r.building} — ` : ''}Échéance : {r.deadline}</Text>
                 </View>
                 <Ionicons name="chevron-forward" size={14} color={C.critical} />
               </TouchableOpacity>
@@ -693,7 +710,7 @@ export default function DashboardScreen() {
                 <View style={[styles.alertDot, { backgroundColor: C.high }]} />
                 <View style={{ flex: 1 }}>
                   <Text style={styles.alertText}>{r.title}</Text>
-                  <Text style={styles.alertSub}>Bât. {r.building} — {PRIORITY_LABELS[r.priority] ?? r.priority} — Échéance : {r.deadline}</Text>
+                  <Text style={styles.alertSub}>{r.building ? `Bât. ${r.building} — ` : ''}{PRIORITY_LABELS[r.priority] ?? r.priority} — Échéance : {r.deadline}</Text>
                 </View>
                 <Ionicons name="chevron-forward" size={14} color={C.high} />
               </TouchableOpacity>
