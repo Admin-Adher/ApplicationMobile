@@ -1183,7 +1183,7 @@ export default function ReservesScreen() {
         </View>
       )}
 
-      {!isSelectMode && permissions.canCreate && (
+      {!isSelectMode && permissions.canCreate && chantierReserves.length > 0 && (
         <View style={[styles.fabContainer, { bottom: Platform.OS === 'web' ? 94 : insets.bottom + 55 }]}>
           {fabOpen && (
             <Animated.View style={[styles.fabSubRow, { opacity: fabAnim }]}>
