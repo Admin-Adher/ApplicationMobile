@@ -254,6 +254,9 @@ export default function OprSessionScreen() {
               style={[styles.signBtn, (!signerName.trim() || signing) && { opacity: 0.5 }]}
               onPress={handleSign}
               disabled={!signerName.trim() || signing}
+              accessibilityLabel={signing ? 'Enregistrement de la signature en cours' : 'Signer électroniquement le procès-verbal'}
+              accessibilityRole="button"
+              accessibilityState={{ disabled: !signerName.trim() || signing }}
             >
               {signing ? <ActivityIndicator color="#fff" size="small" /> : <Ionicons name="create-outline" size={18} color="#fff" />}
               <Text style={styles.signBtnText}>{signing ? 'Enregistrement...' : 'Signer le PV'}</Text>

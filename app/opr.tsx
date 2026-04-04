@@ -939,7 +939,12 @@ export default function OprScreen() {
             <Text style={styles.emptyTitle}>Aucun procès-verbal</Text>
             <Text style={styles.emptyText}>Créez un OPR pour formaliser la réception de chantier</Text>
             {permissions.canCreate && (
-              <TouchableOpacity style={styles.emptyBtn} onPress={() => setShowNew(true)}>
+              <TouchableOpacity
+                style={styles.emptyBtn}
+                onPress={() => setShowNew(true)}
+                accessibilityLabel="Créer un nouveau procès-verbal"
+                accessibilityRole="button"
+              >
                 <Text style={styles.emptyBtnText}>Créer un PV</Text>
               </TouchableOpacity>
             )}
@@ -1002,7 +1007,7 @@ export default function OprScreen() {
                 {opr.visitContradictoire ? (
                   <View>
                     <View style={styles.visiteMeta}>
-                      <Ionicons name="calendar-outline" size={12} color="#7C3AED" />
+                      <Ionicons name="calendar-outline" size={12} color={C.verification} />
                       {editingVisitOprId === opr.id ? (
                         <View style={{ flex: 1 }}>
                           <DateInput value={editingVisitDate} onChange={setEditingVisitDate} />
@@ -1014,11 +1019,18 @@ export default function OprScreen() {
                                 if (trimmed) updateOpr({ ...opr, visitContradictoire: trimmed });
                                 setEditingVisitOprId(null);
                               }}
+                              accessibilityLabel="Confirmer la date de visite contradictoire"
+                              accessibilityRole="button"
                             >
                               <Ionicons name="checkmark" size={13} color="#fff" />
                               <Text style={styles.visitDateSaveBtnText}>Confirmer</Text>
                             </TouchableOpacity>
-                            <TouchableOpacity onPress={() => setEditingVisitOprId(null)} hitSlop={8}>
+                            <TouchableOpacity
+                              onPress={() => setEditingVisitOprId(null)}
+                              hitSlop={8}
+                              accessibilityLabel="Annuler la modification de la date de visite"
+                              accessibilityRole="button"
+                            >
                               <Ionicons name="close" size={14} color={C.textMuted} />
                             </TouchableOpacity>
                           </View>
@@ -1038,7 +1050,7 @@ export default function OprScreen() {
                                 ? `${(opr.visitParticipants ?? []).length} participant${(opr.visitParticipants ?? []).length > 1 ? 's' : ''}`
                                 : '+ Participants'}
                             </Text>
-                            <Ionicons name={expandedParticipantsOpr === opr.id ? 'chevron-up' : 'chevron-down'} size={11} color="#7C3AED" />
+                            <Ionicons name={expandedParticipantsOpr === opr.id ? 'chevron-up' : 'chevron-down'} size={11} color={C.verification} />
                           </TouchableOpacity>
                           {permissions.canEdit && opr.status !== 'signed' && (
                             <TouchableOpacity
@@ -1160,7 +1172,7 @@ export default function OprScreen() {
                         accessibilityLabel="Planifier la visite contradictoire"
                         accessibilityRole="button"
                       >
-                        <Ionicons name="calendar-outline" size={12} color="#7C3AED" />
+                        <Ionicons name="calendar-outline" size={12} color={C.verification} />
                         <Text style={styles.planifierVisiteText}>Planifier la visite contradictoire</Text>
                       </TouchableOpacity>
                     )}
@@ -1195,6 +1207,9 @@ export default function OprScreen() {
                             style={{ flex: 1 }}
                             onPress={item.status === 'reserve' ? () => toggleItemExpand(opr, item.id) : undefined}
                             activeOpacity={item.status === 'reserve' ? 0.7 : 1}
+                            accessibilityRole={item.status === 'reserve' ? 'button' : undefined}
+                            accessibilityLabel={item.status === 'reserve' ? `${item.lotName} — ${isExpanded ? 'réduire' : 'développer'} le détail` : undefined}
+                            accessibilityState={item.status === 'reserve' ? { expanded: isExpanded } : undefined}
                           >
                             <Text style={styles.itemText}>{item.lotName}</Text>
                             {item.status === 'reserve' && (item.entreprise || item.deadline || item.verifiedAt) && (
@@ -1257,6 +1272,8 @@ export default function OprScreen() {
                               placeholderTextColor={C.textMuted}
                               value={edit.entreprise}
                               onChangeText={v => setItemEdits(prev => ({ ...prev, [item.id]: { ...edit, entreprise: v } }))}
+                              accessibilityLabel={`Entreprise responsable du lot ${item.lotName}`}
+                              returnKeyType="next"
                             />
 
                             <Text style={styles.detailLabel}>DÉLAI DE LEVÉE</Text>
@@ -1274,6 +1291,7 @@ export default function OprScreen() {
                               value={edit.note}
                               onChangeText={v => setItemEdits(prev => ({ ...prev, [item.id]: { ...edit, note: v } }))}
                               multiline
+                              accessibilityLabel={`Observation ou note pour le lot ${item.lotName}`}
                             />
 
                             <Text style={styles.detailLabel}>RÉSERVE LIÉE</Text>
@@ -1309,7 +1327,12 @@ export default function OprScreen() {
 
                             <View style={styles.detailActions}>
                               {isLevee && !item.verifiedAt && (
-                                <TouchableOpacity style={styles.verifyBtn} onPress={() => verifyLevee(opr, item.id)}>
+                                <TouchableOpacity
+                                  style={styles.verifyBtn}
+                                  onPress={() => verifyLevee(opr, item.id)}
+                                  accessibilityLabel={`Confirmer la levée de réserve du lot ${item.lotName}`}
+                                  accessibilityRole="button"
+                                >
                                   <Ionicons name="checkmark-circle-outline" size={14} color={C.closed} />
                                   <Text style={styles.verifyBtnText}>Vérifier la levée</Text>
                                 </TouchableOpacity>
@@ -1373,7 +1396,7 @@ export default function OprScreen() {
                             <Text style={[
                               styles.suiviBadgeText,
                               isVer ? { color: C.closed } :
-                              isLev ? { color: '#059669' } :
+                              isLev ? { color: C.closed } :
                               over ? { color: C.open } :
                               { color: C.textMuted },
                             ]}>
@@ -1411,13 +1434,13 @@ export default function OprScreen() {
                   )}
                   {permissions.canExport && (
                     <TouchableOpacity
-                      style={[styles.actionBtn, { borderColor: '#F59E0B40', backgroundColor: '#FFFBEB' }]}
+                      style={[styles.actionBtn, { borderColor: C.waiting + '40', backgroundColor: C.waitingBg }]}
                       onPress={() => exportConvocationPDF(opr)}
                       accessibilityLabel="Exporter la convocation OPR en PDF"
                       accessibilityRole="button"
                     >
-                      <Ionicons name="mail-outline" size={14} color="#D97706" />
-                      <Text style={[styles.actionBtnText, { color: '#D97706' }]}>Convocation</Text>
+                      <Ionicons name="mail-outline" size={14} color={C.waiting} />
+                      <Text style={[styles.actionBtnText, { color: C.waiting }]}>Convocation</Text>
                     </TouchableOpacity>
                   )}
                   {permissions.canExport && opr.items.some(i => i.status === 'reserve') && (
@@ -1432,13 +1455,13 @@ export default function OprScreen() {
                     </TouchableOpacity>
                   )}
                   <TouchableOpacity
-                    style={[styles.actionBtn, { borderColor: '#8B5CF620', backgroundColor: '#F5F3FF' }]}
+                    style={[styles.actionBtn, { borderColor: C.verification + '20', backgroundColor: C.verificationBg }]}
                     onPress={() => shareOprLink(opr)}
                     accessibilityLabel="Copier le lien de la session OPR"
                     accessibilityRole="button"
                   >
-                    <Ionicons name="link-outline" size={14} color="#7C3AED" />
-                    <Text style={[styles.actionBtnText, { color: '#7C3AED' }]}>Lien session</Text>
+                    <Ionicons name="link-outline" size={14} color={C.verification} />
+                    <Text style={[styles.actionBtnText, { color: C.verification }]}>Lien session</Text>
                   </TouchableOpacity>
                   {permissions.canEdit && opr.status !== 'signed' && (
                     <TouchableOpacity
