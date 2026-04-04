@@ -1,6 +1,6 @@
 import { View, Text, StyleSheet, ScrollView, TextInput, TouchableOpacity, Alert, Platform, ActivityIndicator, KeyboardAvoidingView } from 'react-native';
 import DateInput from '@/components/DateInput';
-import { useState, useCallback, useEffect, useRef } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Ionicons } from '@expo/vector-icons';
 import * as Print from 'expo-print';
@@ -9,7 +9,6 @@ import * as Location from 'expo-location';
 import { C } from '@/constants/colors';
 import { useAuth } from '@/context/AuthContext';
 import { useSettings } from '@/context/SettingsContext';
-import { useApp } from '@/context/AppContext';
 import { usePointage } from '@/context/PointageContext';
 import Header from '@/components/Header';
 import { JournalEntry } from '@/constants/types';
@@ -197,7 +196,6 @@ function buildJournalHTML(entries: JournalEntry[], projectName: string): string 
 export default function JournalScreen() {
   const { user, permissions } = useAuth();
   const { projectName } = useSettings();
-  const { companies } = useApp();
   const { getEntriesForDate } = usePointage();
   const [entries, setEntries] = useState<JournalEntry[]>([]);
   const [showNew, setShowNew] = useState(false);

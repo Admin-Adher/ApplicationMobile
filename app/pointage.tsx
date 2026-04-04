@@ -239,6 +239,10 @@ export default function PointageScreen() {
   }
 
   async function handleBulkDeparture() {
+    if (!validateTime(depTime)) {
+      Alert.alert('Format invalide', "L'heure de départ doit être au format HH:MM (ex: 17:00).");
+      return;
+    }
     const activeEntries = allDateEntries.filter(e => !e.departureTime);
     await Promise.all(activeEntries.map(e => updateEntry(e.id, { departureTime: depTime })));
     setBulkDepModal(false);
