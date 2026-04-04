@@ -1,5 +1,6 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet, Platform, LogBox, ActivityIndicator, Image } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Stack, useRouter, useSegments } from 'expo-router';
 import { ErrorBoundary as AppErrorBoundary } from '@/components/ErrorBoundary';
 import { StatusBar } from 'expo-status-bar';
@@ -74,10 +75,36 @@ const eb = StyleSheet.create({
   buttonText: { color: '#FFFFFF', fontSize: 15, fontWeight: '600' },
 });
 
+const LAST_TAB_KEY = 'buildtrack_last_tab';
+
 function AuthGuard({ children }: { children: React.ReactNode }) {
   const { isAuthenticated, isLoading, user } = useAuth();
   const segments = useSegments();
   const router = useRouter();
+  const hasRestoredTab = useRef(false);
+
+  // Sauvegarde l'onglet actif à chaque changement de navigation
+  useEffect(() => {
+    if (!isAuthenticated || isLoading) return;
+    const seg0 = segments[0] as string;
+    const seg1 = segments[1] as string | undefined;
+    if (seg0 === '(tabs)') {
+      const tab = seg1 ? `/(tabs)/${seg1}` : '/(tabs)';
+      AsyncStorage.setItem(LAST_TAB_KEY, tab).catch(() => {});
+    }
+  }, [segments, isAuthenticated, isLoading]);
+
+  // Restaure le dernier onglet visité au démarrage de l'app
+  useEffect(() => {
+    if (isLoading || !isAuthenticated || hasRestoredTab.current) return;
+    hasRestoredTab.current = true;
+    AsyncStorage.getItem(LAST_TAB_KEY).then((savedTab) => {
+      if (savedTab && savedTab !== '/(tabs)' && savedTab !== '/(tabs)/index') {
+        router.replace(savedTab as any);
+      }
+    }).catch(() => {});
+  }, [isLoading, isAuthenticated]);
+
   useEffect(() => {
     if (isLoading) return;
     const PUBLIC_SEGMENTS = ['login', 'register', 'portal', 'opr-session', 'pending-invite'];
