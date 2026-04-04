@@ -231,10 +231,10 @@ export default function PortfolioDashboard({ onSwitchToChantier }: Props) {
       const critical = cReserves.filter(r => r.priority === 'critical' && r.status !== 'closed').length;
       const overdue = cReserves.filter(r => r.status !== 'closed' && r.priority !== 'critical' && isOverdue(r.deadline, r.status)).length;
       const progress = total > 0 ? Math.round((closed / total) * 100) : 0;
-      const lateTasksCount = chantier.id === activeChantierId ? tasks.filter(isTaskLate).length : 0;
+      const lateTasksCount = tasks.filter(t => t.chantierId === chantier.id && isTaskLate(t)).length;
       return { chantier, total, closed, critical, overdue, progress, lateTasksCount };
     });
-  }, [chantiers, reserves, tasks, activeChantierId]);
+  }, [chantiers, reserves, tasks]);
 
   const globalStats = useMemo(() => {
     const totalReserves = reserves.length;

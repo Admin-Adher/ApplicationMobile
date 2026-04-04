@@ -14,6 +14,10 @@ import { parseDeadline, isOverdue } from '@/lib/reserveUtils';
 import { Task, ReserveWeekStat, CompanyClosureStat } from '@/constants/types';
 import PortfolioDashboard from '@/components/PortfolioDashboard';
 
+const PRIORITY_LABELS: Record<string, string> = {
+  low: 'Basse', medium: 'Moyenne', high: 'Haute', critical: 'Critique',
+};
+
 function isTaskLate(t: Task): boolean {
   if (t.status === 'done') return false;
   if (t.status === 'delayed') return true;
@@ -205,13 +209,13 @@ export default function DashboardScreen() {
 
   const showPortfolioToggle = !isSousTraitant && chantiers.length >= 2;
 
-  const PRIORITY_LABELS: Record<string, string> = {
-    low: 'Basse', medium: 'Moyenne', high: 'Haute', critical: 'Critique',
-  };
-
-  const criticalReserves = visibleReserves.filter(r => r.priority === 'critical' && r.status !== 'closed');
-  const overdueNonCritical = visibleReserves.filter(
-    r => r.status !== 'closed' && r.priority !== 'critical' && isOverdue(r.deadline, r.status)
+  const criticalReserves = useMemo(
+    () => visibleReserves.filter(r => r.priority === 'critical' && r.status !== 'closed'),
+    [visibleReserves]
+  );
+  const overdueNonCritical = useMemo(
+    () => visibleReserves.filter(r => r.status !== 'closed' && r.priority !== 'critical' && isOverdue(r.deadline, r.status)),
+    [visibleReserves]
   );
   const lateTasks = useMemo(() => {
     let all = tasks.filter(isTaskLate);
@@ -223,7 +227,10 @@ export default function DashboardScreen() {
     }
     return all;
   }, [tasks, isSousTraitant, userCompany, activeChantier]);
-  const openIncidents = incidents.filter(i => i.status !== 'resolved');
+  const openIncidents = useMemo(
+    () => incidents.filter(i => i.status !== 'resolved'),
+    [incidents]
+  );
 
   const today = new Date().toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' });
   const firstName = user?.name?.split(' ')[0] ?? null;
