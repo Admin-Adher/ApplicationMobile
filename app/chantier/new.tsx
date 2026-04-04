@@ -305,53 +305,7 @@ export default function NewChantierScreen() {
                   <Text style={styles.planIndexText}>{idx + 1}</Text>
                 </View>
                 <View style={{ flex: 1, gap: 8 }}>
-                  {/* 1. Import du fichier en premier */}
-                  <View style={styles.planFileRow}>
-                    {plan.uri ? (
-                      <View style={styles.planFileChip}>
-                        <Ionicons
-                          name={plan.uri.toLowerCase().includes('pdf') ? 'document-text-outline' : 'image-outline'}
-                          size={12}
-                          color={C.closed}
-                        />
-                        <Text style={styles.planFileChipText} numberOfLines={1}>
-                          {plan.size ? `Fichier importé · ${plan.size}` : 'Fichier importé'}
-                        </Text>
-                        <TouchableOpacity onPress={() => setPlans(prev => prev.map(p => p.id === plan.id ? { ...p, uri: undefined, size: undefined } : p))}>
-                          <Ionicons name="close-circle" size={14} color={C.textMuted} />
-                        </TouchableOpacity>
-                      </View>
-                    ) : (
-                      <TouchableOpacity
-                        style={styles.importFileBtn}
-                        onPress={() => importPlanFile(plan.id)}
-                        disabled={importingPlanId === plan.id}
-                      >
-                        {importingPlanId === plan.id ? (
-                          <ActivityIndicator size="small" color={C.primary} />
-                        ) : (
-                          <>
-                            <Ionicons name="cloud-upload-outline" size={13} color={C.primary} />
-                            <Text style={styles.importFileBtnText}>Importer PDF / image</Text>
-                          </>
-                        )}
-                      </TouchableOpacity>
-                    )}
-                  </View>
-
-                  {/* 2. Nom du plan */}
-                  <View>
-                    <Text style={styles.planNameLabel}>Nom du plan</Text>
-                    <TextInput
-                      style={styles.planNameInput}
-                      placeholder="Ex : Plan électrique, Plan structurel, Plan masse..."
-                      placeholderTextColor={C.textMuted}
-                      value={plan.name}
-                      onChangeText={v => updatePlanName(plan.id, v)}
-                    />
-                  </View>
-
-                  {/* 3. Localisation — uniquement si une structure est configurée */}
+                  {/* 1. Localisation — uniquement si une structure est configurée */}
                   {buildings.length > 0 && (
                     <View style={styles.planHierarchyBlock}>
                       <Text style={styles.planHierarchyLabel}>Localisation du plan</Text>
@@ -394,6 +348,52 @@ export default function NewChantierScreen() {
                       )}
                     </View>
                   )}
+
+                  {/* 2. Import du fichier */}
+                  <View style={styles.planFileRow}>
+                    {plan.uri ? (
+                      <View style={styles.planFileChip}>
+                        <Ionicons
+                          name={plan.uri.toLowerCase().includes('pdf') ? 'document-text-outline' : 'image-outline'}
+                          size={12}
+                          color={C.closed}
+                        />
+                        <Text style={styles.planFileChipText} numberOfLines={1}>
+                          {plan.size ? `Fichier importé · ${plan.size}` : 'Fichier importé'}
+                        </Text>
+                        <TouchableOpacity onPress={() => setPlans(prev => prev.map(p => p.id === plan.id ? { ...p, uri: undefined, size: undefined } : p))}>
+                          <Ionicons name="close-circle" size={14} color={C.textMuted} />
+                        </TouchableOpacity>
+                      </View>
+                    ) : (
+                      <TouchableOpacity
+                        style={styles.importFileBtn}
+                        onPress={() => importPlanFile(plan.id)}
+                        disabled={importingPlanId === plan.id}
+                      >
+                        {importingPlanId === plan.id ? (
+                          <ActivityIndicator size="small" color={C.primary} />
+                        ) : (
+                          <>
+                            <Ionicons name="cloud-upload-outline" size={13} color={C.primary} />
+                            <Text style={styles.importFileBtnText}>Importer PDF / image</Text>
+                          </>
+                        )}
+                      </TouchableOpacity>
+                    )}
+                  </View>
+
+                  {/* 3. Nom du plan */}
+                  <View>
+                    <Text style={styles.planNameLabel}>Nom du plan</Text>
+                    <TextInput
+                      style={styles.planNameInput}
+                      placeholder="Ex : Plan électrique, Plan structurel, Plan masse..."
+                      placeholderTextColor={C.textMuted}
+                      value={plan.name}
+                      onChangeText={v => updatePlanName(plan.id, v)}
+                    />
+                  </View>
                 </View>
                 {plans.length > 1 && (
                   <TouchableOpacity onPress={() => removePlanRow(plan.id)} style={styles.removePlanBtn}>
