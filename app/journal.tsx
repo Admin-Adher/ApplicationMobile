@@ -234,7 +234,7 @@ export default function JournalScreen() {
       const pointageEntries = getEntriesForDate(todayISO);
       if (pointageEntries.length > 0) {
         setWorkerCountFromPointage(pointageEntries.length);
-        setWorkerCount(String(pointageEntries.length));
+        setWorkerCount(prev => (prev.trim() === '' ? String(pointageEntries.length) : prev));
       }
     }
   }, [showNew, todayISO, getEntriesForDate]);

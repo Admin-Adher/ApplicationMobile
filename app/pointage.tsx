@@ -3,7 +3,7 @@ import {
   TextInput, Platform, Alert, TouchableWithoutFeedback,
 } from 'react-native';
 import { KeyboardAvoidingView } from 'react-native-keyboard-controller';
-import { useState, useMemo, useCallback } from 'react';
+import { useState, useMemo } from 'react';
 import * as FileSystem from 'expo-file-system';
 import * as Sharing from 'expo-sharing';
 import { Ionicons } from '@expo/vector-icons';
@@ -242,10 +242,6 @@ export default function PointageScreen() {
   }
 
   async function handleBulkDeparture() {
-    const now = new Date();
-    const hh = String(now.getHours()).padStart(2, '0');
-    const mm = String(now.getMinutes()).padStart(2, '0');
-    const currentTime = `${hh}:${mm}`;
     const activeEntries = allDateEntries.filter(e => !e.departureTime);
     await Promise.all(activeEntries.map(e => updateEntry(e.id, { departureTime: depTime })));
     setBulkDepModal(false);
@@ -342,7 +338,15 @@ export default function PointageScreen() {
         </TouchableOpacity>
         <View style={styles.dateLabelWrap}>
           <Text style={styles.dateLabel}>{formatDate(selectedDate)}</Text>
-          {selectedDate === todayISO() && <Text style={styles.todayTag}>Aujourd'hui</Text>}
+          {selectedDate === todayISO()
+            ? <Text style={styles.todayTag}>Aujourd'hui</Text>
+            : (
+              <TouchableOpacity onPress={() => setSelectedDate(todayISO())} style={styles.todayJumpBtn}>
+                <Ionicons name="today-outline" size={11} color={C.primary} />
+                <Text style={styles.todayJumpText}>Retour à aujourd'hui</Text>
+              </TouchableOpacity>
+            )
+          }
         </View>
         <TouchableOpacity
           onPress={() => changeDate(1)}
@@ -923,6 +927,8 @@ const styles = StyleSheet.create({
   dateLabelWrap: { alignItems: 'center' },
   dateLabel: { fontSize: 16, fontFamily: 'Inter_600SemiBold', color: C.text },
   todayTag: { fontSize: 10, fontFamily: 'Inter_500Medium', color: C.primary, marginTop: 2 },
+  todayJumpBtn: { flexDirection: 'row', alignItems: 'center', gap: 3, marginTop: 2, paddingHorizontal: 6, paddingVertical: 2, backgroundColor: C.primaryBg, borderRadius: 8 },
+  todayJumpText: { fontSize: 10, fontFamily: 'Inter_500Medium', color: C.primary },
 
   weekChart: {
     flexDirection: 'row',
