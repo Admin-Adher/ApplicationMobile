@@ -412,7 +412,8 @@ export default function DashboardScreen() {
       )}
 
       {viewMode === 'chantier' && <ScrollView
-        contentContainerStyle={styles.content}
+        style={{ flex: 1 }}
+        contentContainerStyle={[styles.content, chantiers.length === 0 && !isSousTraitant && styles.contentEmpty]}
         showsVerticalScrollIndicator={false}
         refreshControl={
           <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={C.primary} colors={[C.primary]} />
@@ -425,6 +426,55 @@ export default function DashboardScreen() {
           </View>
         )}
 
+        {chantiers.length === 0 && !isSousTraitant && (
+          <View style={styles.dashEmptyState}>
+            <View style={styles.dashEmptyIconWrap}>
+              <Ionicons name="speedometer-outline" size={44} color={C.primary} />
+            </View>
+            <Text style={styles.dashEmptyTitle}>Aucun chantier actif</Text>
+            <Text style={styles.dashEmptySubtitle}>
+              Créez votre premier chantier pour piloter vos chantiers depuis ce tableau de bord.
+            </Text>
+            <View style={styles.dashEmptyFeatures}>
+              <View style={styles.dashEmptyFeatureRow}>
+                <View style={[styles.dashEmptyFeatureDot, { backgroundColor: '#003082' }]}>
+                  <Ionicons name="pulse-outline" size={14} color="#fff" />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.dashEmptyFeatureTitle}>Vue d'ensemble en temps réel</Text>
+                  <Text style={styles.dashEmptyFeatureDesc}>Suivez vos KPIs, l'avancement et les alertes de tous vos chantiers sur un seul écran.</Text>
+                </View>
+              </View>
+              <View style={styles.dashEmptyFeatureRow}>
+                <View style={[styles.dashEmptyFeatureDot, { backgroundColor: '#EF4444' }]}>
+                  <Ionicons name="warning-outline" size={14} color="#fff" />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.dashEmptyFeatureTitle}>Alertes & priorités</Text>
+                  <Text style={styles.dashEmptyFeatureDesc}>Identifiez immédiatement les réserves critiques, retards et tâches urgentes.</Text>
+                </View>
+              </View>
+              <View style={styles.dashEmptyFeatureRow}>
+                <View style={[styles.dashEmptyFeatureDot, { backgroundColor: '#7C3AED' }]}>
+                  <Ionicons name="bar-chart-outline" size={14} color="#fff" />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.dashEmptyFeatureTitle}>Analyses & tendances</Text>
+                  <Text style={styles.dashEmptyFeatureDesc}>Visualisez l'évolution hebdomadaire et les performances de chaque entreprise.</Text>
+                </View>
+              </View>
+            </View>
+            {permissions.canCreate && (
+              <TouchableOpacity style={styles.dashEmptyBtn} onPress={() => router.push('/chantier/new' as any)}>
+                <Ionicons name="add-circle-outline" size={16} color="#fff" />
+                <Text style={styles.dashEmptyBtnText}>Créer un chantier</Text>
+              </TouchableOpacity>
+            )}
+          </View>
+        )}
+
+        {(chantiers.length > 0 || isSousTraitant) && (
+          <>
         <View style={styles.kpiGrid}>
           <KPICard
             label="Total réserves"
@@ -509,26 +559,7 @@ export default function DashboardScreen() {
             <Ionicons name="chevron-forward" size={16} color={C.textMuted} />
           </TouchableOpacity>
         )}
-
-        {chantiers.length === 0 && permissions.canCreate && (
-          <View style={[styles.onboardCard, { borderColor: C.primary + '40', borderWidth: 1.5 }]}>
-            <View style={styles.onboardIconWrap}>
-              <Ionicons name="business-outline" size={32} color={C.primary} />
-            </View>
-            <Text style={styles.onboardTitle}>Créez votre premier chantier</Text>
-            <Text style={styles.onboardText}>
-              BuildTrack organise vos réserves par chantier. Commencez par créer un chantier et importer vos plans de masse.
-            </Text>
-            <View style={styles.onboardActions}>
-              <TouchableOpacity
-                style={styles.onboardBtn}
-                onPress={() => router.push('/chantier/new' as any)}
-              >
-                <Ionicons name="add-circle-outline" size={16} color="#fff" />
-                <Text style={styles.onboardBtnText}>Nouveau chantier</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
+          </>
         )}
 
         {chantiers.length > 0 && visibleStats.total === 0 && companies.length === 0 && permissions.canCreate && (
@@ -637,7 +668,7 @@ export default function DashboardScreen() {
           </View>
         )}
 
-        {permissions.canViewTeams && (
+        {chantiers.length > 0 && permissions.canViewTeams && (
           <View style={styles.card}>
             <View style={styles.cardHeader}>
               <Text style={styles.cardTitle}>Personnel aujourd'hui</Text>
@@ -872,6 +903,7 @@ const styles = StyleSheet.create({
   scopeBold: { fontFamily: 'Inter_700Bold' },
 
   content: { padding: 14, paddingBottom: 36 },
+  contentEmpty: { flexGrow: 1, padding: 0, paddingBottom: 0 },
   kpiGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10, marginBottom: 10 },
   kpiTouchable: { flex: 1, minWidth: '44%' },
   kpiCardTop: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 },
@@ -957,6 +989,28 @@ const styles = StyleSheet.create({
   coBarWrap: { flex: 1, height: 8, backgroundColor: C.surface2, borderRadius: 4, overflow: 'hidden' },
   coBarFill: { height: 8, borderRadius: 4 },
   coCount: { fontSize: 12, fontFamily: 'Inter_700Bold', width: 52, textAlign: 'right' },
+
+  dashEmptyState: {
+    flexGrow: 1, alignItems: 'center', justifyContent: 'center',
+    padding: 28, gap: 12,
+  },
+  dashEmptyIconWrap: {
+    width: 88, height: 88, borderRadius: 44,
+    backgroundColor: C.primaryBg, borderWidth: 1, borderColor: C.primary + '25',
+    alignItems: 'center', justifyContent: 'center',
+  },
+  dashEmptyTitle: { fontSize: 20, fontFamily: 'Inter_700Bold', color: C.text, textAlign: 'center' },
+  dashEmptySubtitle: { fontSize: 14, fontFamily: 'Inter_400Regular', color: C.textMuted, textAlign: 'center', lineHeight: 21, maxWidth: 300 },
+  dashEmptyFeatures: {
+    width: '100%', gap: 0, marginVertical: 8,
+    backgroundColor: C.surface, borderRadius: 14, borderWidth: 1, borderColor: C.border, overflow: 'hidden',
+  },
+  dashEmptyFeatureRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 12, padding: 14, borderBottomWidth: 1, borderBottomColor: C.border },
+  dashEmptyFeatureDot: { width: 30, height: 30, borderRadius: 15, alignItems: 'center', justifyContent: 'center', flexShrink: 0, marginTop: 1 },
+  dashEmptyFeatureTitle: { fontSize: 13, fontFamily: 'Inter_600SemiBold', color: C.text, marginBottom: 2 },
+  dashEmptyFeatureDesc: { fontSize: 12, fontFamily: 'Inter_400Regular', color: C.textMuted, lineHeight: 17 },
+  dashEmptyBtn: { flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: C.primary, borderRadius: 12, paddingHorizontal: 24, paddingVertical: 14, marginTop: 4 },
+  dashEmptyBtnText: { fontSize: 15, fontFamily: 'Inter_700Bold', color: '#fff' },
 
   onboardCard: {
     backgroundColor: C.surface, borderRadius: 16, padding: 24,
