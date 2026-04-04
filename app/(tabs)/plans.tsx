@@ -373,28 +373,51 @@ export default function PlansScreen() {
   const pdfViewerRef = useRef<PdfPlanViewerHandle>(null);
   const reserveListRef = useRef<FlatList<Reserve> | null>(null);
 
+  // Declared early so it can be used as a proper dependency in the effect below.
+  // (Babel transpiles const→var; declaring after the useEffect would leave the
+  //  deps array capturing `undefined` at evaluation time.)
+  const chantierHierarchyBuildingsEarly = useMemo(
+    () => activeChantier?.buildings ?? [],
+    [activeChantier]
+  );
+
+  // Ref used by the unified chantier/building effect below
+  const prevChantierIdRef = useRef<string | null | undefined>(undefined);
+  const hasAutoSelectedBuildingRef = useRef(false);
+
   useEffect(() => {
     AsyncStorage.getItem(HINT_KEY).then(v => { if (v === '1') setHintSeen(true); });
     AsyncStorage.getItem(PIN_SIZE_KEY).then(v => { if (v) { const n = parseFloat(v); if (!isNaN(n)) setPinSizeScale(n); } });
     AsyncStorage.getItem(PIN_SIZES_KEY).then(v => { if (v) { try { setPinSizes(JSON.parse(v)); } catch {} } });
   }, []);
 
+  // Unified effect: resets state on chantier change AND auto-selects the first
+  // building as soon as hierarchy data is available — fixing the race condition
+  // where the previous two separate effects caused selectedBuilding to never
+  // reach 'all' in time for the auto-selection check.
   useEffect(() => {
-    setActivePlanId(null);
-    setSelectedBuilding('all');
-    setSelectedLevel('all');
-    setStatusFilter('all');
-    setCompanyFilter('all');
-    setLevelFilter('all');
-  }, [activeChantierId]);
+    const isNewChantier = prevChantierIdRef.current !== activeChantierId;
+    prevChantierIdRef.current = activeChantierId ?? null;
 
-  // Auto-sélectionne le premier bâtiment dès que la hiérarchie est disponible.
-  // S'exécute aussi après un changement de chantier (selectedBuilding revient à 'all').
-  useEffect(() => {
-    if (selectedBuilding === 'all' && chantierHierarchyBuildings.length > 0) {
-      setSelectedBuilding(chantierHierarchyBuildings[0].id);
+    if (isNewChantier) {
+      // Full reset whenever the active chantier changes
+      hasAutoSelectedBuildingRef.current = false;
+      setActivePlanId(null);
+      setSelectedLevel('all');
+      setStatusFilter('all');
+      setCompanyFilter('all');
+      setLevelFilter('all');
+      setSelectedBuilding('all');
     }
-  }, [chantierHierarchyBuildings]);
+
+    // Auto-select the first building once hierarchy data is available.
+    // This handles both: data already loaded when chantier changes, and
+    // data arriving asynchronously after the initial reset.
+    if (!hasAutoSelectedBuildingRef.current && chantierHierarchyBuildingsEarly.length > 0) {
+      hasAutoSelectedBuildingRef.current = true;
+      setSelectedBuilding(chantierHierarchyBuildingsEarly[0].id);
+    }
+  }, [activeChantierId, chantierHierarchyBuildingsEarly]);
 
   function dismissHint() {
     setHintSeen(true);
@@ -433,10 +456,8 @@ export default function PlansScreen() {
     return b.sort();
   }, [chantierPlans]);
 
-  const chantierHierarchyBuildings = useMemo(
-    () => activeChantier?.buildings ?? [],
-    [activeChantier]
-  );
+  // Alias to the early declaration — all downstream code uses this name.
+  const chantierHierarchyBuildings = chantierHierarchyBuildingsEarly;
 
   const orphanPlans = useMemo(
     () => chantierPlans.filter(p => !p.buildingId && !p.building),
