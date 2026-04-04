@@ -1009,7 +1009,7 @@ export default function PlansScreen() {
     const noChantier = !activeChantierId;
     return (
       <View style={styles.container}>
-        <View style={[styles.header, { paddingTop: topPad + 12 }]}>
+        <View style={[styles.header, { paddingTop: topPad + 12, paddingLeft: 24, paddingRight: 16, paddingBottom: 6 }]}>
           <Text style={styles.title}>Plans</Text>
         </View>
         <ScrollView contentContainerStyle={styles.emptyState} showsVerticalScrollIndicator={false}>
