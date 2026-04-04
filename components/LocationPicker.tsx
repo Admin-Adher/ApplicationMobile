@@ -12,35 +12,40 @@ interface LocationPickerProps {
   zone?: string;
   onLevelChange?: (l: string) => void;
   onZoneChange?: (z: string) => void;
+  showLevel?: boolean;
   showZone?: boolean;
 }
+
+const DESELECT_LABEL = '—';
 
 function ChipList({
   options,
   selected,
   onSelect,
-  prefix,
 }: {
   options: string[];
   selected: string;
   onSelect: (v: string) => void;
-  prefix?: string;
 }) {
   return (
     <ScrollView horizontal showsHorizontalScrollIndicator={false}>
       <View style={styles.chipRow}>
-        {options.map(opt => (
-          <TouchableOpacity
-            key={opt}
-            style={[styles.chip, selected === opt && styles.chipActive]}
-            onPress={() => onSelect(opt)}
-            activeOpacity={0.75}
-          >
-            <Text style={[styles.chipText, selected === opt && styles.chipTextActive]}>
-              {prefix ? `${prefix} ${opt}` : opt}
-            </Text>
-          </TouchableOpacity>
-        ))}
+        {options.map(opt => {
+          const label = opt === '' ? DESELECT_LABEL : opt;
+          const isActive = selected === opt;
+          return (
+            <TouchableOpacity
+              key={opt === '' ? '__none__' : opt}
+              style={[styles.chip, isActive && styles.chipActive, opt === '' && styles.chipNone]}
+              onPress={() => onSelect(opt)}
+              activeOpacity={0.75}
+            >
+              <Text style={[styles.chipText, isActive && styles.chipTextActive, opt === '' && styles.chipNoneText]}>
+                {label}
+              </Text>
+            </TouchableOpacity>
+          );
+        })}
       </View>
     </ScrollView>
   );
@@ -54,6 +59,7 @@ export default function LocationPicker({
   onBuildingChange,
   onLevelChange = () => {},
   onZoneChange = () => {},
+  showLevel = true,
   showZone = true,
 }: LocationPickerProps) {
   const hasBuildingsConfig = buildings && buildings.length > 0;
@@ -108,14 +114,18 @@ export default function LocationPicker({
           value={building}
           onChangeText={onBuildingChange}
         />
-        <Text style={styles.label}>Niveau</Text>
-        <TextInput
-          style={styles.freeInput}
-          placeholder="Ex : RDC, R+5, SS1..."
-          placeholderTextColor={C.textMuted}
-          value={level}
-          onChangeText={onLevelChange}
-        />
+        {showLevel && (
+          <>
+            <Text style={styles.label}>Niveau</Text>
+            <TextInput
+              style={styles.freeInput}
+              placeholder="Ex : RDC, R+5, SS1..."
+              placeholderTextColor={C.textMuted}
+              value={level}
+              onChangeText={onLevelChange}
+            />
+          </>
+        )}
         {showZone && (
           <>
             <Text style={styles.label}>Zone</Text>
@@ -146,7 +156,7 @@ export default function LocationPicker({
         onSelect={handleBuildingChange}
       />
 
-      {levelsForBuilding.length > 0 && (
+      {showLevel && levelsForBuilding.length > 0 && (
         <>
           <View style={[styles.stepRow, { marginTop: 14 }]}>
             <View style={styles.stepBadge}>
@@ -212,8 +222,10 @@ const styles = StyleSheet.create({
     borderWidth: 1, borderColor: C.border, backgroundColor: C.surface,
   },
   chipActive: { borderColor: C.primary, backgroundColor: C.primary + '15' },
+  chipNone: { borderStyle: 'dashed', borderColor: C.border },
   chipText: { fontSize: 13, fontFamily: 'Inter_400Regular', color: C.textSub },
   chipTextActive: { color: C.primary, fontFamily: 'Inter_600SemiBold' },
+  chipNoneText: { color: C.textMuted, fontSize: 12 },
 
   stepRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 8 },
   stepBadge: {

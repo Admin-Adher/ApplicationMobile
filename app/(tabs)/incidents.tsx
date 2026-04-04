@@ -443,6 +443,8 @@ export default function IncidentsScreen() {
                 buildings={activeChantier?.buildings ?? []}
                 building={form.building ?? ''}
                 onBuildingChange={b => setForm(f => ({ ...f, building: b }))}
+                showLevel={false}
+                showZone={false}
               />
 
               <Text style={styles.fieldLabel}>Gravité</Text>
