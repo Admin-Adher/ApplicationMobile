@@ -46,8 +46,7 @@ jobs:
 
       - name: Force JS bundle embedding in APK
         run: |
-          echo "bundleInDebug=true" >> android/gradle.properties
-          echo "hermesEnabled=true" >> android/gradle.properties
+          printf '\nbundleInDebug=true\nhermesEnabled=true\n' >> android/gradle.properties
 
       - name: Configure release signing with debug key
         working-directory: android
