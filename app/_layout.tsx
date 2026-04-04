@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { View, Text, TouchableOpacity, StyleSheet, Platform, LogBox, ActivityIndicator } from 'react-native';
+import { View, Text, TouchableOpacity, StyleSheet, Platform, LogBox, ActivityIndicator, Image } from 'react-native';
 import { Stack, useRouter, useSegments } from 'expo-router';
 import { ErrorBoundary as AppErrorBoundary } from '@/components/ErrorBoundary';
 import { StatusBar } from 'expo-status-bar';
@@ -108,9 +108,11 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
   if (isLoading) {
     return (
       <View style={authGuardStyles.container}>
-        <View style={authGuardStyles.logoMark}>
-          <Text style={authGuardStyles.logoText}>BT</Text>
-        </View>
+        <Image
+          source={require('../assets/images/icon.png')}
+          style={authGuardStyles.logoMark}
+          resizeMode="contain"
+        />
         <Text style={authGuardStyles.brand}>BuildTrack</Text>
         <ActivityIndicator
           size="small"
@@ -133,19 +135,10 @@ const authGuardStyles = StyleSheet.create({
     gap: 8,
   },
   logoMark: {
-    width: 56,
-    height: 56,
-    borderRadius: 14,
-    backgroundColor: 'rgba(255,255,255,0.15)',
-    alignItems: 'center',
-    justifyContent: 'center',
+    width: 72,
+    height: 72,
+    borderRadius: 18,
     marginBottom: 4,
-  },
-  logoText: {
-    color: '#fff',
-    fontSize: 22,
-    fontWeight: '800',
-    letterSpacing: -0.5,
   },
   brand: {
     color: '#fff',

@@ -1,5 +1,5 @@
 import { Tabs, usePathname, useRouter } from 'expo-router';
-import { Platform, View, Text, StyleSheet, TouchableOpacity, useWindowDimensions } from 'react-native';
+import { Platform, View, Text, StyleSheet, TouchableOpacity, useWindowDimensions, Image } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { C } from '@/constants/colors';
@@ -59,9 +59,11 @@ function TabletSidebar() {
         activeOpacity={0.7}
         hitSlop={8}
       >
-        <View style={styles.sidebarLogoMark}>
-          <Text style={styles.sidebarLogoText}>BT</Text>
-        </View>
+        <Image
+          source={require('../../assets/images/icon.png')}
+          style={styles.sidebarLogoMark}
+          resizeMode="contain"
+        />
       </TouchableOpacity>
 
       <View style={styles.sidebarDivider} />
@@ -246,15 +248,6 @@ const styles = StyleSheet.create({
     width: 38,
     height: 38,
     borderRadius: 10,
-    backgroundColor: C.primary,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  sidebarLogoText: {
-    color: '#fff',
-    fontFamily: 'Inter_700Bold',
-    fontSize: 13,
-    letterSpacing: 0.5,
   },
   sidebarDivider: {
     width: 40,
