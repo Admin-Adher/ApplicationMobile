@@ -388,6 +388,14 @@ export default function PlansScreen() {
     setLevelFilter('all');
   }, [activeChantierId]);
 
+  // Auto-sélectionne le premier bâtiment dès que la hiérarchie est disponible.
+  // S'exécute aussi après un changement de chantier (selectedBuilding revient à 'all').
+  useEffect(() => {
+    if (selectedBuilding === 'all' && chantierHierarchyBuildings.length > 0) {
+      setSelectedBuilding(chantierHierarchyBuildings[0].id);
+    }
+  }, [chantierHierarchyBuildings]);
+
   function dismissHint() {
     setHintSeen(true);
     AsyncStorage.setItem(HINT_KEY, '1');
@@ -430,6 +438,14 @@ export default function PlansScreen() {
     [activeChantier]
   );
 
+  const orphanPlans = useMemo(
+    () => chantierPlans.filter(p => !p.buildingId && !p.building),
+    [chantierPlans]
+  );
+  const hasOrphanPlans = orphanPlans.length > 0;
+
+  const showBuildingChips = chantierHierarchyBuildings.length > 1 || hasOrphanPlans;
+
   const levelsForNewPlanBuilding = useMemo(() => {
     if (!newPlanModal.buildingId && !newPlanModal.building) return [];
     const bldg = chantierHierarchyBuildings.find(b =>
@@ -448,13 +464,17 @@ export default function PlansScreen() {
     let plans = chantierPlans;
     if (chantierHierarchyBuildings.length > 0) {
       if (selectedBuilding !== 'all') {
-        const bldgName = chantierHierarchyBuildings.find(b => b.id === selectedBuilding)?.name;
-        plans = plans.filter(p =>
-          p.buildingId === selectedBuilding ||
-          (p.buildingId === undefined && p.building === bldgName)
-        );
+        if (selectedBuilding === '__none__') {
+          plans = plans.filter(p => !p.buildingId && !p.building);
+        } else {
+          const bldgName = chantierHierarchyBuildings.find(b => b.id === selectedBuilding)?.name;
+          plans = plans.filter(p =>
+            p.buildingId === selectedBuilding ||
+            (p.buildingId === undefined && p.building === bldgName)
+          );
+        }
       }
-      if (selectedLevel !== 'all') {
+      if (selectedLevel !== 'all' && selectedBuilding !== '__none__') {
         let lvlName: string | undefined;
         for (const b of chantierHierarchyBuildings) {
           const found = b.levels.find(l => l.id === selectedLevel);
@@ -1091,16 +1111,10 @@ export default function PlansScreen() {
             </TouchableOpacity>
           </View>
 
-          {/* Hierarchy navigation — building chips */}
-          {chantierHierarchyBuildings.length > 0 && (
+          {/* Hierarchy navigation — building chips (masqué si 1 seul bâtiment et aucun plan orphelin) */}
+          {showBuildingChips && (
             <View style={styles.hierarchyRow}>
               <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.hierarchyChips}>
-                <TouchableOpacity
-                  style={[styles.hierarchyChip, selectedBuilding === 'all' && styles.hierarchyChipActive]}
-                  onPress={() => { setSelectedBuilding('all'); setSelectedLevel('all'); setActivePlanId(null); }}
-                >
-                  <Text style={[styles.hierarchyChipText, selectedBuilding === 'all' && styles.hierarchyChipTextActive]}>Tous</Text>
-                </TouchableOpacity>
                 {chantierHierarchyBuildings.map(b => (
                   <TouchableOpacity
                     key={b.id}
@@ -1111,11 +1125,20 @@ export default function PlansScreen() {
                     <Text style={[styles.hierarchyChipText, selectedBuilding === b.id && styles.hierarchyChipTextActive]}>{b.name}</Text>
                   </TouchableOpacity>
                 ))}
+                {hasOrphanPlans && (
+                  <TouchableOpacity
+                    style={[styles.hierarchyChip, selectedBuilding === '__none__' && styles.hierarchyChipActive]}
+                    onPress={() => { setSelectedBuilding('__none__'); setSelectedLevel('all'); setActivePlanId(null); }}
+                  >
+                    <Ionicons name="layers-outline" size={11} color={selectedBuilding === '__none__' ? C.primary : C.textSub} />
+                    <Text style={[styles.hierarchyChipText, selectedBuilding === '__none__' && styles.hierarchyChipTextActive]}>Général</Text>
+                  </TouchableOpacity>
+                )}
               </ScrollView>
             </View>
           )}
-          {/* Hierarchy navigation — level chips (only when a building is selected) */}
-          {chantierHierarchyBuildings.length > 0 && selectedBuilding !== 'all' && (() => {
+          {/* Hierarchy navigation — level chips (uniquement si un bâtiment réel est sélectionné) */}
+          {chantierHierarchyBuildings.length > 0 && selectedBuilding !== 'all' && selectedBuilding !== '__none__' && (() => {
             const bldg = chantierHierarchyBuildings.find(b => b.id === selectedBuilding);
             if (!bldg || bldg.levels.length === 0) return null;
             return (
