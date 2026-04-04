@@ -12,6 +12,7 @@ import { useSettings } from '@/context/SettingsContext';
 import { Company } from '@/constants/types';
 import { useRouter } from 'expo-router';
 import { genId } from '@/lib/utils';
+import BottomSheetMultiPicker from '@/components/BottomSheetMultiPicker';
 
 const COMPANY_COLORS = [
   '#3B82F6', '#F59E0B', '#8B5CF6', '#EC4899', '#EF4444',
@@ -23,7 +24,7 @@ export default function EquipesScreen() {
   const router = useRouter();
   const { user, permissions } = useAuth();
   const {
-    companies, tasks, reserves, stats, chantiers, activeChantierId,
+    companies, tasks, reserves, stats, chantiers, activeChantierId, lots: projectLots,
     updateCompanyWorkers, addCompany, updateCompanyFull, deleteCompany, updateCompanyHours,
   } = useApp();
   const { saveAttendanceSnapshot } = useSettings();
@@ -37,7 +38,7 @@ export default function EquipesScreen() {
   const [phone, setPhone] = useState('');
   const [email, setEmail] = useState('');
   const [zone, setZone] = useState('');
-  const [lots, setLots] = useState('');
+  const [selectedLotIds, setSelectedLotIds] = useState<string[]>([]);
   const [effectif, setEffectif] = useState('');
   const [heures, setHeures] = useState('');
   const [siret, setSiret] = useState('');
@@ -106,7 +107,7 @@ export default function EquipesScreen() {
 
   function openAdd() {
     setEditTarget(null);
-    setNom(''); setNomCourt(''); setPhone(''); setEmail(''); setZone(''); setLots('');
+    setNom(''); setNomCourt(''); setPhone(''); setEmail(''); setZone(''); setSelectedLotIds([]);
     setEffectif(''); setHeures(''); setSiret(''); setInsurance(''); setQualifications('');
     setSelectedColor(COMPANY_COLORS[companies.length % COMPANY_COLORS.length]);
     setSubmitted(false);
@@ -117,7 +118,10 @@ export default function EquipesScreen() {
     setEditTarget(co);
     setNom(co.name); setNomCourt(co.shortName); setPhone(co.phone ?? '');
     setEmail(co.email ?? ''); setZone(co.zone);
-    setLots((co.lots ?? []).join(', '));
+    const matchedIds = (co.lots ?? [])
+      .map(name => projectLots.find(l => l.name === name || l.id === name)?.id ?? '')
+      .filter(Boolean);
+    setSelectedLotIds(matchedIds);
     setEffectif(String(co.plannedWorkers)); setHeures(String(co.hoursWorked));
     setSiret(co.siret ?? ''); setInsurance(co.insurance ?? ''); setQualifications(co.qualifications ?? '');
     setSelectedColor(co.color);
@@ -127,7 +131,7 @@ export default function EquipesScreen() {
 
   function handleClose() {
     setModalVisible(false); setEditTarget(null); setSubmitted(false);
-    setNom(''); setNomCourt(''); setPhone(''); setEmail(''); setZone(''); setLots('');
+    setNom(''); setNomCourt(''); setPhone(''); setEmail(''); setZone(''); setSelectedLotIds([]);
     setEffectif(''); setHeures(''); setSiret(''); setInsurance(''); setQualifications('');
   }
 
@@ -142,8 +146,8 @@ export default function EquipesScreen() {
     const planned = parseInt(effectif, 10);
     if (isNaN(planned) || planned < 0) return;
     const hours = parseInt(heures, 10);
-    const parsedLots = lots.trim()
-      ? lots.split(',').map(l => l.trim()).filter(Boolean)
+    const parsedLots = selectedLotIds.length > 0
+      ? selectedLotIds.map(id => projectLots.find(l => l.id === id)?.name ?? id).filter(Boolean)
       : undefined;
 
     if (editTarget) {
@@ -702,17 +706,26 @@ export default function EquipesScreen() {
                 returnKeyType="next"
               />
 
-              <Text style={styles.fieldLabel}>
-                Lots travaux <Text style={styles.fieldHint}>(séparés par des virgules)</Text>
-              </Text>
-              <TextInput
-                style={styles.input}
-                placeholder="Ex: Gros œuvre, Menuiserie, Électricité"
-                placeholderTextColor={C.textMuted}
-                value={lots}
-                onChangeText={setLots}
-                returnKeyType="next"
-              />
+              {projectLots.length > 0 ? (
+                <BottomSheetMultiPicker
+                  label="Corps d'état / Lots travaux"
+                  options={projectLots.map(lot => ({
+                    label: `${lot.number ? `${lot.number}. ` : ''}${lot.name}`,
+                    value: lot.id,
+                    color: lot.color,
+                  }))}
+                  values={selectedLotIds}
+                  onChange={setSelectedLotIds}
+                  placeholder="Sélectionner les lots…"
+                />
+              ) : (
+                <View style={styles.noLotsHint}>
+                  <Ionicons name="information-circle-outline" size={14} color={C.textMuted} />
+                  <Text style={styles.noLotsHintText}>
+                    Aucun lot défini sur ce chantier. Créez des lots dans la gestion du chantier pour les associer ici.
+                  </Text>
+                </View>
+              )}
 
               {editTarget && (
                 <>
@@ -1062,4 +1075,11 @@ const styles = StyleSheet.create({
   confirmBtn: { backgroundColor: C.primary, borderRadius: 12, paddingVertical: 13, alignItems: 'center' },
   confirmBtnDisabled: { opacity: 0.4 },
   confirmBtnText: { fontSize: 14, fontFamily: 'Inter_600SemiBold', color: '#fff' },
+
+  noLotsHint: {
+    flexDirection: 'row', alignItems: 'flex-start', gap: 8,
+    backgroundColor: C.surface2, borderRadius: 10, padding: 12,
+    borderWidth: 1, borderColor: C.border, marginBottom: 14, marginTop: 8,
+  },
+  noLotsHintText: { flex: 1, fontSize: 12, fontFamily: 'Inter_400Regular', color: C.textMuted, lineHeight: 17 },
 });
