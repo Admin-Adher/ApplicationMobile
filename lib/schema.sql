@@ -177,7 +177,7 @@ create policy "Chantiers lisibles par tous les authentifiés"
 drop policy if exists "Chantiers modifiables par admin/conducteur" on public.chantiers;
 create policy "Chantiers modifiables par admin/conducteur"
   on public.chantiers for all using (
-    exists (select 1 from public.profiles where id = auth.uid() and role in ('admin', 'conducteur'))
+    exists (select 1 from public.profiles where id = auth.uid() and role in ('super_admin', 'admin', 'conducteur'))
   );
 
 -- ---- 3. TABLE COMPANIES ----
@@ -198,7 +198,7 @@ create policy "Companies lisibles par tous" on public.companies for select using
 drop policy if exists "Companies modifiables par admin/conducteur" on public.companies;
 create policy "Companies modifiables par admin/conducteur"
   on public.companies for all using (
-    exists (select 1 from public.profiles where id = auth.uid() and role in ('admin', 'conducteur'))
+    exists (select 1 from public.profiles where id = auth.uid() and role in ('super_admin', 'admin', 'conducteur'))
   );
 
 -- ---- 3. TABLE RESERVES ----
@@ -258,7 +258,7 @@ create policy "Reserves lisibles par tous" on public.reserves for select using (
 drop policy if exists "Reserves modifiables (create/edit)" on public.reserves;
 create policy "Reserves modifiables (create/edit)"
   on public.reserves for all using (
-    exists (select 1 from public.profiles where id = auth.uid() and role in ('admin', 'conducteur', 'chef_equipe'))
+    exists (select 1 from public.profiles where id = auth.uid() and role in ('super_admin', 'admin', 'conducteur', 'chef_equipe'))
   );
 
 -- Sous-traitant peut mettre à jour le statut des réserves de son entreprise (demande de levée + signature)
@@ -308,7 +308,7 @@ create policy "Tasks lisibles par tous" on public.tasks for select using (auth.r
 drop policy if exists "Tasks modifiables" on public.tasks;
 create policy "Tasks modifiables"
   on public.tasks for all using (
-    exists (select 1 from public.profiles where id = auth.uid() and role in ('admin', 'conducteur', 'chef_equipe'))
+    exists (select 1 from public.profiles where id = auth.uid() and role in ('super_admin', 'admin', 'conducteur', 'chef_equipe'))
   );
 
 -- ---- 5. TABLE DOCUMENTS ----
@@ -328,7 +328,7 @@ create policy "Documents lisibles par tous" on public.documents for select using
 drop policy if exists "Documents modifiables" on public.documents;
 create policy "Documents modifiables"
   on public.documents for all using (
-    exists (select 1 from public.profiles where id = auth.uid() and role in ('admin', 'conducteur', 'chef_equipe'))
+    exists (select 1 from public.profiles where id = auth.uid() and role in ('super_admin', 'admin', 'conducteur', 'chef_equipe'))
   );
 
 -- ---- 6. TABLE PHOTOS ----
@@ -349,7 +349,7 @@ create policy "Photos lisibles par tous" on public.photos for select using (auth
 drop policy if exists "Photos modifiables" on public.photos;
 create policy "Photos modifiables"
   on public.photos for all using (
-    exists (select 1 from public.profiles where id = auth.uid() and role in ('admin', 'conducteur', 'chef_equipe'))
+    exists (select 1 from public.profiles where id = auth.uid() and role in ('super_admin', 'admin', 'conducteur', 'chef_equipe'))
   );
 
 -- ---- 7. TABLE MESSAGES ----
@@ -409,7 +409,7 @@ create policy "Site plans lisibles par tous"
 drop policy if exists "Site plans modifiables" on public.site_plans;
 create policy "Site plans modifiables"
   on public.site_plans for all using (
-    exists (select 1 from public.profiles where id = auth.uid() and role in ('admin', 'conducteur', 'chef_equipe'))
+    exists (select 1 from public.profiles where id = auth.uid() and role in ('super_admin', 'admin', 'conducteur', 'chef_equipe'))
   );
 
 -- ---- 9. TABLE INCIDENTS ----
@@ -463,7 +463,7 @@ create policy "Visites lisibles par tous"
 drop policy if exists "Visites modifiables" on public.visites;
 create policy "Visites modifiables"
   on public.visites for all using (
-    exists (select 1 from public.profiles where id = auth.uid() and role in ('admin', 'conducteur', 'chef_equipe'))
+    exists (select 1 from public.profiles where id = auth.uid() and role in ('super_admin', 'admin', 'conducteur', 'chef_equipe'))
   );
 
 -- ---- 11. TABLE LOTS ----
@@ -485,7 +485,7 @@ create policy "Lots lisibles par tous"
 drop policy if exists "Lots modifiables" on public.lots;
 create policy "Lots modifiables"
   on public.lots for all using (
-    exists (select 1 from public.profiles where id = auth.uid() and role in ('admin', 'conducteur'))
+    exists (select 1 from public.profiles where id = auth.uid() and role in ('super_admin', 'admin', 'conducteur'))
   );
 
 -- ---- 12. TABLE OPRS ----
@@ -518,7 +518,7 @@ create policy "OPRs lisibles par tous"
 drop policy if exists "OPRs modifiables" on public.oprs;
 create policy "OPRs modifiables"
   on public.oprs for all using (
-    exists (select 1 from public.profiles where id = auth.uid() and role in ('admin', 'conducteur'))
+    exists (select 1 from public.profiles where id = auth.uid() and role in ('super_admin', 'admin', 'conducteur'))
   );
 
 -- ---- 13. TABLE CHANNELS (canaux personnalisés et groupes) ----
@@ -563,7 +563,7 @@ create policy "Pointage lisible par tous"
 drop policy if exists "Pointage modifiable" on public.time_entries;
 create policy "Pointage modifiable"
   on public.time_entries for all using (
-    exists (select 1 from public.profiles where id = auth.uid() and role in ('admin', 'conducteur', 'chef_equipe'))
+    exists (select 1 from public.profiles where id = auth.uid() and role in ('super_admin', 'admin', 'conducteur', 'chef_equipe'))
   );
 
 -- ---- COLONNES MANQUANTES — companies ----
@@ -638,7 +638,7 @@ create policy "Docs réglementaires lisibles par tous"
 drop policy if exists "Docs réglementaires modifiables" on public.regulatory_docs;
 create policy "Docs réglementaires modifiables"
   on public.regulatory_docs for all using (
-    exists (select 1 from public.profiles where id = auth.uid() and role in ('admin', 'conducteur', 'chef_equipe'))
+    exists (select 1 from public.profiles where id = auth.uid() and role in ('super_admin', 'admin', 'conducteur', 'chef_equipe'))
   );
 
 -- ============================================================
