@@ -21,6 +21,10 @@ interface PendingPlan {
   name: string;
   uri?: string;
   size?: string;
+  buildingId?: string;
+  building?: string;
+  levelId?: string;
+  level?: string;
 }
 
 export default function NewChantierScreen() {
@@ -75,6 +79,20 @@ export default function NewChantierScreen() {
 
   function updatePlanName(id: string, name: string) {
     setPlans(prev => prev.map(p => p.id === id ? { ...p, name } : p));
+  }
+
+  function updatePlanBuilding(planId: string, bldg: ChantierBuilding) {
+    setPlans(prev => prev.map(p =>
+      p.id === planId
+        ? { ...p, buildingId: bldg.id, building: bldg.name, levelId: undefined, level: undefined }
+        : p
+    ));
+  }
+
+  function updatePlanLevel(planId: string, levelId: string, levelName: string) {
+    setPlans(prev => prev.map(p =>
+      p.id === planId ? { ...p, levelId, level: levelName } : p
+    ));
   }
 
   async function importPlanFile(planId: string) {
@@ -140,6 +158,10 @@ export default function NewChantierScreen() {
       uri: p.uri,
       size: p.size,
       uploadedAt: todayFr,
+      building: p.building,
+      buildingId: p.buildingId,
+      level: p.level,
+      levelId: p.levelId,
     }));
 
     addChantier(newChantier, newPlans);
@@ -263,59 +285,110 @@ export default function NewChantierScreen() {
             Vous pouvez créer votre chantier maintenant et ajouter les plans plus tard depuis l'onglet Plans.
           </Text>
 
-          {plans.map((plan, idx) => (
-            <View key={plan.id} style={styles.planRow}>
-              <View style={styles.planIndexBadge}>
-                <Text style={styles.planIndexText}>{idx + 1}</Text>
-              </View>
-              <View style={{ flex: 1, gap: 8 }}>
-                <TextInput
-                  style={styles.planNameInput}
-                  placeholder={`Plan ${idx + 1} (ex: Bâtiment A - RDC)`}
-                  placeholderTextColor={C.textMuted}
-                  value={plan.name}
-                  onChangeText={v => updatePlanName(plan.id, v)}
-                />
-                <View style={styles.planFileRow}>
-                  {plan.uri ? (
-                    <View style={styles.planFileChip}>
-                      <Ionicons
-                        name={plan.uri.toLowerCase().includes('pdf') ? 'document-text-outline' : 'image-outline'}
-                        size={12}
-                        color={C.closed}
-                      />
-                      <Text style={styles.planFileChipText} numberOfLines={1}>
-                        {plan.size ? `Fichier importé · ${plan.size}` : 'Fichier importé'}
-                      </Text>
-                      <TouchableOpacity onPress={() => setPlans(prev => prev.map(p => p.id === plan.id ? { ...p, uri: undefined, size: undefined } : p))}>
-                        <Ionicons name="close-circle" size={14} color={C.textMuted} />
-                      </TouchableOpacity>
-                    </View>
-                  ) : (
-                    <TouchableOpacity
-                      style={styles.importFileBtn}
-                      onPress={() => importPlanFile(plan.id)}
-                      disabled={importingPlanId === plan.id}
-                    >
-                      {importingPlanId === plan.id ? (
-                        <ActivityIndicator size="small" color={C.primary} />
-                      ) : (
+          {plans.map((plan, idx) => {
+            const levelsForPlan = buildings.find(b => b.id === plan.buildingId)?.levels ?? [];
+            return (
+              <View key={plan.id} style={styles.planRow}>
+                <View style={styles.planIndexBadge}>
+                  <Text style={styles.planIndexText}>{idx + 1}</Text>
+                </View>
+                <View style={{ flex: 1, gap: 8 }}>
+                  <TextInput
+                    style={styles.planNameInput}
+                    placeholder={`Plan ${idx + 1} (ex: Plan électrique, Plan structurel...)`}
+                    placeholderTextColor={C.textMuted}
+                    value={plan.name}
+                    onChangeText={v => updatePlanName(plan.id, v)}
+                  />
+
+                  {/* Sélection Bâtiment + Niveau — uniquement si une structure est configurée */}
+                  {buildings.length > 0 && (
+                    <View style={styles.planHierarchyBlock}>
+                      <Text style={styles.planHierarchyLabel}>Bâtiment</Text>
+                      <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+                        <View style={styles.planChipRow}>
+                          {buildings.map(b => (
+                            <TouchableOpacity
+                              key={b.id}
+                              style={[styles.planChip, plan.buildingId === b.id && styles.planChipActive]}
+                              onPress={() => updatePlanBuilding(plan.id, b)}
+                            >
+                              <Ionicons name="business-outline" size={11} color={plan.buildingId === b.id ? C.primary : C.textSub} />
+                              <Text style={[styles.planChipText, plan.buildingId === b.id && styles.planChipTextActive]}>{b.name}</Text>
+                            </TouchableOpacity>
+                          ))}
+                        </View>
+                      </ScrollView>
+                      {levelsForPlan.length > 0 && (
                         <>
-                          <Ionicons name="cloud-upload-outline" size={13} color={C.primary} />
-                          <Text style={styles.importFileBtnText}>Importer PDF / image</Text>
+                          <Text style={[styles.planHierarchyLabel, { marginTop: 8 }]}>Niveau</Text>
+                          <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+                            <View style={styles.planChipRow}>
+                              {levelsForPlan.map(l => (
+                                <TouchableOpacity
+                                  key={l.id}
+                                  style={[styles.planChip, plan.levelId === l.id && styles.planChipActive]}
+                                  onPress={() => updatePlanLevel(plan.id, l.id, l.name)}
+                                >
+                                  <Text style={[styles.planChipText, plan.levelId === l.id && styles.planChipTextActive]}>{l.name}</Text>
+                                </TouchableOpacity>
+                              ))}
+                            </View>
+                          </ScrollView>
                         </>
                       )}
-                    </TouchableOpacity>
+                      {!plan.buildingId && (
+                        <View style={styles.planHierarchyHint}>
+                          <Ionicons name="information-circle-outline" size={12} color={C.textMuted} />
+                          <Text style={styles.planHierarchyHintText}>
+                            Sans sélection, ce plan apparaîtra dans "Général".
+                          </Text>
+                        </View>
+                      )}
+                    </View>
                   )}
+
+                  <View style={styles.planFileRow}>
+                    {plan.uri ? (
+                      <View style={styles.planFileChip}>
+                        <Ionicons
+                          name={plan.uri.toLowerCase().includes('pdf') ? 'document-text-outline' : 'image-outline'}
+                          size={12}
+                          color={C.closed}
+                        />
+                        <Text style={styles.planFileChipText} numberOfLines={1}>
+                          {plan.size ? `Fichier importé · ${plan.size}` : 'Fichier importé'}
+                        </Text>
+                        <TouchableOpacity onPress={() => setPlans(prev => prev.map(p => p.id === plan.id ? { ...p, uri: undefined, size: undefined } : p))}>
+                          <Ionicons name="close-circle" size={14} color={C.textMuted} />
+                        </TouchableOpacity>
+                      </View>
+                    ) : (
+                      <TouchableOpacity
+                        style={styles.importFileBtn}
+                        onPress={() => importPlanFile(plan.id)}
+                        disabled={importingPlanId === plan.id}
+                      >
+                        {importingPlanId === plan.id ? (
+                          <ActivityIndicator size="small" color={C.primary} />
+                        ) : (
+                          <>
+                            <Ionicons name="cloud-upload-outline" size={13} color={C.primary} />
+                            <Text style={styles.importFileBtnText}>Importer PDF / image</Text>
+                          </>
+                        )}
+                      </TouchableOpacity>
+                    )}
+                  </View>
                 </View>
+                {plans.length > 1 && (
+                  <TouchableOpacity onPress={() => removePlanRow(plan.id)} style={styles.removePlanBtn}>
+                    <Ionicons name="trash-outline" size={16} color={C.open} />
+                  </TouchableOpacity>
+                )}
               </View>
-              {plans.length > 1 && (
-                <TouchableOpacity onPress={() => removePlanRow(plan.id)} style={styles.removePlanBtn}>
-                  <Ionicons name="trash-outline" size={16} color={C.open} />
-                </TouchableOpacity>
-              )}
-            </View>
-          ))}
+            );
+          })}
         </View>
 
         <TouchableOpacity
