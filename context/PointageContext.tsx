@@ -29,6 +29,8 @@ function toEntry(row: any): TimeEntry {
     departureTime: row.departure_time ?? undefined,
     notes: row.notes ?? undefined,
     recordedBy: row.recorded_by ?? '',
+    taskId: row.task_id ?? undefined,
+    taskTitle: row.task_title ?? undefined,
   };
 }
 
@@ -44,6 +46,8 @@ function fromEntry(e: TimeEntry): Record<string, any> {
     departure_time: e.departureTime ?? null,
     notes: e.notes ?? null,
     recorded_by: e.recordedBy ?? null,
+    task_id: e.taskId ?? null,
+    task_title: e.taskTitle ?? null,
   };
 }
 

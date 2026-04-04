@@ -133,9 +133,6 @@ export default function PointageScreen() {
     const h = calcHours(e.arrivalTime, e.departureTime);
     return acc + (h ?? 0);
   }, 0);
-  const avgHours = actifs + departed > 0
-    ? Math.round((totalHours / (actifs + departed)) * 10) / 10
-    : 0;
 
   const byCompany = useMemo(() => {
     const map: Record<string, { name: string; color: string; count: number; hours: number; id: string }> = {};
@@ -319,7 +316,6 @@ export default function PointageScreen() {
   }
 
   const canEdit = permissions.canUpdateAttendance || permissions.canCreate;
-  const activeCount = allDateEntries.filter(e => !e.departureTime).length;
 
   return (
     <View style={styles.container}>
@@ -452,7 +448,7 @@ export default function PointageScreen() {
         )}
 
         {/* Bulk departure */}
-        {canEdit && activeCount > 0 && (
+        {canEdit && actifs > 0 && (
           <TouchableOpacity
             style={styles.bulkDepBtn}
             onPress={() => { setDepTime('17:00'); setBulkDepModal(true); }}
@@ -460,7 +456,7 @@ export default function PointageScreen() {
           >
             <Ionicons name="log-out-outline" size={16} color={C.open} />
             <Text style={styles.bulkDepText}>
-              Pointer le départ des {activeCount} actif{activeCount > 1 ? 's' : ''}
+              Pointer le départ des {actifs} actif{actifs > 1 ? 's' : ''}
             </Text>
           </TouchableOpacity>
         )}
@@ -879,7 +875,7 @@ export default function PointageScreen() {
               </TouchableOpacity>
             </View>
             <Text style={styles.modalSub}>
-              Enregistrer le départ des {activeCount} ouvrier{activeCount > 1 ? 's' : ''} encore sur site.
+              Enregistrer le départ des {actifs} ouvrier{actifs > 1 ? 's' : ''} encore sur site.
             </Text>
             <Text style={styles.fieldLabel}>Heure de départ</Text>
             <View style={styles.presetRow}>
@@ -904,7 +900,7 @@ export default function PointageScreen() {
             />
             <TouchableOpacity style={[styles.saveBtn, { backgroundColor: C.open }]} onPress={handleBulkDeparture}>
               <Ionicons name="log-out-outline" size={16} color="#fff" />
-              <Text style={styles.saveBtnText}>Pointer {activeCount} départ{activeCount > 1 ? 's' : ''}</Text>
+              <Text style={styles.saveBtnText}>Pointer {actifs} départ{actifs > 1 ? 's' : ''}</Text>
             </TouchableOpacity>
           </View>
         </KeyboardAvoidingView>
