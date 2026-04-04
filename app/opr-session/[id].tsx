@@ -13,9 +13,9 @@ import SignaturePad, { SignaturePadRef } from '@/components/SignaturePad';
 import { formatDateFR } from '@/lib/utils';
 
 const ITEM_STATUS_CFG = {
-  ok: { label: 'Conforme', color: '#10B981', icon: 'checkmark-circle' },
-  reserve: { label: 'Réserve', color: '#EF4444', icon: 'warning' },
-  non_applicable: { label: 'N/A', color: '#9CA3AF', icon: 'remove-circle-outline' },
+  ok: { label: 'Conforme', color: C.closed, icon: 'checkmark-circle' },
+  reserve: { label: 'Réserve', color: C.open, icon: 'warning' },
+  non_applicable: { label: 'N/A', color: C.textMuted, icon: 'remove-circle-outline' },
 };
 
 export default function OprSessionScreen() {
@@ -102,7 +102,12 @@ export default function OprSessionScreen() {
             ? `Aucun OPR avec l'identifiant "${id}" n'a été trouvé.`
             : 'Connectez-vous pour accéder à cette session OPR.'}
         </Text>
-        <TouchableOpacity style={styles.loginBtn} onPress={() => router.replace('/login')}>
+        <TouchableOpacity
+          style={styles.loginBtn}
+          onPress={() => router.replace('/login')}
+          accessibilityLabel={isAuthenticated ? 'Retour à l\'accueil' : 'Se connecter'}
+          accessibilityRole="button"
+        >
           <Text style={styles.loginBtnText}>{isAuthenticated ? 'Retour' : 'Se connecter'}</Text>
         </TouchableOpacity>
       </View>
@@ -113,12 +118,17 @@ export default function OprSessionScreen() {
     return (
       <View style={styles.centerContainer}>
         <View style={styles.successIcon}>
-          <Ionicons name="checkmark-circle" size={56} color="#10B981" />
+          <Ionicons name="checkmark-circle" size={56} color={C.closed} />
         </View>
         <Text style={styles.successTitle}>Signature enregistrée</Text>
         <Text style={styles.successSub}>Merci, votre signature a bien été prise en compte pour l'OPR "{opr.title}".</Text>
         {isAuthenticated && (
-          <TouchableOpacity style={[styles.loginBtn, { backgroundColor: C.primary }]} onPress={() => router.back()}>
+          <TouchableOpacity
+            style={[styles.loginBtn, { backgroundColor: C.primary }]}
+            onPress={() => router.back()}
+            accessibilityLabel="Retour à la liste des OPR"
+            accessibilityRole="button"
+          >
             <Text style={styles.loginBtnText}>Retour à la liste</Text>
           </TouchableOpacity>
         )}
@@ -133,7 +143,12 @@ export default function OprSessionScreen() {
   return (
     <KeyboardAvoidingView style={styles.container} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
       <View style={styles.header}>
-        <TouchableOpacity onPress={() => router.canGoBack() ? router.back() : router.replace('/login')} style={styles.backBtn}>
+        <TouchableOpacity
+          onPress={() => router.canGoBack() ? router.back() : router.replace('/login')}
+          style={styles.backBtn}
+          accessibilityLabel="Retour"
+          accessibilityRole="button"
+        >
           <Ionicons name="arrow-back" size={20} color={C.text} />
         </TouchableOpacity>
         <View style={{ flex: 1 }}>
@@ -165,11 +180,11 @@ export default function OprSessionScreen() {
           )}
           <View style={styles.statRow}>
             <View style={styles.statItem}>
-              <Text style={[styles.statVal, { color: '#10B981' }]}>{conformes}</Text>
+              <Text style={[styles.statVal, { color: C.closed }]}>{conformes}</Text>
               <Text style={styles.statLabel}>Conformes</Text>
             </View>
             <View style={styles.statItem}>
-              <Text style={[styles.statVal, { color: '#EF4444' }]}>{reserves}</Text>
+              <Text style={[styles.statVal, { color: C.open }]}>{reserves}</Text>
               <Text style={styles.statLabel}>Réserves</Text>
             </View>
             <View style={styles.statItem}>
@@ -222,9 +237,9 @@ export default function OprSessionScreen() {
                     <Ionicons
                       name={s.signed ? 'checkmark-circle' : 'ellipse-outline'}
                       size={14}
-                      color={s.signed ? '#10B981' : C.textMuted}
+                      color={s.signed ? C.closed : C.textMuted}
                     />
-                    <Text style={[styles.signatoryName, s.signed && { color: '#10B981' }]}>{s.name}</Text>
+                    <Text style={[styles.signatoryName, s.signed && { color: C.closed }]}>{s.name}</Text>
                     {s.signed && s.signedAt && <Text style={styles.signatoryDate}>le {s.signedAt}</Text>}
                   </View>
                 ))}
@@ -247,9 +262,9 @@ export default function OprSessionScreen() {
         )}
 
         {opr.status === 'signed' && (
-          <View style={[styles.sectionCard, { backgroundColor: '#ECFDF5', borderColor: '#6EE7B7' }]}>
+          <View style={[styles.sectionCard, { backgroundColor: C.closedBg, borderColor: C.closed + '60' }]}>
             <View style={styles.signedRow}>
-              <Ionicons name="checkmark-circle" size={20} color="#10B981" />
+              <Ionicons name="checkmark-circle" size={20} color={C.closed} />
               <Text style={styles.signedText}>PV signé le {opr.signedAt}</Text>
             </View>
           </View>
@@ -265,10 +280,10 @@ const styles = StyleSheet.create({
   loadingText: { fontSize: 14, fontFamily: 'Inter_400Regular', color: C.textSub, marginTop: 8 },
   notFoundTitle: { fontSize: 20, fontFamily: 'Inter_700Bold', color: C.text, textAlign: 'center' },
   notFoundSub: { fontSize: 14, fontFamily: 'Inter_400Regular', color: C.textSub, textAlign: 'center', lineHeight: 20 },
-  successIcon: { width: 80, height: 80, borderRadius: 40, backgroundColor: '#ECFDF5', alignItems: 'center', justifyContent: 'center' },
+  successIcon: { width: 80, height: 80, borderRadius: 40, backgroundColor: C.closedBg, alignItems: 'center', justifyContent: 'center' },
   successTitle: { fontSize: 22, fontFamily: 'Inter_700Bold', color: C.text, textAlign: 'center' },
   successSub: { fontSize: 14, fontFamily: 'Inter_400Regular', color: C.textSub, textAlign: 'center', lineHeight: 20 },
-  loginBtn: { backgroundColor: '#7C3AED', paddingHorizontal: 24, paddingVertical: 12, borderRadius: 12, marginTop: 8 },
+  loginBtn: { backgroundColor: C.verification, paddingHorizontal: 24, paddingVertical: 12, borderRadius: 12, marginTop: 8 },
   loginBtnText: { fontSize: 15, fontFamily: 'Inter_600SemiBold', color: '#fff' },
   header: {
     flexDirection: 'row', alignItems: 'center', gap: 12,
@@ -308,9 +323,9 @@ const styles = StyleSheet.create({
   sigPadContainer: { borderRadius: 12, overflow: 'hidden', borderWidth: 1.5, borderColor: C.border, height: 160 },
   signBtn: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8,
-    backgroundColor: '#7C3AED', borderRadius: 12, paddingVertical: 14, marginTop: 4,
+    backgroundColor: C.verification, borderRadius: 12, paddingVertical: 14, marginTop: 4,
   },
   signBtnText: { fontSize: 15, fontFamily: 'Inter_600SemiBold', color: '#fff' },
   signedRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  signedText: { fontSize: 14, fontFamily: 'Inter_600SemiBold', color: '#059669' },
+  signedText: { fontSize: 14, fontFamily: 'Inter_600SemiBold', color: C.closed },
 });

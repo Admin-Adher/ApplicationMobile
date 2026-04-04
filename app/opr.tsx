@@ -459,11 +459,11 @@ export default function OprScreen() {
 
   if (user?.role === 'sous_traitant') {
     return (
-      <View style={{ flex: 1, backgroundColor: '#F8FAFC', alignItems: 'center', justifyContent: 'center', padding: 32 }}>
+      <View style={{ flex: 1, backgroundColor: C.bg, alignItems: 'center', justifyContent: 'center', padding: 32 }}>
         <Header title="OPR" />
-        <Ionicons name="lock-closed-outline" size={48} color="#9CA3AF" />
-        <Text style={{ marginTop: 16, fontSize: 16, fontFamily: 'Inter_600SemiBold', color: '#374151', textAlign: 'center' }}>Accès non autorisé</Text>
-        <Text style={{ marginTop: 8, fontSize: 14, fontFamily: 'Inter_400Regular', color: '#6B7280', textAlign: 'center' }}>
+        <Ionicons name="lock-closed-outline" size={48} color={C.textMuted} />
+        <Text style={{ marginTop: 16, fontSize: 16, fontFamily: 'Inter_600SemiBold', color: C.text, textAlign: 'center' }}>Accès non autorisé</Text>
+        <Text style={{ marginTop: 8, fontSize: 14, fontFamily: 'Inter_400Regular', color: C.textSub, textAlign: 'center' }}>
           Les OPR (Opérations de réception) sont réservés aux conducteurs de travaux et chefs d'équipe.
         </Text>
       </View>
@@ -1028,6 +1028,9 @@ export default function OprScreen() {
                           <TouchableOpacity
                             style={{ flex: 1, flexDirection: 'row', alignItems: 'center', gap: 6 }}
                             onPress={() => setExpandedParticipantsOpr(p => p === opr.id ? null : opr.id)}
+                            accessibilityRole="button"
+                            accessibilityLabel={`Visite contradictoire le ${opr.visitContradictoire} — ${expandedParticipantsOpr === opr.id ? 'masquer' : 'afficher'} les participants`}
+                            accessibilityState={{ expanded: expandedParticipantsOpr === opr.id }}
                           >
                             <Text style={styles.visiteMetaText}>Visite : {opr.visitContradictoire}</Text>
                             <Text style={styles.participantsCountText}>
@@ -1042,6 +1045,8 @@ export default function OprScreen() {
                               onPress={() => { setEditingVisitDate(opr.visitContradictoire ?? ''); setEditingVisitOprId(opr.id); }}
                               hitSlop={8}
                               style={{ paddingLeft: 4 }}
+                              accessibilityLabel="Modifier la date de visite contradictoire"
+                              accessibilityRole="button"
                             >
                               <Ionicons name="pencil-outline" size={13} color={C.textMuted} />
                             </TouchableOpacity>
@@ -1094,6 +1099,8 @@ export default function OprScreen() {
                               placeholderTextColor={C.textMuted}
                               value={newParticipantName}
                               onChangeText={setNewParticipantName}
+                              returnKeyType="next"
+                              accessibilityLabel="Nom du participant à ajouter"
                             />
                             <TextInput
                               style={[styles.detailInput, { flex: 1 }]}
@@ -1101,8 +1108,15 @@ export default function OprScreen() {
                               placeholderTextColor={C.textMuted}
                               value={newParticipantCompany}
                               onChangeText={setNewParticipantCompany}
+                              returnKeyType="done"
+                              accessibilityLabel="Entreprise du participant à ajouter"
                             />
-                            <TouchableOpacity style={styles.addParticipantBtn} onPress={() => addParticipant(opr)}>
+                            <TouchableOpacity
+                              style={styles.addParticipantBtn}
+                              onPress={() => addParticipant(opr)}
+                              accessibilityLabel="Ajouter ce participant à la visite"
+                              accessibilityRole="button"
+                            >
                               <Ionicons name="person-add-outline" size={16} color={C.primary} />
                             </TouchableOpacity>
                           </View>
@@ -1123,11 +1137,18 @@ export default function OprScreen() {
                               if (trimmed) updateOpr({ ...opr, visitContradictoire: trimmed });
                               setEditingVisitOprId(null);
                             }}
+                            accessibilityLabel="Confirmer la date de visite contradictoire"
+                            accessibilityRole="button"
                           >
                             <Ionicons name="checkmark" size={13} color="#fff" />
                             <Text style={styles.visitDateSaveBtnText}>Confirmer</Text>
                           </TouchableOpacity>
-                          <TouchableOpacity onPress={() => setEditingVisitOprId(null)} hitSlop={8}>
+                          <TouchableOpacity
+                            onPress={() => setEditingVisitOprId(null)}
+                            hitSlop={8}
+                            accessibilityLabel="Annuler la modification de la date de visite"
+                            accessibilityRole="button"
+                          >
                             <Ionicons name="close" size={14} color={C.textMuted} />
                           </TouchableOpacity>
                         </View>
@@ -1136,6 +1157,8 @@ export default function OprScreen() {
                       <TouchableOpacity
                         style={styles.planifierVisiteBtn}
                         onPress={() => { setEditingVisitDate(''); setEditingVisitOprId(opr.id); }}
+                        accessibilityLabel="Planifier la visite contradictoire"
+                        accessibilityRole="button"
                       >
                         <Ionicons name="calendar-outline" size={12} color="#7C3AED" />
                         <Text style={styles.planifierVisiteText}>Planifier la visite contradictoire</Text>
@@ -1206,7 +1229,14 @@ export default function OprScreen() {
                                 );
                               })}
                               {item.status === 'reserve' && (
-                                <TouchableOpacity onPress={() => toggleItemExpand(opr, item.id)} hitSlop={8} style={{ paddingLeft: 4 }}>
+                                <TouchableOpacity
+                                  onPress={() => toggleItemExpand(opr, item.id)}
+                                  hitSlop={8}
+                                  style={{ paddingLeft: 4 }}
+                                  accessibilityLabel={`${isExpanded ? 'Réduire' : 'Développer'} le détail du lot ${item.lotName}`}
+                                  accessibilityRole="button"
+                                  accessibilityState={{ expanded: isExpanded }}
+                                >
                                   <Ionicons name={isExpanded ? 'chevron-up' : 'chevron-down'} size={14} color={C.textMuted} />
                                 </TouchableOpacity>
                               )}
@@ -1259,6 +1289,8 @@ export default function OprScreen() {
                                     updateOpr({ ...opr, items: updated });
                                   }}
                                   hitSlop={8}
+                                  accessibilityLabel={`Délier la réserve du lot ${item.lotName}`}
+                                  accessibilityRole="button"
                                 >
                                   <Ionicons name="close-circle" size={15} color={C.textMuted} />
                                 </TouchableOpacity>
@@ -1267,6 +1299,8 @@ export default function OprScreen() {
                               <TouchableOpacity
                                 style={styles.linkReserveBtn}
                                 onPress={() => setLinkReserveModal({ opr, itemId: item.id })}
+                                accessibilityLabel={`Lier une réserve existante au lot ${item.lotName}`}
+                                accessibilityRole="button"
                               >
                                 <Ionicons name="link-outline" size={13} color={C.primary} />
                                 <Text style={styles.linkReserveBtnText}>Lier une réserve existante</Text>
@@ -1347,7 +1381,13 @@ export default function OprScreen() {
                             </Text>
                           </View>
                           {isLev && !isVer && permissions.canEdit && opr.status !== 'signed' && (
-                            <TouchableOpacity onPress={() => verifyLevee(opr, item.id)} hitSlop={8} style={{ marginLeft: 4 }}>
+                            <TouchableOpacity
+                              onPress={() => verifyLevee(opr, item.id)}
+                              hitSlop={8}
+                              style={{ marginLeft: 4 }}
+                              accessibilityLabel={`Confirmer la levée de la réserve du lot ${item.lotName}`}
+                              accessibilityRole="button"
+                            >
                               <Ionicons name="checkmark-circle-outline" size={16} color={C.closed} />
                             </TouchableOpacity>
                           )}
@@ -1424,6 +1464,8 @@ export default function OprScreen() {
                         { text: 'Supprimer', style: 'destructive', onPress: () => deleteOpr(opr.id) },
                       ])}
                       hitSlop={8}
+                      accessibilityLabel={`Supprimer le PV "${opr.title}"`}
+                      accessibilityRole="button"
                     >
                       <Ionicons name="trash-outline" size={15} color={C.textMuted} />
                     </TouchableOpacity>
@@ -1435,7 +1477,12 @@ export default function OprScreen() {
                     <Ionicons name="people-outline" size={13} color={C.textSub} />
                     <Text style={styles.signatoryTitle}>Signataires collaboratifs</Text>
                     {permissions.canEdit && opr.status !== 'signed' && (
-                      <TouchableOpacity style={styles.inviteBtn} onPress={() => setInviteModal({ opr })}>
+                      <TouchableOpacity
+                        style={styles.inviteBtn}
+                        onPress={() => setInviteModal({ opr })}
+                        accessibilityLabel="Inviter un signataire collaboratif"
+                        accessibilityRole="button"
+                      >
                         <Ionicons name="person-add-outline" size={12} color={C.primary} />
                         <Text style={styles.inviteBtnText}>Inviter</Text>
                       </TouchableOpacity>
@@ -1464,7 +1511,12 @@ export default function OprScreen() {
                           </View>
                         )}
                         {permissions.canDelete && (
-                          <TouchableOpacity onPress={() => removeSignatory(opr, sig.id)} hitSlop={8}>
+                          <TouchableOpacity
+                            onPress={() => removeSignatory(opr, sig.id)}
+                            hitSlop={8}
+                            accessibilityLabel={`Retirer ${sig.name} des signataires`}
+                            accessibilityRole="button"
+                          >
                             <Ionicons name="close" size={14} color={C.textMuted} />
                           </TouchableOpacity>
                         )}
@@ -1568,6 +1620,8 @@ export default function OprScreen() {
                     key={r.id}
                     style={styles.reservePickerRow}
                     onPress={() => linkReserveModal && linkReserveToItem(linkReserveModal.opr, linkReserveModal.itemId, r.id)}
+                    accessibilityLabel={`Lier la réserve "${r.title}" — ${r.status === 'closed' ? 'Levée' : 'Ouverte'}`}
+                    accessibilityRole="button"
                   >
                     <View style={[styles.reservePickerDot, { backgroundColor: r.status === 'closed' ? C.closed : C.open }]} />
                     <View style={{ flex: 1 }}>
@@ -1583,7 +1637,12 @@ export default function OprScreen() {
                 ))
               )}
             </ScrollView>
-            <TouchableOpacity style={[styles.cancelBtn, { marginTop: 12 }]} onPress={() => setLinkReserveModal(null)}>
+            <TouchableOpacity
+              style={[styles.cancelBtn, { marginTop: 12 }]}
+              onPress={() => setLinkReserveModal(null)}
+              accessibilityLabel="Fermer le sélecteur de réserves"
+              accessibilityRole="button"
+            >
               <Text style={styles.cancelBtnText}>Fermer</Text>
             </TouchableOpacity>
           </View>
@@ -1730,10 +1789,20 @@ export default function OprScreen() {
             </View>
 
             <View style={styles.modalActions}>
-              <TouchableOpacity style={styles.modalCancelBtn} onPress={() => setSignModalOpr(null)}>
+              <TouchableOpacity
+                style={styles.modalCancelBtn}
+                onPress={() => setSignModalOpr(null)}
+                accessibilityLabel="Annuler la signature du PV"
+                accessibilityRole="button"
+              >
                 <Text style={styles.modalCancelText}>Annuler</Text>
               </TouchableOpacity>
-              <TouchableOpacity style={styles.modalConfirmBtn} onPress={confirmSign}>
+              <TouchableOpacity
+                style={styles.modalConfirmBtn}
+                onPress={confirmSign}
+                accessibilityLabel="Valider et enregistrer les signatures électroniques"
+                accessibilityRole="button"
+              >
                 <Ionicons name="ribbon-outline" size={16} color="#fff" />
                 <Text style={styles.modalConfirmText}>Valider les signatures</Text>
               </TouchableOpacity>
@@ -1859,8 +1928,8 @@ const styles = StyleSheet.create({
   signatoryRole: { fontSize: 11, fontFamily: 'Inter_400Regular', color: C.textMuted, marginTop: 1 },
   sigSignedBadge: { flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: C.closedBg, paddingHorizontal: 7, paddingVertical: 3, borderRadius: 8 },
   sigSignedText: { fontSize: 10, fontFamily: 'Inter_600SemiBold', color: C.closed },
-  sigPendingBadge: { paddingHorizontal: 8, paddingVertical: 3, borderRadius: 8, backgroundColor: '#FEF3C7' },
-  sigPendingText: { fontSize: 10, fontFamily: 'Inter_500Medium', color: '#92400E' },
+  sigPendingBadge: { paddingHorizontal: 8, paddingVertical: 3, borderRadius: 8, backgroundColor: C.waitingBg },
+  sigPendingText: { fontSize: 10, fontFamily: 'Inter_500Medium', color: C.waiting },
 
   inviteOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end', alignItems: 'center' },
   inviteSheet: { backgroundColor: C.surface, borderTopLeftRadius: 20, borderTopRightRadius: 20, padding: 20, paddingBottom: 40, width: '100%', maxWidth: 640 },
@@ -1963,8 +2032,8 @@ const styles = StyleSheet.create({
   suiviDeadline: { fontSize: 11, fontFamily: 'Inter_400Regular', color: C.textSub, minWidth: 70, textAlign: 'right' },
   suiviBadge: { paddingHorizontal: 7, paddingVertical: 2, borderRadius: 8 },
   suiviBadgeVerified: { backgroundColor: C.closedBg },
-  suiviBadgeLevee: { backgroundColor: '#ECFDF5' },
-  suiviBadgeOverdue: { backgroundColor: '#FEF2F2' },
+  suiviBadgeLevee: { backgroundColor: C.closedBg },
+  suiviBadgeOverdue: { backgroundColor: C.openBg },
   suiviBadgePending: { backgroundColor: C.bg },
   suiviBadgeText: { fontSize: 10, fontFamily: 'Inter_600SemiBold' },
 
@@ -2022,8 +2091,8 @@ const styles = StyleSheet.create({
   participantCompany: { fontSize: 11, fontFamily: 'Inter_400Regular', color: C.textMuted, marginTop: 1 },
   participantBadge: { fontSize: 10, fontFamily: 'Inter_600SemiBold', paddingHorizontal: 6, paddingVertical: 2, borderRadius: 6 },
   participantPresent: { backgroundColor: C.closedBg, color: C.closed },
-  participantAbsent: { backgroundColor: '#FEF2F2', color: C.open },
-  addParticipantRow: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingTop: 6, borderTopWidth: 1, borderTopColor: '#DDD6FE' },
+  participantAbsent: { backgroundColor: C.openBg, color: C.open },
+  addParticipantRow: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingTop: 6, borderTopWidth: 1, borderTopColor: C.border },
   addParticipantBtn: {
     width: 36, height: 36, borderRadius: 9,
     alignItems: 'center', justifyContent: 'center',
