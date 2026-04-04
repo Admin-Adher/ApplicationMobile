@@ -230,6 +230,8 @@ export default function RootLayout() {
                       <Stack.Screen name="register" options={{ headerShown: false }} />
                       <Stack.Screen name="pending-invite" options={{ headerShown: false }} />
                       <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+                      <Stack.Screen name="incident/new" options={{ headerShown: false }} />
+                      <Stack.Screen name="incident/[id]" options={{ headerShown: false }} />
                       <Stack.Screen name="reserve/[id]" options={{ headerShown: false }} />
                       <Stack.Screen name="reserve/new" options={{ headerShown: false }} />
                       <Stack.Screen name="documents" options={{ headerShown: false }} />
