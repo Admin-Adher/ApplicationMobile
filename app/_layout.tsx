@@ -1,5 +1,5 @@
-import { useEffect, useRef, useState } from 'react';
-import { AppState, AppStateStatus, View, Text, TouchableOpacity, StyleSheet, Platform, LogBox, ActivityIndicator, Image } from 'react-native';
+import { useEffect, useState } from 'react';
+import { View, Text, TouchableOpacity, StyleSheet, Platform, LogBox, ActivityIndicator, Image } from 'react-native';
 import { Stack, useRouter, useSegments } from 'expo-router';
 import { ErrorBoundary as AppErrorBoundary } from '@/components/ErrorBoundary';
 import { StatusBar } from 'expo-status-bar';
@@ -78,19 +78,6 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
   const { isAuthenticated, isLoading, user } = useAuth();
   const segments = useSegments();
   const router = useRouter();
-  const appState = useRef<AppStateStatus>(AppState.currentState);
-
-  useEffect(() => {
-    if (!isAuthenticated) return;
-    const subscription = AppState.addEventListener('change', (nextAppState: AppStateStatus) => {
-      if (appState.current.match(/inactive|background/) && nextAppState === 'active') {
-        router.replace('/(tabs)');
-      }
-      appState.current = nextAppState;
-    });
-    return () => subscription.remove();
-  }, [isAuthenticated]);
-
   useEffect(() => {
     if (isLoading) return;
     const PUBLIC_SEGMENTS = ['login', 'register', 'portal', 'opr-session', 'pending-invite'];
