@@ -299,67 +299,76 @@ export default function DashboardScreen() {
   return (
     <View style={styles.container}>
       <View style={[styles.header, { paddingTop: topPad + 12 }]}>
-        <View style={styles.headerLeft}>
-          <View style={styles.logoMini}>
-            <Text style={styles.logoMiniLetter}>B</Text>
-          </View>
-          <View style={{ flex: 1, minWidth: 0 }}>
-            <Text style={styles.brand} numberOfLines={1}>{firstName ? `Bonjour, ${firstName}` : 'BuildTrack'}</Text>
-            <Text style={styles.date}>{today}</Text>
-          </View>
-        </View>
-        <View style={styles.headerRight}>
-          {realtimeConnected && (
-            <View style={styles.realtimeDot} />
-          )}
-          <TouchableOpacity
-            style={styles.iconHeaderBtn}
-            onPress={() => setGlobalSearchVisible(true)}
-          >
-            <Ionicons name="search-outline" size={20} color={C.text} />
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={styles.bellBtn}
-            onPress={() => router.push('/notifications' as any)}
-          >
-            <Ionicons name="notifications-outline" size={20} color={C.text} />
-            {unreadCount > 0 && (
-              <View style={styles.bellBadge}>
-                <Text style={styles.bellBadgeText}>
-                  {unreadCount > 9 ? '9+' : String(unreadCount)}
-                </Text>
-              </View>
-            )}
-          </TouchableOpacity>
-          {!isSousTraitant && viewMode === 'chantier' && (
-            activeChantier ? (
-              <TouchableOpacity
-                style={styles.chantierPill}
-                onPress={openChantierSwitcher}
-              >
-                <View style={styles.chantierPillDot} />
-                <Text style={styles.chantierPillText} numberOfLines={1}>{activeChantier.name}</Text>
-                <Ionicons name="chevron-down" size={11} color={C.primary} />
-              </TouchableOpacity>
-            ) : (
-              permissions.canCreate && (
-                <TouchableOpacity
-                  style={styles.chantierPillEmpty}
-                  onPress={() => router.push('/chantier/new' as any)}
-                >
-                  <Ionicons name="add" size={13} color={C.textMuted} />
-                  <Text style={styles.chantierPillEmptyText}>Chantier</Text>
-                </TouchableOpacity>
-              )
-            )
-          )}
-          {isSousTraitant && activeChantier && (
-            <View style={styles.chantierPillReadOnly}>
-              <View style={styles.chantierPillReadOnlyDot} />
-              <Text style={styles.chantierPillReadOnlyText} numberOfLines={1}>{activeChantier.name}</Text>
+        {/* Row 1: greeting + actions */}
+        <View style={styles.headerTopRow}>
+          <View style={styles.headerLeft}>
+            <View style={styles.logoMini}>
+              <Text style={styles.logoMiniLetter}>B</Text>
             </View>
-          )}
+            <View style={styles.headerGreeting}>
+              <Text style={styles.brand} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.85}>
+                {firstName ? `Bonjour, ${firstName} 👋` : 'BuildTrack'}
+              </Text>
+              <Text style={styles.date}>{today}</Text>
+            </View>
+          </View>
+          <View style={styles.headerActions}>
+            {realtimeConnected && (
+              <View style={styles.realtimeDot} />
+            )}
+            <TouchableOpacity
+              style={styles.iconHeaderBtn}
+              onPress={() => setGlobalSearchVisible(true)}
+            >
+              <Ionicons name="search-outline" size={20} color={C.text} />
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.bellBtn}
+              onPress={() => router.push('/notifications' as any)}
+            >
+              <Ionicons name="notifications-outline" size={20} color={C.text} />
+              {unreadCount > 0 && (
+                <View style={styles.bellBadge}>
+                  <Text style={styles.bellBadgeText}>
+                    {unreadCount > 9 ? '9+' : String(unreadCount)}
+                  </Text>
+                </View>
+              )}
+            </TouchableOpacity>
+          </View>
         </View>
+
+        {/* Row 2: chantier selector */}
+        {!isSousTraitant && viewMode === 'chantier' && (
+          activeChantier ? (
+            <TouchableOpacity
+              style={styles.chantierPillRow}
+              onPress={openChantierSwitcher}
+              activeOpacity={0.75}
+            >
+              <View style={styles.chantierPillDot} />
+              <Text style={styles.chantierPillRowText} numberOfLines={1}>{activeChantier.name}</Text>
+              <Ionicons name="chevron-down" size={12} color={C.primary} />
+            </TouchableOpacity>
+          ) : (
+            permissions.canCreate && (
+              <TouchableOpacity
+                style={styles.chantierPillRowEmpty}
+                onPress={() => router.push('/chantier/new' as any)}
+                activeOpacity={0.75}
+              >
+                <Ionicons name="add-circle-outline" size={14} color={C.textMuted} />
+                <Text style={styles.chantierPillEmptyText}>Ajouter un chantier</Text>
+              </TouchableOpacity>
+            )
+          )
+        )}
+        {isSousTraitant && activeChantier && (
+          <View style={styles.chantierPillRowReadOnly}>
+            <View style={styles.chantierPillReadOnlyDot} />
+            <Text style={styles.chantierPillReadOnlyText} numberOfLines={1}>{activeChantier.name}</Text>
+          </View>
+        )}
       </View>
 
       {showPortfolioToggle && (
@@ -795,17 +804,23 @@ export default function DashboardScreen() {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: C.bg },
   header: {
-    paddingLeft: 24,
+    paddingLeft: 20,
     paddingRight: 16,
-    paddingBottom: 14,
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'flex-end',
+    paddingBottom: 10,
+    flexDirection: 'column',
     borderBottomWidth: 1,
     borderBottomColor: C.border,
     backgroundColor: C.surface,
+    gap: 8,
   },
-  headerLeft: { flexDirection: 'row', alignItems: 'center', gap: 10, flexShrink: 1, minWidth: 0 },
+  headerTopRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  headerLeft: { flexDirection: 'row', alignItems: 'center', gap: 10, flex: 1, minWidth: 0 },
+  headerGreeting: { flex: 1, minWidth: 0 },
+  headerActions: { flexDirection: 'row', alignItems: 'center', gap: 8, flexShrink: 0 },
   headerRight: { flexDirection: 'row', alignItems: 'center', gap: 8, flexShrink: 0 },
   realtimeDot: {
     width: 8, height: 8, borderRadius: 4,
@@ -848,13 +863,40 @@ const styles = StyleSheet.create({
     backgroundColor: C.primaryBg, paddingHorizontal: 10, paddingVertical: 7,
     borderRadius: 22, borderWidth: 1.5, borderColor: C.primary + '60', maxWidth: 120,
   },
+  chantierPillRow: {
+    flexDirection: 'row', alignItems: 'center', gap: 6,
+    backgroundColor: C.primaryBg,
+    paddingHorizontal: 12, paddingVertical: 7,
+    borderRadius: 10, borderWidth: 1.5, borderColor: C.primary + '50',
+    alignSelf: 'flex-start',
+    maxWidth: '100%',
+  },
+  chantierPillRowText: {
+    fontSize: 12, fontFamily: 'Inter_600SemiBold', color: C.primary,
+    flexShrink: 1,
+  },
+  chantierPillRowEmpty: {
+    flexDirection: 'row', alignItems: 'center', gap: 6,
+    backgroundColor: C.surface2,
+    paddingHorizontal: 12, paddingVertical: 7,
+    borderRadius: 10, borderWidth: 1.5, borderColor: C.border,
+    alignSelf: 'flex-start',
+  },
+  chantierPillRowReadOnly: {
+    flexDirection: 'row', alignItems: 'center', gap: 6,
+    backgroundColor: C.surface2,
+    paddingHorizontal: 12, paddingVertical: 7,
+    borderRadius: 10, borderWidth: 1.5, borderColor: C.border,
+    alignSelf: 'flex-start',
+    maxWidth: '100%',
+  },
   chantierPillReadOnly: {
     flexDirection: 'row', alignItems: 'center', gap: 4,
     backgroundColor: C.surface2, paddingHorizontal: 10, paddingVertical: 7,
     borderRadius: 22, borderWidth: 1.5, borderColor: C.border, maxWidth: 120,
   },
   chantierPillReadOnlyDot: { width: 7, height: 7, borderRadius: 4, backgroundColor: C.textMuted },
-  chantierPillReadOnlyText: { fontSize: 11, fontFamily: 'Inter_600SemiBold', color: C.textMuted, flex: 1 },
+  chantierPillReadOnlyText: { fontSize: 11, fontFamily: 'Inter_600SemiBold', color: C.textMuted, flexShrink: 1 },
   chantierPillDot: { width: 7, height: 7, borderRadius: 4, backgroundColor: C.primary },
   chantierPillText: { fontSize: 11, fontFamily: 'Inter_700Bold', color: C.primary, flex: 1 },
   chantierPillEmpty: {
