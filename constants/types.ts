@@ -494,6 +494,8 @@ export interface TimeEntry {
   departureTime?: string;
   notes?: string;
   recordedBy: string;
+  taskId?: string;
+  taskTitle?: string;
 }
 
 export type RegDocType = 'ppsps' | 'dict' | 'doe' | 'plan_prevention' | 'declaration_prealable' | 'dpae' | 'autre';

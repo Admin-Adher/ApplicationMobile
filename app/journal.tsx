@@ -10,6 +10,7 @@ import { C } from '@/constants/colors';
 import { useAuth } from '@/context/AuthContext';
 import { useSettings } from '@/context/SettingsContext';
 import { useApp } from '@/context/AppContext';
+import { usePointage } from '@/context/PointageContext';
 import Header from '@/components/Header';
 import { JournalEntry } from '@/constants/types';
 import BottomNavBar from '@/components/BottomNavBar';
@@ -197,12 +198,14 @@ export default function JournalScreen() {
   const { user, permissions } = useAuth();
   const { projectName } = useSettings();
   const { companies } = useApp();
+  const { getEntriesForDate } = usePointage();
   const [entries, setEntries] = useState<JournalEntry[]>([]);
   const [showNew, setShowNew] = useState(false);
   const [fetchingWeather, setFetchingWeather] = useState(false);
   const [weatherDetail, setWeatherDetail] = useState<{ temp: number | null; wind: number | null } | null>(null);
 
   const todayFR = formatDateFR(new Date());
+  const todayISO = new Date().toISOString().slice(0, 10);
   const hasTodayEntry = entries.some(e => e.date === todayFR);
 
   useEffect(() => {
@@ -224,6 +227,17 @@ export default function JournalScreen() {
   const [incidents, setIncidents] = useState('');
   const [observations, setObservations] = useState('');
   const [visiteur, setVisiteur] = useState('');
+  const [workerCountFromPointage, setWorkerCountFromPointage] = useState(0);
+
+  useEffect(() => {
+    if (showNew) {
+      const pointageEntries = getEntriesForDate(todayISO);
+      if (pointageEntries.length > 0) {
+        setWorkerCountFromPointage(pointageEntries.length);
+        setWorkerCount(String(pointageEntries.length));
+      }
+    }
+  }, [showNew, todayISO, getEntriesForDate]);
 
   const resetForm = () => {
     setDate(formatDateFR(new Date()));
@@ -235,6 +249,7 @@ export default function JournalScreen() {
     setObservations('');
     setVisiteur('');
     setWeatherDetail(null);
+    setWorkerCountFromPointage(0);
   };
 
   const handleAutoWeather = useCallback(async () => {
@@ -420,7 +435,17 @@ export default function JournalScreen() {
               </View>
             </ScrollView>
 
-            <Text style={styles.label}>Effectif sur site</Text>
+            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
+              <Text style={styles.label}>Effectif sur site</Text>
+              {workerCountFromPointage > 0 && (
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: C.closedBg, paddingHorizontal: 8, paddingVertical: 3, borderRadius: 8 }}>
+                  <Ionicons name="checkmark-circle" size={12} color={C.closed} />
+                  <Text style={{ fontSize: 11, fontFamily: 'Inter_500Medium', color: C.closed }}>
+                    Depuis le pointage
+                  </Text>
+                </View>
+              )}
+            </View>
             <TextInput style={styles.input} placeholder="Nombre de personnes" placeholderTextColor={C.textMuted} value={workerCount} onChangeText={setWorkerCount} keyboardType="numeric" />
 
             <Text style={styles.label}>Travaux réalisés *</Text>

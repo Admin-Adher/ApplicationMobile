@@ -8,6 +8,7 @@ import { useRouter } from 'expo-router';
 import { C } from '@/constants/colors';
 import { useApp } from '@/context/AppContext';
 import { useAuth } from '@/context/AuthContext';
+import { usePointage } from '@/context/PointageContext';
 import { Task, TaskStatus } from '@/constants/types';
 import Header from '@/components/Header';
 import { parseDeadline, formatDate } from '@/lib/reserveUtils';
@@ -72,8 +73,20 @@ function TaskCard({ task, onDelete, canEdit, onPress }: {
   task: Task; onDelete: () => void; canEdit: boolean; onPress?: () => void;
 }) {
   const { companies } = useApp();
+  const { entries } = usePointage();
   const cfg = STATUS_CFG[task.status];
   const co = companies.find(c => c.id === task.company || c.name === task.company);
+
+  const loggedHours = useMemo(() => {
+    const taskEntries = entries.filter(e => e.taskId === task.id);
+    return taskEntries.reduce((acc, e) => {
+      if (!e.departureTime) return acc;
+      const [ah, am] = e.arrivalTime.split(':').map(Number);
+      const [dh, dm] = e.departureTime.split(':').map(Number);
+      const diff = (dh * 60 + dm) - (ah * 60 + am);
+      return acc + (diff > 0 ? Math.round((diff / 60) * 10) / 10 : 0);
+    }, 0);
+  }, [entries, task.id]);
   const companyName = co?.name ?? task.company ?? '—';
   const deadline = parseDeadline(task.deadline);
   const today = sod(new Date());
@@ -158,6 +171,14 @@ function TaskCard({ task, onDelete, canEdit, onPress }: {
         </View>
         <Text style={[styles.taskPct, { color: cfg.color }]}>{task.progress}%</Text>
       </View>
+
+      {/* Ligne 5 : heures pointées (si existantes) */}
+      {loggedHours > 0 && (
+        <View style={styles.loggedHoursRow}>
+          <Ionicons name="time-outline" size={11} color={C.inProgress} />
+          <Text style={styles.loggedHoursText}>{loggedHours}h pointées sur cette tâche</Text>
+        </View>
+      )}
 
     </TouchableOpacity>
   );
@@ -1121,6 +1142,12 @@ const styles = StyleSheet.create({
   taskProgressRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   taskBarBg: { height: 5, backgroundColor: C.border, borderRadius: 3, overflow: 'hidden' },
   taskBarFill: { height: 5, borderRadius: 3 },
+  loggedHoursRow: {
+    flexDirection: 'row', alignItems: 'center', gap: 5,
+    marginTop: 6, paddingTop: 6,
+    borderTopWidth: 1, borderTopColor: C.border,
+  },
+  loggedHoursText: { fontSize: 11, fontFamily: 'Inter_500Medium', color: C.inProgress },
   deadlinePill: {
     flexDirection: 'row', alignItems: 'center', gap: 4,
     paddingHorizontal: 8, paddingVertical: 3, borderRadius: 20, borderWidth: 1,
