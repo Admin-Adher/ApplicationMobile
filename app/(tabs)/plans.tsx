@@ -1626,7 +1626,7 @@ export default function PlansScreen() {
             )}
 
             {/* Zoom controls overlay — bottom right (only for schematic/DXF, PDF viewer has its own) */}
-            {!isPlanFile && (
+            {!isPlanFile && !!currentPlanId && (
               <View style={styles.zoomOverlay}>
                 <View style={styles.zoomOverlayGroup}>
                   <TouchableOpacity style={styles.zoomOverlayBtn} onPress={() => doZoom('out')} accessibilityLabel="Dézoomer">
@@ -1644,13 +1644,15 @@ export default function PlansScreen() {
             )}
 
             {/* Fullscreen toggle — top right */}
-            <TouchableOpacity
-              style={styles.fullscreenBtn}
-              onPress={() => setFullscreen(v => !v)}
-              accessibilityLabel={fullscreen ? 'Quitter le mode plein écran' : 'Mode plein écran'}
-            >
-              <Ionicons name={fullscreen ? 'contract-outline' : 'expand-outline'} size={17} color="#fff" />
-            </TouchableOpacity>
+            {!!currentPlanId && (
+              <TouchableOpacity
+                style={styles.fullscreenBtn}
+                onPress={() => setFullscreen(v => !v)}
+                accessibilityLabel={fullscreen ? 'Quitter le mode plein écran' : 'Mode plein écran'}
+              >
+                <Ionicons name={fullscreen ? 'contract-outline' : 'expand-outline'} size={17} color="#fff" />
+              </TouchableOpacity>
+            )}
           </View>
         </View>
 
@@ -1769,7 +1771,7 @@ export default function PlansScreen() {
       </View>
 
       {/* Mobile: reserve bottom sheet */}
-      {!isTablet && !fullscreen && (
+      {!isTablet && !fullscreen && !!currentPlanId && (
         <ReservesSheet
           reserves={planReserves}
           allReserves={allPlanReserves}
