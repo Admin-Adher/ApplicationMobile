@@ -1212,9 +1212,9 @@ export default function AdminScreen() {
                 {companyModal?.mode === 'edit' ? 'Modifier l\'entreprise' : 'Ajouter une entreprise'}
               </Text>
               <ScrollView
-                style={{ flex: 1 }}
                 showsVerticalScrollIndicator={false}
                 keyboardShouldPersistTaps="handled"
+                nestedScrollEnabled
                 contentContainerStyle={{ gap: 10, paddingBottom: 8 }}
               >
                 <View style={styles.field}>
@@ -1304,7 +1304,7 @@ export default function AdminScreen() {
         <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
           <TouchableOpacity style={styles.overlay} activeOpacity={1} onPress={handleCloseInviteModal}>
             <TouchableOpacity activeOpacity={1} style={styles.sheet}>
-              <ScrollView showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled" contentContainerStyle={{ gap: 10 }}>
+              <ScrollView showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled" nestedScrollEnabled contentContainerStyle={{ gap: 10 }}>
                 <View style={styles.sheetHandle} />
                 {inviteToken ? (
                   <>
