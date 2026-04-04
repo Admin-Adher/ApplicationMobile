@@ -82,17 +82,29 @@ export default function NewChantierScreen() {
   }
 
   function updatePlanBuilding(planId: string, bldg: ChantierBuilding) {
+    setPlans(prev => prev.map(p => {
+      if (p.id !== planId) return p;
+      const alreadySelected = p.buildingId === bldg.id;
+      return alreadySelected
+        ? { ...p, buildingId: undefined, building: undefined, levelId: undefined, level: undefined }
+        : { ...p, buildingId: bldg.id, building: bldg.name, levelId: undefined, level: undefined };
+    }));
+  }
+
+  function clearPlanBuilding(planId: string) {
     setPlans(prev => prev.map(p =>
-      p.id === planId
-        ? { ...p, buildingId: bldg.id, building: bldg.name, levelId: undefined, level: undefined }
-        : p
+      p.id === planId ? { ...p, buildingId: undefined, building: undefined, levelId: undefined, level: undefined } : p
     ));
   }
 
   function updatePlanLevel(planId: string, levelId: string, levelName: string) {
-    setPlans(prev => prev.map(p =>
-      p.id === planId ? { ...p, levelId, level: levelName } : p
-    ));
+    setPlans(prev => prev.map(p => {
+      if (p.id !== planId) return p;
+      const alreadySelected = p.levelId === levelId;
+      return alreadySelected
+        ? { ...p, levelId: undefined, level: undefined }
+        : { ...p, levelId, level: levelName };
+    }));
   }
 
   async function importPlanFile(planId: string) {
@@ -304,9 +316,17 @@ export default function NewChantierScreen() {
                   {/* Sélection Bâtiment + Niveau — uniquement si une structure est configurée */}
                   {buildings.length > 0 && (
                     <View style={styles.planHierarchyBlock}>
-                      <Text style={styles.planHierarchyLabel}>Bâtiment</Text>
+                      <Text style={styles.planHierarchyLabel}>Localisation du plan</Text>
                       <ScrollView horizontal showsHorizontalScrollIndicator={false}>
                         <View style={styles.planChipRow}>
+                          {/* Chip "Général" — actif quand aucun bâtiment n'est sélectionné */}
+                          <TouchableOpacity
+                            style={[styles.planChip, !plan.buildingId && styles.planChipActive]}
+                            onPress={() => clearPlanBuilding(plan.id)}
+                          >
+                            <Ionicons name="layers-outline" size={11} color={!plan.buildingId ? C.primary : C.textSub} />
+                            <Text style={[styles.planChipText, !plan.buildingId && styles.planChipTextActive]}>Général</Text>
+                          </TouchableOpacity>
                           {buildings.map(b => (
                             <TouchableOpacity
                               key={b.id}
@@ -336,14 +356,6 @@ export default function NewChantierScreen() {
                             </View>
                           </ScrollView>
                         </>
-                      )}
-                      {!plan.buildingId && (
-                        <View style={styles.planHierarchyHint}>
-                          <Ionicons name="information-circle-outline" size={12} color={C.textMuted} />
-                          <Text style={styles.planHierarchyHintText}>
-                            Sans sélection, ce plan apparaîtra dans "Général".
-                          </Text>
-                        </View>
                       )}
                     </View>
                   )}
@@ -463,8 +475,6 @@ const styles = StyleSheet.create({
   planChipActive: { backgroundColor: C.primaryBg, borderColor: C.primary },
   planChipText: { fontSize: 12, fontFamily: 'Inter_500Medium', color: C.textSub },
   planChipTextActive: { color: C.primary, fontFamily: 'Inter_600SemiBold' },
-  planHierarchyHint: { flexDirection: 'row', alignItems: 'center', gap: 5, marginTop: 6 },
-  planHierarchyHintText: { fontSize: 11, fontFamily: 'Inter_400Regular', color: C.textMuted, flex: 1 },
   submitBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', backgroundColor: C.primary, borderRadius: 14, paddingVertical: 16, gap: 8, marginTop: 4 },
   submitBtnText: { fontSize: 16, fontFamily: 'Inter_600SemiBold', color: '#fff' },
   existingNote: { flexDirection: 'row', alignItems: 'flex-start', gap: 8, marginTop: 14, padding: 12, backgroundColor: C.surface2, borderRadius: 10, borderWidth: 1, borderColor: C.border },
