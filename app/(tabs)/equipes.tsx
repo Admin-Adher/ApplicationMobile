@@ -254,7 +254,54 @@ export default function EquipesScreen() {
         showsVerticalScrollIndicator={false}
       >
         {/* ── Summary ── */}
-        <View style={styles.summaryCard}>
+        {companies.length === 0 && (
+          <View style={styles.equipeEmptyWrap}>
+            <View style={styles.equipeEmptyIconCircle}>
+              <Ionicons name="people" size={38} color="#EC4899" />
+            </View>
+            <Text style={styles.equipeEmptyTitle}>Aucune entreprise enregistrée</Text>
+            <Text style={styles.equipeEmptySubtitle}>
+              Ajoutez les entreprises intervenantes pour suivre les présences, tâches et réserves de chantier.
+            </Text>
+            <View style={styles.equipeEmptyFeatures}>
+              <View style={styles.equipeEmptyFeatureRow}>
+                <View style={[styles.equipeEmptyFeatureDot, { backgroundColor: '#EC4899' }]}>
+                  <Ionicons name="people-outline" size={14} color="#fff" />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.equipeEmptyFeatureTitle}>Gestion des présences</Text>
+                  <Text style={styles.equipeEmptyFeatureDesc}>Saisissez les arrivées et départs de chaque équipe au quotidien.</Text>
+                </View>
+              </View>
+              <View style={styles.equipeEmptyFeatureRow}>
+                <View style={[styles.equipeEmptyFeatureDot, { backgroundColor: '#059669' }]}>
+                  <Ionicons name="checkmark-circle-outline" size={14} color="#fff" />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.equipeEmptyFeatureTitle}>Suivi des tâches</Text>
+                  <Text style={styles.equipeEmptyFeatureDesc}>Associez des tâches par entreprise et visualisez l'avancement en temps réel.</Text>
+                </View>
+              </View>
+              <View style={[styles.equipeEmptyFeatureRow, { borderBottomWidth: 0 }]}>
+                <View style={[styles.equipeEmptyFeatureDot, { backgroundColor: '#0891B2' }]}>
+                  <Ionicons name="warning-outline" size={14} color="#fff" />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.equipeEmptyFeatureTitle}>Réserves & responsabilités</Text>
+                  <Text style={styles.equipeEmptyFeatureDesc}>Retrouvez les réserves ouvertes par entreprise pour coordonner les interventions.</Text>
+                </View>
+              </View>
+            </View>
+            {permissions.canManageTeams && (
+              <TouchableOpacity style={styles.equipeEmptyBtn} onPress={openAdd}>
+                <Ionicons name="add-circle-outline" size={18} color="#fff" />
+                <Text style={styles.equipeEmptyBtnText}>Ajouter une entreprise</Text>
+              </TouchableOpacity>
+            )}
+          </View>
+        )}
+
+        {companies.length > 0 && <View style={styles.summaryCard}>
           <View style={styles.summaryRow}>
             <View style={styles.summaryItem}>
               <Text style={styles.summaryValue}>{stats.totalWorkers}</Text>
@@ -286,10 +333,10 @@ export default function EquipesScreen() {
             </View>
             <Text style={styles.summaryBarPct}>{presencePct}%</Text>
           </View>
-        </View>
+        </View>}
 
         {/* ── Entreprises ── */}
-        <Text style={styles.sectionTitle}>Entreprises sur chantier ({companies.length})</Text>
+        {companies.length > 0 && <Text style={styles.sectionTitle}>Entreprises sur chantier ({companies.length})</Text>}
         {companies.map(co => {
           const pct = co.plannedWorkers > 0 ? Math.round((co.actualWorkers / co.plannedWorkers) * 100) : 0;
           const ecart = co.plannedWorkers - co.actualWorkers;
@@ -435,13 +482,6 @@ export default function EquipesScreen() {
           );
         })}
 
-        {companies.length === 0 && (
-          <View style={styles.emptyBox}>
-            <Ionicons name="business-outline" size={32} color={C.textMuted} />
-            <Text style={styles.emptyText}>Aucune entreprise — appuyez sur + pour en ajouter une</Text>
-          </View>
-        )}
-
         {/* ── Save attendance ── */}
         {permissions.canUpdateAttendance && companies.length > 0 && (
           <TouchableOpacity
@@ -470,6 +510,7 @@ export default function EquipesScreen() {
         )}
 
         {/* ── Tasks ── */}
+        {companies.length > 0 && <>
         <View style={styles.sectionTitleRow}>
           <Text style={styles.sectionTitle}>
             Tâches en cours{user?.role === 'chef_equipe' ? ' (mes tâches)' : ''}
@@ -534,6 +575,7 @@ export default function EquipesScreen() {
             </Text>
           </View>
         )}
+        </>}
       </ScrollView>
 
       {/* ══ Add / Edit Company Modal ══ */}
@@ -832,6 +874,37 @@ const styles = StyleSheet.create({
 
   emptyBox: { alignItems: 'center', paddingVertical: 32, gap: 8 },
   emptyText: { fontSize: 14, fontFamily: 'Inter_400Regular', color: C.textMuted, textAlign: 'center' },
+
+  equipeEmptyWrap: { alignItems: 'center', paddingTop: 32, paddingBottom: 24, paddingHorizontal: 8 },
+  equipeEmptyIconCircle: {
+    width: 88, height: 88, borderRadius: 44,
+    backgroundColor: '#EC489918',
+    alignItems: 'center', justifyContent: 'center',
+    marginBottom: 20,
+  },
+  equipeEmptyTitle: { fontSize: 22, fontFamily: 'Inter_700Bold', color: C.text, textAlign: 'center', marginBottom: 8 },
+  equipeEmptySubtitle: { fontSize: 14, fontFamily: 'Inter_400Regular', color: C.textSub, textAlign: 'center', lineHeight: 20, marginBottom: 24, paddingHorizontal: 8 },
+  equipeEmptyFeatures: {
+    width: '100%', borderWidth: 1, borderColor: C.border, borderRadius: 14,
+    backgroundColor: C.surface, overflow: 'hidden', marginBottom: 28,
+  },
+  equipeEmptyFeatureRow: {
+    flexDirection: 'row', alignItems: 'flex-start', gap: 14,
+    paddingVertical: 14, paddingHorizontal: 16,
+    borderBottomWidth: 1, borderBottomColor: C.border,
+  },
+  equipeEmptyFeatureDot: {
+    width: 32, height: 32, borderRadius: 16,
+    alignItems: 'center', justifyContent: 'center', flexShrink: 0, marginTop: 1,
+  },
+  equipeEmptyFeatureTitle: { fontSize: 14, fontFamily: 'Inter_600SemiBold', color: C.text, marginBottom: 2 },
+  equipeEmptyFeatureDesc: { fontSize: 12, fontFamily: 'Inter_400Regular', color: C.textSub, lineHeight: 17 },
+  equipeEmptyBtn: {
+    flexDirection: 'row', alignItems: 'center', gap: 8,
+    backgroundColor: C.primary, borderRadius: 14,
+    paddingVertical: 14, paddingHorizontal: 28,
+  },
+  equipeEmptyBtnText: { fontSize: 15, fontFamily: 'Inter_600SemiBold', color: '#fff' },
 
   taskCard: { backgroundColor: C.surface, borderRadius: 12, padding: 14, marginBottom: 8, borderWidth: 1, borderColor: C.border },
   taskTop: { flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 10 },
