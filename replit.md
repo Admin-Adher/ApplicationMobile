@@ -9,7 +9,7 @@
 
 ## Android / EAS Build
 - **EAS build image**: `ubuntu-22.04-jdk-17-ndk-r26b` (pinned in `eas.json` for both preview and production)
-- **expo-build-properties**: configured in `app.json` with `compileSdkVersion: 35`, `targetSdkVersion: 35`, `buildToolsVersion: "35.0.0"`, `minSdkVersion: 24`, `kotlinVersion: "1.9.25"`
+- **expo-build-properties**: version `~0.14.8` (the correct version for Expo SDK 53 — do NOT use 55.x). Configured in `app.json` with `compileSdkVersion: 35`, `targetSdkVersion: 35`, `buildToolsVersion: "35.0.0"`, `minSdkVersion: 24`. No `kotlinVersion` override — defaults to Kotlin 2.0.21 provided by RN 0.79.
 - These settings fix Gradle deprecation/compatibility errors when building with EAS
 
 ## Overview
