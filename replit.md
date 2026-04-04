@@ -73,8 +73,16 @@ assets/        # Fonts and images
   - Users can scan the QR code with Expo Go to test on physical devices
 
 ## Environment Variables
-- Supabase credentials should be stored as environment variables/secrets
+- `EXPO_PUBLIC_SUPABASE_URL` and `EXPO_PUBLIC_SUPABASE_KEY` are configured in `.replit` under `[userenv.shared]`
+- These are public/anon keys (safe to expose in Expo client apps)
 - Check `lib/supabase.ts` for the Supabase configuration
+- The app has a built-in offline/demo mode that activates automatically if Supabase is not configured
+
+## Replit Setup (April 2026)
+- Project successfully migrated to Replit environment
+- Dependencies installed via `npm install`
+- Workflow "Start Frontend" runs `npm run start` (Expo dev server on port 5000)
+- App accessible at port 5000 → external port 80
 
 ## Plans Tab UX Audit Fixes (Sprint 3 — April 2026)
 1. **Pin sizes** — Minimum 44px touch targets on mobile (`pinSize = 44`, `clusterSize = 52`), larger on tablet (48/60)
