@@ -1,5 +1,12 @@
 # BuildTrack - Gestion de chantier numérique
 
+## Replit Environment
+- **Runtime**: Node.js 20 on NixOS (stable-25_05)
+- **Dev server**: `npm run start` → Expo Metro on port 5000
+- **Env vars**: `EXPO_PUBLIC_SUPABASE_URL` and `EXPO_PUBLIC_SUPABASE_KEY` stored as shared env vars
+- **PostgreSQL**: Replit-managed PostgreSQL DB provisioned (env vars: DATABASE_URL, PGHOST, etc.) — not yet used by the app; Supabase handles all data/auth
+- **Workflow**: "Start Frontend" runs `npm run start` and serves on port 5000 (mapped to external port 80)
+
 ## Overview
 BuildTrack is a professional construction management mobile application built with Expo/React Native. It serves as a "control tower" for construction sites, providing tools for site supervision, incident reporting, document management, and team communication.
 
