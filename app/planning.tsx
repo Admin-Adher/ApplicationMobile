@@ -729,7 +729,7 @@ function GroupedList({ tasks, groupBy, canEdit, onDelete, onPress }: {
 
 export default function PlanningScreen() {
   const { tasks, deleteTask, companies, reload } = useApp();
-  const { permissions } = useAuth();
+  const { permissions, user } = useAuth();
   const [refreshing, setRefreshing] = useState(false);
 
   const onRefresh = useCallback(async () => {
@@ -781,6 +781,26 @@ export default function PlanningScreen() {
     }
     return list;
   }, [tasks, filterStatus, filterCompany, search, companies]);
+
+  if (user?.role === 'sous_traitant') {
+    return (
+      <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: '#F8FAFC', padding: 32 }}>
+        <Ionicons name="lock-closed-outline" size={48} color="#94A3B8" />
+        <Text style={{ fontSize: 17, fontFamily: 'Inter_600SemiBold', color: '#1E293B', marginTop: 16, textAlign: 'center' }}>
+          Accès restreint
+        </Text>
+        <Text style={{ fontSize: 14, fontFamily: 'Inter_400Regular', color: '#94A3B8', marginTop: 8, textAlign: 'center' }}>
+          Le planning n'est pas accessible aux sous-traitants.
+        </Text>
+        <TouchableOpacity
+          onPress={() => router.replace('/(tabs)' as any)}
+          style={{ marginTop: 24, paddingHorizontal: 20, paddingVertical: 10, backgroundColor: '#2563EB', borderRadius: 10 }}
+        >
+          <Text style={{ color: '#fff', fontFamily: 'Inter_600SemiBold', fontSize: 14 }}>Retour au tableau de bord</Text>
+        </TouchableOpacity>
+      </View>
+    );
+  }
 
   function handleDelete(id: string, title: string) {
     Alert.alert('Supprimer', `Supprimer la tâche "${title}" ?`, [

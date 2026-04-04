@@ -1,6 +1,7 @@
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Platform, Alert } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useMemo } from 'react';
+import { useRouter } from 'expo-router';
 import * as Print from 'expo-print';
 import * as Sharing from 'expo-sharing';
 import { C } from '@/constants/colors';
@@ -110,6 +111,7 @@ export default function AnalyticsScreen() {
   const { reserves, companies, lots } = useApp();
   const { user, permissions } = useAuth();
   const { projectName } = useSettings();
+  const router = useRouter();
   const userName = user?.name ?? 'Équipe BuildTrack';
 
   const weekStats = useMemo<ReserveWeekStat[]>(() => {
@@ -146,6 +148,26 @@ export default function AnalyticsScreen() {
       return { companyName: co.name, color: co.color, total, closed, rate, overdue };
     }).sort((a, b) => b.total - a.total);
   }, [reserves, companies]);
+
+  if (user?.role === 'sous_traitant') {
+    return (
+      <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: '#F8FAFC', padding: 32 }}>
+        <Ionicons name="lock-closed-outline" size={48} color="#94A3B8" />
+        <Text style={{ fontSize: 17, fontFamily: 'Inter_600SemiBold', color: '#1E293B', marginTop: 16, textAlign: 'center' }}>
+          Accès restreint
+        </Text>
+        <Text style={{ fontSize: 14, fontFamily: 'Inter_400Regular', color: '#94A3B8', marginTop: 8, textAlign: 'center' }}>
+          Les statistiques globales ne sont pas accessibles aux sous-traitants.
+        </Text>
+        <TouchableOpacity
+          onPress={() => router.replace('/(tabs)' as any)}
+          style={{ marginTop: 24, paddingHorizontal: 20, paddingVertical: 10, backgroundColor: '#2563EB', borderRadius: 10 }}
+        >
+          <Text style={{ color: '#fff', fontFamily: 'Inter_600SemiBold', fontSize: 14 }}>Retour au tableau de bord</Text>
+        </TouchableOpacity>
+      </View>
+    );
+  }
 
   const totalReserves = reserves.length;
   const closedReserves = reserves.filter(r => r.status === 'closed').length;

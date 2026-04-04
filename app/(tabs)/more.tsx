@@ -83,8 +83,10 @@ export default function MoreScreen() {
     // Section Chantier
     const chantierItems: MenuItem[] = [
       { icon: 'business', label: 'Chantiers', subtitle: chantiers.length > 0 ? `${chantiers.length} chantier${chantiers.length > 1 ? 's' : ''}${activeChantier ? ' · Actif: ' + activeChantier.name : ''}` : 'Aucun chantier', route: '/chantier/manage', color: C.primary },
-      { icon: 'calendar', label: 'Planning', subtitle: `${tasks.length} tâche${tasks.length !== 1 ? 's' : ''}`, route: '/planning', color: C.closed, badge: delayedCount || undefined },
-      { icon: 'bar-chart', label: 'Analytique', subtitle: 'Tendances & KPIs', route: '/analytics', color: '#0EA5E9' },
+      ...(!isSousTraitant ? [
+        { icon: 'calendar', label: 'Planning', subtitle: `${tasks.length} tâche${tasks.length !== 1 ? 's' : ''}`, route: '/planning', color: C.closed, badge: delayedCount || undefined } as MenuItem,
+        { icon: 'bar-chart', label: 'Analytique', subtitle: 'Tendances & KPIs', route: '/analytics', color: '#0EA5E9' } as MenuItem,
+      ] : []),
       { icon: 'search', label: 'Recherche', subtitle: 'Tout le chantier', route: '/search', color: '#8B5CF6' },
     ];
     if (permissions.canViewTeams) {
