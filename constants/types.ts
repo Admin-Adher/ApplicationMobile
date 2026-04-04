@@ -132,6 +132,8 @@ export interface SitePlan {
   name: string;
   building?: string;
   level?: string;
+  buildingId?: string;
+  levelId?: string;
   uri?: string;
   fileType?: 'pdf' | 'image' | 'dxf';
   dxfName?: string;

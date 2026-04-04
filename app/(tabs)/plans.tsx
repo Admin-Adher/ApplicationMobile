@@ -352,8 +352,8 @@ export default function PlansScreen() {
   const [visibleLayers, setVisibleLayers] = useState<Record<string, string[]>>({});
   const [showQRModal, setShowQRModal] = useState<{ x: number; y: number } | null>(null);
   const [displayScale, setDisplayScale] = useState(1);
-  const [newPlanModal, setNewPlanModal] = useState<{ visible: boolean; name: string; building: string; level: string }>({
-    visible: false, name: '', building: '', level: '',
+  const [newPlanModal, setNewPlanModal] = useState<{ visible: boolean; name: string; building: string; level: string; buildingId?: string; levelId?: string }>({
+    visible: false, name: '', building: '', level: '', buildingId: undefined, levelId: undefined,
   });
   const [showVersionHistory, setShowVersionHistory] = useState(false);
   const [revisionModal, setRevisionModal] = useState<{ visible: boolean; code: string; note: string }>({ visible: false, code: '', note: '' });
@@ -431,10 +431,12 @@ export default function PlansScreen() {
   );
 
   const levelsForNewPlanBuilding = useMemo(() => {
-    if (!newPlanModal.building) return [];
-    const bldg = chantierHierarchyBuildings.find(b => b.name === newPlanModal.building);
+    if (!newPlanModal.buildingId && !newPlanModal.building) return [];
+    const bldg = chantierHierarchyBuildings.find(b =>
+      newPlanModal.buildingId ? b.id === newPlanModal.buildingId : b.name === newPlanModal.building
+    );
     return bldg?.levels ?? [];
-  }, [chantierHierarchyBuildings, newPlanModal.building]);
+  }, [chantierHierarchyBuildings, newPlanModal.building, newPlanModal.buildingId]);
 
   const planLevelsForBuilding = useMemo(() => {
     const scope = selectedBuilding === 'all' ? chantierPlans : chantierPlans.filter(p => (p.building ?? '') === selectedBuilding);
@@ -444,10 +446,31 @@ export default function PlansScreen() {
 
   const filteredPlans = useMemo(() => {
     let plans = chantierPlans;
-    if (selectedBuilding !== 'all' && buildings.length >= 2) plans = plans.filter(p => (p.building ?? '') === selectedBuilding);
-    if (selectedLevel !== 'all' && planLevelsForBuilding.length >= 2) plans = plans.filter(p => (p.level ?? '') === selectedLevel);
+    if (chantierHierarchyBuildings.length > 0) {
+      if (selectedBuilding !== 'all') {
+        const bldgName = chantierHierarchyBuildings.find(b => b.id === selectedBuilding)?.name;
+        plans = plans.filter(p =>
+          p.buildingId === selectedBuilding ||
+          (p.buildingId === undefined && p.building === bldgName)
+        );
+      }
+      if (selectedLevel !== 'all') {
+        let lvlName: string | undefined;
+        for (const b of chantierHierarchyBuildings) {
+          const found = b.levels.find(l => l.id === selectedLevel);
+          if (found) { lvlName = found.name; break; }
+        }
+        plans = plans.filter(p =>
+          p.levelId === selectedLevel ||
+          (p.levelId === undefined && p.level === lvlName)
+        );
+      }
+    } else {
+      if (selectedBuilding !== 'all' && buildings.length >= 2) plans = plans.filter(p => (p.building ?? '') === selectedBuilding);
+      if (selectedLevel !== 'all' && planLevelsForBuilding.length >= 2) plans = plans.filter(p => (p.level ?? '') === selectedLevel);
+    }
     return plans;
-  }, [chantierPlans, selectedBuilding, buildings, selectedLevel, planLevelsForBuilding]);
+  }, [chantierPlans, selectedBuilding, chantierHierarchyBuildings, selectedLevel, buildings, planLevelsForBuilding]);
 
   const currentPlanId = activePlanId ?? filteredPlans[0]?.id ?? chantierPlans[0]?.id ?? null;
   const currentPlan = chantierPlans.find(p => p.id === currentPlanId) ?? null;
@@ -490,8 +513,8 @@ export default function PlansScreen() {
   );
 
   const activeFilters = [statusFilter, companyFilter, levelFilter].filter(f => f !== 'all').length
-    + (selectedBuilding !== 'all' ? 1 : 0)
-    + (selectedLevel !== 'all' ? 1 : 0);
+    + (chantierHierarchyBuildings.length === 0 && selectedBuilding !== 'all' ? 1 : 0)
+    + (chantierHierarchyBuildings.length === 0 && selectedLevel !== 'all' ? 1 : 0);
 
   const planLevels = useMemo(() => {
     const lvls = reserves.filter(r => r.planId === currentPlanId).map(r => r.level);
@@ -718,7 +741,7 @@ export default function PlansScreen() {
     const py = Math.min(100, Math.max(0, Math.round((locationY / dynH) * 100)));
     router.push({
       pathname: '/reserve/new',
-      params: { planId: currentPlanId ?? '', chantierId: activeChantierId ?? '', planX: String(px), planY: String(py) },
+      params: { planId: currentPlanId ?? '', chantierId: activeChantierId ?? '', planX: String(px), planY: String(py), building: currentPlan?.building ?? '', level: currentPlan?.level ?? '' },
     } as any);
   }
 
@@ -736,7 +759,7 @@ export default function PlansScreen() {
     const py = Math.min(100, Math.max(0, Math.round((locationY / dynH) * 100)));
     router.push({
       pathname: '/reserve/new',
-      params: { planId: currentPlanId ?? '', chantierId: activeChantierId ?? '', planX: String(px), planY: String(py) },
+      params: { planId: currentPlanId ?? '', chantierId: activeChantierId ?? '', planX: String(px), planY: String(py), building: currentPlan?.building ?? '', level: currentPlan?.level ?? '' },
     } as any);
   }
 
@@ -879,11 +902,17 @@ export default function PlansScreen() {
       name: newPlanModal.name.trim(),
       building: newPlanModal.building.trim() || undefined,
       level: newPlanModal.level.trim() || undefined,
+      buildingId: newPlanModal.buildingId || undefined,
+      levelId: newPlanModal.levelId || undefined,
       uploadedAt: formatDateFR(new Date()),
     };
     addSitePlan(newPlan);
     setActivePlanId(newPlan.id);
-    setNewPlanModal({ visible: false, name: '', building: '', level: '' });
+    if (newPlanModal.buildingId) {
+      setSelectedBuilding(newPlanModal.buildingId);
+      if (newPlanModal.levelId) setSelectedLevel(newPlanModal.levelId);
+    }
+    setNewPlanModal({ visible: false, name: '', building: '', level: '', buildingId: undefined, levelId: undefined });
   }
 
   const isPlanFile = !!(currentPlan?.uri) && currentPlan?.fileType !== 'dxf';
@@ -982,7 +1011,7 @@ export default function PlansScreen() {
                           <TouchableOpacity
                             key={b.id}
                             style={[styles.newPlanChip, newPlanModal.building === b.name && styles.newPlanChipActive]}
-                            onPress={() => setNewPlanModal(p => ({ ...p, building: b.name, level: '' }))}
+                            onPress={() => setNewPlanModal(p => ({ ...p, building: b.name, buildingId: b.id, level: '', levelId: undefined }))}
                           >
                             <Text style={[styles.newPlanChipText, newPlanModal.building === b.name && styles.newPlanChipTextActive]}>{b.name}</Text>
                           </TouchableOpacity>
@@ -999,7 +1028,7 @@ export default function PlansScreen() {
                             <TouchableOpacity
                               key={l.id}
                               style={[styles.newPlanChip, newPlanModal.level === l.name && styles.newPlanChipActive]}
-                              onPress={() => setNewPlanModal(p => ({ ...p, level: l.name }))}
+                              onPress={() => setNewPlanModal(p => ({ ...p, level: l.name, levelId: l.id }))}
                             >
                               <Text style={[styles.newPlanChipText, newPlanModal.level === l.name && styles.newPlanChipTextActive]}>{l.name}</Text>
                             </TouchableOpacity>
@@ -1061,6 +1090,56 @@ export default function PlansScreen() {
               )}
             </TouchableOpacity>
           </View>
+
+          {/* Hierarchy navigation — building chips */}
+          {chantierHierarchyBuildings.length > 0 && (
+            <View style={styles.hierarchyRow}>
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.hierarchyChips}>
+                <TouchableOpacity
+                  style={[styles.hierarchyChip, selectedBuilding === 'all' && styles.hierarchyChipActive]}
+                  onPress={() => { setSelectedBuilding('all'); setSelectedLevel('all'); setActivePlanId(null); }}
+                >
+                  <Text style={[styles.hierarchyChipText, selectedBuilding === 'all' && styles.hierarchyChipTextActive]}>Tous</Text>
+                </TouchableOpacity>
+                {chantierHierarchyBuildings.map(b => (
+                  <TouchableOpacity
+                    key={b.id}
+                    style={[styles.hierarchyChip, selectedBuilding === b.id && styles.hierarchyChipActive]}
+                    onPress={() => { setSelectedBuilding(b.id); setSelectedLevel('all'); setActivePlanId(null); }}
+                  >
+                    <Ionicons name="business-outline" size={11} color={selectedBuilding === b.id ? C.primary : C.textSub} />
+                    <Text style={[styles.hierarchyChipText, selectedBuilding === b.id && styles.hierarchyChipTextActive]}>{b.name}</Text>
+                  </TouchableOpacity>
+                ))}
+              </ScrollView>
+            </View>
+          )}
+          {/* Hierarchy navigation — level chips (only when a building is selected) */}
+          {chantierHierarchyBuildings.length > 0 && selectedBuilding !== 'all' && (() => {
+            const bldg = chantierHierarchyBuildings.find(b => b.id === selectedBuilding);
+            if (!bldg || bldg.levels.length === 0) return null;
+            return (
+              <View style={[styles.hierarchyRow, styles.hierarchyRowLevel]}>
+                <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.hierarchyChips}>
+                  <TouchableOpacity
+                    style={[styles.hierarchyChipLevel, selectedLevel === 'all' && styles.hierarchyChipLevelActive]}
+                    onPress={() => { setSelectedLevel('all'); setActivePlanId(null); }}
+                  >
+                    <Text style={[styles.hierarchyChipLevelText, selectedLevel === 'all' && { color: C.primary, fontFamily: 'Inter_600SemiBold' }]}>Tous niveaux</Text>
+                  </TouchableOpacity>
+                  {bldg.levels.map(l => (
+                    <TouchableOpacity
+                      key={l.id}
+                      style={[styles.hierarchyChipLevel, selectedLevel === l.id && styles.hierarchyChipLevelActive]}
+                      onPress={() => { setSelectedLevel(l.id); setActivePlanId(null); }}
+                    >
+                      <Text style={[styles.hierarchyChipLevelText, selectedLevel === l.id && { color: C.primary, fontFamily: 'Inter_600SemiBold' }]}>{l.name}</Text>
+                    </TouchableOpacity>
+                  ))}
+                </ScrollView>
+              </View>
+            );
+          })()}
 
           {/* Row 2: Plan tabs with thumbnails */}
           <View style={styles.planTabsBar}>
@@ -1246,7 +1325,7 @@ export default function PlansScreen() {
                 onPlanTap={(px, py) => {
                   if (focusedPinId) { setFocusedPinId(null); return; }
                   if (!permissions.canCreate) return;
-                  router.push({ pathname: '/reserve/new', params: { planId: currentPlanId ?? '', chantierId: activeChantierId ?? '', planX: String(Math.round(px)), planY: String(Math.round(py)) } } as any);
+                  router.push({ pathname: '/reserve/new', params: { planId: currentPlanId ?? '', chantierId: activeChantierId ?? '', planX: String(Math.round(px)), planY: String(Math.round(py)), building: currentPlan?.building ?? '', level: currentPlan?.level ?? '' } } as any);
                 }}
                 onPinMove={(reserveId, planX, planY) => {
                   const reserve = reservesRef.current.find(r => r.id === reserveId);
@@ -1597,7 +1676,7 @@ export default function PlansScreen() {
                         <Ionicons name="checkmark-circle-outline" size={28} color={C.closed} />
                         <Text style={styles.noReservesText}>Aucune réserve</Text>
                         {permissions.canCreate && (
-                          <TouchableOpacity style={styles.addReserveFromPlanBtn} onPress={() => router.push({ pathname: '/reserve/new', params: { planId: currentPlanId ?? '', chantierId: activeChantierId ?? '' } } as any)}>
+                          <TouchableOpacity style={styles.addReserveFromPlanBtn} onPress={() => router.push({ pathname: '/reserve/new', params: { planId: currentPlanId ?? '', chantierId: activeChantierId ?? '', building: currentPlan?.building ?? '', level: currentPlan?.level ?? '' } } as any)}>
                             <Ionicons name="add" size={14} color={C.primary} />
                             <Text style={styles.addReserveFromPlanText}>Ajouter</Text>
                           </TouchableOpacity>
@@ -1618,7 +1697,7 @@ export default function PlansScreen() {
                     )}
                   />
                   {permissions.canCreate && (
-                    <TouchableOpacity style={styles.tabletAddBtn} onPress={() => router.push({ pathname: '/reserve/new', params: { planId: currentPlanId ?? '', chantierId: activeChantierId ?? '' } } as any)}>
+                    <TouchableOpacity style={styles.tabletAddBtn} onPress={() => router.push({ pathname: '/reserve/new', params: { planId: currentPlanId ?? '', chantierId: activeChantierId ?? '', building: currentPlan?.building ?? '', level: currentPlan?.level ?? '' } } as any)}>
                       <Ionicons name="add" size={18} color="#fff" />
                       <Text style={styles.tabletAddBtnText}>Nouvelle réserve</Text>
                     </TouchableOpacity>
@@ -1653,7 +1732,7 @@ export default function PlansScreen() {
       {permissions.canCreate && !isTablet && !fullscreen && (
         <TouchableOpacity
           style={[styles.fab, { bottom: Platform.OS === 'web' ? 100 : insets.bottom + 80 }]}
-          onPress={() => router.push({ pathname: '/reserve/new', params: { planId: currentPlanId ?? '', chantierId: activeChantierId ?? '' } } as any)}
+          onPress={() => router.push({ pathname: '/reserve/new', params: { planId: currentPlanId ?? '', chantierId: activeChantierId ?? '', building: currentPlan?.building ?? '', level: currentPlan?.level ?? '' } } as any)}
           activeOpacity={0.85}
           accessibilityLabel="Créer une nouvelle réserve"
         >
@@ -1890,6 +1969,16 @@ const styles = StyleSheet.create({
   filterBadge: { width: 18, height: 18, borderRadius: 9, backgroundColor: C.primary, alignItems: 'center', justifyContent: 'center' },
   filterBadgeText: { fontSize: 10, fontFamily: 'Inter_700Bold', color: '#fff' },
 
+  hierarchyRow: { paddingHorizontal: 12, paddingVertical: 6, borderBottomWidth: 1, borderBottomColor: C.border + '60' },
+  hierarchyRowLevel: { backgroundColor: C.surface2, paddingVertical: 5 },
+  hierarchyChips: { flexDirection: 'row', gap: 6, paddingVertical: 2 },
+  hierarchyChip: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 10, paddingVertical: 5, borderRadius: 16, backgroundColor: C.surface2, borderWidth: 1, borderColor: C.border },
+  hierarchyChipActive: { backgroundColor: C.primaryBg, borderColor: C.primary },
+  hierarchyChipText: { fontSize: 12, fontFamily: 'Inter_500Medium', color: C.textSub },
+  hierarchyChipTextActive: { color: C.primary, fontFamily: 'Inter_600SemiBold' },
+  hierarchyChipLevel: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 12, backgroundColor: C.surface, borderWidth: 1, borderColor: C.border, marginRight: 4 },
+  hierarchyChipLevelActive: { backgroundColor: C.primaryBg + '80', borderColor: C.primary + '80' },
+  hierarchyChipLevelText: { fontSize: 11, fontFamily: 'Inter_400Regular', color: C.textSub },
   planTabsBar: { flexDirection: 'row', alignItems: 'center', paddingBottom: 10, borderBottomWidth: 1, borderBottomColor: C.border },
   planTabsRow: { flexDirection: 'row', paddingHorizontal: 12, gap: 6 },
   planTab: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 10, paddingVertical: 7, borderRadius: 20, backgroundColor: C.surface2, borderWidth: 1.5, borderColor: C.border, maxWidth: 180 },

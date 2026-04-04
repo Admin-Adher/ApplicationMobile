@@ -313,6 +313,8 @@ function toSitePlan(row: any): SitePlan {
     name: row.name,
     building: row.building ?? undefined,
     level: row.level ?? undefined,
+    buildingId: row.building_id ?? undefined,
+    levelId: row.level_id ?? undefined,
     uri: row.uri ?? undefined,
     fileType: row.file_type ?? undefined,
     dxfName: row.dxf_name ?? undefined,
