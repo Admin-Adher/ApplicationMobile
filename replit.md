@@ -7,6 +7,11 @@
 - **PostgreSQL**: Replit-managed PostgreSQL DB provisioned (env vars: DATABASE_URL, PGHOST, etc.) — not yet used by the app; Supabase handles all data/auth
 - **Workflow**: "Start Frontend" runs `npm run start` and serves on port 5000 (mapped to external port 80)
 
+## Android / EAS Build
+- **EAS build image**: `ubuntu-22.04-jdk-17-ndk-r26b` (pinned in `eas.json` for both preview and production)
+- **expo-build-properties**: configured in `app.json` with `compileSdkVersion: 35`, `targetSdkVersion: 35`, `buildToolsVersion: "35.0.0"`, `minSdkVersion: 24`, `kotlinVersion: "1.9.25"`
+- These settings fix Gradle deprecation/compatibility errors when building with EAS
+
 ## Overview
 BuildTrack is a professional construction management mobile application built with Expo/React Native. It serves as a "control tower" for construction sites, providing tools for site supervision, incident reporting, document management, and team communication.
 
