@@ -586,6 +586,9 @@ export default function OprScreen() {
     };
     addOpr(opr);
     setTitle('');
+    setDate(formatDateFR(new Date()));
+    setBuilding(RESERVE_BUILDINGS[0]);
+    setLevel('RDC');
     setMaireOuvrage('');
     setVisitDateForm('');
     setFormLots(DEFAULT_OPR_ITEMS.map(name => ({ id: genId(), name, entreprise: '' })));
@@ -654,8 +657,13 @@ export default function OprScreen() {
     const conducteurSig = conducteurPadRef.current?.isEmpty() ? undefined : conducteurPadRef.current?.getSVGData() ?? undefined;
     const moSig = moPadRef.current?.isEmpty() ? undefined : moPadRef.current?.getSVGData() ?? undefined;
 
-    if (!conducteurSig && !moSig) {
-      Alert.alert('Signature requise', 'Veuillez apposer au moins une signature dessinée.');
+    if (!conducteurSig) {
+      Alert.alert('Signature conducteur requise', 'Veuillez apposer la signature du conducteur de travaux. Revenez à l\'onglet Conducteur.');
+      setSignStep('conducteur');
+      return;
+    }
+    if (!moSig) {
+      Alert.alert('Signature MO requise', 'Veuillez apposer la signature du maître d\'ouvrage.');
       return;
     }
 
@@ -757,11 +765,14 @@ export default function OprScreen() {
 
             <Text style={styles.label}>Titre *</Text>
             <TextInput
-              style={styles.input}
+              style={[styles.input, !title.trim() && styles.inputError]}
               placeholder="Ex: OPR Bâtiment A — Réception R+1"
               placeholderTextColor={C.textMuted}
               value={title}
               onChangeText={setTitle}
+              autoCapitalize="words"
+              returnKeyType="next"
+              accessibilityLabel="Titre du procès-verbal"
             />
 
             <Text style={styles.label}>Maître d'ouvrage</Text>
@@ -771,6 +782,9 @@ export default function OprScreen() {
               placeholderTextColor={C.textMuted}
               value={maireOuvrage}
               onChangeText={setMaireOuvrage}
+              autoCapitalize="words"
+              returnKeyType="done"
+              accessibilityLabel="Nom du maître d'ouvrage"
             />
 
             <Text style={styles.label}>Bâtiment</Text>
@@ -781,6 +795,9 @@ export default function OprScreen() {
                     key={b}
                     style={[styles.chip, building === b && styles.chipActive]}
                     onPress={() => setBuilding(b)}
+                    accessibilityRole="radio"
+                    accessibilityState={{ checked: building === b }}
+                    accessibilityLabel={`Bâtiment ${b}`}
                   >
                     <Text style={[styles.chipText, building === b && styles.chipTextActive]}>Bât. {b}</Text>
                   </TouchableOpacity>
@@ -796,6 +813,9 @@ export default function OprScreen() {
                     key={l}
                     style={[styles.chip, level === l && styles.chipActive]}
                     onPress={() => setLevel(l)}
+                    accessibilityRole="radio"
+                    accessibilityState={{ checked: level === l }}
+                    accessibilityLabel={`Niveau ${l}`}
                   >
                     <Text style={[styles.chipText, level === l && styles.chipTextActive]}>{l}</Text>
                   </TouchableOpacity>
@@ -826,6 +846,8 @@ export default function OprScreen() {
                         onChangeText={v => setFormLots(prev => prev.map(l => l.id === lot.id ? { ...l, name: v } : l))}
                         placeholder="Nom du lot"
                         placeholderTextColor={C.textMuted}
+                        accessibilityLabel={`Nom du lot ${lot.name || 'sans titre'}`}
+                        returnKeyType="next"
                       />
                       <TextInput
                         style={styles.lotEntrepriseInput}
@@ -833,11 +855,15 @@ export default function OprScreen() {
                         onChangeText={v => setFormLots(prev => prev.map(l => l.id === lot.id ? { ...l, entreprise: v } : l))}
                         placeholder="Entreprise responsable"
                         placeholderTextColor={C.textMuted}
+                        accessibilityLabel={`Entreprise responsable du lot ${lot.name || 'sans titre'}`}
+                        returnKeyType="done"
                       />
                     </View>
                     <TouchableOpacity
                       onPress={() => setFormLots(prev => prev.filter(l => l.id !== lot.id))}
                       hitSlop={8} style={{ padding: 4 }}
+                      accessibilityLabel={`Supprimer le lot ${lot.name || 'sans titre'}`}
+                      accessibilityRole="button"
                     >
                       <Ionicons name="close-circle" size={18} color={C.textMuted} />
                     </TouchableOpacity>
@@ -871,10 +897,21 @@ export default function OprScreen() {
             )}
 
             <View style={styles.formActions}>
-              <TouchableOpacity style={styles.cancelBtn} onPress={() => setShowNew(false)}>
+              <TouchableOpacity
+                style={styles.cancelBtn}
+                onPress={() => setShowNew(false)}
+                accessibilityLabel="Annuler la création du PV"
+                accessibilityRole="button"
+              >
                 <Text style={styles.cancelBtnText}>Annuler</Text>
               </TouchableOpacity>
-              <TouchableOpacity style={styles.createBtn} onPress={createOpr}>
+              <TouchableOpacity
+                style={[styles.createBtn, !title.trim() && { opacity: 0.45 }]}
+                onPress={createOpr}
+                accessibilityLabel="Créer le procès-verbal"
+                accessibilityRole="button"
+                accessibilityState={{ disabled: !title.trim() }}
+              >
                 <Ionicons name="add" size={16} color="#fff" />
                 <Text style={styles.createBtnText}>Créer le PV</Text>
               </TouchableOpacity>
@@ -1138,6 +1175,9 @@ export default function OprScreen() {
                                     key={s}
                                     style={[styles.statusBtn, active && { backgroundColor: cfg.color + '25', borderColor: cfg.color }]}
                                     onPress={() => setItemStatus(opr, item.id, s)}
+                                    accessibilityRole="button"
+                                    accessibilityLabel={`Statut ${cfg.label} pour ${item.lotName}`}
+                                    accessibilityState={{ selected: active }}
                                   >
                                     <Ionicons name={cfg.icon as any} size={14} color={active ? cfg.color : C.textMuted} />
                                   </TouchableOpacity>
@@ -1224,7 +1264,12 @@ export default function OprScreen() {
                                   <Text style={styles.verifiedBadgeText}>Vérifié le {item.verifiedAt}</Text>
                                 </View>
                               )}
-                              <TouchableOpacity style={styles.detailSaveBtn} onPress={() => saveItemDetail(opr, item.id)}>
+                              <TouchableOpacity
+                                style={styles.detailSaveBtn}
+                                onPress={() => saveItemDetail(opr, item.id)}
+                                accessibilityLabel={`Enregistrer les détails du lot ${item.lotName}`}
+                                accessibilityRole="button"
+                              >
                                 <Ionicons name="save-outline" size={14} color="#fff" />
                                 <Text style={styles.detailSaveBtnText}>Enregistrer</Text>
                               </TouchableOpacity>
@@ -1292,7 +1337,12 @@ export default function OprScreen() {
 
                 <View style={styles.oprActions}>
                   {permissions.canExport && (
-                    <TouchableOpacity style={styles.actionBtn} onPress={() => exportOprPDF(opr)}>
+                    <TouchableOpacity
+                      style={styles.actionBtn}
+                      onPress={() => exportOprPDF(opr)}
+                      accessibilityLabel="Exporter le PV de réception en PDF"
+                      accessibilityRole="button"
+                    >
                       <Ionicons name="download-outline" size={14} color={C.primary} />
                       <Text style={[styles.actionBtnText, { color: C.primary }]}>PV Réception</Text>
                     </TouchableOpacity>
@@ -1301,6 +1351,8 @@ export default function OprScreen() {
                     <TouchableOpacity
                       style={[styles.actionBtn, { borderColor: '#F59E0B40', backgroundColor: '#FFFBEB' }]}
                       onPress={() => exportConvocationPDF(opr)}
+                      accessibilityLabel="Exporter la convocation OPR en PDF"
+                      accessibilityRole="button"
                     >
                       <Ionicons name="mail-outline" size={14} color="#D97706" />
                       <Text style={[styles.actionBtnText, { color: '#D97706' }]}>Convocation</Text>
@@ -1310,17 +1362,29 @@ export default function OprScreen() {
                     <TouchableOpacity
                       style={[styles.actionBtn, { borderColor: C.closed + '40', backgroundColor: C.closedBg }]}
                       onPress={() => exportLeveePDF(opr)}
+                      accessibilityLabel="Exporter le PV de levée de réserves en PDF"
+                      accessibilityRole="button"
                     >
                       <Ionicons name="checkmark-done-outline" size={14} color={C.closed} />
                       <Text style={[styles.actionBtnText, { color: C.closed }]}>PV Levée</Text>
                     </TouchableOpacity>
                   )}
-                  <TouchableOpacity style={[styles.actionBtn, { borderColor: '#8B5CF620', backgroundColor: '#F5F3FF' }]} onPress={() => shareOprLink(opr)}>
+                  <TouchableOpacity
+                    style={[styles.actionBtn, { borderColor: '#8B5CF620', backgroundColor: '#F5F3FF' }]}
+                    onPress={() => shareOprLink(opr)}
+                    accessibilityLabel="Copier le lien de la session OPR"
+                    accessibilityRole="button"
+                  >
                     <Ionicons name="link-outline" size={14} color="#7C3AED" />
                     <Text style={[styles.actionBtnText, { color: '#7C3AED' }]}>Lien session</Text>
                   </TouchableOpacity>
                   {permissions.canEdit && opr.status !== 'signed' && (
-                    <TouchableOpacity style={[styles.actionBtn, styles.signBtn]} onPress={() => openSignModal(opr)}>
+                    <TouchableOpacity
+                      style={[styles.actionBtn, styles.signBtn]}
+                      onPress={() => openSignModal(opr)}
+                      accessibilityLabel="Signer électroniquement le procès-verbal"
+                      accessibilityRole="button"
+                    >
                       <Ionicons name="create-outline" size={14} color={C.closed} />
                       <Text style={[styles.actionBtnText, { color: C.closed }]}>Signer le PV</Text>
                     </TouchableOpacity>
@@ -1408,6 +1472,9 @@ export default function OprScreen() {
                 value={inviteName}
                 onChangeText={setInviteName}
                 autoFocus
+                autoCapitalize="words"
+                returnKeyType="next"
+                accessibilityLabel="Nom du signataire"
               />
               <Text style={styles.modalLabel}>Rôle / Fonction</Text>
               <TextInput
@@ -1416,6 +1483,8 @@ export default function OprScreen() {
                 placeholderTextColor={C.textMuted}
                 value={inviteRole}
                 onChangeText={setInviteRole}
+                returnKeyType="next"
+                accessibilityLabel="Rôle ou fonction du signataire"
               />
               <Text style={styles.modalLabel}>Email (optionnel)</Text>
               <TextInput
@@ -1426,12 +1495,28 @@ export default function OprScreen() {
                 onChangeText={setInviteEmail}
                 keyboardType="email-address"
                 autoCapitalize="none"
+                returnKeyType="done"
+                textContentType="emailAddress"
+                onSubmitEditing={addSignatory}
+                accessibilityLabel="Adresse email du signataire"
               />
               <View style={styles.inviteActions}>
-                <TouchableOpacity style={styles.cancelBtn} onPress={() => { setInviteModal(null); setInviteName(''); setInviteRole(''); setInviteEmail(''); }}>
+                <TouchableOpacity
+                  style={styles.cancelBtn}
+                  onPress={() => { setInviteModal(null); setInviteName(''); setInviteRole(''); setInviteEmail(''); }}
+                  accessibilityLabel="Annuler l'invitation"
+                  accessibilityRole="button"
+                >
                   <Text style={styles.cancelBtnText}>Annuler</Text>
                 </TouchableOpacity>
-                <TouchableOpacity style={styles.createBtn} onPress={addSignatory}>
+                <TouchableOpacity
+                  style={[styles.createBtn, !inviteName.trim() && { opacity: 0.45 }]}
+                  onPress={addSignatory}
+                  disabled={!inviteName.trim()}
+                  accessibilityLabel="Ajouter le signataire"
+                  accessibilityRole="button"
+                  accessibilityState={{ disabled: !inviteName.trim() }}
+                >
                   <Ionicons name="person-add-outline" size={15} color="#fff" />
                   <Text style={styles.createBtnText}>Ajouter</Text>
                 </TouchableOpacity>
@@ -1513,6 +1598,9 @@ export default function OprScreen() {
               <TouchableOpacity
                 style={[styles.signStepTab, signStep === 'conducteur' && styles.signStepTabActive]}
                 onPress={() => setSignStep('conducteur')}
+                accessibilityRole="tab"
+                accessibilityLabel="Étape conducteur de travaux"
+                accessibilityState={{ selected: signStep === 'conducteur' }}
               >
                 <Ionicons name="person-outline" size={14} color={signStep === 'conducteur' ? C.primary : C.textMuted} />
                 <Text style={[styles.signStepTabText, signStep === 'conducteur' && { color: C.primary }]}>Conducteur</Text>
@@ -1520,6 +1608,9 @@ export default function OprScreen() {
               <TouchableOpacity
                 style={[styles.signStepTab, signStep === 'mo' && styles.signStepTabActive]}
                 onPress={() => setSignStep('mo')}
+                accessibilityRole="tab"
+                accessibilityLabel="Étape maître d'ouvrage"
+                accessibilityState={{ selected: signStep === 'mo' }}
               >
                 <Ionicons name="business-outline" size={14} color={signStep === 'mo' ? C.primary : C.textMuted} />
                 <Text style={[styles.signStepTabText, signStep === 'mo' && { color: C.primary }]}>Maître d'ouvrage</Text>
@@ -1538,6 +1629,8 @@ export default function OprScreen() {
                     placeholder="Votre nom complet..."
                     placeholderTextColor={C.textMuted}
                     autoCapitalize="words"
+                    returnKeyType="done"
+                    accessibilityLabel="Nom complet du conducteur de travaux"
                   />
                 </View>
                 <Text style={styles.modalLabel}>SIGNATURE (dessiner ci-dessous)</Text>
@@ -1546,12 +1639,29 @@ export default function OprScreen() {
                   <TouchableOpacity
                     style={styles.clearPadBtn}
                     onPress={() => conducteurPadRef.current?.clear()}
+                    accessibilityLabel="Effacer la signature du conducteur"
+                    accessibilityRole="button"
                   >
                     <Ionicons name="refresh-outline" size={13} color={C.textMuted} />
                     <Text style={styles.clearPadText}>Effacer</Text>
                   </TouchableOpacity>
                 </View>
-                <TouchableOpacity style={styles.nextStepBtn} onPress={() => setSignStep('mo')}>
+                <TouchableOpacity
+                  style={styles.nextStepBtn}
+                  onPress={() => {
+                    if (!signConducteurName.trim()) {
+                      Alert.alert('Nom requis', 'Veuillez saisir votre nom complet avant de continuer.');
+                      return;
+                    }
+                    if (conducteurPadRef.current?.isEmpty()) {
+                      Alert.alert('Signature requise', 'Veuillez apposer votre signature avant de passer à l\'étape suivante.');
+                      return;
+                    }
+                    setSignStep('mo');
+                  }}
+                  accessibilityLabel="Passer à l'étape maître d'ouvrage"
+                  accessibilityRole="button"
+                >
                   <Text style={styles.nextStepBtnText}>Suivant — Maître d'ouvrage</Text>
                   <Ionicons name="arrow-forward" size={15} color="#fff" />
                 </TouchableOpacity>
@@ -1570,6 +1680,8 @@ export default function OprScreen() {
                     placeholder="Nom du maître d'ouvrage..."
                     placeholderTextColor={C.textMuted}
                     autoCapitalize="words"
+                    returnKeyType="done"
+                    accessibilityLabel="Nom du maître d'ouvrage"
                   />
                 </View>
                 <Text style={styles.modalLabel}>SIGNATURE (dessiner ci-dessous)</Text>
@@ -1578,6 +1690,8 @@ export default function OprScreen() {
                   <TouchableOpacity
                     style={styles.clearPadBtn}
                     onPress={() => moPadRef.current?.clear()}
+                    accessibilityLabel="Effacer la signature du maître d'ouvrage"
+                    accessibilityRole="button"
                   >
                     <Ionicons name="refresh-outline" size={13} color={C.textMuted} />
                     <Text style={styles.clearPadText}>Effacer</Text>
@@ -1624,6 +1738,7 @@ const styles = StyleSheet.create({
     borderRadius: 10, paddingHorizontal: 12, paddingVertical: 10,
     fontSize: 14, fontFamily: 'Inter_400Regular', color: C.text, marginBottom: 10,
   },
+  inputError: { borderColor: C.open },
   chipRow: { flexDirection: 'row', gap: 8, paddingVertical: 4, marginBottom: 4 },
   chip: { paddingHorizontal: 14, paddingVertical: 7, borderRadius: 20, borderWidth: 1, borderColor: C.border },
   chipActive: { borderColor: C.primary, backgroundColor: C.primary + '15' },
@@ -1777,12 +1892,12 @@ const styles = StyleSheet.create({
   },
   planifierVisiteText: { fontSize: 12, fontFamily: 'Inter_500Medium', color: '#7C3AED' },
 
-  itemRowOverdue: { backgroundColor: '#FFF1F1' },
+  itemRowOverdue: { backgroundColor: C.open + '12' },
   itemSubRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 2, flexWrap: 'wrap' },
   itemSubText: { fontSize: 11, fontFamily: 'Inter_400Regular', color: C.textMuted },
 
   itemDetailPanel: {
-    backgroundColor: '#F8F9FF', padding: 14, gap: 8,
+    backgroundColor: C.primaryBg, padding: 14, gap: 8,
     borderBottomWidth: 1, borderColor: C.border,
     borderLeftWidth: 3, borderLeftColor: C.primary,
   },
@@ -1820,7 +1935,7 @@ const styles = StyleSheet.create({
   progressBarBg: { height: 5, backgroundColor: C.border, borderRadius: 3, overflow: 'hidden', marginBottom: 4 },
   progressBarFill: { height: '100%', backgroundColor: C.closed, borderRadius: 3 },
   suiviRow: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: 5, paddingHorizontal: 6, borderRadius: 7 },
-  suiviRowOverdue: { backgroundColor: '#FFF1F1' },
+  suiviRowOverdue: { backgroundColor: C.open + '12' },
   suiviLot: { fontSize: 12, fontFamily: 'Inter_500Medium', color: C.text },
   suiviEntreprise: { fontSize: 11, fontFamily: 'Inter_400Regular', color: C.textMuted, marginTop: 1 },
   suiviDeadline: { fontSize: 11, fontFamily: 'Inter_400Regular', color: C.textSub, minWidth: 70, textAlign: 'right' },

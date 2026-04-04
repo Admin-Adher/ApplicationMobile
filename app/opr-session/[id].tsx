@@ -51,11 +51,24 @@ export default function OprSessionScreen() {
       Alert.alert('Signature requise', 'Veuillez apposer votre signature dans le cadre prévu.');
       return;
     }
+    const signatories = opr.signatories ?? [];
+    if (signatories.length > 0) {
+      const matchFound = signatories.some(s => s.name.trim().toLowerCase() === signerName.trim().toLowerCase());
+      if (!matchFound) {
+        Alert.alert(
+          'Nom non reconnu',
+          `Le nom "${signerName.trim()}" ne correspond à aucun signataire attendu pour cet OPR. Vérifiez l'orthographe ou contactez le conducteur de travaux.`
+        );
+        return;
+      }
+    }
     setSigning(true);
     try {
       const now = formatDateFR(new Date());
-      const updatedSignatories = (opr.signatories ?? []).map(s =>
-        s.name === signerName.trim() ? { ...s, signed: true, signedAt: now, signature: sigData } : s
+      const updatedSignatories = signatories.map(s =>
+        s.name.trim().toLowerCase() === signerName.trim().toLowerCase()
+          ? { ...s, signed: true, signedAt: now, signature: sigData }
+          : s
       );
       const allSigned = updatedSignatories.every(s => s.signed);
       updateOpr({
@@ -144,10 +157,10 @@ export default function OprSessionScreen() {
               <Text style={styles.metaText}>Conducteur : {opr.conducteur}</Text>
             </View>
           )}
-          {opr.createdAt && (
+          {opr.date && (
             <View style={styles.metaRow}>
               <Ionicons name="calendar-outline" size={13} color={C.textMuted} />
-              <Text style={styles.metaText}>Date OPR : {opr.createdAt}</Text>
+              <Text style={styles.metaText}>Date OPR : {opr.date}</Text>
             </View>
           )}
           <View style={styles.statRow}>
@@ -196,6 +209,8 @@ export default function OprSessionScreen() {
                 value={signerName}
                 onChangeText={setSignerName}
                 autoCapitalize="words"
+                returnKeyType="done"
+                accessibilityLabel="Votre nom complet pour signer le PV"
               />
             </View>
 
