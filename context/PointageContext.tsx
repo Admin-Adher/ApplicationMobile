@@ -31,6 +31,8 @@ function toEntry(row: any): TimeEntry {
     recordedBy: row.recorded_by ?? '',
     taskId: row.task_id ?? undefined,
     taskTitle: row.task_title ?? undefined,
+    updatedBy: row.updated_by ?? undefined,
+    updatedAt: row.updated_at ?? undefined,
   };
 }
 
@@ -48,6 +50,8 @@ function fromEntry(e: TimeEntry): Record<string, any> {
     recorded_by: e.recordedBy ?? null,
     task_id: e.taskId ?? null,
     task_title: e.taskTitle ?? null,
+    updated_by: e.updatedBy ?? null,
+    updated_at: e.updatedAt ?? null,
   };
 }
 

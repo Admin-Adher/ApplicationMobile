@@ -496,6 +496,8 @@ export interface TimeEntry {
   recordedBy: string;
   taskId?: string;
   taskTitle?: string;
+  updatedBy?: string;
+  updatedAt?: string;
 }
 
 export type RegDocType = 'ppsps' | 'dict' | 'doe' | 'plan_prevention' | 'declaration_prealable' | 'dpae' | 'autre';
