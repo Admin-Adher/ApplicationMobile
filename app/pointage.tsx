@@ -75,6 +75,7 @@ const ARRIVAL_PRESETS = ['06:30', '07:00', '07:30', '08:00', '08:30'];
 const DEPARTURE_PRESETS = ['16:00', '16:30', '17:00', '17:30', '18:00'];
 
 function formatTimeInput(raw: string): string {
+  if (/^\d{2}:\d{2}$/.test(raw)) return raw;
   const digits = raw.replace(/\D/g, '').slice(0, 4);
   if (digits.length <= 2) return digits;
   return digits.slice(0, 2) + ':' + digits.slice(2);
@@ -837,7 +838,12 @@ export default function PointageScreen() {
             </View>
 
             {/* Nom de l'ouvrier */}
-            <Text style={styles.fieldLabel}>Nom de l'ouvrier *</Text>
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 8 }}>
+              <Text style={[styles.fieldLabel, { marginBottom: 0 }]}>Nom de l'ouvrier *</Text>
+              <Text style={[styles.charCount, { marginTop: 0, marginBottom: 0, color: workerName.length > 70 ? C.open : C.textMuted }]}>
+                {workerName.length}/80
+              </Text>
+            </View>
             <View style={{ position: 'relative', zIndex: 10 }}>
               <TextInput
                 ref={workerNameRef}
@@ -847,12 +853,14 @@ export default function PointageScreen() {
                 value={workerName}
                 onChangeText={v => { setWorkerName(v); setShowSuggestions(true); }}
                 onFocus={() => setShowSuggestions(true)}
-                onBlur={() => setTimeout(() => setShowSuggestions(false), 150)}
+                onBlur={() => setTimeout(() => setShowSuggestions(false), 200)}
                 autoCapitalize="words"
                 autoFocus
                 maxLength={80}
                 returnKeyType="next"
                 onSubmitEditing={() => arrivalRef.current?.focus()}
+                accessibilityLabel="Nom de l'ouvrier"
+                accessibilityHint="Saisissez le prénom et le nom de l'ouvrier"
               />
               {showSuggestions && workerSuggestions.length > 0 && (
                 <View style={styles.suggestionBox}>
@@ -904,6 +912,7 @@ export default function PointageScreen() {
                   key={t}
                   style={[styles.presetChip, arrivalTime === t && styles.presetChipActive]}
                   onPress={() => setArrivalTime(t)}
+                  accessibilityLabel={`Arrivée à ${t}`}
                 >
                   <Text style={[styles.presetChipText, arrivalTime === t && styles.presetChipTextActive]}>{t}</Text>
                 </TouchableOpacity>
@@ -917,8 +926,10 @@ export default function PointageScreen() {
               value={arrivalTime}
               onChangeText={v => setArrivalTime(formatTimeInput(v))}
               keyboardType={Platform.OS === 'ios' ? 'numbers-and-punctuation' : 'numeric'}
-              returnKeyType="next"
-              onSubmitEditing={() => departureRef.current?.focus()}
+              returnKeyType={showDeparture ? 'next' : 'done'}
+              onSubmitEditing={() => { if (showDeparture) departureRef.current?.focus(); }}
+              accessibilityLabel="Heure d'arrivée"
+              accessibilityHint="Format HH:MM, par exemple 07:30"
             />
 
             {/* Heure de départ */}
@@ -926,6 +937,8 @@ export default function PointageScreen() {
               <TouchableOpacity
                 style={styles.addDepBtn}
                 onPress={() => setShowDeparture(true)}
+                accessibilityLabel="Définir une heure de départ"
+                accessibilityRole="button"
               >
                 <Ionicons name="log-out-outline" size={15} color={C.primary} />
                 <Text style={styles.addDepBtnText}>Définir une heure de départ (optionnel)</Text>
@@ -933,10 +946,21 @@ export default function PointageScreen() {
             ) : (
               <>
                 <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
-                  <Text style={styles.fieldLabel}>Heure de départ</Text>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                    <Text style={[styles.fieldLabel, { marginBottom: 0 }]}>Heure de départ</Text>
+                    {validateTime(arrivalTime) && validateTime(departureTime) && timeToMinutes(departureTime) > timeToMinutes(arrivalTime) && (
+                      <View style={styles.hoursBadgeInline}>
+                        <Ionicons name="time-outline" size={11} color={C.primary} />
+                        <Text style={styles.hoursBadgeInlineText}>
+                          {(() => { const diff = timeToMinutes(departureTime) - timeToMinutes(arrivalTime); return diff >= 60 ? `${Math.floor(diff / 60)}h${diff % 60 > 0 ? String(diff % 60).padStart(2, '0') : ''}` : `${diff}min`; })()}
+                        </Text>
+                      </View>
+                    )}
+                  </View>
                   <TouchableOpacity
                     onPress={() => { setDepartureTime(''); setShowDeparture(false); }}
                     style={styles.clearDepBtn}
+                    accessibilityLabel="Effacer l'heure de départ"
                   >
                     <Ionicons name="close-circle" size={16} color={C.textMuted} />
                     <Text style={styles.clearDepBtnText}>Effacer</Text>
@@ -948,6 +972,7 @@ export default function PointageScreen() {
                       key={t}
                       style={[styles.presetChip, departureTime === t && styles.presetChipActive]}
                       onPress={() => setDepartureTime(t)}
+                      accessibilityLabel={`Départ à ${t}`}
                     >
                       <Text style={[styles.presetChipText, departureTime === t && styles.presetChipTextActive]}>{t}</Text>
                     </TouchableOpacity>
@@ -962,6 +987,8 @@ export default function PointageScreen() {
                   onChangeText={v => setDepartureTime(formatTimeInput(v))}
                   keyboardType={Platform.OS === 'ios' ? 'numbers-and-punctuation' : 'numeric'}
                   returnKeyType="done"
+                  accessibilityLabel="Heure de départ"
+                  accessibilityHint="Format HH:MM, doit être postérieure à l'heure d'arrivée"
                 />
               </>
             )}
@@ -1002,9 +1029,9 @@ export default function PointageScreen() {
                     </View>
                   </ScrollView>
                 )}
-                {tasks.filter(t => t.status === 'in_progress' || t.status === 'todo').length > 10 && (
+                {tasks.filter(t => t.status === 'in_progress' || t.status === 'todo').length > 20 && (
                   <Text style={styles.moreTasksHint}>
-                    {tasks.filter(t => t.status === 'in_progress' || t.status === 'todo').length - 10} tâche(s) supplémentaire(s) non affichée(s)
+                    {tasks.filter(t => t.status === 'in_progress' || t.status === 'todo').length - 20} tâche(s) supplémentaire(s) non affichée(s)
                   </Text>
                 )}
               </>
@@ -1013,7 +1040,7 @@ export default function PointageScreen() {
             {/* Notes */}
             <Text style={[styles.fieldLabel, { marginTop: 4 }]}>Notes</Text>
             <TextInput
-              style={[styles.input, { minHeight: 72 }]}
+              style={[styles.input, { minHeight: 72, maxHeight: 160 }]}
               placeholder="Observations, remarques..."
               placeholderTextColor={C.textMuted}
               value={notes}
@@ -1021,8 +1048,12 @@ export default function PointageScreen() {
               multiline
               numberOfLines={3}
               maxLength={500}
+              accessibilityLabel="Notes"
+              accessibilityHint="Observations ou remarques libres, 500 caractères maximum"
             />
-            <Text style={styles.charCount}>{notes.length}/500</Text>
+            <Text style={[styles.charCount, { color: notes.length >= 450 ? C.open : notes.length >= 400 ? C.medium : C.textMuted }]}>
+              {notes.length}/500
+            </Text>
 
             <TouchableOpacity
               style={[
@@ -1070,9 +1101,11 @@ export default function PointageScreen() {
               placeholder="17:00"
               placeholderTextColor={C.textMuted}
               value={depTime}
-              onChangeText={setDepTime}
+              onChangeText={v => setDepTime(formatTimeInput(v))}
               keyboardType="numbers-and-punctuation"
               autoFocus
+              accessibilityLabel="Heure de départ"
+              accessibilityHint="Format HH:MM, par exemple 17:00"
             />
             <TouchableOpacity style={styles.saveBtn} onPress={handleSetDeparture}>
               <Text style={styles.saveBtnText}>Enregistrer le départ</Text>
@@ -1114,9 +1147,11 @@ export default function PointageScreen() {
               placeholder="17:00"
               placeholderTextColor={C.textMuted}
               value={depTime}
-              onChangeText={setDepTime}
+              onChangeText={v => setDepTime(formatTimeInput(v))}
               keyboardType="numbers-and-punctuation"
               autoFocus
+              accessibilityLabel="Heure de départ groupé"
+              accessibilityHint="Format HH:MM, par exemple 17:00"
             />
             <TouchableOpacity style={[styles.saveBtn, { backgroundColor: C.open }]} onPress={handleBulkDeparture}>
               <Ionicons name="log-out-outline" size={16} color="#fff" />
@@ -1525,6 +1560,14 @@ const styles = StyleSheet.create({
     backgroundColor: C.bg, borderRadius: 8, borderWidth: 1, borderColor: C.border,
   },
   clearDepBtnText: { fontSize: 11, fontFamily: 'Inter_500Medium', color: C.textMuted },
+
+  hoursBadgeInline: {
+    flexDirection: 'row', alignItems: 'center', gap: 3,
+    backgroundColor: C.primaryBg, borderRadius: 8,
+    paddingHorizontal: 7, paddingVertical: 3,
+    borderWidth: 1, borderColor: C.primary + '30',
+  },
+  hoursBadgeInlineText: { fontSize: 11, fontFamily: 'Inter_600SemiBold', color: C.primary },
 
   linkedTaskBanner: {
     flexDirection: 'row', alignItems: 'center', gap: 8,
