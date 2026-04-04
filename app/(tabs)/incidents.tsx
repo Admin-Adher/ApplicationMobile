@@ -430,12 +430,13 @@ export default function IncidentsScreen() {
         onRequestClose={() => setModalMode(null)}
       >
         <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
-        <TouchableOpacity style={styles.overlay} activeOpacity={1} onPress={() => setModalMode(null)}>
-          <Animated.View style={[styles.sheet, { paddingBottom: Math.max(insets.bottom, 20), transform: [{ translateY: sheetTranslateY }] }]} onStartShouldSetResponder={() => true}>
+        <View style={styles.overlay}>
+          <TouchableOpacity style={StyleSheet.absoluteFillObject} activeOpacity={1} onPress={() => setModalMode(null)} />
+          <Animated.View style={[styles.sheet, { paddingBottom: Math.max(insets.bottom, 20), transform: [{ translateY: sheetTranslateY }] }]}>
             <View style={styles.sheetHandleHitArea} {...sheetPanResponder.panHandlers}>
               <View style={styles.sheetHandle} />
             </View>
-            <ScrollView showsVerticalScrollIndicator={false}>
+            <ScrollView showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled" bounces={true}>
               <Text style={styles.sheetTitle}>
                 {modalMode === 'edit' ? 'Modifier l\'incident' : 'Signaler un incident'}
               </Text>
@@ -581,7 +582,7 @@ export default function IncidentsScreen() {
               <View style={{ height: 20 }} />
             </ScrollView>
           </Animated.View>
-        </TouchableOpacity>
+        </View>
         </KeyboardAvoidingView>
       </Modal>
 
