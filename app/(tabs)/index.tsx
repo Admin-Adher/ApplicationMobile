@@ -638,9 +638,7 @@ export default function DashboardScreen() {
             <View style={styles.cardHeader}>
               <Text style={styles.cardTitle}>Personnel aujourd'hui</Text>
               <Text style={styles.cardSub}>
-                {isSousTraitant && userCompany
-                  ? `${userCompany.actualWorkers} / ${userCompany.plannedWorkers} personnes`
-                  : `${stats.totalWorkers} / ${stats.plannedWorkers} personnes`}
+                {`${stats.totalWorkers} / ${stats.plannedWorkers} personnes`}
               </Text>
             </View>
             {visibleCompanies.map(co => {
