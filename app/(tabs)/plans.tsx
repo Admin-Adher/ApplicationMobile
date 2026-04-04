@@ -1553,8 +1553,8 @@ export default function PlansScreen() {
               </View>
             )}
 
-            {/* Dismissible hint overlay */}
-            {!hintSeen && permissions.canCreate && !fullscreen && !isPlanFile && (
+            {/* Dismissible hint overlay — uniquement si un fichier est importé */}
+            {!hintSeen && permissions.canCreate && !fullscreen && !!currentPlan?.uri && !isPlanFile && (
               <View style={styles.hintOverlay}>
                 <View style={styles.hintBanner}>
                   <Ionicons name="finger-print-outline" size={14} color={C.textMuted} />
