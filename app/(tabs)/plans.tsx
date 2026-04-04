@@ -2123,7 +2123,7 @@ const styles = StyleSheet.create({
   hintBanner: { flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: 'rgba(15,17,23,0.85)', borderRadius: 20, paddingHorizontal: 14, paddingVertical: 9, borderWidth: 1, borderColor: C.border },
   hintText: { fontSize: 12, fontFamily: 'Inter_400Regular', color: C.textMuted, flex: 1 },
 
-  zoomOverlay: { position: 'absolute', bottom: 12, right: 12, zIndex: 20, pointerEvents: 'box-none' as any },
+  zoomOverlay: { position: 'absolute', bottom: 12, left: 12, zIndex: 20, pointerEvents: 'box-none' as any },
   zoomOverlayGroup: { flexDirection: 'row', alignItems: 'center', gap: 2, backgroundColor: 'rgba(15,17,23,0.82)', borderRadius: 10, paddingHorizontal: 4, paddingVertical: 4, borderWidth: 1, borderColor: C.border },
   zoomOverlayBtn: { width: 28, height: 28, borderRadius: 7, alignItems: 'center', justifyContent: 'center', backgroundColor: C.surface2 },
   zoomOverlayPct: { fontSize: 10, fontFamily: 'Inter_600SemiBold', color: C.textMuted, minWidth: 34, textAlign: 'center' },
