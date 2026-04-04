@@ -13,7 +13,6 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import DateInput from '@/components/DateInput';
-import { useRouter } from 'expo-router';
 import { useState, useMemo, useRef } from 'react';
 import { C } from '@/constants/colors';
 import {
@@ -413,7 +412,6 @@ function buildConvocationPDF(opr: Opr, projectName: string, conducteur: string):
 }
 
 export default function OprScreen() {
-  const router = useRouter();
   const { oprs, addOpr, updateOpr, deleteOpr, lots, reserves, activeChantierId, activeChantier, updateReserveStatus } = useApp();
   const { user, permissions } = useAuth();
   const { projectName } = useSettings();
@@ -720,28 +718,6 @@ export default function OprScreen() {
     Alert.alert('Levée vérifiée ✓', 'La levée de la réserve a été confirmée et horodatée.');
   }
 
-  function cycleItemStatus(opr: Opr, itemId: string) {
-    const order: Array<'ok' | 'reserve' | 'non_applicable'> = ['ok', 'reserve', 'non_applicable'];
-    const item = opr.items.find(i => i.id === itemId);
-    if (!item) return;
-    const idx = order.indexOf(item.status);
-    const newStatus = order[(idx + 1) % order.length];
-    const updated = opr.items.map(i =>
-      i.id === itemId ? { ...i, status: newStatus } : i
-    );
-    updateOpr({ ...opr, items: updated });
-    if (newStatus === 'reserve') {
-      setItemEdits(prev => ({
-        ...prev,
-        [itemId]: { entreprise: item.entreprise ?? '', deadline: item.deadline ?? '', note: item.note ?? '' },
-      }));
-      setExpandedItemId(itemId);
-    } else if (expandedItemId === itemId) {
-      setExpandedItemId(null);
-    }
-  }
-
-  const STATUS_ORDER: Record<OprStatus, number> = { draft: 0, in_progress: 1, signed: 2 };
   const STATUS_CFG: Record<OprStatus, { label: string; color: string }> = {
     draft: { label: 'Brouillon', color: C.textMuted },
     in_progress: { label: 'En cours', color: C.inProgress },
@@ -1121,6 +1097,7 @@ export default function OprScreen() {
                               value={newParticipantCompany}
                               onChangeText={setNewParticipantCompany}
                               returnKeyType="done"
+                              onSubmitEditing={() => addParticipant(opr)}
                               accessibilityLabel="Entreprise du participant à ajouter"
                             />
                             <TouchableOpacity
@@ -1521,7 +1498,7 @@ export default function OprScreen() {
                         </View>
                         <View style={{ flex: 1 }}>
                           <Text style={styles.signatoryName}>{sig.name}</Text>
-                          <Text style={styles.signatoryRole}>{sig.role}{sig.email ? ' · ' + sig.email : ''}</Text>
+                          <Text style={styles.signatoryRole} numberOfLines={1} ellipsizeMode="tail">{sig.role}{sig.email ? ' · ' + sig.email : ''}</Text>
                         </View>
                         {sig.signedAt ? (
                           <View style={styles.sigSignedBadge}>
@@ -1570,6 +1547,7 @@ export default function OprScreen() {
                 onChangeText={setInviteName}
                 autoFocus
                 autoCapitalize="words"
+                autoComplete="name"
                 returnKeyType="next"
                 accessibilityLabel="Nom du signataire"
               />
@@ -1592,6 +1570,7 @@ export default function OprScreen() {
                 onChangeText={setInviteEmail}
                 keyboardType="email-address"
                 autoCapitalize="none"
+                autoComplete="email"
                 returnKeyType="done"
                 textContentType="emailAddress"
                 onSubmitEditing={addSignatory}
