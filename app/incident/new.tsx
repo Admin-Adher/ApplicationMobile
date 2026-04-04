@@ -91,6 +91,8 @@ export default function NewIncidentScreen() {
   // Étape 2
   const [location, setLocation] = useState('');
   const [building, setBuilding] = useState('');
+  const [level, setLevel] = useState('');
+  const [zone, setZone] = useState('');
   const [reportedAt, setReportedAt] = useState(formatDateFR(new Date()));
   const [witnesses, setWitnesses] = useState('');
 
@@ -155,6 +157,8 @@ export default function NewIncidentScreen() {
         severity,
         location: location.trim(),
         building,
+        level,
+        zone,
         reportedAt,
         reportedBy: user?.name ?? 'Inconnu',
         status,
@@ -319,13 +323,17 @@ export default function NewIncidentScreen() {
 
                 {(activeChantier?.buildings?.length ?? 0) > 0 && (
                   <View style={[styles.fieldGroup, { marginBottom: 0 }]}>
-                    <Text style={styles.label}>Bâtiment</Text>
+                    <Text style={styles.label}>Bâtiment · Niveau · Zone</Text>
                     <LocationPicker
                       buildings={activeChantier?.buildings ?? []}
                       building={building}
                       onBuildingChange={setBuilding}
-                      showLevel={false}
-                      showZone={false}
+                      level={level}
+                      onLevelChange={setLevel}
+                      zone={zone}
+                      onZoneChange={setZone}
+                      showLevel
+                      showZone
                     />
                   </View>
                 )}
@@ -461,7 +469,9 @@ export default function NewIncidentScreen() {
                 <View style={styles.recapMeta}>
                   <View style={styles.recapMetaRow}>
                     <Ionicons name="location-outline" size={12} color={C.textMuted} />
-                    <Text style={styles.recapMetaText}>{location || '—'}</Text>
+                    <Text style={styles.recapMetaText}>
+                      {[location, building, level, zone].filter(Boolean).join(' · ') || '—'}
+                    </Text>
                   </View>
                   <View style={styles.recapMetaRow}>
                     <Ionicons name="calendar-outline" size={12} color={C.textMuted} />

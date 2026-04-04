@@ -409,6 +409,8 @@ export interface Incident {
   severity: IncidentSeverity;
   location: string;
   building: string;
+  level?: string;
+  zone?: string;
   reportedAt: string;
   reportedBy: string;
   status: IncidentStatus;

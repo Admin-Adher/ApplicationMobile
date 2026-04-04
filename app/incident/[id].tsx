@@ -49,6 +49,8 @@ export default function EditIncidentScreen() {
   const [description, setDescription] = useState('');
   const [location, setLocation] = useState('');
   const [building, setBuilding] = useState('');
+  const [level, setLevel] = useState('');
+  const [zone, setZone] = useState('');
   const [severity, setSeverity] = useState<IncidentSeverity>('moderate');
   const [status, setStatus] = useState<IncidentStatus>('open');
   const [reportedAt, setReportedAt] = useState(formatDateFR(new Date()));
@@ -63,6 +65,8 @@ export default function EditIncidentScreen() {
       setDescription(incident.description);
       setLocation(incident.location);
       setBuilding(incident.building);
+      setLevel(incident.level ?? '');
+      setZone(incident.zone ?? '');
       setSeverity(incident.severity);
       setStatus(incident.status);
       setReportedAt(incident.reportedAt);
@@ -134,6 +138,8 @@ export default function EditIncidentScreen() {
         severity,
         location: location.trim(),
         building,
+        level,
+        zone,
         reportedAt,
         status,
         witnesses,
@@ -197,13 +203,17 @@ export default function EditIncidentScreen() {
             placeholderTextColor={C.textMuted}
           />
 
-          <Text style={styles.label}>Bâtiment</Text>
+          <Text style={styles.label}>Bâtiment · Niveau · Zone</Text>
           <LocationPicker
             buildings={activeChantier?.buildings ?? []}
             building={building}
             onBuildingChange={setBuilding}
-            showLevel={false}
-            showZone={false}
+            level={level}
+            onLevelChange={setLevel}
+            zone={zone}
+            onZoneChange={setZone}
+            showLevel
+            showZone
           />
 
           <Text style={styles.label}>Gravité</Text>
