@@ -492,7 +492,10 @@ export default function PlansScreen() {
     return plans;
   }, [chantierPlans, selectedBuilding, chantierHierarchyBuildings, selectedLevel, buildings, planLevelsForBuilding]);
 
-  const currentPlanId = activePlanId ?? filteredPlans[0]?.id ?? chantierPlans[0]?.id ?? null;
+  const hasActiveHierarchyFilter =
+    selectedLevel !== 'all' ||
+    (selectedBuilding !== 'all' && selectedBuilding !== '__none__' && chantierHierarchyBuildings.length > 0);
+  const currentPlanId = activePlanId ?? filteredPlans[0]?.id ?? (hasActiveHierarchyFilter ? null : chantierPlans[0]?.id) ?? null;
   const currentPlan = chantierPlans.find(p => p.id === currentPlanId) ?? null;
 
   const allPlanReserves = useMemo(
@@ -1143,7 +1146,7 @@ export default function PlansScreen() {
             if (!bldg || bldg.levels.length === 0) return null;
             return (
               <View style={[styles.hierarchyRow, styles.hierarchyRowLevel]}>
-                <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.hierarchyChips}>
+                <View style={[styles.hierarchyChips, { flexWrap: 'wrap' }]}>
                   <TouchableOpacity
                     style={[styles.hierarchyChipLevel, selectedLevel === 'all' && styles.hierarchyChipLevelActive]}
                     onPress={() => { setSelectedLevel('all'); setActivePlanId(null); }}
@@ -1159,7 +1162,7 @@ export default function PlansScreen() {
                       <Text style={[styles.hierarchyChipLevelText, selectedLevel === l.id && { color: C.primary, fontFamily: 'Inter_600SemiBold' }]}>{l.name}</Text>
                     </TouchableOpacity>
                   ))}
-                </ScrollView>
+                </View>
               </View>
             );
           })()}
@@ -1330,7 +1333,30 @@ export default function PlansScreen() {
               }
             }}
           >
-            {isPlanFile ? (
+            {filteredPlans.length === 0 && hasActiveHierarchyFilter ? (
+              <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', gap: 16, padding: 32 }}>
+                <View style={{ width: 72, height: 72, borderRadius: 20, backgroundColor: '#0D2045', alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: '#1E3A5F' }}>
+                  <Ionicons name="layers-outline" size={36} color="#3B6FCC" />
+                </View>
+                <View style={{ alignItems: 'center', gap: 6 }}>
+                  <Text style={{ color: '#94A3B8', fontFamily: 'Inter_600SemiBold', fontSize: 15 }}>Aucun plan pour ce niveau</Text>
+                  <Text style={{ color: '#475569', fontFamily: 'Inter_400Regular', fontSize: 12, textAlign: 'center', lineHeight: 18 }}>
+                    Ce niveau n'a pas encore de plan associé. Créez un plan et assignez-le à ce niveau.
+                  </Text>
+                </View>
+                {permissions.canCreate && (
+                  <TouchableOpacity
+                    style={{ flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: '#003082', borderRadius: 12, paddingVertical: 12, paddingHorizontal: 20 }}
+                    onPress={handleAddPlan}
+                    accessibilityLabel="Ajouter un plan pour ce niveau"
+                    accessibilityRole="button"
+                  >
+                    <Ionicons name="add-circle-outline" size={16} color="#fff" />
+                    <Text style={{ color: '#fff', fontFamily: 'Inter_600SemiBold', fontSize: 14 }}>Ajouter un plan</Text>
+                  </TouchableOpacity>
+                )}
+              </View>
+            ) : isPlanFile ? (
               <PdfPlanViewer
                 ref={pdfViewerRef}
                 planUri={currentPlan!.uri!}
@@ -1999,7 +2025,7 @@ const styles = StyleSheet.create({
   hierarchyChipActive: { backgroundColor: C.primaryBg, borderColor: C.primary },
   hierarchyChipText: { fontSize: 12, fontFamily: 'Inter_500Medium', color: C.textSub },
   hierarchyChipTextActive: { color: C.primary, fontFamily: 'Inter_600SemiBold' },
-  hierarchyChipLevel: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 12, backgroundColor: C.surface, borderWidth: 1, borderColor: C.border, marginRight: 4 },
+  hierarchyChipLevel: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 12, backgroundColor: C.surface, borderWidth: 1, borderColor: C.border, marginRight: 4, marginBottom: 4 },
   hierarchyChipLevelActive: { backgroundColor: C.primaryBg + '80', borderColor: C.primary + '80' },
   hierarchyChipLevelText: { fontSize: 11, fontFamily: 'Inter_400Regular', color: C.textSub },
   planTabsBar: { flexDirection: 'row', alignItems: 'center', paddingBottom: 10, borderBottomWidth: 1, borderBottomColor: C.border },
