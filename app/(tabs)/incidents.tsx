@@ -1,10 +1,11 @@
 import {
   View, Text, StyleSheet, ScrollView, TouchableOpacity, TextInput,
   Alert, Modal, ActivityIndicator, Image, Platform, RefreshControl, KeyboardAvoidingView,
+  Animated, PanResponder,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
-import { useState, useMemo, useCallback, useEffect } from 'react';
+import { useState, useMemo, useCallback, useEffect, useRef } from 'react';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import * as Haptics from 'expo-haptics';
 import * as ImagePicker from 'expo-image-picker';
@@ -94,6 +95,34 @@ export default function IncidentsScreen() {
   const [photoUri, setPhotoUri] = useState<string | undefined>(undefined);
 
   const [form, setForm] = useState(EMPTY_FORM);
+
+  const sheetTranslateY = useRef(new Animated.Value(0)).current;
+  const sheetPanResponder = useRef(
+    PanResponder.create({
+      onStartShouldSetPanResponder: () => false,
+      onMoveShouldSetPanResponder: (_, g) => g.dy > 4 && Math.abs(g.dy) > Math.abs(g.dx),
+      onPanResponderMove: (_, g) => {
+        if (g.dy > 0) sheetTranslateY.setValue(g.dy);
+      },
+      onPanResponderRelease: (_, g) => {
+        if (g.dy > 100 || g.vy > 0.5) {
+          Animated.timing(sheetTranslateY, { toValue: 700, duration: 220, useNativeDriver: true }).start(() => {
+            setModalMode(null);
+            sheetTranslateY.setValue(0);
+          });
+        } else {
+          Animated.spring(sheetTranslateY, { toValue: 0, useNativeDriver: true, bounciness: 4 }).start();
+        }
+      },
+      onPanResponderTerminate: () => {
+        Animated.spring(sheetTranslateY, { toValue: 0, useNativeDriver: true, bounciness: 4 }).start();
+      },
+    })
+  ).current;
+
+  useEffect(() => {
+    if (modalMode) sheetTranslateY.setValue(0);
+  }, [modalMode]);
 
   const params = useLocalSearchParams<{ openCreate?: string; prefillDescription?: string }>();
 
@@ -402,8 +431,10 @@ export default function IncidentsScreen() {
       >
         <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
         <TouchableOpacity style={styles.overlay} activeOpacity={1} onPress={() => setModalMode(null)}>
-          <TouchableOpacity activeOpacity={1} style={[styles.sheet, { paddingBottom: Math.max(insets.bottom, 20) }]}>
-            <View style={styles.sheetHandle} />
+          <Animated.View style={[styles.sheet, { paddingBottom: Math.max(insets.bottom, 20), transform: [{ translateY: sheetTranslateY }] }]} onStartShouldSetResponder={() => true}>
+            <View style={styles.sheetHandleHitArea} {...sheetPanResponder.panHandlers}>
+              <View style={styles.sheetHandle} />
+            </View>
             <ScrollView showsVerticalScrollIndicator={false}>
               <Text style={styles.sheetTitle}>
                 {modalMode === 'edit' ? 'Modifier l\'incident' : 'Signaler un incident'}
@@ -549,7 +580,7 @@ export default function IncidentsScreen() {
               </TouchableOpacity>
               <View style={{ height: 20 }} />
             </ScrollView>
-          </TouchableOpacity>
+          </Animated.View>
         </TouchableOpacity>
         </KeyboardAvoidingView>
       </Modal>
@@ -615,7 +646,8 @@ const styles = StyleSheet.create({
     backgroundColor: C.surface, borderTopLeftRadius: 20, borderTopRightRadius: 20,
     padding: 20, maxHeight: '90%', width: '100%', maxWidth: 640,
   },
-  sheetHandle: { width: 36, height: 4, backgroundColor: C.border, borderRadius: 2, alignSelf: 'center', marginBottom: 16 },
+  sheetHandleHitArea: { alignSelf: 'stretch', alignItems: 'center', paddingVertical: 10, marginBottom: 4 },
+  sheetHandle: { width: 36, height: 4, backgroundColor: C.border, borderRadius: 2 },
   sheetTitle: { fontSize: 18, fontFamily: 'Inter_700Bold', color: C.text, marginBottom: 16 },
 
   fieldLabel: { fontSize: 12, fontFamily: 'Inter_600SemiBold', color: C.textSub, textTransform: 'uppercase', letterSpacing: 0.4, marginBottom: 6, marginTop: 12 },
