@@ -1219,7 +1219,7 @@ export default function PlansScreen() {
                   <Text style={styles.versionBtnText}>{currentPlan?.revisionCode ?? 'R01'}</Text>
                 </TouchableOpacity>
               )}
-              {permissions.canCreate && (
+              {permissions.canCreate && !currentPlan?.uri && (
                 <TouchableOpacity style={[styles.importBtn, importing && { opacity: 0.5 }]} onPress={handleImportPlan} disabled={importing || !currentPlanId} accessibilityLabel="Importer un plan">
                   {importing ? <ActivityIndicator size="small" color={C.primary} /> : (
                     <><Ionicons name="cloud-upload-outline" size={14} color={C.primary} /><Text style={styles.importBtnText}>Importer</Text></>
@@ -1313,9 +1313,11 @@ export default function PlansScreen() {
                 })()}
               </View>
               {currentPlan?.uri && permissions.canCreate && (
-                <TouchableOpacity style={styles.removePlanBtn} onPress={handleRemovePlan} accessibilityLabel="Remplacer le plan">
-                  <Ionicons name="swap-horizontal-outline" size={13} color={C.textSub} />
-                  <Text style={styles.removePlanText}>Remplacer</Text>
+                <TouchableOpacity style={[styles.removePlanBtn, importing && { opacity: 0.5 }]} onPress={handleRemovePlan} disabled={importing} accessibilityLabel="Remplacer le plan">
+                  {importing
+                    ? <ActivityIndicator size="small" color={C.primary} />
+                    : <><Ionicons name="swap-horizontal-outline" size={13} color={C.textSub} /><Text style={styles.removePlanText}>Remplacer</Text></>
+                  }
                 </TouchableOpacity>
               )}
             </View>
