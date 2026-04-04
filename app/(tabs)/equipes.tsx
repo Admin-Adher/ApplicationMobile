@@ -50,6 +50,7 @@ export default function EquipesScreen() {
   const [hoursInput, setHoursInput] = useState('');
 
   const [filterCompanyId, setFilterCompanyId] = useState<string | null>(null);
+  const [submitted, setSubmitted] = useState(false);
 
   const today = new Date().toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' });
 
@@ -108,6 +109,7 @@ export default function EquipesScreen() {
     setNom(''); setNomCourt(''); setPhone(''); setEmail(''); setZone(''); setLots('');
     setEffectif(''); setHeures(''); setSiret(''); setInsurance(''); setQualifications('');
     setSelectedColor(COMPANY_COLORS[companies.length % COMPANY_COLORS.length]);
+    setSubmitted(false);
     setModalVisible(true);
   }
 
@@ -119,25 +121,26 @@ export default function EquipesScreen() {
     setEffectif(String(co.plannedWorkers)); setHeures(String(co.hoursWorked));
     setSiret(co.siret ?? ''); setInsurance(co.insurance ?? ''); setQualifications(co.qualifications ?? '');
     setSelectedColor(co.color);
+    setSubmitted(false);
     setModalVisible(true);
   }
 
   function handleClose() {
-    setModalVisible(false); setEditTarget(null);
+    setModalVisible(false); setEditTarget(null); setSubmitted(false);
     setNom(''); setNomCourt(''); setPhone(''); setEmail(''); setZone(''); setLots('');
     setEffectif(''); setHeures(''); setSiret(''); setInsurance(''); setQualifications('');
   }
 
+  function stepEffectif(delta: number) {
+    const n = Math.max(0, (parseInt(effectif, 10) || 0) + delta);
+    setEffectif(String(n));
+  }
+
   function handleSave() {
-    if (!nom.trim() || !nomCourt.trim() || !effectif.trim()) {
-      Alert.alert('Champs requis', 'Le nom, le sigle et l\'effectif prévu sont obligatoires.');
-      return;
-    }
+    setSubmitted(true);
+    if (!nom.trim() || !nomCourt.trim() || !effectif.trim()) return;
     const planned = parseInt(effectif, 10);
-    if (isNaN(planned) || planned < 0) {
-      Alert.alert('Valeur invalide', 'L\'effectif prévu doit être un nombre entier positif.');
-      return;
-    }
+    if (isNaN(planned) || planned < 0) return;
     const hours = parseInt(heures, 10);
     const parsedLots = lots.trim()
       ? lots.split(',').map(l => l.trim()).filter(Boolean)
@@ -585,17 +588,45 @@ export default function EquipesScreen() {
             <View style={StyleSheet.absoluteFill} />
           </TouchableWithoutFeedback>
           <View style={styles.modalCard}>
+
+            {/* ── Header ── */}
             <View style={styles.modalHeader}>
               <Text style={styles.modalTitle}>{editTarget ? 'Modifier l\'entreprise' : 'Nouvelle entreprise'}</Text>
-              <TouchableOpacity onPress={handleClose}>
-                <Ionicons name="close" size={22} color={C.textSub} />
+              <TouchableOpacity onPress={handleClose} hitSlop={8}>
+                <Ionicons name="close-circle" size={24} color={C.textMuted} />
               </TouchableOpacity>
+            </View>
+
+            {/* ── Live preview ── */}
+            <View style={[styles.modalPreview, { borderLeftColor: selectedColor }]}>
+              <View style={[styles.modalPreviewDot, { backgroundColor: selectedColor }]} />
+              <View style={{ flex: 1 }}>
+                <Text style={styles.modalPreviewName} numberOfLines={1}>
+                  {nom.trim() || 'Nom de l\'entreprise'}
+                </Text>
+                {zone.trim() ? <Text style={styles.modalPreviewZone} numberOfLines={1}>{zone.trim()}</Text> : null}
+              </View>
+              {nomCourt.trim() ? (
+                <View style={[styles.modalPreviewBadge, { backgroundColor: selectedColor + '22' }]}>
+                  <Text style={[styles.modalPreviewBadgeText, { color: selectedColor }]}>
+                    {nomCourt.trim().toUpperCase()}
+                  </Text>
+                </View>
+              ) : null}
+              {effectif.trim() && parseInt(effectif, 10) > 0 ? (
+                <View style={styles.modalPreviewWorkersBadge}>
+                  <Ionicons name="people-outline" size={11} color={C.textSub} />
+                  <Text style={styles.modalPreviewWorkersText}>{effectif}</Text>
+                </View>
+              ) : null}
             </View>
 
             <ScrollView showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
 
-              {/* Color picker */}
-              <Text style={styles.fieldLabel}>Couleur</Text>
+              {/* ── Section Identité ── */}
+              <Text style={styles.modalSection}>Identité</Text>
+
+              <Text style={styles.fieldLabel}>Couleur de l'entreprise</Text>
               <View style={styles.colorRow}>
                 {COMPANY_COLORS.map(c => (
                   <TouchableOpacity
@@ -603,43 +634,89 @@ export default function EquipesScreen() {
                     style={[styles.colorDot, { backgroundColor: c }, selectedColor === c && styles.colorDotSelected]}
                     onPress={() => setSelectedColor(c)}
                   >
-                    {selectedColor === c && <Ionicons name="checkmark" size={14} color="#fff" />}
+                    {selectedColor === c && <Ionicons name="checkmark" size={16} color="#fff" />}
                   </TouchableOpacity>
                 ))}
               </View>
 
-              <Text style={styles.fieldLabel}>Nom de l'entreprise *</Text>
+              <Text style={styles.fieldLabel}>
+                Nom de l'entreprise <Text style={styles.fieldRequired}>*</Text>
+              </Text>
               <TextInput
-                style={styles.input}
+                style={[styles.input, submitted && !nom.trim() && styles.inputError]}
                 placeholder="Ex: VINCI Construction"
                 placeholderTextColor={C.textMuted}
                 value={nom}
                 onChangeText={setNom}
+                returnKeyType="next"
               />
+              {submitted && !nom.trim() && <Text style={styles.fieldError}>Ce champ est requis</Text>}
 
-              <Text style={styles.fieldLabel}>Nom court / Sigle *</Text>
+              <Text style={styles.fieldLabel}>
+                Sigle / Nom court <Text style={styles.fieldRequired}>*</Text>
+              </Text>
               <TextInput
-                style={styles.input}
+                style={[styles.input, submitted && !nomCourt.trim() && styles.inputError]}
                 placeholder="Ex: VINCI"
                 placeholderTextColor={C.textMuted}
                 value={nomCourt}
                 onChangeText={setNomCourt}
                 autoCapitalize="characters"
+                returnKeyType="next"
               />
+              {submitted && !nomCourt.trim() && <Text style={styles.fieldError}>Ce champ est requis</Text>}
 
-              <Text style={styles.fieldLabel}>Effectif prévu *</Text>
+              <Text style={styles.fieldLabel}>
+                Effectif prévu <Text style={styles.fieldRequired}>*</Text>
+              </Text>
+              <View style={[styles.stepperRow, submitted && !effectif.trim() && { opacity: 1 }]}>
+                <TouchableOpacity style={styles.stepperBtn} onPress={() => stepEffectif(-1)}>
+                  <Ionicons name="remove" size={20} color={C.primary} />
+                </TouchableOpacity>
+                <TextInput
+                  style={[styles.input, styles.stepperInput, submitted && !effectif.trim() && styles.inputError]}
+                  placeholder="0"
+                  placeholderTextColor={C.textMuted}
+                  value={effectif}
+                  onChangeText={setEffectif}
+                  keyboardType="numeric"
+                  textAlign="center"
+                />
+                <TouchableOpacity style={styles.stepperBtn} onPress={() => stepEffectif(1)}>
+                  <Ionicons name="add" size={20} color={C.primary} />
+                </TouchableOpacity>
+              </View>
+              {submitted && !effectif.trim() && <Text style={styles.fieldError}>Ce champ est requis</Text>}
+
+              {/* ── Section Localisation ── */}
+              <View style={styles.modalSeparator} />
+              <Text style={styles.modalSection}>Localisation & Intervention</Text>
+
+              <Text style={styles.fieldLabel}>Zone / Bâtiment</Text>
               <TextInput
                 style={styles.input}
-                placeholder="Ex: 20"
+                placeholder="Ex: Bâtiment B, Zone Nord"
                 placeholderTextColor={C.textMuted}
-                value={effectif}
-                onChangeText={setEffectif}
-                keyboardType="numeric"
+                value={zone}
+                onChangeText={setZone}
+                returnKeyType="next"
+              />
+
+              <Text style={styles.fieldLabel}>
+                Lots travaux <Text style={styles.fieldHint}>(séparés par des virgules)</Text>
+              </Text>
+              <TextInput
+                style={styles.input}
+                placeholder="Ex: Gros œuvre, Menuiserie, Électricité"
+                placeholderTextColor={C.textMuted}
+                value={lots}
+                onChangeText={setLots}
+                returnKeyType="next"
               />
 
               {editTarget && (
                 <>
-                  <Text style={styles.fieldLabel}>Heures travaillées cumulées</Text>
+                  <Text style={styles.fieldLabel}>Heures cumulées</Text>
                   <TextInput
                     style={styles.input}
                     placeholder="Ex: 120"
@@ -647,27 +724,14 @@ export default function EquipesScreen() {
                     value={heures}
                     onChangeText={setHeures}
                     keyboardType="numeric"
+                    returnKeyType="next"
                   />
                 </>
               )}
 
-              <Text style={styles.fieldLabel}>Zone / Bâtiment</Text>
-              <TextInput
-                style={styles.input}
-                placeholder="Ex: Bâtiment B"
-                placeholderTextColor={C.textMuted}
-                value={zone}
-                onChangeText={setZone}
-              />
-
-              <Text style={styles.fieldLabel}>Lots (séparés par des virgules)</Text>
-              <TextInput
-                style={styles.input}
-                placeholder="Ex: Gros œuvre, Menuiserie"
-                placeholderTextColor={C.textMuted}
-                value={lots}
-                onChangeText={setLots}
-              />
+              {/* ── Section Contact ── */}
+              <View style={styles.modalSeparator} />
+              <Text style={styles.modalSection}>Contact</Text>
 
               <Text style={styles.fieldLabel}>Téléphone</Text>
               <TextInput
@@ -688,16 +752,21 @@ export default function EquipesScreen() {
                 onChangeText={setEmail}
                 keyboardType="email-address"
                 autoCapitalize="none"
+                returnKeyType="next"
               />
 
-              <Text style={[styles.fieldLabel, { marginTop: 4 }]}>SIRET</Text>
+              {/* ── Section Administratif ── */}
+              <View style={styles.modalSeparator} />
+              <Text style={styles.modalSection}>Administratif</Text>
+
+              <Text style={styles.fieldLabel}>Numéro SIRET</Text>
               <TextInput
                 style={styles.input}
                 placeholder="Ex: 123 456 789 00012"
                 placeholderTextColor={C.textMuted}
                 value={siret}
                 onChangeText={setSiret}
-                keyboardType="numeric"
+                returnKeyType="next"
               />
 
               <Text style={styles.fieldLabel}>Assurance décennale</Text>
@@ -707,30 +776,35 @@ export default function EquipesScreen() {
                 placeholderTextColor={C.textMuted}
                 value={insurance}
                 onChangeText={setInsurance}
+                returnKeyType="next"
               />
 
               <Text style={styles.fieldLabel}>Qualifications / Certifications</Text>
               <TextInput
-                style={[styles.input, { minHeight: 60 }]}
-                placeholder="Ex: RGE, Qualibat 2111..."
+                style={[styles.input, { minHeight: 72, textAlignVertical: 'top' }]}
+                placeholder="Ex: RGE, Qualibat 2111, MASE..."
                 placeholderTextColor={C.textMuted}
                 value={qualifications}
                 onChangeText={setQualifications}
                 multiline
-                numberOfLines={2}
+                numberOfLines={3}
               />
 
-              <TouchableOpacity
-                style={[styles.confirmBtn, (!nom.trim() || !nomCourt.trim() || !effectif.trim()) && styles.confirmBtnDisabled]}
-                onPress={handleSave}
-                disabled={!nom.trim() || !nomCourt.trim() || !effectif.trim()}
-              >
-                <Text style={styles.confirmBtnText}>
-                  {editTarget ? 'Enregistrer les modifications' : 'Ajouter l\'entreprise'}
-                </Text>
-              </TouchableOpacity>
               <View style={{ height: 8 }} />
             </ScrollView>
+
+            {/* ── Sticky footer ── */}
+            <View style={styles.modalFooter}>
+              <TouchableOpacity style={[styles.modalCancelBtn, { flex: 1 }]} onPress={handleClose}>
+                <Text style={styles.modalCancelBtnText}>Annuler</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={[styles.confirmBtn, { flex: 1 }]} onPress={handleSave}>
+                <Text style={styles.confirmBtnText}>
+                  {editTarget ? 'Enregistrer' : 'Ajouter'}
+                </Text>
+              </TouchableOpacity>
+            </View>
+
           </View>
         </KeyboardAvoidingView>
       </Modal>
@@ -790,7 +864,7 @@ export default function EquipesScreen() {
               </TouchableOpacity>
             </View>
 
-            <TouchableOpacity style={[styles.confirmBtn, { marginTop: 20 }]} onPress={handleSaveWorkers}>
+            <TouchableOpacity style={[styles.confirmBtn, { marginTop: 20, alignSelf: 'stretch' }]} onPress={handleSaveWorkers}>
               <Text style={styles.confirmBtnText}>Enregistrer</Text>
             </TouchableOpacity>
           </View>
@@ -931,17 +1005,51 @@ const styles = StyleSheet.create({
   workerModalSub: { fontSize: 13, fontFamily: 'Inter_400Regular', color: C.textSub, marginBottom: 12 },
 
   colorRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 10, marginBottom: 4 },
-  colorDot: { width: 32, height: 32, borderRadius: 16, alignItems: 'center', justifyContent: 'center' },
-  colorDotSelected: { borderWidth: 2.5, borderColor: '#fff', shadowColor: '#000', shadowOpacity: 0.2, shadowRadius: 4, shadowOffset: { width: 0, height: 2 } },
+  colorDot: { width: 40, height: 40, borderRadius: 20, alignItems: 'center', justifyContent: 'center' },
+  colorDotSelected: { borderWidth: 3, borderColor: '#fff', ...Platform.select({ web: { boxShadow: '0 0 0 2px rgba(0,0,0,0.25)' } as any, default: { shadowColor: '#000', shadowOpacity: 0.25, shadowRadius: 4, shadowOffset: { width: 0, height: 2 } } }) },
 
   fieldLabel: {
     fontSize: 12, fontFamily: 'Inter_600SemiBold', color: C.textSub,
     marginBottom: 6, marginTop: 12, textTransform: 'uppercase', letterSpacing: 0.4,
   },
+  fieldRequired: { color: C.open, fontFamily: 'Inter_700Bold' },
+  fieldHint: { color: C.textMuted, fontSize: 11, fontFamily: 'Inter_400Regular', textTransform: 'none', letterSpacing: 0 },
+  fieldError: { fontSize: 11, fontFamily: 'Inter_500Medium', color: C.open, marginTop: 4 },
+
   input: {
     backgroundColor: C.bg, borderWidth: 1, borderColor: C.border, borderRadius: 10,
     paddingHorizontal: 14, paddingVertical: 10, fontSize: 15, fontFamily: 'Inter_400Regular', color: C.text,
   },
+  inputError: { borderColor: C.open, backgroundColor: '#FFF5F5' },
+
+  modalSection: {
+    fontSize: 11, fontFamily: 'Inter_700Bold', color: C.textMuted,
+    textTransform: 'uppercase', letterSpacing: 0.8, marginTop: 4, marginBottom: 2,
+  },
+  modalSeparator: { height: 1, backgroundColor: C.border, marginTop: 20, marginBottom: 16, marginHorizontal: -20 },
+
+  modalPreview: {
+    flexDirection: 'row', alignItems: 'center', gap: 10,
+    backgroundColor: C.surface2, borderRadius: 10, padding: 12, marginBottom: 16,
+    borderLeftWidth: 4,
+  },
+  modalPreviewDot: { width: 36, height: 36, borderRadius: 18, flexShrink: 0 },
+  modalPreviewName: { fontSize: 14, fontFamily: 'Inter_600SemiBold', color: C.text },
+  modalPreviewZone: { fontSize: 11, fontFamily: 'Inter_400Regular', color: C.textSub, marginTop: 2 },
+  modalPreviewBadge: { paddingHorizontal: 9, paddingVertical: 4, borderRadius: 8 },
+  modalPreviewBadgeText: { fontSize: 12, fontFamily: 'Inter_700Bold' },
+  modalPreviewWorkersBadge: { flexDirection: 'row', alignItems: 'center', gap: 3, backgroundColor: C.border, paddingHorizontal: 7, paddingVertical: 4, borderRadius: 8 },
+  modalPreviewWorkersText: { fontSize: 11, fontFamily: 'Inter_500Medium', color: C.textSub },
+
+  modalFooter: {
+    flexDirection: 'row', gap: 10, paddingTop: 14, paddingBottom: 2,
+    borderTopWidth: 1, borderTopColor: C.border, marginTop: 4,
+  },
+  modalCancelBtn: {
+    borderRadius: 12, paddingVertical: 13, alignItems: 'center',
+    backgroundColor: C.surface2, borderWidth: 1, borderColor: C.border,
+  },
+  modalCancelBtnText: { fontSize: 14, fontFamily: 'Inter_600SemiBold', color: C.textSub },
 
   stepperRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   stepperBtn: {
@@ -951,7 +1059,7 @@ const styles = StyleSheet.create({
   },
   stepperInput: { flex: 1, textAlign: 'center', fontSize: 22, fontFamily: 'Inter_700Bold' },
 
-  confirmBtn: { backgroundColor: C.primary, borderRadius: 12, paddingVertical: 14, alignItems: 'center', marginTop: 20 },
+  confirmBtn: { backgroundColor: C.primary, borderRadius: 12, paddingVertical: 13, alignItems: 'center' },
   confirmBtnDisabled: { opacity: 0.4 },
-  confirmBtnText: { fontSize: 15, fontFamily: 'Inter_600SemiBold', color: '#fff' },
+  confirmBtnText: { fontSize: 14, fontFamily: 'Inter_600SemiBold', color: '#fff' },
 });
