@@ -205,6 +205,7 @@ function toVisite(row: any): Visite {
     entrepriseSignature: row.entreprise_signature ?? undefined,
     signedAt: row.signed_at ?? undefined,
     entrepriseSignataire: row.entreprise_signataire ?? undefined,
+    participants: row.participants ?? undefined,
   };
 }
 
@@ -219,6 +220,7 @@ function fromVisite(v: Visite): Record<string, any> {
     entreprise_signature: v.entrepriseSignature ?? null,
     signed_at: v.signedAt ?? null,
     entreprise_signataire: v.entrepriseSignataire ?? null,
+    participants: v.participants ?? null,
   };
 }
 
@@ -1106,6 +1108,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
                     end_date: ch.endDate ?? null,
                     status: ch.status,
                     created_by: ch.createdBy ?? null,
+                    buildings: ch.buildings ? JSON.stringify(ch.buildings) : null,
                   });
                   if (syncErr) console.warn('[AppContext] Échec sync chantier local→Supabase:', ch.name, syncErr.message);
                 }
