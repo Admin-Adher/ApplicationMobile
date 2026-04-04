@@ -97,7 +97,7 @@ function buildVisitePDF(visite: Visite, reserves: Reserve[], projectName: string
   const statusVisiteLabel = visite.status === 'completed' ? 'Terminée' : visite.status === 'in_progress' ? 'En cours' : 'Planifiée';
   const infoItems = [
     { label: 'Conducteur de travaux', value: visite.conducteur },
-    ...(visite.building ? [{ label: 'Localisation', value: `Bât. ${visite.building}${visite.level ? ` — ${visite.level}` : ''}` }] : []),
+    ...((visite.building || visite.level || visite.zone) ? [{ label: 'Localisation', value: [visite.building, visite.level, visite.zone].filter(Boolean).join(' — ') }] : []),
     { label: 'Statut de la visite', value: statusVisiteLabel },
     { label: 'Date de visite', value: visite.date },
   ];
@@ -310,15 +310,15 @@ export default function VisiteDetailScreen() {
                 <Text style={styles.infoVal}>{visite.date}</Text>
               </View>
             </View>
-            {visite.building && (
+            {(visite.building || visite.level || visite.zone) ? (
               <View style={styles.infoItem}>
                 <Ionicons name="business-outline" size={14} color={C.textMuted} />
                 <View>
                   <Text style={styles.infoLabel}>Localisation</Text>
-                  <Text style={styles.infoVal}>Bât. {visite.building} — {visite.level}</Text>
+                  <Text style={styles.infoVal}>{[visite.building, visite.level, visite.zone].filter(Boolean).join(' — ')}</Text>
                 </View>
               </View>
-            )}
+            ) : null}
           </View>
 
           {visite.notes ? (
@@ -401,7 +401,7 @@ export default function VisiteDetailScreen() {
                   <Text style={styles.reserveMetaDot}>·</Text>
                   <Text style={styles.reserveMetaText}>{r.company}</Text>
                   <Text style={styles.reserveMetaDot}>·</Text>
-                  <Text style={styles.reserveMetaText}>Bât. {r.building}</Text>
+                  {r.building ? <Text style={styles.reserveMetaText}>{r.building}</Text> : null}
                 </View>
               </TouchableOpacity>
             );

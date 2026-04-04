@@ -121,7 +121,7 @@ function buildOprPDF(opr: Opr, projectName: string): string {
        </div>`;
 
   const infoItems = [
-    { label: 'Localisation', value: `Bât. ${opr.building} — ${opr.level}` },
+    ...(opr.building || opr.level ? [{ label: 'Localisation', value: [opr.building, opr.level].filter(Boolean).join(' — ') }] : []),
     { label: 'Conducteur de travaux', value: opr.conducteur },
     ...(opr.maireOuvrage ? [{ label: "Maître d'ouvrage", value: opr.maireOuvrage }] : []),
     { label: 'Date de réception', value: opr.date },
@@ -275,7 +275,7 @@ async function buildPvLeveePDF(opr: Opr, reserves: Reserve[], projectName: strin
   const infoItems = [
     { label: 'Référence OPR', value: opr.id },
     { label: 'Date réception', value: opr.date },
-    { label: 'Localisation', value: `Bât. ${opr.building} — ${opr.level}` },
+    ...((opr.building || opr.level) ? [{ label: 'Localisation', value: [opr.building, opr.level].filter(Boolean).join(' — ') }] : []),
     { label: 'Conducteur', value: opr.conducteur },
     ...(opr.maireOuvrage ? [{ label: "Maître d'ouvrage", value: opr.maireOuvrage }] : []),
   ];
@@ -354,7 +354,7 @@ function buildConvocationPDF(opr: Opr, projectName: string, conducteur: string):
     ${buildInfoGrid([
       { label: 'Référence OPR', value: opr.id },
       { label: 'Date de réception', value: opr.date },
-      { label: 'Localisation', value: `Bât. ${opr.building} — ${opr.level}` },
+      ...((opr.building || opr.level) ? [{ label: 'Localisation', value: [opr.building, opr.level].filter(Boolean).join(' — ') }] : []),
       { label: 'Conducteur', value: conducteur },
       ...(opr.maireOuvrage ? [{ label: "Maître d'ouvrage", value: opr.maireOuvrage }] : []),
       ...(opr.visitContradictoire ? [{ label: 'Visite contradictoire', value: opr.visitContradictoire }] : []),
@@ -953,7 +953,7 @@ export default function OprScreen() {
                 </View>
 
                 <Text style={styles.oprTitle}>{opr.title}</Text>
-                <Text style={styles.oprMeta}>Bât. {opr.building} — {opr.level} · {opr.conducteur}</Text>
+                <Text style={styles.oprMeta}>{[opr.building, opr.level].filter(Boolean).join(' — ')}{(opr.building || opr.level) ? ' · ' : ''}{opr.conducteur}</Text>
                 {opr.maireOuvrage ? (
                   <Text style={styles.oprMeta}>MO : {opr.maireOuvrage}</Text>
                 ) : null}
@@ -1605,7 +1605,7 @@ export default function OprScreen() {
                     <View style={[styles.reservePickerDot, { backgroundColor: r.status === 'closed' ? C.closed : C.open }]} />
                     <View style={{ flex: 1 }}>
                       <Text style={styles.reservePickerTitle}>{r.title}</Text>
-                      <Text style={styles.reservePickerMeta}>{r.company} · {r.building} {r.level}</Text>
+                      <Text style={styles.reservePickerMeta}>{r.company}{(r.building || r.level) ? ` · ${[r.building, r.level].filter(Boolean).join(' ')}` : ''}</Text>
                     </View>
                     <View style={[styles.suiviBadge, r.status === 'closed' ? styles.suiviBadgeLevee : styles.suiviBadgePending]}>
                       <Text style={[styles.suiviBadgeText, { color: r.status === 'closed' ? C.closed : C.textMuted }]}>
@@ -1650,7 +1650,7 @@ export default function OprScreen() {
             {signModalOpr && (
               <View style={styles.modalPvInfo}>
                 <Text style={styles.modalPvTitle}>{signModalOpr.title}</Text>
-                <Text style={styles.modalPvMeta}>Date : {signModalOpr.date} · Bât. {signModalOpr.building}</Text>
+                <Text style={styles.modalPvMeta}>Date : {signModalOpr.date}{signModalOpr.building ? ` · ${[signModalOpr.building, signModalOpr.level].filter(Boolean).join(' — ')}` : ''}</Text>
               </View>
             )}
 

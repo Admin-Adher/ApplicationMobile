@@ -1,13 +1,17 @@
 import {
   View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert, Platform,
+  Modal, KeyboardAvoidingView,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
+import { useState } from 'react';
 import { C } from '@/constants/colors';
 import { useApp } from '@/context/AppContext';
 import { useAuth } from '@/context/AuthContext';
 import Header from '@/components/Header';
+import LocationTreeEditor from '@/components/LocationTreeEditor';
+import { Chantier, ChantierBuilding } from '@/constants/types';
 
 const STATUS_LABELS: Record<string, { label: string; color: string; icon: string }> = {
   active: { label: 'En cours', color: C.closed, icon: 'play-circle-outline' },
@@ -18,8 +22,10 @@ const STATUS_LABELS: Record<string, { label: string; color: string; icon: string
 export default function ManageChantiersScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
-  const { chantiers, sitePlans, reserves, activeChantierId, setActiveChantier, deleteChantier, companies } = useApp();
+  const { chantiers, sitePlans, reserves, activeChantierId, setActiveChantier, deleteChantier, updateChantier, companies } = useApp();
   const { permissions } = useAuth();
+
+  const [structureModal, setStructureModal] = useState<{ chantier: Chantier; buildings: ChantierBuilding[] } | null>(null);
 
   function handleSetActive(id: string) {
     if (id === activeChantierId) return;
@@ -37,6 +43,16 @@ export default function ManageChantiersScreen() {
         { text: 'Supprimer', style: 'destructive', onPress: () => deleteChantier(id) },
       ]
     );
+  }
+
+  function openStructureModal(chantier: Chantier) {
+    setStructureModal({ chantier, buildings: chantier.buildings ? [...chantier.buildings] : [] });
+  }
+
+  function saveStructure() {
+    if (!structureModal) return;
+    updateChantier({ ...structureModal.chantier, buildings: structureModal.buildings.length > 0 ? structureModal.buildings : undefined });
+    setStructureModal(null);
   }
 
   return (
@@ -65,6 +81,7 @@ export default function ManageChantiersScreen() {
               const isActive = chantier.id === activeChantierId;
               const planCount = sitePlans.filter(p => p.chantierId === chantier.id).length;
               const reserveCount = reserves.filter(r => r.chantierId === chantier.id).length;
+              const buildingCount = chantier.buildings?.length ?? 0;
               const statusCfg = STATUS_LABELS[chantier.status] ?? STATUS_LABELS.active;
 
               return (
@@ -100,6 +117,13 @@ export default function ManageChantiersScreen() {
                     <View style={styles.statItem}>
                       <Ionicons name="warning-outline" size={13} color={C.textMuted} />
                       <Text style={styles.statText}>{reserveCount} réserve{reserveCount !== 1 ? 's' : ''}</Text>
+                    </View>
+                    <View style={styles.statDivider} />
+                    <View style={styles.statItem}>
+                      <Ionicons name="business-outline" size={13} color={buildingCount > 0 ? C.primary : C.textMuted} />
+                      <Text style={[styles.statText, buildingCount > 0 && { color: C.primary }]}>
+                        {buildingCount > 0 ? `${buildingCount} bât.` : 'Aucun bât.'}
+                      </Text>
                     </View>
                     {chantier.startDate && (
                       <>
@@ -141,6 +165,15 @@ export default function ManageChantiersScreen() {
                         <Text style={styles.actionBtnText}>Activer</Text>
                       </TouchableOpacity>
                     )}
+                    {permissions.canCreate && (
+                      <TouchableOpacity
+                        style={[styles.actionBtn, { borderColor: C.primary + '50' }]}
+                        onPress={() => openStructureModal(chantier)}
+                      >
+                        <Ionicons name="git-network-outline" size={14} color={C.primary} />
+                        <Text style={[styles.actionBtnText, { color: C.primary }]}>Structure</Text>
+                      </TouchableOpacity>
+                    )}
                     {permissions.canDelete && (
                       <TouchableOpacity
                         style={[styles.actionBtn, { borderColor: C.open + '50' }]}
@@ -167,6 +200,54 @@ export default function ManageChantiersScreen() {
           </>
         )}
       </ScrollView>
+
+      {/* MODAL STRUCTURE */}
+      <Modal
+        visible={structureModal !== null}
+        animationType="slide"
+        presentationStyle="pageSheet"
+        onRequestClose={() => setStructureModal(null)}
+      >
+        <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
+          <View style={styles.modalContainer}>
+            <View style={styles.modalHeader}>
+              <TouchableOpacity onPress={() => setStructureModal(null)} style={styles.modalCloseBtn}>
+                <Ionicons name="close" size={22} color={C.text} />
+              </TouchableOpacity>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.modalTitle}>Structure du bâtiment</Text>
+                {structureModal && (
+                  <Text style={styles.modalSubtitle} numberOfLines={1}>{structureModal.chantier.name}</Text>
+                )}
+              </View>
+              <TouchableOpacity style={styles.modalSaveBtn} onPress={saveStructure}>
+                <Ionicons name="checkmark" size={16} color="#fff" />
+                <Text style={styles.modalSaveBtnText}>Enregistrer</Text>
+              </TouchableOpacity>
+            </View>
+
+            <ScrollView
+              contentContainerStyle={styles.modalContent}
+              showsVerticalScrollIndicator={false}
+              keyboardShouldPersistTaps="handled"
+            >
+              <View style={styles.modalHintBox}>
+                <Ionicons name="information-circle-outline" size={14} color={C.primary} />
+                <Text style={styles.modalHintText}>
+                  Définissez ou modifiez la hiérarchie de localisation. Ces bâtiments et niveaux seront disponibles dans tous les formulaires liés à ce chantier.
+                </Text>
+              </View>
+
+              {structureModal && (
+                <LocationTreeEditor
+                  buildings={structureModal.buildings}
+                  onChange={buildings => setStructureModal(prev => prev ? { ...prev, buildings } : null)}
+                />
+              )}
+            </ScrollView>
+          </View>
+        </KeyboardAvoidingView>
+      </Modal>
     </View>
   );
 }
@@ -189,7 +270,7 @@ const styles = StyleSheet.create({
   chantierAddress: { fontSize: 12, fontFamily: 'Inter_400Regular', color: C.textMuted, marginTop: 2 },
   statusBadge: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 8, paddingVertical: 4, borderRadius: 8 },
   statusBadgeText: { fontSize: 11, fontFamily: 'Inter_600SemiBold' },
-  chantierStats: { flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 10 },
+  chantierStats: { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 10, marginBottom: 10 },
   statItem: { flexDirection: 'row', alignItems: 'center', gap: 5 },
   statText: { fontSize: 12, fontFamily: 'Inter_500Medium', color: C.textMuted },
   statDivider: { width: 1, height: 12, backgroundColor: C.border },
@@ -198,9 +279,19 @@ const styles = StyleSheet.create({
   companyPill: { flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: 9, paddingVertical: 4, borderRadius: 12, borderWidth: 1 },
   companyPillDot: { width: 6, height: 6, borderRadius: 3 },
   companyPillText: { fontSize: 11, fontFamily: 'Inter_600SemiBold' },
-  chantierActions: { flexDirection: 'row', gap: 8 },
+  chantierActions: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   actionBtn: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 12, paddingVertical: 8, borderRadius: 10, borderWidth: 1, borderColor: C.border },
   actionBtnText: { fontSize: 12, fontFamily: 'Inter_600SemiBold', color: C.primary },
   addBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, paddingVertical: 16, borderRadius: 14, backgroundColor: C.primaryBg, borderWidth: 1.5, borderColor: C.primary + '40', borderStyle: 'dashed' },
   addBtnText: { fontSize: 14, fontFamily: 'Inter_600SemiBold', color: C.primary },
+  modalContainer: { flex: 1, backgroundColor: C.bg },
+  modalHeader: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 16, paddingVertical: 14, borderBottomWidth: 1, borderBottomColor: C.border, backgroundColor: C.surface },
+  modalCloseBtn: { padding: 4 },
+  modalTitle: { fontSize: 16, fontFamily: 'Inter_700Bold', color: C.text },
+  modalSubtitle: { fontSize: 12, fontFamily: 'Inter_400Regular', color: C.textMuted, marginTop: 1 },
+  modalSaveBtn: { flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: C.primary, borderRadius: 10, paddingHorizontal: 14, paddingVertical: 8 },
+  modalSaveBtnText: { fontSize: 13, fontFamily: 'Inter_600SemiBold', color: '#fff' },
+  modalContent: { padding: 16, paddingBottom: 48 },
+  modalHintBox: { flexDirection: 'row', alignItems: 'flex-start', gap: 8, backgroundColor: C.primaryBg, borderRadius: 10, padding: 12, marginBottom: 16, borderWidth: 1, borderColor: C.primary + '30' },
+  modalHintText: { flex: 1, fontSize: 12, fontFamily: 'Inter_400Regular', color: C.textSub, lineHeight: 17 },
 });
