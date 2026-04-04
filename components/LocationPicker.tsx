@@ -7,11 +7,11 @@ import { ChantierBuilding } from '@/constants/types';
 interface LocationPickerProps {
   buildings: ChantierBuilding[];
   building: string;
-  level: string;
-  zone: string;
   onBuildingChange: (b: string) => void;
-  onLevelChange: (l: string) => void;
-  onZoneChange: (z: string) => void;
+  level?: string;
+  zone?: string;
+  onLevelChange?: (l: string) => void;
+  onZoneChange?: (z: string) => void;
   showZone?: boolean;
 }
 
@@ -49,11 +49,11 @@ function ChipList({
 export default function LocationPicker({
   buildings,
   building,
-  level,
-  zone,
+  level = '',
+  zone = '',
   onBuildingChange,
-  onLevelChange,
-  onZoneChange,
+  onLevelChange = () => {},
+  onZoneChange = () => {},
   showZone = true,
 }: LocationPickerProps) {
   const hasBuildingsConfig = buildings && buildings.length > 0;

@@ -59,7 +59,7 @@ const EMPTY_FORM: Omit<Incident, 'id' | 'reportedBy'> = {
   description: '',
   severity: 'moderate',
   location: '',
-  building: 'A',
+  building: '',
   reportedAt: formatDateFR(new Date()),
   status: 'open',
   witnesses: '',
