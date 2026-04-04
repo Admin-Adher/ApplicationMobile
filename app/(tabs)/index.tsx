@@ -218,14 +218,11 @@ export default function DashboardScreen() {
     if (activeChantier) {
       all = all.filter(t => t.chantierId === activeChantier.id);
     }
-    if (isSousTraitant && (user?.companyId || userCompany)) {
-      return all.filter(t =>
-        t.company === user?.companyId ||
-        (userCompany && t.company === userCompany.name)
-      );
+    if (isSousTraitant && userCompany) {
+      return all.filter(t => t.company === userCompany.name);
     }
     return all;
-  }, [tasks, isSousTraitant, user?.companyId, userCompany, activeChantier]);
+  }, [tasks, isSousTraitant, userCompany, activeChantier]);
   const openIncidents = incidents.filter(i => i.status !== 'resolved');
 
   const today = new Date().toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' });

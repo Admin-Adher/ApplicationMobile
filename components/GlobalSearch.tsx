@@ -42,24 +42,25 @@ export default function GlobalSearch({ visible, onClose }: Props) {
 
   const results = useMemo(() => {
     if (q.length < 2) return { reserves: [], incidents: [], documents: [] };
+    const s = (v: string | null | undefined) => (v ?? '').toLowerCase();
     return {
       reserves: reserves.filter(r =>
-        r.title.toLowerCase().includes(q) ||
-        r.id.toLowerCase().includes(q) ||
-        r.description.toLowerCase().includes(q) ||
-        r.building.toLowerCase().includes(q) ||
-        r.zone.toLowerCase().includes(q) ||
-        (r.companies ?? []).some(c => c.toLowerCase().includes(q))
+        s(r.title).includes(q) ||
+        s(r.id).includes(q) ||
+        s(r.description).includes(q) ||
+        s(r.building).includes(q) ||
+        s(r.zone).includes(q) ||
+        (r.companies ?? []).some(c => s(c).includes(q))
       ).slice(0, 8),
       incidents: incidents.filter(i =>
-        i.title.toLowerCase().includes(q) ||
-        i.description.toLowerCase().includes(q) ||
-        i.location.toLowerCase().includes(q) ||
-        i.reportedBy.toLowerCase().includes(q)
+        s(i.title).includes(q) ||
+        s(i.description).includes(q) ||
+        s(i.location).includes(q) ||
+        s(i.reportedBy).includes(q)
       ).slice(0, 5),
       documents: documents.filter(d =>
-        d.name.toLowerCase().includes(q) ||
-        d.category.toLowerCase().includes(q)
+        s(d.name).includes(q) ||
+        s(d.category).includes(q)
       ).slice(0, 5),
     };
   }, [q, reserves, incidents, documents]);
