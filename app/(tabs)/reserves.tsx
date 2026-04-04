@@ -682,7 +682,7 @@ export default function ReservesScreen() {
       {chantierReserves.length === 0 && permissions.canCreate && (
         <TouchableOpacity
           style={styles.emptyBtn}
-          onPress={() => router.push('/reserve/new' as any)}
+          onPress={toggleFab}
         >
           <Ionicons name="add-circle-outline" size={16} color="#fff" />
           <Text style={styles.emptyBtnText}>Créer une réserve</Text>
@@ -1183,7 +1183,7 @@ export default function ReservesScreen() {
         </View>
       )}
 
-      {!isSelectMode && permissions.canCreate && chantierReserves.length > 0 && (
+      {!isSelectMode && permissions.canCreate && (
         <View style={[styles.fabContainer, { bottom: Platform.OS === 'web' ? 94 : insets.bottom + 55 }]}>
           {fabOpen && (
             <Animated.View style={[styles.fabSubRow, { opacity: fabAnim }]}>
@@ -1231,19 +1231,21 @@ export default function ReservesScreen() {
             </Animated.View>
           )}
 
-          <Animated.View style={{
-            transform: [{ rotate: fabAnim.interpolate({ inputRange: [0, 1], outputRange: ['0deg', '45deg'] }) }],
-          }}>
-            <TouchableOpacity
-              style={styles.fab}
-              onPress={toggleFab}
-              activeOpacity={0.85}
-              accessibilityRole="button"
-              accessibilityLabel={fabOpen ? 'Fermer le menu' : 'Créer une nouvelle réserve'}
-            >
-              <Ionicons name="add" size={26} color="#fff" />
-            </TouchableOpacity>
-          </Animated.View>
+          {chantierReserves.length > 0 && (
+            <Animated.View style={{
+              transform: [{ rotate: fabAnim.interpolate({ inputRange: [0, 1], outputRange: ['0deg', '45deg'] }) }],
+            }}>
+              <TouchableOpacity
+                style={styles.fab}
+                onPress={toggleFab}
+                activeOpacity={0.85}
+                accessibilityRole="button"
+                accessibilityLabel={fabOpen ? 'Fermer le menu' : 'Créer une nouvelle réserve'}
+              >
+                <Ionicons name="add" size={26} color="#fff" />
+              </TouchableOpacity>
+            </Animated.View>
+          )}
         </View>
       )}
 
