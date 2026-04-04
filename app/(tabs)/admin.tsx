@@ -65,7 +65,7 @@ export default function AdminScreen() {
   const router = useRouter();
 
   const { user, updateUserRole, deleteUserProfile } = useAuth();
-  const { companies, addCompany, updateCompanyFull, deleteCompany, updateCompanyWorkers, updateCompanyHours } = useApp();
+  const { companies, lots, addCompany, updateCompanyFull, deleteCompany, updateCompanyWorkers, updateCompanyHours } = useApp();
   const {
     plan, subscription, seatUsed, seatMax, canInvite, isLoading,
     pendingInvitations, inviteUser, cancelInvitation, orgUsers,
@@ -106,7 +106,7 @@ export default function AdminScreen() {
   const [nomCourt, setNomCourt] = useState('');
   const [phone, setPhone] = useState('');
   const [email, setEmail] = useState('');
-  const [zone, setZone] = useState('');
+  const [selectedLots, setSelectedLots] = useState<string[]>([]);
   const [effectif, setEffectif] = useState('');
   const [heures, setHeures] = useState('');
   const [siret, setSiret] = useState('');
@@ -139,14 +139,14 @@ export default function AdminScreen() {
     setHoursLocalMap(h);
   }, [companies]);
 
-  const isCompanyFormDirty = !!(nom.trim() || nomCourt.trim() || phone.trim() || email.trim() || zone.trim() || effectif.trim() || siret.trim() || insurance.trim());
+  const isCompanyFormDirty = !!(nom.trim() || nomCourt.trim() || phone.trim() || email.trim() || selectedLots.length > 0 || effectif.trim() || siret.trim() || insurance.trim());
 
   const isEditDirty = companyModal?.mode === 'edit' && !!companyModal.company && (
     nom.trim() !== companyModal.company.name ||
     nomCourt.trim().toUpperCase() !== companyModal.company.shortName ||
     effectif !== String(companyModal.company.plannedWorkers) ||
     heures !== String(companyModal.company.hoursWorked ?? 0) ||
-    zone.trim() !== (companyModal.company.zone === 'À définir' ? '' : companyModal.company.zone ?? '') ||
+    JSON.stringify([...selectedLots].sort()) !== JSON.stringify([...(companyModal.company.lots ?? [])].sort()) ||
     (phone.trim() || '') !== (companyModal.company.phone ?? '') ||
     (email.trim() || '') !== (companyModal.company.email ?? '') ||
     siret.trim() !== (companyModal.company.siret ?? '') ||
@@ -171,15 +171,20 @@ export default function AdminScreen() {
     let list = [...companies].sort((a, b) => a.name.localeCompare(b.name, 'fr', { sensitivity: 'base' }));
     if (!companySearch.trim()) return list;
     const q = companySearch.toLowerCase();
-    return list.filter(co =>
-      co.name.toLowerCase().includes(q) ||
-      co.shortName.toLowerCase().includes(q) ||
-      (co.zone && co.zone !== 'À définir' && co.zone.toLowerCase().includes(q)) ||
-      (co.email ?? '').toLowerCase().includes(q) ||
-      (co.phone ?? '').includes(q) ||
-      (co.siret ?? '').replace(/\s/g, '').includes(q.replace(/\s/g, ''))
-    );
-  }, [companies, companySearch]);
+    return list.filter(co => {
+      const coLotNames = (co.lots ?? [])
+        .map(lid => lots.find(l => l.id === lid)?.name ?? '')
+        .join(' ').toLowerCase();
+      return (
+        co.name.toLowerCase().includes(q) ||
+        co.shortName.toLowerCase().includes(q) ||
+        (co.email ?? '').toLowerCase().includes(q) ||
+        (co.phone ?? '').includes(q) ||
+        (co.siret ?? '').replace(/\s/g, '').includes(q.replace(/\s/g, '')) ||
+        coLotNames.includes(q)
+      );
+    });
+  }, [companies, companySearch, lots]);
 
   const roleCounts = useMemo(() => {
     const counts: Record<string, number> = {};
@@ -368,7 +373,7 @@ export default function AdminScreen() {
   }
 
   function openAddCompany() {
-    setNom(''); setNomCourt(''); setPhone(''); setEmail(''); setZone(''); setEffectif('');
+    setNom(''); setNomCourt(''); setPhone(''); setEmail(''); setSelectedLots([]); setEffectif('');
     setHeures('0'); setSiret(''); setInsurance('');
     setSelectedColor(COMPANY_COLORS[companies.length % COMPANY_COLORS.length]);
     setCompanyModal({ mode: 'add' });
@@ -376,7 +381,7 @@ export default function AdminScreen() {
 
   function openEditCompany(co: Company) {
     setNom(co.name); setNomCourt(co.shortName); setPhone(co.phone ?? '');
-    setEmail(co.email ?? ''); setZone(co.zone === 'À définir' ? '' : (co.zone ?? ''));
+    setEmail(co.email ?? ''); setSelectedLots(co.lots ?? []);
     setEffectif(String(co.plannedWorkers));
     setHeures(String(co.hoursWorked ?? 0));
     setSiret(co.siret ?? '');
@@ -433,7 +438,6 @@ export default function AdminScreen() {
       Alert.alert('SIRET invalide', 'Le numéro SIRET doit contenir exactement 14 chiffres.');
       return;
     }
-    const resolvedZone = zone.trim() || '';
     if (companyModal?.mode === 'edit' && companyModal.company) {
       updateCompanyFull({
         ...companyModal.company,
@@ -441,7 +445,8 @@ export default function AdminScreen() {
         shortName: nomCourt.trim().toUpperCase(),
         plannedWorkers: planned,
         hoursWorked: hrs,
-        zone: resolvedZone,
+        zone: '',
+        lots: selectedLots,
         phone: phone.trim() || undefined,
         email: email.trim() || undefined,
         siret: siret.trim() || undefined,
@@ -458,7 +463,8 @@ export default function AdminScreen() {
         plannedWorkers: planned,
         actualWorkers: 0,
         hoursWorked: hrs,
-        zone: resolvedZone,
+        zone: '',
+        lots: selectedLots,
         phone: phone.trim() || undefined,
         email: email.trim() || undefined,
         siret: siret.trim() || undefined,
@@ -807,7 +813,7 @@ export default function AdminScreen() {
             <Ionicons name="search-outline" size={15} color={C.textMuted} />
             <TextInput
               style={styles.searchInput}
-              placeholder="Nom, sigle, SIRET, zone ou contact..."
+              placeholder="Nom, sigle, SIRET, lot ou contact..."
               placeholderTextColor={C.textMuted}
               value={companySearch}
               onChangeText={setCompanySearch}
@@ -840,7 +846,7 @@ export default function AdminScreen() {
               const workers = workerLocalMap[co.id] ?? co.actualWorkers;
               const hours = hoursLocalMap[co.id] ?? (co.hoursWorked ?? 0);
               const linkedCount = companyUserCounts[co.id] ?? 0;
-              const hasZone = co.zone && co.zone !== 'À définir' && co.zone.trim() !== '';
+              const coLots = (co.lots ?? []).map(lid => lots.find(l => l.id === lid)).filter(Boolean) as typeof lots;
               return (
                 <View key={co.id} style={styles.coCard}>
                   <View style={[styles.coAccent, { backgroundColor: co.color }]} />
@@ -852,7 +858,16 @@ export default function AdminScreen() {
                           <Text style={[styles.coSigleTxt, { color: co.color }]}>{co.shortName}</Text>
                         </View>
                       </View>
-                      {hasZone && <Text style={styles.coZone}>{co.zone}</Text>}
+                      {coLots.length > 0 && (
+                        <View style={styles.coLotsRow}>
+                          {coLots.map(l => (
+                            <View key={l.id} style={[styles.coLotChip, { backgroundColor: l.color + '18', borderColor: l.color + '44' }]}>
+                              <View style={[styles.coLotDot, { backgroundColor: l.color }]} />
+                              <Text style={[styles.coLotChipTxt, { color: l.color }]} numberOfLines={1}>{l.name}</Text>
+                            </View>
+                          ))}
+                        </View>
+                      )}
                       {linkedCount > 0 && (
                         <View style={styles.coLinkedUsers}>
                           <Ionicons name="person-outline" size={11} color={C.textMuted} />
@@ -1243,9 +1258,32 @@ export default function AdminScreen() {
                     placeholder="Ex : 240" placeholderTextColor={C.textMuted} keyboardType="numeric" />
                 </View>
                 <View style={styles.field}>
-                  <Text style={styles.fieldLabel}>Zone d'intervention</Text>
-                  <TextInput style={styles.fieldInput} value={zone} onChangeText={setZone}
-                    placeholder="Ex : Zone Nord — Bâtiment A" placeholderTextColor={C.textMuted} />
+                  <Text style={styles.fieldLabel}>Lots de travaux</Text>
+                  <Text style={styles.fieldHint}>Sélectionnez les lots dont cette entreprise est responsable</Text>
+                  <View style={styles.lotSelectorGrid}>
+                    {lots.map(l => {
+                      const isOn = selectedLots.includes(l.id);
+                      return (
+                        <TouchableOpacity
+                          key={l.id}
+                          style={[styles.lotSelectorChip, isOn && { backgroundColor: l.color + '18', borderColor: l.color }]}
+                          onPress={() => setSelectedLots(prev => isOn ? prev.filter(x => x !== l.id) : [...prev, l.id])}
+                          accessibilityRole="checkbox"
+                          accessibilityState={{ checked: isOn }}
+                          accessibilityLabel={l.name}
+                        >
+                          <View style={[styles.lotSelectorDot, { backgroundColor: isOn ? l.color : C.border }]} />
+                          <Text style={[styles.lotSelectorTxt, isOn && { color: l.color, fontFamily: 'Inter_600SemiBold' }]} numberOfLines={1}>
+                            {l.name}
+                          </Text>
+                          {isOn && <Ionicons name="checkmark" size={12} color={l.color} />}
+                        </TouchableOpacity>
+                      );
+                    })}
+                  </View>
+                  {selectedLots.length === 0 && (
+                    <Text style={styles.lotSelectorEmpty}>Aucun lot sélectionné — les réserves ne seront pas auto-assignées</Text>
+                  )}
                 </View>
                 <View style={styles.fieldSeparator}>
                   <Text style={styles.fieldSeparatorTxt}>Informations légales</Text>
@@ -1607,7 +1645,14 @@ const styles = StyleSheet.create({
   coName: { fontSize: 14, fontFamily: 'Inter_600SemiBold', color: C.text },
   coSigle: { borderRadius: 5, paddingHorizontal: 6, paddingVertical: 2 },
   coSigleTxt: { fontSize: 10, fontFamily: 'Inter_700Bold' },
-  coZone: { fontSize: 11, fontFamily: 'Inter_400Regular', color: C.textMuted, marginTop: 2 },
+  coLotsRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 5, marginTop: 5 },
+  coLotChip: {
+    flexDirection: 'row', alignItems: 'center', gap: 4,
+    borderRadius: 6, paddingHorizontal: 7, paddingVertical: 3,
+    borderWidth: 1, borderColor: 'transparent',
+  },
+  coLotDot: { width: 5, height: 5, borderRadius: 3 },
+  coLotChipTxt: { fontSize: 10, fontFamily: 'Inter_600SemiBold', maxWidth: 90 },
   coLinkedUsers: { flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 4 },
   coLinkedUsersTxt: { fontSize: 11, fontFamily: 'Inter_400Regular', color: C.textMuted },
   coStatsGrid: { flexDirection: 'column', gap: 6 },
@@ -1761,6 +1806,16 @@ const styles = StyleSheet.create({
 
   field: { gap: 4 },
   fieldLabel: { fontSize: 12, fontFamily: 'Inter_600SemiBold', color: C.textSub },
+  fieldHint: { fontSize: 11, fontFamily: 'Inter_400Regular', color: C.textMuted, marginTop: -2 },
+  lotSelectorGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 7, marginTop: 6 },
+  lotSelectorChip: {
+    flexDirection: 'row', alignItems: 'center', gap: 6,
+    paddingHorizontal: 10, paddingVertical: 7, borderRadius: 9,
+    backgroundColor: C.bg, borderWidth: 1, borderColor: C.border,
+  },
+  lotSelectorDot: { width: 8, height: 8, borderRadius: 4 },
+  lotSelectorTxt: { fontSize: 12, fontFamily: 'Inter_400Regular', color: C.text, maxWidth: 110 },
+  lotSelectorEmpty: { fontSize: 11, fontFamily: 'Inter_400Regular', color: C.textMuted, fontStyle: 'italic', marginTop: 4 },
   fieldInput: {
     backgroundColor: C.bg, borderRadius: 10, paddingHorizontal: 12, paddingVertical: 10,
     fontSize: 14, fontFamily: 'Inter_400Regular', color: C.text,
