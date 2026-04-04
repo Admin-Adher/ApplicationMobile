@@ -303,8 +303,8 @@ export default function DashboardScreen() {
           <View style={styles.logoMini}>
             <Text style={styles.logoMiniLetter}>B</Text>
           </View>
-          <View>
-            <Text style={styles.brand}>{firstName ? `Bonjour, ${firstName}` : 'BuildTrack'}</Text>
+          <View style={{ flex: 1, minWidth: 0 }}>
+            <Text style={styles.brand} numberOfLines={1}>{firstName ? `Bonjour, ${firstName}` : 'BuildTrack'}</Text>
             <Text style={styles.date}>{today}</Text>
           </View>
         </View>
