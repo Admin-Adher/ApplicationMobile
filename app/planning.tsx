@@ -806,7 +806,7 @@ export default function PlanningScreen() {
         title="Planning"
         subtitle={`${tasks.length} tâche${tasks.length !== 1 ? 's' : ''} au total`}
         showBack
-        rightIcon={permissions.canCreate ? 'add-circle' : undefined}
+        rightLabel={permissions.canCreate ? '+ Nouvelle tâche' : undefined}
         onRightPress={permissions.canCreate ? () => router.push('/task/new' as any) : undefined}
       />
 
