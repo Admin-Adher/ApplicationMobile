@@ -81,6 +81,14 @@ export default function NewReserveScreen() {
   const [zone, setZone] = useState('');
   const [level, setLevel] = useState(params.level ?? '');
 
+  useEffect(() => {
+    if (!params.building && !params.level && activeChantier?.buildings?.length) {
+      const firstBuilding = activeChantier.buildings[0];
+      setBuilding(firstBuilding.name);
+      setLevel(firstBuilding.levels?.[0]?.name ?? '');
+    }
+  }, [activeChantier?.id]);
+
   const locationFromPlan = !!(params.planId && params.building && params.level);
   const buildingLocked = locationFromPlan;
   const levelLocked = locationFromPlan;
