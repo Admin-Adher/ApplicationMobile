@@ -1239,6 +1239,7 @@ export default function PlansScreen() {
                   <Text style={styles.planSubtitle}>Schématique · {currentPlan?.uploadedAt ?? ''}</Text>
                 )}
               </View>
+              {allPlanReserves.some(r => r.planX != null && r.planY != null) && (
               <View style={styles.pinSizeRow}>
                 {focusedPinId && (
                   <Text style={{ fontSize: 10, color: '#FBBF24', fontFamily: 'Inter_600SemiBold', marginRight: 2 }}>
@@ -1272,6 +1273,7 @@ export default function PlansScreen() {
                   );
                 })()}
               </View>
+              )}
               {hasVersions && (
                 <TouchableOpacity
                   style={[styles.versionBtn, showVersionHistory && styles.versionBtnActive]}
