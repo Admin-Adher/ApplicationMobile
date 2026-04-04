@@ -46,5 +46,3 @@ publicDir = "dist"
 [userenv]
 
 [userenv.shared]
-EXPO_PUBLIC_SUPABASE_URL = "https://jzeojdpgglbxjdasjgta.supabase.co"
-EXPO_PUBLIC_SUPABASE_KEY = "sb_publishable_82T9HBSLycSJ2T6OBaDNLA_01V1mXda"
