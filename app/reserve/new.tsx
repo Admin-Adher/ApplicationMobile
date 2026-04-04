@@ -131,6 +131,36 @@ export default function NewReserveScreen() {
   const selectedLot = useMemo(() => lots.find(l => l.id === lotId) ?? null, [lots, lotId]);
   const previewId = useMemo(() => genReserveId(reserves, selectedLot), [reserves, selectedLot]);
 
+  // Resolve IDs from selected building/level names
+  const selectedBuildingObj = useMemo(
+    () => activeChantier?.buildings?.find(b => b.name === building) ?? null,
+    [activeChantier, building]
+  );
+  const selectedLevelObj = useMemo(
+    () => selectedBuildingObj?.levels?.find(l => l.name === level) ?? null,
+    [selectedBuildingObj, level]
+  );
+
+  // Filter plans: show plans matching the selected level, plus general plans (no levelId)
+  const filteredPlans = useMemo(() => {
+    if (!selectedBuildingObj || !selectedLevelObj) return chantierPlans;
+    return chantierPlans.filter(p => {
+      if (!p.buildingId && !p.levelId) return true; // general plan
+      return p.buildingId === selectedBuildingObj.id && p.levelId === selectedLevelObj.id;
+    });
+  }, [chantierPlans, selectedBuildingObj, selectedLevelObj]);
+
+  // When building/level changes: if selected plan no longer in filteredPlans, pick best match or clear
+  useEffect(() => {
+    if (locationFromPlan) return; // plan is locked from params, don't override
+    if (!selectedPlanId) return;
+    const stillValid = filteredPlans.some(p => p.id === selectedPlanId);
+    if (!stillValid) {
+      const best = filteredPlans[0]?.id ?? '';
+      setSelectedPlanId(best);
+    }
+  }, [filteredPlans]);
+
   if (!permissions.canCreate) {
     return (
       <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: C.bg, padding: 32 }}>
@@ -189,6 +219,20 @@ export default function NewReserveScreen() {
         const co = companies.find(c => c.id === lot.companyId);
         if (co) setSelectedCompanies([co.name]);
       }
+    }
+  }
+
+  function handlePlanChange(planId: string) {
+    setSelectedPlanId(planId);
+    if (!planId || buildingLocked) return;
+    const plan = chantierPlans.find(p => p.id === planId);
+    if (!plan?.buildingId) return;
+    const bldg = activeChantier?.buildings?.find(b => b.id === plan.buildingId);
+    if (!bldg) return;
+    setBuilding(bldg.name);
+    if (plan.levelId) {
+      const lvl = bldg.levels?.find(l => l.id === plan.levelId);
+      if (lvl) setLevel(lvl.name);
     }
   }
 
@@ -530,12 +574,33 @@ export default function NewReserveScreen() {
           <View style={styles.card}>
             <BottomSheetPicker
               label="Plan associé"
-              options={chantierPlans.map(p => ({ label: p.name, value: p.id }))}
+              options={filteredPlans.map(p => {
+                const bldg = p.buildingId ? activeChantier?.buildings?.find(b => b.id === p.buildingId) : null;
+                const lvl = bldg && p.levelId ? bldg.levels?.find(l => l.id === p.levelId) : null;
+                return {
+                  label: p.name,
+                  value: p.id,
+                  secondaryLabel: bldg ? [bldg.name, lvl?.name].filter(Boolean).join(' › ') : undefined,
+                };
+              })}
               value={selectedPlanId}
-              onChange={setSelectedPlanId}
+              onChange={handlePlanChange}
               allowNone
               noneLabel="Aucun plan"
             />
+            {selectedLevelObj && filteredPlans.length < chantierPlans.length && (
+              <View style={styles.planFilterHint}>
+                <Ionicons name="filter-outline" size={12} color={C.primary} />
+                <Text style={styles.planFilterHintText}>
+                  {filteredPlans.length === 0
+                    ? `Aucun plan pour ${level} — affichage des plans généraux`
+                    : `${filteredPlans.length} plan${filteredPlans.length > 1 ? 's' : ''} pour ${building} › ${level}`}
+                </Text>
+                <TouchableOpacity onPress={() => { setBuilding(''); setLevel(''); }}>
+                  <Text style={styles.planFilterReset}>Tout voir</Text>
+                </TouchableOpacity>
+              </View>
+            )}
           </View>
         )}
 
@@ -726,4 +791,8 @@ const styles = StyleSheet.create({
   kindChipText: { fontSize: 14, fontFamily: 'Inter_600SemiBold', color: C.textSub },
   kindHintBox: { flexDirection: 'row', alignItems: 'flex-start', gap: 6, backgroundColor: '#0EA5E910', borderRadius: 8, padding: 10, marginTop: 10, borderWidth: 1, borderColor: '#0EA5E930' },
   kindHintText: { flex: 1, fontSize: 12, fontFamily: 'Inter_400Regular', color: '#0EA5E9', lineHeight: 17 },
+
+  planFilterHint: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 8, paddingTop: 8, borderTopWidth: 1, borderTopColor: C.border },
+  planFilterHintText: { flex: 1, fontSize: 11, fontFamily: 'Inter_400Regular', color: C.primary },
+  planFilterReset: { fontSize: 11, fontFamily: 'Inter_600SemiBold', color: C.primary, textDecorationLine: 'underline' },
 });
