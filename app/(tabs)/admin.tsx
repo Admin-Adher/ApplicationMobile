@@ -13,26 +13,7 @@ import { useSubscription } from '@/context/SubscriptionContext';
 import { UserRole, Company } from '@/constants/types';
 import { isSupabaseConfigured } from '@/lib/supabase';
 import { genId } from '@/lib/utils';
-
-const ROLES: { value: UserRole; label: string; color: string; bg: string; description: string }[] = [
-  { value: 'admin',         label: 'Administrateur',        color: '#EF4444', bg: '#FEF2F2', description: 'Gestion complète — utilisateurs, entreprises, abonnement' },
-  { value: 'conducteur',   label: 'Conducteur de travaux',  color: '#3B82F6', bg: '#EFF6FF', description: 'Pilotage chantier — réserves, plans, OPR, rapports' },
-  { value: 'chef_equipe',  label: "Chef d'équipe",          color: '#F59E0B', bg: '#FFFBEB', description: 'Terrain — réserves, pointage, incidents (pas de suppression)' },
-  { value: 'observateur',  label: 'Observateur',            color: '#6B7280', bg: '#F3F4F6', description: 'Lecture seule — consultation et export des données (gratuit)' },
-  { value: 'sous_traitant', label: 'Sous-traitant',         color: '#10B981', bg: '#ECFDF5', description: 'Portail entreprise — voir et traiter ses propres réserves (gratuit)' },
-];
-
-const FREE_ROLES: UserRole[] = ['observateur', 'sous_traitant'];
-
-const PLAN_COLORS: Record<string, string> = {
-  Solo:    '#10B981',
-  'Équipe': '#3B82F6',
-  Groupe:  '#8B5CF6',
-};
-
-const ROLE_EXTRA: Record<string, { label: string; color: string; bg: string }> = {
-  super_admin: { label: 'Super Admin', color: '#7C3AED', bg: '#F5F3FF' },
-};
+import { ROLES, ROLE_INFO, PLAN_COLORS, FREE_ROLES, AVATAR_COLORS, hashColor, formatDate } from '@/lib/adminUtils';
 
 const STATUS_CONFIG: Record<string, { label: string; color: string; bg: string; icon: any; hint?: string }> = {
   trial:     { label: "Période d'essai",  color: '#F59E0B', bg: '#FFFBEB', icon: 'time-outline' },
@@ -54,26 +35,12 @@ const COMPANY_COLORS = [
   '#06B6D4','#F97316','#EC4899','#14B8A6','#84CC16',
 ];
 
-const AVATAR_COLORS = ['#3B82F6','#10B981','#F59E0B','#8B5CF6','#EF4444','#06B6D4','#EC4899'];
-
-function hashColor(id: string, palette: string[]): string {
-  let h = 0;
-  for (let i = 0; i < id.length; i++) h = (h * 31 + id.charCodeAt(i)) & 0x7fffffff;
-  return palette[h % palette.length];
-}
-
 function isValidEmail(email: string): boolean {
   return /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(email.trim());
 }
 
-function formatDate(iso?: string): string {
-  if (!iso) return '—';
-  const d = new Date(iso);
-  return d.toLocaleDateString('fr-FR', { day: '2-digit', month: 'long', year: 'numeric' });
-}
-
 function RoleBadge({ role }: { role: string }) {
-  const r = ROLES.find(x => x.value === role) ?? ROLE_EXTRA[role];
+  const r = ROLES.find(x => x.value === role) ?? ROLE_INFO[role];
   if (!r) return null;
   return (
     <View style={[styles.roleBadge, { backgroundColor: r.bg }]}>
@@ -100,7 +67,7 @@ export default function AdminScreen() {
   const { user, updateUserRole, deleteUserProfile } = useAuth();
   const { companies, addCompany, updateCompanyFull, deleteCompany, updateCompanyWorkers, updateCompanyHours } = useApp();
   const {
-    plan, subscription, seatUsed, seatMax, canInvite,
+    plan, subscription, seatUsed, seatMax, canInvite, isLoading,
     pendingInvitations, inviteUser, cancelInvitation, orgUsers,
     activeOrgUsers, freeOrgUsers,
   } = useSubscription();
@@ -172,7 +139,7 @@ export default function AdminScreen() {
     setHoursLocalMap(h);
   }, [companies]);
 
-  const isCompanyFormDirty = !!(nom.trim() || nomCourt.trim() || phone.trim() || email.trim() || zone.trim() || effectif.trim());
+  const isCompanyFormDirty = !!(nom.trim() || nomCourt.trim() || phone.trim() || email.trim() || zone.trim() || effectif.trim() || siret.trim() || insurance.trim());
 
   const isEditDirty = companyModal?.mode === 'edit' && !!companyModal.company && (
     nom.trim() !== companyModal.company.name ||
@@ -192,10 +159,13 @@ export default function AdminScreen() {
     if (roleFilter !== 'all') list = list.filter(u => u.role === roleFilter);
     if (userSearch.trim()) {
       const q = userSearch.toLowerCase();
-      list = list.filter(u => u.name.toLowerCase().includes(q) || u.email.toLowerCase().includes(q));
+      list = list.filter(u => {
+        const companyName = (companies.find(c => c.id === u.companyId)?.name ?? '').toLowerCase();
+        return u.name.toLowerCase().includes(q) || u.email.toLowerCase().includes(q) || companyName.includes(q);
+      });
     }
     return list.sort((a, b) => a.name.localeCompare(b.name, 'fr', { sensitivity: 'base' }));
-  }, [orgUsers, userSearch, roleFilter]);
+  }, [orgUsers, userSearch, roleFilter, companies]);
 
   const filteredCompanies = useMemo(() => {
     let list = [...companies].sort((a, b) => a.name.localeCompare(b.name, 'fr', { sensitivity: 'base' }));
@@ -227,7 +197,8 @@ export default function AdminScreen() {
 
   const statusCfg = subscription ? (STATUS_CONFIG[subscription.status] ?? STATUS_CONFIG.trial) : null;
 
-  const rolesTotal = useMemo(() => Object.values(roleCounts).reduce((s, n) => s + n, 0), [roleCounts]);
+  const superAdminCount = useMemo(() => orgUsers.filter(u => u.role === 'super_admin').length, [orgUsers]);
+  const rolesTotal = useMemo(() => Object.values(roleCounts).reduce((s, n) => s + n, 0) + superAdminCount, [roleCounts, superAdminCount]);
 
   const seatRatio = seatMax === -1 ? 0 : seatUsed / seatMax;
   const seatBarColor = seatRatio >= 0.9 ? '#EF4444' : seatRatio >= 0.7 ? '#F59E0B' : '#10B981';
@@ -323,11 +294,54 @@ export default function AdminScreen() {
       Alert.alert('Action impossible', 'Vous ne pouvez pas retirer votre propre rôle admin.');
       return;
     }
+    const isPaidRole = !FREE_ROLES.includes(newRole);
+    const wasFreeRole = FREE_ROLES.includes(roleModal.currentRole);
+    if (isPaidRole && wasFreeRole && !canInvite) {
+      Alert.alert(
+        'Sièges insuffisants',
+        `Limite de ${seatMax} siège${seatMax > 1 ? 's' : ''} atteinte. Ce changement de rôle requiert un siège disponible.`,
+        [{ text: 'OK', style: 'cancel' }]
+      );
+      return;
+    }
+    if (roleModal.currentRole === 'admin' && newRole !== 'admin') {
+      const remainingAdmins = orgUsers.filter(u => u.role === 'admin' && u.id !== roleModal.id).length;
+      if (remainingAdmins === 0) {
+        Alert.alert(
+          'Dernier administrateur',
+          `${roleModal.name} est le seul administrateur de l'organisation. En changeant son rôle, plus personne ne pourra gérer les accès.\n\nConfirmez-vous cette modification ?`,
+          [
+            { text: 'Annuler', style: 'cancel' },
+            {
+              text: 'Changer quand même', style: 'destructive',
+              onPress: async () => {
+                setSaving(true);
+                try {
+                  await updateUserRole(roleModal.id, newRole);
+                  setRoleModal(null);
+                  showToast('Rôle mis à jour');
+                } catch {
+                  showToast('Erreur — rôle non modifié');
+                } finally {
+                  setSaving(false);
+                }
+              },
+            },
+          ]
+        );
+        return;
+      }
+    }
     setSaving(true);
-    await updateUserRole(roleModal.id, newRole);
-    setSaving(false);
-    setRoleModal(null);
-    showToast('Rôle mis à jour');
+    try {
+      await updateUserRole(roleModal.id, newRole);
+      setRoleModal(null);
+      showToast('Rôle mis à jour');
+    } catch {
+      showToast('Erreur — rôle non modifié');
+    } finally {
+      setSaving(false);
+    }
   }
 
   function handleDeleteUser(u: { id: string; name: string; role: string }) {
@@ -346,7 +360,7 @@ export default function AdminScreen() {
           text: 'Retirer', style: 'destructive',
           onPress: async () => {
             await deleteUserProfile(u.id);
-            showToast(`${u.name} retiré`);
+            showToast(`${u.name} retiré(e) de l'organisation`);
           },
         },
       ]
@@ -397,7 +411,12 @@ export default function AdminScreen() {
       Alert.alert('Valeur invalide', 'L\'effectif doit être un entier positif.');
       return;
     }
-    const hrs = parseFloat(heures) || 0;
+    const heuresToFloat = parseFloat(String(heures).replace(',', '.'));
+    if (heures.trim() && (isNaN(heuresToFloat) || heuresToFloat < 0)) {
+      Alert.alert('Valeur invalide', 'Les heures travaillées doivent être un nombre positif.');
+      return;
+    }
+    const hrs = isNaN(heuresToFloat) ? 0 : Math.max(0, heuresToFloat);
     const duplicate = companies.find(c =>
       c.name.toLowerCase() === nom.trim().toLowerCase() &&
       (companyModal?.mode === 'add' || c.id !== companyModal?.company?.id)
@@ -438,7 +457,7 @@ export default function AdminScreen() {
         color: selectedColor,
         plannedWorkers: planned,
         actualWorkers: 0,
-        hoursWorked: 0,
+        hoursWorked: hrs,
         zone: resolvedZone,
         phone: phone.trim() || undefined,
         email: email.trim() || undefined,
@@ -451,9 +470,13 @@ export default function AdminScreen() {
   }
 
   function handleDeleteCompany(co: Company) {
+    const linkedCount = companyUserCounts[co.id] ?? 0;
+    const linkedNote = linkedCount > 0
+      ? `\n\n⚠️ ${linkedCount} sous-traitant${linkedCount > 1 ? 's' : ''} lié${linkedCount > 1 ? 's' : ''} perdr${linkedCount > 1 ? 'ont' : 'a'} l'accès à cette entreprise.`
+      : '';
     Alert.alert(
       'Supprimer l\'entreprise',
-      `Supprimer "${co.name}" définitivement ?\n\nLes réserves associées resteront mais sans entreprise assignée.`,
+      `Supprimer "${co.name}" définitivement ?\n\nLes réserves associées resteront sans entreprise assignée.${linkedNote}`,
       [
         { text: 'Annuler', style: 'cancel' },
         {
@@ -546,9 +569,14 @@ export default function AdminScreen() {
           <TouchableOpacity
             style={[styles.tabBtn, activeTab === 'abonnement' && styles.tabBtnActive]}
             onPress={() => setActiveTab('abonnement')}
+            accessibilityRole="tab"
+            accessibilityLabel="Onglet Abonnement"
           >
             <Ionicons name="card" size={14} color={activeTab === 'abonnement' ? C.primary : C.textMuted} />
             <Text style={[styles.tabBtnText, activeTab === 'abonnement' && styles.tabBtnTextActive]}>Abonnement</Text>
+            {(subscription?.status === 'suspended' || subscription?.status === 'expired') && (
+              <View style={styles.tabAlertDot} />
+            )}
           </TouchableOpacity>
         </ScrollView>
       </View>
@@ -559,24 +587,45 @@ export default function AdminScreen() {
           contentContainerStyle={[styles.content, { paddingBottom: bottomPad + 32 }]}
           showsVerticalScrollIndicator={false}
         >
+          {isLoading && (
+            <View style={{ alignItems: 'center', paddingVertical: 32 }}>
+              <ActivityIndicator size="large" color={C.primary} />
+              <Text style={{ marginTop: 10, fontSize: 13, color: C.textMuted, fontFamily: 'Inter_400Regular' }}>
+                Chargement des membres…
+              </Text>
+            </View>
+          )}
           <View style={styles.statsGrid}>
             {ROLES.map(r => (
               <TouchableOpacity
                 key={r.value}
                 style={[styles.statCard, { borderTopColor: r.color }, roleFilter === r.value && { borderColor: r.color, backgroundColor: r.bg }]}
                 onPress={() => setRoleFilter(roleFilter === r.value ? 'all' : r.value)}
+                accessibilityRole="button"
+                accessibilityLabel={`Filtrer par ${r.label} — ${roleCounts[r.value] ?? 0}`}
               >
                 <Text style={[styles.statNum, { color: r.color }]}>{roleCounts[r.value] ?? 0}</Text>
                 <Text style={styles.statLabel} numberOfLines={2}>{r.label}</Text>
               </TouchableOpacity>
             ))}
+            {superAdminCount > 0 && (
+              <TouchableOpacity
+                style={[styles.statCard, { borderTopColor: '#7C3AED' }, roleFilter === 'super_admin' && { borderColor: '#7C3AED', backgroundColor: '#F5F3FF' }]}
+                onPress={() => setRoleFilter(roleFilter === 'super_admin' ? 'all' : 'super_admin')}
+                accessibilityRole="button"
+                accessibilityLabel={`Filtrer par Super Admin — ${superAdminCount}`}
+              >
+                <Text style={[styles.statNum, { color: '#7C3AED' }]}>{superAdminCount}</Text>
+                <Text style={styles.statLabel} numberOfLines={2}>Super Admin</Text>
+              </TouchableOpacity>
+            )}
           </View>
 
           {roleFilter !== 'all' && (
             <TouchableOpacity style={styles.filterActiveBanner} onPress={() => setRoleFilter('all')}>
               <Ionicons name="funnel" size={13} color={C.primary} />
               <Text style={styles.filterActiveTxt}>
-                Filtre : {ROLES.find(r => r.value === roleFilter)?.label}
+                Filtre : {(ROLES.find(r => r.value === roleFilter) ?? ROLE_INFO[roleFilter])?.label ?? roleFilter}
               </Text>
               <Ionicons name="close-circle" size={15} color={C.primary} />
             </TouchableOpacity>
@@ -588,7 +637,12 @@ export default function AdminScreen() {
                 ? `${filteredUsers.length} / ${rolesTotal} utilisateur${rolesTotal !== 1 ? 's' : ''}`
                 : `${rolesTotal} utilisateur${rolesTotal !== 1 ? 's' : ''}`}
             </Text>
-            <TouchableOpacity style={styles.addBtn} onPress={() => setInviteModal(true)}>
+            <TouchableOpacity
+              style={styles.addBtn}
+              onPress={() => setInviteModal(true)}
+              accessibilityRole="button"
+              accessibilityLabel="Inviter un nouveau membre"
+            >
               <Ionicons name="person-add-outline" size={17} color="#fff" />
               <Text style={styles.addBtnText}>Inviter</Text>
             </TouchableOpacity>
@@ -598,7 +652,7 @@ export default function AdminScreen() {
             <Ionicons name="search-outline" size={15} color={C.textMuted} />
             <TextInput
               style={styles.searchInput}
-              placeholder="Nom ou email..."
+              placeholder="Nom, email ou entreprise..."
               placeholderTextColor={C.textMuted}
               value={userSearch}
               onChangeText={setUserSearch}
@@ -626,6 +680,11 @@ export default function AdminScreen() {
               {orgUsers.length === 0 && (
                 <Text style={styles.emptyHint}>Utilisez le bouton "Inviter" pour ajouter des membres</Text>
               )}
+              {orgUsers.length > 0 && roleFilter !== 'all' && userSearch.trim() && (
+                <Text style={styles.emptyHint}>
+                  Filtre rôle + recherche "{userSearch}" actifs — aucune correspondance
+                </Text>
+              )}
             </View>
           ) : (
             filteredUsers.map(u => {
@@ -651,6 +710,8 @@ export default function AdminScreen() {
                       <TouchableOpacity
                         style={styles.iconBtnLabelled}
                         onPress={() => setRoleModal({ id: u.id, name: u.name, currentRole: u.role })}
+                        accessibilityRole="button"
+                        accessibilityLabel={`Modifier le rôle de ${u.name}`}
                       >
                         <Ionicons name="create-outline" size={15} color={C.primary} />
                         <Text style={styles.iconBtnLabelText}>Rôle</Text>
@@ -661,6 +722,8 @@ export default function AdminScreen() {
                       <TouchableOpacity
                         style={[styles.iconBtnLabelled, styles.iconBtnLabelledDanger]}
                         onPress={() => handleDeleteUser(u)}
+                        accessibilityRole="button"
+                        accessibilityLabel={`Retirer ${u.name} de l'organisation`}
                       >
                         <Ionicons name="trash-outline" size={15} color={C.open} />
                         <Text style={[styles.iconBtnLabelText, { color: C.open }]}>Retirer</Text>
@@ -700,9 +763,10 @@ export default function AdminScreen() {
                     <TouchableOpacity
                       style={[styles.iconBtnLabelled, styles.iconBtnLabelledDanger]}
                       onPress={() => handleCancelInvitation(inv.id, inv.email)}
+                      accessibilityLabel={isExpired ? 'Supprimer cette invitation expirée' : 'Annuler cette invitation'}
                     >
                       <Ionicons name="close" size={14} color={C.open} />
-                      <Text style={[styles.iconBtnLabelText, { color: C.open }]}>Annuler</Text>
+                      <Text style={[styles.iconBtnLabelText, { color: C.open }]}>{isExpired ? 'Supprimer' : 'Annuler'}</Text>
                     </TouchableOpacity>
                   </View>
                 );
@@ -801,6 +865,8 @@ export default function AdminScreen() {
                         <TouchableOpacity
                           style={styles.iconBtnLabelled}
                           onPress={() => openEditCompany(co)}
+                          accessibilityRole="button"
+                          accessibilityLabel={`Modifier ${co.name}`}
                         >
                           <Ionicons name="pencil-outline" size={15} color={C.primary} />
                           <Text style={styles.iconBtnLabelText}>Éditer</Text>
@@ -809,6 +875,8 @@ export default function AdminScreen() {
                         <TouchableOpacity
                           style={[styles.iconBtnLabelled, styles.iconBtnLabelledDanger]}
                           onPress={() => handleDeleteCompany(co)}
+                          accessibilityRole="button"
+                          accessibilityLabel={`Supprimer ${co.name}`}
                         >
                           <Ionicons name="trash-outline" size={15} color={C.open} />
                           <Text style={[styles.iconBtnLabelText, { color: C.open }]}>Suppr.</Text>
@@ -855,15 +923,23 @@ export default function AdminScreen() {
                               keyboardType="numeric"
                               autoFocus
                               selectTextOnFocus
-                              onBlur={() => commitHoursEdit(co)}
                               onSubmitEditing={() => commitHoursEdit(co)}
                             />
                             <TouchableOpacity
                               onPress={() => commitHoursEdit(co)}
                               hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
                               style={[styles.workerBtn, { backgroundColor: C.primary + '22' }]}
+                              accessibilityLabel="Valider les heures"
                             >
                               <Ionicons name="checkmark" size={13} color={C.primary} />
+                            </TouchableOpacity>
+                            <TouchableOpacity
+                              onPress={() => { setHoursEditId(null); setHoursInputVal(''); }}
+                              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                              style={[styles.workerBtn, { backgroundColor: '#FEF2F2' }]}
+                              accessibilityLabel="Annuler la saisie des heures"
+                            >
+                              <Ionicons name="close" size={13} color="#EF4444" />
                             </TouchableOpacity>
                           </>
                         ) : (
@@ -990,7 +1066,7 @@ export default function AdminScreen() {
                 <View style={styles.memberPreview}>
                   {activeOrgUsers.slice(0, 3).map(u => {
                     const col = hashColor(u.id, AVATAR_COLORS);
-                    const rc = ROLES.find(r => r.value === u.role) ?? ROLE_EXTRA[u.role];
+                    const rc = ROLE_INFO[u.role];
                     const initials = u.name.split(' ').map((w: string) => w[0]).slice(0, 2).join('').toUpperCase();
                     return (
                       <View key={u.id} style={styles.memberPreviewRow}>
@@ -1062,7 +1138,18 @@ export default function AdminScreen() {
               <Ionicons name="mail-outline" size={20} color="#3B82F6" />
               <View style={{ flex: 1 }}>
                 <Text style={styles.actionCardTitle}>Réactiver votre abonnement</Text>
-                <Text style={styles.actionCardSub}>Contactez support@buildtrack.fr ou votre responsable de compte pour réactiver l'accès.</Text>
+                <Text style={styles.actionCardSub}>
+                  Contactez{' '}
+                  <Text
+                    style={{ textDecorationLine: 'underline' }}
+                    onPress={() => Linking.openURL('mailto:support@buildtrack.fr')}
+                    accessibilityRole="link"
+                    accessibilityLabel="Envoyer un email à support@buildtrack.fr"
+                  >
+                    support@buildtrack.fr
+                  </Text>
+                  {' '}ou votre responsable de compte pour réactiver l'accès.
+                </Text>
               </View>
             </View>
           )}
@@ -1086,29 +1173,34 @@ export default function AdminScreen() {
             {saving ? (
               <ActivityIndicator size="large" color={C.primary} style={{ marginVertical: 24 }} />
             ) : (
-              ROLES.map(r => {
-                const isSelected = roleModal?.currentRole === r.value;
-                return (
-                  <TouchableOpacity
-                    key={r.value}
-                    style={[styles.roleOption, isSelected && { backgroundColor: r.bg, borderColor: r.color }]}
-                    onPress={() => handleRoleChange(r.value)}
-                  >
-                    <View style={[styles.roleOptionDot, { backgroundColor: r.color }]} />
-                    <View style={{ flex: 1 }}>
-                      <Text style={[styles.roleOptionText, isSelected && { color: r.color, fontFamily: 'Inter_600SemiBold' }]}>
-                        {r.label}
-                      </Text>
-                      <Text style={styles.roleOptionDesc}>{r.description}</Text>
-                    </View>
-                    {isSelected && <Ionicons name="checkmark-circle" size={18} color={r.color} />}
-                  </TouchableOpacity>
-                );
-              })
+              <ScrollView showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
+                {ROLES.map(r => {
+                  const isSelected = roleModal?.currentRole === r.value;
+                  return (
+                    <TouchableOpacity
+                      key={r.value}
+                      style={[styles.roleOption, isSelected && { backgroundColor: r.bg, borderColor: r.color }]}
+                      onPress={() => handleRoleChange(r.value)}
+                      accessibilityRole="button"
+                      accessibilityLabel={`Attribuer le rôle ${r.label}`}
+                      accessibilityState={{ selected: isSelected }}
+                    >
+                      <View style={[styles.roleOptionDot, { backgroundColor: r.color }]} />
+                      <View style={{ flex: 1 }}>
+                        <Text style={[styles.roleOptionText, isSelected && { color: r.color, fontFamily: 'Inter_600SemiBold' }]}>
+                          {r.label}
+                        </Text>
+                        <Text style={styles.roleOptionDesc}>{r.description}</Text>
+                      </View>
+                      {isSelected && <Ionicons name="checkmark-circle" size={18} color={r.color} />}
+                    </TouchableOpacity>
+                  );
+                })}
+                <TouchableOpacity style={styles.cancelBtn} onPress={() => setRoleModal(null)}>
+                  <Text style={styles.cancelBtnText}>Annuler</Text>
+                </TouchableOpacity>
+              </ScrollView>
             )}
-            <TouchableOpacity style={styles.cancelBtn} onPress={() => setRoleModal(null)}>
-              <Text style={styles.cancelBtnText}>Annuler</Text>
-            </TouchableOpacity>
           </TouchableOpacity>
         </TouchableOpacity>
       </Modal>
@@ -1139,13 +1231,11 @@ export default function AdminScreen() {
                   <TextInput style={styles.fieldInput} value={effectif} onChangeText={setEffectif}
                     placeholder="Ex : 8" placeholderTextColor={C.textMuted} keyboardType="numeric" />
                 </View>
-                {companyModal?.mode === 'edit' && (
-                  <View style={styles.field}>
-                    <Text style={styles.fieldLabel}>Heures travaillées</Text>
-                    <TextInput style={styles.fieldInput} value={heures} onChangeText={setHeures}
-                      placeholder="Ex : 240" placeholderTextColor={C.textMuted} keyboardType="numeric" />
-                  </View>
-                )}
+                <View style={styles.field}>
+                  <Text style={styles.fieldLabel}>Heures travaillées</Text>
+                  <TextInput style={styles.fieldInput} value={heures} onChangeText={setHeures}
+                    placeholder="Ex : 240" placeholderTextColor={C.textMuted} keyboardType="numeric" />
+                </View>
                 <View style={styles.field}>
                   <Text style={styles.fieldLabel}>Zone d'intervention</Text>
                   <TextInput style={styles.fieldInput} value={zone} onChangeText={setZone}
@@ -1157,7 +1247,7 @@ export default function AdminScreen() {
                 <View style={styles.field}>
                   <Text style={styles.fieldLabel}>N° SIRET</Text>
                   <TextInput style={styles.fieldInput} value={siret} onChangeText={setSiret}
-                    placeholder="Ex : 123 456 789 00012" placeholderTextColor={C.textMuted}
+                    placeholder="Ex : 12345678900012 (14 chiffres)" placeholderTextColor={C.textMuted}
                     keyboardType="numbers-and-punctuation" />
                 </View>
                 <View style={styles.field}>
@@ -1421,6 +1511,7 @@ const styles = StyleSheet.create({
     alignItems: 'center', justifyContent: 'center', paddingHorizontal: 4,
   },
   tabBadgeDotText: { fontSize: 10, fontFamily: 'Inter_700Bold', color: '#fff' },
+  tabAlertDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: '#EF4444' },
 
   content: { paddingHorizontal: 16, paddingTop: 16, gap: 10 },
 
@@ -1430,6 +1521,7 @@ const styles = StyleSheet.create({
     backgroundColor: C.surface, borderRadius: 10, padding: 10,
     borderTopWidth: 3, alignItems: 'center',
     borderWidth: 1, borderColor: C.border,
+    ...(Platform.OS === 'web' ? { cursor: 'pointer' } as any : {}),
   },
   statNum: { fontSize: 20, fontFamily: 'Inter_700Bold' },
   statLabel: { fontSize: 11, fontFamily: 'Inter_400Regular', color: C.textMuted, textAlign: 'center', marginTop: 2 },
