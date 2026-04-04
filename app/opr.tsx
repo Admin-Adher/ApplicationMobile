@@ -823,11 +823,21 @@ export default function OprScreen() {
               </View>
             </ScrollView>
 
-            <View style={{ marginTop: 10 }}>
+            <View style={{ marginTop: 4, marginBottom: 2 }}>
+              <DateInput label="Date de réception *" value={date} onChange={setDate} />
+            </View>
+
+            <View style={{ marginTop: 4 }}>
               <DateInput label="Date de visite contradictoire" value={visitDateForm} onChange={setVisitDateForm} optional />
             </View>
 
-            <TouchableOpacity style={styles.lotsToggle} onPress={() => setShowLotsConfig(v => !v)}>
+            <TouchableOpacity
+              style={styles.lotsToggle}
+              onPress={() => setShowLotsConfig(v => !v)}
+              accessibilityRole="button"
+              accessibilityLabel={`Corps d'état — ${formLots.filter(l => l.name.trim()).length} lot(s), appuyer pour ${showLotsConfig ? 'masquer' : 'configurer'}`}
+              accessibilityState={{ expanded: showLotsConfig }}
+            >
               <Ionicons name="list-outline" size={14} color={C.primary} />
               <Text style={styles.lotsToggleText}>
                 Corps d'état — {formLots.filter(l => l.name.trim()).length} lot{formLots.filter(l => l.name.trim()).length !== 1 ? 's' : ''}
@@ -876,6 +886,8 @@ export default function OprScreen() {
                     onChangeText={setNewLotName}
                     placeholder="Ajouter un lot…"
                     placeholderTextColor={C.textMuted}
+                    returnKeyType="done"
+                    accessibilityLabel="Nom du nouveau lot à ajouter"
                     onSubmitEditing={() => {
                       if (!newLotName.trim()) return;
                       setFormLots(prev => [...prev, { id: genId(), name: newLotName.trim(), entreprise: '' }]);
@@ -889,6 +901,8 @@ export default function OprScreen() {
                       setFormLots(prev => [...prev, { id: genId(), name: newLotName.trim(), entreprise: '' }]);
                       setNewLotName('');
                     }}
+                    accessibilityLabel="Ajouter ce lot"
+                    accessibilityRole="button"
                   >
                     <Ionicons name="add" size={18} color={C.primary} />
                   </TouchableOpacity>
@@ -1046,6 +1060,9 @@ export default function OprScreen() {
                               <TouchableOpacity
                                 style={[styles.presenceBtn, p.present && styles.presenceBtnActive]}
                                 onPress={() => toggleParticipantPresent(opr, p.id)}
+                                accessibilityRole="checkbox"
+                                accessibilityLabel={`${p.name} — marquer comme ${p.present ? 'absent' : 'présent'}`}
+                                accessibilityState={{ checked: p.present }}
                               >
                                 <Ionicons name={p.present ? 'checkmark' : 'close'} size={10} color={p.present ? '#fff' : C.textMuted} />
                               </TouchableOpacity>
@@ -1057,7 +1074,12 @@ export default function OprScreen() {
                                 {p.present ? 'Présent' : 'Absent'}
                               </Text>
                               {permissions.canEdit && opr.status !== 'signed' && (
-                                <TouchableOpacity onPress={() => removeParticipant(opr, p.id)} hitSlop={8}>
+                                <TouchableOpacity
+                                  onPress={() => removeParticipant(opr, p.id)}
+                                  hitSlop={8}
+                                  accessibilityLabel={`Retirer ${p.name} des participants`}
+                                  accessibilityRole="button"
+                                >
                                   <Ionicons name="close" size={13} color={C.textMuted} />
                                 </TouchableOpacity>
                               )}
