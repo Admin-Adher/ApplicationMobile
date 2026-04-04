@@ -15,7 +15,7 @@ import Header from '@/components/Header';
 import { JournalEntry } from '@/constants/types';
 import BottomNavBar from '@/components/BottomNavBar';
 import { genId, formatDateFR, nowTimestampFR } from '@/lib/utils';
-import { validateDeadline } from '@/lib/reserveUtils';
+import { isValidDateFR } from '@/lib/dateUtils';
 
 const JOURNAL_KEY = 'buildtrack_journal_v2';
 
@@ -46,7 +46,7 @@ function wmoCodesToLabel(wmo: number): string {
   return '⛅ Nuageux';
 }
 
-async function fetchAutoWeather(): Promise<{ label: string; temp: number | null; wind: number | null } | null> {
+async function fetchAutoWeather(): Promise<{ label: string; temp: number | null; wind: number | null; code: number } | null> {
   try {
     const { status } = await Location.requestForegroundPermissionsAsync();
     if (status !== 'granted') return null;
@@ -59,7 +59,7 @@ async function fetchAutoWeather(): Promise<{ label: string; temp: number | null;
     const wmo: number = data.current?.weather_code ?? 0;
     const temp: number | null = data.current?.temperature_2m ?? null;
     const wind: number | null = data.current?.wind_speed_10m ?? null;
-    return { label: wmoCodesToLabel(wmo), temp, wind };
+    return { label: wmoCodesToLabel(wmo), temp, wind, code: wmo };
   } catch {
     return null;
   }
@@ -211,7 +211,7 @@ export default function JournalScreen() {
   const [entries, setEntries] = useState<JournalEntry[]>([]);
   const [showNew, setShowNew] = useState(false);
   const [fetchingWeather, setFetchingWeather] = useState(false);
-  const [weatherDetail, setWeatherDetail] = useState<{ temp: number | null; wind: number | null } | null>(null);
+  const [weatherDetail, setWeatherDetail] = useState<{ temp: number | null; wind: number | null; code: number | null } | null>(null);
 
   const todayFR = formatDateFR(new Date());
   const hasTodayEntry = entries.some(e => e.date === todayFR);
@@ -228,7 +228,7 @@ export default function JournalScreen() {
   }, []);
 
   const [date, setDate] = useState(formatDateFR(new Date()));
-  const [weather, setWeather] = useState('☀️ Ensoleillé');
+  const [weather, setWeather] = useState('');
   const [workerCount, setWorkerCount] = useState('');
   const [workDone, setWorkDone] = useState('');
   const [workDoneTouched, setWorkDoneTouched] = useState(false);
@@ -244,9 +244,10 @@ export default function JournalScreen() {
     const isoDate = frToISO(date);
     if (!isoDate) return;
     const pointageEntries = getEntriesForDate(isoDate);
-    if (pointageEntries.length > 0) {
-      setWorkerCountFromPointage(pointageEntries.length);
-      setWorkerCount(prev => (prev.trim() === '' ? String(pointageEntries.length) : prev));
+    const distinctWorkers = new Set(pointageEntries.map(e => e.workerName)).size;
+    if (distinctWorkers > 0) {
+      setWorkerCountFromPointage(distinctWorkers);
+      setWorkerCount(prev => (prev.trim() === '' ? String(distinctWorkers) : prev));
     } else {
       setWorkerCountFromPointage(0);
     }
@@ -254,7 +255,7 @@ export default function JournalScreen() {
 
   const resetForm = () => {
     setDate(formatDateFR(new Date()));
-    setWeather('☀️ Ensoleillé');
+    setWeather('');
     setWorkerCount('');
     setWorkDone('');
     setWorkDoneTouched(false);
@@ -277,7 +278,7 @@ export default function JournalScreen() {
       const result = await fetchAutoWeather();
       if (result) {
         setWeather(result.label);
-        setWeatherDetail({ temp: result.temp, wind: result.wind });
+        setWeatherDetail({ temp: result.temp, wind: result.wind, code: result.code });
       } else {
         Alert.alert('Météo indisponible', 'Impossible de récupérer la météo automatiquement. Vérifiez les autorisations de localisation.');
       }
@@ -294,7 +295,7 @@ export default function JournalScreen() {
   const handleCreate = useCallback(() => {
     setSubmitAttempted(true);
 
-    if (!validateDeadline(date) || !date) {
+    if (!date || !isValidDateFR(date)) {
       Alert.alert('Date invalide', 'Veuillez saisir une date valide au format JJ/MM/AAAA.');
       return;
     }
@@ -306,10 +307,11 @@ export default function JournalScreen() {
 
     const save = () => {
       const parsedWorkers = parseInt(workerCount, 10);
+      const finalWeather = weather.trim() || '—';
       const entry: JournalEntry = {
         id: genId(),
         date,
-        weather,
+        weather: finalWeather,
         workerCount: isNaN(parsedWorkers) || parsedWorkers < 0 ? 0 : parsedWorkers,
         workDone: workDone.trim(),
         materials: materials.trim(),
@@ -320,6 +322,8 @@ export default function JournalScreen() {
         createdAt: nowTimestampFR(),
         weatherTemp: weatherDetail?.temp ?? undefined,
         weatherWind: weatherDetail?.wind ?? undefined,
+        weatherCode: weatherDetail?.code ?? undefined,
+        weatherDescription: weatherDetail ? finalWeather : undefined,
       };
       setEntries(prev => {
         const updated = [entry, ...prev];
@@ -497,7 +501,11 @@ export default function JournalScreen() {
             </View>
             <TextInput
               style={styles.input}
-              placeholder="Nombre de personnes"
+              placeholder={
+                workerCountFromPointage > 0
+                  ? `${workerCountFromPointage} (depuis le pointage)`
+                  : 'Nombre de personnes'
+              }
               placeholderTextColor={C.textMuted}
               value={workerCount}
               onChangeText={handleWorkerCountChange}
@@ -521,6 +529,7 @@ export default function JournalScreen() {
               onBlur={() => setWorkDoneTouched(true)}
               multiline
               numberOfLines={4}
+              maxLength={2000}
             />
 
             <Text style={styles.label}>Matériaux / Livraisons</Text>
@@ -531,7 +540,22 @@ export default function JournalScreen() {
               {incidents.trim().length > 0 && (
                 <TouchableOpacity
                   style={styles.escalateBtn}
-                  onPress={() => router.push('/incidents')}
+                  onPress={() => {
+                    Alert.alert(
+                      'Créer un incident formel ?',
+                      'Vous allez quitter ce formulaire pour accéder au module Incidents. Votre description sera pré-remplie mais l\'entrée journal en cours ne sera pas sauvegardée.',
+                      [
+                        { text: 'Rester', style: 'cancel' },
+                        {
+                          text: 'Continuer',
+                          onPress: () => router.push({
+                            pathname: '/(tabs)/incidents',
+                            params: { openCreate: '1', prefillDescription: incidents.trim() },
+                          } as any),
+                        },
+                      ]
+                    );
+                  }}
                 >
                   <Ionicons name="warning-outline" size={12} color={C.waiting} />
                   <Text style={styles.escalateBtnText}>Créer un incident formel</Text>

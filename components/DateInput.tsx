@@ -10,7 +10,7 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { C } from '@/constants/colors';
-import { validateDeadline } from '@/lib/reserveUtils';
+import { isValidDateFR } from '@/lib/dateUtils';
 
 interface DateInputProps {
   value: string;
@@ -110,7 +110,7 @@ export default function DateInput({
   const weeks = useMemo(() => buildCalendar(viewYear, viewMonth), [viewYear, viewMonth]);
 
   const hasValue = Boolean(value && value !== '—' && value.length > 0);
-  const isValid = !value || value === '—' || validateDeadline(value);
+  const isValid = !value || value === '—' || isValidDateFR(value);
   const showError = Boolean(hasValue && !isValid);
 
   const borderColor = focused || calendarOpen

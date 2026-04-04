@@ -4,8 +4,8 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
-import { useState, useMemo, useCallback } from 'react';
-import { useRouter } from 'expo-router';
+import { useState, useMemo, useCallback, useEffect } from 'react';
+import { useRouter, useLocalSearchParams } from 'expo-router';
 import * as Haptics from 'expo-haptics';
 import * as ImagePicker from 'expo-image-picker';
 import { C } from '@/constants/colors';
@@ -94,6 +94,21 @@ export default function IncidentsScreen() {
 
   const [form, setForm] = useState(EMPTY_FORM);
 
+  const params = useLocalSearchParams<{ openCreate?: string; prefillDescription?: string }>();
+
+  function openAdd(prefillDescription?: string) {
+    setForm({ ...EMPTY_FORM, reportedAt: formatDateFR(new Date()), description: prefillDescription ?? '' });
+    setPhotoUri(undefined);
+    setEditTarget(null);
+    setModalMode('add');
+  }
+
+  useEffect(() => {
+    if (params.openCreate === '1') {
+      openAdd(params.prefillDescription ?? '');
+    }
+  }, []);
+
   async function handlePickPhoto() {
     if (Platform.OS !== 'web') {
       const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
@@ -136,13 +151,6 @@ export default function IncidentsScreen() {
   }, [incidents, filterSeverity, filterStatus, search]);
 
   const openCount = incidents.filter(i => i.status !== 'resolved').length;
-
-  function openAdd() {
-    setForm({ ...EMPTY_FORM, reportedAt: formatDateFR(new Date()) });
-    setPhotoUri(undefined);
-    setEditTarget(null);
-    setModalMode('add');
-  }
 
   function openEdit(i: Incident) {
     setForm({
