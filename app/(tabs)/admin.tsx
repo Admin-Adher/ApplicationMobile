@@ -861,85 +861,89 @@ export default function AdminScreen() {
                       )}
                     </View>
 
-                    <View style={styles.coStatsRow}>
-                      <View style={styles.coStat}>
-                        <View style={[styles.coStatDot, { backgroundColor: co.color }]} />
-                        <Text style={styles.coStatLabel}>Prévu</Text>
-                        <Text style={[styles.coStatVal, { color: co.color }]}>{co.plannedWorkers}</Text>
+                    <View style={styles.coStatsGrid}>
+                      <View style={styles.coStatsRow}>
+                        <View style={[styles.coStat, { flex: 1 }]}>
+                          <View style={[styles.coStatDot, { backgroundColor: co.color }]} />
+                          <Text style={styles.coStatLabel} numberOfLines={1}>Prévu</Text>
+                          <Text style={[styles.coStatVal, { color: co.color }]} numberOfLines={1}>{co.plannedWorkers}</Text>
+                        </View>
+                        <View style={[styles.coStat, { flex: 2 }]}>
+                          <View style={[styles.coStatDot, { backgroundColor: workers > co.plannedWorkers ? '#EF4444' : C.inProgress }]} />
+                          <Text style={styles.coStatLabel} numberOfLines={1}>Présents</Text>
+                          <TouchableOpacity
+                            onPress={() => handleWorkerCount(co, -1)}
+                            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                            style={styles.workerBtn}
+                          >
+                            <Ionicons name="remove" size={13} color={C.textSub} />
+                          </TouchableOpacity>
+                          <Text style={[styles.coStatVal, { color: workers > co.plannedWorkers ? '#EF4444' : C.inProgress }]} numberOfLines={1}>
+                            {workers}{workers > co.plannedWorkers ? ' ↑' : ''}
+                          </Text>
+                          <TouchableOpacity
+                            onPress={() => handleWorkerCount(co, 1)}
+                            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                            style={styles.workerBtn}
+                          >
+                            <Ionicons name="add" size={13} color={C.textSub} />
+                          </TouchableOpacity>
+                        </View>
                       </View>
-                      <View style={[styles.coStat, { flex: 1 }]}>
-                        <View style={[styles.coStatDot, { backgroundColor: workers > co.plannedWorkers ? '#EF4444' : C.inProgress }]} />
-                        <Text style={styles.coStatLabel}>Présents</Text>
-                        <TouchableOpacity
-                          onPress={() => handleWorkerCount(co, -1)}
-                          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                          style={styles.workerBtn}
-                        >
-                          <Ionicons name="remove" size={13} color={C.textSub} />
-                        </TouchableOpacity>
-                        <Text style={[styles.coStatVal, { color: workers > co.plannedWorkers ? '#EF4444' : C.inProgress }]}>
-                          {workers}{workers > co.plannedWorkers ? ' ↑' : ''}
-                        </Text>
-                        <TouchableOpacity
-                          onPress={() => handleWorkerCount(co, 1)}
-                          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                          style={styles.workerBtn}
-                        >
-                          <Ionicons name="add" size={13} color={C.textSub} />
-                        </TouchableOpacity>
-                      </View>
-                      <View style={[styles.coStat, { flex: 1 }]}>
-                        <View style={[styles.coStatDot, { backgroundColor: C.textMuted }]} />
-                        <Text style={styles.coStatLabel}>Heures</Text>
-                        {hoursEditId === co.id ? (
-                          <>
-                            <TextInput
-                              style={styles.hoursInput}
-                              value={hoursInputVal}
-                              onChangeText={setHoursInputVal}
-                              keyboardType="numeric"
-                              autoFocus
-                              selectTextOnFocus
-                              onSubmitEditing={() => commitHoursEdit(co)}
-                            />
-                            <TouchableOpacity
-                              onPress={() => commitHoursEdit(co)}
-                              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                              style={[styles.workerBtn, { backgroundColor: C.primary + '22' }]}
-                              accessibilityLabel="Valider les heures"
-                            >
-                              <Ionicons name="checkmark" size={13} color={C.primary} />
-                            </TouchableOpacity>
-                            <TouchableOpacity
-                              onPress={() => { setHoursEditId(null); setHoursInputVal(''); }}
-                              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                              style={[styles.workerBtn, { backgroundColor: '#FEF2F2' }]}
-                              accessibilityLabel="Annuler la saisie des heures"
-                            >
-                              <Ionicons name="close" size={13} color="#EF4444" />
-                            </TouchableOpacity>
-                          </>
-                        ) : (
-                          <>
-                            <TouchableOpacity
-                              onPress={() => handleHoursChange(co, -8)}
-                              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                              style={styles.workerBtn}
-                            >
-                              <Ionicons name="remove" size={13} color={C.textSub} />
-                            </TouchableOpacity>
-                            <TouchableOpacity onPress={() => startHoursEdit(co)} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
-                              <Text style={[styles.coStatVal, { textDecorationLine: 'underline', textDecorationStyle: 'dotted' }]}>{hours}h</Text>
-                            </TouchableOpacity>
-                            <TouchableOpacity
-                              onPress={() => handleHoursChange(co, 8)}
-                              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                              style={styles.workerBtn}
-                            >
-                              <Ionicons name="add" size={13} color={C.textSub} />
-                            </TouchableOpacity>
-                          </>
-                        )}
+                      <View style={styles.coStatsRow}>
+                        <View style={[styles.coStat, { flex: 1 }]}>
+                          <View style={[styles.coStatDot, { backgroundColor: C.textMuted }]} />
+                          <Text style={styles.coStatLabel} numberOfLines={1}>Heures travaillées</Text>
+                          {hoursEditId === co.id ? (
+                            <>
+                              <TextInput
+                                style={styles.hoursInput}
+                                value={hoursInputVal}
+                                onChangeText={setHoursInputVal}
+                                keyboardType="numeric"
+                                autoFocus
+                                selectTextOnFocus
+                                onSubmitEditing={() => commitHoursEdit(co)}
+                              />
+                              <TouchableOpacity
+                                onPress={() => commitHoursEdit(co)}
+                                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                                style={[styles.workerBtn, { backgroundColor: C.primary + '22' }]}
+                                accessibilityLabel="Valider les heures"
+                              >
+                                <Ionicons name="checkmark" size={13} color={C.primary} />
+                              </TouchableOpacity>
+                              <TouchableOpacity
+                                onPress={() => { setHoursEditId(null); setHoursInputVal(''); }}
+                                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                                style={[styles.workerBtn, { backgroundColor: '#FEF2F2' }]}
+                                accessibilityLabel="Annuler la saisie des heures"
+                              >
+                                <Ionicons name="close" size={13} color="#EF4444" />
+                              </TouchableOpacity>
+                            </>
+                          ) : (
+                            <>
+                              <TouchableOpacity
+                                onPress={() => handleHoursChange(co, -8)}
+                                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                                style={styles.workerBtn}
+                              >
+                                <Ionicons name="remove" size={13} color={C.textSub} />
+                              </TouchableOpacity>
+                              <TouchableOpacity onPress={() => startHoursEdit(co)} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                                <Text style={[styles.coStatVal, { textDecorationLine: 'underline', textDecorationStyle: 'dotted' }]} numberOfLines={1}>{hours}h</Text>
+                              </TouchableOpacity>
+                              <TouchableOpacity
+                                onPress={() => handleHoursChange(co, 8)}
+                                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                                style={styles.workerBtn}
+                              >
+                                <Ionicons name="add" size={13} color={C.textSub} />
+                              </TouchableOpacity>
+                            </>
+                          )}
+                        </View>
                       </View>
                     </View>
 
@@ -1606,10 +1610,11 @@ const styles = StyleSheet.create({
   coZone: { fontSize: 11, fontFamily: 'Inter_400Regular', color: C.textMuted, marginTop: 2 },
   coLinkedUsers: { flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 4 },
   coLinkedUsersTxt: { fontSize: 11, fontFamily: 'Inter_400Regular', color: C.textMuted },
-  coStatsRow: { flexDirection: 'row', gap: 8, alignItems: 'center', flexWrap: 'wrap' },
-  coStat: { flexDirection: 'row', alignItems: 'center', gap: 4 },
+  coStatsGrid: { flexDirection: 'column', gap: 6 },
+  coStatsRow: { flexDirection: 'row', gap: 8, alignItems: 'center' },
+  coStat: { flexDirection: 'row', alignItems: 'center', gap: 4, minWidth: 0 },
   coStatDot: { width: 6, height: 6, borderRadius: 3 },
-  coStatLabel: { fontSize: 11, fontFamily: 'Inter_400Regular', color: C.textMuted },
+  coStatLabel: { fontSize: 11, fontFamily: 'Inter_400Regular', color: C.textMuted, flexShrink: 1 },
   coStatVal: { fontSize: 13, fontFamily: 'Inter_700Bold', color: C.text },
   workerBtn: {
     width: 22, height: 22, borderRadius: 11, backgroundColor: C.border,
