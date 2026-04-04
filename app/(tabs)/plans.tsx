@@ -1646,7 +1646,7 @@ export default function PlansScreen() {
             {/* Fullscreen toggle — top right */}
             {!!currentPlanId && (
               <TouchableOpacity
-                style={styles.fullscreenBtn}
+                style={[styles.fullscreenBtn, fullscreen && { top: insets.top + 10 }]}
                 onPress={() => setFullscreen(v => !v)}
                 accessibilityLabel={fullscreen ? 'Quitter le mode plein écran' : 'Mode plein écran'}
               >
@@ -1792,7 +1792,7 @@ export default function PlansScreen() {
       {/* Mobile FAB */}
       {permissions.canCreate && !isTablet && !fullscreen && !!currentPlanId && (
         <TouchableOpacity
-          style={[styles.fab, { bottom: Platform.OS === 'web' ? 100 : insets.bottom + 80 }]}
+          style={[styles.fab, { bottom: Platform.OS === 'web' ? 100 : insets.bottom + (isPlanFile ? 150 : 80) }]}
           onPress={() => router.push({ pathname: '/reserve/new', params: { planId: currentPlanId ?? '', chantierId: activeChantierId ?? '', building: currentPlan?.building ?? '', level: currentPlan?.level ?? '', buildingId: currentPlan?.buildingId ?? '', levelId: currentPlan?.levelId ?? '' } } as any)}
           activeOpacity={0.85}
           accessibilityLabel="Créer une nouvelle réserve"

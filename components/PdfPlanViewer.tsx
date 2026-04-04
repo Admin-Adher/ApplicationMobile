@@ -1265,14 +1265,21 @@ const WebViewer = forwardRef<PdfPlanViewerHandle, PdfPlanViewerProps>(function W
         if (!dead) {
           renderTaskRef.current = null;
           setCw(newW); setCh(newH);
-          const cont = containerRef.current;
-          if (cont) {
-            const cRect = cont.getBoundingClientRect();
-            panXRef.current = Math.max(0, (cRect.width - newW) / 2);
-            panYRef.current = Math.max(0, (cRect.height - newH) / 2);
-            applyT();
-          }
-          onReady?.();
+          requestAnimationFrame(() => {
+            const cont = containerRef.current;
+            if (cont) {
+              const cRect = cont.getBoundingClientRect();
+              const fitW = cRect.width > 0 ? cRect.width / newW : 1;
+              const fitH = cRect.height > 0 ? cRect.height / newH : 1;
+              const z = Math.min(fitW, fitH, 1);
+              zoomRef.current = z;
+              panXRef.current = (cRect.width - newW * z) / 2;
+              panYRef.current = (cRect.height - newH * z) / 2;
+              applyT();
+              onZoomChange?.(z);
+            }
+            onReady?.();
+          });
         }
       } catch (e: any) {
         if (!dead && e?.name !== 'RenderingCancelledException') setError('Erreur de rendu.');
