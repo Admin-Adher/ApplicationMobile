@@ -209,6 +209,7 @@ export default function ReservesScreen() {
   const [priorityFilter, setPriorityFilter] = useState<'all' | ReservePriority>('all');
   const [companyFilter, setCompanyFilter] = useState<string>('all');
   const [zoneFilter, setZoneFilter] = useState<string>('all');
+  const [levelFilter, setLevelFilter] = useState<string>('all');
   const [lotFilter, setLotFilter] = useState<string>('all');
   const [sortKey, setSortKey] = useState<SortKey>('date_desc');
   const [search, setSearch] = useState('');
@@ -341,10 +342,16 @@ export default function ReservesScreen() {
     return Array.from(z).sort();
   }, [chantierReserves]);
 
+  const levels = useMemo(() => {
+    const l = new Set(chantierReserves.map(r => r.level).filter(Boolean));
+    return Array.from(l).sort();
+  }, [chantierReserves]);
+
   const activeFilterCount = (buildingFilter !== 'all' ? 1 : 0)
     + (priorityFilter !== 'all' ? 1 : 0)
     + (companyFilter !== 'all' ? 1 : 0)
     + (zoneFilter !== 'all' ? 1 : 0)
+    + (levelFilter !== 'all' ? 1 : 0)
     + (kindFilter !== 'all' ? 1 : 0)
     + (lotFilter !== 'all' ? 1 : 0)
     + (statusFilter !== 'all' ? 1 : 0)
@@ -373,6 +380,7 @@ export default function ReservesScreen() {
       const matchPriority = priorityFilter === 'all' || r.priority === priorityFilter;
       const matchCompany = companyFilter === 'all' || (r.companies ?? (r.company ? [r.company] : [])).includes(companyFilter);
       const matchZone = zoneFilter === 'all' || r.zone === zoneFilter;
+      const matchLevel = levelFilter === 'all' || r.level === levelFilter;
       const matchLot = lotFilter === 'all' || r.lotId === lotFilter;
       const q = search.toLowerCase();
       const lot = r.lotId ? lots.find(l => l.id === r.lotId) : null;
@@ -392,7 +400,7 @@ export default function ReservesScreen() {
         if (!dl) return false;
         return dl >= now && dl <= in3Days;
       })();
-      return matchStatus && matchKind && matchBuilding && matchPriority && matchCompany && matchZone && matchLot && matchSearch && matchNearDeadline;
+      return matchStatus && matchKind && matchBuilding && matchPriority && matchCompany && matchZone && matchLevel && matchLot && matchSearch && matchNearDeadline;
     });
 
     list = [...list].sort((a, b) => {
@@ -406,7 +414,7 @@ export default function ReservesScreen() {
       }
     });
     return list;
-  }, [chantierReserves, statusFilter, kindFilter, buildingFilter, priorityFilter, companyFilter, zoneFilter, lotFilter, sortKey, search, nearDeadlineOnly, lots]);
+  }, [chantierReserves, statusFilter, kindFilter, buildingFilter, priorityFilter, companyFilter, zoneFilter, levelFilter, lotFilter, sortKey, search, nearDeadlineOnly, lots]);
 
   const groupedByStatus = useMemo(() => {
     const ORDER: ReserveStatus[] = ['open', 'in_progress', 'waiting', 'verification', 'closed'];
@@ -510,6 +518,7 @@ export default function ReservesScreen() {
     setPriorityFilter('all');
     setCompanyFilter('all');
     setZoneFilter('all');
+    setLevelFilter('all');
     setKindFilter('all');
     setLotFilter('all');
     setStatusFilter('all');
@@ -1625,6 +1634,29 @@ export default function ReservesScreen() {
                   ))}
                 </View>
               </ScrollView>
+
+              {levels.length > 0 && (
+                <>
+                  <Text style={styles.sheetSectionLabel}>NIVEAU</Text>
+                  <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.chipScroll}>
+                    <View style={styles.chipRowInline}>
+                      {['all', ...levels].map(lv => (
+                        <TouchableOpacity
+                          key={lv}
+                          style={[styles.chip, levelFilter === lv && styles.chipActive]}
+                          onPress={() => setLevelFilter(lv)}
+                          accessibilityRole="button"
+                          accessibilityLabel={lv === 'all' ? 'Tous les niveaux' : `Niveau ${lv}`}
+                        >
+                          <Text style={[styles.chipText, levelFilter === lv && styles.chipTextActive]}>
+                            {lv === 'all' ? 'Tous' : lv}
+                          </Text>
+                        </TouchableOpacity>
+                      ))}
+                    </View>
+                  </ScrollView>
+                </>
+              )}
 
               <Text style={styles.sheetSectionLabel}>ENTREPRISE</Text>
               <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.chipScroll}>

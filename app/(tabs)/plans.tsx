@@ -425,6 +425,17 @@ export default function PlansScreen() {
     return b.sort();
   }, [chantierPlans]);
 
+  const chantierHierarchyBuildings = useMemo(
+    () => activeChantier?.buildings ?? [],
+    [activeChantier]
+  );
+
+  const levelsForNewPlanBuilding = useMemo(() => {
+    if (!newPlanModal.building) return [];
+    const bldg = chantierHierarchyBuildings.find(b => b.name === newPlanModal.building);
+    return bldg?.levels ?? [];
+  }, [chantierHierarchyBuildings, newPlanModal.building]);
+
   const planLevelsForBuilding = useMemo(() => {
     const scope = selectedBuilding === 'all' ? chantierPlans : chantierPlans.filter(p => (p.building ?? '') === selectedBuilding);
     const lvls = Array.from(new Set(scope.map(p => p.level).filter(Boolean))) as string[];
@@ -961,16 +972,55 @@ export default function PlansScreen() {
                 <Text style={styles.newPlanLabel}>Nom du plan *</Text>
                 <TextInput style={styles.newPlanInput} placeholder="ex : Plan électrique" placeholderTextColor={C.textMuted} value={newPlanModal.name} onChangeText={v => setNewPlanModal(p => ({ ...p, name: v }))} autoFocus />
               </View>
-              <View style={styles.newPlanRow}>
-                <View style={[styles.newPlanField, { flex: 1 }]}>
-                  <Text style={styles.newPlanLabel}>Bâtiment</Text>
-                  <TextInput style={styles.newPlanInput} placeholder="ex : Bât A" placeholderTextColor={C.textMuted} value={newPlanModal.building} onChangeText={v => setNewPlanModal(p => ({ ...p, building: v }))} />
+              {chantierHierarchyBuildings.length > 0 ? (
+                <>
+                  <View style={styles.newPlanField}>
+                    <Text style={styles.newPlanLabel}>Bâtiment</Text>
+                    <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+                      <View style={{ flexDirection: 'row', gap: 8, paddingVertical: 4 }}>
+                        {chantierHierarchyBuildings.map(b => (
+                          <TouchableOpacity
+                            key={b.id}
+                            style={[styles.newPlanChip, newPlanModal.building === b.name && styles.newPlanChipActive]}
+                            onPress={() => setNewPlanModal(p => ({ ...p, building: b.name, level: '' }))}
+                          >
+                            <Text style={[styles.newPlanChipText, newPlanModal.building === b.name && styles.newPlanChipTextActive]}>{b.name}</Text>
+                          </TouchableOpacity>
+                        ))}
+                      </View>
+                    </ScrollView>
+                  </View>
+                  {levelsForNewPlanBuilding.length > 0 && (
+                    <View style={styles.newPlanField}>
+                      <Text style={styles.newPlanLabel}>Niveau</Text>
+                      <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+                        <View style={{ flexDirection: 'row', gap: 8, paddingVertical: 4 }}>
+                          {levelsForNewPlanBuilding.map(l => (
+                            <TouchableOpacity
+                              key={l.id}
+                              style={[styles.newPlanChip, newPlanModal.level === l.name && styles.newPlanChipActive]}
+                              onPress={() => setNewPlanModal(p => ({ ...p, level: l.name }))}
+                            >
+                              <Text style={[styles.newPlanChipText, newPlanModal.level === l.name && styles.newPlanChipTextActive]}>{l.name}</Text>
+                            </TouchableOpacity>
+                          ))}
+                        </View>
+                      </ScrollView>
+                    </View>
+                  )}
+                </>
+              ) : (
+                <View style={styles.newPlanRow}>
+                  <View style={[styles.newPlanField, { flex: 1 }]}>
+                    <Text style={styles.newPlanLabel}>Bâtiment</Text>
+                    <TextInput style={styles.newPlanInput} placeholder="ex : Bât A" placeholderTextColor={C.textMuted} value={newPlanModal.building} onChangeText={v => setNewPlanModal(p => ({ ...p, building: v }))} />
+                  </View>
+                  <View style={[styles.newPlanField, { flex: 1 }]}>
+                    <Text style={styles.newPlanLabel}>Niveau</Text>
+                    <TextInput style={styles.newPlanInput} placeholder="ex : RDC, R+1" placeholderTextColor={C.textMuted} value={newPlanModal.level} onChangeText={v => setNewPlanModal(p => ({ ...p, level: v }))} />
+                  </View>
                 </View>
-                <View style={[styles.newPlanField, { flex: 1 }]}>
-                  <Text style={styles.newPlanLabel}>Niveau</Text>
-                  <TextInput style={styles.newPlanInput} placeholder="ex : RDC, R+1" placeholderTextColor={C.textMuted} value={newPlanModal.level} onChangeText={v => setNewPlanModal(p => ({ ...p, level: v }))} />
-                </View>
-              </View>
+              )}
               <TouchableOpacity style={[styles.modalOpenBtn, !newPlanModal.name.trim() && { opacity: 0.5 }]} onPress={handleConfirmNewPlan} disabled={!newPlanModal.name.trim()}>
                 <Ionicons name="add-circle-outline" size={16} color={C.primary} />
                 <Text style={styles.modalOpenText}>Créer le plan</Text>
@@ -1736,16 +1786,55 @@ export default function PlansScreen() {
               <Text style={styles.newPlanLabel}>Nom du plan *</Text>
               <TextInput style={styles.newPlanInput} placeholder="ex : Plan électrique" placeholderTextColor={C.textMuted} value={newPlanModal.name} onChangeText={v => setNewPlanModal(p => ({ ...p, name: v }))} autoFocus />
             </View>
-            <View style={styles.newPlanRow}>
-              <View style={[styles.newPlanField, { flex: 1 }]}>
-                <Text style={styles.newPlanLabel}>Bâtiment</Text>
-                <TextInput style={styles.newPlanInput} placeholder="ex : Bât A" placeholderTextColor={C.textMuted} value={newPlanModal.building} onChangeText={v => setNewPlanModal(p => ({ ...p, building: v }))} />
+            {chantierHierarchyBuildings.length > 0 ? (
+              <>
+                <View style={styles.newPlanField}>
+                  <Text style={styles.newPlanLabel}>Bâtiment</Text>
+                  <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+                    <View style={{ flexDirection: 'row', gap: 8, paddingVertical: 4 }}>
+                      {chantierHierarchyBuildings.map(b => (
+                        <TouchableOpacity
+                          key={b.id}
+                          style={[styles.newPlanChip, newPlanModal.building === b.name && styles.newPlanChipActive]}
+                          onPress={() => setNewPlanModal(p => ({ ...p, building: b.name, level: '' }))}
+                        >
+                          <Text style={[styles.newPlanChipText, newPlanModal.building === b.name && styles.newPlanChipTextActive]}>{b.name}</Text>
+                        </TouchableOpacity>
+                      ))}
+                    </View>
+                  </ScrollView>
+                </View>
+                {levelsForNewPlanBuilding.length > 0 && (
+                  <View style={styles.newPlanField}>
+                    <Text style={styles.newPlanLabel}>Niveau</Text>
+                    <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+                      <View style={{ flexDirection: 'row', gap: 8, paddingVertical: 4 }}>
+                        {levelsForNewPlanBuilding.map(l => (
+                          <TouchableOpacity
+                            key={l.id}
+                            style={[styles.newPlanChip, newPlanModal.level === l.name && styles.newPlanChipActive]}
+                            onPress={() => setNewPlanModal(p => ({ ...p, level: l.name }))}
+                          >
+                            <Text style={[styles.newPlanChipText, newPlanModal.level === l.name && styles.newPlanChipTextActive]}>{l.name}</Text>
+                          </TouchableOpacity>
+                        ))}
+                      </View>
+                    </ScrollView>
+                  </View>
+                )}
+              </>
+            ) : (
+              <View style={styles.newPlanRow}>
+                <View style={[styles.newPlanField, { flex: 1 }]}>
+                  <Text style={styles.newPlanLabel}>Bâtiment</Text>
+                  <TextInput style={styles.newPlanInput} placeholder="ex : Bât A" placeholderTextColor={C.textMuted} value={newPlanModal.building} onChangeText={v => setNewPlanModal(p => ({ ...p, building: v }))} />
+                </View>
+                <View style={[styles.newPlanField, { flex: 1 }]}>
+                  <Text style={styles.newPlanLabel}>Niveau</Text>
+                  <TextInput style={styles.newPlanInput} placeholder="ex : RDC, R+1" placeholderTextColor={C.textMuted} value={newPlanModal.level} onChangeText={v => setNewPlanModal(p => ({ ...p, level: v }))} />
+                </View>
               </View>
-              <View style={[styles.newPlanField, { flex: 1 }]}>
-                <Text style={styles.newPlanLabel}>Niveau</Text>
-                <TextInput style={styles.newPlanInput} placeholder="ex : RDC, R+1" placeholderTextColor={C.textMuted} value={newPlanModal.level} onChangeText={v => setNewPlanModal(p => ({ ...p, level: v }))} />
-              </View>
-            </View>
+            )}
             <TouchableOpacity style={[styles.modalOpenBtn, !newPlanModal.name.trim() && { opacity: 0.5 }]} onPress={handleConfirmNewPlan} disabled={!newPlanModal.name.trim()}>
               <Ionicons name="add-circle-outline" size={16} color={C.primary} />
               <Text style={styles.modalOpenText}>Créer le plan</Text>
@@ -1940,6 +2029,10 @@ const styles = StyleSheet.create({
   newPlanRow: { flexDirection: 'row', gap: 10 },
   newPlanLabel: { fontSize: 12, fontFamily: 'Inter_600SemiBold', color: C.textSub },
   newPlanInput: { borderWidth: 1.5, borderColor: C.border, borderRadius: 10, paddingHorizontal: 12, paddingVertical: 10, fontSize: 14, fontFamily: 'Inter_400Regular', color: C.text, backgroundColor: C.surface2 },
+  newPlanChip: { paddingHorizontal: 14, paddingVertical: 8, borderRadius: 20, borderWidth: 1.5, borderColor: C.border, backgroundColor: C.surface2 },
+  newPlanChipActive: { borderColor: C.primary, backgroundColor: C.primary + '15' },
+  newPlanChipText: { fontSize: 13, fontFamily: 'Inter_500Medium', color: C.textSub },
+  newPlanChipTextActive: { color: C.primary, fontFamily: 'Inter_600SemiBold' },
   newPlanBtns: { flexDirection: 'row', gap: 10 },
   cancelBtn: { flex: 1, paddingVertical: 12, borderRadius: 12, borderWidth: 1, borderColor: C.border, alignItems: 'center', justifyContent: 'center' },
   cancelBtnText: { fontSize: 14, fontFamily: 'Inter_500Medium', color: C.textSub },
