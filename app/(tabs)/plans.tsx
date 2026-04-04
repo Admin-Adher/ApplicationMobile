@@ -1208,17 +1208,6 @@ export default function PlansScreen() {
             </ScrollView>
 
             <View style={styles.planActions}>
-              {hasVersions && (
-                <TouchableOpacity
-                  style={styles.versionBtn}
-                  onPress={() => setShowVersionHistory(v => !v)}
-                  accessibilityLabel={`Historique des révisions – révision ${currentPlan?.revisionCode ?? 'R01'}`}
-                  accessibilityRole="button"
-                >
-                  <Ionicons name="git-branch-outline" size={13} color={C.primary} />
-                  <Text style={styles.versionBtnText}>{currentPlan?.revisionCode ?? 'R01'}</Text>
-                </TouchableOpacity>
-              )}
               {permissions.canCreate && !currentPlan?.uri && (
                 <TouchableOpacity style={[styles.importBtn, importing && { opacity: 0.5 }]} onPress={handleImportPlan} disabled={importing || !currentPlanId} accessibilityLabel="Importer un plan">
                   {importing ? <ActivityIndicator size="small" color={C.primary} /> : (
@@ -1233,36 +1222,6 @@ export default function PlansScreen() {
               )}
             </View>
           </View>
-
-          {showVersionHistory && currentPlan && (
-            <View style={styles.versionPanel}>
-              <View style={styles.versionPanelHeader}>
-                <Ionicons name="git-branch-outline" size={13} color={C.textSub} />
-                <Text style={styles.versionPanelTitle}>Historique — {currentPlan.name}</Text>
-                <TouchableOpacity onPress={() => setShowVersionHistory(false)} hitSlop={8}><Ionicons name="close" size={16} color={C.textMuted} /></TouchableOpacity>
-              </View>
-              {allVersions.length === 0 ? (
-                <Text style={styles.versionEmpty}>Aucune révision · {permissions.canCreate ? 'Importez une nouvelle version' : ''}</Text>
-              ) : allVersions.map(ver => (
-                <TouchableOpacity key={ver.id} style={[styles.versionRow, ver.id === currentPlanId && styles.versionRowActive]} onPress={() => { handleSelectPlan(ver.id); setShowVersionHistory(false); }}>
-                  <View style={[styles.versionBadge, ver.isLatestRevision && styles.versionBadgeLatest]}>
-                    <Text style={[styles.versionBadgeText, ver.isLatestRevision && styles.versionBadgeTextLatest]}>{ver.revisionCode ?? 'R01'}</Text>
-                  </View>
-                  <View style={{ flex: 1 }}>
-                    <Text style={styles.versionName}>{ver.name}</Text>
-                    <Text style={styles.versionDate}>{ver.uploadedAt}{ver.revisionNote ? ' · ' + ver.revisionNote : ''}</Text>
-                  </View>
-                  {ver.isLatestRevision && <View style={styles.latestChip}><Text style={styles.latestChipText}>Actuelle</Text></View>}
-                </TouchableOpacity>
-              ))}
-              {permissions.canCreate && (
-                <TouchableOpacity style={styles.newVersionBtn} onPress={openRevisionModal}>
-                  <Ionicons name="cloud-upload-outline" size={13} color={C.primary} />
-                  <Text style={styles.newVersionBtnText}>Créer une révision</Text>
-                </TouchableOpacity>
-              )}
-            </View>
-          )}
 
         </View>
       )}
@@ -1312,6 +1271,19 @@ export default function PlansScreen() {
                   );
                 })()}
               </View>
+              {hasVersions && (
+                <TouchableOpacity
+                  style={[styles.versionBtn, showVersionHistory && styles.versionBtnActive]}
+                  onPress={() => setShowVersionHistory(v => !v)}
+                  accessibilityLabel={`Historique des révisions – ${currentPlan?.revisionCode ?? 'R01'}`}
+                  accessibilityRole="button"
+                >
+                  <Ionicons name="time-outline" size={13} color={showVersionHistory ? C.primary : C.textSub} />
+                  <Text style={[styles.versionBtnText, showVersionHistory && { color: C.primary }]}>
+                    {currentPlan?.revisionCode ?? 'R01'}
+                  </Text>
+                </TouchableOpacity>
+              )}
               {currentPlan?.uri && permissions.canCreate && (
                 <TouchableOpacity style={[styles.removePlanBtn, importing && { opacity: 0.5 }]} onPress={handleRemovePlan} disabled={importing} accessibilityLabel="Remplacer le plan">
                   {importing
@@ -1321,6 +1293,38 @@ export default function PlansScreen() {
                 </TouchableOpacity>
               )}
             </View>
+
+            {showVersionHistory && currentPlan && (
+              <View style={styles.versionPanel}>
+                <View style={styles.versionPanelHeader}>
+                  <Ionicons name="time-outline" size={13} color={C.textSub} />
+                  <Text style={styles.versionPanelTitle}>Révisions — {currentPlan.name}</Text>
+                  <TouchableOpacity onPress={() => setShowVersionHistory(false)} hitSlop={8}>
+                    <Ionicons name="close" size={16} color={C.textMuted} />
+                  </TouchableOpacity>
+                </View>
+                {allVersions.length === 0 ? (
+                  <Text style={styles.versionEmpty}>Aucune révision{permissions.canCreate ? ' · Créez-en une ci-dessous' : ''}</Text>
+                ) : allVersions.map(ver => (
+                  <TouchableOpacity key={ver.id} style={[styles.versionRow, ver.id === currentPlanId && styles.versionRowActive]} onPress={() => { handleSelectPlan(ver.id); setShowVersionHistory(false); }}>
+                    <View style={[styles.versionBadge, ver.isLatestRevision && styles.versionBadgeLatest]}>
+                      <Text style={[styles.versionBadgeText, ver.isLatestRevision && styles.versionBadgeTextLatest]}>{ver.revisionCode ?? 'R01'}</Text>
+                    </View>
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.versionName}>{ver.name}</Text>
+                      <Text style={styles.versionDate}>{ver.uploadedAt}{ver.revisionNote ? ' · ' + ver.revisionNote : ''}</Text>
+                    </View>
+                    {ver.isLatestRevision && <View style={styles.latestChip}><Text style={styles.latestChipText}>Actuelle</Text></View>}
+                  </TouchableOpacity>
+                ))}
+                {permissions.canCreate && (
+                  <TouchableOpacity style={styles.newVersionBtn} onPress={openRevisionModal}>
+                    <Ionicons name="cloud-upload-outline" size={13} color={C.primary} />
+                    <Text style={styles.newVersionBtnText}>Créer une révision</Text>
+                  </TouchableOpacity>
+                )}
+              </View>
+            )}
           )}
 
           {/* Plan viewport — takes all remaining space */}
@@ -2046,8 +2050,9 @@ const styles = StyleSheet.create({
   importBtnText: { fontSize: 12, fontFamily: 'Inter_600SemiBold', color: C.primary },
   addPlanBtn: { width: 34, height: 34, borderRadius: 10, backgroundColor: C.surface2, borderWidth: 1, borderColor: C.border, alignItems: 'center', justifyContent: 'center' },
 
-  versionBtn: { flexDirection: 'row', alignItems: 'center', gap: 5, backgroundColor: C.primaryBg, paddingHorizontal: 8, paddingVertical: 6, borderRadius: 9, borderWidth: 1, borderColor: C.primary + '30' },
-  versionBtnText: { fontSize: 11, fontFamily: 'Inter_600SemiBold', color: C.primary },
+  versionBtn: { flexDirection: 'row', alignItems: 'center', gap: 5, backgroundColor: C.surface2, paddingHorizontal: 8, paddingVertical: 6, borderRadius: 9, borderWidth: 1, borderColor: C.border },
+  versionBtnActive: { backgroundColor: C.primaryBg, borderColor: C.primary + '60' },
+  versionBtnText: { fontSize: 11, fontFamily: 'Inter_600SemiBold', color: C.textSub },
   versionPanel: { backgroundColor: C.surface, borderBottomWidth: 1, borderBottomColor: C.border, padding: 12, gap: 2 },
   versionPanelHeader: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 10 },
   versionPanelTitle: { flex: 1, fontSize: 12, fontFamily: 'Inter_600SemiBold', color: C.textSub },
