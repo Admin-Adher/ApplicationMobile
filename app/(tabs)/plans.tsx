@@ -1006,33 +1006,95 @@ export default function PlansScreen() {
   }, [currentPlan, chantierPlans]);
 
   if (!activeChantierId || chantierPlans.length === 0) {
+    const noChantier = !activeChantierId;
     return (
       <View style={styles.container}>
         <View style={[styles.header, { paddingTop: topPad + 12 }]}>
           <Text style={styles.title}>Plans</Text>
         </View>
-        <View style={styles.emptyState}>
-          <Ionicons name="map-outline" size={52} color={C.textMuted} />
+        <ScrollView contentContainerStyle={styles.emptyState} showsVerticalScrollIndicator={false}>
+
+          {/* Icône centrale */}
+          <View style={styles.emptyIconWrap}>
+            <Ionicons name={noChantier ? 'business-outline' : 'map-outline'} size={44} color={C.primary} />
+          </View>
+
           <Text style={styles.emptyTitle}>
-            {!activeChantierId ? 'Aucun chantier actif' : 'Aucun plan disponible'}
+            {noChantier ? 'Aucun chantier actif' : 'Aucun plan importé'}
           </Text>
           <Text style={styles.emptySubtitle}>
-            {!activeChantierId
-              ? 'Créez d\'abord un chantier pour accéder aux plans.'
-              : 'Ajoutez des plans à ce chantier pour visualiser les réserves.'}
+            {noChantier
+              ? 'Créez votre premier chantier pour commencer à gérer vos plans et réserves.'
+              : 'Importez vos plans PDF ou images pour localiser les réserves directement dessus.'}
           </Text>
-          {!activeChantierId ? (
+
+          {/* Feature list */}
+          <View style={styles.emptyFeatures}>
+            {noChantier ? (
+              <>
+                <View style={styles.emptyFeatureRow}>
+                  <View style={[styles.emptyFeatureDot, { backgroundColor: '#003082' }]}><Ionicons name="map-outline" size={14} color="#fff" /></View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.emptyFeatureTitle}>Visualisez sur plan</Text>
+                    <Text style={styles.emptyFeatureDesc}>Placez chaque réserve directement sur votre plan de chantier.</Text>
+                  </View>
+                </View>
+                <View style={styles.emptyFeatureRow}>
+                  <View style={[styles.emptyFeatureDot, { backgroundColor: '#059669' }]}><Ionicons name="layers-outline" size={14} color="#fff" /></View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.emptyFeatureTitle}>Hiérarchie Bâtiment › Niveau</Text>
+                    <Text style={styles.emptyFeatureDesc}>Organisez vos plans par bâtiment et niveau pour une navigation précise.</Text>
+                  </View>
+                </View>
+                <View style={styles.emptyFeatureRow}>
+                  <View style={[styles.emptyFeatureDot, { backgroundColor: '#7C3AED' }]}><Ionicons name="print-outline" size={14} color="#fff" /></View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.emptyFeatureTitle}>Export PDF annoté</Text>
+                    <Text style={styles.emptyFeatureDesc}>Exportez vos plans avec les épingles numérotées et la liste des réserves.</Text>
+                  </View>
+                </View>
+              </>
+            ) : (
+              <>
+                <View style={styles.emptyFeatureRow}>
+                  <View style={[styles.emptyFeatureDot, { backgroundColor: '#003082' }]}><Ionicons name="cloud-upload-outline" size={14} color="#fff" /></View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.emptyFeatureTitle}>PDF, image ou DXF</Text>
+                    <Text style={styles.emptyFeatureDesc}>Importez tout type de plan architectural pour le visualiser en plein écran.</Text>
+                  </View>
+                </View>
+                <View style={styles.emptyFeatureRow}>
+                  <View style={[styles.emptyFeatureDot, { backgroundColor: '#D97706' }]}><Ionicons name="pin-outline" size={14} color="#fff" /></View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.emptyFeatureTitle}>Épingler les réserves</Text>
+                    <Text style={styles.emptyFeatureDesc}>Touchez le plan pour créer une réserve positionnée à l'endroit exact.</Text>
+                  </View>
+                </View>
+                <View style={styles.emptyFeatureRow}>
+                  <View style={[styles.emptyFeatureDot, { backgroundColor: '#059669' }]}><Ionicons name="git-branch-outline" size={14} color="#fff" /></View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.emptyFeatureTitle}>Révisions de plans</Text>
+                    <Text style={styles.emptyFeatureDesc}>Gérez les versions de chaque plan avec historique et codes de révision.</Text>
+                  </View>
+                </View>
+              </>
+            )}
+          </View>
+
+          {/* CTA */}
+          {noChantier ? (
             <TouchableOpacity style={styles.emptyBtn} onPress={() => router.push('/chantier/new' as any)}>
               <Ionicons name="add-circle-outline" size={16} color="#fff" />
               <Text style={styles.emptyBtnText}>Créer un chantier</Text>
             </TouchableOpacity>
           ) : permissions.canCreate ? (
             <TouchableOpacity style={styles.emptyBtn} onPress={handleAddPlan}>
-              <Ionicons name="add-circle-outline" size={16} color="#fff" />
-              <Text style={styles.emptyBtnText}>Ajouter un plan</Text>
+              <Ionicons name="cloud-upload-outline" size={16} color="#fff" />
+              <Text style={styles.emptyBtnText}>Importer un plan</Text>
             </TouchableOpacity>
           ) : null}
-        </View>
+
+        </ScrollView>
         <Modal visible={newPlanModal.visible} transparent animationType="fade" onRequestClose={() => setNewPlanModal(p => ({ ...p, visible: false }))}>
           <TouchableOpacity style={styles.modalOverlay} activeOpacity={1} onPress={() => setNewPlanModal(p => ({ ...p, visible: false }))}>
             <TouchableOpacity activeOpacity={1} style={styles.modalCard} onPress={() => {}}>
@@ -2194,11 +2256,21 @@ const styles = StyleSheet.create({
   qrModalBody: { alignItems: 'center', paddingVertical: 8 },
   qrModalHint: { fontSize: 12, fontFamily: 'Inter_400Regular', color: C.textMuted, textAlign: 'center', lineHeight: 17 },
 
-  emptyState: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 32, gap: 12 },
-  emptyTitle: { fontSize: 18, fontFamily: 'Inter_600SemiBold', color: C.text, textAlign: 'center' },
-  emptySubtitle: { fontSize: 14, fontFamily: 'Inter_400Regular', color: C.textMuted, textAlign: 'center', lineHeight: 20 },
-  emptyBtn: { flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: C.primary, borderRadius: 12, paddingHorizontal: 20, paddingVertical: 12, marginTop: 8 },
-  emptyBtnText: { fontSize: 14, fontFamily: 'Inter_600SemiBold', color: '#fff' },
+  emptyState: { flexGrow: 1, alignItems: 'center', justifyContent: 'center', padding: 28, gap: 12 },
+  emptyIconWrap: {
+    width: 88, height: 88, borderRadius: 44,
+    backgroundColor: C.primaryBg, borderWidth: 1, borderColor: C.primary + '25',
+    alignItems: 'center', justifyContent: 'center', marginBottom: 4,
+  },
+  emptyTitle: { fontSize: 20, fontFamily: 'Inter_700Bold', color: C.text, textAlign: 'center' },
+  emptySubtitle: { fontSize: 14, fontFamily: 'Inter_400Regular', color: C.textMuted, textAlign: 'center', lineHeight: 21, maxWidth: 300 },
+  emptyFeatures: { width: '100%', gap: 0, marginVertical: 8, backgroundColor: C.surface, borderRadius: 14, borderWidth: 1, borderColor: C.border, overflow: 'hidden' },
+  emptyFeatureRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 12, padding: 14, borderBottomWidth: 1, borderBottomColor: C.border },
+  emptyFeatureDot: { width: 30, height: 30, borderRadius: 15, alignItems: 'center', justifyContent: 'center', flexShrink: 0, marginTop: 1 },
+  emptyFeatureTitle: { fontSize: 13, fontFamily: 'Inter_600SemiBold', color: C.text, marginBottom: 2 },
+  emptyFeatureDesc: { fontSize: 12, fontFamily: 'Inter_400Regular', color: C.textMuted, lineHeight: 17 },
+  emptyBtn: { flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: C.primary, borderRadius: 12, paddingHorizontal: 24, paddingVertical: 14, marginTop: 4 },
+  emptyBtnText: { fontSize: 15, fontFamily: 'Inter_700Bold', color: '#fff' },
 
   newPlanField: { gap: 6 },
   newPlanRow: { flexDirection: 'row', gap: 10 },

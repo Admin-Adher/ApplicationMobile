@@ -704,6 +704,63 @@ export default function ReservesScreen() {
     </View>
   );
 
+  if (!activeChantierId) {
+    return (
+      <View style={styles.container}>
+        <View style={[styles.header, { paddingTop: topPad + 12 }]}>
+          <Text style={styles.title}>Réserves</Text>
+        </View>
+        <ScrollView contentContainerStyle={styles.emptyChantierState} showsVerticalScrollIndicator={false}>
+
+          <View style={styles.emptyChantierIconWrap}>
+            <Ionicons name="clipboard-outline" size={44} color={C.primary} />
+          </View>
+
+          <Text style={styles.emptyChantierTitle}>Aucun chantier actif</Text>
+          <Text style={styles.emptyChantierSubtitle}>
+            Créez votre premier chantier pour commencer à saisir et suivre vos réserves.
+          </Text>
+
+          <View style={styles.emptyChantierFeatures}>
+            <View style={styles.emptyChantierFeatureRow}>
+              <View style={[styles.emptyChantierFeatureDot, { backgroundColor: '#003082' }]}>
+                <Ionicons name="alert-circle-outline" size={14} color="#fff" />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.emptyChantierFeatureTitle}>Suivi des réserves</Text>
+                <Text style={styles.emptyChantierFeatureDesc}>Créez, affectez et suivez l'avancement de chaque réserve par statut et priorité.</Text>
+              </View>
+            </View>
+            <View style={styles.emptyChantierFeatureRow}>
+              <View style={[styles.emptyChantierFeatureDot, { backgroundColor: '#059669' }]}>
+                <Ionicons name="people-outline" size={14} color="#fff" />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.emptyChantierFeatureTitle}>Gestion des entreprises</Text>
+                <Text style={styles.emptyChantierFeatureDesc}>Associez chaque réserve à une entreprise et suivez leur taux de clôture.</Text>
+              </View>
+            </View>
+            <View style={styles.emptyChantierFeatureRow}>
+              <View style={[styles.emptyChantierFeatureDot, { backgroundColor: '#7C3AED' }]}>
+                <Ionicons name="document-text-outline" size={14} color="#fff" />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.emptyChantierFeatureTitle}>Rapports PDF & CSV</Text>
+                <Text style={styles.emptyChantierFeatureDesc}>Exportez un rapport complet avec statistiques et tableau détaillé des réserves.</Text>
+              </View>
+            </View>
+          </View>
+
+          <TouchableOpacity style={styles.emptyChantierBtn} onPress={() => router.push('/chantier/new' as any)}>
+            <Ionicons name="add-circle-outline" size={16} color="#fff" />
+            <Text style={styles.emptyChantierBtnText}>Créer un chantier</Text>
+          </TouchableOpacity>
+
+        </ScrollView>
+      </View>
+    );
+  }
+
   return (
     <View style={styles.container}>
       <View style={[styles.header, { paddingTop: topPad + 12 }]}>
@@ -1836,6 +1893,23 @@ const styles = StyleSheet.create({
     borderWidth: 1, borderColor: C.border, marginTop: 4,
   },
   emptyBtnSecondaryText: { fontSize: 13, fontFamily: 'Inter_500Medium', color: C.textSub },
+
+  emptyChantierState: { flexGrow: 1, alignItems: 'center', justifyContent: 'center', padding: 28, gap: 12 },
+  emptyChantierIconWrap: {
+    width: 88, height: 88, borderRadius: 44,
+    backgroundColor: C.primaryBg, borderWidth: 1, borderColor: C.primary + '25',
+    alignItems: 'center', justifyContent: 'center', marginBottom: 4,
+  },
+  emptyChantierTitle: { fontSize: 20, fontFamily: 'Inter_700Bold', color: C.text, textAlign: 'center' },
+  emptyChantierSubtitle: { fontSize: 14, fontFamily: 'Inter_400Regular', color: C.textMuted, textAlign: 'center', lineHeight: 21, maxWidth: 300 },
+  emptyChantierFeatures: { width: '100%', gap: 0, marginVertical: 8, backgroundColor: C.surface, borderRadius: 14, borderWidth: 1, borderColor: C.border, overflow: 'hidden' },
+  emptyChantierFeatureRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 12, padding: 14, borderBottomWidth: 1, borderBottomColor: C.border },
+  emptyChantierFeatureDot: { width: 30, height: 30, borderRadius: 15, alignItems: 'center', justifyContent: 'center', flexShrink: 0, marginTop: 1 },
+  emptyChantierFeatureTitle: { fontSize: 13, fontFamily: 'Inter_600SemiBold', color: C.text, marginBottom: 2 },
+  emptyChantierFeatureDesc: { fontSize: 12, fontFamily: 'Inter_400Regular', color: C.textMuted, lineHeight: 17 },
+  emptyChantierBtn: { flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: C.primary, borderRadius: 12, paddingHorizontal: 24, paddingVertical: 14, marginTop: 4 },
+  emptyChantierBtnText: { fontSize: 15, fontFamily: 'Inter_700Bold', color: '#fff' },
+
   sectionHeader: {
     flexDirection: 'row', alignItems: 'center', gap: 8,
     backgroundColor: C.bg, paddingHorizontal: 16, paddingVertical: 10,
