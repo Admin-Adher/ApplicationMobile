@@ -342,19 +342,17 @@ export default function NewChantierScreen() {
                       {levelsForPlan.length > 0 && (
                         <>
                           <Text style={[styles.planHierarchyLabel, { marginTop: 8 }]}>Niveau</Text>
-                          <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-                            <View style={styles.planChipRow}>
-                              {levelsForPlan.map(l => (
-                                <TouchableOpacity
-                                  key={l.id}
-                                  style={[styles.planChip, plan.levelId === l.id && styles.planChipActive]}
-                                  onPress={() => updatePlanLevel(plan.id, l.id, l.name)}
-                                >
-                                  <Text style={[styles.planChipText, plan.levelId === l.id && styles.planChipTextActive]}>{l.name}</Text>
-                                </TouchableOpacity>
-                              ))}
-                            </View>
-                          </ScrollView>
+                          <View style={styles.planChipRowWrap}>
+                            {levelsForPlan.map(l => (
+                              <TouchableOpacity
+                                key={l.id}
+                                style={[styles.planChip, plan.levelId === l.id && styles.planChipActive]}
+                                onPress={() => updatePlanLevel(plan.id, l.id, l.name)}
+                              >
+                                <Text style={[styles.planChipText, plan.levelId === l.id && styles.planChipTextActive]}>{l.name}</Text>
+                              </TouchableOpacity>
+                            ))}
+                          </View>
                         </>
                       )}
                     </View>
@@ -471,6 +469,7 @@ const styles = StyleSheet.create({
   planHierarchyBlock: { backgroundColor: C.surface2, borderRadius: 10, borderWidth: 1, borderColor: C.border, padding: 10, gap: 4 },
   planHierarchyLabel: { fontSize: 11, fontFamily: 'Inter_600SemiBold', color: C.textSub, textTransform: 'uppercase', letterSpacing: 0.4, marginBottom: 4 },
   planChipRow: { flexDirection: 'row', gap: 6, flexWrap: 'nowrap' },
+  planChipRowWrap: { flexDirection: 'row', gap: 6, flexWrap: 'wrap' },
   planChip: { flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: 10, paddingVertical: 6, backgroundColor: C.surface, borderRadius: 8, borderWidth: 1, borderColor: C.border },
   planChipActive: { backgroundColor: C.primaryBg, borderColor: C.primary },
   planChipText: { fontSize: 12, fontFamily: 'Inter_500Medium', color: C.textSub },
