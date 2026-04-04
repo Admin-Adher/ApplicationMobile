@@ -330,6 +330,51 @@ function toSitePlan(row: any): SitePlan {
   };
 }
 
+/**
+ * Réconciliation des plans legacy : assigne buildingId / levelId aux plans
+ * qui n'ont que les noms textuels (building / level) en les faisant correspondre
+ * à la hiérarchie du chantier. Exécuté une seule fois au chargement.
+ * Retourne la liste complète mise à jour + les seuls plans modifiés.
+ */
+function reconcilePlanIds(
+  plans: SitePlan[],
+  chantiersList: Chantier[]
+): { plans: SitePlan[]; changed: SitePlan[] } {
+  const changed: SitePlan[] = [];
+  const reconciled = plans.map(p => {
+    const chantier = chantiersList.find(c => c.id === p.chantierId);
+    if (!chantier?.buildings?.length) return p;
+
+    let updated = { ...p };
+    let dirty = false;
+
+    if (!p.buildingId && p.building) {
+      const matchedBuilding = chantier.buildings.find(b => b.name === p.building);
+      if (matchedBuilding) {
+        updated.buildingId = matchedBuilding.id;
+        dirty = true;
+        if (!p.levelId && p.level) {
+          const matchedLevel = matchedBuilding.levels.find(l => l.name === p.level);
+          if (matchedLevel) updated.levelId = matchedLevel.id;
+        }
+      }
+    } else if (p.buildingId && !p.levelId && p.level) {
+      const matchedBuilding = chantier.buildings.find(b => b.id === p.buildingId);
+      if (matchedBuilding) {
+        const matchedLevel = matchedBuilding.levels.find(l => l.name === p.level);
+        if (matchedLevel) {
+          updated.levelId = matchedLevel.id;
+          dirty = true;
+        }
+      }
+    }
+
+    if (dirty) changed.push(updated);
+    return dirty ? updated : p;
+  });
+  return { plans: reconciled, changed };
+}
+
 export function toMessage(row: any, currentUserName?: string): Message {
   const isMe = currentUserName
     ? row.sender === currentUserName
@@ -1188,6 +1233,27 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         const sac = await AsyncStorage.getItem(ACTIVE_CHANTIER_KEY);
         if (sac) activeChantierId = sac;
       } catch {}
+
+      // Auto-réconciliation : assigne buildingId/levelId aux plans legacy qui
+      // n'ont que les noms textuels, en les faisant correspondre à la hiérarchie.
+      const { plans: reconciledPlans, changed: reconciledChanged } = reconcilePlanIds(sitePlans, chantiers);
+      if (reconciledChanged.length > 0) {
+        sitePlans = reconciledPlans;
+        persistMockSitePlans(reconciledPlans);
+        console.log(`[AppContext] Réconciliation plans : ${reconciledChanged.length} plan(s) mis à jour avec buildingId/levelId.`);
+        if (isSupabaseConfigured) {
+          (async () => {
+            for (const p of reconciledChanged) {
+              const { error } = await supabase.from('site_plans').update({
+                building_id: p.buildingId ?? null,
+                level_id: p.levelId ?? null,
+              }).eq('id', p.id);
+              if (error) console.warn('[AppContext] Échec réconciliation plan Supabase:', p.name, error.message);
+            }
+          })();
+        }
+      }
+
       dispatch({ type: 'SET_CHANTIERS', payload: chantiers });
       dispatch({ type: 'SET_SITE_PLANS', payload: sitePlans });
       if (activeChantierId) dispatch({ type: 'SET_ACTIVE_CHANTIER', payload: activeChantierId });
