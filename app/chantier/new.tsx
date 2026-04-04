@@ -305,13 +305,16 @@ export default function NewChantierScreen() {
                   <Text style={styles.planIndexText}>{idx + 1}</Text>
                 </View>
                 <View style={{ flex: 1, gap: 8 }}>
-                  <TextInput
-                    style={styles.planNameInput}
-                    placeholder={`Plan ${idx + 1} (ex: Plan électrique, Plan structurel...)`}
-                    placeholderTextColor={C.textMuted}
-                    value={plan.name}
-                    onChangeText={v => updatePlanName(plan.id, v)}
-                  />
+                  <View>
+                    <Text style={styles.planNameLabel}>Nom du plan</Text>
+                    <TextInput
+                      style={styles.planNameInput}
+                      placeholder="Ex : Plan électrique, Plan structurel, Plan masse..."
+                      placeholderTextColor={C.textMuted}
+                      value={plan.name}
+                      onChangeText={v => updatePlanName(plan.id, v)}
+                    />
+                  </View>
 
                   {/* Sélection Bâtiment + Niveau — uniquement si une structure est configurée */}
                   {buildings.length > 0 && (
@@ -453,8 +456,12 @@ const styles = StyleSheet.create({
   addPlanBtn: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 10, paddingVertical: 6, backgroundColor: C.primaryBg, borderRadius: 8, borderWidth: 1, borderColor: C.primary + '40' },
   addPlanText: { fontSize: 12, fontFamily: 'Inter_600SemiBold', color: C.primary },
   planRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 10, marginBottom: 12 },
-  planIndexBadge: { width: 26, height: 26, borderRadius: 13, backgroundColor: C.primary, alignItems: 'center', justifyContent: 'center', marginTop: 10, flexShrink: 0 },
+  planIndexBadge: { width: 26, height: 26, borderRadius: 13, backgroundColor: C.primary, alignItems: 'center', justifyContent: 'center', marginTop: 22, flexShrink: 0 },
   planIndexText: { fontSize: 11, fontFamily: 'Inter_700Bold', color: '#fff' },
+  planNameLabel: {
+    fontSize: 11, fontFamily: 'Inter_600SemiBold', color: C.textSub,
+    textTransform: 'uppercase', letterSpacing: 0.4, marginBottom: 5,
+  },
   planNameInput: {
     backgroundColor: C.surface2, borderRadius: 10, paddingHorizontal: 12, paddingVertical: 10,
     color: C.text, fontFamily: 'Inter_400Regular', fontSize: 13,
