@@ -480,13 +480,18 @@ export default function SettingsScreen() {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: C.bg },
 
-  tabScroll: { borderBottomWidth: 1, borderBottomColor: C.border, backgroundColor: C.surface, maxHeight: 52 },
+  tabScroll: {
+    borderBottomWidth: 1, borderBottomColor: C.border, backgroundColor: C.surface,
+    height: 52, flexShrink: 0, flexGrow: 0,
+  },
   tabRow: {
     flexDirection: 'row', gap: 6, paddingHorizontal: 12, paddingVertical: 8,
+    alignItems: 'center',
   },
   tabBtn: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 5,
     paddingVertical: 7, paddingHorizontal: 12, borderRadius: 10, backgroundColor: C.bg, borderWidth: 1, borderColor: C.border,
+    flexShrink: 0,
   },
   tabBtnActive: { backgroundColor: C.primaryBg, borderColor: C.primary },
   tabText: { fontSize: 12, fontFamily: 'Inter_600SemiBold', color: C.textMuted },
