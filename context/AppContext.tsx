@@ -246,6 +246,7 @@ function toOpr(row: any): Opr {
   return {
     id: row.id, chantierId: row.chantier_id, title: row.title,
     date: row.date, building: row.building, level: row.level,
+    zone: row.zone ?? undefined,
     conducteur: row.conducteur, status: row.status as OprStatus,
     items: row.items ?? [],
     signedBy: row.signed_by ?? undefined,
@@ -266,6 +267,7 @@ function fromOpr(o: Opr): Record<string, any> {
   return {
     id: o.id, chantier_id: o.chantierId, title: o.title,
     date: o.date, building: o.building, level: o.level,
+    zone: o.zone ?? null,
     conducteur: o.conducteur, status: o.status,
     items: o.items, signed_by: o.signedBy ?? null, signed_at: o.signedAt ?? null,
     maire_ouvrage: o.maireOuvrage ?? null,

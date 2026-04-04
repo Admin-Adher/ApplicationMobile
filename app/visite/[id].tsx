@@ -22,6 +22,7 @@ import { formatDateFR } from '@/lib/utils';
 import Header from '@/components/Header';
 import BottomNavBar from '@/components/BottomNavBar';
 import SignaturePad, { SignaturePadRef } from '@/components/SignaturePad';
+import LocationPicker from '@/components/LocationPicker';
 
 const STATUS_CFG: Record<VisiteStatus, { label: string; color: string }> = {
   planned: { label: 'Planifiée', color: '#6366F1' },
@@ -173,6 +174,11 @@ export default function VisiteDetailScreen() {
   const conducteurSigRef = useRef<SignaturePadRef>(null);
   const entrepriseSigRef = useRef<SignaturePadRef>(null);
 
+  const [editLocModal, setEditLocModal] = useState(false);
+  const [editBuilding, setEditBuilding] = useState('');
+  const [editLevel, setEditLevel] = useState('');
+  const [editZone, setEditZone] = useState('');
+
   const visite = visites.find(v => v.id === id);
   const visiteReserves = useMemo(
     () => reserves.filter(r => visite?.reserveIds.includes(r.id)),
@@ -246,6 +252,18 @@ export default function VisiteDetailScreen() {
     }
   }
 
+  function openEditLoc() {
+    setEditBuilding(visite!.building ?? '');
+    setEditLevel(visite!.level ?? '');
+    setEditZone(visite!.zone ?? '');
+    setEditLocModal(true);
+  }
+
+  function saveEditLoc() {
+    updateVisite({ ...visite!, building: editBuilding || undefined, level: editLevel || undefined, zone: editZone || undefined });
+    setEditLocModal(false);
+  }
+
   async function exportPDF() {
     try {
       const reservePhotoMap = new Map<string, string[]>();
@@ -310,15 +328,20 @@ export default function VisiteDetailScreen() {
                 <Text style={styles.infoVal}>{visite.date}</Text>
               </View>
             </View>
-            {(visite.building || visite.level || visite.zone) ? (
-              <View style={styles.infoItem}>
-                <Ionicons name="business-outline" size={14} color={C.textMuted} />
-                <View>
-                  <Text style={styles.infoLabel}>Localisation</Text>
-                  <Text style={styles.infoVal}>{[visite.building, visite.level, visite.zone].filter(Boolean).join(' — ')}</Text>
-                </View>
+            <View style={styles.infoItem}>
+              <Ionicons name="business-outline" size={14} color={C.textMuted} />
+              <View style={{ flex: 1 }}>
+                <Text style={styles.infoLabel}>Localisation</Text>
+                <Text style={styles.infoVal}>
+                  {[visite.building, visite.level, visite.zone].filter(Boolean).join(' — ') || '—'}
+                </Text>
               </View>
-            ) : null}
+              {permissions.canEdit && (
+                <TouchableOpacity onPress={openEditLoc} hitSlop={8} style={{ padding: 4 }}>
+                  <Ionicons name="pencil-outline" size={14} color={C.textMuted} />
+                </TouchableOpacity>
+              )}
+            </View>
           </View>
 
           {visite.notes ? (
@@ -517,6 +540,36 @@ export default function VisiteDetailScreen() {
         </KeyboardAvoidingView>
       </Modal>
 
+      <Modal visible={editLocModal} transparent animationType="slide" onRequestClose={() => setEditLocModal(false)}>
+        <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
+          <View style={styles.modalOverlay}>
+            <View style={styles.locModal}>
+              <View style={styles.locModalHeader}>
+                <Text style={styles.locModalTitle}>Modifier la localisation</Text>
+                <TouchableOpacity onPress={() => setEditLocModal(false)}>
+                  <Ionicons name="close" size={22} color={C.text} />
+                </TouchableOpacity>
+              </View>
+              <ScrollView contentContainerStyle={styles.locModalContent} keyboardShouldPersistTaps="handled">
+                <LocationPicker
+                  buildings={activeChantier?.buildings ?? []}
+                  building={editBuilding}
+                  level={editLevel}
+                  zone={editZone}
+                  onBuildingChange={setEditBuilding}
+                  onLevelChange={setEditLevel}
+                  onZoneChange={setEditZone}
+                />
+              </ScrollView>
+              <TouchableOpacity style={styles.locSaveBtn} onPress={saveEditLoc}>
+                <Ionicons name="checkmark-circle" size={18} color="#fff" />
+                <Text style={styles.locSaveBtnText}>Enregistrer</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </KeyboardAvoidingView>
+      </Modal>
+
       <BottomNavBar />
     </View>
   );
@@ -653,4 +706,21 @@ const styles = StyleSheet.create({
     paddingVertical: 14,
   },
   saveSignBtnText: { fontSize: 15, fontFamily: 'Inter_700Bold', color: '#fff' },
+
+  locModal: {
+    backgroundColor: C.surface, borderTopLeftRadius: 20, borderTopRightRadius: 20,
+    maxHeight: '60%', paddingBottom: 34,
+  },
+  locModalHeader: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    padding: 18, borderBottomWidth: 1, borderBottomColor: C.border,
+  },
+  locModalTitle: { fontSize: 16, fontFamily: 'Inter_700Bold', color: C.text },
+  locModalContent: { padding: 16 },
+  locSaveBtn: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8,
+    backgroundColor: C.primary, marginHorizontal: 18, marginTop: 12, borderRadius: 14,
+    paddingVertical: 14,
+  },
+  locSaveBtnText: { fontSize: 15, fontFamily: 'Inter_700Bold', color: '#fff' },
 });

@@ -217,6 +217,7 @@ export interface Opr {
   date: string;
   building: string;
   level: string;
+  zone?: string;
   conducteur: string;
   status: OprStatus;
   items: OprItem[];

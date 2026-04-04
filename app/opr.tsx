@@ -121,7 +121,7 @@ function buildOprPDF(opr: Opr, projectName: string): string {
        </div>`;
 
   const infoItems = [
-    ...(opr.building || opr.level ? [{ label: 'Localisation', value: [opr.building, opr.level].filter(Boolean).join(' — ') }] : []),
+    ...(opr.building || opr.level || opr.zone ? [{ label: 'Localisation', value: [opr.building, opr.level, opr.zone].filter(Boolean).join(' — ') }] : []),
     { label: 'Conducteur de travaux', value: opr.conducteur },
     ...(opr.maireOuvrage ? [{ label: "Maître d'ouvrage", value: opr.maireOuvrage }] : []),
     { label: 'Date de réception', value: opr.date },
@@ -275,7 +275,7 @@ async function buildPvLeveePDF(opr: Opr, reserves: Reserve[], projectName: strin
   const infoItems = [
     { label: 'Référence OPR', value: opr.id },
     { label: 'Date réception', value: opr.date },
-    ...((opr.building || opr.level) ? [{ label: 'Localisation', value: [opr.building, opr.level].filter(Boolean).join(' — ') }] : []),
+    ...((opr.building || opr.level || opr.zone) ? [{ label: 'Localisation', value: [opr.building, opr.level, opr.zone].filter(Boolean).join(' — ') }] : []),
     { label: 'Conducteur', value: opr.conducteur },
     ...(opr.maireOuvrage ? [{ label: "Maître d'ouvrage", value: opr.maireOuvrage }] : []),
   ];
@@ -354,7 +354,7 @@ function buildConvocationPDF(opr: Opr, projectName: string, conducteur: string):
     ${buildInfoGrid([
       { label: 'Référence OPR', value: opr.id },
       { label: 'Date de réception', value: opr.date },
-      ...((opr.building || opr.level) ? [{ label: 'Localisation', value: [opr.building, opr.level].filter(Boolean).join(' — ') }] : []),
+      ...((opr.building || opr.level || opr.zone) ? [{ label: 'Localisation', value: [opr.building, opr.level, opr.zone].filter(Boolean).join(' — ') }] : []),
       { label: 'Conducteur', value: conducteur },
       ...(opr.maireOuvrage ? [{ label: "Maître d'ouvrage", value: opr.maireOuvrage }] : []),
       ...(opr.visitContradictoire ? [{ label: 'Visite contradictoire', value: opr.visitContradictoire }] : []),
@@ -576,6 +576,7 @@ export default function OprScreen() {
       date,
       building,
       level,
+      zone: zone.trim() || undefined,
       conducteur: user?.name ?? 'Conducteur',
       status: 'draft',
       items,
@@ -953,7 +954,7 @@ export default function OprScreen() {
                 </View>
 
                 <Text style={styles.oprTitle}>{opr.title}</Text>
-                <Text style={styles.oprMeta}>{[opr.building, opr.level].filter(Boolean).join(' — ')}{(opr.building || opr.level) ? ' · ' : ''}{opr.conducteur}</Text>
+                <Text style={styles.oprMeta}>{[opr.building, opr.level, opr.zone].filter(Boolean).join(' — ')}{(opr.building || opr.level || opr.zone) ? ' · ' : ''}{opr.conducteur}</Text>
                 {opr.maireOuvrage ? (
                   <Text style={styles.oprMeta}>MO : {opr.maireOuvrage}</Text>
                 ) : null}
