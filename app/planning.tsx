@@ -806,7 +806,7 @@ export default function PlanningScreen() {
         title="Planning"
         subtitle={`${tasks.length} tâche${tasks.length !== 1 ? 's' : ''} au total`}
         showBack
-        rightIcon={permissions.canCreate ? 'add-circle-outline' : undefined}
+        rightIcon={permissions.canCreate ? 'add-circle' : undefined}
         onRightPress={permissions.canCreate ? () => router.push('/task/new' as any) : undefined}
       />
 
@@ -919,28 +919,48 @@ export default function PlanningScreen() {
         {/* ── LISTE ── */}
         {viewMode === 'list' && (
           <>
-            <View style={lStyles.modeBar}>
-              {([
-                { key: 'company' as const, label: 'Entreprise', icon: 'business-outline' },
-                { key: 'priority' as const, label: 'Priorité', icon: 'flag-outline' },
-              ]).map(opt => (
+            {tasks.length === 0 && permissions.canCreate ? (
+              <View style={styles.emptyState}>
+                <View style={styles.emptyIconWrap}>
+                  <Ionicons name="clipboard-outline" size={48} color={C.primary + '60'} />
+                </View>
+                <Text style={styles.emptyTitle}>Aucune tâche pour le moment</Text>
+                <Text style={styles.emptyHint}>Planifiez vos travaux en créant la première tâche de ce chantier.</Text>
                 <TouchableOpacity
-                  key={opt.key}
-                  style={[lStyles.modeBtn, groupMode === opt.key && lStyles.modeBtnActive]}
-                  onPress={() => setGroupMode(opt.key)}
+                  style={styles.emptyCreateBtn}
+                  onPress={() => router.push('/task/new' as any)}
+                  activeOpacity={0.82}
                 >
-                  <Ionicons name={opt.icon as any} size={12} color={groupMode === opt.key ? C.primary : C.textSub} />
-                  <Text style={[lStyles.modeBtnText, groupMode === opt.key && lStyles.modeBtnTextActive]}>{opt.label}</Text>
+                  <Ionicons name="add-circle" size={20} color="#fff" />
+                  <Text style={styles.emptyCreateBtnText}>Créer une tâche</Text>
                 </TouchableOpacity>
-              ))}
-            </View>
-            <GroupedList
-              tasks={filtered}
-              groupBy={groupMode}
-              canEdit={permissions.canEdit}
-              onDelete={handleDelete}
-              onPress={(id) => router.push(`/task/${id}` as any)}
-            />
+              </View>
+            ) : (
+              <>
+                <View style={lStyles.modeBar}>
+                  {([
+                    { key: 'company' as const, label: 'Entreprise', icon: 'business-outline' },
+                    { key: 'priority' as const, label: 'Priorité', icon: 'flag-outline' },
+                  ]).map(opt => (
+                    <TouchableOpacity
+                      key={opt.key}
+                      style={[lStyles.modeBtn, groupMode === opt.key && lStyles.modeBtnActive]}
+                      onPress={() => setGroupMode(opt.key)}
+                    >
+                      <Ionicons name={opt.icon as any} size={12} color={groupMode === opt.key ? C.primary : C.textSub} />
+                      <Text style={[lStyles.modeBtnText, groupMode === opt.key && lStyles.modeBtnTextActive]}>{opt.label}</Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+                <GroupedList
+                  tasks={filtered}
+                  groupBy={groupMode}
+                  canEdit={permissions.canEdit}
+                  onDelete={handleDelete}
+                  onPress={(id) => router.push(`/task/${id}` as any)}
+                />
+              </>
+            )}
           </>
         )}
 
@@ -1155,6 +1175,34 @@ const styles = StyleSheet.create({
   deadlinePillNormal: { backgroundColor: C.surface2, borderColor: C.border },
   deadlinePillSoon: { backgroundColor: C.waiting + '15', borderColor: C.waiting + '60' },
   deadlinePillOverdue: { backgroundColor: C.open + '12', borderColor: C.open + '50' },
+  emptyState: {
+    alignItems: 'center', justifyContent: 'center',
+    paddingVertical: 60, paddingHorizontal: 24, gap: 12,
+  },
+  emptyIconWrap: {
+    width: 88, height: 88, borderRadius: 44,
+    backgroundColor: C.primaryBg,
+    alignItems: 'center', justifyContent: 'center',
+    marginBottom: 4,
+  },
+  emptyTitle: {
+    fontSize: 17, fontFamily: 'Inter_700Bold', color: C.text, textAlign: 'center',
+  },
+  emptyHint: {
+    fontSize: 13, fontFamily: 'Inter_400Regular', color: C.textSub,
+    textAlign: 'center', lineHeight: 20, maxWidth: 280,
+  },
+  emptyCreateBtn: {
+    flexDirection: 'row', alignItems: 'center', gap: 8,
+    backgroundColor: C.primary, borderRadius: 14,
+    paddingVertical: 14, paddingHorizontal: 28,
+    marginTop: 8,
+    shadowColor: C.primary, shadowOpacity: 0.3, shadowOffset: { width: 0, height: 4 }, shadowRadius: 10,
+    elevation: 4,
+  },
+  emptyCreateBtnText: {
+    fontSize: 15, fontFamily: 'Inter_700Bold', color: '#fff',
+  },
   deadlinePillText: { fontSize: 11, fontFamily: 'Inter_500Medium' },
   empty: { alignItems: 'center', paddingVertical: 40, gap: 10 },
   emptyText: { fontSize: 14, fontFamily: 'Inter_400Regular', color: C.textMuted },
