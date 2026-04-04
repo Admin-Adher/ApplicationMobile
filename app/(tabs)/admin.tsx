@@ -846,42 +846,19 @@ export default function AdminScreen() {
                   <View style={[styles.coAccent, { backgroundColor: co.color }]} />
                   <View style={styles.coBody}>
                     <View style={styles.coTopRow}>
-                      <View style={{ flex: 1 }}>
-                        <View style={styles.coNameRow}>
-                          <Text style={styles.coName}>{co.name}</Text>
-                          <View style={[styles.coSigle, { backgroundColor: co.color + '18' }]}>
-                            <Text style={[styles.coSigleTxt, { color: co.color }]}>{co.shortName}</Text>
-                          </View>
+                      <View style={styles.coNameRow}>
+                        <Text style={styles.coName} numberOfLines={2}>{co.name}</Text>
+                        <View style={[styles.coSigle, { backgroundColor: co.color + '18' }]}>
+                          <Text style={[styles.coSigleTxt, { color: co.color }]}>{co.shortName}</Text>
                         </View>
-                        {hasZone && <Text style={styles.coZone}>{co.zone}</Text>}
-                        {linkedCount > 0 && (
-                          <View style={styles.coLinkedUsers}>
-                            <Ionicons name="person-outline" size={11} color={C.textMuted} />
-                            <Text style={styles.coLinkedUsersTxt}>{linkedCount} sous-traitant{linkedCount > 1 ? 's' : ''} lié{linkedCount > 1 ? 's' : ''}</Text>
-                          </View>
-                        )}
                       </View>
-                      <View style={styles.coActionBtns}>
-                        <TouchableOpacity
-                          style={styles.iconBtnLabelled}
-                          onPress={() => openEditCompany(co)}
-                          accessibilityRole="button"
-                          accessibilityLabel={`Modifier ${co.name}`}
-                        >
-                          <Ionicons name="pencil-outline" size={15} color={C.primary} />
-                          <Text style={styles.iconBtnLabelText}>Éditer</Text>
-                        </TouchableOpacity>
-                        <View style={styles.coActionSep} />
-                        <TouchableOpacity
-                          style={[styles.iconBtnLabelled, styles.iconBtnLabelledDanger]}
-                          onPress={() => handleDeleteCompany(co)}
-                          accessibilityRole="button"
-                          accessibilityLabel={`Supprimer ${co.name}`}
-                        >
-                          <Ionicons name="trash-outline" size={15} color={C.open} />
-                          <Text style={[styles.iconBtnLabelText, { color: C.open }]}>Suppr.</Text>
-                        </TouchableOpacity>
-                      </View>
+                      {hasZone && <Text style={styles.coZone}>{co.zone}</Text>}
+                      {linkedCount > 0 && (
+                        <View style={styles.coLinkedUsers}>
+                          <Ionicons name="person-outline" size={11} color={C.textMuted} />
+                          <Text style={styles.coLinkedUsersTxt}>{linkedCount} sous-traitant{linkedCount > 1 ? 's' : ''} lié{linkedCount > 1 ? 's' : ''}</Text>
+                        </View>
+                      )}
                     </View>
 
                     <View style={styles.coStatsRow}>
@@ -998,6 +975,26 @@ export default function AdminScreen() {
                         )}
                       </View>
                     )}
+                    <View style={styles.coActionBtns}>
+                      <TouchableOpacity
+                        style={styles.iconBtnLabelled}
+                        onPress={() => openEditCompany(co)}
+                        accessibilityRole="button"
+                        accessibilityLabel={`Modifier ${co.name}`}
+                      >
+                        <Ionicons name="pencil-outline" size={15} color={C.primary} />
+                        <Text style={styles.iconBtnLabelText}>Éditer</Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity
+                        style={[styles.iconBtnLabelled, styles.iconBtnLabelledDanger]}
+                        onPress={() => handleDeleteCompany(co)}
+                        accessibilityRole="button"
+                        accessibilityLabel={`Supprimer ${co.name}`}
+                      >
+                        <Ionicons name="trash-outline" size={15} color={C.open} />
+                        <Text style={[styles.iconBtnLabelText, { color: C.open }]}>Supprimer</Text>
+                      </TouchableOpacity>
+                    </View>
                   </View>
                 </View>
               );
@@ -1214,7 +1211,12 @@ export default function AdminScreen() {
               <Text style={styles.sheetTitle}>
                 {companyModal?.mode === 'edit' ? 'Modifier l\'entreprise' : 'Ajouter une entreprise'}
               </Text>
-              <ScrollView showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled" contentContainerStyle={{ gap: 10 }}>
+              <ScrollView
+                style={{ flex: 1 }}
+                showsVerticalScrollIndicator={false}
+                keyboardShouldPersistTaps="handled"
+                contentContainerStyle={{ gap: 10, paddingBottom: 8 }}
+              >
                 <View style={styles.field}>
                   <Text style={styles.fieldLabel}>Nom complet *</Text>
                   <TextInput style={styles.fieldInput} value={nom} onChangeText={setNom}
@@ -1596,7 +1598,7 @@ const styles = StyleSheet.create({
   },
   coAccent: { width: 4 },
   coBody: { flex: 1, padding: 14, gap: 10 },
-  coTopRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 8 },
+  coTopRow: { flexDirection: 'column', gap: 4 },
   coNameRow: { flexDirection: 'row', alignItems: 'center', gap: 8, flexWrap: 'wrap' },
   coName: { fontSize: 14, fontFamily: 'Inter_600SemiBold', color: C.text },
   coSigle: { borderRadius: 5, paddingHorizontal: 6, paddingVertical: 2 },
@@ -1613,7 +1615,7 @@ const styles = StyleSheet.create({
     width: 22, height: 22, borderRadius: 11, backgroundColor: C.border,
     alignItems: 'center', justifyContent: 'center',
   },
-  coActionBtns: { flexDirection: 'column', gap: 5, alignItems: 'flex-end' },
+  coActionBtns: { flexDirection: 'row', gap: 8, justifyContent: 'flex-end', alignItems: 'center', paddingTop: 4, borderTopWidth: 1, borderTopColor: C.border },
   coActionSep: { height: 1, width: '100%', backgroundColor: C.border },
 
   coLegalRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
