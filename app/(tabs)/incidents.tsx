@@ -1,11 +1,12 @@
 import {
   View, Text, StyleSheet, ScrollView, TouchableOpacity, TextInput,
   Alert, Modal, ActivityIndicator, Image, Platform, RefreshControl, KeyboardAvoidingView,
-  Animated, PanResponder,
 } from 'react-native';
+import Animated, { useSharedValue, useAnimatedStyle, withTiming, withSpring, runOnJS } from 'react-native-reanimated';
+import { GestureDetector, Gesture } from 'react-native-gesture-handler';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
-import { useState, useMemo, useCallback, useEffect, useRef } from 'react';
+import { useState, useMemo, useCallback, useEffect } from 'react';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import * as Haptics from 'expo-haptics';
 import * as ImagePicker from 'expo-image-picker';
@@ -96,40 +97,34 @@ export default function IncidentsScreen() {
 
   const [form, setForm] = useState(EMPTY_FORM);
 
-  const sheetTranslateY = useRef(new Animated.Value(0)).current;
-  const scrollOffsetRef = useRef(0);
+  const sheetTranslateY = useSharedValue(0);
 
-  const sheetPanResponder = useRef(
-    PanResponder.create({
-      onStartShouldSetPanResponder: () => false,
-      onStartShouldSetPanResponderCapture: () => false,
-      onMoveShouldSetPanResponder: (_, g) => {
-        const isSwipingDown = g.dy > 8 && g.dy > Math.abs(g.dx);
-        const isAtTop = scrollOffsetRef.current <= 0;
-        return isSwipingDown && isAtTop;
-      },
-      onMoveShouldSetPanResponderCapture: () => false,
-      onPanResponderMove: (_, g) => {
-        if (g.dy > 0) sheetTranslateY.setValue(g.dy);
-      },
-      onPanResponderRelease: (_, g) => {
-        if (g.dy > 100 || g.vy > 0.5) {
-          Animated.timing(sheetTranslateY, { toValue: 700, duration: 220, useNativeDriver: true }).start(() => {
-            setModalMode(null);
-            sheetTranslateY.setValue(0);
-          });
-        } else {
-          Animated.spring(sheetTranslateY, { toValue: 0, useNativeDriver: true, bounciness: 4 }).start();
-        }
-      },
-      onPanResponderTerminate: () => {
-        Animated.spring(sheetTranslateY, { toValue: 0, useNativeDriver: true, bounciness: 4 }).start();
-      },
+  const closeSheet = () => {
+    setModalMode(null);
+    sheetTranslateY.value = 0;
+  };
+
+  const panGesture = Gesture.Pan()
+    .activeOffsetY([0, Infinity])
+    .onUpdate((e) => {
+      if (e.translationY > 0) sheetTranslateY.value = e.translationY;
     })
-  ).current;
+    .onEnd((e) => {
+      if (e.translationY > 100 || e.velocityY > 500) {
+        sheetTranslateY.value = withTiming(700, { duration: 220 }, (finished) => {
+          if (finished) runOnJS(closeSheet)();
+        });
+      } else {
+        sheetTranslateY.value = withSpring(0, { damping: 20, stiffness: 300 });
+      }
+    });
+
+  const sheetAnimatedStyle = useAnimatedStyle(() => ({
+    transform: [{ translateY: sheetTranslateY.value }],
+  }));
 
   useEffect(() => {
-    if (modalMode) sheetTranslateY.setValue(0);
+    if (modalMode) sheetTranslateY.value = 0;
   }, [modalMode]);
 
   const params = useLocalSearchParams<{ openCreate?: string; prefillDescription?: string }>();
@@ -440,16 +435,16 @@ export default function IncidentsScreen() {
         <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
         <View style={styles.overlay}>
           <TouchableOpacity style={StyleSheet.absoluteFillObject} activeOpacity={1} onPress={() => setModalMode(null)} />
-          <Animated.View style={[styles.sheet, { paddingBottom: Math.max(insets.bottom, 20), transform: [{ translateY: sheetTranslateY }] }]} {...sheetPanResponder.panHandlers}>
+          <GestureDetector gesture={panGesture}>
+          <Animated.View style={[styles.sheet, { paddingBottom: Math.max(insets.bottom, 20) }, sheetAnimatedStyle]}>
             <View style={styles.sheetHandleHitArea}>
               <View style={styles.sheetHandle} />
             </View>
             <ScrollView
               showsVerticalScrollIndicator={false}
               keyboardShouldPersistTaps="handled"
-              bounces={true}
-              scrollEventThrottle={16}
-              onScroll={(e) => { scrollOffsetRef.current = e.nativeEvent.contentOffset.y; }}
+              bounces={false}
+              overScrollMode="never"
             >
               <Text style={styles.sheetTitle}>
                 {modalMode === 'edit' ? 'Modifier l\'incident' : 'Signaler un incident'}
@@ -596,6 +591,7 @@ export default function IncidentsScreen() {
               <View style={{ height: 20 }} />
             </ScrollView>
           </Animated.View>
+          </GestureDetector>
         </View>
         </KeyboardAvoidingView>
       </Modal>
