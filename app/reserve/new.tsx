@@ -59,7 +59,8 @@ export default function NewReserveScreen() {
   const { companies, addReserve, reserves, addPhoto, activeChantierId, chantiers, sitePlans, lots, linkReserveToVisite, visites } = useApp();
   const { user, permissions } = useAuth();
   const params = useLocalSearchParams<{
-    building?: string; planX?: string; planY?: string;
+    building?: string; level?: string; buildingId?: string; levelId?: string;
+    planX?: string; planY?: string;
     prefill_description?: string; prefill_source?: string;
     chantierId?: string; planId?: string; visiteId?: string;
     quickPhotoUri?: string;
@@ -78,7 +79,12 @@ export default function NewReserveScreen() {
   const [description, setDescription] = useState(params.prefill_description ?? '');
   const [building, setBuilding] = useState(params.building ?? '');
   const [zone, setZone] = useState('');
-  const [level, setLevel] = useState('');
+  const [level, setLevel] = useState(params.level ?? '');
+
+  const locationFromPlan = !!(params.planId && params.building && params.level);
+  const buildingLocked = locationFromPlan;
+  const levelLocked = locationFromPlan;
+
   const [selectedCompanies, setSelectedCompanies] = useState<string[]>(companies[0] ? [companies[0].name] : []);
   const [priority, setPriority] = useState<ReservePriority>('medium');
   const [deadline, setDeadline] = useState('');
@@ -535,6 +541,8 @@ export default function NewReserveScreen() {
             onBuildingChange={setBuilding}
             onLevelChange={setLevel}
             onZoneChange={setZone}
+            lockedBuilding={buildingLocked}
+            lockedLevel={levelLocked}
           />
         </View>
 

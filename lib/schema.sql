@@ -386,6 +386,8 @@ create table if not exists public.site_plans (
   name text not null,
   building text,
   level text,
+  building_id text,
+  level_id text,
   uri text,
   file_type text,
   dxf_name text,

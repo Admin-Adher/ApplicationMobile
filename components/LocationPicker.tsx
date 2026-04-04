@@ -14,6 +14,8 @@ interface LocationPickerProps {
   onZoneChange?: (z: string) => void;
   showLevel?: boolean;
   showZone?: boolean;
+  lockedBuilding?: boolean;
+  lockedLevel?: boolean;
 }
 
 const DESELECT_LABEL = '—';
@@ -51,6 +53,21 @@ function ChipList({
   );
 }
 
+function LockedValue({ value, icon }: { value: string; icon: string }) {
+  return (
+    <View style={styles.lockedRow}>
+      <View style={styles.lockedChip}>
+        <Ionicons name={icon as any} size={12} color={C.primary} />
+        <Text style={styles.lockedChipText}>{value}</Text>
+      </View>
+      <View style={styles.lockedBadge}>
+        <Ionicons name="lock-closed" size={10} color={C.textMuted} />
+        <Text style={styles.lockedBadgeText}>Défini par le plan</Text>
+      </View>
+    </View>
+  );
+}
+
 export default function LocationPicker({
   buildings,
   building,
@@ -61,6 +78,8 @@ export default function LocationPicker({
   onZoneChange = () => {},
   showLevel = true,
   showZone = true,
+  lockedBuilding = false,
+  lockedLevel = false,
 }: LocationPickerProps) {
   const hasBuildingsConfig = buildings && buildings.length > 0;
 
@@ -100,30 +119,47 @@ export default function LocationPicker({
   if (!hasBuildingsConfig) {
     return (
       <View style={styles.freeTextContainer}>
-        <View style={styles.freeTextHint}>
-          <Ionicons name="information-circle-outline" size={13} color={C.textMuted} />
-          <Text style={styles.freeTextHintText}>
-            Aucune structure configurée pour ce chantier. Saisissez librement.
-          </Text>
-        </View>
+        {(lockedBuilding && building) || (lockedLevel && level) ? (
+          <View style={styles.freeTextHint}>
+            <Ionicons name="lock-closed-outline" size={13} color={C.primary} />
+            <Text style={styles.freeTextHintText}>
+              Localisation définie par le plan — non modifiable.
+            </Text>
+          </View>
+        ) : (
+          <View style={styles.freeTextHint}>
+            <Ionicons name="information-circle-outline" size={13} color={C.textMuted} />
+            <Text style={styles.freeTextHintText}>
+              Aucune structure configurée pour ce chantier. Saisissez librement.
+            </Text>
+          </View>
+        )}
         <Text style={styles.label}>Bâtiment</Text>
-        <TextInput
-          style={styles.freeInput}
-          placeholder="Ex : Bât A, Tour Nord..."
-          placeholderTextColor={C.textMuted}
-          value={building}
-          onChangeText={onBuildingChange}
-        />
+        {lockedBuilding && building ? (
+          <LockedValue value={building} icon="business-outline" />
+        ) : (
+          <TextInput
+            style={styles.freeInput}
+            placeholder="Ex : Bât A, Tour Nord..."
+            placeholderTextColor={C.textMuted}
+            value={building}
+            onChangeText={onBuildingChange}
+          />
+        )}
         {showLevel && (
           <>
             <Text style={styles.label}>Niveau</Text>
-            <TextInput
-              style={styles.freeInput}
-              placeholder="Ex : RDC, R+5, SS1..."
-              placeholderTextColor={C.textMuted}
-              value={level}
-              onChangeText={onLevelChange}
-            />
+            {lockedLevel && level ? (
+              <LockedValue value={level} icon="layers-outline" />
+            ) : (
+              <TextInput
+                style={styles.freeInput}
+                placeholder="Ex : RDC, R+5, SS1..."
+                placeholderTextColor={C.textMuted}
+                value={level}
+                onChangeText={onLevelChange}
+              />
+            )}
           </>
         )}
         {showZone && (
@@ -144,22 +180,33 @@ export default function LocationPicker({
 
   return (
     <View>
+      {lockedBuilding && building && (
+        <View style={styles.lockedHint}>
+          <Ionicons name="lock-closed-outline" size={12} color={C.primary} />
+          <Text style={styles.lockedHintText}>Localisation définie par le plan — non modifiable.</Text>
+        </View>
+      )}
+
       <View style={styles.stepRow}>
-        <View style={styles.stepBadge}>
+        <View style={[styles.stepBadge, lockedBuilding && building && styles.stepBadgeLocked]}>
           <Text style={styles.stepBadgeText}>1</Text>
         </View>
         <Text style={styles.stepLabel}>Bâtiment</Text>
       </View>
-      <ChipList
-        options={buildings.map(b => b.name)}
-        selected={building}
-        onSelect={handleBuildingChange}
-      />
+      {lockedBuilding && building ? (
+        <LockedValue value={building} icon="business-outline" />
+      ) : (
+        <ChipList
+          options={buildings.map(b => b.name)}
+          selected={building}
+          onSelect={handleBuildingChange}
+        />
+      )}
 
-      {showLevel && levelsForBuilding.length > 0 && (
+      {showLevel && (levelsForBuilding.length > 0 || (lockedLevel && level)) && (
         <>
           <View style={[styles.stepRow, { marginTop: 14 }]}>
-            <View style={styles.stepBadge}>
+            <View style={[styles.stepBadge, lockedLevel && level && styles.stepBadgeLocked]}>
               <Text style={styles.stepBadgeText}>2</Text>
             </View>
             <Text style={styles.stepLabel}>
@@ -167,11 +214,15 @@ export default function LocationPicker({
               {selectedBuilding ? ` — ${selectedBuilding.name}` : ''}
             </Text>
           </View>
-          <ChipList
-            options={levelsForBuilding.map(l => l.name)}
-            selected={level}
-            onSelect={handleLevelChange}
-          />
+          {lockedLevel && level ? (
+            <LockedValue value={level} icon="layers-outline" />
+          ) : (
+            <ChipList
+              options={levelsForBuilding.map(l => l.name)}
+              selected={level}
+              onSelect={handleLevelChange}
+            />
+          )}
         </>
       )}
 
@@ -232,8 +283,32 @@ const styles = StyleSheet.create({
     width: 18, height: 18, borderRadius: 9,
     backgroundColor: C.primary, alignItems: 'center', justifyContent: 'center',
   },
+  stepBadgeLocked: { backgroundColor: C.textMuted },
   stepBadgeText: { fontSize: 10, fontFamily: 'Inter_700Bold', color: '#fff' },
   stepLabel: { fontSize: 12, fontFamily: 'Inter_600SemiBold', color: C.textSub, textTransform: 'uppercase', letterSpacing: 0.4 },
+
+  lockedHint: {
+    flexDirection: 'row', alignItems: 'center', gap: 6,
+    backgroundColor: C.primary + '10', borderRadius: 8, padding: 9,
+    borderWidth: 1, borderColor: C.primary + '30', marginBottom: 12,
+  },
+  lockedHintText: { flex: 1, fontSize: 11, fontFamily: 'Inter_400Regular', color: C.primary, lineHeight: 16 },
+
+  lockedRow: { flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 4, paddingVertical: 2 },
+  lockedChip: {
+    flexDirection: 'row', alignItems: 'center', gap: 6,
+    backgroundColor: C.primary + '15', borderRadius: 20,
+    borderWidth: 1, borderColor: C.primary + '40',
+    paddingHorizontal: 14, paddingVertical: 7,
+  },
+  lockedChipText: { fontSize: 13, fontFamily: 'Inter_600SemiBold', color: C.primary },
+  lockedBadge: {
+    flexDirection: 'row', alignItems: 'center', gap: 4,
+    backgroundColor: C.surface2, borderRadius: 8,
+    paddingHorizontal: 7, paddingVertical: 3,
+    borderWidth: 1, borderColor: C.border,
+  },
+  lockedBadgeText: { fontSize: 10, fontFamily: 'Inter_400Regular', color: C.textMuted },
 
   freeTextContainer: {},
   freeTextHint: {

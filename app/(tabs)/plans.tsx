@@ -741,7 +741,7 @@ export default function PlansScreen() {
     const py = Math.min(100, Math.max(0, Math.round((locationY / dynH) * 100)));
     router.push({
       pathname: '/reserve/new',
-      params: { planId: currentPlanId ?? '', chantierId: activeChantierId ?? '', planX: String(px), planY: String(py), building: currentPlan?.building ?? '', level: currentPlan?.level ?? '' },
+      params: { planId: currentPlanId ?? '', chantierId: activeChantierId ?? '', planX: String(px), planY: String(py), building: currentPlan?.building ?? '', level: currentPlan?.level ?? '', buildingId: currentPlan?.buildingId ?? '', levelId: currentPlan?.levelId ?? '' },
     } as any);
   }
 
@@ -759,7 +759,7 @@ export default function PlansScreen() {
     const py = Math.min(100, Math.max(0, Math.round((locationY / dynH) * 100)));
     router.push({
       pathname: '/reserve/new',
-      params: { planId: currentPlanId ?? '', chantierId: activeChantierId ?? '', planX: String(px), planY: String(py), building: currentPlan?.building ?? '', level: currentPlan?.level ?? '' },
+      params: { planId: currentPlanId ?? '', chantierId: activeChantierId ?? '', planX: String(px), planY: String(py), building: currentPlan?.building ?? '', level: currentPlan?.level ?? '', buildingId: currentPlan?.buildingId ?? '', levelId: currentPlan?.levelId ?? '' },
     } as any);
   }
 
@@ -1325,7 +1325,7 @@ export default function PlansScreen() {
                 onPlanTap={(px, py) => {
                   if (focusedPinId) { setFocusedPinId(null); return; }
                   if (!permissions.canCreate) return;
-                  router.push({ pathname: '/reserve/new', params: { planId: currentPlanId ?? '', chantierId: activeChantierId ?? '', planX: String(Math.round(px)), planY: String(Math.round(py)), building: currentPlan?.building ?? '', level: currentPlan?.level ?? '' } } as any);
+                  router.push({ pathname: '/reserve/new', params: { planId: currentPlanId ?? '', chantierId: activeChantierId ?? '', planX: String(Math.round(px)), planY: String(Math.round(py)), building: currentPlan?.building ?? '', level: currentPlan?.level ?? '', buildingId: currentPlan?.buildingId ?? '', levelId: currentPlan?.levelId ?? '' } } as any);
                 }}
                 onPinMove={(reserveId, planX, planY) => {
                   const reserve = reservesRef.current.find(r => r.id === reserveId);
@@ -1676,7 +1676,7 @@ export default function PlansScreen() {
                         <Ionicons name="checkmark-circle-outline" size={28} color={C.closed} />
                         <Text style={styles.noReservesText}>Aucune réserve</Text>
                         {permissions.canCreate && (
-                          <TouchableOpacity style={styles.addReserveFromPlanBtn} onPress={() => router.push({ pathname: '/reserve/new', params: { planId: currentPlanId ?? '', chantierId: activeChantierId ?? '', building: currentPlan?.building ?? '', level: currentPlan?.level ?? '' } } as any)}>
+                          <TouchableOpacity style={styles.addReserveFromPlanBtn} onPress={() => router.push({ pathname: '/reserve/new', params: { planId: currentPlanId ?? '', chantierId: activeChantierId ?? '', building: currentPlan?.building ?? '', level: currentPlan?.level ?? '', buildingId: currentPlan?.buildingId ?? '', levelId: currentPlan?.levelId ?? '' } } as any)}>
                             <Ionicons name="add" size={14} color={C.primary} />
                             <Text style={styles.addReserveFromPlanText}>Ajouter</Text>
                           </TouchableOpacity>
@@ -1697,7 +1697,7 @@ export default function PlansScreen() {
                     )}
                   />
                   {permissions.canCreate && (
-                    <TouchableOpacity style={styles.tabletAddBtn} onPress={() => router.push({ pathname: '/reserve/new', params: { planId: currentPlanId ?? '', chantierId: activeChantierId ?? '', building: currentPlan?.building ?? '', level: currentPlan?.level ?? '' } } as any)}>
+                    <TouchableOpacity style={styles.tabletAddBtn} onPress={() => router.push({ pathname: '/reserve/new', params: { planId: currentPlanId ?? '', chantierId: activeChantierId ?? '', building: currentPlan?.building ?? '', level: currentPlan?.level ?? '', buildingId: currentPlan?.buildingId ?? '', levelId: currentPlan?.levelId ?? '' } } as any)}>
                       <Ionicons name="add" size={18} color="#fff" />
                       <Text style={styles.tabletAddBtnText}>Nouvelle réserve</Text>
                     </TouchableOpacity>
@@ -1732,7 +1732,7 @@ export default function PlansScreen() {
       {permissions.canCreate && !isTablet && !fullscreen && (
         <TouchableOpacity
           style={[styles.fab, { bottom: Platform.OS === 'web' ? 100 : insets.bottom + 80 }]}
-          onPress={() => router.push({ pathname: '/reserve/new', params: { planId: currentPlanId ?? '', chantierId: activeChantierId ?? '', building: currentPlan?.building ?? '', level: currentPlan?.level ?? '' } } as any)}
+          onPress={() => router.push({ pathname: '/reserve/new', params: { planId: currentPlanId ?? '', chantierId: activeChantierId ?? '', building: currentPlan?.building ?? '', level: currentPlan?.level ?? '', buildingId: currentPlan?.buildingId ?? '', levelId: currentPlan?.levelId ?? '' } } as any)}
           activeOpacity={0.85}
           accessibilityLabel="Créer une nouvelle réserve"
         >
