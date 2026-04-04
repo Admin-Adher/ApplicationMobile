@@ -38,7 +38,7 @@ export default function NewChantierScreen() {
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
   const [plans, setPlans] = useState<PendingPlan[]>([
-    { id: genId(), name: 'Plan général' },
+    { id: genId(), name: '' },
   ]);
   const [selectedCompanyIds, setSelectedCompanyIds] = useState<string[]>([]);
   const [buildings, setBuildings] = useState<ChantierBuilding[]>([]);
@@ -288,10 +288,6 @@ export default function NewChantierScreen() {
           <View style={styles.plansSectionHeader}>
             <Ionicons name="map-outline" size={16} color={C.primary} />
             <Text style={styles.plansSectionTitle}>Plans associés (optionnel)</Text>
-            <TouchableOpacity style={styles.addPlanBtn} onPress={addPlanRow}>
-              <Ionicons name="add" size={14} color={C.primary} />
-              <Text style={styles.addPlanText}>Ajouter</Text>
-            </TouchableOpacity>
           </View>
           <Text style={styles.plansSectionSubtitle}>
             Vous pouvez créer votre chantier maintenant et ajouter les plans plus tard depuis l'onglet Plans.
@@ -403,6 +399,11 @@ export default function NewChantierScreen() {
               </View>
             );
           })}
+
+          <TouchableOpacity style={styles.addPlanBtnBottom} onPress={addPlanRow}>
+            <Ionicons name="add-circle-outline" size={15} color={C.primary} />
+            <Text style={styles.addPlanText}>Ajouter un plan</Text>
+          </TouchableOpacity>
         </View>
 
         <TouchableOpacity
@@ -455,7 +456,8 @@ const styles = StyleSheet.create({
   plansSectionTitle: { flex: 1, fontSize: 14, fontFamily: 'Inter_600SemiBold', color: C.text },
   plansSectionSubtitle: { fontSize: 12, fontFamily: 'Inter_400Regular', color: C.textMuted, marginBottom: 14, lineHeight: 17 },
   addPlanBtn: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 10, paddingVertical: 6, backgroundColor: C.primaryBg, borderRadius: 8, borderWidth: 1, borderColor: C.primary + '40' },
-  addPlanText: { fontSize: 12, fontFamily: 'Inter_600SemiBold', color: C.primary },
+  addPlanBtnBottom: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, marginTop: 10, paddingVertical: 11, borderRadius: 10, borderWidth: 1, borderStyle: 'dashed', borderColor: C.primary + '50', backgroundColor: C.primaryBg },
+  addPlanText: { fontSize: 13, fontFamily: 'Inter_600SemiBold', color: C.primary },
   planRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 10, marginBottom: 12 },
   planIndexBadge: { width: 26, height: 26, borderRadius: 13, backgroundColor: C.primary, alignItems: 'center', justifyContent: 'center', marginTop: 22, flexShrink: 0 },
   planIndexText: { fontSize: 11, fontFamily: 'Inter_700Bold', color: '#fff' },
