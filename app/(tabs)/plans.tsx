@@ -1229,6 +1229,7 @@ export default function PlansScreen() {
       <View style={isTablet ? styles.tabletBodyRow : { flex: 1 }}>
         <View style={{ flex: 1 }}>
           {!fullscreen && (
+            <>
             <View style={styles.planTitleRow}>
               <View style={{ flex: 1 }}>
                 <Text style={styles.planTitle}>{currentPlan?.name ?? 'Plan'}</Text>
@@ -1325,6 +1326,7 @@ export default function PlansScreen() {
                 )}
               </View>
             )}
+            </>
           )}
 
           {/* Plan viewport — takes all remaining space */}
