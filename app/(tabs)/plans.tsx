@@ -1146,7 +1146,7 @@ export default function PlansScreen() {
             if (!bldg || bldg.levels.length === 0) return null;
             return (
               <View style={styles.hierarchyRowLevel}>
-                <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.hierarchyChipsLevel}>
+                <View style={styles.hierarchyChipsLevel}>
                   <TouchableOpacity
                     style={[styles.hierarchyChipLevel, selectedLevel === 'all' && styles.hierarchyChipLevelActive]}
                     onPress={() => { setSelectedLevel('all'); setActivePlanId(null); }}
@@ -1162,7 +1162,7 @@ export default function PlansScreen() {
                       <Text style={[styles.hierarchyChipLevelText, selectedLevel === l.id && { color: C.primary, fontFamily: 'Inter_600SemiBold' }]}>{l.name}</Text>
                     </TouchableOpacity>
                   ))}
-                </ScrollView>
+                </View>
               </View>
             );
           })()}
@@ -1171,7 +1171,12 @@ export default function PlansScreen() {
           <View style={styles.planTabsBar}>
             <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ flex: 1 }}>
               <View style={styles.planTabsRow}>
-                {filteredPlans.map(plan => {
+                {filteredPlans.length === 0 ? (
+                  <View style={styles.planTabsEmpty}>
+                    <Ionicons name="map-outline" size={13} color={C.textMuted} />
+                    <Text style={styles.planTabsEmptyText}>Aucun plan pour ce niveau</Text>
+                  </View>
+                ) : filteredPlans.map(plan => {
                   const isActive = currentPlanId === plan.id;
                   const planReserveCount = reserves.filter(r => r.planId === plan.id).length;
                   return (
@@ -2027,16 +2032,16 @@ const styles = StyleSheet.create({
   filterBadgeText: { fontSize: 10, fontFamily: 'Inter_700Bold', color: '#fff' },
 
   hierarchyRow: { paddingHorizontal: 12, paddingVertical: 6, borderBottomWidth: 1, borderBottomColor: C.border + '60' },
-  hierarchyRowLevel: { paddingVertical: 7, paddingHorizontal: 0, borderBottomWidth: 1, borderBottomColor: C.border + '60' },
+  hierarchyRowLevel: { paddingVertical: 8, paddingHorizontal: 0, borderBottomWidth: 1, borderBottomColor: C.border + '60' },
   hierarchyChips: { flexDirection: 'row', gap: 6, paddingVertical: 2 },
-  hierarchyChipsLevel: { flexDirection: 'row', gap: 6, paddingHorizontal: 12, paddingVertical: 2 },
+  hierarchyChipsLevel: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, paddingHorizontal: 12, paddingVertical: 2 },
   hierarchyChip: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 10, paddingVertical: 5, borderRadius: 16, backgroundColor: C.surface2, borderWidth: 1, borderColor: C.border },
   hierarchyChipActive: { backgroundColor: C.primaryBg, borderColor: C.primary },
   hierarchyChipText: { fontSize: 12, fontFamily: 'Inter_500Medium', color: C.textSub },
   hierarchyChipTextActive: { color: C.primary, fontFamily: 'Inter_600SemiBold' },
-  hierarchyChipLevel: { paddingHorizontal: 11, paddingVertical: 5, borderRadius: 14, backgroundColor: C.surface, borderWidth: 1, borderColor: C.border },
+  hierarchyChipLevel: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 12, backgroundColor: C.surface, borderWidth: 1, borderColor: C.border },
   hierarchyChipLevelActive: { backgroundColor: C.primaryBg, borderColor: C.primary },
-  hierarchyChipLevelText: { fontSize: 12, fontFamily: 'Inter_500Medium', color: C.textSub },
+  hierarchyChipLevelText: { fontSize: 11, fontFamily: 'Inter_500Medium', color: C.textSub },
   planTabsBar: { flexDirection: 'row', alignItems: 'center', paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: C.border },
   planTabsRow: { flexDirection: 'row', paddingHorizontal: 12, gap: 6 },
   planTab: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 10, paddingVertical: 6, borderRadius: 10, backgroundColor: C.surface2, borderWidth: 1, borderColor: C.border, maxWidth: 200 },
@@ -2047,6 +2052,8 @@ const styles = StyleSheet.create({
   planTabTextActive: { color: C.primary, fontFamily: 'Inter_600SemiBold' },
   planTabBadge: { paddingHorizontal: 5, paddingVertical: 1, borderRadius: 8, backgroundColor: C.border, minWidth: 17, alignItems: 'center' },
   planTabBadgeText: { fontSize: 10, fontFamily: 'Inter_700Bold', color: C.textSub },
+  planTabsEmpty: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 4, paddingVertical: 6 },
+  planTabsEmptyText: { fontSize: 11, fontFamily: 'Inter_400Regular', color: C.textMuted, fontStyle: 'italic' },
 
   planActions: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingRight: 12 },
   importBtn: { flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: 10, paddingVertical: 7, borderRadius: 10, backgroundColor: C.primaryBg, borderWidth: 1, borderColor: C.primary + '40' },
