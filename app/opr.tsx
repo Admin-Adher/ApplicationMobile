@@ -1652,7 +1652,7 @@ export default function OprScreen() {
                       <Text style={styles.reservePickerMeta}>{r.company} · {r.building} {r.level}</Text>
                     </View>
                     <View style={[styles.suiviBadge, r.status === 'closed' ? styles.suiviBadgeLevee : styles.suiviBadgePending]}>
-                      <Text style={[styles.suiviBadgeText, { color: r.status === 'closed' ? '#059669' : C.textMuted }]}>
+                      <Text style={[styles.suiviBadgeText, { color: r.status === 'closed' ? C.closed : C.textMuted }]}>
                         {r.status === 'closed' ? 'Levée' : 'Ouverte'}
                       </Text>
                     </View>
@@ -1983,15 +1983,15 @@ const styles = StyleSheet.create({
   phaseStepLabel: { fontSize: 9, fontFamily: 'Inter_400Regular', color: C.textMuted, marginTop: 2, textAlign: 'center' },
 
   visiteMeta: { flexDirection: 'row', alignItems: 'center', gap: 5, marginBottom: 2 },
-  visiteMetaText: { fontSize: 12, fontFamily: 'Inter_500Medium', color: '#7C3AED' },
+  visiteMetaText: { fontSize: 12, fontFamily: 'Inter_500Medium', color: C.verification },
   visitDateEditRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 8 },
   visitDateInput: {
-    flex: 1, backgroundColor: C.bg, borderWidth: 1, borderColor: '#8B5CF6',
+    flex: 1, backgroundColor: C.bg, borderWidth: 1, borderColor: C.verification,
     borderRadius: 8, paddingHorizontal: 10, paddingVertical: 5,
     fontSize: 13, fontFamily: 'Inter_400Regular', color: C.text,
   },
   visitDateSaveBtn: {
-    backgroundColor: '#7C3AED', borderRadius: 8,
+    backgroundColor: C.verification, borderRadius: 8,
     paddingHorizontal: 14, paddingVertical: 7,
     flexDirection: 'row', alignItems: 'center', gap: 5,
   },
@@ -2001,10 +2001,10 @@ const styles = StyleSheet.create({
   planifierVisiteBtn: {
     flexDirection: 'row', alignItems: 'center', gap: 5,
     paddingVertical: 5, paddingHorizontal: 10, borderRadius: 8,
-    borderWidth: 1, borderColor: '#8B5CF620', backgroundColor: '#F5F3FF',
+    borderWidth: 1, borderColor: C.verification + '20', backgroundColor: C.verificationBg,
     alignSelf: 'flex-start', marginBottom: 2,
   },
-  planifierVisiteText: { fontSize: 12, fontFamily: 'Inter_500Medium', color: '#7C3AED' },
+  planifierVisiteText: { fontSize: 12, fontFamily: 'Inter_500Medium', color: C.verification },
 
   itemRowOverdue: { backgroundColor: C.open + '12' },
   itemSubRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 2, flexWrap: 'wrap' },
@@ -2097,10 +2097,10 @@ const styles = StyleSheet.create({
     borderWidth: 1.5, borderColor: C.primary, backgroundColor: C.primaryBg,
   },
 
-  participantsCountText: { fontSize: 11, fontFamily: 'Inter_500Medium', color: '#7C3AED', marginLeft: 'auto' as any, marginRight: 4 },
+  participantsCountText: { fontSize: 11, fontFamily: 'Inter_500Medium', color: C.verification, marginLeft: 'auto' as any, marginRight: 4 },
   participantsPanel: {
-    backgroundColor: '#F5F3FF', borderRadius: 10, padding: 10,
-    borderWidth: 1, borderColor: '#DDD6FE', gap: 8, marginTop: 4, marginBottom: 6,
+    backgroundColor: C.verificationBg, borderRadius: 10, padding: 10,
+    borderWidth: 1, borderColor: C.verification + '40', gap: 8, marginTop: 4, marginBottom: 6,
   },
   participantsEmpty: { fontSize: 12, fontFamily: 'Inter_400Regular', color: C.textMuted, fontStyle: 'italic', textAlign: 'center', paddingVertical: 4 },
   participantRow: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: 4 },
