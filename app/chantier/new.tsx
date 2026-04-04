@@ -305,7 +305,19 @@ export default function NewChantierScreen() {
                   <Text style={styles.planIndexText}>{idx + 1}</Text>
                 </View>
                 <View style={{ flex: 1, gap: 8 }}>
-                  {/* 1. Localisation — uniquement si une structure est configurée */}
+                  {/* 1. Nom du plan */}
+                  <View>
+                    <Text style={styles.planNameLabel}>Nom du plan</Text>
+                    <TextInput
+                      style={styles.planNameInput}
+                      placeholder="Ex : Plan électrique, Plan structurel, Plan masse..."
+                      placeholderTextColor={C.textMuted}
+                      value={plan.name}
+                      onChangeText={v => updatePlanName(plan.id, v)}
+                    />
+                  </View>
+
+                  {/* 2. Localisation — uniquement si une structure est configurée */}
                   {buildings.length > 0 && (
                     <View style={styles.planHierarchyBlock}>
                       <Text style={styles.planHierarchyLabel}>Localisation du plan</Text>
@@ -349,7 +361,7 @@ export default function NewChantierScreen() {
                     </View>
                   )}
 
-                  {/* 2. Import du fichier */}
+                  {/* 3. Import du fichier */}
                   <View style={styles.planFileRow}>
                     {plan.uri ? (
                       <View style={styles.planFileChip}>
@@ -381,18 +393,6 @@ export default function NewChantierScreen() {
                         )}
                       </TouchableOpacity>
                     )}
-                  </View>
-
-                  {/* 3. Nom du plan */}
-                  <View>
-                    <Text style={styles.planNameLabel}>Nom du plan</Text>
-                    <TextInput
-                      style={styles.planNameInput}
-                      placeholder="Ex : Plan électrique, Plan structurel, Plan masse..."
-                      placeholderTextColor={C.textMuted}
-                      value={plan.name}
-                      onChangeText={v => updatePlanName(plan.id, v)}
-                    />
                   </View>
                 </View>
                 {plans.length > 1 && (
@@ -457,7 +457,7 @@ const styles = StyleSheet.create({
   addPlanBtn: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 10, paddingVertical: 6, backgroundColor: C.primaryBg, borderRadius: 8, borderWidth: 1, borderColor: C.primary + '40' },
   addPlanText: { fontSize: 12, fontFamily: 'Inter_600SemiBold', color: C.primary },
   planRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 10, marginBottom: 12 },
-  planIndexBadge: { width: 26, height: 26, borderRadius: 13, backgroundColor: C.primary, alignItems: 'center', justifyContent: 'center', marginTop: 6, flexShrink: 0 },
+  planIndexBadge: { width: 26, height: 26, borderRadius: 13, backgroundColor: C.primary, alignItems: 'center', justifyContent: 'center', marginTop: 22, flexShrink: 0 },
   planIndexText: { fontSize: 11, fontFamily: 'Inter_700Bold', color: '#fff' },
   planNameLabel: {
     fontSize: 11, fontFamily: 'Inter_600SemiBold', color: C.textSub,
