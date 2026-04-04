@@ -51,6 +51,11 @@ The full Supabase PostgreSQL schema is in `lib/schema.sql`. Key tables:
 - `messages` / `channels` — Real-time messaging
 - `companies`, `lots`, `tasks`, `incidents`, `time_entries`, etc.
 
+## Replit-Specific Configuration
+- The Expo Metro CORS middleware (`node_modules/@expo/cli/build/src/start/server/middleware/CorsMiddleware.js`) has been patched to allow `.replit.dev` proxy domains. This is required for the Replit preview pane to work since requests are proxied through Replit's iframe proxy.
+- A backup of the original middleware is stored as `CorsMiddleware.js.bak` in the same directory.
+- If you reinstall `node_modules`, you will need to re-apply this patch (or run `npm install` — Replit agent will handle it).
+
 ## Deployment
 - Development: `npm run start` (Metro bundler, web mode)
 - Static build: `npm run web` (outputs to `dist/`)
