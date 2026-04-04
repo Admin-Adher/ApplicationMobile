@@ -193,7 +193,14 @@ export default function PointageScreen() {
 
   const hasFormChanges = useCallback(() => {
     if (!editTarget) {
-      return workerName.trim() !== '' || notes.trim() !== '' || departureTime.trim() !== '' || selectedTaskId !== '';
+      const defaultArr = sanitizeDefaultArrivalTime(defaultArrivalTime);
+      return (
+        workerName.trim() !== '' ||
+        notes.trim() !== '' ||
+        departureTime.trim() !== '' ||
+        selectedTaskId !== '' ||
+        arrivalTime !== defaultArr
+      );
     }
     return (
       workerName !== editTarget.workerName ||
@@ -203,7 +210,7 @@ export default function PointageScreen() {
       notes !== (editTarget.notes ?? '') ||
       selectedTaskId !== (editTarget.taskId ?? '')
     );
-  }, [editTarget, workerName, notes, departureTime, selectedTaskId, selectedCompanyId, arrivalTime]);
+  }, [editTarget, workerName, notes, departureTime, selectedTaskId, selectedCompanyId, arrivalTime, defaultArrivalTime]);
 
   function openAdd() {
     setEditTarget(null);
@@ -354,6 +361,10 @@ export default function PointageScreen() {
       Alert.alert('Format invalide', "L'heure de départ doit être au format HH:MM (ex: 17:00).");
       return;
     }
+    if (timeToMinutes(depTime) <= timeToMinutes(departureModal.arrivalTime)) {
+      Alert.alert('Incohérence horaire', `L'heure de départ doit être postérieure à l'arrivée (${departureModal.arrivalTime}).`);
+      return;
+    }
     await updateEntry(departureModal.id, { departureTime: depTime });
     setDepartureModal(null);
   }
@@ -364,6 +375,14 @@ export default function PointageScreen() {
       return;
     }
     const activeEntries = allDateEntries.filter(e => !e.departureTime);
+    const conflicting = activeEntries.filter(e => timeToMinutes(depTime) <= timeToMinutes(e.arrivalTime));
+    if (conflicting.length > 0) {
+      Alert.alert(
+        'Incohérence horaire',
+        `${conflicting.length} ouvrier${conflicting.length > 1 ? 's arrivent' : ' arrive'} après ${depTime}. Choisissez une heure plus tardive.`
+      );
+      return;
+    }
     await Promise.all(activeEntries.map(e => updateEntry(e.id, { departureTime: depTime })));
     setBulkDepModal(false);
   }
@@ -832,7 +851,7 @@ export default function PointageScreen() {
                     : formatDate(selectedDate)}
                 </Text>
               </View>
-              <TouchableOpacity onPress={closeModal} hitSlop={10}>
+              <TouchableOpacity onPress={closeModal} hitSlop={10} accessibilityLabel="Fermer le modal" accessibilityRole="button">
                 <Ionicons name="close" size={22} color={C.textSub} />
               </TouchableOpacity>
             </View>
@@ -897,8 +916,11 @@ export default function PointageScreen() {
                     key={co.id}
                     style={[styles.companyPill, selectedCompanyId === co.id && { backgroundColor: co.color, borderColor: co.color }]}
                     onPress={() => setSelectedCompanyId(co.id)}
+                    accessibilityLabel={co.shortName || co.name}
+                    accessibilityRole="radio"
+                    accessibilityState={{ checked: selectedCompanyId === co.id }}
                   >
-                    <Text style={[styles.companyPillText, selectedCompanyId === co.id && { color: '#fff' }]}>{co.shortName}</Text>
+                    <Text style={[styles.companyPillText, selectedCompanyId === co.id && { color: '#fff' }]}>{co.shortName || co.name}</Text>
                   </TouchableOpacity>
                 ))}
               </ScrollView>
@@ -920,7 +942,7 @@ export default function PointageScreen() {
             </View>
             <TextInput
               ref={arrivalRef}
-              style={[styles.input, { marginBottom: 12 }]}
+              style={[styles.input, { marginBottom: 4, borderColor: arrivalTime.length >= 4 && !validateTime(arrivalTime) ? C.open : C.border }]}
               placeholder="HH:MM"
               placeholderTextColor={C.textMuted}
               value={arrivalTime}
@@ -931,12 +953,15 @@ export default function PointageScreen() {
               accessibilityLabel="Heure d'arrivée"
               accessibilityHint="Format HH:MM, par exemple 07:30"
             />
+            {arrivalTime.length >= 4 && !validateTime(arrivalTime) && (
+              <Text style={styles.fieldError}>Heure invalide — format HH:MM attendu (ex : 07:30)</Text>
+            )}
 
             {/* Heure de départ */}
             {!showDeparture ? (
               <TouchableOpacity
-                style={styles.addDepBtn}
-                onPress={() => setShowDeparture(true)}
+                style={[styles.addDepBtn, { marginTop: arrivalTime.length >= 4 && !validateTime(arrivalTime) ? 8 : 0 }]}
+                onPress={() => { setShowDeparture(true); if (!departureTime) setDepartureTime('17:00'); }}
                 accessibilityLabel="Définir une heure de départ"
                 accessibilityRole="button"
               >
@@ -945,27 +970,35 @@ export default function PointageScreen() {
               </TouchableOpacity>
             ) : (
               <>
-                <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
-                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                    <Text style={[styles.fieldLabel, { marginBottom: 0 }]}>Heure de départ</Text>
-                    {validateTime(arrivalTime) && validateTime(departureTime) && timeToMinutes(departureTime) > timeToMinutes(arrivalTime) && (
-                      <View style={styles.hoursBadgeInline}>
-                        <Ionicons name="time-outline" size={11} color={C.primary} />
-                        <Text style={styles.hoursBadgeInlineText}>
-                          {(() => { const diff = timeToMinutes(departureTime) - timeToMinutes(arrivalTime); return diff >= 60 ? `${Math.floor(diff / 60)}h${diff % 60 > 0 ? String(diff % 60).padStart(2, '0') : ''}` : `${diff}min`; })()}
-                        </Text>
+                {(() => {
+                  const depDiff = validateTime(arrivalTime) && validateTime(departureTime) && timeToMinutes(departureTime) > timeToMinutes(arrivalTime)
+                    ? timeToMinutes(departureTime) - timeToMinutes(arrivalTime)
+                    : null;
+                  const depDuration = depDiff !== null
+                    ? depDiff >= 60 ? `${Math.floor(depDiff / 60)}h${depDiff % 60 > 0 ? String(depDiff % 60).padStart(2, '0') : ''}` : `${depDiff}min`
+                    : null;
+                  return (
+                    <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8, marginTop: arrivalTime.length >= 4 && !validateTime(arrivalTime) ? 8 : 0 }}>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                        <Text style={[styles.fieldLabel, { marginBottom: 0 }]}>Heure de départ</Text>
+                        {depDuration && (
+                          <View style={styles.hoursBadgeInline}>
+                            <Ionicons name="time-outline" size={11} color={C.primary} />
+                            <Text style={styles.hoursBadgeInlineText}>{depDuration}</Text>
+                          </View>
+                        )}
                       </View>
-                    )}
-                  </View>
-                  <TouchableOpacity
-                    onPress={() => { setDepartureTime(''); setShowDeparture(false); }}
-                    style={styles.clearDepBtn}
-                    accessibilityLabel="Effacer l'heure de départ"
-                  >
-                    <Ionicons name="close-circle" size={16} color={C.textMuted} />
-                    <Text style={styles.clearDepBtnText}>Effacer</Text>
-                  </TouchableOpacity>
-                </View>
+                      <TouchableOpacity
+                        onPress={() => { setDepartureTime(''); setShowDeparture(false); }}
+                        style={styles.clearDepBtn}
+                        accessibilityLabel="Effacer l'heure de départ"
+                      >
+                        <Ionicons name="close-circle" size={16} color={C.textMuted} />
+                        <Text style={styles.clearDepBtnText}>Effacer</Text>
+                      </TouchableOpacity>
+                    </View>
+                  );
+                })()}
                 <View style={styles.presetRow}>
                   {DEPARTURE_PRESETS.map(t => (
                     <TouchableOpacity
@@ -980,7 +1013,7 @@ export default function PointageScreen() {
                 </View>
                 <TextInput
                   ref={departureRef}
-                  style={[styles.input, { marginBottom: 12 }]}
+                  style={[styles.input, { marginBottom: 4, borderColor: departureTime.length >= 4 && !validateTime(departureTime) ? C.open : C.border }]}
                   placeholder="HH:MM"
                   placeholderTextColor={C.textMuted}
                   value={departureTime}
@@ -990,6 +1023,12 @@ export default function PointageScreen() {
                   accessibilityLabel="Heure de départ"
                   accessibilityHint="Format HH:MM, doit être postérieure à l'heure d'arrivée"
                 />
+                {departureTime.length >= 4 && !validateTime(departureTime) && (
+                  <Text style={styles.fieldError}>Heure invalide — format HH:MM attendu (ex : 17:00)</Text>
+                )}
+                {validateTime(departureTime) && validateTime(arrivalTime) && timeToMinutes(departureTime) <= timeToMinutes(arrivalTime) && (
+                  <Text style={styles.fieldError}>Le départ doit être postérieur à l'arrivée ({arrivalTime})</Text>
+                )}
               </>
             )}
 
@@ -1003,7 +1042,11 @@ export default function PointageScreen() {
                     <Text style={styles.linkedTaskBannerText} numberOfLines={1} ellipsizeMode="tail">
                       {selectedTaskTitle} (tâche terminée ou archivée)
                     </Text>
-                    <TouchableOpacity onPress={() => { setSelectedTaskId(''); setSelectedTaskTitle(''); }}>
+                    <TouchableOpacity
+                      onPress={() => { setSelectedTaskId(''); setSelectedTaskTitle(''); }}
+                      accessibilityLabel="Retirer la tâche liée"
+                      accessibilityRole="button"
+                    >
                       <Ionicons name="close-circle-outline" size={15} color={C.textMuted} />
                     </TouchableOpacity>
                   </View>
@@ -1016,6 +1059,10 @@ export default function PointageScreen() {
                           key={t.id}
                           style={[styles.taskPill, selectedTaskId === t.id && styles.taskPillActive]}
                           onPress={() => selectTask(t.id, t.title)}
+                          accessibilityLabel={t.title}
+                          accessibilityRole="radio"
+                          accessibilityState={{ checked: selectedTaskId === t.id }}
+                          accessibilityHint={selectedTaskId === t.id ? 'Appuyer pour désélectionner' : 'Appuyer pour sélectionner cette tâche'}
                         >
                           <Text
                             style={[styles.taskPillText, selectedTaskId === t.id && styles.taskPillTextActive]}
@@ -1040,7 +1087,7 @@ export default function PointageScreen() {
             {/* Notes */}
             <Text style={[styles.fieldLabel, { marginTop: 4 }]}>Notes</Text>
             <TextInput
-              style={[styles.input, { minHeight: 72, maxHeight: 160 }]}
+              style={[styles.input, { minHeight: 72, maxHeight: 160, textAlignVertical: 'top' }]}
               placeholder="Observations, remarques..."
               placeholderTextColor={C.textMuted}
               value={notes}
@@ -1055,16 +1102,21 @@ export default function PointageScreen() {
               {notes.length}/500
             </Text>
 
-            <TouchableOpacity
-              style={[
-                styles.saveBtn,
-                (!workerName.trim() || !selectedCompanyId || !validateTime(arrivalTime)) && styles.saveBtnDisabled,
-              ]}
-              onPress={handleSave}
-              disabled={!workerName.trim() || !selectedCompanyId || !validateTime(arrivalTime)}
-            >
-              <Text style={styles.saveBtnText}>{editTarget ? 'Enregistrer les modifications' : 'Enregistrer le pointage'}</Text>
-            </TouchableOpacity>
+            {(() => {
+              const saveDisabled = !workerName.trim() || !selectedCompanyId || !validateTime(arrivalTime);
+              return (
+                <TouchableOpacity
+                  style={[styles.saveBtn, saveDisabled && styles.saveBtnDisabled]}
+                  onPress={handleSave}
+                  disabled={saveDisabled}
+                  accessibilityLabel={editTarget ? 'Enregistrer les modifications' : 'Enregistrer le pointage'}
+                  accessibilityRole="button"
+                  accessibilityState={{ disabled: saveDisabled }}
+                >
+                  <Text style={styles.saveBtnText}>{editTarget ? 'Enregistrer les modifications' : 'Enregistrer le pointage'}</Text>
+                </TouchableOpacity>
+              );
+            })()}
           </ScrollView>
         </KeyboardAvoidingView>
       </Modal>
@@ -1588,6 +1640,11 @@ const styles = StyleSheet.create({
   charCount: {
     fontSize: 10, fontFamily: 'Inter_400Regular', color: C.textMuted,
     textAlign: 'right', marginTop: -8, marginBottom: 12,
+  },
+
+  fieldError: {
+    fontSize: 11, fontFamily: 'Inter_400Regular', color: C.open,
+    marginTop: 2, marginBottom: 10,
   },
 
   toast: {
