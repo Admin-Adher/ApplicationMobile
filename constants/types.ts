@@ -168,6 +168,8 @@ export interface VisiteParticipant {
   signedAt?: string;
 }
 
+export type VisiteType = 'controle' | 'opr' | 'securite' | 'reception' | 'synthese' | 'autre';
+
 export interface Visite {
   id: string;
   chantierId: string;
@@ -175,6 +177,8 @@ export interface Visite {
   date: string;
   conducteur: string;
   status: VisiteStatus;
+  visitType?: VisiteType;
+  concernedCompanyIds?: string[];
   building?: string;
   level?: string;
   zone?: string;
