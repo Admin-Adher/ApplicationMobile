@@ -318,10 +318,60 @@ CREATE POLICY "Site plans modifiables par org"
 -- La politique existante est correcte ; on s'assure juste que l'index existe.
 CREATE INDEX IF NOT EXISTS idx_photos_reserve ON public.photos(reserve_id);
 
+-- ── 8. REGULATORY_DOCS ────────────────────────────────────────
+ALTER TABLE public.regulatory_docs
+  ADD COLUMN IF NOT EXISTS organization_id uuid REFERENCES public.organizations(id);
+CREATE INDEX IF NOT EXISTS idx_regulatory_docs_org ON public.regulatory_docs(organization_id);
+
+-- Supprimer les anciennes politiques (basées sur le rôle uniquement, sans isolation d'org)
+DROP POLICY IF EXISTS "Docs réglementaires lisibles par tous" ON public.regulatory_docs;
+DROP POLICY IF EXISTS "Docs réglementaires modifiables" ON public.regulatory_docs;
+
+-- SELECT : seuls les membres de la même organisation
+CREATE POLICY "regulatory_docs_select"
+  ON public.regulatory_docs FOR SELECT
+  USING (
+    organization_id = auth_user_org()
+    OR EXISTS (SELECT 1 FROM public.profiles WHERE id = auth.uid() AND role = 'super_admin')
+  );
+
+-- INSERT : membres authentifiés avec rôle approprié
+CREATE POLICY "regulatory_docs_insert"
+  ON public.regulatory_docs FOR INSERT
+  WITH CHECK (
+    organization_id = auth_user_org()
+    AND EXISTS (
+      SELECT 1 FROM public.profiles
+      WHERE id = auth.uid() AND role IN ('super_admin', 'admin', 'conducteur', 'chef_equipe')
+    )
+  );
+
+-- UPDATE : membres de la même organisation avec rôle approprié
+CREATE POLICY "regulatory_docs_update"
+  ON public.regulatory_docs FOR UPDATE
+  USING (
+    organization_id = auth_user_org()
+    AND EXISTS (
+      SELECT 1 FROM public.profiles
+      WHERE id = auth.uid() AND role IN ('super_admin', 'admin', 'conducteur', 'chef_equipe')
+    )
+  );
+
+-- DELETE : membres de la même organisation avec rôle approprié
+CREATE POLICY "regulatory_docs_delete"
+  ON public.regulatory_docs FOR DELETE
+  USING (
+    organization_id = auth_user_org()
+    AND EXISTS (
+      SELECT 1 FROM public.profiles
+      WHERE id = auth.uid() AND role IN ('super_admin', 'admin', 'conducteur', 'chef_equipe')
+    )
+  );
+
 -- ── Fin ───────────────────────────────────────────────────────
 -- Vérification rapide (exécuter manuellement si besoin) :
 -- SELECT tablename, policyname, cmd
 -- FROM pg_policies
 -- WHERE schemaname = 'public'
---   AND tablename IN ('reserves','tasks','visites','lots','oprs','site_plans')
+--   AND tablename IN ('reserves','tasks','visites','lots','oprs','site_plans','regulatory_docs')
 -- ORDER BY tablename, cmd;

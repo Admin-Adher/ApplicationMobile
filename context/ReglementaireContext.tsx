@@ -52,12 +52,19 @@ function fromDoc(doc: RegulatoryDoc): Record<string, any> {
 export function ReglementaireProvider({ children }: { children: React.ReactNode }) {
   const [docs, setDocs] = useState<RegulatoryDoc[]>([]);
   const docsRef = useRef(docs);
+  const orgIdRef = useRef<string | null>(null);
   useEffect(() => { docsRef.current = docs; }, [docs]);
 
   useEffect(() => {
     async function load() {
       if (isSupabaseConfigured) {
         try {
+          const { data: { session } } = await supabase.auth.getSession();
+          if (session?.user?.id) {
+            const { data: profile } = await supabase
+              .from('profiles').select('organization_id').eq('id', session.user.id).single();
+            if (profile?.organization_id) orgIdRef.current = profile.organization_id;
+          }
           const { data, error } = await supabase
             .from('regulatory_docs')
             .select('*')
@@ -120,9 +127,28 @@ export function ReglementaireProvider({ children }: { children: React.ReactNode 
     const newDoc: RegulatoryDoc = { ...doc, id: genId(), createdAt: formatDateFR(new Date()) };
     await persistLocal([newDoc, ...docsRef.current]);
     if (isSupabaseConfigured) {
-      supabase.from('regulatory_docs').insert(fromDoc(newDoc)).then(({ error }: { error: any }) => {
-        if (error) console.warn('Erreur sauvegarde doc réglementaire:', error.message);
-      });
+      (async () => {
+        try {
+          let orgId = orgIdRef.current;
+          if (!orgId) {
+            const { data: { session } } = await supabase.auth.getSession();
+            if (session?.user?.id) {
+              const { data: prof } = await supabase
+                .from('profiles').select('organization_id')
+                .eq('id', session.user.id).single();
+              orgId = prof?.organization_id ?? null;
+              if (orgId) orgIdRef.current = orgId;
+            }
+          }
+          const { error } = await supabase.from('regulatory_docs').insert({
+            ...fromDoc(newDoc),
+            organization_id: orgId,
+          });
+          if (error) console.warn('Erreur sauvegarde doc réglementaire:', error.message);
+        } catch (e: any) {
+          console.warn('Erreur sauvegarde doc réglementaire:', e?.message ?? e);
+        }
+      })();
     }
   }, []);
 
