@@ -2264,8 +2264,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       if (isSupabaseConfigured) {
         supabase.from('messages').insert(fromMessage(msg)).then(({ error }: { error: any }) => {
           if (error) {
+            console.error('[addMessage] Supabase error:', error.code, error.message, error.details, error.hint);
             dispatch({ type: 'DELETE_MESSAGE', payload: msg.id });
-            Alert.alert('Erreur d\'envoi', "Le message n'a pas pu être envoyé. Vérifiez votre connexion.");
+            const detail = error.message ? `\n\nDétail : ${error.message}` : '';
+            Alert.alert('Erreur d\'envoi', `Le message n'a pas pu être envoyé.${detail}`);
           }
         });
       } else {
@@ -2282,6 +2284,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       if (isSupabaseConfigured) {
         supabase.from('messages').delete().eq('id', id).then(({ error }: { error: any }) => {
           if (error) {
+            console.error('[deleteMessage] Supabase error:', error.code, error.message);
             dispatch({ type: 'RESTORE_MESSAGES', payload: originalMessages });
             Alert.alert('Erreur de suppression', "Le message n'a pas pu être supprimé.");
           }
@@ -2298,6 +2301,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       if (isSupabaseConfigured) {
         supabase.from('messages').update(fromMessage(msg)).eq('id', msg.id).then(({ error }: { error: any }) => {
           if (error) {
+            console.error('[updateMessage] Supabase error:', error.code, error.message);
             if (previous) dispatch({ type: 'UPDATE_MESSAGE', payload: previous });
             Alert.alert('Erreur de sauvegarde', "La modification du message n'a pas pu être enregistrée.");
           }
