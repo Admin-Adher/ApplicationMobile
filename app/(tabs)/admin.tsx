@@ -629,10 +629,10 @@ export default function AdminScreen() {
             style={[styles.tabBtn, activeTab === 'abonnement' && styles.tabBtnActive]}
             onPress={() => setActiveTab('abonnement')}
             accessibilityRole="tab"
-            accessibilityLabel="Onglet Abonnement"
+            accessibilityLabel="Onglet Licence"
           >
-            <Ionicons name="card" size={14} color={activeTab === 'abonnement' ? C.primary : C.textMuted} />
-            <Text style={[styles.tabBtnText, activeTab === 'abonnement' && styles.tabBtnTextActive]}>Abonnement</Text>
+            <Ionicons name="shield-checkmark-outline" size={14} color={activeTab === 'abonnement' ? C.primary : C.textMuted} />
+            <Text style={[styles.tabBtnText, activeTab === 'abonnement' && styles.tabBtnTextActive]}>Licence</Text>
             {(subscription?.status === 'suspended' || subscription?.status === 'expired') && (
               <View style={styles.tabAlertDot} />
             )}
@@ -1087,158 +1087,112 @@ export default function AdminScreen() {
         </ScrollView>
       )}
 
-      {/* ─── ONGLET ABONNEMENT ─── */}
+      {/* ─── ONGLET LICENCE ─── */}
       {activeTab === 'abonnement' && (
         <ScrollView
           contentContainerStyle={[styles.content, { paddingBottom: bottomPad + 32 }]}
           showsVerticalScrollIndicator={false}
         >
-          {statusCfg && subscription && (
+          {/* Statut de la licence */}
+          {statusCfg && (
             <View style={[styles.statusBanner, { backgroundColor: statusCfg.bg, borderColor: statusCfg.color + '44' }]}>
               <Ionicons name={statusCfg.icon} size={20} color={statusCfg.color} />
               <View style={{ flex: 1 }}>
                 <Text style={[styles.statusLabel, { color: statusCfg.color }]}>{statusCfg.label}</Text>
-                {subscription.status === 'trial' && trialDaysLeft !== null && (
+                {subscription?.status === 'trial' && trialDaysLeft !== null && (
                   <Text style={[styles.statusSub, { color: statusCfg.color }]}>
                     {trialDaysLeft > 0
-                      ? `${trialDaysLeft} jour${trialDaysLeft > 1 ? 's' : ''} restant${trialDaysLeft > 1 ? 's' : ''} — se termine le ${formatDate(subscription.trialEndsAt)}`
+                      ? `${trialDaysLeft} jour${trialDaysLeft > 1 ? 's' : ''} restant${trialDaysLeft > 1 ? 's' : ''}`
                       : 'Essai terminé'}
                   </Text>
                 )}
-                {subscription.status === 'active' && subscription.expiresAt && (
-                  <Text style={[styles.statusSub, { color: statusCfg.color }]}>
-                    Valide jusqu'au {formatDate(subscription.expiresAt)}
-                  </Text>
-                )}
-                {subscription.status === 'active' && !subscription.expiresAt && (
-                  <Text style={[styles.statusSub, { color: statusCfg.color }]}>
-                    Renouvellement automatique
-                  </Text>
-                )}
-                {statusCfg.hint && (
-                  <Text style={[styles.statusHint, { color: statusCfg.color }]}>{statusCfg.hint}</Text>
+                {subscription?.status === 'active' && (
+                  <Text style={[styles.statusSub, { color: statusCfg.color }]}>Utilisateurs illimités</Text>
                 )}
               </View>
             </View>
           )}
 
-          {plan && (
-            <View style={[styles.planCard, { borderTopColor: PLAN_COLORS[plan.name] ?? C.primary }]}>
-              <View style={styles.planTopRow}>
-                <View style={{ flex: 1 }}>
-                  <View style={[styles.planBadge, { backgroundColor: (PLAN_COLORS[plan.name] ?? C.primary) + '18', alignSelf: 'flex-start' }]}>
-                    <Text style={[styles.planBadgeTxt, { color: PLAN_COLORS[plan.name] ?? C.primary }]}>{plan.name}</Text>
-                  </View>
-                  {subscription?.startedAt && (
-                    <Text style={styles.planStartDate}>Actif depuis le {formatDate(subscription.startedAt)}</Text>
-                  )}
+          {/* Plan Entreprise */}
+          <View style={[styles.planCard, { borderTopColor: '#8B5CF6' }]}>
+            <View style={styles.planTopRow}>
+              <View style={{ flex: 1 }}>
+                <View style={[styles.planBadge, { backgroundColor: '#F5F3FF', alignSelf: 'flex-start' }]}>
+                  <Text style={[styles.planBadgeTxt, { color: '#8B5CF6' }]}>Entreprise</Text>
                 </View>
-                <Text style={styles.planPrice}>
-                  {plan.priceMonthly === 0 ? 'Gratuit' : `${plan.priceMonthly} €/mois`}
-                </Text>
+                {subscription?.startedAt && (
+                  <Text style={styles.planStartDate}>Actif depuis le {formatDate(subscription.startedAt)}</Text>
+                )}
               </View>
-              {plan.features.map((f, i) => (
-                <View key={i} style={styles.featureRow}>
-                  <Ionicons name="checkmark-circle" size={14} color={PLAN_COLORS[plan.name] ?? C.primary} />
-                  <Text style={styles.featureTxt}>{f}</Text>
-                </View>
-              ))}
-              {activeOrgUsers.length > 0 && (
-                <View style={styles.memberPreview}>
-                  {activeOrgUsers.slice(0, 3).map(u => {
-                    const col = hashColor(u.id, AVATAR_COLORS);
-                    const rc = ROLE_INFO[u.role];
-                    const initials = u.name.split(' ').map((w: string) => w[0]).slice(0, 2).join('').toUpperCase();
-                    return (
-                      <View key={u.id} style={styles.memberPreviewRow}>
-                        <View style={[styles.memberPreviewAvatar, { backgroundColor: col + '22' }]}>
-                          <Text style={[styles.memberPreviewInitials, { color: col }]}>{initials}</Text>
-                        </View>
-                        <Text style={styles.memberPreviewName} numberOfLines={1}>{u.name}</Text>
-                        {rc && (
-                          <View style={[styles.memberPreviewBadge, { backgroundColor: rc.bg }]}>
-                            <Text style={[styles.memberPreviewBadgeTxt, { color: rc.color }]}>{rc.label}</Text>
-                          </View>
-                        )}
-                      </View>
-                    );
-                  })}
-                  {activeOrgUsers.length > 3 && (
-                    <Text style={styles.memberPreviewMore}>+{activeOrgUsers.length - 3} autres membres actifs</Text>
-                  )}
-                </View>
-              )}
-              <TouchableOpacity style={styles.detailLink} onPress={() => router.push('/subscription')}>
-                <Text style={styles.detailLinkTxt}>Voir l'historique et les membres</Text>
-                <Ionicons name="chevron-forward" size={14} color={C.primary} />
-              </TouchableOpacity>
+              <Text style={styles.planPrice}>Illimité</Text>
             </View>
-          )}
+            {[
+              'Utilisateurs illimités',
+              'Sous-traitants & observateurs inclus',
+              'Réserves, plans, OPR, visites',
+              'Rapports PDF/Excel',
+              'Pointage & présences',
+              'Support dédié',
+            ].map((f, i) => (
+              <View key={i} style={styles.featureRow}>
+                <Ionicons name="checkmark-circle" size={14} color="#8B5CF6" />
+                <Text style={styles.featureTxt}>{f}</Text>
+              </View>
+            ))}
+          </View>
 
+          {/* Membres actifs */}
           <View style={styles.seatCard}>
             <View style={styles.seatTopRow}>
               <View style={styles.seatLeft}>
                 <Ionicons name="people" size={16} color={C.primary} />
                 <View>
-                  <Text style={styles.seatTitle}>Sièges utilisés</Text>
+                  <Text style={styles.seatTitle}>Membres actifs</Text>
                   <Text style={styles.seatSubLabel}>Admin · Conducteur · Chef d'équipe</Text>
                 </View>
               </View>
               <Text style={styles.seatCount}>
                 {seatUsed}
-                <Text style={styles.seatMax}>{seatMax === -1 ? ' / ∞' : ` / ${seatMax}`}</Text>
+                <Text style={styles.seatMax}> / ∞</Text>
               </Text>
             </View>
-            {seatMax !== -1 && (
-              <View style={styles.barBg}>
-                <View style={[styles.barFill, { width: `${Math.min(seatRatio * 100, 100)}%` as any, backgroundColor: seatBarColor }]} />
-              </View>
-            )}
             {freeOrgUsers.length > 0 && (
               <View style={styles.freeBanner}>
                 <Ionicons name="gift-outline" size={13} color="#10B981" />
                 <Text style={styles.freeBannerTxt}>
-                  {freeOrgUsers.length} sous-traitant{freeOrgUsers.length > 1 ? 's' : ''} / observateur{freeOrgUsers.length > 1 ? 's' : ''} — <Text style={{ fontFamily: 'Inter_600SemiBold' }}>gratuit{freeOrgUsers.length > 1 ? 's' : ''}</Text>, hors quota
-                </Text>
-              </View>
-            )}
-            {seatMax !== -1 && seatRatio >= 0.9 && (
-              <View style={styles.upgradeHint}>
-                <Ionicons name="arrow-up-circle-outline" size={14} color="#3B82F6" />
-                <Text style={styles.upgradeHintTxt}>
-                  {seatRatio >= 1
-                    ? 'Limite atteinte. Pour ajouter des utilisateurs actifs, passez à un plan supérieur en contactant le support BuildTrack.'
-                    : 'Vous approchez la limite. Anticipez en contactant le support BuildTrack.'}
+                  {freeOrgUsers.length} sous-traitant{freeOrgUsers.length > 1 ? 's' : ''} / observateur{freeOrgUsers.length > 1 ? 's' : ''} —{' '}
+                  <Text style={{ fontFamily: 'Inter_600SemiBold' }}>gratuit{freeOrgUsers.length > 1 ? 's' : ''}</Text>, hors quota
                 </Text>
               </View>
             )}
           </View>
 
+          {/* Si suspendu ou expiré */}
           {(subscription?.status === 'suspended' || subscription?.status === 'expired') && (
             <View style={styles.actionCard}>
               <Ionicons name="mail-outline" size={20} color="#3B82F6" />
               <View style={{ flex: 1 }}>
-                <Text style={styles.actionCardTitle}>Réactiver votre abonnement</Text>
+                <Text style={styles.actionCardTitle}>Contacter le support</Text>
                 <Text style={styles.actionCardSub}>
                   Contactez{' '}
                   <Text
                     style={{ textDecorationLine: 'underline' }}
                     onPress={() => Linking.openURL('mailto:support@buildtrack.fr')}
                     accessibilityRole="link"
-                    accessibilityLabel="Envoyer un email à support@buildtrack.fr"
                   >
                     support@buildtrack.fr
                   </Text>
-                  {' '}ou votre responsable de compte pour réactiver l'accès.
+                  {' '}ou votre administrateur groupe pour réactiver l'accès.
                 </Text>
               </View>
             </View>
           )}
 
+          {/* Info gestion par le groupe */}
           <View style={styles.hintCard}>
-            <Ionicons name="information-circle-outline" size={15} color={C.textMuted} />
+            <Ionicons name="shield-checkmark-outline" size={15} color={C.primary} />
             <Text style={styles.hintText}>
-              Pour changer de formule ou gérer votre abonnement, contactez le support BuildTrack. Les invitations en attente sont visibles dans l'onglet Utilisateurs.
+              Votre licence est gérée par BuildTrack Groupe. Pour toute modification (suspension, renouvellement), contactez votre administrateur groupe.
             </Text>
           </View>
         </ScrollView>

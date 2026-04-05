@@ -31,10 +31,10 @@ export default function SuperAdminScreen() {
   const bottomPad = Platform.OS === 'web' ? 34 : insets.bottom;
   const router = useRouter();
 
-  const { user } = useAuth();
+  const { user, users } = useAuth();
   const { orgSummaries, allPlans, isLoading, updateOrgPlan, updateOrgStatus, createOrganization } = useSubscription();
 
-  const [activeTab, setActiveTab] = useState<'orgs' | 'plans'>('orgs');
+  const [activeTab, setActiveTab] = useState<'orgs' | 'dashboard'>('orgs');
   const [planModal, setPlanModal] = useState<OrgSummary | null>(null);
   const [statusModal, setStatusModal] = useState<OrgSummary | null>(null);
   const [saving, setSaving] = useState(false);
@@ -58,6 +58,9 @@ export default function SuperAdminScreen() {
   const totalOrgs = orgSummaries.length;
   const activeOrgs = orgSummaries.filter(s => s.status === 'active').length;
   const trialOrgs = orgSummaries.filter(s => s.status === 'trial').length;
+  const suspendedOrgs = orgSummaries.filter(s => s.status === 'suspended').length;
+  const totalUsers = users.filter(u => u.role !== 'super_admin').length;
+  const totalActiveUsers = users.filter(u => !['super_admin', 'observateur', 'sous_traitant'].includes(u.role)).length;
 
   async function handleChangePlan(planId: string) {
     if (!planModal) return;
@@ -129,25 +132,27 @@ export default function SuperAdminScreen() {
       </View>
 
       <View style={styles.tabRow}>
-        {(['orgs', 'plans'] as const).map(tab => (
+        {(['orgs', 'dashboard'] as const).map(tab => (
           <TouchableOpacity
             key={tab}
             style={[styles.tabBtn, activeTab === tab && styles.tabBtnActive]}
             onPress={() => setActiveTab(tab)}
           >
             <Ionicons
-              name={tab === 'orgs' ? 'business-outline' : 'pricetag-outline'}
+              name={tab === 'orgs' ? 'business-outline' : 'bar-chart-outline'}
               size={14}
               color={activeTab === tab ? C.primary : C.textMuted}
             />
             <Text style={[styles.tabBtnTxt, activeTab === tab && styles.tabBtnTxtActive]}>
-              {tab === 'orgs' ? 'Organisations' : 'Formules'}
+              {tab === 'orgs' ? 'Organisations' : 'Tableau de bord'}
             </Text>
-            <View style={[styles.tabCount, activeTab === tab && styles.tabCountActive]}>
-              <Text style={[styles.tabCountTxt, activeTab === tab && styles.tabCountTxtActive]}>
-                {tab === 'orgs' ? totalOrgs : allPlans.length}
-              </Text>
-            </View>
+            {tab === 'orgs' && (
+              <View style={[styles.tabCount, activeTab === tab && styles.tabCountActive]}>
+                <Text style={[styles.tabCountTxt, activeTab === tab && styles.tabCountTxtActive]}>
+                  {totalOrgs}
+                </Text>
+              </View>
+            )}
           </TouchableOpacity>
         ))}
       </View>
@@ -243,48 +248,81 @@ export default function SuperAdminScreen() {
         </ScrollView>
       )}
 
-      {activeTab === 'plans' && (
+      {activeTab === 'dashboard' && (
         <ScrollView
           contentContainerStyle={[styles.content, { paddingBottom: bottomPad + 32 }]}
           showsVerticalScrollIndicator={false}
         >
-          {allPlans.map(plan => {
-            const pc = PLAN_COLORS[plan.name] ?? C.primary;
-            return (
-              <View key={plan.id} style={[styles.planCard, { borderTopColor: pc }]}>
-                <View style={styles.planTopRow}>
-                  <View style={[styles.planBadge, { backgroundColor: pc + '18' }]}>
-                    <Text style={[styles.planBadgeTxt, { color: pc }]}>{plan.name}</Text>
-                  </View>
-                  <Text style={styles.planPrice}>{plan.priceMonthly} € / mois</Text>
-                </View>
-                <View style={styles.planLimitRow}>
-                  <Ionicons name="people-outline" size={14} color={C.textMuted} />
-                  <Text style={styles.planLimit}>
-                    {plan.maxUsers === -1 ? 'Utilisateurs illimités' : `${plan.maxUsers} utilisateurs max`}
-                  </Text>
-                </View>
-                {plan.features.map((f, i) => (
-                  <View key={i} style={styles.featureRow}>
-                    <Ionicons name="checkmark-circle" size={14} color={pc} />
-                    <Text style={styles.featureTxt}>{f}</Text>
-                  </View>
-                ))}
-                <View style={styles.planOrgCount}>
-                  <Text style={styles.planOrgCountTxt}>
-                    {orgSummaries.filter(s => s.planName === plan.name).length} organisation(s) sur ce plan
-                  </Text>
-                </View>
+          {/* Statistiques globales — 4 tuiles */}
+          <View style={styles.dashGrid}>
+            {[
+              { label: 'Filiales', value: totalOrgs, icon: 'business-outline', color: C.primary },
+              { label: 'Actives', value: activeOrgs, icon: 'checkmark-circle-outline', color: '#10B981' },
+              { label: 'En essai', value: trialOrgs, icon: 'time-outline', color: '#F59E0B' },
+              { label: 'Suspendues', value: suspendedOrgs, icon: 'warning-outline', color: '#EF4444' },
+            ].map((s, i) => (
+              <View key={i} style={styles.dashTile}>
+                <Ionicons name={s.icon as any} size={20} color={s.color} />
+                <Text style={[styles.dashTileVal, { color: s.color }]}>{s.value}</Text>
+                <Text style={styles.dashTileLbl}>{s.label}</Text>
               </View>
-            );
-          })}
-
-          <View style={styles.hintCard}>
-            <Ionicons name="information-circle-outline" size={15} color={C.textMuted} />
-            <Text style={styles.hintTxt}>
-              L'intégration paiement (Stripe) sera disponible dans une prochaine mise à jour. Les formules sont attribuées manuellement depuis l'onglet Organisations.
-            </Text>
+            ))}
           </View>
+
+          {/* Total utilisateurs groupe */}
+          <View style={styles.dashUserCard}>
+            <View style={styles.dashUserRow}>
+              <View style={[styles.dashUserIcon, { backgroundColor: C.primaryBg }]}>
+                <Ionicons name="people" size={22} color={C.primary} />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.dashUserVal}>{totalUsers}</Text>
+                <Text style={styles.dashUserLbl}>utilisateurs dans le groupe</Text>
+              </View>
+              <View style={styles.dashUserSub}>
+                <Text style={styles.dashUserSubVal}>{totalActiveUsers}</Text>
+                <Text style={styles.dashUserSubLbl}>actifs</Text>
+              </View>
+            </View>
+          </View>
+
+          {/* Répartition par filiale */}
+          {orgSummaries.length > 0 && (
+            <>
+              <Text style={styles.dashSectionTitle}>Utilisateurs par filiale</Text>
+              {orgSummaries.map((summary, i) => {
+                const col = ORG_COLORS[i % ORG_COLORS.length];
+                const initials = summary.org.name.split(' ').map(w => w[0]).slice(0, 2).join('').toUpperCase();
+                const orgUserCount = users.filter(u => u.organizationId === summary.org.id).length;
+                const statusCfg = STATUS_CONFIG[summary.status];
+                return (
+                  <View key={summary.org.id} style={styles.dashOrgRow}>
+                    <View style={[styles.dashOrgAvatar, { backgroundColor: col + '22' }]}>
+                      <Text style={[styles.dashOrgInitials, { color: col }]}>{initials}</Text>
+                    </View>
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.dashOrgName} numberOfLines={1}>{summary.org.name}</Text>
+                      <View style={[styles.dashStatusBadge, { backgroundColor: statusCfg.bg }]}>
+                        <Text style={[styles.dashStatusTxt, { color: statusCfg.color }]}>{statusCfg.label}</Text>
+                      </View>
+                    </View>
+                    <View style={styles.dashOrgCount}>
+                      <Text style={[styles.dashOrgCountVal, { color: col }]}>{orgUserCount}</Text>
+                      <Text style={styles.dashOrgCountLbl}>membres</Text>
+                    </View>
+                  </View>
+                );
+              })}
+            </>
+          )}
+
+          {orgSummaries.length === 0 && !isLoading && (
+            <View style={styles.empty}>
+              <Ionicons name="bar-chart-outline" size={40} color={C.textMuted} />
+              <Text style={styles.emptyTxt}>Aucune donnée</Text>
+              <Text style={styles.emptyHint}>Les statistiques apparaîtront dès qu'une organisation sera créée.</Text>
+            </View>
+          )}
         </ScrollView>
       )}
 
