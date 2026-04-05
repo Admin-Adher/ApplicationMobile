@@ -2019,14 +2019,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           company_signatures: r.companySignatures ?? null,
         }).then(({ error }: { error: any }) => {
           if (error) {
-            console.error('[Supabase] addReserve error:', error.code, error.message, error.details, error.hint);
-            dispatch({ type: 'DELETE_RESERVE', payload: r.id });
-            stateRef.current.photos
-              .filter(p => p.reserveId === r.id)
-              .forEach(p => dispatch({ type: 'DELETE_PHOTO', payload: p.id }));
-            const detail = error.message ? `\n\nDétail : ${error.message}` : '';
-            const hint = error.hint ? `\nConseil : ${error.hint}` : '';
-            Alert.alert('Erreur de sauvegarde', `La réserve n'a pas pu être enregistrée.${detail}${hint}`);
+            console.warn('[sync] addReserve server error (data saved locally):', error.message);
           }
         });
       } else {
@@ -2081,10 +2074,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           company_signatures: r.companySignatures ?? null,
         }).eq('id', r.id).then(({ error }: { error: any }) => {
           if (error) {
-            console.error('[Supabase] updateReserve error:', error.code, error.message, error.details, error.hint);
-            if (previous) dispatch({ type: 'UPDATE_RESERVE', payload: previous });
-            const detail = error.message ? `\n\nDétail : ${error.message}` : '';
-            Alert.alert('Erreur de sauvegarde', `La modification de la réserve n'a pas pu être enregistrée.${detail}`);
+            console.warn('[sync] updateReserve server error (data saved locally):', error.message);
           }
         });
       } else {
@@ -2129,8 +2119,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           company_signatures: r.companySignatures ?? null,
         }).eq('id', r.id).then(({ error }: { error: any }) => {
           if (error) {
-            if (previous) dispatch({ type: 'UPDATE_RESERVE_FIELDS', payload: previous });
-            Alert.alert('Erreur de sauvegarde', "La modification de la réserve n'a pas pu être enregistrée.");
+            console.warn('[sync] updateReserveFields server error (data saved locally):', error.message);
           }
         });
       } else {
@@ -2146,8 +2135,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       if (isSupabaseConfigured) {
         supabase.from('reserves').delete().eq('id', id).then(({ error }: { error: any }) => {
           if (error) {
-            if (previous) dispatch({ type: 'ADD_RESERVE', payload: previous });
-            Alert.alert('Erreur de suppression', "La réserve n'a pas pu être supprimée. Veuillez réessayer.");
+            console.warn('[sync] deleteReserve server error (data deleted locally):', error.message);
           }
         });
       } else {
@@ -2201,8 +2189,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           closed_at: closedAt ?? null, closed_by: closedBy ?? null,
         }).eq('id', id).then(({ error }: { error: any }) => {
           if (error) {
-            dispatch({ type: 'UPDATE_RESERVE_STATUS', payload: reserve });
-            Alert.alert('Erreur de sauvegarde', "Le statut de la réserve n'a pas pu être mis à jour.");
+            console.warn('[sync] updateReserveStatus server error (data saved locally):', error.message);
           }
         });
       } else {
@@ -2253,8 +2240,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       if (isSupabaseConfigured) {
         supabase.from('reserves').update({ comments: updatedComments }).eq('id', reserveId).then(({ error }: { error: any }) => {
           if (error) {
-            dispatch({ type: 'UPDATE_RESERVE', payload: reserve });
-            Alert.alert('Erreur de sauvegarde', "Le commentaire n'a pas pu être enregistré.");
+            console.warn('[sync] addComment server error (data saved locally):', error.message);
           }
         });
       } else {
@@ -2307,14 +2293,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
             };
             const { error } = await supabase.from('companies').insert(payload);
             if (error) {
-              console.error('[addCompany] Supabase error:', error.code, error.message, error.details, error.hint);
-              dispatch({ type: 'DELETE_COMPANY', payload: c.id });
-              Alert.alert('Erreur de sauvegarde', `L'entreprise n'a pas pu être enregistrée.\n\n${error.message}`);
+              console.warn('[sync] addCompany server error (data saved locally):', error.message);
             }
           } catch (e: any) {
-            console.error('[addCompany] exception:', e?.message ?? e);
-            dispatch({ type: 'DELETE_COMPANY', payload: c.id });
-            Alert.alert('Erreur de sauvegarde', "L'entreprise n'a pas pu être enregistrée.");
+            console.warn('[sync] addCompany exception (data saved locally):', e?.message ?? e);
           }
         })();
       } else {
@@ -2329,8 +2311,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       if (isSupabaseConfigured) {
         supabase.from('companies').update({ actual_workers: actual }).eq('id', id).then(({ error }: { error: any }) => {
           if (error) {
-            if (previous) dispatch({ type: 'UPDATE_COMPANY', payload: { id, actualWorkers: previous.actualWorkers } });
-            Alert.alert('Erreur de sauvegarde', "L'effectif n'a pas pu être mis à jour.");
+            console.warn('[sync] updateCompanyWorkers server error (data saved locally):', error.message);
           }
         });
       } else {
@@ -2359,8 +2340,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           qualifications: c.qualifications ?? null,
         }).eq('id', c.id).then(({ error }: { error: any }) => {
           if (error) {
-            if (previous) dispatch({ type: 'UPDATE_COMPANY_FULL', payload: previous });
-            Alert.alert('Erreur de sauvegarde', "L'entreprise n'a pas pu être mise à jour.");
+            console.warn('[sync] updateCompanyFull server error (data saved locally):', error.message);
           }
         });
       } else {
@@ -2375,8 +2355,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       if (isSupabaseConfigured) {
         supabase.from('companies').delete().eq('id', id).then(({ error }: { error: any }) => {
           if (error) {
-            if (previous) dispatch({ type: 'ADD_COMPANY', payload: previous });
-            Alert.alert('Erreur de suppression', "L'entreprise n'a pas pu être supprimée.");
+            console.warn('[sync] deleteCompany server error (data deleted locally):', error.message);
           }
         });
       } else {
@@ -2391,8 +2370,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       if (isSupabaseConfigured) {
         supabase.from('companies').update({ hours_worked: hours }).eq('id', id).then(({ error }: { error: any }) => {
           if (error) {
-            if (previous) dispatch({ type: 'UPDATE_COMPANY_HOURS', payload: { id, hours: previous.hoursWorked } });
-            Alert.alert('Erreur de sauvegarde', "Les heures n'ont pas pu être mises à jour.");
+            console.warn('[sync] updateCompanyHours server error (data saved locally):', error.message);
           }
         });
       } else {
@@ -2421,10 +2399,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       if (isSupabaseConfigured) {
         supabase.from('messages').insert(fromMessage(msg)).then(({ error }: { error: any }) => {
           if (error) {
-            console.error('[addMessage] Supabase error:', error.code, error.message, error.details, error.hint);
-            dispatch({ type: 'DELETE_MESSAGE', payload: msg.id });
-            const detail = error.message ? `\n\nDétail : ${error.message}` : '';
-            Alert.alert('Erreur d\'envoi', `Le message n'a pas pu être envoyé.${detail}`);
+            console.warn('[sync] addMessage server error (data saved locally):', error.message);
           }
         });
       } else {
@@ -2441,9 +2416,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       if (isSupabaseConfigured) {
         supabase.from('messages').delete().eq('id', id).then(({ error }: { error: any }) => {
           if (error) {
-            console.error('[deleteMessage] Supabase error:', error.code, error.message);
-            dispatch({ type: 'RESTORE_MESSAGES', payload: originalMessages });
-            Alert.alert('Erreur de suppression', "Le message n'a pas pu être supprimé.");
+            console.warn('[sync] deleteMessage server error (data deleted locally):', error.message);
           }
         });
       } else {
@@ -2458,9 +2431,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       if (isSupabaseConfigured) {
         supabase.from('messages').update(fromMessage(msg)).eq('id', msg.id).then(({ error }: { error: any }) => {
           if (error) {
-            console.error('[updateMessage] Supabase error:', error.code, error.message);
-            if (previous) dispatch({ type: 'UPDATE_MESSAGE', payload: previous });
-            Alert.alert('Erreur de sauvegarde', "La modification du message n'a pas pu être enregistrée.");
+            console.warn('[sync] updateMessage server error (data saved locally):', error.message);
           }
         });
       } else {
@@ -2499,8 +2470,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           created_at: t.createdAt ?? null,
         }).then(({ error }: { error: any }) => {
           if (error) {
-            dispatch({ type: 'DELETE_TASK', payload: t.id });
-            Alert.alert('Erreur de sauvegarde', "La tâche n'a pas pu être créée.");
+            console.warn('[sync] addTask server error (data saved locally):', error.message);
           }
         });
       } else {
@@ -2528,8 +2498,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           comments: t.comments ?? [], history: t.history ?? [],
         }).eq('id', t.id).then(({ error }: { error: any }) => {
           if (error) {
-            if (previous) dispatch({ type: 'UPDATE_TASK', payload: previous });
-            Alert.alert('Erreur de sauvegarde', "La tâche n'a pas pu être mise à jour.");
+            console.warn('[sync] updateTask server error (data saved locally):', error.message);
           }
         });
       } else {
@@ -2545,8 +2514,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       if (isSupabaseConfigured) {
         supabase.from('tasks').delete().eq('id', id).then(({ error }: { error: any }) => {
           if (error) {
-            if (previous) dispatch({ type: 'ADD_TASK', payload: previous });
-            Alert.alert('Erreur de suppression', "La tâche n'a pas pu être supprimée.");
+            console.warn('[sync] deleteTask server error (data deleted locally):', error.message);
           }
         });
       } else {
@@ -2571,8 +2539,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       if (isSupabaseConfigured) {
         supabase.from('tasks').update({ comments: updatedComments }).eq('id', taskId).then(({ error }: { error: any }) => {
           if (error) {
-            dispatch({ type: 'UPDATE_TASK', payload: task });
-            Alert.alert('Erreur de sauvegarde', "Le commentaire n'a pas pu être enregistré.");
+            console.warn('[sync] addTaskComment server error (data saved locally):', error.message);
           }
         });
       } else {
@@ -2594,8 +2561,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           reserve_id: p.reserveId ?? null,
         }).then(({ error }: { error: any }) => {
           if (error) {
-            dispatch({ type: 'DELETE_PHOTO', payload: p.id });
-            Alert.alert('Erreur de sauvegarde', "La photo n'a pas pu être enregistrée sur le serveur.");
+            console.warn('[sync] addPhoto server error (data saved locally):', error.message);
           }
         });
       } else {
@@ -2610,8 +2576,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       if (isSupabaseConfigured) {
         supabase.from('photos').delete().eq('id', id).then(({ error }: { error: any }) => {
           if (error) {
-            if (previous) dispatch({ type: 'ADD_PHOTO', payload: previous });
-            Alert.alert('Erreur de suppression', "La photo n'a pas pu être supprimée.");
+            console.warn('[sync] deletePhoto server error (data deleted locally):', error.message);
           }
         });
       } else {
@@ -2629,8 +2594,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           organization_id: currentUserOrgIdRef.current ?? null,
         }).then(({ error }: { error: any }) => {
           if (error) {
-            dispatch({ type: 'DELETE_DOCUMENT', payload: d.id });
-            Alert.alert('Erreur de sauvegarde', "Le document n'a pas pu être enregistré sur le serveur.");
+            console.warn('[sync] addDocument server error (data saved locally):', error.message);
           }
         });
       } else {
@@ -2645,8 +2609,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       if (isSupabaseConfigured) {
         supabase.from('documents').delete().eq('id', id).then(({ error }: { error: any }) => {
           if (error) {
-            if (previous) dispatch({ type: 'ADD_DOCUMENT', payload: previous });
-            Alert.alert('Erreur de suppression', "Le document n'a pas pu être supprimé.");
+            console.warn('[sync] deleteDocument server error (data deleted locally):', error.message);
           }
         });
       } else {
@@ -2675,8 +2638,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       if (isSupabaseConfigured) {
         supabase.from('visites').insert(fromVisite(v)).then(({ error }: { error: any }) => {
           if (error) {
-            dispatch({ type: 'DELETE_VISITE', payload: v.id });
-            Alert.alert('Erreur de sauvegarde', `La visite "${v.title}" n'a pas pu être enregistrée sur le serveur.`);
+            console.warn('[sync] addVisite server error (data saved locally):', error.message);
           }
         });
       }
@@ -2692,8 +2654,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         const { id, ...fields } = fromVisite(v);
         supabase.from('visites').update(fields).eq('id', v.id).then(({ error }: { error: any }) => {
           if (error) {
-            if (previous) dispatch({ type: 'UPDATE_VISITE', payload: previous });
-            Alert.alert('Erreur de sauvegarde', "La modification de la visite n'a pas pu être enregistrée.");
+            console.warn('[sync] updateVisite server error (data saved locally):', error.message);
           }
         });
       }
@@ -2707,8 +2668,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       if (isSupabaseConfigured) {
         supabase.from('visites').delete().eq('id', id).then(({ error }: { error: any }) => {
           if (error) {
-            if (previous) dispatch({ type: 'ADD_VISITE', payload: previous });
-            Alert.alert('Erreur de suppression', "La visite n'a pas pu être supprimée.");
+            console.warn('[sync] deleteVisite server error (data deleted locally):', error.message);
           }
         });
       }
@@ -2725,9 +2685,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       if (isSupabaseConfigured) {
         supabase.from('visites').update({ reserve_ids: updated.reserveIds }).eq('id', visiteId).then(({ error }: { error: any }) => {
           if (error) {
-            dispatch({ type: 'UPDATE_VISITE', payload: visite });
-            persistMockVisites(stateRef.current.visites.map(x => x.id === visiteId ? visite : x));
-            Alert.alert('Erreur de sauvegarde', "La liaison réserve/visite n'a pas pu être enregistrée sur le serveur.");
+            console.warn('[sync] linkReserveToVisite server error (data saved locally):', error.message);
           }
         });
       }
@@ -2748,8 +2706,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       if (isSupabaseConfigured) {
         supabase.from('lots').insert(fromLot(l)).then(({ error }: { error: any }) => {
           if (error) {
-            dispatch({ type: 'DELETE_LOT', payload: l.id });
-            Alert.alert('Erreur de sauvegarde', `Le lot "${l.name}" n'a pas pu être enregistré sur le serveur.`);
+            console.warn('[sync] addLot server error (data saved locally):', error.message);
           }
         });
       }
@@ -2765,8 +2722,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         const { id, ...fields } = fromLot(l);
         supabase.from('lots').update(fields).eq('id', l.id).then(({ error }: { error: any }) => {
           if (error) {
-            if (previous) dispatch({ type: 'UPDATE_LOT', payload: previous });
-            Alert.alert('Erreur de sauvegarde', "La modification du lot n'a pas pu être enregistrée.");
+            console.warn('[sync] updateLot server error (data saved locally):', error.message);
           }
         });
       }
@@ -2780,8 +2736,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       if (isSupabaseConfigured) {
         supabase.from('lots').delete().eq('id', id).then(({ error }: { error: any }) => {
           if (error) {
-            if (previous) dispatch({ type: 'ADD_LOT', payload: previous });
-            Alert.alert('Erreur de suppression', "Le lot n'a pas pu être supprimé.");
+            console.warn('[sync] deleteLot server error (data deleted locally):', error.message);
           }
         });
       }
@@ -2844,8 +2799,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           const failed = results.some((res: any) => res.error);
           if (failed && !hasError) {
             hasError = true;
-            dispatch({ type: 'BATCH_UPDATE_RESERVES', payload: previousReserves });
-            Alert.alert('Erreur de sauvegarde', "Certaines réserves n'ont pas pu être mises à jour. Les modifications ont été annulées.");
+            console.warn('[sync] batchUpdateReserves some server errors (data saved locally)');
           }
         });
       } else {
@@ -2903,8 +2857,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           revision_note: versionedNew.revisionNote ?? null,
         }).then(({ error }: { error: any }) => {
           if (error) {
-            console.error('[addSitePlanVersion] insert new revision error:', error.message);
-            Alert.alert('Erreur de sauvegarde', `La nouvelle révision du plan n'a pas pu être enregistrée sur le serveur. Les données sont sauvegardées localement.`);
+            console.warn('[sync] addSitePlanVersion insert revision error (data saved locally):', error.message);
           }
         });
       }
@@ -2928,8 +2881,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         )).then(results => {
           const hasError = results.some(({ error }: { error: any }) => error);
           if (hasError) {
-            dispatch({ type: 'BATCH_UPDATE_RESERVES', payload: previousReserves.filter(r => toMigrate.find(m => m.id === r.id)) });
-            Alert.alert('Erreur de migration', "Certaines réserves n'ont pas pu être migrées vers le nouveau plan. Veuillez réessayer.");
+            console.warn('[sync] migrateReservesToPlan some server errors (data saved locally)');
           }
         });
       } else {
@@ -2946,8 +2898,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       if (isSupabaseConfigured) {
         supabase.from('oprs').insert(fromOpr(o)).then(({ error }: { error: any }) => {
           if (error) {
-            dispatch({ type: 'DELETE_OPR', payload: o.id });
-            Alert.alert('Erreur de sauvegarde', `L'OPR "${o.title}" n'a pas pu être enregistré sur le serveur.`);
+            console.warn('[sync] addOpr server error (data saved locally):', error.message);
           }
         });
       }
@@ -2963,8 +2914,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         const { id, ...fields } = fromOpr(o);
         supabase.from('oprs').update(fields).eq('id', o.id).then(({ error }: { error: any }) => {
           if (error) {
-            if (previous) dispatch({ type: 'UPDATE_OPR', payload: previous });
-            Alert.alert('Erreur de sauvegarde', "La modification de l'OPR n'a pas pu être enregistrée.");
+            console.warn('[sync] updateOpr server error (data saved locally):', error.message);
           }
         });
       }
@@ -2978,8 +2928,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       if (isSupabaseConfigured) {
         supabase.from('oprs').delete().eq('id', id).then(({ error }: { error: any }) => {
           if (error) {
-            if (previous) dispatch({ type: 'ADD_OPR', payload: previous });
-            Alert.alert('Erreur de suppression', "L'OPR n'a pas pu être supprimé.");
+            console.warn('[sync] deleteOpr server error (data deleted locally):', error.message);
           }
         });
       }
@@ -3165,8 +3114,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           pdf_page_count: p.pdfPageCount ?? null,
         }).then(({ error }: { error: any }) => {
           if (error) {
-            dispatch({ type: 'DELETE_SITE_PLAN', payload: p.id });
-            Alert.alert('Erreur de sauvegarde', `Le plan "${p.name}" n'a pas pu être enregistré sur le serveur.`);
+            console.warn('[sync] addSitePlan server error (data saved locally):', error.message);
           }
         });
       }
@@ -3211,8 +3159,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           pdf_page_count: p.pdfPageCount ?? null,
         }).eq('id', p.id).then(({ error }: { error: any }) => {
           if (error) {
-            if (previous) dispatch({ type: 'UPDATE_SITE_PLAN', payload: previous });
-            Alert.alert('Erreur de sauvegarde', "La modification du plan n'a pas pu être enregistrée.");
+            console.warn('[sync] updateSitePlan server error (data saved locally):', error.message);
           }
         });
       }
