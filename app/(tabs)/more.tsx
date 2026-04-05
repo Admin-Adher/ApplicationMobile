@@ -96,11 +96,15 @@ export default function MoreScreen() {
 
     // Section Documents & Outils
     const outilsItems: MenuItem[] = [
-      { icon: 'document-text', label: 'Rapports', subtitle: 'Journalier, hebdo', route: '/rapports', color: C.verification },
+      ...(!isSousTraitant ? [
+        { icon: 'document-text', label: 'Rapports', subtitle: 'Journalier, hebdo', route: '/rapports', color: C.verification } as MenuItem,
+      ] : []),
       { icon: 'folder-open', label: 'Documents', subtitle: `${documents.length} fichier${documents.length !== 1 ? 's' : ''}`, route: '/documents', color: C.inProgress, badge: recentDocsCount || undefined },
       { icon: 'camera', label: 'Photos', subtitle: `${photos.length} photo${photos.length !== 1 ? 's' : ''}`, route: '/photos', color: C.medium },
-      { icon: 'document-text', label: 'CR Réunions', subtitle: 'Comptes-rendus', route: '/meeting-report', color: '#7C3AED' },
-      { icon: 'checkbox', label: 'Checklists', subtitle: 'Contrôle qualité', route: '/checklist', color: '#06B6D4' },
+      ...(!isSousTraitant ? [
+        { icon: 'document-text', label: 'CR Réunions', subtitle: 'Comptes-rendus', route: '/meeting-report', color: '#7C3AED' } as MenuItem,
+        { icon: 'checkbox', label: 'Checklists', subtitle: 'Contrôle qualité', route: '/checklist', color: '#06B6D4' } as MenuItem,
+      ] : []),
       { icon: 'document-lock', label: 'Docs réglementaires', subtitle: 'PPSPS · DICT · DOE', route: '/reglementaire', color: '#BE185D' },
     ];
     result.push({ title: 'Documents', items: outilsItems });

@@ -32,7 +32,7 @@ const STATUS_LABEL: Record<string, { label: string; color: string }> = {
 
 export default function PortalScreen() {
   const { companyId } = useLocalSearchParams<{ companyId: string }>();
-  const { isAuthenticated } = useAuth();
+  const { isAuthenticated, user } = useAuth();
   const { reserves, companies } = useApp();
   const router = useRouter();
 
@@ -105,6 +105,19 @@ export default function PortalScreen() {
   const filtered = statusFilter === 'all' ? displayReserves : displayReserves.filter(r => r.status === statusFilter);
   const openCount = displayReserves.filter(r => r.status !== 'closed').length;
   const closedCount = displayReserves.filter(r => r.status === 'closed').length;
+
+  if (isAuthenticated && user?.role === 'sous_traitant' && user?.companyId !== companyId) {
+    return (
+      <View style={styles.centerContainer}>
+        <Ionicons name="lock-closed-outline" size={48} color={C.textMuted} />
+        <Text style={styles.lockedTitle}>Accès restreint</Text>
+        <Text style={styles.lockedSub}>Vous n'avez accès qu'au portail de votre propre entreprise.</Text>
+        <TouchableOpacity style={styles.loginBtn} onPress={() => router.canGoBack() ? router.back() : router.replace('/(tabs)/' as any)}>
+          <Text style={styles.loginBtnText}>Retour</Text>
+        </TouchableOpacity>
+      </View>
+    );
+  }
 
   if (!isAuthenticated && !isSupabase) {
     return (

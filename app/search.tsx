@@ -4,6 +4,7 @@ import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { C } from '@/constants/colors';
 import { useApp } from '@/context/AppContext';
+import { useAuth } from '@/context/AuthContext';
 import { useIncidents } from '@/context/IncidentsContext';
 import Header from '@/components/Header';
 import StatusBadge from '@/components/StatusBadge';
@@ -31,31 +32,51 @@ const INCIDENT_SEVERITY_COLORS: Record<string, string> = {
 
 export default function SearchScreen() {
   const router = useRouter();
-  const { reserves, tasks, documents, visites } = useApp();
+  const { reserves, tasks, documents, visites, companies } = useApp();
+  const { user } = useAuth();
   const { incidents } = useIncidents();
   const [query, setQuery] = useState('');
 
   const q = query.trim().toLowerCase();
 
+  const isSousTraitant = user?.role === 'sous_traitant';
+  const userCompanyName = useMemo(() => {
+    if (!isSousTraitant || !user?.companyId) return null;
+    return companies.find(c => c.id === user.companyId)?.name ?? null;
+  }, [isSousTraitant, user?.companyId, companies]);
+
+  const scopedReserves = useMemo(() => {
+    if (!isSousTraitant || !userCompanyName) return reserves;
+    return reserves.filter(r =>
+      r.company === userCompanyName ||
+      (Array.isArray(r.companies) && r.companies.includes(userCompanyName))
+    );
+  }, [isSousTraitant, userCompanyName, reserves]);
+
+  const scopedTasks = useMemo(() => {
+    if (!isSousTraitant || !userCompanyName) return tasks;
+    return tasks.filter(t => t.company === userCompanyName);
+  }, [isSousTraitant, userCompanyName, tasks]);
+
   const filteredReserves = useMemo(() => {
     if (!q || q.length < 2) return [];
-    return reserves.filter(r =>
+    return scopedReserves.filter(r =>
       r.title.toLowerCase().includes(q) ||
       r.id.toLowerCase().includes(q) ||
       r.description.toLowerCase().includes(q) ||
       r.company.toLowerCase().includes(q) ||
       r.zone.toLowerCase().includes(q)
     ).slice(0, 8);
-  }, [reserves, q]);
+  }, [scopedReserves, q]);
 
   const filteredTasks = useMemo(() => {
     if (!q || q.length < 2) return [];
-    return tasks.filter(t =>
+    return scopedTasks.filter(t =>
       t.title.toLowerCase().includes(q) ||
       t.description.toLowerCase().includes(q) ||
       t.assignee.toLowerCase().includes(q)
     ).slice(0, 6);
-  }, [tasks, q]);
+  }, [scopedTasks, q]);
 
   const filteredDocuments = useMemo(() => {
     if (!q || q.length < 2) return [];
@@ -66,24 +87,24 @@ export default function SearchScreen() {
   }, [documents, q]);
 
   const filteredIncidents = useMemo(() => {
-    if (!q || q.length < 2) return [];
+    if (isSousTraitant || !q || q.length < 2) return [];
     return incidents.filter(i =>
       i.title.toLowerCase().includes(q) ||
       i.description.toLowerCase().includes(q) ||
       i.location.toLowerCase().includes(q) ||
       i.reportedBy.toLowerCase().includes(q)
     ).slice(0, 6);
-  }, [incidents, q]);
+  }, [incidents, isSousTraitant, q]);
 
   const filteredVisites = useMemo(() => {
-    if (!q || q.length < 2) return [];
+    if (isSousTraitant || !q || q.length < 2) return [];
     return (visites ?? []).filter(v =>
       v.title.toLowerCase().includes(q) ||
       v.conducteur.toLowerCase().includes(q) ||
       (v.notes ?? '').toLowerCase().includes(q) ||
       v.building.toLowerCase().includes(q)
     ).slice(0, 6);
-  }, [visites, q]);
+  }, [visites, isSousTraitant, q]);
 
   const hasResults = filteredReserves.length > 0 || filteredTasks.length > 0 || filteredDocuments.length > 0 || filteredIncidents.length > 0 || filteredVisites.length > 0;
   const hasQuery = q.length >= 2;
