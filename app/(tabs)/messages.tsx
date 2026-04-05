@@ -159,6 +159,20 @@ export default function MessagesTabScreen() {
   const [editChannel, setEditChannel] = useState<Channel | null>(null);
   const topPad = insets.top;
 
+  if (user?.role === 'super_admin') {
+    return (
+      <View style={[styles.container, { alignItems: 'center', justifyContent: 'center', gap: 12 }]}>
+        <Ionicons name="lock-closed-outline" size={48} color={C.textMuted} />
+        <Text style={{ fontSize: 17, fontFamily: 'Inter_700Bold', color: C.text, textAlign: 'center' }}>
+          Messagerie non accessible
+        </Text>
+        <Text style={{ fontSize: 14, fontFamily: 'Inter_400Regular', color: C.textMuted, textAlign: 'center', maxWidth: 280, lineHeight: 20 }}>
+          Le super administrateur n'a pas accès à la messagerie interne des filiales pour préserver la confidentialité des échanges.
+        </Text>
+      </View>
+    );
+  }
+
   const totalUnread = Object.values(unreadByChannel).reduce((a, b) => a + b, 0);
 
   const lastMessageByChannel = useMemo(() => {

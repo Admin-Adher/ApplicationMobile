@@ -173,6 +173,20 @@ export default function MessagesScreen() {
     [pinnedChannelIds, channels]
   );
 
+  if (user?.role === 'super_admin') {
+    return (
+      <View style={[styles.container, { alignItems: 'center', justifyContent: 'center', gap: 12, padding: 32 }]}>
+        <Ionicons name="lock-closed-outline" size={48} color={C.textMuted} />
+        <Text style={{ fontSize: 17, fontFamily: 'Inter_700Bold', color: C.text, textAlign: 'center' }}>
+          Messagerie non accessible
+        </Text>
+        <Text style={{ fontSize: 14, fontFamily: 'Inter_400Regular', color: C.textMuted, textAlign: 'center', lineHeight: 20 }}>
+          Le super administrateur n'a pas accès à la messagerie interne des filiales pour préserver la confidentialité des échanges.
+        </Text>
+      </View>
+    );
+  }
+
   const generalChannels = filteredChannels.filter(ch => ch.type === 'general' || ch.type === 'building');
   const companyChannels = filteredChannels.filter(ch => ch.type === 'company');
   const customChannels = filteredChannels.filter(ch => ch.type === 'custom');

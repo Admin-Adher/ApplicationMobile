@@ -137,6 +137,23 @@ All INSERT functions in `context/AppContext.tsx` now include `organization_id` i
 - `context/SubscriptionContext.tsx`: added `updateOrganization(orgId, name)` — updates org name in Supabase `organizations` table (or in demo state), exposed in context value
 - `app/(tabs)/admin.tsx`: "Abonnement" tab renamed "Licence" with read-only Entreprise plan display
 
+## Confidentialité — Messages & Canaux (2026-04-05)
+**Problème identifié** : le super_admin pouvait lire tous les messages de toutes les organisations car la migration `rebuild_messages_table.sql` avait écrasé les policies restrictives par `auth.role() = 'authenticated'`.
+
+**Corrections appliquées — deux couches :**
+
+### Couche 1 — Supabase RLS
+Migration `supabase/migrations/20260405_messages_channels_privacy_fix.sql` à exécuter dans Supabase SQL Editor :
+- Supprime toutes les policies permissives sur `channels` et `messages`
+- Rétablit des policies strictement isolées par organisation
+- Ajoute un `NOT EXISTS` explicite pour exclure le rôle `super_admin` de toute lecture/écriture
+- Le super_admin ne peut pas lire de canaux ni de messages — ni dans sa propre org (il n'en a pas), ni dans celles des autres
+
+### Couche 2 — App (défense en profondeur)
+- `app/(tabs)/messages.tsx` : affiche "Messagerie non accessible" pour le super_admin
+- `app/messages.tsx` : idem (écran non-tab)
+- `app/channel/[id].tsx` : affiche "Accès non autorisé" + bouton Retour si accès direct via URL
+
 ## Architecture Notes
 - This is a pure React Native/Expo app. All data access is client-side.
 - Supabase is the optional backend — without credentials, the app uses built-in demo data.
