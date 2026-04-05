@@ -368,7 +368,11 @@ export default function PlansScreen() {
   const [pinSizeScale, setPinSizeScale] = useState(1.0);
   const [pinSizes, setPinSizes] = useState<Record<string, number>>({});
   const [focusedPinId, setFocusedPinId] = useState<string | null>(null);
-  const [draggingPinState, setDraggingPinState] = useState<{ id: string; x: number; y: number } | null>(null);
+  const [draggingPinId, setDraggingPinId] = useState<string | null>(null);
+  const draggingAnimX = useRef(new Animated.Value(0)).current;
+  const draggingAnimY = useRef(new Animated.Value(0)).current;
+  const draggingAnimSzHalf = useRef(12);
+  const draggingFirstMoveRef = useRef(false);
   const [dxfLoading, setDxfLoading] = useState(false);
 
   const pdfViewerRef = useRef<PdfPlanViewerHandle>(null);
@@ -614,7 +618,7 @@ export default function PlansScreen() {
   const reservesRef = useRef(reserves);
   const updateReserveFieldsRef = useRef(updateReserveFields);
   const focusedPinTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const setDraggingPinStateRef = useRef(setDraggingPinState);
+  const setDraggingPinIdRef = useRef(setDraggingPinId);
   const setFocusedPinIdRef = useRef(setFocusedPinId);
   const setPinSizesRef = useRef(setPinSizes);
   const pinSizesRef = useRef(pinSizes);
@@ -711,7 +715,12 @@ export default function PlansScreen() {
             const newX = Math.min(100, Math.max(0, draggingPinStartRef.current!.cx + (gs.dx / dynWRef.current / s) * 100));
             const newY = Math.min(100, Math.max(0, draggingPinStartRef.current!.cy + (gs.dy / dynHRef.current / s) * 100));
             draggingPinPosRef.current = { x: newX, y: newY };
-            setDraggingPinStateRef.current({ id: draggingPinIdRef.current, x: newX, y: newY });
+            draggingAnimX.setValue((newX / 100) * dynWRef.current);
+            draggingAnimY.setValue((newY / 100) * dynHRef.current);
+            if (!draggingFirstMoveRef.current) {
+              draggingFirstMoveRef.current = true;
+              setDraggingPinIdRef.current(draggingPinIdRef.current);
+            }
           }
           return;
         }
@@ -738,7 +747,8 @@ export default function PlansScreen() {
           draggingPinIdRef.current = null;
           draggingPinPosRef.current = null;
           draggingPinMovedRef.current = false;
-          setDraggingPinStateRef.current(null);
+          draggingFirstMoveRef.current = false;
+          setDraggingPinIdRef.current(null);
           // Clear timestamp suppress so regular taps work immediately after drag
           suppressPlanTapUntilRef.current = 0;
           if (moved && finalPos) {
@@ -769,7 +779,8 @@ export default function PlansScreen() {
           draggingPinIdRef.current = null;
           draggingPinPosRef.current = null;
           draggingPinMovedRef.current = false;
-          setDraggingPinStateRef.current(null);
+          draggingFirstMoveRef.current = false;
+          setDraggingPinIdRef.current(null);
           suppressPlanTapUntilRef.current = 0;
         }
         isPinchingRef.current = false;
@@ -1606,7 +1617,7 @@ export default function PlansScreen() {
                     const color = getCompanyColor(cluster.dominantCompany, companies);
                     const isHighlighted = !isCluster && highlightedReserveId === pinId;
                     const isFocused = !isCluster && focusedPinId === pinId;
-                    const isDraggingThis = draggingPinState?.id === pinId;
+                    const isDraggingThis = draggingPinId === pinId;
                     return (
                       <TouchableOpacity
                         key={`cl-${ci}`}
@@ -1672,6 +1683,11 @@ export default function PlansScreen() {
                               draggingPinStartRef.current = { cx: cluster.cx, cy: cluster.cy };
                               draggingPinMovedRef.current = false;
                               draggingPinPosRef.current = null;
+                              draggingFirstMoveRef.current = false;
+                              const initSz = isCluster ? clusterSize : getPinDisplaySize(pinId, pinSize);
+                              draggingAnimSzHalf.current = initSz / 2;
+                              draggingAnimX.setValue((cluster.cx / 100) * dynWRef.current);
+                              draggingAnimY.setValue((cluster.cy / 100) * dynHRef.current);
                             }
                           }
                         }}
@@ -1685,20 +1701,23 @@ export default function PlansScreen() {
                     );
                   })}
 
-                  {draggingPinState && (() => {
-                    const reserve = reserves.find(r => r.id === draggingPinState.id);
-                    const num = pinNumberMap.get(draggingPinState.id) ?? '?';
+                  {draggingPinId && (() => {
+                    const reserve = reserves.find(r => r.id === draggingPinId);
+                    const num = pinNumberMap.get(draggingPinId) ?? '?';
                     const color = getCompanyColor(reserve?.company ?? '', companies);
-                    const sz = getPinDisplaySize(draggingPinState.id, pinSize);
+                    const sz = getPinDisplaySize(draggingPinId, pinSize);
+                    const half = sz / 2;
                     return (
-                      <View
+                      <Animated.View
                         style={{
                           position: 'absolute',
-                          left: `${draggingPinState.x}%` as any,
-                          top: `${draggingPinState.y}%` as any,
+                          left: 0, top: 0,
                           width: sz, height: sz, borderRadius: sz / 2,
                           backgroundColor: color,
-                          transform: [{ translateX: -(sz / 2) }, { translateY: -(sz / 2) }],
+                          transform: [
+                            { translateX: Animated.subtract(draggingAnimX, half) as any },
+                            { translateY: Animated.subtract(draggingAnimY, half) as any },
+                          ],
                           borderWidth: 3, borderColor: '#fff',
                           shadowColor: '#000', shadowOpacity: 0.8, shadowRadius: 8, elevation: 20,
                           alignItems: 'center', justifyContent: 'center',
@@ -1706,8 +1725,8 @@ export default function PlansScreen() {
                           pointerEvents: 'none' as any,
                         }}
                       >
-                        <Text style={{ fontSize: Math.round((isTablet ? 14 : 11) * pinSizeScale * (pinSizes[draggingPinState.id] ?? 1.0)), fontFamily: 'Inter_700Bold', color: '#fff' }}>{num}</Text>
-                      </View>
+                        <Text style={{ fontSize: Math.round((isTablet ? 14 : 11) * pinSizeScale * (pinSizes[draggingPinId] ?? 1.0)), fontFamily: 'Inter_700Bold', color: '#fff' }}>{num}</Text>
+                      </Animated.View>
                     );
                   })()}
                 </View>
