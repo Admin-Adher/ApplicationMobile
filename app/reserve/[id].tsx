@@ -1414,18 +1414,24 @@ export default function ReserveDetailScreen() {
 
         <View style={styles.card}>
           <Text style={styles.sectionTitle}>Historique ({reserve.history.length})</Text>
-          {[...reserve.history].reverse().map(h => (
-            <View key={h.id} style={styles.historyItem}>
-              <View style={styles.historyDot} />
-              <View style={{ flex: 1 }}>
-                <Text style={styles.historyAction}>{h.action}</Text>
-                {h.oldValue && h.newValue && (
-                  <Text style={styles.historyValues}>{h.oldValue} → {h.newValue}</Text>
-                )}
-                <Text style={styles.historyMeta}>{h.author} — {formatDate(h.createdAt)}</Text>
+          <ScrollView
+            style={{ maxHeight: 260 }}
+            nestedScrollEnabled
+            showsVerticalScrollIndicator={reserve.history.length > 5}
+          >
+            {[...reserve.history].reverse().map(h => (
+              <View key={h.id} style={styles.historyItem}>
+                <View style={styles.historyDot} />
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.historyAction}>{h.action}</Text>
+                  {h.oldValue && h.newValue && (
+                    <Text style={styles.historyValues}>{h.oldValue} → {h.newValue}</Text>
+                  )}
+                  <Text style={styles.historyMeta}>{h.author} — {formatDate(h.createdAt)}</Text>
+                </View>
               </View>
-            </View>
-          ))}
+            ))}
+          </ScrollView>
         </View>
 
         {permissions.canExport && (
