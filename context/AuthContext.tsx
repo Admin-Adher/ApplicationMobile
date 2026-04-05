@@ -233,36 +233,62 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       return;
     }
 
-    supabase.auth.getSession().then(async ({ data: { session } }: { data: { session: any } }) => {
-      if (session?.user) {
-        const profile = await fetchProfile(session.user.id);
-        if (profile) {
-          setUser(profile);
-        } else {
-          await supabase.auth.signOut();
-          setUser(null);
-        }
+    // Safety valve: if auth init hangs for any reason, unblock the UI after 10s
+    const AUTH_TIMEOUT_MS = 10_000;
+    let loadingResolved = false;
+    const resolveLoading = () => {
+      if (!loadingResolved) {
+        loadingResolved = true;
+        setIsLoading(false);
       }
-      setIsLoading(false);
+    };
+    const safetyTimer = setTimeout(resolveLoading, AUTH_TIMEOUT_MS);
+
+    supabase.auth.getSession().then(async ({ data: { session } }: { data: { session: any } }) => {
+      try {
+        if (session?.user) {
+          const profile = await fetchProfile(session.user.id);
+          if (profile) {
+            setUser(profile);
+          } else {
+            supabase.auth.signOut().catch(() => {});
+            setUser(null);
+          }
+        }
+      } catch {
+        setUser(null);
+      } finally {
+        clearTimeout(safetyTimer);
+        resolveLoading();
+      }
     }).catch(() => {
-      setIsLoading(false);
+      clearTimeout(safetyTimer);
+      resolveLoading();
     });
 
     const fetchingProfileRef = { current: false };
+    // Reset stuck guard after 8s so returning to the app always works
+    let fetchingProfileTimer: ReturnType<typeof setTimeout> | null = null;
+
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event: any, session: any) => {
       if (isSeedingRef.current) return;
       if (fetchingProfileRef.current) return;
       if (session?.user) {
         fetchingProfileRef.current = true;
+        if (fetchingProfileTimer) clearTimeout(fetchingProfileTimer);
+        fetchingProfileTimer = setTimeout(() => {
+          fetchingProfileRef.current = false;
+        }, 8_000);
         try {
           const profile = await fetchProfile(session.user.id);
           if (profile) {
             setUser(profile);
           } else {
-            await supabase.auth.signOut();
+            supabase.auth.signOut().catch(() => {});
             setUser(null);
           }
         } finally {
+          if (fetchingProfileTimer) clearTimeout(fetchingProfileTimer);
           fetchingProfileRef.current = false;
         }
       } else {
@@ -270,7 +296,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
     });
 
-    return () => subscription.unsubscribe();
+    return () => {
+      subscription.unsubscribe();
+      clearTimeout(safetyTimer);
+      if (fetchingProfileTimer) clearTimeout(fetchingProfileTimer);
+      loadingResolved = true; // prevent stale setState after unmount
+    };
   }, []);
 
   useEffect(() => {
