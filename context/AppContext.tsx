@@ -8,12 +8,7 @@ import { C } from '@/constants/colors';
 import { genId, nowTimestampFR, formatDateFR } from '@/lib/utils';
 import { ROLE_LABELS } from '@/constants/roles';
 
-export const STATIC_CHANNELS: Channel[] = [
-  { id: 'general', name: 'Général', description: 'Canal principal du projet', icon: 'home', color: C.primary, type: 'general' },
-  { id: 'building-a', name: 'Chantier A', description: 'Messages relatifs au Bâtiment A', icon: 'business', color: '#7C3AED', type: 'building' },
-  { id: 'building-b', name: 'Chantier B', description: 'Messages relatifs au Bâtiment B', icon: 'business', color: '#059669', type: 'building' },
-  { id: 'building-c', name: 'Chantier C', description: 'Messages relatifs au Bâtiment C', icon: 'business', color: '#D97706', type: 'building' },
-];
+export const STATIC_CHANNELS: Channel[] = [];
 
 const CUSTOM_CHANNELS_KEY = 'customChannels_v1';
 const GROUP_CHANNELS_KEY = 'groupChannels_v1';
