@@ -9,14 +9,30 @@
     "userInterfaceStyle": "dark",
     "newArchEnabled": false,
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "bundleIdentifier": "com.buildtrack.app",
+      "infoPlist": {
+        "NSCameraUsageDescription": "BuildTrack utilise votre caméra pour photographier les réserves, incidents et rapports de chantier.",
+        "NSPhotoLibraryUsageDescription": "BuildTrack accède à votre galerie pour joindre des photos aux réserves et incidents.",
+        "NSPhotoLibraryAddUsageDescription": "BuildTrack enregistre des photos dans votre galerie depuis les rapports de chantier.",
+        "NSLocationWhenInUseUsageDescription": "BuildTrack utilise votre localisation pour géolocaliser les entrées du journal de chantier.",
+        "NSMicrophoneUsageDescription": "BuildTrack peut utiliser le microphone lors de la capture vidéo depuis la caméra."
+      }
     },
     "android": {
       "package": "com.buildtrack.app",
       "adaptiveIcon": {
         "foregroundImage": "./assets/images/adaptive-icon.png",
         "backgroundColor": "#1B2B5E"
-      }
+      },
+      "permissions": [
+        "CAMERA",
+        "READ_EXTERNAL_STORAGE",
+        "WRITE_EXTERNAL_STORAGE",
+        "ACCESS_FINE_LOCATION",
+        "ACCESS_COARSE_LOCATION",
+        "RECORD_AUDIO"
+      ]
     },
     "web": {
       "bundler": "metro",
@@ -50,6 +66,20 @@
           "imageWidth": 280,
           "resizeMode": "contain",
           "backgroundColor": "#1B2B5E"
+        }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "BuildTrack accède à votre galerie pour joindre des photos aux réserves et incidents.",
+          "cameraPermission": "BuildTrack utilise votre caméra pour photographier les réserves, incidents et rapports de chantier.",
+          "microphonePermission": "BuildTrack peut utiliser le microphone lors de la capture vidéo."
+        }
+      ],
+      [
+        "expo-location",
+        {
+          "locationWhenInUsePermission": "BuildTrack utilise votre localisation pour géolocaliser les entrées du journal de chantier."
         }
       ]
     ],

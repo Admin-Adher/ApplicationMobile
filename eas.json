@@ -11,6 +11,19 @@
       "android": {
         "buildType": "apk",
         "image": "ubuntu-22.04-jdk-17-ndk-r26b"
+      },
+      "ios": {
+        "simulator": false,
+        "distribution": "internal"
+      }
+    },
+    "simulator": {
+      "env": {
+        "EXPO_PUBLIC_SUPABASE_URL": "https://jzeojdpgglbxjdasjgta.supabase.co",
+        "EXPO_PUBLIC_SUPABASE_KEY": "sb_publishable_82T9HBSLycSJ2T6OBaDNLA_01V1mXda"
+      },
+      "ios": {
+        "simulator": true
       }
     },
     "production": {
@@ -21,10 +34,19 @@
       "android": {
         "buildType": "app-bundle",
         "image": "ubuntu-22.04-jdk-17-ndk-r26b"
+      },
+      "ios": {
+        "distribution": "store"
       }
     }
   },
   "submit": {
-    "production": {}
+    "production": {
+      "ios": {
+        "appleId": "",
+        "ascAppId": "",
+        "appleTeamId": ""
+      }
+    }
   }
 }

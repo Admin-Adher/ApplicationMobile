@@ -52,17 +52,53 @@ The full Supabase PostgreSQL schema is in `lib/schema.sql`. Key tables:
 - `companies`, `lots`, `tasks`, `incidents`, `time_entries`, etc.
 
 ## Replit-Specific Configuration
-- The Expo Metro CORS middleware (`node_modules/@expo/cli/build/src/start/server/middleware/CorsMiddleware.js`) has been patched to allow `.replit.dev` proxy domains. This is required for the Replit preview pane to work since requests are proxied through Replit's iframe proxy.
-- A backup of the original middleware is stored as `CorsMiddleware.js.bak` in the same directory.
-- If you reinstall `node_modules`, you will need to re-apply this patch (or run `npm install` — Replit agent will handle it).
+- The Expo Metro CORS middleware is patched to allow `.replit.dev` proxy domains (via `scripts/patch-expo-cors.js`, runs automatically on `npm install`).
+- If you reinstall `node_modules`, the patch is re-applied automatically via the `postinstall` script.
+
+## iOS Configuration
+- **Bundle Identifier**: `com.buildtrack.app`
+- **Supports Tablet**: yes
+- **Permissions configured** (infoPlist + expo plugins):
+  - Camera (`NSCameraUsageDescription`)
+  - Photo Library read/write (`NSPhotoLibraryUsageDescription`, `NSPhotoLibraryAddUsageDescription`)
+  - Location foreground (`NSLocationWhenInUseUsageDescription`)
+  - Microphone (`NSMicrophoneUsageDescription`)
+- **EAS Build profiles**:
+  - `preview` — internal distribution (TestFlight / ad-hoc)
+  - `simulator` — iOS Simulator build for testing
+  - `production` — App Store distribution
+
+## Building for iOS (when Apple Developer Account is ready)
+```bash
+# Install EAS CLI
+npm install -g eas-cli
+
+# Login to your Expo account
+eas login
+
+# Build for internal testing (TestFlight)
+eas build --platform ios --profile preview
+
+# Build for App Store
+eas build --platform ios --profile production
+
+# Submit to App Store (after filling appleId/ascAppId/appleTeamId in eas.json)
+eas submit --platform ios --profile production
+```
+Before your first build, complete the `submit.production.ios` section in `eas.json`:
+- `appleId` — your Apple ID email
+- `ascAppId` — App Store Connect app ID (created on appstoreconnect.apple.com)
+- `appleTeamId` — your Apple Developer Team ID
 
 ## Deployment
 - Development: `npm run start` (Metro bundler, web mode)
 - Static build: `npm run web` (outputs to `dist/`)
-- Mobile: Use EAS Build for iOS/Android native builds
+- iOS native: `eas build --platform ios --profile preview` (requires Apple Developer Account)
+- Android native: `eas build --platform android --profile preview`
 
 ## Replit Migration Status
 - Migrated to Replit environment on 2026-04-05
 - App runs in demo mode without Supabase credentials
 - To connect a real Supabase backend, set `EXPO_PUBLIC_SUPABASE_URL` and `EXPO_PUBLIC_SUPABASE_KEY` as Replit secrets
 - CORS patch is applied automatically via `postinstall` script (`scripts/patch-expo-cors.js`)
+- iOS build configuration complete — ready to build once Apple Developer Account is active
