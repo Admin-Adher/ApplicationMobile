@@ -9,7 +9,6 @@ import Header from '@/components/Header';
 import BottomNavBar from '@/components/BottomNavBar';
 import { BTPIntegration } from '@/constants/types';
 import { useAuth } from '@/context/AuthContext';
-import { useSubscription } from '@/context/SubscriptionContext';
 import { useRouter } from 'expo-router';
 
 const INTEGRATIONS_CATALOG: (Omit<BTPIntegration, 'enabled' | 'apiKey' | 'webhookUrl' | 'lastSync'> & { category: string; docsUrl: string; features: string[] })[] = [
@@ -139,7 +138,6 @@ const CATEGORY_COLORS: Record<string, string> = {
 
 export default function IntegrationsScreen() {
   const { user } = useAuth();
-  const { subscription } = useSubscription();
   const router = useRouter();
 
   const [enabledMap, setEnabledMap] = useState<Record<string, boolean>>({});
@@ -150,7 +148,6 @@ export default function IntegrationsScreen() {
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
 
   const isAdmin = user?.role === 'admin' || user?.role === 'super_admin';
-  const subscriptionBlocked = subscription?.status === 'suspended' || subscription?.status === 'expired';
 
   if (!isAdmin) {
     return (
@@ -167,34 +164,6 @@ export default function IntegrationsScreen() {
           style={{ marginTop: 24, paddingHorizontal: 20, paddingVertical: 10, backgroundColor: C.primary, borderRadius: 10 }}
         >
           <Text style={{ color: '#fff', fontFamily: 'Inter_600SemiBold', fontSize: 14 }}>Retour</Text>
-        </TouchableOpacity>
-      </View>
-    );
-  }
-
-  if (subscriptionBlocked) {
-    const isExpired = subscription?.status === 'expired';
-    return (
-      <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: C.bg, padding: 32 }}>
-        <Ionicons name={isExpired ? 'time-outline' : 'pause-circle-outline'} size={48} color={isExpired ? '#6B7280' : '#EF4444'} />
-        <Text style={{ fontSize: 17, fontFamily: 'Inter_600SemiBold', color: C.text, marginTop: 16, textAlign: 'center' }}>
-          {isExpired ? 'Abonnement expiré' : 'Abonnement suspendu'}
-        </Text>
-        <Text style={{ fontSize: 14, fontFamily: 'Inter_400Regular', color: C.textMuted, marginTop: 8, textAlign: 'center', lineHeight: 20 }}>
-          {isExpired
-            ? 'Votre période d\'essai ou abonnement a expiré. Renouvelez votre abonnement pour accéder aux intégrations BTP.'
-            : 'Votre abonnement est temporairement suspendu. Contactez le support pour le réactiver.'}
-        </Text>
-        <TouchableOpacity
-          onPress={() => router.push('/subscription')}
-          style={{ marginTop: 24, paddingHorizontal: 20, paddingVertical: 10, backgroundColor: C.primary, borderRadius: 10 }}
-        >
-          <Text style={{ color: '#fff', fontFamily: 'Inter_600SemiBold', fontSize: 14 }}>
-            {isExpired ? 'Renouveler l\'abonnement' : 'Voir l\'abonnement'}
-          </Text>
-        </TouchableOpacity>
-        <TouchableOpacity onPress={() => router.back()} style={{ marginTop: 12 }}>
-          <Text style={{ fontSize: 14, fontFamily: 'Inter_400Regular', color: C.textMuted }}>Retour</Text>
         </TouchableOpacity>
       </View>
     );
@@ -247,7 +216,7 @@ export default function IntegrationsScreen() {
           <Ionicons name="git-network-outline" size={28} color={C.primary} />
           <View style={{ flex: 1 }}>
             <Text style={styles.bannerTitle}>Connectez votre écosystème BTP</Text>
-            <Text style={styles.bannerSub}>Synchronisez BuildTrack avec vos logiciels métier, BIM, et outils réglementaires</Text>
+            <Text style={styles.bannerSub}>Synchronisez votre application avec vos logiciels métier, BIM, et outils réglementaires</Text>
           </View>
         </View>
 

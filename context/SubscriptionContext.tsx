@@ -14,65 +14,37 @@ export interface OrgSummary {
 
 const FREE_ROLES: UserRole[] = ['observateur', 'sous_traitant'];
 
-const DEMO_PLANS: Plan[] = [
-  {
-    id: 'plan-solo',
-    name: 'Solo',
-    maxUsers: 3,
-    priceMonthly: 79,
-    features: [
-      "Jusqu'à 3 utilisateurs actifs",
-      'Sous-traitants & observateurs gratuits',
-      'Réserves, plans, OPR, visites',
-      'Rapports PDF/Excel',
-      'Pointage & présences',
-      'Support email',
-    ],
-  },
-  {
-    id: 'plan-equipe',
-    name: 'Équipe',
-    maxUsers: 15,
-    priceMonthly: 199,
-    features: [
-      "Jusqu'à 15 utilisateurs actifs",
-      'Sous-traitants & observateurs gratuits',
-      'Réserves, plans, OPR, visites',
-      'Rapports PDF/Excel',
-      'Pointage & présences',
-      'Support prioritaire',
-    ],
-  },
-  {
-    id: 'plan-groupe',
-    name: 'Groupe',
-    maxUsers: -1,
-    priceMonthly: 499,
-    features: [
-      'Utilisateurs actifs illimités',
-      'Sous-traitants & observateurs gratuits',
-      'Réserves, plans, OPR, visites',
-      'Rapports PDF/Excel',
-      'Pointage & présences',
-      'Support dédié + API + SSO',
-    ],
-  },
-];
+const ENTERPRISE_PLAN: Plan = {
+  id: 'plan-entreprise',
+  name: 'Entreprise',
+  maxUsers: -1,
+  priceMonthly: 0,
+  features: [
+    'Utilisateurs illimités',
+    'Sous-traitants & observateurs inclus',
+    'Réserves, plans, OPR, visites',
+    'Rapports PDF/Excel',
+    'Pointage & présences',
+    'Support dédié',
+    'API & intégrations BTP',
+  ],
+};
+
+const DEMO_PLANS: Plan[] = [ENTERPRISE_PLAN];
 
 const DEMO_ORG: Organization = {
   id: 'demo-org',
-  name: 'BuildTrack Demo',
-  slug: 'buildtrack-demo',
+  name: 'Organisation',
+  slug: 'organisation-demo',
   createdAt: new Date().toISOString(),
 };
 
 const DEMO_SUBSCRIPTION: Subscription = {
   id: 'sub-demo',
   organizationId: 'demo-org',
-  planId: 'plan-equipe',
-  status: 'trial',
+  planId: 'plan-entreprise',
+  status: 'active',
   startedAt: new Date().toISOString(),
-  trialEndsAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
 };
 
 interface SubscriptionContextValue {
@@ -129,7 +101,7 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
       setSubscription(DEMO_SUBSCRIPTION);
       setAllOrganizations([DEMO_ORG]);
       setAllPlans(DEMO_PLANS);
-      setOrgSummaries([{ org: DEMO_ORG, planName: 'Équipe', planId: 'plan-equipe', status: 'trial', seatMax: 15 }]);
+      setOrgSummaries([{ org: DEMO_ORG, planName: 'Entreprise', planId: 'plan-entreprise', status: 'active', seatMax: -1 }]);
       setIsLoading(false);
       return;
     }

@@ -1,5 +1,5 @@
 import {
-  View, Text, StyleSheet, ScrollView, TouchableOpacity, Platform, ActivityIndicator, Linking,
+  View, Text, StyleSheet, ScrollView, TouchableOpacity, Platform, ActivityIndicator,
 } from 'react-native';
 import * as Clipboard from 'expo-clipboard';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -99,7 +99,7 @@ export default function SubscriptionScreen() {
           <Ionicons name="arrow-back" size={22} color={C.text} />
         </TouchableOpacity>
         <View style={{ flex: 1 }}>
-          <Text style={styles.title}>Abonnement</Text>
+          <Text style={styles.title}>Licence Entreprise</Text>
           <Text style={styles.subtitle}>{organization?.name ?? 'Mon organisation'}</Text>
         </View>
       </View>
@@ -150,16 +150,7 @@ export default function SubscriptionScreen() {
             <View style={{ flex: 1 }}>
               <Text style={styles.actionCardTitle}>Réactiver votre abonnement</Text>
               <Text style={styles.actionCardSub}>
-                Contactez{' '}
-                <Text
-                  style={{ textDecorationLine: 'underline' }}
-                  onPress={() => Linking.openURL('mailto:support@buildtrack.fr')}
-                  accessibilityRole="link"
-                  accessibilityLabel="Envoyer un email à support@buildtrack.fr"
-                >
-                  support@buildtrack.fr
-                </Text>
-                {' '}ou votre responsable de compte pour réactiver l'accès.
+                Contactez votre administrateur ou votre responsable de compte pour réactiver l'accès.
               </Text>
             </View>
           </View>
@@ -211,7 +202,7 @@ export default function SubscriptionScreen() {
                 <Text style={[styles.planBadgeTxt, { color: planColor }]}>{plan.name}</Text>
               </View>
               <Text style={styles.planPrice}>
-                {plan.priceMonthly === 0 ? 'Gratuit' : `${plan.priceMonthly} € / mois`}
+                Licence active
               </Text>
             </View>
 
@@ -328,14 +319,7 @@ export default function SubscriptionScreen() {
         <View style={styles.hintCard}>
           <Ionicons name="information-circle-outline" size={15} color={C.textMuted} />
           <Text style={styles.hintText}>
-            Pour changer de formule, ajouter des sièges ou gérer la facturation, contactez le support BuildTrack à{' '}
-            <Text
-              style={{ textDecorationLine: 'underline' }}
-              onPress={() => Linking.openURL('mailto:support@buildtrack.fr')}
-              accessibilityRole="link"
-            >
-              support@buildtrack.fr
-            </Text>.
+            Pour toute question relative à votre licence, contactez votre administrateur ou votre responsable de compte.
           </Text>
         </View>
       </ScrollView>

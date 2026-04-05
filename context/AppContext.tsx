@@ -889,7 +889,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           id: ch.id, name: ch.name, description: ch.description ?? null,
           icon: ch.icon ?? 'chatbubbles', color: ch.color ?? '#10B981',
           type: ch.type, members: ch.members ?? [], created_by: ch.createdBy ?? null,
-        }).then(({ error }: { error: any }) => { if (error) console.warn('Erreur sync canal:', error.message); });
       }
     }
   }
@@ -924,7 +923,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           id: ch.id, name: ch.name, description: ch.description ?? null,
           icon: ch.icon ?? 'people-circle', color: ch.color ?? '#10B981',
           type: ch.type, members: ch.members ?? [], created_by: ch.createdBy ?? null,
-        }).then(({ error }: { error: any }) => { if (error) console.warn('Erreur sync groupe:', error.message); });
       }
     }
   }
@@ -1153,7 +1151,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       ]);
 
       if (reservesErr) {
-        console.warn('Erreur chargement réserves:', reservesErr.message);
       }
 
       const storedLastRead = await AsyncStorage.getItem('lastReadByChannel').catch(() => null);
@@ -1203,7 +1200,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
             const localChantiers: Chantier[] = sc ? (JSON.parse(sc) ?? []) : [];
             if (localChantiers.length > 0) {
               // Local cache has data that Supabase doesn't — push it up automatically
-              console.log(`[AppContext] Supabase chantiers vide, synchronisation du cache local (${localChantiers.length} chantiers)...`);
               chantiers = localChantiers;
               (async () => {
                 for (const ch of localChantiers) {
@@ -1218,7 +1214,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
                     created_by: ch.createdBy ?? null,
                     buildings: ch.buildings ? JSON.stringify(ch.buildings) : null,
                   });
-                  if (syncErr) console.warn('[AppContext] Échec sync chantier local→Supabase:', ch.name, syncErr.message);
                 }
               })();
             } else {
@@ -1231,12 +1226,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
             const p = JSON.parse(sc);
             if (Array.isArray(p)) chantiers = p;
           }
-          console.warn('Erreur chargement chantiers Supabase, utilisation du cache local:', chantiersErr?.message);
         }
       } catch (e) {
         const sc = await AsyncStorage.getItem(MOCK_CHANTIERS_KEY).catch(() => null);
         if (sc) { const p = JSON.parse(sc); if (Array.isArray(p)) chantiers = p; }
-        console.warn('Exception chargement chantiers, cache local utilisé:', e);
       }
 
       try {
@@ -1252,7 +1245,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
             const ssp = await AsyncStorage.getItem(MOCK_SITE_PLANS_KEY).catch(() => null);
             const localPlans: SitePlan[] = ssp ? (JSON.parse(ssp) ?? []) : [];
             if (localPlans.length > 0) {
-              console.log(`[AppContext] Supabase site_plans vide, synchronisation du cache local (${localPlans.length} plans)...`);
               sitePlans = localPlans;
               (async () => {
                 for (const p of localPlans) {
@@ -1269,7 +1261,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
                     uploaded_at: p.uploadedAt,
                     size: p.size ?? null,
                   });
-                  if (syncErr) console.warn('[AppContext] Échec sync plan local→Supabase:', p.name, syncErr.message);
                 }
               })();
             } else {
@@ -1282,12 +1273,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
             const p = JSON.parse(ssp);
             if (Array.isArray(p)) sitePlans = p;
           }
-          console.warn('Erreur chargement site_plans Supabase, utilisation du cache local:', sitePlansErr?.message);
         }
       } catch (e) {
         const ssp = await AsyncStorage.getItem(MOCK_SITE_PLANS_KEY).catch(() => null);
         if (ssp) { const p = JSON.parse(ssp); if (Array.isArray(p)) sitePlans = p; }
-        console.warn('Exception chargement site_plans, cache local utilisé:', e);
       }
 
       try {
@@ -1301,7 +1290,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       if (reconciledChanged.length > 0) {
         sitePlans = reconciledPlans;
         persistMockSitePlans(reconciledPlans);
-        console.log(`[AppContext] Réconciliation plans : ${reconciledChanged.length} plan(s) mis à jour avec buildingId/levelId.`);
         if (isSupabaseConfigured) {
           (async () => {
             for (const p of reconciledChanged) {
@@ -1309,7 +1297,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
                 building_id: p.buildingId ?? null,
                 level_id: p.levelId ?? null,
               }).eq('id', p.id);
-              if (error) console.warn('[AppContext] Échec réconciliation plan Supabase:', p.name, error.message);
             }
           })();
         }
@@ -1334,12 +1321,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
             const sv = await AsyncStorage.getItem(MOCK_VISITES_KEY).catch(() => null);
             const localVisites: Visite[] = sv ? (JSON.parse(sv) ?? []) : [];
             if (localVisites.length > 0) {
-              console.log(`[AppContext] Supabase visites vide, sync cache local (${localVisites.length} visites)...`);
               visites = localVisites;
               (async () => {
                 for (const v of localVisites) {
                   const { error: syncErr } = await supabase.from('visites').upsert(fromVisite(v));
-                  if (syncErr) console.warn('[AppContext] Échec sync visite local→Supabase:', v.title, syncErr.message);
                 }
               })();
             }
@@ -1375,12 +1360,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
             const so = await AsyncStorage.getItem(MOCK_OPRS_KEY).catch(() => null);
             const localOprs: Opr[] = so ? (JSON.parse(so) ?? []) : [];
             if (localOprs.length > 0) {
-              console.log(`[AppContext] Supabase OPRs vide, sync cache local (${localOprs.length} OPRs)...`);
               oprs = localOprs;
               (async () => {
                 for (const o of localOprs) {
                   const { error: syncErr } = await supabase.from('oprs').upsert(fromOpr(o));
-                  if (syncErr) console.warn('[AppContext] Échec sync OPR local→Supabase:', o.title, syncErr.message);
                 }
               })();
             }
@@ -1401,7 +1384,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       dispatch({ type: 'SET_OPRS', payload: oprs });
 
     } catch (err) {
-      console.warn('Supabase load error:', err);
       dispatch({ type: 'SET_LOADING', payload: false });
       Alert.alert(
         'Erreur de connexion',
@@ -1795,7 +1777,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     saveCustomChannels(updated);
     if (isSupabaseConfigured) {
       supabase.from('channels').delete().eq('id', id).then(({ error }: { error: any }) => {
-        if (error) console.warn('Erreur suppression canal:', error.message);
       });
     }
   }
@@ -1823,7 +1804,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     saveGroupChannels(updated);
     if (isSupabaseConfigured) {
       supabase.from('channels').delete().eq('id', id).then(({ error }: { error: any }) => {
-        if (error) console.warn('Erreur suppression groupe:', error.message);
       });
     }
   }
@@ -1842,7 +1822,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         id: updatedCh.id, name: updatedCh.name, description: updatedCh.description ?? null,
         icon: updatedCh.icon ?? 'chatbubbles', color: updatedCh.color ?? '#10B981',
         type: updatedCh.type, members: updatedCh.members ?? [], created_by: updatedCh.createdBy ?? null,
-      }).then(({ error }: { error: any }) => { if (error) console.warn('Erreur mise à jour canal:', error.message); });
     }
   }
 
@@ -1866,7 +1845,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         const updatedCompany = { ...company, name: newName };
         if (isSupabaseConfigured) {
           supabase.from('companies').update({ name: newName }).eq('id', companyId).then(({ error }: { error: any }) => {
-            if (error) console.warn('Erreur renommage canal entreprise:', error.message);
           });
         }
         dispatch({ type: 'UPDATE_COMPANY_FULL', payload: updatedCompany });
@@ -2143,7 +2121,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         dispatch({ type: 'ADD_MESSAGE', payload: notifMsg });
         if (isSupabaseConfigured) {
           supabase.from('messages').insert(fromMessage(notifMsg)).then(({ error }: { error: any }) => {
-            if (error) console.warn('Erreur notification canal:', error.message);
           });
         }
       }
@@ -2348,7 +2325,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           created_at: t.createdAt ?? null,
         }).then(({ error }: { error: any }) => {
           if (error) {
-            console.warn('[addTask] Supabase error:', error.message);
             persistMockTasks([t, ...stateRef.current.tasks]);
           }
         });
@@ -2705,7 +2681,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       persistMockSitePlans(updatedPlans);
       if (isSupabaseConfigured) {
         supabase.from('site_plans').update({ is_latest_revision: false, revision_number: parentRevNum }).eq('id', parentPlanId)
-          .then(({ error }: { error: any }) => { if (error) console.warn('Erreur maj plan parent Supabase:', error.message); });
         supabase.from('site_plans').insert({
           id: versionedNew.id,
           chantier_id: versionedNew.chantierId,
@@ -2723,7 +2698,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           parent_plan_id: parentPlanId,
           is_latest_revision: true,
           revision_note: versionedNew.revisionNote ?? null,
-        }).then(({ error }: { error: any }) => { if (error) console.warn('Erreur insertion version plan Supabase (données conservées localement):', error.message); });
       }
     },
 
@@ -2858,7 +2832,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
               size: p.size ?? null,
             };
             const { error: planErr } = await supabase.from('site_plans').insert(planPayload);
-            if (planErr) console.warn('Erreur sauvegarde plan initial chantier Supabase:', planErr.message);
           }
         })();
       }
@@ -2883,7 +2856,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           if (error) {
             await supabase.auth.refreshSession().catch(() => {});
             const { error: err2 } = await supabase.from('chantiers').update(updatePayload).eq('id', c.id);
-            if (err2) console.warn('Erreur mise à jour chantier Supabase (données conservées localement):', err2.message);
           }
         })();
       }
@@ -2911,7 +2883,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         // Cascade: delete all plans of this chantier first, then the chantier itself
         supabase.from('site_plans').delete().eq('chantier_id', id).then(() => {
           supabase.from('chantiers').delete().eq('id', id).then(({ error }: { error: any }) => {
-            if (error) console.warn('Erreur suppression chantier Supabase (cache local mis à jour):', error.message);
           });
         });
       }
@@ -2999,7 +2970,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       persistMockSitePlans(updated);
       if (isSupabaseConfigured) {
         supabase.from('site_plans').delete().eq('id', id).then(({ error }: { error: any }) => {
-          if (error) console.warn('Erreur suppression plan Supabase (cache local mis à jour):', error.message);
         });
       }
     },

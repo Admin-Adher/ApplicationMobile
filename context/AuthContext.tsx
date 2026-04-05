@@ -17,7 +17,7 @@ const ROLE_PERMISSIONS: Record<UserRole, {
   sous_traitant:  { canCreate: false, canEdit: false, canEditOwn: true,  canDelete: false, canExport: false, canManageTeams: false, canViewTeams: false, canUpdateAttendance: false },
 };
 
-const DEMO_SEED_PASS = process.env.EXPO_PUBLIC_DEMO_SEED_PASS || 'BT_Demo_2025!';
+const DEMO_SEED_PASS = process.env.EXPO_PUBLIC_DEMO_SEED_PASS || '';
 
 const DEMO_USERS = [
   { email: 'superadmin@buildtrack.fr', name: 'Super Admin BuildTrack', role: 'super_admin', roleLabel: 'Super Administrateur', companyId: undefined as string | undefined },
@@ -129,7 +129,7 @@ async function seedOneUser(u: typeof DEMO_USERS[number], shouldAbort: () => bool
 
   const { data: signInData, error: signInErr } = await supabase.auth.signInWithPassword({
     email: u.email,
-    password: u.password,
+    password: DEMO_SEED_PASS,
   });
 
   if (shouldAbort()) {
@@ -142,7 +142,7 @@ async function seedOneUser(u: typeof DEMO_USERS[number], shouldAbort: () => bool
   } else {
     const { data: signUpData, error: signUpErr } = await supabase.auth.signUp({
       email: u.email,
-      password: u.password,
+      password: DEMO_SEED_PASS,
     });
     if (signUpErr || !signUpData?.user?.id) return;
     authUserId = signUpData.user.id;
@@ -153,7 +153,7 @@ async function seedOneUser(u: typeof DEMO_USERS[number], shouldAbort: () => bool
 
     const { data: reSign, error: reSignErr } = await supabase.auth.signInWithPassword({
       email: u.email,
-      password: u.password,
+      password: DEMO_SEED_PASS,
     });
 
     if (shouldAbort()) return;
@@ -395,17 +395,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
         const orgId: string = orgData.id;
 
-        const { data: equipeplan } = await supabase
+        const { data: enterprisePlan } = await supabase
           .from('plans')
           .select('id')
-          .eq('name', 'Solo')
+          .limit(1)
           .single();
 
-        if (equipeplan?.id) {
+        if (enterprisePlan?.id) {
           await supabase.from('subscriptions').insert({
             organization_id: orgId,
-            plan_id: equipeplan.id,
-            status: 'trial',
+            plan_id: enterprisePlan.id,
+            status: 'active',
           });
         }
 
@@ -456,7 +456,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     abortSeedingRef.current = true;
 
     if (!isSupabaseConfigured) {
-      const match = DEMO_USERS.find(u => u.email === email && u.password === password);
+      const demoUser = DEMO_USERS.find(u => u.email === email);
+      const match = demoUser && DEMO_SEED_PASS && DEMO_SEED_PASS === password ? demoUser : null;
       if (!match) return { success: false, error: 'Email ou mot de passe incorrect.' };
       setUser({
         id: `demo-${DEMO_USERS.indexOf(match)}`,

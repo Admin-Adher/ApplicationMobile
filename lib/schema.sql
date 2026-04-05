@@ -24,9 +24,7 @@ create policy "Plans modifiables par super_admin"
   );
 
 insert into public.plans (name, max_users, price_monthly, features) values
-  ('Solo',   3,   79,  '["Gestion des réserves","Jusqu''à 3 utilisateurs actifs","Sous-traitants & observateurs gratuits","Support email"]'),
-  ('Équipe', 15,  199, '["Gestion des réserves","Jusqu''à 15 utilisateurs actifs","Sous-traitants & observateurs gratuits","Rapports PDF/Excel","Pointage & présences","Support prioritaire"]'),
-  ('Groupe', -1,  499, '["Utilisateurs actifs illimités","Sous-traitants & observateurs gratuits","Toutes les fonctionnalités","Support dédié","API access","SSO"]')
+  ('Entreprise', -1, 0, '["Utilisateurs illimités","Sous-traitants & observateurs inclus","Réserves, plans, OPR, visites","Rapports PDF/Excel","Pointage & présences","Support dédié","API & intégrations BTP"]')
 on conflict (name) do nothing;
 
 create table if not exists public.organizations (
@@ -49,7 +47,7 @@ create policy "Organizations modifiables par super_admin"
   );
 
 insert into public.organizations (id, name, slug, created_at) values
-  ('00000000-0000-0000-0000-000000000001', 'BuildTrack Demo', 'buildtrack-demo', now())
+  ('00000000-0000-0000-0000-000000000001', 'Organisation Demo', 'organisation-demo', now())
 on conflict (slug) do nothing;
 
 create table if not exists public.subscriptions (
@@ -832,7 +830,5 @@ where name = 'Entreprise'
 
 -- Insérer les nouveaux plans s'ils n'existent pas encore
 insert into public.plans (name, max_users, price_monthly, features) values
-  ('Solo',   3,   79,  '["Gestion des réserves","Jusqu''à 3 utilisateurs actifs","Sous-traitants & observateurs gratuits","Support email"]'),
-  ('Équipe', 15,  199, '["Gestion des réserves","Jusqu''à 15 utilisateurs actifs","Sous-traitants & observateurs gratuits","Rapports PDF/Excel","Pointage & présences","Support prioritaire"]'),
-  ('Groupe', -1,  499, '["Utilisateurs actifs illimités","Sous-traitants & observateurs gratuits","Toutes les fonctionnalités","Support dédié","API access","SSO"]')
+  ('Entreprise', -1, 0, '["Utilisateurs illimités","Sous-traitants & observateurs inclus","Réserves, plans, OPR, visites","Rapports PDF/Excel","Pointage & présences","Support dédié","API & intégrations BTP"]')
 on conflict (name) do nothing;
