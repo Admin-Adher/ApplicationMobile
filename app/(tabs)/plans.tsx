@@ -325,7 +325,7 @@ export default function PlansScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const {
-    reserves, companies, sitePlans, activeChantierId, activeChantier,
+    reserves, companies, sitePlans, activeChantierId, activeChantier, isLoading,
     addSitePlan, updateSitePlan, deleteSitePlan, addSitePlanVersion, migrateReservesToPlan,
     updateReserveStatus, updateReserveFields,
   } = useApp();
@@ -1022,6 +1022,14 @@ export default function PlansScreen() {
     }
     return family.sort((a, b) => (b.revisionNumber ?? 0) - (a.revisionNumber ?? 0));
   }, [currentPlan, chantierPlans]);
+
+  if (isLoading && (!activeChantierId || chantierPlans.length === 0)) {
+    return (
+      <View style={[styles.container, { alignItems: 'center', justifyContent: 'center' }]}>
+        <ActivityIndicator size="large" color={C.primary} />
+      </View>
+    );
+  }
 
   if (!activeChantierId || chantierPlans.length === 0) {
     const noChantier = !activeChantierId;
