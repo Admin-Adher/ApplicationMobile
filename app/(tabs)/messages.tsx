@@ -81,6 +81,14 @@ function ChannelItem({ channel, lastMsg, unread, isPinned, onPress, onLongPress 
     if (!lastMsg) return 'Aucun message';
     if (lastMsg.type === 'notification' || lastMsg.type === 'system') return `📢 ${lastMsg.content}`;
     if (lastMsg.attachmentUri) return `📷 ${lastMsg.content || 'Photo'}`;
+    if (!lastMsg.content && lastMsg.linkedItemType) {
+      const typeLabel: Record<string, string> = {
+        reserve: 'Réserve', plan: 'Plan', task: 'Tâche',
+        incident: 'Incident', visite: 'Visite', opr: 'OPR',
+      };
+      const label = typeLabel[lastMsg.linkedItemType] ?? 'Élément';
+      return `🔗 ${label}${lastMsg.linkedItemTitle ? ' : ' + lastMsg.linkedItemTitle : ''}`;
+    }
     const prefix = lastMsg.isMe ? 'Vous : ' : `${lastMsg.sender.split(' ')[0]} : `;
     return prefix + lastMsg.content;
   };

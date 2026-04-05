@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import {
   View, Text, StyleSheet, Modal, TouchableOpacity, FlatList,
   TextInput, ScrollView, Platform,
@@ -77,6 +77,13 @@ export default function AttachItemModal({ visible, onClose, onSelect, reserves, 
   const insets = useSafeAreaInsets();
   const [activeCategory, setActiveCategory] = useState<LinkedItemType>('reserve');
   const [search, setSearch] = useState('');
+
+  useEffect(() => {
+    if (visible) {
+      setActiveCategory('reserve');
+      setSearch('');
+    }
+  }, [visible]);
 
   const itemsByCategory: Record<LinkedItemType, LinkedItem[]> = {
     reserve: reserves,

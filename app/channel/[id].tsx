@@ -191,7 +191,9 @@ export default function ChannelScreen() {
     if (!searchQuery.trim()) return channelMessages;
     const q = searchQuery.toLowerCase();
     return channelMessages.filter(m =>
-      m.content.toLowerCase().includes(q) || m.sender.toLowerCase().includes(q)
+      m.content.toLowerCase().includes(q) ||
+      m.sender.toLowerCase().includes(q) ||
+      (m.linkedItemTitle ?? '').toLowerCase().includes(q)
     );
   }, [channelMessages, searchQuery]);
 
@@ -511,7 +513,9 @@ export default function ChannelScreen() {
           <Ionicons name="pin" size={13} color={C.waiting} />
           <View style={{ flex: 1 }}>
             <Text style={styles.pinnedBannerLabel}>Message épinglé</Text>
-            <Text style={styles.pinnedBannerContent} numberOfLines={1}>{lastPinned.content || 'Photo'}</Text>
+            <Text style={styles.pinnedBannerContent} numberOfLines={1}>
+              {lastPinned.content || lastPinned.linkedItemTitle || 'Photo'}
+            </Text>
           </View>
           <Ionicons name="chevron-forward" size={13} color={C.waiting} />
         </TouchableOpacity>
@@ -634,7 +638,9 @@ export default function ChannelScreen() {
             <View style={styles.actionSheetHandle} />
             {selectedMsg && (
               <View style={styles.actionPreview}>
-                <Text style={styles.actionPreviewText} numberOfLines={2}>{selectedMsg.content || 'Photo'}</Text>
+                <Text style={styles.actionPreviewText} numberOfLines={2}>
+                  {selectedMsg.content || selectedMsg.linkedItemTitle || 'Photo'}
+                </Text>
               </View>
             )}
             <TouchableOpacity style={styles.actionItem} onPress={openReactPicker}>
@@ -645,6 +651,21 @@ export default function ChannelScreen() {
               <Ionicons name="return-down-back-outline" size={20} color={C.text} />
               <Text style={styles.actionLabel}>Répondre</Text>
             </TouchableOpacity>
+            {(selectedMsg?.linkedItemType || selectedMsg?.reserveId) && (
+              <TouchableOpacity
+                style={styles.actionItem}
+                onPress={() => { setActionModalVisible(false); if (selectedMsg) handleLinkedItemPress(selectedMsg); }}
+              >
+                <Ionicons
+                  name={getLinkedItemIcon(selectedMsg?.linkedItemType ?? (selectedMsg?.reserveId ? 'reserve' : null)) as any}
+                  size={20}
+                  color={getLinkedItemColor(selectedMsg?.linkedItemType ?? (selectedMsg?.reserveId ? 'reserve' : null))}
+                />
+                <Text style={[styles.actionLabel, { color: getLinkedItemColor(selectedMsg?.linkedItemType ?? (selectedMsg?.reserveId ? 'reserve' : null)) }]}>
+                  Voir {getLinkedItemLabel(selectedMsg?.linkedItemType ?? (selectedMsg?.reserveId ? 'reserve' : null))}
+                </Text>
+              </TouchableOpacity>
+            )}
             <TouchableOpacity style={styles.actionItem} onPress={handlePin}>
               <Ionicons name={selectedMsg?.isPinned ? 'pin' : 'pin-outline'} size={20} color={C.waiting} />
               <Text style={[styles.actionLabel, { color: C.waiting }]}>{selectedMsg?.isPinned ? 'Désépingler' : 'Épingler'}</Text>
@@ -700,7 +721,9 @@ export default function ChannelScreen() {
                 <Ionicons name="pin" size={13} color={C.waiting} />
                 <View style={{ flex: 1 }}>
                   <Text style={styles.pinnedItemWho}>{m.sender}</Text>
-                  <Text style={styles.pinnedItemContent} numberOfLines={2}>{m.content || 'Photo'}</Text>
+                  <Text style={styles.pinnedItemContent} numberOfLines={2}>
+                    {m.content || m.linkedItemTitle || 'Photo'}
+                  </Text>
                   <Text style={styles.pinnedItemTime}>{m.timestamp}</Text>
                 </View>
                 <TouchableOpacity onPress={() => updateMessage({ ...m, isPinned: false })}>

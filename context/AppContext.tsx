@@ -88,6 +88,7 @@ type Action =
   | { type: 'DELETE_MESSAGE'; payload: string }
   | { type: 'UPDATE_MESSAGE'; payload: Message }
   | { type: 'MARK_MESSAGES_READ' }
+  | { type: 'MARK_CHANNEL_READ_BY'; payload: { channelId: string; userName: string } }
   | { type: 'SET_CHANNEL_READ'; payload: { channelId: string; timestamp: string } }
   | { type: 'SET_LAST_READ'; payload: Record<string, string> }
   | { type: 'ADD_TASK'; payload: Task }
@@ -556,6 +557,17 @@ function reducer(state: AppState, action: Action): AppState {
 
     case 'MARK_MESSAGES_READ':
       return { ...state, messages: state.messages.map(m => ({ ...m, read: true })) };
+    case 'MARK_CHANNEL_READ_BY': {
+      const { channelId: cId, userName: uName } = action.payload;
+      return {
+        ...state,
+        messages: state.messages.map(m => {
+          if (m.channelId !== cId || m.isMe) return m;
+          if (m.readBy.includes(uName)) return m;
+          return { ...m, readBy: [...m.readBy, uName] };
+        }),
+      };
+    }
 
     case 'SET_CHANNEL_READ': {
       const newLastRead = { ...state.lastReadByChannel, [action.payload.channelId]: action.payload.timestamp };
@@ -2275,6 +2287,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
     setChannelRead: (channelId) => {
       dispatch({ type: 'SET_CHANNEL_READ', payload: { channelId, timestamp: new Date().toISOString() } });
+      const userName = currentUserNameRef.current;
+      if (userName) {
+        dispatch({ type: 'MARK_CHANNEL_READ_BY', payload: { channelId, userName } });
+      }
     },
 
     addTask: (t) => {

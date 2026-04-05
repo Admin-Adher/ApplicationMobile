@@ -55,12 +55,19 @@ interface Props {
 
 export default function MessageBubble({ msg, color, userName, onLongPress, onNotifPress, onLinkedItemPress, onReactInline, onOpenReactPicker }: Props) {
   if (msg.type === 'notification' || msg.type === 'system') {
+    const hasLink = !!(msg.linkedItemType || msg.reserveId);
+    const notifColor = msg.linkedItemType ? getLinkedItemColor(msg.linkedItemType) : C.primary;
+    const notifIcon = msg.linkedItemType ? getLinkedItemIcon(msg.linkedItemType) : (msg.reserveId ? 'alert-circle-outline' : 'notifications');
     return (
-      <TouchableOpacity style={styles.notifWrap} onPress={() => onNotifPress(msg)} activeOpacity={msg.reserveId ? 0.7 : 1}>
-        <View style={[styles.notifBubble, msg.reserveId && { borderColor: C.primary + '40', borderWidth: 1 }]}>
-          <Ionicons name={msg.reserveId ? 'alert-circle-outline' : 'notifications'} size={12} color={C.inProgress} />
+      <TouchableOpacity
+        style={styles.notifWrap}
+        onPress={() => hasLink ? (onLinkedItemPress ?? onNotifPress)(msg) : onNotifPress(msg)}
+        activeOpacity={hasLink ? 0.7 : 1}
+      >
+        <View style={[styles.notifBubble, hasLink && { borderColor: notifColor + '40', borderWidth: 1 }]}>
+          <Ionicons name={notifIcon as any} size={12} color={C.inProgress} />
           <Text style={styles.notifText}>{msg.content}</Text>
-          {msg.reserveId && <Ionicons name="chevron-forward" size={11} color={C.primary} />}
+          {hasLink && <Ionicons name="chevron-forward" size={11} color={notifColor} />}
         </View>
         <Text style={styles.notifTime}>{msg.timestamp.split(' ')[1]}</Text>
       </TouchableOpacity>
