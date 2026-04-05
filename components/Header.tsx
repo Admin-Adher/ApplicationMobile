@@ -15,13 +15,14 @@ interface Props {
   onRightPress?: () => void;
   rightLabel?: string;
   rightElement?: React.ReactNode;
+  rightActions?: React.ReactNode;
   showSearch?: boolean;
   onSearchPress?: () => void;
 }
 
 export default function Header({
   title, subtitle, showBack, onBack, rightIcon, onRightPress,
-  rightLabel, rightElement, showSearch, onSearchPress,
+  rightLabel, rightElement, rightActions, showSearch, onSearchPress,
 }: Props) {
   const insets = useSafeAreaInsets();
   const router = useRouter();
@@ -67,7 +68,7 @@ export default function Header({
               <Ionicons name="search-outline" size={20} color={C.primary} />
             </TouchableOpacity>
           )}
-          {rightElement ?? ((rightIcon || rightLabel) ? (
+          {rightActions ?? rightElement ?? ((rightIcon || rightLabel) ? (
             <TouchableOpacity onPress={onRightPress} style={rightLabel ? styles.rightPillBtn : styles.rightBtn} hitSlop={8}>
               {rightLabel ? (
                 <Text style={styles.rightPillText}>{rightLabel}</Text>

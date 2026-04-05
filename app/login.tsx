@@ -30,6 +30,15 @@ const DEMO_USER_NAMES: Record<string, string> = {
   'p.lambert@buildtrack.fr': 'Pierre Lambert',
 };
 
+const DEMO_PASSWORDS: Record<string, string> = {
+  'admin@buildtrack.fr':       'pass123',
+  'superadmin@buildtrack.fr':  'pass123',
+  'j.dupont@buildtrack.fr':    'pass123',
+  'm.martin@buildtrack.fr':    'pass123',
+  'p.lambert@buildtrack.fr':   'pass123',
+  'st.martin@buildtrack.fr':   'pass123',
+};
+
 export default function LoginScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();

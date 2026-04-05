@@ -2694,7 +2694,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       // Always persist locally as a cache/fallback so revisions survive Supabase failures
       persistMockSitePlans(updatedPlans);
       if (isSupabaseConfigured) {
-        supabase.from('site_plans').update({ is_latest_revision: false, revision_number: parentRevNum }).eq('id', parentPlanId)
+        supabase.from('site_plans').update({ is_latest_revision: false, revision_number: parentRevNum }).eq('id', parentPlanId);
         supabase.from('site_plans').insert({
           id: versionedNew.id,
           chantier_id: versionedNew.chantierId,
@@ -2712,6 +2712,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           parent_plan_id: parentPlanId,
           is_latest_revision: true,
           revision_note: versionedNew.revisionNote ?? null,
+        });
       }
     },
 

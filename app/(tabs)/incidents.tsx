@@ -11,7 +11,7 @@ import { useIncidents } from '@/context/IncidentsContext';
 import { useApp } from '@/context/AppContext';
 import { Incident, IncidentSeverity, IncidentStatus } from '@/constants/types';
 import Header from '@/components/Header';
-import SkeletonCard from '@/components/SkeletonCard';
+import { IncidentSkeletonCard as SkeletonCard } from '@/components/SkeletonCard';
 
 const SEVERITY_CONFIG: Record<IncidentSeverity, { label: string; color: string; bg: string; icon: string }> = {
   minor:    { label: 'Mineur',   color: '#6B7280', bg: '#F3F4F6', icon: 'information-circle' },

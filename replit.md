@@ -98,6 +98,14 @@ Before your first build, complete the `submit.production.ios` section in `eas.js
 
 ## Replit Migration Status
 - Migrated to Replit environment on 2026-04-05
+- Migration completed: app runs cleanly on Replit in demo mode (no Supabase credentials required)
+- Code fixes applied during migration:
+  - Fixed syntax error in `context/AppContext.tsx` (addSitePlanVersion)
+  - Added `DEMO_PASSWORDS` constant to `app/login.tsx`
+  - Added `pendingGps` state to `app/photos.tsx`
+  - Added `rightActions` prop to `components/Header.tsx`
+  - Fixed `SkeletonCard` import in `app/(tabs)/incidents.tsx`
+  - Fixed `genId()` to accept optional prefix in `lib/utils.ts`
 - App runs in demo mode without Supabase credentials
 - To connect a real Supabase backend, set `EXPO_PUBLIC_SUPABASE_URL` and `EXPO_PUBLIC_SUPABASE_KEY` as Replit secrets
 - CORS patch is applied automatically via `postinstall` script (`scripts/patch-expo-cors.js`)

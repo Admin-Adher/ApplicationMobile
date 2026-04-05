@@ -1,5 +1,6 @@
-export function genId(): string {
-  return Date.now().toString() + Math.random().toString(36).substring(2, 8);
+export function genId(prefix?: string): string {
+  const id = Date.now().toString() + Math.random().toString(36).substring(2, 8);
+  return prefix ? `${prefix}-${id}` : id;
 }
 
 export function formatSize(bytes: number | undefined): string {

@@ -28,6 +28,7 @@ export default function PhotosScreen() {
   const [fullScreenUri, setFullScreenUri] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [authorFilter, setAuthorFilter] = useState('');
+  const [pendingGps, setPendingGps] = useState<{ lat: number; lon: number; accuracy: number } | null>(null);
 
   function openShareModal(photo: Photo) {
     setSharePhoto(photo);
