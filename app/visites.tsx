@@ -6,7 +6,7 @@ import * as Haptics from 'expo-haptics';
 import { C } from '@/constants/colors';
 import { useApp } from '@/context/AppContext';
 import { useAuth } from '@/context/AuthContext';
-import { Visite, VisiteStatus } from '@/constants/types';
+import { Visite, VisiteStatus, VisiteType } from '@/constants/types';
 import Header from '@/components/Header';
 import BottomNavBar from '@/components/BottomNavBar';
 
@@ -16,18 +16,36 @@ const STATUS_CFG: Record<VisiteStatus, { label: string; color: string; icon: str
   completed: { label: 'Terminée', color: C.closed, icon: 'checkmark-circle-outline' },
 };
 
+const TYPE_CFG: Record<VisiteType, { label: string; icon: string; color: string }> = {
+  controle:  { label: 'Contrôle',  icon: 'clipboard-outline',          color: '#6366F1' },
+  opr:       { label: 'OPR',       icon: 'document-text-outline',      color: '#F59E0B' },
+  securite:  { label: 'Sécurité',  icon: 'shield-outline',             color: '#EF4444' },
+  reception: { label: 'Réception', icon: 'ribbon-outline',             color: '#10B981' },
+  synthese:  { label: 'Synthèse',  icon: 'people-outline',             color: '#3B82F6' },
+  autre:     { label: 'Autre',     icon: 'ellipsis-horizontal-outline', color: '#6B7280' },
+};
+
 function VisiteCard({
   visite, reserveCount, onPress, onDelete, canDelete,
 }: {
   visite: Visite; reserveCount: number; onPress: () => void; onDelete: () => void; canDelete: boolean;
 }) {
   const cfg = STATUS_CFG[visite.status];
+  const typeCfg = visite.visitType ? TYPE_CFG[visite.visitType] : null;
   return (
     <TouchableOpacity style={styles.card} onPress={onPress} activeOpacity={0.75}>
       <View style={styles.cardHeader}>
-        <View style={[styles.statusBadge, { backgroundColor: cfg.color + '20' }]}>
-          <Ionicons name={cfg.icon as any} size={13} color={cfg.color} />
-          <Text style={[styles.statusText, { color: cfg.color }]}>{cfg.label}</Text>
+        <View style={styles.cardBadges}>
+          <View style={[styles.statusBadge, { backgroundColor: cfg.color + '20' }]}>
+            <Ionicons name={cfg.icon as any} size={13} color={cfg.color} />
+            <Text style={[styles.statusText, { color: cfg.color }]}>{cfg.label}</Text>
+          </View>
+          {typeCfg && (
+            <View style={[styles.typeBadge, { backgroundColor: typeCfg.color + '15' }]}>
+              <Ionicons name={typeCfg.icon as any} size={11} color={typeCfg.color} />
+              <Text style={[styles.typeBadgeText, { color: typeCfg.color }]}>{typeCfg.label}</Text>
+            </View>
+          )}
         </View>
         <View style={styles.cardActions}>
           <Text style={styles.cardDate}>{visite.date}</Text>
@@ -193,9 +211,12 @@ const styles = StyleSheet.create({
     borderWidth: 1, borderColor: C.border, marginBottom: 12,
   },
   cardHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 },
+  cardBadges: { flexDirection: 'row', alignItems: 'center', gap: 6, flexShrink: 1, flexWrap: 'wrap' },
   statusBadge: { flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: 10, paddingVertical: 4, borderRadius: 20 },
   statusText: { fontSize: 11, fontFamily: 'Inter_600SemiBold' },
-  cardActions: { flexDirection: 'row', alignItems: 'center' },
+  typeBadge: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 8, paddingVertical: 3, borderRadius: 20 },
+  typeBadgeText: { fontSize: 10, fontFamily: 'Inter_600SemiBold' },
+  cardActions: { flexDirection: 'row', alignItems: 'center', flexShrink: 0, marginLeft: 8 },
   cardDate: { fontSize: 12, fontFamily: 'Inter_400Regular', color: C.textMuted },
 
   cardTitle: { fontSize: 15, fontFamily: 'Inter_600SemiBold', color: C.text, marginBottom: 8 },

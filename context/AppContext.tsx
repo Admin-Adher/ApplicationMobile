@@ -195,6 +195,8 @@ function toVisite(row: any): Visite {
     date: row.date,
     conducteur: row.conducteur,
     status: row.status as VisiteStatus,
+    visitType: row.visit_type ?? undefined,
+    concernedCompanyIds: row.concerned_company_ids ?? undefined,
     building: row.building ?? undefined,
     level: row.level ?? undefined,
     zone: row.zone ?? undefined,
@@ -213,6 +215,8 @@ function fromVisite(v: Visite): Record<string, any> {
   return {
     id: v.id, chantier_id: v.chantierId, title: v.title, date: v.date,
     conducteur: v.conducteur, status: v.status,
+    visit_type: v.visitType ?? null,
+    concerned_company_ids: v.concernedCompanyIds ?? null,
     building: v.building ?? null, level: v.level ?? null, zone: v.zone ?? null,
     notes: v.notes ?? null,
     reserve_ids: v.reserveIds, created_at: v.createdAt,
