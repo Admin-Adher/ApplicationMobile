@@ -84,6 +84,10 @@ export default function NewTaskScreen() {
   function handleSave() {
     if (isSaving) return;
     if (!validate()) return;
+    if (!activeChantierId) {
+      setErrors(e => ({ ...e, _chantier: 'Aucun chantier actif. Sélectionnez un chantier avant de créer une tâche.' }));
+      return;
+    }
 
     setIsSaving(true);
 
@@ -361,6 +365,14 @@ export default function NewTaskScreen() {
           </View>
         </View>
 
+        {/* ── Chantier error ── */}
+        {errors._chantier ? (
+          <View style={styles.chantierError}>
+            <Ionicons name="warning-outline" size={15} color="#EF4444" />
+            <Text style={styles.chantierErrorText}>{errors._chantier}</Text>
+          </View>
+        ) : null}
+
         {/* ── Save button ── */}
         <TouchableOpacity
           style={[styles.saveBtn, isSaving && { opacity: 0.6 }]}
@@ -504,6 +516,15 @@ const styles = StyleSheet.create({
     borderWidth: 1, borderColor: C.border, textAlign: 'center',
   },
   progressInputPct: { fontSize: 13, fontFamily: 'Inter_500Medium', color: C.textSub },
+
+  // Chantier error
+  chantierError: {
+    flexDirection: 'row', alignItems: 'center', gap: 8,
+    backgroundColor: '#FEF2F2', borderRadius: 10,
+    borderWidth: 1, borderColor: '#EF444440',
+    paddingVertical: 10, paddingHorizontal: 12, marginBottom: 12,
+  },
+  chantierErrorText: { flex: 1, fontSize: 13, fontFamily: 'Inter_400Regular', color: '#EF4444' },
 
   // Save
   saveBtn: {

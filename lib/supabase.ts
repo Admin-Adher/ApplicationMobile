@@ -40,8 +40,20 @@ const SsrSafeStorage = {
 
 type SupabaseClientType = ReturnType<typeof createClient>;
 
-export const supabase: SupabaseClientType = SUPABASE_URL && SUPABASE_KEY
-  ? createClient(SUPABASE_URL, SUPABASE_KEY, {
+const isValidUrl = (url: string | undefined): boolean => {
+  if (!url) return false;
+  try {
+    const parsed = new URL(url);
+    return parsed.protocol === 'http:' || parsed.protocol === 'https:';
+  } catch {
+    return false;
+  }
+};
+
+export const isSupabaseConfigured = isValidUrl(SUPABASE_URL) && Boolean(SUPABASE_KEY);
+
+export const supabase: SupabaseClientType = isSupabaseConfigured
+  ? createClient(SUPABASE_URL!, SUPABASE_KEY!, {
       auth: {
         storage: SsrSafeStorage,
         autoRefreshToken: true,
@@ -50,5 +62,3 @@ export const supabase: SupabaseClientType = SUPABASE_URL && SUPABASE_KEY
       },
     })
   : (null as unknown as SupabaseClientType);
-
-export const isSupabaseConfigured = Boolean(SUPABASE_URL && SUPABASE_KEY);

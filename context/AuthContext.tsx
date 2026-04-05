@@ -213,6 +213,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [users, setUsers] = useState<User[]>([]);
   const isSeedingRef = useRef(false);
   const abortSeedingRef = useRef(false);
+  const isRegisteringRef = useRef(false);
 
   useEffect(() => {
     if (!isSupabaseConfigured) {
@@ -277,6 +278,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event: any, session: any) => {
       if (isSeedingRef.current) return;
+      if (isRegisteringRef.current) return;
       if (fetchingProfileRef.current) return;
       if (session?.user) {
         fetchingProfileRef.current = true;
@@ -355,6 +357,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
 
     abortSeedingRef.current = true;
+    isRegisteringRef.current = true;
 
     try {
       const { data: signUpData, error: signUpErr } = await supabase.auth.signUp({
@@ -398,6 +401,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         const { data: enterprisePlan } = await supabase
           .from('plans')
           .select('id')
+          .order('created_at', { ascending: true })
           .limit(1)
           .single();
 
@@ -434,6 +438,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       });
 
       if (signInErr || !signInData?.user?.id) {
+        isRegisteringRef.current = false;
         return { success: false, error: "Compte créé. Connectez-vous avec vos identifiants." };
       }
 
@@ -442,11 +447,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         setUser(profile);
         isSeedingRef.current = false;
         setSeedStatus('done');
+        isRegisteringRef.current = false;
         return { success: true };
       }
 
+      isRegisteringRef.current = false;
       return { success: false, error: "Compte créé. Connectez-vous pour continuer." };
     } catch {
+      isRegisteringRef.current = false;
       return { success: false, error: 'Erreur réseau. Vérifiez votre connexion.' };
     }
   }
