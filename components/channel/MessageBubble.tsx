@@ -289,7 +289,6 @@ const styles = StyleSheet.create({
   linkedCard: {
     marginTop: 8,
     borderRadius: 10, borderWidth: 1, borderColor: C.border,
-    overflow: 'hidden',
   },
   linkedCardInner: {
     flexDirection: 'row', alignItems: 'center', gap: 10,
@@ -298,8 +297,8 @@ const styles = StyleSheet.create({
   linkedCardMe: { backgroundColor: 'rgba(0,0,0,0.20)', borderColor: 'rgba(255,255,255,0.30)' },
   linkedCardIcon: { width: 32, height: 32, borderRadius: 16, alignItems: 'center', justifyContent: 'center', backgroundColor: C.surface2, flexShrink: 0 },
   linkedCardIconMe: { backgroundColor: 'rgba(255,255,255,0.22)' },
-  linkedCardContent: { flexGrow: 1, flexShrink: 1, flexBasis: 0, minWidth: 0, gap: 2 },
-  linkedCardLabel: { fontSize: 10, fontFamily: 'Inter_600SemiBold', textTransform: 'uppercase', letterSpacing: 0.5 },
+  linkedCardContent: { flexGrow: 1, flexShrink: 1, minWidth: 0 },
+  linkedCardLabel: { fontSize: 10, fontFamily: 'Inter_600SemiBold', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 2 },
   linkedCardTitle: { fontSize: 13, fontFamily: 'Inter_600SemiBold', lineHeight: 17 },
   linkedCardChevron: { width: 24, height: 24, borderRadius: 12, alignItems: 'center', justifyContent: 'center', backgroundColor: C.surface2, flexShrink: 0 },
   linkedCardChevronMe: { backgroundColor: 'rgba(255,255,255,0.22)' },
