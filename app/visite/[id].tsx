@@ -1,4 +1,4 @@
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert, Platform, Modal, TextInput, ActivityIndicator, KeyboardAvoidingView } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert, Platform, Modal, TextInput, ActivityIndicator, KeyboardAvoidingView, Image } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { useMemo, useRef, useState } from 'react';
@@ -103,7 +103,39 @@ function buildVisitePDF(visite: Visite, reserves: Reserve[], projectName: string
     ...((visite.building || visite.level || visite.zone) ? [{ label: 'Localisation', value: [visite.building, visite.level, visite.zone].filter(Boolean).join(' — ') }] : []),
     { label: 'Statut de la visite', value: statusVisiteLabel },
     ...(visite.reserveDeadlineDate ? [{ label: 'Délai de levée des réserves', value: visite.reserveDeadlineDate }] : []),
+    ...(visite.tags && visite.tags.length > 0 ? [{ label: 'Tags', value: visite.tags.join(', ') }] : []),
   ];
+
+  const participantsSection = visite.participants && visite.participants.length > 0
+    ? `<div class="section-header">Participants (${visite.participants.length})</div>
+       <table>
+         <thead><tr><th>Nom</th><th>Fonction</th><th>Entreprise</th></tr></thead>
+         <tbody>${visite.participants.map((p, i) =>
+           `<tr style="background:${i % 2 === 0 ? '#fff' : '#F9FAFB'}">
+             <td style="padding:8px 10px;font-size:12px;font-weight:600">${p.name}</td>
+             <td style="padding:8px 10px;font-size:12px">${p.role ?? '—'}</td>
+             <td style="padding:8px 10px;font-size:12px">${p.company ?? '—'}</td>
+           </tr>`
+         ).join('')}</tbody>
+       </table>`
+    : '';
+
+  const checklistSection = visite.checklistItems && visite.checklistItems.length > 0
+    ? (() => {
+        const total = visite.checklistItems!.length;
+        const done  = visite.checklistItems!.filter(i => i.checked).length;
+        const pct   = Math.round((done / total) * 100);
+        return `<div class="section-header">Checklist de contrôle (${done}/${total} — ${pct}%)</div>
+          <div style="margin-bottom:20px">
+            ${visite.checklistItems!.map(item =>
+              `<div style="display:flex;align-items:center;gap:10px;padding:7px 12px;border-bottom:1px solid #EEF3FA">
+                <span style="display:inline-block;width:14px;height:14px;border-radius:3px;border:1.5px solid ${item.checked ? '#059669' : '#CBD5E1'};background:${item.checked ? '#059669' : 'transparent'};text-align:center;line-height:12px;font-size:10px;color:#fff">${item.checked ? '✓' : ''}</span>
+                <span style="font-size:12px;color:${item.checked ? '#6B7280' : '#1A2742'};${item.checked ? 'text-decoration:line-through' : ''}">${item.label}</span>
+              </div>`
+            ).join('')}
+          </div>`;
+      })()
+    : '';
 
   const conducteurSigHtml = visite.conducteurSignature
     ? `<img src="${svgStringToDataUrl(visite.conducteurSignature)}" style="height:70px;width:100%;object-fit:contain;border-bottom:2px solid #1A2742;margin-bottom:8px;display:block" />`
@@ -122,11 +154,13 @@ function buildVisitePDF(visite: Visite, reserves: Reserve[], projectName: string
       { val: totalClosed, label: 'Clôturées', color: '#059669' },
       ...(totalCritical > 0 ? [{ val: totalCritical, label: 'Priorité haute', color: '#7C3AED' }] : []),
     ])}
+    ${participantsSection}
     ${visite.notes ? `
       <div style="margin-bottom:20px;background:#F4F7FB;border-left:4px solid #003082;border-radius:0 10px 10px 0;padding:14px 18px">
         <div style="font-size:10px;color:#6B7280;text-transform:uppercase;font-weight:700;letter-spacing:0.6px;margin-bottom:6px">Observations du conducteur</div>
         <div style="font-size:13px;color:#1A2742;line-height:1.6">${visite.notes}</div>
       </div>` : ''}
+    ${checklistSection}
     <div class="section-header">
       Liste des réserves relevées (${reserves.length})
       ${totalCritical > 0 ? '<span style="font-size:11px;background:#FEF2F2;color:#DC2626;padding:2px 10px;border-radius:10px;margin-left:8px;font-weight:700">⚠ Triées par priorité</span>' : ''}
@@ -298,6 +332,14 @@ export default function VisiteDetailScreen() {
       />
 
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+
+        {/* Cover photo */}
+        {visite.coverPhotoUri ? (
+          <View style={styles.coverPhotoCard}>
+            <Image source={{ uri: visite.coverPhotoUri }} style={styles.coverPhoto} resizeMode="cover" />
+          </View>
+        ) : null}
+
         <View style={styles.card}>
           <View style={styles.cardRow}>
             <TouchableOpacity
@@ -349,6 +391,15 @@ export default function VisiteDetailScreen() {
                 </TouchableOpacity>
               )}
             </View>
+            {visite.defaultPlanId ? (
+              <View style={styles.infoItem}>
+                <Ionicons name="map-outline" size={14} color={C.textMuted} />
+                <View>
+                  <Text style={styles.infoLabel}>Plan de référence</Text>
+                  <Text style={styles.infoVal}>{visite.defaultPlanId}</Text>
+                </View>
+              </View>
+            ) : null}
           </View>
 
           {visite.reserveDeadlineDate && (
@@ -360,6 +411,16 @@ export default function VisiteDetailScreen() {
             </View>
           )}
 
+          {visite.tags && visite.tags.length > 0 && (
+            <View style={styles.tagsRow}>
+              {visite.tags.map(tag => (
+                <View key={tag} style={styles.tagChip}>
+                  <Text style={styles.tagChipText}>{tag}</Text>
+                </View>
+              ))}
+            </View>
+          )}
+
           {visite.notes ? (
             <View style={styles.notesBox}>
               <Text style={styles.notesLabel}>Notes</Text>
@@ -367,6 +428,68 @@ export default function VisiteDetailScreen() {
             </View>
           ) : null}
         </View>
+
+        {/* Participants */}
+        {visite.participants && visite.participants.length > 0 && (
+          <View style={styles.card}>
+            <Text style={styles.sectionTitle}>
+              Participants ({visite.participants.length})
+            </Text>
+            <View style={{ marginTop: 10, gap: 8 }}>
+              {visite.participants.map(p => (
+                <View key={p.id} style={styles.participantRow}>
+                  <View style={styles.participantAvatar}>
+                    <Text style={styles.participantAvatarText}>
+                      {p.name.split(' ').map((w: string) => w[0] ?? '').join('').toUpperCase().slice(0, 2)}
+                    </Text>
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.participantName}>{p.name}</Text>
+                    {(p.role || p.company) ? (
+                      <Text style={styles.participantMeta}>
+                        {[p.role, p.company].filter(Boolean).join(' · ')}
+                      </Text>
+                    ) : null}
+                  </View>
+                </View>
+              ))}
+            </View>
+          </View>
+        )}
+
+        {/* Checklist */}
+        {visite.checklistItems && visite.checklistItems.length > 0 && (
+          <View style={styles.card}>
+            {(() => {
+              const total  = visite.checklistItems!.length;
+              const done   = visite.checklistItems!.filter(i => i.checked).length;
+              const pct    = Math.round((done / total) * 100);
+              return (
+                <>
+                  <View style={styles.checklistHeaderRow}>
+                    <Text style={styles.sectionTitle}>Checklist de contrôle</Text>
+                    <Text style={styles.checklistCounter}>{done}/{total}</Text>
+                  </View>
+                  <View style={styles.progressBarBg}>
+                    <View style={[styles.progressBarFill, { width: `${pct}%` as any }]} />
+                  </View>
+                  <View style={{ marginTop: 10, gap: 6 }}>
+                    {visite.checklistItems!.map(item => (
+                      <View key={item.id} style={styles.checklistItem}>
+                        <View style={[styles.checkboxView, item.checked && styles.checkboxViewDone]}>
+                          {item.checked && <Ionicons name="checkmark" size={11} color="#fff" />}
+                        </View>
+                        <Text style={[styles.checklistItemText, item.checked && styles.checklistItemTextDone]}>
+                          {item.label}
+                        </Text>
+                      </View>
+                    ))}
+                  </View>
+                </>
+              );
+            })()}
+          </View>
+        )}
 
         {tunnelData && (
           <View style={styles.tunnelCard}>
@@ -618,6 +741,29 @@ const styles = StyleSheet.create({
   notesBox: { marginTop: 12, backgroundColor: C.bg, borderRadius: 10, padding: 12, borderLeftWidth: 3, borderLeftColor: C.primary },
   notesLabel: { fontSize: 10, fontFamily: 'Inter_600SemiBold', color: C.textSub, textTransform: 'uppercase', letterSpacing: 0.4, marginBottom: 4 },
   notesText: { fontSize: 13, fontFamily: 'Inter_400Regular', color: C.text, lineHeight: 20 },
+
+  coverPhotoCard: { borderRadius: 14, overflow: 'hidden', marginBottom: 16 },
+  coverPhoto: { width: '100%', height: 180 },
+
+  tagsRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 10 },
+  tagChip: { backgroundColor: C.primary + '15', borderRadius: 20, paddingHorizontal: 10, paddingVertical: 4, borderWidth: 1, borderColor: C.primary + '30' },
+  tagChipText: { fontSize: 11, fontFamily: 'Inter_500Medium', color: C.primary },
+
+  participantRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  participantAvatar: { width: 34, height: 34, borderRadius: 17, backgroundColor: C.primary + '20', alignItems: 'center', justifyContent: 'center' },
+  participantAvatarText: { fontSize: 12, fontFamily: 'Inter_700Bold', color: C.primary },
+  participantName: { fontSize: 13, fontFamily: 'Inter_600SemiBold', color: C.text },
+  participantMeta: { fontSize: 11, fontFamily: 'Inter_400Regular', color: C.textSub, marginTop: 1 },
+
+  checklistHeaderRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  checklistCounter: { fontSize: 13, fontFamily: 'Inter_600SemiBold', color: C.textSub },
+  progressBarBg: { height: 4, backgroundColor: C.border, borderRadius: 2, marginTop: 8 },
+  progressBarFill: { height: 4, backgroundColor: C.closed, borderRadius: 2 },
+  checklistItem: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  checkboxView: { width: 18, height: 18, borderRadius: 4, borderWidth: 1.5, borderColor: C.border, alignItems: 'center', justifyContent: 'center' },
+  checkboxViewDone: { backgroundColor: C.closed, borderColor: C.closed },
+  checklistItemText: { flex: 1, fontSize: 13, fontFamily: 'Inter_400Regular', color: C.text },
+  checklistItemTextDone: { color: C.textMuted, textDecorationLine: 'line-through' },
 
   sectionHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 },
   sectionTitle: { fontSize: 14, fontFamily: 'Inter_600SemiBold', color: C.text },
