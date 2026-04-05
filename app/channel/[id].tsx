@@ -165,6 +165,9 @@ export default function ChannelScreen() {
     return () => {
       supabase.removeChannel(typingCh);
       setActiveChannelId(null);
+      // Clear all pending typing indicator timeouts to prevent setState on unmounted component
+      Object.values(typingTimeouts.current).forEach(clearTimeout);
+      typingTimeouts.current = {};
     };
   }, [channelId]);
 

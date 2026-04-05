@@ -1069,11 +1069,16 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     AsyncStorage.setItem('buildtrack_mock_documents_v2', JSON.stringify(documents)).catch(() => {});
   }
 
+  const isLoadingAllRef = useRef(false);
+
   async function loadAll() {
     if (!isSupabaseConfigured) {
       await loadMockData();
       return;
     }
+
+    if (isLoadingAllRef.current) return;
+    isLoadingAllRef.current = true;
 
     dispatch({ type: 'SET_LOADING', payload: true });
 
@@ -1361,6 +1366,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         'Impossible de charger les données. Vérifiez votre connexion internet.',
         [{ text: 'Réessayer', onPress: loadAll }, { text: 'Ignorer', style: 'cancel' }]
       );
+    } finally {
+      isLoadingAllRef.current = false;
     }
   }
 

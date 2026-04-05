@@ -54,7 +54,12 @@ export function NotificationsProvider({ children }: { children: React.ReactNode 
   useEffect(() => {
     AsyncStorage.getItem(SEEN_KEY).then(raw => {
       if (raw) {
-        try { setSeenIds(new Set(JSON.parse(raw))); } catch {}
+        try {
+          const parsed: string[] = JSON.parse(raw);
+          // Keep only the 200 most recent seen IDs to prevent unbounded growth
+          const capped = parsed.slice(-200);
+          setSeenIds(new Set(capped));
+        } catch {}
       }
     });
   }, []);
@@ -147,6 +152,19 @@ export function NotificationsProvider({ children }: { children: React.ReactNode 
     result.sort((a, b) => parseSortable(b.createdAt) - parseSortable(a.createdAt));
     return result;
   }, [reserves, tasks, activeChantierId, seenIds]);
+
+  // Prune seenIds whenever the notification set changes —
+  // removes stale IDs for notifications that no longer exist
+  useEffect(() => {
+    setSeenIds(prev => {
+      const currentIds = new Set(notifications.map(n => n.id));
+      const pruned = new Set([...prev].filter(id => currentIds.has(id)));
+      if (pruned.size === prev.size) return prev;
+      persistSeen(pruned);
+      return pruned;
+    });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [notifications.length]);
 
   const unreadCount = notifications.filter(n => !n.read).length;
 
