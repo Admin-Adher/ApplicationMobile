@@ -44,6 +44,7 @@ export function IncidentsProvider({ children }: { children: React.ReactNode }) {
   const [incidents, setIncidents] = useState<Incident[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const incidentsRef = useRef(incidents);
+  const orgIdRef = useRef<string | null>(null);
   useEffect(() => { incidentsRef.current = incidents; }, [incidents]);
 
   useEffect(() => {
@@ -51,6 +52,12 @@ export function IncidentsProvider({ children }: { children: React.ReactNode }) {
       setIsLoading(true);
       if (isSupabaseConfigured) {
         try {
+          const { data: { session } } = await supabase.auth.getSession();
+          if (session?.user?.id) {
+            const { data: profile } = await supabase
+              .from('profiles').select('organization_id').eq('id', session.user.id).single();
+            if (profile?.organization_id) orgIdRef.current = profile.organization_id;
+          }
           const { data, error } = await supabase.from('incidents').select('*').order('reported_at', { ascending: false });
           if (!error && data && data.length > 0) {
             setIncidents(data.map(toIncident));
@@ -132,6 +139,7 @@ export function IncidentsProvider({ children }: { children: React.ReactNode }) {
           closed_at: incident.closedAt ?? null,
           closed_by: incident.closedBy ?? null,
           photo_uri: incident.photoUri ?? null,
+          organization_id: orgIdRef.current ?? null,
         });
         if (error) throw error;
       }

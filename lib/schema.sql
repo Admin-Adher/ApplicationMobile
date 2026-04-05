@@ -188,16 +188,28 @@ create table if not exists public.chantiers (
   end_date text,
   status text not null default 'active',
   created_at timestamptz not null default now(),
-  created_by text
+  created_by text,
+  organization_id uuid references public.organizations(id) on delete set null
 );
+alter table public.chantiers add column if not exists organization_id uuid references public.organizations(id) on delete set null;
+create index if not exists idx_chantiers_org on public.chantiers(organization_id);
 alter table public.chantiers enable row level security;
 drop policy if exists "Chantiers lisibles par tous les authentifiés" on public.chantiers;
-create policy "Chantiers lisibles par tous les authentifiés"
-  on public.chantiers for select using (auth.role() = 'authenticated');
+drop policy if exists "Chantiers visibles par organisation" on public.chantiers;
+create policy "Chantiers visibles par organisation"
+  on public.chantiers for select using (
+    organization_id = auth_user_org()
+    or exists (select 1 from public.profiles where id = auth.uid() and role = 'super_admin')
+  );
 drop policy if exists "Chantiers modifiables par admin/conducteur" on public.chantiers;
-create policy "Chantiers modifiables par admin/conducteur"
+drop policy if exists "Chantiers modifiables par admin/conducteur de la même org" on public.chantiers;
+create policy "Chantiers modifiables par admin/conducteur de la même org"
   on public.chantiers for all using (
-    exists (select 1 from public.profiles where id = auth.uid() and role in ('super_admin', 'admin', 'conducteur'))
+    (
+      organization_id = auth_user_org()
+      and exists (select 1 from public.profiles where id = auth.uid() and role in ('admin', 'conducteur'))
+    )
+    or exists (select 1 from public.profiles where id = auth.uid() and role = 'super_admin')
   );
 
 -- ---- 3. TABLE COMPANIES ----
@@ -210,15 +222,28 @@ create table if not exists public.companies (
   actual_workers int not null default 0,
   hours_worked int not null default 0,
   zone text not null,
-  contact text not null
+  contact text not null,
+  organization_id uuid references public.organizations(id) on delete set null
 );
+alter table public.companies add column if not exists organization_id uuid references public.organizations(id) on delete set null;
+create index if not exists idx_companies_org on public.companies(organization_id);
 alter table public.companies enable row level security;
 drop policy if exists "Companies lisibles par tous" on public.companies;
-create policy "Companies lisibles par tous" on public.companies for select using (auth.role() = 'authenticated');
+drop policy if exists "Companies visibles par organisation" on public.companies;
+create policy "Companies visibles par organisation"
+  on public.companies for select using (
+    organization_id = auth_user_org()
+    or exists (select 1 from public.profiles where id = auth.uid() and role = 'super_admin')
+  );
 drop policy if exists "Companies modifiables par admin/conducteur" on public.companies;
-create policy "Companies modifiables par admin/conducteur"
+drop policy if exists "Companies modifiables par admin/conducteur de la même org" on public.companies;
+create policy "Companies modifiables par admin/conducteur de la même org"
   on public.companies for all using (
-    exists (select 1 from public.profiles where id = auth.uid() and role in ('super_admin', 'admin', 'conducteur'))
+    (
+      organization_id = auth_user_org()
+      and exists (select 1 from public.profiles where id = auth.uid() and role in ('admin', 'conducteur'))
+    )
+    or exists (select 1 from public.profiles where id = auth.uid() and role = 'super_admin')
   );
 
 -- ---- 3. TABLE RESERVES ----
@@ -272,13 +297,39 @@ alter table public.reserves add column if not exists responsable_nom text;
 alter table public.reserves add column if not exists companies jsonb;
 alter table public.reserves add column if not exists company_signatures jsonb;
 alter table public.chantiers add column if not exists company_ids jsonb;
+create index if not exists idx_reserves_chantier on public.reserves(chantier_id);
 alter table public.reserves enable row level security;
 drop policy if exists "Reserves lisibles par tous" on public.reserves;
-create policy "Reserves lisibles par tous" on public.reserves for select using (auth.role() = 'authenticated');
+drop policy if exists "Reserves visibles par organisation" on public.reserves;
+create policy "Reserves visibles par organisation"
+  on public.reserves for select using (
+    exists (
+      select 1 from public.chantiers c
+      where c.id = reserves.chantier_id and c.organization_id = auth_user_org()
+    )
+    or (reserves.chantier_id is null and auth_user_org() is not null)
+    or exists (select 1 from public.profiles where id = auth.uid() and role = 'super_admin')
+    or exists (
+      select 1 from public.profiles p
+      where p.id = auth.uid() and p.role = 'sous_traitant' and p.company_id is not null
+        and (
+          reserves.company = (select name from public.companies where id = p.company_id limit 1)
+          or (reserves.companies is not null and reserves.companies::jsonb ? p.company_id)
+        )
+    )
+  );
 drop policy if exists "Reserves modifiables (create/edit)" on public.reserves;
-create policy "Reserves modifiables (create/edit)"
+drop policy if exists "Reserves modifiables par org" on public.reserves;
+create policy "Reserves modifiables par org"
   on public.reserves for all using (
-    exists (select 1 from public.profiles where id = auth.uid() and role in ('super_admin', 'admin', 'conducteur', 'chef_equipe'))
+    (
+      exists (
+        select 1 from public.chantiers c
+        where c.id = reserves.chantier_id and c.organization_id = auth_user_org()
+      )
+      and exists (select 1 from public.profiles where id = auth.uid() and role in ('admin', 'conducteur', 'chef_equipe'))
+    )
+    or exists (select 1 from public.profiles where id = auth.uid() and role = 'super_admin')
   );
 
 -- Sous-traitant peut mettre à jour le statut des réserves de son entreprise (demande de levée + signature)
@@ -322,13 +373,36 @@ alter table public.tasks add column if not exists reserve_id text;
 alter table public.tasks add column if not exists comments jsonb;
 alter table public.tasks add column if not exists history jsonb;
 alter table public.tasks add column if not exists created_at text;
+create index if not exists idx_tasks_chantier on public.tasks(chantier_id);
 alter table public.tasks enable row level security;
 drop policy if exists "Tasks lisibles par tous" on public.tasks;
-create policy "Tasks lisibles par tous" on public.tasks for select using (auth.role() = 'authenticated');
+drop policy if exists "Tasks visibles par organisation" on public.tasks;
+create policy "Tasks visibles par organisation"
+  on public.tasks for select using (
+    exists (
+      select 1 from public.chantiers c
+      where c.id = tasks.chantier_id and c.organization_id = auth_user_org()
+    )
+    or (tasks.chantier_id is null and auth_user_org() is not null)
+    or exists (select 1 from public.profiles where id = auth.uid() and role = 'super_admin')
+    or exists (
+      select 1 from public.profiles p
+      where p.id = auth.uid() and p.role = 'sous_traitant' and p.company_id is not null
+        and tasks.company = (select name from public.companies where id = p.company_id limit 1)
+    )
+  );
 drop policy if exists "Tasks modifiables" on public.tasks;
-create policy "Tasks modifiables"
+drop policy if exists "Tasks modifiables par org" on public.tasks;
+create policy "Tasks modifiables par org"
   on public.tasks for all using (
-    exists (select 1 from public.profiles where id = auth.uid() and role in ('super_admin', 'admin', 'conducteur', 'chef_equipe'))
+    (
+      exists (
+        select 1 from public.chantiers c
+        where c.id = tasks.chantier_id and c.organization_id = auth_user_org()
+      )
+      and exists (select 1 from public.profiles where id = auth.uid() and role in ('admin', 'conducteur', 'chef_equipe'))
+    )
+    or exists (select 1 from public.profiles where id = auth.uid() and role = 'super_admin')
   );
 
 -- ---- 5. TABLE DOCUMENTS ----
@@ -340,15 +414,28 @@ create table if not exists public.documents (
   uploaded_at text not null,
   size text not null,
   version int not null default 1,
-  uri text
+  uri text,
+  organization_id uuid references public.organizations(id) on delete set null
 );
+alter table public.documents add column if not exists organization_id uuid references public.organizations(id) on delete set null;
+create index if not exists idx_documents_org on public.documents(organization_id);
 alter table public.documents enable row level security;
 drop policy if exists "Documents lisibles par tous" on public.documents;
-create policy "Documents lisibles par tous" on public.documents for select using (auth.role() = 'authenticated');
+drop policy if exists "Documents visibles par organisation" on public.documents;
+create policy "Documents visibles par organisation"
+  on public.documents for select using (
+    organization_id = auth_user_org()
+    or exists (select 1 from public.profiles where id = auth.uid() and role = 'super_admin')
+  );
 drop policy if exists "Documents modifiables" on public.documents;
-create policy "Documents modifiables"
+drop policy if exists "Documents modifiables par org" on public.documents;
+create policy "Documents modifiables par org"
   on public.documents for all using (
-    exists (select 1 from public.profiles where id = auth.uid() and role in ('super_admin', 'admin', 'conducteur', 'chef_equipe'))
+    (
+      organization_id = auth_user_org()
+      and exists (select 1 from public.profiles where id = auth.uid() and role in ('admin', 'conducteur', 'chef_equipe'))
+    )
+    or exists (select 1 from public.profiles where id = auth.uid() and role = 'super_admin')
   );
 
 -- ---- 6. TABLE PHOTOS ----
@@ -363,13 +450,35 @@ create table if not exists public.photos (
   reserve_id text
 );
 alter table public.photos add column if not exists reserve_id text;
+create index if not exists idx_photos_reserve on public.photos(reserve_id);
 alter table public.photos enable row level security;
 drop policy if exists "Photos lisibles par tous" on public.photos;
-create policy "Photos lisibles par tous" on public.photos for select using (auth.role() = 'authenticated');
+drop policy if exists "Photos visibles par organisation" on public.photos;
+create policy "Photos visibles par organisation"
+  on public.photos for select using (
+    exists (
+      select 1 from public.reserves r
+      join public.chantiers c on c.id = r.chantier_id
+      where r.id = photos.reserve_id and c.organization_id = auth_user_org()
+    )
+    or (photos.reserve_id is null and auth_user_org() is not null)
+    or exists (select 1 from public.profiles where id = auth.uid() and role = 'super_admin')
+  );
 drop policy if exists "Photos modifiables" on public.photos;
-create policy "Photos modifiables"
+drop policy if exists "Photos modifiables par org" on public.photos;
+create policy "Photos modifiables par org"
   on public.photos for all using (
-    exists (select 1 from public.profiles where id = auth.uid() and role in ('super_admin', 'admin', 'conducteur', 'chef_equipe'))
+    (
+      exists (
+        select 1 from public.reserves r
+        join public.chantiers c on c.id = r.chantier_id
+        where r.id = photos.reserve_id and c.organization_id = auth_user_org()
+      )
+      and exists (select 1 from public.profiles where id = auth.uid() and role in ('admin', 'conducteur', 'chef_equipe'))
+    )
+    or (photos.reserve_id is null and auth_user_org() is not null
+        and exists (select 1 from public.profiles where id = auth.uid() and role in ('admin', 'conducteur', 'chef_equipe')))
+    or exists (select 1 from public.profiles where id = auth.uid() and role = 'super_admin')
   );
 
 -- ---- 7. TABLE MESSAGES ----
@@ -476,14 +585,30 @@ create table if not exists public.site_plans (
   pdf_page_count int,
   created_at timestamptz not null default now()
 );
+create index if not exists idx_site_plans_chantier on public.site_plans(chantier_id);
 alter table public.site_plans enable row level security;
 drop policy if exists "Site plans lisibles par tous" on public.site_plans;
-create policy "Site plans lisibles par tous"
-  on public.site_plans for select using (auth.role() = 'authenticated');
+drop policy if exists "Site plans visibles par organisation" on public.site_plans;
+create policy "Site plans visibles par organisation"
+  on public.site_plans for select using (
+    exists (
+      select 1 from public.chantiers c
+      where c.id = site_plans.chantier_id and c.organization_id = auth_user_org()
+    )
+    or exists (select 1 from public.profiles where id = auth.uid() and role = 'super_admin')
+  );
 drop policy if exists "Site plans modifiables" on public.site_plans;
-create policy "Site plans modifiables"
+drop policy if exists "Site plans modifiables par org" on public.site_plans;
+create policy "Site plans modifiables par org"
   on public.site_plans for all using (
-    exists (select 1 from public.profiles where id = auth.uid() and role in ('super_admin', 'admin', 'conducteur', 'chef_equipe'))
+    (
+      exists (
+        select 1 from public.chantiers c
+        where c.id = site_plans.chantier_id and c.organization_id = auth_user_org()
+      )
+      and exists (select 1 from public.profiles where id = auth.uid() and role in ('admin', 'conducteur', 'chef_equipe'))
+    )
+    or exists (select 1 from public.profiles where id = auth.uid() and role = 'super_admin')
   );
 
 -- ---- 9. TABLE INCIDENTS ----
@@ -504,13 +629,26 @@ create table if not exists public.incidents (
   photo_uri text,
   created_at timestamptz not null default now()
 );
+alter table public.incidents add column if not exists organization_id uuid references public.organizations(id) on delete set null;
+create index if not exists idx_incidents_org on public.incidents(organization_id);
 alter table public.incidents enable row level security;
 drop policy if exists "Incidents lisibles par tous" on public.incidents;
-create policy "Incidents lisibles par tous"
-  on public.incidents for select using (auth.role() = 'authenticated');
+drop policy if exists "Incidents visibles par organisation" on public.incidents;
+create policy "Incidents visibles par organisation"
+  on public.incidents for select using (
+    organization_id = auth_user_org()
+    or exists (select 1 from public.profiles where id = auth.uid() and role = 'super_admin')
+  );
 drop policy if exists "Incidents modifiables" on public.incidents;
-create policy "Incidents modifiables"
-  on public.incidents for all using (auth.role() = 'authenticated');
+drop policy if exists "Incidents modifiables par org" on public.incidents;
+create policy "Incidents modifiables par org"
+  on public.incidents for all using (
+    (
+      organization_id = auth_user_org()
+      and exists (select 1 from public.profiles where id = auth.uid() and role in ('admin', 'conducteur', 'chef_equipe'))
+    )
+    or exists (select 1 from public.profiles where id = auth.uid() and role = 'super_admin')
+  );
 
 -- ---- 10. TABLE VISITES ----
 create table if not exists public.visites (
@@ -530,14 +668,30 @@ create table if not exists public.visites (
   entreprise_signataire text,
   created_at timestamptz not null default now()
 );
+create index if not exists idx_visites_chantier on public.visites(chantier_id);
 alter table public.visites enable row level security;
 drop policy if exists "Visites lisibles par tous" on public.visites;
-create policy "Visites lisibles par tous"
-  on public.visites for select using (auth.role() = 'authenticated');
+drop policy if exists "Visites visibles par organisation" on public.visites;
+create policy "Visites visibles par organisation"
+  on public.visites for select using (
+    exists (
+      select 1 from public.chantiers c
+      where c.id = visites.chantier_id and c.organization_id = auth_user_org()
+    )
+    or exists (select 1 from public.profiles where id = auth.uid() and role = 'super_admin')
+  );
 drop policy if exists "Visites modifiables" on public.visites;
-create policy "Visites modifiables"
+drop policy if exists "Visites modifiables par org" on public.visites;
+create policy "Visites modifiables par org"
   on public.visites for all using (
-    exists (select 1 from public.profiles where id = auth.uid() and role in ('super_admin', 'admin', 'conducteur', 'chef_equipe'))
+    (
+      exists (
+        select 1 from public.chantiers c
+        where c.id = visites.chantier_id and c.organization_id = auth_user_org()
+      )
+      and exists (select 1 from public.profiles where id = auth.uid() and role in ('admin', 'conducteur', 'chef_equipe'))
+    )
+    or exists (select 1 from public.profiles where id = auth.uid() and role = 'super_admin')
   );
 
 -- ---- 11. TABLE LOTS ----
@@ -552,14 +706,30 @@ create table if not exists public.lots (
   number int,
   created_at timestamptz not null default now()
 );
+create index if not exists idx_lots_chantier on public.lots(chantier_id);
 alter table public.lots enable row level security;
 drop policy if exists "Lots lisibles par tous" on public.lots;
-create policy "Lots lisibles par tous"
-  on public.lots for select using (auth.role() = 'authenticated');
+drop policy if exists "Lots visibles par organisation" on public.lots;
+create policy "Lots visibles par organisation"
+  on public.lots for select using (
+    exists (
+      select 1 from public.chantiers c
+      where c.id = lots.chantier_id and c.organization_id = auth_user_org()
+    )
+    or exists (select 1 from public.profiles where id = auth.uid() and role = 'super_admin')
+  );
 drop policy if exists "Lots modifiables" on public.lots;
-create policy "Lots modifiables"
+drop policy if exists "Lots modifiables par org" on public.lots;
+create policy "Lots modifiables par org"
   on public.lots for all using (
-    exists (select 1 from public.profiles where id = auth.uid() and role in ('super_admin', 'admin', 'conducteur'))
+    (
+      exists (
+        select 1 from public.chantiers c
+        where c.id = lots.chantier_id and c.organization_id = auth_user_org()
+      )
+      and exists (select 1 from public.profiles where id = auth.uid() and role in ('admin', 'conducteur'))
+    )
+    or exists (select 1 from public.profiles where id = auth.uid() and role = 'super_admin')
   );
 
 -- ---- 12. TABLE OPRS ----
@@ -585,14 +755,30 @@ create table if not exists public.oprs (
   session_token text,
   created_at timestamptz not null default now()
 );
+create index if not exists idx_oprs_chantier on public.oprs(chantier_id);
 alter table public.oprs enable row level security;
 drop policy if exists "OPRs lisibles par tous" on public.oprs;
-create policy "OPRs lisibles par tous"
-  on public.oprs for select using (auth.role() = 'authenticated');
+drop policy if exists "OPRs visibles par organisation" on public.oprs;
+create policy "OPRs visibles par organisation"
+  on public.oprs for select using (
+    exists (
+      select 1 from public.chantiers c
+      where c.id = oprs.chantier_id and c.organization_id = auth_user_org()
+    )
+    or exists (select 1 from public.profiles where id = auth.uid() and role = 'super_admin')
+  );
 drop policy if exists "OPRs modifiables" on public.oprs;
-create policy "OPRs modifiables"
+drop policy if exists "OPRs modifiables par org" on public.oprs;
+create policy "OPRs modifiables par org"
   on public.oprs for all using (
-    exists (select 1 from public.profiles where id = auth.uid() and role in ('super_admin', 'admin', 'conducteur'))
+    (
+      exists (
+        select 1 from public.chantiers c
+        where c.id = oprs.chantier_id and c.organization_id = auth_user_org()
+      )
+      and exists (select 1 from public.profiles where id = auth.uid() and role in ('admin', 'conducteur'))
+    )
+    or exists (select 1 from public.profiles where id = auth.uid() and role = 'super_admin')
   );
 
 -- ---- 13. TABLE CHANNELS (canaux personnalisés et groupes) ----
@@ -647,14 +833,25 @@ create table if not exists public.time_entries (
   recorded_by text,
   created_at timestamptz not null default now()
 );
+alter table public.time_entries add column if not exists organization_id uuid references public.organizations(id) on delete set null;
+create index if not exists idx_time_entries_org on public.time_entries(organization_id);
 alter table public.time_entries enable row level security;
 drop policy if exists "Pointage lisible par tous" on public.time_entries;
-create policy "Pointage lisible par tous"
-  on public.time_entries for select using (auth.role() = 'authenticated');
+drop policy if exists "Pointage visible par organisation" on public.time_entries;
+create policy "Pointage visible par organisation"
+  on public.time_entries for select using (
+    organization_id = auth_user_org()
+    or exists (select 1 from public.profiles where id = auth.uid() and role = 'super_admin')
+  );
 drop policy if exists "Pointage modifiable" on public.time_entries;
-create policy "Pointage modifiable"
+drop policy if exists "Pointage modifiable par org" on public.time_entries;
+create policy "Pointage modifiable par org"
   on public.time_entries for all using (
-    exists (select 1 from public.profiles where id = auth.uid() and role in ('super_admin', 'admin', 'conducteur', 'chef_equipe'))
+    (
+      organization_id = auth_user_org()
+      and exists (select 1 from public.profiles where id = auth.uid() and role in ('admin', 'conducteur', 'chef_equipe'))
+    )
+    or exists (select 1 from public.profiles where id = auth.uid() and role = 'super_admin')
   );
 
 -- ---- COLONNES MANQUANTES — companies ----

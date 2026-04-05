@@ -58,12 +58,19 @@ function fromEntry(e: TimeEntry): Record<string, any> {
 export function PointageProvider({ children }: { children: React.ReactNode }) {
   const [entries, setEntries] = useState<TimeEntry[]>([]);
   const entriesRef = useRef(entries);
+  const orgIdRef = useRef<string | null>(null);
   useEffect(() => { entriesRef.current = entries; }, [entries]);
 
   useEffect(() => {
     async function load() {
       if (isSupabaseConfigured) {
         try {
+          const { data: { session } } = await supabase.auth.getSession();
+          if (session?.user?.id) {
+            const { data: profile } = await supabase
+              .from('profiles').select('organization_id').eq('id', session.user.id).single();
+            if (profile?.organization_id) orgIdRef.current = profile.organization_id;
+          }
           const { data, error } = await supabase
             .from('time_entries')
             .select('*')
@@ -126,7 +133,7 @@ export function PointageProvider({ children }: { children: React.ReactNode }) {
     const newEntry: TimeEntry = { ...entry, id: genId() };
     await persistLocal([...entriesRef.current, newEntry]);
     if (isSupabaseConfigured) {
-      supabase.from('time_entries').insert(fromEntry(newEntry)).then(({ error }: { error: any }) => {
+      supabase.from('time_entries').insert({ ...fromEntry(newEntry), organization_id: orgIdRef.current ?? null }).then(({ error }: { error: any }) => {
         if (error) {
           console.warn('Erreur sauvegarde pointage:', error.message);
           persistLocal(entriesRef.current.filter(e => e.id !== newEntry.id));

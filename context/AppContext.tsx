@@ -1221,6 +1221,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
                     status: ch.status,
                     created_by: ch.createdBy ?? null,
                     buildings: ch.buildings ? JSON.stringify(ch.buildings) : null,
+                    organization_id: currentUserOrgIdRef.current ?? null,
                   });
                 }
               })();
@@ -2176,6 +2177,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           email: c.email ?? null, lots: c.lots ?? null,
           siret: c.siret ?? null, insurance: c.insurance ?? null,
           qualifications: c.qualifications ?? null,
+          organization_id: currentUserOrgIdRef.current ?? null,
         }).then(({ error }: { error: any }) => {
           if (error) {
             dispatch({ type: 'DELETE_COMPANY', payload: c.id });
@@ -2448,6 +2450,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         supabase.from('documents').insert({
           id: d.id, name: d.name, type: d.type, category: d.category,
           uploaded_at: d.uploadedAt, size: d.size, version: d.version, uri: d.uri,
+          organization_id: currentUserOrgIdRef.current ?? null,
         }).then(({ error }: { error: any }) => {
           if (error) {
             dispatch({ type: 'DELETE_DOCUMENT', payload: d.id });
@@ -2815,6 +2818,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
             status: c.status,
             created_by: c.createdBy ?? null,
             buildings: c.buildings ? JSON.stringify(c.buildings) : null,
+            organization_id: currentUserOrgIdRef.current ?? null,
           };
           let { error } = await supabase.from('chantiers').insert(chantierPayload);
           if (error) {
