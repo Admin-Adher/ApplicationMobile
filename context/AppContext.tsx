@@ -423,17 +423,18 @@ export function toMessage(row: any, currentUserName?: string): Message {
 }
 
 function fromMessage(m: Message): Record<string, any> {
-  return {
+  const row: Record<string, any> = {
     id: m.id, channel_id: m.channelId, sender: m.sender, content: m.content,
     timestamp: m.timestamp, type: m.type, read: m.read, is_me: m.isMe,
     reply_to_id: m.replyToId ?? null, reply_to_content: m.replyToContent ?? null,
     reply_to_sender: m.replyToSender ?? null, attachment_uri: m.attachmentUri ?? null,
     reactions: m.reactions, is_pinned: m.isPinned, read_by: m.readBy,
     mentions: m.mentions, reserve_id: m.reserveId ?? null,
-    linked_item_type: m.linkedItemType ?? null,
-    linked_item_id: m.linkedItemId ?? null,
-    linked_item_title: m.linkedItemTitle ?? null,
   };
+  if (m.linkedItemType != null) row.linked_item_type = m.linkedItemType;
+  if (m.linkedItemId != null) row.linked_item_id = m.linkedItemId;
+  if (m.linkedItemTitle != null) row.linked_item_title = m.linkedItemTitle;
+  return row;
 }
 
 export function dmChannelId(nameA: string, nameB: string): string {
