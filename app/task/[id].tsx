@@ -68,6 +68,18 @@ export default function EditTaskScreen() {
   const [newComment, setNewComment] = useState('');
   const [errors, setErrors] = useState<Record<string, string>>({});
 
+  if (user?.role === 'sous_traitant') {
+    return (
+      <View style={styles.container}>
+        <Header title="Accès restreint" showBack />
+        <View style={styles.notFound}>
+          <Ionicons name="lock-closed-outline" size={48} color={C.textMuted} />
+          <Text style={styles.notFoundText}>Les sous-traitants n'ont pas accès au planning des tâches.</Text>
+        </View>
+      </View>
+    );
+  }
+
   if (!task) {
     return (
       <View style={styles.container}>

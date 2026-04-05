@@ -9,6 +9,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as Haptics from 'expo-haptics';
 import { C } from '@/constants/colors';
 import { useApp } from '@/context/AppContext';
+import { useAuth } from '@/context/AuthContext';
 import { useIncidents } from '@/context/IncidentsContext';
 
 const STATUS_LABELS: Record<string, string> = {
@@ -34,17 +35,31 @@ interface Props {
 export default function GlobalSearch({ visible, onClose }: Props) {
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const { reserves, documents } = useApp();
+  const { reserves, documents, companies } = useApp();
+  const { user } = useAuth();
   const { incidents } = useIncidents();
   const [query, setQuery] = useState('');
+
+  const isSousTraitant = user?.role === 'sous_traitant';
+  const sousTraitantCompanyName = isSousTraitant && user?.companyId
+    ? companies.find(c => c.id === user.companyId)?.name ?? null
+    : null;
 
   const q = query.toLowerCase().trim();
 
   const results = useMemo(() => {
     if (q.length < 2) return { reserves: [], incidents: [], documents: [] };
     const s = (v: string | null | undefined) => (v ?? '').toLowerCase();
+
+    const visibleReserves = isSousTraitant && sousTraitantCompanyName
+      ? reserves.filter(r =>
+          r.company === sousTraitantCompanyName ||
+          (Array.isArray(r.companies) && r.companies.includes(sousTraitantCompanyName))
+        )
+      : reserves;
+
     return {
-      reserves: reserves.filter(r =>
+      reserves: visibleReserves.filter(r =>
         s(r.title).includes(q) ||
         s(r.id).includes(q) ||
         s(r.description).includes(q) ||
@@ -52,7 +67,7 @@ export default function GlobalSearch({ visible, onClose }: Props) {
         s(r.zone).includes(q) ||
         (r.companies ?? []).some(c => s(c).includes(q))
       ).slice(0, 8),
-      incidents: incidents.filter(i =>
+      incidents: isSousTraitant ? [] : incidents.filter(i =>
         s(i.title).includes(q) ||
         s(i.description).includes(q) ||
         s(i.location).includes(q) ||
@@ -63,7 +78,7 @@ export default function GlobalSearch({ visible, onClose }: Props) {
         s(d.category).includes(q)
       ).slice(0, 5),
     };
-  }, [q, reserves, incidents, documents]);
+  }, [q, reserves, isSousTraitant, sousTraitantCompanyName, incidents, documents]);
 
   const totalCount = results.reserves.length + results.incidents.length + results.documents.length;
 

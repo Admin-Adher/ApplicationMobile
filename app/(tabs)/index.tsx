@@ -768,7 +768,7 @@ export default function DashboardScreen() {
           </View>
         )}
 
-        {lateTasks.length > 0 && (
+        {lateTasks.length > 0 && !isSousTraitant && (
           <View style={styles.delayCard}>
             <View style={styles.alertHeader}>
               <View style={styles.delayIconWrap}>

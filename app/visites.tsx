@@ -88,7 +88,7 @@ function VisiteCard({
 export default function VisitesScreen() {
   const router = useRouter();
   const { visites, reserves, deleteVisite, activeChantierId, reload } = useApp();
-  const { permissions } = useAuth();
+  const { user, permissions } = useAuth();
   const [refreshing, setRefreshing] = useState(false);
 
   const onRefresh = useCallback(async () => {
@@ -108,6 +108,21 @@ export default function VisitesScreen() {
     inProgress: chantierVisites.filter(v => v.status === 'in_progress').length,
     completed: chantierVisites.filter(v => v.status === 'completed').length,
   }), [chantierVisites]);
+
+  if (user?.role === 'sous_traitant') {
+    return (
+      <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: C.bg, padding: 32 }}>
+        <Ionicons name="lock-closed-outline" size={48} color={C.textMuted} />
+        <Text style={{ fontSize: 17, fontFamily: 'Inter_600SemiBold', color: C.text, marginTop: 16, marginBottom: 8 }}>Accès restreint</Text>
+        <Text style={{ fontSize: 14, fontFamily: 'Inter_400Regular', color: C.textMuted, textAlign: 'center', marginBottom: 24 }}>
+          Les sous-traitants n'ont pas accès aux visites de chantier.
+        </Text>
+        <TouchableOpacity onPress={() => router.back()} style={{ paddingHorizontal: 24, paddingVertical: 12, backgroundColor: C.primaryBg, borderRadius: 10, borderWidth: 1, borderColor: C.primary + '40' }}>
+          <Text style={{ fontSize: 14, fontFamily: 'Inter_600SemiBold', color: C.primary }}>Retour</Text>
+        </TouchableOpacity>
+      </View>
+    );
+  }
 
   function handleDelete(v: Visite) {
     Alert.alert('Supprimer la visite', `Supprimer "${v.title}" ?`, [
