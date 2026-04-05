@@ -615,12 +615,20 @@ export default function PlansScreen() {
   React.useEffect(() => { pinSizesRef.current = pinSizes; }, [pinSizes]);
   React.useEffect(() => { focusedPinIdRef.current = focusedPinId; }, [focusedPinId]);
 
+  // Clear the focused-pin auto-dismiss timer on unmount to avoid state updates on unmounted component
+  React.useEffect(() => {
+    return () => {
+      if (focusedPinTimerRef.current) clearTimeout(focusedPinTimerRef.current);
+    };
+  }, []);
+
   // Auto-load DXF when plan has fileType=dxf and is not yet parsed in memory
   React.useEffect(() => {
     if (!currentPlanId || !currentPlan?.uri || currentPlan.fileType !== 'dxf') return;
     if (dxfData[currentPlanId]) return;
+    const controller = new AbortController();
     setDxfLoading(true);
-    fetch(currentPlan.uri)
+    fetch(currentPlan.uri, { signal: controller.signal })
       .then(r => r.text())
       .then(text => {
         const parsed = parseDxf(text);
@@ -628,8 +636,9 @@ export default function PlansScreen() {
           setDxfData(prev => ({ ...prev, [currentPlanId]: parsed }));
         }
       })
-      .catch(() => {})
+      .catch(err => { if (err?.name !== 'AbortError') console.warn('[DXF] fetch error:', err); })
       .finally(() => setDxfLoading(false));
+    return () => { controller.abort(); };
   }, [currentPlanId, currentPlan?.uri, currentPlan?.fileType]);
 
   function getPinchDist(touches: any[]) {

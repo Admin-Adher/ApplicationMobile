@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useEffect, useState } from 'react';
+import React, { createContext, useContext, useEffect, useRef, useState } from 'react';
 import { Alert } from 'react-native';
 import { supabase, isSupabaseConfigured } from '@/lib/supabase';
 import { useAuth } from '@/context/AuthContext';
@@ -111,6 +111,7 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
   const [orgSummaries, setOrgSummaries] = useState<OrgSummary[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [refreshKey, setRefreshKey] = useState(0);
+  const loadGenRef = useRef(0);
 
   function refreshSubscription() {
     setRefreshKey(k => k + 1);
@@ -138,6 +139,7 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
 
   async function loadSubscriptionData() {
     if (!user) return;
+    const gen = ++loadGenRef.current;
     setIsLoading(true);
     try {
       const { data: plansData } = await supabase
@@ -145,6 +147,7 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
         .select('*')
         .order('price_monthly', { ascending: true });
 
+      if (gen !== loadGenRef.current) return;
       if (plansData && plansData.length > 0) {
         setAllPlans(plansData.map((p: any) => ({
           id: p.id,
@@ -165,6 +168,7 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
           .from('subscriptions')
           .select('*, plans(*)');
 
+        if (gen !== loadGenRef.current) return;
         if (orgs) {
           const orgList: Organization[] = orgs.map((o: any) => ({
             id: o.id,
@@ -199,6 +203,7 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
         .eq('id', user.organizationId)
         .single();
 
+      if (gen !== loadGenRef.current) return;
       if (orgData) {
         setOrganization({
           id: orgData.id,
@@ -214,6 +219,7 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
         .eq('organization_id', user.organizationId)
         .single();
 
+      if (gen !== loadGenRef.current) return;
       if (subData) {
         let resolvedStatus: Subscription['status'] = subData.status;
         if (
@@ -278,6 +284,7 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
           .gt('expires_at', new Date().toISOString())
           .order('created_at', { ascending: false });
 
+        if (gen !== loadGenRef.current) return;
         if (invData) {
           setPendingInvitations(
             invData.map((i: any) => ({
