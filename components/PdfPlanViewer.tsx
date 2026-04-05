@@ -205,7 +205,7 @@ html,body{width:100%;height:100%;overflow:hidden;background:#0F1117;touch-action
 #cur-svg{position:absolute;top:0;left:0;pointer-events:all;}
 #ghost-layer{position:absolute;top:0;left:0;}
 #pins-layer{position:absolute;top:0;left:0;}
-.pin{position:absolute;border-radius:50%;display:flex;align-items:center;justify-content:center;border:2px solid rgba(255,255,255,0.85);box-shadow:0 2px 8px rgba(0,0,0,0.5);cursor:pointer;transition:transform 0.1s;user-select:none;-webkit-user-select:none;-webkit-touch-callout:none;}
+.pin{position:absolute;border-radius:50%;display:flex;align-items:center;justify-content:center;border:2px solid rgba(255,255,255,0.85);box-shadow:0 2px 8px rgba(0,0,0,0.5);cursor:pointer;transition:box-shadow 0.15s;user-select:none;-webkit-user-select:none;-webkit-touch-callout:none;touch-action:none;}
 .pin span{color:#fff;font-weight:700;font-family:Arial;line-height:1;pointer-events:none;}
 #loading{position:fixed;top:0;left:0;width:100%;height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;background:#0F1117;}
 #loading-spinner{width:36px;height:36px;border:3px solid #1E3A5F;border-top-color:#003082;border-radius:50%;animation:spin 0.8s linear infinite;}
@@ -399,6 +399,7 @@ function renderPins(){
     div.appendChild(span);
 
     var lpTimer=null,pinDrag=false,pinMoved=false,psx=0,psy=0;
+    var rafId=null,latestTX=0,latestTY=0;
 
     div.addEventListener('contextmenu',function(e){e.preventDefault();e.stopPropagation();});
 
@@ -411,10 +412,11 @@ function renderPins(){
         post({type:'pinFocus',reserveId:pin.id});
         if(CAN_CREATE){
           pinDrag=true;
+          div.style.transition='none';
+          div.style.willChange='transform';
           div.style.transform='scale(1.35)';
           div.style.boxShadow='0 8px 28px rgba(0,0,0,0.75)';
           div.style.zIndex='999';
-          div.style.transition='none';
         }
       },480);
     },{passive:true});
@@ -422,37 +424,47 @@ function renderPins(){
     div.addEventListener('touchmove',function(e){
       e.preventDefault();e.stopPropagation();
       if(e.touches.length!==1)return;
-      var dx=Math.abs(e.touches[0].clientX-psx),dy=Math.abs(e.touches[0].clientY-psy);
-      if(!pinDrag){if(dx>8||dy>8){clearTimeout(lpTimer);lpTimer=null;}return;}
+      var tx=e.touches[0].clientX,ty=e.touches[0].clientY;
+      if(!pinDrag){
+        if(Math.abs(tx-psx)>8||Math.abs(ty-psy)>8){clearTimeout(lpTimer);lpTimer=null;}
+        return;
+      }
       pinMoved=true;
-      var c=screenToCanvas(e.touches[0].clientX,e.touches[0].clientY);
-      div.style.left=(c.x-half)+'px';
-      div.style.top=(c.y-half)+'px';
+      latestTX=tx;latestTY=ty;
+      if(!rafId){
+        rafId=requestAnimationFrame(function(){
+          rafId=null;
+          var c=screenToCanvas(latestTX,latestTY);
+          div.style.left=(c.x-half)+'px';
+          div.style.top=(c.y-half)+'px';
+        });
+      }
     },{passive:false});
 
     div.addEventListener('touchend',function(e){
       e.preventDefault();e.stopPropagation();
       clearTimeout(lpTimer);lpTimer=null;
+      if(rafId){cancelAnimationFrame(rafId);rafId=null;}
+      div.style.willChange='';
       div.style.transform='';div.style.zIndex='';div.style.transition='';
+      div.style.boxShadow='';
       if(pinDrag&&pinMoved){
         var cx=parseFloat(div.style.left)+half;
         var cy=parseFloat(div.style.top)+half;
         var p=toPct(cx,cy);
         pin.planX=p.px;pin.planY=p.py;
         post({type:'pinMove',reserveId:pin.id,planX:p.px,planY:p.py});
-        div.style.boxShadow='';
       } else if(!pinDrag){
         post({type:'pinSelect',reserveId:pin.id});
-        div.style.boxShadow='';
-      } else {
-        div.style.boxShadow='';
       }
       pinDrag=false;pinMoved=false;
     },{passive:false});
 
     div.addEventListener('touchcancel',function(){
       clearTimeout(lpTimer);lpTimer=null;
+      if(rafId){cancelAnimationFrame(rafId);rafId=null;}
       pinDrag=false;pinMoved=false;
+      div.style.willChange='';
       div.style.transform='';div.style.boxShadow='';div.style.zIndex='';div.style.transition='';
       div.style.left=((pin.planX/100)*cw-half)+'px';
       div.style.top=((pin.planY/100)*ch-half)+'px';
@@ -1146,6 +1158,8 @@ const WebViewer = forwardRef<PdfPlanViewerHandle, PdfPlanViewerProps>(function W
   const pinDragDidMoveRef = useRef(false);
   const pinJustMovedRef = useRef(false);
   const pinLpTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pinRafRef = useRef<number | null>(null);
+  const pinLatestClientRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
 
   const applyT = useCallback(() => {
     if (!innerRef.current) return;
@@ -1335,11 +1349,19 @@ const WebViewer = forwardRef<PdfPlanViewerHandle, PdfPlanViewerProps>(function W
 
   const onContainerMove = (e: React.MouseEvent<HTMLDivElement>) => {
     if (pinDragActiveRef.current && pinDragRef.current) {
-      const dx = (e.clientX - pinDragRef.current.startX) / zoomRef.current;
-      const dy = (e.clientY - pinDragRef.current.startY) / zoomRef.current;
-      pinDragRef.current.el.style.left = (pinDragRef.current.origLeft + dx - pinDragRef.current.sz / 2) + 'px';
-      pinDragRef.current.el.style.top = (pinDragRef.current.origTop + dy - pinDragRef.current.sz / 2) + 'px';
       pinDragDidMoveRef.current = true;
+      pinLatestClientRef.current = { x: e.clientX, y: e.clientY };
+      if (!pinRafRef.current) {
+        pinRafRef.current = requestAnimationFrame(() => {
+          pinRafRef.current = null;
+          const d = pinDragRef.current;
+          if (!d) return;
+          const dx = (pinLatestClientRef.current.x - d.startX) / zoomRef.current;
+          const dy = (pinLatestClientRef.current.y - d.startY) / zoomRef.current;
+          d.el.style.left = (d.origLeft + dx - d.sz / 2) + 'px';
+          d.el.style.top = (d.origTop + dy - d.sz / 2) + 'px';
+        });
+      }
       return;
     }
     if (pinLpTimerRef.current && pinDragRef.current) {
@@ -1360,6 +1382,7 @@ const WebViewer = forwardRef<PdfPlanViewerHandle, PdfPlanViewerProps>(function W
   const onContainerUp = (e: React.MouseEvent<HTMLDivElement>) => {
     if (pinLpTimerRef.current) { clearTimeout(pinLpTimerRef.current); pinLpTimerRef.current = null; }
     if (pinDragActiveRef.current && pinDragRef.current) {
+      if (pinRafRef.current) { cancelAnimationFrame(pinRafRef.current); pinRafRef.current = null; }
       const d = pinDragRef.current;
       if (pinDragDidMoveRef.current) {
         const cx = parseFloat(d.el.style.left) + d.sz / 2;
@@ -1368,10 +1391,11 @@ const WebViewer = forwardRef<PdfPlanViewerHandle, PdfPlanViewerProps>(function W
         onPinMove?.(d.id, px, py);
         pinJustMovedRef.current = true;
       }
+      d.el.style.willChange = '';
       d.el.style.transform = '';
       d.el.style.boxShadow = '0 2px 8px rgba(0,0,0,0.5)';
       d.el.style.zIndex = '10';
-      d.el.style.transition = 'transform 0.12s';
+      d.el.style.transition = '';
       pinDragRef.current = null;
       pinDragActiveRef.current = false;
       pinDragDidMoveRef.current = false;
@@ -1418,10 +1442,11 @@ const WebViewer = forwardRef<PdfPlanViewerHandle, PdfPlanViewerProps>(function W
       onPinFocus?.(r.id);
       if (canCreate) {
         pinDragActiveRef.current = true;
+        el.style.transition = 'none';
+        el.style.willChange = 'transform';
         el.style.transform = 'scale(1.35)';
         el.style.boxShadow = '0 8px 28px rgba(0,0,0,0.75)';
         el.style.zIndex = '999';
-        el.style.transition = 'none';
       }
     }, 400);
   };
