@@ -464,7 +464,7 @@ export default function ChannelScreen() {
           showsVerticalScrollIndicator={false}
           inverted
           ListEmptyComponent={() => (
-            <View style={[styles.empty, { transform: [{ scaleY: -1 }] }]}>
+            <View style={[styles.empty, { transform: [{ scaleX: -1 }, { scaleY: -1 }] }]}>
               <View style={[styles.emptyIcon, { backgroundColor: color + '20' }]}>
                 <Ionicons name={(channelIcon ?? 'chatbubbles') as any} size={32} color={color} />
               </View>
