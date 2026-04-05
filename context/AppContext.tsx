@@ -1203,12 +1203,40 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
       if (loadGenerationRef.current !== myGen) return;
 
+      // ── Companies: Supabase-first with local-cache fallback ─────────────────
+      let resolvedCompanies: Company[] = (companies ?? []).map(toCompany);
+      if (resolvedCompanies.length === 0) {
+        const sc = await AsyncStorage.getItem(MOCK_COMPANIES_KEY).catch(() => null);
+        const localCompanies: Company[] = sc ? (JSON.parse(sc) ?? []) : [];
+        if (localCompanies.length > 0) {
+          resolvedCompanies = localCompanies;
+          // Try to push local companies up to Supabase (best-effort)
+          const orgId = currentUserOrgIdRef.current;
+          (async () => {
+            for (const co of localCompanies) {
+              await supabase.from('companies').upsert({
+                id: co.id, name: co.name, short_name: co.shortName ?? '', color: co.color,
+                planned_workers: co.plannedWorkers ?? 0, actual_workers: co.actualWorkers ?? 0,
+                hours_worked: co.hoursWorked ?? 0, zone: co.zone ?? '', contact: co.phone ?? null,
+                email: co.email ?? null, lots: co.lots?.length ? co.lots : null,
+                siret: co.siret ?? null, insurance: co.insurance ?? null,
+                qualifications: co.qualifications ?? null,
+                organization_id: orgId ?? null,
+              }).catch(() => {});
+            }
+          })();
+        }
+      } else {
+        // Cache the good result locally so we have a fallback next time
+        persistMockCompanies(resolvedCompanies);
+      }
+
       const userName = currentUserNameRef.current;
       dispatch({
         type: 'INIT',
         payload: {
           reserves: (reserves ?? []).map(toReserve),
-          companies: (companies ?? []).map(toCompany),
+          companies: resolvedCompanies,
           tasks: (tasks ?? []).map(toTask),
           documents: (documents ?? []).map(toDocument),
           photos: (photos ?? []).map(toPhoto),
@@ -2259,6 +2287,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         return;
       }
       dispatch({ type: 'ADD_COMPANY', payload: c });
+      // Always persist to local cache so data survives if Supabase fails or is unavailable
+      persistMockCompanies([...stateRef.current.companies, c]);
       if (offline({ table: 'companies', op: 'insert', data: {
         id: c.id, name: c.name, short_name: c.shortName, color: c.color,
         planned_workers: c.plannedWorkers, actual_workers: c.actualWorkers,
@@ -2299,14 +2329,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
             console.warn('[sync] addCompany exception (data saved locally):', e?.message ?? e);
           }
         })();
-      } else {
-        persistMockCompanies([...stateRef.current.companies, c]);
       }
     },
 
     updateCompanyWorkers: (id, actual) => {
       const previous = stateRef.current.companies.find(c => c.id === id);
       dispatch({ type: 'UPDATE_COMPANY', payload: { id, actualWorkers: actual } });
+      persistMockCompanies(stateRef.current.companies.map(c => c.id === id ? { ...c, actualWorkers: actual } : c));
       if (offline({ table: 'companies', op: 'update', filter: { column: 'id', value: id }, data: { actual_workers: actual } })) return;
       if (isSupabaseConfigured) {
         supabase.from('companies').update({ actual_workers: actual }).eq('id', id).then(({ error }: { error: any }) => {
@@ -2314,14 +2343,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
             console.warn('[sync] updateCompanyWorkers server error (data saved locally):', error.message);
           }
         });
-      } else {
-        persistMockCompanies(stateRef.current.companies.map(c => c.id === id ? { ...c, actualWorkers: actual } : c));
       }
     },
 
     updateCompanyFull: (c) => {
       const previous = stateRef.current.companies.find(co => co.id === c.id);
       dispatch({ type: 'UPDATE_COMPANY_FULL', payload: c });
+      persistMockCompanies(stateRef.current.companies.map(co => co.id === c.id ? c : co));
       if (offline({ table: 'companies', op: 'update', filter: { column: 'id', value: c.id }, data: {
         name: c.name, short_name: c.shortName, color: c.color,
         planned_workers: c.plannedWorkers, actual_workers: c.actualWorkers,
@@ -2343,14 +2371,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
             console.warn('[sync] updateCompanyFull server error (data saved locally):', error.message);
           }
         });
-      } else {
-        persistMockCompanies(stateRef.current.companies.map(co => co.id === c.id ? c : co));
       }
     },
 
     deleteCompany: (id) => {
       const previous = stateRef.current.companies.find(c => c.id === id);
       dispatch({ type: 'DELETE_COMPANY', payload: id });
+      persistMockCompanies(stateRef.current.companies.filter(c => c.id !== id));
       if (offline({ table: 'companies', op: 'delete', filter: { column: 'id', value: id } })) return;
       if (isSupabaseConfigured) {
         supabase.from('companies').delete().eq('id', id).then(({ error }: { error: any }) => {
@@ -2358,14 +2385,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
             console.warn('[sync] deleteCompany server error (data deleted locally):', error.message);
           }
         });
-      } else {
-        persistMockCompanies(stateRef.current.companies.filter(c => c.id !== id));
       }
     },
 
     updateCompanyHours: (id, hours) => {
       const previous = stateRef.current.companies.find(c => c.id === id);
       dispatch({ type: 'UPDATE_COMPANY_HOURS', payload: { id, hours } });
+      persistMockCompanies(stateRef.current.companies.map(c => c.id === id ? { ...c, hoursWorked: hours } : c));
       if (offline({ table: 'companies', op: 'update', filter: { column: 'id', value: id }, data: { hours_worked: hours } })) return;
       if (isSupabaseConfigured) {
         supabase.from('companies').update({ hours_worked: hours }).eq('id', id).then(({ error }: { error: any }) => {
@@ -2373,8 +2399,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
             console.warn('[sync] updateCompanyHours server error (data saved locally):', error.message);
           }
         });
-      } else {
-        persistMockCompanies(stateRef.current.companies.map(c => c.id === id ? { ...c, hoursWorked: hours } : c));
       }
     },
 
