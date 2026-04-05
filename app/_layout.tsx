@@ -21,6 +21,7 @@ import { NetworkProvider } from '@/context/NetworkContext';
 import { NotificationsProvider } from '@/context/NotificationsContext';
 import NotificationBanner from '@/components/NotificationBanner';
 import OfflineBanner from '@/components/OfflineBanner';
+import ConflictModal from '@/components/ConflictModal';
 import ChantierSwitcherSheet from '@/components/ChantierSwitcherSheet';
 
 function reloadApp() {
@@ -271,6 +272,7 @@ export default function RootLayout() {
                   </AuthGuard>
                   <NotificationBanner />
                   <OfflineBanner />
+                  <ConflictModal />
                   <ChantierSwitcherSheet />
                   <StatusBar style="light" />
                 </SafeKeyboardProvider>
