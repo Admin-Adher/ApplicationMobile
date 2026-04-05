@@ -1417,7 +1417,9 @@ export default function ReserveDetailScreen() {
           <ScrollView
             style={{ maxHeight: 260 }}
             nestedScrollEnabled
-            showsVerticalScrollIndicator={reserve.history.length > 5}
+            showsVerticalScrollIndicator={true}
+            persistentScrollbar={true}
+            indicatorStyle="black"
           >
             {[...reserve.history].reverse().map(h => (
               <View key={h.id} style={styles.historyItem}>
