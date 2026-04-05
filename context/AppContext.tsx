@@ -925,8 +925,19 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     try { await AsyncStorage.setItem(CUSTOM_CHANNELS_KEY, JSON.stringify(channels)); } catch {}
     if (!isSupabaseConfigured) return;
 
-    // Récupérer l'org_id courant — peut être null si le profil n'est pas encore chargé
-    const orgId = currentUserOrgIdRef.current;
+    // Récupérer l'org_id — si null (race condition login), tenter de le charger depuis Supabase
+    let orgId = currentUserOrgIdRef.current;
+    if (!orgId) {
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        if (session?.user?.id) {
+          const { data: prof } = await supabase
+            .from('profiles').select('organization_id').eq('id', session.user.id).single();
+          orgId = prof?.organization_id ?? null;
+          if (orgId) currentUserOrgIdRef.current = orgId;
+        }
+      } catch {}
+    }
 
     for (const ch of channels) {
       const { error } = await supabase.from('channels').upsert({
@@ -983,7 +994,19 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     try { await AsyncStorage.setItem(GROUP_CHANNELS_KEY, JSON.stringify(channels)); } catch {}
     if (!isSupabaseConfigured) return;
 
-    const orgId = currentUserOrgIdRef.current;
+    // Récupérer l'org_id — si null (race condition login), tenter de le charger depuis Supabase
+    let orgId = currentUserOrgIdRef.current;
+    if (!orgId) {
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        if (session?.user?.id) {
+          const { data: prof } = await supabase
+            .from('profiles').select('organization_id').eq('id', session.user.id).single();
+          orgId = prof?.organization_id ?? null;
+          if (orgId) currentUserOrgIdRef.current = orgId;
+        }
+      } catch {}
+    }
 
     for (const ch of channels) {
       const { error } = await supabase.from('channels').upsert({
@@ -1983,14 +2006,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       saveCustomChannels(newCustomChannels);
     } else if (updatedCh.type === 'group') {
       saveGroupChannels(newGroupChannels);
-    }
-    if (isSupabaseConfigured) {
-      supabase.from('channels').upsert({
-        id: updatedCh.id, name: updatedCh.name, description: updatedCh.description ?? null,
-        icon: updatedCh.icon ?? 'chatbubbles', color: updatedCh.color ?? '#10B981',
-        type: updatedCh.type, members: updatedCh.members ?? [], created_by: updatedCh.createdBy ?? null,
-        organization_id: currentUserOrgIdRef.current ?? null,
-      });
     }
   }
 
