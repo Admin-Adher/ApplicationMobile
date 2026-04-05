@@ -191,7 +191,7 @@ export default function RootLayout() {
     const timer = setTimeout(() => {
       setTimedOut(true);
       SplashScreen.hideAsync().catch(() => {});
-    }, 1500);
+    }, 500);
     return () => clearTimeout(timer);
   }, []);
 

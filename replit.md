@@ -98,6 +98,7 @@ Before your first build, complete the `submit.production.ios` section in `eas.js
 
 ## Replit Migration Status
 - Migrated to Replit environment on 2026-04-05
+- Re-confirmed working on Replit 2026-04-05 (packages reinstalled, workflow running)
 - Migration completed: app runs cleanly on Replit in demo mode (no Supabase credentials required)
 - Code fixes applied during migration:
   - Fixed syntax error in `context/AppContext.tsx` (addSitePlanVersion)
@@ -106,7 +107,14 @@ Before your first build, complete the `submit.production.ios` section in `eas.js
   - Added `rightActions` prop to `components/Header.tsx`
   - Fixed `SkeletonCard` import in `app/(tabs)/incidents.tsx`
   - Fixed `genId()` to accept optional prefix in `lib/utils.ts`
+  - Reduced font load timeout from 1500ms to 500ms for faster startup
 - App runs in demo mode without Supabase credentials
 - To connect a real Supabase backend, set `EXPO_PUBLIC_SUPABASE_URL` and `EXPO_PUBLIC_SUPABASE_KEY` as Replit secrets
 - CORS patch is applied automatically via `postinstall` script (`scripts/patch-expo-cors.js`)
 - iOS build configuration complete — ready to build once Apple Developer Account is active
+
+## Architecture Notes
+- This is a pure React Native/Expo app. All data access is client-side.
+- Supabase is the optional backend — without credentials, the app uses built-in demo data.
+- No Node.js/Express backend needed — the app communicates directly with Supabase from the browser/device.
+- The Supabase anon key (EXPO_PUBLIC_SUPABASE_KEY) is safe to expose client-side — Supabase RLS policies enforce data access.
