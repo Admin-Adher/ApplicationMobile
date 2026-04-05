@@ -16,14 +16,14 @@ import { genId } from '@/lib/utils';
 import { ROLES, ROLE_INFO, PLAN_COLORS, FREE_ROLES, AVATAR_COLORS, hashColor, formatDate } from '@/lib/adminUtils';
 
 function SafeKAV({ children }: { children: React.ReactNode }) {
-  if (Platform.OS === 'web') {
-    return <View style={{ flex: 1 }}>{children}</View>;
+  if (Platform.OS === 'ios') {
+    return (
+      <KeyboardAvoidingView style={{ flex: 1 }} behavior="padding">
+        {children}
+      </KeyboardAvoidingView>
+    );
   }
-  return (
-    <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
-      {children}
-    </KeyboardAvoidingView>
-  );
+  return <View style={{ flex: 1 }}>{children}</View>;
 }
 
 const STATUS_CONFIG: Record<string, { label: string; color: string; bg: string; icon: any; hint?: string }> = {
@@ -1247,7 +1247,6 @@ export default function AdminScreen() {
                 {companyModal?.mode === 'edit' ? 'Modifier l\'entreprise' : 'Ajouter une entreprise'}
               </Text>
               <ScrollView
-                style={{ flex: 1 }}
                 showsVerticalScrollIndicator={false}
                 keyboardShouldPersistTaps="handled"
                 nestedScrollEnabled
