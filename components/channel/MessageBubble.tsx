@@ -111,6 +111,22 @@ export default function MessageBubble({ msg, color, userName, onLongPress, onNot
           {msg.content.length > 0 && (
             <MessageTextRender text={msg.content} isMe={msg.isMe} />
           )}
+          {msg.reserveId && (
+            <TouchableOpacity
+              style={[styles.reserveCard, msg.isMe && styles.reserveCardMe]}
+              onPress={() => onNotifPress(msg)}
+              activeOpacity={0.75}
+            >
+              <View style={[styles.reserveCardIcon, msg.isMe && styles.reserveCardIconMe]}>
+                <Ionicons name="alert-circle-outline" size={14} color={msg.isMe ? '#fff' : C.primary} />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={[styles.reserveCardLabel, msg.isMe && { color: 'rgba(255,255,255,0.7)' }]}>Réserve liée</Text>
+                <Text style={[styles.reserveCardId, msg.isMe && { color: '#fff' }]} numberOfLines={1}>{msg.reserveId}</Text>
+              </View>
+              <Ionicons name="chevron-forward" size={13} color={msg.isMe ? 'rgba(255,255,255,0.7)' : C.primary} />
+            </TouchableOpacity>
+          )}
         </View>
 
         {Object.keys(msg.reactions).length > 0 && (
@@ -184,6 +200,13 @@ const styles = StyleSheet.create({
   pinBadgeText: { fontSize: 9, fontFamily: 'Inter_600SemiBold', color: C.waiting, textTransform: 'uppercase' },
 
   attachment: { width: 200, height: 150, borderRadius: 8, marginBottom: 4 },
+
+  reserveCard: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 8, paddingVertical: 7, paddingHorizontal: 8, backgroundColor: C.primaryBg, borderRadius: 8, borderWidth: 1, borderColor: C.primary + '30' },
+  reserveCardMe: { backgroundColor: 'rgba(255,255,255,0.18)', borderColor: 'rgba(255,255,255,0.35)' },
+  reserveCardIcon: { width: 24, height: 24, borderRadius: 12, backgroundColor: C.primary + '18', alignItems: 'center', justifyContent: 'center' },
+  reserveCardIconMe: { backgroundColor: 'rgba(255,255,255,0.25)' },
+  reserveCardLabel: { fontSize: 9, fontFamily: 'Inter_600SemiBold', color: C.primary, textTransform: 'uppercase', letterSpacing: 0.5 },
+  reserveCardId: { fontSize: 12, fontFamily: 'Inter_600SemiBold', color: C.primary },
 
   msgText: { fontSize: 14, fontFamily: 'Inter_400Regular', color: C.text, lineHeight: 20 },
   msgTextMe: { color: '#fff' },

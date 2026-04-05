@@ -95,8 +95,10 @@ export default function ChannelScreen() {
   const {
     id: channelId, name: channelName, color: channelColor, icon: channelIcon,
     isDM, isGroup, members: membersParam,
+    linkedReserveId: paramLinkedReserveId, linkedReserveTitle: paramLinkedReserveTitle,
   } = useLocalSearchParams<{
     id: string; name: string; color: string; icon: string; isDM?: string; isGroup?: string; members?: string;
+    linkedReserveId?: string; linkedReserveTitle?: string;
   }>();
   const isDMChannel = isDM === '1';
   const isGroupChannel = isGroup === '1';
@@ -129,6 +131,9 @@ export default function ChannelScreen() {
 
   const [text, setText] = useState('');
   const [replyTo, setReplyTo] = useState<Message | null>(null);
+  const [linkedReserve, setLinkedReserve] = useState<{ id: string; title: string } | null>(
+    paramLinkedReserveId ? { id: paramLinkedReserveId, title: paramLinkedReserveTitle ?? paramLinkedReserveId } : null
+  );
   const [selectedMsg, setSelectedMsg] = useState<Message | null>(null);
   const [actionModalVisible, setActionModalVisible] = useState(false);
   const [emojiModalVisible, setEmojiModalVisible] = useState(false);
@@ -284,8 +289,9 @@ export default function ChannelScreen() {
     addMessage(channelId!, text.trim(), {
       replyToId: replyTo?.id, replyToContent: replyTo?.content,
       replyToSender: replyTo?.sender, mentions,
+      reserveId: linkedReserve?.id,
     }, user?.name ?? 'Moi');
-    setText(''); setReplyTo(null); setMentionQuery('');
+    setText(''); setReplyTo(null); setMentionQuery(''); setLinkedReserve(null);
   }
 
   function openActions(msg: Message) {
@@ -475,6 +481,20 @@ export default function ChannelScreen() {
         />
 
         <TypingIndicator users={typingUsers} />
+
+        {linkedReserve && (
+          <View style={styles.replyBar2}>
+            <View style={[styles.replyAccent, { backgroundColor: C.primary }]} />
+            <Ionicons name="alert-circle-outline" size={14} color={C.primary} style={{ marginRight: 2 }} />
+            <View style={{ flex: 1 }}>
+              <Text style={[styles.replyBarWho, { color: C.primary }]}>Réserve liée</Text>
+              <Text style={styles.replyBarText} numberOfLines={1}>{linkedReserve.id} — {linkedReserve.title}</Text>
+            </View>
+            <TouchableOpacity onPress={() => setLinkedReserve(null)} hitSlop={8}>
+              <Ionicons name="close" size={18} color={C.textSub} />
+            </TouchableOpacity>
+          </View>
+        )}
 
         {replyTo && (
           <View style={styles.replyBar2}>

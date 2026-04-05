@@ -812,6 +812,8 @@ export default function ReserveDetailScreen() {
         isDM: '0',
         isGroup: '0',
         members: '',
+        linkedReserveId: reserve.id,
+        linkedReserveTitle: reserve.title,
       },
     } as any);
   }
