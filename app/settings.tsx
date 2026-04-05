@@ -56,6 +56,7 @@ export default function SettingsScreen() {
   const [saving, setSaving] = useState(false);
   const [activeTab, setActiveTab] = useState<'compte' | 'project' | 'attendance' | 'integrations'>('compte');
   const isAdmin = user?.role === 'admin' || user?.role === 'super_admin';
+  const isSousTraitant = user?.role === 'sous_traitant';
 
   const grouped = useMemo(() => {
     const g = groupByDate(attendanceHistory);

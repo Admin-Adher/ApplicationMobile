@@ -186,7 +186,7 @@ export default function SousTraitantScreen() {
           <Text style={styles.sectionLabel}>ENTREPRISE</Text>
           <ScrollView horizontal showsHorizontalScrollIndicator={false}>
             <View style={styles.companyRow}>
-              {companies.map(co => (
+              {companies.filter(co => !myCompany || co.id === myCompany.id).map(co => (
                 <TouchableOpacity
                   key={co.id}
                   style={[

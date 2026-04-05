@@ -382,6 +382,26 @@ export default function JournalScreen() {
   const totalWorkers = entries.reduce((acc, e) => acc + e.workerCount, 0);
   const workDoneError = (submitAttempted || workDoneTouched) && !workDone.trim();
 
+  if (user?.role === 'sous_traitant') {
+    return (
+      <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: '#F8FAFC', padding: 32 }}>
+        <Ionicons name="lock-closed-outline" size={48} color="#94A3B8" />
+        <Text style={{ fontSize: 17, fontFamily: 'Inter_600SemiBold', color: '#1E293B', marginTop: 16, textAlign: 'center' }}>
+          Accès restreint
+        </Text>
+        <Text style={{ fontSize: 14, fontFamily: 'Inter_400Regular', color: '#94A3B8', marginTop: 8, textAlign: 'center' }}>
+          Le journal de chantier n'est pas accessible aux sous-traitants.
+        </Text>
+        <TouchableOpacity
+          onPress={() => router.canGoBack() ? router.back() : router.navigate('/(tabs)/' as any)}
+          style={{ marginTop: 24, paddingHorizontal: 20, paddingVertical: 10, backgroundColor: '#2563EB', borderRadius: 10 }}
+        >
+          <Text style={{ color: '#fff', fontFamily: 'Inter_600SemiBold', fontSize: 14 }}>Retour au tableau de bord</Text>
+        </TouchableOpacity>
+      </View>
+    );
+  }
+
   return (
     <KeyboardAvoidingView style={styles.container} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
       <Header
