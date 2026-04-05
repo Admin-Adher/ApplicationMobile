@@ -705,7 +705,7 @@ export default function ReservesScreen() {
     </View>
   );
 
-  if (!activeChantierId) {
+  if (!isLoading && !activeChantierId) {
     return (
       <View style={styles.container}>
         <View style={[styles.header, { paddingTop: topPad + 12 }]}>
