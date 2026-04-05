@@ -272,23 +272,44 @@ export default function NewIncidentScreen() {
                 </View>
 
                 <View style={styles.severityGrid}>
-                  {SEVERITIES.map(s => {
-                    const cfg = SEVERITY_CONFIG[s];
-                    const active = severity === s;
-                    return (
-                      <TouchableOpacity
-                        key={s}
-                        style={[styles.severityChip, active && { borderColor: cfg.color, backgroundColor: cfg.bg }]}
-                        onPress={() => setSeverity(s)}
-                        activeOpacity={0.7}
-                      >
-                        <Ionicons name={cfg.icon as any} size={18} color={active ? cfg.color : C.textMuted} />
-                        <Text style={[styles.severityLabel, active && { color: cfg.color, fontFamily: 'Inter_700Bold' }]}>
-                          {cfg.label}
-                        </Text>
-                      </TouchableOpacity>
-                    );
-                  })}
+                  <View style={styles.severityRow}>
+                    {(['minor', 'moderate'] as IncidentSeverity[]).map(s => {
+                      const cfg = SEVERITY_CONFIG[s];
+                      const active = severity === s;
+                      return (
+                        <TouchableOpacity
+                          key={s}
+                          style={[styles.severityChip, active && { borderColor: cfg.color, backgroundColor: cfg.bg }]}
+                          onPress={() => setSeverity(s)}
+                          activeOpacity={0.7}
+                        >
+                          <Ionicons name={cfg.icon as any} size={18} color={active ? cfg.color : C.textMuted} />
+                          <Text style={[styles.severityLabel, active && { color: cfg.color, fontFamily: 'Inter_700Bold' }]}>
+                            {cfg.label}
+                          </Text>
+                        </TouchableOpacity>
+                      );
+                    })}
+                  </View>
+                  <View style={styles.severityRow}>
+                    {(['major', 'critical'] as IncidentSeverity[]).map(s => {
+                      const cfg = SEVERITY_CONFIG[s];
+                      const active = severity === s;
+                      return (
+                        <TouchableOpacity
+                          key={s}
+                          style={[styles.severityChip, active && { borderColor: cfg.color, backgroundColor: cfg.bg }]}
+                          onPress={() => setSeverity(s)}
+                          activeOpacity={0.7}
+                        >
+                          <Ionicons name={cfg.icon as any} size={18} color={active ? cfg.color : C.textMuted} />
+                          <Text style={[styles.severityLabel, active && { color: cfg.color, fontFamily: 'Inter_700Bold' }]}>
+                            {cfg.label}
+                          </Text>
+                        </TouchableOpacity>
+                      );
+                    })}
+                  </View>
                 </View>
 
                 <View style={[styles.severityHint, { backgroundColor: sevCfg.bg, borderColor: sevCfg.color + '40' }]}>
@@ -603,9 +624,10 @@ const styles = StyleSheet.create({
   },
   photoBtnText: { fontSize: 13, fontFamily: 'Inter_600SemiBold', color: C.primary },
 
-  severityGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 12 },
+  severityGrid: { gap: 8, marginBottom: 12 },
+  severityRow: { flexDirection: 'row', gap: 8 },
   severityChip: {
-    flex: 1, minWidth: '45%',
+    flex: 1,
     flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
     gap: 4, paddingVertical: 12, paddingHorizontal: 8,
     borderRadius: 12, borderWidth: 1.5, borderColor: C.border,
