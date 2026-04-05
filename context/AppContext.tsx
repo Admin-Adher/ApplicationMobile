@@ -1738,7 +1738,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     const match = ts.match(/^(\d{2})\/(\d{2})\/(\d{4}) (\d{2}):(\d{2})$/);
     if (!match) return ts;
     const [, dd, mm, yyyy, hh, min] = match;
-    return `${yyyy}-${mm}-${dd}T${hh}:${min}:00.000Z`;
+    // Interpréter comme heure locale, puis convertir en ISO UTC réel
+    return new Date(
+      Number(yyyy), Number(mm) - 1, Number(dd), Number(hh), Number(min)
+    ).toISOString();
   }
 
   const unreadByChannel: Record<string, number> = {};
@@ -1845,14 +1848,14 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }
 
   function renameChannel(id: string, newName: string) {
-    const ch = [...state.customChannels, ...state.groupChannels].find(c => c.id === id);
+    const ch = [...stateRef.current.customChannels, ...stateRef.current.groupChannels].find(c => c.id === id);
     if (ch) {
       _updateAndPersistChannel({ ...ch, name: newName });
       return;
     }
     if (id.startsWith('company-')) {
       const companyId = id.replace('company-', '');
-      const company = state.companies.find(co => co.id === companyId);
+      const company = stateRef.current.companies.find(co => co.id === companyId);
       if (company) {
         const updatedCompany = { ...company, name: newName };
         if (isSupabaseConfigured) {
@@ -1865,7 +1868,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }
 
   function addChannelMember(id: string, memberName: string) {
-    const ch = [...state.customChannels, ...state.groupChannels].find(c => c.id === id);
+    const ch = [...stateRef.current.customChannels, ...stateRef.current.groupChannels].find(c => c.id === id);
     if (ch) {
       const members = [...(ch.members ?? [])];
       if (members.includes(memberName)) return;
@@ -1875,17 +1878,17 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         description: ch.type === 'group' ? `Groupe : ${members.join(', ')}` : ch.description,
       });
     } else {
-      const current = state.channelMembersOverride[id] ?? [];
+      const current = stateRef.current.channelMembersOverride[id] ?? [];
       if (current.includes(memberName)) return;
       const updated = [...current, memberName];
-      const newOverrides = { ...state.channelMembersOverride, [id]: updated };
+      const newOverrides = { ...stateRef.current.channelMembersOverride, [id]: updated };
       dispatch({ type: 'SET_CHANNEL_MEMBERS_OVERRIDE', payload: newOverrides });
       saveChannelMembersOverride(newOverrides);
     }
   }
 
   function removeChannelMember(id: string, memberName: string) {
-    const ch = [...state.customChannels, ...state.groupChannels].find(c => c.id === id);
+    const ch = [...stateRef.current.customChannels, ...stateRef.current.groupChannels].find(c => c.id === id);
     if (ch) {
       const members = (ch.members ?? []).filter(m => m !== memberName);
       _updateAndPersistChannel({
@@ -1893,9 +1896,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         description: ch.type === 'group' ? `Groupe : ${members.join(', ')}` : ch.description,
       });
     } else {
-      const current = state.channelMembersOverride[id] ?? [];
+      const current = stateRef.current.channelMembersOverride[id] ?? [];
       const updated = current.filter(m => m !== memberName);
-      const newOverrides = { ...state.channelMembersOverride, [id]: updated };
+      const newOverrides = { ...stateRef.current.channelMembersOverride, [id]: updated };
       dispatch({ type: 'SET_CHANNEL_MEMBERS_OVERRIDE', payload: newOverrides });
       saveChannelMembersOverride(newOverrides);
     }
@@ -2108,6 +2111,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
             Alert.alert('Erreur de sauvegarde', "Le statut de la réserve n'a pas pu être mis à jour.");
           }
         });
+      } else {
+        persistMockReserves(stateRef.current.reserves.map(r => r.id === id ? updated : r));
       }
 
       const reserveCompanyNames = reserve.companies ?? (reserve.company ? [reserve.company] : []);
@@ -2157,6 +2162,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
             Alert.alert('Erreur de sauvegarde', "Le commentaire n'a pas pu être enregistré.");
           }
         });
+      } else {
+        persistMockReserves(
+          stateRef.current.reserves.map(r => r.id === reserveId ? { ...r, comments: updatedComments } : r)
+        );
       }
     },
 
@@ -2338,7 +2347,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           created_at: t.createdAt ?? null,
         }).then(({ error }: { error: any }) => {
           if (error) {
-            persistMockTasks([t, ...stateRef.current.tasks]);
+            dispatch({ type: 'DELETE_TASK', payload: t.id });
+            Alert.alert('Erreur de sauvegarde', "La tâche n'a pas pu être créée.");
           }
         });
       } else {
