@@ -840,6 +840,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const currentUserNameRef = useRef<string>('');
+  const currentUserOrgIdRef = useRef<string | null>(null);
   const activeChannelIdRef = useRef<string | null>(null);
   const channelsRef = useRef<Channel[]>([...STATIC_CHANNELS]);
   const stateRef = useRef(state);
@@ -889,6 +890,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           id: ch.id, name: ch.name, description: ch.description ?? null,
           icon: ch.icon ?? 'chatbubbles', color: ch.color ?? '#10B981',
           type: ch.type, members: ch.members ?? [], created_by: ch.createdBy ?? null,
+          organization_id: currentUserOrgIdRef.current ?? null,
+        });
       }
     }
   }
@@ -923,6 +926,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           id: ch.id, name: ch.name, description: ch.description ?? null,
           icon: ch.icon ?? 'people-circle', color: ch.color ?? '#10B981',
           type: ch.type, members: ch.members ?? [], created_by: ch.createdBy ?? null,
+          organization_id: currentUserOrgIdRef.current ?? null,
+        });
       }
     }
   }
@@ -1122,11 +1127,14 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       if (session?.user?.id) {
         const { data: profile } = await supabase
           .from('profiles')
-          .select('name')
+          .select('name, organization_id')
           .eq('id', session.user.id)
           .single();
         if (profile?.name) {
           currentUserNameRef.current = profile.name;
+        }
+        if (profile?.organization_id) {
+          currentUserOrgIdRef.current = profile.organization_id;
         }
       }
 
@@ -1406,6 +1414,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       } else if (event === 'SIGNED_OUT') {
         loadGenerationRef.current++;
         currentUserNameRef.current = '';
+        currentUserOrgIdRef.current = null;
         dispatch({ type: 'INIT', payload: { reserves: [], companies: [], tasks: [], documents: [], photos: [], messages: [], profiles: [] } });
       }
     });
@@ -1822,6 +1831,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         id: updatedCh.id, name: updatedCh.name, description: updatedCh.description ?? null,
         icon: updatedCh.icon ?? 'chatbubbles', color: updatedCh.color ?? '#10B981',
         type: updatedCh.type, members: updatedCh.members ?? [], created_by: updatedCh.createdBy ?? null,
+        organization_id: currentUserOrgIdRef.current ?? null,
+      });
     }
   }
 

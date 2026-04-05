@@ -4,6 +4,28 @@
 -- Coller et exécuter dans l'éditeur SQL de Supabase
 -- ============================================================
 
+-- ---- Fonctions d'aide pour les politiques RLS ----
+-- SECURITY DEFINER : contournent les politiques RLS de la table
+-- profiles lors de leur appel dans d'autres politiques.
+
+create or replace function auth_user_org()
+returns uuid
+language sql
+security definer
+stable
+as $$
+  select organization_id from public.profiles where id = auth.uid()
+$$;
+
+create or replace function auth_user_name()
+returns text
+language sql
+security definer
+stable
+as $$
+  select name from public.profiles where id = auth.uid()
+$$;
+
 -- ---- 0. TABLES ABONNEMENT (à créer AVANT profiles) ----
 
 create table if not exists public.plans (
@@ -372,10 +394,64 @@ create table if not exists public.messages (
 );
 alter table public.messages enable row level security;
 drop policy if exists "Messages lisibles par tous" on public.messages;
-create policy "Messages lisibles par tous" on public.messages for select using (auth.role() = 'authenticated');
+drop policy if exists "Messages visibles par membres habilités" on public.messages;
+create policy "Messages visibles par membres habilités"
+  on public.messages for select
+  using (
+    exists (
+      select 1 from public.channels c
+      where c.id = messages.channel_id
+        and (
+          (c.type in ('general','building','company','custom') and c.organization_id = auth_user_org())
+          or
+          (c.type in ('group','dm') and exists (
+            select 1 from jsonb_array_elements_text(c.members) as m where m = auth_user_name()
+          ))
+        )
+    )
+    or
+    (
+      messages.channel_id like 'dm-%'
+      and not exists (select 1 from public.channels where id = messages.channel_id)
+      and (
+        messages.channel_id like 'dm-' || auth_user_name() || '__%'
+        or messages.channel_id like 'dm-%__' || auth_user_name()
+      )
+    )
+  );
+drop policy if exists "Messages insertables par authentifiés" on public.messages;
+drop policy if exists "Messages insertables par membres habilités" on public.messages;
+create policy "Messages insertables par membres habilités"
+  on public.messages for insert
+  with check (
+    sender = auth_user_name()
+    and (
+      exists (
+        select 1 from public.channels c
+        where c.id = messages.channel_id
+          and (
+            (c.type in ('general','building','company','custom') and c.organization_id = auth_user_org())
+            or
+            (c.type in ('group','dm') and exists (
+              select 1 from jsonb_array_elements_text(c.members) as m where m = auth_user_name()
+            ))
+          )
+      )
+      or
+      (
+        messages.channel_id like 'dm-%'
+        and (
+          messages.channel_id like 'dm-' || auth_user_name() || '__%'
+          or messages.channel_id like 'dm-%__' || auth_user_name()
+        )
+      )
+    )
+  );
 drop policy if exists "Messages modifiables" on public.messages;
-create policy "Messages modifiables"
-  on public.messages for all using (auth.role() = 'authenticated');
+drop policy if exists "Messages modifiables par expéditeur" on public.messages;
+create policy "Messages modifiables par expéditeur"
+  on public.messages for all
+  using (sender = auth_user_name());
 
 -- ---- 8. TABLE SITE_PLANS ----
 create table if not exists public.site_plans (
@@ -534,11 +610,28 @@ create table if not exists public.channels (
 );
 alter table public.channels enable row level security;
 drop policy if exists "Channels lisibles par tous" on public.channels;
-create policy "Channels lisibles par tous"
-  on public.channels for select using (auth.role() = 'authenticated');
+drop policy if exists "Channels visibles par membres habilités" on public.channels;
+create policy "Channels visibles par membres habilités"
+  on public.channels for select
+  using (
+    (type in ('general','building','company','custom') and organization_id = auth_user_org())
+    or
+    (type in ('group','dm') and exists (
+      select 1 from jsonb_array_elements_text(members) as m where m = auth_user_name()
+    ))
+  );
 drop policy if exists "Channels modifiables" on public.channels;
-create policy "Channels modifiables"
-  on public.channels for all using (auth.role() = 'authenticated');
+drop policy if exists "Channels modifiables par membres habilités" on public.channels;
+create policy "Channels modifiables par membres habilités"
+  on public.channels for all
+  using (
+    (type in ('general','building','company','custom') and organization_id = auth_user_org())
+    or
+    (type in ('group','dm') and (
+      created_by = auth_user_name()
+      or exists (select 1 from jsonb_array_elements_text(members) as m where m = auth_user_name())
+    ))
+  );
 
 -- ---- 14. TABLE TIME_ENTRIES (pointage) ----
 create table if not exists public.time_entries (
