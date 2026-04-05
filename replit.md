@@ -60,3 +60,9 @@ The full Supabase PostgreSQL schema is in `lib/schema.sql`. Key tables:
 - Development: `npm run start` (Metro bundler, web mode)
 - Static build: `npm run web` (outputs to `dist/`)
 - Mobile: Use EAS Build for iOS/Android native builds
+
+## Replit Migration Status
+- Migrated to Replit environment on 2026-04-05
+- App runs in demo mode without Supabase credentials
+- To connect a real Supabase backend, set `EXPO_PUBLIC_SUPABASE_URL` and `EXPO_PUBLIC_SUPABASE_KEY` as Replit secrets
+- CORS patch is applied automatically via `postinstall` script (`scripts/patch-expo-cors.js`)
