@@ -46,7 +46,7 @@ const STATUS_COLORS = {
 
 export default function SettingsScreen() {
   const router = useRouter();
-  const { projectName, projectDescription, setProjectName, setProjectDescription, attendanceHistory, saveAttendanceSnapshot, clearAttendanceHistory, defaultArrivalTime, setDefaultArrivalTime } = useSettings();
+  const { projectName, projectDescription, setProjectName, setProjectDescription, attendanceHistory, saveAttendanceSnapshot, clearAttendanceHistory, defaultArrivalTime, setDefaultArrivalTime, standardDayHours, setStandardDayHours } = useSettings();
   const { companies } = useApp();
   const { user, logout, permissions } = useAuth();
   const { organization, plan, subscription, seatUsed, seatMax } = useSubscription();
@@ -331,6 +331,7 @@ export default function SettingsScreen() {
           <View>
             <View style={[styles.card, { marginBottom: 14 }]}>
               <Text style={styles.cardTitle}>Préférences pointage</Text>
+
               <Text style={styles.label}>Heure d'arrivée par défaut</Text>
               <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 4 }}>
                 {['06:30', '07:00', '07:30', '08:00', '08:30'].map(t => (
@@ -344,6 +345,24 @@ export default function SettingsScreen() {
                 ))}
               </View>
               <Text style={[styles.emptyText, { marginTop: 6 }]}>Utilisée comme valeur pré-remplie dans le formulaire de pointage.</Text>
+
+              <View style={{ height: 1, backgroundColor: C.border, marginVertical: 14 }} />
+
+              <Text style={styles.label}>Durée journée standard</Text>
+              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 4 }}>
+                {[6, 7, 8, 9, 10].map(h => (
+                  <TouchableOpacity
+                    key={h}
+                    style={[styles.timeChip, standardDayHours === h && styles.timeChipActive]}
+                    onPress={() => setStandardDayHours(h)}
+                  >
+                    <Text style={[styles.timeChipText, standardDayHours === h && styles.timeChipTextActive]}>{h}h</Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+              <Text style={[styles.emptyText, { marginTop: 6 }]}>
+                Utilisée pour estimer automatiquement les heures lors du pointage rapide — les heures s'affichent en lecture seule (présents × durée journée).
+              </Text>
             </View>
 
             <View style={styles.card}>

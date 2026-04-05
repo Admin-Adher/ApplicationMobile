@@ -170,13 +170,12 @@ export default function EquipesScreen() {
     companies, tasks, reserves, stats, chantiers, activeChantierId,
     updateCompanyWorkers, updateCompanyHours,
   } = useApp();
-  const { saveAttendanceSnapshot, attendanceHistory } = useSettings();
+  const { saveAttendanceSnapshot, attendanceHistory, standardDayHours } = useSettings();
   const topPad = insets.top;
   const bottomPad = Platform.OS === 'web' ? 34 : insets.bottom;
 
-  const [workerModal, setWorkerModal] = useState<{ id: string; name: string; current: number; hours: number } | null>(null);
+  const [workerModal, setWorkerModal] = useState<{ id: string; name: string; current: number } | null>(null);
   const [workerInput, setWorkerInput] = useState('');
-  const [hoursInput, setHoursInput] = useState('');
   const [search, setSearch] = useState('');
   const [showSearch, setShowSearch] = useState(false);
   const [sortKey, setSortKey] = useState<SortKey>('name');
@@ -264,36 +263,26 @@ export default function EquipesScreen() {
   }
 
   function openWorkerModal(co: Company) {
-    setWorkerModal({ id: co.id, name: co.name, current: co.actualWorkers, hours: co.hoursWorked });
+    setWorkerModal({ id: co.id, name: co.name, current: co.actualWorkers });
     setWorkerInput(String(co.actualWorkers));
-    setHoursInput(String(co.hoursWorked));
   }
 
   function handleSaveWorkers() {
     if (!workerModal) return;
     const n = parseInt(workerInput, 10);
-    const h = parseInt(hoursInput, 10);
     if (isNaN(n) || n < 0) {
       Alert.alert('Valeur invalide', 'Le nombre de personnes présentes doit être un entier positif.');
       return;
     }
-    if (isNaN(h) || h < 0) {
-      Alert.alert('Valeur invalide', 'Les heures travaillées doivent être un entier positif.');
-      return;
-    }
+    const estimatedHours = n * standardDayHours;
     updateCompanyWorkers(workerModal.id, n);
-    updateCompanyHours(workerModal.id, h);
+    updateCompanyHours(workerModal.id, estimatedHours);
     setWorkerModal(null);
   }
 
   function stepWorker(delta: number) {
     const n = Math.max(0, (parseInt(workerInput, 10) || 0) + delta);
     setWorkerInput(String(n));
-  }
-
-  function stepHours(delta: number) {
-    const h = Math.max(0, (parseInt(hoursInput, 10) || 0) + delta);
-    setHoursInput(String(h));
   }
 
   function toggleSearch() {
@@ -682,7 +671,7 @@ export default function EquipesScreen() {
                 <Ionicons name="close-circle" size={24} color={C.textMuted} />
               </TouchableOpacity>
             </View>
-            <Text style={styles.workerModalSub}>Mettre à jour les présences du jour</Text>
+            <Text style={styles.workerModalSub}>Combien de personnes sont présentes sur le chantier ?</Text>
 
             <Text style={styles.fieldLabel}>Personnes présentes</Text>
             <View style={styles.stepperRow}>
@@ -700,23 +689,25 @@ export default function EquipesScreen() {
               </TouchableOpacity>
             </View>
 
-            <Text style={[styles.fieldLabel, { marginTop: 16 }]}>Heures travaillées</Text>
-            <View style={styles.stepperRow}>
-              <TouchableOpacity style={styles.stepperBtn} onPress={() => stepHours(-1)}>
-                <Ionicons name="remove" size={20} color={C.primary} />
-              </TouchableOpacity>
-              <TextInput
-                style={[styles.input, styles.stepperInput]}
-                value={hoursInput}
-                onChangeText={setHoursInput}
-                keyboardType="number-pad"
-              />
-              <TouchableOpacity style={styles.stepperBtn} onPress={() => stepHours(1)}>
-                <Ionicons name="add" size={20} color={C.primary} />
-              </TouchableOpacity>
+            <View style={styles.autoHoursBox}>
+              <Ionicons name="time-outline" size={14} color={C.primary} />
+              <Text style={styles.autoHoursText}>
+                Heures estimées :{' '}
+                <Text style={styles.autoHoursValue}>
+                  {(parseInt(workerInput, 10) || 0) * standardDayHours}h
+                </Text>
+                {'  '}
+                <Text style={styles.autoHoursMuted}>
+                  ({workerInput || 0} pers. × {standardDayHours}h/jour)
+                </Text>
+              </Text>
             </View>
 
-            <TouchableOpacity style={[styles.confirmBtn, { marginTop: 20, alignSelf: 'stretch' }]} onPress={handleSaveWorkers}>
+            <Text style={styles.autoHoursHint}>
+              La durée journée est configurable dans Paramètres → Présences.
+            </Text>
+
+            <TouchableOpacity style={[styles.confirmBtn, { marginTop: 16, alignSelf: 'stretch' }]} onPress={handleSaveWorkers}>
               <Text style={styles.confirmBtnText}>Enregistrer</Text>
             </TouchableOpacity>
           </View>
@@ -914,6 +905,22 @@ const styles = StyleSheet.create({
     color: C.text, fontFamily: 'Inter_400Regular', fontSize: 15,
   },
   stepperInput: { flex: 1, textAlign: 'center', paddingVertical: 10 },
+
+  autoHoursBox: {
+    flexDirection: 'row', alignItems: 'center', gap: 7,
+    backgroundColor: C.primaryBg, borderRadius: 10,
+    paddingHorizontal: 12, paddingVertical: 10,
+    borderWidth: 1, borderColor: C.primary + '30',
+    marginTop: 14,
+  },
+  autoHoursText: { flex: 1, fontSize: 13, fontFamily: 'Inter_500Medium', color: C.text },
+  autoHoursValue: { fontFamily: 'Inter_700Bold', color: C.primary },
+  autoHoursMuted: { fontFamily: 'Inter_400Regular', color: C.textMuted, fontSize: 12 },
+  autoHoursHint: {
+    fontSize: 11, fontFamily: 'Inter_400Regular', color: C.textMuted,
+    marginTop: 6, lineHeight: 16,
+  },
+
   confirmBtn: {
     backgroundColor: C.primary, borderRadius: 12,
     paddingVertical: 14, alignItems: 'center',

@@ -7,6 +7,7 @@ const PROJECT_NAME_KEY = 'buildtrack_project_name_v1';
 const PROJECT_DESC_KEY = 'buildtrack_project_desc_v1';
 const ATTENDANCE_HISTORY_KEY = 'buildtrack_attendance_history_v1';
 const DEFAULT_ARRIVAL_TIME_KEY = 'buildtrack_default_arrival_time_v1';
+const STANDARD_DAY_HOURS_KEY = 'buildtrack_standard_day_hours_v1';
 
 interface SettingsContextValue {
   projectName: string;
@@ -19,6 +20,8 @@ interface SettingsContextValue {
   clearAttendanceHistory: () => Promise<void>;
   defaultArrivalTime: string;
   setDefaultArrivalTime: (time: string) => Promise<void>;
+  standardDayHours: number;
+  setStandardDayHours: (hours: number) => Promise<void>;
 }
 
 const SettingsContext = createContext<SettingsContextValue | null>(null);
@@ -30,20 +33,23 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
   const attendanceHistoryRef = useRef(attendanceHistory);
   useEffect(() => { attendanceHistoryRef.current = attendanceHistory; }, [attendanceHistory]);
   const [defaultArrivalTime, setDefaultArrivalTimeState] = useState('07:30');
+  const [standardDayHours, setStandardDayHoursState] = useState(8);
 
   useEffect(() => {
     async function load() {
       try {
-        const [name, desc, history, arrivalTime] = await Promise.all([
+        const [name, desc, history, arrivalTime, dayHours] = await Promise.all([
           AsyncStorage.getItem(PROJECT_NAME_KEY),
           AsyncStorage.getItem(PROJECT_DESC_KEY),
           AsyncStorage.getItem(ATTENDANCE_HISTORY_KEY),
           AsyncStorage.getItem(DEFAULT_ARRIVAL_TIME_KEY),
+          AsyncStorage.getItem(STANDARD_DAY_HOURS_KEY),
         ]);
         if (name) setProjectNameState(name);
         if (desc) setProjectDescriptionState(desc);
         if (history) setAttendanceHistory(JSON.parse(history));
         if (arrivalTime) setDefaultArrivalTimeState(arrivalTime);
+        if (dayHours) setStandardDayHoursState(parseInt(dayHours, 10));
       } catch {}
     }
     load();
@@ -62,6 +68,11 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
   const setDefaultArrivalTime = useCallback(async (time: string) => {
     setDefaultArrivalTimeState(time);
     try { await AsyncStorage.setItem(DEFAULT_ARRIVAL_TIME_KEY, time); } catch {}
+  }, []);
+
+  const setStandardDayHours = useCallback(async (hours: number) => {
+    setStandardDayHoursState(hours);
+    try { await AsyncStorage.setItem(STANDARD_DAY_HOURS_KEY, String(hours)); } catch {}
   }, []);
 
   const saveAttendanceSnapshot = useCallback(async (companies: Company[], savedBy: string) => {
@@ -104,6 +115,8 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
       clearAttendanceHistory,
       defaultArrivalTime,
       setDefaultArrivalTime,
+      standardDayHours,
+      setStandardDayHours,
     }}>
       {children}
     </SettingsContext.Provider>
