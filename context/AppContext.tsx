@@ -1509,7 +1509,23 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         loadGenerationRef.current++;
         currentUserNameRef.current = '';
         currentUserOrgIdRef.current = null;
+        // Vider toutes les données utilisateur en mémoire
         dispatch({ type: 'INIT', payload: { reserves: [], companies: [], tasks: [], documents: [], photos: [], messages: [], profiles: [] } });
+        dispatch({ type: 'SET_CUSTOM_CHANNELS', payload: [] });
+        dispatch({ type: 'SET_GROUP_CHANNELS', payload: [] });
+        dispatch({ type: 'SET_PINNED_CHANNELS', payload: [] });
+        setPendingDmChannelIds(new Set());
+        // Effacer tous les caches locaux liés à l'utilisateur déconnecté
+        // pour éviter qu'un autre utilisateur qui se connecte sur le même
+        // appareil ne voie les canaux / DM / préférences du précédent.
+        AsyncStorage.multiRemove([
+          PENDING_DM_KEY,
+          CUSTOM_CHANNELS_KEY,
+          GROUP_CHANNELS_KEY,
+          PINNED_CHANNELS_KEY,
+          CHANNEL_MEMBERS_OVERRIDE_KEY,
+          'lastReadByChannel',
+        ]).catch(() => {});
       }
     });
 
