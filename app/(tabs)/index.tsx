@@ -1,4 +1,4 @@
-import { View, Text, StyleSheet, ScrollView, Platform, TouchableOpacity, RefreshControl } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, Platform, TouchableOpacity, RefreshControl, ActivityIndicator } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
@@ -163,7 +163,7 @@ function CompanyTable({ stats }: { stats: CompanyClosureStat[] }) {
 export default function DashboardScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
-  const { stats, reserves, companies, tasks, reload, chantiers, activeChantier, realtimeConnected } = useApp();
+  const { stats, reserves, companies, tasks, reload, chantiers, activeChantier, realtimeConnected, isLoading: appLoading } = useApp();
   const { user, permissions } = useAuth();
   const { incidents } = useIncidents();
   const { unreadCount } = useNotifications();
@@ -435,7 +435,7 @@ export default function DashboardScreen() {
           </View>
         )}
 
-        {chantiers.length === 0 && !isSousTraitant && (
+        {chantiers.length === 0 && !isSousTraitant && !appLoading && (
           <View style={styles.dashEmptyState}>
             <View style={styles.dashEmptyIconWrap}>
               <Ionicons name="speedometer-outline" size={44} color={C.primary} />
@@ -479,6 +479,12 @@ export default function DashboardScreen() {
                 <Text style={styles.dashEmptyBtnText}>Créer un chantier</Text>
               </TouchableOpacity>
             )}
+          </View>
+        )}
+
+        {appLoading && chantiers.length === 0 && !isSousTraitant && (
+          <View style={styles.dashLoadingState}>
+            <ActivityIndicator size="small" color={C.primary} />
           </View>
         )}
 
@@ -1032,6 +1038,9 @@ const styles = StyleSheet.create({
   coBarFill: { height: 8, borderRadius: 4 },
   coCount: { fontSize: 12, fontFamily: 'Inter_700Bold', width: 52, textAlign: 'right' },
 
+  dashLoadingState: {
+    flexGrow: 1, alignItems: 'center', justifyContent: 'center', padding: 40,
+  },
   dashEmptyState: {
     flexGrow: 1, alignItems: 'center', justifyContent: 'center',
     padding: 28, gap: 12,

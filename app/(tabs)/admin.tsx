@@ -15,6 +15,17 @@ import { isSupabaseConfigured } from '@/lib/supabase';
 import { genId } from '@/lib/utils';
 import { ROLES, ROLE_INFO, PLAN_COLORS, FREE_ROLES, AVATAR_COLORS, hashColor, formatDate } from '@/lib/adminUtils';
 
+function SafeKAV({ children }: { children: React.ReactNode }) {
+  if (Platform.OS === 'web') {
+    return <View style={{ flex: 1 }}>{children}</View>;
+  }
+  return (
+    <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
+      {children}
+    </KeyboardAvoidingView>
+  );
+}
+
 const STATUS_CONFIG: Record<string, { label: string; color: string; bg: string; icon: any; hint?: string }> = {
   trial:     { label: "Période d'essai",  color: '#F59E0B', bg: '#FFFBEB', icon: 'time-outline' },
   active:    { label: 'Actif',            color: '#10B981', bg: '#ECFDF5', icon: 'checkmark-circle-outline' },
@@ -1223,7 +1234,7 @@ export default function AdminScreen() {
 
       {/* ─── MODAL ENTREPRISE ─── */}
       <Modal visible={!!companyModal} transparent animationType="slide" onRequestClose={tryCloseCompanyModal}>
-        <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
+        <SafeKAV>
           <TouchableOpacity style={styles.overlay} activeOpacity={1} onPress={tryCloseCompanyModal}>
             <TouchableOpacity activeOpacity={1} style={styles.sheet}>
               <View style={styles.sheetHandle} />
@@ -1339,12 +1350,12 @@ export default function AdminScreen() {
               </ScrollView>
             </TouchableOpacity>
           </TouchableOpacity>
-        </KeyboardAvoidingView>
+        </SafeKAV>
       </Modal>
 
       {/* ─── MODAL INVITATION ─── */}
       <Modal visible={inviteModal} transparent animationType="slide" onRequestClose={handleCloseInviteModal}>
-        <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
+        <SafeKAV>
           <TouchableOpacity style={styles.overlay} activeOpacity={1} onPress={handleCloseInviteModal}>
             <TouchableOpacity activeOpacity={1} style={styles.sheet}>
               <ScrollView showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled" nestedScrollEnabled contentContainerStyle={{ gap: 10 }}>
@@ -1495,7 +1506,7 @@ export default function AdminScreen() {
               </ScrollView>
             </TouchableOpacity>
           </TouchableOpacity>
-        </KeyboardAvoidingView>
+        </SafeKAV>
       </Modal>
     </View>
   );
