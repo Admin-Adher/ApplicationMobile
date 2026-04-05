@@ -1,5 +1,6 @@
 import {
   View, Text, StyleSheet, ScrollView, TouchableOpacity, Platform, ActivityIndicator, Alert, Modal,
+  TextInput, KeyboardAvoidingView,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -31,12 +32,16 @@ export default function SuperAdminScreen() {
   const router = useRouter();
 
   const { user } = useAuth();
-  const { orgSummaries, allPlans, isLoading, updateOrgPlan, updateOrgStatus } = useSubscription();
+  const { orgSummaries, allPlans, isLoading, updateOrgPlan, updateOrgStatus, createOrganization } = useSubscription();
 
   const [activeTab, setActiveTab] = useState<'orgs' | 'plans'>('orgs');
   const [planModal, setPlanModal] = useState<OrgSummary | null>(null);
   const [statusModal, setStatusModal] = useState<OrgSummary | null>(null);
   const [saving, setSaving] = useState(false);
+  const [createModal, setCreateModal] = useState(false);
+  const [newOrgName, setNewOrgName] = useState('');
+  const [newAdminEmail, setNewAdminEmail] = useState('');
+  const [creating, setCreating] = useState(false);
 
   if (user?.role !== 'super_admin') {
     return (
@@ -78,6 +83,35 @@ export default function SuperAdminScreen() {
     }
   }
 
+  async function handleCreateOrg() {
+    const name = newOrgName.trim();
+    if (!name) {
+      Alert.alert('Nom requis', 'Veuillez saisir le nom de l\'organisation.');
+      return;
+    }
+    if (newAdminEmail && !newAdminEmail.includes('@')) {
+      Alert.alert('Email invalide', 'Veuillez saisir une adresse email valide.');
+      return;
+    }
+    setCreating(true);
+    const result = await createOrganization(name, newAdminEmail.trim() || undefined);
+    setCreating(false);
+    if (result.success) {
+      setCreateModal(false);
+      setNewOrgName('');
+      setNewAdminEmail('');
+      Alert.alert(
+        'Organisation créée',
+        newAdminEmail.trim()
+          ? `"${name}" a été créée et une invitation admin a été envoyée à ${newAdminEmail.trim()}.`
+          : `"${name}" a été créée avec succès.`,
+        [{ text: 'OK' }]
+      );
+    } else {
+      Alert.alert('Erreur', result.error ?? 'Impossible de créer l\'organisation.');
+    }
+  }
+
   return (
     <View style={styles.container}>
       <View style={[styles.header, { paddingTop: topPad + 12 }]}>
@@ -88,10 +122,10 @@ export default function SuperAdminScreen() {
           <Text style={styles.title}>Super Admin</Text>
           <Text style={styles.subtitle}>Tableau de bord BuildTrack</Text>
         </View>
-        <View style={styles.superBadge}>
-          <Ionicons name="shield" size={13} color="#8B5CF6" />
-          <Text style={styles.superBadgeTxt}>BuildTrack</Text>
-        </View>
+        <TouchableOpacity style={styles.newOrgBtn} onPress={() => setCreateModal(true)}>
+          <Ionicons name="add" size={16} color="#fff" />
+          <Text style={styles.newOrgBtnTxt}>Nouvelle org.</Text>
+        </TouchableOpacity>
       </View>
 
       <View style={styles.tabRow}>
@@ -253,6 +287,79 @@ export default function SuperAdminScreen() {
           </View>
         </ScrollView>
       )}
+
+      {/* ── Modal : Nouvelle organisation ── */}
+      <Modal
+        visible={createModal}
+        transparent
+        animationType="slide"
+        onRequestClose={() => !creating && setCreateModal(false)}
+      >
+        <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={{ flex: 1 }}>
+          <View style={styles.modalOverlay}>
+            <View style={styles.modalSheet}>
+              <View style={styles.createModalHeader}>
+                <View style={styles.createModalIconWrap}>
+                  <Ionicons name="business" size={18} color={C.primary} />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.modalTitle}>Nouvelle organisation</Text>
+                  <Text style={styles.modalSub}>Créer une filiale du groupe</Text>
+                </View>
+                <TouchableOpacity
+                  onPress={() => { if (!creating) { setCreateModal(false); setNewOrgName(''); setNewAdminEmail(''); } }}
+                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                >
+                  <Ionicons name="close" size={20} color={C.textMuted} />
+                </TouchableOpacity>
+              </View>
+
+              <View style={styles.createInputGroup}>
+                <Text style={styles.createInputLabel}>Nom de l'organisation *</Text>
+                <TextInput
+                  style={styles.createTextInput}
+                  placeholder="ex. Bouygues Grand-Ouest"
+                  placeholderTextColor={C.textMuted}
+                  value={newOrgName}
+                  onChangeText={setNewOrgName}
+                  autoCapitalize="words"
+                  editable={!creating}
+                />
+              </View>
+
+              <View style={styles.createInputGroup}>
+                <Text style={styles.createInputLabel}>Email admin <Text style={{ fontFamily: 'Inter_400Regular', color: C.textMuted }}>(optionnel)</Text></Text>
+                <TextInput
+                  style={styles.createTextInput}
+                  placeholder="admin@filiale.fr"
+                  placeholderTextColor={C.textMuted}
+                  value={newAdminEmail}
+                  onChangeText={setNewAdminEmail}
+                  keyboardType="email-address"
+                  autoCapitalize="none"
+                  editable={!creating}
+                />
+                <Text style={styles.createInputHint}>Une invitation de rôle Admin sera envoyée à cet email.</Text>
+              </View>
+
+              <TouchableOpacity
+                style={[styles.createSubmitBtn, (!newOrgName.trim() || creating) && styles.createSubmitBtnDisabled]}
+                onPress={handleCreateOrg}
+                disabled={!newOrgName.trim() || creating}
+              >
+                {creating ? (
+                  <ActivityIndicator size="small" color="#fff" />
+                ) : (
+                  <>
+                    <Ionicons name="add-circle-outline" size={18} color="#fff" />
+                    <Text style={styles.createSubmitBtnTxt}>Créer l'organisation</Text>
+                  </>
+                )}
+              </TouchableOpacity>
+            </View>
+          </View>
+        </KeyboardAvoidingView>
+      </Modal>
 
       <Modal visible={!!planModal} transparent animationType="slide" onRequestClose={() => setPlanModal(null)}>
         <View style={styles.modalOverlay}>
@@ -440,6 +547,32 @@ const styles = StyleSheet.create({
     backgroundColor: C.surface, borderRadius: 12, padding: 14, borderWidth: 1, borderColor: C.border,
   },
   hintTxt: { fontSize: 12, fontFamily: 'Inter_400Regular', color: C.textMuted, flex: 1, lineHeight: 18 },
+
+  newOrgBtn: {
+    flexDirection: 'row', alignItems: 'center', gap: 5,
+    backgroundColor: C.primary, borderRadius: 10, paddingHorizontal: 12, paddingVertical: 8,
+  },
+  newOrgBtnTxt: { fontSize: 12, fontFamily: 'Inter_600SemiBold', color: '#fff' },
+
+  createModalHeader: { flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: 4 },
+  createModalIconWrap: {
+    width: 38, height: 38, borderRadius: 10,
+    backgroundColor: C.primary + '14', alignItems: 'center', justifyContent: 'center',
+  },
+  createInputGroup: { gap: 6 },
+  createInputLabel: { fontSize: 13, fontFamily: 'Inter_600SemiBold', color: C.text },
+  createTextInput: {
+    backgroundColor: C.bg, borderWidth: 1, borderColor: C.border,
+    borderRadius: 12, paddingHorizontal: 14, paddingVertical: 12,
+    fontSize: 14, fontFamily: 'Inter_400Regular', color: C.text,
+  },
+  createInputHint: { fontSize: 11, fontFamily: 'Inter_400Regular', color: C.textMuted, marginTop: 2 },
+  createSubmitBtn: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8,
+    backgroundColor: C.primary, borderRadius: 14, paddingVertical: 14, marginTop: 4,
+  },
+  createSubmitBtnDisabled: { opacity: 0.5 },
+  createSubmitBtnTxt: { fontSize: 15, fontFamily: 'Inter_700Bold', color: '#fff' },
 
   modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.4)', justifyContent: 'flex-end' },
   modalSheet: {

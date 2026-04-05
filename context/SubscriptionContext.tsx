@@ -98,7 +98,7 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
 
     if (!isSupabaseConfigured) {
       setOrganization(DEMO_ORG);
-      setPlan(DEMO_PLANS[1]);
+      setPlan(DEMO_PLANS[0]);
       setSubscription(DEMO_SUBSCRIPTION);
       setAllOrganizations([DEMO_ORG]);
       setAllPlans(DEMO_PLANS);

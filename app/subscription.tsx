@@ -391,6 +391,87 @@ export default function SubscriptionScreen() {
         </View>
 
       </ScrollView>
+
+      {/* ── Modal : Nouvelle filiale ── */}
+      <Modal
+        visible={createModal}
+        transparent
+        animationType="slide"
+        onRequestClose={() => !creating && setCreateModal(false)}
+      >
+        <KeyboardAvoidingView
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+          style={{ flex: 1 }}
+        >
+          <View style={styles.modalOverlay}>
+            <View style={styles.modalSheet}>
+              <View style={styles.modalHeader}>
+                <View style={styles.modalTitleRow}>
+                  <View style={styles.modalIconWrap}>
+                    <Ionicons name="business" size={18} color={C.primary} />
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.modalTitle}>Nouvelle filiale</Text>
+                    <Text style={styles.modalSub}>Créer une organisation dans le groupe</Text>
+                  </View>
+                  <TouchableOpacity
+                    onPress={() => { if (!creating) { setCreateModal(false); setNewOrgName(''); setNewAdminEmail(''); } }}
+                    style={styles.modalCloseBtn}
+                    hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                  >
+                    <Ionicons name="close" size={20} color={C.textMuted} />
+                  </TouchableOpacity>
+                </View>
+              </View>
+
+              <View style={styles.inputGroup}>
+                <Text style={styles.inputLabel}>Nom de la filiale *</Text>
+                <TextInput
+                  style={styles.textInput}
+                  placeholder="ex. Bouygues Île-de-France"
+                  placeholderTextColor={C.textMuted}
+                  value={newOrgName}
+                  onChangeText={setNewOrgName}
+                  autoCapitalize="words"
+                  editable={!creating}
+                />
+              </View>
+
+              <View style={styles.inputGroup}>
+                <Text style={styles.inputLabel}>Email de l'administrateur <Text style={styles.inputOptional}>(optionnel)</Text></Text>
+                <TextInput
+                  style={styles.textInput}
+                  placeholder="admin@filiale.fr"
+                  placeholderTextColor={C.textMuted}
+                  value={newAdminEmail}
+                  onChangeText={setNewAdminEmail}
+                  keyboardType="email-address"
+                  autoCapitalize="none"
+                  editable={!creating}
+                />
+                <Text style={styles.inputHint}>
+                  Une invitation de rôle Admin sera envoyée à cet email.
+                </Text>
+              </View>
+
+              <TouchableOpacity
+                style={[styles.createConfirmBtn, (!newOrgName.trim() || creating) && styles.createConfirmBtnDisabled]}
+                onPress={handleCreateOrg}
+                disabled={!newOrgName.trim() || creating}
+              >
+                {creating ? (
+                  <ActivityIndicator size="small" color="#fff" />
+                ) : (
+                  <>
+                    <Ionicons name="add-circle-outline" size={18} color="#fff" />
+                    <Text style={styles.createConfirmBtnTxt}>Créer la filiale</Text>
+                  </>
+                )}
+              </TouchableOpacity>
+            </View>
+          </View>
+        </KeyboardAvoidingView>
+      </Modal>
     </View>
   );
 }
@@ -451,6 +532,89 @@ const styles = StyleSheet.create({
 
   sectionTitle: { fontSize: 16, fontFamily: 'Inter_700Bold', color: C.text, marginTop: 8 },
   sectionCount: { fontFamily: 'Inter_400Regular', color: C.textMuted, fontSize: 14 },
+
+  groupHeader: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 8,
+  },
+  createBtn: {
+    flexDirection: 'row', alignItems: 'center', gap: 6,
+    backgroundColor: C.primary, borderRadius: 10, paddingHorizontal: 14, paddingVertical: 8,
+  },
+  createBtnTxt: { fontSize: 13, fontFamily: 'Inter_600SemiBold', color: '#fff' },
+
+  emptyOrgs: {
+    alignItems: 'center', paddingVertical: 40, gap: 8,
+    backgroundColor: C.surface, borderRadius: 16, borderWidth: 1, borderColor: C.border,
+    borderStyle: 'dashed',
+  },
+  emptyOrgsTitle: { fontSize: 15, fontFamily: 'Inter_600SemiBold', color: C.textMuted },
+  emptyOrgsHint: { fontSize: 12, fontFamily: 'Inter_400Regular', color: C.textMuted, textAlign: 'center', maxWidth: 240 },
+
+  filialCard: {
+    backgroundColor: C.surface, borderRadius: 14,
+    borderWidth: 1, borderColor: C.border, borderLeftWidth: 4,
+    overflow: 'hidden',
+    ...Platform.select({
+      web: { boxShadow: '0 1px 4px rgba(0,0,0,0.07)' } as any,
+      default: { shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.07, shadowRadius: 4, elevation: 2 },
+    }),
+  },
+  filialTop: { flexDirection: 'row', alignItems: 'center', gap: 12, padding: 14, paddingBottom: 10 },
+  filialAvatar: { width: 42, height: 42, borderRadius: 21, alignItems: 'center', justifyContent: 'center' },
+  filialAvatarTxt: { fontSize: 15, fontFamily: 'Inter_700Bold' },
+  filialName: { fontSize: 15, fontFamily: 'Inter_700Bold', color: C.text },
+  filialSlug: { fontSize: 11, fontFamily: 'Inter_400Regular', color: C.textMuted, marginTop: 1 },
+  filialStatusBadge: {
+    flexDirection: 'row', alignItems: 'center', gap: 5,
+    borderRadius: 8, paddingHorizontal: 8, paddingVertical: 4,
+  },
+  filialStatusDot: { width: 6, height: 6, borderRadius: 3 },
+  filialStatusTxt: { fontSize: 11, fontFamily: 'Inter_600SemiBold' },
+  filialFooter: {
+    flexDirection: 'row', alignItems: 'center', gap: 12,
+    paddingHorizontal: 14, paddingBottom: 12, paddingTop: 4,
+    borderTopWidth: 1, borderTopColor: C.border,
+  },
+  filialMeta: { flexDirection: 'row', alignItems: 'center', gap: 4 },
+  filialMetaTxt: { fontSize: 11, fontFamily: 'Inter_400Regular', color: C.textMuted },
+  filialPlanBadge: { marginLeft: 'auto' as any, borderRadius: 6, paddingHorizontal: 8, paddingVertical: 3 },
+  filialPlanTxt: { fontSize: 11, fontFamily: 'Inter_600SemiBold' },
+
+  modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.45)', justifyContent: 'flex-end' },
+  modalSheet: {
+    backgroundColor: C.surface, borderTopLeftRadius: 24, borderTopRightRadius: 24,
+    padding: 20, paddingBottom: 32, gap: 16,
+    ...Platform.select({
+      web: { boxShadow: '0 -4px 20px rgba(0,0,0,0.12)' } as any,
+      default: { shadowColor: '#000', shadowOffset: { width: 0, height: -2 }, shadowOpacity: 0.12, shadowRadius: 12, elevation: 20 },
+    }),
+  },
+  modalHeader: { marginBottom: 2 },
+  modalTitleRow: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+  modalIconWrap: {
+    width: 38, height: 38, borderRadius: 10,
+    backgroundColor: C.primary + '14', alignItems: 'center', justifyContent: 'center',
+  },
+  modalTitle: { fontSize: 17, fontFamily: 'Inter_700Bold', color: C.text },
+  modalSub: { fontSize: 12, fontFamily: 'Inter_400Regular', color: C.textMuted, marginTop: 1 },
+  modalCloseBtn: { padding: 4 },
+
+  inputGroup: { gap: 6 },
+  inputLabel: { fontSize: 13, fontFamily: 'Inter_600SemiBold', color: C.text },
+  inputOptional: { fontFamily: 'Inter_400Regular', color: C.textMuted },
+  textInput: {
+    backgroundColor: C.bg, borderWidth: 1, borderColor: C.border,
+    borderRadius: 12, paddingHorizontal: 14, paddingVertical: 12,
+    fontSize: 14, fontFamily: 'Inter_400Regular', color: C.text,
+  },
+  inputHint: { fontSize: 11, fontFamily: 'Inter_400Regular', color: C.textMuted, marginTop: 2 },
+
+  createConfirmBtn: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8,
+    backgroundColor: C.primary, borderRadius: 14, paddingVertical: 14, marginTop: 4,
+  },
+  createConfirmBtnDisabled: { opacity: 0.5 },
+  createConfirmBtnTxt: { fontSize: 15, fontFamily: 'Inter_700Bold', color: '#fff' },
 
   orgCard: {
     backgroundColor: C.surface, borderRadius: 16, padding: 16,
