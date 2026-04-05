@@ -54,11 +54,16 @@ function StepIndicator({ current }: { current: number }) {
                 : <Text style={[si.circleText, active && si.circleTextActive]}>{step.number}</Text>
               }
             </View>
-            <View style={{ flex: 1 }}>
-              <Text style={[si.stepTitle, active && si.stepTitleActive, done && si.stepTitleDone]}>
+            <View style={{ flex: 1, minWidth: 0 }}>
+              <Text
+                style={[si.stepTitle, active && si.stepTitleActive, done && si.stepTitleDone]}
+                numberOfLines={1}
+              >
                 {step.title}
               </Text>
-              {active && <Text style={si.stepSub}>{step.subtitle}</Text>}
+              {active && (
+                <Text style={si.stepSub} numberOfLines={2}>{step.subtitle}</Text>
+              )}
             </View>
             {idx < STEPS.length - 1 && (
               <View style={[si.connector, done && si.connectorDone]} />
@@ -549,12 +554,11 @@ export default function NewIncidentScreen() {
 const si = StyleSheet.create({
   wrap: {
     flexDirection: 'row', alignItems: 'flex-start',
-    marginHorizontal: 20, marginTop: 12, marginBottom: 8,
-    gap: 0,
+    marginHorizontal: 8, marginTop: 12, marginBottom: 8,
   },
   stepWrap: {
-    flex: 1, flexDirection: 'row', alignItems: 'flex-start', gap: 8,
-    position: 'relative',
+    flex: 1, flexDirection: 'row', alignItems: 'flex-start', gap: 6,
+    position: 'relative', minWidth: 0,
   },
   circle: {
     width: 26, height: 26, borderRadius: 13,
