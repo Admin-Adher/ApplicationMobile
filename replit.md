@@ -113,6 +113,21 @@ Before your first build, complete the `submit.production.ios` section in `eas.js
 - CORS patch is applied automatically via `postinstall` script (`scripts/patch-expo-cors.js`)
 - iOS build configuration complete — ready to build once Apple Developer Account is active
 
+## Supabase RLS Organization ID Audit (2026-04-10)
+All INSERT functions in `context/AppContext.tsx` now include `organization_id` in their Supabase payload, using the robust async org-lookup pattern (reads from profile if ref is empty). Tables fixed:
+- `reserves` — `addReserve` (was already fixed)
+- `tasks` — `addTask` (was already fixed)
+- `visites` — `addVisite` + `fromVisite(v, orgId)` mapper updated
+- `lots` — `addLot` + `fromLot(l, orgId)` mapper updated
+- `oprs` — `addOpr` + `fromOpr(o, orgId)` mapper updated
+- `site_plans` — `addSitePlan` + `addSitePlanVersion` updated
+
+**Required Supabase SQL migration**: Run `supabase/migrations/20260410_master_organization_id_fix.sql` in your Supabase SQL Editor. This migration:
+- Adds `organization_id` column to all 6 child tables
+- Back-fills existing rows via their chantier
+- Replaces RLS policies with dual-path logic (direct org_id OR chantier join)
+- Is fully idempotent — safe to run multiple times
+
 ## Architecture Notes
 - This is a pure React Native/Expo app. All data access is client-side.
 - Supabase is the optional backend — without credentials, the app uses built-in demo data.

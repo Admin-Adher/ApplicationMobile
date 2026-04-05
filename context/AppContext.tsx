@@ -217,7 +217,7 @@ function toVisite(row: any): Visite {
   };
 }
 
-function fromVisite(v: Visite): Record<string, any> {
+function fromVisite(v: Visite, orgId?: string | null): Record<string, any> {
   return {
     id: v.id, chantier_id: v.chantierId, title: v.title, date: v.date,
     start_time: v.startTime ?? null,
@@ -238,6 +238,7 @@ function fromVisite(v: Visite): Record<string, any> {
     signed_at: v.signedAt ?? null,
     entreprise_signataire: v.entrepriseSignataire ?? null,
     participants: v.participants ?? null,
+    organization_id: orgId ?? null,
   };
 }
 
@@ -251,13 +252,14 @@ function toLot(row: any): Lot {
   };
 }
 
-function fromLot(l: Lot): Record<string, any> {
+function fromLot(l: Lot, orgId?: string | null): Record<string, any> {
   return {
     id: l.id, code: l.code, name: l.name, color: l.color,
     chantier_id: l.chantierId ?? null,
     company_id: l.companyId ?? null,
     cctp_ref: l.cctpRef ?? null,
     number: l.number ?? null,
+    organization_id: orgId ?? null,
   };
 }
 
@@ -282,7 +284,7 @@ function toOpr(row: any): Opr {
   };
 }
 
-function fromOpr(o: Opr): Record<string, any> {
+function fromOpr(o: Opr, orgId?: string | null): Record<string, any> {
   return {
     id: o.id, chantier_id: o.chantierId, title: o.title,
     date: o.date, building: o.building, level: o.level,
@@ -298,6 +300,7 @@ function fromOpr(o: Opr): Record<string, any> {
     signatories: o.signatories ?? null,
     invited_emails: o.invitedEmails ?? null,
     session_token: o.sessionToken ?? null,
+    organization_id: orgId ?? null,
   };
 }
 
@@ -2703,13 +2706,29 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       const newVisites = [v, ...stateRef.current.visites];
       dispatch({ type: 'ADD_VISITE', payload: v });
       persistMockVisites(newVisites);
-      if (offline({ table: 'visites', op: 'insert', data: fromVisite(v) })) return;
+      if (offline({ table: 'visites', op: 'insert', data: fromVisite(v, currentUserOrgIdRef.current) })) return;
       if (isSupabaseConfigured) {
-        supabase.from('visites').insert(fromVisite(v)).then(({ error }: { error: any }) => {
-          if (error) {
-            console.warn('[sync] addVisite server error (data saved locally):', error.message);
+        (async () => {
+          try {
+            let orgId = currentUserOrgIdRef.current;
+            if (!orgId) {
+              const { data: { session } } = await supabase.auth.getSession();
+              if (session?.user?.id) {
+                const { data: prof } = await supabase
+                  .from('profiles').select('organization_id')
+                  .eq('id', session.user.id).single();
+                orgId = prof?.organization_id ?? null;
+                if (orgId) currentUserOrgIdRef.current = orgId;
+              }
+            }
+            const { error } = await supabase.from('visites').insert(fromVisite(v, orgId));
+            if (error) {
+              console.warn('[sync] addVisite server error (data saved locally):', error.message);
+            }
+          } catch (e: any) {
+            console.error('[sync] addVisite exception:', e?.message ?? e);
           }
-        });
+        })();
       }
     },
     updateVisite: (v) => {
@@ -2771,13 +2790,29 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       const newLots = [...stateRef.current.lots, l];
       dispatch({ type: 'ADD_LOT', payload: l });
       persistMockLots(newLots);
-      if (offline({ table: 'lots', op: 'insert', data: fromLot(l) })) return;
+      if (offline({ table: 'lots', op: 'insert', data: fromLot(l, currentUserOrgIdRef.current) })) return;
       if (isSupabaseConfigured) {
-        supabase.from('lots').insert(fromLot(l)).then(({ error }: { error: any }) => {
-          if (error) {
-            console.warn('[sync] addLot server error (data saved locally):', error.message);
+        (async () => {
+          try {
+            let orgId = currentUserOrgIdRef.current;
+            if (!orgId) {
+              const { data: { session } } = await supabase.auth.getSession();
+              if (session?.user?.id) {
+                const { data: prof } = await supabase
+                  .from('profiles').select('organization_id')
+                  .eq('id', session.user.id).single();
+                orgId = prof?.organization_id ?? null;
+                if (orgId) currentUserOrgIdRef.current = orgId;
+              }
+            }
+            const { error } = await supabase.from('lots').insert(fromLot(l, orgId));
+            if (error) {
+              console.warn('[sync] addLot server error (data saved locally):', error.message);
+            }
+          } catch (e: any) {
+            console.error('[sync] addLot exception:', e?.message ?? e);
           }
-        });
+        })();
       }
     },
     updateLot: (l) => {
@@ -2902,33 +2937,52 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       // Always persist locally as a cache/fallback so revisions survive Supabase failures
       persistMockSitePlans(updatedPlans);
       if (isSupabaseConfigured) {
-        supabase.from('site_plans').update({ is_latest_revision: false, revision_number: parentRevNum }).eq('id', parentPlanId).then(({ error }: { error: any }) => {
-          if (error) {
-            console.error('[addSitePlanVersion] update parent error:', error.message);
+        (async () => {
+          try {
+            let orgId = currentUserOrgIdRef.current;
+            if (!orgId) {
+              const { data: { session } } = await supabase.auth.getSession();
+              if (session?.user?.id) {
+                const { data: prof } = await supabase
+                  .from('profiles').select('organization_id')
+                  .eq('id', session.user.id).single();
+                orgId = prof?.organization_id ?? null;
+                if (orgId) currentUserOrgIdRef.current = orgId;
+              }
+            }
+            const { error: updateErr } = await supabase
+              .from('site_plans')
+              .update({ is_latest_revision: false, revision_number: parentRevNum })
+              .eq('id', parentPlanId);
+            if (updateErr) {
+              console.error('[addSitePlanVersion] update parent error:', updateErr.message);
+            }
+            const { error: insertErr } = await supabase.from('site_plans').insert({
+              id: versionedNew.id,
+              chantier_id: versionedNew.chantierId,
+              name: versionedNew.name,
+              uri: versionedNew.uri ?? null,
+              file_type: versionedNew.fileType ?? null,
+              dxf_name: versionedNew.dxfName ?? null,
+              size: versionedNew.size ?? null,
+              building: versionedNew.building ?? null,
+              level: versionedNew.level ?? null,
+              building_id: versionedNew.buildingId ?? null,
+              level_id: versionedNew.levelId ?? null,
+              revision_code: finalRevCode,
+              revision_number: revNum,
+              parent_plan_id: parentPlanId,
+              is_latest_revision: true,
+              revision_note: versionedNew.revisionNote ?? null,
+              organization_id: orgId,
+            });
+            if (insertErr) {
+              console.warn('[sync] addSitePlanVersion insert revision error (data saved locally):', insertErr.message);
+            }
+          } catch (e: any) {
+            console.error('[sync] addSitePlanVersion exception:', e?.message ?? e);
           }
-        });
-        supabase.from('site_plans').insert({
-          id: versionedNew.id,
-          chantier_id: versionedNew.chantierId,
-          name: versionedNew.name,
-          uri: versionedNew.uri ?? null,
-          file_type: versionedNew.fileType ?? null,
-          dxf_name: versionedNew.dxfName ?? null,
-          size: versionedNew.size ?? null,
-          building: versionedNew.building ?? null,
-          level: versionedNew.level ?? null,
-          building_id: versionedNew.buildingId ?? null,
-          level_id: versionedNew.levelId ?? null,
-          revision_code: finalRevCode,
-          revision_number: revNum,
-          parent_plan_id: parentPlanId,
-          is_latest_revision: true,
-          revision_note: versionedNew.revisionNote ?? null,
-        }).then(({ error }: { error: any }) => {
-          if (error) {
-            console.warn('[sync] addSitePlanVersion insert revision error (data saved locally):', error.message);
-          }
-        });
+        })();
       }
     },
 
@@ -2963,13 +3017,29 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       const newOprs = [o, ...stateRef.current.oprs];
       dispatch({ type: 'ADD_OPR', payload: o });
       persistMockOprs(newOprs);
-      if (offline({ table: 'oprs', op: 'insert', data: fromOpr(o) })) return;
+      if (offline({ table: 'oprs', op: 'insert', data: fromOpr(o, currentUserOrgIdRef.current) })) return;
       if (isSupabaseConfigured) {
-        supabase.from('oprs').insert(fromOpr(o)).then(({ error }: { error: any }) => {
-          if (error) {
-            console.warn('[sync] addOpr server error (data saved locally):', error.message);
+        (async () => {
+          try {
+            let orgId = currentUserOrgIdRef.current;
+            if (!orgId) {
+              const { data: { session } } = await supabase.auth.getSession();
+              if (session?.user?.id) {
+                const { data: prof } = await supabase
+                  .from('profiles').select('organization_id')
+                  .eq('id', session.user.id).single();
+                orgId = prof?.organization_id ?? null;
+                if (orgId) currentUserOrgIdRef.current = orgId;
+              }
+            }
+            const { error } = await supabase.from('oprs').insert(fromOpr(o, orgId));
+            if (error) {
+              console.warn('[sync] addOpr server error (data saved locally):', error.message);
+            }
+          } catch (e: any) {
+            console.error('[sync] addOpr exception:', e?.message ?? e);
           }
-        });
+        })();
       }
     },
     updateOpr: (o) => {
@@ -3161,31 +3231,48 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         pdf_page_count: p.pdfPageCount ?? null,
       } })) return;
       if (isSupabaseConfigured) {
-        supabase.from('site_plans').insert({
-          id: p.id,
-          chantier_id: p.chantierId,
-          name: p.name,
-          building: p.building ?? null,
-          level: p.level ?? null,
-          building_id: p.buildingId ?? null,
-          level_id: p.levelId ?? null,
-          uri: p.uri ?? null,
-          file_type: p.fileType ?? null,
-          dxf_name: p.dxfName ?? null,
-          uploaded_at: p.uploadedAt,
-          size: p.size ?? null,
-          revision_code: p.revisionCode ?? null,
-          revision_number: p.revisionNumber ?? null,
-          parent_plan_id: p.parentPlanId ?? null,
-          is_latest_revision: p.isLatestRevision ?? null,
-          revision_note: p.revisionNote ?? null,
-          annotations: p.annotations ?? null,
-          pdf_page_count: p.pdfPageCount ?? null,
-        }).then(({ error }: { error: any }) => {
-          if (error) {
-            console.warn('[sync] addSitePlan server error (data saved locally):', error.message);
+        (async () => {
+          try {
+            let orgId = currentUserOrgIdRef.current;
+            if (!orgId) {
+              const { data: { session } } = await supabase.auth.getSession();
+              if (session?.user?.id) {
+                const { data: prof } = await supabase
+                  .from('profiles').select('organization_id')
+                  .eq('id', session.user.id).single();
+                orgId = prof?.organization_id ?? null;
+                if (orgId) currentUserOrgIdRef.current = orgId;
+              }
+            }
+            const { error } = await supabase.from('site_plans').insert({
+              id: p.id,
+              chantier_id: p.chantierId,
+              name: p.name,
+              building: p.building ?? null,
+              level: p.level ?? null,
+              building_id: p.buildingId ?? null,
+              level_id: p.levelId ?? null,
+              uri: p.uri ?? null,
+              file_type: p.fileType ?? null,
+              dxf_name: p.dxfName ?? null,
+              uploaded_at: p.uploadedAt,
+              size: p.size ?? null,
+              revision_code: p.revisionCode ?? null,
+              revision_number: p.revisionNumber ?? null,
+              parent_plan_id: p.parentPlanId ?? null,
+              is_latest_revision: p.isLatestRevision ?? null,
+              revision_note: p.revisionNote ?? null,
+              annotations: p.annotations ?? null,
+              pdf_page_count: p.pdfPageCount ?? null,
+              organization_id: orgId,
+            });
+            if (error) {
+              console.warn('[sync] addSitePlan server error (data saved locally):', error.message);
+            }
+          } catch (e: any) {
+            console.error('[sync] addSitePlan exception:', e?.message ?? e);
           }
-        });
+        })();
       }
     },
 
