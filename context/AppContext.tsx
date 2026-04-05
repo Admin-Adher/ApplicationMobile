@@ -1188,9 +1188,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         AsyncStorage.getItem(ACTIVE_CHANTIER_KEY).catch(() => null),
       ]);
 
-      if (reservesErr) {
-      }
-
       const storedLastRead = await AsyncStorage.getItem('lastReadByChannel').catch(() => null);
       if (storedLastRead) {
         dispatch({ type: 'SET_LAST_READ', payload: JSON.parse(storedLastRead) });
@@ -1202,6 +1199,41 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       await loadChannelMembersOverride();
 
       if (loadGenerationRef.current !== myGen) return;
+
+      // ── Reserves: Supabase-first with local-cache fallback ──────────────────
+      let resolvedReserves: Reserve[] = (reservesErr || !reserves) ? [] : reserves.map(toReserve);
+      if (resolvedReserves.length === 0) {
+        const sr = await AsyncStorage.getItem(MOCK_RESERVES_KEY).catch(() => null);
+        const localReserves: Reserve[] = sr ? (JSON.parse(sr) ?? []) : [];
+        if (localReserves.length > 0) {
+          resolvedReserves = localReserves;
+          // Try to push local reserves up to Supabase (best-effort)
+          (async () => {
+            for (const r of localReserves) {
+              await supabase.from('reserves').upsert({
+                id: r.id, title: r.title, description: r.description, building: r.building,
+                zone: r.zone, level: r.level,
+                company: (r.companies ?? (r.company ? [r.company] : []))[0] ?? null,
+                companies: r.companies ?? (r.company ? [r.company] : []),
+                priority: r.priority, status: r.status, created_at: r.createdAt, deadline: r.deadline,
+                comments: r.comments, history: r.history,
+                plan_x: r.planX ?? 50, plan_y: r.planY ?? 50,
+                photo_uri: r.photoUri ?? null, lot_id: r.lotId ?? null, kind: r.kind ?? null,
+                chantier_id: r.chantierId ?? null, plan_id: r.planId ?? null,
+                visite_id: r.visiteId ?? null, linked_task_id: r.linkedTaskId ?? null,
+                photos: r.photos ?? null, photo_annotations: r.photoAnnotations ?? null,
+                enterprise_signature: r.enterpriseSignature ?? null,
+                enterprise_signataire: r.enterpriseSignataire ?? null,
+                enterprise_acknowledged_at: r.enterpriseAcknowledgedAt ?? null,
+                company_signatures: r.companySignatures ?? null,
+              }).catch(() => {});
+            }
+          })();
+        }
+      } else {
+        // Cache the good result locally so we have a fallback next time
+        persistMockReserves(resolvedReserves);
+      }
 
       // ── Companies: Supabase-first with local-cache fallback ─────────────────
       let resolvedCompanies: Company[] = (companies ?? []).map(toCompany);
@@ -1235,7 +1267,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       dispatch({
         type: 'INIT',
         payload: {
-          reserves: (reserves ?? []).map(toReserve),
+          reserves: resolvedReserves,
           companies: resolvedCompanies,
           tasks: (tasks ?? []).map(toTask),
           documents: (documents ?? []).map(toDocument),
@@ -2005,6 +2037,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
     addReserve: (r) => {
       dispatch({ type: 'ADD_RESERVE', payload: r });
+      // Always persist locally first so data survives Supabase failures or restarts
+      persistMockReserves([r, ...stateRef.current.reserves]);
       if (offline({ table: 'reserves', op: 'insert', data: {
         id: r.id, title: r.title, description: r.description, building: r.building,
         zone: r.zone, level: r.level,
@@ -2050,8 +2084,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
             console.warn('[sync] addReserve server error (data saved locally):', error.message);
           }
         });
-      } else {
-        persistMockReserves([r, ...stateRef.current.reserves]);
       }
     },
 
@@ -2059,6 +2091,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       const previous = stateRef.current.reserves.find(res => res.id === r.id);
       const newReserves = stateRef.current.reserves.map(res => res.id === r.id ? r : res);
       dispatch({ type: 'UPDATE_RESERVE', payload: r });
+      // Always persist locally first so data survives Supabase failures or restarts
+      persistMockReserves(newReserves);
       if (offline({ table: 'reserves', op: 'update', filter: { column: 'id', value: r.id }, data: {
         title: r.title, description: r.description, building: r.building,
         zone: r.zone, level: r.level,
@@ -2105,8 +2139,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
             console.warn('[sync] updateReserve server error (data saved locally):', error.message);
           }
         });
-      } else {
-        persistMockReserves(newReserves);
       }
     },
 
@@ -2114,6 +2146,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       const previous = stateRef.current.reserves.find(res => res.id === r.id);
       const newReserves = stateRef.current.reserves.map(res => res.id === r.id ? r : res);
       dispatch({ type: 'UPDATE_RESERVE_FIELDS', payload: r });
+      // Always persist locally first so data survives Supabase failures or restarts
+      persistMockReserves(newReserves);
       if (offline({ table: 'reserves', op: 'update', filter: { column: 'id', value: r.id }, data: {
         title: r.title, description: r.description, building: r.building,
         zone: r.zone, level: r.level,
@@ -2150,8 +2184,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
             console.warn('[sync] updateReserveFields server error (data saved locally):', error.message);
           }
         });
-      } else {
-        persistMockReserves(newReserves);
       }
     },
 
@@ -2159,6 +2191,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       const previous = stateRef.current.reserves.find(r => r.id === id);
       const newReserves = stateRef.current.reserves.filter(r => r.id !== id);
       dispatch({ type: 'DELETE_RESERVE', payload: id });
+      // Always persist locally first so deletion survives Supabase failures or restarts
+      persistMockReserves(newReserves);
       if (offline({ table: 'reserves', op: 'delete', filter: { column: 'id', value: id } })) return;
       if (isSupabaseConfigured) {
         supabase.from('reserves').delete().eq('id', id).then(({ error }: { error: any }) => {
@@ -2166,8 +2200,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
             console.warn('[sync] deleteReserve server error (data deleted locally):', error.message);
           }
         });
-      } else {
-        persistMockReserves(newReserves);
       }
     },
 
