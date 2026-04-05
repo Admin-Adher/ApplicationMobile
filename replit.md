@@ -128,6 +128,15 @@ All INSERT functions in `context/AppContext.tsx` now include `organization_id` i
 - Replaces RLS policies with dual-path logic (direct org_id OR chantier join)
 - Is fully idempotent — safe to run multiple times
 
+## Super Admin & Licence Architecture (2026-04-05)
+- All organizations automatically receive the **Entreprise — Illimité** plan (no plan selection UI)
+- `app/superadmin.tsx`: removed the obsolete "Changer la formule" plan modal and all related code (`planModal`, `allPlans`, `updateOrgPlan`, `handleChangePlan`, `PLAN_COLORS`)
+- Org cards now display a fixed "Entreprise — Illimité" badge (violet) and an "Éditer" button (pencil icon)
+- "Éditer" opens a new modal to rename the organization (name editable, slug read-only)
+- Status change (Actif/Suspendu/Essai/Expiré) remains a quick action via the status badge on each org card
+- `context/SubscriptionContext.tsx`: added `updateOrganization(orgId, name)` — updates org name in Supabase `organizations` table (or in demo state), exposed in context value
+- `app/(tabs)/admin.tsx`: "Abonnement" tab renamed "Licence" with read-only Entreprise plan display
+
 ## Architecture Notes
 - This is a pure React Native/Expo app. All data access is client-side.
 - Supabase is the optional backend — without credentials, the app uses built-in demo data.

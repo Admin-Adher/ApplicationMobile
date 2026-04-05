@@ -67,6 +67,7 @@ interface SubscriptionContextValue {
   refreshSubscription: () => void;
   updateOrgPlan: (orgId: string, planId: string) => Promise<{ success: boolean; error?: string }>;
   updateOrgStatus: (orgId: string, status: 'trial' | 'active' | 'suspended' | 'expired') => Promise<{ success: boolean; error?: string }>;
+  updateOrganization: (orgId: string, name: string) => Promise<{ success: boolean; error?: string }>;
   createOrganization: (name: string, adminEmail?: string) => Promise<{ success: boolean; error?: string }>;
 }
 
@@ -458,6 +459,31 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
     }
   }
 
+  async function updateOrganization(
+    orgId: string,
+    name: string
+  ): Promise<{ success: boolean; error?: string }> {
+    const trimmed = name.trim();
+    if (!trimmed) return { success: false, error: 'Le nom ne peut pas être vide.' };
+
+    if (!isSupabaseConfigured) {
+      setAllOrganizations(prev => prev.map(o => o.id === orgId ? { ...o, name: trimmed } : o));
+      setOrgSummaries(prev => prev.map(s => s.org.id === orgId ? { ...s, org: { ...s.org, name: trimmed } } : s));
+      return { success: true };
+    }
+    try {
+      const { error } = await supabase
+        .from('organizations')
+        .update({ name: trimmed })
+        .eq('id', orgId);
+      if (error) return { success: false, error: error.message };
+      refreshSubscription();
+      return { success: true };
+    } catch {
+      return { success: false, error: 'Erreur réseau.' };
+    }
+  }
+
   async function createOrganization(
     name: string,
     adminEmail?: string
@@ -548,6 +574,7 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
         refreshSubscription,
         updateOrgPlan,
         updateOrgStatus,
+        updateOrganization,
         createOrganization,
       }}
     >
