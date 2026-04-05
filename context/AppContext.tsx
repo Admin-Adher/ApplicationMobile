@@ -508,6 +508,7 @@ function reducer(state: AppState, action: Action): AppState {
       return { ...state, sitePlans: action.payload };
 
     case 'ADD_RESERVE':
+      if (state.reserves.some(r => r.id === action.payload.id)) return state;
       return { ...state, reserves: [action.payload, ...state.reserves] };
 
     case 'UPDATE_RESERVE':
@@ -529,6 +530,7 @@ function reducer(state: AppState, action: Action): AppState {
     }
 
     case 'ADD_COMPANY':
+      if (state.companies.some(c => c.id === action.payload.id)) return state;
       return { ...state, companies: [...state.companies, action.payload] };
 
     case 'UPDATE_COMPANY':
@@ -579,6 +581,7 @@ function reducer(state: AppState, action: Action): AppState {
       return { ...state, lastReadByChannel: action.payload };
 
     case 'ADD_TASK':
+      if (state.tasks.some(t => t.id === action.payload.id)) return state;
       return { ...state, tasks: [action.payload, ...state.tasks] };
 
     case 'UPDATE_TASK':
@@ -598,9 +601,11 @@ function reducer(state: AppState, action: Action): AppState {
     }
 
     case 'ADD_PHOTO':
+      if (state.photos.some(p => p.id === action.payload.id)) return state;
       return { ...state, photos: [action.payload, ...state.photos] };
 
     case 'ADD_DOCUMENT':
+      if (state.documents.some(d => d.id === action.payload.id)) return state;
       return { ...state, documents: [action.payload, ...state.documents] };
 
     case 'DELETE_DOCUMENT':
