@@ -1,7 +1,7 @@
 import React, { useState, useRef, useMemo, useEffect } from 'react';
 import {
   View, Text, StyleSheet, TouchableOpacity, ScrollView, FlatList, Platform,
-  Modal, PanResponder, Animated, Image, KeyboardAvoidingView,
+  Modal, PanResponder, Animated, Image, KeyboardAvoidingView, Keyboard,
   ActivityIndicator, Alert, TextInput, useWindowDimensions,
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -355,6 +355,7 @@ export default function PlansScreen() {
   const [newPlanModal, setNewPlanModal] = useState<{ visible: boolean; name: string; building: string; level: string; buildingId?: string; levelId?: string }>({
     visible: false, name: '', building: '', level: '', buildingId: undefined, levelId: undefined,
   });
+  const [kbHeight, setKbHeight] = useState(0);
   const [showVersionHistory, setShowVersionHistory] = useState(false);
   const [revisionModal, setRevisionModal] = useState<{ visible: boolean; code: string; note: string }>({ visible: false, code: '', note: '' });
   const [highlightedReserveId, setHighlightedReserveId] = useState<string | null>(null);
@@ -389,6 +390,14 @@ export default function PlansScreen() {
     AsyncStorage.getItem(HINT_KEY).then(v => { if (v === '1') setHintSeen(true); });
     AsyncStorage.getItem(PIN_SIZE_KEY).then(v => { if (v) { const n = parseFloat(v); if (!isNaN(n)) setPinSizeScale(n); } });
     AsyncStorage.getItem(PIN_SIZES_KEY).then(v => { if (v) { try { setPinSizes(JSON.parse(v)); } catch {} } });
+  }, []);
+
+  useEffect(() => {
+    const showEvent = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
+    const hideEvent = Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide';
+    const showSub = Keyboard.addListener(showEvent, e => setKbHeight(e.endCoordinates.height));
+    const hideSub = Keyboard.addListener(hideEvent, () => setKbHeight(0));
+    return () => { showSub.remove(); hideSub.remove(); };
   }, []);
 
   // Unified effect: resets state on chantier change AND auto-selects the first
@@ -1097,7 +1106,7 @@ export default function PlansScreen() {
         </ScrollView>
         <Modal visible={newPlanModal.visible} transparent animationType="fade" onRequestClose={() => setNewPlanModal(p => ({ ...p, visible: false }))}>
           <TouchableOpacity style={styles.modalOverlay} activeOpacity={1} onPress={() => setNewPlanModal(p => ({ ...p, visible: false }))}>
-            <TouchableOpacity activeOpacity={1} style={styles.modalCard} onPress={() => {}}>
+            <TouchableOpacity activeOpacity={1} style={[styles.modalCard, { marginBottom: kbHeight }]} onPress={() => {}}>
               <View style={styles.modalHeader}>
                 <View style={[styles.modalPin, { backgroundColor: C.primary }]}><Ionicons name="map-outline" size={14} color="#fff" /></View>
                 <View style={{ flex: 1 }}><Text style={styles.modalTitle}>Nouveau plan</Text><Text style={styles.modalMeta}>Ajoutez un plan à ce chantier</Text></View>
@@ -1999,7 +2008,7 @@ export default function PlansScreen() {
       {/* New plan modal */}
       <Modal visible={newPlanModal.visible} transparent animationType="fade" onRequestClose={() => setNewPlanModal(p => ({ ...p, visible: false }))}>
         <TouchableOpacity style={styles.modalOverlay} activeOpacity={1} onPress={() => setNewPlanModal(p => ({ ...p, visible: false }))}>
-          <TouchableOpacity activeOpacity={1} style={styles.modalCard} onPress={() => {}}>
+          <TouchableOpacity activeOpacity={1} style={[styles.modalCard, { marginBottom: kbHeight }]} onPress={() => {}}>
             <View style={styles.modalHeader}>
               <View style={[styles.modalPin, { backgroundColor: C.primary }]}><Ionicons name="map-outline" size={14} color="#fff" /></View>
               <View style={{ flex: 1 }}><Text style={styles.modalTitle}>Nouveau plan</Text><Text style={styles.modalMeta}>Ajoutez un plan à ce chantier</Text></View>
