@@ -2509,28 +2509,43 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
     addTask: (t) => {
       dispatch({ type: 'ADD_TASK', payload: t });
-      if (offline({ table: 'tasks', op: 'insert', data: {
-        id: t.id, title: t.title, description: t.description, status: t.status,
-        priority: t.priority, start_date: t.startDate ?? null, deadline: t.deadline,
-        assignee: t.assignee, progress: t.progress, company: t.company,
-        chantier_id: t.chantierId ?? null, reserve_id: t.reserveId ?? null,
-        comments: t.comments ?? [], history: t.history ?? [], created_at: t.createdAt ?? null,
-      } })) return;
+      persistMockTasks([t, ...stateRef.current.tasks]);
+      if (offline({ table: 'tasks', op: 'insert', data: { id: t.id } })) return;
       if (isSupabaseConfigured) {
-        supabase.from('tasks').insert({
-          id: t.id, title: t.title, description: t.description, status: t.status,
-          priority: t.priority, start_date: t.startDate ?? null, deadline: t.deadline,
-          assignee: t.assignee, progress: t.progress, company: t.company,
-          chantier_id: t.chantierId ?? null, reserve_id: t.reserveId ?? null,
-          comments: t.comments ?? [], history: t.history ?? [],
-          created_at: t.createdAt ?? null,
-        }).then(({ error }: { error: any }) => {
-          if (error) {
-            console.warn('[sync] addTask server error (data saved locally):', error.message);
+        (async () => {
+          try {
+            let orgId = currentUserOrgIdRef.current;
+            if (!orgId) {
+              const { data: { session } } = await supabase.auth.getSession();
+              if (session?.user?.id) {
+                const { data: prof } = await supabase
+                  .from('profiles').select('organization_id')
+                  .eq('id', session.user.id).single();
+                orgId = prof?.organization_id ?? null;
+                if (orgId) currentUserOrgIdRef.current = orgId;
+              }
+            }
+            const { error } = await supabase.from('tasks').insert({
+              id: t.id, title: t.title, description: t.description, status: t.status,
+              priority: t.priority, start_date: t.startDate ?? null, deadline: t.deadline,
+              assignee: t.assignee, progress: t.progress, company: t.company,
+              chantier_id: t.chantierId ?? null, reserve_id: t.reserveId ?? null,
+              comments: t.comments ?? [], history: t.history ?? [],
+              created_at: t.createdAt ?? null,
+              organization_id: orgId,
+            });
+            if (error) {
+              console.error('[sync] addTask Supabase error:', error.code, error.message);
+              Alert.alert(
+                'Erreur de synchronisation',
+                `La tâche a été sauvegardée localement mais n'a pas pu être envoyée.\n\nCode: ${error.code}\n${error.message}`,
+                [{ text: 'OK' }]
+              );
+            }
+          } catch (e: any) {
+            console.error('[sync] addTask exception:', e?.message ?? e);
           }
-        });
-      } else {
-        persistMockTasks([t, ...stateRef.current.tasks]);
+        })();
       }
     },
 
@@ -2538,6 +2553,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       const previous = stateRef.current.tasks.find(tk => tk.id === t.id);
       const newTasks = stateRef.current.tasks.map(tk => tk.id === t.id ? t : tk);
       dispatch({ type: 'UPDATE_TASK', payload: t });
+      persistMockTasks(newTasks);
       if (offline({ table: 'tasks', op: 'update', filter: { column: 'id', value: t.id }, data: {
         title: t.title, description: t.description, status: t.status,
         priority: t.priority, start_date: t.startDate ?? null, deadline: t.deadline,
@@ -2557,8 +2573,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
             console.warn('[sync] updateTask server error (data saved locally):', error.message);
           }
         });
-      } else {
-        persistMockTasks(newTasks);
       }
     },
 
@@ -2566,6 +2580,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       const previous = stateRef.current.tasks.find(t => t.id === id);
       const newTasks = stateRef.current.tasks.filter(t => t.id !== id);
       dispatch({ type: 'DELETE_TASK', payload: id });
+      persistMockTasks(newTasks);
       if (offline({ table: 'tasks', op: 'delete', filter: { column: 'id', value: id } })) return;
       if (isSupabaseConfigured) {
         supabase.from('tasks').delete().eq('id', id).then(({ error }: { error: any }) => {
@@ -2573,8 +2588,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
             console.warn('[sync] deleteTask server error (data deleted locally):', error.message);
           }
         });
-      } else {
-        persistMockTasks(newTasks);
       }
     },
 
