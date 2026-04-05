@@ -2037,53 +2037,53 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
     addReserve: (r) => {
       dispatch({ type: 'ADD_RESERVE', payload: r });
-      // Always persist locally first so data survives Supabase failures or restarts
       persistMockReserves([r, ...stateRef.current.reserves]);
-      if (offline({ table: 'reserves', op: 'insert', data: {
-        id: r.id, title: r.title, description: r.description, building: r.building,
-        zone: r.zone, level: r.level,
-        company: (r.companies ?? (r.company ? [r.company] : []))[0] ?? null,
-        companies: r.companies ?? (r.company ? [r.company] : []),
-        priority: r.priority, status: r.status, created_at: r.createdAt, deadline: r.deadline,
-        comments: r.comments, history: r.history,
-        plan_x: r.planX ?? 50, plan_y: r.planY ?? 50,
-        photo_uri: r.photoUri ?? null, lot_id: r.lotId ?? null, kind: r.kind ?? null,
-        chantier_id: r.chantierId ?? null, plan_id: r.planId ?? null,
-        visite_id: r.visiteId ?? null, linked_task_id: r.linkedTaskId ?? null,
-        photos: r.photos ?? null, photo_annotations: r.photoAnnotations ?? null,
-        enterprise_signature: r.enterpriseSignature ?? null,
-        enterprise_signataire: r.enterpriseSignataire ?? null,
-        enterprise_acknowledged_at: r.enterpriseAcknowledgedAt ?? null,
-        company_signatures: r.companySignatures ?? null,
-      } })) return;
+      if (offline({ table: 'reserves', op: 'insert', data: { id: r.id } })) return;
       if (isSupabaseConfigured) {
-        supabase.from('reserves').insert({
-          id: r.id, title: r.title, description: r.description, building: r.building,
-          zone: r.zone, level: r.level,
-          company: (r.companies ?? (r.company ? [r.company] : []))[0] ?? null,
-          companies: r.companies ?? (r.company ? [r.company] : []),
-          priority: r.priority,
-          status: r.status, created_at: r.createdAt, deadline: r.deadline,
-          comments: r.comments, history: r.history,
-          plan_x: r.planX ?? 50, plan_y: r.planY ?? 50,
-          photo_uri: r.photoUri ?? null,
-          lot_id: r.lotId ?? null,
-          kind: r.kind ?? null,
-          chantier_id: r.chantierId ?? null,
-          plan_id: r.planId ?? null,
-          visite_id: r.visiteId ?? null,
-          linked_task_id: r.linkedTaskId ?? null,
-          photos: r.photos ?? null,
-          photo_annotations: r.photoAnnotations ?? null,
-          enterprise_signature: r.enterpriseSignature ?? null,
-          enterprise_signataire: r.enterpriseSignataire ?? null,
-          enterprise_acknowledged_at: r.enterpriseAcknowledgedAt ?? null,
-          company_signatures: r.companySignatures ?? null,
-        }).then(({ error }: { error: any }) => {
-          if (error) {
-            console.warn('[sync] addReserve server error (data saved locally):', error.message);
+        (async () => {
+          try {
+            let orgId = currentUserOrgIdRef.current;
+            if (!orgId) {
+              const { data: { session } } = await supabase.auth.getSession();
+              if (session?.user?.id) {
+                const { data: prof } = await supabase
+                  .from('profiles').select('organization_id')
+                  .eq('id', session.user.id).single();
+                orgId = prof?.organization_id ?? null;
+                if (orgId) currentUserOrgIdRef.current = orgId;
+              }
+            }
+            const payload = {
+              id: r.id, title: r.title, description: r.description, building: r.building,
+              zone: r.zone, level: r.level,
+              company: (r.companies ?? (r.company ? [r.company] : []))[0] ?? null,
+              companies: r.companies ?? (r.company ? [r.company] : []),
+              priority: r.priority, status: r.status, created_at: r.createdAt, deadline: r.deadline,
+              comments: r.comments, history: r.history,
+              plan_x: r.planX ?? 50, plan_y: r.planY ?? 50,
+              photo_uri: r.photoUri ?? null, lot_id: r.lotId ?? null, kind: r.kind ?? null,
+              chantier_id: r.chantierId ?? null, plan_id: r.planId ?? null,
+              visite_id: r.visiteId ?? null, linked_task_id: r.linkedTaskId ?? null,
+              photos: r.photos ?? null, photo_annotations: r.photoAnnotations ?? null,
+              enterprise_signature: r.enterpriseSignature ?? null,
+              enterprise_signataire: r.enterpriseSignataire ?? null,
+              enterprise_acknowledged_at: r.enterpriseAcknowledgedAt ?? null,
+              company_signatures: r.companySignatures ?? null,
+              organization_id: orgId,
+            };
+            const { error } = await supabase.from('reserves').insert(payload);
+            if (error) {
+              console.error('[sync] addReserve Supabase error:', error.code, error.message, error.details);
+              Alert.alert(
+                'Erreur de synchronisation',
+                `La réserve a été sauvegardée localement mais n'a pas pu être envoyée au serveur.\n\nCode: ${error.code}\n${error.message}`,
+                [{ text: 'OK' }]
+              );
+            }
+          } catch (e: any) {
+            console.error('[sync] addReserve exception:', e?.message ?? e);
           }
-        });
+        })();
       }
     },
 
