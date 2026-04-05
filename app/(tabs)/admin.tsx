@@ -1,6 +1,7 @@
 import {
   View, Text, StyleSheet, ScrollView, TouchableOpacity, TextInput,
   Alert, Modal, Platform, ActivityIndicator, Linking, KeyboardAvoidingView,
+  Dimensions,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -14,6 +15,9 @@ import { UserRole, Company } from '@/constants/types';
 import { isSupabaseConfigured } from '@/lib/supabase';
 import { genId } from '@/lib/utils';
 import { ROLES, ROLE_INFO, PLAN_COLORS, FREE_ROLES, AVATAR_COLORS, hashColor, formatDate } from '@/lib/adminUtils';
+
+const WINDOW_H = Dimensions.get('window').height;
+const MODAL_SCROLL_MAX_H = WINDOW_H * 0.62;
 
 function SafeKAV({ children }: { children: React.ReactNode }) {
   if (Platform.OS === 'ios') {
@@ -1241,7 +1245,7 @@ export default function AdminScreen() {
             {saving ? (
               <ActivityIndicator size="large" color={C.primary} style={{ marginVertical: 24 }} />
             ) : (
-              <ScrollView showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled" contentContainerStyle={{ gap: 10, paddingBottom: 4 }}>
+              <ScrollView style={{ maxHeight: MODAL_SCROLL_MAX_H }} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled" contentContainerStyle={{ gap: 10, paddingBottom: 16 }}>
                 {/* ── Sélection du rôle ── */}
                 <Text style={styles.fieldLabel}>Rôle</Text>
                 {ROLES.map(r => {
@@ -1341,10 +1345,11 @@ export default function AdminScreen() {
                 {companyModal?.mode === 'edit' ? 'Modifier l\'entreprise' : 'Ajouter une entreprise'}
               </Text>
               <ScrollView
+                style={{ maxHeight: MODAL_SCROLL_MAX_H }}
                 showsVerticalScrollIndicator={false}
                 keyboardShouldPersistTaps="handled"
                 nestedScrollEnabled
-                contentContainerStyle={{ gap: 10, paddingBottom: 8 }}
+                contentContainerStyle={{ gap: 10, paddingBottom: 16 }}
               >
                 <View style={styles.field}>
                   <Text style={styles.fieldLabel}>Nom complet *</Text>
@@ -1456,7 +1461,7 @@ export default function AdminScreen() {
         <SafeKAV>
           <TouchableOpacity style={styles.overlay} activeOpacity={1} onPress={handleCloseInviteModal}>
             <TouchableOpacity activeOpacity={1} style={styles.sheet}>
-              <ScrollView showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled" nestedScrollEnabled contentContainerStyle={{ gap: 10 }}>
+              <ScrollView style={{ maxHeight: MODAL_SCROLL_MAX_H }} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled" nestedScrollEnabled contentContainerStyle={{ gap: 10 }}>
                 <View style={styles.sheetHandle} />
                 {inviteToken ? (
                   <>
