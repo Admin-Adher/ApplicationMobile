@@ -67,6 +67,7 @@ interface SubscriptionContextValue {
   refreshSubscription: () => void;
   updateOrgPlan: (orgId: string, planId: string) => Promise<{ success: boolean; error?: string }>;
   updateOrgStatus: (orgId: string, status: 'trial' | 'active' | 'suspended' | 'expired') => Promise<{ success: boolean; error?: string }>;
+  createOrganization: (name: string, adminEmail?: string) => Promise<{ success: boolean; error?: string }>;
 }
 
 const SubscriptionContext = createContext<SubscriptionContextValue | null>(null);
@@ -454,6 +455,74 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
     }
   }
 
+  async function createOrganization(
+    name: string,
+    adminEmail?: string
+  ): Promise<{ success: boolean; error?: string }> {
+    if (!user) return { success: false, error: 'Non connecté.' };
+
+    const slug = name
+      .toLowerCase()
+      .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-|-$/g, '')
+      + '-' + Date.now().toString(36);
+
+    if (!isSupabaseConfigured) {
+      const mockOrg: Organization = {
+        id: 'org-' + Date.now(),
+        name,
+        slug,
+        createdAt: new Date().toISOString(),
+      };
+      const enterprisePlan = allPlans.find(p => p.name === 'Entreprise') ?? allPlans[0];
+      setAllOrganizations(prev => [mockOrg, ...prev]);
+      setOrgSummaries(prev => [{
+        org: mockOrg,
+        planName: enterprisePlan?.name ?? 'Entreprise',
+        planId: enterprisePlan?.id ?? 'plan-entreprise',
+        status: 'active',
+        seatMax: -1,
+      }, ...prev]);
+      return { success: true };
+    }
+
+    try {
+      const { data: org, error: orgErr } = await supabase
+        .from('organizations')
+        .insert({ name, slug })
+        .select()
+        .single();
+
+      if (orgErr || !org) {
+        return { success: false, error: orgErr?.message ?? "Impossible de créer l'organisation." };
+      }
+
+      const enterprisePlan = allPlans.find(p => p.name === 'Entreprise') ?? allPlans[allPlans.length - 1];
+      await supabase.from('subscriptions').insert({
+        organization_id: org.id,
+        plan_id: enterprisePlan?.id ?? allPlans[0]?.id,
+        status: 'active',
+        started_at: new Date().toISOString(),
+      });
+
+      if (adminEmail) {
+        const emailLower = adminEmail.trim().toLowerCase();
+        await supabase.from('invitations').insert({
+          organization_id: org.id,
+          email: emailLower,
+          role: 'admin',
+          invited_by: user.id,
+        });
+      }
+
+      refreshSubscription();
+      return { success: true };
+    } catch (e: any) {
+      return { success: false, error: e?.message ?? 'Erreur réseau.' };
+    }
+  }
+
   return (
     <SubscriptionContext.Provider
       value={{
@@ -476,6 +545,7 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
         refreshSubscription,
         updateOrgPlan,
         updateOrgStatus,
+        createOrganization,
       }}
     >
       {children}

@@ -1,6 +1,6 @@
 import {
   View, Text, StyleSheet, ScrollView, TouchableOpacity, Platform,
-  ActivityIndicator, Linking,
+  ActivityIndicator, Linking, Modal, TextInput, Alert, KeyboardAvoidingView,
 } from 'react-native';
 import * as Clipboard from 'expo-clipboard';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -11,6 +11,8 @@ import { C } from '@/constants/colors';
 import { useSubscription } from '@/context/SubscriptionContext';
 import { useAuth } from '@/context/AuthContext';
 import { hashColor, ROLE_INFO } from '@/lib/adminUtils';
+
+const ORG_COLORS = ['#3B82F6','#10B981','#8B5CF6','#F59E0B','#EF4444','#06B6D4','#EC4899'];
 
 const MODULES = [
   { icon: 'flag', label: 'Réserves & levées', desc: 'Gestion complète des réserves avec historique, photos et suivi.' },
@@ -42,9 +44,14 @@ export default function SubscriptionScreen() {
   const bottomPad = Platform.OS === 'web' ? 34 : insets.bottom;
   const router = useRouter();
   const [slugCopied, setSlugCopied] = useState(false);
+  const [createModal, setCreateModal] = useState(false);
+  const [newOrgName, setNewOrgName] = useState('');
+  const [newAdminEmail, setNewAdminEmail] = useState('');
+  const [creating, setCreating] = useState(false);
 
   const { user } = useAuth();
-  const { organization, subscription, isLoading, activeOrgUsers, freeOrgUsers, orgUsers } = useSubscription();
+  const { organization, subscription, isLoading, activeOrgUsers, freeOrgUsers, orgUsers, orgSummaries, createOrganization } = useSubscription();
+  const isSuperAdmin = user?.role === 'super_admin';
 
   const isAdmin = user?.role === 'admin' || user?.role === 'super_admin';
 
@@ -73,6 +80,35 @@ export default function SubscriptionScreen() {
     await Clipboard.setStringAsync(organization.slug);
     setSlugCopied(true);
     setTimeout(() => setSlugCopied(false), 2000);
+  }
+
+  async function handleCreateOrg() {
+    const name = newOrgName.trim();
+    if (!name) {
+      Alert.alert('Nom requis', 'Veuillez saisir le nom de la filiale.');
+      return;
+    }
+    if (newAdminEmail && !newAdminEmail.includes('@')) {
+      Alert.alert('Email invalide', 'Veuillez saisir une adresse email valide.');
+      return;
+    }
+    setCreating(true);
+    const result = await createOrganization(name, newAdminEmail.trim() || undefined);
+    setCreating(false);
+    if (result.success) {
+      setCreateModal(false);
+      setNewOrgName('');
+      setNewAdminEmail('');
+      Alert.alert(
+        'Organisation créée',
+        newAdminEmail.trim()
+          ? `"${name}" a été créée et une invitation admin a été envoyée à ${newAdminEmail.trim()}.`
+          : `"${name}" a été créée. Vous pouvez inviter un administrateur depuis la page de gestion.`,
+        [{ text: 'OK' }]
+      );
+    } else {
+      Alert.alert('Erreur', result.error ?? "Impossible de créer l'organisation.");
+    }
   }
 
   return (
@@ -134,6 +170,75 @@ export default function SubscriptionScreen() {
             <View style={styles.heroPill}><Text style={styles.heroPillTxt}>Hébergement EU</Text></View>
           </View>
         </View>
+
+        {/* ── Filiales du Groupe (super_admin uniquement) ── */}
+        {isSuperAdmin && (
+          <>
+            <View style={styles.groupHeader}>
+              <Text style={styles.sectionTitle}>
+                Filiales du Groupe <Text style={styles.sectionCount}>({orgSummaries.length})</Text>
+              </Text>
+              <TouchableOpacity style={styles.createBtn} onPress={() => setCreateModal(true)}>
+                <Ionicons name="add" size={16} color="#fff" />
+                <Text style={styles.createBtnTxt}>Nouvelle filiale</Text>
+              </TouchableOpacity>
+            </View>
+
+            {orgSummaries.length === 0 ? (
+              <View style={styles.emptyOrgs}>
+                <Ionicons name="business-outline" size={36} color={C.textMuted} />
+                <Text style={styles.emptyOrgsTitle}>Aucune organisation</Text>
+                <Text style={styles.emptyOrgsHint}>Créez la première filiale du groupe ci-dessus.</Text>
+              </View>
+            ) : (
+              orgSummaries.map((s, i) => {
+                const col = ORG_COLORS[i % ORG_COLORS.length];
+                const initials = s.org.name.split(' ').map(w => w[0]).slice(0, 2).join('').toUpperCase();
+                const statusColors: Record<string, { label: string; color: string; bg: string }> = {
+                  active:    { label: 'Actif',     color: '#10B981', bg: '#ECFDF5' },
+                  trial:     { label: 'Essai',     color: '#F59E0B', bg: '#FFFBEB' },
+                  suspended: { label: 'Suspendu',  color: '#EF4444', bg: '#FEF2F2' },
+                  expired:   { label: 'Expiré',    color: '#6B7280', bg: '#F3F4F6' },
+                };
+                const sc = statusColors[s.status] ?? statusColors.expired;
+                return (
+                  <View key={s.org.id} style={[styles.filialCard, { borderLeftColor: col }]}>
+                    <View style={styles.filialTop}>
+                      <View style={[styles.filialAvatar, { backgroundColor: col + '20' }]}>
+                        <Text style={[styles.filialAvatarTxt, { color: col }]}>{initials}</Text>
+                      </View>
+                      <View style={{ flex: 1 }}>
+                        <Text style={styles.filialName}>{s.org.name}</Text>
+                        <Text style={styles.filialSlug}>{s.org.slug}</Text>
+                      </View>
+                      <View style={[styles.filialStatusBadge, { backgroundColor: sc.bg }]}>
+                        <View style={[styles.filialStatusDot, { backgroundColor: sc.color }]} />
+                        <Text style={[styles.filialStatusTxt, { color: sc.color }]}>{sc.label}</Text>
+                      </View>
+                    </View>
+                    <View style={styles.filialFooter}>
+                      <View style={styles.filialMeta}>
+                        <Ionicons name="calendar-outline" size={12} color={C.textMuted} />
+                        <Text style={styles.filialMetaTxt}>
+                          {new Date(s.org.createdAt).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short', year: 'numeric' })}
+                        </Text>
+                      </View>
+                      <View style={styles.filialMeta}>
+                        <Ionicons name="people-outline" size={12} color={C.textMuted} />
+                        <Text style={styles.filialMetaTxt}>
+                          {s.seatMax === -1 ? 'Illimité' : `${s.seatMax} sièges`}
+                        </Text>
+                      </View>
+                      <View style={[styles.filialPlanBadge, { backgroundColor: C.primary + '14' }]}>
+                        <Text style={[styles.filialPlanTxt, { color: C.primary }]}>{s.planName}</Text>
+                      </View>
+                    </View>
+                  </View>
+                );
+              })
+            )}
+          </>
+        )}
 
         {/* ── Organisation active ── */}
         {organization && (
