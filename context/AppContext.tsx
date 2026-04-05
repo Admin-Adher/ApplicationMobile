@@ -3,6 +3,7 @@ import { Alert } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Reserve, Company, Task, Document, Photo, Message, Channel, Profile, Comment, ReserveStatus, ReservePriority, TaskStatus, Chantier, SitePlan, ChantierStatus, Visite, Lot, Opr, VisiteStatus, OprStatus, UserRole } from '@/constants/types';
 import { supabase, isSupabaseConfigured } from '@/lib/supabase';
+import { useNetwork } from '@/context/NetworkContext';
 import { initStorageBuckets } from '@/lib/storage';
 import { C } from '@/constants/colors';
 import { genId, nowTimestampFR, formatDateFR } from '@/lib/utils';
@@ -818,6 +819,10 @@ export const STANDARD_LOTS: Lot[] = [
 const MOCK_VISITES: Visite[] = [];
 
 export function AppProvider({ children }: { children: React.ReactNode }) {
+  const { isOnline, enqueueOperation, registerReloadHandler } = useNetwork();
+  const isOnlineRef = useRef(isOnline);
+  useEffect(() => { isOnlineRef.current = isOnline; }, [isOnline]);
+
   const [state, dispatch] = useReducer(reducer, {
     reserves: [], companies: [], tasks: [],
     documents: [], photos: [], messages: [],
@@ -849,6 +854,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     stateRef.current = state;
   }, [state]);
+
+  // Register the reload handler so NetworkContext can trigger a refresh after offline sync
+  useEffect(() => {
+    if (isSupabaseConfigured) {
+      registerReloadHandler(() => { loadGenerationRef.current++; loadAll(); });
+    }
+  }, []);
 
   function dismissNotification() {
     setNotification(null);
