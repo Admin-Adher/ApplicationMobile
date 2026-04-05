@@ -134,7 +134,7 @@ export default function SettingsScreen() {
         {[
           { key: 'compte',       icon: 'person-circle-outline', label: 'Compte' },
           { key: 'project',      icon: 'construct-outline',     label: 'Projet' },
-          { key: 'attendance',   icon: 'people-outline',        label: `Présences (${totalDays})` },
+          ...(!isSousTraitant ? [{ key: 'attendance', icon: 'people-outline', label: `Présences (${totalDays})` }] : []),
           { key: 'integrations', icon: 'apps-outline',          label: 'Intégrations BTP' },
         ].map(tab => (
           <TouchableOpacity
@@ -328,7 +328,7 @@ export default function SettingsScreen() {
           </View>
         )}
 
-        {activeTab === 'attendance' && (
+        {activeTab === 'attendance' && !isSousTraitant && (
           <View>
             <View style={[styles.card, { marginBottom: 14 }]}>
               <Text style={styles.cardTitle}>Préférences pointage</Text>

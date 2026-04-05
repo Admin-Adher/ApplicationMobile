@@ -186,7 +186,7 @@ export default function SousTraitantScreen() {
           <Text style={styles.sectionLabel}>ENTREPRISE</Text>
           <ScrollView horizontal showsHorizontalScrollIndicator={false}>
             <View style={styles.companyRow}>
-              {companies.filter(co => !myCompany || co.id === myCompany.id).map(co => (
+              {companies.filter(co => myCompany ? co.id === myCompany.id : false).map(co => (
                 <TouchableOpacity
                   key={co.id}
                   style={[
@@ -207,6 +207,18 @@ export default function SousTraitantScreen() {
             </View>
           </ScrollView>
         </View>
+
+        {!myCompany && (
+          <View style={{ padding: 32, alignItems: 'center' }}>
+            <Ionicons name="business-outline" size={40} color="#94A3B8" />
+            <Text style={{ fontSize: 15, fontFamily: 'Inter_600SemiBold', color: '#1E293B', marginTop: 12, textAlign: 'center' }}>
+              Aucune entreprise assignée
+            </Text>
+            <Text style={{ fontSize: 13, fontFamily: 'Inter_400Regular', color: '#94A3B8', marginTop: 6, textAlign: 'center' }}>
+              Contactez votre administrateur pour être rattaché à une entreprise.
+            </Text>
+          </View>
+        )}
 
         {displayCompany ? (
           <>
