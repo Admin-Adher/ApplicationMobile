@@ -396,6 +396,9 @@ export interface Message {
   readBy: string[];
   mentions: string[];
   reserveId?: string;
+  linkedItemType?: 'reserve' | 'plan' | 'task' | 'incident' | 'visite' | 'opr';
+  linkedItemId?: string;
+  linkedItemTitle?: string;
 }
 
 export interface Channel {

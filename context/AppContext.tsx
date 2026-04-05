@@ -415,6 +415,9 @@ export function toMessage(row: any, currentUserName?: string): Message {
     readBy: row.read_by ?? [],
     mentions: row.mentions ?? [],
     reserveId: row.reserve_id ?? undefined,
+    linkedItemType: row.linked_item_type ?? undefined,
+    linkedItemId: row.linked_item_id ?? undefined,
+    linkedItemTitle: row.linked_item_title ?? undefined,
   };
 }
 
@@ -426,6 +429,9 @@ function fromMessage(m: Message): Record<string, any> {
     reply_to_sender: m.replyToSender ?? null, attachment_uri: m.attachmentUri ?? null,
     reactions: m.reactions, is_pinned: m.isPinned, read_by: m.readBy,
     mentions: m.mentions, reserve_id: m.reserveId ?? null,
+    linked_item_type: m.linkedItemType ?? null,
+    linked_item_id: m.linkedItemId ?? null,
+    linked_item_title: m.linkedItemTitle ?? null,
   };
 }
 
@@ -681,7 +687,7 @@ interface AppContextValue extends AppState {
   updateCompanyHours: (id: string, hours: number) => void;
   reload: () => void;
   setCurrentUser: (name: string) => void;
-  addMessage: (channelId: string, content: string, options?: Partial<Pick<Message, 'replyToId' | 'replyToContent' | 'replyToSender' | 'attachmentUri' | 'mentions' | 'reserveId'>>, sender?: string) => void;
+  addMessage: (channelId: string, content: string, options?: Partial<Pick<Message, 'replyToId' | 'replyToContent' | 'replyToSender' | 'attachmentUri' | 'mentions' | 'reserveId' | 'linkedItemType' | 'linkedItemId' | 'linkedItemTitle'>>, sender?: string) => void;
   incomingMessage: (msg: Message) => void;
   deleteMessage: (id: string) => void;
   updateMessage: (msg: Message) => void;
@@ -2212,6 +2218,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         replyToId: options.replyToId, replyToContent: options.replyToContent,
         replyToSender: options.replyToSender, attachmentUri: options.attachmentUri,
         reserveId: options.reserveId,
+        linkedItemType: options.linkedItemType,
+        linkedItemId: options.linkedItemId,
+        linkedItemTitle: options.linkedItemTitle,
       };
       dispatch({ type: 'ADD_MESSAGE', payload: msg });
       if (isSupabaseConfigured) {
