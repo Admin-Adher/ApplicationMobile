@@ -54,7 +54,7 @@ type FilterStatus = IncidentStatus | 'all';
 export default function IncidentsScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
-  const { permissions } = useAuth();
+  const { permissions, user } = useAuth();
   const { incidents, isLoading, deleteIncident } = useIncidents();
   const { reload } = useApp();
 
@@ -80,6 +80,21 @@ export default function IncidentsScreen() {
   }, [incidents, filterSeverity, filterStatus, search]);
 
   const openCount = incidents.filter(i => i.status !== 'resolved').length;
+
+  if (user?.role === 'sous_traitant') {
+    return (
+      <View style={[styles.container, { paddingBottom: insets.bottom }]}>
+        <Header title="Sécurité & Incidents" showBack />
+        <View style={styles.empty}>
+          <Ionicons name="lock-closed-outline" size={48} color={C.textMuted} />
+          <Text style={styles.emptyTitle}>Accès restreint</Text>
+          <Text style={styles.emptyText}>
+            Les sous-traitants n'ont pas accès au registre des incidents de sécurité.
+          </Text>
+        </View>
+      </View>
+    );
+  }
 
   function handleCreateReserveFromIncident(incident: Incident) {
     router.push({

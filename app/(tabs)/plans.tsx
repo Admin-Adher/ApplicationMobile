@@ -528,10 +528,21 @@ export default function PlansScreen() {
   const currentPlanId = activePlanId ?? filteredPlans[0]?.id ?? (hasActiveHierarchyFilter ? null : chantierPlans[0]?.id) ?? null;
   const currentPlan = chantierPlans.find(p => p.id === currentPlanId) ?? null;
 
-  const allPlanReserves = useMemo(
-    () => reserves.filter(r => r.planId === currentPlanId),
-    [reserves, currentPlanId]
-  );
+  const isSousTraitant = user?.role === 'sous_traitant';
+  const sousTraitantCompanyName = isSousTraitant && user?.companyId
+    ? companies.find(c => c.id === user.companyId)?.name ?? null
+    : null;
+
+  const allPlanReserves = useMemo(() => {
+    let list = reserves.filter(r => r.planId === currentPlanId);
+    if (isSousTraitant && sousTraitantCompanyName) {
+      list = list.filter(r => {
+        const names = r.companies ?? (r.company ? [r.company] : []);
+        return names.includes(sousTraitantCompanyName!);
+      });
+    }
+    return list;
+  }, [reserves, currentPlanId, isSousTraitant, sousTraitantCompanyName]);
   const pinNumberMap = useMemo(() => {
     const map = new Map<string, number>();
     const sorted = [...allPlanReserves].sort((a, b) => a.createdAt.localeCompare(b.createdAt));

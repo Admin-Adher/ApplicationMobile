@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useEffect, useState, useCallback } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useApp } from '@/context/AppContext';
+import { useAuth } from '@/context/AuthContext';
 import { parseDeadline, isOverdue } from '@/lib/reserveUtils';
 
 const SEEN_KEY = 'buildtrack_notif_seen_v1';
@@ -48,7 +49,8 @@ export function useNotifications() {
 }
 
 export function NotificationsProvider({ children }: { children: React.ReactNode }) {
-  const { reserves, tasks, activeChantierId } = useApp();
+  const { reserves, tasks, activeChantierId, companies } = useApp();
+  const { user } = useAuth();
   const [seenIds, setSeenIds] = useState<Set<string>>(new Set());
 
   useEffect(() => {
@@ -75,9 +77,23 @@ export function NotificationsProvider({ children }: { children: React.ReactNode 
     const today = new Date();
     today.setHours(0, 0, 0, 0);
 
-    const activeReserves = activeChantierId
+    const isSousTraitant = user?.role === 'sous_traitant';
+    const sousTraitantCompanyName = isSousTraitant && user?.companyId
+      ? companies.find(c => c.id === user.companyId)?.name ?? null
+      : null;
+
+    let visibleReserves = activeChantierId
       ? reserves.filter(r => r.chantierId === activeChantierId)
       : reserves;
+
+    if (isSousTraitant && sousTraitantCompanyName) {
+      visibleReserves = visibleReserves.filter(r => {
+        const names = r.companies ?? (r.company ? [r.company] : []);
+        return names.includes(sousTraitantCompanyName!);
+      });
+    }
+
+    const activeReserves = visibleReserves;
 
     for (const r of activeReserves) {
       const isCritical = r.priority === 'critical' && r.status !== 'closed';
@@ -151,7 +167,7 @@ export function NotificationsProvider({ children }: { children: React.ReactNode 
 
     result.sort((a, b) => parseSortable(b.createdAt) - parseSortable(a.createdAt));
     return result;
-  }, [reserves, tasks, activeChantierId, seenIds]);
+  }, [reserves, tasks, activeChantierId, seenIds, user, companies]);
 
   // Prune seenIds whenever the notification set changes —
   // removes stale IDs for notifications that no longer exist

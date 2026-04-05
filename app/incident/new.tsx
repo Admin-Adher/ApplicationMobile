@@ -108,6 +108,23 @@ export default function NewIncidentScreen() {
 
   const isDirty = title.trim().length > 0 || description.trim().length > 0 || location.trim().length > 0;
 
+  if (user?.role === 'sous_traitant') {
+    return (
+      <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: C.bg, padding: 32 }}>
+        <Ionicons name="lock-closed-outline" size={48} color={C.textMuted} />
+        <Text style={{ fontSize: 17, fontFamily: 'Inter_600SemiBold', color: C.text, marginTop: 16, marginBottom: 8 }}>
+          Accès restreint
+        </Text>
+        <Text style={{ fontSize: 14, fontFamily: 'Inter_400Regular', color: C.textMuted, textAlign: 'center', marginBottom: 24 }}>
+          Les sous-traitants ne peuvent pas créer d'incidents de sécurité.
+        </Text>
+        <TouchableOpacity onPress={() => router.back()} style={{ paddingHorizontal: 24, paddingVertical: 12, backgroundColor: C.primaryBg, borderRadius: 10, borderWidth: 1, borderColor: C.primary + '40' }}>
+          <Text style={{ fontSize: 14, fontFamily: 'Inter_600SemiBold', color: C.primary }}>Retour</Text>
+        </TouchableOpacity>
+      </View>
+    );
+  }
+
   function handleBack() {
     if (step > 1) {
       setStep(s => s - 1);
