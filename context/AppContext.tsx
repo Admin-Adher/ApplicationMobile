@@ -23,6 +23,7 @@ const MOCK_SITE_PLANS_KEY = 'buildtrack_mock_site_plans_v2';
 const MOCK_VISITES_KEY = 'buildtrack_mock_visites_v2';
 const MOCK_LOTS_KEY = 'buildtrack_mock_lots_v2';
 const MOCK_OPRS_KEY = 'buildtrack_mock_oprs_v2';
+const MOCK_COMPANIES_KEY = 'buildtrack_mock_companies_v1';
 const ACTIVE_CHANTIER_KEY = 'buildtrack_active_chantier_v2';
 const PENDING_DM_KEY = 'buildtrack_pending_dm_channels_v1';
 const MAX_PINNED = 5;
@@ -1056,12 +1057,17 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       const sd = await AsyncStorage.getItem('buildtrack_mock_documents_v2');
       if (sd) { const p = JSON.parse(sd); if (Array.isArray(p) && p.length > 0) documents = p; }
     } catch {}
+    let companies: Company[] = MOCK_COMPANIES;
+    try {
+      const sco = await AsyncStorage.getItem(MOCK_COMPANIES_KEY);
+      if (sco) { const p = JSON.parse(sco); if (Array.isArray(p) && p.length > 0) companies = p; }
+    } catch {}
 
     dispatch({
       type: 'INIT',
       payload: {
         reserves,
-        companies: MOCK_COMPANIES,
+        companies,
         tasks,
         documents,
         photos,
@@ -1103,6 +1109,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }
   function persistMockOprs(oprs: Opr[]) {
     AsyncStorage.setItem(MOCK_OPRS_KEY, JSON.stringify(oprs)).catch(() => {});
+  }
+  function persistMockCompanies(companies: Company[]) {
+    AsyncStorage.setItem(MOCK_COMPANIES_KEY, JSON.stringify(companies)).catch(() => {});
   }
 
   function persistMockDocuments(documents: Document[]) {
@@ -2193,6 +2202,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
             Alert.alert('Erreur de sauvegarde', "L'entreprise n'a pas pu être enregistrée.");
           }
         });
+      } else {
+        persistMockCompanies([...stateRef.current.companies, c]);
       }
     },
 
@@ -2206,6 +2217,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
             Alert.alert('Erreur de sauvegarde', "L'effectif n'a pas pu être mis à jour.");
           }
         });
+      } else {
+        persistMockCompanies(stateRef.current.companies.map(c => c.id === id ? { ...c, actualWorkers: actual } : c));
       }
     },
 
@@ -2226,6 +2239,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
             Alert.alert('Erreur de sauvegarde', "L'entreprise n'a pas pu être mise à jour.");
           }
         });
+      } else {
+        persistMockCompanies(stateRef.current.companies.map(co => co.id === c.id ? c : co));
       }
     },
 
@@ -2239,6 +2254,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
             Alert.alert('Erreur de suppression', "L'entreprise n'a pas pu être supprimée.");
           }
         });
+      } else {
+        persistMockCompanies(stateRef.current.companies.filter(c => c.id !== id));
       }
     },
 
@@ -2252,6 +2269,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
             Alert.alert('Erreur de sauvegarde', "Les heures n'ont pas pu être mises à jour.");
           }
         });
+      } else {
+        persistMockCompanies(stateRef.current.companies.map(c => c.id === id ? { ...c, hoursWorked: hours } : c));
       }
     },
 
@@ -2704,7 +2723,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       // Always persist locally as a cache/fallback so revisions survive Supabase failures
       persistMockSitePlans(updatedPlans);
       if (isSupabaseConfigured) {
-        supabase.from('site_plans').update({ is_latest_revision: false, revision_number: parentRevNum }).eq('id', parentPlanId);
+        supabase.from('site_plans').update({ is_latest_revision: false, revision_number: parentRevNum }).eq('id', parentPlanId).then(({ error }: { error: any }) => {
+          if (error) {
+            console.error('[addSitePlanVersion] update parent error:', error.message);
+          }
+        });
         supabase.from('site_plans').insert({
           id: versionedNew.id,
           chantier_id: versionedNew.chantierId,
@@ -2722,6 +2745,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           parent_plan_id: parentPlanId,
           is_latest_revision: true,
           revision_note: versionedNew.revisionNote ?? null,
+        }).then(({ error }: { error: any }) => {
+          if (error) {
+            console.error('[addSitePlanVersion] insert new revision error:', error.message);
+            Alert.alert('Erreur de sauvegarde', `La nouvelle révision du plan n'a pas pu être enregistrée sur le serveur. Les données sont sauvegardées localement.`);
+          }
         });
       }
     },
@@ -2882,6 +2910,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           if (error) {
             await supabase.auth.refreshSession().catch(() => {});
             const { error: err2 } = await supabase.from('chantiers').update(updatePayload).eq('id', c.id);
+            if (err2) {
+              Alert.alert(
+                'Synchronisation incomplète',
+                `Le chantier "${c.name}" a été modifié localement mais n'a pas pu être synchronisé avec le serveur (${err2.message}). Il sera automatiquement synchronisé à votre reconnexion.`,
+                [{ text: 'OK' }]
+              );
+            }
           }
         })();
       }
