@@ -86,6 +86,7 @@ type Action =
   | { type: 'ADD_MESSAGE'; payload: Message }
   | { type: 'INCOMING_MESSAGE'; payload: Message }
   | { type: 'DELETE_MESSAGE'; payload: string }
+  | { type: 'RESTORE_MESSAGES'; payload: Message[] }
   | { type: 'UPDATE_MESSAGE'; payload: Message }
   | { type: 'MARK_MESSAGES_READ' }
   | { type: 'MARK_CHANNEL_READ_BY'; payload: { channelId: string; userName: string } }
@@ -553,6 +554,9 @@ function reducer(state: AppState, action: Action): AppState {
     case 'DELETE_MESSAGE':
       return { ...state, messages: state.messages.filter(m => m.id !== action.payload) };
 
+    case 'RESTORE_MESSAGES':
+      return { ...state, messages: action.payload };
+
     case 'UPDATE_MESSAGE':
       return { ...state, messages: state.messages.map(m => m.id === action.payload.id ? action.payload : m) };
 
@@ -845,7 +849,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     if (isSupabaseConfigured) {
       try {
         const { data, error } = await supabase.from('channels').select('*').eq('type', 'custom');
-        if (!error && data && data.length > 0) {
+        if (!error && data !== null) {
           const channels: Channel[] = data.map((r: any) => ({
             id: r.id, name: r.name, description: r.description ?? '',
             icon: r.icon, color: r.color, type: 'custom' as const,
@@ -880,7 +884,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     if (isSupabaseConfigured) {
       try {
         const { data, error } = await supabase.from('channels').select('*').eq('type', 'group');
-        if (!error && data && data.length > 0) {
+        if (!error && data !== null) {
           const channels: Channel[] = data.map((r: any) => ({
             id: r.id, name: r.name, description: r.description ?? '',
             icon: r.icon, color: r.color, type: 'group' as const,
@@ -1130,7 +1134,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         supabase.from('tasks').select('*'),
         supabase.from('documents').select('*').order('uploaded_at', { ascending: false }),
         supabase.from('photos').select('*').order('taken_at', { ascending: false }),
-        supabase.from('messages').select('*').order('timestamp', { ascending: true }),
+        supabase.from('messages').select('*').order('timestamp', { ascending: false }).limit(500),
         supabase.from('profiles').select('id, name, role, role_label, email'),
         AsyncStorage.getItem(ACTIVE_CHANTIER_KEY).catch(() => null),
       ]);
@@ -1158,7 +1162,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           tasks: (tasks ?? []).map(toTask),
           documents: (documents ?? []).map(toDocument),
           photos: (photos ?? []).map(toPhoto),
-          messages: (messages ?? []).map((r: any) => toMessage(r, userName)),
+          messages: (messages ?? []).map((r: any) => toMessage(r, userName)).reverse(),
           profiles: (profilesData ?? []).map((p: any) => ({ id: p.id, name: p.name, role: p.role, roleLabel: p.role_label ?? ROLE_LABELS[p.role as UserRole] ?? p.role, email: p.email })),
         },
       });
@@ -2251,13 +2255,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     incomingMessage: (msg) => dispatch({ type: 'INCOMING_MESSAGE', payload: msg }),
 
     deleteMessage: (id) => {
-      const previous = stateRef.current.messages.find(m => m.id === id);
-      const newMessages = stateRef.current.messages.filter(m => m.id !== id);
+      const originalMessages = stateRef.current.messages;
+      const newMessages = originalMessages.filter(m => m.id !== id);
       dispatch({ type: 'DELETE_MESSAGE', payload: id });
       if (isSupabaseConfigured) {
         supabase.from('messages').delete().eq('id', id).then(({ error }: { error: any }) => {
           if (error) {
-            if (previous) dispatch({ type: 'ADD_MESSAGE', payload: previous });
+            dispatch({ type: 'RESTORE_MESSAGES', payload: originalMessages });
             Alert.alert('Erreur de suppression', "Le message n'a pas pu être supprimé.");
           }
         });

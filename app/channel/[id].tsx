@@ -289,8 +289,12 @@ export default function ChannelScreen() {
       setAttachmentUploading(true);
       try {
         const url = await uploadPhoto(result.assets[0].uri, `msg_${Date.now()}.jpg`);
+        if (!url) {
+          Alert.alert('Erreur d\'envoi', "La photo n'a pas pu être envoyée sur le serveur. Vérifiez votre connexion et que le stockage est configuré.");
+          return;
+        }
         addMessage(channelId!, text.trim() || '', {
-          attachmentUri: url ?? result.assets[0].uri,
+          attachmentUri: url,
           replyToId: replyTo?.id, replyToContent: replyTo?.content, replyToSender: replyTo?.sender,
         }, user?.name ?? 'Moi');
         setText(''); setReplyTo(null);
@@ -307,8 +311,12 @@ export default function ChannelScreen() {
       setAttachmentUploading(true);
       try {
         const url = await uploadPhoto(result.assets[0].uri, `msg_${Date.now()}.jpg`);
+        if (!url) {
+          Alert.alert('Erreur d\'envoi', "La photo n'a pas pu être envoyée sur le serveur. Vérifiez votre connexion et que le stockage est configuré.");
+          return;
+        }
         addMessage(channelId!, text.trim() || '', {
-          attachmentUri: url ?? result.assets[0].uri,
+          attachmentUri: url,
           replyToId: replyTo?.id, replyToContent: replyTo?.content, replyToSender: replyTo?.sender,
         }, user?.name ?? 'Moi');
         setText(''); setReplyTo(null);
