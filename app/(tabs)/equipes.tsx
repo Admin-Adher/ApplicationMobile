@@ -1,16 +1,166 @@
 import {
   View, Text, StyleSheet, ScrollView, Platform, TouchableOpacity,
-  Alert, Modal, TextInput, Linking,
+  Alert, Modal, TextInput, Linking, TextInput as RNTextInput,
 } from 'react-native';
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useRef } from 'react';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { C } from '@/constants/colors';
 import { useApp } from '@/context/AppContext';
 import { useAuth } from '@/context/AuthContext';
 import { useSettings } from '@/context/SettingsContext';
-import { Company } from '@/constants/types';
+import { Company, AttendanceRecord } from '@/constants/types';
 import { useRouter } from 'expo-router';
+
+type SortKey = 'name' | 'presence' | 'reserves';
+
+const SORT_OPTIONS: { key: SortKey; label: string; icon: string }[] = [
+  { key: 'name',     label: 'Nom A–Z',    icon: 'text-outline' },
+  { key: 'presence', label: 'Présence %', icon: 'people-outline' },
+  { key: 'reserves', label: 'Réserves',   icon: 'warning-outline' },
+];
+
+function MiniHistoryChart({ records, companyId, color }: {
+  records: AttendanceRecord[];
+  companyId: string;
+  color: string;
+}) {
+  const last7 = useMemo(() => {
+    const days: { label: string; workers: number }[] = [];
+    for (let i = 6; i >= 0; i--) {
+      const d = new Date();
+      d.setDate(d.getDate() - i);
+      const label = d.toLocaleDateString('fr-FR', { weekday: 'short' });
+      const dateStr = d.toLocaleDateString('fr-FR');
+      const rec = records.find(r => r.companyId === companyId && r.date === dateStr);
+      days.push({ label, workers: rec?.workers ?? 0 });
+    }
+    return days;
+  }, [records, companyId]);
+
+  const maxVal = Math.max(...last7.map(d => d.workers), 1);
+
+  return (
+    <View style={hStyles.chart}>
+      {last7.map((d, i) => (
+        <View key={i} style={hStyles.barCol}>
+          <View style={hStyles.barBg}>
+            <View style={[
+              hStyles.barFill,
+              { height: `${Math.max(4, (d.workers / maxVal) * 100)}%` as any, backgroundColor: color },
+            ]} />
+          </View>
+          <Text style={hStyles.barLabel}>{d.label.charAt(0).toUpperCase()}</Text>
+          {d.workers > 0 && <Text style={[hStyles.barVal, { color }]}>{d.workers}</Text>}
+        </View>
+      ))}
+    </View>
+  );
+}
+
+const hStyles = StyleSheet.create({
+  chart: { flexDirection: 'row', gap: 4, alignItems: 'flex-end', height: 54, marginTop: 8 },
+  barCol: { flex: 1, alignItems: 'center', gap: 3 },
+  barBg: { flex: 1, width: '100%', backgroundColor: C.surface2, borderRadius: 3, overflow: 'hidden', justifyContent: 'flex-end' },
+  barFill: { width: '100%', borderRadius: 3 },
+  barLabel: { fontSize: 9, fontFamily: 'Inter_400Regular', color: C.textMuted },
+  barVal: { fontSize: 9, fontFamily: 'Inter_700Bold' },
+});
+
+function GlobalHistoryChart({ records, companies }: {
+  records: AttendanceRecord[];
+  companies: Company[];
+}) {
+  const last7 = useMemo(() => {
+    const days: { label: string; fullDate: string; total: number; byCompany: Record<string, number> }[] = [];
+    for (let i = 6; i >= 0; i--) {
+      const d = new Date();
+      d.setDate(d.getDate() - i);
+      const dateStr = d.toLocaleDateString('fr-FR');
+      const label = d.toLocaleDateString('fr-FR', { weekday: 'short', day: 'numeric' });
+      const dayRecs = records.filter(r => r.date === dateStr);
+      const byCompany: Record<string, number> = {};
+      let total = 0;
+      for (const r of dayRecs) {
+        byCompany[r.companyId] = r.workers;
+        total += r.workers;
+      }
+      days.push({ label, fullDate: dateStr, total, byCompany });
+    }
+    return days;
+  }, [records]);
+
+  const maxVal = Math.max(...last7.map(d => d.total), 1);
+  const hasAnyData = last7.some(d => d.total > 0);
+
+  if (!hasAnyData) {
+    return (
+      <View style={ghStyles.empty}>
+        <Ionicons name="bar-chart-outline" size={28} color={C.textMuted} />
+        <Text style={ghStyles.emptyText}>Aucune donnée — sauvegardez les présences pour alimenter l'historique</Text>
+      </View>
+    );
+  }
+
+  return (
+    <View style={ghStyles.wrap}>
+      <View style={ghStyles.chart}>
+        {last7.map((d, i) => (
+          <View key={i} style={ghStyles.dayCol}>
+            <View style={ghStyles.stackWrap}>
+              {companies.map(co => {
+                const val = d.byCompany[co.id] ?? 0;
+                if (val === 0) return null;
+                return (
+                  <View
+                    key={co.id}
+                    style={[
+                      ghStyles.stackSegment,
+                      {
+                        height: Math.max(3, (val / maxVal) * 72),
+                        backgroundColor: co.color,
+                      },
+                    ]}
+                  />
+                );
+              })}
+            </View>
+            {d.total > 0 && (
+              <Text style={ghStyles.totalVal}>{d.total}</Text>
+            )}
+            <Text style={ghStyles.dayLabel}>{d.label.split(' ')[0]}</Text>
+            <Text style={ghStyles.dayNum}>{d.label.split(' ')[1]}</Text>
+          </View>
+        ))}
+      </View>
+      <View style={ghStyles.legend}>
+        {companies.filter(co => last7.some(d => (d.byCompany[co.id] ?? 0) > 0)).map(co => (
+          <View key={co.id} style={ghStyles.legendItem}>
+            <View style={[ghStyles.legendDot, { backgroundColor: co.color }]} />
+            <Text style={ghStyles.legendText}>{co.shortName || co.name}</Text>
+          </View>
+        ))}
+      </View>
+    </View>
+  );
+}
+
+const ghStyles = StyleSheet.create({
+  wrap: { gap: 12 },
+  chart: { flexDirection: 'row', alignItems: 'flex-end', gap: 4, height: 88 },
+  dayCol: { flex: 1, alignItems: 'center', gap: 2 },
+  stackWrap: { flex: 1, width: '100%', justifyContent: 'flex-end', gap: 1 },
+  stackSegment: { width: '100%', borderRadius: 2 },
+  totalVal: { fontSize: 9, fontFamily: 'Inter_700Bold', color: C.textSub },
+  dayLabel: { fontSize: 9, fontFamily: 'Inter_600SemiBold', color: C.textMuted },
+  dayNum: { fontSize: 9, fontFamily: 'Inter_400Regular', color: C.textMuted },
+  legend: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  legendItem: { flexDirection: 'row', alignItems: 'center', gap: 4 },
+  legendDot: { width: 8, height: 8, borderRadius: 4 },
+  legendText: { fontSize: 10, fontFamily: 'Inter_400Regular', color: C.textSub },
+  empty: { alignItems: 'center', gap: 8, paddingVertical: 20 },
+  emptyText: { fontSize: 12, fontFamily: 'Inter_400Regular', color: C.textMuted, textAlign: 'center', lineHeight: 17 },
+});
 
 export default function EquipesScreen() {
   const insets = useSafeAreaInsets();
@@ -20,13 +170,19 @@ export default function EquipesScreen() {
     companies, tasks, reserves, stats, chantiers, activeChantierId,
     updateCompanyWorkers, updateCompanyHours,
   } = useApp();
-  const { saveAttendanceSnapshot } = useSettings();
+  const { saveAttendanceSnapshot, attendanceHistory } = useSettings();
   const topPad = insets.top;
   const bottomPad = Platform.OS === 'web' ? 34 : insets.bottom;
 
   const [workerModal, setWorkerModal] = useState<{ id: string; name: string; current: number; hours: number } | null>(null);
   const [workerInput, setWorkerInput] = useState('');
   const [hoursInput, setHoursInput] = useState('');
+  const [search, setSearch] = useState('');
+  const [showSearch, setShowSearch] = useState(false);
+  const [sortKey, setSortKey] = useState<SortKey>('name');
+  const [historyExpanded, setHistoryExpanded] = useState(false);
+
+  const searchRef = useRef<RNTextInput>(null);
 
   const today = new Date().toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' });
 
@@ -49,9 +205,43 @@ export default function EquipesScreen() {
     return map;
   }, [companies, reserves, tasks]);
 
+  const filteredSortedCompanies = useMemo(() => {
+    let list = [...companies];
+    if (search.trim()) {
+      const q = search.toLowerCase();
+      list = list.filter(co =>
+        co.name.toLowerCase().includes(q) ||
+        co.shortName?.toLowerCase().includes(q) ||
+        co.zone?.toLowerCase().includes(q) ||
+        (co.lots ?? []).some(l => l.toLowerCase().includes(q))
+      );
+    }
+    if (sortKey === 'name') {
+      list.sort((a, b) => a.name.localeCompare(b.name, 'fr'));
+    } else if (sortKey === 'presence') {
+      list.sort((a, b) => {
+        const pa = a.plannedWorkers > 0 ? a.actualWorkers / a.plannedWorkers : 0;
+        const pb = b.plannedWorkers > 0 ? b.actualWorkers / b.plannedWorkers : 0;
+        return pb - pa;
+      });
+    } else if (sortKey === 'reserves') {
+      list.sort((a, b) => (companyStats[b.id]?.openReserves ?? 0) - (companyStats[a.id]?.openReserves ?? 0));
+    }
+    return list;
+  }, [companies, search, sortKey, companyStats]);
+
   const presencePct = stats.plannedWorkers > 0
     ? Math.round((stats.totalWorkers / stats.plannedWorkers) * 100)
     : 0;
+
+  const historyByCompany = useMemo(() => {
+    const map: Record<string, AttendanceRecord[]> = {};
+    for (const r of attendanceHistory) {
+      if (!map[r.companyId]) map[r.companyId] = [];
+      map[r.companyId].push(r);
+    }
+    return map;
+  }, [attendanceHistory]);
 
   if (user && !permissions.canViewTeams) {
     return (
@@ -106,8 +296,35 @@ export default function EquipesScreen() {
     setHoursInput(String(h));
   }
 
+  function toggleSearch() {
+    setShowSearch(v => {
+      if (!v) setTimeout(() => searchRef.current?.focus(), 80);
+      else setSearch('');
+      return !v;
+    });
+  }
+
+  function handleSaveAttendance() {
+    const total = companies.reduce((a, c) => a + c.actualWorkers, 0);
+    Alert.alert(
+      'Sauvegarder les présences',
+      `Enregistrer les présences du jour (${total} personnes) dans l'historique ?`,
+      [
+        { text: 'Annuler', style: 'cancel' },
+        {
+          text: 'Sauvegarder',
+          onPress: async () => {
+            await saveAttendanceSnapshot(companies, user?.name ?? 'Système');
+            Alert.alert('Présences sauvegardées', "L'instantané a été enregistré dans l'historique.");
+          },
+        },
+      ]
+    );
+  }
+
   return (
     <View style={styles.container}>
+      {/* ── Header ── */}
       <View style={[styles.header, { paddingTop: topPad + 12 }]}>
         <View style={styles.headerTopRow}>
           <TouchableOpacity onPress={() => router.back()} style={styles.backBtn} hitSlop={8}>
@@ -117,21 +334,60 @@ export default function EquipesScreen() {
             <Text style={styles.title}>Équipes</Text>
             <Text style={styles.subtitle}>{today}</Text>
           </View>
-          {permissions.canManageTeams && (
-            <TouchableOpacity
-              style={styles.manageBtn}
-              onPress={() => router.push('/(tabs)/admin' as any)}
-            >
-              <Ionicons name="settings-outline" size={14} color={C.primary} />
-              <Text style={styles.manageBtnLabel}>Gérer</Text>
+          <View style={styles.headerActions}>
+            <TouchableOpacity style={styles.headerIconBtn} onPress={toggleSearch} hitSlop={4}>
+              <Ionicons name={showSearch ? 'close' : 'search-outline'} size={19} color={C.text} />
             </TouchableOpacity>
-          )}
+            {permissions.canManageTeams && (
+              <TouchableOpacity
+                style={styles.manageBtn}
+                onPress={() => router.push('/(tabs)/admin' as any)}
+              >
+                <Ionicons name="settings-outline" size={14} color={C.primary} />
+                <Text style={styles.manageBtnLabel}>Gérer</Text>
+              </TouchableOpacity>
+            )}
+          </View>
         </View>
+
+        {/* Search bar */}
+        {showSearch && (
+          <View style={styles.searchBar}>
+            <Ionicons name="search-outline" size={15} color={C.textMuted} />
+            <TextInput
+              ref={searchRef}
+              style={styles.searchInput}
+              value={search}
+              onChangeText={setSearch}
+              placeholder="Rechercher une entreprise, lot…"
+              placeholderTextColor={C.textMuted}
+              returnKeyType="search"
+              clearButtonMode="while-editing"
+            />
+          </View>
+        )}
+
+        {/* Sort chips */}
+        {companies.length > 1 && (
+          <View style={styles.sortRow}>
+            {SORT_OPTIONS.map(o => (
+              <TouchableOpacity
+                key={o.key}
+                style={[styles.sortChip, sortKey === o.key && styles.sortChipActive]}
+                onPress={() => setSortKey(o.key)}
+              >
+                <Ionicons name={o.icon as any} size={11} color={sortKey === o.key ? C.primary : C.textMuted} />
+                <Text style={[styles.sortChipText, sortKey === o.key && styles.sortChipTextActive]}>{o.label}</Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+        )}
       </View>
 
       <ScrollView
         contentContainerStyle={[styles.content, { paddingBottom: bottomPad + 32 }]}
         showsVerticalScrollIndicator={false}
+        keyboardShouldPersistTaps="handled"
       >
         {/* ── Empty state ── */}
         {companies.length === 0 && (
@@ -143,26 +399,6 @@ export default function EquipesScreen() {
             <Text style={styles.equipeEmptySubtitle}>
               Ajoutez les entreprises intervenantes dans l'Admin pour suivre les présences et les réserves de chantier.
             </Text>
-            <View style={styles.equipeEmptyFeatures}>
-              <View style={styles.equipeEmptyFeatureRow}>
-                <View style={[styles.equipeEmptyFeatureDot, { backgroundColor: '#EC4899' }]}>
-                  <Ionicons name="people-outline" size={14} color="#fff" />
-                </View>
-                <View style={{ flex: 1 }}>
-                  <Text style={styles.equipeEmptyFeatureTitle}>Gestion des présences</Text>
-                  <Text style={styles.equipeEmptyFeatureDesc}>Saisissez les arrivées et départs de chaque équipe au quotidien.</Text>
-                </View>
-              </View>
-              <View style={[styles.equipeEmptyFeatureRow, { borderBottomWidth: 0 }]}>
-                <View style={[styles.equipeEmptyFeatureDot, { backgroundColor: '#0891B2' }]}>
-                  <Ionicons name="warning-outline" size={14} color="#fff" />
-                </View>
-                <View style={{ flex: 1 }}>
-                  <Text style={styles.equipeEmptyFeatureTitle}>Réserves & responsabilités</Text>
-                  <Text style={styles.equipeEmptyFeatureDesc}>Retrouvez les réserves ouvertes par entreprise pour coordonner les interventions.</Text>
-                </View>
-              </View>
-            </View>
             {permissions.canManageTeams && (
               <TouchableOpacity
                 style={styles.equipeEmptyBtn}
@@ -175,7 +411,7 @@ export default function EquipesScreen() {
           </View>
         )}
 
-        {/* ── Summary ── */}
+        {/* ── Global summary ── */}
         {companies.length > 0 && (
           <View style={styles.summaryCard}>
             <View style={styles.summaryRow}>
@@ -207,49 +443,65 @@ export default function EquipesScreen() {
               </View>
               <Text style={styles.summaryBarPct}>{presencePct}%</Text>
             </View>
+            {permissions.canUpdateAttendance && (
+              <TouchableOpacity style={styles.saveSnapshotBtn} onPress={handleSaveAttendance}>
+                <Ionicons name="save-outline" size={13} color={C.primary} />
+                <Text style={styles.saveSnapshotText}>Sauvegarder les présences du jour</Text>
+              </TouchableOpacity>
+            )}
           </View>
         )}
 
-        {/* ── Intervenants ── */}
-        {companies.length > 0 && (
-          <Text style={styles.sectionTitle}>Intervenants sur chantier ({companies.length})</Text>
+        {/* ── Section label ── */}
+        {filteredSortedCompanies.length > 0 && (
+          <View style={styles.sectionLabelRow}>
+            <Text style={styles.sectionTitle}>
+              Intervenants{search ? ` · ${filteredSortedCompanies.length} résultat${filteredSortedCompanies.length > 1 ? 's' : ''}` : ` (${filteredSortedCompanies.length})`}
+            </Text>
+          </View>
         )}
 
-        {companies.map(co => {
+        {/* ── No results ── */}
+        {companies.length > 0 && filteredSortedCompanies.length === 0 && (
+          <View style={styles.noResults}>
+            <Ionicons name="search-outline" size={28} color={C.textMuted} />
+            <Text style={styles.noResultsText}>Aucune entreprise ne correspond à "{search}"</Text>
+          </View>
+        )}
+
+        {/* ── Company cards ── */}
+        {filteredSortedCompanies.map(co => {
           const pct = co.plannedWorkers > 0 ? Math.round((co.actualWorkers / co.plannedWorkers) * 100) : 0;
           const ecart = co.plannedWorkers - co.actualWorkers;
           const cs = companyStats[co.id] ?? { openReserves: 0, activeTasks: 0 };
+          const coHistory = historyByCompany[co.id] ?? [];
+          const linkedChantiers = chantiers.filter(ch => ch.companyIds?.includes(co.id));
+
           return (
             <View key={co.id} style={styles.coCard}>
+              {/* Top: color bar + name + badges */}
               <View style={styles.coTop}>
                 <View style={[styles.coColorBar, { backgroundColor: co.color }]} />
                 <View style={{ flex: 1 }}>
-                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-                    <Text style={styles.coName}>{co.name}</Text>
-                    {cs.openReserves > 0 && (
-                      <View style={styles.reserveBadge}>
-                        <Text style={styles.reserveBadgeText}>{cs.openReserves} réserve{cs.openReserves > 1 ? 's' : ''}</Text>
-                      </View>
-                    )}
-                    {cs.activeTasks > 0 && (
-                      <View style={styles.taskBadge}>
-                        <Text style={styles.taskBadgeText}>{cs.activeTasks} tâche{cs.activeTasks > 1 ? 's' : ''}</Text>
-                      </View>
-                    )}
-                  </View>
-                  <Text style={styles.coZone}>{co.zone}{co.lots && co.lots.length > 0 ? ` · ${co.lots.join(', ')}` : ''}</Text>
+                  <Text style={styles.coName}>{co.name}</Text>
+                  {(co.zone || (co.lots && co.lots.length > 0)) && (
+                    <Text style={styles.coZone}>
+                      {co.zone}{co.lots && co.lots.length > 0 ? ` · ${co.lots.join(', ')}` : ''}
+                    </Text>
+                  )}
                 </View>
                 {permissions.canUpdateAttendance && (
                   <TouchableOpacity
-                    style={styles.iconBtn}
+                    style={[styles.pointageBtn, { borderColor: co.color + '60', backgroundColor: co.color + '12' }]}
                     onPress={() => openWorkerModal(co)}
-                    hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
                   >
-                    <Ionicons name="people-outline" size={16} color={C.primary} />
+                    <Ionicons name="pencil-outline" size={13} color={co.color} />
+                    <Text style={[styles.pointageBtnText, { color: co.color }]}>Pointage</Text>
                   </TouchableOpacity>
                 )}
               </View>
 
+              {/* Stats */}
               <View style={styles.coStats}>
                 <View style={styles.coStat}>
                   <Text style={[styles.coStatVal, { color: co.color }]}>{co.actualWorkers}</Text>
@@ -271,6 +523,7 @@ export default function EquipesScreen() {
                 </View>
               </View>
 
+              {/* Progress bar */}
               <View style={styles.coBarRow}>
                 <View style={styles.coBarBg}>
                   <View style={[styles.coBarFill, { width: `${Math.min(pct, 100)}%` as any, backgroundColor: co.color }]} />
@@ -278,87 +531,135 @@ export default function EquipesScreen() {
                 <Text style={[styles.coBarPct, { color: co.color }]}>{pct}%</Text>
               </View>
 
-              <View style={styles.coFooter}>
+              {/* Mini sparkline history */}
+              {coHistory.length > 0 && (
+                <MiniHistoryChart records={coHistory} companyId={co.id} color={co.color} />
+              )}
+
+              {/* ── Quick actions ── */}
+              <View style={styles.quickActions}>
+                <TouchableOpacity
+                  style={[styles.qaBtn, cs.openReserves > 0 && styles.qaBtnAlert]}
+                  onPress={() => router.push({ pathname: '/(tabs)/reserves', params: { company: co.name } } as any)}
+                >
+                  <Ionicons
+                    name="warning-outline"
+                    size={14}
+                    color={cs.openReserves > 0 ? C.open : C.textMuted}
+                  />
+                  <Text style={[styles.qaBtnText, cs.openReserves > 0 && { color: C.open }]}>
+                    {cs.openReserves > 0 ? `${cs.openReserves} réserve${cs.openReserves > 1 ? 's' : ''}` : 'Réserves'}
+                  </Text>
+                  <Ionicons name="chevron-forward" size={11} color={cs.openReserves > 0 ? C.open : C.textMuted} />
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={[styles.qaBtn, cs.activeTasks > 0 && styles.qaBtnTask]}
+                  onPress={() => router.push('/planning' as any)}
+                >
+                  <Ionicons
+                    name="checkmark-circle-outline"
+                    size={14}
+                    color={cs.activeTasks > 0 ? C.primary : C.textMuted}
+                  />
+                  <Text style={[styles.qaBtnText, cs.activeTasks > 0 && { color: C.primary }]}>
+                    {cs.activeTasks > 0 ? `${cs.activeTasks} tâche${cs.activeTasks > 1 ? 's' : ''}` : 'Tâches'}
+                  </Text>
+                  <Ionicons name="chevron-forward" size={11} color={cs.activeTasks > 0 ? C.primary : C.textMuted} />
+                </TouchableOpacity>
+
                 {co.phone ? (
                   <TouchableOpacity
-                    style={styles.coContactItem}
+                    style={styles.qaBtnPhone}
                     onPress={() => Linking.openURL(`tel:${co.phone}`)}
                   >
-                    <Ionicons name="call-outline" size={12} color={C.primary} />
-                    <Text style={[styles.coContactText, { color: C.primary }]}>{co.phone}</Text>
+                    <Ionicons name="call-outline" size={14} color={C.primary} />
+                    <Text style={[styles.qaBtnText, { color: C.primary }]}>Appeler</Text>
                   </TouchableOpacity>
-                ) : null}
-                {co.email ? (
-                  <TouchableOpacity
-                    style={styles.coContactItem}
-                    onPress={() => Linking.openURL(`mailto:${co.email}`)}
-                  >
-                    <Ionicons name="mail-outline" size={12} color={C.primary} />
-                    <Text style={[styles.coContactText, { color: C.primary }]}>{co.email}</Text>
-                  </TouchableOpacity>
-                ) : null}
-                {co.siret ? (
-                  <View style={styles.coContactItem}>
-                    <Ionicons name="document-text-outline" size={12} color={C.textMuted} />
-                    <Text style={styles.coContactText}>SIRET {co.siret}</Text>
-                  </View>
                 ) : null}
               </View>
 
-              {/* Chantiers liés */}
-              {(() => {
-                const linkedChantiers = chantiers.filter(ch => ch.companyIds?.includes(co.id));
-                if (linkedChantiers.length === 0) return null;
-                return (
-                  <View style={styles.chantierPillsSection}>
-                    <View style={styles.chantierPillsHeader}>
-                      <Ionicons name="business-outline" size={11} color={C.textMuted} />
-                      <Text style={styles.chantierPillsLabel}>Chantiers</Text>
+              {/* Contact + SIRET */}
+              {(co.email || co.siret) && (
+                <View style={styles.coFooter}>
+                  {co.email ? (
+                    <TouchableOpacity
+                      style={styles.coContactItem}
+                      onPress={() => Linking.openURL(`mailto:${co.email}`)}
+                    >
+                      <Ionicons name="mail-outline" size={12} color={C.textMuted} />
+                      <Text style={styles.coContactText}>{co.email}</Text>
+                    </TouchableOpacity>
+                  ) : null}
+                  {co.siret ? (
+                    <View style={styles.coContactItem}>
+                      <Ionicons name="document-text-outline" size={12} color={C.textMuted} />
+                      <Text style={styles.coContactText}>SIRET {co.siret}</Text>
                     </View>
-                    <View style={styles.chantierPillsRow}>
-                      {linkedChantiers.map(ch => (
-                        <View key={ch.id} style={[styles.chantierPill, ch.id === activeChantierId && { borderColor: co.color + '80', backgroundColor: co.color + '12' }]}>
-                          <Text style={[styles.chantierPillText, ch.id === activeChantierId && { color: co.color }]} numberOfLines={1}>
-                            {ch.name}{ch.id === activeChantierId ? ' ●' : ''}
-                          </Text>
-                        </View>
-                      ))}
-                    </View>
+                  ) : null}
+                </View>
+              )}
+
+              {/* Linked chantiers */}
+              {linkedChantiers.length > 0 && (
+                <View style={styles.chantierPillsSection}>
+                  <View style={styles.chantierPillsHeader}>
+                    <Ionicons name="business-outline" size={11} color={C.textMuted} />
+                    <Text style={styles.chantierPillsLabel}>Chantiers</Text>
                   </View>
-                );
-              })()}
+                  <View style={styles.chantierPillsRow}>
+                    {linkedChantiers.map(ch => (
+                      <View key={ch.id} style={[
+                        styles.chantierPill,
+                        ch.id === activeChantierId && { borderColor: co.color + '80', backgroundColor: co.color + '12' },
+                      ]}>
+                        <Text style={[styles.chantierPillText, ch.id === activeChantierId && { color: co.color }]} numberOfLines={1}>
+                          {ch.name}{ch.id === activeChantierId ? ' ●' : ''}
+                        </Text>
+                      </View>
+                    ))}
+                  </View>
+                </View>
+              )}
             </View>
           );
         })}
 
-        {/* ── Sauvegarder les présences ── */}
-        {permissions.canUpdateAttendance && companies.length > 0 && (
-          <TouchableOpacity
-            style={styles.saveAttendanceBtn}
-            onPress={() => {
-              const total = companies.reduce((a, c) => a + c.actualWorkers, 0);
-              Alert.alert(
-                'Sauvegarder les présences',
-                `Enregistrer les présences du jour (${total} personnes au total) dans l'historique ?`,
-                [
-                  { text: 'Annuler', style: 'cancel' },
-                  {
-                    text: 'Sauvegarder',
-                    onPress: async () => {
-                      await saveAttendanceSnapshot(companies, user?.name ?? 'Système');
-                      Alert.alert('Présences sauvegardées', "L'instantané a été enregistré dans l'historique.");
-                    },
-                  },
-                ]
-              );
-            }}
-          >
-            <Ionicons name="save-outline" size={16} color={C.primary} />
-            <Text style={styles.saveAttendanceBtnText}>Sauvegarder les présences du jour</Text>
-          </TouchableOpacity>
+        {/* ── Historique 7 jours ── */}
+        {companies.length > 0 && (
+          <View style={styles.historyCard}>
+            <TouchableOpacity style={styles.historyHeader} onPress={() => setHistoryExpanded(v => !v)}>
+              <View style={styles.historyHeaderLeft}>
+                <Ionicons name="bar-chart-outline" size={16} color={C.primary} />
+                <Text style={styles.historyTitle}>Historique des présences</Text>
+                {attendanceHistory.length > 0 && (
+                  <View style={styles.historyCountBadge}>
+                    <Text style={styles.historyCountText}>{attendanceHistory.length}</Text>
+                  </View>
+                )}
+              </View>
+              <Ionicons
+                name={historyExpanded ? 'chevron-up' : 'chevron-down'}
+                size={16}
+                color={C.textMuted}
+              />
+            </TouchableOpacity>
+
+            {historyExpanded && (
+              <View style={styles.historyBody}>
+                <Text style={styles.historySubtitle}>7 derniers jours — total ouvriers par jour</Text>
+                <GlobalHistoryChart records={attendanceHistory} companies={companies} />
+                {attendanceHistory.length === 0 && (
+                  <Text style={styles.historyEmptyHint}>
+                    Utilisez "Sauvegarder les présences du jour" pour alimenter l'historique.
+                  </Text>
+                )}
+              </View>
+            )}
+          </View>
         )}
 
-        {/* ── Lien vers gestion Admin ── */}
+        {/* ── Admin link ── */}
         {companies.length > 0 && permissions.canManageTeams && (
           <TouchableOpacity
             style={styles.adminLinkBtn}
@@ -427,140 +728,195 @@ export default function EquipesScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: C.bg },
+
   header: {
-    paddingHorizontal: 16, paddingBottom: 14,
+    paddingHorizontal: 16, paddingBottom: 10,
     borderBottomWidth: 1, borderBottomColor: C.border,
-    backgroundColor: C.surface,
+    backgroundColor: C.surface, gap: 8,
   },
   headerTopRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   backBtn: { padding: 2 },
   title: { fontSize: 22, fontFamily: 'Inter_700Bold', color: C.text },
   subtitle: { fontSize: 12, fontFamily: 'Inter_400Regular', color: C.textSub, marginTop: 2 },
+  headerActions: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  headerIconBtn: {
+    width: 34, height: 34, borderRadius: 9,
+    backgroundColor: C.surface2, alignItems: 'center', justifyContent: 'center',
+  },
   manageBtn: {
     flexDirection: 'row', alignItems: 'center', gap: 5,
-    paddingHorizontal: 12, paddingVertical: 8,
+    paddingHorizontal: 12, paddingVertical: 7,
     borderRadius: 10, borderWidth: 1, borderColor: C.primary + '40',
     backgroundColor: C.primaryBg,
   },
   manageBtnLabel: { color: C.primary, fontSize: 13, fontFamily: 'Inter_600SemiBold' },
-  content: { padding: 16 },
 
-  summaryCard: { backgroundColor: C.surface, borderRadius: 14, padding: 16, marginBottom: 20, borderWidth: 1, borderColor: C.border },
-  summaryRow: { flexDirection: 'row', justifyContent: 'space-around', marginBottom: 14 },
+  searchBar: {
+    flexDirection: 'row', alignItems: 'center', gap: 8,
+    backgroundColor: C.surface2, borderRadius: 10, paddingHorizontal: 12, paddingVertical: 8,
+    borderWidth: 1, borderColor: C.border,
+  },
+  searchInput: { flex: 1, fontSize: 14, fontFamily: 'Inter_400Regular', color: C.text, padding: 0 },
+
+  sortRow: { flexDirection: 'row', gap: 6 },
+  sortChip: {
+    flexDirection: 'row', alignItems: 'center', gap: 4,
+    paddingHorizontal: 10, paddingVertical: 5,
+    borderRadius: 8, borderWidth: 1, borderColor: C.border,
+    backgroundColor: C.surface2,
+  },
+  sortChipActive: { borderColor: C.primary + '60', backgroundColor: C.primaryBg },
+  sortChipText: { fontSize: 11, fontFamily: 'Inter_500Medium', color: C.textMuted },
+  sortChipTextActive: { color: C.primary, fontFamily: 'Inter_600SemiBold' },
+
+  content: { padding: 16, gap: 0 },
+  sectionLabelRow: { marginBottom: 10 },
+  sectionTitle: {
+    fontSize: 12, fontFamily: 'Inter_600SemiBold', color: C.textSub,
+    textTransform: 'uppercase', letterSpacing: 0.5,
+  },
+  noResults: { alignItems: 'center', gap: 8, paddingVertical: 32 },
+  noResultsText: { fontSize: 13, fontFamily: 'Inter_400Regular', color: C.textMuted, textAlign: 'center' },
+
+  summaryCard: {
+    backgroundColor: C.surface, borderRadius: 14, padding: 16, marginBottom: 16,
+    borderWidth: 1, borderColor: C.border, gap: 12,
+  },
+  summaryRow: { flexDirection: 'row', justifyContent: 'space-around' },
   summaryItem: { alignItems: 'center' },
-  summaryValue: { fontSize: 28, fontFamily: 'Inter_700Bold', color: C.primary },
+  summaryValue: { fontSize: 26, fontFamily: 'Inter_700Bold', color: C.primary },
   summaryLabel: { fontSize: 11, fontFamily: 'Inter_400Regular', color: C.textSub, marginTop: 2 },
   divider: { width: 1, backgroundColor: C.border, marginVertical: 4 },
   summaryBarRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   summaryBarBg: { flex: 1, height: 8, backgroundColor: C.border, borderRadius: 4, overflow: 'hidden' },
   summaryBarFill: { height: '100%', backgroundColor: C.primary, borderRadius: 4 },
   summaryBarPct: { fontSize: 12, fontFamily: 'Inter_600SemiBold', color: C.primary, width: 36, textAlign: 'right' },
-
-  sectionTitle: {
-    fontSize: 13, fontFamily: 'Inter_600SemiBold', color: C.textSub,
-    textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 10,
+  saveSnapshotBtn: {
+    flexDirection: 'row', alignItems: 'center', gap: 6,
+    paddingVertical: 8, paddingHorizontal: 12,
+    borderRadius: 8, borderWidth: 1, borderColor: C.primary + '40',
+    backgroundColor: C.primaryBg, alignSelf: 'flex-start',
   },
+  saveSnapshotText: { fontSize: 12, fontFamily: 'Inter_600SemiBold', color: C.primary },
 
-  coCard: { backgroundColor: C.surface, borderRadius: 14, padding: 14, marginBottom: 12, borderWidth: 1, borderColor: C.border },
-  coTop: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 12 },
-  coColorBar: { width: 4, height: 40, borderRadius: 2 },
+  coCard: {
+    backgroundColor: C.surface, borderRadius: 14, padding: 14, marginBottom: 12,
+    borderWidth: 1, borderColor: C.border, gap: 10,
+  },
+  coTop: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  coColorBar: { width: 4, height: 40, borderRadius: 2, flexShrink: 0 },
   coName: { fontSize: 15, fontFamily: 'Inter_600SemiBold', color: C.text },
   coZone: { fontSize: 12, fontFamily: 'Inter_400Regular', color: C.textSub, marginTop: 2 },
-  iconBtn: { padding: 6, backgroundColor: C.primaryBg, borderRadius: 8 },
+  pointageBtn: {
+    flexDirection: 'row', alignItems: 'center', gap: 4,
+    paddingHorizontal: 10, paddingVertical: 6,
+    borderRadius: 8, borderWidth: 1,
+  },
+  pointageBtnText: { fontSize: 12, fontFamily: 'Inter_600SemiBold' },
 
-  reserveBadge: { backgroundColor: '#FEE2E2', paddingHorizontal: 7, paddingVertical: 2, borderRadius: 6 },
-  reserveBadgeText: { fontSize: 10, fontFamily: 'Inter_600SemiBold', color: C.open },
-  taskBadge: { backgroundColor: C.primaryBg, paddingHorizontal: 7, paddingVertical: 2, borderRadius: 6 },
-  taskBadgeText: { fontSize: 10, fontFamily: 'Inter_600SemiBold', color: C.primary },
-
-  coStats: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 10 },
+  coStats: { flexDirection: 'row', justifyContent: 'space-between' },
   coStat: { alignItems: 'center', flex: 1 },
   coStatVal: { fontSize: 18, fontFamily: 'Inter_700Bold', color: C.text },
   coStatLabel: { fontSize: 10, fontFamily: 'Inter_400Regular', color: C.textMuted, marginTop: 2 },
 
-  coBarRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 10 },
+  coBarRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   coBarBg: { flex: 1, height: 6, backgroundColor: C.border, borderRadius: 3, overflow: 'hidden' },
   coBarFill: { height: '100%', borderRadius: 3 },
   coBarPct: { fontSize: 11, fontFamily: 'Inter_600SemiBold', width: 36, textAlign: 'right' },
+
+  quickActions: { flexDirection: 'row', gap: 6, flexWrap: 'wrap' },
+  qaBtn: {
+    flexDirection: 'row', alignItems: 'center', gap: 5,
+    paddingHorizontal: 10, paddingVertical: 7,
+    borderRadius: 8, borderWidth: 1, borderColor: C.border,
+    backgroundColor: C.surface2, flex: 1, minWidth: 100,
+  },
+  qaBtnAlert: { borderColor: '#FCA5A5', backgroundColor: '#FEF2F2' },
+  qaBtnTask: { borderColor: C.primary + '40', backgroundColor: C.primaryBg },
+  qaBtnPhone: {
+    flexDirection: 'row', alignItems: 'center', gap: 5,
+    paddingHorizontal: 10, paddingVertical: 7,
+    borderRadius: 8, borderWidth: 1, borderColor: C.primary + '40',
+    backgroundColor: C.primaryBg,
+  },
+  qaBtnText: { fontSize: 12, fontFamily: 'Inter_500Medium', color: C.textMuted, flex: 1 },
 
   coFooter: { gap: 4 },
   coContactItem: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   coContactText: { fontSize: 12, fontFamily: 'Inter_400Regular', color: C.textMuted },
 
-  chantierPillsSection: { marginTop: 8, marginBottom: 4 },
-  chantierPillsHeader: { flexDirection: 'row', alignItems: 'center', gap: 4, marginBottom: 5 },
+  chantierPillsSection: { gap: 5 },
+  chantierPillsHeader: { flexDirection: 'row', alignItems: 'center', gap: 4 },
   chantierPillsLabel: { fontSize: 10, fontFamily: 'Inter_600SemiBold', color: C.textMuted, textTransform: 'uppercase', letterSpacing: 0.5 },
   chantierPillsRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
   chantierPill: { paddingHorizontal: 9, paddingVertical: 4, borderRadius: 10, borderWidth: 1, borderColor: C.border, backgroundColor: C.surface2 },
   chantierPillText: { fontSize: 11, fontFamily: 'Inter_500Medium', color: C.textSub },
 
-  saveAttendanceBtn: {
-    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8,
-    backgroundColor: C.primaryBg, borderRadius: 12, paddingVertical: 12, marginBottom: 12,
-    borderWidth: 1, borderColor: C.primary + '40',
+  historyCard: {
+    backgroundColor: C.surface, borderRadius: 14,
+    borderWidth: 1, borderColor: C.border, marginBottom: 12, overflow: 'hidden',
   },
-  saveAttendanceBtnText: { fontSize: 14, fontFamily: 'Inter_600SemiBold', color: C.primary },
+  historyHeader: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    padding: 14,
+  },
+  historyHeaderLeft: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  historyTitle: { fontSize: 14, fontFamily: 'Inter_600SemiBold', color: C.text },
+  historyCountBadge: {
+    backgroundColor: C.primaryBg, paddingHorizontal: 7, paddingVertical: 2,
+    borderRadius: 8, borderWidth: 1, borderColor: C.primary + '30',
+  },
+  historyCountText: { fontSize: 10, fontFamily: 'Inter_700Bold', color: C.primary },
+  historyBody: { paddingHorizontal: 14, paddingBottom: 14, gap: 8, borderTopWidth: 1, borderTopColor: C.border },
+  historySubtitle: { fontSize: 11, fontFamily: 'Inter_400Regular', color: C.textMuted, paddingTop: 8 },
+  historyEmptyHint: { fontSize: 11, fontFamily: 'Inter_400Regular', color: C.textMuted, fontStyle: 'italic' },
 
   adminLinkBtn: {
     flexDirection: 'row', alignItems: 'center', gap: 8,
-    backgroundColor: C.surface, borderRadius: 12, paddingVertical: 13, paddingHorizontal: 16,
-    borderWidth: 1, borderColor: C.border,
-  },
-  adminLinkBtnText: { flex: 1, fontSize: 14, fontFamily: 'Inter_500Medium', color: C.textSub },
-
-  equipeEmptyWrap: { alignItems: 'center', paddingTop: 32, paddingBottom: 24, paddingHorizontal: 8 },
-  equipeEmptyIconCircle: {
-    width: 88, height: 88, borderRadius: 44,
-    backgroundColor: '#EC489918',
-    alignItems: 'center', justifyContent: 'center',
-    marginBottom: 20,
-  },
-  equipeEmptyTitle: { fontSize: 22, fontFamily: 'Inter_700Bold', color: C.text, textAlign: 'center', marginBottom: 8 },
-  equipeEmptySubtitle: { fontSize: 14, fontFamily: 'Inter_400Regular', color: C.textSub, textAlign: 'center', lineHeight: 20, marginBottom: 24, paddingHorizontal: 8 },
-  equipeEmptyFeatures: {
-    width: '100%', borderWidth: 1, borderColor: C.border, borderRadius: 14,
-    backgroundColor: C.surface, overflow: 'hidden', marginBottom: 28,
-  },
-  equipeEmptyFeatureRow: {
-    flexDirection: 'row', alignItems: 'flex-start', gap: 14,
     paddingVertical: 14, paddingHorizontal: 16,
-    borderBottomWidth: 1, borderBottomColor: C.border,
+    borderRadius: 12, borderWidth: 1, borderColor: C.border,
+    backgroundColor: C.surface, marginBottom: 8,
   },
-  equipeEmptyFeatureDot: {
-    width: 32, height: 32, borderRadius: 16,
-    alignItems: 'center', justifyContent: 'center', flexShrink: 0, marginTop: 1,
+  adminLinkBtnText: { flex: 1, fontSize: 13, fontFamily: 'Inter_500Medium', color: C.textSub },
+
+  equipeEmptyWrap: { alignItems: 'center', paddingVertical: 48, gap: 12 },
+  equipeEmptyIconCircle: {
+    width: 80, height: 80, borderRadius: 40,
+    backgroundColor: '#FCE7F3', alignItems: 'center', justifyContent: 'center', marginBottom: 4,
   },
-  equipeEmptyFeatureTitle: { fontSize: 14, fontFamily: 'Inter_600SemiBold', color: C.text, marginBottom: 2 },
-  equipeEmptyFeatureDesc: { fontSize: 12, fontFamily: 'Inter_400Regular', color: C.textSub, lineHeight: 17 },
+  equipeEmptyTitle: { fontSize: 18, fontFamily: 'Inter_700Bold', color: C.text, textAlign: 'center' },
+  equipeEmptySubtitle: { fontSize: 13, fontFamily: 'Inter_400Regular', color: C.textSub, textAlign: 'center', lineHeight: 19, paddingHorizontal: 8 },
   equipeEmptyBtn: {
     flexDirection: 'row', alignItems: 'center', gap: 8,
-    backgroundColor: C.primary, borderRadius: 14,
-    paddingVertical: 14, paddingHorizontal: 28,
+    backgroundColor: C.primary, paddingHorizontal: 20, paddingVertical: 12,
+    borderRadius: 12, marginTop: 8,
   },
-  equipeEmptyBtnText: { fontSize: 15, fontFamily: 'Inter_600SemiBold', color: '#fff' },
+  equipeEmptyBtnText: { fontSize: 14, fontFamily: 'Inter_600SemiBold', color: '#fff' },
 
-  modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.6)', justifyContent: 'center', alignItems: 'center', padding: 20 },
-  modalCard: { backgroundColor: C.surface, borderRadius: 18, padding: 20, width: '100%', maxWidth: 380, borderWidth: 1, borderColor: C.border },
+  modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', alignItems: 'center', padding: 24 },
+  modalCard: {
+    backgroundColor: C.surface, borderRadius: 20, padding: 24,
+    width: '100%', maxWidth: 380,
+    ...Platform.select({ default: { shadowColor: '#000', shadowOffset: { width: 0, height: 8 }, shadowOpacity: 0.2, shadowRadius: 16, elevation: 12 } }),
+  },
   modalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 },
-  modalTitle: { fontSize: 18, fontFamily: 'Inter_700Bold', color: C.text },
-  workerModalSub: { fontSize: 13, fontFamily: 'Inter_400Regular', color: C.textSub, marginBottom: 12 },
-
-  fieldLabel: {
-    fontSize: 12, fontFamily: 'Inter_600SemiBold', color: C.textSub,
-    marginBottom: 6, textTransform: 'uppercase', letterSpacing: 0.4,
-  },
-  input: {
-    backgroundColor: C.bg, borderWidth: 1, borderColor: C.border, borderRadius: 10,
-    paddingHorizontal: 14, paddingVertical: 10, fontSize: 15, fontFamily: 'Inter_400Regular', color: C.text,
-  },
-  stepperRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  modalTitle: { fontSize: 17, fontFamily: 'Inter_700Bold', color: C.text, flex: 1 },
+  workerModalSub: { fontSize: 13, fontFamily: 'Inter_400Regular', color: C.textMuted, marginBottom: 16 },
+  fieldLabel: { fontSize: 13, fontFamily: 'Inter_600SemiBold', color: C.text, marginBottom: 8 },
+  stepperRow: { flexDirection: 'row', alignItems: 'center', gap: 12 },
   stepperBtn: {
-    width: 44, height: 44, borderRadius: 12, backgroundColor: C.primaryBg,
-    borderWidth: 1, borderColor: C.primary + '40',
+    width: 42, height: 42, borderRadius: 10,
+    backgroundColor: C.primaryBg, borderWidth: 1, borderColor: C.primary + '40',
     alignItems: 'center', justifyContent: 'center',
   },
-  stepperInput: { flex: 1, textAlign: 'center', fontSize: 22, fontFamily: 'Inter_700Bold' },
-
-  confirmBtn: { backgroundColor: C.primary, borderRadius: 12, paddingVertical: 13, alignItems: 'center' },
-  confirmBtnText: { fontSize: 14, fontFamily: 'Inter_600SemiBold', color: '#fff' },
+  input: {
+    backgroundColor: C.surface2, borderRadius: 10, borderWidth: 1, borderColor: C.border,
+    color: C.text, fontFamily: 'Inter_400Regular', fontSize: 15,
+  },
+  stepperInput: { flex: 1, textAlign: 'center', paddingVertical: 10 },
+  confirmBtn: {
+    backgroundColor: C.primary, borderRadius: 12,
+    paddingVertical: 14, alignItems: 'center',
+  },
+  confirmBtnText: { color: '#fff', fontSize: 15, fontFamily: 'Inter_600SemiBold' },
 });

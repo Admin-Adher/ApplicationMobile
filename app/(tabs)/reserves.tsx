@@ -6,7 +6,7 @@ import {
 import * as Haptics from 'expo-haptics';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
-import { useRouter } from 'expo-router';
+import { useRouter, useLocalSearchParams } from 'expo-router';
 import { useState, useMemo, useCallback, useRef, useEffect } from 'react';
 import { SkeletonList } from '@/components/SkeletonCard';
 import { genId } from '@/lib/utils';
@@ -194,6 +194,7 @@ async function generateReportPDF(
 export default function ReservesScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
+  const { company: companyParam } = useLocalSearchParams<{ company?: string }>();
   const { reserves, companies, isLoading, chantiers, activeChantierId, lots, batchUpdateReserves, updateReserveFields, updateReserveStatus, deleteReserve, addComment, addReserve, reload } = useApp();
   const { permissions, user } = useAuth();
 
@@ -207,7 +208,7 @@ export default function ReservesScreen() {
   const [kindFilter, setKindFilter] = useState<'all' | ReserveKind>('all');
   const [buildingFilter, setBuildingFilter] = useState<string>('all');
   const [priorityFilter, setPriorityFilter] = useState<'all' | ReservePriority>('all');
-  const [companyFilter, setCompanyFilter] = useState<string>('all');
+  const [companyFilter, setCompanyFilter] = useState<string>(companyParam ?? 'all');
   const [zoneFilter, setZoneFilter] = useState<string>('all');
   const [levelFilter, setLevelFilter] = useState<string>('all');
   const [lotFilter, setLotFilter] = useState<string>('all');
