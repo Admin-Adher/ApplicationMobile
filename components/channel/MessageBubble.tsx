@@ -135,46 +135,61 @@ export default function MessageBubble({ msg, color, userName, onLongPress, onNot
             <TouchableOpacity
               style={[
                 styles.linkedCard,
-                msg.isMe ? styles.linkedCardMe : { borderColor: itemColor + '30', backgroundColor: itemColor + '08' },
+                msg.isMe
+                  ? styles.linkedCardMe
+                  : { borderColor: itemColor + '40', backgroundColor: itemColor + '0D' },
               ]}
               onPress={() => (onLinkedItemPress ?? onNotifPress)(msg)}
               activeOpacity={0.75}
             >
               <View style={[
                 styles.linkedCardIcon,
-                msg.isMe ? styles.linkedCardIconMe : { backgroundColor: itemColor + '18' },
+                msg.isMe
+                  ? styles.linkedCardIconMe
+                  : { backgroundColor: itemColor + '22' },
               ]}>
-                <Ionicons name={itemIcon as any} size={14} color={msg.isMe ? '#fff' : itemColor} />
+                <Ionicons name={itemIcon as any} size={16} color={msg.isMe ? '#fff' : itemColor} />
               </View>
-              <View style={{ flex: 1 }}>
-                <Text style={[styles.linkedCardLabel, msg.isMe ? { color: 'rgba(255,255,255,0.7)' } : { color: itemColor }]}>
-                  {itemLabel}
+              <View style={{ flex: 1, gap: 2 }}>
+                <Text style={[styles.linkedCardLabel, msg.isMe ? { color: 'rgba(255,255,255,0.85)' } : { color: itemColor }]}>
+                  {itemLabel}{linkedId ? ` · ${linkedId}` : ''}
                 </Text>
                 <Text
                   style={[styles.linkedCardTitle, msg.isMe ? { color: '#fff' } : { color: C.text }]}
-                  numberOfLines={1}
+                  numberOfLines={2}
                 >
-                  {linkedTitle ?? linkedId}
+                  {linkedTitle ?? linkedId ?? '—'}
                 </Text>
               </View>
-              <Ionicons name="chevron-forward" size={13} color={msg.isMe ? 'rgba(255,255,255,0.7)' : itemColor} />
+              <View style={[styles.linkedCardChevron, msg.isMe ? styles.linkedCardChevronMe : { backgroundColor: itemColor + '18' }]}>
+                <Ionicons name="chevron-forward" size={13} color={msg.isMe ? '#fff' : itemColor} />
+              </View>
             </TouchableOpacity>
           )}
 
           {hasLegacyReserve && (
             <TouchableOpacity
-              style={[styles.linkedCard, msg.isMe && styles.linkedCardMe]}
+              style={[
+                styles.linkedCard,
+                msg.isMe ? styles.linkedCardMe : { borderColor: C.primary + '40', backgroundColor: C.primary + '0D' },
+              ]}
               onPress={() => onNotifPress(msg)}
               activeOpacity={0.75}
             >
-              <View style={[styles.linkedCardIcon, msg.isMe ? styles.linkedCardIconMe : { backgroundColor: C.primary + '18' }]}>
-                <Ionicons name="alert-circle-outline" size={14} color={msg.isMe ? '#fff' : C.primary} />
+              <View style={[styles.linkedCardIcon, msg.isMe ? styles.linkedCardIconMe : { backgroundColor: C.primary + '22' }]}>
+                <Ionicons name="alert-circle-outline" size={16} color={msg.isMe ? '#fff' : C.primary} />
               </View>
-              <View style={{ flex: 1 }}>
-                <Text style={[styles.linkedCardLabel, msg.isMe ? { color: 'rgba(255,255,255,0.7)' } : { color: C.primary }]}>Réserve</Text>
-                <Text style={[styles.linkedCardTitle, msg.isMe ? { color: '#fff' } : { color: C.text }]} numberOfLines={1}>{msg.reserveId}</Text>
+              <View style={{ flex: 1, gap: 2 }}>
+                <Text style={[styles.linkedCardLabel, msg.isMe ? { color: 'rgba(255,255,255,0.85)' } : { color: C.primary }]}>
+                  Réserve · {msg.reserveId}
+                </Text>
+                <Text style={[styles.linkedCardTitle, msg.isMe ? { color: '#fff' } : { color: C.text }]} numberOfLines={2}>
+                  Voir la réserve
+                </Text>
               </View>
-              <Ionicons name="chevron-forward" size={13} color={msg.isMe ? 'rgba(255,255,255,0.7)' : C.primary} />
+              <View style={[styles.linkedCardChevron, msg.isMe ? styles.linkedCardChevronMe : { backgroundColor: C.primary + '18' }]}>
+                <Ionicons name="chevron-forward" size={13} color={msg.isMe ? '#fff' : C.primary} />
+              </View>
             </TouchableOpacity>
           )}
         </View>
@@ -252,15 +267,17 @@ const styles = StyleSheet.create({
   attachment: { width: 200, height: 150, borderRadius: 8, marginBottom: 4 },
 
   linkedCard: {
-    flexDirection: 'row', alignItems: 'center', gap: 8,
-    marginTop: 8, paddingVertical: 7, paddingHorizontal: 8,
-    borderRadius: 8, borderWidth: 1, borderColor: C.border,
+    flexDirection: 'row', alignItems: 'center', gap: 10,
+    marginTop: 8, paddingVertical: 9, paddingHorizontal: 10,
+    borderRadius: 10, borderWidth: 1, borderColor: C.border,
   },
-  linkedCardMe: { backgroundColor: 'rgba(255,255,255,0.18)', borderColor: 'rgba(255,255,255,0.35)' },
-  linkedCardIcon: { width: 24, height: 24, borderRadius: 12, alignItems: 'center', justifyContent: 'center' },
-  linkedCardIconMe: { backgroundColor: 'rgba(255,255,255,0.25)' },
-  linkedCardLabel: { fontSize: 9, fontFamily: 'Inter_600SemiBold', textTransform: 'uppercase', letterSpacing: 0.5 },
-  linkedCardTitle: { fontSize: 12, fontFamily: 'Inter_600SemiBold' },
+  linkedCardMe: { backgroundColor: 'rgba(0,0,0,0.20)', borderColor: 'rgba(255,255,255,0.30)' },
+  linkedCardIcon: { width: 32, height: 32, borderRadius: 16, alignItems: 'center', justifyContent: 'center', backgroundColor: C.surface2 },
+  linkedCardIconMe: { backgroundColor: 'rgba(255,255,255,0.22)' },
+  linkedCardLabel: { fontSize: 10, fontFamily: 'Inter_600SemiBold', textTransform: 'uppercase', letterSpacing: 0.5 },
+  linkedCardTitle: { fontSize: 13, fontFamily: 'Inter_600SemiBold', lineHeight: 17 },
+  linkedCardChevron: { width: 24, height: 24, borderRadius: 12, alignItems: 'center', justifyContent: 'center', backgroundColor: C.surface2 },
+  linkedCardChevronMe: { backgroundColor: 'rgba(255,255,255,0.22)' },
 
   msgText: { fontSize: 14, fontFamily: 'Inter_400Regular', color: C.text, lineHeight: 20 },
   msgTextMe: { color: '#fff' },
