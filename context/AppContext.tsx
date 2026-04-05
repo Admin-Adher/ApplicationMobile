@@ -439,9 +439,19 @@ export function dmChannelId(nameA: string, nameB: string): string {
 
 function reducer(state: AppState, action: Action): AppState {
   switch (action.type) {
-    case 'INIT':
+    case 'INIT': {
+      const seenCompanyIds = new Set<string>();
+      const seenCompanyNames = new Set<string>();
+      const dedupedCompanies = (action.payload.companies ?? []).filter(c => {
+        const nameKey = c.name.trim().toLowerCase();
+        if (seenCompanyIds.has(c.id) || seenCompanyNames.has(nameKey)) return false;
+        seenCompanyIds.add(c.id);
+        seenCompanyNames.add(nameKey);
+        return true;
+      });
       return {
         ...action.payload,
+        companies: dedupedCompanies,
         lastReadByChannel: state.lastReadByChannel,
         customChannels: state.customChannels,
         groupChannels: state.groupChannels,
@@ -455,6 +465,7 @@ function reducer(state: AppState, action: Action): AppState {
         oprs: state.oprs,
         isLoading: false,
       };
+    }
 
     case 'SET_VISITES': return { ...state, visites: action.payload };
     case 'ADD_VISITE': return { ...state, visites: [action.payload, ...state.visites] };
@@ -529,9 +540,11 @@ function reducer(state: AppState, action: Action): AppState {
       };
     }
 
-    case 'ADD_COMPANY':
-      if (state.companies.some(c => c.id === action.payload.id)) return state;
+    case 'ADD_COMPANY': {
+      const nameKey = action.payload.name.trim().toLowerCase();
+      if (state.companies.some(c => c.id === action.payload.id || c.name.trim().toLowerCase() === nameKey)) return state;
       return { ...state, companies: [...state.companies, action.payload] };
+    }
 
     case 'UPDATE_COMPANY':
       return {
@@ -1672,14 +1685,22 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     });
   }
 
-  const companyChannels: Channel[] = state.companies.map(co => ({
-    id: `company-${co.id}`,
-    name: co.name,
-    description: `Canal de l'entreprise ${co.name}`,
-    icon: 'people' as const,
-    color: co.color,
-    type: 'company' as const,
-  }));
+  const companyChannels: Channel[] = (() => {
+    const seenNames = new Set<string>();
+    return state.companies.filter(co => {
+      const key = co.name.trim().toLowerCase();
+      if (seenNames.has(key)) return false;
+      seenNames.add(key);
+      return true;
+    }).map(co => ({
+      id: `company-${co.id}`,
+      name: co.name,
+      description: `Canal de l'entreprise ${co.name}`,
+      icon: 'people' as const,
+      color: co.color,
+      type: 'company' as const,
+    }));
+  })();
 
   const dmChannelIds = new Set([
     ...state.messages
