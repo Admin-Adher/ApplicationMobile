@@ -160,7 +160,7 @@ export default function AnalyticsScreen() {
           Les statistiques globales ne sont pas accessibles aux sous-traitants.
         </Text>
         <TouchableOpacity
-          onPress={() => router.replace('/(tabs)' as any)}
+          onPress={() => router.canGoBack() ? router.back() : router.navigate('/(tabs)/' as any)}
           style={{ marginTop: 24, paddingHorizontal: 20, paddingVertical: 10, backgroundColor: '#2563EB', borderRadius: 10 }}
         >
           <Text style={{ color: '#fff', fontFamily: 'Inter_600SemiBold', fontSize: 14 }}>Retour au tableau de bord</Text>

@@ -548,7 +548,7 @@ export default function JournalScreen() {
                         { text: 'Rester', style: 'cancel' },
                         {
                           text: 'Continuer',
-                          onPress: () => router.push({
+                          onPress: () => router.navigate({
                             pathname: '/(tabs)/incidents',
                             params: { openCreate: '1', prefillDescription: incidents.trim() },
                           } as any),

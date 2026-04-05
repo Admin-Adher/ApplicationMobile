@@ -253,7 +253,7 @@ export default function EquipesScreen() {
           Votre rôle ne donne pas accès à la gestion des équipes.
         </Text>
         <TouchableOpacity
-          onPress={() => router.replace('/(tabs)' as any)}
+          onPress={() => router.canGoBack() ? router.back() : router.navigate('/(tabs)/' as any)}
           style={{ marginTop: 24, paddingHorizontal: 20, paddingVertical: 10, backgroundColor: C.primary, borderRadius: 10 }}
         >
           <Text style={{ color: '#fff', fontFamily: 'Inter_600SemiBold', fontSize: 14 }}>Retour au tableau de bord</Text>
