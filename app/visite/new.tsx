@@ -21,7 +21,7 @@ type Recurrence = 'none' | 'weekly' | 'bimonthly';
 
 const VISIT_TYPES: { value: VisiteType; label: string; icon: string; color: string }[] = [
   { value: 'controle',  label: 'Contrôle',  icon: 'clipboard-outline',           color: '#6366F1' },
-  { value: 'opr',       label: 'OPR',        icon: 'document-text-outline',       color: '#F59E0B' },
+  { value: 'opr',       label: 'Pré-réception', icon: 'document-text-outline',    color: '#F59E0B' },
   { value: 'securite',  label: 'Sécurité',   icon: 'shield-outline',              color: '#EF4444' },
   { value: 'reception', label: 'Réception',  icon: 'ribbon-outline',              color: '#10B981' },
   { value: 'synthese',  label: 'Synthèse',   icon: 'people-outline',              color: '#3B82F6' },
@@ -61,7 +61,7 @@ const CHECKLIST_TEMPLATES: Record<VisiteType, string[]> = {
     "Vérification des finitions",
     "Conformité aux plans d'exécution",
     "Documents de fin de chantier (DOE) complets",
-    "Levée des réserves OPR précédentes",
+    "Levée des réserves de pré-réception précédentes",
   ],
   securite: [
     "Port des EPI (casque, gilet, chaussures)",
@@ -77,7 +77,7 @@ const CHECKLIST_TEMPLATES: Record<VisiteType, string[]> = {
     "Tests et essais fonctionnels réalisés",
     "Conformité aux plans d'exécution",
     "Remise des notices et manuels (DOE)",
-    "Levée de toutes les réserves OPR",
+    "Levée de toutes les réserves de pré-réception",
   ],
   synthese: [
     "Tour de table des entreprises présentes",
