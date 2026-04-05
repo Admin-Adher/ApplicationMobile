@@ -11,11 +11,13 @@ import * as ImagePicker from 'expo-image-picker';
 import { C } from '@/constants/colors';
 import { useApp } from '@/context/AppContext';
 import { useAuth } from '@/context/AuthContext';
+import { useIncidents } from '@/context/IncidentsContext';
 import { Message } from '@/constants/types';
 import { supabase, isSupabaseConfigured } from '@/lib/supabase';
 import { uploadPhoto } from '@/lib/storage';
 import MessageBubble, { getAvatarColor } from '@/components/channel/MessageBubble';
 import MembersModal from '@/components/channel/MembersModal';
+import AttachItemModal, { LinkedItem, getLinkedItemIcon, getLinkedItemColor, getLinkedItemLabel } from '@/components/channel/AttachItemModal';
 
 const REACTIONS = ['👍', '✅', '⚠️', '🔥', '💯', '❌'];
 
@@ -107,7 +109,9 @@ export default function ChannelScreen() {
     messages, addMessage, deleteMessage, updateMessage, setChannelRead, setActiveChannelId,
     channels, removeCustomChannel, removeGroupChannel, renameChannel,
     addChannelMember, removeChannelMember, profiles, channelMembersOverride,
+    reserves, sitePlans, tasks, visites, oprs,
   } = useApp();
+  const { incidents } = useIncidents();
   const { user } = useAuth();
   const flatListRef = useRef<FlatList>(null);
   const inputRef = useRef<TextInput>(null);
@@ -131,9 +135,12 @@ export default function ChannelScreen() {
 
   const [text, setText] = useState('');
   const [replyTo, setReplyTo] = useState<Message | null>(null);
-  const [linkedReserve, setLinkedReserve] = useState<{ id: string; title: string } | null>(
-    paramLinkedReserveId ? { id: paramLinkedReserveId, title: paramLinkedReserveTitle ?? paramLinkedReserveId } : null
+  const [linkedItem, setLinkedItem] = useState<LinkedItem | null>(
+    paramLinkedReserveId
+      ? { type: 'reserve', id: paramLinkedReserveId, title: paramLinkedReserveTitle ?? paramLinkedReserveId }
+      : null
   );
+  const [attachItemVisible, setAttachItemVisible] = useState(false);
   const [selectedMsg, setSelectedMsg] = useState<Message | null>(null);
   const [actionModalVisible, setActionModalVisible] = useState(false);
   const [emojiModalVisible, setEmojiModalVisible] = useState(false);
@@ -170,7 +177,6 @@ export default function ChannelScreen() {
     return () => {
       supabase.removeChannel(typingCh);
       setActiveChannelId(null);
-      // Clear all pending typing indicator timeouts to prevent setState on unmounted component
       Object.values(typingTimeouts.current).forEach(clearTimeout);
       typingTimeouts.current = {};
     };
@@ -228,6 +234,31 @@ export default function ChannelScreen() {
     return allMentionNames.filter(s => s.toLowerCase().includes(q)).slice(0, 6);
   }, [mentionQuery, allMentionNames]);
 
+  // ── Build AttachItemModal data lists ──
+  const reserveItems: LinkedItem[] = useMemo(() =>
+    reserves.map(r => ({ type: 'reserve' as const, id: r.id, title: r.title, subtitle: r.building ? `${r.building}${r.level ? ' · ' + r.level : ''}` : undefined })),
+    [reserves]
+  );
+  const planItems: LinkedItem[] = useMemo(() =>
+    sitePlans.map(p => ({ type: 'plan' as const, id: p.id, title: p.name, subtitle: p.building ?? undefined })),
+    [sitePlans]
+  );
+  const taskItems: LinkedItem[] = useMemo(() =>
+    tasks.map(t => ({ type: 'task' as const, id: t.id, title: t.title, subtitle: t.assignee ?? undefined })),
+    [tasks]
+  );
+  const incidentItems: LinkedItem[] = useMemo(() =>
+    incidents.map(i => ({ type: 'incident' as const, id: i.id, title: i.title, subtitle: i.location ?? undefined })),
+    [incidents]
+  );
+  const visiteItems: LinkedItem[] = useMemo(() =>
+    visites.map(v => ({ type: 'visite' as const, id: v.id, title: v.title, subtitle: v.date })),
+    [visites]
+  );
+  const oprItems: LinkedItem[] = useMemo(() =>
+    oprs.map(o => ({ type: 'opr' as const, id: o.id, title: o.title, subtitle: o.date })),
+    [oprs]
+  );
 
   function handleTextChange(val: string) {
     setText(val);
@@ -284,14 +315,17 @@ export default function ChannelScreen() {
   }
 
   function handleSend() {
-    if (!text.trim()) return;
+    if (!text.trim() && !linkedItem) return;
     const mentions = (text.match(/@\w+/g) ?? []).map(m => m.slice(1));
     addMessage(channelId!, text.trim(), {
       replyToId: replyTo?.id, replyToContent: replyTo?.content,
       replyToSender: replyTo?.sender, mentions,
-      reserveId: linkedReserve?.id,
+      reserveId: linkedItem?.type === 'reserve' ? linkedItem.id : undefined,
+      linkedItemType: linkedItem?.type,
+      linkedItemId: linkedItem?.id,
+      linkedItemTitle: linkedItem?.title,
     }, user?.name ?? 'Moi');
-    setText(''); setReplyTo(null); setMentionQuery(''); setLinkedReserve(null);
+    setText(''); setReplyTo(null); setMentionQuery(''); setLinkedItem(null);
   }
 
   function openActions(msg: Message) {
@@ -365,6 +399,24 @@ export default function ChannelScreen() {
     }
   }
 
+  function handleLinkedItemPress(msg: Message) {
+    const type = msg.linkedItemType;
+    const id = msg.linkedItemId;
+    if (!type || !id) {
+      handleNotifPress(msg);
+      return;
+    }
+    switch (type) {
+      case 'reserve': router.push(`/reserve/${id}` as any); break;
+      case 'plan': router.push({ pathname: '/chantier/[id]', params: { id: sitePlans.find(p => p.id === id)?.chantierId ?? id, tab: 'plans' } } as any); break;
+      case 'task': router.push(`/task/${id}` as any); break;
+      case 'incident': router.push(`/incident/${id}` as any); break;
+      case 'visite': router.push(`/visite/${id}` as any); break;
+      case 'opr': router.push(`/opr/${id}` as any); break;
+      default: break;
+    }
+  }
+
   const renderItem = useCallback(({ item }: { item: ListItem }) => {
     if ('_type' in item && item._type === 'date') {
       return <DateSeparator label={item.label} />;
@@ -377,13 +429,18 @@ export default function ChannelScreen() {
         userName={user?.name ?? ''}
         onLongPress={() => openActions(msg)}
         onNotifPress={handleNotifPress}
+        onLinkedItemPress={handleLinkedItemPress}
         onReactInline={(emoji, m) => applyReact(emoji, m)}
         onOpenReactPicker={(m) => { setSelectedMsg(m); setEmojiModalVisible(true); }}
       />
     );
-  }, [color, user?.name, channelId]);
+  }, [color, user?.name, channelId, sitePlans]);
 
   const lastPinned = pinnedMessages[pinnedMessages.length - 1];
+
+  const itemColor = linkedItem ? getLinkedItemColor(linkedItem.type) : C.primary;
+  const itemIcon = linkedItem ? getLinkedItemIcon(linkedItem.type) : 'link-outline';
+  const itemLabel = linkedItem ? getLinkedItemLabel(linkedItem.type) : '';
 
   return (
     <View style={styles.container}>
@@ -482,15 +539,14 @@ export default function ChannelScreen() {
 
         <TypingIndicator users={typingUsers} />
 
-        {linkedReserve && (
-          <View style={styles.replyBar2}>
-            <View style={[styles.replyAccent, { backgroundColor: C.primary }]} />
-            <Ionicons name="alert-circle-outline" size={14} color={C.primary} style={{ marginRight: 2 }} />
+        {linkedItem && (
+          <View style={[styles.replyBar2, { borderLeftWidth: 3, borderLeftColor: itemColor }]}>
+            <Ionicons name={itemIcon as any} size={14} color={itemColor} style={{ marginRight: 2 }} />
             <View style={{ flex: 1 }}>
-              <Text style={[styles.replyBarWho, { color: C.primary }]}>Réserve liée</Text>
-              <Text style={styles.replyBarText} numberOfLines={1}>{linkedReserve.id} — {linkedReserve.title}</Text>
+              <Text style={[styles.replyBarWho, { color: itemColor }]}>{itemLabel} lié(e)</Text>
+              <Text style={styles.replyBarText} numberOfLines={1}>{linkedItem.title}</Text>
             </View>
-            <TouchableOpacity onPress={() => setLinkedReserve(null)} hitSlop={8}>
+            <TouchableOpacity onPress={() => setLinkedItem(null)} hitSlop={8}>
               <Ionicons name="close" size={18} color={C.textSub} />
             </TouchableOpacity>
           </View>
@@ -531,6 +587,12 @@ export default function ChannelScreen() {
               ? <ActivityIndicator size="small" color={C.primary} />
               : <Ionicons name="image-outline" size={20} color={C.textSub} />}
           </TouchableOpacity>
+          <TouchableOpacity
+            style={[styles.attachBtn, linkedItem && { backgroundColor: itemColor + '18', borderRadius: 18 }]}
+            onPress={() => setAttachItemVisible(true)}
+          >
+            <Ionicons name="link-outline" size={20} color={linkedItem ? itemColor : C.textSub} />
+          </TouchableOpacity>
           <TextInput
             ref={inputRef}
             style={styles.input}
@@ -543,14 +605,27 @@ export default function ChannelScreen() {
             onSubmitEditing={Platform.OS === 'web' ? handleSend : undefined}
           />
           <TouchableOpacity
-            style={[styles.sendBtn, { backgroundColor: text.trim() ? color : C.surface2 }]}
+            style={[styles.sendBtn, { backgroundColor: (text.trim() || linkedItem) ? color : C.surface2 }]}
             onPress={handleSend}
-            disabled={!text.trim()}
+            disabled={!text.trim() && !linkedItem}
           >
-            <Ionicons name="send" size={18} color={text.trim() ? '#fff' : C.textMuted} />
+            <Ionicons name="send" size={18} color={(text.trim() || linkedItem) ? '#fff' : C.textMuted} />
           </TouchableOpacity>
         </View>
       </KeyboardAvoidingView>
+
+      {/* ── MODAL ATTACHER UN ÉLÉMENT ── */}
+      <AttachItemModal
+        visible={attachItemVisible}
+        onClose={() => setAttachItemVisible(false)}
+        onSelect={(item) => { setLinkedItem(item); inputRef.current?.focus(); }}
+        reserves={reserveItems}
+        plans={planItems}
+        tasks={taskItems}
+        incidents={incidentItems}
+        visites={visiteItems}
+        oprs={oprItems}
+      />
 
       {/* ── MODAL ACTIONS ── */}
       <Modal visible={actionModalVisible} transparent animationType="slide" onRequestClose={() => setActionModalVisible(false)}>
