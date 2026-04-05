@@ -75,7 +75,7 @@ export default function AdminScreen() {
   const bottomPad = Platform.OS === 'web' ? 34 : insets.bottom;
   const router = useRouter();
 
-  const { user, updateUserRole, deleteUserProfile } = useAuth();
+  const { user, updateUserRole, updateUserCompany, deleteUserProfile } = useAuth();
   const { companies, lots, addCompany, updateCompanyFull, deleteCompany, updateCompanyWorkers, updateCompanyHours } = useApp();
   const {
     plan, subscription, seatUsed, seatMax, canInvite, isLoading,
@@ -108,7 +108,8 @@ export default function AdminScreen() {
   const [tokenCopied, setTokenCopied] = useState(false);
   const [userSearch, setUserSearch] = useState('');
   const [roleFilter, setRoleFilter] = useState<UserRole | 'all'>('all');
-  const [roleModal, setRoleModal] = useState<{ id: string; name: string; currentRole: UserRole } | null>(null);
+  const [roleModal, setRoleModal] = useState<{ id: string; name: string; currentRole: UserRole; currentCompanyId?: string } | null>(null);
+  const [editCompanyId, setEditCompanyId] = useState<string>('');
   const [saving, setSaving] = useState(false);
 
   const [companySearch, setCompanySearch] = useState('');
@@ -308,58 +309,81 @@ export default function AdminScreen() {
     );
   }
 
-  async function handleRoleChange(newRole: UserRole) {
+  const [editRole, setEditRole] = useState<UserRole>('observateur');
+
+  function openEditUserModal(u: { id: string; name: string; role: UserRole; companyId?: string }) {
+    setEditRole(u.role);
+    setEditCompanyId(u.companyId ?? '');
+    setRoleModal({ id: u.id, name: u.name, currentRole: u.role, currentCompanyId: u.companyId });
+  }
+
+  function closeEditUserModal() {
+    setRoleModal(null);
+  }
+
+  async function handleSaveUserEdit() {
     if (!roleModal) return;
-    if (newRole === roleModal.currentRole) { setRoleModal(null); return; }
-    if (roleModal.id === user?.id && newRole !== 'admin') {
+    const newRole = editRole;
+    const newCompanyId = editCompanyId || null;
+    const roleChanged = newRole !== roleModal.currentRole;
+    const companyChanged = (newCompanyId ?? undefined) !== roleModal.currentCompanyId;
+
+    if (!roleChanged && !companyChanged) { setRoleModal(null); return; }
+
+    if (roleChanged && roleModal.id === user?.id && newRole !== 'admin') {
       Alert.alert('Action impossible', 'Vous ne pouvez pas retirer votre propre rôle admin.');
       return;
     }
-    const isPaidRole = !FREE_ROLES.includes(newRole);
-    const wasFreeRole = FREE_ROLES.includes(roleModal.currentRole);
-    if (isPaidRole && wasFreeRole && !canInvite) {
-      Alert.alert(
-        'Sièges insuffisants',
-        `Limite de ${seatMax} siège${seatMax > 1 ? 's' : ''} atteinte. Ce changement de rôle requiert un siège disponible.`,
-        [{ text: 'OK', style: 'cancel' }]
-      );
-      return;
-    }
-    if (roleModal.currentRole === 'admin' && newRole !== 'admin') {
-      const remainingAdmins = orgUsers.filter(u => u.role === 'admin' && u.id !== roleModal.id).length;
-      if (remainingAdmins === 0) {
+    if (roleChanged) {
+      const isPaidRole = !FREE_ROLES.includes(newRole);
+      const wasFreeRole = FREE_ROLES.includes(roleModal.currentRole);
+      if (isPaidRole && wasFreeRole && !canInvite) {
         Alert.alert(
-          'Dernier administrateur',
-          `${roleModal.name} est le seul administrateur de l'organisation. En changeant son rôle, plus personne ne pourra gérer les accès.\n\nConfirmez-vous cette modification ?`,
-          [
-            { text: 'Annuler', style: 'cancel' },
-            {
-              text: 'Changer quand même', style: 'destructive',
-              onPress: async () => {
-                setSaving(true);
-                try {
-                  await updateUserRole(roleModal.id, newRole);
-                  setRoleModal(null);
-                  showToast('Rôle mis à jour');
-                } catch {
-                  showToast('Erreur — rôle non modifié');
-                } finally {
-                  setSaving(false);
-                }
-              },
-            },
-          ]
+          'Sièges insuffisants',
+          `Limite de ${seatMax} siège${seatMax > 1 ? 's' : ''} atteinte. Ce changement de rôle requiert un siège disponible.`,
+          [{ text: 'OK', style: 'cancel' }]
         );
         return;
       }
+      if (roleModal.currentRole === 'admin' && newRole !== 'admin') {
+        const remainingAdmins = orgUsers.filter(u => u.role === 'admin' && u.id !== roleModal.id).length;
+        if (remainingAdmins === 0) {
+          Alert.alert(
+            'Dernier administrateur',
+            `${roleModal.name} est le seul administrateur. En changeant son rôle, plus personne ne pourra gérer les accès.\n\nConfirmez-vous ?`,
+            [
+              { text: 'Annuler', style: 'cancel' },
+              {
+                text: 'Changer quand même', style: 'destructive',
+                onPress: () => doSaveUserEdit(newRole, newCompanyId, roleChanged, companyChanged),
+              },
+            ]
+          );
+          return;
+        }
+      }
     }
+    await doSaveUserEdit(newRole, newCompanyId, roleChanged, companyChanged);
+  }
+
+  async function doSaveUserEdit(
+    newRole: UserRole,
+    newCompanyId: string | null,
+    roleChanged: boolean,
+    companyChanged: boolean,
+  ) {
+    if (!roleModal) return;
     setSaving(true);
     try {
-      await updateUserRole(roleModal.id, newRole);
+      if (roleChanged) await updateUserRole(roleModal.id, newRole);
+      if (companyChanged) await updateUserCompany(roleModal.id, newCompanyId);
       setRoleModal(null);
-      showToast('Rôle mis à jour');
+      const parts = [];
+      if (roleChanged) parts.push('rôle');
+      if (companyChanged) parts.push('entreprise');
+      showToast(`${parts.join(' & ')} mis à jour`);
     } catch {
-      showToast('Erreur — rôle non modifié');
+      showToast('Erreur — modifications non enregistrées');
     } finally {
       setSaving(false);
     }
@@ -725,18 +749,30 @@ export default function AdminScreen() {
                       )}
                     </View>
                     <Text style={styles.userEmail}>{u.email}</Text>
-                    <RoleBadge role={u.role} />
+                    <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 5, marginTop: 3 }}>
+                      <RoleBadge role={u.role} />
+                      {u.companyId && (() => {
+                        const co = companies.find(c => c.id === u.companyId);
+                        if (!co) return null;
+                        return (
+                          <View style={[styles.companyBadge, { backgroundColor: co.color + '18', borderColor: co.color + '55' }]}>
+                            <View style={[styles.companyBadgeDot, { backgroundColor: co.color }]} />
+                            <Text style={[styles.companyBadgeText, { color: co.color }]} numberOfLines={1}>{co.shortName}</Text>
+                          </View>
+                        );
+                      })()}
+                    </View>
                   </View>
                   <View style={styles.userActions}>
                     {!isCurrentUser && (
                       <TouchableOpacity
                         style={styles.iconBtnLabelled}
-                        onPress={() => setRoleModal({ id: u.id, name: u.name, currentRole: u.role })}
+                        onPress={() => openEditUserModal(u)}
                         accessibilityRole="button"
-                        accessibilityLabel={`Modifier le rôle de ${u.name}`}
+                        accessibilityLabel={`Modifier ${u.name}`}
                       >
                         <Ionicons name="create-outline" size={15} color={C.primary} />
-                        <Text style={styles.iconBtnLabelText}>Rôle</Text>
+                        <Text style={styles.iconBtnLabelText}>Éditer</Text>
                       </TouchableOpacity>
                     )}
                     {!isCurrentUser && <View style={styles.coActionSep} />}
@@ -886,8 +922,8 @@ export default function AdminScreen() {
                       )}
                       {linkedCount > 0 && (
                         <View style={styles.coLinkedUsers}>
-                          <Ionicons name="person-outline" size={11} color={C.textMuted} />
-                          <Text style={styles.coLinkedUsersTxt}>{linkedCount} sous-traitant{linkedCount > 1 ? 's' : ''} lié{linkedCount > 1 ? 's' : ''}</Text>
+                          <Ionicons name="people-outline" size={11} color={C.textMuted} />
+                          <Text style={styles.coLinkedUsersTxt}>{linkedCount} membre{linkedCount > 1 ? 's' : ''} lié{linkedCount > 1 ? 's' : ''}</Text>
                         </View>
                       )}
                     </View>
@@ -1195,40 +1231,98 @@ export default function AdminScreen() {
         </ScrollView>
       )}
 
-      {/* ─── MODAL CHANGEMENT DE RÔLE ─── */}
-      <Modal visible={!!roleModal} transparent animationType="slide" onRequestClose={() => setRoleModal(null)}>
-        <TouchableOpacity style={styles.overlay} activeOpacity={1} onPress={() => setRoleModal(null)}>
+      {/* ─── MODAL ÉDITION UTILISATEUR (rôle + entreprise) ─── */}
+      <Modal visible={!!roleModal} transparent animationType="slide" onRequestClose={closeEditUserModal}>
+        <TouchableOpacity style={styles.overlay} activeOpacity={1} onPress={closeEditUserModal}>
           <TouchableOpacity activeOpacity={1} style={styles.sheet}>
             <View style={styles.sheetHandle} />
-            <Text style={styles.sheetTitle}>Changer le rôle</Text>
+            <Text style={styles.sheetTitle}>Modifier l'utilisateur</Text>
             <Text style={styles.sheetSubtitle}>{roleModal?.name}</Text>
             {saving ? (
               <ActivityIndicator size="large" color={C.primary} style={{ marginVertical: 24 }} />
             ) : (
-              <ScrollView showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
+              <ScrollView showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled" contentContainerStyle={{ gap: 10, paddingBottom: 4 }}>
+                {/* ── Sélection du rôle ── */}
+                <Text style={styles.fieldLabel}>Rôle</Text>
                 {ROLES.map(r => {
-                  const isSelected = roleModal?.currentRole === r.value;
+                  const isSelected = editRole === r.value;
+                  const isFree = FREE_ROLES.includes(r.value);
                   return (
                     <TouchableOpacity
                       key={r.value}
                       style={[styles.roleOption, isSelected && { backgroundColor: r.bg, borderColor: r.color }]}
-                      onPress={() => handleRoleChange(r.value)}
+                      onPress={() => setEditRole(r.value)}
                       accessibilityRole="button"
                       accessibilityLabel={`Attribuer le rôle ${r.label}`}
                       accessibilityState={{ selected: isSelected }}
                     >
                       <View style={[styles.roleOptionDot, { backgroundColor: r.color }]} />
                       <View style={{ flex: 1 }}>
-                        <Text style={[styles.roleOptionText, isSelected && { color: r.color, fontFamily: 'Inter_600SemiBold' }]}>
-                          {r.label}
-                        </Text>
+                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                          <Text style={[styles.roleOptionText, isSelected && { color: r.color, fontFamily: 'Inter_600SemiBold' }]}>
+                            {r.label}
+                          </Text>
+                          {isFree && (
+                            <View style={styles.freeTag}>
+                              <Text style={styles.freeTagTxt}>gratuit</Text>
+                            </View>
+                          )}
+                        </View>
                         <Text style={styles.roleOptionDesc}>{r.description}</Text>
                       </View>
                       {isSelected && <Ionicons name="checkmark-circle" size={18} color={r.color} />}
                     </TouchableOpacity>
                   );
                 })}
-                <TouchableOpacity style={styles.cancelBtn} onPress={() => setRoleModal(null)}>
+
+                {/* ── Sélection de l'entreprise ── */}
+                {companies.length > 0 && (
+                  <>
+                    <View style={[styles.fieldSeparator, { marginTop: 4 }]}>
+                      <Text style={styles.fieldSeparatorTxt}>Entreprise rattachée</Text>
+                    </View>
+                    <Text style={styles.fieldHint}>Optionnel — pour les sous-traitants ou intervenants d'une entreprise spécifique</Text>
+                    <TouchableOpacity
+                      style={[styles.roleOption, !editCompanyId && { backgroundColor: C.primaryBg, borderColor: C.primary }]}
+                      onPress={() => setEditCompanyId('')}
+                      accessibilityRole="button"
+                      accessibilityLabel="Aucune entreprise"
+                    >
+                      <View style={[styles.roleOptionDot, { backgroundColor: C.border }]} />
+                      <Text style={[styles.roleOptionText, !editCompanyId && { color: C.primary, fontFamily: 'Inter_600SemiBold' }]}>
+                        Aucune entreprise
+                      </Text>
+                      {!editCompanyId && <Ionicons name="checkmark-circle" size={18} color={C.primary} />}
+                    </TouchableOpacity>
+                    {companies.map(co => {
+                      const isSelected = editCompanyId === co.id;
+                      return (
+                        <TouchableOpacity
+                          key={co.id}
+                          style={[styles.roleOption, isSelected && { backgroundColor: co.color + '18', borderColor: co.color }]}
+                          onPress={() => setEditCompanyId(isSelected ? '' : co.id)}
+                          accessibilityRole="button"
+                          accessibilityLabel={`Associer à ${co.name}`}
+                          accessibilityState={{ selected: isSelected }}
+                        >
+                          <View style={[styles.roleOptionDot, { backgroundColor: co.color }]} />
+                          <View style={{ flex: 1 }}>
+                            <Text style={[styles.roleOptionText, isSelected && { color: co.color, fontFamily: 'Inter_600SemiBold' }]}>
+                              {co.name}
+                            </Text>
+                            <Text style={styles.roleOptionDesc}>{co.shortName} · {co.plannedWorkers} pers. prévues</Text>
+                          </View>
+                          {isSelected && <Ionicons name="checkmark-circle" size={18} color={co.color} />}
+                        </TouchableOpacity>
+                      );
+                    })}
+                  </>
+                )}
+
+                <TouchableOpacity style={[styles.saveBtn, { marginTop: 6 }]} onPress={handleSaveUserEdit}>
+                  <Text style={styles.saveBtnText}>Enregistrer</Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={styles.cancelBtn} onPress={closeEditUserModal}>
                   <Text style={styles.cancelBtnText}>Annuler</Text>
                 </TouchableOpacity>
               </ScrollView>
@@ -1633,6 +1727,13 @@ const styles = StyleSheet.create({
   userEmail: { fontSize: 11, fontFamily: 'Inter_400Regular', color: C.textMuted },
   roleBadge: { alignSelf: 'flex-start', borderRadius: 6, paddingHorizontal: 8, paddingVertical: 3 },
   roleBadgeText: { fontSize: 11, fontFamily: 'Inter_600SemiBold' },
+  companyBadge: {
+    flexDirection: 'row', alignItems: 'center', gap: 4,
+    alignSelf: 'flex-start', borderRadius: 6, paddingHorizontal: 7, paddingVertical: 3,
+    borderWidth: 1,
+  },
+  companyBadgeDot: { width: 6, height: 6, borderRadius: 3 },
+  companyBadgeText: { fontSize: 11, fontFamily: 'Inter_600SemiBold', maxWidth: 100 },
   userActions: { flexDirection: 'column', gap: 5 },
 
   iconBtnLabelled: {

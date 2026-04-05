@@ -46,6 +46,7 @@ interface AuthContextValue {
   users: User[];
   seedStatus: 'idle' | 'seeding' | 'done' | 'error';
   updateUserRole: (userId: string, newRole: UserRole) => Promise<void>;
+  updateUserCompany: (userId: string, companyId: string | null) => Promise<void>;
   deleteUserProfile: (userId: string) => Promise<void>;
 }
 
@@ -527,6 +528,21 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     ));
   }
 
+  async function updateUserCompany(userId: string, companyId: string | null): Promise<void> {
+    if (isSupabaseConfigured) {
+      const { error } = await supabase.from('profiles').update({
+        company_id: companyId,
+      }).eq('id', userId);
+      if (error) {
+        Alert.alert('Erreur', "L'entreprise n'a pas pu être mise à jour. Vérifiez vos permissions.");
+        return;
+      }
+    }
+    setUsers(prev => prev.map(u =>
+      u.id === userId ? { ...u, companyId: companyId ?? undefined } : u
+    ));
+  }
+
   async function deleteUserProfile(userId: string): Promise<void> {
     if (isSupabaseConfigured) {
       const { error } = await supabase.from('profiles').delete().eq('id', userId);
@@ -552,6 +568,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       users,
       seedStatus,
       updateUserRole,
+      updateUserCompany,
       deleteUserProfile,
     }}>
       {children}
