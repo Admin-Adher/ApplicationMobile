@@ -281,9 +281,12 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
     }
   }
 
-  const orgUsers = organization
-    ? users.filter(u => u.organizationId === organization.id)
-    : [];
+  const orgId = organization?.id ?? (user?.role !== 'super_admin' ? user?.organizationId : undefined);
+  const orgUsers = user?.role === 'super_admin'
+    ? users
+    : orgId
+      ? users.filter(u => u.organizationId === orgId)
+      : [];
 
   const activeOrgUsers = orgUsers.filter(u => !FREE_ROLES.includes(u.role as UserRole));
   const freeOrgUsers = orgUsers.filter(u => FREE_ROLES.includes(u.role as UserRole));

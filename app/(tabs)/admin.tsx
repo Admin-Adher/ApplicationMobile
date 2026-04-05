@@ -585,10 +585,18 @@ export default function AdminScreen() {
             <Text style={styles.title}>Administration</Text>
             <Text style={styles.subtitle}>Gestion des accès et des équipes</Text>
           </View>
-          <View style={styles.adminBadge}>
-            <Ionicons name="shield-checkmark" size={14} color="#EF4444" />
-            <Text style={styles.adminBadgeText}>Admin</Text>
-          </View>
+          {(() => {
+            const roleInfo = ROLE_INFO[user?.role ?? 'admin'];
+            const badgeColor = roleInfo?.color ?? '#EF4444';
+            const badgeBg = roleInfo?.bg ?? '#FEF2F2';
+            const badgeLabel = roleInfo?.label ?? 'Admin';
+            return (
+              <View style={[styles.adminBadge, { backgroundColor: badgeBg, borderColor: badgeColor + '44' }]}>
+                <Ionicons name="shield-checkmark" size={14} color={badgeColor} />
+                <Text style={[styles.adminBadgeText, { color: badgeColor }]}>{badgeLabel}</Text>
+              </View>
+            );
+          })()}
         </View>
 
         <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.tabScrollRow} contentContainerStyle={styles.tabRowContent}>
