@@ -235,8 +235,13 @@ export default function AdminScreen() {
     return found ? found.name : 'Admin';
   }, [orgUsers]);
 
+  useEffect(() => {
+    if (user && !isAdmin) {
+      router.navigate('/(tabs)/' as any);
+    }
+  }, [user, isAdmin]);
+
   if (user && !isAdmin) {
-    router.replace('/(tabs)/' as any);
     return null;
   }
 

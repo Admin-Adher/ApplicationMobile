@@ -330,7 +330,7 @@ export default function EquipesScreen() {
             {permissions.canManageTeams && (
               <TouchableOpacity
                 style={styles.manageBtn}
-                onPress={() => router.push('/(tabs)/admin' as any)}
+                onPress={() => router.navigate('/(tabs)/admin' as any)}
               >
                 <Ionicons name="settings-outline" size={14} color={C.primary} />
                 <Text style={styles.manageBtnLabel}>Gérer</Text>
@@ -391,7 +391,7 @@ export default function EquipesScreen() {
             {permissions.canManageTeams && (
               <TouchableOpacity
                 style={styles.equipeEmptyBtn}
-                onPress={() => router.push('/(tabs)/admin' as any)}
+                onPress={() => router.navigate('/(tabs)/admin' as any)}
               >
                 <Ionicons name="settings-outline" size={18} color="#fff" />
                 <Text style={styles.equipeEmptyBtnText}>Gérer les entreprises dans l'Admin</Text>
@@ -529,7 +529,7 @@ export default function EquipesScreen() {
               <View style={styles.quickActions}>
                 <TouchableOpacity
                   style={[styles.qaBtn, cs.openReserves > 0 && styles.qaBtnAlert]}
-                  onPress={() => router.push({ pathname: '/(tabs)/reserves', params: { company: co.name } } as any)}
+                  onPress={() => router.navigate({ pathname: '/(tabs)/reserves', params: { company: co.name } } as any)}
                 >
                   <Ionicons
                     name="warning-outline"
@@ -652,7 +652,7 @@ export default function EquipesScreen() {
         {companies.length > 0 && permissions.canManageTeams && (
           <TouchableOpacity
             style={styles.adminLinkBtn}
-            onPress={() => router.push('/(tabs)/admin' as any)}
+            onPress={() => router.navigate('/(tabs)/admin' as any)}
           >
             <Ionicons name="settings-outline" size={15} color={C.textSub} />
             <Text style={styles.adminLinkBtnText}>Gérer les entreprises dans l'Admin</Text>

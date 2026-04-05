@@ -55,7 +55,7 @@ function TabletSidebar() {
     <View style={[styles.sidebar, { paddingTop: insets.top + 8, paddingBottom: insets.bottom + 8 }]}>
       <TouchableOpacity
         style={styles.sidebarLogo}
-        onPress={() => router.push('/(tabs)/' as any)}
+        onPress={() => router.navigate('/(tabs)/' as any)}
         activeOpacity={0.7}
         hitSlop={8}
       >
@@ -81,7 +81,7 @@ function TabletSidebar() {
           <TouchableOpacity
             key={tab.name}
             style={[styles.sidebarItem, isFocused && styles.sidebarItemActive]}
-            onPress={() => router.push(tab.path as any)}
+            onPress={() => router.navigate(tab.path as any)}
             activeOpacity={0.75}
           >
             <View style={styles.sidebarIconWrap}>

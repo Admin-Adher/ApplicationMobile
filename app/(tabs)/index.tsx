@@ -497,7 +497,7 @@ export default function DashboardScreen() {
             color={C.primary}
             icon="list"
             bg={C.primaryBg}
-            onPress={() => router.push('/(tabs)/reserves' as any)}
+            onPress={() => router.navigate('/(tabs)/reserves' as any)}
           />
           <KPICard
             label="Actives"
@@ -505,7 +505,7 @@ export default function DashboardScreen() {
             color={C.open}
             icon="alert-circle"
             bg={C.openBg}
-            onPress={() => router.push('/(tabs)/reserves' as any)}
+            onPress={() => router.navigate('/(tabs)/reserves' as any)}
           />
           <KPICard
             label="Critiques"
@@ -513,7 +513,7 @@ export default function DashboardScreen() {
             color={C.critical}
             icon="warning"
             bg={C.criticalBg}
-            onPress={() => router.push('/(tabs)/reserves' as any)}
+            onPress={() => router.navigate('/(tabs)/reserves' as any)}
           />
           <KPICard
             label="Clôturées"
@@ -521,7 +521,7 @@ export default function DashboardScreen() {
             color={C.closed}
             icon="checkmark-circle"
             bg={C.closedBg}
-            onPress={() => router.push('/(tabs)/reserves' as any)}
+            onPress={() => router.navigate('/(tabs)/reserves' as any)}
           />
         </View>
 
@@ -597,7 +597,7 @@ export default function DashboardScreen() {
               {permissions.canManageTeams && (
                 <TouchableOpacity
                   style={styles.onboardBtnSecondary}
-                  onPress={() => router.push('/(tabs)/equipes' as any)}
+                  onPress={() => router.navigate('/(tabs)/equipes' as any)}
                 >
                   <Ionicons name="people-outline" size={16} color={C.primary} />
                   <Text style={styles.onboardBtnSecondaryText}>Configurer les équipes</Text>

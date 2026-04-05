@@ -218,7 +218,7 @@ export default function MoreScreen() {
                 <TouchableOpacity
                   key={item.route}
                   style={[styles.menuCard, { width: cardWidth }]}
-                  onPress={() => router.push(item.route as any)}
+                  onPress={() => item.route.startsWith('/(tabs)/') ? router.navigate(item.route as any) : router.push(item.route as any)}
                   activeOpacity={0.75}
                 >
                   <View style={[styles.iconWrap, { backgroundColor: item.color + '20' }]}>
