@@ -122,11 +122,13 @@ export default function ChannelScreen() {
   const baseMembers: string[] = channelObj?.members ?? (membersParam ? membersParam.split(',').filter(Boolean) : []);
   const overrideMembers: string[] = channelId ? (channelMembersOverride[channelId] ?? []) : [];
   const liveMembers: string[] = useMemo(() => {
-    if (overrideMembers.length === 0) return baseMembers;
     const merged = [...baseMembers];
     overrideMembers.forEach(m => { if (!merged.includes(m)) merged.push(m); });
+    // Le créateur doit toujours apparaître dans la liste des membres
+    const creator = channelObj?.createdBy;
+    if (creator && !merged.includes(creator)) merged.push(creator);
     return merged;
-  }, [baseMembers.join(','), overrideMembers.join(',')]);
+  }, [baseMembers.join(','), overrideMembers.join(','), channelObj?.createdBy]);
   const isEditable = channelObj?.type === 'custom' || channelObj?.type === 'group' || channelObj?.type === 'company';
   const canDelete = channelObj?.type === 'custom' || channelObj?.type === 'group';
   const isCreator = !!channelObj?.createdBy && (

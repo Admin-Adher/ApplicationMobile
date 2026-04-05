@@ -1881,11 +1881,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const unreadCount = Object.values(unreadByChannel).reduce((a, b) => a + b, 0);
 
   function addCustomChannel(name: string, description: string, icon: string, color: string): Channel {
+    const creator = currentUserNameRef.current;
     const newCh: Channel = {
       id: 'custom-' + genId(),
       name, description, icon, color,
       type: 'custom',
-      createdBy: currentUserNameRef.current,
+      createdBy: creator,
+      members: creator ? [creator] : [],
     };
     dispatch({ type: 'ADD_CUSTOM_CHANNEL', payload: newCh });
     const updated = [...stateRef.current.customChannels, newCh];
