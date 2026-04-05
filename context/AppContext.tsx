@@ -2276,27 +2276,47 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       if (offline({ table: 'companies', op: 'insert', data: {
         id: c.id, name: c.name, short_name: c.shortName, color: c.color,
         planned_workers: c.plannedWorkers, actual_workers: c.actualWorkers,
-        hours_worked: c.hoursWorked, zone: c.zone, contact: c.phone ?? null,
-        email: c.email ?? null, lots: c.lots ?? null,
+        hours_worked: c.hoursWorked, zone: c.zone ?? '', contact: c.phone ?? null,
+        email: c.email ?? null, lots: c.lots?.length ? c.lots : null,
         siret: c.siret ?? null, insurance: c.insurance ?? null,
         qualifications: c.qualifications ?? null,
         organization_id: currentUserOrgIdRef.current ?? null,
       } })) return;
       if (isSupabaseConfigured) {
-        supabase.from('companies').insert({
-          id: c.id, name: c.name, short_name: c.shortName, color: c.color,
-          planned_workers: c.plannedWorkers, actual_workers: c.actualWorkers,
-          hours_worked: c.hoursWorked, zone: c.zone, contact: c.phone ?? null,
-          email: c.email ?? null, lots: c.lots ?? null,
-          siret: c.siret ?? null, insurance: c.insurance ?? null,
-          qualifications: c.qualifications ?? null,
-          organization_id: currentUserOrgIdRef.current ?? null,
-        }).then(({ error }: { error: any }) => {
-          if (error) {
+        (async () => {
+          try {
+            let orgId = currentUserOrgIdRef.current;
+            if (!orgId) {
+              const { data: { session } } = await supabase.auth.getSession();
+              if (session?.user?.id) {
+                const { data: prof } = await supabase
+                  .from('profiles').select('organization_id')
+                  .eq('id', session.user.id).single();
+                orgId = prof?.organization_id ?? null;
+                if (orgId) currentUserOrgIdRef.current = orgId;
+              }
+            }
+            const payload = {
+              id: c.id, name: c.name, short_name: c.shortName, color: c.color,
+              planned_workers: c.plannedWorkers, actual_workers: c.actualWorkers,
+              hours_worked: c.hoursWorked, zone: c.zone ?? '', contact: c.phone ?? null,
+              email: c.email ?? null, lots: c.lots?.length ? c.lots : null,
+              siret: c.siret ?? null, insurance: c.insurance ?? null,
+              qualifications: c.qualifications ?? null,
+              organization_id: orgId,
+            };
+            const { error } = await supabase.from('companies').insert(payload);
+            if (error) {
+              console.error('[addCompany] Supabase error:', error.code, error.message, error.details, error.hint);
+              dispatch({ type: 'DELETE_COMPANY', payload: c.id });
+              Alert.alert('Erreur de sauvegarde', `L'entreprise n'a pas pu être enregistrée.\n\n${error.message}`);
+            }
+          } catch (e: any) {
+            console.error('[addCompany] exception:', e?.message ?? e);
             dispatch({ type: 'DELETE_COMPANY', payload: c.id });
             Alert.alert('Erreur de sauvegarde', "L'entreprise n'a pas pu être enregistrée.");
           }
-        });
+        })();
       } else {
         persistMockCompanies([...stateRef.current.companies, c]);
       }
