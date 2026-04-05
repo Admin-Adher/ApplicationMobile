@@ -64,7 +64,7 @@ export default function SearchScreen() {
       r.title.toLowerCase().includes(q) ||
       r.id.toLowerCase().includes(q) ||
       r.description.toLowerCase().includes(q) ||
-      r.company.toLowerCase().includes(q) ||
+      (r.company ?? '').toLowerCase().includes(q) ||
       r.zone.toLowerCase().includes(q)
     ).slice(0, 8);
   }, [scopedReserves, q]);
@@ -102,7 +102,7 @@ export default function SearchScreen() {
       v.title.toLowerCase().includes(q) ||
       v.conducteur.toLowerCase().includes(q) ||
       (v.notes ?? '').toLowerCase().includes(q) ||
-      v.building.toLowerCase().includes(q)
+      (v.building ?? '').toLowerCase().includes(q)
     ).slice(0, 6);
   }, [visites, isSousTraitant, q]);
 

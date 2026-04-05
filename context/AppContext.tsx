@@ -2273,6 +2273,15 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         return;
       }
       dispatch({ type: 'ADD_COMPANY', payload: c });
+      if (offline({ table: 'companies', op: 'insert', data: {
+        id: c.id, name: c.name, short_name: c.shortName, color: c.color,
+        planned_workers: c.plannedWorkers, actual_workers: c.actualWorkers,
+        hours_worked: c.hoursWorked, zone: c.zone, contact: c.phone ?? null,
+        email: c.email ?? null, lots: c.lots ?? null,
+        siret: c.siret ?? null, insurance: c.insurance ?? null,
+        qualifications: c.qualifications ?? null,
+        organization_id: currentUserOrgIdRef.current ?? null,
+      } })) return;
       if (isSupabaseConfigured) {
         supabase.from('companies').insert({
           id: c.id, name: c.name, short_name: c.shortName, color: c.color,
@@ -2296,6 +2305,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     updateCompanyWorkers: (id, actual) => {
       const previous = stateRef.current.companies.find(c => c.id === id);
       dispatch({ type: 'UPDATE_COMPANY', payload: { id, actualWorkers: actual } });
+      if (offline({ table: 'companies', op: 'update', filter: { column: 'id', value: id }, data: { actual_workers: actual } })) return;
       if (isSupabaseConfigured) {
         supabase.from('companies').update({ actual_workers: actual }).eq('id', id).then(({ error }: { error: any }) => {
           if (error) {
@@ -2311,6 +2321,14 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     updateCompanyFull: (c) => {
       const previous = stateRef.current.companies.find(co => co.id === c.id);
       dispatch({ type: 'UPDATE_COMPANY_FULL', payload: c });
+      if (offline({ table: 'companies', op: 'update', filter: { column: 'id', value: c.id }, data: {
+        name: c.name, short_name: c.shortName, color: c.color,
+        planned_workers: c.plannedWorkers, actual_workers: c.actualWorkers,
+        hours_worked: c.hoursWorked, zone: c.zone, contact: c.phone ?? null,
+        email: c.email ?? null, lots: c.lots ?? null,
+        siret: c.siret ?? null, insurance: c.insurance ?? null,
+        qualifications: c.qualifications ?? null,
+      } })) return;
       if (isSupabaseConfigured) {
         supabase.from('companies').update({
           name: c.name, short_name: c.shortName, color: c.color,
@@ -2333,6 +2351,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     deleteCompany: (id) => {
       const previous = stateRef.current.companies.find(c => c.id === id);
       dispatch({ type: 'DELETE_COMPANY', payload: id });
+      if (offline({ table: 'companies', op: 'delete', filter: { column: 'id', value: id } })) return;
       if (isSupabaseConfigured) {
         supabase.from('companies').delete().eq('id', id).then(({ error }: { error: any }) => {
           if (error) {
@@ -2348,6 +2367,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     updateCompanyHours: (id, hours) => {
       const previous = stateRef.current.companies.find(c => c.id === id);
       dispatch({ type: 'UPDATE_COMPANY_HOURS', payload: { id, hours } });
+      if (offline({ table: 'companies', op: 'update', filter: { column: 'id', value: id }, data: { hours_worked: hours } })) return;
       if (isSupabaseConfigured) {
         supabase.from('companies').update({ hours_worked: hours }).eq('id', id).then(({ error }: { error: any }) => {
           if (error) {
@@ -2542,6 +2562,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
     addPhoto: (p) => {
       dispatch({ type: 'ADD_PHOTO', payload: p });
+      if (offline({ table: 'photos', op: 'insert', data: {
+        id: p.id, comment: p.comment, location: p.location,
+        taken_at: p.takenAt, taken_by: p.takenBy, color_code: p.colorCode, uri: p.uri,
+        reserve_id: p.reserveId ?? null,
+      } })) return;
       if (isSupabaseConfigured) {
         supabase.from('photos').insert({
           id: p.id, comment: p.comment, location: p.location,
@@ -2897,6 +2922,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       const newOprs = [o, ...stateRef.current.oprs];
       dispatch({ type: 'ADD_OPR', payload: o });
       persistMockOprs(newOprs);
+      if (offline({ table: 'oprs', op: 'insert', data: fromOpr(o) })) return;
       if (isSupabaseConfigured) {
         supabase.from('oprs').insert(fromOpr(o)).then(({ error }: { error: any }) => {
           if (error) {
@@ -2911,6 +2937,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       const newOprs = stateRef.current.oprs.map(x => x.id === o.id ? o : x);
       dispatch({ type: 'UPDATE_OPR', payload: o });
       persistMockOprs(newOprs);
+      { const { id: _oid, ..._ofields } = fromOpr(o);
+        if (offline({ table: 'oprs', op: 'update', filter: { column: 'id', value: o.id }, data: _ofields })) return; }
       if (isSupabaseConfigured) {
         const { id, ...fields } = fromOpr(o);
         supabase.from('oprs').update(fields).eq('id', o.id).then(({ error }: { error: any }) => {
@@ -2926,6 +2954,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       const newOprs = stateRef.current.oprs.filter(o => o.id !== id);
       dispatch({ type: 'DELETE_OPR', payload: id });
       persistMockOprs(newOprs);
+      if (offline({ table: 'oprs', op: 'delete', filter: { column: 'id', value: id } })) return;
       if (isSupabaseConfigured) {
         supabase.from('oprs').delete().eq('id', id).then(({ error }: { error: any }) => {
           if (error) {
@@ -3062,6 +3091,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       } else {
         AsyncStorage.removeItem(ACTIVE_CHANTIER_KEY).catch(() => {});
       }
+      if (offline({ table: 'chantiers', op: 'delete', filter: { column: 'id', value: id } })) return;
       if (isSupabaseConfigured) {
         // Cascade: delete all plans of this chantier first, then the chantier itself
         supabase.from('site_plans').delete().eq('chantier_id', id).then(() => {
@@ -3081,6 +3111,17 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       // Always persist locally as a cache/fallback so plans survive Supabase failures
       const updated = [...stateRef.current.sitePlans, p];
       persistMockSitePlans(updated);
+      if (offline({ table: 'site_plans', op: 'insert', data: {
+        id: p.id, chantier_id: p.chantierId, name: p.name,
+        building: p.building ?? null, level: p.level ?? null,
+        building_id: p.buildingId ?? null, level_id: p.levelId ?? null,
+        uri: p.uri ?? null, file_type: p.fileType ?? null, dxf_name: p.dxfName ?? null,
+        uploaded_at: p.uploadedAt, size: p.size ?? null,
+        revision_code: p.revisionCode ?? null, revision_number: p.revisionNumber ?? null,
+        parent_plan_id: p.parentPlanId ?? null, is_latest_revision: p.isLatestRevision ?? null,
+        revision_note: p.revisionNote ?? null, annotations: p.annotations ?? null,
+        pdf_page_count: p.pdfPageCount ?? null,
+      } })) return;
       if (isSupabaseConfigured) {
         supabase.from('site_plans').insert({
           id: p.id,
@@ -3117,6 +3158,17 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       dispatch({ type: 'UPDATE_SITE_PLAN', payload: p });
       // Always persist locally as a cache/fallback
       persistMockSitePlans(updated);
+      if (offline({ table: 'site_plans', op: 'update', filter: { column: 'id', value: p.id }, data: {
+        chantier_id: p.chantierId, name: p.name,
+        building: p.building ?? null, level: p.level ?? null,
+        building_id: p.buildingId ?? null, level_id: p.levelId ?? null,
+        uri: p.uri ?? null, file_type: p.fileType ?? null, dxf_name: p.dxfName ?? null,
+        uploaded_at: p.uploadedAt, size: p.size ?? null,
+        revision_code: p.revisionCode ?? null, revision_number: p.revisionNumber ?? null,
+        parent_plan_id: p.parentPlanId ?? null, is_latest_revision: p.isLatestRevision ?? null,
+        revision_note: p.revisionNote ?? null, annotations: p.annotations ?? null,
+        pdf_page_count: p.pdfPageCount ?? null,
+      } })) return;
       if (isSupabaseConfigured) {
         supabase.from('site_plans').update({
           chantier_id: p.chantierId,
@@ -3151,6 +3203,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       dispatch({ type: 'DELETE_SITE_PLAN', payload: id });
       // Always persist locally as a cache/fallback
       persistMockSitePlans(updated);
+      if (offline({ table: 'site_plans', op: 'delete', filter: { column: 'id', value: id } })) return;
       if (isSupabaseConfigured) {
         supabase.from('site_plans').delete().eq('id', id).then(({ error }: { error: any }) => {
         });

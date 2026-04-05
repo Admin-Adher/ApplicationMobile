@@ -122,6 +122,7 @@ export default function EditIncidentScreen() {
   }
 
   function handleDelete() {
+    if (!incident) return;
     Alert.alert(
       'Supprimer l\'incident',
       `Supprimer "${incident.title}" définitivement ?`,
@@ -139,6 +140,7 @@ export default function EditIncidentScreen() {
   }
 
   async function handleSave() {
+    if (!incident) return;
     if (!title.trim()) { Alert.alert('Champ requis', 'Le titre est obligatoire.'); return; }
     if (!location.trim()) { Alert.alert('Champ requis', 'Le lieu est obligatoire.'); return; }
     setSaving(true);

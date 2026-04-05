@@ -69,8 +69,10 @@ export default function PortalScreen() {
 
     if (isSupabase) {
       setLoading(true);
-      supabase.from('companies').select('name').eq('id', companyId).single()
-        .then(async ({ data: companyData, error: companyError }) => {
+      (async () => {
+        try {
+          const { data: companyData, error: companyError } = await supabase
+            .from('companies').select('name').eq('id', companyId).single();
           if (companyError || !companyData?.name) {
             setError("Impossible de charger les données de l'entreprise. Vérifiez votre connexion.");
             return;
@@ -93,11 +95,12 @@ export default function PortalScreen() {
               lotId: r.lot_id,
             })));
           }
-        })
-        .catch(() => {
+        } catch {
           setError("Impossible de charger les données. Vérifiez votre connexion.");
-        })
-        .finally(() => setLoading(false));
+        } finally {
+          setLoading(false);
+        }
+      })();
     }
   }, [companyId, isAuthenticated]);
 

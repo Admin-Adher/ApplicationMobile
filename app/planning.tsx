@@ -797,7 +797,7 @@ export default function PlanningScreen() {
     return list;
   }, [tasks, filterStatus, filterCompany, search, companies]);
 
-  if (user?.role === 'sous_traitant') {
+  if (user !== null && user.role === 'sous_traitant') {
     return (
       <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: '#F8FAFC', padding: 32 }}>
         <Ionicons name="lock-closed-outline" size={48} color="#94A3B8" />
