@@ -910,7 +910,7 @@ export default function ReserveDetailScreen() {
     <KeyboardAvoidingView style={styles.container} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
       {captureViewerUri ? (
         <View
-          style={{ position: 'absolute', width: 600, height: 450, opacity: 0.01, zIndex: -10, pointerEvents: 'none' as any }}
+          style={{ position: 'absolute', width: 600, height: 450, opacity: 0, top: -10000, left: -10000, pointerEvents: 'none' as any }}
         >
           <PdfPlanViewer
             ref={planViewerRef}
