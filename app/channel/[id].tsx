@@ -452,23 +452,6 @@ export default function ChannelScreen() {
   const itemIcon = linkedItem ? getLinkedItemIcon(linkedItem.type) : 'link-outline';
   const itemLabel = linkedItem ? getLinkedItemLabel(linkedItem.type) : '';
 
-  if (user?.role === 'super_admin') {
-    return (
-      <View style={[styles.container, { alignItems: 'center', justifyContent: 'center', gap: 12, padding: 32 }]}>
-        <Ionicons name="lock-closed-outline" size={48} color={C.textMuted} />
-        <Text style={{ fontSize: 17, fontFamily: 'Inter_700Bold', color: C.text, textAlign: 'center' }}>
-          Accès non autorisé
-        </Text>
-        <Text style={{ fontSize: 14, fontFamily: 'Inter_400Regular', color: C.textMuted, textAlign: 'center', lineHeight: 20 }}>
-          Le super administrateur ne peut pas accéder aux messages internes des filiales.
-        </Text>
-        <TouchableOpacity onPress={() => router.back()} style={{ marginTop: 8, padding: 12 }}>
-          <Text style={{ fontSize: 14, fontFamily: 'Inter_600SemiBold', color: C.primary }}>Retour</Text>
-        </TouchableOpacity>
-      </View>
-    );
-  }
-
   return (
     <View style={styles.container}>
       {/* ── HEADER ── */}
