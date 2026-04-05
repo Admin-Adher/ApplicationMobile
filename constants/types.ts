@@ -168,6 +168,12 @@ export interface VisiteParticipant {
   signedAt?: string;
 }
 
+export interface VisiteChecklistItem {
+  id: string;
+  label: string;
+  checked: boolean;
+}
+
 export type VisiteType = 'controle' | 'opr' | 'securite' | 'reception' | 'synthese' | 'autre';
 
 export interface Visite {
@@ -185,6 +191,10 @@ export interface Visite {
   level?: string;
   zone?: string;
   notes?: string;
+  tags?: string[];
+  coverPhotoUri?: string;
+  defaultPlanId?: string;
+  checklistItems?: VisiteChecklistItem[];
   reserveDeadlineDate?: string;
   reserveIds: string[];
   createdAt: string;

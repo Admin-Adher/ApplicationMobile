@@ -1,14 +1,15 @@
 import {
   View, Text, StyleSheet, ScrollView, TextInput, TouchableOpacity,
-  Alert, ActivityIndicator, KeyboardAvoidingView, Platform,
+  Alert, ActivityIndicator, KeyboardAvoidingView, Platform, Image,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useState, useCallback, useMemo } from 'react';
 import { Ionicons } from '@expo/vector-icons';
+import * as ImagePicker from 'expo-image-picker';
 import { C } from '@/constants/colors';
 import { useApp } from '@/context/AppContext';
 import { useAuth } from '@/context/AuthContext';
-import { Visite, VisiteParticipant, VisiteStatus, VisiteType } from '@/constants/types';
+import { Visite, VisiteParticipant, VisiteStatus, VisiteType, VisiteChecklistItem } from '@/constants/types';
 import Header from '@/components/Header';
 import DateInput from '@/components/DateInput';
 import { genId, formatDateFR } from '@/lib/utils';
@@ -39,13 +40,58 @@ const STATUS_OPTIONS: { value: VisiteStatus; label: string; color: string }[] = 
   { value: 'completed',   label: 'Terminée',  color: C.closed },
 ];
 
-// Quick deadline suggestions relative to today
 const DEADLINE_SUGGESTIONS: { label: string; days: number }[] = [
-  { label: '7 j',   days: 7 },
-  { label: '15 j',  days: 15 },
-  { label: '30 j',  days: 30 },
-  { label: '60 j',  days: 60 },
+  { label: '7 j',  days: 7 },
+  { label: '15 j', days: 15 },
+  { label: '30 j', days: 30 },
+  { label: '60 j', days: 60 },
 ];
+
+const CHECKLIST_TEMPLATES: Record<VisiteType, string[]> = {
+  controle: [
+    "Avancement des travaux conforme au planning",
+    "Approvisionnements matériaux suffisants",
+    "Coordination inter-entreprises",
+    "Réserves précédentes en cours de levée",
+    "Sécurité et signalisation du chantier",
+  ],
+  opr: [
+    "Nettoyage général des locaux",
+    "Essais des équipements techniques",
+    "Vérification des finitions",
+    "Conformité aux plans d'exécution",
+    "Documents de fin de chantier (DOE) complets",
+    "Levée des réserves OPR précédentes",
+  ],
+  securite: [
+    "Port des EPI (casque, gilet, chaussures)",
+    "Balisage des zones dangereuses",
+    "Propreté et rangement du chantier",
+    "Installations électriques provisoires conformes",
+    "Accès et circulation sécurisés sur site",
+    "Registre de sécurité à jour",
+  ],
+  reception: [
+    "Nettoyage complet des locaux",
+    "Mise en service des équipements",
+    "Tests et essais fonctionnels réalisés",
+    "Conformité aux plans d'exécution",
+    "Remise des notices et manuels (DOE)",
+    "Levée de toutes les réserves OPR",
+  ],
+  synthese: [
+    "Tour de table des entreprises présentes",
+    "Avancement global du chantier",
+    "Points bloquants et actions correctives",
+    "Planification à venir",
+    "Questions diverses",
+  ],
+  autre: [
+    "Point de situation général",
+    "Actions à mener",
+    "Date de la prochaine visite",
+  ],
+};
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -79,7 +125,6 @@ function autoTitle(visitType: VisiteType | null, dateStr: string): string {
   return `${typeCfg.label} — S${week}`;
 }
 
-/** Format a time string to HH:MM as user types */
 function formatTimeInput(raw: string): string {
   const digits = raw.replace(/\D/g, '').slice(0, 4);
   if (digits.length <= 2) return digits;
@@ -94,7 +139,7 @@ function initials(name: string): string {
 
 export default function NewVisiteScreen() {
   const router = useRouter();
-  const { addVisite, activeChantierId, activeChantier, companies } = useApp();
+  const { addVisite, activeChantierId, activeChantier, companies, sitePlans } = useApp();
   const { user, permissions, users } = useAuth();
 
   // General
@@ -107,21 +152,25 @@ export default function NewVisiteScreen() {
   const [conducteur, setConducteur] = useState(user?.name ?? '');
   const [status, setStatus]         = useState<VisiteStatus>('planned');
 
+  // Cover photo
+  const [coverPhotoUri, setCoverPhotoUri] = useState<string | null>(null);
+
   // Location
-  const [building, setBuilding] = useState('');
-  const [level, setLevel]       = useState('');
-  const [zone, setZone]         = useState('');
+  const [building, setBuilding]     = useState('');
+  const [level, setLevel]           = useState('');
+  const [zone, setZone]             = useState('');
+  const [defaultPlanId, setDefaultPlanId] = useState<string | null>(null);
 
   // Concerned companies
   const [concernedCompanyIds, setConcernedCompanyIds] = useState<string[]>([]);
 
+  // Checklist
+  const [checklistItems, setChecklistItems] = useState<VisiteChecklistItem[]>([]);
+  const [newChecklistLabel, setNewChecklistLabel] = useState('');
+  const [checklistLoaded, setChecklistLoaded] = useState(false);
+
   // Reserve deadline
   const [reserveDeadlineDate, setReserveDeadlineDate] = useState('');
-
-  // Notes & recurrence
-  const [notes, setNotes]           = useState('');
-  const [recurrence, setRecurrence] = useState<Recurrence>('none');
-  const [isSubmitting, setIsSubmitting] = useState(false);
 
   // Participants
   const [participants, setParticipants]                   = useState<VisiteParticipant[]>([]);
@@ -130,9 +179,19 @@ export default function NewVisiteScreen() {
   const [newParticipantCompanyId, setNewParticipantCompanyId] = useState<string | null>(null);
   const [newParticipantCompanyFree, setNewParticipantCompanyFree] = useState('');
 
-  const hasCompanies = companies.length > 0;
+  // Tags
+  const [tags, setTags]         = useState<string[]>([]);
+  const [newTag, setNewTag]     = useState('');
 
-  // Team members available for quick-add (exclude already added)
+  // Notes & recurrence
+  const [notes, setNotes]             = useState('');
+  const [recurrence, setRecurrence]   = useState<Recurrence>('none');
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  const hasCompanies = companies.length > 0;
+  const chantierPlans = sitePlans.filter(p => p.chantierId === activeChantierId);
+
+  // Team members available for quick-add
   const teamMembers = useMemo(() =>
     users.filter(u =>
       u.id !== user?.id &&
@@ -146,7 +205,13 @@ export default function NewVisiteScreen() {
   const handleVisitTypeChange = useCallback((t: VisiteType) => {
     setVisitType(t);
     if (!titleEdited) setTitle(autoTitle(t, date));
-  }, [titleEdited, date]);
+    // Auto-load checklist template if not yet customised
+    if (!checklistLoaded || checklistItems.length === 0) {
+      const template = CHECKLIST_TEMPLATES[t] ?? [];
+      setChecklistItems(template.map(label => ({ id: genId(), label, checked: false })));
+      setChecklistLoaded(true);
+    }
+  }, [titleEdited, date, checklistLoaded, checklistItems.length]);
 
   const handleDateChange = useCallback((d: string) => {
     setDate(d);
@@ -165,6 +230,30 @@ export default function NewVisiteScreen() {
     }
   }
 
+  // ── Cover photo ─────────────────────────────────────────────────────────────
+
+  async function pickCoverPhoto() {
+    const { status: ps } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (ps !== 'granted') {
+      Alert.alert('Permission refusée', "L'accès à la galerie est requis.");
+      return;
+    }
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ['images'], allowsEditing: true, aspect: [16, 9], quality: 0.8,
+    });
+    if (!result.canceled && result.assets[0]) setCoverPhotoUri(result.assets[0].uri);
+  }
+
+  async function takeCoverPhoto() {
+    const { status: cs } = await ImagePicker.requestCameraPermissionsAsync();
+    if (cs !== 'granted') {
+      Alert.alert('Permission refusée', "L'accès à la caméra est requis.");
+      return;
+    }
+    const result = await ImagePicker.launchCameraAsync({ allowsEditing: true, aspect: [16, 9], quality: 0.8 });
+    if (!result.canceled && result.assets[0]) setCoverPhotoUri(result.assets[0].uri);
+  }
+
   // ── Companies ───────────────────────────────────────────────────────────────
 
   function toggleConcernedCompany(id: string) {
@@ -173,10 +262,48 @@ export default function NewVisiteScreen() {
     );
   }
 
-  // ── Deadline quick-select ───────────────────────────────────────────────────
+  // ── Checklist ───────────────────────────────────────────────────────────────
+
+  function toggleChecklistItem(id: string) {
+    setChecklistItems(prev =>
+      prev.map(item => item.id === id ? { ...item, checked: !item.checked } : item)
+    );
+  }
+
+  function addChecklistItem() {
+    if (!newChecklistLabel.trim()) return;
+    setChecklistItems(prev => [...prev, { id: genId(), label: newChecklistLabel.trim(), checked: false }]);
+    setNewChecklistLabel('');
+  }
+
+  function removeChecklistItem(id: string) {
+    setChecklistItems(prev => prev.filter(item => item.id !== id));
+  }
+
+  function resetChecklistToTemplate() {
+    if (!visitType) return;
+    const template = CHECKLIST_TEMPLATES[visitType] ?? [];
+    setChecklistItems(template.map(label => ({ id: genId(), label, checked: false })));
+  }
+
+  // ── Deadline ────────────────────────────────────────────────────────────────
 
   function applyDeadlineSuggestion(days: number) {
-    setReserveDeadlineDate(addDays(new Date(), days));
+    const suggested = addDays(new Date(), days);
+    setReserveDeadlineDate(prev => prev === suggested ? '' : suggested);
+  }
+
+  // ── Tags ────────────────────────────────────────────────────────────────────
+
+  function addTag() {
+    const t = newTag.trim();
+    if (!t || tags.includes(t)) return;
+    setTags(prev => [...prev, t]);
+    setNewTag('');
+  }
+
+  function removeTag(t: string) {
+    setTags(prev => prev.filter(tag => tag !== t));
   }
 
   // ── Participants ────────────────────────────────────────────────────────────
@@ -190,20 +317,18 @@ export default function NewVisiteScreen() {
 
   function addParticipant() {
     if (!newParticipantName.trim()) return;
-    const p: VisiteParticipant = {
+    setParticipants(prev => [...prev, {
       id: genId(),
       name: newParticipantName.trim(),
       company: resolveParticipantCompany(),
       role: newParticipantRole.trim() || undefined,
-    };
-    setParticipants(prev => [...prev, p]);
+    }]);
     setNewParticipantName('');
     setNewParticipantRole('');
     setNewParticipantCompanyId(null);
     setNewParticipantCompanyFree('');
   }
 
-  /** Quick-add a team member from the org */
   function quickAddTeamMember(memberId: string) {
     const member = users.find(u => u.id === memberId);
     if (!member) return;
@@ -233,9 +358,9 @@ export default function NewVisiteScreen() {
     }
     setIsSubmitting(true);
 
-    const today         = formatDateFR(new Date());
+    const today          = formatDateFR(new Date());
     const conducteurName = conducteur.trim() || (user?.name ?? 'Équipe BuildTrack');
-    const baseDate      = parseDateFR(date);
+    const baseDate       = parseDateFR(date);
 
     const intervals: number[] =
       recurrence === 'weekly'    ? [0, 7, 14, 21] :
@@ -262,6 +387,10 @@ export default function NewVisiteScreen() {
         building: building || undefined,
         level: level || undefined,
         zone: zone || undefined,
+        coverPhotoUri: coverPhotoUri ?? undefined,
+        defaultPlanId: defaultPlanId ?? undefined,
+        checklistItems: checklistItems.length > 0 ? checklistItems.map(i => ({ ...i, checked: false })) : undefined,
+        tags: tags.length > 0 ? tags : undefined,
         notes: notes.trim() || undefined,
         reserveDeadlineDate: reserveDeadlineDate.trim() || undefined,
         reserveIds: [],
@@ -296,8 +425,9 @@ export default function NewVisiteScreen() {
     );
   }
 
-  const suggestedTitle  = visitType ? autoTitle(visitType, date) : '';
-  const showSuggestBtn  = visitType && title !== suggestedTitle && !!suggestedTitle;
+  const suggestedTitle = visitType ? autoTitle(visitType, date) : '';
+  const showSuggestBtn = visitType && title !== suggestedTitle && !!suggestedTitle;
+  const checklistDone  = checklistItems.filter(i => i.checked).length;
 
   // ── Render ──────────────────────────────────────────────────────────────────
 
@@ -314,7 +444,7 @@ export default function NewVisiteScreen() {
         keyboardShouldPersistTaps="handled"
       >
 
-        {/* ── TYPE DE VISITE ── */}
+        {/* ── 1. TYPE DE VISITE ── */}
         <View style={styles.card}>
           <Text style={styles.sectionLabel}>TYPE DE VISITE</Text>
           <View style={styles.typeGrid}>
@@ -338,11 +468,39 @@ export default function NewVisiteScreen() {
           </View>
         </View>
 
-        {/* ── INFORMATIONS GÉNÉRALES ── */}
+        {/* ── 2. PHOTO DE COUVERTURE ── */}
+        <View style={styles.card}>
+          <Text style={styles.sectionLabel}>PHOTO DE COUVERTURE</Text>
+          <Text style={styles.sublabel}>Optionnel — photo représentative du chantier ou de la zone visitée</Text>
+
+          {coverPhotoUri ? (
+            <View style={styles.coverPhotoWrapper}>
+              <Image source={{ uri: coverPhotoUri }} style={styles.coverPhoto} resizeMode="cover" />
+              <TouchableOpacity
+                style={styles.coverPhotoRemove}
+                onPress={() => setCoverPhotoUri(null)}
+              >
+                <Ionicons name="close-circle" size={24} color="#fff" />
+              </TouchableOpacity>
+            </View>
+          ) : (
+            <View style={styles.photoActions}>
+              <TouchableOpacity style={styles.photoBtn} onPress={pickCoverPhoto}>
+                <Ionicons name="images-outline" size={18} color={C.primary} />
+                <Text style={styles.photoBtnText}>Choisir une photo</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.photoBtn} onPress={takeCoverPhoto}>
+                <Ionicons name="camera-outline" size={18} color={C.primary} />
+                <Text style={styles.photoBtnText}>Prendre une photo</Text>
+              </TouchableOpacity>
+            </View>
+          )}
+        </View>
+
+        {/* ── 3. INFORMATIONS GÉNÉRALES ── */}
         <View style={styles.card}>
           <Text style={styles.sectionLabel}>INFORMATIONS GÉNÉRALES</Text>
 
-          {/* Titre */}
           <Text style={styles.label}>Titre de la visite *</Text>
           <View style={styles.titleRow}>
             <TextInput
@@ -365,7 +523,6 @@ export default function NewVisiteScreen() {
             </TouchableOpacity>
           )}
 
-          {/* Conducteur */}
           <Text style={styles.label}>Conducteur de travaux</Text>
           <TextInput
             style={styles.input}
@@ -375,7 +532,6 @@ export default function NewVisiteScreen() {
             onChangeText={setConducteur}
           />
 
-          {/* Date + Heures sur la même ligne */}
           <View style={styles.dateTimeRow}>
             <View style={{ flex: 2 }}>
               <Text style={styles.label}>Date</Text>
@@ -407,7 +563,6 @@ export default function NewVisiteScreen() {
             </View>
           </View>
 
-          {/* Statut */}
           <Text style={[styles.label, { marginTop: 4 }]}>Statut initial</Text>
           <View style={styles.statusRow}>
             {STATUS_OPTIONS.map(opt => (
@@ -416,13 +571,15 @@ export default function NewVisiteScreen() {
                 style={[styles.statusChip, status === opt.value && { backgroundColor: opt.color + '20', borderColor: opt.color }]}
                 onPress={() => setStatus(opt.value)}
               >
-                <Text style={[styles.statusChipText, status === opt.value && { color: opt.color }]}>{opt.label}</Text>
+                <Text style={[styles.statusChipText, status === opt.value && { color: opt.value === 'planned' ? '#6366F1' : opt.color }]}>
+                  {opt.label}
+                </Text>
               </TouchableOpacity>
             ))}
           </View>
         </View>
 
-        {/* ── LOCALISATION ── */}
+        {/* ── 4. LOCALISATION + PLAN ── */}
         <View style={styles.card}>
           <Text style={styles.sectionLabel}>LOCALISATION</Text>
           <LocationPicker
@@ -434,9 +591,46 @@ export default function NewVisiteScreen() {
             onLevelChange={setLevel}
             onZoneChange={setZone}
           />
+
+          {chantierPlans.length > 0 && (
+            <>
+              <Text style={[styles.label, { marginTop: 12 }]}>Plan de référence</Text>
+              <Text style={styles.sublabel}>Plan affiché par défaut lors de la création des réserves depuis cette visite</Text>
+              <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+                <View style={styles.chipRow}>
+                  <TouchableOpacity
+                    style={[styles.chip, defaultPlanId === null && styles.chipActive]}
+                    onPress={() => setDefaultPlanId(null)}
+                  >
+                    <Ionicons name="close-outline" size={13} color={defaultPlanId === null ? C.primary : C.textMuted} />
+                    <Text style={[styles.chipText, defaultPlanId === null && styles.chipTextActive]}>Aucun</Text>
+                  </TouchableOpacity>
+                  {chantierPlans.map(plan => {
+                    const selected = defaultPlanId === plan.id;
+                    return (
+                      <TouchableOpacity
+                        key={plan.id}
+                        style={[styles.chip, selected && styles.chipActive]}
+                        onPress={() => setDefaultPlanId(selected ? null : plan.id)}
+                      >
+                        <Ionicons
+                          name={plan.fileType === 'pdf' ? 'document-outline' : 'map-outline'}
+                          size={13}
+                          color={selected ? C.primary : C.textMuted}
+                        />
+                        <Text style={[styles.chipText, selected && styles.chipTextActive]}>
+                          {plan.name}{plan.revisionCode ? ` (${plan.revisionCode})` : ''}
+                        </Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
+              </ScrollView>
+            </>
+          )}
         </View>
 
-        {/* ── ENTREPRISES CONCERNÉES ── */}
+        {/* ── 5. ENTREPRISES CONCERNÉES ── */}
         {hasCompanies && (
           <View style={styles.card}>
             <Text style={styles.sectionLabel}>ENTREPRISES CONCERNÉES</Text>
@@ -468,23 +662,88 @@ export default function NewVisiteScreen() {
           </View>
         )}
 
-        {/* ── DEADLINE DE LEVÉE DES RÉSERVES ── */}
+        {/* ── 6. CHECKLIST DE CONTRÔLE ── */}
+        <View style={styles.card}>
+          <View style={styles.checklistHeader}>
+            <View>
+              <Text style={styles.sectionLabel}>
+                CHECKLIST DE CONTRÔLE
+                {checklistItems.length > 0 && (
+                  <Text style={{ color: C.textMuted, fontFamily: 'Inter_400Regular' }}>
+                    {'  '}{checklistDone}/{checklistItems.length}
+                  </Text>
+                )}
+              </Text>
+              {!visitType && checklistItems.length === 0 && (
+                <Text style={styles.sublabel}>Sélectionnez un type de visite pour charger un modèle</Text>
+              )}
+            </View>
+            {visitType && checklistItems.length > 0 && (
+              <TouchableOpacity onPress={resetChecklistToTemplate} style={styles.resetBtn}>
+                <Ionicons name="refresh-outline" size={13} color={C.textMuted} />
+                <Text style={styles.resetBtnText}>Modèle</Text>
+              </TouchableOpacity>
+            )}
+          </View>
+
+          {checklistItems.map(item => (
+            <TouchableOpacity
+              key={item.id}
+              style={styles.checklistRow}
+              onPress={() => toggleChecklistItem(item.id)}
+              activeOpacity={0.7}
+            >
+              <View style={[styles.checkbox, item.checked && styles.checkboxChecked]}>
+                {item.checked && <Ionicons name="checkmark" size={12} color="#fff" />}
+              </View>
+              <Text style={[styles.checklistLabel, item.checked && styles.checklistLabelChecked]}>
+                {item.label}
+              </Text>
+              <TouchableOpacity
+                onPress={() => removeChecklistItem(item.id)}
+                hitSlop={8}
+                style={{ padding: 4 }}
+              >
+                <Ionicons name="close-outline" size={15} color={C.textMuted} />
+              </TouchableOpacity>
+            </TouchableOpacity>
+          ))}
+
+          <View style={styles.checklistAddRow}>
+            <TextInput
+              style={[styles.input, { flex: 1, marginBottom: 0 }]}
+              placeholder="Ajouter un point de contrôle…"
+              placeholderTextColor={C.textMuted}
+              value={newChecklistLabel}
+              onChangeText={setNewChecklistLabel}
+              onSubmitEditing={addChecklistItem}
+              returnKeyType="done"
+            />
+            <TouchableOpacity
+              style={[styles.checklistAddBtn, !newChecklistLabel.trim() && { opacity: 0.35 }]}
+              onPress={addChecklistItem}
+              disabled={!newChecklistLabel.trim()}
+            >
+              <Ionicons name="add" size={18} color="#fff" />
+            </TouchableOpacity>
+          </View>
+        </View>
+
+        {/* ── 7. DÉLAI DE LEVÉE DES RÉSERVES ── */}
         <View style={styles.card}>
           <Text style={styles.sectionLabel}>DÉLAI DE LEVÉE DES RÉSERVES</Text>
           <Text style={styles.sublabel}>
             Date limite cible pour que les entreprises lèvent les réserves relevées lors de cette visite
           </Text>
-
-          {/* Quick suggestions */}
           <View style={styles.deadlineRow}>
             {DEADLINE_SUGGESTIONS.map(s => {
               const suggested = addDays(new Date(), s.days);
-              const active = reserveDeadlineDate === suggested;
+              const active    = reserveDeadlineDate === suggested;
               return (
                 <TouchableOpacity
                   key={s.days}
                   style={[styles.deadlineChip, active && styles.deadlineChipActive]}
-                  onPress={() => setReserveDeadlineDate(active ? '' : suggested)}
+                  onPress={() => applyDeadlineSuggestion(s.days)}
                 >
                   <Text style={[styles.deadlineChipText, active && styles.deadlineChipTextActive]}>
                     {s.label}
@@ -493,36 +752,29 @@ export default function NewVisiteScreen() {
               );
             })}
             {reserveDeadlineDate ? (
-              <TouchableOpacity
-                style={styles.deadlineClearBtn}
-                onPress={() => setReserveDeadlineDate('')}
-              >
+              <TouchableOpacity onPress={() => setReserveDeadlineDate('')}>
                 <Ionicons name="close-circle-outline" size={16} color={C.textMuted} />
               </TouchableOpacity>
             ) : null}
           </View>
-
-          {/* Or pick exact date */}
           <Text style={[styles.label, { marginTop: 8 }]}>
             {reserveDeadlineDate ? `Échéance : ${reserveDeadlineDate}` : 'Ou saisir une date précise'}
           </Text>
           <DateInput value={reserveDeadlineDate} onChange={setReserveDeadlineDate} />
-
           {reserveDeadlineDate ? (
-            <View style={styles.deadlineHint}>
+            <View style={styles.infoHint}>
               <Ionicons name="time-outline" size={13} color={C.inProgress} />
-              <Text style={styles.deadlineHintText}>
+              <Text style={styles.infoHintText}>
                 Les réserves créées depuis cette visite auront cette deadline par défaut.
               </Text>
             </View>
           ) : null}
         </View>
 
-        {/* ── PARTICIPANTS ── */}
+        {/* ── 8. PARTICIPANTS ── */}
         <View style={styles.card}>
           <Text style={styles.sectionLabel}>PARTICIPANTS ({participants.length})</Text>
 
-          {/* Added participants list */}
           {participants.map(p => (
             <View key={p.id} style={styles.participantRow}>
               <View style={styles.participantAvatar}>
@@ -530,9 +782,7 @@ export default function NewVisiteScreen() {
               </View>
               <View style={{ flex: 1 }}>
                 <Text style={styles.participantName}>{p.name}</Text>
-                <Text style={styles.participantMeta}>
-                  {[p.role, p.company].filter(Boolean).join(' · ')}
-                </Text>
+                <Text style={styles.participantMeta}>{[p.role, p.company].filter(Boolean).join(' · ')}</Text>
               </View>
               <TouchableOpacity onPress={() => removeParticipant(p.id)} hitSlop={8}>
                 <Ionicons name="close-circle-outline" size={18} color={C.textMuted} />
@@ -540,13 +790,9 @@ export default function NewVisiteScreen() {
             </View>
           ))}
 
-          {/* Quick-add from team */}
           {teamMembers.length > 0 && (
             <View style={[styles.teamSection, participants.length > 0 && { marginTop: 12 }]}>
-              <Text style={styles.teamLabel}>
-                <Ionicons name="people-outline" size={12} color={C.textMuted} />
-                {'  '}Ajout rapide depuis l'équipe
-              </Text>
+              <Text style={styles.teamLabel}>Ajout rapide depuis l'équipe</Text>
               <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginTop: 6 }}>
                 <View style={styles.chipRow}>
                   {teamMembers.map(member => (
@@ -571,8 +817,7 @@ export default function NewVisiteScreen() {
             </View>
           )}
 
-          {/* Manual add form */}
-          <View style={{ marginTop: participants.length > 0 || teamMembers.length > 0 ? 8 : 0 }}>
+          <View style={{ marginTop: 8 }}>
             <TextInput
               style={[styles.input, { marginBottom: 8 }]}
               placeholder="Nom du participant *"
@@ -587,7 +832,6 @@ export default function NewVisiteScreen() {
               value={newParticipantRole}
               onChangeText={setNewParticipantRole}
             />
-
             <Text style={styles.label}>Entreprise</Text>
             {hasCompanies ? (
               <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 8 }}>
@@ -596,9 +840,7 @@ export default function NewVisiteScreen() {
                     style={[styles.chip, newParticipantCompanyId === null && newParticipantCompanyFree === '' && styles.chipActive]}
                     onPress={() => { setNewParticipantCompanyId(null); setNewParticipantCompanyFree(''); }}
                   >
-                    <Text style={[styles.chipText, newParticipantCompanyId === null && newParticipantCompanyFree === '' && styles.chipTextActive]}>
-                      —
-                    </Text>
+                    <Text style={[styles.chipText, newParticipantCompanyId === null && newParticipantCompanyFree === '' && styles.chipTextActive]}>—</Text>
                   </TouchableOpacity>
                   {companies.map(co => {
                     const selected = newParticipantCompanyId === co.id;
@@ -619,14 +861,11 @@ export default function NewVisiteScreen() {
                     style={[styles.chip, newParticipantCompanyFree !== '' && styles.chipActive]}
                     onPress={() => { setNewParticipantCompanyId(null); setNewParticipantCompanyFree(' '); }}
                   >
-                    <Text style={[styles.chipText, newParticipantCompanyFree !== '' && styles.chipTextActive]}>
-                      Autre…
-                    </Text>
+                    <Text style={[styles.chipText, newParticipantCompanyFree !== '' && styles.chipTextActive]}>Autre…</Text>
                   </TouchableOpacity>
                 </View>
               </ScrollView>
             ) : null}
-
             {(!hasCompanies || newParticipantCompanyFree !== '') && (
               <TextInput
                 style={[styles.input, { marginBottom: 8 }]}
@@ -637,7 +876,6 @@ export default function NewVisiteScreen() {
                 autoFocus={newParticipantCompanyFree === ' '}
               />
             )}
-
             <TouchableOpacity
               style={[styles.addParticipantBtn, !newParticipantName.trim() && { opacity: 0.4 }]}
               onPress={addParticipant}
@@ -649,7 +887,47 @@ export default function NewVisiteScreen() {
           </View>
         </View>
 
-        {/* ── NOTES ── */}
+        {/* ── 9. TAGS ── */}
+        <View style={styles.card}>
+          <Text style={styles.sectionLabel}>MOTS-CLÉS / TAGS</Text>
+          <Text style={styles.sublabel}>Facilitez la recherche et le filtrage de vos visites</Text>
+
+          {tags.length > 0 && (
+            <View style={[styles.chipRow, { flexWrap: 'wrap', marginBottom: 10 }]}>
+              {tags.map(tag => (
+                <TouchableOpacity
+                  key={tag}
+                  style={styles.tagChip}
+                  onPress={() => removeTag(tag)}
+                >
+                  <Text style={styles.tagChipText}>{tag}</Text>
+                  <Ionicons name="close" size={11} color={C.primary} />
+                </TouchableOpacity>
+              ))}
+            </View>
+          )}
+
+          <View style={styles.checklistAddRow}>
+            <TextInput
+              style={[styles.input, { flex: 1, marginBottom: 0 }]}
+              placeholder="Ex: toiture, façade, étanche…"
+              placeholderTextColor={C.textMuted}
+              value={newTag}
+              onChangeText={setNewTag}
+              onSubmitEditing={addTag}
+              returnKeyType="done"
+            />
+            <TouchableOpacity
+              style={[styles.checklistAddBtn, !newTag.trim() && { opacity: 0.35 }]}
+              onPress={addTag}
+              disabled={!newTag.trim()}
+            >
+              <Ionicons name="add" size={18} color="#fff" />
+            </TouchableOpacity>
+          </View>
+        </View>
+
+        {/* ── 10. NOTES & OBJECTIFS ── */}
         <View style={styles.card}>
           <Text style={styles.sectionLabel}>NOTES & OBJECTIFS</Text>
           <TextInput
@@ -664,7 +942,7 @@ export default function NewVisiteScreen() {
           />
         </View>
 
-        {/* ── RÉCURRENCE ── */}
+        {/* ── 11. RÉCURRENCE ── */}
         <View style={styles.card}>
           <Text style={styles.sectionLabel}>RÉCURRENCE</Text>
           <View style={{ gap: 8 }}>
@@ -684,47 +962,29 @@ export default function NewVisiteScreen() {
             ))}
           </View>
           {recurrence !== 'none' && (
-            <View style={styles.recurrenceHint}>
+            <View style={styles.infoHint}>
               <Ionicons name="repeat-outline" size={13} color={C.inProgress} />
-              <Text style={styles.recurrenceHintText}>
+              <Text style={styles.infoHintText}>
                 {recurrence === 'weekly' ? '4 visites hebdomadaires' : '4 visites (toutes les 2 semaines)'} seront créées à partir du {date}.
               </Text>
             </View>
           )}
         </View>
 
-        {/* ── RÉSUMÉ AVANT VALIDATION ── */}
-        {(title.trim() || visitType || participants.length > 0) && (
+        {/* ── 12. RÉSUMÉ ── */}
+        {(title.trim() || visitType || participants.length > 0 || checklistItems.length > 0) && (
           <View style={styles.summaryCard}>
-            <Text style={styles.summaryTitle}>
-              <Ionicons name="checkmark-circle-outline" size={14} color={C.primary} />
-              {'  '}Résumé
-            </Text>
+            <Text style={styles.summaryTitle}>Résumé</Text>
             {visitType && <Text style={styles.summaryLine}>Type : {VISIT_TYPES.find(t => t.value === visitType)?.label}</Text>}
             {title.trim() && <Text style={styles.summaryLine}>Titre : {title.trim()}</Text>}
-            {(startTime || endTime) && (
-              <Text style={styles.summaryLine}>
-                Horaire : {startTime || '—'} → {endTime || '—'}
-              </Text>
-            )}
-            {(building || level) && (
-              <Text style={styles.summaryLine}>
-                Lieu : {[building, level, zone].filter(Boolean).join(' — ')}
-              </Text>
-            )}
-            {participants.length > 0 && (
-              <Text style={styles.summaryLine}>
-                {participants.length} participant{participants.length > 1 ? 's' : ''} : {participants.map(p => p.name).join(', ')}
-              </Text>
-            )}
-            {reserveDeadlineDate && (
-              <Text style={styles.summaryLine}>Délai levée : {reserveDeadlineDate}</Text>
-            )}
-            {recurrence !== 'none' && (
-              <Text style={styles.summaryLine}>
-                Récurrence : {recurrence === 'weekly' ? '4 semaines' : '4 × toutes les 2 semaines'}
-              </Text>
-            )}
+            {(startTime || endTime) && <Text style={styles.summaryLine}>Horaire : {startTime || '—'} → {endTime || '—'}</Text>}
+            {(building || level) && <Text style={styles.summaryLine}>Lieu : {[building, level, zone].filter(Boolean).join(' — ')}</Text>}
+            {defaultPlanId && <Text style={styles.summaryLine}>Plan : {chantierPlans.find(p => p.id === defaultPlanId)?.name}</Text>}
+            {participants.length > 0 && <Text style={styles.summaryLine}>{participants.length} participant{participants.length > 1 ? 's' : ''} : {participants.map(p => p.name).join(', ')}</Text>}
+            {checklistItems.length > 0 && <Text style={styles.summaryLine}>Checklist : {checklistItems.length} point{checklistItems.length > 1 ? 's' : ''} de contrôle</Text>}
+            {tags.length > 0 && <Text style={styles.summaryLine}>Tags : {tags.join(', ')}</Text>}
+            {reserveDeadlineDate && <Text style={styles.summaryLine}>Délai levée : {reserveDeadlineDate}</Text>}
+            {recurrence !== 'none' && <Text style={styles.summaryLine}>Récurrence : {recurrence === 'weekly' ? '4 semaines' : '4 × toutes les 2 semaines'}</Text>}
           </View>
         )}
 
@@ -767,7 +1027,7 @@ const styles = StyleSheet.create({
   },
   sublabel: {
     fontSize: 12, fontFamily: 'Inter_400Regular', color: C.textMuted,
-    marginBottom: 12, marginTop: -6, lineHeight: 16,
+    marginBottom: 10, marginTop: -6, lineHeight: 16,
   },
   label: { fontSize: 12, fontFamily: 'Inter_500Medium', color: C.textSub, marginBottom: 6 },
 
@@ -779,6 +1039,21 @@ const styles = StyleSheet.create({
     borderWidth: 1, borderColor: C.border, backgroundColor: C.surface2,
   },
   typeChipText: { fontSize: 12, fontFamily: 'Inter_400Regular', color: C.textSub },
+
+  // Cover photo
+  photoActions: { flexDirection: 'row', gap: 10 },
+  photoBtn: {
+    flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
+    gap: 8, paddingVertical: 14, borderRadius: 12, borderWidth: 1.5,
+    borderColor: C.primary + '50', borderStyle: 'dashed', backgroundColor: C.primaryBg,
+  },
+  photoBtnText: { fontSize: 13, fontFamily: 'Inter_500Medium', color: C.primary },
+  coverPhotoWrapper: { position: 'relative', borderRadius: 12, overflow: 'hidden' },
+  coverPhoto: { width: '100%', height: 160, borderRadius: 12 },
+  coverPhotoRemove: {
+    position: 'absolute', top: 8, right: 8,
+    backgroundColor: 'rgba(0,0,0,0.5)', borderRadius: 12,
+  },
 
   // Title + suggest
   titleRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
@@ -798,7 +1073,7 @@ const styles = StyleSheet.create({
   },
   textArea: { height: 90, paddingTop: 10 },
 
-  // Date + time row
+  // Date + time
   dateTimeRow: { flexDirection: 'row', gap: 8, alignItems: 'flex-start' },
   timeBlock: { flex: 1 },
   timeInput: { textAlign: 'center', letterSpacing: 1 },
@@ -825,6 +1100,27 @@ const styles = StyleSheet.create({
     color: C.textMuted, textAlign: 'right',
   },
 
+  // Checklist
+  checklistHeader: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 0 },
+  resetBtn: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 8, paddingVertical: 4, borderRadius: 6, borderWidth: 1, borderColor: C.border },
+  resetBtnText: { fontSize: 11, fontFamily: 'Inter_400Regular', color: C.textMuted },
+  checklistRow: {
+    flexDirection: 'row', alignItems: 'center', gap: 10,
+    paddingVertical: 9, borderBottomWidth: 1, borderBottomColor: C.border,
+  },
+  checkbox: {
+    width: 20, height: 20, borderRadius: 6, borderWidth: 1.5,
+    borderColor: C.border, alignItems: 'center', justifyContent: 'center',
+  },
+  checkboxChecked: { backgroundColor: C.closed, borderColor: C.closed },
+  checklistLabel: { flex: 1, fontSize: 13, fontFamily: 'Inter_400Regular', color: C.text },
+  checklistLabelChecked: { color: C.textMuted, textDecorationLine: 'line-through' },
+  checklistAddRow: { flexDirection: 'row', gap: 8, marginTop: 10, alignItems: 'center' },
+  checklistAddBtn: {
+    width: 40, height: 40, borderRadius: 10, backgroundColor: C.primary,
+    alignItems: 'center', justifyContent: 'center', flexShrink: 0,
+  },
+
   // Deadline
   deadlineRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 8, flexWrap: 'wrap' },
   deadlineChip: {
@@ -834,13 +1130,14 @@ const styles = StyleSheet.create({
   deadlineChipActive: { borderColor: C.inProgress, backgroundColor: C.inProgress + '15' },
   deadlineChipText: { fontSize: 12, fontFamily: 'Inter_500Medium', color: C.textSub },
   deadlineChipTextActive: { color: C.inProgress, fontFamily: 'Inter_600SemiBold' },
-  deadlineClearBtn: { padding: 4 },
-  deadlineHint: {
-    flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 4,
+
+  // Info hint (shared)
+  infoHint: {
+    flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 8,
     backgroundColor: C.inProgress + '12', borderRadius: 8, padding: 10,
     borderWidth: 1, borderColor: C.inProgress + '30',
   },
-  deadlineHintText: { flex: 1, fontSize: 12, fontFamily: 'Inter_400Regular', color: C.inProgress, lineHeight: 16 },
+  infoHintText: { flex: 1, fontSize: 12, fontFamily: 'Inter_400Regular', color: C.inProgress, lineHeight: 16 },
 
   // Participants
   participantRow: {
@@ -854,15 +1151,12 @@ const styles = StyleSheet.create({
   participantAvatarText: { fontSize: 13, fontFamily: 'Inter_700Bold', color: C.primary },
   participantName: { fontSize: 13, fontFamily: 'Inter_600SemiBold', color: C.text },
   participantMeta: { fontSize: 11, fontFamily: 'Inter_400Regular', color: C.textMuted, marginTop: 1 },
-
-  // Team quick-add
   teamSection: {},
   teamLabel: { fontSize: 11, fontFamily: 'Inter_500Medium', color: C.textMuted },
   teamMemberChip: {
     flexDirection: 'row', alignItems: 'center', gap: 8,
     paddingHorizontal: 10, paddingVertical: 7, borderRadius: 10,
-    borderWidth: 1, borderColor: C.border, backgroundColor: C.surface2,
-    marginRight: 8,
+    borderWidth: 1, borderColor: C.border, backgroundColor: C.surface2, marginRight: 8,
   },
   teamMemberAvatar: {
     width: 28, height: 28, borderRadius: 14,
@@ -872,6 +1166,19 @@ const styles = StyleSheet.create({
   teamMemberName: { fontSize: 12, fontFamily: 'Inter_600SemiBold', color: C.text },
   teamMemberRole: { fontSize: 10, fontFamily: 'Inter_400Regular', color: C.textMuted },
   divider: { height: 1, backgroundColor: C.border, marginVertical: 12 },
+  addParticipantBtn: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
+    gap: 6, backgroundColor: C.primary, borderRadius: 10, paddingVertical: 10, marginTop: 4,
+  },
+  addParticipantBtnText: { fontSize: 13, fontFamily: 'Inter_600SemiBold', color: '#fff' },
+
+  // Tags
+  tagChip: {
+    flexDirection: 'row', alignItems: 'center', gap: 5,
+    paddingHorizontal: 10, paddingVertical: 6, borderRadius: 20,
+    backgroundColor: C.primaryBg, borderWidth: 1, borderColor: C.primary + '40',
+  },
+  tagChipText: { fontSize: 12, fontFamily: 'Inter_500Medium', color: C.primary },
 
   // Chips
   chipRow: { flexDirection: 'row', gap: 6, paddingVertical: 2 },
@@ -884,12 +1191,6 @@ const styles = StyleSheet.create({
   chipText: { fontSize: 12, fontFamily: 'Inter_400Regular', color: C.textSub },
   chipTextActive: { color: C.primary, fontFamily: 'Inter_600SemiBold' },
 
-  addParticipantBtn: {
-    flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
-    gap: 6, backgroundColor: C.primary, borderRadius: 10, paddingVertical: 10, marginTop: 4,
-  },
-  addParticipantBtnText: { fontSize: 13, fontFamily: 'Inter_600SemiBold', color: '#fff' },
-
   // Recurrence
   recurrenceChip: {
     flexDirection: 'row', alignItems: 'center', padding: 12,
@@ -898,14 +1199,8 @@ const styles = StyleSheet.create({
   recurrenceChipActive: { borderColor: C.primary, backgroundColor: C.primaryBg },
   recurrenceChipLabel: { fontSize: 13, fontFamily: 'Inter_600SemiBold', color: C.text },
   recurrenceChipDesc: { fontSize: 11, fontFamily: 'Inter_400Regular', color: C.textMuted, marginTop: 2 },
-  recurrenceHint: {
-    flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 10,
-    backgroundColor: C.inProgress + '12', borderRadius: 8, padding: 10,
-    borderWidth: 1, borderColor: C.inProgress + '30',
-  },
-  recurrenceHintText: { flex: 1, fontSize: 12, fontFamily: 'Inter_400Regular', color: C.inProgress, lineHeight: 16 },
 
-  // Summary card
+  // Summary
   summaryCard: {
     backgroundColor: C.primaryBg, borderRadius: 14, padding: 14,
     borderWidth: 1, borderColor: C.primary + '30', marginBottom: 16,
