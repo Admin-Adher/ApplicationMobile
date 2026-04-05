@@ -1106,7 +1106,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     AsyncStorage.setItem('buildtrack_mock_documents_v2', JSON.stringify(documents)).catch(() => {});
   }
 
-  const isLoadingAllRef = useRef(false);
+  const loadGenerationRef = useRef(0);
 
   async function loadAll() {
     if (!isSupabaseConfigured) {
@@ -1114,8 +1114,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       return;
     }
 
-    if (isLoadingAllRef.current) return;
-    isLoadingAllRef.current = true;
+    const myGen = loadGenerationRef.current;
 
     dispatch({ type: 'SET_LOADING', payload: true });
 
@@ -1166,6 +1165,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       await loadGroupChannels();
       await loadPinnedChannels();
       await loadChannelMembersOverride();
+
+      if (loadGenerationRef.current !== myGen) return;
 
       const userName = currentUserNameRef.current;
       dispatch({
@@ -1314,6 +1315,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         }
       }
 
+      if (loadGenerationRef.current !== myGen) return;
+
       dispatch({ type: 'SET_CHANTIERS', payload: chantiers });
       dispatch({ type: 'SET_SITE_PLANS', payload: sitePlans });
       if (activeChantierId) dispatch({ type: 'SET_ACTIVE_CHANTIER', payload: activeChantierId });
@@ -1391,6 +1394,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         if (so) { const p = JSON.parse(so); if (Array.isArray(p)) oprs = p; }
       }
 
+      if (loadGenerationRef.current !== myGen) return;
+
       dispatch({ type: 'SET_VISITES', payload: visites });
       dispatch({ type: 'SET_LOTS', payload: lots });
       dispatch({ type: 'SET_OPRS', payload: oprs });
@@ -1403,8 +1408,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         'Impossible de charger les données. Vérifiez votre connexion internet.',
         [{ text: 'Réessayer', onPress: loadAll }, { text: 'Ignorer', style: 'cancel' }]
       );
-    } finally {
-      isLoadingAllRef.current = false;
     }
   }
 
@@ -1416,8 +1419,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event: any, session: any) => {
       if (event === 'SIGNED_IN' && session) {
+        loadGenerationRef.current++;
         loadAll();
       } else if (event === 'SIGNED_OUT') {
+        loadGenerationRef.current++;
         currentUserNameRef.current = '';
         dispatch({ type: 'INIT', payload: { reserves: [], companies: [], tasks: [], documents: [], photos: [], messages: [], profiles: [] } });
       }
