@@ -17,14 +17,18 @@ const ROLE_PERMISSIONS: Record<UserRole, {
   sous_traitant:  { canCreate: false, canEdit: false, canEditOwn: true,  canDelete: false, canExport: false, canManageTeams: false, canViewTeams: false, canUpdateAttendance: false },
 };
 
+const DEMO_SEED_PASS = process.env.EXPO_PUBLIC_DEMO_SEED_PASS || 'BT_Demo_2025!';
+
 const DEMO_USERS = [
-  { email: 'superadmin@buildtrack.fr', password: 'super123', name: 'Super Admin BuildTrack', role: 'super_admin', roleLabel: 'Super Administrateur', companyId: undefined as string | undefined },
-  { email: 'admin@buildtrack.fr',     password: 'admin123', name: 'Admin Système',  role: 'admin',        roleLabel: 'Administrateur',          companyId: undefined as string | undefined },
-  { email: 'j.dupont@buildtrack.fr',  password: 'pass123',  name: 'Jean Dupont',    role: 'conducteur',   roleLabel: 'Conducteur de travaux',    companyId: undefined as string | undefined },
-  { email: 'm.martin@buildtrack.fr',  password: 'pass123',  name: 'Marie Martin',   role: 'chef_equipe',  roleLabel: "Chef d'équipe",            companyId: undefined as string | undefined },
-  { email: 'p.lambert@buildtrack.fr', password: 'pass123',  name: 'Pierre Lambert', role: 'observateur',  roleLabel: 'Observateur',              companyId: undefined as string | undefined },
-  { email: 'st.martin@buildtrack.fr', password: 'pass123',  name: 'Stéphane Martin (ST)', role: 'sous_traitant', roleLabel: 'Sous-traitant', companyId: 'co2' as string | undefined },
+  { email: 'superadmin@buildtrack.fr', name: 'Super Admin BuildTrack', role: 'super_admin', roleLabel: 'Super Administrateur', companyId: undefined as string | undefined },
+  { email: 'admin@buildtrack.fr',     name: 'Admin Système',  role: 'admin',        roleLabel: 'Administrateur',          companyId: undefined as string | undefined },
+  { email: 'j.dupont@buildtrack.fr',  name: 'Jean Dupont',    role: 'conducteur',   roleLabel: 'Conducteur de travaux',    companyId: undefined as string | undefined },
+  { email: 'm.martin@buildtrack.fr',  name: 'Marie Martin',   role: 'chef_equipe',  roleLabel: "Chef d'équipe",            companyId: undefined as string | undefined },
+  { email: 'p.lambert@buildtrack.fr', name: 'Pierre Lambert', role: 'observateur',  roleLabel: 'Observateur',              companyId: undefined as string | undefined },
+  { email: 'st.martin@buildtrack.fr', name: 'Stéphane Martin (ST)', role: 'sous_traitant', roleLabel: 'Sous-traitant', companyId: 'co2' as string | undefined },
 ];
+
+const DEMO_EMAILS = new Set(DEMO_USERS.map(u => u.email));
 
 interface AuthContextValue {
   user: User | null;

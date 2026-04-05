@@ -14,14 +14,14 @@ const DEMO_ACCOUNTS = [
   { email: 'p.lambert@buildtrack.fr', label: 'Observateur', color: C.textSub },
 ];
 
-const DEMO_PASSWORDS: Record<string, string> = {
-  'admin@buildtrack.fr': 'admin123',
-  'superadmin@buildtrack.fr': 'super123',
-  'j.dupont@buildtrack.fr': 'pass123',
-  'm.martin@buildtrack.fr': 'pass123',
-  'p.lambert@buildtrack.fr': 'pass123',
-  'st.martin@buildtrack.fr': 'pass123',
-};
+const DEMO_EMAILS = new Set([
+  'admin@buildtrack.fr',
+  'superadmin@buildtrack.fr',
+  'j.dupont@buildtrack.fr',
+  'm.martin@buildtrack.fr',
+  'p.lambert@buildtrack.fr',
+  'st.martin@buildtrack.fr',
+]);
 
 const DEMO_USER_NAMES: Record<string, string> = {
   'admin@buildtrack.fr':     'Admin Système',
