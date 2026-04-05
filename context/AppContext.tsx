@@ -886,73 +886,116 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }
 
   async function loadCustomChannels() {
+    // 1. Charger le cache local en premier — source de vérité locale
+    let cachedChannels: Channel[] = [];
+    try {
+      const stored = await AsyncStorage.getItem(CUSTOM_CHANNELS_KEY);
+      if (stored) cachedChannels = JSON.parse(stored) ?? [];
+    } catch {}
+
     if (isSupabaseConfigured) {
       try {
         const { data, error } = await supabase.from('channels').select('*').eq('type', 'custom');
         if (!error && data !== null) {
-          const channels: Channel[] = data.map((r: any) => ({
+          const supabaseChannels: Channel[] = data.map((r: any) => ({
             id: r.id, name: r.name, description: r.description ?? '',
             icon: r.icon, color: r.color, type: 'custom' as const,
             members: r.members ?? [], createdBy: r.created_by ?? undefined,
           }));
-          dispatch({ type: 'SET_CUSTOM_CHANNELS', payload: channels });
-          await AsyncStorage.setItem(CUSTOM_CHANNELS_KEY, JSON.stringify(channels)).catch(() => {});
+          // Fusionner : Supabase en priorité + canaux locaux non encore synchronisés
+          const merged = [...supabaseChannels];
+          for (const local of cachedChannels) {
+            if (!merged.find(c => c.id === local.id)) merged.push(local);
+          }
+          dispatch({ type: 'SET_CUSTOM_CHANNELS', payload: merged });
+          await AsyncStorage.setItem(CUSTOM_CHANNELS_KEY, JSON.stringify(merged)).catch(() => {});
           return;
         }
       } catch {}
     }
-    try {
-      const stored = await AsyncStorage.getItem(CUSTOM_CHANNELS_KEY);
-      if (stored) dispatch({ type: 'SET_CUSTOM_CHANNELS', payload: JSON.parse(stored) });
-    } catch {}
+
+    // Fallback : utiliser uniquement le cache local
+    if (cachedChannels.length > 0) {
+      dispatch({ type: 'SET_CUSTOM_CHANNELS', payload: cachedChannels });
+    }
   }
 
   async function saveCustomChannels(channels: Channel[]) {
+    // Toujours persister localement en premier (jamais de perte de données)
     try { await AsyncStorage.setItem(CUSTOM_CHANNELS_KEY, JSON.stringify(channels)); } catch {}
-    if (isSupabaseConfigured) {
-      for (const ch of channels) {
-        supabase.from('channels').upsert({
-          id: ch.id, name: ch.name, description: ch.description ?? null,
-          icon: ch.icon ?? 'chatbubbles', color: ch.color ?? '#10B981',
-          type: ch.type, members: ch.members ?? [], created_by: ch.createdBy ?? null,
-          organization_id: currentUserOrgIdRef.current ?? null,
-        });
+    if (!isSupabaseConfigured) return;
+
+    // Récupérer l'org_id courant — peut être null si le profil n'est pas encore chargé
+    const orgId = currentUserOrgIdRef.current;
+
+    for (const ch of channels) {
+      const { error } = await supabase.from('channels').upsert({
+        id: ch.id, name: ch.name, description: ch.description ?? null,
+        icon: ch.icon ?? 'chatbubbles', color: ch.color ?? '#10B981',
+        type: ch.type,
+        members: ch.members ?? [],
+        created_by: ch.createdBy ?? null,
+        organization_id: orgId ?? null,
+      });
+      if (error) {
+        console.warn('[saveCustomChannels] upsert error:', error.message, 'channel:', ch.id);
       }
     }
   }
 
   async function loadGroupChannels() {
+    // 1. Charger le cache local en premier
+    let cachedChannels: Channel[] = [];
+    try {
+      const stored = await AsyncStorage.getItem(GROUP_CHANNELS_KEY);
+      if (stored) cachedChannels = JSON.parse(stored) ?? [];
+    } catch {}
+
     if (isSupabaseConfigured) {
       try {
         const { data, error } = await supabase.from('channels').select('*').eq('type', 'group');
         if (!error && data !== null) {
-          const channels: Channel[] = data.map((r: any) => ({
+          const supabaseChannels: Channel[] = data.map((r: any) => ({
             id: r.id, name: r.name, description: r.description ?? '',
             icon: r.icon, color: r.color, type: 'group' as const,
             members: r.members ?? [], createdBy: r.created_by ?? undefined,
           }));
-          dispatch({ type: 'SET_GROUP_CHANNELS', payload: channels });
-          await AsyncStorage.setItem(GROUP_CHANNELS_KEY, JSON.stringify(channels)).catch(() => {});
+          // Fusionner avec le cache local
+          const merged = [...supabaseChannels];
+          for (const local of cachedChannels) {
+            if (!merged.find(c => c.id === local.id)) merged.push(local);
+          }
+          dispatch({ type: 'SET_GROUP_CHANNELS', payload: merged });
+          await AsyncStorage.setItem(GROUP_CHANNELS_KEY, JSON.stringify(merged)).catch(() => {});
           return;
         }
       } catch {}
     }
-    try {
-      const stored = await AsyncStorage.getItem(GROUP_CHANNELS_KEY);
-      if (stored) dispatch({ type: 'SET_GROUP_CHANNELS', payload: JSON.parse(stored) });
-    } catch {}
+
+    // Fallback : utiliser uniquement le cache local
+    if (cachedChannels.length > 0) {
+      dispatch({ type: 'SET_GROUP_CHANNELS', payload: cachedChannels });
+    }
   }
 
   async function saveGroupChannels(channels: Channel[]) {
+    // Toujours persister localement en premier
     try { await AsyncStorage.setItem(GROUP_CHANNELS_KEY, JSON.stringify(channels)); } catch {}
-    if (isSupabaseConfigured) {
-      for (const ch of channels) {
-        supabase.from('channels').upsert({
-          id: ch.id, name: ch.name, description: ch.description ?? null,
-          icon: ch.icon ?? 'people-circle', color: ch.color ?? '#10B981',
-          type: ch.type, members: ch.members ?? [], created_by: ch.createdBy ?? null,
-          organization_id: currentUserOrgIdRef.current ?? null,
-        });
+    if (!isSupabaseConfigured) return;
+
+    const orgId = currentUserOrgIdRef.current;
+
+    for (const ch of channels) {
+      const { error } = await supabase.from('channels').upsert({
+        id: ch.id, name: ch.name, description: ch.description ?? null,
+        icon: ch.icon ?? 'people-circle', color: ch.color ?? '#10B981',
+        type: ch.type,
+        members: ch.members ?? [],
+        created_by: ch.createdBy ?? null,
+        organization_id: orgId ?? null,
+      });
+      if (error) {
+        console.warn('[saveGroupChannels] upsert error:', error.message, 'channel:', ch.id);
       }
     }
   }
