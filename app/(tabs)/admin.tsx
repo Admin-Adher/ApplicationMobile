@@ -18,6 +18,7 @@ import { ROLES, ROLE_INFO, PLAN_COLORS, FREE_ROLES, AVATAR_COLORS, hashColor, fo
 
 const WINDOW_H = Dimensions.get('window').height;
 const MODAL_SCROLL_MAX_H = WINDOW_H * 0.62;
+const EDIT_SCROLL_MAX_H = WINDOW_H * 0.46;
 
 function SafeKAV({ children }: { children: React.ReactNode }) {
   if (Platform.OS === 'ios') {
@@ -112,7 +113,7 @@ export default function AdminScreen() {
   const [tokenCopied, setTokenCopied] = useState(false);
   const [userSearch, setUserSearch] = useState('');
   const [roleFilter, setRoleFilter] = useState<UserRole | 'all'>('all');
-  const [roleModal, setRoleModal] = useState<{ id: string; name: string; currentRole: UserRole; currentCompanyId?: string } | null>(null);
+  const [roleModal, setRoleModal] = useState<{ id: string; name: string; email: string; currentRole: UserRole; currentCompanyId?: string } | null>(null);
   const [editCompanyId, setEditCompanyId] = useState<string>('');
   const [saving, setSaving] = useState(false);
 
@@ -315,10 +316,10 @@ export default function AdminScreen() {
 
   const [editRole, setEditRole] = useState<UserRole>('observateur');
 
-  function openEditUserModal(u: { id: string; name: string; role: UserRole; companyId?: string }) {
+  function openEditUserModal(u: { id: string; name: string; email: string; role: UserRole; companyId?: string }) {
     setEditRole(u.role);
     setEditCompanyId(u.companyId ?? '');
-    setRoleModal({ id: u.id, name: u.name, currentRole: u.role, currentCompanyId: u.companyId });
+    setRoleModal({ id: u.id, name: u.name, email: u.email, currentRole: u.role, currentCompanyId: u.companyId });
   }
 
   function closeEditUserModal() {
@@ -771,7 +772,7 @@ export default function AdminScreen() {
                     {!isCurrentUser && (
                       <TouchableOpacity
                         style={styles.iconBtnLabelled}
-                        onPress={() => openEditUserModal(u)}
+                        onPress={() => openEditUserModal({ id: u.id, name: u.name, email: u.email, role: u.role, companyId: u.companyId })}
                         accessibilityRole="button"
                         accessibilityLabel={`Modifier ${u.name}`}
                       >
@@ -1235,105 +1236,172 @@ export default function AdminScreen() {
         </ScrollView>
       )}
 
-      {/* ─── MODAL ÉDITION UTILISATEUR (rôle + entreprise) ─── */}
-      <Modal visible={!!roleModal} transparent animationType="slide" onRequestClose={closeEditUserModal}>
-        <TouchableOpacity style={styles.overlay} activeOpacity={1} onPress={closeEditUserModal}>
-          <TouchableOpacity activeOpacity={1} style={styles.sheet}>
-            <View style={styles.sheetHandle} />
-            <Text style={styles.sheetTitle}>Modifier l'utilisateur</Text>
-            <Text style={styles.sheetSubtitle}>{roleModal?.name}</Text>
-            {saving ? (
-              <ActivityIndicator size="large" color={C.primary} style={{ marginVertical: 24 }} />
-            ) : (
-              <ScrollView style={{ maxHeight: MODAL_SCROLL_MAX_H }} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled" contentContainerStyle={{ gap: 10, paddingBottom: 16 }}>
-                {/* ── Sélection du rôle ── */}
-                <Text style={styles.fieldLabel}>Rôle</Text>
-                {ROLES.map(r => {
-                  const isSelected = editRole === r.value;
-                  const isFree = FREE_ROLES.includes(r.value);
-                  return (
-                    <TouchableOpacity
-                      key={r.value}
-                      style={[styles.roleOption, isSelected && { backgroundColor: r.bg, borderColor: r.color }]}
-                      onPress={() => setEditRole(r.value)}
-                      accessibilityRole="button"
-                      accessibilityLabel={`Attribuer le rôle ${r.label}`}
-                      accessibilityState={{ selected: isSelected }}
-                    >
-                      <View style={[styles.roleOptionDot, { backgroundColor: r.color }]} />
-                      <View style={{ flex: 1 }}>
-                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                          <Text style={[styles.roleOptionText, isSelected && { color: r.color, fontFamily: 'Inter_600SemiBold' }]}>
-                            {r.label}
-                          </Text>
-                          {isFree && (
-                            <View style={styles.freeTag}>
-                              <Text style={styles.freeTagTxt}>gratuit</Text>
-                            </View>
-                          )}
-                        </View>
-                        <Text style={styles.roleOptionDesc}>{r.description}</Text>
-                      </View>
-                      {isSelected && <Ionicons name="checkmark-circle" size={18} color={r.color} />}
-                    </TouchableOpacity>
-                  );
-                })}
+      {/* ─── MODAL ÉDITION UTILISATEUR ─── */}
+      {roleModal && (() => {
+        const avatarColor = hashColor(roleModal.id, AVATAR_COLORS);
+        const initials = roleModal.name.split(' ').map((w: string) => w[0]).slice(0, 2).join('').toUpperCase();
+        const hasChanges = editRole !== roleModal.currentRole || (editCompanyId || undefined) !== roleModal.currentCompanyId;
+        const currentRoleInfo = ROLES.find(r => r.value === editRole);
+        return (
+          <Modal visible transparent animationType="slide" onRequestClose={closeEditUserModal}>
+            <TouchableOpacity style={styles.overlay} activeOpacity={1} onPress={closeEditUserModal}>
+              <TouchableOpacity activeOpacity={1} style={styles.sheet}>
 
-                {/* ── Sélection de l'entreprise ── */}
-                {companies.length > 0 && (
-                  <>
-                    <View style={[styles.fieldSeparator, { marginTop: 4 }]}>
-                      <Text style={styles.fieldSeparatorTxt}>Entreprise rattachée</Text>
+                {/* ── Handle ── */}
+                <View style={styles.sheetHandle} />
+
+                {/* ── Header fixe ── */}
+                <View style={styles.editUserHeader}>
+                  <View style={[styles.editUserAvatar, { backgroundColor: avatarColor }]}>
+                    <Text style={styles.editUserAvatarTxt}>{initials}</Text>
+                  </View>
+                  <View style={{ flex: 1, minWidth: 0 }}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                      <Text style={styles.editUserName} numberOfLines={1}>{roleModal.name}</Text>
+                      {hasChanges && (
+                        <View style={styles.editChangedPill}>
+                          <View style={styles.editChangedDot} />
+                          <Text style={styles.editChangedTxt}>Modifié</Text>
+                        </View>
+                      )}
                     </View>
-                    <Text style={styles.fieldHint}>Optionnel — pour les sous-traitants ou intervenants d'une entreprise spécifique</Text>
-                    <TouchableOpacity
-                      style={[styles.roleOption, !editCompanyId && { backgroundColor: C.primaryBg, borderColor: C.primary }]}
-                      onPress={() => setEditCompanyId('')}
-                      accessibilityRole="button"
-                      accessibilityLabel="Aucune entreprise"
-                    >
-                      <View style={[styles.roleOptionDot, { backgroundColor: C.border }]} />
-                      <Text style={[styles.roleOptionText, !editCompanyId && { color: C.primary, fontFamily: 'Inter_600SemiBold' }]}>
-                        Aucune entreprise
-                      </Text>
-                      {!editCompanyId && <Ionicons name="checkmark-circle" size={18} color={C.primary} />}
-                    </TouchableOpacity>
-                    {companies.map(co => {
-                      const isSelected = editCompanyId === co.id;
+                    <Text style={styles.editUserEmail} numberOfLines={1}>{roleModal.email}</Text>
+                    {currentRoleInfo && (
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5, marginTop: 4 }}>
+                        <View style={[styles.editRoleDot, { backgroundColor: currentRoleInfo.color }]} />
+                        <Text style={[styles.editRoleLabel, { color: currentRoleInfo.color }]}>{currentRoleInfo.label}</Text>
+                        {editCompanyId && (() => {
+                          const co = companies.find(c => c.id === editCompanyId);
+                          return co ? (
+                            <View style={[styles.editCoChip, { backgroundColor: co.color + '20', borderColor: co.color + '55' }]}>
+                              <Text style={[styles.editCoChipTxt, { color: co.color }]}>{co.shortName}</Text>
+                            </View>
+                          ) : null;
+                        })()}
+                      </View>
+                    )}
+                  </View>
+                </View>
+
+                {/* ── Contenu scrollable ── */}
+                {saving ? (
+                  <ActivityIndicator size="large" color={C.primary} style={{ marginVertical: 32 }} />
+                ) : (
+                  <ScrollView
+                    style={{ maxHeight: EDIT_SCROLL_MAX_H }}
+                    showsVerticalScrollIndicator={false}
+                    keyboardShouldPersistTaps="handled"
+                    contentContainerStyle={{ gap: 8, paddingBottom: 4 }}
+                  >
+                    {/* Rôle */}
+                    <View style={styles.editSection}>
+                      <Text style={styles.editSectionLabel}>Rôle</Text>
+                    </View>
+                    {ROLES.map(r => {
+                      const isSelected = editRole === r.value;
+                      const isFree = FREE_ROLES.includes(r.value);
                       return (
                         <TouchableOpacity
-                          key={co.id}
-                          style={[styles.roleOption, isSelected && { backgroundColor: co.color + '18', borderColor: co.color }]}
-                          onPress={() => setEditCompanyId(isSelected ? '' : co.id)}
-                          accessibilityRole="button"
-                          accessibilityLabel={`Associer à ${co.name}`}
+                          key={r.value}
+                          style={[styles.editOption, isSelected && { backgroundColor: r.bg, borderColor: r.color }]}
+                          onPress={() => setEditRole(r.value)}
+                          accessibilityRole="radio"
                           accessibilityState={{ selected: isSelected }}
                         >
-                          <View style={[styles.roleOptionDot, { backgroundColor: co.color }]} />
+                          <View style={[styles.editOptionDot, { backgroundColor: r.color }]} />
                           <View style={{ flex: 1 }}>
-                            <Text style={[styles.roleOptionText, isSelected && { color: co.color, fontFamily: 'Inter_600SemiBold' }]}>
-                              {co.name}
-                            </Text>
-                            <Text style={styles.roleOptionDesc}>{co.shortName} · {co.plannedWorkers} pers. prévues</Text>
+                            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}>
+                              <Text style={[styles.editOptionName, isSelected && { color: r.color, fontFamily: 'Inter_600SemiBold' }]}>
+                                {r.label}
+                              </Text>
+                              {isFree && <View style={styles.freeTag}><Text style={styles.freeTagTxt}>gratuit</Text></View>}
+                            </View>
+                            <Text style={styles.editOptionDesc}>{r.description}</Text>
                           </View>
-                          {isSelected && <Ionicons name="checkmark-circle" size={18} color={co.color} />}
+                          {isSelected
+                            ? <Ionicons name="checkmark-circle" size={18} color={r.color} />
+                            : <View style={styles.editOptionCircle} />}
                         </TouchableOpacity>
                       );
                     })}
-                  </>
+
+                    {/* Entreprise */}
+                    {companies.length > 0 && (
+                      <>
+                        <View style={[styles.editSection, { marginTop: 4 }]}>
+                          <Text style={styles.editSectionLabel}>Entreprise rattachée</Text>
+                          <Text style={styles.editSectionHint}>optionnel</Text>
+                        </View>
+                        <View style={styles.editCoGrid}>
+                          {/* Chip "Aucune" */}
+                          <TouchableOpacity
+                            style={[styles.editCoItem, !editCompanyId && { backgroundColor: C.primaryBg, borderColor: C.primary }]}
+                            onPress={() => setEditCompanyId('')}
+                            accessibilityRole="radio"
+                            accessibilityState={{ selected: !editCompanyId }}
+                          >
+                            <Ionicons
+                              name={!editCompanyId ? 'close-circle' : 'close-circle-outline'}
+                              size={14}
+                              color={!editCompanyId ? C.primary : C.textMuted}
+                            />
+                            <Text style={[styles.editCoItemTxt, !editCompanyId && { color: C.primary, fontFamily: 'Inter_600SemiBold' }]}>
+                              Aucune
+                            </Text>
+                          </TouchableOpacity>
+                          {/* Chips entreprises */}
+                          {companies.map(co => {
+                            const isSelected = editCompanyId === co.id;
+                            return (
+                              <TouchableOpacity
+                                key={co.id}
+                                style={[styles.editCoItem, isSelected && { backgroundColor: co.color + '1A', borderColor: co.color }]}
+                                onPress={() => setEditCompanyId(isSelected ? '' : co.id)}
+                                accessibilityRole="radio"
+                                accessibilityLabel={co.name}
+                                accessibilityState={{ selected: isSelected }}
+                              >
+                                <View style={[styles.editCoDot, { backgroundColor: co.color }]} />
+                                <Text style={[styles.editCoItemTxt, isSelected && { color: co.color, fontFamily: 'Inter_600SemiBold' }]} numberOfLines={1}>
+                                  {co.shortName}
+                                </Text>
+                                {isSelected && <Ionicons name="checkmark" size={12} color={co.color} />}
+                              </TouchableOpacity>
+                            );
+                          })}
+                        </View>
+                        {editCompanyId && (() => {
+                          const co = companies.find(c => c.id === editCompanyId);
+                          return co ? (
+                            <Text style={styles.editCoFullName}>{co.name} · {co.plannedWorkers} personnes prévues</Text>
+                          ) : null;
+                        })()}
+                      </>
+                    )}
+                  </ScrollView>
                 )}
 
-                <TouchableOpacity style={[styles.saveBtn, { marginTop: 6 }]} onPress={handleSaveUserEdit}>
-                  <Text style={styles.saveBtnText}>Enregistrer</Text>
-                </TouchableOpacity>
-                <TouchableOpacity style={styles.cancelBtn} onPress={closeEditUserModal}>
-                  <Text style={styles.cancelBtnText}>Annuler</Text>
-                </TouchableOpacity>
-              </ScrollView>
-            )}
-          </TouchableOpacity>
-        </TouchableOpacity>
-      </Modal>
+                {/* ── Footer fixe : Annuler | Enregistrer ── */}
+                {!saving && (
+                  <View style={styles.editFooter}>
+                    <TouchableOpacity style={styles.editFooterCancel} onPress={closeEditUserModal}>
+                      <Text style={styles.editFooterCancelTxt}>Annuler</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={[styles.editFooterSave, !hasChanges && { opacity: 0.4 }]}
+                      onPress={handleSaveUserEdit}
+                      disabled={!hasChanges}
+                    >
+                      <Text style={styles.editFooterSaveTxt}>Enregistrer</Text>
+                    </TouchableOpacity>
+                  </View>
+                )}
+
+              </TouchableOpacity>
+            </TouchableOpacity>
+          </Modal>
+        );
+      })()}
 
       {/* ─── MODAL ENTREPRISE ─── */}
       <Modal visible={!!companyModal} transparent animationType="slide" onRequestClose={tryCloseCompanyModal}>
@@ -1739,6 +1807,64 @@ const styles = StyleSheet.create({
   },
   companyBadgeDot: { width: 6, height: 6, borderRadius: 3 },
   companyBadgeText: { fontSize: 11, fontFamily: 'Inter_600SemiBold', maxWidth: 100 },
+
+  editUserHeader: {
+    flexDirection: 'row', alignItems: 'center', gap: 12,
+    paddingBottom: 14, borderBottomWidth: 1, borderBottomColor: C.border, marginBottom: 12,
+  },
+  editUserAvatar: { width: 48, height: 48, borderRadius: 24, alignItems: 'center', justifyContent: 'center', flexShrink: 0 },
+  editUserAvatarTxt: { fontSize: 18, fontFamily: 'Inter_700Bold', color: '#fff' },
+  editUserName: { fontSize: 15, fontFamily: 'Inter_700Bold', color: C.text, flexShrink: 1 },
+  editUserEmail: { fontSize: 12, fontFamily: 'Inter_400Regular', color: C.textMuted, marginTop: 1 },
+  editRoleDot: { width: 7, height: 7, borderRadius: 4 },
+  editRoleLabel: { fontSize: 12, fontFamily: 'Inter_600SemiBold' },
+  editCoChip: {
+    flexDirection: 'row', alignItems: 'center', gap: 3,
+    borderRadius: 5, paddingHorizontal: 6, paddingVertical: 2, borderWidth: 1,
+  },
+  editCoChipTxt: { fontSize: 11, fontFamily: 'Inter_600SemiBold' },
+  editChangedPill: {
+    flexDirection: 'row', alignItems: 'center', gap: 4,
+    backgroundColor: '#FFF3CD', borderRadius: 8, paddingHorizontal: 7, paddingVertical: 3,
+  },
+  editChangedDot: { width: 5, height: 5, borderRadius: 3, backgroundColor: '#F59E0B' },
+  editChangedTxt: { fontSize: 11, fontFamily: 'Inter_600SemiBold', color: '#92400E' },
+
+  editSection: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 2 },
+  editSectionLabel: { fontSize: 11, fontFamily: 'Inter_700Bold', color: C.textMuted, textTransform: 'uppercase', letterSpacing: 0.6 },
+  editSectionHint: { fontSize: 10, fontFamily: 'Inter_400Regular', color: C.textMuted },
+
+  editOption: {
+    flexDirection: 'row', alignItems: 'center', gap: 10,
+    borderWidth: 1.5, borderColor: C.border, borderRadius: 10,
+    paddingHorizontal: 12, paddingVertical: 10, backgroundColor: C.surface,
+  },
+  editOptionDot: { width: 9, height: 9, borderRadius: 5, flexShrink: 0 },
+  editOptionName: { fontSize: 14, fontFamily: 'Inter_500Medium', color: C.text },
+  editOptionDesc: { fontSize: 11, fontFamily: 'Inter_400Regular', color: C.textMuted, marginTop: 1 },
+  editOptionCircle: { width: 18, height: 18, borderRadius: 9, borderWidth: 1.5, borderColor: C.border },
+
+  editCoGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  editCoItem: {
+    flexDirection: 'row', alignItems: 'center', gap: 5,
+    borderWidth: 1.5, borderColor: C.border, borderRadius: 8,
+    paddingHorizontal: 10, paddingVertical: 7, backgroundColor: C.surface,
+  },
+  editCoDot: { width: 7, height: 7, borderRadius: 4 },
+  editCoItemTxt: { fontSize: 12, fontFamily: 'Inter_500Medium', color: C.text, maxWidth: 90 },
+  editCoFullName: { fontSize: 11, fontFamily: 'Inter_400Regular', color: C.textMuted, marginTop: -2 },
+
+  editFooter: { flexDirection: 'row', gap: 10, paddingTop: 14, borderTopWidth: 1, borderTopColor: C.border, marginTop: 10 },
+  editFooterCancel: {
+    flex: 1, alignItems: 'center', justifyContent: 'center',
+    paddingVertical: 13, borderRadius: 11, backgroundColor: C.surface2,
+  },
+  editFooterCancelTxt: { fontSize: 14, fontFamily: 'Inter_600SemiBold', color: C.textSub },
+  editFooterSave: {
+    flex: 2, alignItems: 'center', justifyContent: 'center',
+    paddingVertical: 13, borderRadius: 11, backgroundColor: C.primary,
+  },
+  editFooterSaveTxt: { fontSize: 14, fontFamily: 'Inter_700Bold', color: '#fff' },
   userActions: { flexDirection: 'column', gap: 5 },
 
   iconBtnLabelled: {
