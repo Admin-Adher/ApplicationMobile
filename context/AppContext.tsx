@@ -738,6 +738,7 @@ interface AppContextValue extends AppState {
   addGroupChannel: (name: string, members: string[], color: string) => Channel;
   removeGroupChannel: (id: string) => void;
   renameChannel: (id: string, newName: string) => void;
+  updateCustomChannel: (id: string, updates: Partial<Pick<Channel, 'name' | 'description' | 'icon' | 'color'>>) => void;
   addChannelMember: (id: string, memberName: string) => void;
   removeChannelMember: (id: string, memberName: string) => void;
   pinChannel: (id: string) => { success: boolean; reason?: string };
@@ -1840,6 +1841,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     }
   }
 
+  function updateCustomChannel(id: string, updates: Partial<Pick<Channel, 'name' | 'description' | 'icon' | 'color'>>) {
+    const ch = [...stateRef.current.customChannels, ...stateRef.current.groupChannels].find(c => c.id === id);
+    if (ch) {
+      _updateAndPersistChannel({ ...ch, ...updates });
+    }
+  }
+
   function renameChannel(id: string, newName: string) {
     const ch = [...state.customChannels, ...state.groupChannels].find(c => c.id === id);
     if (ch) {
@@ -2480,6 +2488,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     addGroupChannel,
     removeGroupChannel,
     renameChannel,
+    updateCustomChannel,
     addChannelMember,
     removeChannelMember,
     pinChannel,

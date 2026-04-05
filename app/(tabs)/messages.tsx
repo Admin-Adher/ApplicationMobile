@@ -12,6 +12,7 @@ import { useAuth } from '@/context/AuthContext';
 import { isSupabaseConfigured } from '@/lib/supabase';
 import { Channel, Message } from '@/constants/types';
 import NewChannelModal from '@/components/NewChannelModal';
+import EditChannelModal from '@/components/EditChannelModal';
 import NewDMModal from '@/components/NewDMModal';
 import NewGroupModal from '@/components/NewGroupModal';
 
@@ -147,6 +148,7 @@ export default function MessagesTabScreen() {
     channels, messages, unreadByChannel, profiles,
     addCustomChannel, addGroupChannel, getOrCreateDMChannel,
     pinnedChannelIds, pinChannel, unpinChannel, maxPinnedChannels,
+    removeCustomChannel, removeGroupChannel, updateCustomChannel,
   } = useApp();
   const { user, permissions } = useAuth();
   const [search, setSearch] = useState('');
@@ -154,6 +156,7 @@ export default function MessagesTabScreen() {
   const [showNewDM, setShowNewDM] = useState(false);
   const [showNewGroup, setShowNewGroup] = useState(false);
   const [actionSheet, setActionSheet] = useState<Channel | null>(null);
+  const [editChannel, setEditChannel] = useState<Channel | null>(null);
   const topPad = insets.top;
 
   const totalUnread = Object.values(unreadByChannel).reduce((a, b) => a + b, 0);
@@ -228,6 +231,34 @@ export default function MessagesTabScreen() {
   function handleStartDM(profile: { name: string }) {
     const ch = getOrCreateDMChannel(profile.name);
     goToChannel(ch);
+  }
+
+  function handleDeleteChannel(ch: Channel) {
+    setActionSheet(null);
+    Alert.alert(
+      'Supprimer le canal',
+      `Supprimer définitivement « ${ch.name} » ? Cette action est irréversible.`,
+      [
+        { text: 'Annuler', style: 'cancel' },
+        {
+          text: 'Supprimer',
+          style: 'destructive',
+          onPress: () => {
+            if (ch.type === 'custom') removeCustomChannel(ch.id);
+            else if (ch.type === 'group') removeGroupChannel(ch.id);
+          },
+        },
+      ]
+    );
+  }
+
+  function handleEditChannel(ch: Channel) {
+    setActionSheet(null);
+    setEditChannel(ch);
+  }
+
+  function handleSaveChannel(id: string, updates: { name: string; description: string; icon: string; color: string }) {
+    updateCustomChannel(id, updates);
   }
 
   function handlePinAction(ch: Channel) {
@@ -476,6 +507,12 @@ export default function MessagesTabScreen() {
         currentUserName={currentUserName}
         onSelect={handleStartDM}
       />
+      <EditChannelModal
+        visible={!!editChannel}
+        channel={editChannel}
+        onClose={() => setEditChannel(null)}
+        onSave={handleSaveChannel}
+      />
 
       <Modal
         visible={!!actionSheet}
@@ -541,6 +578,37 @@ export default function MessagesTabScreen() {
                         <Text style={styles.sheetBtnSub}>Aller directement aux messages</Text>
                       </View>
                     </TouchableOpacity>
+                    {(actionSheet.type === 'custom' || actionSheet.type === 'group') && (
+                      <>
+                        <View style={styles.sheetDivider} />
+                        <TouchableOpacity
+                          style={styles.sheetBtn}
+                          onPress={() => handleEditChannel(actionSheet)}
+                          activeOpacity={0.75}
+                        >
+                          <View style={[styles.sheetBtnIcon, { backgroundColor: '#0A84FF15' }]}>
+                            <Ionicons name="pencil-outline" size={20} color="#0A84FF" />
+                          </View>
+                          <View style={{ flex: 1 }}>
+                            <Text style={[styles.sheetBtnLabel, { color: '#0A84FF' }]}>Modifier le canal</Text>
+                            <Text style={styles.sheetBtnSub}>Changer le nom, l'icône ou la couleur</Text>
+                          </View>
+                        </TouchableOpacity>
+                        <TouchableOpacity
+                          style={styles.sheetBtn}
+                          onPress={() => handleDeleteChannel(actionSheet)}
+                          activeOpacity={0.75}
+                        >
+                          <View style={[styles.sheetBtnIcon, { backgroundColor: C.open + '15' }]}>
+                            <Ionicons name="trash-outline" size={20} color={C.open} />
+                          </View>
+                          <View style={{ flex: 1 }}>
+                            <Text style={[styles.sheetBtnLabel, { color: C.open }]}>Supprimer le canal</Text>
+                            <Text style={styles.sheetBtnSub}>Action irréversible</Text>
+                          </View>
+                        </TouchableOpacity>
+                      </>
+                    )}
                     <TouchableOpacity style={styles.sheetCancelBtn} onPress={() => setActionSheet(null)}>
                       <Text style={styles.sheetCancelText}>Annuler</Text>
                     </TouchableOpacity>
