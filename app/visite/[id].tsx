@@ -96,11 +96,13 @@ function buildVisitePDF(visite: Visite, reserves: Reserve[], projectName: string
     : '';
 
   const statusVisiteLabel = visite.status === 'completed' ? 'Terminée' : visite.status === 'in_progress' ? 'En cours' : 'Planifiée';
+  const horaire = [visite.startTime, visite.endTime].filter(Boolean).join(' → ');
   const infoItems = [
     { label: 'Conducteur de travaux', value: visite.conducteur },
+    { label: 'Date de visite', value: visite.date + (horaire ? `  ·  ${horaire}` : '') },
     ...((visite.building || visite.level || visite.zone) ? [{ label: 'Localisation', value: [visite.building, visite.level, visite.zone].filter(Boolean).join(' — ') }] : []),
     { label: 'Statut de la visite', value: statusVisiteLabel },
-    { label: 'Date de visite', value: visite.date },
+    ...(visite.reserveDeadlineDate ? [{ label: 'Délai de levée des réserves', value: visite.reserveDeadlineDate }] : []),
   ];
 
   const conducteurSigHtml = visite.conducteurSignature
@@ -325,7 +327,12 @@ export default function VisiteDetailScreen() {
               <Ionicons name="calendar-outline" size={14} color={C.textMuted} />
               <View>
                 <Text style={styles.infoLabel}>Date</Text>
-                <Text style={styles.infoVal}>{visite.date}</Text>
+                <Text style={styles.infoVal}>
+                  {visite.date}
+                  {(visite.startTime || visite.endTime)
+                    ? `  ·  ${[visite.startTime, visite.endTime].filter(Boolean).join(' → ')}`
+                    : ''}
+                </Text>
               </View>
             </View>
             <View style={styles.infoItem}>
@@ -343,6 +350,15 @@ export default function VisiteDetailScreen() {
               )}
             </View>
           </View>
+
+          {visite.reserveDeadlineDate && (
+            <View style={styles.deadlineBox}>
+              <Ionicons name="time-outline" size={13} color={C.inProgress} />
+              <Text style={styles.deadlineBoxText}>
+                Délai de levée des réserves : <Text style={{ fontFamily: 'Inter_600SemiBold' }}>{visite.reserveDeadlineDate}</Text>
+              </Text>
+            </View>
+          )}
 
           {visite.notes ? (
             <View style={styles.notesBox}>
@@ -597,6 +613,8 @@ const styles = StyleSheet.create({
   infoLabel: { fontSize: 10, fontFamily: 'Inter_500Medium', color: C.textMuted, textTransform: 'uppercase', letterSpacing: 0.4 },
   infoVal: { fontSize: 14, fontFamily: 'Inter_500Medium', color: C.text },
 
+  deadlineBox: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 10, backgroundColor: C.inProgress + '12', borderRadius: 8, padding: 10, borderWidth: 1, borderColor: C.inProgress + '30' },
+  deadlineBoxText: { flex: 1, fontSize: 12, fontFamily: 'Inter_400Regular', color: C.inProgress, lineHeight: 16 },
   notesBox: { marginTop: 12, backgroundColor: C.bg, borderRadius: 10, padding: 12, borderLeftWidth: 3, borderLeftColor: C.primary },
   notesLabel: { fontSize: 10, fontFamily: 'Inter_600SemiBold', color: C.textSub, textTransform: 'uppercase', letterSpacing: 0.4, marginBottom: 4 },
   notesText: { fontSize: 13, fontFamily: 'Inter_400Regular', color: C.text, lineHeight: 20 },

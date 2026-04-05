@@ -3,7 +3,7 @@ import {
   Alert, ActivityIndicator, KeyboardAvoidingView, Platform,
 } from 'react-native';
 import { useRouter } from 'expo-router';
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useMemo } from 'react';
 import { Ionicons } from '@expo/vector-icons';
 import { C } from '@/constants/colors';
 import { useApp } from '@/context/AppContext';
@@ -14,17 +14,17 @@ import DateInput from '@/components/DateInput';
 import { genId, formatDateFR } from '@/lib/utils';
 import LocationPicker from '@/components/LocationPicker';
 
-// ─── Types ───────────────────────────────────────────────────────────────────
+// ─── Constants ────────────────────────────────────────────────────────────────
 
 type Recurrence = 'none' | 'weekly' | 'bimonthly';
 
 const VISIT_TYPES: { value: VisiteType; label: string; icon: string; color: string }[] = [
-  { value: 'controle',  label: 'Contrôle',  icon: 'clipboard-outline',       color: '#6366F1' },
-  { value: 'opr',       label: 'OPR',        icon: 'document-text-outline',   color: '#F59E0B' },
-  { value: 'securite',  label: 'Sécurité',   icon: 'shield-outline',          color: '#EF4444' },
-  { value: 'reception', label: 'Réception',  icon: 'ribbon-outline',          color: '#10B981' },
-  { value: 'synthese',  label: 'Synthèse',   icon: 'people-outline',          color: '#3B82F6' },
-  { value: 'autre',     label: 'Autre',      icon: 'ellipsis-horizontal-outline', color: '#6B7280' },
+  { value: 'controle',  label: 'Contrôle',  icon: 'clipboard-outline',           color: '#6366F1' },
+  { value: 'opr',       label: 'OPR',        icon: 'document-text-outline',       color: '#F59E0B' },
+  { value: 'securite',  label: 'Sécurité',   icon: 'shield-outline',              color: '#EF4444' },
+  { value: 'reception', label: 'Réception',  icon: 'ribbon-outline',              color: '#10B981' },
+  { value: 'synthese',  label: 'Synthèse',   icon: 'people-outline',              color: '#3B82F6' },
+  { value: 'autre',     label: 'Autre',       icon: 'ellipsis-horizontal-outline', color: '#6B7280' },
 ];
 
 const RECURRENCE_OPTIONS: { value: Recurrence; label: string; desc: string }[] = [
@@ -39,7 +39,15 @@ const STATUS_OPTIONS: { value: VisiteStatus; label: string; color: string }[] = 
   { value: 'completed',   label: 'Terminée',  color: C.closed },
 ];
 
-// ─── Helpers ─────────────────────────────────────────────────────────────────
+// Quick deadline suggestions relative to today
+const DEADLINE_SUGGESTIONS: { label: string; days: number }[] = [
+  { label: '7 j',   days: 7 },
+  { label: '15 j',  days: 15 },
+  { label: '30 j',  days: 30 },
+  { label: '60 j',  days: 60 },
+];
+
+// ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function getISOWeek(d: Date): number {
   const date = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
@@ -71,51 +79,78 @@ function autoTitle(visitType: VisiteType | null, dateStr: string): string {
   return `${typeCfg.label} — S${week}`;
 }
 
+/** Format a time string to HH:MM as user types */
+function formatTimeInput(raw: string): string {
+  const digits = raw.replace(/\D/g, '').slice(0, 4);
+  if (digits.length <= 2) return digits;
+  return digits.slice(0, 2) + ':' + digits.slice(2);
+}
+
+function initials(name: string): string {
+  return name.split(' ').map(w => w[0] ?? '').join('').toUpperCase().slice(0, 2);
+}
+
 // ─── Screen ──────────────────────────────────────────────────────────────────
 
 export default function NewVisiteScreen() {
   const router = useRouter();
   const { addVisite, activeChantierId, activeChantier, companies } = useApp();
-  const { user, permissions } = useAuth();
+  const { user, permissions, users } = useAuth();
 
-  const [visitType, setVisitType] = useState<VisiteType | null>(null);
-  const [title, setTitle] = useState('');
+  // General
+  const [visitType, setVisitType]   = useState<VisiteType | null>(null);
+  const [title, setTitle]           = useState('');
   const [titleEdited, setTitleEdited] = useState(false);
-  const [date, setDate] = useState(formatDateFR(new Date()));
+  const [date, setDate]             = useState(formatDateFR(new Date()));
+  const [startTime, setStartTime]   = useState('');
+  const [endTime, setEndTime]       = useState('');
   const [conducteur, setConducteur] = useState(user?.name ?? '');
-  const [status, setStatus] = useState<VisiteStatus>('planned');
+  const [status, setStatus]         = useState<VisiteStatus>('planned');
+
+  // Location
   const [building, setBuilding] = useState('');
-  const [level, setLevel] = useState('');
-  const [zone, setZone] = useState('');
-  const [notes, setNotes] = useState('');
+  const [level, setLevel]       = useState('');
+  const [zone, setZone]         = useState('');
+
+  // Concerned companies
+  const [concernedCompanyIds, setConcernedCompanyIds] = useState<string[]>([]);
+
+  // Reserve deadline
+  const [reserveDeadlineDate, setReserveDeadlineDate] = useState('');
+
+  // Notes & recurrence
+  const [notes, setNotes]           = useState('');
   const [recurrence, setRecurrence] = useState<Recurrence>('none');
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  // Concerned companies (multi-select)
-  const [concernedCompanyIds, setConcernedCompanyIds] = useState<string[]>([]);
-
   // Participants
-  const [participants, setParticipants] = useState<VisiteParticipant[]>([]);
-  const [newParticipantName, setNewParticipantName] = useState('');
-  const [newParticipantRole, setNewParticipantRole] = useState('');
+  const [participants, setParticipants]                   = useState<VisiteParticipant[]>([]);
+  const [newParticipantName, setNewParticipantName]       = useState('');
+  const [newParticipantRole, setNewParticipantRole]       = useState('');
   const [newParticipantCompanyId, setNewParticipantCompanyId] = useState<string | null>(null);
   const [newParticipantCompanyFree, setNewParticipantCompanyFree] = useState('');
 
   const hasCompanies = companies.length > 0;
 
-  // Auto-suggest title when visit type or date changes (only if user hasn't edited manually)
+  // Team members available for quick-add (exclude already added)
+  const teamMembers = useMemo(() =>
+    users.filter(u =>
+      u.id !== user?.id &&
+      !participants.some(p => p.name === u.name)
+    ),
+    [users, user, participants]
+  );
+
+  // ── Auto-suggest title ──────────────────────────────────────────────────────
+
   const handleVisitTypeChange = useCallback((t: VisiteType) => {
     setVisitType(t);
-    if (!titleEdited) {
-      setTitle(autoTitle(t, date));
-    }
+    if (!titleEdited) setTitle(autoTitle(t, date));
   }, [titleEdited, date]);
 
   const handleDateChange = useCallback((d: string) => {
     setDate(d);
-    if (!titleEdited && visitType) {
-      setTitle(autoTitle(visitType, d));
-    }
+    if (!titleEdited && visitType) setTitle(autoTitle(visitType, d));
   }, [titleEdited, visitType]);
 
   const handleTitleChange = useCallback((t: string) => {
@@ -125,35 +160,40 @@ export default function NewVisiteScreen() {
 
   function applySuggestedTitle() {
     if (visitType) {
-      const suggested = autoTitle(visitType, date);
-      setTitle(suggested);
+      setTitle(autoTitle(visitType, date));
       setTitleEdited(false);
     }
   }
 
-  // Concerned companies toggle
+  // ── Companies ───────────────────────────────────────────────────────────────
+
   function toggleConcernedCompany(id: string) {
     setConcernedCompanyIds(prev =>
       prev.includes(id) ? prev.filter(c => c !== id) : [...prev, id]
     );
   }
 
-  // Participants
+  // ── Deadline quick-select ───────────────────────────────────────────────────
+
+  function applyDeadlineSuggestion(days: number) {
+    setReserveDeadlineDate(addDays(new Date(), days));
+  }
+
+  // ── Participants ────────────────────────────────────────────────────────────
+
   function resolveParticipantCompany(): string {
     if (hasCompanies && newParticipantCompanyId) {
-      const co = companies.find(c => c.id === newParticipantCompanyId);
-      return co?.name ?? '';
+      return companies.find(c => c.id === newParticipantCompanyId)?.name ?? '';
     }
     return newParticipantCompanyFree.trim();
   }
 
   function addParticipant() {
     if (!newParticipantName.trim()) return;
-    const companyName = resolveParticipantCompany();
     const p: VisiteParticipant = {
       id: genId(),
       name: newParticipantName.trim(),
-      company: companyName,
+      company: resolveParticipantCompany(),
       role: newParticipantRole.trim() || undefined,
     };
     setParticipants(prev => [...prev, p]);
@@ -163,11 +203,25 @@ export default function NewVisiteScreen() {
     setNewParticipantCompanyFree('');
   }
 
+  /** Quick-add a team member from the org */
+  function quickAddTeamMember(memberId: string) {
+    const member = users.find(u => u.id === memberId);
+    if (!member) return;
+    const co = member.companyId ? companies.find(c => c.id === member.companyId) : undefined;
+    setParticipants(prev => [...prev, {
+      id: genId(),
+      name: member.name,
+      company: co?.name ?? '',
+      role: member.roleLabel,
+    }]);
+  }
+
   function removeParticipant(id: string) {
     setParticipants(prev => prev.filter(p => p.id !== id));
   }
 
-  // Submit
+  // ── Submit ──────────────────────────────────────────────────────────────────
+
   function handleSubmit() {
     if (!title.trim()) {
       Alert.alert('Champ requis', 'Veuillez saisir un titre pour la visite.');
@@ -179,9 +233,9 @@ export default function NewVisiteScreen() {
     }
     setIsSubmitting(true);
 
-    const today = formatDateFR(new Date());
+    const today         = formatDateFR(new Date());
     const conducteurName = conducteur.trim() || (user?.name ?? 'Équipe BuildTrack');
-    const baseDate = parseDateFR(date);
+    const baseDate      = parseDateFR(date);
 
     const intervals: number[] =
       recurrence === 'weekly'    ? [0, 7, 14, 21] :
@@ -189,7 +243,7 @@ export default function NewVisiteScreen() {
       [0];
 
     intervals.forEach((offsetDays, idx) => {
-      const visitDate = offsetDays === 0 ? date : addDays(baseDate, offsetDays);
+      const visitDate  = offsetDays === 0 ? date : addDays(baseDate, offsetDays);
       const visitTitle = recurrence !== 'none'
         ? `${title.trim()} — S${idx + 1}`
         : title.trim();
@@ -199,6 +253,8 @@ export default function NewVisiteScreen() {
         chantierId: activeChantierId ?? 'chan1',
         title: visitTitle,
         date: visitDate,
+        startTime: startTime.trim() || undefined,
+        endTime: endTime.trim() || undefined,
         conducteur: conducteurName,
         status: idx === 0 ? status : 'planned',
         visitType: visitType ?? undefined,
@@ -207,6 +263,7 @@ export default function NewVisiteScreen() {
         level: level || undefined,
         zone: zone || undefined,
         notes: notes.trim() || undefined,
+        reserveDeadlineDate: reserveDeadlineDate.trim() || undefined,
         reserveIds: [],
         participants: participants.length > 0 ? participants : undefined,
         createdAt: today,
@@ -224,6 +281,8 @@ export default function NewVisiteScreen() {
     );
   }
 
+  // ── Guard ───────────────────────────────────────────────────────────────────
+
   if (!permissions.canCreate) {
     return (
       <View style={{ flex: 1, backgroundColor: C.bg, alignItems: 'center', justifyContent: 'center', padding: 32 }}>
@@ -237,18 +296,23 @@ export default function NewVisiteScreen() {
     );
   }
 
-  const suggestedTitle = visitType ? autoTitle(visitType, date) : '';
-  const showSuggestBtn = visitType && title !== suggestedTitle && !!suggestedTitle;
+  const suggestedTitle  = visitType ? autoTitle(visitType, date) : '';
+  const showSuggestBtn  = visitType && title !== suggestedTitle && !!suggestedTitle;
+
+  // ── Render ──────────────────────────────────────────────────────────────────
 
   return (
-    // Fix critique : sur web, behavior=undefined pour éviter l'écrasement à zéro hauteur
     <KeyboardAvoidingView
       style={styles.container}
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
     >
       <Header title="Nouvelle visite" subtitle={activeChantier?.name ?? ''} showBack />
 
-      <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
+      <ScrollView
+        contentContainerStyle={styles.content}
+        showsVerticalScrollIndicator={false}
+        keyboardShouldPersistTaps="handled"
+      >
 
         {/* ── TYPE DE VISITE ── */}
         <View style={styles.card}>
@@ -278,6 +342,7 @@ export default function NewVisiteScreen() {
         <View style={styles.card}>
           <Text style={styles.sectionLabel}>INFORMATIONS GÉNÉRALES</Text>
 
+          {/* Titre */}
           <Text style={styles.label}>Titre de la visite *</Text>
           <View style={styles.titleRow}>
             <TextInput
@@ -300,7 +365,8 @@ export default function NewVisiteScreen() {
             </TouchableOpacity>
           )}
 
-          <Text style={styles.label}>Conducteur</Text>
+          {/* Conducteur */}
+          <Text style={styles.label}>Conducteur de travaux</Text>
           <TextInput
             style={styles.input}
             placeholder="Nom du responsable"
@@ -309,9 +375,39 @@ export default function NewVisiteScreen() {
             onChangeText={setConducteur}
           />
 
-          <Text style={styles.label}>Date</Text>
-          <DateInput value={date} onChange={handleDateChange} />
+          {/* Date + Heures sur la même ligne */}
+          <View style={styles.dateTimeRow}>
+            <View style={{ flex: 2 }}>
+              <Text style={styles.label}>Date</Text>
+              <DateInput value={date} onChange={handleDateChange} />
+            </View>
+            <View style={styles.timeBlock}>
+              <Text style={styles.label}>Début</Text>
+              <TextInput
+                style={[styles.input, styles.timeInput]}
+                placeholder="08:00"
+                placeholderTextColor={C.textMuted}
+                value={startTime}
+                onChangeText={v => setStartTime(formatTimeInput(v))}
+                keyboardType="numeric"
+                maxLength={5}
+              />
+            </View>
+            <View style={styles.timeBlock}>
+              <Text style={styles.label}>Fin</Text>
+              <TextInput
+                style={[styles.input, styles.timeInput]}
+                placeholder="10:00"
+                placeholderTextColor={C.textMuted}
+                value={endTime}
+                onChangeText={v => setEndTime(formatTimeInput(v))}
+                keyboardType="numeric"
+                maxLength={5}
+              />
+            </View>
+          </View>
 
+          {/* Statut */}
           <Text style={[styles.label, { marginTop: 4 }]}>Statut initial</Text>
           <View style={styles.statusRow}>
             {STATUS_OPTIONS.map(opt => (
@@ -344,17 +440,14 @@ export default function NewVisiteScreen() {
         {hasCompanies && (
           <View style={styles.card}>
             <Text style={styles.sectionLabel}>ENTREPRISES CONCERNÉES</Text>
-            <Text style={styles.sublabel}>Sélectionnez les entreprises inspectées lors de cette visite</Text>
+            <Text style={styles.sublabel}>Entreprises inspectées lors de cette visite</Text>
             <View style={styles.companyGrid}>
               {companies.map(co => {
                 const selected = concernedCompanyIds.includes(co.id);
                 return (
                   <TouchableOpacity
                     key={co.id}
-                    style={[
-                      styles.companyChip,
-                      selected && { borderColor: co.color, backgroundColor: co.color + '18' },
-                    ]}
+                    style={[styles.companyChip, selected && { borderColor: co.color, backgroundColor: co.color + '18' }]}
                     onPress={() => toggleConcernedCompany(co.id)}
                     activeOpacity={0.75}
                   >
@@ -368,21 +461,72 @@ export default function NewVisiteScreen() {
               })}
             </View>
             {concernedCompanyIds.length > 0 && (
-              <Text style={styles.companyCount}>
+              <Text style={styles.selectionCount}>
                 {concernedCompanyIds.length} entreprise{concernedCompanyIds.length > 1 ? 's' : ''} sélectionnée{concernedCompanyIds.length > 1 ? 's' : ''}
               </Text>
             )}
           </View>
         )}
 
+        {/* ── DEADLINE DE LEVÉE DES RÉSERVES ── */}
+        <View style={styles.card}>
+          <Text style={styles.sectionLabel}>DÉLAI DE LEVÉE DES RÉSERVES</Text>
+          <Text style={styles.sublabel}>
+            Date limite cible pour que les entreprises lèvent les réserves relevées lors de cette visite
+          </Text>
+
+          {/* Quick suggestions */}
+          <View style={styles.deadlineRow}>
+            {DEADLINE_SUGGESTIONS.map(s => {
+              const suggested = addDays(new Date(), s.days);
+              const active = reserveDeadlineDate === suggested;
+              return (
+                <TouchableOpacity
+                  key={s.days}
+                  style={[styles.deadlineChip, active && styles.deadlineChipActive]}
+                  onPress={() => setReserveDeadlineDate(active ? '' : suggested)}
+                >
+                  <Text style={[styles.deadlineChipText, active && styles.deadlineChipTextActive]}>
+                    {s.label}
+                  </Text>
+                </TouchableOpacity>
+              );
+            })}
+            {reserveDeadlineDate ? (
+              <TouchableOpacity
+                style={styles.deadlineClearBtn}
+                onPress={() => setReserveDeadlineDate('')}
+              >
+                <Ionicons name="close-circle-outline" size={16} color={C.textMuted} />
+              </TouchableOpacity>
+            ) : null}
+          </View>
+
+          {/* Or pick exact date */}
+          <Text style={[styles.label, { marginTop: 8 }]}>
+            {reserveDeadlineDate ? `Échéance : ${reserveDeadlineDate}` : 'Ou saisir une date précise'}
+          </Text>
+          <DateInput value={reserveDeadlineDate} onChange={setReserveDeadlineDate} />
+
+          {reserveDeadlineDate ? (
+            <View style={styles.deadlineHint}>
+              <Ionicons name="time-outline" size={13} color={C.inProgress} />
+              <Text style={styles.deadlineHintText}>
+                Les réserves créées depuis cette visite auront cette deadline par défaut.
+              </Text>
+            </View>
+          ) : null}
+        </View>
+
         {/* ── PARTICIPANTS ── */}
         <View style={styles.card}>
           <Text style={styles.sectionLabel}>PARTICIPANTS ({participants.length})</Text>
 
+          {/* Added participants list */}
           {participants.map(p => (
             <View key={p.id} style={styles.participantRow}>
               <View style={styles.participantAvatar}>
-                <Text style={styles.participantAvatarText}>{p.name.charAt(0).toUpperCase()}</Text>
+                <Text style={styles.participantAvatarText}>{initials(p.name)}</Text>
               </View>
               <View style={{ flex: 1 }}>
                 <Text style={styles.participantName}>{p.name}</Text>
@@ -396,7 +540,39 @@ export default function NewVisiteScreen() {
             </View>
           ))}
 
-          <View style={[styles.addParticipantForm, participants.length > 0 && { marginTop: 14 }]}>
+          {/* Quick-add from team */}
+          {teamMembers.length > 0 && (
+            <View style={[styles.teamSection, participants.length > 0 && { marginTop: 12 }]}>
+              <Text style={styles.teamLabel}>
+                <Ionicons name="people-outline" size={12} color={C.textMuted} />
+                {'  '}Ajout rapide depuis l'équipe
+              </Text>
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginTop: 6 }}>
+                <View style={styles.chipRow}>
+                  {teamMembers.map(member => (
+                    <TouchableOpacity
+                      key={member.id}
+                      style={styles.teamMemberChip}
+                      onPress={() => quickAddTeamMember(member.id)}
+                    >
+                      <View style={styles.teamMemberAvatar}>
+                        <Text style={styles.teamMemberAvatarText}>{initials(member.name)}</Text>
+                      </View>
+                      <View>
+                        <Text style={styles.teamMemberName}>{member.name}</Text>
+                        <Text style={styles.teamMemberRole}>{member.roleLabel}</Text>
+                      </View>
+                      <Ionicons name="add" size={14} color={C.primary} style={{ marginLeft: 4 }} />
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              </ScrollView>
+              <View style={styles.divider} />
+            </View>
+          )}
+
+          {/* Manual add form */}
+          <View style={{ marginTop: participants.length > 0 || teamMembers.length > 0 ? 8 : 0 }}>
             <TextInput
               style={[styles.input, { marginBottom: 8 }]}
               placeholder="Nom du participant *"
@@ -416,7 +592,6 @@ export default function NewVisiteScreen() {
             {hasCompanies ? (
               <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 8 }}>
                 <View style={styles.chipRow}>
-                  {/* "Aucune" option */}
                   <TouchableOpacity
                     style={[styles.chip, newParticipantCompanyId === null && newParticipantCompanyFree === '' && styles.chipActive]}
                     onPress={() => { setNewParticipantCompanyId(null); setNewParticipantCompanyFree(''); }}
@@ -440,7 +615,6 @@ export default function NewVisiteScreen() {
                       </TouchableOpacity>
                     );
                   })}
-                  {/* "Autre" option for free text */}
                   <TouchableOpacity
                     style={[styles.chip, newParticipantCompanyFree !== '' && styles.chipActive]}
                     onPress={() => { setNewParticipantCompanyId(null); setNewParticipantCompanyFree(' '); }}
@@ -470,17 +644,17 @@ export default function NewVisiteScreen() {
               disabled={!newParticipantName.trim()}
             >
               <Ionicons name="person-add-outline" size={14} color="#fff" />
-              <Text style={styles.addParticipantBtnText}>Ajouter</Text>
+              <Text style={styles.addParticipantBtnText}>Ajouter manuellement</Text>
             </TouchableOpacity>
           </View>
         </View>
 
         {/* ── NOTES ── */}
         <View style={styles.card}>
-          <Text style={styles.sectionLabel}>NOTES</Text>
+          <Text style={styles.sectionLabel}>NOTES & OBJECTIFS</Text>
           <TextInput
             style={[styles.input, styles.textArea]}
-            placeholder="Objectif de la visite, points à contrôler..."
+            placeholder="Objectif de la visite, points particuliers à contrôler, consignes de sécurité..."
             placeholderTextColor={C.textMuted}
             value={notes}
             onChangeText={setNotes}
@@ -513,14 +687,46 @@ export default function NewVisiteScreen() {
             <View style={styles.recurrenceHint}>
               <Ionicons name="repeat-outline" size={13} color={C.inProgress} />
               <Text style={styles.recurrenceHintText}>
-                {recurrence === 'weekly'
-                  ? '4 visites hebdomadaires'
-                  : '4 visites (toutes les 2 semaines)'
-                } seront créées à partir du {date}.
+                {recurrence === 'weekly' ? '4 visites hebdomadaires' : '4 visites (toutes les 2 semaines)'} seront créées à partir du {date}.
               </Text>
             </View>
           )}
         </View>
+
+        {/* ── RÉSUMÉ AVANT VALIDATION ── */}
+        {(title.trim() || visitType || participants.length > 0) && (
+          <View style={styles.summaryCard}>
+            <Text style={styles.summaryTitle}>
+              <Ionicons name="checkmark-circle-outline" size={14} color={C.primary} />
+              {'  '}Résumé
+            </Text>
+            {visitType && <Text style={styles.summaryLine}>Type : {VISIT_TYPES.find(t => t.value === visitType)?.label}</Text>}
+            {title.trim() && <Text style={styles.summaryLine}>Titre : {title.trim()}</Text>}
+            {(startTime || endTime) && (
+              <Text style={styles.summaryLine}>
+                Horaire : {startTime || '—'} → {endTime || '—'}
+              </Text>
+            )}
+            {(building || level) && (
+              <Text style={styles.summaryLine}>
+                Lieu : {[building, level, zone].filter(Boolean).join(' — ')}
+              </Text>
+            )}
+            {participants.length > 0 && (
+              <Text style={styles.summaryLine}>
+                {participants.length} participant{participants.length > 1 ? 's' : ''} : {participants.map(p => p.name).join(', ')}
+              </Text>
+            )}
+            {reserveDeadlineDate && (
+              <Text style={styles.summaryLine}>Délai levée : {reserveDeadlineDate}</Text>
+            )}
+            {recurrence !== 'none' && (
+              <Text style={styles.summaryLine}>
+                Récurrence : {recurrence === 'weekly' ? '4 semaines' : '4 × toutes les 2 semaines'}
+              </Text>
+            )}
+          </View>
+        )}
 
         {/* ── SUBMIT ── */}
         <TouchableOpacity
@@ -574,18 +780,15 @@ const styles = StyleSheet.create({
   },
   typeChipText: { fontSize: 12, fontFamily: 'Inter_400Regular', color: C.textSub },
 
-  // Title
-  titleRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 0 },
+  // Title + suggest
+  titleRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   titleInput: { flex: 1, marginBottom: 0 },
   suggestBtn: {
     width: 38, height: 38, borderRadius: 10, borderWidth: 1,
     borderColor: C.primary + '40', backgroundColor: C.primaryBg,
-    alignItems: 'center', justifyContent: 'center',
+    alignItems: 'center', justifyContent: 'center', flexShrink: 0,
   },
-  suggestHint: {
-    flexDirection: 'row', alignItems: 'center', gap: 4,
-    marginBottom: 12, marginTop: 6,
-  },
+  suggestHint: { flexDirection: 'row', alignItems: 'center', gap: 4, marginBottom: 12, marginTop: 6 },
   suggestHintText: { fontSize: 11, fontFamily: 'Inter_400Regular', color: C.primary },
 
   input: {
@@ -595,6 +798,12 @@ const styles = StyleSheet.create({
   },
   textArea: { height: 90, paddingTop: 10 },
 
+  // Date + time row
+  dateTimeRow: { flexDirection: 'row', gap: 8, alignItems: 'flex-start' },
+  timeBlock: { flex: 1 },
+  timeInput: { textAlign: 'center', letterSpacing: 1 },
+
+  // Status
   statusRow: { flexDirection: 'row', gap: 10 },
   statusChip: {
     flex: 1, paddingVertical: 10, borderRadius: 10, borderWidth: 1,
@@ -611,10 +820,27 @@ const styles = StyleSheet.create({
   },
   companyDot: { width: 8, height: 8, borderRadius: 4 },
   companyChipText: { fontSize: 12, fontFamily: 'Inter_400Regular', color: C.textSub },
-  companyCount: {
+  selectionCount: {
     marginTop: 10, fontSize: 11, fontFamily: 'Inter_400Regular',
     color: C.textMuted, textAlign: 'right',
   },
+
+  // Deadline
+  deadlineRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 8, flexWrap: 'wrap' },
+  deadlineChip: {
+    paddingHorizontal: 14, paddingVertical: 7, borderRadius: 20,
+    borderWidth: 1, borderColor: C.border, backgroundColor: C.surface2,
+  },
+  deadlineChipActive: { borderColor: C.inProgress, backgroundColor: C.inProgress + '15' },
+  deadlineChipText: { fontSize: 12, fontFamily: 'Inter_500Medium', color: C.textSub },
+  deadlineChipTextActive: { color: C.inProgress, fontFamily: 'Inter_600SemiBold' },
+  deadlineClearBtn: { padding: 4 },
+  deadlineHint: {
+    flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 4,
+    backgroundColor: C.inProgress + '12', borderRadius: 8, padding: 10,
+    borderWidth: 1, borderColor: C.inProgress + '30',
+  },
+  deadlineHintText: { flex: 1, fontSize: 12, fontFamily: 'Inter_400Regular', color: C.inProgress, lineHeight: 16 },
 
   // Participants
   participantRow: {
@@ -622,14 +848,32 @@ const styles = StyleSheet.create({
     paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: C.border,
   },
   participantAvatar: {
-    width: 32, height: 32, borderRadius: 16,
+    width: 34, height: 34, borderRadius: 17,
     backgroundColor: C.primaryBg, alignItems: 'center', justifyContent: 'center',
   },
-  participantAvatarText: { fontSize: 14, fontFamily: 'Inter_700Bold', color: C.primary },
+  participantAvatarText: { fontSize: 13, fontFamily: 'Inter_700Bold', color: C.primary },
   participantName: { fontSize: 13, fontFamily: 'Inter_600SemiBold', color: C.text },
   participantMeta: { fontSize: 11, fontFamily: 'Inter_400Regular', color: C.textMuted, marginTop: 1 },
 
-  addParticipantForm: {},
+  // Team quick-add
+  teamSection: {},
+  teamLabel: { fontSize: 11, fontFamily: 'Inter_500Medium', color: C.textMuted },
+  teamMemberChip: {
+    flexDirection: 'row', alignItems: 'center', gap: 8,
+    paddingHorizontal: 10, paddingVertical: 7, borderRadius: 10,
+    borderWidth: 1, borderColor: C.border, backgroundColor: C.surface2,
+    marginRight: 8,
+  },
+  teamMemberAvatar: {
+    width: 28, height: 28, borderRadius: 14,
+    backgroundColor: C.primary + '20', alignItems: 'center', justifyContent: 'center',
+  },
+  teamMemberAvatarText: { fontSize: 11, fontFamily: 'Inter_700Bold', color: C.primary },
+  teamMemberName: { fontSize: 12, fontFamily: 'Inter_600SemiBold', color: C.text },
+  teamMemberRole: { fontSize: 10, fontFamily: 'Inter_400Regular', color: C.textMuted },
+  divider: { height: 1, backgroundColor: C.border, marginVertical: 12 },
+
+  // Chips
   chipRow: { flexDirection: 'row', gap: 6, paddingVertical: 2 },
   chip: {
     flexDirection: 'row', alignItems: 'center', gap: 5,
@@ -642,8 +886,7 @@ const styles = StyleSheet.create({
 
   addParticipantBtn: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
-    gap: 6, backgroundColor: C.primary, borderRadius: 10, paddingVertical: 10,
-    marginTop: 4,
+    gap: 6, backgroundColor: C.primary, borderRadius: 10, paddingVertical: 10, marginTop: 4,
   },
   addParticipantBtnText: { fontSize: 13, fontFamily: 'Inter_600SemiBold', color: '#fff' },
 
@@ -661,6 +904,14 @@ const styles = StyleSheet.create({
     borderWidth: 1, borderColor: C.inProgress + '30',
   },
   recurrenceHintText: { flex: 1, fontSize: 12, fontFamily: 'Inter_400Regular', color: C.inProgress, lineHeight: 16 },
+
+  // Summary card
+  summaryCard: {
+    backgroundColor: C.primaryBg, borderRadius: 14, padding: 14,
+    borderWidth: 1, borderColor: C.primary + '30', marginBottom: 16,
+  },
+  summaryTitle: { fontSize: 12, fontFamily: 'Inter_600SemiBold', color: C.primary, marginBottom: 8 },
+  summaryLine: { fontSize: 12, fontFamily: 'Inter_400Regular', color: C.text, lineHeight: 20, marginBottom: 2 },
 
   // Submit
   submitBtn: {

@@ -175,6 +175,8 @@ export interface Visite {
   chantierId: string;
   title: string;
   date: string;
+  startTime?: string;
+  endTime?: string;
   conducteur: string;
   status: VisiteStatus;
   visitType?: VisiteType;
@@ -183,6 +185,7 @@ export interface Visite {
   level?: string;
   zone?: string;
   notes?: string;
+  reserveDeadlineDate?: string;
   reserveIds: string[];
   createdAt: string;
   conducteurSignature?: string;
