@@ -1,92 +1,47 @@
-# BuildTrack — Replit Project Documentation
+# BuildTrack — Gestion de chantier numérique
 
 ## Overview
-BuildTrack is a construction site management application built with **Expo / React Native** targeting web (via Metro bundler) and mobile (iOS/Android via EAS). It is written in TypeScript and uses **Supabase** as its backend (auth, database, realtime, storage).
+BuildTrack is a construction site management app built with **Expo (React Native)** targeting both mobile and web. It uses **Supabase** as its backend (authentication, PostgreSQL database, Realtime).
 
 ## Architecture
-
-- **Framework:** Expo SDK 53, React Native 0.79, Expo Router v5 (file-based routing)
+- **Framework:** Expo SDK 53 + React Native 0.79 with Expo Router (file-based navigation)
+- **Backend:** Supabase (auth, database, realtime, storage) — connected directly from the client
+- **State Management:** React Context API with useReducer
 - **Language:** TypeScript 5.8
-- **Backend:** Supabase (PostgreSQL with RLS, Auth, Realtime, Storage)
-- **Navigation:** Expo Router — file-based, similar to Next.js pages
-- **State:** React Context providers (Auth, App, Settings, Incidents, Pointage, Network, Notifications, Subscription)
-- **Offline:** AsyncStorage caching for working on sites with poor connectivity
-- **Message loading:** Lazy per-channel — messages are fetched only when a channel is opened (`fetchChannelMessages`), not at startup. This scales to any number of channels without startup latency.
+- **Local persistence:** AsyncStorage (offline cache fallback)
 
-## Key Directories
+## Key Configuration
+- **Start command:** `npm start` → runs `expo start --web --localhost --port 5000`
+- **Port:** 5000
+- **Secrets required:**
+  - `EXPO_PUBLIC_SUPABASE_URL` — Supabase project URL
+  - `EXPO_PUBLIC_SUPABASE_KEY` — Supabase anon/public key
 
-| Path | Purpose |
-|------|---------|
-| `app/` | All screens and routing (Expo Router) |
-| `app/(tabs)/` | Main tab navigation (Dashboard, Team, Reserves, Plans, Messages, etc.) |
-| `components/` | Reusable UI components |
-| `context/` | React Context providers (global state) |
-| `lib/` | Utilities: Supabase client, storage helpers, PDF tools |
-| `assets/` | Fonts, images |
-| `supabase/migrations/` | SQL migration files for Supabase (apply in Supabase SQL Editor) |
-| `scripts/` | Build/patch scripts |
-
-## Environment Variables
-
-| Variable | Description | Where Set |
-|----------|-------------|-----------|
-| `EXPO_PUBLIC_SUPABASE_URL` | Supabase project URL | Replit shared env vars |
-| `EXPO_PUBLIC_SUPABASE_KEY` | Supabase anonymous key | Replit shared env vars |
-
-## Migrations Supabase à appliquer
-
-Les migrations dans `supabase/migrations/` doivent être appliquées manuellement dans l'éditeur SQL Supabase (Dashboard → SQL Editor). Les plus récentes :
-
-| Fichier | Contenu |
-|---------|---------|
-| `20260414_fix_messages_created_at.sql` | Ajoute `created_at TIMESTAMPTZ` aux messages + index pour pagination cursor-based |
-| `20260414_fix_dm_rls_unique_name.sql` | Fix pattern LIKE DM (métacaractères SQL) via `string_to_array` + contrainte UNIQUE sur `profiles.name` |
-| `20260406_fix_messages_rls_company_null_org.sql` | **Sécurité** : supprime `OR co.organization_id IS NULL` dans la RLS des canaux company virtuels — les utilisateurs d'une org ne peuvent plus lire/écrire dans les canaux d'entreprises sans org assignée. **Avant d'appliquer** : backfiller les entreprises avec `organization_id IS NULL` (`UPDATE companies SET organization_id = '<ORG_ID>' WHERE organization_id IS NULL`). |
-
-## Corrections appliquées (audit Messages 2026-04-06)
-
-Trois bugs corrigés dans `context/AppContext.tsx` :
-
-1. **Badges non-lus (timezone)** — `unreadByChannel` utilise désormais `m.dbCreatedAt` (ISO UTC de Supabase) à la place du timestamp FR local (`m.timestamp`) pour comparer avec `lastRead`. Cela évite les faux badges positifs/négatifs en fuseau non-UTC (ex. Europe/Paris UTC+2).
-
-2. **`mark_messages_read_by` — limite 100 messages** — La fonction `setChannelRead` envoie désormais le RPC en batchs de 100 au lieu de tronquer la liste. Un utilisateur absent longtemps avec 200+ messages non-lus verra maintenant tous ses messages correctement marqués "lu" côté serveur.
-
-3. **RLS canaux company virtuels** — Nouvelle migration `20260406_fix_messages_rls_company_null_org.sql` qui remplace la policy trop permissive (`OR co.organization_id IS NULL`) par une vérification stricte de l'organisation.
-
-## Running the App
-
-The app runs via the **Start Frontend** workflow which executes:
+## Project Structure
 ```
-npm start
+app/                  # Expo Router screens & navigation
+  (tabs)/             # Bottom tab navigation (Dashboard, Plans, Reserves, Messages, Terrain)
+  [feature]/[id].tsx  # Dynamic feature screens
+components/           # Reusable UI components
+context/              # Global state providers (AppContext, AuthContext, etc.)
+lib/                  # Supabase client, utilities, schema
+supabase/migrations/  # SQL migration files for Supabase
+scripts/              # Build scripts (patch-expo-cors.js for Replit compatibility)
+assets/               # Fonts, images
 ```
-This starts the Expo Metro bundler on port 5000 in web mode with `--localhost` mode for Replit proxy compatibility. The Replit preview pane shows the web version.
 
-A CORS patch (`scripts/patch-expo-cors.js`) is applied automatically via `postinstall` to allow Replit's proxy domains (`.replit.dev`, `.repl.co`) to communicate with the Metro dev server.
+## Replit Compatibility
+- `scripts/patch-expo-cors.js` — patches Expo's CORS middleware to allow Replit proxy domains (`.replit.dev`, `.repl.co`). Runs automatically via `postinstall`.
+- The app has a Demo Mode (falls back to mock data if Supabase credentials are missing).
 
-### Replit Migration Notes
-- The `--localhost` flag was added to the start script so Metro binds correctly through Replit's proxy
-- The CORS patch in `scripts/patch-expo-cors.js` is applied during `npm install` (postinstall hook)
-- Supabase credentials (`EXPO_PUBLIC_SUPABASE_URL`, `EXPO_PUBLIC_SUPABASE_KEY`) are stored in Replit's shared env vars (visible in `.replit` under `[userenv.shared]`)
+## Database
+The Supabase database schema is in `lib/schema.sql`. Migration files are in `supabase/migrations/`. Key tables: `organizations`, `profiles`, `chantiers`, `reserves`, `tasks`, `companies`, `channels`, `messages`, `visites`, `lots`, `oprs`, `site_plans`, `photos`, `documents`, `incidents`, `time_entries`.
 
-## User Roles
+## Security
+- Row Level Security (RLS) enabled on all tables
+- Multi-tenant isolation via `organization_id` on all tables
+- Roles: `super_admin`, `admin`, `conducteur`, `chef_equipe`, `sous_traitant`
+- Helper functions: `auth_user_org()`, `auth_user_name()` (SECURITY DEFINER)
 
-- `super_admin` — Full access to all organizations
-- `admin` — Full access within their organization
-- `conducteur` — Can create/edit, no delete
-- `chef_equipe` — Create/edit own items, attendance tracking
-- `observateur` — Read-only + export
-- `sous_traitant` — Can only see/update reserves assigned to their company
-
-## Database Migrations
-
-SQL migration files in `supabase/migrations/` must be applied in Supabase SQL Editor (not auto-applied). They handle:
-- Row Level Security (RLS) policies by organization
-- Schema alterations (new columns, indexes)
-- Helper functions (`auth_user_org()`, `auth_user_name()`)
-- RPCs (`mark_messages_read_by`, `toggle_message_reaction`)
-
-## Deployment
-
-- **Web (Replit):** Served by Metro bundler via `npm start` on port 5000
-- **Static export:** `npm run web` (exports to `dist/`) — used for Replit Deployments
-- **Mobile:** EAS builds (`npm run android`, `npm run ios`)
+## Known Fixes Applied
+- **AppContext.tsx:** Fixed `profile` variable scoping bug — it was declared with `const` inside an `if` block but referenced outside it, causing a `ReferenceError` that triggered the "Impossible de charger les données" error dialog on every data load.

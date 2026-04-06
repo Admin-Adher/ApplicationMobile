@@ -1350,12 +1350,14 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     initStorageBuckets().catch(() => {});
     try {
       const { data: { session } } = await supabase.auth.getSession();
+      let profile: { name?: string; organization_id?: string; last_read_by_channel?: Record<string, string> } | null = null;
       if (session?.user?.id) {
-        const { data: profile } = await supabase
+        const { data: profileResult } = await supabase
           .from('profiles')
           .select('name, organization_id, last_read_by_channel')
           .eq('id', session.user.id)
           .single();
+        profile = profileResult;
         if (profile?.name) {
           currentUserNameRef.current = profile.name;
         }
