@@ -214,7 +214,8 @@ export default function MessagesTabScreen() {
     [pinnedChannelIds, channels]
   );
 
-  const generalChannels = filteredChannels.filter(ch => ch.type === 'general' || ch.type === 'building');
+  const generalChannel = filteredChannels.filter(ch => ch.type === 'general');
+  const buildingChannels = filteredChannels.filter(ch => ch.type === 'building');
   const companyChannels = filteredChannels.filter(ch => ch.type === 'company');
   const customChannels = filteredChannels.filter(ch => ch.type === 'custom');
   const groupChannels = filteredChannels.filter(ch => ch.type === 'group');
@@ -421,7 +422,24 @@ export default function MessagesTabScreen() {
               </>
             )}
 
-            {renderSection('Canaux chantier', generalChannels)}
+            {generalChannel.length > 0 && (
+              <View style={styles.channelGroup}>
+                {generalChannel.map((ch, i) => (
+                  <View key={ch.id}>
+                    {i > 0 && <View style={styles.divider} />}
+                    <ChannelItem
+                      channel={ch}
+                      lastMsg={lastMessageByChannel[ch.id]}
+                      unread={unreadByChannel[ch.id] ?? 0}
+                      isPinned={pinnedChannelIds.includes(ch.id)}
+                      onPress={() => goToChannel(ch)}
+                      onLongPress={() => setActionSheet(ch)}
+                    />
+                  </View>
+                ))}
+              </View>
+            )}
+            {renderSection('Canaux chantier', buildingChannels)}
             {renderSection('Canaux entreprises', companyChannels)}
             {renderSection('Canaux personnalisés', customChannels, () => setShowNewChannel(true), 'Nouveau')}
             {renderSection('Groupes', groupChannels, () => setShowNewGroup(true), 'Nouveau')}
