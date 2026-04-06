@@ -1,0 +1,139 @@
+Voici l'audit complet.
+
+Audit complet — Page Messages (état actuel)
+Architecture globale
+Trois couches bien séparées : messages.tsx (liste canaux) → channel/[id].tsx (conversation) → composants (MessageBubble, MembersModal, AttachItemModal). L'état vient de AppContext (reducer + refs + realtime Supabase). La structure est solide et les 16 points du précédent audit ont été intégrés, mais voici les nouveaux problèmes identifiés.
+
+🔴 Bugs bloquants / comportements incorrects
+1. setChannelRead appelé uniquement au montant de l'écran — pas sur les messages entrants en temps réel
+useEffect ligne 168 appelle setChannelRead(channelId!) une seule fois au mount. Si l'utilisateur est dans le canal et qu'un nouveau message arrive via realtime, le badge de non-lus dans messages.tsx s'incrémente alors que l'utilisateur est déjà en train de lire. Les nouveaux messages entrants pendant la session ne sont jamais marqués lus automatiquement.
+
+2. lastReadByChannel non synchronisé avec Supabase
+L'ancien audit P6 a corrigé les pinnedChannels mais pas lastReadByChannel. Changement d'appareil = tous les badges non-lus remis à zéro. Le SET_CHANNEL_READ dispatch ne persiste que localement (AsyncStorage), jamais dans Supabase.
+
+3. isCreator : vérification incohérente id vs nom (lignes 135–137)
+
+channelObj.createdBy === user?.id || channelObj.createdBy === user?.name
+createdBy est toujours stocké comme un nom (via currentUserNameRef.current dans addCustomChannel), jamais comme un UUID. La comparaison avec user?.id ne fonctionnera jamais. Si les deux utilisateurs ont des noms similaires à leurs IDs, des droits de création pourraient être mal attribués.
+
+4. Bouton "Charger les messages précédents" : flip incomplet (ligne 474)
+Le bouton load_more utilise transform: [{ scaleY: -1 }] pour contrer la FlatList inversée. Mais React Native inverse la liste avec scaleX: -1, scaleY: -1 — il manque donc scaleX: -1. Le texte du bouton sera affiché en miroir horizontal sur la plupart des appareils. À comparer avec le ListEmptyComponent ligne 609 qui fait correctement [{ scaleX: -1 }, { scaleY: -1 }].
+
+5. lastMessageByChannel dans messages.tsx : ordre non garanti (lignes 183–188)
+La logique assume que les messages dans le state sont toujours triés du plus récent au plus ancien (!existing → premier vu = le plus récent). Vrai pour le chargement Supabase (order desc). Mais quand addMessage ajoute un message localement via dispatch({ type: 'ADD_MESSAGE' }), il est pushé en fin de tableau dans l'état, pas trié. Résultat : un message local peut être ignoré et l'aperçu du canal affiche un ancien message.
+
+🟠 Problèmes de données / synchronisation
+6. Réactions : race condition en écriture concurrente
+applyReact fait un updateMessage({ ...msg, reactions: newReactions }) qui écrase la ligne entière dans Supabase. Si deux utilisateurs réagissent simultanément sur le même message, le dernier écrit gagne et la réaction de l'autre est perdue. Il faudrait un RPC de type jsonb_set ou utiliser une table message_reactions séparée.
+
+7. Indicateur de frappe : envoi non throttlé
+handleTextChange (ligne 295) envoie un broadcast Supabase realtime à chaque frappe. Sur un clavier actif, cela peut générer 5–10 events par seconde. Le canal Supabase realtime a des limites de rate. Devrait être throttlé à 1 broadcast/seconde maximum.
+
+8. globalSearchResults dans messages.tsx : channels.find() dans une boucle O(N×M)
+Ligne 208 : channels.find(c => c.id === msg.channelId) est appelé pour chaque message dans la boucle. Avec 500 messages et 20 canaux = 10 000 itérations. Devrait utiliser un Map<string, Channel> préindexé.
+
+🟡 Problèmes de logique / UX
+9. Deux utilisateurs avec le même prénom → même @mention
+insertMention insère senderName.split(' ')[0] (premier mot uniquement). Si "Jean Dupont" et "Jean Martin" sont dans le canal, les deux deviennent @Jean. detectMentions dans MessageBubble compare aussi sur le premier mot, donc les deux recevraient une notification de mention pour chaque @Jean envoyé.
+
+10. P11 compteur participants : double comptage possible (ligne 536)
+
+`${knownSenders.length + 1} participant${...}`
+knownSenders contient les gens qui ont envoyé un message autre que l'utilisateur actuel. Mais si l'utilisateur actuel a reçu des messages de quelqu'un, il n'est pas dans knownSenders. Si l'utilisateur actuel a aussi envoyé des messages dans ce canal entreprise... son nom ne sera pas dans knownSenders (filtré par !m.isMe). Le +1 est donc correct dans ce cas, mais si l'utilisateur courant ne figure pas dans knownSenders par design, et que quelqu'un d'autre a aussi envoyé des messages en son nom, le comptage peut être faux.
+
+11. handleLinkedItemPress pour les Plans : fallback incorrect (ligne 453)
+
+case 'plan': router.push({ params: { id: sitePlans.find(p => p.id === id)?.chantierId ?? id }})
+Si le plan n'est pas en cache (sitePlans vide ou plan supprimé), on passe l'id du plan comme id du chantier. La page du chantier s'ouvre avec un ID invalide au lieu d'afficher une erreur.
+
+12. Modal "Ajouter membre" : filtre user?.name non défensif (ligne 886)
+
+profiles.filter(p => p.name !== user?.name && !liveMembers.includes(p.name))
+Si user est null ou user.name est undefined, p.name !== undefined est toujours true — l'utilisateur actuel apparaît dans la liste et peut être ajouté comme membre de son propre canal.
+
+13. Recherche globale désactive la pagination mais pas limitée (ligne 234)
+Pendant la recherche, paginatedListItems retourne listItems entier (sans pagination). Un canal avec 500 messages où la recherche retourne 300 résultats les rend tous d'un coup dans la FlatList.
+
+14. mentionSuggestions inclut l'utilisateur actuel (ligne 253)
+if (user?.name) names.add(user.name) ajoute l'utilisateur actuel dans les suggestions d'autocomplete. Se mentionner soi-même n'a pas de sens fonctionnel.
+
+🔵 Performance
+15. useMemo pour liveMembers utilise .join(',') comme dépendance (ligne 131)
+
+}, [baseMembers.join(','), overrideMembers.join(','), channelObj?.createdBy]);
+Appeler .join(',') dans le tableau de dépendances crée une nouvelle string à chaque render juste pour la comparaison de dépendance. React ne peut pas mémoïser cette expression — le useMemo se recalcule plus souvent que nécessaire.
+
+16. AttachItemModal recompute si n'importe quelle liste change, même si invisible
+Dépendances ligne 102 : [activeCategory, search, reserves, plans, tasks, incidents, visites, oprs]. Si des réserves sont mises à jour en background via realtime, le modal recalcule même s'il est fermé (visible=false). Mineur mais évitable.
+
+🛡️ Sécurité
+17. Pas de re-validation de longueur dans handleSend
+maxLength={1000} sur le TextInput est une contrainte UI uniquement. Rien n'empêche un appel direct à addMessage() ou supabase.from('messages').insert() avec un contenu arbitrairement long. La RLS Supabase ne vérifie pas la longueur du contenu.
+
+18. Navigation vers des routes avec des IDs non validés dans handleLinkedItemPress
+Les IDs de linkedItemId viennent de messages Supabase. Si un message malformé contient un ID avec des caractères spéciaux (/, ..), le router pourrait se comporter de manière inattendue.
+
+🟢 Points bien faits (à conserver)
+Déduplication realtime par ID (INCOMING_MESSAGE) ✅
+isMe calculé depuis la mémoire, pas depuis is_me DB ✅
+Typing indicator avec cleanup propre des timeouts ✅
+readBy persisté via RPC Supabase mark_messages_read_by ✅
+Profils filtrés par organization_id (isolation multi-tenant) ✅
+DM channels upsertés dans Supabase à la création ✅
+Pinned channels synchronisés avec profiles.pinned_channels ✅
+Pagination locale avec sentinel load_more ✅
+useMemo systématique sur toutes les listes coûteuses ✅
+applyReactRef.current = applyReact pour éviter les closures stale ✅
+useCallback sur openActions, handleNotifPress, handleLinkedItemPress ✅
+Suppression autorisée pour l'expéditeur ET les admins ✅
+"Créer réserve" conditionné à type === 'message' ✅
+Canal entreprise read-only pour la gestion des membres ✅
+Protection super_admin sur la page messages ✅
+Recherche croisée canaux + messages dans messages.tsx ✅
+lastMessageByChannel calculé en O(M) via index Map dans messages.tsx ✅
+unreadByChannel dans AppContext protégé par useMemo ✅
+Récapitulatif de priorité
+Priorité	Problème	Fichier
+🔴 Critique	setChannelRead ne couvre pas les messages reçus en temps réel	channel/[id].tsx
+🔴 Critique	lastReadByChannel non synchronisé avec Supabase	AppContext.tsx
+🔴 Critique	Bouton load_more : flip horizontal manquant	channel/[id].tsx
+🔴 Critique	isCreator vérifie user?.id qui ne correspond jamais	channel/[id].tsx
+🔴 Critique	lastMessageByChannel : ordre cassé par les messages locaux	messages.tsx
+🟠 Important	Réactions : race condition en concurrence	AppContext.tsx
+🟠 Important	Typing broadcast non throttlé	channel/[id].tsx
+🟠 Important	Plan introuvable → mauvaise navigation	channel/[id].tsx
+🟡 Logique	Deux utilisateurs avec le même prénom → même @mention	Multiple
+🟡 Logique	Filtre user?.name non défensif dans "Ajouter membre"	channel/[id].tsx
+🟡 Logique	Recherche globale sans pagination	channel/[id].tsx
+🔵 Perf	globalSearchResults O(N×M) sans index	messages.tsx
+🔵 Perf	.join(',') dans les dépendances useMemo	channel/[id].tsx
+Vérifie chaque points en vérifiant correctement et corrige ensuite chaque point après vérification
+
+6 minutes ago
+Je vais vérifier chaque point précisément avant de toucher au code. Lecture parallèle de toutes les sections concernées :
+
+Continuons la vérification des points restants :
+
+Maintenant lisons le reducer et la section addMessage pour les points restants :
+
+Je dois vérifier le schéma de la table profiles et les migrations pour le point 2 :
+
+Je dois vérifier le realtime subscription et la structure des migrations :
+
+Je dois vérifier les lignes 1252-1300 de AppContext pour le fix 2 :
+
+J'ai maintenant toutes les informations. Voici le bilan des vérifications puis les corrections :
+
+Points confirmés ✅ : 1, 2, 3, 4, 5, 7, 8, 10, 11, 12, 13
+Point 6 (réactions) : Le realtime gère bien les UPDATE, ce qui permet un fix propre via RPC atomique
+Point 9 (double mention) : Confirmé via detectMentions ligne 16 MessageBubble
+
+Je commence les corrections dans l'ordre. D'abord la migration SQL, puis les fichiers :
+
+Maintenant je corrige tous les fichiers en parallèle, regroupés par fichier :
+
+Je dois d'abord lire l'interface AppContextValue pour ajouter toggleReaction correctement :
+
+J'ai tout ce qu'il faut. Je corrige maintenant tous les fichiers de façon systématique. Commençons par channel/[id].tsx (5 fixes simultanés) :
+
+Il y a un problème d'ordre de déclaration — channelMessages est utilisé dans les useEffects avant d'être déclaré. Je dois corriger ça :
