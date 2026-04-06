@@ -1774,11 +1774,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     }
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event: any, session: any) => {
-      if (event === 'SIGNED_IN' && session) {
+      if ((event === 'SIGNED_IN' || event === 'INITIAL_SESSION') && session) {
         loadGenerationRef.current++;
         loadAll();
       } else if (event === 'SIGNED_OUT') {
         loadGenerationRef.current++;
+        const genAtSignOut = loadGenerationRef.current;
         currentUserNameRef.current = '';
         currentUserOrgIdRef.current = null;
         loadedChannelIdsRef.current.clear();
@@ -1799,6 +1800,19 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           CHANNEL_MEMBERS_OVERRIDE_KEY,
           'lastReadByChannel',
         ]).catch(() => {});
+        // Si la déconnexion vient du processus de seeding (et non d'un vrai logout),
+        // il peut subsister une session active pour le vrai utilisateur.
+        // On vérifie après un court délai : si une session est présente,
+        // on relance loadAll() pour que les données apparaissent immédiatement.
+        setTimeout(() => {
+          if (loadGenerationRef.current !== genAtSignOut) return;
+          supabase.auth.getSession().then(({ data: { session: activeSession } }: { data: { session: any } }) => {
+            if (activeSession && loadGenerationRef.current === genAtSignOut) {
+              loadGenerationRef.current++;
+              loadAll();
+            }
+          }).catch(() => {});
+        }, 400);
       }
     });
 
