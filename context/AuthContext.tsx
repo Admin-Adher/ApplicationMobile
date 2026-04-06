@@ -110,7 +110,14 @@ async function linkPendingInvitation(userId: string, email: string): Promise<str
 async function fetchProfile(userId: string): Promise<User | null> {
   try {
     const { data, error } = await supabase.from('profiles').select('*').eq('id', userId).single();
-    if (error || !data) return null;
+    if (error) {
+      console.warn('[fetchProfile] RLS/DB error:', error.code, error.message, '— userId:', userId);
+      return null;
+    }
+    if (!data) {
+      console.warn('[fetchProfile] no profile row found for userId:', userId);
+      return null;
+    }
 
     let orgId: string | undefined = data.organization_id ?? undefined;
     let role: UserRole = data.role as UserRole;
@@ -174,7 +181,11 @@ async function seedOneUser(u: typeof DEMO_USERS[number], shouldAbort: () => bool
     authUserId = signUpData.user.id;
 
     if (shouldAbort()) return;
-    await supabase.auth.signOut();
+    // Guard: only sign out if we still own the session (avoid interrupting real user logins)
+    {
+      const { data: { session: curSess } } = await supabase.auth.getSession();
+      if (curSess?.user?.email === u.email) await supabase.auth.signOut();
+    }
     if (shouldAbort()) return;
 
     const { data: reSign, error: reSignErr } = await supabase.auth.signInWithPassword({
@@ -207,7 +218,11 @@ async function seedOneUser(u: typeof DEMO_USERS[number], shouldAbort: () => bool
   }
 
   if (shouldAbort()) return;
-  await supabase.auth.signOut();
+  // Guard: only sign out the demo user — never a real user who signed in concurrently
+  {
+    const { data: { session: curSess } } = await supabase.auth.getSession();
+    if (curSess?.user?.email === u.email) await supabase.auth.signOut();
+  }
 }
 
 async function seedDemoUsers(shouldAbort: () => boolean): Promise<'done' | 'error'> {
@@ -555,11 +570,40 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         return { success: false, error: 'Email ou mot de passe incorrect.' };
       }
 
-      // Set the user directly here so we don't depend on onAuthStateChange,
-      // which may still receive stale signOut events from the seeding process.
       const authUser = data?.user;
-      if (authUser) {
-        const profile = await fetchProfile(authUser.id);
+      const authSession = data?.session;
+
+      // When Supabase has email confirmation enabled it can return { user, session: null, error: null }.
+      // There is no valid JWT in this state — RLS would block every DB read.
+      if (authUser && !authSession) {
+        return {
+          success: false,
+          error: "Email non confirmé. Désactivez « Confirm email » dans Supabase → Authentication → Providers → Email, puis relancez l'app.",
+        };
+      }
+
+      if (authUser && authSession) {
+        // Explicitly (re-)establish the session from the tokens we received.
+        // This guards against the seeding's concurrent signOut() having cleared
+        // the Supabase client's session between our signInWithPassword and now.
+        await supabase.auth.setSession({
+          access_token: authSession.access_token,
+          refresh_token: authSession.refresh_token,
+        });
+
+        let profile = await fetchProfile(authUser.id);
+
+        if (!profile) {
+          // One retry: the seeding's signOut may have fired in the tiny window
+          // between setSession and the DB round-trip. Re-establish and try once more.
+          console.warn('[login] fetchProfile returned null — retrying after session restore...');
+          await supabase.auth.setSession({
+            access_token: authSession.access_token,
+            refresh_token: authSession.refresh_token,
+          });
+          profile = await fetchProfile(authUser.id);
+        }
+
         if (profile) {
           setUser(profile);
           isSeedingRef.current = false;
