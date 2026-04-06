@@ -1464,7 +1464,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         loadChannelMembersOverride(),
       ]);
 
-      if (loadGenerationRef.current !== myGen) return;
+      if (loadGenerationRef.current !== myGen) {
+        // A newer loadAll() has already started (e.g. triggered by an auth event
+        // during the seed process). Clear loading here so the UI is never stuck
+        // — the newer call has already dispatched SET_LOADING:true synchronously.
+        dispatch({ type: 'SET_LOADING', payload: false });
+        return;
+      }
 
       // ── Reserves: Supabase-first with local-cache fallback ──────────────────
       let resolvedReserves: Reserve[] = (reservesErr || !reserves) ? [] : reserves.map(toReserve);
@@ -1684,7 +1690,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         }
       }
 
-      if (loadGenerationRef.current !== myGen) return;
+      if (loadGenerationRef.current !== myGen) {
+        dispatch({ type: 'SET_LOADING', payload: false });
+        return;
+      }
 
       dispatch({ type: 'SET_CHANTIERS', payload: chantiers });
       dispatch({ type: 'SET_SITE_PLANS', payload: sitePlans });
@@ -1773,7 +1782,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         if (so) { const p = JSON.parse(so); if (Array.isArray(p)) oprs = p; }
       }
 
-      if (loadGenerationRef.current !== myGen) return;
+      if (loadGenerationRef.current !== myGen) {
+        dispatch({ type: 'SET_LOADING', payload: false });
+        return;
+      }
 
       dispatch({ type: 'SET_VISITES', payload: visites });
       dispatch({ type: 'SET_LOTS', payload: lots });
@@ -1857,8 +1869,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     });
 
     supabase.auth.getSession().then(({ data: { session } }: { data: { session: any } }) => {
-      if (session) loadAll();
-      else dispatch({ type: 'SET_LOADING', payload: false });
+      // INITIAL_SESSION from onAuthStateChange already triggers loadAll() for an existing session.
+      // We only need to handle the "no session" case here to clear the loading flag.
+      if (!session) dispatch({ type: 'SET_LOADING', payload: false });
     });
 
     return () => subscription.unsubscribe();
