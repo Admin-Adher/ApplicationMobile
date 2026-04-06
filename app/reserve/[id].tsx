@@ -150,8 +150,12 @@ function buildReservePDF(
     : '';
 
   const PLAN_RENDER_W = 520;
-  const PIN_R = 12;
-  const PIN_FONT = 10;
+  // PIN_R is expressed in a viewBox-0-0-100-100 coordinate space so the pin
+  // scales proportionally with the plan image regardless of its rendered size.
+  // 2.2 ≈ 2.2 % of plan width — matches the in-app pin size visually.
+  const PIN_R = 2.2;
+  const PIN_FONT = 3.5;
+  const PIN_STROKE = 0.55;
 
   // ── Plan section: use static <img> + SVG pin overlay when possible ────────
   // This avoids the async timing bug where Print.printAsync captures the page
@@ -166,10 +170,13 @@ function buildReservePDF(
     ? (planData.preRenderedDataUrl ?? (!isPdfPlan ? planData.planUri : null))
     : null;
 
-  // SVG pin drawn over the plan image
+  // SVG pin drawn over the plan image.
+  // viewBox="0 0 100 100" + preserveAspectRatio="none" makes cx/cy map to
+  // exact percentage positions and r/font-size scale proportionally with the
+  // plan width, eliminating the fixed-pixel oversizing issue.
   const svgPin = planData ? (
-    `<circle cx="${planData.planX}%" cy="${planData.planY}%" r="${PIN_R}" fill="${pinColor}" stroke="#fff" stroke-width="2.5"/>` +
-    `<text x="${planData.planX}%" y="${planData.planY}%" text-anchor="middle" dominant-baseline="central" fill="#fff" font-size="${PIN_FONT}" font-weight="bold" font-family="Arial,sans-serif">${pinNum}</text>`
+    `<circle cx="${planData.planX}" cy="${planData.planY}" r="${PIN_R}" fill="${pinColor}" stroke="#fff" stroke-width="${PIN_STROKE}"/>` +
+    `<text x="${planData.planX}" y="${planData.planY}" text-anchor="middle" dominant-baseline="central" fill="#fff" font-size="${PIN_FONT}" font-weight="bold" font-family="Arial,sans-serif">${pinNum}</text>`
   ) : '';
 
   // Fallback canvas+script (only for native PDF plans that couldn't pre-render)
@@ -181,14 +188,18 @@ var ctx=canvas.getContext('2d');
 var planUri=${JSON.stringify(planData.planUri)};
 var pctX=${planData.planX};
 var pctY=${planData.planY};
-var PIN_R=${PIN_R};
-var PIN_FONT=${PIN_FONT};
+var PIN_R_PCT=${PIN_R};
+var PIN_FONT_PCT=${PIN_FONT};
+var PIN_STROKE_PCT=${PIN_STROKE};
 function drawPin(W,H){
   var x=(pctX/100)*W,y=(pctY/100)*H;
-  ctx.beginPath();ctx.arc(x,y,PIN_R,0,Math.PI*2);
+  var r=(PIN_R_PCT/100)*W;
+  var fs=(PIN_FONT_PCT/100)*W;
+  var sw=(PIN_STROKE_PCT/100)*W;
+  ctx.beginPath();ctx.arc(x,y,r,0,Math.PI*2);
   ctx.fillStyle='${pinColor}';ctx.fill();
-  ctx.strokeStyle='#fff';ctx.lineWidth=2.5;ctx.stroke();
-  ctx.fillStyle='#fff';ctx.font='bold '+PIN_FONT+'px Arial';
+  ctx.strokeStyle='#fff';ctx.lineWidth=sw;ctx.stroke();
+  ctx.fillStyle='#fff';ctx.font='bold '+fs+'px Arial';
   ctx.textAlign='center';ctx.textBaseline='middle';
   ctx.fillText('${pinNum}',x,y);
 }
@@ -222,7 +233,7 @@ document.head.appendChild(s);
       // Static <img> + SVG pin overlay — synchronous, no timing issues
       ? `<div style="position:relative;border-radius:8px;overflow:hidden;border:1.5px solid #DDE4EE">
           <img src="${imgSrc}" style="width:100%;height:auto;display:block" />
-          <svg xmlns="http://www.w3.org/2000/svg" style="position:absolute;top:0;left:0;width:100%;height:100%;overflow:visible">${svgPin}</svg>
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" preserveAspectRatio="none" style="position:absolute;top:0;left:0;width:100%;height:100%">${svgPin}</svg>
           <div style="padding:3px 8px;background:rgba(0,0,0,0.45);font-size:9px;color:#fff;font-weight:600">
             📐 ${planData.planName} — pastille de localisation
           </div>
