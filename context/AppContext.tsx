@@ -3655,6 +3655,21 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       }
       persistMockChantiers(newChantiers);
       persistMockSitePlans(newSitePlans);
+
+      // Création du canal chantier associé
+      const buildingChannel: Channel = {
+        id: `building-${c.id}`,
+        name: c.name,
+        description: c.description ?? '',
+        icon: 'business',
+        color: '#3B82F6',
+        type: 'building',
+        members: currentUserNameRef.current ? [currentUserNameRef.current] : [],
+        createdBy: currentUserNameRef.current || undefined,
+        organizationId: currentUserOrgIdRef.current || undefined,
+      };
+      dispatch({ type: 'SET_GENERAL_CHANNELS', payload: [...(stateRef.current.generalChannels ?? []), buildingChannel] });
+
       if (offline({ table: 'chantiers', op: 'insert', data: {
         id: c.id, name: c.name, address: c.address ?? null, description: c.description ?? null,
         start_date: c.startDate ?? null, end_date: c.endDate ?? null, status: c.status,
@@ -3703,6 +3718,19 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
             };
             const { error: planErr } = await supabase.from('site_plans').insert(planPayload);
           }
+
+          // Insertion du canal chantier dans Supabase
+          await supabase.from('channels').insert({
+            id: `building-${c.id}`,
+            name: c.name,
+            description: c.description ?? '',
+            icon: 'business',
+            color: '#3B82F6',
+            type: 'building',
+            members: currentUserNameRef.current ? [currentUserNameRef.current] : [],
+            created_by: currentUserNameRef.current || null,
+            organization_id: currentUserOrgIdRef.current ?? null,
+          });
         })();
       }
     },
