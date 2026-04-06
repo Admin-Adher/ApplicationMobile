@@ -192,10 +192,25 @@ export default function ChannelScreen() {
   // Réinitialiser la pagination quand on change de canal
   useEffect(() => { setVisibleCount(PAGE_SIZE); }, [channelId]);
 
+  // Fix 1: ref déclaré ici, reset quand on change de canal
+  const prevChannelMsgCountRef = useRef(0);
+  useEffect(() => {
+    prevChannelMsgCountRef.current = 0;
+  }, [channelId]);
+
   const channelMessages = useMemo(() =>
     messages.filter(m => m.channelId === channelId),
     [messages, channelId]
   );
+
+  // Fix 1: auto-marquer comme lu quand de nouveaux messages arrivent pendant que le canal est ouvert
+  // (setChannelRead au mount seul ne couvre pas les messages entrants en temps réel)
+  useEffect(() => {
+    if (channelMessages.length > prevChannelMsgCountRef.current && prevChannelMsgCountRef.current > 0) {
+      setChannelRead(channelId!);
+    }
+    prevChannelMsgCountRef.current = channelMessages.length;
+  }, [channelMessages.length]);
 
   const filteredMessages = useMemo(() => {
     if (!searchQuery.trim()) return channelMessages;
