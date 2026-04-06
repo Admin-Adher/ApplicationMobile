@@ -334,7 +334,30 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     if (!user || !isSupabaseConfigured) return;
-    supabase.from('profiles').select('id, name, role, role_label, email, organization_id, company_id, permissions_override').then(({ data }: { data: any }) => {
+    supabase.from('profiles').select('id, name, role, role_label, email, organization_id, company_id, permissions_override').then(({ data, error }: { data: any; error: any }) => {
+      if (error) {
+        console.warn('[AuthContext] profiles.select error:', error.code, error.message);
+        // Fallback : si la sélection échoue (colonne manquante, politique RLS absente…),
+        // on recharge sans les colonnes optionnelles pour au moins afficher les membres.
+        return supabase.from('profiles').select('id, name, role, role_label, email, organization_id').then(({ data: fallbackData, error: fallbackError }: { data: any; error: any }) => {
+          if (fallbackError) {
+            console.warn('[AuthContext] profiles fallback select error:', fallbackError.code, fallbackError.message);
+            return;
+          }
+          if (fallbackData && fallbackData.length > 0) {
+            setUsers(fallbackData.map((p: any) => ({
+              id: p.id,
+              name: p.name,
+              role: p.role as UserRole,
+              roleLabel: p.role_label ?? ROLE_LABELS[p.role as UserRole] ?? p.role,
+              email: p.email,
+              organizationId: p.organization_id ?? undefined,
+              companyId: undefined,
+              permissionsOverride: undefined,
+            })));
+          }
+        });
+      }
       if (data && data.length > 0) {
         setUsers(data.map((p: any) => ({
           id: p.id,
@@ -349,7 +372,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             : undefined,
         })));
       }
-    }).catch(() => {});
+    }).catch((err: any) => {
+      console.warn('[AuthContext] profiles.select exception:', err);
+    });
   }, [user?.id]);
 
   useEffect(() => {
