@@ -5,7 +5,7 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { C } from '@/constants/colors';
 import { useSubscription, OrgSummary, generateOrgSlug } from '@/context/SubscriptionContext';
 import { useAuth } from '@/context/AuthContext';
@@ -41,6 +41,12 @@ export default function SuperAdminScreen() {
   const [newOrgName, setNewOrgName] = useState('');
   const [newAdminEmail, setNewAdminEmail] = useState('');
   const [creating, setCreating] = useState(false);
+
+  const editSlugPreview = useMemo(() => {
+    const trimmed = editOrgName.trim();
+    if (!trimmed || trimmed === editModal?.org.name) return null;
+    return generateOrgSlug(trimmed);
+  }, [editOrgName, editModal?.org.name]);
 
   if (user?.role !== 'super_admin') {
     return (
@@ -451,37 +457,32 @@ export default function SuperAdminScreen() {
                   onChangeText={setEditOrgName}
                   autoCapitalize="words"
                   editable={!editSaving}
-                  autoFocus
                 />
               </View>
 
-              {(() => {
-                const currentSlug = editModal?.org.slug ?? '';
-                const trimmedName = editOrgName.trim();
-                const previewSlug = trimmedName && trimmedName !== editModal?.org.name
-                  ? generateOrgSlug(trimmedName)
-                  : null;
-                return (
-                  <View style={styles.slugBlock}>
-                    <View style={styles.slugRow}>
-                      <Ionicons name="link-outline" size={13} color={C.textMuted} />
-                      <Text style={styles.slugTxt}>
-                        Identifiant actuel : <Text style={{ color: previewSlug ? C.textMuted : C.text, textDecorationLine: previewSlug ? 'line-through' : 'none' }}>{currentSlug}</Text>
-                      </Text>
-                    </View>
-                    {previewSlug ? (
-                      <View style={[styles.slugRow, { marginTop: 4 }]}>
-                        <Ionicons name="arrow-forward-outline" size={13} color={C.primary} />
-                        <Text style={[styles.slugTxt, { color: C.primary, fontFamily: 'Inter_600SemiBold' }]}>
-                          Nouvel identifiant : {previewSlug}
-                        </Text>
-                      </View>
-                    ) : (
-                      <Text style={[styles.slugHint, { paddingLeft: 19, marginTop: 2 }]}>Sera mis à jour automatiquement avec le nom</Text>
-                    )}
+              <View style={styles.slugBlock}>
+                <View style={styles.slugRow}>
+                  <Ionicons name="link-outline" size={13} color={C.textMuted} />
+                  <Text style={styles.slugTxt}>
+                    {'Identifiant actuel : '}
+                    <Text style={editSlugPreview ? styles.slugOld : styles.slugCurrent}>
+                      {editModal?.org.slug ?? ''}
+                    </Text>
+                  </Text>
+                </View>
+                {editSlugPreview ? (
+                  <View style={[styles.slugRow, { marginTop: 4 }]}>
+                    <Ionicons name="arrow-forward-outline" size={13} color={C.primary} />
+                    <Text style={[styles.slugTxt, { color: C.primary, fontFamily: 'Inter_600SemiBold' }]}>
+                      {'Nouvel identifiant : '}{editSlugPreview}
+                    </Text>
                   </View>
-                );
-              })()}
+                ) : (
+                  <Text style={[styles.slugHint, { paddingLeft: 19, marginTop: 2 }]}>
+                    Sera mis à jour automatiquement avec le nom
+                  </Text>
+                )}
+              </View>
 
               <View style={styles.editBtnRow}>
                 <TouchableOpacity
@@ -674,6 +675,8 @@ const styles = StyleSheet.create({
   slugRow: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 2 },
   slugTxt: { fontSize: 12, fontFamily: 'Inter_400Regular', color: C.textMuted, flex: 1 },
   slugHint: { fontSize: 11, fontFamily: 'Inter_400Regular', color: C.textMuted, fontStyle: 'italic' },
+  slugCurrent: { color: C.text },
+  slugOld: { color: C.textMuted, textDecorationLine: 'line-through' as const },
 
   editBtnRow: { flexDirection: 'row', gap: 10, marginTop: 2 },
   cancelBtn: {
