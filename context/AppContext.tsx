@@ -2968,6 +2968,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         linkedItemType: options.linkedItemType,
         linkedItemId: options.linkedItemId,
         linkedItemTitle: options.linkedItemTitle,
+        dbCreatedAt: new Date().toISOString(),
       };
       dispatch({ type: 'ADD_MESSAGE', payload: msg });
       if (isSupabaseConfigured) {
