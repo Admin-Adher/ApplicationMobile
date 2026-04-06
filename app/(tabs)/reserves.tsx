@@ -9,7 +9,6 @@ import { Ionicons } from '@expo/vector-icons';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { useState, useMemo, useCallback, useRef, useEffect } from 'react';
 import { SkeletonList } from '@/components/SkeletonCard';
-import { genId } from '@/lib/utils';
 import * as ImagePicker from 'expo-image-picker';
 import * as Print from 'expo-print';
 import * as Sharing from 'expo-sharing';
@@ -19,7 +18,7 @@ import { useAuth } from '@/context/AuthContext';
 import { Reserve, ReserveStatus, ReservePriority, ReserveKind } from '@/constants/types';
 import ReserveCard from '@/components/ReserveCard';
 import DateInput from '@/components/DateInput';
-import { isOverdue, formatDate } from '@/lib/reserveUtils';
+import { isOverdue, formatDate, genReserveId } from '@/lib/reserveUtils';
 import { PDF_BASE_CSS, PDF_BRAND_COLOR, PDF_MUTED, PDF_TEXT } from '@/lib/pdfBase';
 
 function buildReservesCSV(reserves: Reserve[]): string {
@@ -564,9 +563,11 @@ export default function ReservesScreen() {
   function handleContextDuplicate(reserve: Reserve) {
     setContextMenuVisible(false);
     setContextMenuReserve(null);
+    const lot = reserve.lotId ? (lots.find(l => l.id === reserve.lotId) ?? null) : null;
+    const newId = genReserveId(reserves, lot);
     const newR: Reserve = {
       ...reserve,
-      id: genId('R'),
+      id: newId,
       title: `${reserve.title} (copie)`,
       status: 'open',
       createdAt: new Date().toLocaleDateString('fr-FR'),
