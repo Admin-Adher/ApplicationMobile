@@ -38,6 +38,7 @@ export default function MembersModal({
 }: Props) {
   const router = useRouter();
   const insets = useSafeAreaInsets();
+  const isCompanyChannel = channelObj?.type === 'company';
 
   return (
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
@@ -57,7 +58,7 @@ export default function MembersModal({
                 {isDMChannel ? 'Message direct' : isGroupChannel ? 'Groupe' : channelObj?.type === 'company' ? 'Canal entreprise' : isEditable ? 'Canal personnalisé' : 'Canal chantier'}
               </Text>
             </View>
-            {isEditable && (
+            {isEditable && !isCompanyChannel && (
               <TouchableOpacity style={styles.renameBtn} onPress={onRenamePress}>
                 <Ionicons name="pencil-outline" size={16} color={C.primary} />
                 <Text style={styles.renameBtnText}>Renommer</Text>
@@ -68,7 +69,28 @@ export default function MembersModal({
           <View style={styles.divider} />
 
           <ScrollView showsVerticalScrollIndicator={false}>
-            {isEditable || isDMChannel || isGroupChannel ? (
+            {isCompanyChannel ? (
+              <>
+                <View style={styles.sectionRow}>
+                  <Text style={styles.sectionLabel}>MEMBRES DE L'ENTREPRISE</Text>
+                </View>
+                <View style={styles.companyInfoBanner}>
+                  <Ionicons name="sync-outline" size={14} color={C.primary} />
+                  <Text style={styles.companyInfoText}>
+                    Les membres sont synchronisés automatiquement avec le personnel de l'entreprise.
+                  </Text>
+                </View>
+                {knownSenders.filter((v, i, a) => a.indexOf(v) === i).map(name => (
+                  <View key={name} style={styles.memberItem}>
+                    <View style={[styles.memberAvatar, { backgroundColor: getAvatarColor(name) + '25' }]}>
+                      <Text style={[styles.memberAvatarText, { color: getAvatarColor(name) }]}>{name.charAt(0)}</Text>
+                    </View>
+                    <Text style={styles.memberName}>{name}</Text>
+                    {name === user?.name && <View style={styles.meBadge}><Text style={styles.meBadgeText}>Vous</Text></View>}
+                  </View>
+                ))}
+              </>
+            ) : isEditable || isDMChannel || isGroupChannel ? (
               <>
                 <View style={styles.sectionRow}>
                   <Text style={styles.sectionLabel}>
@@ -230,4 +252,6 @@ const styles = StyleSheet.create({
   dangerBtnText: { fontSize: 14, fontFamily: 'Inter_600SemiBold', color: C.open },
   cancelBtn: { marginTop: 8, backgroundColor: C.surface2, borderRadius: 12, paddingVertical: 13, alignItems: 'center' },
   cancelBtnText: { fontSize: 15, fontFamily: 'Inter_600SemiBold', color: C.textSub },
+  companyInfoBanner: { flexDirection: 'row', alignItems: 'flex-start', gap: 8, backgroundColor: C.primaryBg, borderRadius: 10, padding: 10, marginBottom: 10 },
+  companyInfoText: { flex: 1, fontSize: 12, fontFamily: 'Inter_400Regular', color: C.primary, lineHeight: 17 },
 });

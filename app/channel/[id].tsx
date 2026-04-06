@@ -129,7 +129,8 @@ export default function ChannelScreen() {
     if (creator && !merged.includes(creator)) merged.push(creator);
     return merged;
   }, [baseMembers.join(','), overrideMembers.join(','), channelObj?.createdBy]);
-  const isEditable = channelObj?.type === 'custom' || channelObj?.type === 'group' || channelObj?.type === 'company';
+  const isCompanyChannel = channelObj?.type === 'company' || (channelId?.startsWith('company-') ?? false);
+  const isEditable = channelObj?.type === 'custom' || channelObj?.type === 'group';
   const canDelete = channelObj?.type === 'custom' || channelObj?.type === 'group';
   const isCreator = !!channelObj?.createdBy && (
     channelObj.createdBy === user?.id || channelObj.createdBy === user?.name
@@ -765,7 +766,7 @@ export default function ChannelScreen() {
         knownSenders={knownSenders}
         profiles={profiles}
         onRenamePress={() => { setRenameText(liveChannelName); setMembersVisible(false); setRenameVisible(true); }}
-        onAddMemberPress={() => setAddMemberVisible(true)}
+        onAddMemberPress={() => { if (!isCompanyChannel) setAddMemberVisible(true); }}
         removeChannelMember={removeChannelMember}
         removeCustomChannel={removeCustomChannel}
         removeGroupChannel={removeGroupChannel}
