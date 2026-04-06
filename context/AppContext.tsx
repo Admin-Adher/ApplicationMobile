@@ -7,6 +7,7 @@ import { useNetwork } from '@/context/NetworkContext';
 import { initStorageBuckets } from '@/lib/storage';
 import { C } from '@/constants/colors';
 import { genId, nowTimestampFR, formatDateFR } from '@/lib/utils';
+import { genReserveId } from '@/lib/reserveUtils';
 import { ROLE_LABELS } from '@/constants/roles';
 
 export const STATIC_CHANNELS: Channel[] = [];
@@ -2483,7 +2484,31 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
               company_signatures: r.companySignatures ?? null,
               organization_id: orgId,
             };
-            const { error } = await supabase.from('reserves').insert(payload);
+            let insertPayload = { ...payload };
+            let { error } = await supabase.from('reserves').insert(insertPayload);
+
+            if (error?.code === '23505') {
+              // Doublon de clé primaire — récupère les IDs existants depuis Supabase
+              // et génère un nouvel ID non-conflictuel, puis réessaie
+              const { data: remoteIds } = await supabase
+                .from('reserves')
+                .select('id')
+                .eq('organization_id', orgId ?? '');
+              const remoteReserves = (remoteIds ?? []) as { id: string }[];
+              const newId = genReserveId(remoteReserves);
+              insertPayload = { ...insertPayload, id: newId };
+              const { error: retryError } = await supabase.from('reserves').insert(insertPayload);
+              if (!retryError) {
+                // Met à jour l'ID dans l'état local
+                dispatch({ type: 'UPDATE_RESERVE', payload: { ...r, id: newId } });
+                persistMockReserves(
+                  stateRef.current.reserves.map(res => res.id === r.id ? { ...res, id: newId } : res)
+                );
+              } else {
+                error = retryError;
+              }
+            }
+
             if (error) {
               console.error('[sync] addReserve Supabase error:', error.code, error.message, error.details);
               Alert.alert(
