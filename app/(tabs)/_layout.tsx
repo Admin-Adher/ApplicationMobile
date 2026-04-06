@@ -2,11 +2,28 @@ import { Tabs, usePathname, useRouter } from 'expo-router';
 import { Platform, View, Text, StyleSheet, TouchableOpacity, useWindowDimensions, Image } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useMemo } from 'react';
 import { C } from '@/constants/colors';
 import { useApp } from '@/context/AppContext';
 import { useAuth } from '@/context/AuthContext';
 import { useIncidents } from '@/context/IncidentsContext';
 import { TABLET_SIDEBAR_W } from '@/lib/useTablet';
+
+function useMessagesUnreadBadge(): number {
+  const { unreadCount, channels, unreadByChannel } = useApp();
+  const { user } = useAuth();
+  return useMemo(() => {
+    if (user?.role !== 'super_admin') return unreadCount;
+    const myName = user.name ?? '';
+    return channels
+      .filter(c => {
+        if (c.type === 'dm') return c.members?.includes(myName) || c.dmParticipants?.includes(myName);
+        if (c.type === 'group') return c.members?.includes(myName) || c.createdBy === myName;
+        return false;
+      })
+      .reduce((acc, c) => acc + (unreadByChannel[c.id] ?? 0), 0);
+  }, [user?.role, user?.name, unreadCount, channels, unreadByChannel]);
+}
 
 const TAB_ITEMS = [
   { name: 'index',    title: 'Dashboard', icon: 'grid',          iconOutline: 'grid-outline',        path: '/(tabs)/' },
@@ -32,8 +49,9 @@ function TabIcon({ name, color, size, badge }: { name: any; color: string; size:
 function TabletSidebar() {
   const pathname = usePathname();
   const router = useRouter();
-  const { unreadCount, stats } = useApp();
+  const { stats } = useApp();
   const { incidents } = useIncidents();
+  const messagesUnread = useMessagesUnreadBadge();
   const openIncidentsCount = incidents.filter(i => i.status !== 'resolved').length;
   const insets = useSafeAreaInsets();
 
@@ -72,7 +90,7 @@ function TabletSidebar() {
       {TAB_ITEMS.map(tab => {
         const isFocused = activeTab === tab.name;
         const badgeCount =
-          tab.name === 'messages' ? unreadCount :
+          tab.name === 'messages' ? messagesUnread :
           tab.name === 'reserves' ? stats.open :
           tab.name === 'more' ? openIncidentsCount :
           0;
@@ -108,8 +126,9 @@ function TabletSidebar() {
 }
 
 function TabsNavigator() {
-  const { unreadCount, stats } = useApp();
+  const { stats } = useApp();
   const { incidents } = useIncidents();
+  const messagesUnread = useMessagesUnreadBadge();
   const openIncidentsCount = incidents.filter(i => i.status !== 'resolved').length;
   const { width } = useWindowDimensions();
   const isTablet = width >= 768;
@@ -168,7 +187,7 @@ function TabsNavigator() {
         options={{
           title: 'Messages',
           tabBarIcon: ({ color, focused }) => (
-            <TabIcon name={focused ? 'chatbubbles' : 'chatbubbles-outline'} color={color} size={26} badge={unreadCount} />
+            <TabIcon name={focused ? 'chatbubbles' : 'chatbubbles-outline'} color={color} size={26} badge={messagesUnread} />
           ),
         }}
       />
