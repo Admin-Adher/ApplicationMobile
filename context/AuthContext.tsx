@@ -5,6 +5,14 @@ import { User, UserRole, UserPermissions, PermissionsOverride } from '@/constant
 import { ROLE_LABELS } from '@/constants/roles';
 import { debugLog, debugLogOk, debugLogWarn, debugLogError } from '@/lib/debugLog';
 
+/**
+ * Module-level flag shared with AppContext so it can ignore auth events
+ * fired by the demo-user seeding process (sign-in / sign-out per user).
+ * Using a plain object so mutations are immediately visible across modules
+ * without triggering a React re-render.
+ */
+export const globalSeedingRef: { current: boolean } = { current: false };
+
 export const ROLE_PERMISSIONS: Record<UserRole, UserPermissions> = {
   super_admin:    { canCreate: true,  canEdit: true,  canEditOwn: true,  canDelete: true,  canExport: true,  canManageTeams: true,  canViewTeams: true,  canUpdateAttendance: true,  canMovePins: true  },
   admin:          { canCreate: true,  canEdit: true,  canEditOwn: true,  canDelete: true,  canExport: true,  canManageTeams: true,  canViewTeams: true,  canUpdateAttendance: true,  canMovePins: true  },
@@ -477,9 +485,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     if (!isLoading && !user && seedStatus === 'idle') {
       setSeedStatus('seeding');
       isSeedingRef.current = true;
+      globalSeedingRef.current = true;
       abortSeedingRef.current = false;
       seedDemoUsers(() => abortSeedingRef.current).then(result => {
         isSeedingRef.current = false;
+        globalSeedingRef.current = false;
         setSeedStatus(result);
       });
     }
@@ -599,6 +609,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       if (profile) {
         setUser(profile);
         isSeedingRef.current = false;
+        globalSeedingRef.current = false;
         setSeedStatus('done');
         isRegisteringRef.current = false;
         return { success: true };
@@ -682,6 +693,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         if (profile) {
           setUser(profile);
           isSeedingRef.current = false;
+          globalSeedingRef.current = false;
           setSeedStatus('done');
           return { success: true };
         }
@@ -690,6 +702,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       // Profile missing — sign out cleanly
       await supabase.auth.signOut();
       isSeedingRef.current = false;
+      globalSeedingRef.current = false;
       return {
         success: false,
         error:

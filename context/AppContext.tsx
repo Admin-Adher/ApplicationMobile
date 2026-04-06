@@ -3,6 +3,7 @@ import { Alert } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Reserve, Company, Task, Document, Photo, Message, Channel, Profile, Comment, ReserveStatus, ReservePriority, TaskStatus, Chantier, SitePlan, ChantierStatus, Visite, Lot, Opr, VisiteStatus, OprStatus, UserRole } from '@/constants/types';
 import { supabase, isSupabaseConfigured } from '@/lib/supabase';
+import { globalSeedingRef } from '@/context/AuthContext';
 import { useNetwork } from '@/context/NetworkContext';
 import { initStorageBuckets } from '@/lib/storage';
 import { C } from '@/constants/colors';
@@ -1380,6 +1381,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }
 
   const loadGenerationRef = useRef(0);
+  // Guards against reacting to seeding auth events before the app is initialized.
+  // Set to true once INITIAL_SESSION fires. Events before that are from seeding.
+  const initialSessionReceivedRef = useRef(false);
 
   async function loadAll() {
     debugLog(`[AppContext] loadAll() → début (gen=${loadGenerationRef.current})`);
@@ -1872,14 +1876,40 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event: any, session: any) => {
       debugLog(`[AppContext] onAuthStateChange → event=${event}, session=${session ? session.user?.email : 'null'}`);
-      if ((event === 'SIGNED_IN' || event === 'INITIAL_SESSION') && session) {
+
+      // ── Guard 1: ignore ALL events until INITIAL_SESSION fires ────────────
+      // Supabase emits SIGNED_OUT/SIGNED_IN for each seeding sign-in/out
+      // before INITIAL_SESSION arrives. Reacting to those clears app data
+      // before the user's real session is known.
+      if (!initialSessionReceivedRef.current && event !== 'INITIAL_SESSION') {
+        debugLogWarn(`[AppContext] onAuthStateChange ignoré (avant INITIAL_SESSION) event=${event}`);
+        return;
+      }
+
+      // ── Guard 2: ignore events fired by the demo-user seeding process ─────
+      // The seed signs in/out each demo user; AuthContext already ignores
+      // these via isSeedingRef — AppContext must do the same via the shared flag.
+      if (globalSeedingRef.current) {
+        debugLogWarn(`[AppContext] onAuthStateChange ignoré (seeding en cours) event=${event}`);
+        return;
+      }
+
+      if (event === 'INITIAL_SESSION') {
+        initialSessionReceivedRef.current = true;
+        if (session) {
+          loadGenerationRef.current++;
+          debugLog(`[AppContext] → déclenchement loadAll() (INITIAL_SESSION, gen=${loadGenerationRef.current})`);
+          loadAll();
+        } else {
+          dispatch({ type: 'SET_LOADING', payload: false });
+        }
+      } else if (event === 'SIGNED_IN' && session) {
         loadGenerationRef.current++;
         debugLog(`[AppContext] → déclenchement loadAll() (gen=${loadGenerationRef.current})`);
         loadAll();
       } else if (event === 'SIGNED_OUT') {
         loadGenerationRef.current++;
         debugLogWarn(`[AppContext] SIGNED_OUT → effacement données (gen=${loadGenerationRef.current})`);
-        const genAtSignOut = loadGenerationRef.current;
         currentUserNameRef.current = '';
         currentUserOrgIdRef.current = null;
         loadedChannelIdsRef.current.clear();
@@ -1896,8 +1926,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         dispatch({ type: 'SET_ACTIVE_CHANTIER', payload: null });
         setPendingDmChannelIds(new Set());
         // Effacer TOUT le cache local lié à l'utilisateur déconnecté
-        // pour éviter qu'un autre compte sur le même appareil voie
-        // les données, canaux, DM et préférences du précédent.
         AsyncStorage.multiRemove([
           PENDING_DM_KEY,
           CUSTOM_CHANNELS_KEY,
@@ -1918,19 +1946,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           MOCK_COMPANIES_KEY,
           'buildtrack_mock_documents_v2',
         ]).catch(() => {});
-        // Si la déconnexion vient du processus de seeding (et non d'un vrai logout),
-        // il peut subsister une session active pour le vrai utilisateur.
-        // On vérifie après un court délai : si une session est présente,
-        // on relance loadAll() pour que les données apparaissent immédiatement.
-        setTimeout(() => {
-          if (loadGenerationRef.current !== genAtSignOut) return;
-          supabase.auth.getSession().then(({ data: { session: activeSession } }: { data: { session: any } }) => {
-            if (activeSession && loadGenerationRef.current === genAtSignOut) {
-              loadGenerationRef.current++;
-              loadAll();
-            }
-          }).catch(() => {});
-        }, 400);
       }
     });
 
