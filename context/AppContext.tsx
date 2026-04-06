@@ -431,7 +431,7 @@ export function toMessage(row: any, currentUserName?: string): Message {
 function fromMessage(m: Message): Record<string, any> {
   const row: Record<string, any> = {
     id: m.id, channel_id: m.channelId, sender: m.sender, content: m.content,
-    timestamp: m.timestamp, type: m.type, read: m.read, is_me: m.isMe,
+    timestamp: m.timestamp, type: m.type, read: m.read,
     reply_to_id: m.replyToId ?? null, reply_to_content: m.replyToContent ?? null,
     reply_to_sender: m.replyToSender ?? null, attachment_uri: m.attachmentUri ?? null,
     reactions: m.reactions, is_pinned: m.isPinned, read_by: m.readBy,
@@ -1740,7 +1740,20 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       })
       .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'messages' }, (payload: any) => {
         const userName = currentUserNameRef.current;
-        dispatch({ type: 'UPDATE_MESSAGE', payload: toMessage(payload.new, userName) });
+        const incoming = toMessage(payload.new, userName);
+        if (incoming.isMe) {
+          // Pour les messages envoyés par l'utilisateur courant, on n'applique le
+          // UPDATE Supabase que si les réactions ou les lecteurs ont changé côté serveur
+          // (mis à jour par d'autres utilisateurs). Cela évite un double-render inutile
+          // après l'update optimiste local.
+          const current = stateRef.current.messages.find(m => m.id === incoming.id);
+          if (current) {
+            const reactionsChanged = JSON.stringify(incoming.reactions) !== JSON.stringify(current.reactions);
+            const readByChanged = (incoming.readBy?.length ?? 0) !== (current.readBy?.length ?? 0);
+            if (!reactionsChanged && !readByChanged) return;
+          }
+        }
+        dispatch({ type: 'UPDATE_MESSAGE', payload: incoming });
       })
       .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'messages' }, (payload: any) => {
         dispatch({ type: 'DELETE_MESSAGE', payload: payload.old.id });
@@ -1762,15 +1775,31 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           icon: r.icon, color: r.color, type: r.type,
           members: r.members ?? [], createdBy: r.created_by ?? undefined,
         };
-        if (r.type === 'custom') dispatch({ type: 'ADD_CUSTOM_CHANNEL', payload: ch });
-        else if (r.type === 'group') dispatch({ type: 'ADD_GROUP_CHANNEL', payload: ch });
+        if (r.type === 'custom') {
+          dispatch({ type: 'ADD_CUSTOM_CHANNEL', payload: ch });
+        } else if (r.type === 'group') {
+          dispatch({ type: 'ADD_GROUP_CHANNEL', payload: ch });
+        } else if (r.type === 'dm') {
+          const myName = currentUserNameRef.current;
+          const participants: string[] = r.members ?? [];
+          if (!myName || participants.includes(myName)) {
+            dispatch({
+              type: 'ADD_PERSISTED_DM_CHANNEL',
+              payload: { ...ch, dmParticipants: participants },
+            });
+          }
+        } else if (r.type === 'general' || r.type === 'building') {
+          dispatch({ type: 'SET_GENERAL_CHANNELS', payload: [...stateRef.current.generalChannels, ch] });
+        }
       })
       .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'channels' }, (payload: any) => {
         const r = payload.new;
+        const participants: string[] = r.members ?? [];
         const ch: Channel = {
           id: r.id, name: r.name, description: r.description ?? '',
           icon: r.icon, color: r.color, type: r.type,
-          members: r.members ?? [], createdBy: r.created_by ?? undefined,
+          members: participants, createdBy: r.created_by ?? undefined,
+          ...(r.type === 'dm' ? { dmParticipants: participants } : {}),
         };
         dispatch({ type: 'UPDATE_CHANNEL', payload: ch });
       })
@@ -2106,15 +2135,17 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }
 
   function addGroupChannel(name: string, members: string[], color: string): Channel {
+    const creator = currentUserNameRef.current;
+    const allMembers = creator && !members.includes(creator) ? [creator, ...members] : members;
     const newCh: Channel = {
       id: 'group-' + genId(),
       name,
-      description: `Groupe : ${members.join(', ')}`,
+      description: `Groupe : ${allMembers.join(', ')}`,
       icon: 'people-circle',
       color,
       type: 'group',
-      members,
-      createdBy: currentUserNameRef.current,
+      members: allMembers,
+      createdBy: creator,
     };
     dispatch({ type: 'ADD_GROUP_CHANNEL', payload: newCh });
     const updated = [...stateRef.current.groupChannels, newCh];
