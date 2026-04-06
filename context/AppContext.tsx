@@ -512,17 +512,25 @@ function reducer(state: AppState, action: Action): AppState {
     case 'UPDATE_CHANTIER':
       return { ...state, chantiers: state.chantiers.map(c => c.id === action.payload.id ? action.payload : c) };
 
-    case 'DELETE_CHANTIER':
+    case 'DELETE_CHANTIER': {
+      const deletedReserveIds = new Set(
+        state.reserves.filter(r => r.chantierId === action.payload).map(r => r.id)
+      );
       return {
         ...state,
         chantiers: state.chantiers.filter(c => c.id !== action.payload),
         sitePlans: state.sitePlans.filter(p => p.chantierId !== action.payload),
         reserves: state.reserves.filter(r => r.chantierId !== action.payload),
         tasks: state.tasks.filter(t => t.chantierId !== action.payload),
+        visites: (state.visites ?? []).filter(v => v.chantierId !== action.payload),
+        lots: (state.lots ?? []).filter(l => l.chantierId !== action.payload),
+        oprs: (state.oprs ?? []).filter(o => o.chantierId !== action.payload),
+        photos: state.photos.filter(p => !deletedReserveIds.has(p.reserveId ?? '')),
         activeChantierId: state.activeChantierId === action.payload
           ? (state.chantiers.find(c => c.id !== action.payload)?.id ?? null)
           : state.activeChantierId,
       };
+    }
 
     case 'ADD_SITE_PLAN':
       if (state.sitePlans.some(p => p.id === action.payload.id)) return state;
