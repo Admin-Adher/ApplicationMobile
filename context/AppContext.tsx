@@ -1090,15 +1090,25 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         .from('channels')
         .select('*')
         .in('type', ['general', 'building']);
-      if (!error && data) {
+      if (error) {
+        console.warn('[loadGeneralChannels] Supabase error:', error.message, error.code, error.details);
+        return;
+      }
+      if (data) {
         const channels: Channel[] = data.map((r: any) => ({
           id: r.id, name: r.name, description: r.description ?? '',
           icon: r.icon, color: r.color, type: r.type as 'general' | 'building',
           members: r.members ?? [], createdBy: r.created_by ?? undefined,
+          organizationId: r.organization_id ?? undefined,
         }));
+        if (channels.length === 0) {
+          console.warn('[loadGeneralChannels] Aucun canal general/building retourné — vérifier organization_id dans Supabase (RLS bloque si NULL).');
+        }
         dispatch({ type: 'SET_GENERAL_CHANNELS', payload: channels });
       }
-    } catch {}
+    } catch (err: any) {
+      console.warn('[loadGeneralChannels] Exception:', err?.message ?? err);
+    }
   }
 
   async function loadDMChannels() {
