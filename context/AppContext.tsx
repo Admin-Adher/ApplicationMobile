@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useEffect, useReducer, useRef, useState } from 'react';
+import React, { createContext, useContext, useEffect, useMemo, useReducer, useRef, useState } from 'react';
 import { Alert } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Reserve, Company, Task, Document, Photo, Message, Channel, Profile, Comment, ReserveStatus, ReservePriority, TaskStatus, Chantier, SitePlan, ChantierStatus, Visite, Lot, Opr, VisiteStatus, OprStatus, UserRole } from '@/constants/types';
