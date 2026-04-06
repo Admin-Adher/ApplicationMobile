@@ -115,6 +115,13 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
     if (!user) return;
     const gen = ++loadGenRef.current;
     setIsLoading(true);
+
+    // Soupape de sécurité : si le chargement dépasse 10 s (ex: requête Supabase bloquée
+    // à cause d'une récursion RLS), on force isLoading à false pour débloquer l'UI.
+    let safetyResolved = false;
+    const resolveSafety = () => { if (!safetyResolved) { safetyResolved = true; setIsLoading(false); } };
+    const safetyTimer = setTimeout(resolveSafety, 10_000);
+
     try {
       const { data: plansData } = await supabase
         .from('plans')
@@ -278,6 +285,8 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
       }
     } catch {
     } finally {
+      clearTimeout(safetyTimer);
+      safetyResolved = true;
       setIsLoading(false);
     }
   }
