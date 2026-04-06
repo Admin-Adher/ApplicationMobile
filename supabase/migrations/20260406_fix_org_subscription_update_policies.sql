@@ -38,6 +38,10 @@ DROP POLICY IF EXISTS "Organizations modifiables par super_admin"         ON pub
 DROP POLICY IF EXISTS "Organizations modifiables par super_admin"         ON public.organizations;
 
 -- Recréation propre avec auth_user_role() SECURITY DEFINER (sans récursion)
+-- (DROP IF EXISTS au cas où une exécution partielle les aurait déjà créés)
+
+DROP POLICY IF EXISTS "orgs_select"           ON public.organizations;
+DROP POLICY IF EXISTS "orgs_all_super_admin"  ON public.organizations;
 
 CREATE POLICY "orgs_select"
   ON public.organizations FOR SELECT
@@ -70,6 +74,10 @@ DROP POLICY IF EXISTS "Subscriptions modifiables par super_admin"         ON pub
 DROP POLICY IF EXISTS "Subscriptions modifiables par super_admin"         ON public.subscriptions;
 
 -- Recréation propre
+-- (DROP IF EXISTS au cas où une exécution partielle les aurait déjà créés)
+
+DROP POLICY IF EXISTS "subs_select"           ON public.subscriptions;
+DROP POLICY IF EXISTS "subs_all_super_admin"  ON public.subscriptions;
 
 CREATE POLICY "subs_select"
   ON public.subscriptions FOR SELECT
