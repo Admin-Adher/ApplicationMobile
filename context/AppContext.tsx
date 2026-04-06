@@ -485,21 +485,28 @@ function reducer(state: AppState, action: Action): AppState {
     }
 
     case 'SET_VISITES': return { ...state, visites: action.payload ?? [] };
-    case 'ADD_VISITE': return { ...state, visites: [action.payload, ...(state.visites ?? [])] };
+    case 'ADD_VISITE':
+      if ((state.visites ?? []).some(v => v.id === action.payload.id)) return state;
+      return { ...state, visites: [action.payload, ...(state.visites ?? [])] };
     case 'UPDATE_VISITE': return { ...state, visites: (state.visites ?? []).map(v => v.id === action.payload.id ? action.payload : v) };
     case 'DELETE_VISITE': return { ...state, visites: (state.visites ?? []).filter(v => v.id !== action.payload) };
 
     case 'SET_LOTS': return { ...state, lots: action.payload ?? [] };
-    case 'ADD_LOT': return { ...state, lots: [...(state.lots ?? []), action.payload] };
+    case 'ADD_LOT':
+      if ((state.lots ?? []).some(l => l.id === action.payload.id)) return state;
+      return { ...state, lots: [...(state.lots ?? []), action.payload] };
     case 'UPDATE_LOT': return { ...state, lots: (state.lots ?? []).map(l => l.id === action.payload.id ? action.payload : l) };
     case 'DELETE_LOT': return { ...state, lots: (state.lots ?? []).filter(l => l.id !== action.payload) };
 
     case 'SET_OPRS': return { ...state, oprs: action.payload ?? [] };
-    case 'ADD_OPR': return { ...state, oprs: [action.payload, ...(state.oprs ?? [])] };
+    case 'ADD_OPR':
+      if ((state.oprs ?? []).some(o => o.id === action.payload.id)) return state;
+      return { ...state, oprs: [action.payload, ...(state.oprs ?? [])] };
     case 'UPDATE_OPR': return { ...state, oprs: (state.oprs ?? []).map(o => o.id === action.payload.id ? action.payload : o) };
     case 'DELETE_OPR': return { ...state, oprs: (state.oprs ?? []).filter(o => o.id !== action.payload) };
 
     case 'ADD_CHANTIER':
+      if (state.chantiers.some(c => c.id === action.payload.id)) return state;
       return { ...state, chantiers: [...state.chantiers, action.payload] };
 
     case 'UPDATE_CHANTIER':
@@ -518,6 +525,7 @@ function reducer(state: AppState, action: Action): AppState {
       };
 
     case 'ADD_SITE_PLAN':
+      if (state.sitePlans.some(p => p.id === action.payload.id)) return state;
       return { ...state, sitePlans: [...state.sitePlans, action.payload] };
 
     case 'UPDATE_SITE_PLAN':
@@ -2631,15 +2639,20 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       const previous = stateRef.current.reserves.find(r => r.id === id);
       const newReserves = stateRef.current.reserves.filter(r => r.id !== id);
       dispatch({ type: 'DELETE_RESERVE', payload: id });
-      // Always persist locally first so deletion survives Supabase failures or restarts
       persistMockReserves(newReserves);
       if (offline({ table: 'reserves', op: 'delete', filter: { column: 'id', value: id } })) return;
       if (isSupabaseConfigured) {
-        supabase.from('reserves').delete().eq('id', id).then(({ error }: { error: any }) => {
-          if (error) {
-            console.warn('[sync] deleteReserve server error (data deleted locally):', error.message);
+        (async () => {
+          const { data: deleted, error } = await supabase.from('reserves').delete().eq('id', id).select();
+          if (error || !deleted || deleted.length === 0) {
+            console.warn('[sync] deleteReserve bloqué par le serveur:', error?.message ?? 'RLS ou déjà supprimé');
+            if (previous) {
+              dispatch({ type: 'ADD_RESERVE', payload: previous });
+              persistMockReserves([previous, ...newReserves]);
+              Alert.alert('Suppression refusée', 'Vous n\'avez pas les droits pour supprimer cette réserve, ou elle n\'existe plus sur le serveur.');
+            }
           }
-        });
+        })();
       }
     },
 
@@ -2669,6 +2682,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         closedBy,
       };
       dispatch({ type: 'UPDATE_RESERVE_STATUS', payload: updated });
+      persistMockReserves(stateRef.current.reserves.map(r => r.id === id ? updated : r));
       if (offline({
         table: 'reserves', op: 'update',
         filter: { column: 'id', value: id },
@@ -2692,8 +2706,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
             console.warn('[sync] updateReserveStatus server error (data saved locally):', error.message);
           }
         });
-      } else {
-        persistMockReserves(stateRef.current.reserves.map(r => r.id === id ? updated : r));
       }
 
       const reserveCompanyNames = reserve.companies ?? (reserve.company ? [reserve.company] : []);
@@ -2736,6 +2748,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       };
       const updatedComments = [...reserve.comments, comment];
       dispatch({ type: 'ADD_COMMENT', payload: { reserveId, comment } });
+      persistMockReserves(stateRef.current.reserves.map(r => r.id === reserveId ? { ...r, comments: updatedComments } : r));
       if (offline({ table: 'reserves', op: 'update', filter: { column: 'id', value: reserveId }, data: { comments: updatedComments } })) return;
       if (isSupabaseConfigured) {
         supabase.from('reserves').update({ comments: updatedComments }).eq('id', reserveId).then(({ error }: { error: any }) => {
@@ -2743,10 +2756,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
             console.warn('[sync] addComment server error (data saved locally):', error.message);
           }
         });
-      } else {
-        persistMockReserves(
-          stateRef.current.reserves.map(r => r.id === reserveId ? { ...r, comments: updatedComments } : r)
-        );
       }
     },
 
@@ -2848,15 +2857,22 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
     deleteCompany: (id) => {
       const previous = stateRef.current.companies.find(c => c.id === id);
+      const newCompanies = stateRef.current.companies.filter(c => c.id !== id);
       dispatch({ type: 'DELETE_COMPANY', payload: id });
-      persistMockCompanies(stateRef.current.companies.filter(c => c.id !== id));
+      persistMockCompanies(newCompanies);
       if (offline({ table: 'companies', op: 'delete', filter: { column: 'id', value: id } })) return;
       if (isSupabaseConfigured) {
-        supabase.from('companies').delete().eq('id', id).then(({ error }: { error: any }) => {
-          if (error) {
-            console.warn('[sync] deleteCompany server error (data deleted locally):', error.message);
+        (async () => {
+          const { data: deleted, error } = await supabase.from('companies').delete().eq('id', id).select();
+          if (error || !deleted || deleted.length === 0) {
+            console.warn('[sync] deleteCompany bloqué par le serveur:', error?.message ?? 'RLS ou déjà supprimé');
+            if (previous) {
+              dispatch({ type: 'ADD_COMPANY', payload: previous });
+              persistMockCompanies([previous, ...newCompanies]);
+              Alert.alert('Suppression refusée', 'Vous n\'avez pas les droits pour supprimer cette entreprise, ou elle n\'existe plus sur le serveur.');
+            }
           }
-        });
+        })();
       }
     },
 
@@ -3101,11 +3117,17 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       persistMockTasks(newTasks);
       if (offline({ table: 'tasks', op: 'delete', filter: { column: 'id', value: id } })) return;
       if (isSupabaseConfigured) {
-        supabase.from('tasks').delete().eq('id', id).then(({ error }: { error: any }) => {
-          if (error) {
-            console.warn('[sync] deleteTask server error (data deleted locally):', error.message);
+        (async () => {
+          const { data: deleted, error } = await supabase.from('tasks').delete().eq('id', id).select();
+          if (error || !deleted || deleted.length === 0) {
+            console.warn('[sync] deleteTask bloqué par le serveur:', error?.message ?? 'RLS ou déjà supprimé');
+            if (previous) {
+              dispatch({ type: 'ADD_TASK', payload: previous });
+              persistMockTasks([previous, ...newTasks]);
+              Alert.alert('Suppression refusée', 'Vous n\'avez pas les droits pour supprimer cette tâche, ou elle n\'existe plus sur le serveur.');
+            }
           }
-        });
+        })();
       }
     },
 
@@ -3122,6 +3144,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         t.id === taskId ? { ...t, comments: updatedComments } : t
       );
       dispatch({ type: 'ADD_TASK_COMMENT', payload: { taskId, comment } });
+      persistMockTasks(newTasks);
       if (offline({ table: 'tasks', op: 'update', filter: { column: 'id', value: taskId }, data: { comments: updatedComments } })) return;
       if (isSupabaseConfigured) {
         supabase.from('tasks').update({ comments: updatedComments }).eq('id', taskId).then(({ error }: { error: any }) => {
@@ -3129,13 +3152,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
             console.warn('[sync] addTaskComment server error (data saved locally):', error.message);
           }
         });
-      } else {
-        persistMockTasks(newTasks);
       }
     },
 
     addPhoto: (p) => {
       dispatch({ type: 'ADD_PHOTO', payload: p });
+      persistMockPhotos([p, ...stateRef.current.photos]);
       if (offline({ table: 'photos', op: 'insert', data: {
         id: p.id, comment: p.comment, location: p.location,
         taken_at: p.takenAt, taken_by: p.takenBy, color_code: p.colorCode, uri: p.uri,
@@ -3151,8 +3173,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
             console.warn('[sync] addPhoto server error (data saved locally):', error.message);
           }
         });
-      } else {
-        persistMockPhotos([p, ...stateRef.current.photos]);
       }
     },
 
@@ -3160,20 +3180,32 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       const previous = stateRef.current.photos.find(p => p.id === id);
       const newPhotos = stateRef.current.photos.filter(p => p.id !== id);
       dispatch({ type: 'DELETE_PHOTO', payload: id });
+      persistMockPhotos(newPhotos);
+      if (offline({ table: 'photos', op: 'delete', filter: { column: 'id', value: id } })) return;
       if (isSupabaseConfigured) {
-        supabase.from('photos').delete().eq('id', id).then(({ error }: { error: any }) => {
-          if (error) {
-            console.warn('[sync] deletePhoto server error (data deleted locally):', error.message);
+        (async () => {
+          const { data: deleted, error } = await supabase.from('photos').delete().eq('id', id).select();
+          if (error || !deleted || deleted.length === 0) {
+            console.warn('[sync] deletePhoto bloqué par le serveur:', error?.message ?? 'RLS ou déjà supprimé');
+            if (previous) {
+              dispatch({ type: 'ADD_PHOTO', payload: previous });
+              persistMockPhotos([previous, ...newPhotos]);
+              Alert.alert('Suppression refusée', 'Vous n\'avez pas les droits pour supprimer cette photo, ou elle n\'existe plus sur le serveur.');
+            }
           }
-        });
-      } else {
-        persistMockPhotos(newPhotos);
+        })();
       }
     },
 
     addDocument: (d) => {
       const newDocuments = [d, ...stateRef.current.documents];
       dispatch({ type: 'ADD_DOCUMENT', payload: d });
+      persistMockDocuments(newDocuments);
+      if (offline({ table: 'documents', op: 'insert', data: {
+        id: d.id, name: d.name, type: d.type, category: d.category,
+        uploaded_at: d.uploadedAt, size: d.size, version: d.version, uri: d.uri,
+        organization_id: currentUserOrgIdRef.current ?? null,
+      } })) return;
       if (isSupabaseConfigured) {
         supabase.from('documents').insert({
           id: d.id, name: d.name, type: d.type, category: d.category,
@@ -3184,8 +3216,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
             console.warn('[sync] addDocument server error (data saved locally):', error.message);
           }
         });
-      } else {
-        persistMockDocuments(newDocuments);
       }
     },
 
@@ -3193,14 +3223,20 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       const previous = stateRef.current.documents.find(d => d.id === id);
       const newDocuments = stateRef.current.documents.filter(d => d.id !== id);
       dispatch({ type: 'DELETE_DOCUMENT', payload: id });
+      persistMockDocuments(newDocuments);
+      if (offline({ table: 'documents', op: 'delete', filter: { column: 'id', value: id } })) return;
       if (isSupabaseConfigured) {
-        supabase.from('documents').delete().eq('id', id).then(({ error }: { error: any }) => {
-          if (error) {
-            console.warn('[sync] deleteDocument server error (data deleted locally):', error.message);
+        (async () => {
+          const { data: deleted, error } = await supabase.from('documents').delete().eq('id', id).select();
+          if (error || !deleted || deleted.length === 0) {
+            console.warn('[sync] deleteDocument bloqué par le serveur:', error?.message ?? 'RLS ou déjà supprimé');
+            if (previous) {
+              dispatch({ type: 'ADD_DOCUMENT', payload: previous });
+              persistMockDocuments([previous, ...newDocuments]);
+              Alert.alert('Suppression refusée', 'Vous n\'avez pas les droits pour supprimer ce document, ou il n\'existe plus sur le serveur.');
+            }
           }
-        });
-      } else {
-        persistMockDocuments(newDocuments);
+        })();
       }
     },
 
@@ -3319,11 +3355,17 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       persistMockVisites(newVisites);
       if (offline({ table: 'visites', op: 'delete', filter: { column: 'id', value: id } })) return;
       if (isSupabaseConfigured) {
-        supabase.from('visites').delete().eq('id', id).then(({ error }: { error: any }) => {
-          if (error) {
-            console.warn('[sync] deleteVisite server error (data deleted locally):', error.message);
+        (async () => {
+          const { data: deleted, error } = await supabase.from('visites').delete().eq('id', id).select();
+          if (error || !deleted || deleted.length === 0) {
+            console.warn('[sync] deleteVisite bloqué par le serveur:', error?.message ?? 'RLS ou déjà supprimé');
+            if (previous) {
+              dispatch({ type: 'ADD_VISITE', payload: previous });
+              persistMockVisites([previous, ...newVisites]);
+              Alert.alert('Suppression refusée', 'Vous n\'avez pas les droits pour supprimer cette visite, ou elle n\'existe plus sur le serveur.');
+            }
           }
-        });
+        })();
       }
     },
     linkReserveToVisite: (reserveId, visiteId) => {
@@ -3403,11 +3445,17 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       persistMockLots(newLots);
       if (offline({ table: 'lots', op: 'delete', filter: { column: 'id', value: id } })) return;
       if (isSupabaseConfigured) {
-        supabase.from('lots').delete().eq('id', id).then(({ error }: { error: any }) => {
-          if (error) {
-            console.warn('[sync] deleteLot server error (data deleted locally):', error.message);
+        (async () => {
+          const { data: deleted, error } = await supabase.from('lots').delete().eq('id', id).select();
+          if (error || !deleted || deleted.length === 0) {
+            console.warn('[sync] deleteLot bloqué par le serveur:', error?.message ?? 'RLS ou déjà supprimé');
+            if (previous) {
+              dispatch({ type: 'ADD_LOT', payload: previous });
+              persistMockLots([previous, ...newLots]);
+              Alert.alert('Suppression refusée', 'Vous n\'avez pas les droits pour supprimer ce lot, ou il n\'existe plus sur le serveur.');
+            }
           }
-        });
+        })();
       }
     },
 
@@ -3630,11 +3678,17 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       persistMockOprs(newOprs);
       if (offline({ table: 'oprs', op: 'delete', filter: { column: 'id', value: id } })) return;
       if (isSupabaseConfigured) {
-        supabase.from('oprs').delete().eq('id', id).then(({ error }: { error: any }) => {
-          if (error) {
-            console.warn('[sync] deleteOpr server error (data deleted locally):', error.message);
+        (async () => {
+          const { data: deleted, error } = await supabase.from('oprs').delete().eq('id', id).select();
+          if (error || !deleted || deleted.length === 0) {
+            console.warn('[sync] deleteOpr bloqué par le serveur:', error?.message ?? 'RLS ou déjà supprimé');
+            if (previous) {
+              dispatch({ type: 'ADD_OPR', payload: previous });
+              persistMockOprs([previous, ...newOprs]);
+              Alert.alert('Suppression refusée', 'Vous n\'avez pas les droits pour supprimer cet OPR, ou il n\'existe plus sur le serveur.');
+            }
           }
-        });
+        })();
       }
     },
 
