@@ -1384,6 +1384,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   // Guards against reacting to seeding auth events before the app is initialized.
   // Set to true once INITIAL_SESSION fires. Events before that are from seeding.
   const initialSessionReceivedRef = useRef(false);
+  // Prevents stray duplicate SIGNED_IN events (e.g. seeding's in-flight signIn
+  // that resolves after abort) from starting a concurrent loadAll() and
+  // cancelling the one already in progress.
+  const loadAllInProgressRef = useRef(false);
 
   async function loadAll() {
     debugLog(`[AppContext] loadAll() → début (gen=${loadGenerationRef.current})`);
@@ -1395,6 +1399,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
     const myGen = loadGenerationRef.current;
     loadedChannelIdsRef.current.clear();
+    loadAllInProgressRef.current = true;
 
     dispatch({ type: 'SET_LOADING', payload: true });
 
@@ -1865,6 +1870,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         'Impossible de charger les données. Vérifiez votre connexion internet.',
         [{ text: 'Réessayer', onPress: loadAll }, { text: 'Ignorer', style: 'cancel' }]
       );
+    } finally {
+      loadAllInProgressRef.current = false;
     }
   }
 
@@ -1904,6 +1911,14 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           dispatch({ type: 'SET_LOADING', payload: false });
         }
       } else if (event === 'SIGNED_IN' && session) {
+        // Guard 3: ignore duplicate SIGNED_IN events while a loadAll() is already
+        // running. The seeding's last in-flight signInWithPassword can resolve
+        // after the abort, firing a stray SIGNED_IN that would cancel the
+        // legitimate loadAll() and leave the UI in an empty state.
+        if (loadAllInProgressRef.current) {
+          debugLogWarn(`[AppContext] SIGNED_IN ignoré (loadAll déjà en cours) session=${session.user?.email}`);
+          return;
+        }
         loadGenerationRef.current++;
         debugLog(`[AppContext] → déclenchement loadAll() (gen=${loadGenerationRef.current})`);
         loadAll();
