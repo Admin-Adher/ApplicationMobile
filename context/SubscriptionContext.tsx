@@ -12,6 +12,14 @@ export interface OrgSummary {
   seatMax: number;
 }
 
+export function generateOrgSlug(name: string): string {
+  return name
+    .toLowerCase()
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+}
+
 const FREE_ROLES: UserRole[] = ['observateur', 'sous_traitant'];
 
 const ENTERPRISE_PLAN: Plan = {
@@ -67,7 +75,7 @@ interface SubscriptionContextValue {
   refreshSubscription: () => void;
   updateOrgPlan: (orgId: string, planId: string) => Promise<{ success: boolean; error?: string }>;
   updateOrgStatus: (orgId: string, status: 'trial' | 'active' | 'suspended' | 'expired') => Promise<{ success: boolean; error?: string }>;
-  updateOrganization: (orgId: string, name: string) => Promise<{ success: boolean; error?: string }>;
+  updateOrganization: (orgId: string, name: string, slug?: string) => Promise<{ success: boolean; error?: string }>;
   createOrganization: (name: string, adminEmail?: string) => Promise<{ success: boolean; error?: string }>;
 }
 
@@ -490,30 +498,50 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
 
   async function updateOrganization(
     orgId: string,
-    name: string
+    name: string,
+    slug?: string
   ): Promise<{ success: boolean; error?: string }> {
     const trimmed = name.trim();
     if (!trimmed) return { success: false, error: 'Le nom ne peut pas être vide.' };
 
+    const newSlug = slug?.trim() || undefined;
+
     if (!isSupabaseConfigured) {
-      setAllOrganizations(prev => prev.map(o => o.id === orgId ? { ...o, name: trimmed } : o));
-      setOrgSummaries(prev => prev.map(s => s.org.id === orgId ? { ...s, org: { ...s.org, name: trimmed } } : s));
+      setAllOrganizations(prev => prev.map(o =>
+        o.id === orgId ? { ...o, name: trimmed, ...(newSlug ? { slug: newSlug } : {}) } : o
+      ));
+      setOrgSummaries(prev => prev.map(s =>
+        s.org.id === orgId ? { ...s, org: { ...s.org, name: trimmed, ...(newSlug ? { slug: newSlug } : {}) } } : s
+      ));
       return { success: true };
     }
     try {
+      const patch: Record<string, string> = { name: trimmed };
+      if (newSlug) patch.slug = newSlug;
+
       const { data, error } = await supabase
         .from('organizations')
-        .update({ name: trimmed })
+        .update(patch)
         .eq('id', orgId)
-        .select('id');
+        .select('id, slug');
 
-      if (error) return { success: false, error: error.message };
+      if (error) {
+        if (error.code === '23505') {
+          return { success: false, error: 'Cet identifiant est déjà utilisé par une autre organisation. Essayez un nom légèrement différent.' };
+        }
+        return { success: false, error: error.message };
+      }
       if (!data || data.length === 0) {
         return { success: false, error: 'Aucune ligne modifiée — vérifiez les droits Supabase (RLS) sur la table organizations.' };
       }
+      const savedSlug: string = (data[0] as any).slug;
       // Mise à jour locale immédiate + synchronisation complète
-      setAllOrganizations(prev => prev.map(o => o.id === orgId ? { ...o, name: trimmed } : o));
-      setOrgSummaries(prev => prev.map(s => s.org.id === orgId ? { ...s, org: { ...s.org, name: trimmed } } : s));
+      setAllOrganizations(prev => prev.map(o =>
+        o.id === orgId ? { ...o, name: trimmed, slug: savedSlug } : o
+      ));
+      setOrgSummaries(prev => prev.map(s =>
+        s.org.id === orgId ? { ...s, org: { ...s.org, name: trimmed, slug: savedSlug } } : s
+      ));
       refreshSubscription();
       return { success: true };
     } catch {

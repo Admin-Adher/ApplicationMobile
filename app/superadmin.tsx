@@ -7,7 +7,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { useState } from 'react';
 import { C } from '@/constants/colors';
-import { useSubscription, OrgSummary } from '@/context/SubscriptionContext';
+import { useSubscription, OrgSummary, generateOrgSlug } from '@/context/SubscriptionContext';
 import { useAuth } from '@/context/AuthContext';
 
 const STATUS_CONFIG = {
@@ -77,8 +77,9 @@ export default function SuperAdminScreen() {
       setEditModal(null);
       return;
     }
+    const newSlug = generateOrgSlug(trimmed);
     setEditSaving(true);
-    const result = await updateOrganization(editModal.org.id, trimmed);
+    const result = await updateOrganization(editModal.org.id, trimmed, newSlug);
     setEditSaving(false);
     if (result.success) {
       setEditModal(null);
@@ -454,11 +455,33 @@ export default function SuperAdminScreen() {
                 />
               </View>
 
-              <View style={styles.slugRow}>
-                <Ionicons name="link-outline" size={13} color={C.textMuted} />
-                <Text style={styles.slugTxt}>Identifiant : <Text style={{ color: C.text }}>{editModal?.org.slug}</Text></Text>
-                <Text style={styles.slugHint}>(non modifiable)</Text>
-              </View>
+              {(() => {
+                const currentSlug = editModal?.org.slug ?? '';
+                const trimmedName = editOrgName.trim();
+                const previewSlug = trimmedName && trimmedName !== editModal?.org.name
+                  ? generateOrgSlug(trimmedName)
+                  : null;
+                return (
+                  <View style={styles.slugBlock}>
+                    <View style={styles.slugRow}>
+                      <Ionicons name="link-outline" size={13} color={C.textMuted} />
+                      <Text style={styles.slugTxt}>
+                        Identifiant actuel : <Text style={{ color: previewSlug ? C.textMuted : C.text, textDecorationLine: previewSlug ? 'line-through' : 'none' }}>{currentSlug}</Text>
+                      </Text>
+                    </View>
+                    {previewSlug ? (
+                      <View style={[styles.slugRow, { marginTop: 4 }]}>
+                        <Ionicons name="arrow-forward-outline" size={13} color={C.primary} />
+                        <Text style={[styles.slugTxt, { color: C.primary, fontFamily: 'Inter_600SemiBold' }]}>
+                          Nouvel identifiant : {previewSlug}
+                        </Text>
+                      </View>
+                    ) : (
+                      <Text style={[styles.slugHint, { paddingLeft: 19, marginTop: 2 }]}>Sera mis à jour automatiquement avec le nom</Text>
+                    )}
+                  </View>
+                );
+              })()}
 
               <View style={styles.editBtnRow}>
                 <TouchableOpacity
@@ -647,6 +670,7 @@ const styles = StyleSheet.create({
   },
   inputHint: { fontSize: 11, fontFamily: 'Inter_400Regular', color: C.textMuted, marginTop: 2 },
 
+  slugBlock: { paddingHorizontal: 2, marginBottom: 4 },
   slugRow: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 2 },
   slugTxt: { fontSize: 12, fontFamily: 'Inter_400Regular', color: C.textMuted, flex: 1 },
   slugHint: { fontSize: 11, fontFamily: 'Inter_400Regular', color: C.textMuted, fontStyle: 'italic' },
