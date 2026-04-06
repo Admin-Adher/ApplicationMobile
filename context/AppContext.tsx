@@ -1788,10 +1788,16 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         dispatch({ type: 'SET_CUSTOM_CHANNELS', payload: [] });
         dispatch({ type: 'SET_GROUP_CHANNELS', payload: [] });
         dispatch({ type: 'SET_PINNED_CHANNELS', payload: [] });
+        dispatch({ type: 'SET_CHANTIERS', payload: [] });
+        dispatch({ type: 'SET_SITE_PLANS', payload: [] });
+        dispatch({ type: 'SET_VISITES', payload: [] });
+        dispatch({ type: 'SET_LOTS', payload: [] });
+        dispatch({ type: 'SET_OPRS', payload: [] });
+        dispatch({ type: 'SET_ACTIVE_CHANTIER', payload: null });
         setPendingDmChannelIds(new Set());
-        // Effacer tous les caches locaux liés à l'utilisateur déconnecté
-        // pour éviter qu'un autre utilisateur qui se connecte sur le même
-        // appareil ne voie les canaux / DM / préférences du précédent.
+        // Effacer TOUT le cache local lié à l'utilisateur déconnecté
+        // pour éviter qu'un autre compte sur le même appareil voie
+        // les données, canaux, DM et préférences du précédent.
         AsyncStorage.multiRemove([
           PENDING_DM_KEY,
           CUSTOM_CHANNELS_KEY,
@@ -1799,6 +1805,18 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           PINNED_CHANNELS_KEY,
           CHANNEL_MEMBERS_OVERRIDE_KEY,
           'lastReadByChannel',
+          ACTIVE_CHANTIER_KEY,
+          MOCK_RESERVES_KEY,
+          MOCK_TASKS_KEY,
+          MOCK_PHOTOS_KEY,
+          MOCK_MESSAGES_KEY,
+          MOCK_CHANTIERS_KEY,
+          MOCK_SITE_PLANS_KEY,
+          MOCK_VISITES_KEY,
+          MOCK_LOTS_KEY,
+          MOCK_OPRS_KEY,
+          MOCK_COMPANIES_KEY,
+          'buildtrack_mock_documents_v2',
         ]).catch(() => {});
         // Si la déconnexion vient du processus de seeding (et non d'un vrai logout),
         // il peut subsister une session active pour le vrai utilisateur.
