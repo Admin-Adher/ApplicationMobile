@@ -13,8 +13,8 @@ BuildTrack is a construction site management app built with **Expo (React Native
 ## Key Configuration
 - **Start command:** `npm start` → runs `expo start --web --localhost --port 5000`
 - **Port:** 5000
-- **Secrets required:**
-  - `EXPO_PUBLIC_SUPABASE_URL` — Supabase project URL
+- **Environment Variables (shared):**
+  - `EXPO_PUBLIC_SUPABASE_URL` — Supabase project URL (`https://jzeojdpgglbxjdasjgta.supabase.co`)
   - `EXPO_PUBLIC_SUPABASE_KEY` — Supabase anon/public key
 
 ## Project Structure
@@ -33,6 +33,7 @@ assets/               # Fonts, images
 ## Replit Compatibility
 - `scripts/patch-expo-cors.js` — patches Expo's CORS middleware to allow Replit proxy domains (`.replit.dev`, `.repl.co`). Runs automatically via `postinstall`.
 - The app has a Demo Mode (falls back to mock data if Supabase credentials are missing).
+- Workflow: "Start Frontend" runs `npm start` on port 5000 (webview output).
 
 ## Database
 The Supabase database schema is in `lib/schema.sql`. Migration files are in `supabase/migrations/`. Key tables: `organizations`, `profiles`, `chantiers`, `reserves`, `tasks`, `companies`, `channels`, `messages`, `visites`, `lots`, `oprs`, `site_plans`, `photos`, `documents`, `incidents`, `time_entries`.
@@ -45,3 +46,5 @@ The Supabase database schema is in `lib/schema.sql`. Migration files are in `sup
 
 ## Known Fixes Applied
 - **AppContext.tsx:** Fixed `profile` variable scoping bug — it was declared with `const` inside an `if` block but referenced outside it, causing a `ReferenceError` that triggered the "Impossible de charger les données" error dialog on every data load.
+- **npm install:** On migration, needed `rm -rf node_modules/react-native-web/src` before `npm install` due to ENOTEMPTY error.
+- **CORS patch:** `scripts/patch-expo-cors.js` applied automatically via `postinstall` to allow Replit proxied iframe domains.
