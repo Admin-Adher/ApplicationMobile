@@ -39,8 +39,10 @@ interface AppState {
   lastReadByChannel: Record<string, string>;
   isLoading: boolean;
   profiles: Profile[];
+  generalChannels: Channel[];
   customChannels: Channel[];
   groupChannels: Channel[];
+  persistedDmChannels: Channel[];
   pinnedChannelIds: string[];
   channelMembersOverride: Record<string, string[]>;
   chantiers: Chantier[];
@@ -52,7 +54,7 @@ interface AppState {
 }
 
 type Action =
-  | { type: 'INIT'; payload: Omit<AppState, 'isLoading' | 'lastReadByChannel' | 'customChannels' | 'groupChannels' | 'pinnedChannelIds' | 'channelMembersOverride' | 'chantiers' | 'sitePlans' | 'activeChantierId' | 'visites' | 'lots' | 'oprs'> }
+  | { type: 'INIT'; payload: Omit<AppState, 'isLoading' | 'lastReadByChannel' | 'generalChannels' | 'customChannels' | 'groupChannels' | 'persistedDmChannels' | 'pinnedChannelIds' | 'channelMembersOverride' | 'chantiers' | 'sitePlans' | 'activeChantierId' | 'visites' | 'lots' | 'oprs'> }
   | { type: 'SET_VISITES'; payload: Visite[] }
   | { type: 'ADD_VISITE'; payload: Visite }
   | { type: 'UPDATE_VISITE'; payload: Visite }
@@ -100,12 +102,15 @@ type Action =
   | { type: 'DELETE_RESERVE'; payload: string }
   | { type: 'UPDATE_RESERVE_FIELDS'; payload: Reserve }
   | { type: 'SET_LOADING'; payload: boolean }
+  | { type: 'SET_GENERAL_CHANNELS'; payload: Channel[] }
   | { type: 'ADD_CUSTOM_CHANNEL'; payload: Channel }
   | { type: 'SET_CUSTOM_CHANNELS'; payload: Channel[] }
   | { type: 'REMOVE_CUSTOM_CHANNEL'; payload: string }
   | { type: 'ADD_GROUP_CHANNEL'; payload: Channel }
   | { type: 'SET_GROUP_CHANNELS'; payload: Channel[] }
   | { type: 'REMOVE_GROUP_CHANNEL'; payload: string }
+  | { type: 'SET_PERSISTED_DM_CHANNELS'; payload: Channel[] }
+  | { type: 'ADD_PERSISTED_DM_CHANNEL'; payload: Channel }
   | { type: 'UPDATE_CHANNEL'; payload: Channel }
   | { type: 'SET_PINNED_CHANNELS'; payload: string[] }
   | { type: 'UPDATE_COMPANY_FULL'; payload: Company }
@@ -638,6 +643,9 @@ function reducer(state: AppState, action: Action): AppState {
     case 'ADD_CUSTOM_CHANNEL':
       return { ...state, customChannels: [...state.customChannels, action.payload] };
 
+    case 'SET_GENERAL_CHANNELS':
+      return { ...state, generalChannels: action.payload };
+
     case 'SET_CUSTOM_CHANNELS':
       return { ...state, customChannels: action.payload };
 
@@ -645,6 +653,7 @@ function reducer(state: AppState, action: Action): AppState {
       return { ...state, customChannels: state.customChannels.filter(c => c.id !== action.payload) };
 
     case 'ADD_GROUP_CHANNEL':
+      if (state.groupChannels.some(c => c.id === action.payload.id)) return state;
       return { ...state, groupChannels: [...state.groupChannels, action.payload] };
 
     case 'SET_GROUP_CHANNELS':
@@ -653,13 +662,26 @@ function reducer(state: AppState, action: Action): AppState {
     case 'REMOVE_GROUP_CHANNEL':
       return { ...state, groupChannels: state.groupChannels.filter(c => c.id !== action.payload) };
 
+    case 'SET_PERSISTED_DM_CHANNELS':
+      return { ...state, persistedDmChannels: action.payload };
+
+    case 'ADD_PERSISTED_DM_CHANNEL':
+      if (state.persistedDmChannels.some(c => c.id === action.payload.id)) return state;
+      return { ...state, persistedDmChannels: [...state.persistedDmChannels, action.payload] };
+
     case 'UPDATE_CHANNEL': {
       const ch = action.payload;
+      if (ch.type === 'general' || ch.type === 'building') {
+        return { ...state, generalChannels: state.generalChannels.map(c => c.id === ch.id ? ch : c) };
+      }
       if (ch.type === 'custom') {
         return { ...state, customChannels: state.customChannels.map(c => c.id === ch.id ? ch : c) };
       }
       if (ch.type === 'group') {
         return { ...state, groupChannels: state.groupChannels.map(c => c.id === ch.id ? ch : c) };
+      }
+      if (ch.type === 'dm') {
+        return { ...state, persistedDmChannels: state.persistedDmChannels.map(c => c.id === ch.id ? ch : c) };
       }
       return state;
     }
@@ -840,7 +862,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     reserves: [], companies: [], tasks: [],
     documents: [], photos: [], messages: [],
     lastReadByChannel: {}, isLoading: true,
-    profiles: [], customChannels: [], groupChannels: [], pinnedChannelIds: [],
+    profiles: [], generalChannels: [], customChannels: [], groupChannels: [],
+    persistedDmChannels: [], pinnedChannelIds: [],
     channelMembersOverride: {},
     chantiers: [], sitePlans: [], activeChantierId: null,
     visites: [], lots: [], oprs: [],
@@ -1022,6 +1045,45 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         console.warn('[saveGroupChannels] upsert error:', error.message, 'channel:', ch.id);
       }
     }
+  }
+
+  async function loadGeneralChannels() {
+    if (!isSupabaseConfigured) return;
+    try {
+      const { data, error } = await supabase
+        .from('channels')
+        .select('*')
+        .in('type', ['general', 'building']);
+      if (!error && data) {
+        const channels: Channel[] = data.map((r: any) => ({
+          id: r.id, name: r.name, description: r.description ?? '',
+          icon: r.icon, color: r.color, type: r.type as 'general' | 'building',
+          members: r.members ?? [], createdBy: r.created_by ?? undefined,
+        }));
+        dispatch({ type: 'SET_GENERAL_CHANNELS', payload: channels });
+      }
+    } catch {}
+  }
+
+  async function loadDMChannels() {
+    if (!isSupabaseConfigured) return;
+    try {
+      const { data, error } = await supabase
+        .from('channels')
+        .select('*')
+        .eq('type', 'dm');
+      if (!error && data) {
+        const channels: Channel[] = data.map((r: any) => ({
+          id: r.id, name: r.name, description: r.description ?? '',
+          icon: r.icon ?? 'person-circle', color: r.color ?? '#EC4899',
+          type: 'dm' as const,
+          members: r.members ?? [],
+          dmParticipants: r.members ?? [],
+          createdBy: r.created_by ?? undefined,
+        }));
+        dispatch({ type: 'SET_PERSISTED_DM_CHANNELS', payload: channels });
+      }
+    } catch {}
   }
 
   async function loadPinnedChannels() {
@@ -1257,7 +1319,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       if (session?.user?.id) {
         const { data: profile } = await supabase
           .from('profiles')
-          .select('name, organization_id')
+          .select('name, organization_id, last_read_by_channel')
           .eq('id', session.user.id)
           .single();
         if (profile?.name) {
@@ -1265,6 +1327,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         }
         if (profile?.organization_id) {
           currentUserOrgIdRef.current = profile.organization_id;
+        }
+        // Sync cross-device last_read from Supabase (prefer Supabase over local cache)
+        if (profile?.last_read_by_channel && typeof profile.last_read_by_channel === 'object') {
+          dispatch({ type: 'SET_LAST_READ', payload: profile.last_read_by_channel });
+          AsyncStorage.setItem('lastReadByChannel', JSON.stringify(profile.last_read_by_channel)).catch(() => {});
         }
       }
 
@@ -1291,15 +1358,27 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         AsyncStorage.getItem(ACTIVE_CHANTIER_KEY).catch(() => null),
       ]);
 
+      // AsyncStorage last_read: merged as fallback if Supabase dispatch hasn't fired yet
+      // (Supabase value dispatched earlier already takes priority)
       const storedLastRead = await AsyncStorage.getItem('lastReadByChannel').catch(() => null);
       if (storedLastRead) {
-        dispatch({ type: 'SET_LAST_READ', payload: JSON.parse(storedLastRead) });
+        try {
+          const localRead: Record<string, string> = JSON.parse(storedLastRead);
+          // Only dispatch if Supabase gave us nothing (state.lastReadByChannel still empty)
+          if (Object.keys(localRead).length > 0) {
+            dispatch({ type: 'SET_LAST_READ', payload: localRead });
+          }
+        } catch {}
       }
 
-      await loadCustomChannels();
-      await loadGroupChannels();
-      await loadPinnedChannels();
-      await loadChannelMembersOverride();
+      await Promise.all([
+        loadCustomChannels(),
+        loadGroupChannels(),
+        loadGeneralChannels(),
+        loadDMChannels(),
+        loadPinnedChannels(),
+        loadChannelMembersOverride(),
+      ]);
 
       if (loadGenerationRef.current !== myGen) return;
 
@@ -1914,9 +1993,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       .filter(m => m.channelId.startsWith('dm-'))
       .map(m => m.channelId),
     ...Array.from(pendingDmChannelIds),
+    ...state.persistedDmChannels.map(c => c.id),
   ]);
 
   const dmChannels: Channel[] = Array.from(dmChannelIds).map(chId => {
+    // Prefer data loaded from Supabase if available
+    const persisted = state.persistedDmChannels.find(c => c.id === chId);
+    if (persisted) return persisted;
     const parts = chId.replace('dm-', '').split('__');
     const myName = currentUserNameRef.current;
     const otherName = parts.find(p => p !== myName) ?? parts[0];
@@ -1933,6 +2016,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   const channels: Channel[] = [
     ...STATIC_CHANNELS,
+    ...state.generalChannels,
     ...companyChannels,
     ...state.customChannels,
     ...state.groupChannels,
