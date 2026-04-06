@@ -470,18 +470,20 @@ export default function SuperAdminScreen() {
                     </Text>
                   </Text>
                 </View>
-                {editSlugPreview ? (
-                  <View style={[styles.slugRow, { marginTop: 4 }]}>
-                    <Ionicons name="arrow-forward-outline" size={13} color={C.primary} />
-                    <Text style={[styles.slugTxt, { color: C.primary, fontFamily: 'Inter_600SemiBold' }]}>
-                      {'Nouvel identifiant : '}{editSlugPreview}
-                    </Text>
-                  </View>
-                ) : (
-                  <Text style={[styles.slugHint, { paddingLeft: 19, marginTop: 2 }]}>
-                    Sera mis à jour automatiquement avec le nom
+                <View style={[styles.slugRow, { marginTop: 4 }]}>
+                  {editSlugPreview
+                    ? <Ionicons name="arrow-forward-outline" size={13} color={C.primary} />
+                    : <View style={{ width: 13 }} />
+                  }
+                  <Text style={[styles.slugTxt, editSlugPreview
+                    ? { color: C.primary, fontFamily: 'Inter_600SemiBold' }
+                    : { color: C.textMuted, fontStyle: 'italic' }
+                  ]}>
+                    {editSlugPreview
+                      ? `Nouvel identifiant : ${editSlugPreview}`
+                      : 'Sera mis à jour automatiquement avec le nom'}
                   </Text>
-                )}
+                </View>
               </View>
 
               <View style={styles.editBtnRow}>
