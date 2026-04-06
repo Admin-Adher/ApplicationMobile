@@ -626,6 +626,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   async function login(email: string, password: string): Promise<{ success: boolean; error?: string }> {
     // Abort any in-progress seeding so its signOut calls don't kick us out
     abortSeedingRef.current = true;
+    // Clear the seeding flag NOW, before signInWithPassword(), so that AppContext's
+    // SIGNED_IN handler (Guard 2: globalSeedingRef.current) does not block the
+    // loadAll() triggered by our sign-in. The seeding's own email-guard already
+    // prevents it from signing out a real-user session.
+    isSeedingRef.current = false;
+    globalSeedingRef.current = false;
 
     if (!isSupabaseConfigured) {
       const demoUser = DEMO_USERS.find(u => u.email === email);
@@ -692,8 +698,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
         if (profile) {
           setUser(profile);
-          isSeedingRef.current = false;
-          globalSeedingRef.current = false;
           setSeedStatus('done');
           return { success: true };
         }
@@ -701,8 +705,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
       // Profile missing — sign out cleanly
       await supabase.auth.signOut();
-      isSeedingRef.current = false;
-      globalSeedingRef.current = false;
       return {
         success: false,
         error:
