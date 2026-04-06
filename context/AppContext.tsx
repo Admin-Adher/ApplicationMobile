@@ -1463,6 +1463,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         if (localReserves.length > 0) {
           resolvedReserves = localReserves;
           // Try to push local reserves up to Supabase (best-effort)
+          const syncOrgId = currentUserOrgIdRef.current;
           (async () => {
             for (const r of localReserves) {
               await supabase.from('reserves').upsert({
@@ -1481,6 +1482,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
                 enterprise_signataire: r.enterpriseSignataire ?? null,
                 enterprise_acknowledged_at: r.enterpriseAcknowledgedAt ?? null,
                 company_signatures: r.companySignatures ?? null,
+                organization_id: syncOrgId ?? null,
               }).catch(() => {});
             }
           })();
@@ -1691,9 +1693,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
             const localVisites: Visite[] = sv ? (JSON.parse(sv) ?? []) : [];
             if (localVisites.length > 0) {
               visites = localVisites;
+              const vSyncOrgId = currentUserOrgIdRef.current;
               (async () => {
                 for (const v of localVisites) {
-                  const { error: syncErr } = await supabase.from('visites').upsert(fromVisite(v));
+                  const { error: syncErr } = await supabase.from('visites').upsert(fromVisite(v, vSyncOrgId));
                 }
               })();
             }
@@ -1730,9 +1733,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
             const localOprs: Opr[] = so ? (JSON.parse(so) ?? []) : [];
             if (localOprs.length > 0) {
               oprs = localOprs;
+              const oSyncOrgId = currentUserOrgIdRef.current;
               (async () => {
                 for (const o of localOprs) {
-                  const { error: syncErr } = await supabase.from('oprs').upsert(fromOpr(o));
+                  const { error: syncErr } = await supabase.from('oprs').upsert(fromOpr(o, oSyncOrgId));
                 }
               })();
             }
@@ -2731,6 +2735,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         dispatch({ type: 'ADD_MESSAGE', payload: notifMsg });
         if (isSupabaseConfigured) {
           supabase.from('messages').insert(fromMessage(notifMsg)).then(({ error }: { error: any }) => {
+            if (error) {
+              console.warn('[sync] sendMessage notification insert error:', error.message);
+            }
           });
         }
       }
@@ -3337,10 +3344,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       const newVisites = stateRef.current.visites.map(x => x.id === v.id ? v : x);
       dispatch({ type: 'UPDATE_VISITE', payload: v });
       persistMockVisites(newVisites);
-      { const { id: _vid, ..._vfields } = fromVisite(v);
+      { const { id: _vid, organization_id: _vorgId, ..._vfields } = fromVisite(v, currentUserOrgIdRef.current);
         if (offline({ table: 'visites', op: 'update', filter: { column: 'id', value: v.id }, data: _vfields })) return; }
       if (isSupabaseConfigured) {
-        const { id, ...fields } = fromVisite(v);
+        const { id, organization_id, ...fields } = fromVisite(v, currentUserOrgIdRef.current);
         supabase.from('visites').update(fields).eq('id', v.id).then(({ error }: { error: any }) => {
           if (error) {
             console.warn('[sync] updateVisite server error (data saved locally):', error.message);
@@ -3427,10 +3434,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       const newLots = stateRef.current.lots.map(x => x.id === l.id ? l : x);
       dispatch({ type: 'UPDATE_LOT', payload: l });
       persistMockLots(newLots);
-      { const { id: _lid, ..._lfields } = fromLot(l);
+      { const { id: _lid, organization_id: _lorgId, ..._lfields } = fromLot(l, currentUserOrgIdRef.current);
         if (offline({ table: 'lots', op: 'update', filter: { column: 'id', value: l.id }, data: _lfields })) return; }
       if (isSupabaseConfigured) {
-        const { id, ...fields } = fromLot(l);
+        const { id, organization_id, ...fields } = fromLot(l, currentUserOrgIdRef.current);
         supabase.from('lots').update(fields).eq('id', l.id).then(({ error }: { error: any }) => {
           if (error) {
             console.warn('[sync] updateLot server error (data saved locally):', error.message);
@@ -3660,10 +3667,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       const newOprs = stateRef.current.oprs.map(x => x.id === o.id ? o : x);
       dispatch({ type: 'UPDATE_OPR', payload: o });
       persistMockOprs(newOprs);
-      { const { id: _oid, ..._ofields } = fromOpr(o);
+      { const { id: _oid, organization_id: _oorgId, ..._ofields } = fromOpr(o, currentUserOrgIdRef.current);
         if (offline({ table: 'oprs', op: 'update', filter: { column: 'id', value: o.id }, data: _ofields })) return; }
       if (isSupabaseConfigured) {
-        const { id, ...fields } = fromOpr(o);
+        const { id, organization_id, ...fields } = fromOpr(o, currentUserOrgIdRef.current);
         supabase.from('oprs').update(fields).eq('id', o.id).then(({ error }: { error: any }) => {
           if (error) {
             console.warn('[sync] updateOpr server error (data saved locally):', error.message);
@@ -3848,11 +3855,26 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       }
       if (offline({ table: 'chantiers', op: 'delete', filter: { column: 'id', value: id } })) return;
       if (isSupabaseConfigured) {
-        // Cascade: delete all plans of this chantier first, then the chantier itself
-        supabase.from('site_plans').delete().eq('chantier_id', id).then(() => {
-          supabase.from('chantiers').delete().eq('id', id).then(({ error }: { error: any }) => {
-          });
-        });
+        // Cascade: delete all child entities in Supabase before deleting the chantier itself.
+        // Order matters for RLS join policies (reserves/tasks reference chantier_id).
+        (async () => {
+          try {
+            await Promise.all([
+              supabase.from('reserves').delete().eq('chantier_id', id),
+              supabase.from('tasks').delete().eq('chantier_id', id),
+              supabase.from('visites').delete().eq('chantier_id', id),
+              supabase.from('lots').delete().eq('chantier_id', id),
+              supabase.from('oprs').delete().eq('chantier_id', id),
+              supabase.from('site_plans').delete().eq('chantier_id', id),
+            ]);
+            const { data: deleted, error } = await supabase.from('chantiers').delete().eq('id', id).select();
+            if (error || !deleted || deleted.length === 0) {
+              console.warn('[sync] deleteChantier bloqué par le serveur:', error?.message ?? 'RLS ou déjà supprimé');
+            }
+          } catch (e: any) {
+            console.error('[sync] deleteChantier exception:', e?.message ?? e);
+          }
+        })();
       }
     },
 
@@ -3969,14 +3991,24 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     },
 
     deleteSitePlan: (id: string) => {
+      const previous = stateRef.current.sitePlans.find(p => p.id === id);
       const updated = stateRef.current.sitePlans.filter(p => p.id !== id);
       dispatch({ type: 'DELETE_SITE_PLAN', payload: id });
       // Always persist locally as a cache/fallback
       persistMockSitePlans(updated);
       if (offline({ table: 'site_plans', op: 'delete', filter: { column: 'id', value: id } })) return;
       if (isSupabaseConfigured) {
-        supabase.from('site_plans').delete().eq('id', id).then(({ error }: { error: any }) => {
-        });
+        (async () => {
+          const { data: deleted, error } = await supabase.from('site_plans').delete().eq('id', id).select();
+          if (error || !deleted || deleted.length === 0) {
+            console.warn('[sync] deleteSitePlan bloqué par le serveur:', error?.message ?? 'RLS ou déjà supprimé');
+            if (previous) {
+              dispatch({ type: 'ADD_SITE_PLAN', payload: previous });
+              persistMockSitePlans([...updated, previous]);
+              Alert.alert('Suppression refusée', 'Vous n\'avez pas les droits pour supprimer ce plan, ou il n\'existe plus sur le serveur.');
+            }
+          }
+        })();
       }
     },
   };

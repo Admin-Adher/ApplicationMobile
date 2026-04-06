@@ -234,7 +234,7 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
         }
 
         // ── Generic table/op replay ────────────────────────────────────────
-        let result: { error: any };
+        let result: { error: any; data?: any[] | null };
 
         if (op.op === 'insert') {
           result = await supabase.from(op.table).insert(op.data!);
@@ -246,10 +246,17 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
             ? await q.eq(op.filter.column, op.filter.value)
             : await q;
         } else {
-          const q = supabase.from(op.table).delete();
+          // Use .select() so we can detect RLS-blocked DELETEs (error=null but 0 rows)
+          const q = supabase.from(op.table).delete().select();
           result = op.filter
             ? await q.eq(op.filter.column, op.filter.value)
             : await q;
+          // If RLS blocked the delete, data will be [] with no error — treat as failure
+          if (!result.error && Array.isArray(result.data) && result.data.length === 0) {
+            console.warn(`[queue] DELETE on ${op.table} blocked by RLS (0 rows deleted), re-queuing`);
+            failedOps.push(op);
+            continue;
+          }
         }
 
         if (result.error) failedOps.push(op);
@@ -302,12 +309,18 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
       },
     ];
 
-    await supabase.from('reserves').update({
+    const { error: resolveErr } = await supabase.from('reserves').update({
       status: chosenStatus,
       history,
       closed_at: chosenStatus === 'closed' ? (conflict.closedAt ?? now) : null,
       closed_by: chosenStatus === 'closed' ? conflict.closedBy ?? null : null,
     }).eq('id', conflict.reserveId);
+
+    if (resolveErr) {
+      console.warn('[resolveConflict] server error — conflict kept in queue:', resolveErr.message);
+      setSyncStatus('error');
+      return;
+    }
 
     const remaining = conflicts.filter(c => c.id !== conflictId);
     setConflicts(remaining);
