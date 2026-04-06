@@ -399,6 +399,7 @@ export interface Message {
   linkedItemType?: 'reserve' | 'plan' | 'task' | 'incident' | 'visite' | 'opr';
   linkedItemId?: string;
   linkedItemTitle?: string;
+  dbCreatedAt?: string;
 }
 
 export interface Channel {

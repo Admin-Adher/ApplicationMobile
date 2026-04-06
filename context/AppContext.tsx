@@ -117,7 +117,8 @@ type Action =
   | { type: 'DELETE_COMPANY'; payload: string }
   | { type: 'UPDATE_COMPANY_HOURS'; payload: { id: string; hours: number } }
   | { type: 'SET_CHANNEL_MEMBERS_OVERRIDE'; payload: Record<string, string[]> }
-  | { type: 'BATCH_UPDATE_RESERVES'; payload: Reserve[] };
+  | { type: 'BATCH_UPDATE_RESERVES'; payload: Reserve[] }
+  | { type: 'PREPEND_MESSAGES'; payload: Message[] };
 
 function toReserve(row: any): Reserve {
   const companies: string[] = Array.isArray(row.companies) && row.companies.length > 0
@@ -425,6 +426,7 @@ export function toMessage(row: any, currentUserName?: string): Message {
     linkedItemType: row.linked_item_type ?? undefined,
     linkedItemId: row.linked_item_id ?? undefined,
     linkedItemTitle: row.linked_item_title ?? undefined,
+    dbCreatedAt: row.created_at ?? undefined,
   };
 }
 
@@ -576,6 +578,13 @@ function reducer(state: AppState, action: Action): AppState {
 
     case 'RESTORE_MESSAGES':
       return { ...state, messages: action.payload };
+
+    case 'PREPEND_MESSAGES': {
+      const existingIds = new Set(state.messages.map(m => m.id));
+      const newOnes = action.payload.filter(m => !existingIds.has(m.id));
+      if (newOnes.length === 0) return state;
+      return { ...state, messages: [...newOnes, ...state.messages] };
+    }
 
     case 'UPDATE_MESSAGE':
       return { ...state, messages: state.messages.map(m => m.id === action.payload.id ? action.payload : m) };
@@ -773,6 +782,7 @@ interface AppContextValue extends AppState {
   unpinChannel: (id: string) => void;
   maxPinnedChannels: number;
   getOrCreateDMChannel: (otherName: string) => Channel;
+  fetchOlderMessages: (channelId: string, beforeCreatedAt: string) => Promise<boolean>;
   unreadCount: number;
   stats: {
     total: number; open: number; inProgress: number;
@@ -886,6 +896,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const activeChannelIdRef = useRef<string | null>(null);
   const channelsRef = useRef<Channel[]>([...STATIC_CHANNELS]);
   const stateRef = useRef(state);
+  const dmUpsertPromisesRef = useRef<Map<string, Promise<void>>>(new Map());
 
   useEffect(() => {
     stateRef.current = state;
@@ -1361,7 +1372,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         supabase.from('tasks').select('*'),
         supabase.from('documents').select('*').order('uploaded_at', { ascending: false }),
         supabase.from('photos').select('*').order('taken_at', { ascending: false }),
-        supabase.from('messages').select('*').order('timestamp', { ascending: false }).limit(500),
+        supabase.from('messages').select('*').order('created_at', { ascending: false }).limit(500),
         // Filtrer par organisation pour éviter la fuite multi-tenant.
         // Si org_id n'est pas encore chargé (race condition login), on se fie
         // uniquement au RLS Supabase (pas de filtre supplémentaire) pour éviter
@@ -2293,10 +2304,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       dmParticipants: [myName, otherName],
     };
 
-    // Persister dans Supabase pour que le destinataire voie le canal
+    // Persister dans Supabase pour que le destinataire voie le canal.
+    // On stocke la promesse afin qu'addMessage puisse l'attendre avant
+    // d'insérer le premier message (Fix 1 — race condition DM).
     if (isSupabaseConfigured) {
       const orgId = currentUserOrgIdRef.current;
-      supabase.from('channels').upsert({
+      const upsertPromise: Promise<void> = supabase.from('channels').upsert({
         id: chId,
         name: otherName,
         description: `Message direct avec ${otherName}`,
@@ -2306,7 +2319,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         members: [myName, otherName],
         created_by: myName,
         organization_id: orgId ?? null,
-      }).then(() => {}).catch(() => {});
+      }).then(() => {
+        dmUpsertPromisesRef.current.delete(chId);
+      }).catch(() => {
+        dmUpsertPromisesRef.current.delete(chId);
+      });
+      dmUpsertPromisesRef.current.set(chId, upsertPromise);
     }
 
     // Cache local pour mode hors-ligne
@@ -2742,11 +2760,24 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       };
       dispatch({ type: 'ADD_MESSAGE', payload: msg });
       if (isSupabaseConfigured) {
-        supabase.from('messages').insert(fromMessage(msg)).then(({ error }: { error: any }) => {
-          if (error) {
-            console.warn('[sync] addMessage server error (data saved locally):', error.message);
-          }
-        });
+        // Fix 1 — Race condition DM : si le canal DM est en cours de création,
+        // attendre que l'upsert soit terminé avant d'insérer le message.
+        // Cela garantit que le destinataire verra le canal avant le message.
+        const pendingUpsert = channelId.startsWith('dm-')
+          ? dmUpsertPromisesRef.current.get(channelId)
+          : undefined;
+        const doInsert = () => {
+          supabase.from('messages').insert(fromMessage(msg)).then(({ error }: { error: any }) => {
+            if (error) {
+              console.warn('[sync] addMessage server error (data saved locally):', error.message);
+            }
+          });
+        };
+        if (pendingUpsert) {
+          pendingUpsert.then(doInsert).catch(doInsert);
+        } else {
+          doInsert();
+        }
       } else {
         persistMockMessages([...stateRef.current.messages, msg]);
       }
@@ -3043,6 +3074,31 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     unpinChannel,
     maxPinnedChannels: MAX_PINNED,
     getOrCreateDMChannel,
+
+    fetchOlderMessages: async (channelId: string, beforeCreatedAt: string): Promise<boolean> => {
+      if (!isSupabaseConfigured) return false;
+      try {
+        const { data, error } = await supabase
+          .from('messages')
+          .select('*')
+          .eq('channel_id', channelId)
+          .lt('created_at', beforeCreatedAt)
+          .order('created_at', { ascending: false })
+          .limit(50);
+        if (error) {
+          console.warn('[fetchOlderMessages] error:', error.message);
+          return false;
+        }
+        if (!data?.length) return false;
+        const userName = currentUserNameRef.current;
+        const older = (data as any[]).map(r => toMessage(r, userName)).reverse();
+        dispatch({ type: 'PREPEND_MESSAGES', payload: older });
+        return data.length === 50;
+      } catch (e: any) {
+        console.warn('[fetchOlderMessages] exception:', e?.message ?? e);
+        return false;
+      }
+    },
 
     addVisite: (v) => {
       const newVisites = [v, ...stateRef.current.visites];

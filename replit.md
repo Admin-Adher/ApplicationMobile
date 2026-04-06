@@ -32,6 +32,15 @@ BuildTrack is a construction site management application built with **Expo / Rea
 | `EXPO_PUBLIC_SUPABASE_URL` | Supabase project URL | Replit shared env vars |
 | `EXPO_PUBLIC_SUPABASE_KEY` | Supabase anonymous key | Replit shared env vars |
 
+## Migrations Supabase à appliquer
+
+Les migrations dans `supabase/migrations/` doivent être appliquées manuellement dans l'éditeur SQL Supabase (Dashboard → SQL Editor). Les plus récentes :
+
+| Fichier | Contenu |
+|---------|---------|
+| `20260414_fix_messages_created_at.sql` | Ajoute `created_at TIMESTAMPTZ` aux messages + index pour pagination cursor-based |
+| `20260414_fix_dm_rls_unique_name.sql` | Fix pattern LIKE DM (métacaractères SQL) via `string_to_array` + contrainte UNIQUE sur `profiles.name` |
+
 ## Running the App
 
 The app runs via the **Start Frontend** workflow which executes:

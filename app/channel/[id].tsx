@@ -109,7 +109,7 @@ export default function ChannelScreen() {
     messages, addMessage, deleteMessage, updateMessage, toggleReaction, setChannelRead, setActiveChannelId,
     channels, removeCustomChannel, removeGroupChannel, renameChannel,
     addChannelMember, removeChannelMember, profiles, channelMembersOverride,
-    reserves, sitePlans, tasks, visites, oprs,
+    reserves, sitePlans, tasks, visites, oprs, fetchOlderMessages,
   } = useApp();
   const { incidents } = useIncidents();
   const { user } = useAuth();
@@ -159,6 +159,8 @@ export default function ChannelScreen() {
   // L'utilisateur peut charger les suivants en scrollant vers le haut
   const PAGE_SIZE = 50;
   const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
+  const [isFetchingOlder, setIsFetchingOlder] = useState(false);
+  const [hasMoreOnServer, setHasMoreOnServer] = useState(true);
   const typingTimeouts = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
   const typingChannelRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
   const lastTypingBroadcastRef = useRef<number>(0);
@@ -189,7 +191,11 @@ export default function ChannelScreen() {
   }, [channelId]);
 
   // Réinitialiser la pagination quand on change de canal
-  useEffect(() => { setVisibleCount(PAGE_SIZE); }, [channelId]);
+  useEffect(() => {
+    setVisibleCount(PAGE_SIZE);
+    setIsFetchingOlder(false);
+    setHasMoreOnServer(true);
+  }, [channelId]);
 
   // Fix 1: ref déclaré ici, reset quand on change de canal
   const prevChannelMsgCountRef = useRef(0);
@@ -240,6 +246,16 @@ export default function ChannelScreen() {
     return [...items].reverse();
   }, [filteredMessages]);
 
+  // Fix 2 — Pagination serveur : oldest dbCreatedAt parmi les messages chargés
+  const oldestDbCreatedAt = useMemo(() => {
+    const withTs = channelMessages.filter(m => m.dbCreatedAt);
+    if (!withTs.length) return null;
+    return withTs.reduce<string>((oldest, m) =>
+      m.dbCreatedAt! < oldest ? m.dbCreatedAt! : oldest,
+      withTs[0].dbCreatedAt!
+    );
+  }, [channelMessages]);
+
   // P16: Pagination locale — slice les N items les plus récents
   // FlatList est inversée : index 0 = bas (le plus récent), dernier index = haut (le plus ancien)
   // Donc slice(0, visibleCount) = les N plus récents, affiché au bas
@@ -248,12 +264,13 @@ export default function ChannelScreen() {
   const paginatedListItems = useMemo((): (ListItem | { _type: 'load_more'; key: string })[] => {
     if (searchQuery.trim()) return listItems.slice(0, SEARCH_RESULT_CAP); // cap pendant la recherche
     const visible = listItems.slice(0, visibleCount);
-    if (listItems.length > visibleCount) {
-      // Ajouter le bouton "charger plus" à la fin (= haut de l'écran dans la FlatList inversée)
+    const hasMoreLocally = listItems.length > visibleCount;
+    const showLoadMore = hasMoreLocally || hasMoreOnServer;
+    if (showLoadMore) {
       return [...visible, { _type: 'load_more' as const, key: LOAD_MORE_SENTINEL_KEY }];
     }
     return visible;
-  }, [listItems, visibleCount, searchQuery]);
+  }, [listItems, visibleCount, searchQuery, hasMoreOnServer]);
 
   const knownSenders = useMemo(() => {
     const senders = new Set<string>();
@@ -476,6 +493,38 @@ export default function ChannelScreen() {
   const applyReactRef = useRef(applyReact);
   applyReactRef.current = applyReact;
 
+  // Fix 2 — Pagination serveur : refs stables pour éviter les closures stale dans renderItem
+  const isFetchingOlderRef = useRef(isFetchingOlder);
+  isFetchingOlderRef.current = isFetchingOlder;
+  const hasMoreOnServerStateRef = useRef(hasMoreOnServer);
+  hasMoreOnServerStateRef.current = hasMoreOnServer;
+  const oldestDbCreatedAtRef = useRef(oldestDbCreatedAt);
+  oldestDbCreatedAtRef.current = oldestDbCreatedAt;
+  const listItemsRef = useRef(listItems);
+  listItemsRef.current = listItems;
+  const visibleCountRef = useRef(visibleCount);
+  visibleCountRef.current = visibleCount;
+  const fetchOlderMessagesRef = useRef(fetchOlderMessages);
+  fetchOlderMessagesRef.current = fetchOlderMessages;
+
+  const handleLoadMoreRef = useRef<() => Promise<void>>(async () => {});
+  handleLoadMoreRef.current = async () => {
+    const hasMoreLocally = listItemsRef.current.length > visibleCountRef.current;
+    if (hasMoreLocally) {
+      setVisibleCount(prev => prev + PAGE_SIZE);
+      return;
+    }
+    if (!hasMoreOnServerStateRef.current || isFetchingOlderRef.current || !oldestDbCreatedAtRef.current) return;
+    setIsFetchingOlder(true);
+    try {
+      const hasMore = await fetchOlderMessagesRef.current(channelId!, oldestDbCreatedAtRef.current);
+      setHasMoreOnServer(hasMore);
+      setVisibleCount(prev => prev + PAGE_SIZE);
+    } finally {
+      setIsFetchingOlder(false);
+    }
+  };
+
   const renderItem = useCallback(({ item }: { item: ListItem | { _type: 'load_more'; key: string } }) => {
     if ('_type' in item && item._type === 'date') {
       return <DateSeparator label={(item as any).label} />;
@@ -485,11 +534,14 @@ export default function ChannelScreen() {
       return (
         <View style={{ transform: [{ scaleX: -1 }, { scaleY: -1 }], alignItems: 'center', paddingVertical: 12 }}>
           <TouchableOpacity
-            onPress={() => setVisibleCount(prev => prev + PAGE_SIZE)}
-            style={{ flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 16, paddingVertical: 8, borderRadius: 20, backgroundColor: C.card, borderWidth: 1, borderColor: C.border }}
+            onPress={() => handleLoadMoreRef.current()}
+            disabled={isFetchingOlderRef.current}
+            style={{ flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 16, paddingVertical: 8, borderRadius: 20, backgroundColor: C.card, borderWidth: 1, borderColor: C.border, opacity: isFetchingOlderRef.current ? 0.5 : 1 }}
           >
-            <Ionicons name="arrow-up-circle-outline" size={16} color={C.textMuted} />
-            <Text style={{ fontSize: 13, color: C.textMuted }}>Voir les messages précédents</Text>
+            <Ionicons name={isFetchingOlderRef.current ? 'hourglass-outline' : 'arrow-up-circle-outline'} size={16} color={C.textMuted} />
+            <Text style={{ fontSize: 13, color: C.textMuted }}>
+              {isFetchingOlderRef.current ? 'Chargement…' : 'Voir les messages précédents'}
+            </Text>
           </TouchableOpacity>
         </View>
       );
