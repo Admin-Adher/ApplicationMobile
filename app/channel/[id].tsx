@@ -207,10 +207,18 @@ export default function ChannelScreen() {
     prevChannelMsgCountRef.current = 0;
   }, [channelId]);
 
-  const channelMessages = useMemo(() =>
-    messages.filter(m => m.channelId === channelId),
-    [messages, channelId]
-  );
+  const channelMessages = useMemo(() => {
+    const msgs = messages.filter(m => m.channelId === channelId);
+    // Trier du plus ancien au plus récent (ascendant) pour que listItems.reverse()
+    // produise [plus_récent, ..., plus_ancien] → avec FlatList inversée :
+    // index 0 (plus récent) = bas, dernier (plus ancien) = haut.
+    return msgs.sort((a, b) => {
+      if (a.dbCreatedAt && b.dbCreatedAt) {
+        return a.dbCreatedAt < b.dbCreatedAt ? -1 : a.dbCreatedAt > b.dbCreatedAt ? 1 : 0;
+      }
+      return (a.timestamp ?? '').localeCompare(b.timestamp ?? '');
+    });
+  }, [messages, channelId]);
 
   // Fix 1: auto-marquer comme lu quand de nouveaux messages arrivent pendant que le canal est ouvert
   // (setChannelRead au mount seul ne couvre pas les messages entrants en temps réel)
