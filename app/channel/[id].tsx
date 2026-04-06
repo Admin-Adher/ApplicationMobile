@@ -537,7 +537,7 @@ export default function ChannelScreen() {
     // P16: bouton "Charger les messages précédents" au sommet de la FlatList inversée
     if ('_type' in item && item._type === 'load_more') {
       return (
-        <View style={{ transform: [{ scaleX: -1 }, { scaleY: -1 }], alignItems: 'center', paddingVertical: 12 }}>
+        <View style={{ alignItems: 'center', paddingVertical: 12 }}>
           <TouchableOpacity
             onPress={() => handleLoadMoreRef.current()}
             disabled={isFetchingOlderRef.current}

@@ -2090,23 +2090,38 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     ...(state.persistedDmChannels ?? []).map(c => c.id),
   ]);
 
-  const dmChannels: Channel[] = Array.from(dmChannelIds).map(chId => {
-    // Prefer data loaded from Supabase if available
-    const persisted = (state.persistedDmChannels ?? []).find(c => c.id === chId);
-    if (persisted) return persisted;
-    const parts = chId.replace('dm-', '').split('__');
-    const myName = currentUserNameRef.current;
-    const otherName = parts.find(p => p !== myName) ?? parts[0];
-    return {
-      id: chId,
-      name: otherName,
-      description: `Message direct avec ${otherName}`,
-      icon: 'person-circle',
-      color: '#EC4899',
-      type: 'dm' as const,
-      dmParticipants: parts,
-    };
-  });
+  const dmChannels: Channel[] = (() => {
+    const all = Array.from(dmChannelIds).map(chId => {
+      // Prefer data loaded from Supabase if available
+      const persisted = (state.persistedDmChannels ?? []).find(c => c.id === chId);
+      if (persisted) return persisted;
+      const parts = chId.replace('dm-', '').split('__');
+      const myName = currentUserNameRef.current;
+      const otherName = parts.find(p => p !== myName) ?? parts[0];
+      return {
+        id: chId,
+        name: otherName,
+        description: `Message direct avec ${otherName}`,
+        icon: 'person-circle',
+        color: '#EC4899',
+        type: 'dm' as const,
+        dmParticipants: parts,
+      };
+    });
+    // Deduplicate: if two channels have the same other participant name (e.g. one local
+    // + one from Supabase with a slightly different ID), keep the Supabase-persisted one.
+    const byName = new Map<string, Channel>();
+    for (const ch of all) {
+      const key = ch.name.toLowerCase().trim();
+      if (!byName.has(key)) {
+        byName.set(key, ch);
+      } else {
+        const isPersisted = (state.persistedDmChannels ?? []).some(c => c.id === ch.id);
+        if (isPersisted) byName.set(key, ch);
+      }
+    }
+    return Array.from(byName.values());
+  })();
 
   const channels: Channel[] = [
     ...STATIC_CHANNELS,
