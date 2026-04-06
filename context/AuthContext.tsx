@@ -109,49 +109,89 @@ async function linkPendingInvitation(userId: string, email: string): Promise<str
 
 async function fetchProfile(userId: string): Promise<User | null> {
   try {
-    const { data, error } = await supabase.from('profiles').select('*').eq('id', userId).single();
-    if (error) {
-      console.warn('[fetchProfile] RLS/DB error:', error.code, error.message, '— userId:', userId);
-      return null;
+    // ── Tentative 1 : requête directe sur la table ────────────────────
+    let profileData: Record<string, unknown> | null = null;
+
+    const { data: directData, error: directError } = await supabase
+      .from('profiles')
+      .select('*')
+      .eq('id', userId)
+      .single();
+
+    if (!directError && directData) {
+      profileData = directData as Record<string, unknown>;
+    } else if (directError) {
+      // La politique RLS peut être récursive (migration 20260417) et provoquer
+      // "infinite recursion detected in policy for relation profiles".
+      // On tente alors le RPC SECURITY DEFINER qui contourne les politiques.
+      console.warn(
+        '[fetchProfile] Requête directe échouée (probablement RLS récursif) :',
+        directError.code, directError.message,
+        '— Tentative via RPC get_profile_for_current_user…'
+      );
+
+      const { data: rpcRows, error: rpcError } = await supabase
+        .rpc('get_profile_for_current_user');
+
+      if (!rpcError && rpcRows && (rpcRows as unknown[]).length > 0) {
+        profileData = (rpcRows as Record<string, unknown>[])[0];
+        console.log('[fetchProfile] Profil récupéré via RPC (fallback RLS) ✓');
+      } else {
+        console.warn(
+          '[fetchProfile] RPC également échoué :',
+          rpcError?.code, rpcError?.message,
+          '— userId:', userId
+        );
+        if (!rpcError) {
+          console.warn('[fetchProfile] Aucune ligne de profil pour userId:', userId);
+        }
+        return null;
+      }
     }
-    if (!data) {
-      console.warn('[fetchProfile] no profile row found for userId:', userId);
+
+    if (!profileData) {
+      console.warn('[fetchProfile] Aucun profil trouvé pour userId:', userId);
       return null;
     }
 
-    let orgId: string | undefined = data.organization_id ?? undefined;
-    let role: UserRole = data.role as UserRole;
-    let roleLabel: string = data.role_label ?? ROLE_LABELS[role] ?? role;
-
-    let companyId: string | undefined = data.company_id ?? undefined;
+    let orgId: string | undefined = (profileData.organization_id as string) ?? undefined;
+    let role: UserRole = (profileData.role as UserRole);
+    let roleLabel: string = (profileData.role_label as string) ?? ROLE_LABELS[role] ?? role;
+    let companyId: string | undefined = (profileData.company_id as string) ?? undefined;
 
     if (!orgId && role !== 'super_admin') {
-      const linkedOrgId = await linkPendingInvitation(userId, data.email);
+      const linkedOrgId = await linkPendingInvitation(userId, profileData.email as string);
       if (linkedOrgId) {
+        // Relecture post-invitation : on réessaie directe puis RPC
         const { data: refreshed } = await supabase.from('profiles').select('*').eq('id', userId).single();
         if (refreshed) {
-          orgId = refreshed.organization_id ?? undefined;
-          role = refreshed.role as UserRole;
-          roleLabel = refreshed.role_label ?? ROLE_LABELS[role] ?? role;
-          companyId = refreshed.company_id ?? undefined;
+          orgId = (refreshed as Record<string, unknown>).organization_id as string ?? undefined;
+          role = (refreshed as Record<string, unknown>).role as UserRole;
+          roleLabel = ((refreshed as Record<string, unknown>).role_label as string) ?? ROLE_LABELS[role] ?? role;
+          companyId = (refreshed as Record<string, unknown>).company_id as string ?? undefined;
         }
-        await addUserToGeneralChannel(linkedOrgId, data.name);
+        await addUserToGeneralChannel(linkedOrgId, profileData.name as string);
       }
     }
 
     return {
-      id: data.id,
-      name: data.name,
+      id: profileData.id as string,
+      name: profileData.name as string,
       role,
       roleLabel,
-      email: data.email,
+      email: profileData.email as string,
       organizationId: orgId,
       companyId,
-      permissionsOverride: (data.permissions_override && Object.keys(data.permissions_override).length > 0)
-        ? data.permissions_override as PermissionsOverride
+      permissionsOverride: (
+        profileData.permissions_override &&
+        typeof profileData.permissions_override === 'object' &&
+        Object.keys(profileData.permissions_override).length > 0
+      )
+        ? profileData.permissions_override as PermissionsOverride
         : undefined,
     };
-  } catch {
+  } catch (err) {
+    console.error('[fetchProfile] Exception inattendue:', err);
     return null;
   }
 }
@@ -615,7 +655,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       // Profile missing — sign out cleanly
       await supabase.auth.signOut();
       isSeedingRef.current = false;
-      return { success: false, error: 'Profil introuvable. Contactez un administrateur.' };
+      return {
+        success: false,
+        error:
+          'Profil introuvable. Votre compte existe mais le profil est manquant ou inaccessible.\n\n' +
+          'Appliquez la migration SQL « 20260406_fix_profiles_rls_recursion.sql » dans Supabase ' +
+          '(Éditeur SQL), puis réessayez.',
+      };
     } catch {
       abortSeedingRef.current = false;
       return { success: false, error: 'Impossible de se connecter. Vérifiez votre réseau.' };
