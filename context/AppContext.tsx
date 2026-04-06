@@ -9,6 +9,7 @@ import { C } from '@/constants/colors';
 import { genId, nowTimestampFR, formatDateFR } from '@/lib/utils';
 import { genReserveId } from '@/lib/reserveUtils';
 import { ROLE_LABELS } from '@/constants/roles';
+import { debugLog, debugLogOk, debugLogWarn, debugLogError } from '@/lib/debugLog';
 
 export const STATIC_CHANNELS: Channel[] = [];
 
@@ -1381,7 +1382,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const loadGenerationRef = useRef(0);
 
   async function loadAll() {
+    debugLog(`[AppContext] loadAll() → début (gen=${loadGenerationRef.current})`);
     if (!isSupabaseConfigured) {
+      debugLogWarn('[AppContext] Supabase non configuré → loadMockData()');
       await loadMockData();
       return;
     }
@@ -1393,9 +1396,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
     initStorageBuckets().catch(() => {});
     try {
+      debugLog('[AppContext] getSession() → appel');
       const { data: { session } } = await supabase.auth.getSession();
       let profile: { name?: string; organization_id?: string; last_read_by_channel?: Record<string, string>; role?: string; company_id?: string | null } | null = null;
       if (session?.user?.id) {
+        debugLogOk(`[AppContext] getSession() → session OK (${session.user.email})`);
+        debugLog('[AppContext] profiles.select → chargement profil');
         const { data: profileResult } = await supabase
           .from('profiles')
           .select('name, organization_id, last_read_by_channel, role, company_id')
@@ -1404,17 +1410,24 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         profile = profileResult;
         if (profile?.name) {
           currentUserNameRef.current = profile.name;
+          debugLogOk(`[AppContext] profil → name=${profile.name}, org=${profile.organization_id ?? 'null'}, role=${profile.role ?? '?'}`);
+        } else {
+          debugLogWarn('[AppContext] profil → introuvable ou colonnes manquantes');
         }
         if (profile?.organization_id) {
           currentUserOrgIdRef.current = profile.organization_id;
         }
-        // Sync cross-device last_read from Supabase (prefer Supabase over local cache)
-        if (profile?.last_read_by_channel && typeof profile.last_read_by_channel === 'object') {
-          dispatch({ type: 'SET_LAST_READ', payload: profile.last_read_by_channel });
-          AsyncStorage.setItem('lastReadByChannel', JSON.stringify(profile.last_read_by_channel)).catch(() => {});
-        }
+      } else {
+        debugLogWarn('[AppContext] getSession() → pas de session dans loadAll()');
       }
 
+      // Sync cross-device last_read from Supabase (prefer Supabase over local cache)
+      if (profile?.last_read_by_channel && typeof profile.last_read_by_channel === 'object') {
+        dispatch({ type: 'SET_LAST_READ', payload: profile.last_read_by_channel });
+        AsyncStorage.setItem('lastReadByChannel', JSON.stringify(profile.last_read_by_channel)).catch(() => {});
+      }
+
+      debugLog('[AppContext] Promise.all → reserves, companies, tasks, documents, photos, profiles, chantiers…');
       const [
         { data: reserves, error: reservesErr },
         { data: companies },
@@ -1430,10 +1443,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         supabase.from('tasks').select('*'),
         supabase.from('documents').select('*').order('uploaded_at', { ascending: false }),
         supabase.from('photos').select('*').order('taken_at', { ascending: false }),
-        // Filtrer par organisation pour éviter la fuite multi-tenant.
-        // Si org_id n'est pas encore chargé (race condition login), on se fie
-        // uniquement au RLS Supabase (pas de filtre supplémentaire) pour éviter
-        // de retourner 0 profils et vider la liste membres/groupe.
         profile?.organization_id
           ? supabase.from('profiles')
               .select('id, name, role, role_label, email')
@@ -1441,9 +1450,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           : supabase.from('profiles')
               .select('id, name, role, role_label, email'),
         AsyncStorage.getItem(ACTIVE_CHANTIER_KEY).catch(() => null),
-        // Fetch chantier company_ids early to compute visibility for all related data
         supabase.from('chantiers').select('id, company_ids'),
       ]);
+      debugLogOk(`[AppContext] Promise.all OK → réserves=${reserves?.length ?? 0}, entreprises=${companies?.length ?? 0}, tâches=${tasks?.length ?? 0}, profils=${profilesData?.length ?? 0}${reservesErr ? ' ⚠ err_reserves=' + reservesErr.code : ''}`);
 
       // AsyncStorage last_read: merged as fallback if Supabase dispatch hasn't fired yet
       // (Supabase value dispatched earlier already takes priority)
@@ -1458,6 +1467,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         } catch {}
       }
 
+      debugLog('[AppContext] Canaux → chargement (general, custom, group, DM, pinned)…');
       await Promise.all([
         loadCustomChannels(),
         loadGroupChannels(),
@@ -1466,6 +1476,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         loadPinnedChannels(),
         loadChannelMembersOverride(),
       ]);
+      debugLogOk('[AppContext] Canaux → OK');
 
       if (loadGenerationRef.current !== myGen) {
         // A newer loadAll() has already started (e.g. triggered by an auth event
@@ -1567,6 +1578,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       resolvedReserves = resolvedReserves.filter(r => isChantierIdVisible(r.chantierId));
       const resolvedTasks = (tasks ?? []).map(toTask).filter(t => isChantierIdVisible(t.chantierId));
 
+      debugLogOk(`[AppContext] INIT dispatch → réserves=${resolvedReserves.length}, entreprises=${resolvedCompanies.length}, tâches=${resolvedTasks.length} → isLoading=false`);
       dispatch({
         type: 'INIT',
         payload: {
@@ -1603,6 +1615,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       let sitePlans: SitePlan[] = [];
       let activeChantierId: string | null = null;
 
+      debugLog('[AppContext] Chantiers → chargement complet…');
       try {
         const { data: chantiersData, error: chantiersErr } = await supabase
           .from('chantiers').select('*').order('created_at', { ascending: false });
@@ -1834,11 +1847,14 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         return;
       }
 
+      debugLogOk(`[AppContext] Visites=${visites.length}, Lots=${lots.length}, OPRs=${oprs.length} → dispatch final`);
       dispatch({ type: 'SET_VISITES', payload: visites.filter(v => isChantierIdVisible(v.chantierId)) });
       dispatch({ type: 'SET_LOTS', payload: lots.filter(l => isChantierIdVisible(l.chantierId)) });
       dispatch({ type: 'SET_OPRS', payload: oprs.filter(o => isChantierIdVisible(o.chantierId)) });
+      debugLogOk('[AppContext] loadAll() → ✓ TERMINÉ AVEC SUCCÈS');
 
-    } catch (err) {
+    } catch (err: any) {
+      debugLogError(`[AppContext] loadAll() → EXCEPTION: ${err?.message ?? String(err)}`);
       dispatch({ type: 'SET_LOADING', payload: false });
       Alert.alert(
         'Erreur de connexion',
@@ -1855,11 +1871,14 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     }
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event: any, session: any) => {
+      debugLog(`[AppContext] onAuthStateChange → event=${event}, session=${session ? session.user?.email : 'null'}`);
       if ((event === 'SIGNED_IN' || event === 'INITIAL_SESSION') && session) {
         loadGenerationRef.current++;
+        debugLog(`[AppContext] → déclenchement loadAll() (gen=${loadGenerationRef.current})`);
         loadAll();
       } else if (event === 'SIGNED_OUT') {
         loadGenerationRef.current++;
+        debugLogWarn(`[AppContext] SIGNED_OUT → effacement données (gen=${loadGenerationRef.current})`);
         const genAtSignOut = loadGenerationRef.current;
         currentUserNameRef.current = '';
         currentUserOrgIdRef.current = null;

@@ -3,6 +3,7 @@ import { Alert } from 'react-native';
 import { supabase, isSupabaseConfigured } from '@/lib/supabase';
 import { User, UserRole, UserPermissions, PermissionsOverride } from '@/constants/types';
 import { ROLE_LABELS } from '@/constants/roles';
+import { debugLog, debugLogOk, debugLogWarn, debugLogError } from '@/lib/debugLog';
 
 export const ROLE_PERMISSIONS: Record<UserRole, UserPermissions> = {
   super_admin:    { canCreate: true,  canEdit: true,  canEditOwn: true,  canDelete: true,  canExport: true,  canManageTeams: true,  canViewTeams: true,  canUpdateAttendance: true,  canMovePins: true  },
@@ -350,24 +351,34 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     };
     const safetyTimer = setTimeout(resolveLoading, AUTH_TIMEOUT_MS);
 
+    debugLog('[AuthContext] getSession() → appel initial');
     supabase.auth.getSession().then(async ({ data: { session } }: { data: { session: any } }) => {
       try {
         if (session?.user) {
+          debugLogOk(`[AuthContext] Session trouvée → user=${session.user.email}`);
+          debugLog('[AuthContext] fetchProfile() → début');
           const profile = await fetchProfile(session.user.id);
           if (profile) {
+            debugLogOk(`[AuthContext] fetchProfile() → OK (role=${profile.role}, org=${profile.organizationId ?? 'aucune'})`);
             setUser(profile);
           } else {
+            debugLogError('[AuthContext] fetchProfile() → null → signOut() déclenché');
             supabase.auth.signOut().catch(() => {});
             setUser(null);
           }
+        } else {
+          debugLogWarn('[AuthContext] getSession() → pas de session active');
         }
-      } catch {
+      } catch (err: any) {
+        debugLogError(`[AuthContext] getSession().then exception: ${err?.message ?? err}`);
         setUser(null);
       } finally {
         clearTimeout(safetyTimer);
         resolveLoading();
+        debugLog('[AuthContext] isLoading → false (initial)');
       }
-    }).catch(() => {
+    }).catch((err: any) => {
+      debugLogError(`[AuthContext] getSession() rejeté: ${err?.message ?? err}`);
       clearTimeout(safetyTimer);
       resolveLoading();
     });
@@ -377,9 +388,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     let fetchingProfileTimer: ReturnType<typeof setTimeout> | null = null;
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event: any, session: any) => {
-      if (isSeedingRef.current) return;
-      if (isRegisteringRef.current) return;
-      if (fetchingProfileRef.current) return;
+      debugLog(`[AuthContext] onAuthStateChange → event=${_event} session=${session ? session.user?.email : 'null'}`);
+      if (isSeedingRef.current) { debugLogWarn('[AuthContext] onAuthStateChange ignoré (seeding en cours)'); return; }
+      if (isRegisteringRef.current) { debugLogWarn('[AuthContext] onAuthStateChange ignoré (register en cours)'); return; }
+      if (fetchingProfileRef.current) { debugLogWarn('[AuthContext] onAuthStateChange ignoré (fetchProfile déjà en cours)'); return; }
       if (session?.user) {
         fetchingProfileRef.current = true;
         if (fetchingProfileTimer) clearTimeout(fetchingProfileTimer);
@@ -387,10 +399,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           fetchingProfileRef.current = false;
         }, 8_000);
         try {
+          debugLog(`[AuthContext] onAuthStateChange → fetchProfile() pour ${session.user.email}`);
           const profile = await fetchProfile(session.user.id);
           if (profile) {
+            debugLogOk(`[AuthContext] onAuthStateChange → fetchProfile OK (role=${profile.role})`);
             setUser(profile);
           } else {
+            debugLogError('[AuthContext] onAuthStateChange → fetchProfile null → signOut()');
             supabase.auth.signOut().catch(() => {});
             setUser(null);
           }
@@ -399,6 +414,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           fetchingProfileRef.current = false;
         }
       } else {
+        debugLogWarn('[AuthContext] onAuthStateChange → session null → user = null');
         setUser(null);
       }
     });
