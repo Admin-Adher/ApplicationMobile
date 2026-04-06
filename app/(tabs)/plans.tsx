@@ -1530,6 +1530,7 @@ export default function PlansScreen() {
                 focusedPinId={focusedPinId}
                 canAnnotate={permissions.canCreate}
                 canCreate={permissions.canCreate}
+                canMovePins={permissions.canMovePins}
                 pinSize={pinSize}
                 onZoomChange={(z) => setPdfZoomPct(Math.round(z * 100))}
                 companies={companies}

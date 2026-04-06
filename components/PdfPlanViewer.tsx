@@ -54,6 +54,7 @@ export interface PdfPlanViewerProps {
   onPinFocus?: (reserveId: string) => void;
   canAnnotate: boolean;
   canCreate: boolean;
+  canMovePins?: boolean;
   pinSize?: number;
   onZoomChange?: (zoom: number) => void;
   isImagePlan?: boolean;
@@ -779,7 +780,7 @@ const MobileViewer = forwardRef<PdfPlanViewerHandle, PdfPlanViewerProps>(functio
   planUri, planId, annotations, onAnnotationsChange,
   reserves, ghostReserves = [], pinNumberMap, pinSizes = {}, focusedPinId,
   onReserveSelect, onPlanTap, onPinMove, onPinFocus,
-  canAnnotate, canCreate, pinSize = 22, onZoomChange, isImagePlan = false, onReady,
+  canAnnotate, canCreate, canMovePins = true, pinSize = 22, onZoomChange, isImagePlan = false, onReady,
   companies = [],
 }, ref) {
   const WebView = require('react-native-webview').default;
@@ -1116,7 +1117,7 @@ const mob = StyleSheet.create({
   widthSample: { width: 50, borderRadius: 3 },
 });
 
-const WebViewer = forwardRef<PdfPlanViewerHandle, PdfPlanViewerProps>(function WebViewerInner({ planUri, planId, annotations, onAnnotationsChange, reserves, ghostReserves = [], pinNumberMap, pinSizes = {}, focusedPinId, onReserveSelect, onPlanTap, onPinMove, onPinFocus, canAnnotate, canCreate, pinSize = 22, onZoomChange, isImagePlan = false, onReady, companies = [] }, ref) {
+const WebViewer = forwardRef<PdfPlanViewerHandle, PdfPlanViewerProps>(function WebViewerInner({ planUri, planId, annotations, onAnnotationsChange, reserves, ghostReserves = [], pinNumberMap, pinSizes = {}, focusedPinId, onReserveSelect, onPlanTap, onPinMove, onPinFocus, canAnnotate, canCreate, canMovePins = true, pinSize = 22, onZoomChange, isImagePlan = false, onReady, companies = [] }, ref) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const innerRef = useRef<HTMLDivElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -1440,7 +1441,7 @@ const WebViewer = forwardRef<PdfPlanViewerHandle, PdfPlanViewerProps>(function W
     pinLpTimerRef.current = setTimeout(() => {
       pinLpTimerRef.current = null;
       onPinFocus?.(r.id);
-      if (canCreate) {
+      if (canCreate && canMovePins) {
         pinDragActiveRef.current = true;
         el.style.transition = 'none';
         el.style.willChange = 'transform';

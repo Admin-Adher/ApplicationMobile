@@ -4,6 +4,20 @@ export type ReserveKind = 'reserve' | 'observation';
 export type TaskStatus = 'todo' | 'in_progress' | 'done' | 'delayed';
 export type DocumentType = 'plan' | 'report' | 'technical' | 'photo' | 'other';
 export type UserRole = 'super_admin' | 'admin' | 'conducteur' | 'chef_equipe' | 'observateur' | 'sous_traitant';
+
+export interface UserPermissions {
+  canCreate: boolean;
+  canEdit: boolean;
+  canEditOwn: boolean;
+  canDelete: boolean;
+  canExport: boolean;
+  canManageTeams: boolean;
+  canViewTeams: boolean;
+  canUpdateAttendance: boolean;
+  canMovePins: boolean;
+}
+
+export type PermissionsOverride = Partial<UserPermissions>;
 export type SubscriptionStatus = 'trial' | 'active' | 'suspended' | 'expired';
 export type PlanName = 'Solo' | 'Équipe' | 'Groupe';
 export type IncidentSeverity = 'minor' | 'moderate' | 'major' | 'critical';
@@ -39,6 +53,7 @@ export interface User {
   email: string;
   organizationId?: string;
   companyId?: string;
+  permissionsOverride?: PermissionsOverride;
 }
 
 export interface Organization {
@@ -421,6 +436,7 @@ export interface Profile {
   roleLabel: string;
   email: string;
   organizationId?: string;
+  permissionsOverride?: PermissionsOverride;
 }
 
 export interface Incident {

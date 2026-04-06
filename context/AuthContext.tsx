@@ -1,21 +1,22 @@
 import React, { createContext, useContext, useEffect, useRef, useState } from 'react';
 import { Alert } from 'react-native';
 import { supabase, isSupabaseConfigured } from '@/lib/supabase';
-import { User, UserRole } from '@/constants/types';
+import { User, UserRole, UserPermissions, PermissionsOverride } from '@/constants/types';
 import { ROLE_LABELS } from '@/constants/roles';
 
-const ROLE_PERMISSIONS: Record<UserRole, {
-  canCreate: boolean; canEdit: boolean; canEditOwn: boolean; canDelete: boolean;
-  canExport: boolean; canManageTeams: boolean;
-  canViewTeams: boolean; canUpdateAttendance: boolean;
-}> = {
-  super_admin:    { canCreate: true,  canEdit: true,  canEditOwn: true,  canDelete: true,  canExport: true,  canManageTeams: true,  canViewTeams: true,  canUpdateAttendance: true  },
-  admin:          { canCreate: true,  canEdit: true,  canEditOwn: true,  canDelete: true,  canExport: true,  canManageTeams: true,  canViewTeams: true,  canUpdateAttendance: true  },
-  conducteur:     { canCreate: true,  canEdit: true,  canEditOwn: true,  canDelete: false, canExport: true,  canManageTeams: true,  canViewTeams: true,  canUpdateAttendance: true  },
-  chef_equipe:    { canCreate: true,  canEdit: true,  canEditOwn: true,  canDelete: false, canExport: false, canManageTeams: false, canViewTeams: true,  canUpdateAttendance: true  },
-  observateur:    { canCreate: false, canEdit: false, canEditOwn: false, canDelete: false, canExport: true,  canManageTeams: false, canViewTeams: true,  canUpdateAttendance: false },
-  sous_traitant:  { canCreate: false, canEdit: false, canEditOwn: true,  canDelete: false, canExport: false, canManageTeams: false, canViewTeams: false, canUpdateAttendance: false },
+export const ROLE_PERMISSIONS: Record<UserRole, UserPermissions> = {
+  super_admin:    { canCreate: true,  canEdit: true,  canEditOwn: true,  canDelete: true,  canExport: true,  canManageTeams: true,  canViewTeams: true,  canUpdateAttendance: true,  canMovePins: true  },
+  admin:          { canCreate: true,  canEdit: true,  canEditOwn: true,  canDelete: true,  canExport: true,  canManageTeams: true,  canViewTeams: true,  canUpdateAttendance: true,  canMovePins: true  },
+  conducteur:     { canCreate: true,  canEdit: true,  canEditOwn: true,  canDelete: false, canExport: true,  canManageTeams: true,  canViewTeams: true,  canUpdateAttendance: true,  canMovePins: true  },
+  chef_equipe:    { canCreate: true,  canEdit: true,  canEditOwn: true,  canDelete: false, canExport: false, canManageTeams: false, canViewTeams: true,  canUpdateAttendance: true,  canMovePins: true  },
+  observateur:    { canCreate: false, canEdit: false, canEditOwn: false, canDelete: false, canExport: true,  canManageTeams: false, canViewTeams: true,  canUpdateAttendance: false, canMovePins: false },
+  sous_traitant:  { canCreate: false, canEdit: false, canEditOwn: true,  canDelete: false, canExport: false, canManageTeams: false, canViewTeams: false, canUpdateAttendance: false, canMovePins: false },
 };
+
+export function resolvePermissions(role: UserRole, override?: PermissionsOverride): UserPermissions {
+  if (role === 'super_admin') return ROLE_PERMISSIONS.super_admin;
+  return { ...ROLE_PERMISSIONS[role], ...override };
+}
 
 const DEMO_SEED_PASS = process.env.EXPO_PUBLIC_DEMO_SEED_PASS || '';
 
@@ -42,15 +43,12 @@ interface AuthContextValue {
     organizationName?: string;
   }) => Promise<{ success: boolean; error?: string }>;
   logout: () => Promise<void>;
-  permissions: {
-    canCreate: boolean; canEdit: boolean; canEditOwn: boolean; canDelete: boolean;
-    canExport: boolean; canManageTeams: boolean;
-    canViewTeams: boolean; canUpdateAttendance: boolean;
-  };
+  permissions: UserPermissions;
   users: User[];
   seedStatus: 'idle' | 'seeding' | 'done' | 'error';
   updateUserRole: (userId: string, newRole: UserRole) => Promise<void>;
   updateUserCompany: (userId: string, companyId: string | null) => Promise<void>;
+  updateUserPermissions: (userId: string, override: PermissionsOverride) => Promise<void>;
   deleteUserProfile: (userId: string) => Promise<void>;
 }
 
@@ -137,6 +135,9 @@ async function fetchProfile(userId: string): Promise<User | null> {
       email: data.email,
       organizationId: orgId,
       companyId,
+      permissionsOverride: (data.permissions_override && Object.keys(data.permissions_override).length > 0)
+        ? data.permissions_override as PermissionsOverride
+        : undefined,
     };
   } catch {
     return null;
@@ -333,7 +334,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     if (!user || !isSupabaseConfigured) return;
-    supabase.from('profiles').select('id, name, role, role_label, email, organization_id, company_id').then(({ data }: { data: any }) => {
+    supabase.from('profiles').select('id, name, role, role_label, email, organization_id, company_id, permissions_override').then(({ data }: { data: any }) => {
       if (data && data.length > 0) {
         setUsers(data.map((p: any) => ({
           id: p.id,
@@ -343,6 +344,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           email: p.email,
           organizationId: p.organization_id ?? undefined,
           companyId: p.company_id ?? undefined,
+          permissionsOverride: (p.permissions_override && Object.keys(p.permissions_override).length > 0)
+            ? p.permissions_override as PermissionsOverride
+            : undefined,
         })));
       }
     }).catch(() => {});
@@ -596,7 +600,29 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setUsers(prev => prev.filter(u => u.id !== userId));
   }
 
-  const permissions = user ? ROLE_PERMISSIONS[user.role] : ROLE_PERMISSIONS.observateur;
+  async function updateUserPermissions(userId: string, override: PermissionsOverride): Promise<void> {
+    if (isSupabaseConfigured) {
+      const { error } = await supabase.from('profiles').update({
+        permissions_override: override,
+      }).eq('id', userId);
+      if (error) {
+        Alert.alert('Erreur', "Les permissions n'ont pas pu être mises à jour. Vérifiez vos accès.");
+        return;
+      }
+    }
+    setUsers(prev => prev.map(u =>
+      u.id === userId
+        ? { ...u, permissionsOverride: Object.keys(override).length > 0 ? override : undefined }
+        : u
+    ));
+    if (user?.id === userId) {
+      setUser(prev => prev ? { ...prev, permissionsOverride: Object.keys(override).length > 0 ? override : undefined } : prev);
+    }
+  }
+
+  const permissions = user
+    ? resolvePermissions(user.role, user.permissionsOverride)
+    : ROLE_PERMISSIONS.observateur;
 
   return (
     <AuthContext.Provider value={{
@@ -611,6 +637,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       seedStatus,
       updateUserRole,
       updateUserCompany,
+      updateUserPermissions,
       deleteUserProfile,
     }}>
       {children}
