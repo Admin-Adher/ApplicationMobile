@@ -467,12 +467,20 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
       return { success: true };
     }
     try {
-      const { error } = await supabase
+      const { data, error } = await supabase
         .from('subscriptions')
         .update({ status })
-        .eq('organization_id', orgId);
+        .eq('organization_id', orgId)
+        .select('id');
 
       if (error) return { success: false, error: error.message };
+      if (!data || data.length === 0) {
+        return { success: false, error: 'Aucune ligne modifiée — vérifiez les droits Supabase (RLS) sur la table subscriptions.' };
+      }
+      // Mise à jour locale immédiate + synchronisation complète
+      setOrgSummaries(prev => prev.map(s =>
+        s.org.id === orgId ? { ...s, status } : s
+      ));
       refreshSubscription();
       return { success: true };
     } catch {
@@ -493,11 +501,19 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
       return { success: true };
     }
     try {
-      const { error } = await supabase
+      const { data, error } = await supabase
         .from('organizations')
         .update({ name: trimmed })
-        .eq('id', orgId);
+        .eq('id', orgId)
+        .select('id');
+
       if (error) return { success: false, error: error.message };
+      if (!data || data.length === 0) {
+        return { success: false, error: 'Aucune ligne modifiée — vérifiez les droits Supabase (RLS) sur la table organizations.' };
+      }
+      // Mise à jour locale immédiate + synchronisation complète
+      setAllOrganizations(prev => prev.map(o => o.id === orgId ? { ...o, name: trimmed } : o));
+      setOrgSummaries(prev => prev.map(s => s.org.id === orgId ? { ...s, org: { ...s.org, name: trimmed } } : s));
       refreshSubscription();
       return { success: true };
     } catch {
