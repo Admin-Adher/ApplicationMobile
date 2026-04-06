@@ -109,7 +109,7 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
     }
 
     loadSubscriptionData();
-  }, [user?.id, refreshKey]);
+  }, [user?.id, user?.role, refreshKey]);
 
   async function loadSubscriptionData() {
     if (!user) return;
@@ -118,8 +118,15 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
 
     // Soupape de sécurité : si le chargement dépasse 10 s (ex: requête Supabase bloquée
     // à cause d'une récursion RLS), on force isLoading à false pour débloquer l'UI.
+    // On vérifie que c'est bien l'appel le plus récent (gen) pour ne pas interférer
+    // avec un appel concurrent plus récent.
     let safetyResolved = false;
-    const resolveSafety = () => { if (!safetyResolved) { safetyResolved = true; setIsLoading(false); } };
+    const resolveSafety = () => {
+      if (!safetyResolved && gen === loadGenRef.current) {
+        safetyResolved = true;
+        setIsLoading(false);
+      }
+    };
     const safetyTimer = setTimeout(resolveSafety, 10_000);
 
     try {
@@ -287,7 +294,12 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
     } finally {
       clearTimeout(safetyTimer);
       safetyResolved = true;
-      setIsLoading(false);
+      // Seulement l'appel le plus récent (même gen) met fin au chargement.
+      // Un appel obsolète (gen < loadGenRef.current) ne doit pas interrompre
+      // le chargement d'un appel plus récent encore en cours.
+      if (gen === loadGenRef.current) {
+        setIsLoading(false);
+      }
     }
   }
 
