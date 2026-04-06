@@ -1073,14 +1073,25 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         .select('*')
         .eq('type', 'dm');
       if (!error && data) {
-        const channels: Channel[] = data.map((r: any) => ({
-          id: r.id, name: r.name, description: r.description ?? '',
-          icon: r.icon ?? 'person-circle', color: r.color ?? '#EC4899',
-          type: 'dm' as const,
-          members: r.members ?? [],
-          dmParticipants: r.members ?? [],
-          createdBy: r.created_by ?? undefined,
-        }));
+        const myName = currentUserNameRef.current;
+        const channels: Channel[] = data.map((r: any) => {
+          const participants: string[] = r.members ?? [];
+          // Toujours afficher le NOM DE L'AUTRE participant, pas le sien.
+          // Le `name` stocké en Supabase est du point de vue du créateur ;
+          // pour le destinataire il faut recalculer.
+          const otherName = participants.find(p => p !== myName) ?? r.name;
+          return {
+            id: r.id,
+            name: otherName,
+            description: r.description ?? '',
+            icon: r.icon ?? 'person-circle',
+            color: r.color ?? '#EC4899',
+            type: 'dm' as const,
+            members: participants,
+            dmParticipants: participants,
+            createdBy: r.created_by ?? undefined,
+          };
+        });
         dispatch({ type: 'SET_PERSISTED_DM_CHANNELS', payload: channels });
       }
     } catch {}
@@ -1351,10 +1362,16 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         supabase.from('documents').select('*').order('uploaded_at', { ascending: false }),
         supabase.from('photos').select('*').order('taken_at', { ascending: false }),
         supabase.from('messages').select('*').order('timestamp', { ascending: false }).limit(500),
-        // Filtrer par organisation pour éviter la fuite multi-tenant
-        supabase.from('profiles')
-          .select('id, name, role, role_label, email')
-          .eq('organization_id', profile?.organization_id ?? ''),
+        // Filtrer par organisation pour éviter la fuite multi-tenant.
+        // Si org_id n'est pas encore chargé (race condition login), on se fie
+        // uniquement au RLS Supabase (pas de filtre supplémentaire) pour éviter
+        // de retourner 0 profils et vider la liste membres/groupe.
+        profile?.organization_id
+          ? supabase.from('profiles')
+              .select('id, name, role, role_label, email')
+              .eq('organization_id', profile.organization_id)
+          : supabase.from('profiles')
+              .select('id, name, role, role_label, email'),
         AsyncStorage.getItem(ACTIVE_CHANTIER_KEY).catch(() => null),
       ]);
 
@@ -1783,9 +1800,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           const myName = currentUserNameRef.current;
           const participants: string[] = r.members ?? [];
           if (!myName || participants.includes(myName)) {
+            // Recalculer le nom affiché depuis la liste members (point de vue
+            // agnostique du créateur), pour que le destinataire voie le bon nom.
+            const otherName = participants.find(p => p !== myName) ?? r.name;
             dispatch({
               type: 'ADD_PERSISTED_DM_CHANNEL',
-              payload: { ...ch, dmParticipants: participants },
+              payload: { ...ch, name: otherName, dmParticipants: participants },
             });
           }
         } else if (r.type === 'general' || r.type === 'building') {
@@ -1795,8 +1815,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'channels' }, (payload: any) => {
         const r = payload.new;
         const participants: string[] = r.members ?? [];
+        const myName = currentUserNameRef.current;
+        const displayName = r.type === 'dm'
+          ? (participants.find((p: string) => p !== myName) ?? r.name)
+          : r.name;
         const ch: Channel = {
-          id: r.id, name: r.name, description: r.description ?? '',
+          id: r.id, name: displayName, description: r.description ?? '',
           icon: r.icon, color: r.color, type: r.type,
           members: participants, createdBy: r.created_by ?? undefined,
           ...(r.type === 'dm' ? { dmParticipants: participants } : {}),
