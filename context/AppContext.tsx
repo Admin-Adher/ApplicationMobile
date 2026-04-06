@@ -1913,7 +1913,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         if (r.type === 'custom') dispatch({ type: 'REMOVE_CUSTOM_CHANNEL', payload: r.id });
         else if (r.type === 'group') dispatch({ type: 'REMOVE_GROUP_CHANNEL', payload: r.id });
       })
-      .subscribe();
+      .subscribe((status: string, err?: Error) => {
+        if (err) console.warn('[Realtime] channels error:', err.message);
+        else console.log('[Realtime] channels:', status);
+      });
 
     return () => { supabase.removeChannel(channelSub); };
   }, []);
@@ -1934,7 +1937,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'reserves' }, (payload: any) => {
         dispatch({ type: 'DELETE_RESERVE', payload: payload.old.id });
       })
-      .subscribe();
+      .subscribe((status: string, err?: Error) => {
+        if (err) console.warn('[Realtime] reserves error:', err.message);
+        else console.log('[Realtime] reserves:', status);
+        setRealtimeConnected(status === 'SUBSCRIBED');
+      });
 
     const taskSub = supabase
       .channel('realtime-tasks-v1')
@@ -1947,7 +1954,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'tasks' }, (payload: any) => {
         dispatch({ type: 'DELETE_TASK', payload: payload.old.id });
       })
-      .subscribe();
+      .subscribe((status: string, err?: Error) => {
+        if (err) console.warn('[Realtime] tasks error:', err.message);
+        else console.log('[Realtime] tasks:', status);
+      });
 
     return () => {
       supabase.removeChannel(reserveSub);
@@ -1969,7 +1979,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'chantiers' }, (payload: any) => {
         dispatch({ type: 'DELETE_CHANTIER', payload: payload.old.id });
       })
-      .subscribe();
+      .subscribe((status: string, err?: Error) => {
+        if (err) console.warn('[Realtime] chantiers error:', err.message);
+        else console.log('[Realtime] chantiers:', status);
+      });
 
     const sitePlanSub = supabase
       .channel('realtime-site-plans-v1')
@@ -1982,7 +1995,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'site_plans' }, (payload: any) => {
         dispatch({ type: 'DELETE_SITE_PLAN', payload: payload.old.id });
       })
-      .subscribe();
+      .subscribe((status: string, err?: Error) => {
+        if (err) console.warn('[Realtime] site_plans error:', err.message);
+        else console.log('[Realtime] site_plans:', status);
+      });
 
     const visiteSub = supabase
       .channel('realtime-visites-v1')
@@ -1995,7 +2011,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'visites' }, (payload: any) => {
         dispatch({ type: 'DELETE_VISITE', payload: payload.old.id });
       })
-      .subscribe();
+      .subscribe((status: string, err?: Error) => {
+        if (err) console.warn('[Realtime] visites error:', err.message);
+        else console.log('[Realtime] visites:', status);
+      });
 
     const oprSub = supabase
       .channel('realtime-oprs-v1')
@@ -2008,7 +2027,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'oprs' }, (payload: any) => {
         dispatch({ type: 'DELETE_OPR', payload: payload.old.id });
       })
-      .subscribe();
+      .subscribe((status: string, err?: Error) => {
+        if (err) console.warn('[Realtime] oprs error:', err.message);
+        else console.log('[Realtime] oprs:', status);
+      });
 
     const lotSub = supabase
       .channel('realtime-lots-v1')
@@ -2021,7 +2043,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'lots' }, (payload: any) => {
         dispatch({ type: 'DELETE_LOT', payload: payload.old.id });
       })
-      .subscribe();
+      .subscribe((status: string, err?: Error) => {
+        if (err) console.warn('[Realtime] lots error:', err.message);
+        else console.log('[Realtime] lots:', status);
+      });
 
     const companySub = supabase
       .channel('realtime-companies-v1')
@@ -2034,7 +2059,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'companies' }, (payload: any) => {
         dispatch({ type: 'DELETE_COMPANY', payload: payload.old.id });
       })
-      .subscribe();
+      .subscribe((status: string, err?: Error) => {
+        if (err) console.warn('[Realtime] companies error:', err.message);
+        else console.log('[Realtime] companies:', status);
+      });
 
     const photoSub = supabase
       .channel('realtime-photos-v1')
@@ -2044,7 +2072,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'photos' }, (payload: any) => {
         dispatch({ type: 'DELETE_PHOTO', payload: payload.old.id });
       })
-      .subscribe();
+      .subscribe((status: string, err?: Error) => {
+        if (err) console.warn('[Realtime] photos error:', err.message);
+        else console.log('[Realtime] photos:', status);
+      });
 
     const documentSub = supabase
       .channel('realtime-documents-v1')
@@ -2054,7 +2085,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'documents' }, (payload: any) => {
         dispatch({ type: 'DELETE_DOCUMENT', payload: payload.old.id });
       })
-      .subscribe();
+      .subscribe((status: string, err?: Error) => {
+        if (err) console.warn('[Realtime] documents error:', err.message);
+        else console.log('[Realtime] documents:', status);
+      });
 
     return () => {
       supabase.removeChannel(chantierSub);
