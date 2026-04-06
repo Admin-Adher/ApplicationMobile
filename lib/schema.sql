@@ -26,6 +26,65 @@ as $$
   select name from public.profiles where id = auth.uid()
 $$;
 
+-- ---- RPC : marquer des messages comme lus par un utilisateur ----
+-- SECURITY DEFINER : permet à n'importe quel membre authentifié de mettre à jour
+-- le tableau read_by des messages qu'il n'a pas envoyés.
+create or replace function mark_messages_read_by(p_message_ids text[], p_user_name text)
+returns void
+language plpgsql
+security definer
+as $$
+begin
+  update public.messages
+  set read_by = read_by || to_jsonb(array[p_user_name])
+  where id = any(p_message_ids)
+    and not (read_by @> to_jsonb(array[p_user_name]));
+end;
+$$;
+
+-- ---- RPC : basculer une réaction emoji sur un message ----
+-- Mise à jour atomique — évite les race conditions multi-utilisateur.
+create or replace function toggle_message_reaction(p_message_id text, p_emoji text, p_user_name text)
+returns void
+language plpgsql
+security definer
+as $$
+declare
+  v_reactions jsonb;
+  v_current   jsonb;
+  v_updated   jsonb;
+begin
+  select reactions into v_reactions
+  from public.messages
+  where id = p_message_id;
+
+  if v_reactions is null then return; end if;
+
+  v_current := coalesce(v_reactions -> p_emoji, '[]'::jsonb);
+
+  if v_current @> to_jsonb(p_user_name) then
+    -- Retirer la réaction
+    select coalesce(jsonb_agg(elem), '[]'::jsonb)
+    into v_updated
+    from jsonb_array_elements_text(v_current) as elem
+    where elem <> p_user_name;
+  else
+    -- Ajouter la réaction
+    v_updated := v_current || to_jsonb(p_user_name);
+  end if;
+
+  if jsonb_array_length(v_updated) = 0 then
+    v_reactions := v_reactions - p_emoji;
+  else
+    v_reactions := jsonb_set(v_reactions, array[p_emoji], v_updated);
+  end if;
+
+  update public.messages
+  set reactions = v_reactions
+  where id = p_message_id;
+end;
+$$;
+
 -- ---- 0. TABLES ABONNEMENT (à créer AVANT profiles) ----
 
 create table if not exists public.plans (
@@ -499,8 +558,17 @@ create table if not exists public.messages (
   is_pinned boolean not null default false,
   read_by jsonb not null default '[]',
   mentions jsonb not null default '[]',
-  reserve_id text
+  reserve_id text,
+  linked_item_type text,
+  linked_item_id text,
+  linked_item_title text,
+  created_at timestamptz not null default now()
 );
+alter table public.messages add column if not exists linked_item_type text;
+alter table public.messages add column if not exists linked_item_id text;
+alter table public.messages add column if not exists linked_item_title text;
+alter table public.messages add column if not exists created_at timestamptz not null default now();
+create index if not exists idx_messages_channel_created_at on public.messages(channel_id, created_at desc);
 alter table public.messages enable row level security;
 drop policy if exists "Messages lisibles par tous" on public.messages;
 drop policy if exists "Messages visibles par membres habilités" on public.messages;
@@ -522,9 +590,8 @@ create policy "Messages visibles par membres habilités"
     (
       messages.channel_id like 'dm-%'
       and not exists (select 1 from public.channels where id = messages.channel_id)
-      and (
-        messages.channel_id like 'dm-' || auth_user_name() || '__%'
-        or messages.channel_id like 'dm-%__' || auth_user_name()
+      and auth_user_name() = any(
+        string_to_array(substring(messages.channel_id from 4), '__')
       )
     )
   );
@@ -549,9 +616,8 @@ create policy "Messages insertables par membres habilités"
       or
       (
         messages.channel_id like 'dm-%'
-        and (
-          messages.channel_id like 'dm-' || auth_user_name() || '__%'
-          or messages.channel_id like 'dm-%__' || auth_user_name()
+        and auth_user_name() = any(
+          string_to_array(substring(messages.channel_id from 4), '__')
         )
       )
     )
@@ -864,6 +930,8 @@ alter table public.companies add column if not exists qualifications text;
 -- ---- COLONNES MANQUANTES — invitations & profiles ----
 alter table public.invitations add column if not exists company_id text;
 alter table public.profiles add column if not exists company_id text;
+alter table public.profiles add column if not exists last_read_by_channel jsonb not null default '{}';
+alter table public.profiles add column if not exists pinned_channels jsonb not null default '[]';
 
 -- ---- POLITIQUES MANQUANTES — profiles ----
 -- Permet aux admins de mettre à jour les profils d'autres utilisateurs (updateUserRole)
@@ -1001,15 +1069,15 @@ insert into public.photos (id, comment, location, taken_at, taken_by, color_code
 ('p8', 'Avancement chantier vue globale', 'Vue générale', '2025-03-22 08:00', 'J. Dupont', '#FF6B2B')
 on conflict (id) do nothing;
 
-insert into public.messages (id, sender, content, timestamp, type, read, is_me) values
-('m1', 'Système', 'Réserve RSV-001 créée — Fissure mur porteur Niveau 2 [CRITIQUE]', '2025-03-18 08:30', 'notification', true, false),
-('m2', 'Marc Martin', 'Bonjour, les travaux de reprise toiture sont planifiés pour lundi.', '2025-03-20 09:15', 'message', true, false),
-('m3', 'Moi', 'Parfait. N''oubliez pas le rapport photo avant/après.', '2025-03-20 09:22', 'message', true, true),
-('m4', 'Système', 'RSV-003 passée en statut "Vérification" par Paul Bernard', '2025-03-21 14:10', 'notification', true, false),
-('m5', 'Paul Bernard', 'CONSUEL prévu jeudi après-midi pour validation installation électrique bât A.', '2025-03-21 16:00', 'message', false, false),
-('m6', 'Sophie Leroy', 'Attention, la livraison du carrelage prévu lundi est repoussée au mercredi.', '2025-03-22 07:45', 'message', false, false),
-('m7', 'Système', 'RSV-007 créée — Porte coupe-feu CF60 non installée [CRITIQUE]', '2025-03-21 11:30', 'notification', false, false),
-('m8', 'Moi', 'Réunion chantier mercredi 9h30 en base vie. Présence obligatoire des chefs d''équipe.', '2025-03-22 08:15', 'message', true, true)
+insert into public.messages (id, channel_id, sender, content, timestamp, type, read, is_me) values
+('m1', 'general', 'Système', 'Réserve RSV-001 créée — Fissure mur porteur Niveau 2 [CRITIQUE]', '2025-03-18 08:30', 'notification', true, false),
+('m2', 'general', 'Marc Martin', 'Bonjour, les travaux de reprise toiture sont planifiés pour lundi.', '2025-03-20 09:15', 'message', true, false),
+('m3', 'general', 'Moi', 'Parfait. N''oubliez pas le rapport photo avant/après.', '2025-03-20 09:22', 'message', true, true),
+('m4', 'general', 'Système', 'RSV-003 passée en statut "Vérification" par Paul Bernard', '2025-03-21 14:10', 'notification', true, false),
+('m5', 'general', 'Paul Bernard', 'CONSUEL prévu jeudi après-midi pour validation installation électrique bât A.', '2025-03-21 16:00', 'message', false, false),
+('m6', 'general', 'Sophie Leroy', 'Attention, la livraison du carrelage prévu lundi est repoussée au mercredi.', '2025-03-22 07:45', 'message', false, false),
+('m7', 'general', 'Système', 'RSV-007 créée — Porte coupe-feu CF60 non installée [CRITIQUE]', '2025-03-21 11:30', 'notification', false, false),
+('m8', 'general', 'Moi', 'Réunion chantier mercredi 9h30 en base vie. Présence obligatoire des chefs d''équipe.', '2025-03-22 08:15', 'message', true, true)
 on conflict (id) do nothing;
 
 -- ============================================================

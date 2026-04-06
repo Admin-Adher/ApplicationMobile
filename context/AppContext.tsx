@@ -1372,7 +1372,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         supabase.from('tasks').select('*'),
         supabase.from('documents').select('*').order('uploaded_at', { ascending: false }),
         supabase.from('photos').select('*').order('taken_at', { ascending: false }),
-        supabase.from('messages').select('*').order('created_at', { ascending: false }).limit(500),
+        // Chargement initial : 1000 messages les plus récents toutes chaînes confondues.
+        // Le pagination serveur (fetchOlderMessages) prend le relais canal par canal.
+        supabase.from('messages').select('*').order('created_at', { ascending: false }).limit(1000),
         // Filtrer par organisation pour éviter la fuite multi-tenant.
         // Si org_id n'est pas encore chargé (race condition login), on se fie
         // uniquement au RLS Supabase (pas de filtre supplémentaire) pour éviter
@@ -1786,7 +1788,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'messages' }, (payload: any) => {
         dispatch({ type: 'DELETE_MESSAGE', payload: payload.old.id });
       })
-      .subscribe();
+      .subscribe((status: string) => {
+        setRealtimeConnected(status === 'SUBSCRIBED');
+      });
 
     return () => { supabase.removeChannel(globalSub); };
   }, []);
@@ -1864,9 +1868,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'reserves' }, (payload: any) => {
         dispatch({ type: 'DELETE_RESERVE', payload: payload.old.id });
       })
-      .subscribe((status: string) => {
-        setRealtimeConnected(status === 'SUBSCRIBED');
-      });
+      .subscribe();
 
     const taskSub = supabase
       .channel('realtime-tasks-v1')
@@ -2862,8 +2864,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
                 .from('profiles')
                 .update({ last_read_by_channel: newLastRead })
                 .eq('id', session.user.id)
-                .catch(() => {});
+                .then(({ error }: { error: any }) => {
+                  if (error) console.warn('[setChannelRead] last_read_by_channel sync error:', error.message);
+                });
             }
+          }).catch((e: any) => {
+            console.warn('[setChannelRead] getSession error:', e?.message ?? e);
           });
           // Persister le read_by dans Supabase via RPC pour que l'envoyeur
           // puisse voir "Vu par N" même après rechargement
@@ -2877,7 +2883,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
             supabase.rpc('mark_messages_read_by', {
               p_message_ids: ids,
               p_user_name: userName,
-            }).catch(() => {});
+            }).then(({ error }: { error: any }) => {
+              if (error) console.warn('[setChannelRead] mark_messages_read_by error:', error.message);
+            });
           }
         }
       }
