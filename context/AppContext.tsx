@@ -2118,11 +2118,17 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const unreadByChannel = useMemo(() => {
     const result: Record<string, number> = {};
     // P14 pattern: une seule passe pour construire l'index ms par message
+    // Fix: utiliser dbCreatedAt (ISO UTC Supabase) quand disponible pour éviter
+    // le décalage timezone entre le timestamp FR (heure locale) et lastRead (UTC ISO).
+    // Fallback sur frTimestampToMs pour les messages locaux hors-ligne uniquement.
     const msgMsByChannel: Record<string, number[]> = {};
     for (const m of state.messages) {
       if (m.isMe) continue; // les messages envoyés par soi ne comptent pas comme non-lus
       if (!msgMsByChannel[m.channelId]) msgMsByChannel[m.channelId] = [];
-      msgMsByChannel[m.channelId].push(frTimestampToMs(m.timestamp));
+      const ms = m.dbCreatedAt
+        ? new Date(m.dbCreatedAt).getTime()
+        : frTimestampToMs(m.timestamp);
+      msgMsByChannel[m.channelId].push(ms);
     }
     for (const ch of channels) {
       const lastRead = state.lastReadByChannel[ch.id];
@@ -2880,16 +2886,19 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
             console.warn('[setChannelRead] getSession error:', e?.message ?? e);
           });
           // Persister le read_by dans Supabase via RPC pour que l'envoyeur
-          // puisse voir "Vu par N" même après rechargement
+          // puisse voir "Vu par N" même après rechargement.
+          // Fix: envoi par batchs de 100 pour couvrir plus de 100 messages non-lus.
           const unread = stateRef.current.messages.filter(
             m => m.channelId === channelId
               && !m.isMe
               && !m.readBy.includes(userName)
           );
-          const ids = unread.map(m => m.id).slice(0, 100);
-          if (ids.length > 0) {
+          const ids = unread.map(m => m.id);
+          const BATCH_SIZE = 100;
+          for (let i = 0; i < ids.length; i += BATCH_SIZE) {
+            const batch = ids.slice(i, i + BATCH_SIZE);
             supabase.rpc('mark_messages_read_by', {
-              p_message_ids: ids,
+              p_message_ids: batch,
               p_user_name: userName,
             }).then(({ error }: { error: any }) => {
               if (error) console.warn('[setChannelRead] mark_messages_read_by error:', error.message);

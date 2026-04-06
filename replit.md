@@ -41,6 +41,17 @@ Les migrations dans `supabase/migrations/` doivent être appliquées manuellemen
 |---------|---------|
 | `20260414_fix_messages_created_at.sql` | Ajoute `created_at TIMESTAMPTZ` aux messages + index pour pagination cursor-based |
 | `20260414_fix_dm_rls_unique_name.sql` | Fix pattern LIKE DM (métacaractères SQL) via `string_to_array` + contrainte UNIQUE sur `profiles.name` |
+| `20260406_fix_messages_rls_company_null_org.sql` | **Sécurité** : supprime `OR co.organization_id IS NULL` dans la RLS des canaux company virtuels — les utilisateurs d'une org ne peuvent plus lire/écrire dans les canaux d'entreprises sans org assignée. **Avant d'appliquer** : backfiller les entreprises avec `organization_id IS NULL` (`UPDATE companies SET organization_id = '<ORG_ID>' WHERE organization_id IS NULL`). |
+
+## Corrections appliquées (audit Messages 2026-04-06)
+
+Trois bugs corrigés dans `context/AppContext.tsx` :
+
+1. **Badges non-lus (timezone)** — `unreadByChannel` utilise désormais `m.dbCreatedAt` (ISO UTC de Supabase) à la place du timestamp FR local (`m.timestamp`) pour comparer avec `lastRead`. Cela évite les faux badges positifs/négatifs en fuseau non-UTC (ex. Europe/Paris UTC+2).
+
+2. **`mark_messages_read_by` — limite 100 messages** — La fonction `setChannelRead` envoie désormais le RPC en batchs de 100 au lieu de tronquer la liste. Un utilisateur absent longtemps avec 200+ messages non-lus verra maintenant tous ses messages correctement marqués "lu" côté serveur.
+
+3. **RLS canaux company virtuels** — Nouvelle migration `20260406_fix_messages_rls_company_null_org.sql` qui remplace la policy trop permissive (`OR co.organization_id IS NULL`) par une vérification stricte de l'organisation.
 
 ## Running the App
 
