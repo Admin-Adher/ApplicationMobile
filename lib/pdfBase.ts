@@ -144,8 +144,9 @@ export const PDF_BASE_CSS = `
   .photo-grid { display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 20px; }
   .photo-item { text-align: center; }
   .photo-img {
-    width: 190px; height: 140px;
-    object-fit: cover; border-radius: 8px;
+    width: 190px; height: auto; max-height: 240px;
+    object-fit: contain; background: #F9FAFB;
+    border-radius: 8px;
     border: 1.5px solid ${PDF_BORDER}; display: block;
   }
   .photo-badge {

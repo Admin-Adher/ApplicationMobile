@@ -138,7 +138,7 @@ function buildReservePDF(
             const isDefect = p.kind === 'defect';
             return `<div style="flex:1;min-width:0;text-align:center">
               <img src="${src}" onerror="this.style.opacity='0.15'"
-                style="width:100%;height:110px;object-fit:cover;border-radius:6px;border:1.5px solid #DDE4EE;display:block" />
+                style="width:100%;height:auto;max-height:260px;object-fit:contain;background:#F9FAFB;border-radius:6px;border:1.5px solid #DDE4EE;display:block" />
               <span style="display:inline-block;margin-top:4px;padding:1px 7px;border-radius:8px;font-size:9px;font-weight:700;
                 background:${isDefect ? '#FEF2F2' : '#ECFDF5'};color:${isDefect ? '#DC2626' : '#059669'}">
                 ${isDefect ? '● Constat' : '● Levée'}

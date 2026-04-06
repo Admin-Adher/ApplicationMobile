@@ -236,8 +236,8 @@ async function buildPvLeveePDF(opr: Opr, reserves: Reserve[], projectName: strin
       return `<div style="margin-bottom:20px;page-break-inside:avoid">
         <div style="font-size:11px;font-weight:700;color:#1A2742;margin-bottom:8px;background:#F4F7FB;padding:6px 10px;border-radius:6px">${item.lotName} — ${reserve.title}</div>
         <div style="display:flex;gap:16px;flex-wrap:wrap">
-          ${photos.defect ? `<div style="text-align:center"><img src="${photos.defect}" style="width:200px;height:140px;object-fit:cover;border-radius:8px;border:2px solid #FCA5A5" /><div style="font-size:10px;color:#DC2626;font-weight:700;margin-top:4px">🔴 Constat initial</div></div>` : ''}
-          ${photos.resolution ? `<div style="text-align:center"><img src="${photos.resolution}" style="width:200px;height:140px;object-fit:cover;border-radius:8px;border:2px solid #6EE7B7" /><div style="font-size:10px;color:#059669;font-weight:700;margin-top:4px">🟢 Levée constatée</div></div>` : ''}
+          ${photos.defect ? `<div style="text-align:center"><img src="${photos.defect}" style="width:200px;height:auto;max-height:240px;object-fit:contain;background:#FFF5F5;border-radius:8px;border:2px solid #FCA5A5;display:block" /><div style="font-size:10px;color:#DC2626;font-weight:700;margin-top:4px">🔴 Constat initial</div></div>` : ''}
+          ${photos.resolution ? `<div style="text-align:center"><img src="${photos.resolution}" style="width:200px;height:auto;max-height:240px;object-fit:contain;background:#F0FFF4;border-radius:8px;border:2px solid #6EE7B7;display:block" /><div style="font-size:10px;color:#059669;font-weight:700;margin-top:4px">🟢 Levée constatée</div></div>` : ''}
         </div>
       </div>`;
     }).join('')}

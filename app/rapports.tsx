@@ -325,7 +325,7 @@ async function buildCompanyReserveHTML(company: any, companyReserves: any[], pro
     return `<tr style="background:${idx % 2 === 0 ? '#fff' : '#F9FAFB'}">
       <td style="${tdS};font-weight:700;white-space:nowrap;vertical-align:middle">${r.id}</td>
       <td style="${tdS}">
-        ${photo ? `<img src="${photo}" style="width:56px;height:40px;object-fit:cover;border-radius:5px;border:1px solid #DDE4EE;float:left;margin-right:8px;margin-bottom:2px" />` : ''}
+        ${photo ? `<img src="${photo}" style="width:64px;height:auto;max-height:64px;object-fit:contain;background:#F9FAFB;border-radius:5px;border:1px solid #DDE4EE;float:left;margin-right:8px;margin-bottom:2px;display:block" />` : ''}
         <span style="font-weight:600">${r.title}</span>
         ${r.description && r.description !== r.title ? `<div style="color:#6B7280;font-size:10px;margin-top:2px;clear:both">${r.description.slice(0, 80)}${r.description.length > 80 ? '…' : ''}</div>` : ''}
       </td>
