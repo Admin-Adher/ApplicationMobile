@@ -56,6 +56,25 @@ interface AuthContextValue {
 
 const AuthContext = createContext<AuthContextValue | null>(null);
 
+async function addUserToGeneralChannel(orgId: string, userName: string) {
+  try {
+    const { data } = await supabase
+      .from('channels')
+      .select('id, members')
+      .eq('organization_id', orgId)
+      .eq('type', 'general')
+      .single();
+    if (!data) return;
+    const current: string[] = data.members ?? [];
+    if (!current.includes(userName)) {
+      await supabase
+        .from('channels')
+        .update({ members: [...current, userName] })
+        .eq('id', data.id);
+    }
+  } catch {}
+}
+
 async function linkPendingInvitation(userId: string, email: string): Promise<string | undefined> {
   try {
     const { data: inv } = await supabase
@@ -106,6 +125,7 @@ async function fetchProfile(userId: string): Promise<User | null> {
           roleLabel = refreshed.role_label ?? ROLE_LABELS[role] ?? role;
           companyId = refreshed.company_id ?? undefined;
         }
+        await addUserToGeneralChannel(linkedOrgId, data.name);
       }
     }
 
@@ -404,7 +424,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           type: 'general',
           organization_id: orgId,
           created_by: name.trim(),
-          members: [],
+          members: [name.trim()],
         });
 
         const { data: enterprisePlan } = await supabase
