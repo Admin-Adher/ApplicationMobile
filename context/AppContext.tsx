@@ -3817,6 +3817,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         start_date: c.startDate ?? null, end_date: c.endDate ?? null, status: c.status,
         created_by: c.createdBy ?? null, buildings: c.buildings ? JSON.stringify(c.buildings) : null,
         organization_id: currentUserOrgIdRef.current ?? null,
+        company_ids: c.companyIds ?? null,
       } })) return;
       if (isSupabaseConfigured) {
         (async () => {
@@ -3831,6 +3832,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
             created_by: c.createdBy ?? null,
             buildings: c.buildings ? JSON.stringify(c.buildings) : null,
             organization_id: currentUserOrgIdRef.current ?? null,
+            company_ids: c.companyIds ?? null,
           };
           let { error } = await supabase.from('chantiers').insert(chantierPayload);
           if (error) {
@@ -3885,6 +3887,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         name: c.name, address: c.address ?? null, description: c.description ?? null,
         start_date: c.startDate ?? null, end_date: c.endDate ?? null, status: c.status,
         buildings: c.buildings ? JSON.stringify(c.buildings) : null,
+        company_ids: c.companyIds ?? null,
       } })) return;
       if (isSupabaseConfigured) {
         (async () => {
@@ -3896,6 +3899,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
             end_date: c.endDate ?? null,
             status: c.status,
             buildings: c.buildings ? JSON.stringify(c.buildings) : null,
+            company_ids: c.companyIds ?? null,
           };
           const { error } = await supabase.from('chantiers').update(updatePayload).eq('id', c.id);
           if (error) {
