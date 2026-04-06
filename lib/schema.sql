@@ -129,7 +129,7 @@ create policy "Organizations modifiables par super_admin"
 
 insert into public.organizations (id, name, slug, created_at) values
   ('00000000-0000-0000-0000-000000000001', 'Organisation Demo', 'organisation-demo', now())
-on conflict (slug) do nothing;
+on conflict do nothing;
 
 create table if not exists public.subscriptions (
   id uuid primary key default gen_random_uuid(),
