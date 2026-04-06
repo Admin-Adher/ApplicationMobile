@@ -47,9 +47,14 @@ The app runs via the **Start Frontend** workflow which executes:
 ```
 npm start
 ```
-This starts the Expo Metro bundler on port 5000 in web mode. The Replit preview pane shows the web version.
+This starts the Expo Metro bundler on port 5000 in web mode with `--localhost` mode for Replit proxy compatibility. The Replit preview pane shows the web version.
 
 A CORS patch (`scripts/patch-expo-cors.js`) is applied automatically via `postinstall` to allow Replit's proxy domains (`.replit.dev`, `.repl.co`) to communicate with the Metro dev server.
+
+### Replit Migration Notes
+- The `--localhost` flag was added to the start script so Metro binds correctly through Replit's proxy
+- The CORS patch in `scripts/patch-expo-cors.js` is applied during `npm install` (postinstall hook)
+- Supabase credentials (`EXPO_PUBLIC_SUPABASE_URL`, `EXPO_PUBLIC_SUPABASE_KEY`) are stored in Replit's shared env vars (visible in `.replit` under `[userenv.shared]`)
 
 ## User Roles
 
