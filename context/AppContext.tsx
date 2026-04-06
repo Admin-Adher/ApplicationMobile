@@ -1394,11 +1394,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     initStorageBuckets().catch(() => {});
     try {
       const { data: { session } } = await supabase.auth.getSession();
-      let profile: { name?: string; organization_id?: string; last_read_by_channel?: Record<string, string> } | null = null;
+      let profile: { name?: string; organization_id?: string; last_read_by_channel?: Record<string, string>; role?: string; company_id?: string | null } | null = null;
       if (session?.user?.id) {
         const { data: profileResult } = await supabase
           .from('profiles')
-          .select('name, organization_id, last_read_by_channel')
+          .select('name, organization_id, last_read_by_channel, role, company_id')
           .eq('id', session.user.id)
           .single();
         profile = profileResult;
@@ -1423,6 +1423,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         { data: photos },
         { data: profilesData },
         storedActiveChantierIdEarly,
+        { data: chantiersForFilter },
       ] = await Promise.all([
         supabase.from('reserves').select('*').order('created_at', { ascending: false }),
         supabase.from('companies').select('*'),
@@ -1440,6 +1441,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           : supabase.from('profiles')
               .select('id, name, role, role_label, email'),
         AsyncStorage.getItem(ACTIVE_CHANTIER_KEY).catch(() => null),
+        // Fetch chantier company_ids early to compute visibility for all related data
+        supabase.from('chantiers').select('id, company_ids'),
       ]);
 
       // AsyncStorage last_read: merged as fallback if Supabase dispatch hasn't fired yet
@@ -1470,6 +1473,29 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         // — the newer call has already dispatched SET_LOADING:true synchronously.
         dispatch({ type: 'SET_LOADING', payload: false });
         return;
+      }
+
+      // ── Chantier visibility — company-based access control ─────────────────
+      // Rule: if a chantier has companyIds set, only members of those companies
+      // (plus admin / conducteur / super_admin) can see it and all its related data.
+      const loadedRole: string = profile?.role ?? '';
+      const loadedCompanyId: string | null = profile?.company_id ?? null;
+      const isPrivilegedRole = loadedRole === 'super_admin' || loadedRole === 'admin' || loadedRole === 'conducteur';
+      // Build a lookup: chantierId → visible?
+      const chantierVisibility = new Map<string, boolean>();
+      for (const ch of (chantiersForFilter ?? [])) {
+        const cids: string[] = Array.isArray(ch.company_ids) ? ch.company_ids : [];
+        if (isPrivilegedRole || cids.length === 0) {
+          chantierVisibility.set(ch.id, true);
+        } else {
+          chantierVisibility.set(ch.id, loadedCompanyId ? cids.includes(loadedCompanyId) : false);
+        }
+      }
+      // Returns true for items with no chantierId (not chantier-scoped) or visible chantiers
+      function isChantierIdVisible(chantierId?: string | null): boolean {
+        if (!chantierId) return true;
+        const v = chantierVisibility.get(chantierId);
+        return v !== false; // unknown chantier defaults to visible
       }
 
       // ── Reserves: Supabase-first with local-cache fallback ──────────────────
@@ -1537,12 +1563,16 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         persistMockCompanies(resolvedCompanies);
       }
 
+      // Apply company-based chantier visibility filter
+      resolvedReserves = resolvedReserves.filter(r => isChantierIdVisible(r.chantierId));
+      const resolvedTasks = (tasks ?? []).map(toTask).filter(t => isChantierIdVisible(t.chantierId));
+
       dispatch({
         type: 'INIT',
         payload: {
           reserves: resolvedReserves,
           companies: resolvedCompanies,
-          tasks: (tasks ?? []).map(toTask),
+          tasks: resolvedTasks,
           documents: (documents ?? []).map(toDocument),
           photos: (photos ?? []).map(toPhoto),
           messages: [],
@@ -1695,15 +1725,32 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         return;
       }
 
-      dispatch({ type: 'SET_CHANTIERS', payload: chantiers });
-      dispatch({ type: 'SET_SITE_PLANS', payload: sitePlans });
+      // Filter chantiers by company-based visibility
+      const visibleChantiers = chantiers.filter(ch => {
+        const cids = ch.companyIds ?? [];
+        if (isPrivilegedRole || cids.length === 0) return true;
+        return loadedCompanyId ? cids.includes(loadedCompanyId) : false;
+      });
+      // Update visibility map with the now-fully-loaded chantier data
+      for (const ch of chantiers) {
+        const cids = ch.companyIds ?? [];
+        if (isPrivilegedRole || cids.length === 0) {
+          chantierVisibility.set(ch.id, true);
+        } else {
+          chantierVisibility.set(ch.id, loadedCompanyId ? cids.includes(loadedCompanyId) : false);
+        }
+      }
+      const visibleSitePlans = sitePlans.filter(p => isChantierIdVisible(p.chantierId));
+
+      dispatch({ type: 'SET_CHANTIERS', payload: visibleChantiers });
+      dispatch({ type: 'SET_SITE_PLANS', payload: visibleSitePlans });
       // Valide le chantier actif stocké : s'il n'existe pas dans la liste chargée
       // (ID périmé, accès révoqué, ou première connexion après déconnexion), on
       // sélectionne automatiquement le premier chantier disponible.
       const validActiveId =
-        activeChantierId && chantiers.some(c => c.id === activeChantierId)
+        activeChantierId && visibleChantiers.some(c => c.id === activeChantierId)
           ? activeChantierId
-          : (chantiers[0]?.id ?? null);
+          : (visibleChantiers[0]?.id ?? null);
       if (validActiveId) {
         dispatch({ type: 'SET_ACTIVE_CHANTIER', payload: validActiveId });
         if (validActiveId !== activeChantierId) {
@@ -1787,9 +1834,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         return;
       }
 
-      dispatch({ type: 'SET_VISITES', payload: visites });
-      dispatch({ type: 'SET_LOTS', payload: lots });
-      dispatch({ type: 'SET_OPRS', payload: oprs });
+      dispatch({ type: 'SET_VISITES', payload: visites.filter(v => isChantierIdVisible(v.chantierId)) });
+      dispatch({ type: 'SET_LOTS', payload: lots.filter(l => isChantierIdVisible(l.chantierId)) });
+      dispatch({ type: 'SET_OPRS', payload: oprs.filter(o => isChantierIdVisible(o.chantierId)) });
 
     } catch (err) {
       dispatch({ type: 'SET_LOADING', payload: false });
