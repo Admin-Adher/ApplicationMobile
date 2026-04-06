@@ -119,7 +119,8 @@ type Action =
   | { type: 'SET_CHANNEL_MEMBERS_OVERRIDE'; payload: Record<string, string[]> }
   | { type: 'BATCH_UPDATE_RESERVES'; payload: Reserve[] }
   | { type: 'PREPEND_MESSAGES'; payload: Message[] }
-  | { type: 'SET_CHANNEL_MESSAGES'; payload: { channelId: string; messages: Message[] } };
+  | { type: 'SET_CHANNEL_MESSAGES'; payload: { channelId: string; messages: Message[] } }
+  | { type: 'REMAP_DM_CHANNEL'; payload: { fromId: string; toId: string } };
 
 function toReserve(row: any): Reserve {
   const companies: string[] = Array.isArray(row.companies) && row.companies.length > 0
@@ -595,6 +596,17 @@ function reducer(state: AppState, action: Action): AppState {
       const newIds = new Set(newMsgs.map(m => m.id));
       const realtimeExtras = state.messages.filter(m => m.channelId === channelId && !newIds.has(m.id));
       return { ...state, messages: [...otherChannelMsgs, ...newMsgs, ...realtimeExtras] };
+    }
+
+    case 'REMAP_DM_CHANNEL': {
+      const { fromId, toId } = action.payload;
+      if (!state.messages.some(m => m.channelId === fromId)) return state;
+      return {
+        ...state,
+        messages: state.messages.map(m =>
+          m.channelId === fromId ? { ...m, channelId: toId } : m
+        ),
+      };
     }
 
     case 'UPDATE_MESSAGE':
@@ -2090,6 +2102,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     ...(state.persistedDmChannels ?? []).map(c => c.id),
   ]);
 
+  const dmChannelRemapsRef = useRef<Array<{ fromId: string; toId: string }>>([]);
   const dmChannels: Channel[] = (() => {
     const all = Array.from(dmChannelIds).map(chId => {
       // Prefer data loaded from Supabase if available
@@ -2110,18 +2123,49 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     });
     // Deduplicate: if two channels have the same other participant name (e.g. one local
     // + one from Supabase with a slightly different ID), keep the Supabase-persisted one.
+    // Also collect remappings so local messages can be migrated to the canonical Supabase ID.
     const byName = new Map<string, Channel>();
+    const remaps: Array<{ fromId: string; toId: string }> = [];
     for (const ch of all) {
       const key = ch.name.toLowerCase().trim();
       if (!byName.has(key)) {
         byName.set(key, ch);
       } else {
         const isPersisted = (state.persistedDmChannels ?? []).some(c => c.id === ch.id);
-        if (isPersisted) byName.set(key, ch);
+        if (isPersisted) {
+          // Current ch is the Supabase winner, existing entry is the local loser
+          remaps.push({ fromId: byName.get(key)!.id, toId: ch.id });
+          byName.set(key, ch);
+        } else {
+          // Current ch is the local loser, existing entry is the Supabase winner
+          remaps.push({ fromId: ch.id, toId: byName.get(key)!.id });
+        }
       }
     }
+    dmChannelRemapsRef.current = remaps;
     return Array.from(byName.values());
   })();
+
+  // Migrate local messages from duplicate DM channel IDs to the canonical Supabase ID.
+  // Also clean up the stale pending DM ID so the duplicate never reappears.
+  const appliedRemapsRef = useRef(new Set<string>());
+  useEffect(() => {
+    for (const { fromId, toId } of dmChannelRemapsRef.current) {
+      const key = `${fromId}->${toId}`;
+      if (appliedRemapsRef.current.has(key)) continue;
+      appliedRemapsRef.current.add(key);
+      // Re-assign messages stored under the old local ID to the Supabase channel ID
+      dispatch({ type: 'REMAP_DM_CHANNEL', payload: { fromId, toId } });
+      // Remove the stale local pending channel ID
+      setPendingDmChannelIds(prev => {
+        const next = new Set(prev);
+        if (!next.has(fromId)) return prev;
+        next.delete(fromId);
+        AsyncStorage.setItem(PENDING_DM_KEY, JSON.stringify([...next])).catch(() => {});
+        return next;
+      });
+    }
+  });
 
   const channels: Channel[] = [
     ...STATIC_CHANNELS,
