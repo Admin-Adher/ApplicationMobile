@@ -157,6 +157,10 @@ export default function ChannelScreen() {
   const [typingUsers, setTypingUsers] = useState<string[]>([]);
   const [attachmentUploading, setAttachmentUploading] = useState(false);
   const [mentionQuery, setMentionQuery] = useState('');
+  // P16: pagination locale — affiche les N messages les plus récents
+  // L'utilisateur peut charger les suivants en scrollant vers le haut
+  const PAGE_SIZE = 50;
+  const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
   const typingTimeouts = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
   const typingChannelRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
 
@@ -184,6 +188,9 @@ export default function ChannelScreen() {
       typingTimeouts.current = {};
     };
   }, [channelId]);
+
+  // Réinitialiser la pagination quand on change de canal
+  useEffect(() => { setVisibleCount(PAGE_SIZE); }, [channelId]);
 
   const channelMessages = useMemo(() =>
     messages.filter(m => m.channelId === channelId),
@@ -218,6 +225,20 @@ export default function ChannelScreen() {
     }
     return [...items].reverse();
   }, [filteredMessages]);
+
+  // P16: Pagination locale — slice les N items les plus récents
+  // FlatList est inversée : index 0 = bas (le plus récent), dernier index = haut (le plus ancien)
+  // Donc slice(0, visibleCount) = les N plus récents, affiché au bas
+  const LOAD_MORE_SENTINEL_KEY = '__load_more__';
+  const paginatedListItems = useMemo((): (ListItem | { _type: 'load_more'; key: string })[] => {
+    if (searchQuery.trim()) return listItems; // pas de pagination pendant la recherche
+    const visible = listItems.slice(0, visibleCount);
+    if (listItems.length > visibleCount) {
+      // Ajouter le bouton "charger plus" à la fin (= haut de l'écran dans la FlatList inversée)
+      return [...visible, { _type: 'load_more' as const, key: LOAD_MORE_SENTINEL_KEY }];
+    }
+    return visible;
+  }, [listItems, visibleCount, searchQuery]);
 
   const knownSenders = useMemo(() => {
     const senders = new Set<string>();
@@ -267,7 +288,9 @@ export default function ChannelScreen() {
 
   function handleTextChange(val: string) {
     setText(val);
-    const atMatch = val.match(/@(\w*)$/);
+    // Capture tout ce qui suit le dernier @ jusqu'à un espace ou un autre @
+    // Supporte les noms accentués (Léa, Jean-Paul) et les traits d'union
+    const atMatch = val.match(/@([^@\s]*)$/);
     setMentionQuery(atMatch ? atMatch[1] : '');
     typingChannelRef.current?.send({
       type: 'broadcast', event: 'typing',
@@ -276,7 +299,10 @@ export default function ChannelScreen() {
   }
 
   function insertMention(senderName: string) {
-    const updated = text.replace(/@(\w*)$/, `@${senderName} `);
+    // On insère le prénom uniquement (premier mot) pour rester compatible
+    // avec detectMentions qui cherche @prénom dans le texte
+    const tag = senderName.split(' ')[0];
+    const updated = text.replace(/@([^@\s]*)$/, `@${tag} `);
     setText(updated);
     setMentionQuery('');
     inputRef.current?.focus();
@@ -341,10 +367,11 @@ export default function ChannelScreen() {
     setText(''); setReplyTo(null); setMentionQuery(''); setLinkedItem(null);
   }
 
-  function openActions(msg: Message) {
+  // P13: useCallback avec [] car n'utilise que des setters stables
+  const openActions = useCallback((msg: Message) => {
     setSelectedMsg(msg);
     setActionModalVisible(true);
-  }
+  }, []);
 
   function handleReply() {
     setActionModalVisible(false);
@@ -406,13 +433,14 @@ export default function ChannelScreen() {
     updateMessage({ ...msg, reactions: newReactions });
   }
 
-  function handleNotifPress(msg: Message) {
+  // P13: useCallback stable (router est stable dans expo-router)
+  const handleNotifPress = useCallback((msg: Message) => {
     if (msg.reserveId) {
       router.push(`/reserve/${msg.reserveId}` as any);
     }
-  }
+  }, [router]);
 
-  function handleLinkedItemPress(msg: Message) {
+  const handleLinkedItemPress = useCallback((msg: Message) => {
     const type = msg.linkedItemType;
     const id = msg.linkedItemId;
     if (!type || !id) {
@@ -428,11 +456,30 @@ export default function ChannelScreen() {
       case 'opr': router.push(`/opr/${id}` as any); break;
       default: break;
     }
-  }
+  }, [router, handleNotifPress, sitePlans]);
 
-  const renderItem = useCallback(({ item }: { item: ListItem }) => {
+  // P13: ref trick — applyReact est mis à jour chaque render dans le ref
+  // pour que renderItem utilise toujours la version la plus récente
+  const applyReactRef = useRef(applyReact);
+  applyReactRef.current = applyReact;
+
+  const renderItem = useCallback(({ item }: { item: ListItem | { _type: 'load_more'; key: string } }) => {
     if ('_type' in item && item._type === 'date') {
-      return <DateSeparator label={item.label} />;
+      return <DateSeparator label={(item as any).label} />;
+    }
+    // P16: bouton "Charger les messages précédents" au sommet de la FlatList inversée
+    if ('_type' in item && item._type === 'load_more') {
+      return (
+        <View style={{ transform: [{ scaleY: -1 }], alignItems: 'center', paddingVertical: 12 }}>
+          <TouchableOpacity
+            onPress={() => setVisibleCount(prev => prev + PAGE_SIZE)}
+            style={{ flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 16, paddingVertical: 8, borderRadius: 20, backgroundColor: C.card, borderWidth: 1, borderColor: C.border }}
+          >
+            <Ionicons name="arrow-up-circle-outline" size={16} color={C.textMuted} />
+            <Text style={{ fontSize: 13, color: C.textMuted }}>Voir les messages précédents</Text>
+          </TouchableOpacity>
+        </View>
+      );
     }
     const msg = item as Message;
     return (
@@ -443,11 +490,13 @@ export default function ChannelScreen() {
         onLongPress={() => openActions(msg)}
         onNotifPress={handleNotifPress}
         onLinkedItemPress={handleLinkedItemPress}
-        onReactInline={(emoji, m) => applyReact(emoji, m)}
+        onReactInline={(emoji, m) => applyReactRef.current(emoji, m)}
         onOpenReactPicker={(m) => { setSelectedMsg(m); setEmojiModalVisible(true); }}
       />
     );
-  }, [color, user?.name, channelId, sitePlans]);
+    // P13: openActions, handleNotifPress, handleLinkedItemPress sont stables (useCallback [])
+    // applyReact passe par applyReactRef pour éviter les closures stale
+  }, [color, user?.name, channelId, sitePlans, openActions, handleNotifPress, handleLinkedItemPress]);
 
   const lastPinned = pinnedMessages[pinnedMessages.length - 1];
 
@@ -479,6 +528,13 @@ export default function ChannelScreen() {
           <Text style={styles.headerName} numberOfLines={1}>{liveChannelName}</Text>
           {(isDMChannel || isGroupChannel) && liveMembers.length > 0 ? (
             <Text style={styles.headerSub} numberOfLines={1}>{liveMembers.length} membre{liveMembers.length !== 1 ? 's' : ''}</Text>
+          ) : isCompanyChannel ? (
+            // P11: Afficher le nombre de participants actifs pour les canaux entreprise
+            <Text style={styles.headerSub} numberOfLines={1}>
+              {knownSenders.length > 0
+                ? `${knownSenders.length + 1} participant${knownSenders.length > 0 ? 's' : ''}`
+                : 'Canal entreprise'}
+            </Text>
           ) : (
             <Text style={styles.headerSub}>{channelMessages.length} message{channelMessages.length !== 1 ? 's' : ''}</Text>
           )}
@@ -532,7 +588,14 @@ export default function ChannelScreen() {
         </TouchableOpacity>
       )}
 
-      <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'} keyboardVerticalOffset={Platform.OS === 'ios' ? insets.top + 8 : 0}>
+      {/* P12: 'padding' sur les deux plateformes.
+           'height' sur Android rétrécit la vue et peut cacher la barre de saisie
+           quand le clavier apparaît avec une FlatList inversée. */}
+      <KeyboardAvoidingView
+        style={{ flex: 1 }}
+        behavior={Platform.OS === 'ios' ? 'padding' : 'padding'}
+        keyboardVerticalOffset={Platform.OS === 'ios' ? insets.top + 8 : 0}
+      >
         <FlatList
           ref={flatListRef}
           data={listItems}
@@ -685,11 +748,15 @@ export default function ChannelScreen() {
               <Ionicons name="copy-outline" size={20} color={C.text} />
               <Text style={styles.actionLabel}>Copier le texte</Text>
             </TouchableOpacity>
-            <TouchableOpacity style={styles.actionItem} onPress={handleCreateReserveFromMsg}>
-              <Ionicons name="alert-circle-outline" size={20} color={C.waiting} />
-              <Text style={[styles.actionLabel, { color: C.waiting }]}>Créer une réserve</Text>
-            </TouchableOpacity>
-            {selectedMsg?.isMe && (
+            {/* P9: Créer réserve uniquement pour les messages texte (pas notifications/photos) */}
+            {(!selectedMsg?.type || selectedMsg?.type === 'message') && (
+              <TouchableOpacity style={styles.actionItem} onPress={handleCreateReserveFromMsg}>
+                <Ionicons name="alert-circle-outline" size={20} color={C.waiting} />
+                <Text style={[styles.actionLabel, { color: C.waiting }]}>Créer une réserve</Text>
+              </TouchableOpacity>
+            )}
+            {/* P10: Suppression autorisée pour l'expéditeur OU les administrateurs */}
+            {(selectedMsg?.isMe || user?.role === 'admin' || user?.role === 'super_admin') && (
               <TouchableOpacity style={styles.actionItem} onPress={handleDelete}>
                 <Ionicons name="trash-outline" size={20} color={C.open} />
                 <Text style={[styles.actionLabel, { color: C.open }]}>Supprimer</Text>

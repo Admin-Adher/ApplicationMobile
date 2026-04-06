@@ -19,7 +19,7 @@ function detectMentions(text: string, name: string): boolean {
 function MessageTextRender({ text, isMe }: { text: string; isMe: boolean }) {
   const parts: React.ReactNode[] = [];
   let lastIndex = 0;
-  const combined = /(https?:\/\/[^\s]+)|(@\w+)/g;
+  const combined = /(https?:\/\/[^\s]+)|(@[^@\s]+)/g;
   let match;
   let idx = 0;
   while ((match = combined.exec(text)) !== null) {

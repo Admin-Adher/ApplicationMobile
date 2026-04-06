@@ -1025,6 +1025,24 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   async function loadPinnedChannels() {
     try {
+      // Priorité Supabase : synchronisé sur tous les appareils
+      if (isSupabaseConfigured) {
+        const { data: { session } } = await supabase.auth.getSession();
+        if (session?.user?.id) {
+          const { data } = await supabase
+            .from('profiles')
+            .select('pinned_channels')
+            .eq('id', session.user.id)
+            .single();
+          if (data?.pinned_channels && Array.isArray(data.pinned_channels)) {
+            dispatch({ type: 'SET_PINNED_CHANNELS', payload: data.pinned_channels });
+            // Cache local pour mode hors-ligne
+            AsyncStorage.setItem(PINNED_CHANNELS_KEY, JSON.stringify(data.pinned_channels)).catch(() => {});
+            return;
+          }
+        }
+      }
+      // Fallback AsyncStorage (mode hors-ligne ou Supabase non configuré)
       const stored = await AsyncStorage.getItem(PINNED_CHANNELS_KEY);
       if (stored) {
         dispatch({ type: 'SET_PINNED_CHANNELS', payload: JSON.parse(stored) });
@@ -1034,7 +1052,19 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   async function savePinnedChannels(ids: string[]) {
     try {
+      // AsyncStorage pour le cache local
       await AsyncStorage.setItem(PINNED_CHANNELS_KEY, JSON.stringify(ids));
+      // Sync Supabase
+      if (isSupabaseConfigured) {
+        const { data: { session } } = await supabase.auth.getSession();
+        if (session?.user?.id) {
+          supabase
+            .from('profiles')
+            .update({ pinned_channels: ids })
+            .eq('id', session.user.id)
+            .then(() => {}).catch(() => {});
+        }
+      }
     } catch {}
   }
 
@@ -1253,7 +1283,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         supabase.from('documents').select('*').order('uploaded_at', { ascending: false }),
         supabase.from('photos').select('*').order('taken_at', { ascending: false }),
         supabase.from('messages').select('*').order('timestamp', { ascending: false }).limit(500),
-        supabase.from('profiles').select('id, name, role, role_label, email'),
+        // Filtrer par organisation pour éviter la fuite multi-tenant
+        supabase.from('profiles')
+          .select('id, name, role, role_label, email')
+          .eq('organization_id', profile?.organization_id ?? ''),
         AsyncStorage.getItem(ACTIVE_CHANTIER_KEY).catch(() => null),
       ]);
 
@@ -1909,23 +1942,39 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     channelsRef.current = channels;
   }, [channels]);
 
-  function frTimestampToISO(ts: string): string {
+  function frTimestampToMs(ts: string): number {
+    // Tente le format français dd/mm/yyyy hh:mm
     const match = ts.match(/^(\d{2})\/(\d{2})\/(\d{4}) (\d{2}):(\d{2})$/);
-    if (!match) return ts;
-    const [, dd, mm, yyyy, hh, min] = match;
-    // Interpréter comme heure locale, puis convertir en ISO UTC réel
-    return new Date(
-      Number(yyyy), Number(mm) - 1, Number(dd), Number(hh), Number(min)
-    ).toISOString();
+    if (match) {
+      const [, dd, mm, yyyy, hh, min] = match;
+      const d = new Date(Number(yyyy), Number(mm) - 1, Number(dd), Number(hh), Number(min));
+      return isNaN(d.getTime()) ? 0 : d.getTime();
+    }
+    // Fallback : ISO 8601 ou autre format reconnu par Date
+    const d = new Date(ts);
+    return isNaN(d.getTime()) ? 0 : d.getTime();
   }
 
-  const unreadByChannel: Record<string, number> = {};
-  for (const ch of channels) {
-    const lastRead = state.lastReadByChannel[ch.id] ?? '0';
-    unreadByChannel[ch.id] = state.messages.filter(
-      m => m.channelId === ch.id && !m.isMe && frTimestampToISO(m.timestamp) > lastRead
-    ).length;
-  }
+  // P15: useMemo pour éviter le recalcul O(N×M) à chaque render d'AppContext
+  const unreadByChannel = useMemo(() => {
+    const result: Record<string, number> = {};
+    // P14 pattern: une seule passe pour construire l'index ms par message
+    const msgMsByChannel: Record<string, number[]> = {};
+    for (const m of state.messages) {
+      if (m.isMe) continue; // les messages envoyés par soi ne comptent pas comme non-lus
+      if (!msgMsByChannel[m.channelId]) msgMsByChannel[m.channelId] = [];
+      msgMsByChannel[m.channelId].push(frTimestampToMs(m.timestamp));
+    }
+    for (const ch of channels) {
+      const lastRead = state.lastReadByChannel[ch.id];
+      const lastReadMs = lastRead ? new Date(lastRead).getTime() : 0;
+      const times = msgMsByChannel[ch.id] ?? [];
+      result[ch.id] = times.filter(t => t > lastReadMs).length;
+    }
+    return result;
+    // frTimestampToMs est une fonction pure définie dans ce composant (stable)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [state.messages, state.lastReadByChannel, channels]);
 
   const reservesForStats = state.activeChantierId
     ? state.reserves.filter(r => r.chantierId === state.activeChantierId)
@@ -2093,10 +2142,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     const chId = dmChannelId(myName, otherName);
     const existing = dmChannels.find(c => c.id === chId);
     if (existing) return existing;
-    const newPending = new Set(pendingDmChannelIds).add(chId);
-    setPendingDmChannelIds(newPending);
-    AsyncStorage.setItem(PENDING_DM_KEY, JSON.stringify([...newPending])).catch(() => {});
-    return {
+
+    const newChannel: Channel = {
       id: chId,
       name: otherName,
       description: `Message direct avec ${otherName}`,
@@ -2105,6 +2152,29 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       type: 'dm',
       dmParticipants: [myName, otherName],
     };
+
+    // Persister dans Supabase pour que le destinataire voie le canal
+    if (isSupabaseConfigured) {
+      const orgId = currentUserOrgIdRef.current;
+      supabase.from('channels').upsert({
+        id: chId,
+        name: otherName,
+        description: `Message direct avec ${otherName}`,
+        icon: 'person-circle',
+        color: '#EC4899',
+        type: 'dm',
+        members: [myName, otherName],
+        created_by: myName,
+        organization_id: orgId ?? null,
+      }).then(() => {}).catch(() => {});
+    }
+
+    // Cache local pour mode hors-ligne
+    const newPending = new Set(pendingDmChannelIds).add(chId);
+    setPendingDmChannelIds(newPending);
+    AsyncStorage.setItem(PENDING_DM_KEY, JSON.stringify([...newPending])).catch(() => {});
+
+    return newChannel;
   }
 
   const value: AppContextValue = {
@@ -2583,6 +2653,22 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       const userName = currentUserNameRef.current;
       if (userName) {
         dispatch({ type: 'MARK_CHANNEL_READ_BY', payload: { channelId, userName } });
+        // Persister le read_by dans Supabase via RPC pour que l'envoyeur
+        // puisse voir "Vu par N" même après rechargement
+        if (isSupabaseConfigured) {
+          const unread = stateRef.current.messages.filter(
+            m => m.channelId === channelId
+              && !m.isMe
+              && !m.readBy.includes(userName)
+          );
+          const ids = unread.map(m => m.id).slice(0, 100); // limite sécurité
+          if (ids.length > 0) {
+            supabase.rpc('mark_messages_read_by', {
+              p_message_ids: ids,
+              p_user_name: userName,
+            }).catch(() => {});
+          }
+        }
       }
     },
 
