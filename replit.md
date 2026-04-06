@@ -11,6 +11,7 @@ BuildTrack is a construction site management application built with **Expo / Rea
 - **Navigation:** Expo Router — file-based, similar to Next.js pages
 - **State:** React Context providers (Auth, App, Settings, Incidents, Pointage, Network, Notifications, Subscription)
 - **Offline:** AsyncStorage caching for working on sites with poor connectivity
+- **Message loading:** Lazy per-channel — messages are fetched only when a channel is opened (`fetchChannelMessages`), not at startup. This scales to any number of channels without startup latency.
 
 ## Key Directories
 

@@ -109,7 +109,7 @@ export default function ChannelScreen() {
     messages, addMessage, deleteMessage, updateMessage, toggleReaction, setChannelRead, setActiveChannelId,
     channels, removeCustomChannel, removeGroupChannel, renameChannel,
     addChannelMember, removeChannelMember, profiles, channelMembersOverride,
-    reserves, sitePlans, tasks, visites, oprs, fetchOlderMessages,
+    reserves, sitePlans, tasks, visites, oprs, fetchOlderMessages, fetchChannelMessages,
   } = useApp();
   const { incidents } = useIncidents();
   const { user } = useAuth();
@@ -190,6 +190,10 @@ export default function ChannelScreen() {
     };
   }, [channelId]);
 
+  useEffect(() => {
+    if (channelId) fetchChannelMessages(channelId);
+  }, [channelId]);
+
   // Réinitialiser la pagination quand on change de canal
   useEffect(() => {
     setVisibleCount(PAGE_SIZE);
@@ -210,8 +214,10 @@ export default function ChannelScreen() {
 
   // Fix 1: auto-marquer comme lu quand de nouveaux messages arrivent pendant que le canal est ouvert
   // (setChannelRead au mount seul ne couvre pas les messages entrants en temps réel)
+  // Aussi déclenché au chargement initial du canal (lazy-load) pour que mark_messages_read_by
+  // soit appelé avec les vrais IDs de messages.
   useEffect(() => {
-    if (channelMessages.length > prevChannelMsgCountRef.current && prevChannelMsgCountRef.current > 0) {
+    if (channelMessages.length > prevChannelMsgCountRef.current) {
       setChannelRead(channelId!);
     }
     prevChannelMsgCountRef.current = channelMessages.length;

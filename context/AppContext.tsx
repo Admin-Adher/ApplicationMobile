@@ -118,7 +118,8 @@ type Action =
   | { type: 'UPDATE_COMPANY_HOURS'; payload: { id: string; hours: number } }
   | { type: 'SET_CHANNEL_MEMBERS_OVERRIDE'; payload: Record<string, string[]> }
   | { type: 'BATCH_UPDATE_RESERVES'; payload: Reserve[] }
-  | { type: 'PREPEND_MESSAGES'; payload: Message[] };
+  | { type: 'PREPEND_MESSAGES'; payload: Message[] }
+  | { type: 'SET_CHANNEL_MESSAGES'; payload: { channelId: string; messages: Message[] } };
 
 function toReserve(row: any): Reserve {
   const companies: string[] = Array.isArray(row.companies) && row.companies.length > 0
@@ -586,6 +587,14 @@ function reducer(state: AppState, action: Action): AppState {
       return { ...state, messages: [...newOnes, ...state.messages] };
     }
 
+    case 'SET_CHANNEL_MESSAGES': {
+      const { channelId, messages: newMsgs } = action.payload;
+      const otherChannelMsgs = state.messages.filter(m => m.channelId !== channelId);
+      const newIds = new Set(newMsgs.map(m => m.id));
+      const realtimeExtras = state.messages.filter(m => m.channelId === channelId && !newIds.has(m.id));
+      return { ...state, messages: [...otherChannelMsgs, ...newMsgs, ...realtimeExtras] };
+    }
+
     case 'UPDATE_MESSAGE':
       return { ...state, messages: state.messages.map(m => m.id === action.payload.id ? action.payload : m) };
 
@@ -783,6 +792,7 @@ interface AppContextValue extends AppState {
   maxPinnedChannels: number;
   getOrCreateDMChannel: (otherName: string) => Channel;
   fetchOlderMessages: (channelId: string, beforeCreatedAt: string) => Promise<boolean>;
+  fetchChannelMessages: (channelId: string) => Promise<void>;
   unreadCount: number;
   stats: {
     total: number; open: number; inProgress: number;
@@ -897,6 +907,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const channelsRef = useRef<Channel[]>([...STATIC_CHANNELS]);
   const stateRef = useRef(state);
   const dmUpsertPromisesRef = useRef<Map<string, Promise<void>>>(new Map());
+  const loadedChannelIdsRef = useRef<Set<string>>(new Set());
 
   useEffect(() => {
     stateRef.current = state;
@@ -1332,6 +1343,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     }
 
     const myGen = loadGenerationRef.current;
+    loadedChannelIdsRef.current.clear();
 
     dispatch({ type: 'SET_LOADING', payload: true });
 
@@ -1363,7 +1375,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         { data: tasks },
         { data: documents },
         { data: photos },
-        { data: messages },
         { data: profilesData },
         storedActiveChantierIdEarly,
       ] = await Promise.all([
@@ -1372,9 +1383,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         supabase.from('tasks').select('*'),
         supabase.from('documents').select('*').order('uploaded_at', { ascending: false }),
         supabase.from('photos').select('*').order('taken_at', { ascending: false }),
-        // Chargement initial : 1000 messages les plus récents toutes chaînes confondues.
-        // Le pagination serveur (fetchOlderMessages) prend le relais canal par canal.
-        supabase.from('messages').select('*').order('created_at', { ascending: false }).limit(1000),
         // Filtrer par organisation pour éviter la fuite multi-tenant.
         // Si org_id n'est pas encore chargé (race condition login), on se fie
         // uniquement au RLS Supabase (pas de filtre supplémentaire) pour éviter
@@ -1475,7 +1483,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         persistMockCompanies(resolvedCompanies);
       }
 
-      const userName = currentUserNameRef.current;
       dispatch({
         type: 'INIT',
         payload: {
@@ -1484,7 +1491,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           tasks: (tasks ?? []).map(toTask),
           documents: (documents ?? []).map(toDocument),
           photos: (photos ?? []).map(toPhoto),
-          messages: (messages ?? []).map((r: any) => toMessage(r, userName)).reverse(),
+          messages: [],
           profiles: (profilesData ?? []).map((p: any) => ({ id: p.id, name: p.name, role: p.role, roleLabel: p.role_label ?? ROLE_LABELS[p.role as UserRole] ?? p.role, email: p.email })),
         },
       });
@@ -1718,6 +1725,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         loadGenerationRef.current++;
         currentUserNameRef.current = '';
         currentUserOrgIdRef.current = null;
+        loadedChannelIdsRef.current.clear();
         // Vider toutes les données utilisateur en mémoire
         dispatch({ type: 'INIT', payload: { reserves: [], companies: [], tasks: [], documents: [], photos: [], messages: [], profiles: [] } });
         dispatch({ type: 'SET_CUSTOM_CHANNELS', payload: [] });
@@ -3105,6 +3113,31 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       } catch (e: any) {
         console.warn('[fetchOlderMessages] exception:', e?.message ?? e);
         return false;
+      }
+    },
+
+    fetchChannelMessages: async (channelId: string): Promise<void> => {
+      if (!isSupabaseConfigured) return;
+      if (loadedChannelIdsRef.current.has(channelId)) return;
+      loadedChannelIdsRef.current.add(channelId);
+      try {
+        const { data, error } = await supabase
+          .from('messages')
+          .select('*')
+          .eq('channel_id', channelId)
+          .order('created_at', { ascending: false })
+          .limit(50);
+        if (error) {
+          loadedChannelIdsRef.current.delete(channelId);
+          console.warn('[fetchChannelMessages] error:', error.message);
+          return;
+        }
+        const userName = currentUserNameRef.current;
+        const msgs = (data ?? []).map((r: any) => toMessage(r, userName)).reverse();
+        dispatch({ type: 'SET_CHANNEL_MESSAGES', payload: { channelId, messages: msgs } });
+      } catch (e: any) {
+        loadedChannelIdsRef.current.delete(channelId);
+        console.warn('[fetchChannelMessages] exception:', e?.message ?? e);
       }
     },
 
