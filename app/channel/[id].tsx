@@ -355,7 +355,8 @@ export default function ChannelScreen() {
 
   function handleSend() {
     if (!text.trim() && !linkedItem) return;
-    const mentions = (text.match(/@\w+/g) ?? []).map(m => m.slice(1));
+    // P1: utiliser [^\s@]+ pour capturer les noms accentués et composés (ex. @Jean-Paul)
+    const mentions = (text.match(/@[^\s@]+/g) ?? []).map(m => m.slice(1));
     addMessage(channelId!, text.trim(), {
       replyToId: replyTo?.id, replyToContent: replyTo?.content,
       replyToSender: replyTo?.sender, mentions,
@@ -596,9 +597,10 @@ export default function ChannelScreen() {
         behavior={Platform.OS === 'ios' ? 'padding' : 'padding'}
         keyboardVerticalOffset={Platform.OS === 'ios' ? insets.top + 8 : 0}
       >
+        {/* P16: utiliser paginatedListItems pour limiter le nombre de messages rendus */}
         <FlatList
           ref={flatListRef}
-          data={listItems}
+          data={paginatedListItems}
           keyExtractor={item => ('_type' in item ? item.key : item.id)}
           renderItem={renderItem}
           contentContainerStyle={styles.list}

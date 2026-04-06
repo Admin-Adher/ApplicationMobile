@@ -1,0 +1,149 @@
+Vérifie et continue : "Voici l'audit complet.
+
+Audit complet — Page Messages
+Architecture globale
+Trois couches : liste des canaux (messages.tsx) → écran de conversation (channel/[id].tsx) → composants (MessageBubble, MembersModal, modals). L'état vient de AppContext (reducer + refs + realtime Supabase). Globalement le code est bien structuré, mais voici tous les problèmes identifiés.
+
+🔴 Bugs bloquants / comportements incorrects
+1. Regex @\w+ incompatible avec les noms à espaces (channel/[id].tsx ligne 270)
+/@(\w*)$/ ne capture que les caractères alphanumériques. Les noms comme "Jean Dupont" ne peuvent pas être mentionnés — l'autocomplete s'arrête à @Jean. L'insertion via insertMention injecte le nom complet (avec espace), mais le trigger ne le détecte pas. Résultat : l'autocomplete ne se déclenche jamais pour les noms composés.
+
+2. readBy jamais mis à jour dans Supabase
+Le badge "Vu par N" est affiché mais readBy dans la base reste toujours []. MARK_CHANNEL_READ_BY met à jour l'état local uniquement, sans jamais écrire dans Supabase. Le compteur est donc toujours à 0 pour tous les utilisateurs après rechargement.
+
+3. Calcul des non-lus : comparaison de timestamp potentiellement fausse (AppContext ligne 1924-1926)
+frTimestampToISO(m.timestamp) > lastRead compare une chaîne ISO avec '0' quand lastReadByChannel[ch.id] n'est pas défini. La comparaison '2026-04-05...' > '0' fonctionne par chance (lexicographique), mais c'est un comportement non garanti et fragile.
+
+4. Profils non filtrés par organisation (AppContext ligne 1256)
+
+supabase.from('profiles').select('id, name, role, role_label, email')
+Récupère tous les profils de toutes les organisations. Conséquence : dans le modal "Ajouter membre" et dans l'autocomplete @mention, des utilisateurs d'autres orgs apparaissent. Fuite de données multi-tenant côté client.
+
+5. Canaux DM non persistés dans Supabase
+Les DMs n'ont pas de ligne dans la table channels. Ils sont reconstruits depuis les channel_id des messages ou depuis pendingDmChannelIds (AsyncStorage uniquement). Si l'utilisateur change d'appareil ou vide le cache, les conversations DM "en attente" (sans message échangé) disparaissent.
+
+🟠 Problèmes de données / synchronisation
+6. pinnedChannelIds stocké uniquement en AsyncStorage
+Les canaux épinglés ne sont pas synchronisés sur Supabase. Un changement d'appareil remet tout à zéro. Idem pour lastReadByChannel — les badges de non-lus sont toujours à zéro sur un nouvel appareil.
+
+7. Chargement limité à 500 messages sans pagination
+supabase.from('messages').select('*').limit(500) charge les 500 messages les plus récents. Les plus anciens sont inaccessibles : pas de "charger plus", pas d'offset. La recherche globale ne voit elle aussi que ces 500 messages.
+
+8. channelMembersOverride stocké uniquement en AsyncStorage
+L'override de membres est local à l'appareil. Un admin qui ajoute un membre sur son téléphone ne le verra pas sur sa tablette (sauf si le canal est dans la table channels et que le realtime propage la mise à jour).
+
+🟡 Problèmes de logique / UX
+9. Action "Créer une réserve" affichée sur tous les types de messages
+Elle apparaît même sur les messages notification, system, ou les messages vides (sans contenu textuel, seulement une photo ou un élément lié). Elle devrait être conditionnée à msg.type === 'message' && msg.content.
+
+10. Suppression de message uniquement par l'expéditeur, sans rôle admin
+selectedMsg?.isMe est la seule condition. Un admin ou conducteur ne peut pas supprimer les messages des autres, même en cas de contenu inapproprié.
+
+11. Header du canal : compteur de membres manquant pour les canaux entreprise
+
+(isDMChannel || isGroupChannel) && liveMembers.length > 0
+  ? '…membres'
+  : '…messages'
+Les canaux entreprise n'affichent pas de membres (liste vide sur les canaux virtuels), donc le compteur affiche "N messages" au lieu de quelque chose de plus utile.
+
+12. KeyboardAvoidingView sur Android utilise behavior='height'
+Sur Android, height peut provoquer des comportements erratiques (le clavier fait sauter le layout). La pratique recommandée est padding sur les deux plateformes, ou aucun comportement sur Android.
+
+13. renderItem dans le FlatList : closures potentiellement stale
+Le useCallback à la ligne 433 liste [color, user?.name, channelId, sitePlans] comme dépendances, mais capture également router, reserves, visites, oprs via handleLinkedItemPress et handleNotifPress. Ces références peuvent être stale si elles changent entre les renders.
+
+🔵 Problèmes de performance
+14. lastMessageByChannel : O(N×M) sans indexation
+
+messages.filter(m => m.channelId === ch.id)  // pour chaque canal
+Avec 500 messages et 20 canaux = 10 000 itérations à chaque render. Il faudrait grouper les messages par channelId en une seule passe.
+
+15. unreadByChannel dans AppContext sans useMemo
+Recalculé à chaque re-render de n'importe quel consommateur du contexte, incluant frTimestampToISO pour chaque message de chaque canal.
+
+16. FlatList de 500 messages sans pagination locale
+Tous les messages sont dans le listItems array et rendus par le FlatList. Sur des canaux très actifs, ça peut peser lourd. Pas de fenêtrage sur les 100-200 derniers messages avec chargement à la demande.
+
+🟢 Points bien faits
+INCOMING_MESSAGE déduplique par ID (pas de doublon realtime) ✅
+isMe calculé depuis le nom utilisateur en mémoire, pas depuis is_me DB (résistant au spoofing) ✅
+Typing indicator avec cleanup propre des timeouts ✅
+liveChannelName et liveMembers réactifs (mis à jour si le canal change pendant que l'utilisateur est dans le canal) ✅
+Le canal entreprise est maintenant read-only pour la gestion des membres ✅
+Les dates séparatrices dans la liste sont correctement gérées ✅
+La recherche dans le canal est locale (instantanée) ✅
+Les réactions inline fonctionnent correctement ✅
+La protection super_admin sur la page messages est en place ✅
+Je vais travailler sur les 16 points, en vérifiant chaque point avant de le corriger. Je vais créer un plan de session pour m'organiser.
+
+Point 1 — Regex mention @\w+
+Vérification P1 ✅ — Confirmé. Ligne 270 : /@(\w*)$/ exclut les caractères accentués (Léa, Jean-Paul) et les espaces dans les noms composés. insertMention injecte le nom complet avec un espace, mais \w* ne peut pas le capturer sur la frappe suivante. MessageTextRender ligne 22 utilise aussi /@\w+/ avec la même limitation.
+
+Correction P1 :
+
+Fix MessageTextRender pour les caractères accentués dans les mentions :
+
+Point 2 — readBy jamais persisté dans Supabase
+Vérification P2 ✅ — Confirmé. setChannelRead (ligne 2581) dispatch MARK_CHANNEL_READ_BY uniquement en local. Aucun appel Supabase pour persister read_by. Le badge "Vu par N" est donc toujours 0 après rechargement.
+
+Correction P2 — Création d'une fonction RPC Supabase + appel depuis l'app :
+
+Point 3 — Comparaison timestamp non-lus fragile
+Vérification P3 ✅ — Confirmé. frTimestampToISO retourne la chaîne originale si le regex ne correspond pas (ex. timestamp ISO Supabase, format différent). La comparaison '15/01/2026...' > '2026-...' est fausse lexicographiquement → tous les messages apparaissent comme lus. De plus, new Date(...) peut retourner Invalid Date sans garde.
+
+Correction P3 :
+
+Point 4 — Profils non filtrés par organisation
+Vérification P4 ✅ — Confirmé. La requête profiles (ligne 1256) ne filtre pas par organization_id. L'organization_id du profil courant est déjà disponible à ce point dans profile?.organization_id (ligne 1235). Tous les membres de toutes les organisations sont visibles dans les @mentions et l'Add Member modal.
+
+Correction P4 :
+
+Points 5, 6, 8, 9, 10, 11, 12 — Vérification en parallèle
+Maintenant, vérification rapide des P5, P13, P14, P15, P16 :
+
+Maintenant je connais l'architecture. Voici les verifications confirmées — je passe aux corrections en parallèle.
+
+Points 5 & 6 — DM channels + pinnedChannels persistence
+Vérification P5 ✅ — getOrCreateDMChannel (ligne 2099) ne persiste le canal que dans pendingDmChannelIds (AsyncStorage). Pas d'INSERT dans la table channels Supabase.
+
+Vérification P6 ✅ — savePinnedChannels/loadPinnedChannels (lignes 1035-1038) : AsyncStorage uniquement, pas de sync Supabase.
+
+Correction P5+P6 — Migration SQL + update des fonctions :
+
+Mise à jour des fonctions loadPinnedChannels et savePinnedChannels pour Supabase :
+
+Maintenant, persistance des canaux DM dans Supabase (P5) :
+
+Points 8, 9, 10, 11, 12 — Corrections dans channel/[id].tsx
+Maintenant je fais toutes les corrections du fichier channel/[id].tsx en une passe :
+
+P9 — "Créer réserve" uniquement pour les messages texte :
+
+P11 — Compteur membres pour canaux entreprise dans le header :
+
+P12 — KeyboardAvoidingView sur Android :
+
+P13 — Vérification des closures stale dans renderItem :
+
+Vérification P13 — renderItem useCallback a les dépendances [color, user?.name, channelId, sitePlans] mais capture openActions, handleNotifPress, handleLinkedItemPress, applyReact sans les inclure dans les deps. Ces fonctions sont définies comme function ordinaires, recréées à chaque render → closures potentiellement stale.
+
+Correction P13 — Utilisation de useCallback + ref pour les handlers :
+
+Je vais convertir les handlers en useCallback et utiliser un ref pour applyReact :
+
+Point 14 — lastMessageByChannel O(N×M) → O(M)
+Vérification P14 ✅ — Confirmé. Boucle channels.forEach → .filter(m => m.channelId === ch.id) = O(N×M). Avec 500 messages et 20 canaux = 10 000 itérations à chaque render.
+
+Point 15 — unreadByChannel sans useMemo
+Vérification P15 ✅ — Confirmé. La computation unreadByChannel (ligne ~1928) est dans le corps du composant AppContext sans useMemo. Elle recalcule le O(N×M) à chaque render, même quand messages et channels n'ont pas changé.
+
+Points 7 & 16 — Pagination messages
+Vérification P7+P16 ✅ — Confirmé. Ligne 1258 AppContext: .limit(500). Ligne 558 channel/[id].tsx: la FlatList rend tous les items sans limite locale. 500 messages dans une seule FlatList = lenteur au rendu initial.
+
+Correction P7+P16 — Pagination locale (50 messages visibles) + bouton "charger plus" :
+
+Réinitialiser visibleCount lors d'un changement de canal, et créer paginatedListItems :
+
+Maintenant, mettre à jour le FlatList pour utiliser paginatedListItems et gérer le load_more dans renderItem :
+
+Maintenant mettre à jour la FlatList pour utiliser paginatedListItems :"
