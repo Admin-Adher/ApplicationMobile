@@ -1288,7 +1288,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     } catch {}
     try {
       const sac = await AsyncStorage.getItem(ACTIVE_CHANTIER_KEY);
-      if (sac) activeChantierId = sac;
+      // Valide que l'ID stocké correspond bien à un chantier de la liste
+      if (sac && chantiers.some(c => c.id === sac)) activeChantierId = sac;
+      // Sinon on garde le fallback MOCK_CHANTIERS[0]?.id déjà défini
     } catch {}
     try {
       const sv = await AsyncStorage.getItem(MOCK_VISITES_KEY);
@@ -1678,7 +1680,19 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
       dispatch({ type: 'SET_CHANTIERS', payload: chantiers });
       dispatch({ type: 'SET_SITE_PLANS', payload: sitePlans });
-      if (activeChantierId) dispatch({ type: 'SET_ACTIVE_CHANTIER', payload: activeChantierId });
+      // Valide le chantier actif stocké : s'il n'existe pas dans la liste chargée
+      // (ID périmé, accès révoqué, ou première connexion après déconnexion), on
+      // sélectionne automatiquement le premier chantier disponible.
+      const validActiveId =
+        activeChantierId && chantiers.some(c => c.id === activeChantierId)
+          ? activeChantierId
+          : (chantiers[0]?.id ?? null);
+      if (validActiveId) {
+        dispatch({ type: 'SET_ACTIVE_CHANTIER', payload: validActiveId });
+        if (validActiveId !== activeChantierId) {
+          AsyncStorage.setItem(ACTIVE_CHANTIER_KEY, validActiveId).catch(() => {});
+        }
+      }
 
       let visites: Visite[] = MOCK_VISITES;
       let lots: Lot[] = STANDARD_LOTS;
