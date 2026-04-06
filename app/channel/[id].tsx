@@ -482,8 +482,7 @@ export default function ChannelScreen() {
     switch (type) {
       case 'reserve': router.push(`/reserve/${id}` as any); break;
       case 'plan': {
-        const plan = sitePlans.find(p => p.id === id);
-        if (plan?.chantierId) router.push({ pathname: '/chantier/[id]', params: { id: plan.chantierId, tab: 'plans' } } as any);
+        router.push({ pathname: '/(tabs)/plans', params: { sitePlanId: id } } as any);
         break;
       }
       case 'task': router.push(`/task/${id}` as any); break;
