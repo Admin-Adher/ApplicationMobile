@@ -1,0 +1,206 @@
+Vérifie et continue : "Audit approfondi — BuildTrack AppContext.tsx + NetworkContext.tsx + migrations SQL
+J'ai analysé l'intégralité du code de synchronisation, le reducer, les souscriptions Realtime, et toutes les migrations SQL. Voici les résultats, classés par sévérité.
+
+🔴 CRITIQUE — Perte de données silencieuse
+BUG 1 — DELETE Supabase silencieusement bloqué par RLS sur TOUTES les entités
+Fichier : AppContext.tsx lignes 2638, 2855, 3104, 3164, 3197, 3322, 3406, 3633, 3798–3799, 3924
+Entités : reserves, companies, tasks, photos, documents, visites, lots, oprs, site_plans, chantiers
+
+Quand la politique RLS bloque un DELETE, Supabase retourne { data: [], error: null } — aucune erreur. Le code ne vérifie que if (error), donc il croit que la suppression a réussi alors que 0 ligne a été supprimée.
+
+// Pattern présent 10 fois dans le fichier :
+supabase.from('reserves').delete().eq('id', id).then(({ error }) => {
+  if (error) { console.warn(...) }  // ← error est null même si RLS a tout bloqué
+  // Aucune vérification du nombre de lignes supprimées
+});
+Quand RLS bloque-t-il le DELETE ? Deux cas :
+
+L'entité a organization_id = null ET chantier_id = null (données créées avant les migrations de correction) — la politique 20260410 exige l'un ou l'autre pour autoriser l'écriture
+L'utilisateur a un rôle non autorisé (sous_traitant, visiteur, etc.)
+Conséquence visible : L'item disparaît de l'UI (mise à jour optimiste), mais réapparaît au prochain rechargement puisque Supabase ne l'a jamais supprimé.
+
+BUG 2 — deleteChantier : cascade incomplète dans Supabase
+Fichier : AppContext.tsx lignes 3795–3801
+
+// Seuls site_plans + chantier sont supprimés côté Supabase :
+supabase.from('site_plans').delete().eq('chantier_id', id).then(() => {
+  supabase.from('chantiers').delete().eq('id', id).then(() => {});
+});
+Le reducer local supprime bien les reserves, tasks, etc. (DELETE_CHANTIER case lignes 509–518), mais côté Supabase, les reserves, tasks, visites, lots et oprs associés au chantier restent orphelins avec un chantier_id pointant vers un chantier inexistant. Cela :
+
+Rompt les jointures RLS (la policy vérifie chantiers c WHERE c.id = reserves.chantier_id) → ces données deviennent indéfiniment visibles ou invisibles selon la policy et ne peuvent plus être modifiées ou supprimées normalement
+Il n'y a également aucun error handling sur ces appels (corps du .then vide)
+BUG 3 — loadAll : upsert du cache local sans organization_id
+Fichier : AppContext.tsx lignes 1458–1478
+
+Quand Supabase retourne 0 réserves (org vide, RLS, etc.) et qu'un cache local existe, le code tente de le pousser vers Supabase :
+
+await supabase.from('reserves').upsert({
+  id: r.id, title: r.title, ...
+  // ← organization_id ABSENT du payload !
+}).catch(() => {});
+Ces réserves arrivent en base avec organization_id = null. La policy SELECT (20260410) les rend quand même visibles (clause chantier_id IS NULL AND organization_id IS NULL), mais la policy WRITE exige organization_id = auth_user_org() OU la jointure chantier → elles deviennent indéfiniment non-supprimables sauf par super_admin. Ce bug se reproduit aussi pour les visites (ligne 1688 : upsert(fromVisite(v)) — fromVisite sans orgId).
+
+BUG 4 — deletePhoto et deleteDocument : cache local jamais mis à jour quand online
+Fichier : AppContext.tsx lignes 3159–3171 et 3192–3205
+
+deletePhoto: (id) => {
+  const newPhotos = stateRef.current.photos.filter(p => p.id !== id);
+  dispatch({ type: 'DELETE_PHOTO', payload: id });
+  // ← persistMockPhotos(newPhotos) ABSENT quand isSupabaseConfigured = true
+  if (isSupabaseConfigured) {
+    supabase.from('photos').delete()... // seul chemin quand online
+  } else {
+    persistMockPhotos(newPhotos);  // ← seulement dans le else (mode mock)
+  }
+}
+Si le DELETE Supabase échoue (RLS, réseau), la photo disparaît de l'état React mais le cache AsyncStorage n'a jamais été mis à jour → au rechargement, la photo réapparaît (depuis le cache ou depuis Supabase). Identique pour deleteDocument. Ces deux fonctions n'ont en plus pas de garde offline() contrairement à toutes les autres.
+
+BUG 5 — resolveConflict : résultat non vérifié
+Fichier : NetworkContext.tsx lignes 305–310
+
+await supabase.from('reserves').update({
+  status: chosenStatus, history, closed_at: ..., closed_by: ...,
+}).eq('id', conflict.reserveId);
+// ← le résultat { error } n'est pas capturé ni vérifié
+Si le UPDATE Supabase échoue, le conflit disparaît de l'UI (setConflicts(remaining)) mais la résolution n'a pas été appliquée en base. La donnée reste incohérente sans que l'utilisateur en soit informé.
+
+🟠 ÉLEVÉ — Doublons et incohérences de données
+BUG 6 — Doublons Realtime sur ADD_VISITE, ADD_OPR, ADD_LOT, ADD_CHANTIER, ADD_SITE_PLAN
+Fichier : AppContext.tsx reducer lignes 488, 493, 498, 502, 520 vs souscriptions lignes 1952–2012
+
+Le reducer ADD_RESERVE protège contre les doublons :
+
+case 'ADD_RESERVE':
+  if (state.reserves.some(r => r.id === action.payload.id)) return state; // ✓ dédup
+Mais les 5 autres entités n'ont aucune protection :
+
+case 'ADD_VISITE': return { ...state, visites: [action.payload, ...state.visites] }; // ✗ pas de dédup
+case 'ADD_OPR':    return { ...state, oprs: [action.payload, ...state.oprs] };       // ✗
+case 'ADD_LOT':    return { ...state, lots: [...state.lots, action.payload] };       // ✗
+case 'ADD_CHANTIER': return { ...state, chantiers: [...state.chantiers, action.payload] }; // ✗
+case 'ADD_SITE_PLAN': return { ...state, sitePlans: [...state.sitePlans, action.payload] }; // ✗
+Séquence qui crée le doublon :
+
+addVisite(v) → dispatch ADD_VISITE localement → élément apparaît dans l'UI
+Supabase confirme l'INSERT → l'événement Realtime déclenche ADD_VISITE à nouveau depuis le serveur
+Aucun check → l'élément apparaît en double
+Même chose pour chantiers, site_plans, lots, oprs. ADD_TASK est probablement aussi concerné (le reducer ADD_TASK n'est pas dans les sections lues, mais le pattern est identique).
+
+BUG 7 — addPhoto, addDocument, addTaskComment, updateReserveStatus : pas de persistance AsyncStorage quand Supabase est configuré
+Fichier : AppContext.tsx lignes 3137–3157, 3174–3189, 3124–3134, 2686–2697
+
+Ces 4 fonctions ne persistent dans AsyncStorage que dans le branchement else (mode mock/hors-ligne). Si Supabase est configuré mais que l'INSERT/UPDATE échoue (réseau, RLS), la donnée est perdue au prochain rechargement (ni dans Supabase, ni dans le cache local).
+
+addPhoto: (p) => {
+  dispatch({ type: 'ADD_PHOTO', payload: p }); // ← état React mis à jour
+  // ← persistMockPhotos() JAMAIS appelé quand isSupabaseConfigured
+  if (isSupabaseConfigured) {
+    supabase.from('photos').insert(...).then(...); // peut échouer silencieusement
+  } else {
+    persistMockPhotos([p, ...]); // ← seulement en mode mock
+  }
+}
+BUG 8 — Queue offline : replay des DELETE sans vérification du row count
+Fichier : NetworkContext.tsx lignes 249–255
+
+Même défaut que BUG 1, mais dans le moteur de replay de la file offline :
+
+const q = supabase.from(op.table).delete();
+result = op.filter ? await q.eq(op.filter.column, op.filter.value) : await q;
+if (result.error) failedOps.push(op);  // ← error null = considéré comme succès
+Un DELETE bloqué par RLS en mode online-après-offline passe pour un succès, est retiré de la file d'attente, et n'est jamais réessayé.
+
+🟡 MOYEN — RLS et incohérences de politique
+BUG 9 — Incohérence de rôles entre migrations pour lots et oprs
+Fichiers : 20260408_complete_rls_security_fix.sql vs 20260410_master_organization_id_fix.sql
+
+Table	Policy 20260408 (write)	Policy 20260410 (write)
+lots	admin, conducteur seulement	admin, conducteur, chef_equipe
+oprs	admin, conducteur seulement	admin, conducteur, chef_equipe
+chantiers	admin, conducteur seulement	non modifié
+Les deux migrations font un DROP POLICY IF EXISTS + CREATE donc la dernière gagne. Mais chantiers n'a pas été mis à jour dans 20260410 → un chef_equipe peut modifier des lots et des OPRs mais pas les chantiers, incohérence du modèle de sécurité.
+
+BUG 10 — updateVisite : organization_id absent du payload UPDATE Supabase
+Fichier : AppContext.tsx lignes 3304–3312
+
+updateVisite: (v) => {
+  const { id, ...fields } = fromVisite(v);  // ← fromVisite sans orgId → organization_id = null dans fields
+  supabase.from('visites').update(fields).eq('id', v.id)...
+fromVisite(v) appelé sans le second argument orgId → organization_id: null dans le payload d'UPDATE. Cela écrase l'organization_id existant en base avec null, rendant la visite indéfiniment non-modifiable ensuite (la policy exige organization_id = auth_user_org() ou la jointure chantier — si les deux sont null, la prochaine update sera bloquée).
+
+Même problème potentiel sur updateLot (ligne 3391 : fromLot(l) sans orgId).
+
+BUG 11 — Policy SELECT réserves trop permissive pour les orphelines
+Fichier : 20260410_master_organization_id_fix.sql lignes 43–44
+
+OR (reserves.chantier_id IS NULL AND reserves.organization_id IS NULL AND auth_user_org() IS NOT NULL)
+Toute réserve avec chantier_id IS NULL et organization_id IS NULL est visible par n'importe quel utilisateur authentifié, quelle que soit son organisation. Ce sont les réserves créées avant les migrations de correction. La policy WRITE ne les autorise à personne (sauf super_admin), donc elles sont lisibles par tous, modifiables par personne — données zombies permanentes.
+
+🔵 MINEUR — Code smell et robustesse
+BUG 12 — Variable previous capturée dans chaque DELETE mais jamais utilisée
+Fichier : AppContext.tsx lignes 2631, 2850, 3098, 3160, 3193, 3316, 3400, 3627
+
+const previous = stateRef.current.reserves.find(r => r.id === id);
+// ← variable capturée mais jamais utilisée pour rollback
+L'intention était manifestement de faire un rollback en cas d'échec Supabase, mais le mécanisme de rollback n'a jamais été implémenté. Ces variables sont du code mort.
+
+BUG 13 — updateReserveStatus : persistance locale seulement dans le else (mode mock)
+Fichier : AppContext.tsx lignes 2695–2697
+
+} else {
+  persistMockReserves(stateRef.current.reserves.map(r => r.id === id ? updated : r));
+}
+Quand Supabase est configuré, le statut mis à jour n'est jamais écrit dans AsyncStorage. Si l'app redémarre avant la prochaine synchronisation complète (par exemple sur un appareil lent), le statut affiché peut revenir à l'état précédent depuis le cache.
+
+BUG 14 — addComment : persistance locale absente quand Supabase est configuré
+Fichier : AppContext.tsx lignes 2738–2745
+
+Même pattern que BUG 13 — commentaires ajoutés à la réserve dans l'état React, mais jamais écrits dans AsyncStorage quand online. Rechargement → commentaire perdu si Supabase a échoué.
+
+BUG 15 — sendMessage : messages de notification insérés sans vérification
+Fichier : AppContext.tsx lignes 2720–2722
+
+supabase.from('messages').insert(fromMessage(notifMsg)).then(({ error }) => {
+  // ← corps vide, aucune vérification de error
+});
+Les messages de notification envoyés lors d'un changement de statut de réserve sont insérés dans Supabase sans vérifier si l'INSERT a réussi. Pas critique (la notif est affichée localement), mais des erreurs RLS ou de permissions passent silencieusement.
+
+Résumé des priorités de correction
+Priorité	Bug	Impact
+🔴 1	DELETE silencieux RLS (10 fonctions)	Données non supprimées en base, réapparition au reload
+🔴 2	Cascade deleteChantier incomplète	Données orphelines indéfiniment en Supabase
+🔴 3	Upsert cache local sans organization_id	Données zombies non-supprimables
+🔴 4	deletePhoto/deleteDocument : cache jamais mis à jour	Réapparition après reload
+🔴 5	resolveConflict sans vérification	Conflit marqué résolu sans être appliqué
+🟠 6	Doublons Realtime (5 entités)	Doublons visuels dans les listes
+🟠 7	addPhoto/addDocument/commentaires sans persistance	Perte de données si Supabase échoue
+🟠 8	Queue offline DELETE sans row count	Deletes RLS-bloqués considérés comme succès
+🟡 9	updateVisite/updateLot écrasent organization_id	Données gelées après update
+🟡 10	Incohérence rôles lots/oprs/chantiers	chef_equipe bloqué sur certaines actions
+🟡 11	Réserves orphelines SELECT-permissives	Fuite de données inter-organisations
+🔵 12–15	Variables previous mortes, persistances manquantes ponctuelles	Robustesse
+Veux-tu que je commence les corrections dans un ordre précis, ou que je traite l'ensemble d'un bloc par entité ?
+
+Corrige les 15 points
+
+8 minutes ago
+Bien, je vais corriger les 15 bugs. C'est un travail important sur AppContext.tsx et NetworkContext.tsx. Laisse-moi d'abord lire les sections que je n'ai pas encore vues :
+
+Je dois aussi vérifier le reducer pour ADD_TASK, ADD_PHOTO, ADD_DOCUMENT et fromOpr :
+
+J'ai tout ce qu'il faut. Je vais maintenant appliquer toutes les corrections en parallèle, section par section.
+
+Bloc 1 — Reducer : déduplication Realtime (BUG 6) + corrections immédiates mineures
+
+Bloc 2 — Persistance locale manquante (BUG 7, 13, 14)
+
+Bloc 3 — Toutes les fonctions DELETE avec rollback (BUG 1, 2, 4)
+
+Lisons d'abord l'état actuel des sections modifiées pour être précis :
+
+Maintenant je corrige toutes les fonctions DELETE en parallèle :
+
+Maintenant je lis les autres fonctions DELETE restantes :
+
+Je peux maintenant éditer tous les DELETE restants en parallèle :"

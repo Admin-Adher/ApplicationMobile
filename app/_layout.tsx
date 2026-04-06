@@ -183,16 +183,18 @@ export default function RootLayout() {
     Inter_700Bold,
     ionicons: require('../assets/fonts/ionicons.ttf'),
   });
-  const [timedOut, setTimedOut] = useState(false);
+  const [timedOut, setTimedOut] = useState(Platform.OS === 'web');
 
   const fontsReady = fontsLoaded || !!fontError || timedOut;
 
   useEffect(() => {
-    const timer = setTimeout(() => {
-      setTimedOut(true);
-      SplashScreen.hideAsync().catch(() => {});
-    }, 500);
-    return () => clearTimeout(timer);
+    SplashScreen.hideAsync().catch(() => {});
+    if (Platform.OS !== 'web') {
+      const timer = setTimeout(() => {
+        setTimedOut(true);
+      }, 500);
+      return () => clearTimeout(timer);
+    }
   }, []);
 
   useEffect(() => {
