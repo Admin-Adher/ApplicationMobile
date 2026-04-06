@@ -52,8 +52,8 @@ AS $$
     CASE
       -- Super admin bypasses everything
       WHEN (SELECT role FROM public.profiles WHERE id = auth.uid()) = 'super_admin' THEN true
-      -- Must be in the same organization
-      WHEN chantier_org_id IS DISTINCT FROM public.auth_user_org() THEN false
+      -- Must be in the same organization (cast text → uuid for comparison)
+      WHEN chantier_org_id::uuid IS DISTINCT FROM public.auth_user_org() THEN false
       -- Privileged roles (admin, conducteur) see all in their org
       WHEN public.auth_user_is_privileged() THEN true
       -- No company restriction → visible to all org members
