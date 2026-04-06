@@ -15,7 +15,12 @@ export const ROLE_PERMISSIONS: Record<UserRole, UserPermissions> = {
 
 export function resolvePermissions(role: UserRole, override?: PermissionsOverride): UserPermissions {
   if (role === 'super_admin') return ROLE_PERMISSIONS.super_admin;
-  return { ...ROLE_PERMISSIONS[role], ...override };
+  // Fallback to observateur if role is unknown/undefined to ensure all keys are present
+  const base: UserPermissions = ROLE_PERMISSIONS[role] ?? ROLE_PERMISSIONS.observateur;
+  const merged = { ...base, ...override };
+  // Garantit que canMovePins est toujours défini même sur des bundles compilés avant son ajout
+  if (merged.canMovePins === undefined) merged.canMovePins = base.canMovePins ?? false;
+  return merged;
 }
 
 const DEMO_SEED_PASS = process.env.EXPO_PUBLIC_DEMO_SEED_PASS || '';
