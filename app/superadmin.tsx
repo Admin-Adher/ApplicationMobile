@@ -355,8 +355,8 @@ export default function SuperAdminScreen() {
         animationType="slide"
         onRequestClose={() => !creating && setCreateModal(false)}
       >
-        <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={{ flex: 1 }}>
-          <View style={styles.modalOverlay}>
+        <View style={styles.modalOverlay}>
+          <KeyboardAvoidingView behavior="padding" keyboardVerticalOffset={0}>
             <View style={styles.modalSheet}>
               <View style={styles.modalHeaderRow}>
                 <View style={styles.modalIconWrap}>
@@ -417,8 +417,8 @@ export default function SuperAdminScreen() {
                 )}
               </TouchableOpacity>
             </View>
-          </View>
-        </KeyboardAvoidingView>
+          </KeyboardAvoidingView>
+        </View>
       </Modal>
 
       {/* ── Modal : Éditer organisation ── */}
@@ -428,8 +428,8 @@ export default function SuperAdminScreen() {
         animationType="slide"
         onRequestClose={() => !editSaving && setEditModal(null)}
       >
-        <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={{ flex: 1 }}>
-          <View style={styles.modalOverlay}>
+        <View style={styles.modalOverlay}>
+          <KeyboardAvoidingView behavior="padding" keyboardVerticalOffset={0}>
             <View style={styles.modalSheet}>
               <View style={styles.modalHeaderRow}>
                 <View style={[styles.modalIconWrap, { backgroundColor: '#F5F3FF' }]}>
@@ -456,6 +456,7 @@ export default function SuperAdminScreen() {
                   value={editOrgName}
                   onChangeText={setEditOrgName}
                   autoCapitalize="words"
+                  autoFocus
                   editable={!editSaving}
                 />
               </View>
@@ -510,8 +511,8 @@ export default function SuperAdminScreen() {
                 </TouchableOpacity>
               </View>
             </View>
-          </View>
-        </KeyboardAvoidingView>
+          </KeyboardAvoidingView>
+        </View>
       </Modal>
 
       {/* ── Modal : Changer le statut ── */}
