@@ -1875,7 +1875,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
             });
           }
         } else if (r.type === 'general' || r.type === 'building') {
-          dispatch({ type: 'SET_GENERAL_CHANNELS', payload: [...(stateRef.current.generalChannels ?? []), ch] });
+          const alreadyExists = (stateRef.current.generalChannels ?? []).some(c => c.id === ch.id);
+          if (!alreadyExists) {
+            dispatch({ type: 'SET_GENERAL_CHANNELS', payload: [...(stateRef.current.generalChannels ?? []), ch] });
+          }
         }
       })
       .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'channels' }, (payload: any) => {
