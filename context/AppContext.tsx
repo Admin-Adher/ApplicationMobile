@@ -466,34 +466,36 @@ function reducer(state: AppState, action: Action): AppState {
         ...action.payload,
         companies: dedupedCompanies,
         lastReadByChannel: state.lastReadByChannel,
-        customChannels: state.customChannels,
-        groupChannels: state.groupChannels,
-        pinnedChannelIds: state.pinnedChannelIds,
-        channelMembersOverride: state.channelMembersOverride,
-        chantiers: state.chantiers,
-        sitePlans: state.sitePlans,
+        generalChannels: state.generalChannels ?? [],
+        persistedDmChannels: state.persistedDmChannels ?? [],
+        customChannels: state.customChannels ?? [],
+        groupChannels: state.groupChannels ?? [],
+        pinnedChannelIds: state.pinnedChannelIds ?? [],
+        channelMembersOverride: state.channelMembersOverride ?? {},
+        chantiers: state.chantiers ?? [],
+        sitePlans: state.sitePlans ?? [],
         activeChantierId: state.activeChantierId,
-        visites: state.visites,
-        lots: state.lots,
-        oprs: state.oprs,
+        visites: state.visites ?? [],
+        lots: state.lots ?? [],
+        oprs: state.oprs ?? [],
         isLoading: false,
       };
     }
 
-    case 'SET_VISITES': return { ...state, visites: action.payload };
-    case 'ADD_VISITE': return { ...state, visites: [action.payload, ...state.visites] };
-    case 'UPDATE_VISITE': return { ...state, visites: state.visites.map(v => v.id === action.payload.id ? action.payload : v) };
-    case 'DELETE_VISITE': return { ...state, visites: state.visites.filter(v => v.id !== action.payload) };
+    case 'SET_VISITES': return { ...state, visites: action.payload ?? [] };
+    case 'ADD_VISITE': return { ...state, visites: [action.payload, ...(state.visites ?? [])] };
+    case 'UPDATE_VISITE': return { ...state, visites: (state.visites ?? []).map(v => v.id === action.payload.id ? action.payload : v) };
+    case 'DELETE_VISITE': return { ...state, visites: (state.visites ?? []).filter(v => v.id !== action.payload) };
 
-    case 'SET_LOTS': return { ...state, lots: action.payload };
-    case 'ADD_LOT': return { ...state, lots: [...state.lots, action.payload] };
-    case 'UPDATE_LOT': return { ...state, lots: state.lots.map(l => l.id === action.payload.id ? action.payload : l) };
-    case 'DELETE_LOT': return { ...state, lots: state.lots.filter(l => l.id !== action.payload) };
+    case 'SET_LOTS': return { ...state, lots: action.payload ?? [] };
+    case 'ADD_LOT': return { ...state, lots: [...(state.lots ?? []), action.payload] };
+    case 'UPDATE_LOT': return { ...state, lots: (state.lots ?? []).map(l => l.id === action.payload.id ? action.payload : l) };
+    case 'DELETE_LOT': return { ...state, lots: (state.lots ?? []).filter(l => l.id !== action.payload) };
 
-    case 'SET_OPRS': return { ...state, oprs: action.payload };
-    case 'ADD_OPR': return { ...state, oprs: [action.payload, ...state.oprs] };
-    case 'UPDATE_OPR': return { ...state, oprs: state.oprs.map(o => o.id === action.payload.id ? action.payload : o) };
-    case 'DELETE_OPR': return { ...state, oprs: state.oprs.filter(o => o.id !== action.payload) };
+    case 'SET_OPRS': return { ...state, oprs: action.payload ?? [] };
+    case 'ADD_OPR': return { ...state, oprs: [action.payload, ...(state.oprs ?? [])] };
+    case 'UPDATE_OPR': return { ...state, oprs: (state.oprs ?? []).map(o => o.id === action.payload.id ? action.payload : o) };
+    case 'DELETE_OPR': return { ...state, oprs: (state.oprs ?? []).filter(o => o.id !== action.payload) };
 
     case 'ADD_CHANTIER':
       return { ...state, chantiers: [...state.chantiers, action.payload] };
@@ -526,10 +528,10 @@ function reducer(state: AppState, action: Action): AppState {
       return { ...state, activeChantierId: action.payload };
 
     case 'SET_CHANTIERS':
-      return { ...state, chantiers: action.payload };
+      return { ...state, chantiers: action.payload ?? [] };
 
     case 'SET_SITE_PLANS':
-      return { ...state, sitePlans: action.payload };
+      return { ...state, sitePlans: action.payload ?? [] };
 
     case 'ADD_RESERVE':
       if (state.reserves.some(r => r.id === action.payload.id)) return state;
@@ -662,50 +664,50 @@ function reducer(state: AppState, action: Action): AppState {
       return { ...state, customChannels: [...state.customChannels, action.payload] };
 
     case 'SET_GENERAL_CHANNELS':
-      return { ...state, generalChannels: action.payload };
+      return { ...state, generalChannels: action.payload ?? [] };
 
     case 'SET_CUSTOM_CHANNELS':
-      return { ...state, customChannels: action.payload };
+      return { ...state, customChannels: action.payload ?? [] };
 
     case 'REMOVE_CUSTOM_CHANNEL':
-      return { ...state, customChannels: state.customChannels.filter(c => c.id !== action.payload) };
+      return { ...state, customChannels: (state.customChannels ?? []).filter(c => c.id !== action.payload) };
 
     case 'ADD_GROUP_CHANNEL':
-      if (state.groupChannels.some(c => c.id === action.payload.id)) return state;
-      return { ...state, groupChannels: [...state.groupChannels, action.payload] };
+      if ((state.groupChannels ?? []).some(c => c.id === action.payload.id)) return state;
+      return { ...state, groupChannels: [...(state.groupChannels ?? []), action.payload] };
 
     case 'SET_GROUP_CHANNELS':
-      return { ...state, groupChannels: action.payload };
+      return { ...state, groupChannels: action.payload ?? [] };
 
     case 'REMOVE_GROUP_CHANNEL':
-      return { ...state, groupChannels: state.groupChannels.filter(c => c.id !== action.payload) };
+      return { ...state, groupChannels: (state.groupChannels ?? []).filter(c => c.id !== action.payload) };
 
     case 'SET_PERSISTED_DM_CHANNELS':
-      return { ...state, persistedDmChannels: action.payload };
+      return { ...state, persistedDmChannels: action.payload ?? [] };
 
     case 'ADD_PERSISTED_DM_CHANNEL':
-      if (state.persistedDmChannels.some(c => c.id === action.payload.id)) return state;
-      return { ...state, persistedDmChannels: [...state.persistedDmChannels, action.payload] };
+      if ((state.persistedDmChannels ?? []).some(c => c.id === action.payload.id)) return state;
+      return { ...state, persistedDmChannels: [...(state.persistedDmChannels ?? []), action.payload] };
 
     case 'UPDATE_CHANNEL': {
       const ch = action.payload;
       if (ch.type === 'general' || ch.type === 'building') {
-        return { ...state, generalChannels: state.generalChannels.map(c => c.id === ch.id ? ch : c) };
+        return { ...state, generalChannels: (state.generalChannels ?? []).map(c => c.id === ch.id ? ch : c) };
       }
       if (ch.type === 'custom') {
-        return { ...state, customChannels: state.customChannels.map(c => c.id === ch.id ? ch : c) };
+        return { ...state, customChannels: (state.customChannels ?? []).map(c => c.id === ch.id ? ch : c) };
       }
       if (ch.type === 'group') {
-        return { ...state, groupChannels: state.groupChannels.map(c => c.id === ch.id ? ch : c) };
+        return { ...state, groupChannels: (state.groupChannels ?? []).map(c => c.id === ch.id ? ch : c) };
       }
       if (ch.type === 'dm') {
-        return { ...state, persistedDmChannels: state.persistedDmChannels.map(c => c.id === ch.id ? ch : c) };
+        return { ...state, persistedDmChannels: (state.persistedDmChannels ?? []).map(c => c.id === ch.id ? ch : c) };
       }
       return state;
     }
 
     case 'SET_PINNED_CHANNELS':
-      return { ...state, pinnedChannelIds: action.payload };
+      return { ...state, pinnedChannelIds: action.payload ?? [] };
 
     case 'UPDATE_COMPANY_FULL':
       return { ...state, companies: state.companies.map(co => co.id === action.payload.id ? action.payload : co) };
@@ -1834,7 +1836,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
             });
           }
         } else if (r.type === 'general' || r.type === 'building') {
-          dispatch({ type: 'SET_GENERAL_CHANNELS', payload: [...stateRef.current.generalChannels, ch] });
+          dispatch({ type: 'SET_GENERAL_CHANNELS', payload: [...(stateRef.current.generalChannels ?? []), ch] });
         }
       })
       .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'channels' }, (payload: any) => {
@@ -2065,16 +2067,16 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   })();
 
   const dmChannelIds = new Set([
-    ...state.messages
+    ...(state.messages ?? [])
       .filter(m => m.channelId.startsWith('dm-'))
       .map(m => m.channelId),
     ...Array.from(pendingDmChannelIds),
-    ...state.persistedDmChannels.map(c => c.id),
+    ...(state.persistedDmChannels ?? []).map(c => c.id),
   ]);
 
   const dmChannels: Channel[] = Array.from(dmChannelIds).map(chId => {
     // Prefer data loaded from Supabase if available
-    const persisted = state.persistedDmChannels.find(c => c.id === chId);
+    const persisted = (state.persistedDmChannels ?? []).find(c => c.id === chId);
     if (persisted) return persisted;
     const parts = chId.replace('dm-', '').split('__');
     const myName = currentUserNameRef.current;
@@ -2092,10 +2094,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   const channels: Channel[] = [
     ...STATIC_CHANNELS,
-    ...state.generalChannels,
+    ...(state.generalChannels ?? []),
     ...companyChannels,
-    ...state.customChannels,
-    ...state.groupChannels,
+    ...(state.customChannels ?? []),
+    ...(state.groupChannels ?? []),
     ...dmChannels,
   ];
 

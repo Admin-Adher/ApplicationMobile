@@ -300,27 +300,27 @@ export default function ChannelScreen() {
 
   // ── Build AttachItemModal data lists ──
   const reserveItems: LinkedItem[] = useMemo(() =>
-    reserves.map(r => ({ type: 'reserve' as const, id: r.id, title: r.title, subtitle: r.building ? `${r.building}${r.level ? ' · ' + r.level : ''}` : undefined })),
+    (reserves ?? []).map(r => ({ type: 'reserve' as const, id: r.id, title: r.title, subtitle: r.building ? `${r.building}${r.level ? ' · ' + r.level : ''}` : undefined })),
     [reserves]
   );
   const planItems: LinkedItem[] = useMemo(() =>
-    sitePlans.map(p => ({ type: 'plan' as const, id: p.id, title: p.name, subtitle: p.building ?? undefined })),
+    (sitePlans ?? []).map(p => ({ type: 'plan' as const, id: p.id, title: p.name, subtitle: p.building ?? undefined })),
     [sitePlans]
   );
   const taskItems: LinkedItem[] = useMemo(() =>
-    tasks.map(t => ({ type: 'task' as const, id: t.id, title: t.title, subtitle: t.assignee ?? undefined })),
+    (tasks ?? []).map(t => ({ type: 'task' as const, id: t.id, title: t.title, subtitle: t.assignee ?? undefined })),
     [tasks]
   );
   const incidentItems: LinkedItem[] = useMemo(() =>
-    incidents.map(i => ({ type: 'incident' as const, id: i.id, title: i.title, subtitle: i.location ?? undefined })),
+    (incidents ?? []).map(i => ({ type: 'incident' as const, id: i.id, title: i.title, subtitle: i.location ?? undefined })),
     [incidents]
   );
   const visiteItems: LinkedItem[] = useMemo(() =>
-    visites.map(v => ({ type: 'visite' as const, id: v.id, title: v.title, subtitle: v.date })),
+    (visites ?? []).map(v => ({ type: 'visite' as const, id: v.id, title: v.title, subtitle: v.date })),
     [visites]
   );
   const oprItems: LinkedItem[] = useMemo(() =>
-    oprs.map(o => ({ type: 'opr' as const, id: o.id, title: o.title, subtitle: o.date })),
+    (oprs ?? []).map(o => ({ type: 'opr' as const, id: o.id, title: o.title, subtitle: o.date })),
     [oprs]
   );
 

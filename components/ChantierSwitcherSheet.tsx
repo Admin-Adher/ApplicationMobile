@@ -117,18 +117,18 @@ export default function ChantierSwitcherSheet() {
               scrollEventThrottle={16}
               onScroll={(e) => { scrollOffsetRef.current = e.nativeEvent.contentOffset.y; }}
             >
-              {chantiers.length === 0 && (
+              {(chantiers ?? []).length === 0 && (
                 <View style={styles.emptyWrap}>
                   <Ionicons name="business-outline" size={36} color={C.textMuted} />
                   <Text style={styles.emptyText}>Aucun chantier créé</Text>
                 </View>
               )}
 
-              {chantiers.map(ch => {
+              {(chantiers ?? []).map(ch => {
                 const isActive = ch.id === activeChantierId;
                 const cfg = STATUS_CFG[ch.status] ?? STATUS_CFG.active;
-                const reserveCount = reserves.filter(r => r.chantierId === ch.id).length;
-                const planCount = sitePlans.filter(p => p.chantierId === ch.id).length;
+                const reserveCount = (reserves ?? []).filter(r => r.chantierId === ch.id).length;
+                const planCount = (sitePlans ?? []).filter(p => p.chantierId === ch.id).length;
 
                 return (
                   <TouchableOpacity

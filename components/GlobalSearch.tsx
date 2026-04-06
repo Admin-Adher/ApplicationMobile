@@ -51,12 +51,16 @@ export default function GlobalSearch({ visible, onClose }: Props) {
     if (q.length < 2) return { reserves: [], incidents: [], documents: [] };
     const s = (v: string | null | undefined) => (v ?? '').toLowerCase();
 
+    const safeReserves = reserves ?? [];
+    const safeIncidents = incidents ?? [];
+    const safeDocuments = documents ?? [];
+
     const visibleReserves = isSousTraitant && sousTraitantCompanyName
-      ? reserves.filter(r =>
+      ? safeReserves.filter(r =>
           r.company === sousTraitantCompanyName ||
           (Array.isArray(r.companies) && r.companies.includes(sousTraitantCompanyName))
         )
-      : reserves;
+      : safeReserves;
 
     return {
       reserves: visibleReserves.filter(r =>
@@ -67,13 +71,13 @@ export default function GlobalSearch({ visible, onClose }: Props) {
         s(r.zone).includes(q) ||
         (r.companies ?? []).some(c => s(c).includes(q))
       ).slice(0, 8),
-      incidents: isSousTraitant ? [] : incidents.filter(i =>
+      incidents: isSousTraitant ? [] : safeIncidents.filter(i =>
         s(i.title).includes(q) ||
         s(i.description).includes(q) ||
         s(i.location).includes(q) ||
         s(i.reportedBy).includes(q)
       ).slice(0, 5),
-      documents: documents.filter(d =>
+      documents: safeDocuments.filter(d =>
         s(d.name).includes(q) ||
         s(d.category).includes(q)
       ).slice(0, 5),
