@@ -1503,6 +1503,22 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         dispatch({ type: 'SET_ACTIVE_CHANTIER', payload: storedActiveChantierIdEarly });
       }
 
+      // Préchargement non bloquant du dernier message par canal pour l'onglet Messages
+      ;(async () => {
+        try {
+          const { data: previewData } = await supabase
+            .from('messages')
+            .select('*')
+            .order('created_at', { ascending: false })
+            .limit(200);
+          if (previewData && previewData.length > 0 && loadGenerationRef.current === myGen) {
+            const userName = currentUserNameRef.current;
+            const previewMsgs = previewData.map((r: any) => toMessage(r, userName));
+            dispatch({ type: 'PREPEND_MESSAGES', payload: previewMsgs });
+          }
+        } catch {}
+      })();
+
       let chantiers: Chantier[] = [];
       let sitePlans: SitePlan[] = [];
       let activeChantierId: string | null = null;

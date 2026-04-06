@@ -176,15 +176,13 @@ export default function MessagesTabScreen() {
   const totalUnread = Object.values(unreadByChannel).reduce((a, b) => a + b, 0);
 
   const lastMessageByChannel = useMemo(() => {
-    // P14: O(M) au lieu de O(N×M) — on construit un index channelId→lastMessage
-    // en une seule passe sur les messages au lieu d'une passe par canal
     const map: Record<string, Message | null> = {};
-    for (const ch of channels) map[ch.id] = null; // initialiser
+    for (const ch of channels) map[ch.id] = null;
     for (const msg of messages) {
       const existing = map[msg.channelId];
-      // Les messages sont triés par timestamp décroissant (order desc dans la query Supabase),
-      // donc le premier qu'on voit pour un canal est le plus récent
-      if (!existing) map[msg.channelId] = msg;
+      if (!existing || msg.timestamp > existing.timestamp) {
+        map[msg.channelId] = msg;
+      }
     }
     return map;
   }, [channels, messages]);
