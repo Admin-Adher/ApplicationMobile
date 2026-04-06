@@ -111,6 +111,7 @@ export default function ChannelScreen() {
     channels, removeCustomChannel, removeGroupChannel, renameChannel,
     addChannelMember, removeChannelMember, profiles, channelMembersOverride,
     reserves, sitePlans, tasks, visites, oprs, fetchOlderMessages, fetchChannelMessages,
+    refreshChannelMessages,
   } = useApp();
   const { incidents } = useIncidents();
   const { user } = useAuth();
@@ -192,7 +193,12 @@ export default function ChannelScreen() {
   }, [channelId]);
 
   useEffect(() => {
-    if (channelId) fetchChannelMessages(channelId);
+    if (!channelId) return;
+    refreshChannelMessages(channelId);
+    const pollInterval = setInterval(() => {
+      refreshChannelMessages(channelId);
+    }, 30000);
+    return () => clearInterval(pollInterval);
   }, [channelId]);
 
   // Réinitialiser la pagination quand on change de canal

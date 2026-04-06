@@ -816,6 +816,7 @@ interface AppContextValue extends AppState {
   getOrCreateDMChannel: (otherName: string) => Channel;
   fetchOlderMessages: (channelId: string, beforeCreatedAt: string) => Promise<boolean>;
   fetchChannelMessages: (channelId: string) => Promise<void>;
+  refreshChannelMessages: (channelId: string) => Promise<void>;
   unreadCount: number;
   stats: {
     total: number; open: number; inProgress: number;
@@ -1851,8 +1852,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'messages' }, (payload: any) => {
         dispatch({ type: 'DELETE_MESSAGE', payload: payload.old.id });
       })
-      .subscribe((status: string) => {
+      .subscribe((status: string, err?: Error) => {
         setRealtimeConnected(status === 'SUBSCRIBED');
+        if (err) console.warn('[Realtime] messages error:', err.message);
+        else if (status !== 'SUBSCRIBED') console.log('[Realtime] messages status:', status);
       });
 
     return () => { supabase.removeChannel(globalSub); };
@@ -3351,6 +3354,31 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       } catch (e: any) {
         loadedChannelIdsRef.current.delete(channelId);
         console.warn('[fetchChannelMessages] exception:', e?.message ?? e);
+      }
+    },
+
+    refreshChannelMessages: async (channelId: string): Promise<void> => {
+      if (!isSupabaseConfigured) return;
+      loadedChannelIdsRef.current.delete(channelId);
+      loadedChannelIdsRef.current.add(channelId);
+      try {
+        const { data, error } = await supabase
+          .from('messages')
+          .select('*')
+          .eq('channel_id', channelId)
+          .order('created_at', { ascending: false })
+          .limit(50);
+        if (error) {
+          loadedChannelIdsRef.current.delete(channelId);
+          console.warn('[refreshChannelMessages] error:', error.message);
+          return;
+        }
+        const userName = currentUserNameRef.current;
+        const msgs = (data ?? []).map((r: any) => toMessage(r, userName)).reverse();
+        dispatch({ type: 'SET_CHANNEL_MESSAGES', payload: { channelId, messages: msgs } });
+      } catch (e: any) {
+        loadedChannelIdsRef.current.delete(channelId);
+        console.warn('[refreshChannelMessages] exception:', e?.message ?? e);
       }
     },
 
