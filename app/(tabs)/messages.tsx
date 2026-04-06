@@ -15,6 +15,7 @@ import NewChannelModal from '@/components/NewChannelModal';
 import EditChannelModal from '@/components/EditChannelModal';
 import NewDMModal from '@/components/NewDMModal';
 import NewGroupModal from '@/components/NewGroupModal';
+import SuperAdminMessagingHub from '@/components/SuperAdminMessagingHub';
 
 const AVATAR_COLORS = [C.primary, '#059669', '#D97706', '#7C3AED', '#DB2777', '#EA580C', '#0891B2'];
 function getAvatarColor(name: string) {
@@ -160,17 +161,7 @@ export default function MessagesTabScreen() {
   const topPad = insets.top;
 
   if (user?.role === 'super_admin') {
-    return (
-      <View style={[styles.container, { alignItems: 'center', justifyContent: 'center', gap: 12 }]}>
-        <Ionicons name="lock-closed-outline" size={48} color={C.textMuted} />
-        <Text style={{ fontSize: 17, fontFamily: 'Inter_700Bold', color: C.text, textAlign: 'center' }}>
-          Messagerie non accessible
-        </Text>
-        <Text style={{ fontSize: 14, fontFamily: 'Inter_400Regular', color: C.textMuted, textAlign: 'center', maxWidth: 280, lineHeight: 20 }}>
-          Le super administrateur n'a pas accès à la messagerie interne des filiales pour préserver la confidentialité des échanges.
-        </Text>
-      </View>
-    );
+    return <SuperAdminMessagingHub />;
   }
 
   const totalUnread = Object.values(unreadByChannel).reduce((a, b) => a + b, 0);
