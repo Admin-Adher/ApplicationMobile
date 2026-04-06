@@ -726,6 +726,7 @@ interface AppContextValue extends AppState {
   incomingMessage: (msg: Message) => void;
   deleteMessage: (id: string) => void;
   updateMessage: (msg: Message) => void;
+  toggleReaction: (emoji: string, msg: Message, userName: string) => void;
   markMessagesRead: () => void;
   setChannelRead: (channelId: string) => void;
   setActiveChannelId: (id: string | null) => void;
@@ -2644,24 +2645,64 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       }
     },
 
+    toggleReaction: (emoji, msg, userName) => {
+      // Optimistic local update
+      const current = msg.reactions[emoji] ?? [];
+      const updated = current.includes(userName)
+        ? current.filter((u: string) => u !== userName)
+        : [...current, userName];
+      const newReactions = { ...msg.reactions, [emoji]: updated };
+      if (updated.length === 0) delete newReactions[emoji];
+      const optimistic = { ...msg, reactions: newReactions };
+      dispatch({ type: 'UPDATE_MESSAGE', payload: optimistic });
+      if (isSupabaseConfigured) {
+        // Mise à jour atomique via RPC (évite la race condition multi-utilisateur)
+        supabase.rpc('toggle_message_reaction', {
+          p_message_id: msg.id,
+          p_emoji: emoji,
+          p_user_name: userName,
+        }).then(({ error }: { error: any }) => {
+          if (error) {
+            // Revert local state on server error
+            dispatch({ type: 'UPDATE_MESSAGE', payload: msg });
+            console.warn('[sync] toggleReaction server error:', error.message);
+          }
+        });
+      } else {
+        persistMockMessages(stateRef.current.messages.map(m => m.id === msg.id ? optimistic : m));
+      }
+    },
+
     markMessagesRead: () => {
       dispatch({ type: 'MARK_MESSAGES_READ' });
     },
 
     setChannelRead: (channelId) => {
-      dispatch({ type: 'SET_CHANNEL_READ', payload: { channelId, timestamp: new Date().toISOString() } });
+      const timestamp = new Date().toISOString();
+      dispatch({ type: 'SET_CHANNEL_READ', payload: { channelId, timestamp } });
       const userName = currentUserNameRef.current;
       if (userName) {
         dispatch({ type: 'MARK_CHANNEL_READ_BY', payload: { channelId, userName } });
-        // Persister le read_by dans Supabase via RPC pour que l'envoyeur
-        // puisse voir "Vu par N" même après rechargement
         if (isSupabaseConfigured) {
+          // Persister last_read_by_channel dans Supabase (cross-device sync)
+          const newLastRead = { ...stateRef.current.lastReadByChannel, [channelId]: timestamp };
+          supabase.auth.getSession().then(({ data: { session } }: { data: { session: any } }) => {
+            if (session?.user?.id) {
+              supabase
+                .from('profiles')
+                .update({ last_read_by_channel: newLastRead })
+                .eq('id', session.user.id)
+                .catch(() => {});
+            }
+          });
+          // Persister le read_by dans Supabase via RPC pour que l'envoyeur
+          // puisse voir "Vu par N" même après rechargement
           const unread = stateRef.current.messages.filter(
             m => m.channelId === channelId
               && !m.isMe
               && !m.readBy.includes(userName)
           );
-          const ids = unread.map(m => m.id).slice(0, 100); // limite sécurité
+          const ids = unread.map(m => m.id).slice(0, 100);
           if (ids.length > 0) {
             supabase.rpc('mark_messages_read_by', {
               p_message_ids: ids,

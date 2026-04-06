@@ -13,7 +13,9 @@ export function getAvatarColor(name: string): string {
 }
 
 function detectMentions(text: string, name: string): boolean {
-  return text.toLowerCase().includes(`@${name.toLowerCase().split(' ')[0]}`);
+  const lowerText = text.toLowerCase();
+  const lowerName = name.toLowerCase();
+  return lowerText.includes(`@${lowerName}`) || lowerText.includes(`@${lowerName.split(' ')[0]}`);
 }
 
 function MessageTextRender({ text, isMe }: { text: string; isMe: boolean }) {

@@ -95,11 +95,12 @@ export default function AttachItemModal({ visible, onClose, onSelect, reserves, 
   };
 
   const items = useMemo(() => {
+    if (!visible) return [];
     const all = itemsByCategory[activeCategory] ?? [];
     if (!search.trim()) return all;
     const q = search.toLowerCase();
     return all.filter(i => i.title.toLowerCase().includes(q) || i.id.toLowerCase().includes(q) || (i.subtitle ?? '').toLowerCase().includes(q));
-  }, [activeCategory, search, reserves, plans, tasks, incidents, visites, oprs]);
+  }, [visible, activeCategory, search, reserves, plans, tasks, incidents, visites, oprs]);
 
   const color = getLinkedItemColor(activeCategory);
 

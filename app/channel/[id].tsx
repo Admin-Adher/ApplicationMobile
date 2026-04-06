@@ -106,7 +106,7 @@ export default function ChannelScreen() {
   const isGroupChannel = isGroup === '1';
   const router = useRouter();
   const {
-    messages, addMessage, deleteMessage, updateMessage, setChannelRead, setActiveChannelId,
+    messages, addMessage, deleteMessage, updateMessage, toggleReaction, setChannelRead, setActiveChannelId,
     channels, removeCustomChannel, removeGroupChannel, renameChannel,
     addChannelMember, removeChannelMember, profiles, channelMembersOverride,
     reserves, sitePlans, tasks, visites, oprs,
@@ -132,9 +132,7 @@ export default function ChannelScreen() {
   const isCompanyChannel = channelObj?.type === 'company' || (channelId?.startsWith('company-') ?? false);
   const isEditable = channelObj?.type === 'custom' || channelObj?.type === 'group';
   const canDelete = channelObj?.type === 'custom' || channelObj?.type === 'group';
-  const isCreator = !!channelObj?.createdBy && (
-    channelObj.createdBy === user?.id || channelObj.createdBy === user?.name
-  );
+  const isCreator = !!channelObj?.createdBy && channelObj.createdBy === user?.name;
 
   const [text, setText] = useState('');
   const [replyTo, setReplyTo] = useState<Message | null>(null);
@@ -163,6 +161,7 @@ export default function ChannelScreen() {
   const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
   const typingTimeouts = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
   const typingChannelRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
+  const lastTypingBroadcastRef = useRef<number>(0);
 
   useEffect(() => {
     setChannelRead(channelId!);
@@ -245,8 +244,9 @@ export default function ChannelScreen() {
   // FlatList est inversée : index 0 = bas (le plus récent), dernier index = haut (le plus ancien)
   // Donc slice(0, visibleCount) = les N plus récents, affiché au bas
   const LOAD_MORE_SENTINEL_KEY = '__load_more__';
+  const SEARCH_RESULT_CAP = 100;
   const paginatedListItems = useMemo((): (ListItem | { _type: 'load_more'; key: string })[] => {
-    if (searchQuery.trim()) return listItems; // pas de pagination pendant la recherche
+    if (searchQuery.trim()) return listItems.slice(0, SEARCH_RESULT_CAP); // cap pendant la recherche
     const visible = listItems.slice(0, visibleCount);
     if (listItems.length > visibleCount) {
       // Ajouter le bouton "charger plus" à la fin (= haut de l'écran dans la FlatList inversée)
@@ -265,7 +265,7 @@ export default function ChannelScreen() {
     const names = new Set<string>();
     profiles.forEach(p => names.add(p.name));
     knownSenders.forEach(s => names.add(s));
-    if (user?.name) names.add(user.name);
+    if (user?.name) names.delete(user.name);
     return Array.from(names);
   }, [profiles, knownSenders, user]);
 
@@ -303,21 +303,20 @@ export default function ChannelScreen() {
 
   function handleTextChange(val: string) {
     setText(val);
-    // Capture tout ce qui suit le dernier @ jusqu'à un espace ou un autre @
-    // Supporte les noms accentués (Léa, Jean-Paul) et les traits d'union
     const atMatch = val.match(/@([^@\s]*)$/);
     setMentionQuery(atMatch ? atMatch[1] : '');
-    typingChannelRef.current?.send({
-      type: 'broadcast', event: 'typing',
-      payload: { userName: user?.name ?? 'Utilisateur' },
-    }).catch(() => {});
+    const now = Date.now();
+    if (now - lastTypingBroadcastRef.current >= 1000) {
+      lastTypingBroadcastRef.current = now;
+      typingChannelRef.current?.send({
+        type: 'broadcast', event: 'typing',
+        payload: { userName: user?.name ?? 'Utilisateur' },
+      }).catch(() => {});
+    }
   }
 
   function insertMention(senderName: string) {
-    // On insère le prénom uniquement (premier mot) pour rester compatible
-    // avec detectMentions qui cherche @prénom dans le texte
-    const tag = senderName.split(' ')[0];
-    const updated = text.replace(/@([^@\s]*)$/, `@${tag} `);
+    const updated = text.replace(/@([^@\s]*)$/, `@${senderName} `);
     setText(updated);
     setMentionQuery('');
     inputRef.current?.focus();
@@ -440,13 +439,7 @@ export default function ChannelScreen() {
 
   function applyReact(emoji: string, msg: Message) {
     const userName = user?.name ?? 'Moi';
-    const current = msg.reactions[emoji] ?? [];
-    const updated = current.includes(userName)
-      ? current.filter(u => u !== userName)
-      : [...current, userName];
-    const newReactions = { ...msg.reactions, [emoji]: updated };
-    if (updated.length === 0) delete newReactions[emoji];
-    updateMessage({ ...msg, reactions: newReactions });
+    toggleReaction(emoji, msg, userName);
   }
 
   // P13: useCallback stable (router est stable dans expo-router)
@@ -465,7 +458,11 @@ export default function ChannelScreen() {
     }
     switch (type) {
       case 'reserve': router.push(`/reserve/${id}` as any); break;
-      case 'plan': router.push({ pathname: '/chantier/[id]', params: { id: sitePlans.find(p => p.id === id)?.chantierId ?? id, tab: 'plans' } } as any); break;
+      case 'plan': {
+        const plan = sitePlans.find(p => p.id === id);
+        if (plan?.chantierId) router.push({ pathname: '/chantier/[id]', params: { id: plan.chantierId, tab: 'plans' } } as any);
+        break;
+      }
       case 'task': router.push(`/task/${id}` as any); break;
       case 'incident': router.push(`/incident/${id}` as any); break;
       case 'visite': router.push(`/visite/${id}` as any); break;
@@ -486,7 +483,7 @@ export default function ChannelScreen() {
     // P16: bouton "Charger les messages précédents" au sommet de la FlatList inversée
     if ('_type' in item && item._type === 'load_more') {
       return (
-        <View style={{ transform: [{ scaleY: -1 }], alignItems: 'center', paddingVertical: 12 }}>
+        <View style={{ transform: [{ scaleX: -1 }, { scaleY: -1 }], alignItems: 'center', paddingVertical: 12 }}>
           <TouchableOpacity
             onPress={() => setVisibleCount(prev => prev + PAGE_SIZE)}
             style={{ flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 16, paddingVertical: 8, borderRadius: 20, backgroundColor: C.card, borderWidth: 1, borderColor: C.border }}
