@@ -31,6 +31,15 @@ function formatChannelTime(timestamp: string): string {
   return timestamp.slice(-5);
 }
 
+function getMsgSortTime(msg: Message): number {
+  if (msg.dbCreatedAt) return new Date(msg.dbCreatedAt).getTime();
+  if (msg.timestamp) {
+    const m = msg.timestamp.match(/^(\d{2})\/(\d{2})\/(\d{4}) (\d{2}):(\d{2})$/);
+    if (m) return new Date(+m[3], +m[2] - 1, +m[1], +m[4], +m[5]).getTime();
+  }
+  return 0;
+}
+
 function ChannelAvatar({ channel }: { channel: Channel }) {
   const isDM = channel.type === 'dm';
   const isGroup = channel.type === 'group';
@@ -168,11 +177,13 @@ export default function MessagesTabScreen() {
 
   const lastMessageByChannel = useMemo(() => {
     const map: Record<string, Message | null> = {};
+    const mapTime: Record<string, number> = {};
     for (const ch of channels) map[ch.id] = null;
     for (const msg of messages) {
-      const existing = map[msg.channelId];
-      if (!existing || msg.timestamp > existing.timestamp) {
+      const msgTime = getMsgSortTime(msg);
+      if (!map[msg.channelId] || msgTime > (mapTime[msg.channelId] ?? 0)) {
         map[msg.channelId] = msg;
+        mapTime[msg.channelId] = msgTime;
       }
     }
     return map;
