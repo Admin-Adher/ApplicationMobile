@@ -330,6 +330,9 @@ export default function PlansScreen() {
     updateReserveStatus, updateReserveFields,
   } = useApp();
   const { permissions, user } = useAuth();
+  const canMovePins: boolean = Object.prototype.hasOwnProperty.call(permissions, 'canMovePins')
+    ? (permissions as any).canMovePins
+    : true;
   const { width: screenWidth, height: screenHeight } = useWindowDimensions();
   const isTablet = screenWidth >= 768;
   const topPad = insets.top;
@@ -1530,7 +1533,7 @@ export default function PlansScreen() {
                 focusedPinId={focusedPinId}
                 canAnnotate={permissions.canCreate}
                 canCreate={permissions.canCreate}
-                canMovePins={permissions.canMovePins ?? true}
+                canMovePins={canMovePins}
                 pinSize={pinSize}
                 onZoomChange={(z) => setPdfZoomPct(Math.round(z * 100))}
                 companies={companies}

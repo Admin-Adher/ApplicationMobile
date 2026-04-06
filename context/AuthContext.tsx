@@ -14,12 +14,31 @@ export const ROLE_PERMISSIONS: Record<UserRole, UserPermissions> = {
 };
 
 export function resolvePermissions(role: UserRole, override?: PermissionsOverride): UserPermissions {
-  if (role === 'super_admin') return ROLE_PERMISSIONS.super_admin;
   // Fallback to observateur if role is unknown/undefined to ensure all keys are present
   const base: UserPermissions = ROLE_PERMISSIONS[role] ?? ROLE_PERMISSIONS.observateur;
-  const merged = { ...base, ...override };
-  // Garantit que canMovePins est toujours défini même sur des bundles compilés avant son ajout
-  if (merged.canMovePins === undefined) merged.canMovePins = base.canMovePins ?? false;
+  // Always create a fresh object (never return ROLE_PERMISSIONS reference directly)
+  // so that Hermes hidden-class optimisation always sees the same property shape.
+  // canMovePins is explicitly set first so it is always an own property of the result.
+  const canMovePinsDefault = role === 'super_admin' || role === 'admin' || role === 'conducteur' || role === 'chef_equipe';
+  const merged: UserPermissions = {
+    canCreate:            base.canCreate            ?? false,
+    canEdit:              base.canEdit              ?? false,
+    canEditOwn:           base.canEditOwn           ?? false,
+    canDelete:            base.canDelete            ?? false,
+    canExport:            base.canExport            ?? false,
+    canManageTeams:       base.canManageTeams       ?? false,
+    canViewTeams:         base.canViewTeams         ?? false,
+    canUpdateAttendance:  base.canUpdateAttendance  ?? false,
+    canMovePins:          base.canMovePins          ?? canMovePinsDefault,
+  };
+  // Super admin is never overridable
+  if (role === 'super_admin') return merged;
+  // Apply per-user overrides
+  if (override) {
+    for (const k of Object.keys(override) as (keyof PermissionsOverride)[]) {
+      if (override[k] !== undefined) (merged as any)[k] = override[k];
+    }
+  }
   return merged;
 }
 

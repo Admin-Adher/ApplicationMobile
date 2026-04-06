@@ -163,6 +163,7 @@ function buildMobileHtml(
   pinMap: Map<string, number>,
   canAnnotate: boolean,
   canCreate: boolean,
+  canMovePins: boolean = true,
   pinSize: number = 22,
   isImagePlan: boolean = false,
   ghostReserves: Reserve[] = [],
@@ -922,7 +923,7 @@ const MobileViewer = forwardRef<PdfPlanViewerHandle, PdfPlanViewerProps>(functio
   }, [reserves, onPlanTap, onReserveSelect, onAnnotationsChange, onZoomChange, onPinMove, onPinFocus, onReady]);
 
   const html = resolvedUri
-    ? buildMobileHtml(resolvedUri, annotations ?? [], reserves, pinNumberMap, canAnnotate, canCreate, pinSize, isImagePlan, ghostReserves, pinSizes, companies)
+    ? buildMobileHtml(resolvedUri, annotations ?? [], reserves, pinNumberMap, canAnnotate, canCreate, canMovePins, pinSize, isImagePlan, ghostReserves, pinSizes, companies)
     : '';
 
   function changePage(n: number) {
