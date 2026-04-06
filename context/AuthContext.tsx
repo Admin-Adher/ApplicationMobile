@@ -398,6 +398,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
         const orgId: string = orgData.id;
 
+        await supabase.from('channels').insert({
+          id: `general-${orgId}`,
+          name: 'Général',
+          type: 'general',
+          organization_id: orgId,
+          created_by: name.trim(),
+          members: [],
+        });
+
         const { data: enterprisePlan } = await supabase
           .from('plans')
           .select('id')

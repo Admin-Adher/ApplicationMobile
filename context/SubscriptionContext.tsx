@@ -535,6 +535,15 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
         started_at: new Date().toISOString(),
       });
 
+      await supabase.from('channels').insert({
+        id: `general-${org.id}`,
+        name: 'Général',
+        type: 'general',
+        organization_id: org.id,
+        created_by: user.id,
+        members: [],
+      });
+
       if (adminEmail) {
         const emailLower = adminEmail.trim().toLowerCase();
         await supabase.from('invitations').insert({
