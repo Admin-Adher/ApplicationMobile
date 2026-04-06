@@ -239,6 +239,7 @@ var pinsData=${safePins};
 var ghostPinsData=${safeGhostPins};
 var CAN_ANNOTATE=${canAnnotate};
 var CAN_CREATE=${canCreate};
+var CAN_MOVE_PINS=${canMovePins !== false ? 'true' : 'false'};
 var PIN_SIZE=${pinSize};
 
 var focusedPinId=null;
@@ -411,7 +412,7 @@ function renderPins(){
       psx=e.touches[0].clientX;psy=e.touches[0].clientY;
       lpTimer=setTimeout(function(){
         post({type:'pinFocus',reserveId:pin.id});
-        if(CAN_CREATE){
+        if(CAN_CREATE && CAN_MOVE_PINS){
           pinDrag=true;
           div.style.transition='none';
           div.style.willChange='transform';

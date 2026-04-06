@@ -18,7 +18,6 @@ import { ROLES, ROLE_INFO, PLAN_COLORS, FREE_ROLES, AVATAR_COLORS, hashColor, fo
 
 const WINDOW_H = Dimensions.get('window').height;
 const MODAL_SCROLL_MAX_H = WINDOW_H * 0.62;
-const EDIT_SCROLL_MAX_H = WINDOW_H * 0.46;
 
 function SafeKAV({ children }: { children: React.ReactNode }) {
   if (Platform.OS === 'ios') {
@@ -80,7 +79,7 @@ export default function AdminScreen() {
   const bottomPad = Platform.OS === 'web' ? 34 : insets.bottom;
   const router = useRouter();
 
-  const { user, updateUserRole, updateUserCompany, deleteUserProfile } = useAuth();
+  const { user, deleteUserProfile } = useAuth();
   const { companies, lots, addCompany, updateCompanyFull, deleteCompany, updateCompanyWorkers, updateCompanyHours } = useApp();
   const {
     plan, subscription, seatUsed, seatMax, canInvite, isLoading,
@@ -113,10 +112,6 @@ export default function AdminScreen() {
   const [tokenCopied, setTokenCopied] = useState(false);
   const [userSearch, setUserSearch] = useState('');
   const [roleFilter, setRoleFilter] = useState<UserRole | 'all'>('all');
-  const [roleModal, setRoleModal] = useState<{ id: string; name: string; email: string; currentRole: UserRole; currentCompanyId?: string } | null>(null);
-  const [editCompanyId, setEditCompanyId] = useState<string>('');
-  const [saving, setSaving] = useState(false);
-
   const [companySearch, setCompanySearch] = useState('');
   const [companyModal, setCompanyModal] = useState<{ mode: 'add' | 'edit'; company?: Company } | null>(null);
   const [nom, setNom] = useState('');
@@ -312,86 +307,6 @@ export default function AdminScreen() {
         },
       ]
     );
-  }
-
-  const [editRole, setEditRole] = useState<UserRole>('observateur');
-
-  function openEditUserModal(u: { id: string; name: string; email: string; role: UserRole; companyId?: string }) {
-    setEditRole(u.role);
-    setEditCompanyId(u.companyId ?? '');
-    setRoleModal({ id: u.id, name: u.name, email: u.email, currentRole: u.role, currentCompanyId: u.companyId });
-  }
-
-  function closeEditUserModal() {
-    setRoleModal(null);
-  }
-
-  async function handleSaveUserEdit() {
-    if (!roleModal) return;
-    const newRole = editRole;
-    const newCompanyId = editCompanyId || null;
-    const roleChanged = newRole !== roleModal.currentRole;
-    const companyChanged = (newCompanyId ?? undefined) !== roleModal.currentCompanyId;
-
-    if (!roleChanged && !companyChanged) { setRoleModal(null); return; }
-
-    if (roleChanged && roleModal.id === user?.id && newRole !== 'admin') {
-      Alert.alert('Action impossible', 'Vous ne pouvez pas retirer votre propre rôle admin.');
-      return;
-    }
-    if (roleChanged) {
-      const isPaidRole = !FREE_ROLES.includes(newRole);
-      const wasFreeRole = FREE_ROLES.includes(roleModal.currentRole);
-      if (isPaidRole && wasFreeRole && !canInvite) {
-        Alert.alert(
-          'Sièges insuffisants',
-          `Limite de ${seatMax} siège${seatMax > 1 ? 's' : ''} atteinte. Ce changement de rôle requiert un siège disponible.`,
-          [{ text: 'OK', style: 'cancel' }]
-        );
-        return;
-      }
-      if (roleModal.currentRole === 'admin' && newRole !== 'admin') {
-        const remainingAdmins = orgUsers.filter(u => u.role === 'admin' && u.id !== roleModal.id).length;
-        if (remainingAdmins === 0) {
-          Alert.alert(
-            'Dernier administrateur',
-            `${roleModal.name} est le seul administrateur. En changeant son rôle, plus personne ne pourra gérer les accès.\n\nConfirmez-vous ?`,
-            [
-              { text: 'Annuler', style: 'cancel' },
-              {
-                text: 'Changer quand même', style: 'destructive',
-                onPress: () => doSaveUserEdit(newRole, newCompanyId, roleChanged, companyChanged),
-              },
-            ]
-          );
-          return;
-        }
-      }
-    }
-    await doSaveUserEdit(newRole, newCompanyId, roleChanged, companyChanged);
-  }
-
-  async function doSaveUserEdit(
-    newRole: UserRole,
-    newCompanyId: string | null,
-    roleChanged: boolean,
-    companyChanged: boolean,
-  ) {
-    if (!roleModal) return;
-    setSaving(true);
-    try {
-      if (roleChanged) await updateUserRole(roleModal.id, newRole);
-      if (companyChanged) await updateUserCompany(roleModal.id, newCompanyId);
-      setRoleModal(null);
-      const parts = [];
-      if (roleChanged) parts.push('rôle');
-      if (companyChanged) parts.push('entreprise');
-      showToast(`${parts.join(' & ')} mis à jour`);
-    } catch {
-      showToast('Erreur — modifications non enregistrées');
-    } finally {
-      setSaving(false);
-    }
   }
 
   function handleDeleteUser(u: { id: string; name: string; role: string }) {
@@ -1604,63 +1519,6 @@ const styles = StyleSheet.create({
   companyBadgeDot: { width: 6, height: 6, borderRadius: 3 },
   companyBadgeText: { fontSize: 11, fontFamily: 'Inter_600SemiBold', maxWidth: 100 },
 
-  editUserHeader: {
-    flexDirection: 'row', alignItems: 'center', gap: 12,
-    paddingBottom: 14, borderBottomWidth: 1, borderBottomColor: C.border, marginBottom: 12,
-  },
-  editUserAvatar: { width: 48, height: 48, borderRadius: 24, alignItems: 'center', justifyContent: 'center', flexShrink: 0 },
-  editUserAvatarTxt: { fontSize: 18, fontFamily: 'Inter_700Bold', color: '#fff' },
-  editUserName: { fontSize: 15, fontFamily: 'Inter_700Bold', color: C.text, flexShrink: 1 },
-  editUserEmail: { fontSize: 12, fontFamily: 'Inter_400Regular', color: C.textMuted, marginTop: 1 },
-  editRoleDot: { width: 7, height: 7, borderRadius: 4 },
-  editRoleLabel: { fontSize: 12, fontFamily: 'Inter_600SemiBold' },
-  editCoChip: {
-    flexDirection: 'row', alignItems: 'center', gap: 3,
-    borderRadius: 5, paddingHorizontal: 6, paddingVertical: 2, borderWidth: 1,
-  },
-  editCoChipTxt: { fontSize: 11, fontFamily: 'Inter_600SemiBold' },
-  editChangedPill: {
-    flexDirection: 'row', alignItems: 'center', gap: 4,
-    backgroundColor: '#FFF3CD', borderRadius: 8, paddingHorizontal: 7, paddingVertical: 3,
-  },
-  editChangedDot: { width: 5, height: 5, borderRadius: 3, backgroundColor: '#F59E0B' },
-  editChangedTxt: { fontSize: 11, fontFamily: 'Inter_600SemiBold', color: '#92400E' },
-
-  editSection: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 2 },
-  editSectionLabel: { fontSize: 11, fontFamily: 'Inter_700Bold', color: C.textMuted, textTransform: 'uppercase', letterSpacing: 0.6 },
-  editSectionHint: { fontSize: 10, fontFamily: 'Inter_400Regular', color: C.textMuted },
-
-  editOption: {
-    flexDirection: 'row', alignItems: 'center', gap: 10,
-    borderWidth: 1.5, borderColor: C.border, borderRadius: 10,
-    paddingHorizontal: 12, paddingVertical: 10, backgroundColor: C.surface,
-  },
-  editOptionDot: { width: 9, height: 9, borderRadius: 5, flexShrink: 0 },
-  editOptionName: { fontSize: 14, fontFamily: 'Inter_500Medium', color: C.text },
-  editOptionDesc: { fontSize: 11, fontFamily: 'Inter_400Regular', color: C.textMuted, marginTop: 1 },
-  editOptionCircle: { width: 18, height: 18, borderRadius: 9, borderWidth: 1.5, borderColor: C.border },
-
-  editCoGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
-  editCoItem: {
-    flexDirection: 'row', alignItems: 'center', gap: 5,
-    borderWidth: 1.5, borderColor: C.border, borderRadius: 8,
-    paddingHorizontal: 10, paddingVertical: 7, backgroundColor: C.surface,
-  },
-  editCoDot: { width: 7, height: 7, borderRadius: 4 },
-  editCoItemTxt: { fontSize: 12, fontFamily: 'Inter_500Medium', color: C.text, maxWidth: 90 },
-  editCoFullName: { fontSize: 11, fontFamily: 'Inter_400Regular', color: C.textMuted, marginTop: -2 },
-
-  editFooter: { flexDirection: 'row', gap: 10, paddingTop: 14, borderTopWidth: 1, borderTopColor: C.border, marginTop: 10 },
-  editFooterCancel: {
-    flex: 1, alignItems: 'center', justifyContent: 'center',
-    paddingVertical: 13, borderRadius: 11, backgroundColor: C.surface2,
-  },
-  editFooterCancelTxt: { fontSize: 14, fontFamily: 'Inter_600SemiBold', color: C.textSub },
-  editFooterSave: {
-    flex: 2, alignItems: 'center', justifyContent: 'center',
-    paddingVertical: 13, borderRadius: 11, backgroundColor: C.primary,
-  },
-  editFooterSaveTxt: { fontSize: 14, fontFamily: 'Inter_700Bold', color: '#fff' },
   userActions: { flexDirection: 'column', gap: 5 },
 
   iconBtnLabelled: {

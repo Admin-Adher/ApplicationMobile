@@ -58,3 +58,11 @@ The Supabase database schema is in `lib/schema.sql`. Migration files are in `sup
 - **BUG 11 — Orphan reserves SELECT policy (supabase/migrations/20260415):** Restricted the permissive orphan-reserves clause to `super_admin` only. Previously any authenticated user could read reserves with `chantier_id=null AND organization_id=null`, enabling cross-organization data leaks.
 - **BUG 15 — sendMessage notification silent failure (AppContext.tsx):** Added `console.warn` when the notification message INSERT to Supabase fails, so RLS or permission errors are no longer swallowed silently.
 - **deleteSitePlan RLS rollback (AppContext.tsx):** Added `.select()` + row count check with UI rollback on failure, consistent with all other delete functions.
+
+## Per-User Permission Overrides (Feature)
+- **`constants/types.ts`**: Added `UserPermissions` (with `canMovePins`), `PermissionsOverride = Partial<UserPermissions>`, added `permissionsOverride?` to `User` and `Profile`.
+- **`context/AuthContext.tsx`**: Added `ROLE_PERMISSIONS` with `canMovePins` per role, `resolvePermissions(role, override)` merges overrides (super_admin is override-immune), `updateUserPermissions()` persists to Supabase `permissions_override` column and updates local state.
+- **`supabase/migrations/20260406_add_permissions_override.sql`**: Adds `permissions_override jsonb DEFAULT '{}'` to profiles table.
+- **`components/PdfPlanViewer.tsx`**: Pin drag gated by `canMovePins && canCreate` on both web (mouse) and mobile (touch long-press).
+- **`app/admin/user/[id].tsx`**: Full-screen user edit screen with: avatar/name/email header, role radio buttons, company chip grid, 8-permission toggles with 3 states (role default / manually enabled / manually disabled), reset overrides button, save/cancel footer. Access control: admin cannot edit other admins or super_admins.
+- **`app/(tabs)/admin.tsx`**: Edit button navigates to `/admin/user/[id]` screen. Old modal-based user editing code removed (dead code cleanup).
