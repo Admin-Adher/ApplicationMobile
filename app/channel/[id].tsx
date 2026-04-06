@@ -96,14 +96,15 @@ export default function ChannelScreen() {
   const insets = useSafeAreaInsets();
   const {
     id: channelId, name: channelName, color: channelColor, icon: channelIcon,
-    isDM, isGroup, members: membersParam,
+    isDM, isGroup, members: membersParam, readOnly,
     linkedReserveId: paramLinkedReserveId, linkedReserveTitle: paramLinkedReserveTitle,
   } = useLocalSearchParams<{
     id: string; name: string; color: string; icon: string; isDM?: string; isGroup?: string; members?: string;
-    linkedReserveId?: string; linkedReserveTitle?: string;
+    readOnly?: string; linkedReserveId?: string; linkedReserveTitle?: string;
   }>();
   const isDMChannel = isDM === '1';
   const isGroupChannel = isGroup === '1';
+  const isReadOnly = readOnly === '1';
   const router = useRouter();
   const {
     messages, addMessage, deleteMessage, updateMessage, toggleReaction, setChannelRead, setActiveChannelId,
@@ -735,40 +736,47 @@ export default function ChannelScreen() {
           </View>
         )}
 
-        <View style={[styles.inputRow, { paddingBottom: insets.bottom + 8 }]}>
-          <TouchableOpacity style={styles.attachBtn} onPress={handleCamera} disabled={attachmentUploading}>
-            <Ionicons name="camera-outline" size={20} color={C.textSub} />
-          </TouchableOpacity>
-          <TouchableOpacity style={styles.attachBtn} onPress={handlePickPhoto} disabled={attachmentUploading}>
-            {attachmentUploading
-              ? <ActivityIndicator size="small" color={C.primary} />
-              : <Ionicons name="image-outline" size={20} color={C.textSub} />}
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={[styles.attachBtn, linkedItem && { backgroundColor: itemColor + '18', borderRadius: 18 }]}
-            onPress={() => setAttachItemVisible(true)}
-          >
-            <Ionicons name="link-outline" size={20} color={linkedItem ? itemColor : C.textSub} />
-          </TouchableOpacity>
-          <TextInput
-            ref={inputRef}
-            style={styles.input}
-            placeholder={replyTo ? 'Votre réponse...' : 'Message… (@ pour mentionner)'}
-            placeholderTextColor={C.textMuted}
-            value={text}
-            onChangeText={handleTextChange}
-            multiline
-            maxLength={1000}
-            onSubmitEditing={Platform.OS === 'web' ? handleSend : undefined}
-          />
-          <TouchableOpacity
-            style={[styles.sendBtn, { backgroundColor: (text.trim() || linkedItem) ? color : C.surface2 }]}
-            onPress={handleSend}
-            disabled={!text.trim() && !linkedItem}
-          >
-            <Ionicons name="send" size={18} color={(text.trim() || linkedItem) ? '#fff' : C.textMuted} />
-          </TouchableOpacity>
-        </View>
+        {isReadOnly ? (
+          <View style={[styles.readOnlyBar, { paddingBottom: insets.bottom + 8 }]}>
+            <Ionicons name="eye-outline" size={16} color={C.textMuted} />
+            <Text style={styles.readOnlyText}>Lecture seule — canal organisationnel</Text>
+          </View>
+        ) : (
+          <View style={[styles.inputRow, { paddingBottom: insets.bottom + 8 }]}>
+            <TouchableOpacity style={styles.attachBtn} onPress={handleCamera} disabled={attachmentUploading}>
+              <Ionicons name="camera-outline" size={20} color={C.textSub} />
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.attachBtn} onPress={handlePickPhoto} disabled={attachmentUploading}>
+              {attachmentUploading
+                ? <ActivityIndicator size="small" color={C.primary} />
+                : <Ionicons name="image-outline" size={20} color={C.textSub} />}
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.attachBtn, linkedItem && { backgroundColor: itemColor + '18', borderRadius: 18 }]}
+              onPress={() => setAttachItemVisible(true)}
+            >
+              <Ionicons name="link-outline" size={20} color={linkedItem ? itemColor : C.textSub} />
+            </TouchableOpacity>
+            <TextInput
+              ref={inputRef}
+              style={styles.input}
+              placeholder={replyTo ? 'Votre réponse...' : 'Message… (@ pour mentionner)'}
+              placeholderTextColor={C.textMuted}
+              value={text}
+              onChangeText={handleTextChange}
+              multiline
+              maxLength={1000}
+              onSubmitEditing={Platform.OS === 'web' ? handleSend : undefined}
+            />
+            <TouchableOpacity
+              style={[styles.sendBtn, { backgroundColor: (text.trim() || linkedItem) ? color : C.surface2 }]}
+              onPress={handleSend}
+              disabled={!text.trim() && !linkedItem}
+            >
+              <Ionicons name="send" size={18} color={(text.trim() || linkedItem) ? '#fff' : C.textMuted} />
+            </TouchableOpacity>
+          </View>
+        )}
       </KeyboardAvoidingView>
 
       {/* ── MODAL ATTACHER UN ÉLÉMENT ── */}
@@ -1030,6 +1038,8 @@ const styles = StyleSheet.create({
   mentionAvatarText: { fontSize: 12, fontFamily: 'Inter_700Bold' },
   mentionName: { fontSize: 14, fontFamily: 'Inter_500Medium', color: C.text },
   inputRow: { flexDirection: 'row', alignItems: 'flex-end', gap: 6, paddingHorizontal: 12, paddingVertical: 8, borderTopWidth: 1, borderTopColor: C.border, backgroundColor: C.surface },
+  readOnlyBar: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, paddingHorizontal: 16, paddingVertical: 14, borderTopWidth: 1, borderTopColor: C.border, backgroundColor: C.surface2 },
+  readOnlyText: { fontSize: 13, fontFamily: 'Inter_500Medium', color: C.textMuted, fontStyle: 'italic' },
   attachBtn: { width: 36, height: 36, alignItems: 'center', justifyContent: 'center' },
   input: { flex: 1, maxHeight: 100, backgroundColor: C.surface2, borderRadius: 20, paddingHorizontal: 14, paddingVertical: 8, fontSize: 14, fontFamily: 'Inter_400Regular', color: C.text, borderWidth: 1, borderColor: C.border },
   sendBtn: { width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center' },

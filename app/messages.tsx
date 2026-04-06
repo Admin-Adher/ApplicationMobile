@@ -13,6 +13,7 @@ import { Channel, Message } from '@/constants/types';
 import NewChannelModal from '@/components/NewChannelModal';
 import NewDMModal from '@/components/NewDMModal';
 import NewGroupModal from '@/components/NewGroupModal';
+import SuperAdminMessagingHub from '@/components/SuperAdminMessagingHub';
 
 const AVATAR_COLORS = [C.primary, '#059669', '#D97706', '#7C3AED', '#DB2777', '#EA580C', '#0891B2'];
 function getAvatarColor(name: string) {
@@ -175,8 +176,12 @@ export default function MessagesScreen() {
 
   const isSuperAdmin = user?.role === 'super_admin';
 
-  const generalChannels = isSuperAdmin ? [] : filteredChannels.filter(ch => ch.type === 'general' || ch.type === 'building');
-  const companyChannels = isSuperAdmin ? [] : filteredChannels.filter(ch => ch.type === 'company');
+  if (isSuperAdmin) {
+    return <SuperAdminMessagingHub />;
+  }
+
+  const generalChannels = filteredChannels.filter(ch => ch.type === 'general' || ch.type === 'building');
+  const companyChannels = filteredChannels.filter(ch => ch.type === 'company');
   const customChannels = filteredChannels.filter(ch => ch.type === 'custom');
   const groupChannels = filteredChannels.filter(ch => ch.type === 'group');
   const dmChannels = filteredChannels.filter(ch => ch.type === 'dm');
