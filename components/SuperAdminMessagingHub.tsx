@@ -286,13 +286,22 @@ export default function SuperAdminMessagingHub() {
     return map;
   }, [channels, messages]);
 
+  // Le super admin ne voit que ses propres DMs et groupes (ceux où il est membre)
+  const myName = user?.name ?? '';
+
   const myDMs = useMemo(
-    () => channels.filter(c => c.type === 'dm'),
-    [channels],
+    () => channels.filter(c =>
+      c.type === 'dm' &&
+      (c.members?.includes(myName) || c.dmParticipants?.includes(myName))
+    ),
+    [channels, myName],
   );
   const myGroups = useMemo(
-    () => channels.filter(c => c.type === 'group'),
-    [channels],
+    () => channels.filter(c =>
+      c.type === 'group' &&
+      (c.members?.includes(myName) || c.createdBy === myName)
+    ),
+    [channels, myName],
   );
   const myCustom = useMemo(
     () => channels.filter(c => c.type === 'custom'),
@@ -309,7 +318,18 @@ export default function SuperAdminMessagingHub() {
     return { dms: f(myDMs), groups: f(myGroups), custom: f(myCustom) };
   }, [search, myDMs, myGroups, myCustom, lastMessageByChannel]);
 
-  const totalUnread = Object.values(unreadByChannel).reduce((a, b) => a + b, 0);
+  // Compteur non-lus : uniquement pour les échanges du super admin
+  const myChannelIds = useMemo(() => {
+    const ids = new Set<string>();
+    myDMs.forEach(c => ids.add(c.id));
+    myGroups.forEach(c => ids.add(c.id));
+    return ids;
+  }, [myDMs, myGroups]);
+
+  const totalUnread = useMemo(
+    () => Array.from(myChannelIds).reduce((acc, id) => acc + (unreadByChannel[id] ?? 0), 0),
+    [myChannelIds, unreadByChannel],
+  );
 
   // ── Annonce globale ──────────────────────────────────────────────────────
 
