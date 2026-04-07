@@ -358,6 +358,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const isSeedingRef = useRef(false);
   const abortSeedingRef = useRef(false);
   const isRegisteringRef = useRef(false);
+  // Raised for the entire duration of login() so that onAuthStateChange
+  // does NOT call fetchProfile() concurrently — login() handles it directly.
+  // This eliminates the race between the SIGNED_IN callback and the direct
+  // fetchProfile() call, and prevents the fire-and-forget signOut() from
+  // firing after login() already returned { success: true }.
+  const loginInProgressRef = useRef(false);
 
   useEffect(() => {
     if (!isSupabaseConfigured) {
@@ -435,6 +441,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       if (isSeedingRef.current) { debugLogWarn('[AuthContext] onAuthStateChange ignoré (seeding en cours)'); return; }
       if (isRegisteringRef.current) { debugLogWarn('[AuthContext] onAuthStateChange ignoré (register en cours)'); return; }
       if (fetchingProfileRef.current) { debugLogWarn('[AuthContext] onAuthStateChange ignoré (fetchProfile déjà en cours)'); return; }
+      // login() manages setUser() directly and calls fetchProfile() itself.
+      // Skipping here avoids a concurrent duplicate fetchProfile() and the
+      // fire-and-forget signOut() that could clear queries after login succeeds.
+      if (loginInProgressRef.current) { debugLogWarn('[AuthContext] onAuthStateChange ignoré (login en cours)'); return; }
       if (session?.user) {
         fetchingProfileRef.current = true;
         if (fetchingProfileTimer) clearTimeout(fetchingProfileTimer);
@@ -700,11 +710,21 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     // prevents it from signing out a real-user session.
     isSeedingRef.current = false;
     globalSeedingRef.current = false;
+    // Raise the login guard so onAuthStateChange skips its fetchProfile() calls
+    // while we are managing the session ourselves. This eliminates:
+    //   • The duplicate fetchProfile() that signInWithPassword's SIGNED_IN event
+    //     would trigger concurrently with our own direct call below.
+    //   • The fire-and-forget signOut() that could clear React Query's cache
+    //     after login() already returned { success: true }.
+    loginInProgressRef.current = true;
 
     if (!isSupabaseConfigured) {
       const demoUser = DEMO_USERS.find(u => u.email === email);
       const match = demoUser && DEMO_SEED_PASS && DEMO_SEED_PASS === password ? demoUser : null;
-      if (!match) return { success: false, error: 'Email ou mot de passe incorrect.' };
+      if (!match) {
+        loginInProgressRef.current = false;
+        return { success: false, error: 'Email ou mot de passe incorrect.' };
+      }
       setUser({
         id: `demo-${DEMO_USERS.indexOf(match)}`,
         name: match.name,
@@ -714,12 +734,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         organizationId: match.role === 'super_admin' ? undefined : 'demo-org',
         companyId: match.companyId,
       });
+      loginInProgressRef.current = false;
       return { success: true };
     }
     try {
+      // signInWithPassword establishes the session internally. We do NOT call
+      // setSession() afterwards — that would fire a redundant SIGNED_IN event
+      // which triggers another fetchProfile() + profiles query in every listener,
+      // adding 3–4 unnecessary HTTP round-trips and blocking login() longer.
       const { data, error } = await supabase.auth.signInWithPassword({ email, password });
       if (error) {
         abortSeedingRef.current = false;
+        loginInProgressRef.current = false;
         if (error.message?.toLowerCase().includes('email not confirmed') ||
             error.message?.toLowerCase().includes('email_not_confirmed')) {
           return {
@@ -736,6 +762,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       // When Supabase has email confirmation enabled it can return { user, session: null, error: null }.
       // There is no valid JWT in this state — RLS would block every DB read.
       if (authUser && !authSession) {
+        loginInProgressRef.current = false;
         return {
           success: false,
           error: "Email non confirmé. Désactivez « Confirm email » dans Supabase → Authentication → Providers → Email, puis relancez l'app.",
@@ -743,35 +770,26 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
 
       if (authUser && authSession) {
-        // Explicitly (re-)establish the session from the tokens we received.
-        // This guards against the seeding's concurrent signOut() having cleared
-        // the Supabase client's session between our signInWithPassword and now.
-        await supabase.auth.setSession({
-          access_token: authSession.access_token,
-          refresh_token: authSession.refresh_token,
-        });
-
         let profile = await fetchProfile(authUser.id);
 
         if (!profile) {
-          // One retry: the seeding's signOut may have fired in the tiny window
-          // between setSession and the DB round-trip. Re-establish and try once more.
-          console.warn('[login] fetchProfile returned null — retrying after session restore...');
-          await supabase.auth.setSession({
-            access_token: authSession.access_token,
-            refresh_token: authSession.refresh_token,
-          });
+          // One retry after a short pause — the seeding's signOut may have fired
+          // in the tiny window before signInWithPassword completed.
+          console.warn('[login] fetchProfile returned null — 1 retry...');
+          await new Promise(r => setTimeout(r, 600));
           profile = await fetchProfile(authUser.id);
         }
 
         if (profile) {
           setUser(profile);
           setSeedStatus('done');
+          loginInProgressRef.current = false;
           return { success: true };
         }
       }
 
       // Profile missing — sign out cleanly
+      loginInProgressRef.current = false;
       await supabase.auth.signOut();
       return {
         success: false,
@@ -782,6 +800,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       };
     } catch {
       abortSeedingRef.current = false;
+      loginInProgressRef.current = false;
       return { success: false, error: 'Impossible de se connecter. Vérifiez votre réseau.' };
     }
   }
