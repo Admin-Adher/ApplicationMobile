@@ -14,6 +14,8 @@ Mini-app Next.js déployée sur Vercel pour :
 |---|---|
 | `RESEND_API_KEY` | Clé API Resend (re_...) |
 | `IOS_TEAM_ID` | Ton Apple Team ID (10 caractères, ex: ABC123DEF4) |
+| `NEXT_PUBLIC_SUPABASE_URL` | URL Supabase : `https://jzeojdpgglbxjdasjgta.supabase.co` |
+| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Clé anon Supabase (même que `EXPO_PUBLIC_SUPABASE_KEY`) |
 
 ### 2. Déployer
 
