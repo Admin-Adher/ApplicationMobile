@@ -157,11 +157,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   const currentUserNameRef = useRef<string>('');
   const activeChannelIdRef = useRef<string | null>(null);
+  const chantierInitializedRef = useRef(false);
 
   useEffect(() => {
-    AsyncStorage.getItem(ACTIVE_CHANTIER_KEY)
-      .then(id => { if (id) setActiveChantierIdState(id); })
-      .catch(() => {});
     AsyncStorage.getItem('lastReadByChannel')
       .then(raw => { if (raw) { try { setLastReadByChannel(JSON.parse(raw)); } catch {} } })
       .catch(() => {});
@@ -170,10 +168,27 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     const chantiers = chantiersH.chantiers;
     if (!chantiers.length) return;
-    const exists = activeChantierId && chantiers.some(c => c.id === activeChantierId);
-    if (exists) return;
-    setActiveChantierIdState(chantiers[0].id);
-    AsyncStorage.setItem(ACTIVE_CHANTIER_KEY, chantiers[0].id).catch(() => {});
+
+    if (!chantierInitializedRef.current) {
+      chantierInitializedRef.current = true;
+      AsyncStorage.getItem(ACTIVE_CHANTIER_KEY).then(storedId => {
+        if (storedId && chantiers.some(c => c.id === storedId)) {
+          setActiveChantierIdState(storedId);
+        } else {
+          setActiveChantierIdState(chantiers[0].id);
+          AsyncStorage.setItem(ACTIVE_CHANTIER_KEY, chantiers[0].id).catch(() => {});
+        }
+      }).catch(() => {
+        setActiveChantierIdState(chantiers[0].id);
+        AsyncStorage.setItem(ACTIVE_CHANTIER_KEY, chantiers[0].id).catch(() => {});
+      });
+      return;
+    }
+
+    if (activeChantierId && !chantiers.some(c => c.id === activeChantierId)) {
+      setActiveChantierIdState(chantiers[0].id);
+      AsyncStorage.setItem(ACTIVE_CHANTIER_KEY, chantiers[0].id).catch(() => {});
+    }
   }, [chantiersH.chantiers, activeChantierId]);
 
   useEffect(() => {
@@ -211,6 +226,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       if (event === 'SIGNED_OUT') {
         currentUserNameRef.current = '';
         setActiveChantierIdState(null);
+        chantierInitializedRef.current = false;
         setLastReadByChannel({});
         setNotification(null);
         queryClient.clear();
