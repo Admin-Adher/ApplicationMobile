@@ -25,9 +25,6 @@ import NotificationBanner from '@/components/NotificationBanner';
 import OfflineBanner from '@/components/OfflineBanner';
 import ConflictModal from '@/components/ConflictModal';
 import ChantierSwitcherSheet from '@/components/ChantierSwitcherSheet';
-import DebugOverlay from '@/components/DebugOverlay';
-
-const DEBUG_OVERLAY_ENABLED = true;
 
 function reloadApp() {
   if (Platform.OS === 'web' && typeof window !== 'undefined') window.location.reload();
@@ -278,7 +275,6 @@ export default function RootLayout() {
                     <ConflictModal />
                     <ChantierSwitcherSheet />
                     <StatusBar style="light" />
-                    <DebugOverlay visible={DEBUG_OVERLAY_ENABLED} />
                   </SafeKeyboardProvider>
                 </SafeAreaProvider>
               </GestureHandlerRootView>
