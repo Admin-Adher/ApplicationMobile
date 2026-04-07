@@ -168,6 +168,14 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   useEffect(() => {
+    if (activeChantierId) return;
+    const first = chantiersH.chantiers[0];
+    if (!first) return;
+    setActiveChantierIdState(first.id);
+    AsyncStorage.setItem(ACTIVE_CHANTIER_KEY, first.id).catch(() => {});
+  }, [chantiersH.chantiers, activeChantierId]);
+
+  useEffect(() => {
     if (!notification) return;
     const timer = setTimeout(() => setNotification(null), 4500);
     return () => clearTimeout(timer);
