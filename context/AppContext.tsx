@@ -3,7 +3,7 @@ import { Alert } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Reserve, Company, Task, Document, Photo, Message, Channel, Profile, Comment, ReserveStatus, ReservePriority, TaskStatus, Chantier, SitePlan, ChantierStatus, Visite, Lot, Opr, VisiteStatus, OprStatus, UserRole } from '@/constants/types';
 import { supabase, isSupabaseConfigured } from '@/lib/supabase';
-import { globalSeedingRef } from '@/context/AuthContext';
+import { globalSeedingRef, registerInProgressRef } from '@/context/AuthContext';
 import { useNetwork } from '@/context/NetworkContext';
 import { initStorageBuckets } from '@/lib/storage';
 import { C } from '@/constants/colors';
@@ -1917,6 +1917,14 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         // legitimate loadAll() and leave the UI in an empty state.
         if (loadAllInProgressRef.current) {
           debugLogWarn(`[AppContext] SIGNED_IN ignoré (loadAll déjà en cours) session=${session.user?.email}`);
+          return;
+        }
+        // Guard 4: ignore SIGNED_IN events fired by register() (signUp + signInWithPassword)
+        // before the profile and organisation are actually created in DB.
+        // register() will call supabase.auth.setSession() once everything is ready,
+        // emitting a clean SIGNED_IN that passes this guard.
+        if (registerInProgressRef.current) {
+          debugLogWarn(`[AppContext] SIGNED_IN ignoré (register en cours) session=${session.user?.email}`);
           return;
         }
         loadGenerationRef.current++;

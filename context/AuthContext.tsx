@@ -13,6 +13,7 @@ import { debugLog, debugLogOk, debugLogWarn, debugLogError } from '@/lib/debugLo
  * without triggering a React re-render.
  */
 export const globalSeedingRef: { current: boolean } = { current: false };
+export const registerInProgressRef: { current: boolean } = { current: false };
 
 export const ROLE_PERMISSIONS: Record<UserRole, UserPermissions> = {
   super_admin:    { canCreate: true,  canEdit: true,  canEditOwn: true,  canDelete: true,  canExport: true,  canManageTeams: true,  canViewTeams: true,  canUpdateAttendance: true,  canMovePins: true  },
@@ -311,6 +312,17 @@ async function seedDemoUsers(shouldAbort: () => boolean): Promise<'done' | 'erro
       const alreadyDone = await AsyncStorage.getItem(SEED_DONE_KEY).catch(() => null);
       if (alreadyDone === 'true') return 'done';
 
+      // Check server-side: if all 6 demo profiles already exist in DB (e.g. seeded
+      // via the SQL one-shot migration), skip client-side seeding entirely and
+      // persist the flag so future cold starts skip the RPC call too.
+      try {
+        const { data: seeded } = await supabase.rpc('demo_profiles_seeded');
+        if (seeded === true) {
+          await AsyncStorage.setItem(SEED_DONE_KEY, 'true').catch(() => {});
+          return 'done';
+        }
+      } catch { /* network error or RPC not deployed yet — fall through to client seeding */ }
+
       if (shouldAbort()) return 'done';
 
       let completedAll = true;
@@ -547,6 +559,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     abortSeedingRef.current = true;
     isRegisteringRef.current = true;
+    // Block AppContext's SIGNED_IN handler until profile + org are ready in DB.
+    // Cleared (and setSession re-emitted) just before returning { success: true }.
+    registerInProgressRef.current = true;
 
     try {
       const { data: signUpData, error: signUpErr } = await supabase.auth.signUp({
@@ -558,8 +573,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         if (signUpErr?.message?.toLowerCase().includes('already registered') ||
             signUpErr?.message?.toLowerCase().includes('already been registered') ||
             signUpErr?.message?.toLowerCase().includes('user_already_exists')) {
+          registerInProgressRef.current = false;
+          isRegisteringRef.current = false;
           return { success: false, error: 'Un compte existe déjà avec cet email.' };
         }
+        registerInProgressRef.current = false;
+        isRegisteringRef.current = false;
         return { success: false, error: signUpErr?.message ?? "Impossible de créer le compte." };
       }
 
@@ -582,6 +601,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           .single();
 
         if (orgErr || !orgData) {
+          registerInProgressRef.current = false;
+          isRegisteringRef.current = false;
           return { success: false, error: "Impossible de créer l'organisation. Réessayez." };
         }
 
@@ -636,6 +657,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       });
 
       if (signInErr || !signInData?.user?.id) {
+        registerInProgressRef.current = false;
         isRegisteringRef.current = false;
         return { success: false, error: "Compte créé. Connectez-vous avec vos identifiants." };
       }
@@ -647,12 +669,23 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         globalSeedingRef.current = false;
         setSeedStatus('done');
         isRegisteringRef.current = false;
+        // Unblock AppContext's Guard 4, then re-emit SIGNED_IN so loadAll() fires
+        // now that profile + org are committed to DB.
+        registerInProgressRef.current = false;
+        if (signInData.session) {
+          await supabase.auth.setSession({
+            access_token: signInData.session.access_token,
+            refresh_token: signInData.session.refresh_token,
+          });
+        }
         return { success: true };
       }
 
+      registerInProgressRef.current = false;
       isRegisteringRef.current = false;
       return { success: false, error: "Compte créé. Connectez-vous pour continuer." };
     } catch {
+      registerInProgressRef.current = false;
       isRegisteringRef.current = false;
       return { success: false, error: 'Erreur réseau. Vérifiez votre connexion.' };
     }

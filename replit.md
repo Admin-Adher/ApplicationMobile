@@ -44,6 +44,27 @@ The Supabase database schema is in `lib/schema.sql`. Migration files are in `sup
 - Roles: `super_admin`, `admin`, `conducteur`, `chef_equipe`, `sous_traitant`
 - Helper functions: `auth_user_org()`, `auth_user_name()` (SECURITY DEFINER)
 
+## First-Login Bug Fixes (Auth Race Conditions)
+
+### Fix 1 — Guard 2 blocking real SIGNED_IN (login flow)
+`login()` now clears `globalSeedingRef.current = false` **synchronously before** calling `signInWithPassword()`, so AppContext's Guard 2 no longer silences the real user's SIGNED_IN event.
+
+### Fix 2 — Seeding signOut racing with loadAll()
+`seedOneUser()` checks `!shouldAbort()` **after each `getSession()` await** before calling `signOut()`. Since `abortSeedingRef.current = true` is set synchronously at the top of `login()` (before any await), this window is guaranteed to be zero in practice.
+
+### Fix 3 — AsyncStorage persistence prevents repeated seeding
+`SEED_DONE_KEY = 'buildtrack_demo_seed_done_v1'` in AsyncStorage. Seeding skipped entirely on all subsequent cold starts once it has completed.
+
+### Fix 4 — RPC pre-flight: `demo_profiles_seeded()`
+On cold start, `seedDemoUsers()` calls `supabase.rpc('demo_profiles_seeded')` (SECURITY DEFINER, callable anonymously). If the 6 demo profiles already exist in DB (via the SQL one-shot migration), the flag is persisted and seeding is skipped even on the very first cold start — zero signIn/signOut events ever.
+
+### Fix 5 — Register flow: `registerInProgressRef` (Guard 4)
+`register()` exports a module-level `registerInProgressRef` and sets it to `true` at the very start. AppContext's Guard 4 ignores all `SIGNED_IN` events while `registerInProgressRef.current === true`. After `setUser(profile)` (profile + org committed in DB), the ref is cleared and `supabase.auth.setSession()` re-emits a clean `SIGNED_IN`, triggering `loadAll()` with data guaranteed to be present.
+
+### SQL migration: `supabase/migrations/20260407_seed_demo_rpc.sql`
+- Creates `public.demo_profiles_seeded()` RPC (SECURITY DEFINER, GRANT to anon + authenticated)
+- Contains a one-shot `DO $$` block to upsert demo profiles from existing auth users (run once manually in Supabase Studio after creating the 6 auth accounts via dashboard)
+
 ## Known Fixes Applied
 - **AppContext.tsx:** Fixed `profile` variable scoping bug — it was declared with `const` inside an `if` block but referenced outside it, causing a `ReferenceError` that triggered the "Impossible de charger les données" error dialog on every data load.
 - **npm install:** On migration, needed `rm -rf node_modules/react-native-web/src` before `npm install` due to ENOTEMPTY error.
