@@ -1,0 +1,234 @@
+Continue tout ce Plan de migration vers React Query
+Vue d'ensemble
+Avant : 1 fichier AppContext de 4200 lignes qui fait tout (fetch, cache, état UI, mutations, realtime, fallback AsyncStorage)
+
+Après : des hooks spécialisés de 50-100 lignes chacun, un micro-contexte pour l'état UI pur, React Query gère tout le reste
+
+Phase 1 — Fondation (Jour 1)
+Installer les dépendances
+
+@tanstack/react-query
+@tanstack/react-query-devtools
+Créer le QueryClient avec une config globale :
+
+staleTime: 60s (pas de refetch inutile)
+gcTime: 5min (cache en mémoire)
+retry: 1 (une seule tentative en cas d'erreur)
+Envelopper toute l'app avec <QueryClientProvider>
+Créer lib/queryKeys.ts — fichier centralisé des clés de cache :
+
+export const keys = {
+chantiers: ['chantiers'] as const,
+chantier: (id: string) => ['chantiers', id] as const,
+reserves: (chantierId?: string) => ['reserves', chantierId] as const,
+// ... etc
+}
+Phase 2 — Hooks de données (Jours 2-4)
+Un fichier par entité dans hooks/queries/. Chaque fichier contient :
+
+useXxx() → lecture (useQuery)
+useCreateXxx() → création (useMutation)
+useUpdateXxx() → modification
+useDeleteXxx() → suppression
+Exemple pour les chantiers (hooks/queries/useChantiers.ts) :
+
+export function useChantiers() {
+return useQuery({
+queryKey: keys.chantiers,
+queryFn: () => supabase.from('chantiers').select('*').order('created_at', { ascending: false }),
+select: (data) => data.data?.map(toChantier) ?? [],
+});
+}
+export function useCreateChantier() {
+const queryClient = useQueryClient();
+return useMutation({
+mutationFn: (chantier) => supabase.from('chantiers').insert(chantier),
+onSuccess: () => queryClient.invalidateQueries({ queryKey: keys.chantiers }),
+});
+}
+Les 13 hooks à créer :
+
+useChantiers + mutations CRUD
+useReserves(chantierId?) + mutations
+useCompanies + mutations
+useTasks(chantierId?) + mutations
+useProfiles(orgId?) + mutations
+useSitePlans(chantierId?) + mutations
+useVisites(chantierId?) + mutations
+useLots + mutations
+useOprs(chantierId?) + mutations
+useDocuments + mutations
+usePhotos + mutations
+useMessages(channelId) + mutations (pagination curseur)
+useChannels + mutations (general, custom, group, DM)
+Phase 3 — Realtime Supabase (Jour 5)
+Créer hooks/useRealtimeSync.ts — un seul hook qui gère toutes les subscriptions :
+
+export function useRealtimeSync(chantierId: string | null) {
+const queryClient = useQueryClient();
+useEffect(() => {
+const channel = supabase.channel('realtime-sync')
+.on('postgres_changes', { event: '', schema: 'public', table: 'reserves' }, () => {
+queryClient.invalidateQueries({ queryKey: keys.reserves(chantierId ?? undefined) });
+})
+.on('postgres_changes', { event: '', schema: 'public', table: 'chantiers' }, () => {
+queryClient.invalidateQueries({ queryKey: keys.chantiers });
+})
+// ... autres tables
+.subscribe();
+return () => { supabase.removeChannel(channel); };
+}, [chantierId, queryClient]);
+}
+Avantage : quand Supabase pousse un changement, React Query re-fetch automatiquement et tous les composants abonnés se mettent à jour.
+
+Phase 4 — Micro-contexte UI (Jour 5)
+Remplacer le gros AppContext par un contexte minimaliste uniquement pour l'état UI (ce qui n'est pas du server-state) :
+
+interface AppUIState {
+activeChantierId: string | null;
+setActiveChantierId: (id: string | null) => void;
+activeChantier: Chantier | null; // dérivé
+lastReadByChannel: Record<string, string>;
+setChannelRead: (channelId: string, ts: string) => void;
+}
+L'activeChantierId est persisté dans AsyncStorage avec un simple useEffect — plus besoin du reducer complexe.
+
+Le bug de l'auto-sélection disparaît totalement : useChantiers() retourne son propre état loading/data, et activeChantierId se fixe dans un useEffect qui réagit quand data arrive :
+
+const { data: chantiers } = useChantiers();
+useEffect(() => {
+if (!activeChantierId && chantiers?.length) {
+setActiveChantierId(chantiers[0].id);
+}
+}, [chantiers, activeChantierId]);
+Phase 5 — Migration écran par écran (Jours 6-12)
+Ordre de migration par priorité (les plus visibles d'abord) :
+
+Priorité Écran/Composant Hooks à utiliser
+1 Dashboard (index.tsx) useChantiers, useReserves, useCompanies
+2 Liste réserves useReserves, useCreateReserve, useUpdateReserve
+3 Chantiers useChantiers, mutations CRUD
+4 Messagerie useMessages, useChannels, realtime
+5 Tâches useTasks, mutations
+6 Visites / OPRs useVisites, useOprs
+7 Documents / Photos useDocuments, usePhotos
+8 Profils / Admin useProfiles
+Chaque écran : remplacer const { reserves, ... } = useAppContext() par const { data: reserves } = useReserves(activeChantierId).
+
+Phase 6 — Nettoyage (Jour 13)
+Supprimer context/AppContext.tsx (4200 lignes → 0)
+Supprimer le reducer, loadAll(), tous les persistMock*(), les clés AsyncStorage de cache
+Garder uniquement le micro-contexte UI (~100 lignes)
+Supprimer les imports morts dans tous les écrans
+Résumé du gain
+Avant Après
+AppContext 4200 lignes Micro-contexte ~100 lignes
+1 loadAll() fragile 13 hooks indépendants
+Conditions de course multiples Zéro (chaque hook est isolé)
+Guards 1-4 pour auth Plus nécessaires
+Cache AsyncStorage manuel React Query gère tout
+Bug chantier actif Impossible par design
+Durée totale : ~13 jours en travaillant rigoureusement, avec tests de non-régression après chaque phase.
+
+13 minutes ago
+This is a large migration. Let me start by thoroughly reading the existing code before making any changes.
+
+Let me read more critical sections of the codebase before diving into the implementation.
+
+Let me read the key parts of AppContext — the loadAll function and the context value — and also check all the screen imports.
+
+Let me read the rest of loadAll and the mutation functions, plus check the app layout.
+
+Let me read the rest of AppContext to understand all mutations and the value export.
+
+Let me read the remaining sections of AppContext and check the app/_layout.tsx.
+
+Now I have a complete understanding of the entire codebase. Let me check the layout and package.json before starting.
+
+I have a thorough understanding of the full codebase. This is a massive but well-structured migration. Let me create a session plan and execute it systematically.
+
+Let me read a few more screens to understand the full patterns before implementing.
+
+Let me check AuthContext and a few more key files before implementing.
+
+Let me check the NetworkContext quickly.
+
+Now I have everything I need. Let me create the session plan and start the implementation.
+
+Let me read the mapper functions from AppContext before extracting them.
+
+Let me read the data loading section of AppContext.
+
+Let me read the key loadAll function and realtime subscriptions.
+
+Let me check the User type and a few more things needed.
+
+Now I have everything I need to start building. Let me install React Query and then create all the infrastructure files simultaneously.
+
+React Query is installed. Now let me create all infrastructure files in parallel.
+
+Now let me create all the core infrastructure files simultaneously.
+
+Now let me create the mappers file and all the query hooks in parallel.
+
+Now let me create all the query hooks in parallel.
+
+Let me continue creating the remaining hooks.
+
+Let me read the realtime subscriptions and channel management sections of AppContext.
+
+Let me read the realtime subscription and channel management sections.
+
+Now I have everything I need to write the new AppContext shim. Let me read the key parts of the app context value assembly and channel functions.
+
+12 minutes ago
+Let me start by thoroughly reading the existing codebase before making any changes.
+
+Let me read the AppContext thoroughly before making any changes.
+
+Good — some hooks already exist. Let me read them all and more of AppContext to understand the full scope.
+
+Good, there's already significant work done. Let me read all the existing hooks and the rest of AppContext to understand what's missing.
+
+Let me read the remaining critical sections of AppContext — the loadAll, channel management, and the context value.
+
+Let me read the loadAll function and the context value assembly, plus check what's already in the messages hook if it exists.
+
+Let me read the key message/channel operations and the end of AppContext where the value is assembled.
+
+Let me read the remaining context value and message mutations to understand what to build.
+
+Now I have a thorough understanding. Let me read the message operations section.
+
+I now have a complete picture of the entire codebase. Let me create a session plan and execute the full migration.
+
+The strategy:
+
+Add QueryClientProvider to _layout.tsx
+Create AppUIContext (micro-context for activeChantierId, lastRead, notification)
+Create useChannels and useMessages hooks
+Create useRealtimeSync hook
+Rewrite AppContext as a compatibility shim that uses all hooks internally — screens don't need to change
+Now I have everything I need. Let me execute all phases simultaneously. I'll create all the missing infrastructure files in parallel, then rewrite AppContext as the compatibility shim.
+
+Good, QueryClientProvider is now wrapping the whole app. Now let me create all the remaining infrastructure files in parallel.
+
+Now I need to read the existing hooks to understand their interface before writing the shim:
+
+Now let me read the AppContext's type definition and the beginning of AppProvider to understand the exact interface:
+
+Let me read the AppContextValue definition:
+
+Let me check what methods are in the existing hooks:
+
+Now I have enough context. Let me check the remaining hooks quickly then write the shim:
+
+I now have everything I need. Let me write the shim AppContext that delegates to all the hooks:
+
+Now I have all the information. Let me write the complete AppContext shim that delegates to all the hooks:
+
+The shim is written. Now let me check for potential issues before restarting:
+
+Let me check queryKeys format and fix the issues in the shim:
+
+I see the queryKeys have specific formats. Let me fix the issues in the AppContext shim:
