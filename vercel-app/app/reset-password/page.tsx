@@ -73,8 +73,8 @@ export default function ResetPasswordPage() {
 
       await supabase.auth.signOut();
       setStage('success');
-    } catch {
-      setErrorMsg('Erreur réseau. Veuillez réessayer.');
+    } catch (err: any) {
+      setErrorMsg(`Erreur: ${err?.message ?? JSON.stringify(err)}`);
       setSubmitting(false);
     }
   }
