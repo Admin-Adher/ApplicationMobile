@@ -377,6 +377,7 @@ export interface Document {
   size: string;
   version: number;
   uri?: string;
+  chantierId?: string;
 }
 
 export interface Photo {
@@ -456,6 +457,7 @@ export interface Incident {
   closedAt?: string;
   closedBy?: string;
   photoUri?: string;
+  chantierId?: string;
 }
 
 export interface AttendanceRecord {

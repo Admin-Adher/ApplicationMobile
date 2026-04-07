@@ -66,6 +66,7 @@ export function toDocument(row: any): Document {
   return {
     id: row.id, name: row.name, type: row.type, category: row.category,
     uploadedAt: row.uploaded_at, size: row.size, version: row.version, uri: row.uri ?? undefined,
+    chantierId: row.chantier_id ?? undefined,
   };
 }
 

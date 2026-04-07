@@ -37,7 +37,7 @@ function getDocType(mimeType: string | undefined, name: string): DocumentType {
 }
 
 export default function DocumentsScreen() {
-  const { documents, addDocument, deleteDocument } = useApp();
+  const { documents, addDocument, deleteDocument, activeChantierId } = useApp();
   const { permissions } = useAuth();
   const [search, setSearch] = useState('');
   const [loading, setLoading] = useState(false);
@@ -95,6 +95,7 @@ export default function DocumentsScreen() {
                     size: formatSize(asset.size),
                     version: existingVersions.length > 0 ? Math.max(...existingVersions) + 1 : 1,
                     uri: finalUri,
+                    chantierId: activeChantierId ?? undefined,
                   };
                   addDocument(newDoc);
                   Alert.alert(
@@ -127,6 +128,7 @@ export default function DocumentsScreen() {
           size: formatSize(asset.size),
           version: existingNonPlanVersions.length > 0 ? Math.max(...existingNonPlanVersions) + 1 : 1,
           uri: finalUri,
+          chantierId: activeChantierId ?? undefined,
         };
         addDocument(newDoc);
         Alert.alert(

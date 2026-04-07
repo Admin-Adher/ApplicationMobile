@@ -160,6 +160,7 @@ export function useChantiers() {
     queryClient.invalidateQueries({ queryKey: queryKeys.lots() });
     queryClient.invalidateQueries({ queryKey: queryKeys.oprs() });
     queryClient.invalidateQueries({ queryKey: queryKeys.photos() });
+    queryClient.invalidateQueries({ queryKey: queryKeys.documents() });
     if (!isOnlineRef.current && isSupabaseConfigured) {
       enqueueOperation({ table: 'chantiers', op: 'delete', filter: { column: 'id', value: id } });
       return;
@@ -182,6 +183,8 @@ export function useChantiers() {
           supabase.from('oprs').delete().eq('chantier_id', id),
           supabase.from('site_plans').delete().eq('chantier_id', id),
           supabase.from('messages').delete().eq('channel_id', buildingChannelId),
+          supabase.from('documents').delete().eq('chantier_id', id),
+          supabase.from('incidents').delete().eq('chantier_id', id),
         ]);
         await supabase.from('channels').delete().eq('id', buildingChannelId);
         const { data: deleted, error } = await supabase.from('chantiers').delete().eq('id', id).select();

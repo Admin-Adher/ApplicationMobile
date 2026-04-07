@@ -187,6 +187,7 @@ export default function NewIncidentScreen() {
         witnesses,
         actions,
         photoUri,
+        chantierId: activeChantierId ?? undefined,
       });
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
       router.back();

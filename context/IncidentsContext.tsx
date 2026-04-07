@@ -37,6 +37,7 @@ function toIncident(row: any): Incident {
     closedAt: row.closed_at ?? row.closedAt ?? undefined,
     closedBy: row.closed_by ?? row.closedBy ?? undefined,
     photoUri: row.photo_uri ?? row.photoUri ?? undefined,
+    chantierId: row.chantier_id ?? row.chantierId ?? undefined,
   };
 }
 
@@ -140,6 +141,7 @@ export function IncidentsProvider({ children }: { children: React.ReactNode }) {
           closed_by: incident.closedBy ?? null,
           photo_uri: incident.photoUri ?? null,
           organization_id: orgIdRef.current ?? null,
+          chantier_id: incident.chantierId ?? null,
         });
         if (error) throw error;
       }

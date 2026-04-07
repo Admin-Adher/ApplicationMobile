@@ -46,7 +46,7 @@ export function useDocuments() {
     const payload = {
       id: d.id, name: d.name, type: d.type, category: d.category,
       uploaded_at: d.uploadedAt, size: d.size, version: d.version, uri: d.uri ?? null,
-      organization_id: orgId,
+      organization_id: orgId, chantier_id: d.chantierId ?? null,
     };
     if (!isOnlineRef.current && isSupabaseConfigured) {
       enqueueOperation({ table: 'documents', op: 'insert', data: payload });
