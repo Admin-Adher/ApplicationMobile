@@ -34,6 +34,7 @@ assets/               # Fonts, images
 - `scripts/patch-expo-cors.js` — patches Expo's CORS middleware to allow Replit proxy domains (`.replit.dev`, `.repl.co`). Runs automatically via `postinstall`.
 - The app has a Demo Mode (falls back to mock data if Supabase credentials are missing).
 - Workflow: "Start Frontend" runs `npm start` on port 5000 (webview output).
+- **Replit migration completed:** packages installed, env vars configured in `.replit` `[userenv.shared]`, CORS patch applied, app verified running on port 5000.
 
 ## Database
 The Supabase database schema is in `lib/schema.sql`. Migration files are in `supabase/migrations/`. Key tables: `organizations`, `profiles`, `chantiers`, `reserves`, `tasks`, `companies`, `channels`, `messages`, `visites`, `lots`, `oprs`, `site_plans`, `photos`, `documents`, `incidents`, `time_entries`.
