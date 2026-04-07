@@ -355,9 +355,11 @@ export default function PlansScreen() {
   const [visibleLayers, setVisibleLayers] = useState<Record<string, string[]>>({});
   const [showQRModal, setShowQRModal] = useState<{ x: number; y: number } | null>(null);
   const [displayScale, setDisplayScale] = useState(1);
-  const [newPlanModal, setNewPlanModal] = useState<{ visible: boolean; name: string; building: string; level: string; buildingId?: string; levelId?: string }>({
-    visible: false, name: '', building: '', level: '', buildingId: undefined, levelId: undefined,
-  });
+  const [newPlanModal, setNewPlanModal] = useState<{
+    visible: boolean; name: string; building: string; level: string;
+    buildingId?: string; levelId?: string;
+    uri?: string; size?: string; fileType?: 'pdf' | 'image' | 'dxf'; uploading?: boolean;
+  }>({ visible: false, name: '', building: '', level: '' });
   const [kbHeight, setKbHeight] = useState(0);
   const [showVersionHistory, setShowVersionHistory] = useState(false);
   const [revisionModal, setRevisionModal] = useState<{ visible: boolean; code: string; note: string }>({ visible: false, code: '', note: '' });
@@ -982,8 +984,40 @@ export default function PlansScreen() {
     setNewPlanModal({ visible: true, name: '', building: '', level: '' });
   }
 
+  async function importFileForNewPlan() {
+    setNewPlanModal(p => ({ ...p, uploading: true }));
+    try {
+      const result = await DocumentPicker.getDocumentAsync({
+        copyToCacheDirectory: true, multiple: false,
+        type: ['image/*', 'application/pdf', '*/*'],
+      });
+      if (!result.canceled && result.assets[0]) {
+        const asset = result.assets[0];
+        const docName = asset.name ?? `plan_${genId()}`;
+        const ext = docName.split('.').pop()?.toLowerCase() ?? '';
+        const isDxf = ext === 'dxf';
+        const isPdfFile = ext === 'pdf' || asset.mimeType === 'application/pdf';
+        const fileType: 'pdf' | 'image' | 'dxf' = isDxf ? 'dxf' : isPdfFile ? 'pdf' : 'image';
+        const mimeType = isDxf ? 'application/octet-stream' : (asset.mimeType ?? undefined);
+        const { url: storageUrl } = await uploadDocumentDetailed(asset.uri, `plan_new_${genId()}_${docName}`, mimeType);
+        const finalUri = storageUrl ?? asset.uri;
+        const autoName = docName.replace(/\.[^.]+$/, '').replace(/[-_]+/g, ' ').trim();
+        setNewPlanModal(p => ({
+          ...p, uploading: false,
+          uri: finalUri, size: formatSize(asset.size), fileType,
+          name: p.name.trim() ? p.name : autoName,
+        }));
+      } else {
+        setNewPlanModal(p => ({ ...p, uploading: false }));
+      }
+    } catch {
+      setNewPlanModal(p => ({ ...p, uploading: false }));
+      Alert.alert('Erreur', "Impossible d'importer le fichier.");
+    }
+  }
+
   function handleConfirmNewPlan() {
-    if (!activeChantierId || !newPlanModal.name.trim()) return;
+    if (!activeChantierId || !newPlanModal.name.trim() || !newPlanModal.uri) return;
     const newPlan: SitePlan = {
       id: genId(), chantierId: activeChantierId,
       name: newPlanModal.name.trim(),
@@ -992,6 +1026,9 @@ export default function PlansScreen() {
       buildingId: newPlanModal.buildingId || undefined,
       levelId: newPlanModal.levelId || undefined,
       uploadedAt: formatDateFR(new Date()),
+      uri: newPlanModal.uri,
+      size: newPlanModal.size,
+      fileType: newPlanModal.fileType,
     };
     addSitePlan(newPlan);
     setActivePlanId(newPlan.id);
@@ -999,7 +1036,7 @@ export default function PlansScreen() {
       setSelectedBuilding(newPlanModal.buildingId);
       if (newPlanModal.levelId) setSelectedLevel(newPlanModal.levelId);
     }
-    setNewPlanModal({ visible: false, name: '', building: '', level: '', buildingId: undefined, levelId: undefined });
+    setNewPlanModal({ visible: false, name: '', building: '', level: '' });
   }
 
   const isPlanFile = !!(currentPlan?.uri) && currentPlan?.fileType !== 'dxf';
@@ -1061,18 +1098,56 @@ export default function PlansScreen() {
     const hasStructure = chantierHierarchyBuildings.length > 0;
 
     const newPlanModalJSX = (
-      <Modal visible={newPlanModal.visible} transparent animationType="fade" onRequestClose={() => setNewPlanModal(p => ({ ...p, visible: false }))}>
-        <TouchableOpacity style={styles.modalOverlay} activeOpacity={1} onPress={() => setNewPlanModal(p => ({ ...p, visible: false }))}>
+      <Modal visible={newPlanModal.visible} transparent animationType="fade" onRequestClose={() => setNewPlanModal({ visible: false, name: '', building: '', level: '' })}>
+        <TouchableOpacity style={styles.modalOverlay} activeOpacity={1} onPress={() => setNewPlanModal({ visible: false, name: '', building: '', level: '' })}>
           <TouchableOpacity activeOpacity={1} style={[styles.modalCard, { marginBottom: kbHeight }]} onPress={() => {}}>
             <View style={styles.modalHeader}>
               <View style={[styles.modalPin, { backgroundColor: C.primary }]}><Ionicons name="map-outline" size={14} color="#fff" /></View>
               <View style={{ flex: 1 }}><Text style={styles.modalTitle}>Nouveau plan</Text><Text style={styles.modalMeta}>Ajoutez un plan à ce chantier</Text></View>
-              <TouchableOpacity onPress={() => setNewPlanModal(p => ({ ...p, visible: false }))}><Ionicons name="close" size={20} color={C.textMuted} /></TouchableOpacity>
+              <TouchableOpacity onPress={() => setNewPlanModal({ visible: false, name: '', building: '', level: '' })}><Ionicons name="close" size={20} color={C.textMuted} /></TouchableOpacity>
             </View>
+
+            {/* Import en premier — B1 */}
+            {newPlanModal.uri ? (
+              <View style={styles.newPlanFileChip}>
+                <View style={styles.newPlanFileChipIcon}>
+                  <Ionicons
+                    name={newPlanModal.fileType === 'pdf' ? 'document-text-outline' : newPlanModal.fileType === 'dxf' ? 'cube-outline' : 'image-outline'}
+                    size={18} color={C.closed}
+                  />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.newPlanFileChipName}>
+                    {newPlanModal.fileType === 'pdf' ? 'PDF' : newPlanModal.fileType === 'dxf' ? 'DXF' : 'Image'} importé{newPlanModal.size ? ` · ${newPlanModal.size}` : ''}
+                  </Text>
+                  <Text style={styles.newPlanFileChipSub}>Appuyez pour changer</Text>
+                </View>
+                <TouchableOpacity onPress={importFileForNewPlan}>
+                  <Ionicons name="swap-horizontal-outline" size={18} color={C.textMuted} />
+                </TouchableOpacity>
+              </View>
+            ) : (
+              <TouchableOpacity style={styles.newPlanImportBtn} onPress={importFileForNewPlan} disabled={!!newPlanModal.uploading}>
+                {newPlanModal.uploading ? (
+                  <ActivityIndicator size="small" color={C.primary} />
+                ) : (
+                  <>
+                    <Ionicons name="cloud-upload-outline" size={22} color={C.primary} />
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.newPlanImportBtnText}>Importer PDF / image / DXF</Text>
+                      <Text style={styles.newPlanImportBtnSub}>Obligatoire pour créer le plan</Text>
+                    </View>
+                    <View style={styles.newPlanImportRequired}><Text style={styles.newPlanImportRequiredText}>Requis</Text></View>
+                  </>
+                )}
+              </TouchableOpacity>
+            )}
+
             <View style={styles.newPlanField}>
               <Text style={styles.newPlanLabel}>Nom du plan *</Text>
-              <TextInput style={styles.newPlanInput} placeholder="ex : Plan électrique" placeholderTextColor={C.textMuted} value={newPlanModal.name} onChangeText={v => setNewPlanModal(p => ({ ...p, name: v }))} autoFocus />
+              <TextInput style={styles.newPlanInput} placeholder="ex : Plan électrique" placeholderTextColor={C.textMuted} value={newPlanModal.name} onChangeText={v => setNewPlanModal(p => ({ ...p, name: v }))} />
             </View>
+
             {chantierHierarchyBuildings.length > 0 ? (
               <>
                 <View style={styles.newPlanField}>
@@ -1122,7 +1197,12 @@ export default function PlansScreen() {
                 </View>
               </View>
             )}
-            <TouchableOpacity style={[styles.modalOpenBtn, !newPlanModal.name.trim() && { opacity: 0.5 }]} onPress={handleConfirmNewPlan} disabled={!newPlanModal.name.trim()}>
+
+            <TouchableOpacity
+              style={[styles.modalOpenBtn, (!newPlanModal.name.trim() || !newPlanModal.uri) && { opacity: 0.5 }]}
+              onPress={handleConfirmNewPlan}
+              disabled={!newPlanModal.name.trim() || !newPlanModal.uri || !!newPlanModal.uploading}
+            >
               <Ionicons name="add-circle-outline" size={16} color={C.primary} />
               <Text style={styles.modalOpenText}>Créer le plan</Text>
             </TouchableOpacity>
@@ -2117,18 +2197,56 @@ export default function PlansScreen() {
       </Modal>
 
       {/* New plan modal */}
-      <Modal visible={newPlanModal.visible} transparent animationType="fade" onRequestClose={() => setNewPlanModal(p => ({ ...p, visible: false }))}>
-        <TouchableOpacity style={styles.modalOverlay} activeOpacity={1} onPress={() => setNewPlanModal(p => ({ ...p, visible: false }))}>
+      <Modal visible={newPlanModal.visible} transparent animationType="fade" onRequestClose={() => setNewPlanModal({ visible: false, name: '', building: '', level: '' })}>
+        <TouchableOpacity style={styles.modalOverlay} activeOpacity={1} onPress={() => setNewPlanModal({ visible: false, name: '', building: '', level: '' })}>
           <TouchableOpacity activeOpacity={1} style={[styles.modalCard, { marginBottom: kbHeight }]} onPress={() => {}}>
             <View style={styles.modalHeader}>
               <View style={[styles.modalPin, { backgroundColor: C.primary }]}><Ionicons name="map-outline" size={14} color="#fff" /></View>
               <View style={{ flex: 1 }}><Text style={styles.modalTitle}>Nouveau plan</Text><Text style={styles.modalMeta}>Ajoutez un plan à ce chantier</Text></View>
-              <TouchableOpacity onPress={() => setNewPlanModal(p => ({ ...p, visible: false }))}><Ionicons name="close" size={20} color={C.textMuted} /></TouchableOpacity>
+              <TouchableOpacity onPress={() => setNewPlanModal({ visible: false, name: '', building: '', level: '' })}><Ionicons name="close" size={20} color={C.textMuted} /></TouchableOpacity>
             </View>
+
+            {/* Import en premier — B1 */}
+            {newPlanModal.uri ? (
+              <View style={styles.newPlanFileChip}>
+                <View style={styles.newPlanFileChipIcon}>
+                  <Ionicons
+                    name={newPlanModal.fileType === 'pdf' ? 'document-text-outline' : newPlanModal.fileType === 'dxf' ? 'cube-outline' : 'image-outline'}
+                    size={18} color={C.closed}
+                  />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.newPlanFileChipName}>
+                    {newPlanModal.fileType === 'pdf' ? 'PDF' : newPlanModal.fileType === 'dxf' ? 'DXF' : 'Image'} importé{newPlanModal.size ? ` · ${newPlanModal.size}` : ''}
+                  </Text>
+                  <Text style={styles.newPlanFileChipSub}>Appuyez pour changer</Text>
+                </View>
+                <TouchableOpacity onPress={importFileForNewPlan}>
+                  <Ionicons name="swap-horizontal-outline" size={18} color={C.textMuted} />
+                </TouchableOpacity>
+              </View>
+            ) : (
+              <TouchableOpacity style={styles.newPlanImportBtn} onPress={importFileForNewPlan} disabled={!!newPlanModal.uploading}>
+                {newPlanModal.uploading ? (
+                  <ActivityIndicator size="small" color={C.primary} />
+                ) : (
+                  <>
+                    <Ionicons name="cloud-upload-outline" size={22} color={C.primary} />
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.newPlanImportBtnText}>Importer PDF / image / DXF</Text>
+                      <Text style={styles.newPlanImportBtnSub}>Obligatoire pour créer le plan</Text>
+                    </View>
+                    <View style={styles.newPlanImportRequired}><Text style={styles.newPlanImportRequiredText}>Requis</Text></View>
+                  </>
+                )}
+              </TouchableOpacity>
+            )}
+
             <View style={styles.newPlanField}>
               <Text style={styles.newPlanLabel}>Nom du plan *</Text>
-              <TextInput style={styles.newPlanInput} placeholder="ex : Plan électrique" placeholderTextColor={C.textMuted} value={newPlanModal.name} onChangeText={v => setNewPlanModal(p => ({ ...p, name: v }))} autoFocus />
+              <TextInput style={styles.newPlanInput} placeholder="ex : Plan électrique" placeholderTextColor={C.textMuted} value={newPlanModal.name} onChangeText={v => setNewPlanModal(p => ({ ...p, name: v }))} />
             </View>
+
             {chantierHierarchyBuildings.length > 0 ? (
               <>
                 <View style={styles.newPlanField}>
@@ -2139,7 +2257,7 @@ export default function PlansScreen() {
                         <TouchableOpacity
                           key={b.id}
                           style={[styles.newPlanChip, newPlanModal.building === b.name && styles.newPlanChipActive]}
-                          onPress={() => setNewPlanModal(p => ({ ...p, building: b.name, level: '' }))}
+                          onPress={() => setNewPlanModal(p => ({ ...p, building: b.name, buildingId: b.id, level: '', levelId: undefined }))}
                         >
                           <Text style={[styles.newPlanChipText, newPlanModal.building === b.name && styles.newPlanChipTextActive]}>{b.name}</Text>
                         </TouchableOpacity>
@@ -2156,7 +2274,7 @@ export default function PlansScreen() {
                           <TouchableOpacity
                             key={l.id}
                             style={[styles.newPlanChip, newPlanModal.level === l.name && styles.newPlanChipActive]}
-                            onPress={() => setNewPlanModal(p => ({ ...p, level: l.name }))}
+                            onPress={() => setNewPlanModal(p => ({ ...p, level: l.name, levelId: l.id }))}
                           >
                             <Text style={[styles.newPlanChipText, newPlanModal.level === l.name && styles.newPlanChipTextActive]}>{l.name}</Text>
                           </TouchableOpacity>
@@ -2178,7 +2296,12 @@ export default function PlansScreen() {
                 </View>
               </View>
             )}
-            <TouchableOpacity style={[styles.modalOpenBtn, !newPlanModal.name.trim() && { opacity: 0.5 }]} onPress={handleConfirmNewPlan} disabled={!newPlanModal.name.trim()}>
+
+            <TouchableOpacity
+              style={[styles.modalOpenBtn, (!newPlanModal.name.trim() || !newPlanModal.uri) && { opacity: 0.5 }]}
+              onPress={handleConfirmNewPlan}
+              disabled={!newPlanModal.name.trim() || !newPlanModal.uri || !!newPlanModal.uploading}
+            >
               <Ionicons name="add-circle-outline" size={16} color={C.primary} />
               <Text style={styles.modalOpenText}>Créer le plan</Text>
             </TouchableOpacity>
@@ -2401,6 +2524,15 @@ const styles = StyleSheet.create({
   newPlanChipText: { fontSize: 13, fontFamily: 'Inter_500Medium', color: C.textSub },
   newPlanChipTextActive: { color: C.primary, fontFamily: 'Inter_600SemiBold' },
   newPlanBtns: { flexDirection: 'row', gap: 10 },
+  newPlanImportBtn: { flexDirection: 'row', alignItems: 'center', gap: 12, padding: 16, borderRadius: 12, borderWidth: 2, borderStyle: 'dashed', borderColor: C.primary + '50', backgroundColor: C.primaryBg },
+  newPlanImportBtnText: { fontSize: 14, fontFamily: 'Inter_600SemiBold', color: C.primary },
+  newPlanImportBtnSub: { fontSize: 11, fontFamily: 'Inter_400Regular', color: C.primary + 'AA', marginTop: 2 },
+  newPlanImportRequired: { paddingHorizontal: 7, paddingVertical: 3, borderRadius: 8, backgroundColor: C.open + '15', borderWidth: 1, borderColor: C.open + '35' },
+  newPlanImportRequiredText: { fontSize: 10, fontFamily: 'Inter_600SemiBold', color: C.open },
+  newPlanFileChip: { flexDirection: 'row', alignItems: 'center', gap: 12, padding: 12, borderRadius: 12, backgroundColor: C.closedBg, borderWidth: 1.5, borderColor: C.closed + '40' },
+  newPlanFileChipIcon: { width: 36, height: 36, borderRadius: 18, backgroundColor: C.closed + '25', alignItems: 'center', justifyContent: 'center' },
+  newPlanFileChipName: { fontSize: 13, fontFamily: 'Inter_600SemiBold', color: C.closed },
+  newPlanFileChipSub: { fontSize: 11, fontFamily: 'Inter_400Regular', color: C.closed + 'AA', marginTop: 1 },
   cancelBtn: { flex: 1, paddingVertical: 12, borderRadius: 12, borderWidth: 1, borderColor: C.border, alignItems: 'center', justifyContent: 'center' },
   cancelBtnText: { fontSize: 14, fontFamily: 'Inter_500Medium', color: C.textSub },
   confirmBtn: { flex: 2, flexDirection: 'row', gap: 6, paddingVertical: 12, borderRadius: 12, backgroundColor: C.primary, alignItems: 'center', justifyContent: 'center' },
