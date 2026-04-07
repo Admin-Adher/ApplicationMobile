@@ -22,6 +22,7 @@ const PERMISSION_DEFS: { key: keyof PermissionsOverride; label: string; desc: st
   { key: 'canViewTeams',        label: 'Voir les équipes',          desc: 'Consulter les équipes et leurs membres' },
   { key: 'canUpdateAttendance', label: 'Gérer les présences',       desc: 'Pointer et mettre à jour les présences terrain' },
   { key: 'canMovePins',         label: 'Déplacer les pins',         desc: 'Repositionner les épingles sur les plans' },
+  { key: 'canEditChantier',     label: 'Modifier les chantiers',    desc: 'Éditer les informations d\'un chantier (nom, adresse, dates…)' },
 ];
 
 function cycleOverride(current: boolean | undefined): boolean | undefined {

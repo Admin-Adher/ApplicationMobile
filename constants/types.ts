@@ -15,6 +15,7 @@ export interface UserPermissions {
   canViewTeams: boolean;
   canUpdateAttendance: boolean;
   canMovePins: boolean;
+  canEditChantier: boolean;
 }
 
 export type PermissionsOverride = Partial<UserPermissions>;

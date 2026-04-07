@@ -1,6 +1,6 @@
 import {
   View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert, Platform,
-  Modal, KeyboardAvoidingView,
+  Modal, KeyboardAvoidingView, TextInput,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -11,13 +11,31 @@ import { useApp } from '@/context/AppContext';
 import { useAuth } from '@/context/AuthContext';
 import Header from '@/components/Header';
 import LocationTreeEditor from '@/components/LocationTreeEditor';
-import { Chantier, ChantierBuilding } from '@/constants/types';
+import DateInput from '@/components/DateInput';
+import { Chantier, ChantierBuilding, ChantierStatus } from '@/constants/types';
+
+const STATUS_OPTIONS: { value: ChantierStatus; label: string; color: string; icon: string }[] = [
+  { value: 'active',    label: 'En cours',  color: C.closed,  icon: 'play-circle-outline' },
+  { value: 'paused',    label: 'En pause',  color: C.medium,  icon: 'pause-circle-outline' },
+  { value: 'completed', label: 'Terminé',   color: C.primary, icon: 'checkmark-circle-outline' },
+];
 
 const STATUS_LABELS: Record<string, { label: string; color: string; icon: string }> = {
-  active: { label: 'En cours', color: C.closed, icon: 'play-circle-outline' },
-  completed: { label: 'Terminé', color: C.primary, icon: 'checkmark-circle-outline' },
-  paused: { label: 'En pause', color: C.medium, icon: 'pause-circle-outline' },
+  active:    { label: 'En cours', color: C.closed,  icon: 'play-circle-outline' },
+  completed: { label: 'Terminé',  color: C.primary, icon: 'checkmark-circle-outline' },
+  paused:    { label: 'En pause', color: C.medium,  icon: 'pause-circle-outline' },
 };
+
+interface EditState {
+  chantier: Chantier;
+  name: string;
+  address: string;
+  description: string;
+  startDate: string;
+  endDate: string;
+  status: ChantierStatus;
+  selectedCompanyIds: string[];
+}
 
 export default function ManageChantiersScreen() {
   const insets = useSafeAreaInsets();
@@ -26,6 +44,7 @@ export default function ManageChantiersScreen() {
   const { permissions } = useAuth();
 
   const [structureModal, setStructureModal] = useState<{ chantier: Chantier; buildings: ChantierBuilding[] } | null>(null);
+  const [editModal, setEditModal] = useState<EditState | null>(null);
 
   function handleDelete(id: string, name: string) {
     const planCount = sitePlans.filter(p => p.chantierId === id).length;
@@ -48,6 +67,51 @@ export default function ManageChantiersScreen() {
     if (!structureModal) return;
     updateChantier({ ...structureModal.chantier, buildings: structureModal.buildings.length > 0 ? structureModal.buildings : undefined });
     setStructureModal(null);
+  }
+
+  function openEditModal(chantier: Chantier) {
+    setEditModal({
+      chantier,
+      name: chantier.name,
+      address: chantier.address ?? '',
+      description: chantier.description ?? '',
+      startDate: chantier.startDate ?? '',
+      endDate: chantier.endDate ?? '',
+      status: chantier.status,
+      selectedCompanyIds: chantier.companyIds ? [...chantier.companyIds] : [],
+    });
+  }
+
+  function saveEdit() {
+    if (!editModal) return;
+    if (!editModal.name.trim()) {
+      Alert.alert('Champ obligatoire', 'Le nom du chantier est requis.');
+      return;
+    }
+    updateChantier({
+      ...editModal.chantier,
+      name: editModal.name.trim(),
+      address: editModal.address.trim() || undefined,
+      description: editModal.description.trim() || undefined,
+      startDate: editModal.startDate || undefined,
+      endDate: editModal.endDate || undefined,
+      status: editModal.status,
+      companyIds: editModal.selectedCompanyIds.length > 0 ? editModal.selectedCompanyIds : undefined,
+    });
+    setEditModal(null);
+  }
+
+  function toggleEditCompany(id: string) {
+    setEditModal(prev => {
+      if (!prev) return null;
+      const already = prev.selectedCompanyIds.includes(id);
+      return {
+        ...prev,
+        selectedCompanyIds: already
+          ? prev.selectedCompanyIds.filter(x => x !== id)
+          : [...prev.selectedCompanyIds, id],
+      };
+    });
   }
 
   return (
@@ -145,6 +209,15 @@ export default function ManageChantiersScreen() {
                   )}
 
                   <View style={styles.chantierActions}>
+                    {permissions.canEditChantier && (
+                      <TouchableOpacity
+                        style={[styles.actionBtn, { borderColor: '#6366F1' + '50' }]}
+                        onPress={() => openEditModal(chantier)}
+                      >
+                        <Ionicons name="pencil-outline" size={14} color="#6366F1" />
+                        <Text style={[styles.actionBtnText, { color: '#6366F1' }]}>Modifier</Text>
+                      </TouchableOpacity>
+                    )}
                     {permissions.canCreate && (
                       <TouchableOpacity
                         style={[styles.actionBtn, { borderColor: C.primary + '50' }]}
@@ -181,7 +254,7 @@ export default function ManageChantiersScreen() {
         )}
       </ScrollView>
 
-      {/* MODAL STRUCTURE */}
+      {/* ─── MODAL STRUCTURE ─── */}
       <Modal
         visible={structureModal !== null}
         animationType="slide"
@@ -228,6 +301,156 @@ export default function ManageChantiersScreen() {
           </View>
         </KeyboardAvoidingView>
       </Modal>
+
+      {/* ─── MODAL ÉDITION CHANTIER ─── */}
+      <Modal
+        visible={editModal !== null}
+        animationType="slide"
+        presentationStyle="pageSheet"
+        onRequestClose={() => setEditModal(null)}
+      >
+        <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
+          <View style={styles.modalContainer}>
+            <View style={styles.modalHeader}>
+              <TouchableOpacity onPress={() => setEditModal(null)} style={styles.modalCloseBtn}>
+                <Ionicons name="close" size={22} color={C.text} />
+              </TouchableOpacity>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.modalTitle}>Modifier le chantier</Text>
+                {editModal && (
+                  <Text style={styles.modalSubtitle} numberOfLines={1}>{editModal.chantier.name}</Text>
+                )}
+              </View>
+              <TouchableOpacity style={styles.modalSaveBtn} onPress={saveEdit}>
+                <Ionicons name="checkmark" size={16} color="#fff" />
+                <Text style={styles.modalSaveBtnText}>Enregistrer</Text>
+              </TouchableOpacity>
+            </View>
+
+            {editModal && (
+              <ScrollView
+                contentContainerStyle={styles.modalContent}
+                showsVerticalScrollIndicator={false}
+                keyboardShouldPersistTaps="handled"
+              >
+                {/* Nom */}
+                <View style={styles.editCard}>
+                  <View style={styles.editFieldGroup}>
+                    <Text style={styles.editLabel}>Nom du chantier *</Text>
+                    <TextInput
+                      style={styles.editInput}
+                      value={editModal.name}
+                      onChangeText={v => setEditModal(prev => prev ? { ...prev, name: v } : null)}
+                      placeholder="Nom du chantier"
+                      placeholderTextColor={C.textMuted}
+                      autoFocus
+                    />
+                  </View>
+                  <View style={styles.editFieldGroup}>
+                    <Text style={styles.editLabel}>Adresse</Text>
+                    <TextInput
+                      style={styles.editInput}
+                      value={editModal.address}
+                      onChangeText={v => setEditModal(prev => prev ? { ...prev, address: v } : null)}
+                      placeholder="Ex : 12 rue des Marronniers, 69003 Lyon"
+                      placeholderTextColor={C.textMuted}
+                    />
+                  </View>
+                  <View style={[styles.editFieldGroup, { marginBottom: 0 }]}>
+                    <Text style={styles.editLabel}>Description</Text>
+                    <TextInput
+                      style={[styles.editInput, styles.editTextArea]}
+                      value={editModal.description}
+                      onChangeText={v => setEditModal(prev => prev ? { ...prev, description: v } : null)}
+                      placeholder="Description du chantier..."
+                      placeholderTextColor={C.textMuted}
+                      multiline
+                      numberOfLines={3}
+                    />
+                  </View>
+                </View>
+
+                {/* Statut */}
+                <View style={styles.editCard}>
+                  <Text style={styles.editLabel}>Statut</Text>
+                  <View style={styles.statusRow}>
+                    {STATUS_OPTIONS.map(opt => {
+                      const sel = editModal.status === opt.value;
+                      return (
+                        <TouchableOpacity
+                          key={opt.value}
+                          style={[
+                            styles.statusChip,
+                            sel && { borderColor: opt.color, backgroundColor: opt.color + '18' },
+                          ]}
+                          onPress={() => setEditModal(prev => prev ? { ...prev, status: opt.value } : null)}
+                          activeOpacity={0.7}
+                        >
+                          <Ionicons name={opt.icon as any} size={14} color={sel ? opt.color : C.textMuted} />
+                          <Text style={[styles.statusChipText, sel && { color: opt.color, fontFamily: 'Inter_600SemiBold' }]}>
+                            {opt.label}
+                          </Text>
+                        </TouchableOpacity>
+                      );
+                    })}
+                  </View>
+                </View>
+
+                {/* Dates */}
+                <View style={styles.editCard}>
+                  <View style={styles.editDateRow}>
+                    <View style={{ flex: 1 }}>
+                      <DateInput
+                        label="Début des travaux"
+                        value={editModal.startDate}
+                        onChange={v => setEditModal(prev => prev ? { ...prev, startDate: v } : null)}
+                        optional
+                      />
+                    </View>
+                    <View style={{ flex: 1 }}>
+                      <DateInput
+                        label="Fin prévisionnelle"
+                        value={editModal.endDate}
+                        onChange={v => setEditModal(prev => prev ? { ...prev, endDate: v } : null)}
+                        optional
+                      />
+                    </View>
+                  </View>
+                </View>
+
+                {/* Entreprises */}
+                {companies.length > 0 && (
+                  <View style={styles.editCard}>
+                    <Text style={styles.editLabel}>Entreprises associées</Text>
+                    {companies.map(co => {
+                      const sel = editModal.selectedCompanyIds.includes(co.id);
+                      return (
+                        <TouchableOpacity
+                          key={co.id}
+                          style={[styles.coRow, sel && { borderColor: co.color, backgroundColor: co.color + '15' }]}
+                          onPress={() => toggleEditCompany(co.id)}
+                          activeOpacity={0.7}
+                        >
+                          <View style={[styles.coDot, { backgroundColor: co.color }]} />
+                          <View style={{ flex: 1 }}>
+                            <Text style={[styles.coName, sel && { color: co.color, fontFamily: 'Inter_600SemiBold' }]}>{co.name}</Text>
+                            {co.shortName && co.shortName !== co.name && (
+                              <Text style={styles.coShort}>{co.shortName}</Text>
+                            )}
+                          </View>
+                          <View style={[styles.coCheck, sel && { backgroundColor: co.color, borderColor: co.color }]}>
+                            {sel && <Ionicons name="checkmark" size={12} color="#fff" />}
+                          </View>
+                        </TouchableOpacity>
+                      );
+                    })}
+                  </View>
+                )}
+              </ScrollView>
+            )}
+          </View>
+        </KeyboardAvoidingView>
+      </Modal>
     </View>
   );
 }
@@ -262,6 +485,7 @@ const styles = StyleSheet.create({
   actionBtnText: { fontSize: 12, fontFamily: 'Inter_600SemiBold', color: C.primary },
   addBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, paddingVertical: 16, borderRadius: 14, backgroundColor: C.primaryBg, borderWidth: 1.5, borderColor: C.primary + '40', borderStyle: 'dashed' },
   addBtnText: { fontSize: 14, fontFamily: 'Inter_600SemiBold', color: C.primary },
+
   modalContainer: { flex: 1, backgroundColor: C.bg },
   modalHeader: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 16, paddingVertical: 14, borderBottomWidth: 1, borderBottomColor: C.border, backgroundColor: C.surface },
   modalCloseBtn: { padding: 4 },
@@ -272,4 +496,21 @@ const styles = StyleSheet.create({
   modalContent: { padding: 16, paddingBottom: 48 },
   modalHintBox: { flexDirection: 'row', alignItems: 'flex-start', gap: 8, backgroundColor: C.primaryBg, borderRadius: 10, padding: 12, marginBottom: 16, borderWidth: 1, borderColor: C.primary + '30' },
   modalHintText: { flex: 1, fontSize: 12, fontFamily: 'Inter_400Regular', color: C.textSub, lineHeight: 17 },
+
+  editCard: { backgroundColor: C.surface, borderRadius: 14, padding: 16, marginBottom: 14, borderWidth: 1, borderColor: C.border, gap: 0 },
+  editFieldGroup: { marginBottom: 14 },
+  editLabel: { fontSize: 12, fontFamily: 'Inter_600SemiBold', color: C.textSub, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 8 },
+  editInput: { backgroundColor: C.surface2, borderRadius: 10, paddingHorizontal: 14, paddingVertical: 12, color: C.text, fontFamily: 'Inter_400Regular', fontSize: 14, borderWidth: 1, borderColor: C.border },
+  editTextArea: { minHeight: 80, textAlignVertical: 'top' },
+  editDateRow: { flexDirection: 'row', gap: 12 },
+
+  statusRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 8 },
+  statusChip: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 12, paddingVertical: 8, borderRadius: 10, borderWidth: 1.5, borderColor: C.border, backgroundColor: C.surface },
+  statusChipText: { fontSize: 13, fontFamily: 'Inter_500Medium', color: C.textSub },
+
+  coRow: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 10, paddingHorizontal: 10, borderRadius: 10, borderWidth: 1, borderColor: C.border, backgroundColor: C.surface2, marginBottom: 6 },
+  coDot: { width: 10, height: 10, borderRadius: 5, flexShrink: 0 },
+  coName: { fontSize: 13, fontFamily: 'Inter_500Medium', color: C.text },
+  coShort: { fontSize: 11, fontFamily: 'Inter_400Regular', color: C.textMuted, marginTop: 1 },
+  coCheck: { width: 20, height: 20, borderRadius: 5, borderWidth: 1.5, borderColor: C.border, backgroundColor: C.surface, alignItems: 'center', justifyContent: 'center', flexShrink: 0 },
 });
