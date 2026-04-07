@@ -10,6 +10,8 @@ import { Inter_400Regular, Inter_500Medium, Inter_600SemiBold, Inter_700Bold } f
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { KeyboardProvider } from 'react-native-keyboard-controller';
+import { QueryClientProvider } from '@tanstack/react-query';
+import { queryClient } from '@/lib/queryClient';
 import { AppProvider } from '@/context/AppContext';
 import { AuthProvider, useAuth } from '@/context/AuthContext';
 import { SettingsProvider } from '@/context/SettingsContext';
@@ -87,7 +89,6 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const hasRestoredTab = useRef(false);
 
-  // Sauvegarde l'onglet actif à chaque changement de navigation
   useEffect(() => {
     if (!isAuthenticated || isLoading) return;
     const seg0 = segments[0] as string;
@@ -98,7 +99,6 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
     }
   }, [segments, isAuthenticated, isLoading]);
 
-  // Restaure le dernier onglet visité au démarrage de l'app
   useEffect(() => {
     if (isLoading || !isAuthenticated || hasRestoredTab.current) return;
     hasRestoredTab.current = true;
@@ -132,9 +132,6 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
     }
   }, [isAuthenticated, isLoading, segments, user?.organizationId, user?.role]);
 
-  // Block any content from showing while the auth state is being determined.
-  // Without this, there is a flash of unauthenticated UI between the moment
-  // fonts finish loading and the moment getSession() resolves.
   if (isLoading) {
     return (
       <View style={authGuardStyles.container}>
@@ -217,81 +214,83 @@ export default function RootLayout() {
   }
 
   return (
-    <AuthProvider>
-      <SubscriptionProvider>
-      <NetworkProvider>
-      <AppProvider>
-        <SettingsProvider>
-          <IncidentsProvider>
-          <PointageProvider>
-          <ReglementaireProvider>
-          <NotificationsProvider>
-            <GestureHandlerRootView style={{ flex: 1 }}>
-              <SafeAreaProvider>
-                <SafeKeyboardProvider>
-                  <AuthGuard>
-                    <AppErrorBoundary>
-                    <Stack>
-                      <Stack.Screen name="login" options={{ headerShown: false }} />
-                      <Stack.Screen name="register" options={{ headerShown: false }} />
-                      <Stack.Screen name="pending-invite" options={{ headerShown: false }} />
-                      <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
-                      <Stack.Screen name="incident/new" options={{ headerShown: false }} />
-                      <Stack.Screen name="incident/[id]" options={{ headerShown: false }} />
-                      <Stack.Screen name="reserve/[id]" options={{ headerShown: false }} />
-                      <Stack.Screen name="reserve/new" options={{ headerShown: false }} />
-                      <Stack.Screen name="documents" options={{ headerShown: false }} />
-                      <Stack.Screen name="planning" options={{ headerShown: false }} />
-                      <Stack.Screen name="task/new" options={{ headerShown: false }} />
-                      <Stack.Screen name="task/[id]" options={{ headerShown: false }} />
-                      <Stack.Screen name="photos" options={{ headerShown: false }} />
-                      <Stack.Screen name="rapports" options={{ headerShown: false }} />
-                      <Stack.Screen name="messages" options={{ headerShown: false }} />
-                      <Stack.Screen name="channel/[id]" options={{ headerShown: false }} />
-                      <Stack.Screen name="incidents" options={{ headerShown: false }} />
-                      <Stack.Screen name="search" options={{ headerShown: false }} />
-                      <Stack.Screen name="settings" options={{ headerShown: false }} />
-                      <Stack.Screen name="pointage" options={{ headerShown: false }} />
-                      <Stack.Screen name="reglementaire" options={{ headerShown: false }} />
-                      <Stack.Screen name="subscription" options={{ headerShown: false }} />
-                      <Stack.Screen name="superadmin" options={{ headerShown: false }} />
-                      <Stack.Screen name="checklist" options={{ headerShown: false, title: 'Checklists' }} />
-                      <Stack.Screen name="journal" options={{ headerShown: false, title: 'Journal de chantier' }} />
-                      <Stack.Screen name="meeting-report" options={{ headerShown: false, title: 'CR Réunions' }} />
-                      <Stack.Screen name="notifications" options={{ headerShown: false, title: 'Notifications' }} />
-                      <Stack.Screen name="portal/[companyId]" options={{ headerShown: false }} />
-                      <Stack.Screen name="opr-session/[id]" options={{ headerShown: false }} />
-                      <Stack.Screen name="analytics" options={{ headerShown: false }} />
-                      <Stack.Screen name="chantier/manage" options={{ headerShown: false }} />
-                      <Stack.Screen name="chantier/new" options={{ headerShown: false }} />
-                      <Stack.Screen name="integrations" options={{ headerShown: false }} />
-                      <Stack.Screen name="lots" options={{ headerShown: false }} />
-                      <Stack.Screen name="opr" options={{ headerShown: false }} />
-                      <Stack.Screen name="sous-traitant" options={{ headerShown: false }} />
-                      <Stack.Screen name="visites" options={{ headerShown: false }} />
-                      <Stack.Screen name="visite/new" options={{ headerShown: false }} />
-                      <Stack.Screen name="visite/[id]" options={{ headerShown: false }} />
-                      <Stack.Screen name="+not-found" />
-                    </Stack>
-                    </AppErrorBoundary>
-                  </AuthGuard>
-                  <NotificationBanner />
-                  <OfflineBanner />
-                  <ConflictModal />
-                  <ChantierSwitcherSheet />
-                  <StatusBar style="light" />
-                  <DebugOverlay visible={DEBUG_OVERLAY_ENABLED} />
-                </SafeKeyboardProvider>
-              </SafeAreaProvider>
-            </GestureHandlerRootView>
-          </NotificationsProvider>
-          </ReglementaireProvider>
-          </PointageProvider>
-          </IncidentsProvider>
-        </SettingsProvider>
-      </AppProvider>
-      </NetworkProvider>
-      </SubscriptionProvider>
-    </AuthProvider>
+    <QueryClientProvider client={queryClient}>
+      <AuthProvider>
+        <SubscriptionProvider>
+        <NetworkProvider>
+        <AppProvider>
+          <SettingsProvider>
+            <IncidentsProvider>
+            <PointageProvider>
+            <ReglementaireProvider>
+            <NotificationsProvider>
+              <GestureHandlerRootView style={{ flex: 1 }}>
+                <SafeAreaProvider>
+                  <SafeKeyboardProvider>
+                    <AuthGuard>
+                      <AppErrorBoundary>
+                      <Stack>
+                        <Stack.Screen name="login" options={{ headerShown: false }} />
+                        <Stack.Screen name="register" options={{ headerShown: false }} />
+                        <Stack.Screen name="pending-invite" options={{ headerShown: false }} />
+                        <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+                        <Stack.Screen name="incident/new" options={{ headerShown: false }} />
+                        <Stack.Screen name="incident/[id]" options={{ headerShown: false }} />
+                        <Stack.Screen name="reserve/[id]" options={{ headerShown: false }} />
+                        <Stack.Screen name="reserve/new" options={{ headerShown: false }} />
+                        <Stack.Screen name="documents" options={{ headerShown: false }} />
+                        <Stack.Screen name="planning" options={{ headerShown: false }} />
+                        <Stack.Screen name="task/new" options={{ headerShown: false }} />
+                        <Stack.Screen name="task/[id]" options={{ headerShown: false }} />
+                        <Stack.Screen name="photos" options={{ headerShown: false }} />
+                        <Stack.Screen name="rapports" options={{ headerShown: false }} />
+                        <Stack.Screen name="messages" options={{ headerShown: false }} />
+                        <Stack.Screen name="channel/[id]" options={{ headerShown: false }} />
+                        <Stack.Screen name="incidents" options={{ headerShown: false }} />
+                        <Stack.Screen name="search" options={{ headerShown: false }} />
+                        <Stack.Screen name="settings" options={{ headerShown: false }} />
+                        <Stack.Screen name="pointage" options={{ headerShown: false }} />
+                        <Stack.Screen name="reglementaire" options={{ headerShown: false }} />
+                        <Stack.Screen name="subscription" options={{ headerShown: false }} />
+                        <Stack.Screen name="superadmin" options={{ headerShown: false }} />
+                        <Stack.Screen name="checklist" options={{ headerShown: false, title: 'Checklists' }} />
+                        <Stack.Screen name="journal" options={{ headerShown: false, title: 'Journal de chantier' }} />
+                        <Stack.Screen name="meeting-report" options={{ headerShown: false, title: 'CR Réunions' }} />
+                        <Stack.Screen name="notifications" options={{ headerShown: false, title: 'Notifications' }} />
+                        <Stack.Screen name="portal/[companyId]" options={{ headerShown: false }} />
+                        <Stack.Screen name="opr-session/[id]" options={{ headerShown: false }} />
+                        <Stack.Screen name="analytics" options={{ headerShown: false }} />
+                        <Stack.Screen name="chantier/manage" options={{ headerShown: false }} />
+                        <Stack.Screen name="chantier/new" options={{ headerShown: false }} />
+                        <Stack.Screen name="integrations" options={{ headerShown: false }} />
+                        <Stack.Screen name="lots" options={{ headerShown: false }} />
+                        <Stack.Screen name="opr" options={{ headerShown: false }} />
+                        <Stack.Screen name="sous-traitant" options={{ headerShown: false }} />
+                        <Stack.Screen name="visites" options={{ headerShown: false }} />
+                        <Stack.Screen name="visite/new" options={{ headerShown: false }} />
+                        <Stack.Screen name="visite/[id]" options={{ headerShown: false }} />
+                        <Stack.Screen name="+not-found" />
+                      </Stack>
+                      </AppErrorBoundary>
+                    </AuthGuard>
+                    <NotificationBanner />
+                    <OfflineBanner />
+                    <ConflictModal />
+                    <ChantierSwitcherSheet />
+                    <StatusBar style="light" />
+                    <DebugOverlay visible={DEBUG_OVERLAY_ENABLED} />
+                  </SafeKeyboardProvider>
+                </SafeAreaProvider>
+              </GestureHandlerRootView>
+            </NotificationsProvider>
+            </ReglementaireProvider>
+            </PointageProvider>
+            </IncidentsProvider>
+          </SettingsProvider>
+        </AppProvider>
+        </NetworkProvider>
+        </SubscriptionProvider>
+      </AuthProvider>
+    </QueryClientProvider>
   );
 }
