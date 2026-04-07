@@ -329,6 +329,7 @@ export default function ManageChantiersScreen() {
 
             {editModal && (
               <ScrollView
+                style={{ flex: 1 }}
                 contentContainerStyle={styles.modalContent}
                 showsVerticalScrollIndicator={false}
                 keyboardShouldPersistTaps="handled"
