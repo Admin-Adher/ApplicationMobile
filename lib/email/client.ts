@@ -1,6 +1,21 @@
+import { Platform } from 'react-native';
+
+const VERCEL_API_URL = 'https://buildtrack-mobile.vercel.app/api/send-email';
+
+function getApiUrl(): string {
+  if (Platform.OS === 'web' && typeof window !== 'undefined') {
+    const host = window.location?.hostname ?? '';
+    if (host === 'localhost' || host === '127.0.0.1') {
+      return '/api/send-email';
+    }
+  }
+  return VERCEL_API_URL;
+}
+
 async function callEmailApi(body: Record<string, unknown>): Promise<void> {
   try {
-    const response = await fetch('/api/send-email', {
+    const url = getApiUrl();
+    const response = await fetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),

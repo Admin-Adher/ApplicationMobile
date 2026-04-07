@@ -1,0 +1,9 @@
+{
+  "framework": "nextjs",
+  "buildCommand": "npm run build",
+  "outputDirectory": ".next",
+  "env": {
+    "RESEND_API_KEY": "@resend_api_key",
+    "IOS_TEAM_ID": "@ios_team_id"
+  }
+}

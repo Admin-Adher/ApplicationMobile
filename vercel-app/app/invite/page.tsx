@@ -1,0 +1,253 @@
+'use client';
+
+import { useEffect, useState } from 'react';
+import { useSearchParams } from 'next/navigation';
+import { Suspense } from 'react';
+
+const BRAND = '#003082';
+const ACCENT = '#FFCB00';
+const APP_SCHEME = process.env.NEXT_PUBLIC_EXPO_APP_SCHEME ?? 'buildtrack';
+const APP_STORE_URL = 'https://apps.apple.com/app/buildtrack';
+const PLAY_STORE_URL = 'https://play.google.com/store/apps/details?id=com.buildtrack.app';
+
+function InviteContent() {
+  const params = useSearchParams();
+  const token = params.get('token');
+  const [platform, setPlatform] = useState<'ios' | 'android' | 'web' | 'unknown'>('unknown');
+  const [deepLinkAttempted, setDeepLinkAttempted] = useState(false);
+
+  useEffect(() => {
+    const ua = navigator.userAgent;
+    if (/iPhone|iPad|iPod/.test(ua)) setPlatform('ios');
+    else if (/Android/.test(ua)) setPlatform('android');
+    else setPlatform('web');
+  }, []);
+
+  useEffect(() => {
+    if (!token || platform === 'unknown' || platform === 'web') return;
+    const deepLink = `${APP_SCHEME}://invite?token=${token}`;
+    window.location.href = deepLink;
+    const timer = setTimeout(() => setDeepLinkAttempted(true), 2500);
+    return () => clearTimeout(timer);
+  }, [token, platform]);
+
+  const registerUrl = `https://buildtrack-mobile.vercel.app/register`;
+
+  return (
+    <div style={styles.container}>
+      <div style={styles.card}>
+        <div style={styles.header}>
+          <div style={styles.logoBox}>B</div>
+          <div>
+            <div style={styles.brandName}>Bouygues</div>
+            <div style={styles.brandSub}>Construction</div>
+          </div>
+        </div>
+        <div style={styles.divider} />
+
+        <div style={styles.iconCircle}>✉️</div>
+        <h1 style={styles.title}>Invitation BuildTrack</h1>
+
+        {!token ? (
+          <p style={styles.body}>Lien d'invitation invalide ou expiré.</p>
+        ) : platform === 'web' ? (
+          <>
+            <p style={styles.body}>
+              Vous avez été invité à rejoindre une organisation sur BuildTrack.
+            </p>
+            <p style={styles.bodySmall}>
+              Pour rejoindre l'organisation, créez votre compte avec l'email sur lequel vous avez reçu cette invitation :
+            </p>
+            <a href={registerUrl} style={styles.btn}>
+              Créer mon compte →
+            </a>
+            <p style={styles.hint}>
+              Ou téléchargez l'app mobile BuildTrack pour accéder à toutes les fonctionnalités.
+            </p>
+            <div style={styles.storeRow}>
+              <a href={APP_STORE_URL} style={styles.storeBtn}>📱 App Store</a>
+              <a href={PLAY_STORE_URL} style={styles.storeBtn}>🤖 Google Play</a>
+            </div>
+          </>
+        ) : !deepLinkAttempted ? (
+          <>
+            <p style={styles.body}>Ouverture de BuildTrack en cours...</p>
+            <div style={styles.loader} />
+            <p style={styles.bodySmall}>Si l'application ne s'ouvre pas, téléchargez-la :</p>
+            <a
+              href={platform === 'ios' ? APP_STORE_URL : PLAY_STORE_URL}
+              style={styles.btn}
+            >
+              Télécharger BuildTrack
+            </a>
+          </>
+        ) : (
+          <>
+            <p style={styles.body}>
+              BuildTrack n'est pas encore installé sur votre appareil.
+            </p>
+            <a
+              href={platform === 'ios' ? APP_STORE_URL : PLAY_STORE_URL}
+              style={styles.btn}
+            >
+              {platform === 'ios' ? '📱 Télécharger sur l\'App Store' : '🤖 Télécharger sur Google Play'}
+            </a>
+            <a href={registerUrl} style={{ ...styles.btn, ...styles.btnSecondary }}>
+              Continuer sur le web →
+            </a>
+          </>
+        )}
+
+        <div style={styles.footer}>
+          <p style={styles.footerText}>BuildTrack — Gestion de chantier numérique</p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+export default function InvitePage() {
+  return (
+    <Suspense fallback={<div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh', background: '#F4F7FB' }}>Chargement...</div>}>
+      <InviteContent />
+    </Suspense>
+  );
+}
+
+const styles: Record<string, React.CSSProperties> = {
+  container: {
+    minHeight: '100vh',
+    background: '#F4F7FB',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: '20px',
+    fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Arial, sans-serif',
+  },
+  card: {
+    background: '#fff',
+    borderRadius: '20px',
+    padding: '36px 32px',
+    maxWidth: '420px',
+    width: '100%',
+    boxShadow: '0 4px 32px rgba(0,48,130,0.10)',
+    border: '1px solid #DDE4EE',
+    textAlign: 'center',
+  },
+  header: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '14px',
+    marginBottom: '4px',
+    justifyContent: 'center',
+  },
+  logoBox: {
+    width: '44px',
+    height: '44px',
+    background: ACCENT,
+    borderRadius: '10px',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    fontSize: '22px',
+    fontWeight: '700',
+    color: BRAND,
+    flexShrink: 0,
+  },
+  brandName: {
+    fontSize: '18px',
+    fontWeight: '700',
+    color: BRAND,
+    textAlign: 'left',
+  },
+  brandSub: {
+    fontSize: '12px',
+    color: '#8899BB',
+    textAlign: 'left',
+  },
+  divider: {
+    width: '40px',
+    height: '3px',
+    background: ACCENT,
+    borderRadius: '2px',
+    margin: '16px auto 28px',
+  },
+  iconCircle: {
+    fontSize: '44px',
+    marginBottom: '16px',
+    display: 'block',
+  },
+  title: {
+    fontSize: '22px',
+    fontWeight: '700',
+    color: BRAND,
+    margin: '0 0 16px',
+  },
+  body: {
+    fontSize: '15px',
+    color: '#334155',
+    lineHeight: '1.6',
+    margin: '0 0 14px',
+  },
+  bodySmall: {
+    fontSize: '13px',
+    color: '#64748B',
+    lineHeight: '1.6',
+    margin: '0 0 20px',
+  },
+  btn: {
+    display: 'block',
+    background: ACCENT,
+    color: BRAND,
+    fontWeight: '700',
+    fontSize: '15px',
+    padding: '14px 28px',
+    borderRadius: '12px',
+    textDecoration: 'none',
+    margin: '0 0 14px',
+  },
+  btnSecondary: {
+    background: '#EEF3FA',
+    color: BRAND,
+  },
+  hint: {
+    fontSize: '12px',
+    color: '#8899BB',
+    margin: '0 0 12px',
+  },
+  storeRow: {
+    display: 'flex',
+    gap: '10px',
+    justifyContent: 'center',
+    marginBottom: '14px',
+  },
+  storeBtn: {
+    background: '#EEF3FA',
+    color: BRAND,
+    fontWeight: '600',
+    fontSize: '13px',
+    padding: '10px 18px',
+    borderRadius: '10px',
+    textDecoration: 'none',
+    border: '1px solid #DDE4EE',
+  },
+  loader: {
+    width: '36px',
+    height: '36px',
+    border: `3px solid #EEF3FA`,
+    borderTop: `3px solid ${BRAND}`,
+    borderRadius: '50%',
+    animation: 'spin 0.8s linear infinite',
+    margin: '16px auto',
+  },
+  footer: {
+    marginTop: '28px',
+    paddingTop: '20px',
+    borderTop: '1px solid #EEF3FA',
+  },
+  footerText: {
+    fontSize: '11px',
+    color: '#8899BB',
+    margin: '0',
+  },
+};

@@ -1,4 +1,4 @@
-const APP_URL = process.env.EXPO_PUBLIC_APP_URL ?? 'https://buildtrack-mobile.vercel.app';
+const APP_URL = 'https://buildtrack-mobile.vercel.app';
 const BRAND_COLOR = '#003082';
 const ACCENT_COLOR = '#FFCB00';
 
@@ -12,9 +12,9 @@ function baseLayout(content: string, preheader: string = ''): string {
   <style>
     body { margin: 0; padding: 0; background: #F4F7FB; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif; }
     .wrapper { max-width: 560px; margin: 0 auto; padding: 32px 16px; }
-    .header { background: ${BRAND_COLOR}; border-radius: 16px 16px 0 0; padding: 28px 36px; display: flex; align-items: center; }
+    .header { background: ${BRAND_COLOR}; border-radius: 16px 16px 0 0; padding: 28px 36px; }
+    .logo-row { display: flex; align-items: center; gap: 14px; }
     .logo-box { display: inline-flex; align-items: center; justify-content: center; width: 44px; height: 44px; background: ${ACCENT_COLOR}; border-radius: 10px; font-size: 22px; font-weight: 700; color: ${BRAND_COLOR}; flex-shrink: 0; }
-    .brand { display: inline-block; margin-left: 14px; }
     .brand-name { font-size: 18px; font-weight: 700; color: #fff; line-height: 1.2; }
     .brand-sub { font-size: 12px; color: rgba(255,255,255,0.65); }
     .divider-bar { width: 36px; height: 3px; background: ${ACCENT_COLOR}; border-radius: 2px; margin: 14px 0 0; }
@@ -36,11 +36,13 @@ function baseLayout(content: string, preheader: string = ''): string {
   ${preheader ? `<span style="display:none;max-height:0;overflow:hidden;">${preheader}</span>` : ''}
   <div class="wrapper">
     <div class="header">
-      <div class="logo-box">B</div>
-      <div class="brand">
-        <div class="brand-name">Bouygues</div>
-        <div class="brand-sub">Construction</div>
-        <div class="divider-bar"></div>
+      <div class="logo-row">
+        <div class="logo-box">B</div>
+        <div>
+          <div class="brand-name">Bouygues</div>
+          <div class="brand-sub">Construction</div>
+          <div class="divider-bar"></div>
+        </div>
       </div>
     </div>
     <div class="body">
@@ -56,7 +58,7 @@ function baseLayout(content: string, preheader: string = ''): string {
 </html>`;
 }
 
-export const ROLE_LABELS_FR: Record<string, string> = {
+const ROLE_LABELS_FR: Record<string, string> = {
   admin: 'Administrateur',
   conducteur: 'Conducteur de travaux',
   chef_equipe: "Chef d'équipe",
@@ -75,20 +77,20 @@ export function invitationEmail(params: {
 }) {
   const { invitedByName, organizationName, email, role, token, expiresAt } = params;
   const roleLabel = ROLE_LABELS_FR[role] ?? role;
-  const registerUrl = `${APP_URL}/register`;
+  const deepLinkUrl = `${APP_URL}/invite?token=${token}`;
   const expDate = new Date(expiresAt).toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' });
 
   const content = `
     <h1>Vous avez été invité !</h1>
     <p><strong>${invitedByName}</strong> vous invite à rejoindre l'organisation <strong>${organizationName}</strong> sur BuildTrack en tant que :</p>
     <p style="text-align:center;"><span class="role-badge">${roleLabel}</span></p>
-    <p>Créez votre compte avec cette adresse email (<strong>${email}</strong>) pour accepter l'invitation :</p>
+    <p>Cliquez sur le bouton ci-dessous pour rejoindre l'organisation. Si vous avez l'application, elle s'ouvrira directement :</p>
     <div style="text-align:center;">
-      <a href="${registerUrl}" class="btn">Créer mon compte →</a>
+      <a href="${deepLinkUrl}" class="btn">Rejoindre ${organizationName} →</a>
     </div>
     <div class="info-box">
-      <p><strong>Comment ça marche ?</strong><br/>
-      1. Cliquez sur le bouton ci-dessus ou allez sur <strong>buildtrack.vercel.app</strong><br/>
+      <p><strong>Première fois sur BuildTrack ?</strong><br/>
+      1. Cliquez sur le bouton ci-dessus<br/>
       2. Choisissez <em>« Invitation reçue »</em> et créez votre compte avec l'email <strong>${email}</strong><br/>
       3. Votre accès à <strong>${organizationName}</strong> sera automatiquement activé</p>
     </div>
@@ -112,7 +114,7 @@ export function welcomeEmail(params: {
   organizationName?: string;
 }) {
   const { name, email, organizationName } = params;
-  const appUrl = `${APP_URL}`;
+  const appUrl = APP_URL;
   const firstName = name.split(' ')[0];
 
   const content = `
@@ -127,7 +129,6 @@ export function welcomeEmail(params: {
       <p>Votre compte est créé. Si vous avez reçu une invitation, connectez-vous : votre accès à l'organisation sera activé automatiquement.</p>
     </div>
     `}
-    <p>Accédez à BuildTrack depuis votre navigateur ou scannez le QR code dans l'application Expo Go :</p>
     <div style="text-align:center;">
       <a href="${appUrl}" class="btn">Ouvrir BuildTrack →</a>
     </div>
