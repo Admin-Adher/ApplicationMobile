@@ -309,31 +309,31 @@ export default function ManageChantiersScreen() {
         presentationStyle="pageSheet"
         onRequestClose={() => setEditModal(null)}
       >
-        <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
-          <View style={styles.modalContainer}>
-            <View style={styles.modalHeader}>
-              <TouchableOpacity onPress={() => setEditModal(null)} style={styles.modalCloseBtn}>
-                <Ionicons name="close" size={22} color={C.text} />
-              </TouchableOpacity>
-              <View style={{ flex: 1 }}>
-                <Text style={styles.modalTitle}>Modifier le chantier</Text>
-                {editModal && (
-                  <Text style={styles.modalSubtitle} numberOfLines={1}>{editModal.chantier.name}</Text>
-                )}
-              </View>
-              <TouchableOpacity style={styles.modalSaveBtn} onPress={saveEdit}>
-                <Ionicons name="checkmark" size={16} color="#fff" />
-                <Text style={styles.modalSaveBtnText}>Enregistrer</Text>
-              </TouchableOpacity>
+        <View style={{ flex: 1, backgroundColor: C.bg }}>
+          <View style={styles.modalHeader}>
+            <TouchableOpacity onPress={() => setEditModal(null)} style={styles.modalCloseBtn}>
+              <Ionicons name="close" size={22} color={C.text} />
+            </TouchableOpacity>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.modalTitle}>Modifier le chantier</Text>
+              {editModal && (
+                <Text style={styles.modalSubtitle} numberOfLines={1}>{editModal.chantier.name}</Text>
+              )}
             </View>
+            <TouchableOpacity style={styles.modalSaveBtn} onPress={saveEdit}>
+              <Ionicons name="checkmark" size={16} color="#fff" />
+              <Text style={styles.modalSaveBtnText}>Enregistrer</Text>
+            </TouchableOpacity>
+          </View>
 
-            {editModal && (
-              <ScrollView
-                style={{ flex: 1 }}
-                contentContainerStyle={styles.modalContent}
-                showsVerticalScrollIndicator={false}
-                keyboardShouldPersistTaps="handled"
-              >
+          {editModal && (
+            <ScrollView
+              style={{ flex: 1 }}
+              contentContainerStyle={[styles.modalContent, { flexGrow: 1 }]}
+              showsVerticalScrollIndicator={true}
+              keyboardShouldPersistTaps="handled"
+              bounces={true}
+            >
                 {/* Nom */}
                 <View style={styles.editCard}>
                   <View style={styles.editFieldGroup}>
@@ -344,7 +344,6 @@ export default function ManageChantiersScreen() {
                       onChangeText={v => setEditModal(prev => prev ? { ...prev, name: v } : null)}
                       placeholder="Nom du chantier"
                       placeholderTextColor={C.textMuted}
-                      autoFocus
                     />
                   </View>
                   <View style={styles.editFieldGroup}>
@@ -447,10 +446,9 @@ export default function ManageChantiersScreen() {
                     })}
                   </View>
                 )}
-              </ScrollView>
-            )}
-          </View>
-        </KeyboardAvoidingView>
+            </ScrollView>
+          )}
+        </View>
       </Modal>
     </View>
   );
