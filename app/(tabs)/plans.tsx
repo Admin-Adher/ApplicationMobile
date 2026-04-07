@@ -1058,162 +1058,222 @@ export default function PlansScreen() {
 
   if (!activeChantierId || chantierPlans.length === 0) {
     const noChantier = !activeChantierId;
-    return (
-      <View style={styles.container}>
-        <View style={[styles.header, { paddingTop: topPad + 12, paddingLeft: 24, paddingRight: 16, paddingBottom: 6 }]}>
-          <Text style={styles.title}>Plans</Text>
-        </View>
-        <ScrollView contentContainerStyle={styles.emptyState} showsVerticalScrollIndicator={false}>
+    const hasStructure = chantierHierarchyBuildings.length > 0;
 
-          {/* Icône centrale */}
-          <View style={styles.emptyIconWrap}>
-            <Ionicons name={noChantier ? 'business-outline' : 'map-outline'} size={44} color={C.primary} />
-          </View>
-
-          <Text style={styles.emptyTitle}>
-            {noChantier ? 'Aucun chantier actif' : 'Aucun plan importé'}
-          </Text>
-          <Text style={styles.emptySubtitle}>
-            {noChantier
-              ? 'Créez votre premier chantier pour commencer à gérer vos plans et réserves.'
-              : 'Importez vos plans PDF ou images pour localiser les réserves directement dessus.'}
-          </Text>
-
-          {/* Feature list */}
-          <View style={styles.emptyFeatures}>
-            {noChantier ? (
+    const newPlanModalJSX = (
+      <Modal visible={newPlanModal.visible} transparent animationType="fade" onRequestClose={() => setNewPlanModal(p => ({ ...p, visible: false }))}>
+        <TouchableOpacity style={styles.modalOverlay} activeOpacity={1} onPress={() => setNewPlanModal(p => ({ ...p, visible: false }))}>
+          <TouchableOpacity activeOpacity={1} style={[styles.modalCard, { marginBottom: kbHeight }]} onPress={() => {}}>
+            <View style={styles.modalHeader}>
+              <View style={[styles.modalPin, { backgroundColor: C.primary }]}><Ionicons name="map-outline" size={14} color="#fff" /></View>
+              <View style={{ flex: 1 }}><Text style={styles.modalTitle}>Nouveau plan</Text><Text style={styles.modalMeta}>Ajoutez un plan à ce chantier</Text></View>
+              <TouchableOpacity onPress={() => setNewPlanModal(p => ({ ...p, visible: false }))}><Ionicons name="close" size={20} color={C.textMuted} /></TouchableOpacity>
+            </View>
+            <View style={styles.newPlanField}>
+              <Text style={styles.newPlanLabel}>Nom du plan *</Text>
+              <TextInput style={styles.newPlanInput} placeholder="ex : Plan électrique" placeholderTextColor={C.textMuted} value={newPlanModal.name} onChangeText={v => setNewPlanModal(p => ({ ...p, name: v }))} autoFocus />
+            </View>
+            {chantierHierarchyBuildings.length > 0 ? (
               <>
-                <View style={styles.emptyFeatureRow}>
-                  <View style={[styles.emptyFeatureDot, { backgroundColor: '#003082' }]}><Ionicons name="map-outline" size={14} color="#fff" /></View>
-                  <View style={{ flex: 1 }}>
-                    <Text style={styles.emptyFeatureTitle}>Visualisez sur plan</Text>
-                    <Text style={styles.emptyFeatureDesc}>Placez chaque réserve directement sur votre plan de chantier.</Text>
-                  </View>
+                <View style={styles.newPlanField}>
+                  <Text style={styles.newPlanLabel}>Bâtiment</Text>
+                  <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+                    <View style={{ flexDirection: 'row', gap: 8, paddingVertical: 4 }}>
+                      {chantierHierarchyBuildings.map(b => (
+                        <TouchableOpacity
+                          key={b.id}
+                          style={[styles.newPlanChip, newPlanModal.building === b.name && styles.newPlanChipActive]}
+                          onPress={() => setNewPlanModal(p => ({ ...p, building: b.name, buildingId: b.id, level: '', levelId: undefined }))}
+                        >
+                          <Text style={[styles.newPlanChipText, newPlanModal.building === b.name && styles.newPlanChipTextActive]}>{b.name}</Text>
+                        </TouchableOpacity>
+                      ))}
+                    </View>
+                  </ScrollView>
                 </View>
-                <View style={styles.emptyFeatureRow}>
-                  <View style={[styles.emptyFeatureDot, { backgroundColor: '#059669' }]}><Ionicons name="layers-outline" size={14} color="#fff" /></View>
-                  <View style={{ flex: 1 }}>
-                    <Text style={styles.emptyFeatureTitle}>Hiérarchie Bâtiment › Niveau</Text>
-                    <Text style={styles.emptyFeatureDesc}>Organisez vos plans par bâtiment et niveau pour une navigation précise.</Text>
-                  </View>
-                </View>
-                <View style={styles.emptyFeatureRow}>
-                  <View style={[styles.emptyFeatureDot, { backgroundColor: '#7C3AED' }]}><Ionicons name="print-outline" size={14} color="#fff" /></View>
-                  <View style={{ flex: 1 }}>
-                    <Text style={styles.emptyFeatureTitle}>Export PDF annoté</Text>
-                    <Text style={styles.emptyFeatureDesc}>Exportez vos plans avec les épingles numérotées et la liste des réserves.</Text>
-                  </View>
-                </View>
-              </>
-            ) : (
-              <>
-                <View style={styles.emptyFeatureRow}>
-                  <View style={[styles.emptyFeatureDot, { backgroundColor: '#003082' }]}><Ionicons name="cloud-upload-outline" size={14} color="#fff" /></View>
-                  <View style={{ flex: 1 }}>
-                    <Text style={styles.emptyFeatureTitle}>PDF, image ou DXF</Text>
-                    <Text style={styles.emptyFeatureDesc}>Importez tout type de plan architectural pour le visualiser en plein écran.</Text>
-                  </View>
-                </View>
-                <View style={styles.emptyFeatureRow}>
-                  <View style={[styles.emptyFeatureDot, { backgroundColor: '#D97706' }]}><Ionicons name="pin-outline" size={14} color="#fff" /></View>
-                  <View style={{ flex: 1 }}>
-                    <Text style={styles.emptyFeatureTitle}>Épingler les réserves</Text>
-                    <Text style={styles.emptyFeatureDesc}>Touchez le plan pour créer une réserve positionnée à l'endroit exact.</Text>
-                  </View>
-                </View>
-                <View style={styles.emptyFeatureRow}>
-                  <View style={[styles.emptyFeatureDot, { backgroundColor: '#059669' }]}><Ionicons name="git-branch-outline" size={14} color="#fff" /></View>
-                  <View style={{ flex: 1 }}>
-                    <Text style={styles.emptyFeatureTitle}>Révisions de plans</Text>
-                    <Text style={styles.emptyFeatureDesc}>Gérez les versions de chaque plan avec historique et codes de révision.</Text>
-                  </View>
-                </View>
-              </>
-            )}
-          </View>
-
-          {/* CTA */}
-          {noChantier ? (
-            <TouchableOpacity style={styles.emptyBtn} onPress={() => router.push('/chantier/new' as any)}>
-              <Ionicons name="add-circle-outline" size={16} color="#fff" />
-              <Text style={styles.emptyBtnText}>Créer un chantier</Text>
-            </TouchableOpacity>
-          ) : permissions.canCreate ? (
-            <TouchableOpacity style={styles.emptyBtn} onPress={handleAddPlan}>
-              <Ionicons name="cloud-upload-outline" size={16} color="#fff" />
-              <Text style={styles.emptyBtnText}>Importer un plan</Text>
-            </TouchableOpacity>
-          ) : null}
-
-        </ScrollView>
-        <Modal visible={newPlanModal.visible} transparent animationType="fade" onRequestClose={() => setNewPlanModal(p => ({ ...p, visible: false }))}>
-          <TouchableOpacity style={styles.modalOverlay} activeOpacity={1} onPress={() => setNewPlanModal(p => ({ ...p, visible: false }))}>
-            <TouchableOpacity activeOpacity={1} style={[styles.modalCard, { marginBottom: kbHeight }]} onPress={() => {}}>
-              <View style={styles.modalHeader}>
-                <View style={[styles.modalPin, { backgroundColor: C.primary }]}><Ionicons name="map-outline" size={14} color="#fff" /></View>
-                <View style={{ flex: 1 }}><Text style={styles.modalTitle}>Nouveau plan</Text><Text style={styles.modalMeta}>Ajoutez un plan à ce chantier</Text></View>
-                <TouchableOpacity onPress={() => setNewPlanModal(p => ({ ...p, visible: false }))}><Ionicons name="close" size={20} color={C.textMuted} /></TouchableOpacity>
-              </View>
-              <View style={styles.newPlanField}>
-                <Text style={styles.newPlanLabel}>Nom du plan *</Text>
-                <TextInput style={styles.newPlanInput} placeholder="ex : Plan électrique" placeholderTextColor={C.textMuted} value={newPlanModal.name} onChangeText={v => setNewPlanModal(p => ({ ...p, name: v }))} autoFocus />
-              </View>
-              {chantierHierarchyBuildings.length > 0 ? (
-                <>
+                {levelsForNewPlanBuilding.length > 0 && (
                   <View style={styles.newPlanField}>
-                    <Text style={styles.newPlanLabel}>Bâtiment</Text>
+                    <Text style={styles.newPlanLabel}>Niveau</Text>
                     <ScrollView horizontal showsHorizontalScrollIndicator={false}>
                       <View style={{ flexDirection: 'row', gap: 8, paddingVertical: 4 }}>
-                        {chantierHierarchyBuildings.map(b => (
+                        {levelsForNewPlanBuilding.map(l => (
                           <TouchableOpacity
-                            key={b.id}
-                            style={[styles.newPlanChip, newPlanModal.building === b.name && styles.newPlanChipActive]}
-                            onPress={() => setNewPlanModal(p => ({ ...p, building: b.name, buildingId: b.id, level: '', levelId: undefined }))}
+                            key={l.id}
+                            style={[styles.newPlanChip, newPlanModal.level === l.name && styles.newPlanChipActive]}
+                            onPress={() => setNewPlanModal(p => ({ ...p, level: l.name, levelId: l.id }))}
                           >
-                            <Text style={[styles.newPlanChipText, newPlanModal.building === b.name && styles.newPlanChipTextActive]}>{b.name}</Text>
+                            <Text style={[styles.newPlanChipText, newPlanModal.level === l.name && styles.newPlanChipTextActive]}>{l.name}</Text>
                           </TouchableOpacity>
                         ))}
                       </View>
                     </ScrollView>
                   </View>
-                  {levelsForNewPlanBuilding.length > 0 && (
-                    <View style={styles.newPlanField}>
-                      <Text style={styles.newPlanLabel}>Niveau</Text>
-                      <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-                        <View style={{ flexDirection: 'row', gap: 8, paddingVertical: 4 }}>
-                          {levelsForNewPlanBuilding.map(l => (
-                            <TouchableOpacity
-                              key={l.id}
-                              style={[styles.newPlanChip, newPlanModal.level === l.name && styles.newPlanChipActive]}
-                              onPress={() => setNewPlanModal(p => ({ ...p, level: l.name, levelId: l.id }))}
-                            >
-                              <Text style={[styles.newPlanChipText, newPlanModal.level === l.name && styles.newPlanChipTextActive]}>{l.name}</Text>
-                            </TouchableOpacity>
-                          ))}
-                        </View>
-                      </ScrollView>
-                    </View>
-                  )}
-                </>
-              ) : (
-                <View style={styles.newPlanRow}>
-                  <View style={[styles.newPlanField, { flex: 1 }]}>
-                    <Text style={styles.newPlanLabel}>Bâtiment</Text>
-                    <TextInput style={styles.newPlanInput} placeholder="ex : Bât A" placeholderTextColor={C.textMuted} value={newPlanModal.building} onChangeText={v => setNewPlanModal(p => ({ ...p, building: v }))} />
-                  </View>
-                  <View style={[styles.newPlanField, { flex: 1 }]}>
-                    <Text style={styles.newPlanLabel}>Niveau</Text>
-                    <TextInput style={styles.newPlanInput} placeholder="ex : RDC, R+1" placeholderTextColor={C.textMuted} value={newPlanModal.level} onChangeText={v => setNewPlanModal(p => ({ ...p, level: v }))} />
-                  </View>
+                )}
+              </>
+            ) : (
+              <View style={styles.newPlanRow}>
+                <View style={[styles.newPlanField, { flex: 1 }]}>
+                  <Text style={styles.newPlanLabel}>Bâtiment</Text>
+                  <TextInput style={styles.newPlanInput} placeholder="ex : Bât A" placeholderTextColor={C.textMuted} value={newPlanModal.building} onChangeText={v => setNewPlanModal(p => ({ ...p, building: v }))} />
                 </View>
-              )}
-              <TouchableOpacity style={[styles.modalOpenBtn, !newPlanModal.name.trim() && { opacity: 0.5 }]} onPress={handleConfirmNewPlan} disabled={!newPlanModal.name.trim()}>
-                <Ionicons name="add-circle-outline" size={16} color={C.primary} />
-                <Text style={styles.modalOpenText}>Créer le plan</Text>
-              </TouchableOpacity>
+                <View style={[styles.newPlanField, { flex: 1 }]}>
+                  <Text style={styles.newPlanLabel}>Niveau</Text>
+                  <TextInput style={styles.newPlanInput} placeholder="ex : RDC, R+1" placeholderTextColor={C.textMuted} value={newPlanModal.level} onChangeText={v => setNewPlanModal(p => ({ ...p, level: v }))} />
+                </View>
+              </View>
+            )}
+            <TouchableOpacity style={[styles.modalOpenBtn, !newPlanModal.name.trim() && { opacity: 0.5 }]} onPress={handleConfirmNewPlan} disabled={!newPlanModal.name.trim()}>
+              <Ionicons name="add-circle-outline" size={16} color={C.primary} />
+              <Text style={styles.modalOpenText}>Créer le plan</Text>
             </TouchableOpacity>
           </TouchableOpacity>
-        </Modal>
+        </TouchableOpacity>
+      </Modal>
+    );
+
+    // ── Cas 1 : Aucun chantier actif → écran marketing ──────────────────────
+    if (noChantier) {
+      return (
+        <View style={styles.container}>
+          <View style={[styles.header, { paddingTop: topPad + 12, paddingLeft: 24, paddingRight: 16, paddingBottom: 6 }]}>
+            <Text style={styles.title}>Plans</Text>
+          </View>
+          <ScrollView contentContainerStyle={styles.emptyState} showsVerticalScrollIndicator={false}>
+            <View style={styles.emptyIconWrap}>
+              <Ionicons name="business-outline" size={44} color={C.primary} />
+            </View>
+            <Text style={styles.emptyTitle}>Aucun chantier actif</Text>
+            <Text style={styles.emptySubtitle}>Créez votre premier chantier pour commencer à gérer vos plans et réserves.</Text>
+            <View style={styles.emptyFeatures}>
+              <View style={styles.emptyFeatureRow}>
+                <View style={[styles.emptyFeatureDot, { backgroundColor: '#003082' }]}><Ionicons name="map-outline" size={14} color="#fff" /></View>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.emptyFeatureTitle}>Visualisez sur plan</Text>
+                  <Text style={styles.emptyFeatureDesc}>Placez chaque réserve directement sur votre plan de chantier.</Text>
+                </View>
+              </View>
+              <View style={styles.emptyFeatureRow}>
+                <View style={[styles.emptyFeatureDot, { backgroundColor: '#059669' }]}><Ionicons name="layers-outline" size={14} color="#fff" /></View>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.emptyFeatureTitle}>Hiérarchie Bâtiment › Niveau</Text>
+                  <Text style={styles.emptyFeatureDesc}>Organisez vos plans par bâtiment et niveau pour une navigation précise.</Text>
+                </View>
+              </View>
+              <View style={styles.emptyFeatureRow}>
+                <View style={[styles.emptyFeatureDot, { backgroundColor: '#7C3AED' }]}><Ionicons name="print-outline" size={14} color="#fff" /></View>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.emptyFeatureTitle}>Export PDF annoté</Text>
+                  <Text style={styles.emptyFeatureDesc}>Exportez vos plans avec les épingles numérotées et la liste des réserves.</Text>
+                </View>
+              </View>
+            </View>
+            <TouchableOpacity style={styles.emptyBtn} onPress={() => router.push('/chantier/new' as any)}>
+              <Ionicons name="add-circle-outline" size={16} color="#fff" />
+              <Text style={styles.emptyBtnText}>Créer un chantier</Text>
+            </TouchableOpacity>
+          </ScrollView>
+        </View>
+      );
+    }
+
+    // ── Cas 2 : Chantier actif + structure définie + 0 plans → arborescence ─
+    if (hasStructure) {
+      return (
+        <View style={styles.container}>
+          <View style={[styles.header, { paddingTop: topPad + 8 }]}>
+            <View style={styles.headerTop}>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.title}>Plans</Text>
+                {activeChantier && (
+                  <TouchableOpacity style={styles.chantierLabelRow} onPress={openChantierSwitcher} activeOpacity={0.7}>
+                    <Text style={styles.chantierLabel} numberOfLines={1}>{activeChantier.name}</Text>
+                    <Ionicons name="chevron-down" size={11} color={C.textMuted} />
+                  </TouchableOpacity>
+                )}
+              </View>
+              {permissions.canCreate && (
+                <TouchableOpacity style={styles.structureHeaderAddBtn} onPress={handleAddPlan}>
+                  <Ionicons name="add" size={15} color={C.primary} />
+                  <Text style={styles.structureHeaderAddText}>Ajouter un plan</Text>
+                </TouchableOpacity>
+              )}
+            </View>
+          </View>
+          <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: 40 }} showsVerticalScrollIndicator={false}>
+            <Text style={styles.structureHint}>
+              Votre chantier est configuré. Ajoutez des plans pour chaque niveau en appuyant sur le bouton&nbsp;«&nbsp;+&nbsp;».
+            </Text>
+            {chantierHierarchyBuildings.map(b => (
+              <View key={b.id} style={styles.structureBuilding}>
+                <View style={styles.structureBuildingHeader}>
+                  <Ionicons name="business-outline" size={15} color={C.text} />
+                  <Text style={styles.structureBuildingName}>{b.name}</Text>
+                </View>
+                {b.levels.map(l => (
+                  <View key={l.id} style={styles.structureLevelRow}>
+                    <Ionicons name="layers-outline" size={13} color={C.textSub} />
+                    <Text style={styles.structureLevelName}>{l.name}</Text>
+                    {permissions.canCreate && (
+                      <TouchableOpacity
+                        style={styles.structureLevelAddBtn}
+                        onPress={() => setNewPlanModal({ visible: true, name: '', building: b.name, buildingId: b.id, level: l.name, levelId: l.id })}
+                      >
+                        <Ionicons name="add" size={14} color={C.primary} />
+                        <Text style={styles.structureLevelAddText}>Ajouter un plan ici</Text>
+                      </TouchableOpacity>
+                    )}
+                  </View>
+                ))}
+              </View>
+            ))}
+          </ScrollView>
+          {newPlanModalJSX}
+        </View>
+      );
+    }
+
+    // ── Cas 3 : Chantier actif + pas de structure + 0 plans → configurer ────
+    return (
+      <View style={styles.container}>
+        <View style={[styles.header, { paddingTop: topPad + 12, paddingLeft: 24, paddingRight: 16, paddingBottom: 6 }]}>
+          <Text style={styles.title}>Plans</Text>
+          {activeChantier && (
+            <TouchableOpacity style={styles.chantierLabelRow} onPress={openChantierSwitcher} activeOpacity={0.7}>
+              <Text style={styles.chantierLabel} numberOfLines={1}>{activeChantier.name}</Text>
+              <Ionicons name="chevron-down" size={11} color={C.textMuted} />
+            </TouchableOpacity>
+          )}
+        </View>
+        <ScrollView contentContainerStyle={styles.emptyState} showsVerticalScrollIndicator={false}>
+          <View style={styles.emptyIconWrap}>
+            <Ionicons name="business-outline" size={44} color={C.primary} />
+          </View>
+          <Text style={styles.emptyTitle}>Configurez la structure</Text>
+          <Text style={styles.emptySubtitle}>
+            Définissez les bâtiments et niveaux de ce chantier pour pouvoir ajouter et localiser vos plans.
+          </Text>
+          <View style={styles.emptyFeatures}>
+            <View style={styles.emptyFeatureRow}>
+              <View style={[styles.emptyFeatureDot, { backgroundColor: '#003082' }]}><Ionicons name="git-branch-outline" size={14} color="#fff" /></View>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.emptyFeatureTitle}>Structure hiérarchique</Text>
+                <Text style={styles.emptyFeatureDesc}>Bâtiments, niveaux et zones — utilisés pour les plans, réserves, visites et OPRs.</Text>
+              </View>
+            </View>
+            <View style={styles.emptyFeatureRow}>
+              <View style={[styles.emptyFeatureDot, { backgroundColor: '#059669' }]}><Ionicons name="map-outline" size={14} color="#fff" /></View>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.emptyFeatureTitle}>Localisation précise</Text>
+                <Text style={styles.emptyFeatureDesc}>Chaque plan sera associé à un bâtiment et un niveau pour une navigation rapide.</Text>
+              </View>
+            </View>
+          </View>
+          <TouchableOpacity style={styles.emptyBtn} onPress={() => router.push('/settings' as any)}>
+            <Ionicons name="settings-outline" size={16} color="#fff" />
+            <Text style={styles.emptyBtnText}>Configurer dans les paramètres</Text>
+          </TouchableOpacity>
+        </ScrollView>
+        {newPlanModalJSX}
       </View>
     );
   }
@@ -2345,4 +2405,15 @@ const styles = StyleSheet.create({
   cancelBtnText: { fontSize: 14, fontFamily: 'Inter_500Medium', color: C.textSub },
   confirmBtn: { flex: 2, flexDirection: 'row', gap: 6, paddingVertical: 12, borderRadius: 12, backgroundColor: C.primary, alignItems: 'center', justifyContent: 'center' },
   confirmBtnText: { fontSize: 14, fontFamily: 'Inter_600SemiBold', color: '#fff' },
+
+  structureHint: { fontSize: 13, fontFamily: 'Inter_400Regular', color: C.textMuted, lineHeight: 19, marginBottom: 16, textAlign: 'center' },
+  structureHeaderAddBtn: { flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: 12, paddingVertical: 8, borderRadius: 10, backgroundColor: C.primaryBg, borderWidth: 1, borderColor: C.primary + '40' },
+  structureHeaderAddText: { fontSize: 13, fontFamily: 'Inter_600SemiBold', color: C.primary },
+  structureBuilding: { backgroundColor: C.surface, borderRadius: 14, borderWidth: 1, borderColor: C.border, marginBottom: 12, overflow: 'hidden' },
+  structureBuildingHeader: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 14, paddingVertical: 12, backgroundColor: C.surface2, borderBottomWidth: 1, borderBottomColor: C.border },
+  structureBuildingName: { fontSize: 14, fontFamily: 'Inter_600SemiBold', color: C.text, flex: 1 },
+  structureLevelRow: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 14, paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: C.border + '80' },
+  structureLevelName: { fontSize: 13, fontFamily: 'Inter_500Medium', color: C.textSub, flex: 1 },
+  structureLevelAddBtn: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 10, paddingVertical: 6, borderRadius: 8, backgroundColor: C.primaryBg, borderWidth: 1, borderColor: C.primary + '40' },
+  structureLevelAddText: { fontSize: 12, fontFamily: 'Inter_600SemiBold', color: C.primary },
 });
