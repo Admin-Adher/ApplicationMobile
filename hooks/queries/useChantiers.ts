@@ -159,6 +159,7 @@ export function useChantiers() {
     queryClient.invalidateQueries({ queryKey: queryKeys.visites() });
     queryClient.invalidateQueries({ queryKey: queryKeys.lots() });
     queryClient.invalidateQueries({ queryKey: queryKeys.oprs() });
+    queryClient.invalidateQueries({ queryKey: queryKeys.photos() });
     if (!isOnlineRef.current && isSupabaseConfigured) {
       enqueueOperation({ table: 'chantiers', op: 'delete', filter: { column: 'id', value: id } });
       return;
@@ -166,7 +167,14 @@ export function useChantiers() {
     if (isSupabaseConfigured) {
       try {
         const buildingChannelId = `building-${id}`;
+        // Récupérer les IDs des réserves avant suppression pour nettoyer les photos liées
+        const { data: reserveRows } = await supabase
+          .from('reserves').select('id').eq('chantier_id', id);
+        const reserveIds = (reserveRows ?? []).map((r: any) => r.id);
         await Promise.all([
+          reserveIds.length > 0
+            ? supabase.from('photos').delete().in('reserve_id', reserveIds)
+            : Promise.resolve(),
           supabase.from('reserves').delete().eq('chantier_id', id),
           supabase.from('tasks').delete().eq('chantier_id', id),
           supabase.from('visites').delete().eq('chantier_id', id),
