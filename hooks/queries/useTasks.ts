@@ -1,0 +1,142 @@
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useCallback, useEffect, useRef } from 'react';
+import { Alert } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { supabase, isSupabaseConfigured } from '@/lib/supabase';
+import { useAuth } from '@/context/AuthContext';
+import { useNetwork } from '@/context/NetworkContext';
+import { queryKeys } from '@/lib/queryKeys';
+import { toTask } from '@/lib/mappers';
+import { Task, Comment } from '@/constants/types';
+import { genId } from '@/lib/utils';
+
+const MOCK_TASKS_KEY = 'buildtrack_mock_tasks_v3';
+
+export function useTasks() {
+  const { user } = useAuth();
+  const { isOnline, enqueueOperation } = useNetwork();
+  const queryClient = useQueryClient();
+  const isOnlineRef = useRef(isOnline);
+  useEffect(() => { isOnlineRef.current = isOnline; }, [isOnline]);
+
+  const query = useQuery({
+    queryKey: queryKeys.tasks(),
+    queryFn: async (): Promise<Task[]> => {
+      if (!isSupabaseConfigured) {
+        const stored = await AsyncStorage.getItem(MOCK_TASKS_KEY).catch(() => null);
+        return stored ? JSON.parse(stored) : [];
+      }
+      const { data, error } = await supabase.from('tasks').select('*');
+      if (error) throw error;
+      return (data ?? []).map(toTask);
+    },
+    enabled: !!user,
+    staleTime: 5 * 60 * 1000,
+  });
+
+  const persist = useCallback((tasks: Task[]) => {
+    AsyncStorage.setItem(MOCK_TASKS_KEY, JSON.stringify(tasks)).catch(() => {});
+  }, []);
+
+  const addTask = useCallback(async (t: Task) => {
+    const orgId = user?.organizationId ?? null;
+    queryClient.setQueryData<Task[]>(queryKeys.tasks(), old => {
+      if ((old ?? []).some(x => x.id === t.id)) return old ?? [];
+      return [t, ...(old ?? [])];
+    });
+    persist(queryClient.getQueryData<Task[]>(queryKeys.tasks()) ?? []);
+    const payload = {
+      id: t.id, title: t.title, description: t.description, status: t.status,
+      priority: t.priority, start_date: t.startDate ?? null,
+      deadline: t.deadline, assignee: t.assignee, progress: t.progress, company: t.company,
+      reserve_id: t.reserveId ?? null, comments: t.comments ?? [], history: t.history ?? [],
+      chantier_id: t.chantierId ?? null, created_at: t.createdAt ?? new Date().toISOString(),
+      organization_id: orgId,
+    };
+    if (!isOnlineRef.current && isSupabaseConfigured) {
+      enqueueOperation({ table: 'tasks', op: 'insert', data: payload });
+      return;
+    }
+    if (isSupabaseConfigured) {
+      const { error } = await supabase.from('tasks').insert(payload);
+      if (error) console.warn('[sync] addTask error:', error.message);
+    }
+  }, [queryClient, user, isOnlineRef, enqueueOperation, persist]);
+
+  const updateTask = useCallback(async (t: Task) => {
+    queryClient.setQueryData<Task[]>(queryKeys.tasks(), old =>
+      (old ?? []).map(x => x.id === t.id ? t : x)
+    );
+    persist(queryClient.getQueryData<Task[]>(queryKeys.tasks()) ?? []);
+    const payload = {
+      title: t.title, description: t.description, status: t.status,
+      priority: t.priority, start_date: t.startDate ?? null,
+      deadline: t.deadline, assignee: t.assignee, progress: t.progress, company: t.company,
+      reserve_id: t.reserveId ?? null, comments: t.comments ?? [], history: t.history ?? [],
+      chantier_id: t.chantierId ?? null,
+    };
+    if (!isOnlineRef.current && isSupabaseConfigured) {
+      enqueueOperation({ table: 'tasks', op: 'update', filter: { column: 'id', value: t.id }, data: payload });
+      return;
+    }
+    if (isSupabaseConfigured) {
+      supabase.from('tasks').update(payload).eq('id', t.id).then(({ error }: { error: any }) => {
+        if (error) console.warn('[sync] updateTask error:', error.message);
+      });
+    }
+  }, [queryClient, isOnlineRef, enqueueOperation, persist]);
+
+  const deleteTask = useCallback(async (id: string) => {
+    const prev = queryClient.getQueryData<Task[]>(queryKeys.tasks()) ?? [];
+    const previous = prev.find(t => t.id === id);
+    queryClient.setQueryData<Task[]>(queryKeys.tasks(), prev.filter(t => t.id !== id));
+    persist(prev.filter(t => t.id !== id));
+    if (!isOnlineRef.current && isSupabaseConfigured) {
+      enqueueOperation({ table: 'tasks', op: 'delete', filter: { column: 'id', value: id } });
+      return;
+    }
+    if (isSupabaseConfigured) {
+      const { data: deleted, error } = await supabase.from('tasks').delete().eq('id', id).select();
+      if (error) {
+        console.warn('[sync] deleteTask erreur serveur:', error.message);
+        if (previous) {
+          queryClient.setQueryData<Task[]>(queryKeys.tasks(), old => [previous, ...(old ?? [])]);
+          Alert.alert('Suppression refusée', 'Vous n\'avez pas les droits pour supprimer cette tâche, ou elle n\'existe plus sur le serveur.');
+        }
+      } else if (!deleted?.length) {
+        console.warn('[sync] deleteTask: aucune ligne supprimée');
+      }
+    }
+  }, [queryClient, isOnlineRef, enqueueOperation, persist]);
+
+  const addTaskComment = useCallback(async (taskId: string, content: string, author?: string) => {
+    const tasks = queryClient.getQueryData<Task[]>(queryKeys.tasks()) ?? [];
+    const task = tasks.find(t => t.id === taskId);
+    if (!task) return;
+    const comment: Comment = {
+      id: genId(), content, author: author ?? user?.name ?? 'Inconnu',
+      createdAt: new Date().toISOString().split('T')[0],
+    };
+    const updated: Task = { ...task, comments: [...(task.comments ?? []), comment] };
+    queryClient.setQueryData<Task[]>(queryKeys.tasks(), old =>
+      (old ?? []).map(t => t.id === taskId ? updated : t)
+    );
+    persist(queryClient.getQueryData<Task[]>(queryKeys.tasks()) ?? []);
+    if (isSupabaseConfigured) {
+      supabase.from('tasks').update({ comments: updated.comments }).eq('id', taskId)
+        .then(({ error }: { error: any }) => {
+          if (error) console.warn('[sync] addTaskComment error:', error.message);
+        });
+    }
+  }, [queryClient, user, persist]);
+
+  return {
+    tasks: query.data ?? [],
+    isLoadingTasks: query.isLoading,
+    addTask,
+    updateTask,
+    deleteTask,
+    addTaskComment,
+    invalidateTasks: () => queryClient.invalidateQueries({ queryKey: queryKeys.tasks() }),
+  };
+}

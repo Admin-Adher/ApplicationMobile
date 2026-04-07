@@ -1,0 +1,258 @@
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useCallback, useEffect, useRef } from 'react';
+import { Alert } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { supabase, isSupabaseConfigured } from '@/lib/supabase';
+import { useAuth } from '@/context/AuthContext';
+import { useNetwork } from '@/context/NetworkContext';
+import { queryKeys } from '@/lib/queryKeys';
+import { toReserve } from '@/lib/mappers';
+import { Reserve, ReserveStatus, Comment } from '@/constants/types';
+import { genId, formatDateFR } from '@/lib/utils';
+import { genReserveId } from '@/lib/reserveUtils';
+
+const MOCK_RESERVES_KEY = 'buildtrack_mock_reserves_v3';
+
+export function useReserves() {
+  const { user } = useAuth();
+  const { isOnline, enqueueOperation } = useNetwork();
+  const queryClient = useQueryClient();
+  const isOnlineRef = useRef(isOnline);
+  useEffect(() => { isOnlineRef.current = isOnline; }, [isOnline]);
+
+  const query = useQuery({
+    queryKey: queryKeys.reserves(),
+    queryFn: async (): Promise<Reserve[]> => {
+      if (!isSupabaseConfigured) {
+        const stored = await AsyncStorage.getItem(MOCK_RESERVES_KEY).catch(() => null);
+        return stored ? JSON.parse(stored) : [];
+      }
+      const { data, error } = await supabase
+        .from('reserves').select('*').order('created_at', { ascending: false });
+      if (error) throw error;
+      return (data ?? []).map(toReserve);
+    },
+    enabled: !!user,
+    staleTime: 5 * 60 * 1000,
+  });
+
+  const persist = useCallback((reserves: Reserve[]) => {
+    AsyncStorage.setItem(MOCK_RESERVES_KEY, JSON.stringify(reserves)).catch(() => {});
+  }, []);
+
+  const addReserve = useCallback(async (r: Reserve) => {
+    const orgId = user?.organizationId ?? null;
+    queryClient.setQueryData<Reserve[]>(queryKeys.reserves(), old => {
+      if ((old ?? []).some(x => x.id === r.id)) return old ?? [];
+      return [r, ...(old ?? [])];
+    });
+    persist(queryClient.getQueryData<Reserve[]>(queryKeys.reserves()) ?? []);
+    const payload = {
+      id: r.id, title: r.title, description: r.description, building: r.building,
+      zone: r.zone, level: r.level,
+      company: (r.companies ?? (r.company ? [r.company] : []))[0] ?? null,
+      companies: r.companies ?? (r.company ? [r.company] : []),
+      priority: r.priority, status: r.status, created_at: r.createdAt, deadline: r.deadline,
+      comments: r.comments, history: r.history,
+      plan_x: r.planX ?? 50, plan_y: r.planY ?? 50,
+      photo_uri: r.photoUri ?? null, lot_id: r.lotId ?? null, kind: r.kind ?? null,
+      chantier_id: r.chantierId ?? null, plan_id: r.planId ?? null,
+      visite_id: r.visiteId ?? null, linked_task_id: r.linkedTaskId ?? null,
+      photos: r.photos ?? null, photo_annotations: r.photoAnnotations ?? null,
+      enterprise_signature: r.enterpriseSignature ?? null,
+      enterprise_signataire: r.enterpriseSignataire ?? null,
+      enterprise_acknowledged_at: r.enterpriseAcknowledgedAt ?? null,
+      company_signatures: r.companySignatures ?? null,
+      organization_id: orgId,
+    };
+    if (!isOnlineRef.current && isSupabaseConfigured) {
+      enqueueOperation({ table: 'reserves', op: 'insert', data: payload });
+      return;
+    }
+    if (isSupabaseConfigured) {
+      const { error } = await supabase.from('reserves').insert(payload);
+      if (error) console.warn('[sync] addReserve server error:', error.message);
+    }
+  }, [queryClient, user, isOnlineRef, enqueueOperation, persist]);
+
+  const updateReserve = useCallback(async (r: Reserve) => {
+    queryClient.setQueryData<Reserve[]>(queryKeys.reserves(), old =>
+      (old ?? []).map(x => x.id === r.id ? r : x)
+    );
+    persist(queryClient.getQueryData<Reserve[]>(queryKeys.reserves()) ?? []);
+    const payload = {
+      title: r.title, description: r.description, building: r.building,
+      zone: r.zone, level: r.level,
+      company: (r.companies ?? (r.company ? [r.company] : []))[0] ?? null,
+      companies: r.companies ?? (r.company ? [r.company] : []),
+      priority: r.priority, status: r.status, deadline: r.deadline,
+      comments: r.comments, history: r.history,
+      plan_x: r.planX ?? 50, plan_y: r.planY ?? 50,
+      photo_uri: r.photoUri ?? null, lot_id: r.lotId ?? null, kind: r.kind ?? null,
+      chantier_id: r.chantierId ?? null, plan_id: r.planId ?? null,
+      visite_id: r.visiteId ?? null, linked_task_id: r.linkedTaskId ?? null,
+      photos: r.photos ?? null, photo_annotations: r.photoAnnotations ?? null,
+      enterprise_signature: r.enterpriseSignature ?? null,
+      enterprise_signataire: r.enterpriseSignataire ?? null,
+      enterprise_acknowledged_at: r.enterpriseAcknowledgedAt ?? null,
+      company_signatures: r.companySignatures ?? null,
+      closed_at: r.closedAt ?? null, closed_by: r.closedBy ?? null,
+    };
+    if (!isOnlineRef.current && isSupabaseConfigured) {
+      enqueueOperation({ table: 'reserves', op: 'update', filter: { column: 'id', value: r.id }, data: payload });
+      return;
+    }
+    if (isSupabaseConfigured) {
+      supabase.from('reserves').update(payload).eq('id', r.id).then(({ error }: { error: any }) => {
+        if (error) console.warn('[sync] updateReserve error:', error.message);
+      });
+    }
+  }, [queryClient, isOnlineRef, enqueueOperation, persist]);
+
+  const updateReserveFields = useCallback(async (r: Reserve) => {
+    return updateReserve(r);
+  }, [updateReserve]);
+
+  const deleteReserve = useCallback(async (id: string) => {
+    const prev = queryClient.getQueryData<Reserve[]>(queryKeys.reserves()) ?? [];
+    const previous = prev.find(r => r.id === id);
+    queryClient.setQueryData<Reserve[]>(queryKeys.reserves(), prev.filter(r => r.id !== id));
+    persist(prev.filter(r => r.id !== id));
+    if (!isOnlineRef.current && isSupabaseConfigured) {
+      enqueueOperation({ table: 'reserves', op: 'delete', filter: { column: 'id', value: id } });
+      return;
+    }
+    if (isSupabaseConfigured) {
+      const { data: deleted, error } = await supabase.from('reserves').delete().eq('id', id).select();
+      if (error) {
+        console.warn('[sync] deleteReserve erreur serveur:', error.message);
+        if (previous) {
+          queryClient.setQueryData<Reserve[]>(queryKeys.reserves(), old => [previous, ...(old ?? [])]);
+          persist([previous, ...(queryClient.getQueryData<Reserve[]>(queryKeys.reserves()) ?? [])]);
+          Alert.alert('Suppression refusée', 'Vous n\'avez pas les droits pour supprimer cette réserve, ou elle n\'existe plus sur le serveur.');
+        }
+      } else if (!deleted?.length) {
+        console.warn('[sync] deleteReserve: aucune ligne supprimée');
+      }
+    }
+  }, [queryClient, isOnlineRef, enqueueOperation, persist]);
+
+  const updateReserveStatus = useCallback(async (id: string, status: ReserveStatus, author?: string) => {
+    const reserves = queryClient.getQueryData<Reserve[]>(queryKeys.reserves()) ?? [];
+    const reserve = reserves.find(r => r.id === id);
+    if (!reserve) return;
+    const actualAuthor = author ?? user?.name ?? 'Système';
+    const now = new Date().toISOString().split('T')[0];
+    const statusLabels: Record<string, string> = {
+      open: 'Ouvert', in_progress: 'En cours', waiting: 'En attente',
+      verification: 'Vérification', closed: 'Clôturé',
+    };
+    const historyEntry = {
+      id: genId(), action: 'Statut modifié', author: actualAuthor, createdAt: now,
+      oldValue: statusLabels[reserve.status], newValue: statusLabels[status],
+    };
+    const isClosing = status === 'closed' && reserve.status !== 'closed';
+    const updated: Reserve = {
+      ...reserve, status,
+      history: [...reserve.history, historyEntry],
+      closedAt: isClosing ? now : reserve.closedAt,
+      closedBy: isClosing ? actualAuthor : reserve.closedBy,
+    };
+    return updateReserve(updated);
+  }, [queryClient, user, updateReserve]);
+
+  const addComment = useCallback(async (reserveId: string, content: string, author?: string) => {
+    const reserves = queryClient.getQueryData<Reserve[]>(queryKeys.reserves()) ?? [];
+    const reserve = reserves.find(r => r.id === reserveId);
+    if (!reserve) return;
+    const comment: Comment = {
+      id: genId(), content, author: author ?? user?.name ?? 'Inconnu',
+      createdAt: new Date().toISOString().split('T')[0],
+    };
+    const updated: Reserve = { ...reserve, comments: [...reserve.comments, comment] };
+    queryClient.setQueryData<Reserve[]>(queryKeys.reserves(), old =>
+      (old ?? []).map(r => r.id === reserveId ? updated : r)
+    );
+    persist(queryClient.getQueryData<Reserve[]>(queryKeys.reserves()) ?? []);
+    if (isSupabaseConfigured) {
+      supabase.from('reserves').update({ comments: updated.comments }).eq('id', reserveId)
+        .then(({ error }: { error: any }) => {
+          if (error) console.warn('[sync] addComment error:', error.message);
+        });
+    }
+  }, [queryClient, user, persist]);
+
+  const batchUpdateReserves = useCallback(async (
+    ids: string[],
+    updates: Partial<Pick<Reserve, 'status' | 'company' | 'companies' | 'deadline' | 'priority'>>,
+    author?: string
+  ) => {
+    const actualAuthor = author ?? user?.name ?? 'Système';
+    const statusLabels: Record<string, string> = {
+      open: 'Ouvert', in_progress: 'En cours', waiting: 'En attente',
+      verification: 'Vérification', closed: 'Clôturé',
+    };
+    const now = new Date().toISOString().split('T')[0];
+    const reserves = queryClient.getQueryData<Reserve[]>(queryKeys.reserves()) ?? [];
+    const updated: Reserve[] = [];
+    for (const id of ids) {
+      const reserve = reserves.find(r => r.id === id);
+      if (!reserve) continue;
+      const historyEntries: typeof reserve.history = [];
+      if (updates.status && updates.status !== reserve.status) {
+        historyEntries.push({
+          id: genId(), action: 'Statut modifié (lot)', author: actualAuthor, createdAt: now,
+          oldValue: statusLabels[reserve.status], newValue: statusLabels[updates.status],
+        });
+      }
+      const newCompanies = updates.companies ?? (updates.company ? [updates.company] : undefined);
+      const oldCompanies = reserve.companies ?? (reserve.company ? [reserve.company] : []);
+      if (newCompanies && JSON.stringify(newCompanies) !== JSON.stringify(oldCompanies)) {
+        historyEntries.push({
+          id: genId(), action: 'Entreprises modifiées (lot)', author: actualAuthor, createdAt: now,
+          oldValue: oldCompanies.join(', '), newValue: newCompanies.join(', '),
+        });
+      }
+      const isClosing = updates.status === 'closed' && reserve.status !== 'closed';
+      const r: Reserve = {
+        ...reserve, ...updates,
+        companies: newCompanies ?? oldCompanies,
+        company: (newCompanies ?? oldCompanies)[0] ?? reserve.company,
+        history: [...reserve.history, ...historyEntries],
+        closedAt: isClosing ? now : reserve.closedAt,
+        closedBy: isClosing ? actualAuthor : reserve.closedBy,
+      };
+      updated.push(r);
+    }
+    const updatedMap = new Map(updated.map(r => [r.id, r]));
+    queryClient.setQueryData<Reserve[]>(queryKeys.reserves(), old =>
+      (old ?? []).map(r => updatedMap.has(r.id) ? updatedMap.get(r.id)! : r)
+    );
+    if (isSupabaseConfigured) {
+      Promise.all(updated.map(r =>
+        supabase.from('reserves').update({
+          status: r.status,
+          company: (r.companies ?? (r.company ? [r.company] : []))[0] ?? null,
+          companies: r.companies ?? (r.company ? [r.company] : []),
+          deadline: r.deadline, priority: r.priority, history: r.history,
+          closed_at: r.closedAt ?? null, closed_by: r.closedBy ?? null,
+        }).eq('id', r.id)
+      )).then(results => {
+        if (results.some((res: any) => res.error)) console.warn('[sync] batchUpdateReserves some errors');
+      });
+    }
+  }, [queryClient, user]);
+
+  return {
+    reserves: query.data ?? [],
+    isLoadingReserves: query.isLoading,
+    addReserve,
+    updateReserve,
+    updateReserveFields,
+    deleteReserve,
+    updateReserveStatus,
+    addComment,
+    batchUpdateReserves,
+    invalidateReserves: () => queryClient.invalidateQueries({ queryKey: queryKeys.reserves() }),
+  };
+}
