@@ -547,4 +547,6 @@ export function useAppContext(): AppContextValue {
   return ctx;
 }
 
+export const useApp = useAppContext;
+
 export { AppContext };
