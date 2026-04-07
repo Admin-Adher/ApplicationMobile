@@ -22,15 +22,10 @@ const STATUS_LABELS: Record<string, { label: string; color: string; icon: string
 export default function ManageChantiersScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
-  const { chantiers, sitePlans, reserves, activeChantierId, setActiveChantier, deleteChantier, updateChantier, companies } = useApp();
+  const { chantiers, sitePlans, reserves, activeChantierId, deleteChantier, updateChantier, companies } = useApp();
   const { permissions } = useAuth();
 
   const [structureModal, setStructureModal] = useState<{ chantier: Chantier; buildings: ChantierBuilding[] } | null>(null);
-
-  function handleSetActive(id: string) {
-    if (id === activeChantierId) return;
-    setActiveChantier(id);
-  }
 
   function handleDelete(id: string, name: string) {
     const planCount = sitePlans.filter(p => p.chantierId === id).length;
@@ -86,12 +81,6 @@ export default function ManageChantiersScreen() {
 
               return (
                 <View key={chantier.id} style={[styles.chantierCard, isActive && styles.chantierCardActive]}>
-                  {isActive && (
-                    <View style={styles.activeBanner}>
-                      <Ionicons name="radio-button-on" size={11} color={C.closed} />
-                      <Text style={styles.activeBannerText}>Chantier actif</Text>
-                    </View>
-                  )}
                   <View style={styles.chantierHeader}>
                     <View style={[styles.chantierIconWrap, { backgroundColor: isActive ? C.primary + '20' : C.surface2 }]}>
                       <Ionicons name="business" size={22} color={isActive ? C.primary : C.textSub} />
@@ -156,15 +145,6 @@ export default function ManageChantiersScreen() {
                   )}
 
                   <View style={styles.chantierActions}>
-                    {!isActive && (
-                      <TouchableOpacity
-                        style={styles.actionBtn}
-                        onPress={() => handleSetActive(chantier.id)}
-                      >
-                        <Ionicons name="radio-button-off-outline" size={14} color={C.primary} />
-                        <Text style={styles.actionBtnText}>Activer</Text>
-                      </TouchableOpacity>
-                    )}
                     {permissions.canCreate && (
                       <TouchableOpacity
                         style={[styles.actionBtn, { borderColor: C.primary + '50' }]}
@@ -262,8 +242,6 @@ const styles = StyleSheet.create({
   emptyBtnText: { fontSize: 14, fontFamily: 'Inter_600SemiBold', color: '#fff' },
   chantierCard: { backgroundColor: C.surface, borderRadius: 16, padding: 16, marginBottom: 14, borderWidth: 1, borderColor: C.border },
   chantierCardActive: { borderColor: C.primary + '60', backgroundColor: C.primaryBg + '40' },
-  activeBanner: { flexDirection: 'row', alignItems: 'center', gap: 5, marginBottom: 10 },
-  activeBannerText: { fontSize: 11, fontFamily: 'Inter_600SemiBold', color: C.closed, textTransform: 'uppercase', letterSpacing: 0.5 },
   chantierHeader: { flexDirection: 'row', alignItems: 'flex-start', gap: 12, marginBottom: 12 },
   chantierIconWrap: { width: 44, height: 44, borderRadius: 12, alignItems: 'center', justifyContent: 'center' },
   chantierName: { fontSize: 16, fontFamily: 'Inter_700Bold', color: C.text },
