@@ -168,11 +168,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   useEffect(() => {
-    if (activeChantierId) return;
-    const first = chantiersH.chantiers[0];
-    if (!first) return;
-    setActiveChantierIdState(first.id);
-    AsyncStorage.setItem(ACTIVE_CHANTIER_KEY, first.id).catch(() => {});
+    const chantiers = chantiersH.chantiers;
+    if (!chantiers.length) return;
+    const exists = activeChantierId && chantiers.some(c => c.id === activeChantierId);
+    if (exists) return;
+    setActiveChantierIdState(chantiers[0].id);
+    AsyncStorage.setItem(ACTIVE_CHANTIER_KEY, chantiers[0].id).catch(() => {});
   }, [chantiersH.chantiers, activeChantierId]);
 
   useEffect(() => {
