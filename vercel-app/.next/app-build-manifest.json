@@ -1,0 +1,48 @@
+{
+  "pages": {
+    "/_not-found/page": [
+      "static/chunks/webpack-078f6dfb37dff419.js",
+      "static/chunks/4bd1b696-c023c6e3521b1417.js",
+      "static/chunks/255-38b49df12a94ee57.js",
+      "static/chunks/main-app-b558c34ade0d60f6.js",
+      "static/chunks/app/_not-found/page-a6ab87e7ca0951c9.js"
+    ],
+    "/layout": [
+      "static/chunks/webpack-078f6dfb37dff419.js",
+      "static/chunks/4bd1b696-c023c6e3521b1417.js",
+      "static/chunks/255-38b49df12a94ee57.js",
+      "static/chunks/main-app-b558c34ade0d60f6.js",
+      "static/chunks/app/layout-14c1473acfdda210.js"
+    ],
+    "/.well-known/apple-app-site-association/route": [
+      "static/chunks/webpack-078f6dfb37dff419.js",
+      "static/chunks/4bd1b696-c023c6e3521b1417.js",
+      "static/chunks/255-38b49df12a94ee57.js",
+      "static/chunks/main-app-b558c34ade0d60f6.js",
+      "static/chunks/app/.well-known/apple-app-site-association/route-14c1473acfdda210.js"
+    ],
+    "/api/send-email/route": [
+      "static/chunks/webpack-078f6dfb37dff419.js",
+      "static/chunks/4bd1b696-c023c6e3521b1417.js",
+      "static/chunks/255-38b49df12a94ee57.js",
+      "static/chunks/main-app-b558c34ade0d60f6.js",
+      "static/chunks/app/api/send-email/route-14c1473acfdda210.js"
+    ],
+    "/invite/page": [
+      "static/chunks/webpack-078f6dfb37dff419.js",
+      "static/chunks/4bd1b696-c023c6e3521b1417.js",
+      "static/chunks/255-38b49df12a94ee57.js",
+      "static/chunks/main-app-b558c34ade0d60f6.js",
+      "static/chunks/app/invite/page-0b54f0b295a91696.js"
+    ],
+    "/reset-password/page": [
+      "static/chunks/webpack-078f6dfb37dff419.js",
+      "static/chunks/4bd1b696-c023c6e3521b1417.js",
+      "static/chunks/255-38b49df12a94ee57.js",
+      "static/chunks/main-app-b558c34ade0d60f6.js",
+      "static/chunks/44530001-2a95bb40d7cb4c97.js",
+      "static/chunks/533-fe402d84d6d59f47.js",
+      "static/chunks/app/reset-password/page-31a757741dccd0d4.js"
+    ]
+  }
+}
