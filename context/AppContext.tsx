@@ -1445,7 +1445,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         { data: photos },
         { data: profilesData },
         storedActiveChantierIdEarly,
-        { data: chantiersForFilter },
+        { data: chantiersForFilter, error: chantiersRawErr },
+        { data: sitePlansDataEarly, error: sitePlansErrEarly },
       ] = await Promise.all([
         supabase.from('reserves').select('*').order('created_at', { ascending: false }),
         supabase.from('companies').select('*'),
@@ -1459,7 +1460,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           : supabase.from('profiles')
               .select('id, name, role, role_label, email'),
         AsyncStorage.getItem(ACTIVE_CHANTIER_KEY).catch(() => null),
-        supabase.from('chantiers').select('id, company_ids'),
+        supabase.from('chantiers').select('*').order('created_at', { ascending: false }),
+        supabase.from('site_plans').select('*').order('created_at', { ascending: false }),
       ]);
       debugLogOk(`[AppContext] Promise.all OK → réserves=${reserves?.length ?? 0}, entreprises=${companies?.length ?? 0}, tâches=${tasks?.length ?? 0}, profils=${profilesData?.length ?? 0}${reservesErr ? ' ⚠ err_reserves=' + reservesErr.code : ''}`);
 
@@ -1583,7 +1585,117 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         persistMockCompanies(resolvedCompanies);
       }
 
-      // Apply company-based chantier visibility filter
+      // ── Chantiers: traitement complet en parallèle avec les autres données ──
+      // En chargeant les chantiers dans le Promise.all initial, activeChantierId
+      // est résolu AVANT le dispatch INIT → pas de flash "Aucun chantier actif"
+      // même à la première connexion (quand AsyncStorage est vide).
+      let resolvedChantiers: Chantier[] = [];
+      if (!chantiersRawErr && chantiersForFilter !== null) {
+        const supabaseChantiers = (chantiersForFilter as any[]).map(toChantier);
+        if (supabaseChantiers.length > 0) {
+          resolvedChantiers = supabaseChantiers;
+          persistMockChantiers(resolvedChantiers);
+        } else {
+          const sc = await AsyncStorage.getItem(MOCK_CHANTIERS_KEY).catch(() => null);
+          const localChantiers: Chantier[] = sc ? (JSON.parse(sc) ?? []) : [];
+          if (localChantiers.length > 0) {
+            resolvedChantiers = localChantiers;
+            const syncOrgId = currentUserOrgIdRef.current;
+            (async () => {
+              for (const ch of localChantiers) {
+                await supabase.from('chantiers').upsert({
+                  id: ch.id, name: ch.name, address: ch.address ?? null,
+                  description: ch.description ?? null, start_date: ch.startDate ?? null,
+                  end_date: ch.endDate ?? null, status: ch.status, created_by: ch.createdBy ?? null,
+                  buildings: ch.buildings ? JSON.stringify(ch.buildings) : null,
+                  organization_id: syncOrgId ?? null,
+                }).catch(() => {});
+              }
+            })();
+          }
+        }
+      } else {
+        const sc = await AsyncStorage.getItem(MOCK_CHANTIERS_KEY).catch(() => null);
+        if (sc) { const p = JSON.parse(sc); if (Array.isArray(p)) resolvedChantiers = p; }
+      }
+
+      // ── Site plans: traitement complet en parallèle ───────────────────────
+      let resolvedSitePlans: SitePlan[] = [];
+      if (!sitePlansErrEarly && sitePlansDataEarly !== null) {
+        const supabasePlans = sitePlansDataEarly.map(toSitePlan);
+        if (supabasePlans.length > 0) {
+          resolvedSitePlans = supabasePlans;
+          persistMockSitePlans(resolvedSitePlans);
+        } else {
+          const ssp = await AsyncStorage.getItem(MOCK_SITE_PLANS_KEY).catch(() => null);
+          const localPlans: SitePlan[] = ssp ? (JSON.parse(ssp) ?? []) : [];
+          if (localPlans.length > 0) {
+            resolvedSitePlans = localPlans;
+            (async () => {
+              for (const p of localPlans) {
+                await supabase.from('site_plans').upsert({
+                  id: p.id, chantier_id: p.chantierId, name: p.name,
+                  building: p.building ?? null, level: p.level ?? null,
+                  building_id: p.buildingId ?? null, level_id: p.levelId ?? null,
+                  uri: p.uri ?? null, file_type: p.fileType ?? null,
+                  uploaded_at: p.uploadedAt, size: p.size ?? null,
+                }).catch(() => {});
+              }
+            })();
+          }
+        }
+      } else {
+        const ssp = await AsyncStorage.getItem(MOCK_SITE_PLANS_KEY).catch(() => null);
+        if (ssp) { const p = JSON.parse(ssp); if (Array.isArray(p)) resolvedSitePlans = p; }
+      }
+
+      // Mettre à jour la carte de visibilité avec les données complètes des chantiers
+      for (const ch of resolvedChantiers) {
+        const cids = (ch as any).companyIds ?? [];
+        if (isPrivilegedRole || cids.length === 0) {
+          chantierVisibility.set(ch.id, true);
+        } else {
+          chantierVisibility.set(ch.id, loadedCompanyId ? cids.includes(loadedCompanyId) : false);
+        }
+      }
+      const visibleChantiers = resolvedChantiers.filter(ch => isChantierIdVisible(ch.id));
+      const visibleSitePlans = resolvedSitePlans.filter(p => isChantierIdVisible(p.chantierId));
+
+      // Réconciliation des IDs de plans
+      const { plans: reconciledPlans, changed: reconciledChanged } = reconcilePlanIds(visibleSitePlans, visibleChantiers);
+      const finalSitePlans = reconciledChanged.length > 0 ? reconciledPlans : visibleSitePlans;
+      if (reconciledChanged.length > 0) {
+        persistMockSitePlans(reconciledPlans);
+        if (isSupabaseConfigured) {
+          (async () => {
+            for (const p of reconciledChanged) {
+              await supabase.from('site_plans').update({
+                building_id: p.buildingId ?? null,
+                level_id: p.levelId ?? null,
+              }).eq('id', p.id).catch(() => {});
+            }
+          })();
+        }
+      }
+
+      // Déterminer l'ID du chantier actif AVANT le dispatch INIT pour éviter
+      // tout flash "Aucun chantier actif" à la première connexion
+      let resolvedActiveChantierId: string | null = storedActiveChantierIdEarly ?? null;
+      if (!resolvedActiveChantierId || !visibleChantiers.some(c => c.id === resolvedActiveChantierId)) {
+        resolvedActiveChantierId = visibleChantiers[0]?.id ?? null;
+        if (resolvedActiveChantierId) {
+          AsyncStorage.setItem(ACTIVE_CHANTIER_KEY, resolvedActiveChantierId).catch(() => {});
+        }
+      }
+
+      // Dispatcher les chantiers et le chantier actif AVANT isLoading=false
+      dispatch({ type: 'SET_CHANTIERS', payload: visibleChantiers });
+      dispatch({ type: 'SET_SITE_PLANS', payload: finalSitePlans });
+      if (resolvedActiveChantierId) {
+        dispatch({ type: 'SET_ACTIVE_CHANTIER', payload: resolvedActiveChantierId });
+      }
+      debugLogOk(`[AppContext] Chantiers pré-chargés → ${visibleChantiers.length} chantier(s), actif=${resolvedActiveChantierId ?? 'aucun'}`);
+
       resolvedReserves = resolvedReserves.filter(r => isChantierIdVisible(r.chantierId));
       const resolvedTasks = (tasks ?? []).map(toTask).filter(t => isChantierIdVisible(t.chantierId));
 
@@ -1600,9 +1712,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           profiles: (profilesData ?? []).map((p: any) => ({ id: p.id, name: p.name, role: p.role, roleLabel: p.role_label ?? ROLE_LABELS[p.role as UserRole] ?? p.role, email: p.email })),
         },
       });
-      if (storedActiveChantierIdEarly) {
-        dispatch({ type: 'SET_ACTIVE_CHANTIER', payload: storedActiveChantierIdEarly });
-      }
 
       // Préchargement non bloquant du dernier message par canal pour l'onglet Messages
       ;(async () => {
@@ -1619,166 +1728,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           }
         } catch {}
       })();
-
-      let chantiers: Chantier[] = [];
-      let sitePlans: SitePlan[] = [];
-      let activeChantierId: string | null = null;
-
-      debugLog('[AppContext] Chantiers → chargement complet…');
-      try {
-        const { data: chantiersData, error: chantiersErr } = await supabase
-          .from('chantiers').select('*').order('created_at', { ascending: false });
-        if (!chantiersErr && chantiersData !== null) {
-          const supabaseChantiers = chantiersData.map(toChantier);
-          if (supabaseChantiers.length > 0) {
-            chantiers = supabaseChantiers;
-            persistMockChantiers(chantiers);
-          } else {
-            // Supabase returned 0 — check local cache before trusting this empty result
-            const sc = await AsyncStorage.getItem(MOCK_CHANTIERS_KEY).catch(() => null);
-            const localChantiers: Chantier[] = sc ? (JSON.parse(sc) ?? []) : [];
-            if (localChantiers.length > 0) {
-              // Local cache has data that Supabase doesn't — push it up automatically
-              chantiers = localChantiers;
-              (async () => {
-                for (const ch of localChantiers) {
-                  const { error: syncErr } = await supabase.from('chantiers').upsert({
-                    id: ch.id,
-                    name: ch.name,
-                    address: ch.address ?? null,
-                    description: ch.description ?? null,
-                    start_date: ch.startDate ?? null,
-                    end_date: ch.endDate ?? null,
-                    status: ch.status,
-                    created_by: ch.createdBy ?? null,
-                    buildings: ch.buildings ? JSON.stringify(ch.buildings) : null,
-                    organization_id: currentUserOrgIdRef.current ?? null,
-                  });
-                }
-              })();
-            } else {
-              chantiers = [];
-            }
-          }
-        } else {
-          const sc = await AsyncStorage.getItem(MOCK_CHANTIERS_KEY);
-          if (sc) {
-            const p = JSON.parse(sc);
-            if (Array.isArray(p)) chantiers = p;
-          }
-        }
-      } catch (e) {
-        const sc = await AsyncStorage.getItem(MOCK_CHANTIERS_KEY).catch(() => null);
-        if (sc) { const p = JSON.parse(sc); if (Array.isArray(p)) chantiers = p; }
-      }
-
-      try {
-        const { data: sitePlansData, error: sitePlansErr } = await supabase
-          .from('site_plans').select('*').order('created_at', { ascending: false });
-        if (!sitePlansErr && sitePlansData !== null) {
-          const supabasePlans = sitePlansData.map(toSitePlan);
-          if (supabasePlans.length > 0) {
-            sitePlans = supabasePlans;
-            persistMockSitePlans(sitePlans);
-          } else {
-            // Supabase returned 0 — check local cache before overwriting
-            const ssp = await AsyncStorage.getItem(MOCK_SITE_PLANS_KEY).catch(() => null);
-            const localPlans: SitePlan[] = ssp ? (JSON.parse(ssp) ?? []) : [];
-            if (localPlans.length > 0) {
-              sitePlans = localPlans;
-              (async () => {
-                for (const p of localPlans) {
-                  const { error: syncErr } = await supabase.from('site_plans').upsert({
-                    id: p.id,
-                    chantier_id: p.chantierId,
-                    name: p.name,
-                    building: p.building ?? null,
-                    level: p.level ?? null,
-                    building_id: p.buildingId ?? null,
-                    level_id: p.levelId ?? null,
-                    uri: p.uri ?? null,
-                    file_type: p.fileType ?? null,
-                    uploaded_at: p.uploadedAt,
-                    size: p.size ?? null,
-                  });
-                }
-              })();
-            } else {
-              sitePlans = [];
-            }
-          }
-        } else {
-          const ssp = await AsyncStorage.getItem(MOCK_SITE_PLANS_KEY);
-          if (ssp) {
-            const p = JSON.parse(ssp);
-            if (Array.isArray(p)) sitePlans = p;
-          }
-        }
-      } catch (e) {
-        const ssp = await AsyncStorage.getItem(MOCK_SITE_PLANS_KEY).catch(() => null);
-        if (ssp) { const p = JSON.parse(ssp); if (Array.isArray(p)) sitePlans = p; }
-      }
-
-      try {
-        const sac = await AsyncStorage.getItem(ACTIVE_CHANTIER_KEY);
-        if (sac) activeChantierId = sac;
-      } catch {}
-
-      // Auto-réconciliation : assigne buildingId/levelId aux plans legacy qui
-      // n'ont que les noms textuels, en les faisant correspondre à la hiérarchie.
-      const { plans: reconciledPlans, changed: reconciledChanged } = reconcilePlanIds(sitePlans, chantiers);
-      if (reconciledChanged.length > 0) {
-        sitePlans = reconciledPlans;
-        persistMockSitePlans(reconciledPlans);
-        if (isSupabaseConfigured) {
-          (async () => {
-            for (const p of reconciledChanged) {
-              const { error } = await supabase.from('site_plans').update({
-                building_id: p.buildingId ?? null,
-                level_id: p.levelId ?? null,
-              }).eq('id', p.id);
-            }
-          })();
-        }
-      }
-
-      if (loadGenerationRef.current !== myGen) {
-        dispatch({ type: 'SET_LOADING', payload: false });
-        return;
-      }
-
-      // Filter chantiers by company-based visibility
-      const visibleChantiers = chantiers.filter(ch => {
-        const cids = ch.companyIds ?? [];
-        if (isPrivilegedRole || cids.length === 0) return true;
-        return loadedCompanyId ? cids.includes(loadedCompanyId) : false;
-      });
-      // Update visibility map with the now-fully-loaded chantier data
-      for (const ch of chantiers) {
-        const cids = ch.companyIds ?? [];
-        if (isPrivilegedRole || cids.length === 0) {
-          chantierVisibility.set(ch.id, true);
-        } else {
-          chantierVisibility.set(ch.id, loadedCompanyId ? cids.includes(loadedCompanyId) : false);
-        }
-      }
-      const visibleSitePlans = sitePlans.filter(p => isChantierIdVisible(p.chantierId));
-
-      dispatch({ type: 'SET_CHANTIERS', payload: visibleChantiers });
-      dispatch({ type: 'SET_SITE_PLANS', payload: visibleSitePlans });
-      // Valide le chantier actif stocké : s'il n'existe pas dans la liste chargée
-      // (ID périmé, accès révoqué, ou première connexion après déconnexion), on
-      // sélectionne automatiquement le premier chantier disponible.
-      const validActiveId =
-        activeChantierId && visibleChantiers.some(c => c.id === activeChantierId)
-          ? activeChantierId
-          : (visibleChantiers[0]?.id ?? null);
-      if (validActiveId) {
-        dispatch({ type: 'SET_ACTIVE_CHANTIER', payload: validActiveId });
-        if (validActiveId !== activeChantierId) {
-          AsyncStorage.setItem(ACTIVE_CHANTIER_KEY, validActiveId).catch(() => {});
-        }
-      }
 
       let visites: Visite[] = MOCK_VISITES;
       let lots: Lot[] = STANDARD_LOTS;
