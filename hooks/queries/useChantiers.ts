@@ -28,7 +28,11 @@ export function useChantiers() {
       }
       const { data, error } = await supabase
         .from('chantiers').select('*').order('created_at', { ascending: false });
-      if (error) throw error;
+      if (error) {
+        console.error('[useChantiers] Supabase error:', error.code, error.message, error.details);
+        throw error;
+      }
+      console.log(`[useChantiers] ${(data ?? []).length} chantier(s) reçus de Supabase`);
       return (data ?? []).map(toChantier);
     },
     enabled: !!user,

@@ -29,7 +29,11 @@ export function useReserves() {
       }
       const { data, error } = await supabase
         .from('reserves').select('*').order('created_at', { ascending: false });
-      if (error) throw error;
+      if (error) {
+        console.error('[useReserves] Supabase error:', error.code, error.message, error.details);
+        throw error;
+      }
+      console.log(`[useReserves] ${(data ?? []).length} réserve(s) reçues de Supabase`);
       return (data ?? []).map(toReserve);
     },
     enabled: !!user,
