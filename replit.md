@@ -19,13 +19,19 @@ Lance : `node node_modules/expo/bin/cli start --web --localhost --port 5000`
 
 Le workflow "Start Frontend" est configuré sur le port 5000.
 
+## Replit — Notes de migration
+
+- **CORS** : `scripts/patch-expo-cors.js` patche automatiquement Expo pour autoriser les domaines `.replit.dev` et `.repl.co` (exécuté via `postinstall` dans `package.json`).
+- **Port** : L'app tourne sur le port 5000 (mapé sur le port externe 80).
+- **Base de données Replit** : Un PostgreSQL Neon est provisionné (variables `DATABASE_URL`, `PGHOST`, etc.) — disponible pour un usage futur si besoin.
+
 ## Variables d'environnement
 
 Configurées dans Replit (shared) :
 - `EXPO_PUBLIC_SUPABASE_URL` — URL du projet Supabase
-- `EXPO_PUBLIC_SUPABASE_KEY` — Clé anon Supabase
+- `EXPO_PUBLIC_SUPABASE_KEY` — Clé anon Supabase (public, intentionnellement côté client)
 - `EXPO_PUBLIC_APP_URL` — URL Vercel : `https://buildtrack-mobile.vercel.app`
-- `RESEND_API_KEY` — Clé API Resend (secret)
+- `RESEND_API_KEY` — Clé API Resend (secret — à configurer dans Replit Secrets si les emails sont nécessaires)
 
 ## Fichiers clés
 
