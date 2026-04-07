@@ -249,10 +249,12 @@ async function seedOneUser(u: typeof DEMO_USERS[number], shouldAbort: () => bool
     authUserId = signUpData.user.id;
 
     if (shouldAbort()) return;
-    // Guard: only sign out if we still own the session (avoid interrupting real user logins)
+    // Guard: only sign out if we still own the session (avoid interrupting real user logins).
+    // The second shouldAbort() check is after the await — login() can set abortSeedingRef
+    // in that async window, so we re-check to avoid signing out the real user's session.
     {
       const { data: { session: curSess } } = await supabase.auth.getSession();
-      if (curSess?.user?.email === u.email) await supabase.auth.signOut();
+      if (!shouldAbort() && curSess?.user?.email === u.email) await supabase.auth.signOut();
     }
     if (shouldAbort()) return;
 
@@ -286,10 +288,12 @@ async function seedOneUser(u: typeof DEMO_USERS[number], shouldAbort: () => bool
   }
 
   if (shouldAbort()) return;
-  // Guard: only sign out the demo user — never a real user who signed in concurrently
+  // Guard: only sign out the demo user — never a real user who signed in concurrently.
+  // The second shouldAbort() check is after the await — login() can set abortSeedingRef
+  // in that async window, so we re-check to avoid signing out the real user's session.
   {
     const { data: { session: curSess } } = await supabase.auth.getSession();
-    if (curSess?.user?.email === u.email) await supabase.auth.signOut();
+    if (!shouldAbort() && curSess?.user?.email === u.email) await supabase.auth.signOut();
   }
 }
 
