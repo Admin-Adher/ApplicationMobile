@@ -48,3 +48,4 @@ publicDir = "dist"
 [userenv.shared]
 EXPO_PUBLIC_SUPABASE_URL = "https://jzeojdpgglbxjdasjgta.supabase.co"
 EXPO_PUBLIC_SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imp6ZW9qZHBnZ2xieGpkYXNqZ3RhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQ4Mjg1ODAsImV4cCI6MjA5MDQwNDU4MH0.ZcU5EAYQMEnQHVe0-6Wff_1sBanvjtdZZ0hJNJGLAz0"
+EXPO_PUBLIC_APP_URL = "https://buildtrack.vercel.app"

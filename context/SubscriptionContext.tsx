@@ -3,6 +3,7 @@ import { Alert } from 'react-native';
 import { supabase, isSupabaseConfigured } from '@/lib/supabase';
 import { useAuth } from '@/context/AuthContext';
 import { Organization, Plan, Subscription, Invitation, UserRole, User } from '@/constants/types';
+import { sendInvitationEmail } from '@/lib/email/client';
 
 export interface OrgSummary {
   org: Organization;
@@ -423,6 +424,16 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
       };
 
       setPendingInvitations(prev => [newInv, ...prev]);
+
+      sendInvitationEmail({
+        email: emailLower,
+        invitedByName: user.name,
+        organizationName: organization?.name ?? 'votre organisation',
+        role,
+        token: data.token,
+        expiresAt: data.expires_at,
+      }).catch(() => {});
+
       return { success: true, token: data.token };
     } catch {
       return { success: false, error: 'Erreur réseau.' };

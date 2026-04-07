@@ -5,6 +5,7 @@ import { supabase, isSupabaseConfigured } from '@/lib/supabase';
 import { User, UserRole, UserPermissions, PermissionsOverride } from '@/constants/types';
 import { ROLE_LABELS } from '@/constants/roles';
 import { debugLog, debugLogOk, debugLogWarn, debugLogError } from '@/lib/debugLog';
+import { sendWelcomeEmail } from '@/lib/email/client';
 
 /**
  * Module-level flag shared with AppContext so it can ignore auth events
@@ -689,6 +690,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             refresh_token: signInData.session.refresh_token,
           });
         }
+        sendWelcomeEmail({
+          email: email.trim().toLowerCase(),
+          name: name.trim(),
+          organizationName: organizationName?.trim(),
+        }).catch(() => {});
         return { success: true };
       }
 
