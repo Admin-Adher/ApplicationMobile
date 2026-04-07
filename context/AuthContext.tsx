@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useEffect, useRef, useState } from 'react';
 import { Alert } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { supabase, isSupabaseConfigured } from '@/lib/supabase';
 import { User, UserRole, UserPermissions, PermissionsOverride } from '@/constants/types';
 import { ROLE_LABELS } from '@/constants/roles';
@@ -297,14 +298,32 @@ async function seedOneUser(u: typeof DEMO_USERS[number], shouldAbort: () => bool
   }
 }
 
+const SEED_DONE_KEY = 'buildtrack_demo_seed_done_v1';
+
 async function seedDemoUsers(shouldAbort: () => boolean): Promise<'done' | 'error'> {
   const SEED_TIMEOUT_MS = 30_000;
 
   const doSeed = async (): Promise<'done' | 'error'> => {
     try {
+      // ── Pre-flight check (AsyncStorage) ──────────────────────────────────────
+      // If seeding already completed on this device, skip entirely — no signIn/
+      // signOut calls, zero race-condition window on every subsequent cold start.
+      const alreadyDone = await AsyncStorage.getItem(SEED_DONE_KEY).catch(() => null);
+      if (alreadyDone === 'true') return 'done';
+
+      if (shouldAbort()) return 'done';
+
+      let completedAll = true;
       for (const u of DEMO_USERS) {
-        if (shouldAbort()) break;
+        if (shouldAbort()) { completedAll = false; break; }
         await seedOneUser(u, shouldAbort).catch(() => {});
+      }
+
+      // Only persist the flag if we seeded all users without being interrupted.
+      // If a real user logged in mid-seeding (shouldAbort triggered), we'll
+      // retry on the next cold start where no user is logged in.
+      if (completedAll) {
+        await AsyncStorage.setItem(SEED_DONE_KEY, 'true').catch(() => {});
       }
       return 'done';
     } catch {
@@ -487,14 +506,26 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     if (!isSupabaseConfigured) return;
     if (!isLoading && !user && seedStatus === 'idle') {
+      // Synchronous guard: set 'seeding' immediately to prevent double-entry
+      // if this effect fires again before the AsyncStorage read resolves.
       setSeedStatus('seeding');
-      isSeedingRef.current = true;
-      globalSeedingRef.current = true;
-      abortSeedingRef.current = false;
-      seedDemoUsers(() => abortSeedingRef.current).then(result => {
-        isSeedingRef.current = false;
-        globalSeedingRef.current = false;
-        setSeedStatus(result);
+
+      // Fast-path: if seeding already completed on this device, mark done
+      // immediately without touching isSeedingRef/globalSeedingRef at all —
+      // zero signIn/signOut calls, zero race-condition window.
+      AsyncStorage.getItem(SEED_DONE_KEY).catch(() => null).then(alreadyDone => {
+        if (alreadyDone === 'true') {
+          setSeedStatus('done');
+          return;
+        }
+        isSeedingRef.current = true;
+        globalSeedingRef.current = true;
+        abortSeedingRef.current = false;
+        seedDemoUsers(() => abortSeedingRef.current).then(result => {
+          isSeedingRef.current = false;
+          globalSeedingRef.current = false;
+          setSeedStatus(result);
+        });
       });
     }
   }, [isLoading, user, seedStatus]);
