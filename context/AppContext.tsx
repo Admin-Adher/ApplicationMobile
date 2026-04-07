@@ -359,6 +359,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     });
   }, [chantiersH, channelsH]);
 
+  const deleteChantierWithChannel = useCallback((id: string) => {
+    channelsH.removeGeneralChannel(`building-${id}`);
+    chantiersH.deleteChantier(id);
+  }, [chantiersH, channelsH]);
+
   const allChannels = useMemo(() => {
     const companies = companiesH.companies;
     const companyChannels: Channel[] = companies.map(c => ({
@@ -457,7 +462,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     activeChantier,
     addChantier: addChantierWithChannel,
     updateChantier: chantiersH.updateChantier,
-    deleteChantier: chantiersH.deleteChantier,
+    deleteChantier: deleteChantierWithChannel,
     setActiveChantier,
     addSitePlan: chantiersH.addSitePlan,
     updateSitePlan: chantiersH.updateSitePlan,
@@ -533,7 +538,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     chantiersH.chantiers, chantiersH.sitePlans,
     activeChantierId, visitesH.visites, lotsH.lots, oprsH.oprs,
     allChannels, unreadByChannel, notification, activeChantier,
-    addChantierWithChannel, chantiersH.updateChantier, chantiersH.deleteChantier,
+    addChantierWithChannel, deleteChantierWithChannel, chantiersH.updateChantier,
     setActiveChantier, chantiersH.addSitePlan, chantiersH.updateSitePlan,
     chantiersH.deleteSitePlan, reservesH.addReserve, reservesH.updateReserve,
     reservesH.updateReserveFields, reservesH.deleteReserve,

@@ -165,6 +165,7 @@ export function useChantiers() {
     }
     if (isSupabaseConfigured) {
       try {
+        const buildingChannelId = `building-${id}`;
         await Promise.all([
           supabase.from('reserves').delete().eq('chantier_id', id),
           supabase.from('tasks').delete().eq('chantier_id', id),
@@ -172,7 +173,9 @@ export function useChantiers() {
           supabase.from('lots').delete().eq('chantier_id', id),
           supabase.from('oprs').delete().eq('chantier_id', id),
           supabase.from('site_plans').delete().eq('chantier_id', id),
+          supabase.from('messages').delete().eq('channel_id', buildingChannelId),
         ]);
+        await supabase.from('channels').delete().eq('id', buildingChannelId);
         const { data: deleted, error } = await supabase.from('chantiers').delete().eq('id', id).select();
         if (error) console.warn('[sync] deleteChantier erreur serveur:', error.message);
         else if (!deleted?.length) console.warn('[sync] deleteChantier: aucune ligne supprimée');

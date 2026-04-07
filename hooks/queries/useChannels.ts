@@ -352,6 +352,10 @@ export function useChannels() {
     });
   }, []);
 
+  const removeGeneralChannel = useCallback((id: string) => {
+    setGeneralChannels(prev => prev.filter(c => c.id !== id));
+  }, []);
+
   const getOrCreateDMChannel = useCallback((otherName: string): Channel => {
     const myName = userNameRef.current;
     const chId = dmChannelId(myName, otherName);
@@ -439,6 +443,8 @@ export function useChannels() {
         const r = payload.old;
         if (r.type === 'custom') setCustomChannels(prev => prev.filter(c => c.id !== r.id));
         else if (r.type === 'group') setGroupChannels(prev => prev.filter(c => c.id !== r.id));
+        else if (r.type === 'dm') setPersistedDmChannels(prev => prev.filter(c => c.id !== r.id));
+        else if (r.type === 'building' || r.type === 'general') setGeneralChannels(prev => prev.filter(c => c.id !== r.id));
       })
       .subscribe();
 
@@ -466,6 +472,7 @@ export function useChannels() {
     getOrCreateDMChannel,
     getDmUpsertPromise,
     addGeneralChannel,
+    removeGeneralChannel,
     maxPinnedChannels: MAX_PINNED,
     reloadChannels: loadAll,
   };
