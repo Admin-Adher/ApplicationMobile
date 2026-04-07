@@ -1,12 +1,12 @@
 # BuildTrack
 
-**BuildTrack** is a React Native / Expo SDK 53 construction management platform (mobile + web).
+**BuildTrack** is a React Native / Expo SDK 53 construction management platform (mobile + web) for Bouygues Construction.
 
 ## Architecture
 
-- **Frontend**: Expo (React Native) with Expo Router for navigation
-- **Backend**: Supabase (auth, PostgreSQL with RLS, realtime, storage)
-- **Web target**: Metro bundler, runs as a single-page web app
+- **Frontend**: Expo (React Native) with Expo Router for file-based navigation
+- **Backend**: Supabase (hosted service — auth, PostgreSQL with RLS, realtime, storage)
+- **Web target**: Metro bundler, runs as a single-page web app on port 5000
 
 ## Running the App
 
@@ -20,7 +20,7 @@ The workflow "Start Frontend" is configured to run this on port 5000.
 
 ## Environment Variables
 
-Required (set in Replit Secrets/Env Vars):
+Set in Replit environment (shared):
 - `EXPO_PUBLIC_SUPABASE_URL` — Supabase project URL
 - `EXPO_PUBLIC_SUPABASE_KEY` — Supabase anon/public key
 
@@ -32,9 +32,9 @@ Required (set in Replit Secrets/Env Vars):
 - `app/` — Expo Router file-based routing
 - `supabase/migrations/` — All database schema migrations (30+ files)
 
-## Database
+## Database (Supabase)
 
-The app uses **Supabase** directly (not Replit's built-in PostgreSQL). Key tables include:
+The app uses **Supabase** as a hosted backend service. Key tables include:
 - `organizations`, `profiles`, `companies`
 - `chantiers` (construction sites)
 - `reserves`, `tasks`, `incidents`, `visites`
@@ -54,3 +54,8 @@ All tables use Row-Level Security (RLS) policies with helper functions:
 ## Dependencies Note
 
 Some packages have minor version mismatches vs the Expo SDK 53 peer requirements (async-storage, react-native, safe-area-context, webview). These produce warnings but do not affect functionality.
+
+## Replit Setup Notes
+
+- `postinstall` runs `scripts/patch-expo-cors.js` which patches Expo's CORS middleware to allow Replit proxy domains — this runs automatically after `npm install`.
+- The `DATABASE_URL` and `PG*` secrets in Replit are from the built-in Replit PostgreSQL integration but are not used by this app (Supabase is the backend).
