@@ -16,15 +16,18 @@ export default function ResetPasswordPage() {
   const [submitting, setSubmitting] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
   const [accessToken, setAccessToken] = useState('');
+  const [refreshToken, setRefreshToken] = useState('');
 
   useEffect(() => {
     const hash = window.location.hash;
     const params = new URLSearchParams(hash.replace('#', ''));
     const token = params.get('access_token');
+    const refresh = params.get('refresh_token');
     const type = params.get('type');
 
     if (token && type === 'recovery') {
       setAccessToken(token);
+      setRefreshToken(refresh ?? '');
       setStage('form');
     } else {
       setStage('error');
@@ -47,11 +50,19 @@ export default function ResetPasswordPage() {
 
     setSubmitting(true);
     try {
-      const supabase = createClient(supabaseUrl, supabaseKey, {
-        global: { headers: { Authorization: `Bearer ${accessToken}` } },
+      const supabase = createClient(supabaseUrl, supabaseKey);
+
+      const { error: sessionError } = await supabase.auth.setSession({
+        access_token: accessToken,
+        refresh_token: refreshToken,
       });
 
-      await supabase.auth.setSession({ access_token: accessToken, refresh_token: '' });
+      if (sessionError) {
+        setErrorMsg('Lien expiré. Veuillez faire une nouvelle demande de réinitialisation.');
+        setSubmitting(false);
+        return;
+      }
+
       const { error } = await supabase.auth.updateUser({ password });
 
       if (error) {
@@ -60,6 +71,7 @@ export default function ResetPasswordPage() {
         return;
       }
 
+      await supabase.auth.signOut();
       setStage('success');
     } catch {
       setErrorMsg('Erreur réseau. Veuillez réessayer.');
