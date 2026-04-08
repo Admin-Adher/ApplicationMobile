@@ -622,12 +622,27 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
 
       if (adminEmail) {
         const emailLower = adminEmail.trim().toLowerCase();
-        await supabase.from('invitations').insert({
-          organization_id: org.id,
-          email: emailLower,
-          role: 'admin',
-          invited_by: user.id,
-        });
+        const { data: invData } = await supabase
+          .from('invitations')
+          .insert({
+            organization_id: org.id,
+            email: emailLower,
+            role: 'admin',
+            invited_by: user.id,
+          })
+          .select()
+          .single();
+
+        if (invData?.token) {
+          sendInvitationEmail({
+            email: emailLower,
+            invitedByName: user.name,
+            organizationName: org.name,
+            role: 'admin',
+            token: invData.token,
+            expiresAt: invData.expires_at,
+          }).catch(() => {});
+        }
       }
 
       refreshSubscription();
