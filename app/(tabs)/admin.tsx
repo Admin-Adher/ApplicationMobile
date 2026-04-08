@@ -84,12 +84,32 @@ export default function AdminScreen() {
   const {
     plan, subscription, seatUsed, seatMax, canInvite, isLoading,
     pendingInvitations, inviteUser, cancelInvitation, orgUsers,
-    activeOrgUsers, freeOrgUsers,
+    activeOrgUsers, freeOrgUsers, allOrganizations,
   } = useSubscription();
 
-  const isAdmin = user?.role === 'admin' || user?.role === 'super_admin';
+  const isSuperAdmin = user?.role === 'super_admin';
+  const isAdmin = user?.role === 'admin' || isSuperAdmin;
 
   const [activeTab, setActiveTab] = useState<'users' | 'companies' | 'abonnement'>('users');
+
+  const [selectedOrgId, setSelectedOrgId] = useState<string | null>(null);
+  const [orgPickerVisible, setOrgPickerVisible] = useState(false);
+
+  useEffect(() => {
+    if (isSuperAdmin && allOrganizations.length > 0 && !selectedOrgId) {
+      setSelectedOrgId(allOrganizations[0].id);
+    }
+  }, [isSuperAdmin, allOrganizations, selectedOrgId]);
+
+  const selectedOrg = allOrganizations.find(o => o.id === selectedOrgId) ?? allOrganizations[0] ?? null;
+
+  const viewUsers = isSuperAdmin
+    ? (selectedOrgId ? orgUsers.filter(u => u.organizationId === selectedOrgId) : orgUsers)
+    : orgUsers;
+
+  const viewCompanies = isSuperAdmin
+    ? (selectedOrgId ? companies.filter(c => c.organizationId === selectedOrgId) : companies)
+    : companies;
 
   const [toast, setToast] = useState<string | null>(null);
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -167,20 +187,20 @@ export default function AdminScreen() {
   );
 
   const filteredUsers = useMemo(() => {
-    let list = [...orgUsers];
+    let list = [...viewUsers];
     if (roleFilter !== 'all') list = list.filter(u => u.role === roleFilter);
     if (userSearch.trim()) {
       const q = userSearch.toLowerCase();
       list = list.filter(u => {
-        const companyName = (companies.find(c => c.id === u.companyId)?.name ?? '').toLowerCase();
+        const companyName = (viewCompanies.find(c => c.id === u.companyId)?.name ?? '').toLowerCase();
         return u.name.toLowerCase().includes(q) || u.email.toLowerCase().includes(q) || companyName.includes(q);
       });
     }
     return list.sort((a, b) => a.name.localeCompare(b.name, 'fr', { sensitivity: 'base' }));
-  }, [orgUsers, userSearch, roleFilter, companies]);
+  }, [viewUsers, userSearch, roleFilter, viewCompanies]);
 
   const filteredCompanies = useMemo(() => {
-    let list = [...companies].sort((a, b) => a.name.localeCompare(b.name, 'fr', { sensitivity: 'base' }));
+    let list = [...viewCompanies].sort((a, b) => a.name.localeCompare(b.name, 'fr', { sensitivity: 'base' }));
     if (!companySearch.trim()) return list;
     const q = companySearch.toLowerCase();
     return list.filter(co => {
@@ -196,16 +216,16 @@ export default function AdminScreen() {
         coLotNames.includes(q)
       );
     });
-  }, [companies, companySearch, lots]);
+  }, [viewCompanies, companySearch, lots]);
 
   const roleCounts = useMemo(() => {
     const counts: Record<string, number> = {};
     ROLES.forEach(r => { counts[r.value] = 0; });
-    orgUsers.forEach(u => {
+    viewUsers.forEach(u => {
       if (counts[u.role] !== undefined) counts[u.role]++;
     });
     return counts;
-  }, [orgUsers]);
+  }, [viewUsers]);
 
   const trialDaysLeft = useMemo(() => {
     if (!subscription?.trialEndsAt) return null;
@@ -214,7 +234,7 @@ export default function AdminScreen() {
 
   const statusCfg = subscription ? (STATUS_CONFIG[subscription.status] ?? STATUS_CONFIG.trial) : null;
 
-  const superAdminCount = useMemo(() => orgUsers.filter(u => u.role === 'super_admin').length, [orgUsers]);
+  const superAdminCount = useMemo(() => viewUsers.filter(u => u.role === 'super_admin').length, [viewUsers]);
   const rolesTotal = useMemo(() => Object.values(roleCounts).reduce((s, n) => s + n, 0) + superAdminCount, [roleCounts, superAdminCount]);
 
   const seatRatio = seatMax === -1 ? 0 : seatUsed / seatMax;
@@ -225,16 +245,16 @@ export default function AdminScreen() {
 
   const companyUserCounts = useMemo(() => {
     const counts: Record<string, number> = {};
-    orgUsers.forEach(u => {
+    viewUsers.forEach(u => {
       if (u.companyId) counts[u.companyId] = (counts[u.companyId] ?? 0) + 1;
     });
     return counts;
-  }, [orgUsers]);
+  }, [viewUsers]);
 
   const getInviterName = useCallback((invitedBy: string) => {
-    const found = orgUsers.find(u => u.id === invitedBy);
+    const found = viewUsers.find(u => u.id === invitedBy);
     return found ? found.name : 'Admin';
-  }, [orgUsers]);
+  }, [viewUsers]);
 
   useEffect(() => {
     if (user && !isAdmin) {
@@ -335,7 +355,7 @@ export default function AdminScreen() {
   function openAddCompany() {
     setNom(''); setNomCourt(''); setPhone(''); setEmail(''); setSelectedLots([]); setEffectif('');
     setHeures('0'); setSiret(''); setInsurance('');
-    setSelectedColor(COMPANY_COLORS[companies.length % COMPANY_COLORS.length]);
+    setSelectedColor(COMPANY_COLORS[viewCompanies.length % COMPANY_COLORS.length]);
     setCompanyModal({ mode: 'add' });
   }
 
@@ -382,7 +402,7 @@ export default function AdminScreen() {
       return;
     }
     const hrs = isNaN(heuresToFloat) ? 0 : Math.max(0, heuresToFloat);
-    const duplicate = companies.find(c =>
+    const duplicate = viewCompanies.find(c =>
       c.name.toLowerCase() === nom.trim().toLowerCase() &&
       (companyModal?.mode === 'add' || c.id !== companyModal?.company?.id)
     );
@@ -514,6 +534,23 @@ export default function AdminScreen() {
           })()}
         </View>
 
+        {isSuperAdmin && allOrganizations.length > 0 && (
+          <TouchableOpacity
+            style={styles.orgSelector}
+            onPress={() => setOrgPickerVisible(true)}
+            activeOpacity={0.7}
+          >
+            <View style={styles.orgSelectorLeft}>
+              <Ionicons name="business-outline" size={14} color={C.primary} />
+              <Text style={styles.orgSelectorLabel}>Organisation</Text>
+            </View>
+            <View style={styles.orgSelectorRight}>
+              <Text style={styles.orgSelectorName} numberOfLines={1}>{selectedOrg?.name ?? '—'}</Text>
+              <Ionicons name="chevron-down" size={14} color={C.textMuted} />
+            </View>
+          </TouchableOpacity>
+        )}
+
         <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.tabScrollRow} contentContainerStyle={styles.tabRowContent}>
           <TouchableOpacity
             style={[styles.tabBtn, activeTab === 'users' && styles.tabBtnActive]}
@@ -537,7 +574,7 @@ export default function AdminScreen() {
             <Ionicons name="business" size={14} color={activeTab === 'companies' ? C.primary : C.textMuted} />
             <Text style={[styles.tabBtnText, activeTab === 'companies' && styles.tabBtnTextActive]}>Entreprises</Text>
             <View style={[styles.tabCount, activeTab === 'companies' && styles.tabCountActive]}>
-              <Text style={[styles.tabCountText, activeTab === 'companies' && styles.tabCountTextActive]}>{companies.length}</Text>
+              <Text style={[styles.tabCountText, activeTab === 'companies' && styles.tabCountTextActive]}>{viewCompanies.length}</Text>
             </View>
           </TouchableOpacity>
           <TouchableOpacity
@@ -680,7 +717,7 @@ export default function AdminScreen() {
                     <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 5, marginTop: 3 }}>
                       <RoleBadge role={u.role} />
                       {u.companyId && (() => {
-                        const co = companies.find(c => c.id === u.companyId);
+                        const co = viewCompanies.find(c => c.id === u.companyId);
                         if (!co) return null;
                         return (
                           <View style={[styles.companyBadge, { backgroundColor: co.color + '18', borderColor: co.color + '55' }]}>
@@ -780,8 +817,8 @@ export default function AdminScreen() {
           <View style={styles.sectionHeaderRow}>
             <Text style={styles.sectionTitle}>
               {companySearch.trim()
-                ? `${filteredCompanies.length} / ${companies.length} entreprise${companies.length !== 1 ? 's' : ''}`
-                : `${companies.length} entreprise${companies.length !== 1 ? 's' : ''} sur chantier`}
+                ? `${filteredCompanies.length} / ${viewCompanies.length} entreprise${viewCompanies.length !== 1 ? 's' : ''}`
+                : `${viewCompanies.length} entreprise${viewCompanies.length !== 1 ? 's' : ''} sur chantier`}
             </Text>
             <TouchableOpacity style={styles.addBtn} onPress={openAddCompany}>
               <Ionicons name="add" size={17} color="#fff" />
@@ -805,7 +842,7 @@ export default function AdminScreen() {
             )}
           </View>
 
-          {companies.length === 0 ? (
+          {viewCompanies.length === 0 ? (
             <View style={styles.empty}>
               <Ionicons name="business-outline" size={36} color={C.textMuted} />
               <Text style={styles.emptyText}>Aucune entreprise</Text>
@@ -1114,6 +1151,49 @@ export default function AdminScreen() {
       )}
 
 
+      {/* ─── MODAL SÉLECTEUR D'ORGANISATION (super_admin) ─── */}
+      <Modal visible={orgPickerVisible} transparent animationType="slide" onRequestClose={() => setOrgPickerVisible(false)}>
+        <TouchableOpacity style={styles.overlay} activeOpacity={1} onPress={() => setOrgPickerVisible(false)}>
+          <TouchableOpacity activeOpacity={1} style={[styles.sheet, { paddingBottom: bottomPad + 16 }]}>
+            <View style={styles.sheetHandle} />
+            <Text style={styles.sheetTitle}>Sélectionner une organisation</Text>
+            <Text style={[styles.sheetSubtitle, { marginBottom: 12 }]}>{allOrganizations.length} organisation{allOrganizations.length > 1 ? 's' : ''} disponible{allOrganizations.length > 1 ? 's' : ''}</Text>
+            <ScrollView style={{ maxHeight: MODAL_SCROLL_MAX_H }} showsVerticalScrollIndicator={false}>
+              {allOrganizations.map((org) => {
+                const isSelected = org.id === selectedOrgId;
+                const orgUserCount = orgUsers.filter(u => u.organizationId === org.id).length;
+                const orgCompanyCount = companies.filter(c => c.organizationId === org.id).length;
+                return (
+                  <TouchableOpacity
+                    key={org.id}
+                    style={[
+                      styles.roleOption,
+                      isSelected && { backgroundColor: C.primaryBg, borderColor: C.primary },
+                      { marginBottom: 8 },
+                    ]}
+                    onPress={() => {
+                      setSelectedOrgId(org.id);
+                      setOrgPickerVisible(false);
+                    }}
+                  >
+                    <View style={[styles.roleOptionDot, { backgroundColor: isSelected ? C.primary : C.border }]} />
+                    <View style={{ flex: 1 }}>
+                      <Text style={[styles.roleOptionText, isSelected && { color: C.primary, fontFamily: 'Inter_600SemiBold' }]}>
+                        {org.name}
+                      </Text>
+                      <Text style={styles.roleOptionDesc}>
+                        {orgUserCount} utilisateur{orgUserCount !== 1 ? 's' : ''} · {orgCompanyCount} entreprise{orgCompanyCount !== 1 ? 's' : ''}
+                      </Text>
+                    </View>
+                    {isSelected && <Ionicons name="checkmark-circle" size={18} color={C.primary} />}
+                  </TouchableOpacity>
+                );
+              })}
+            </ScrollView>
+          </TouchableOpacity>
+        </TouchableOpacity>
+      </Modal>
+
       {/* ─── MODAL ENTREPRISE ─── */}
       <Modal visible={!!companyModal} transparent animationType="slide" onRequestClose={tryCloseCompanyModal}>
         <SafeKAV>
@@ -1329,10 +1409,10 @@ export default function AdminScreen() {
                       })}
                     </View>
 
-                    {inviteRole === 'sous_traitant' && companies.length > 0 && (
+                    {inviteRole === 'sous_traitant' && viewCompanies.length > 0 && (
                       <View style={styles.field}>
                         <Text style={styles.fieldLabel}>Entreprise rattachée <Text style={{ color: C.textMuted, fontFamily: 'Inter_400Regular' }}>(optionnel)</Text></Text>
-                        {companies.map(co => (
+                        {viewCompanies.map(co => (
                           <TouchableOpacity
                             key={co.id}
                             style={[
@@ -1426,6 +1506,16 @@ const styles = StyleSheet.create({
     borderWidth: 1, borderColor: '#FECACA',
   },
   adminBadgeText: { fontSize: 11, fontFamily: 'Inter_600SemiBold', color: '#EF4444' },
+
+  orgSelector: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    backgroundColor: C.primaryBg, borderRadius: 10, paddingHorizontal: 12, paddingVertical: 9,
+    marginBottom: 10, borderWidth: 1, borderColor: C.primary + '30',
+  },
+  orgSelectorLeft: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  orgSelectorLabel: { fontSize: 11, fontFamily: 'Inter_600SemiBold', color: C.primary, textTransform: 'uppercase', letterSpacing: 0.5 },
+  orgSelectorRight: { flexDirection: 'row', alignItems: 'center', gap: 4, flex: 1, justifyContent: 'flex-end' },
+  orgSelectorName: { fontSize: 13, fontFamily: 'Inter_600SemiBold', color: C.text, maxWidth: 200 },
 
   tabScrollRow: { paddingBottom: 12 },
   tabRowContent: { flexDirection: 'row', gap: 6 },
