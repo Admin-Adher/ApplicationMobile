@@ -593,137 +593,204 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     // Cleared (and setSession re-emitted) just before returning { success: true }.
     registerInProgressRef.current = true;
 
-    try {
-      const { data: signUpData, error: signUpErr } = await supabase.auth.signUp({
-        email: email.trim().toLowerCase(),
-        password,
-      });
+    const cleanup = () => {
+      registerInProgressRef.current = false;
+      isRegisteringRef.current = false;
+    };
 
-      if (signUpErr || !signUpData?.user?.id) {
-        if (signUpErr?.message?.toLowerCase().includes('already registered') ||
-            signUpErr?.message?.toLowerCase().includes('already been registered') ||
-            signUpErr?.message?.toLowerCase().includes('user_already_exists')) {
-          registerInProgressRef.current = false;
-          isRegisteringRef.current = false;
-          return { success: false, error: 'Un compte existe déjà avec cet email.' };
-        }
-        registerInProgressRef.current = false;
-        isRegisteringRef.current = false;
-        return { success: false, error: signUpErr?.message ?? "Impossible de créer le compte." };
-      }
+    // Safety timeout: if any Supabase call hangs indefinitely, unblock the UI
+    // after 30 seconds and return a network error.
+    const REGISTER_TIMEOUT_MS = 30_000;
+    let timeoutId: ReturnType<typeof setTimeout> | null = null;
+    const timeoutPromise = new Promise<{ success: false; error: string }>((resolve) => {
+      timeoutId = setTimeout(() => {
+        cleanup();
+        resolve({ success: false, error: 'La création du compte a pris trop longtemps. Vérifiez votre connexion et réessayez.' });
+      }, REGISTER_TIMEOUT_MS);
+    });
 
-      const userId = signUpData.user.id;
-
-      if (organizationName?.trim()) {
-        const slug = organizationName.trim()
-          .toLowerCase()
-          .normalize('NFD')
-          .replace(/[\u0300-\u036f]/g, '')
-          .replace(/[^a-z0-9]+/g, '-')
-          .replace(/^-|-$/g, '');
-
-        const uniqueSlug = slug + '-' + Date.now().toString(36);
-
-        const { data: orgData, error: orgErr } = await supabase
-          .from('organizations')
-          .insert({ name: organizationName.trim(), slug: uniqueSlug })
-          .select()
-          .single();
-
-        if (orgErr || !orgData) {
-          registerInProgressRef.current = false;
-          isRegisteringRef.current = false;
-          return { success: false, error: "Impossible de créer l'organisation. Réessayez." };
-        }
-
-        const orgId: string = orgData.id;
-
-        await supabase.from('channels').insert({
-          id: `general-${orgId}`,
-          name: 'Général',
-          type: 'general',
-          organization_id: orgId,
-          created_by: name.trim(),
-          members: [name.trim()],
+    const doRegister = async (): Promise<{ success: boolean; error?: string }> => {
+      try {
+        const { data: signUpData, error: signUpErr } = await supabase.auth.signUp({
+          email: email.trim().toLowerCase(),
+          password,
         });
 
-        const { data: enterprisePlan } = await supabase
-          .from('plans')
-          .select('id')
-          .order('created_at', { ascending: true })
-          .limit(1)
-          .single();
+        if (signUpErr || !signUpData?.user?.id) {
+          cleanup();
+          if (signUpErr?.message?.toLowerCase().includes('already registered') ||
+              signUpErr?.message?.toLowerCase().includes('already been registered') ||
+              signUpErr?.message?.toLowerCase().includes('user_already_exists')) {
+            return { success: false, error: 'Un compte existe déjà avec cet email.' };
+          }
+          return { success: false, error: signUpErr?.message ?? "Impossible de créer le compte." };
+        }
 
-        if (enterprisePlan?.id) {
-          await supabase.from('subscriptions').insert({
+        const userId = signUpData.user.id;
+        // signUp may return a session immediately (email confirmation disabled)
+        // or null (email confirmation enabled). Use it directly to avoid a
+        // redundant signIn call when possible.
+        const signUpSession = signUpData.session;
+
+        if (organizationName?.trim()) {
+          const slug = organizationName.trim()
+            .toLowerCase()
+            .normalize('NFD')
+            .replace(/[\u0300-\u036f]/g, '')
+            .replace(/[^a-z0-9]+/g, '-')
+            .replace(/^-|-$/g, '');
+
+          const uniqueSlug = slug + '-' + Date.now().toString(36);
+
+          const { data: orgData, error: orgErr } = await supabase
+            .from('organizations')
+            .insert({ name: organizationName.trim(), slug: uniqueSlug })
+            .select()
+            .single();
+
+          if (orgErr || !orgData) {
+            cleanup();
+            return { success: false, error: "Impossible de créer l'organisation. Réessayez." };
+          }
+
+          const orgId: string = orgData.id;
+
+          await supabase.from('channels').insert({
+            id: `general-${orgId}`,
+            name: 'Général',
+            type: 'general',
             organization_id: orgId,
-            plan_id: enterprisePlan.id,
-            status: 'active',
+            created_by: name.trim(),
+            members: [name.trim()],
           });
+
+          const { data: enterprisePlan } = await supabase
+            .from('plans')
+            .select('id')
+            .order('created_at', { ascending: true })
+            .limit(1)
+            .single();
+
+          if (enterprisePlan?.id) {
+            await supabase.from('subscriptions').insert({
+              organization_id: orgId,
+              plan_id: enterprisePlan.id,
+              status: 'active',
+            });
+          }
+
+          const { error: profileInsertErr } = await supabase.from('profiles').insert({
+            id: userId,
+            name: name.trim(),
+            email: email.trim().toLowerCase(),
+            role: 'admin',
+            role_label: ROLE_LABELS['admin'],
+            organization_id: orgId,
+          });
+
+          if (profileInsertErr) {
+            console.warn('[register] profiles.insert (new_client) error:', profileInsertErr.code, profileInsertErr.message);
+          }
+        } else {
+          // Invitation mode: insert profile with no org — org will be linked
+          // by linkPendingInvitation once the user is authenticated.
+          // Note: if signUp did not return a session (email confirmation required),
+          // this insert will fail (RLS) but we continue — the user will need to
+          // confirm their email first, and signIn below will catch it.
+          const { error: profileInsertErr } = await supabase.from('profiles').insert({
+            id: userId,
+            name: name.trim(),
+            email: email.trim().toLowerCase(),
+            role: 'observateur',
+            role_label: ROLE_LABELS['observateur'],
+            organization_id: null,
+          });
+
+          if (profileInsertErr) {
+            console.warn('[register] profiles.insert (invitation) error:', profileInsertErr.code, profileInsertErr.message);
+          }
         }
 
-        await supabase.from('profiles').insert({
-          id: userId,
-          name: name.trim(),
-          email: email.trim().toLowerCase(),
-          role: 'admin',
-          role_label: ROLE_LABELS['admin'],
-          organization_id: orgId,
-        });
-      } else {
-        await supabase.from('profiles').insert({
-          id: userId,
-          name: name.trim(),
-          email: email.trim().toLowerCase(),
-          role: 'observateur',
-          role_label: ROLE_LABELS['observateur'],
-          organization_id: null,
-        });
-      }
+        // If signUp already returned a session (email confirmation disabled),
+        // skip the redundant signInWithPassword to save one network round-trip.
+        let signInSession = signUpSession;
+        let signInUserId = signUpSession ? userId : undefined;
 
-      const { data: signInData, error: signInErr } = await supabase.auth.signInWithPassword({
-        email: email.trim().toLowerCase(),
-        password,
-      });
-
-      if (signInErr || !signInData?.user?.id) {
-        registerInProgressRef.current = false;
-        isRegisteringRef.current = false;
-        return { success: false, error: "Compte créé. Connectez-vous avec vos identifiants." };
-      }
-
-      const profile = await fetchProfile(signInData.user.id);
-      if (profile) {
-        setUser(profile);
-        isSeedingRef.current = false;
-        globalSeedingRef.current = false;
-        setSeedStatus('done');
-        isRegisteringRef.current = false;
-        // Unblock AppContext's Guard 4, then re-emit SIGNED_IN so loadAll() fires
-        // now that profile + org are committed to DB.
-        registerInProgressRef.current = false;
-        if (signInData.session) {
-          await supabase.auth.setSession({
-            access_token: signInData.session.access_token,
-            refresh_token: signInData.session.refresh_token,
+        if (!signUpSession) {
+          const { data: signInData, error: signInErr } = await supabase.auth.signInWithPassword({
+            email: email.trim().toLowerCase(),
+            password,
           });
-        }
-        sendWelcomeEmail({
-          email: email.trim().toLowerCase(),
-          name: name.trim(),
-          organizationName: organizationName?.trim(),
-        }).catch(() => {});
-        return { success: true };
-      }
 
-      registerInProgressRef.current = false;
-      isRegisteringRef.current = false;
-      return { success: false, error: "Compte créé. Connectez-vous pour continuer." };
-    } catch {
-      registerInProgressRef.current = false;
-      isRegisteringRef.current = false;
-      return { success: false, error: 'Erreur réseau. Vérifiez votre connexion.' };
-    }
+          if (signInErr || !signInData?.user?.id) {
+            cleanup();
+            if (signInErr?.message?.toLowerCase().includes('email not confirmed') ||
+                signInErr?.message?.toLowerCase().includes('email_not_confirmed')) {
+              return { success: false, error: "Un email de confirmation a été envoyé à votre adresse. Confirmez votre email puis connectez-vous." };
+            }
+            return { success: false, error: "Compte créé. Connectez-vous avec vos identifiants." };
+          }
+          signInSession = signInData.session;
+          signInUserId = signInData.user.id;
+        }
+
+        if (!signInUserId) {
+          cleanup();
+          return { success: false, error: "Compte créé. Connectez-vous pour continuer." };
+        }
+
+        // For invitation mode: try to link the invitation using an RPC (SECURITY DEFINER)
+        // that bypasses the RLS policy blocking non-admin users from reading invitations.
+        // Falls back silently if the RPC is not yet deployed.
+        if (!organizationName?.trim()) {
+          try {
+            const { error: rpcErr } = await supabase.rpc('link_invitation_for_current_user');
+            if (rpcErr) {
+              console.warn('[register] link_invitation_for_current_user RPC error (may not be deployed yet):', rpcErr.code, rpcErr.message);
+            }
+          } catch (rpcEx) {
+            console.warn('[register] link_invitation_for_current_user RPC exception:', rpcEx);
+          }
+        }
+
+        const profile = await fetchProfile(signInUserId);
+        if (profile) {
+          setUser(profile);
+          isSeedingRef.current = false;
+          globalSeedingRef.current = false;
+          setSeedStatus('done');
+          cleanup();
+          // Unblock AppContext's Guard 4, then re-emit SIGNED_IN so loadAll() fires
+          // now that profile + org are committed to DB.
+          if (signInSession) {
+            // Fire-and-forget: we just need to re-emit the SIGNED_IN event so
+            // AppContext's loadAll() picks up the newly committed data.
+            // Not awaited to avoid blocking the return of register().
+            supabase.auth.setSession({
+              access_token: signInSession.access_token,
+              refresh_token: signInSession.refresh_token,
+            }).catch(() => {});
+          }
+          sendWelcomeEmail({
+            email: email.trim().toLowerCase(),
+            name: name.trim(),
+            organizationName: organizationName?.trim(),
+          }).catch(() => {});
+          return { success: true };
+        }
+
+        cleanup();
+        return { success: false, error: "Compte créé. Connectez-vous pour continuer." };
+      } catch (err: any) {
+        cleanup();
+        console.warn('[register] Exception:', err?.message ?? err);
+        return { success: false, error: 'Erreur réseau. Vérifiez votre connexion.' };
+      }
+    };
+
+    const result = await Promise.race([doRegister(), timeoutPromise]);
+    if (timeoutId) clearTimeout(timeoutId);
+    return result;
   }
 
   async function login(email: string, password: string): Promise<{ success: boolean; error?: string }> {
