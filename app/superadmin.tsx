@@ -28,7 +28,7 @@ export default function SuperAdminScreen() {
   const { user, users } = useAuth();
   const {
     orgSummaries, isLoading,
-    updateOrgStatus, updateOrganization, createOrganization,
+    updateOrgStatus, updateOrganization, createOrganization, deleteOrganization,
   } = useSubscription();
 
   const [activeTab, setActiveTab] = useState<'orgs' | 'dashboard'>('orgs');
@@ -41,6 +41,9 @@ export default function SuperAdminScreen() {
   const [newOrgName, setNewOrgName] = useState('');
   const [newAdminEmail, setNewAdminEmail] = useState('');
   const [creating, setCreating] = useState(false);
+  const [deleteModal, setDeleteModal] = useState<OrgSummary | null>(null);
+  const [deleteConfirmName, setDeleteConfirmName] = useState('');
+  const [deleting, setDeleting] = useState(false);
 
   const editSlugPreview = useMemo(() => {
     const trimmed = editOrgName.trim();
@@ -132,6 +135,24 @@ export default function SuperAdminScreen() {
       );
     } else {
       Alert.alert('Erreur', result.error ?? 'Impossible de créer l\'organisation.');
+    }
+  }
+
+  async function handleDeleteOrg() {
+    if (!deleteModal) return;
+    if (deleteConfirmName.trim() !== deleteModal.org.name) {
+      Alert.alert('Nom incorrect', 'Veuillez saisir le nom exact de l\'organisation pour confirmer la suppression.');
+      return;
+    }
+    setDeleting(true);
+    const result = await deleteOrganization(deleteModal.org.id);
+    setDeleting(false);
+    if (result.success) {
+      setDeleteModal(null);
+      setDeleteConfirmName('');
+      Alert.alert('Organisation supprimée', `"${deleteModal.org.name}" et toutes ses données ont été définitivement supprimées.`);
+    } else {
+      Alert.alert('Erreur', result.error ?? 'Impossible de supprimer l\'organisation.');
     }
   }
 
@@ -250,19 +271,28 @@ export default function SuperAdminScreen() {
                       </View>
                     </View>
 
-                    {/* Pied de carte : plan fixe + bouton Éditer */}
+                    {/* Pied de carte : plan fixe + boutons Éditer / Supprimer */}
                     <View style={styles.orgFooter}>
                       <View style={styles.enterpriseTag}>
                         <Ionicons name="infinite-outline" size={12} color="#8B5CF6" />
                         <Text style={styles.enterpriseTagTxt}>Entreprise — Illimité</Text>
                       </View>
-                      <TouchableOpacity
-                        style={styles.editOrgBtn}
-                        onPress={() => openEditModal(summary)}
-                      >
-                        <Ionicons name="pencil-outline" size={13} color={C.primary} />
-                        <Text style={styles.editOrgBtnTxt}>Éditer</Text>
-                      </TouchableOpacity>
+                      <View style={styles.orgActions}>
+                        <TouchableOpacity
+                          style={styles.editOrgBtn}
+                          onPress={() => openEditModal(summary)}
+                        >
+                          <Ionicons name="pencil-outline" size={13} color={C.primary} />
+                          <Text style={styles.editOrgBtnTxt}>Éditer</Text>
+                        </TouchableOpacity>
+                        <TouchableOpacity
+                          style={styles.deleteOrgBtn}
+                          onPress={() => { setDeleteModal(summary); setDeleteConfirmName(''); }}
+                        >
+                          <Ionicons name="trash-outline" size={13} color="#EF4444" />
+                          <Text style={styles.deleteOrgBtnTxt}>Supprimer</Text>
+                        </TouchableOpacity>
+                      </View>
                     </View>
                   </View>
                 </View>
@@ -515,6 +545,89 @@ export default function SuperAdminScreen() {
         </View>
       </Modal>
 
+      {/* ── Modal : Supprimer organisation ── */}
+      <Modal
+        visible={!!deleteModal}
+        transparent
+        animationType="slide"
+        onRequestClose={() => !deleting && (setDeleteModal(null), setDeleteConfirmName(''))}
+      >
+        <View style={styles.modalOverlay}>
+          <KeyboardAvoidingView behavior="padding" keyboardVerticalOffset={0}>
+            <View style={styles.modalSheet}>
+              <View style={styles.modalHeaderRow}>
+                <View style={[styles.modalIconWrap, { backgroundColor: '#FEF2F2' }]}>
+                  <Ionicons name="trash" size={18} color="#EF4444" />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.modalTitle}>Supprimer l'organisation</Text>
+                  <Text style={styles.modalSub} numberOfLines={1}>{deleteModal?.org.name}</Text>
+                </View>
+                <TouchableOpacity
+                  onPress={() => { if (!deleting) { setDeleteModal(null); setDeleteConfirmName(''); } }}
+                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                >
+                  <Ionicons name="close" size={20} color={C.textMuted} />
+                </TouchableOpacity>
+              </View>
+
+              <View style={styles.deleteWarningBox}>
+                <Ionicons name="warning-outline" size={18} color="#EF4444" />
+                <Text style={styles.deleteWarningTxt}>
+                  {'Cette action est '}
+                  <Text style={{ fontFamily: 'Inter_700Bold' }}>irréversible</Text>
+                  {'. Tous les chantiers, réserves, incidents, messages, documents et membres de cette organisation seront définitivement supprimés.'}
+                </Text>
+              </View>
+
+              <View style={styles.inputGroup}>
+                <Text style={styles.inputLabel}>
+                  {'Tapez '}
+                  <Text style={{ fontFamily: 'Inter_700Bold', color: C.text }}>{deleteModal?.org.name}</Text>
+                  {' pour confirmer'}
+                </Text>
+                <TextInput
+                  style={[styles.textInput, { borderColor: deleteConfirmName && deleteConfirmName !== deleteModal?.org.name ? '#EF4444' : C.border }]}
+                  placeholder={deleteModal?.org.name ?? ''}
+                  placeholderTextColor={C.textMuted}
+                  value={deleteConfirmName}
+                  onChangeText={setDeleteConfirmName}
+                  autoCapitalize="none"
+                  editable={!deleting}
+                />
+              </View>
+
+              <View style={styles.editBtnRow}>
+                <TouchableOpacity
+                  style={styles.cancelBtn}
+                  onPress={() => { setDeleteModal(null); setDeleteConfirmName(''); }}
+                  disabled={deleting}
+                >
+                  <Text style={styles.cancelBtnTxt}>Annuler</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[
+                    styles.deleteConfirmBtn,
+                    (deleteConfirmName !== deleteModal?.org.name || deleting) && styles.submitBtnDisabled,
+                  ]}
+                  onPress={handleDeleteOrg}
+                  disabled={deleteConfirmName !== deleteModal?.org.name || deleting}
+                >
+                  {deleting ? (
+                    <ActivityIndicator size="small" color="#fff" />
+                  ) : (
+                    <>
+                      <Ionicons name="trash-outline" size={18} color="#fff" />
+                      <Text style={styles.submitBtnTxt}>Supprimer définitivement</Text>
+                    </>
+                  )}
+                </TouchableOpacity>
+              </View>
+            </View>
+          </KeyboardAvoidingView>
+        </View>
+      </Modal>
+
       {/* ── Modal : Changer le statut ── */}
       <Modal visible={!!statusModal} transparent animationType="slide" onRequestClose={() => !statusSaving && setStatusModal(null)}>
         <View style={styles.modalOverlay}>
@@ -639,8 +752,24 @@ const styles = StyleSheet.create({
   },
   enterpriseTagTxt: { fontSize: 12, fontFamily: 'Inter_600SemiBold', color: '#8B5CF6' },
 
+  orgActions: { flexDirection: 'row', alignItems: 'center', gap: 4 },
   editOrgBtn: { flexDirection: 'row', alignItems: 'center', gap: 5, padding: 6 },
   editOrgBtnTxt: { fontSize: 12, fontFamily: 'Inter_600SemiBold', color: C.primary },
+  deleteOrgBtn: { flexDirection: 'row', alignItems: 'center', gap: 5, padding: 6 },
+  deleteOrgBtnTxt: { fontSize: 12, fontFamily: 'Inter_600SemiBold', color: '#EF4444' },
+
+  deleteWarningBox: {
+    flexDirection: 'row', alignItems: 'flex-start', gap: 10,
+    backgroundColor: '#FEF2F2', borderRadius: 12, padding: 12,
+    borderWidth: 1, borderColor: '#FECACA',
+  },
+  deleteWarningTxt: {
+    flex: 1, fontSize: 13, fontFamily: 'Inter_400Regular', color: '#991B1B', lineHeight: 18,
+  },
+  deleteConfirmBtn: {
+    flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8,
+    backgroundColor: '#EF4444', borderRadius: 14, paddingVertical: 14,
+  },
 
   newOrgBtn: {
     flexDirection: 'row', alignItems: 'center', gap: 5,
