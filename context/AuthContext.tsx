@@ -616,21 +616,63 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           password,
         });
 
+        let userId: string;
+        let signUpSession: (typeof signUpData)['session'];
+
         if (signUpErr || !signUpData?.user?.id) {
-          cleanup();
-          if (signUpErr?.message?.toLowerCase().includes('already registered') ||
-              signUpErr?.message?.toLowerCase().includes('already been registered') ||
-              signUpErr?.message?.toLowerCase().includes('user_already_exists')) {
+          const isAlreadyRegistered =
+            signUpErr?.message?.toLowerCase().includes('already registered') ||
+            signUpErr?.message?.toLowerCase().includes('already been registered') ||
+            signUpErr?.message?.toLowerCase().includes('user_already_exists');
+
+          if (!isAlreadyRegistered) {
+            cleanup();
+            return { success: false, error: signUpErr?.message ?? "Impossible de créer le compte." };
+          }
+
+          // Check if a real profile exists for this email in public.profiles.
+          // It's possible that a previous account was deleted from public.profiles
+          // but NOT from auth.users (Supabase Authentication), leaving a dangling
+          // auth record that blocks re-registration.
+          const emailLower = email.trim().toLowerCase();
+          const { data: existingProfile } = await supabase
+            .from('profiles')
+            .select('id')
+            .eq('email', emailLower)
+            .maybeSingle();
+
+          if (existingProfile) {
+            // A real, active profile exists → genuine duplicate.
+            cleanup();
             return { success: false, error: 'Un compte existe déjà avec cet email.' };
           }
-          return { success: false, error: signUpErr?.message ?? "Impossible de créer le compte." };
-        }
 
-        const userId = signUpData.user.id;
-        // signUp may return a session immediately (email confirmation disabled)
-        // or null (email confirmation enabled). Use it directly to avoid a
-        // redundant signIn call when possible.
-        const signUpSession = signUpData.session;
+          // No profile found → dangling auth account (deleted from profiles but not from
+          // auth.users). Try to reclaim it by signing in with the provided password.
+          const { data: reclaimData, error: reclaimErr } = await supabase.auth.signInWithPassword({
+            email: emailLower,
+            password,
+          });
+
+          if (reclaimErr || !reclaimData?.user?.id) {
+            // Wrong password or unconfirmed email → can't reclaim automatically.
+            cleanup();
+            return {
+              success: false,
+              error: "Cet email est lié à un ancien compte désactivé. Utilisez « Mot de passe oublié » depuis l'écran de connexion pour récupérer l'accès.",
+            };
+          }
+
+          // Reclaim succeeded — reuse the existing auth account with a fresh profile & org.
+          userId = reclaimData.user!.id;
+          signUpSession = reclaimData.session;
+        } else {
+          userId = signUpData.user.id;
+          // signUp may return a session immediately (email confirmation disabled)
+          // or null (email confirmation enabled). Use it directly to avoid a
+          // redundant signIn call when possible.
+          signUpSession = signUpData.session;
+        }
 
         if (organizationName?.trim()) {
           const slug = organizationName.trim()
