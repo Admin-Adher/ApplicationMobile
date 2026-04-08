@@ -981,7 +981,62 @@ export default function PlansScreen() {
 
   function handleAddPlan() {
     if (!activeChantierId) return;
-    setNewPlanModal({ visible: true, name: '', building: '', level: '' });
+    const bldg = chantierHierarchyBuildings.find(b => b.id === selectedBuilding);
+    const lvl = bldg?.levels.find(l => l.id === selectedLevel);
+    setNewPlanModal({
+      visible: true, name: '',
+      building: bldg?.name ?? '',
+      buildingId: bldg?.id,
+      level: lvl?.name ?? '',
+      levelId: lvl?.id,
+    });
+  }
+
+  function handleDeletePlanFile() {
+    if (!currentPlan?.uri) return;
+    Alert.alert(
+      'Retirer le fichier ?',
+      'Le PDF / image / DXF sera retiré. Le plan (nom, niveau, réserves) sera conservé — il deviendra schématique.',
+      [
+        { text: 'Annuler', style: 'cancel' },
+        {
+          text: 'Retirer',
+          style: 'destructive',
+          onPress: () => {
+            updateSitePlan({
+              ...currentPlan!,
+              uri: undefined,
+              fileType: undefined,
+              dxfName: undefined,
+              size: undefined,
+            });
+          },
+        },
+      ]
+    );
+  }
+
+  function handleDeletePlan() {
+    if (!currentPlanId || !currentPlan) return;
+    const linkedReserves = reserves.filter(r => r.planId === currentPlanId);
+    const msg = linkedReserves.length > 0
+      ? `Le plan "${currentPlan.name}" et son fichier seront supprimés définitivement.\n\n${linkedReserves.length} réserve${linkedReserves.length > 1 ? 's' : ''} associée${linkedReserves.length > 1 ? 's' : ''} sera${linkedReserves.length > 1 ? 'ont' : ''} détachée${linkedReserves.length > 1 ? 's' : ''} du plan (conservées sans localisation).`
+      : `Le plan "${currentPlan.name}" et son fichier seront supprimés définitivement.`;
+    Alert.alert('Supprimer le plan ?', msg, [
+      { text: 'Annuler', style: 'cancel' },
+      {
+        text: 'Supprimer',
+        style: 'destructive',
+        onPress: () => {
+          linkedReserves.forEach(r => {
+            updateReserveFields({ ...r, planId: undefined, planX: undefined, planY: undefined });
+          });
+          deleteSitePlan(currentPlanId);
+          setActivePlanId(null);
+          setSelected(null);
+        },
+      },
+    ]);
   }
 
   async function importFileForNewPlan() {
@@ -1569,6 +1624,30 @@ export default function PlansScreen() {
                   }
                 </TouchableOpacity>
               )}
+              {permissions.canDelete && (currentPlan?.uri || currentPlanId) && (
+                <View style={{ flexDirection: 'row', gap: 4 }}>
+                  {currentPlan?.uri && (
+                    <TouchableOpacity
+                      style={styles.removePlanBtn}
+                      onPress={handleDeletePlanFile}
+                      accessibilityLabel="Retirer le fichier du plan"
+                    >
+                      <Ionicons name="document-outline" size={13} color="#F59E0B" />
+                      <Text style={[styles.removePlanText, { color: '#F59E0B' }]}>Retirer</Text>
+                    </TouchableOpacity>
+                  )}
+                  {currentPlanId && (
+                    <TouchableOpacity
+                      style={styles.removePlanBtn}
+                      onPress={handleDeletePlan}
+                      accessibilityLabel="Supprimer le plan"
+                    >
+                      <Ionicons name="trash-outline" size={13} color="#EF4444" />
+                      <Text style={[styles.removePlanText, { color: '#EF4444' }]}>Plan</Text>
+                    </TouchableOpacity>
+                  )}
+                </View>
+              )}
             </View>
 
             {showVersionHistory && currentPlan && (
@@ -1623,12 +1702,16 @@ export default function PlansScreen() {
                   <Ionicons name="layers-outline" size={36} color="#3B6FCC" />
                 </View>
                 <View style={{ alignItems: 'center', gap: 6 }}>
-                  <Text style={{ color: '#94A3B8', fontFamily: 'Inter_600SemiBold', fontSize: 15 }}>Aucun plan pour ce niveau</Text>
+                  <Text style={{ color: '#94A3B8', fontFamily: 'Inter_600SemiBold', fontSize: 15 }}>
+                    {selectedLevel === 'all' ? 'Aucun plan pour ce bâtiment' : 'Aucun plan pour ce niveau'}
+                  </Text>
                   <Text style={{ color: '#475569', fontFamily: 'Inter_400Regular', fontSize: 12, textAlign: 'center', lineHeight: 18 }}>
-                    Ce niveau n'a pas encore de plan associé. Créez un plan et assignez-le à ce niveau.
+                    {selectedLevel === 'all' && chantierHierarchyBuildings.length > 0
+                      ? 'Sélectionnez un niveau ci-dessus pour ajouter un plan à ce niveau précis.'
+                      : 'Ce niveau n\'a pas encore de plan associé. Créez un plan et assignez-le à ce niveau.'}
                   </Text>
                 </View>
-                {permissions.canCreate && (
+                {permissions.canCreate && selectedLevel !== 'all' && (
                   <TouchableOpacity
                     style={{ flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: '#003082', borderRadius: 12, paddingVertical: 12, paddingHorizontal: 20 }}
                     onPress={handleAddPlan}
