@@ -77,7 +77,6 @@ interface AuthContextValue {
     name: string;
     email: string;
     password: string;
-    organizationName?: string;
   }) => Promise<{ success: boolean; error?: string }>;
   logout: () => Promise<void>;
   permissions: UserPermissions;
@@ -576,12 +575,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     name,
     email,
     password,
-    organizationName,
   }: {
     name: string;
     email: string;
     password: string;
-    organizationName?: string;
   }): Promise<{ success: boolean; error?: string }> {
     if (!isSupabaseConfigured) {
       return { success: false, error: 'La création de compte nécessite une connexion au serveur.' };
@@ -693,83 +690,22 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           signUpSession = signUpData.session;
         }
 
-        if (organizationName?.trim()) {
-          const slug = organizationName.trim()
-            .toLowerCase()
-            .normalize('NFD')
-            .replace(/[\u0300-\u036f]/g, '')
-            .replace(/[^a-z0-9]+/g, '-')
-            .replace(/^-|-$/g, '');
+        // Invitation mode: insert profile with no org — org will be linked
+        // by the link_invitation_for_current_user RPC once the user is authenticated.
+        // Note: if signUp did not return a session (email confirmation required),
+        // this insert will fail (RLS) but we continue — the user will need to
+        // confirm their email first, and signIn below will catch it.
+        const { error: profileInsertErr } = await supabase.from('profiles').insert({
+          id: userId,
+          name: name.trim(),
+          email: email.trim().toLowerCase(),
+          role: 'observateur',
+          role_label: ROLE_LABELS['observateur'],
+          organization_id: null,
+        });
 
-          const uniqueSlug = slug + '-' + Date.now().toString(36);
-
-          const { data: orgData, error: orgErr } = await supabase
-            .from('organizations')
-            .insert({ name: organizationName.trim(), slug: uniqueSlug })
-            .select()
-            .single();
-
-          if (orgErr || !orgData) {
-            cleanup();
-            return { success: false, error: "Impossible de créer l'organisation. Réessayez." };
-          }
-
-          const orgId: string = orgData.id;
-
-          await supabase.from('channels').insert({
-            id: `general-${orgId}`,
-            name: 'Général',
-            type: 'general',
-            organization_id: orgId,
-            created_by: name.trim(),
-            members: [name.trim()],
-          });
-
-          const { data: enterprisePlan } = await supabase
-            .from('plans')
-            .select('id')
-            .order('created_at', { ascending: true })
-            .limit(1)
-            .single();
-
-          if (enterprisePlan?.id) {
-            await supabase.from('subscriptions').insert({
-              organization_id: orgId,
-              plan_id: enterprisePlan.id,
-              status: 'active',
-            });
-          }
-
-          const { error: profileInsertErr } = await supabase.from('profiles').insert({
-            id: userId,
-            name: name.trim(),
-            email: email.trim().toLowerCase(),
-            role: 'admin',
-            role_label: ROLE_LABELS['admin'],
-            organization_id: orgId,
-          });
-
-          if (profileInsertErr) {
-            console.warn('[register] profiles.insert (new_client) error:', profileInsertErr.code, profileInsertErr.message);
-          }
-        } else {
-          // Invitation mode: insert profile with no org — org will be linked
-          // by linkPendingInvitation once the user is authenticated.
-          // Note: if signUp did not return a session (email confirmation required),
-          // this insert will fail (RLS) but we continue — the user will need to
-          // confirm their email first, and signIn below will catch it.
-          const { error: profileInsertErr } = await supabase.from('profiles').insert({
-            id: userId,
-            name: name.trim(),
-            email: email.trim().toLowerCase(),
-            role: 'observateur',
-            role_label: ROLE_LABELS['observateur'],
-            organization_id: null,
-          });
-
-          if (profileInsertErr) {
-            console.warn('[register] profiles.insert (invitation) error:', profileInsertErr.code, profileInsertErr.message);
-          }
+        if (profileInsertErr) {
+          console.warn('[register] profiles.insert (invitation) error:', profileInsertErr.code, profileInsertErr.message);
         }
 
         // If signUp already returned a session (email confirmation disabled),
@@ -800,58 +736,54 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           return { success: false, error: "Compte créé. Connectez-vous pour continuer." };
         }
 
-        // For invitation mode: link the invitation to the newly created profile.
+        // Link the invitation to the newly created profile.
         // Step 1 — Try the SECURITY DEFINER RPC (bypasses RLS, preferred path).
         // Step 2 — If RPC fails or isn't deployed, fall back to direct client-side
         //          queries using the RLS policies that allow a user to read/accept
         //          invitations sent to their own email.
-        if (!organizationName?.trim()) {
-          let rpcLinked = false;
-          try {
-            const { data: rpcData, error: rpcErr } = await supabase.rpc('link_invitation_for_current_user');
-            if (rpcErr) {
-              console.warn('[register] link_invitation_for_current_user RPC error:', rpcErr.code, rpcErr.message);
-            } else {
-              rpcLinked = !!(rpcData as any)?.linked;
-            }
-          } catch (rpcEx) {
-            console.warn('[register] link_invitation_for_current_user RPC exception:', rpcEx);
+        let rpcLinked = false;
+        try {
+          const { data: rpcData, error: rpcErr } = await supabase.rpc('link_invitation_for_current_user');
+          if (rpcErr) {
+            console.warn('[register] link_invitation_for_current_user RPC error:', rpcErr.code, rpcErr.message);
+          } else {
+            rpcLinked = !!(rpcData as any)?.linked;
           }
+        } catch (rpcEx) {
+          console.warn('[register] link_invitation_for_current_user RPC exception:', rpcEx);
+        }
 
-          // Client-side fallback: query invitations directly (requires the RLS policy
-          // "Utilisateur peut voir ses propres invitations" to be deployed on Supabase).
-          if (!rpcLinked && signInUserId) {
-            try {
-              const emailLower = email.trim().toLowerCase();
-              const { data: inv } = await supabase
-                .from('invitations')
-                .select('*')
-                .eq('email', emailLower)
-                .eq('status', 'pending')
-                .gt('expires_at', new Date().toISOString())
-                .order('created_at', { ascending: false })
-                .limit(1)
-                .maybeSingle();
+        // Client-side fallback: query invitations directly (requires the RLS policy
+        // "Utilisateur peut voir ses propres invitations" to be deployed on Supabase).
+        if (!rpcLinked && signInUserId) {
+          try {
+            const emailLower = email.trim().toLowerCase();
+            const { data: inv } = await supabase
+              .from('invitations')
+              .select('*')
+              .eq('email', emailLower)
+              .eq('status', 'pending')
+              .gt('expires_at', new Date().toISOString())
+              .order('created_at', { ascending: false })
+              .limit(1)
+              .maybeSingle();
 
-              if (inv?.organization_id) {
-                // Update profile with org, role, and optional company
-                await supabase.from('profiles').update({
-                  organization_id: inv.organization_id,
-                  role: inv.role,
-                  role_label: ROLE_LABELS[inv.role as UserRole] ?? inv.role,
-                  ...(inv.company_id ? { company_id: inv.company_id } : {}),
-                }).eq('id', signInUserId);
+            if (inv?.organization_id) {
+              await supabase.from('profiles').update({
+                organization_id: inv.organization_id,
+                role: inv.role,
+                role_label: ROLE_LABELS[inv.role as UserRole] ?? inv.role,
+                ...(inv.company_id ? { company_id: inv.company_id } : {}),
+              }).eq('id', signInUserId);
 
-                // Mark invitation as accepted
-                await supabase.from('invitations')
-                  .update({ status: 'accepted' })
-                  .eq('id', inv.id);
+              await supabase.from('invitations')
+                .update({ status: 'accepted' })
+                .eq('id', inv.id);
 
-                console.log('[register] invitation linked via client-side fallback for org:', inv.organization_id);
-              }
-            } catch (fallbackEx) {
-              console.warn('[register] client-side invitation link fallback failed:', fallbackEx);
+              console.log('[register] invitation linked via client-side fallback for org:', inv.organization_id);
             }
+          } catch (fallbackEx) {
+            console.warn('[register] client-side invitation link fallback failed:', fallbackEx);
           }
         }
 
@@ -876,7 +808,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           sendWelcomeEmail({
             email: email.trim().toLowerCase(),
             name: name.trim(),
-            organizationName: organizationName?.trim(),
           }).catch(() => {});
           return { success: true };
         }

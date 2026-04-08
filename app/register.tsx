@@ -1,6 +1,6 @@
 import {
   View, Text, StyleSheet, TextInput, TouchableOpacity,
-  Platform, Alert, ScrollView, KeyboardAvoidingView,
+  Platform, Alert, ScrollView, KeyboardAvoidingView, ActivityIndicator,
 } from 'react-native';
 import { useState } from 'react';
 import { Ionicons } from '@expo/vector-icons';
@@ -8,20 +8,17 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { C } from '@/constants/colors';
 import { useAuth } from '@/context/AuthContext';
-
-type Mode = 'new_client' | 'invitation';
+import { supabase } from '@/lib/supabase';
 
 export default function RegisterScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const { register } = useAuth();
 
-  const [mode, setMode] = useState<Mode>('new_client');
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
-  const [organizationName, setOrganizationName] = useState('');
   const [showPass, setShowPass] = useState(false);
   const [showConfirmPass, setShowConfirmPass] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -43,23 +40,42 @@ export default function RegisterScreen() {
       Alert.alert('Mots de passe différents', 'Les deux mots de passe ne correspondent pas.');
       return;
     }
-    if (mode === 'new_client' && !organizationName.trim()) {
-      Alert.alert('Champ requis', "Veuillez saisir le nom de votre organisation.");
-      return;
-    }
 
     setLoading(true);
+
+    // Pré-validation : vérifier qu'une invitation en attente existe
+    // avant de créer le compte, via le RPC public (pas d'auth requise).
+    try {
+      const { data: hasInvitation, error: rpcErr } = await supabase.rpc(
+        'check_pending_invitation',
+        { p_email: email.trim().toLowerCase() }
+      );
+
+      if (rpcErr) {
+        console.warn('[register] check_pending_invitation RPC error:', rpcErr.message);
+        // Si le RPC n'est pas encore déployé, on laisse passer —
+        // la vérification côté serveur lors du register() prendra le relais.
+      } else if (!hasInvitation) {
+        setLoading(false);
+        Alert.alert(
+          'Aucune invitation trouvée',
+          "Aucune invitation en attente n'a été trouvée pour cet email.\n\nDemandez à votre administrateur de vous envoyer une invitation avant de créer votre compte.",
+          [{ text: 'Compris', style: 'default' }]
+        );
+        return;
+      }
+    } catch (checkErr) {
+      console.warn('[register] check_pending_invitation exception:', checkErr);
+    }
+
     const result = await register({
       name: name.trim(),
       email: email.trim(),
       password,
-      organizationName: mode === 'new_client' ? organizationName.trim() : undefined,
     });
     setLoading(false);
 
-    if (result.success) {
-      // AuthContext a déjà connecté l'utilisateur, AuthGuard redirigera
-    } else {
+    if (!result.success) {
       Alert.alert('Erreur', result.error ?? 'Une erreur est survenue.');
     }
   }
@@ -88,56 +104,16 @@ export default function RegisterScreen() {
         </View>
 
         <View style={styles.formContainer}>
-          {/* Sélecteur de mode */}
-          <View style={styles.modeToggleCard}>
-            <TouchableOpacity
-              style={[styles.modeBtn, mode === 'new_client' && styles.modeBtnActive]}
-              onPress={() => setMode('new_client')}
-              activeOpacity={0.8}
-            >
-              <Ionicons
-                name="business-outline"
-                size={16}
-                color={mode === 'new_client' ? C.primary : C.textMuted}
-              />
-              <Text style={[styles.modeBtnText, mode === 'new_client' && styles.modeBtnTextActive]}>
-                Nouveau client
-              </Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={[styles.modeBtn, mode === 'invitation' && styles.modeBtnActive]}
-              onPress={() => setMode('invitation')}
-              activeOpacity={0.8}
-            >
-              <Ionicons
-                name="mail-outline"
-                size={16}
-                color={mode === 'invitation' ? C.primary : C.textMuted}
-              />
-              <Text style={[styles.modeBtnText, mode === 'invitation' && styles.modeBtnTextActive]}>
-                Invitation reçue
-              </Text>
-            </TouchableOpacity>
-          </View>
-
-          {/* Bannière d'info contextuelle */}
+          {/* Bannière d'info */}
           <View style={styles.infoBanner}>
-            <Ionicons
-              name={mode === 'new_client' ? 'information-circle-outline' : 'key-outline'}
-              size={15}
-              color={C.inProgress}
-            />
+            <Ionicons name="mail-outline" size={15} color={C.inProgress} />
             <Text style={styles.infoBannerText}>
-              {mode === 'new_client'
-                ? "Vous serez l'administrateur de votre organisation avec un essai gratuit de 30 jours."
-                : "Si vous avez été invité, créez votre compte avec l'email sur lequel vous avez reçu l'invitation."}
+              Utilisez l'adresse email sur laquelle vous avez reçu votre invitation.
             </Text>
           </View>
 
           <View style={styles.card}>
-            <Text style={styles.cardTitle}>
-              {mode === 'new_client' ? 'Créer mon organisation' : 'Rejoindre une organisation'}
-            </Text>
+            <Text style={styles.cardTitle}>Rejoindre une organisation</Text>
 
             {/* Nom complet */}
             <View style={styles.field}>
@@ -155,27 +131,9 @@ export default function RegisterScreen() {
               </View>
             </View>
 
-            {/* Nom de l'organisation (seulement en mode nouveau client) */}
-            {mode === 'new_client' && (
-              <View style={styles.field}>
-                <Text style={styles.label}>Nom de l'organisation</Text>
-                <View style={styles.inputWrap}>
-                  <Ionicons name="business-outline" size={18} color={C.textMuted} />
-                  <TextInput
-                    style={styles.input}
-                    placeholder="Bouygues Construction"
-                    placeholderTextColor={C.textMuted}
-                    value={organizationName}
-                    onChangeText={setOrganizationName}
-                    autoCorrect={false}
-                  />
-                </View>
-              </View>
-            )}
-
             {/* Email */}
             <View style={styles.field}>
-              <Text style={styles.label}>Email</Text>
+              <Text style={styles.label}>Email d'invitation</Text>
               <View style={styles.inputWrap}>
                 <Ionicons name="mail-outline" size={18} color={C.textMuted} />
                 <TextInput
@@ -242,13 +200,11 @@ export default function RegisterScreen() {
               activeOpacity={0.85}
             >
               {loading ? (
-                <Text style={styles.submitBtnText}>Création en cours...</Text>
+                <ActivityIndicator size="small" color={C.primary} />
               ) : (
                 <>
                   <Ionicons name="checkmark-circle-outline" size={20} color={C.primary} />
-                  <Text style={styles.submitBtnText}>
-                    {mode === 'new_client' ? 'Créer mon organisation' : 'Créer mon compte'}
-                  </Text>
+                  <Text style={styles.submitBtnText}>Créer mon compte</Text>
                 </>
               )}
             </TouchableOpacity>
@@ -331,37 +287,6 @@ const styles = StyleSheet.create({
     borderTopRightRadius: 28,
     paddingHorizontal: 20,
     paddingTop: 24,
-  },
-  modeToggleCard: {
-    flexDirection: 'row',
-    backgroundColor: C.surface,
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor: C.border,
-    padding: 4,
-    marginBottom: 16,
-  },
-  modeBtn: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 6,
-    paddingVertical: 10,
-    borderRadius: 10,
-  },
-  modeBtnActive: {
-    backgroundColor: C.primaryBg,
-    borderWidth: 1,
-    borderColor: C.primary + '30',
-  },
-  modeBtnText: {
-    fontSize: 13,
-    fontFamily: 'Inter_600SemiBold',
-    color: C.textMuted,
-  },
-  modeBtnTextActive: {
-    color: C.primary,
   },
   infoBanner: {
     flexDirection: 'row',
@@ -446,6 +371,7 @@ const styles = StyleSheet.create({
     borderRadius: 14,
     paddingVertical: 16,
     marginTop: 8,
+    minHeight: 52,
   },
   submitBtnDisabled: { opacity: 0.6 },
   submitBtnText: {
