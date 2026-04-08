@@ -3,6 +3,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Alert } from 'react-native';
 import { TimeEntry } from '@/constants/types';
 import { supabase, isSupabaseConfigured } from '@/lib/supabase';
+import { useAuth } from '@/context/AuthContext';
 import { genId } from '@/lib/utils';
 
 const POINTAGE_KEY = 'buildtrack_pointage_v1';
@@ -56,21 +57,17 @@ function fromEntry(e: TimeEntry): Record<string, any> {
 }
 
 export function PointageProvider({ children }: { children: React.ReactNode }) {
+  const { user } = useAuth();
   const [entries, setEntries] = useState<TimeEntry[]>([]);
   const entriesRef = useRef(entries);
-  const orgIdRef = useRef<string | null>(null);
+  const orgIdRef = useRef<string | null>(user?.organizationId ?? null);
   useEffect(() => { entriesRef.current = entries; }, [entries]);
+  useEffect(() => { orgIdRef.current = user?.organizationId ?? null; }, [user?.organizationId]);
 
   useEffect(() => {
     async function load() {
-      if (isSupabaseConfigured) {
+      if (isSupabaseConfigured && user) {
         try {
-          const { data: { session } } = await supabase.auth.getSession();
-          if (session?.user?.id) {
-            const { data: profile } = await supabase
-              .from('profiles').select('organization_id').eq('id', session.user.id).single();
-            if (profile?.organization_id) orgIdRef.current = profile.organization_id;
-          }
           const { data, error } = await supabase
             .from('time_entries')
             .select('*')
@@ -89,7 +86,7 @@ export function PointageProvider({ children }: { children: React.ReactNode }) {
       } catch {}
     }
     load();
-  }, []);
+  }, [user?.id]);
 
   useEffect(() => {
     if (!isSupabaseConfigured) return;
@@ -144,7 +141,6 @@ export function PointageProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const updateEntry = useCallback(async (id: string, updates: Partial<TimeEntry>) => {
-    const previous = entriesRef.current.find(e => e.id === id);
     const updated = entriesRef.current.map(e => e.id === id ? { ...e, ...updates } : e);
     await persistLocal(updated);
     if (isSupabaseConfigured) {
@@ -162,7 +158,6 @@ export function PointageProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const deleteEntry = useCallback(async (id: string) => {
-    const previous = entriesRef.current.find(e => e.id === id);
     await persistLocal(entriesRef.current.filter(e => e.id !== id));
     if (isSupabaseConfigured) {
       supabase.from('time_entries').delete().eq('id', id).then(({ error }: { error: any }) => {

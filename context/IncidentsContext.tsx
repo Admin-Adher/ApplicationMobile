@@ -3,6 +3,7 @@ import { Alert } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Incident } from '@/constants/types';
 import { supabase, isSupabaseConfigured } from '@/lib/supabase';
+import { useAuth } from '@/context/AuthContext';
 import { formatDateFR } from '@/lib/utils';
 
 const INCIDENTS_KEY = 'buildtrack_incidents_v2';
@@ -42,23 +43,19 @@ function toIncident(row: any): Incident {
 }
 
 export function IncidentsProvider({ children }: { children: React.ReactNode }) {
+  const { user } = useAuth();
   const [incidents, setIncidents] = useState<Incident[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const incidentsRef = useRef(incidents);
-  const orgIdRef = useRef<string | null>(null);
+  const orgIdRef = useRef<string | null>(user?.organizationId ?? null);
   useEffect(() => { incidentsRef.current = incidents; }, [incidents]);
+  useEffect(() => { orgIdRef.current = user?.organizationId ?? null; }, [user?.organizationId]);
 
   useEffect(() => {
     async function load() {
       setIsLoading(true);
-      if (isSupabaseConfigured) {
+      if (isSupabaseConfigured && user) {
         try {
-          const { data: { session } } = await supabase.auth.getSession();
-          if (session?.user?.id) {
-            const { data: profile } = await supabase
-              .from('profiles').select('organization_id').eq('id', session.user.id).single();
-            if (profile?.organization_id) orgIdRef.current = profile.organization_id;
-          }
           const { data, error } = await supabase.from('incidents').select('*').order('reported_at', { ascending: false });
           if (!error && data && data.length > 0) {
             setIncidents(data.map(toIncident));
@@ -82,7 +79,7 @@ export function IncidentsProvider({ children }: { children: React.ReactNode }) {
       setIsLoading(false);
     }
     load();
-  }, []);
+  }, [user?.id]);
 
   useEffect(() => {
     if (!isSupabaseConfigured) return;

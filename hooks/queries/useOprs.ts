@@ -8,6 +8,7 @@ import { useNetwork } from '@/context/NetworkContext';
 import { queryKeys } from '@/lib/queryKeys';
 import { toOpr, fromOpr } from '@/lib/mappers';
 import { Opr } from '@/constants/types';
+import { useStartupDelay } from '@/hooks/useStartupDelay';
 
 const MOCK_OPRS_KEY = 'buildtrack_mock_oprs_v2';
 
@@ -17,6 +18,7 @@ export function useOprs() {
   const queryClient = useQueryClient();
   const isOnlineRef = useRef(isOnline);
   useEffect(() => { isOnlineRef.current = isOnline; }, [isOnline]);
+  const startupReady = useStartupDelay(!!user);
 
   const query = useQuery({
     queryKey: queryKeys.oprs(),
@@ -29,7 +31,7 @@ export function useOprs() {
       if (error) throw error;
       return (data ?? []).map(toOpr);
     },
-    enabled: !!user,
+    enabled: !!user && startupReady,
     staleTime: 5 * 60 * 1000,
   });
 

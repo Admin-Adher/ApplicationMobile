@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useEffect, useRef, useState } from 'react';
+import React, { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
 import { Alert } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { supabase, isSupabaseConfigured } from '@/lib/supabase';
@@ -81,6 +81,8 @@ interface AuthContextValue {
   logout: () => Promise<void>;
   permissions: UserPermissions;
   users: User[];
+  usersLoaded: boolean;
+  loadAllUsers: () => void;
   seedStatus: 'idle' | 'seeding' | 'done' | 'error';
   updateUserRole: (userId: string, newRole: UserRole) => Promise<void>;
   updateUserCompany: (userId: string, companyId: string | null) => Promise<void>;
@@ -374,6 +376,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [isLoading, setIsLoading] = useState(true);
   const [seedStatus, setSeedStatus] = useState<'idle' | 'seeding' | 'done' | 'error'>('idle');
   const [users, setUsers] = useState<User[]>([]);
+  const [usersLoaded, setUsersLoaded] = useState(false);
+  const usersLoadedRef = useRef(false);
   const isSeedingRef = useRef(false);
   const abortSeedingRef = useRef(false);
   const isRegisteringRef = useRef(false);
@@ -499,16 +503,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     };
   }, []);
 
-  useEffect(() => {
+  const loadAllUsers = useCallback(() => {
     if (!user || !isSupabaseConfigured) return;
+    if (usersLoadedRef.current) return;
+    usersLoadedRef.current = true;
     supabase.from('profiles').select('id, name, role, role_label, email, organization_id, company_id, permissions_override').then(({ data, error }: { data: any; error: any }) => {
       if (error) {
         console.warn('[AuthContext] profiles.select error:', error.code, error.message);
-        // Fallback : si la sélection échoue (colonne manquante, politique RLS absente…),
-        // on recharge sans les colonnes optionnelles pour au moins afficher les membres.
         return supabase.from('profiles').select('id, name, role, role_label, email, organization_id').then(({ data: fallbackData, error: fallbackError }: { data: any; error: any }) => {
           if (fallbackError) {
             console.warn('[AuthContext] profiles fallback select error:', fallbackError.code, fallbackError.message);
+            usersLoadedRef.current = false;
             return;
           }
           if (fallbackData && fallbackData.length > 0) {
@@ -522,6 +527,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
               companyId: undefined,
               permissionsOverride: undefined,
             })));
+            setUsersLoaded(true);
           }
         });
       }
@@ -538,10 +544,22 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             ? p.permissions_override as PermissionsOverride
             : undefined,
         })));
+        setUsersLoaded(true);
       }
     }).catch((err: any) => {
       console.warn('[AuthContext] profiles.select exception:', err);
+      usersLoadedRef.current = false;
     });
+  }, [user]);
+
+  useEffect(() => {
+    if (!user || !isSupabaseConfigured) {
+      usersLoadedRef.current = false;
+      setUsersLoaded(false);
+      return;
+    }
+    const timer = setTimeout(loadAllUsers, 3000);
+    return () => clearTimeout(timer);
   }, [user?.id]);
 
   useEffect(() => {
@@ -1051,6 +1069,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       logout,
       permissions,
       users,
+      usersLoaded,
+      loadAllUsers,
       seedStatus,
       updateUserRole,
       updateUserCompany,

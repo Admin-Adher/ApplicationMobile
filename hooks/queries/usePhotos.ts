@@ -7,6 +7,7 @@ import { useNetwork } from '@/context/NetworkContext';
 import { queryKeys } from '@/lib/queryKeys';
 import { toPhoto } from '@/lib/mappers';
 import { Photo } from '@/constants/types';
+import { useStartupDelay } from '@/hooks/useStartupDelay';
 
 const MOCK_PHOTOS_KEY = 'buildtrack_mock_photos_v4';
 
@@ -16,6 +17,7 @@ export function usePhotos() {
   const queryClient = useQueryClient();
   const isOnlineRef = useRef(isOnline);
   useEffect(() => { isOnlineRef.current = isOnline; }, [isOnline]);
+  const startupReady = useStartupDelay(!!user);
 
   const query = useQuery({
     queryKey: queryKeys.photos(),
@@ -32,7 +34,7 @@ export function usePhotos() {
       if (error) throw error;
       return (data ?? []).map(toPhoto);
     },
-    enabled: !!user,
+    enabled: !!user && startupReady,
     staleTime: 5 * 60 * 1000,
   });
 

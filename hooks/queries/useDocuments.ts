@@ -7,6 +7,7 @@ import { useNetwork } from '@/context/NetworkContext';
 import { queryKeys } from '@/lib/queryKeys';
 import { toDocument } from '@/lib/mappers';
 import { Document } from '@/constants/types';
+import { useStartupDelay } from '@/hooks/useStartupDelay';
 
 const MOCK_DOCUMENTS_KEY = 'buildtrack_mock_documents_v2';
 
@@ -16,6 +17,7 @@ export function useDocuments() {
   const queryClient = useQueryClient();
   const isOnlineRef = useRef(isOnline);
   useEffect(() => { isOnlineRef.current = isOnline; }, [isOnline]);
+  const startupReady = useStartupDelay(!!user);
 
   const query = useQuery({
     queryKey: queryKeys.documents(),
@@ -28,7 +30,7 @@ export function useDocuments() {
       if (error) throw error;
       return (data ?? []).map(toDocument);
     },
-    enabled: !!user,
+    enabled: !!user && startupReady,
     staleTime: 5 * 60 * 1000,
   });
 

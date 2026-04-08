@@ -8,6 +8,7 @@ import { useNetwork } from '@/context/NetworkContext';
 import { queryKeys } from '@/lib/queryKeys';
 import { toLot, fromLot } from '@/lib/mappers';
 import { Lot } from '@/constants/types';
+import { useStartupDelay } from '@/hooks/useStartupDelay';
 
 const MOCK_LOTS_KEY = 'buildtrack_mock_lots_v2';
 
@@ -37,6 +38,7 @@ export function useLots() {
   const queryClient = useQueryClient();
   const isOnlineRef = useRef(isOnline);
   useEffect(() => { isOnlineRef.current = isOnline; }, [isOnline]);
+  const startupReady = useStartupDelay(!!user);
 
   const query = useQuery({
     queryKey: queryKeys.lots(),
@@ -51,7 +53,7 @@ export function useLots() {
       if (!data?.length) return STANDARD_LOTS;
       return data.map(toLot);
     },
-    enabled: !!user,
+    enabled: !!user && startupReady,
     staleTime: 10 * 60 * 1000,
   });
 

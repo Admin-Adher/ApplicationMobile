@@ -33,6 +33,9 @@ export function useChannels() {
   const userNameRef = useRef<string>(user?.name ?? '');
   useEffect(() => { userNameRef.current = user?.name ?? ''; }, [user?.name]);
 
+  const userIdRef = useRef<string | undefined>(user?.id);
+  useEffect(() => { userIdRef.current = user?.id; }, [user?.id]);
+
   useEffect(() => {
     if (!user) return;
     loadAll();
@@ -40,120 +43,113 @@ export function useChannels() {
 
   async function loadAll() {
     await Promise.all([
-      loadCustomChannels(),
-      loadGroupChannels(),
-      loadGeneralChannels(),
-      loadDMChannels(),
+      _loadChannelsFromSupabase(),
       loadPinnedChannels(),
       loadChannelMembersOverride(),
     ]);
   }
 
-  async function loadGeneralChannels() {
-    if (!isSupabaseConfigured) return;
+  async function _loadChannelsFromSupabase() {
+    const [customCached, groupCached] = await Promise.all([
+      AsyncStorage.getItem(CUSTOM_CHANNELS_KEY)
+        .then(s => s ? JSON.parse(s) as Channel[] : [] as Channel[])
+        .catch(() => [] as Channel[]),
+      AsyncStorage.getItem(GROUP_CHANNELS_KEY)
+        .then(s => s ? JSON.parse(s) as Channel[] : [] as Channel[])
+        .catch(() => [] as Channel[]),
+    ]);
+
+    if (!isSupabaseConfigured) {
+      if (customCached.length > 0) setCustomChannels(customCached);
+      if (groupCached.length > 0) setGroupChannels(groupCached);
+      return;
+    }
+
     try {
-      const { data, error } = await supabase.from('channels').select('*').in('type', ['general', 'building']);
-      if (!error && data) {
-        setGeneralChannels(data.map((r: any) => ({
-          id: r.id, name: r.name, description: r.description ?? '',
-          icon: r.icon, color: r.color, type: r.type as 'general' | 'building',
-          members: r.members ?? [], createdBy: r.created_by ?? undefined,
-          organizationId: r.organization_id ?? undefined,
-        })));
+      const { data, error } = await supabase
+        .from('channels')
+        .select('*')
+        .in('type', ['general', 'building', 'custom', 'group', 'dm']);
+
+      if (error || !data) {
+        if (customCached.length) setCustomChannels(customCached);
+        if (groupCached.length) setGroupChannels(groupCached);
+        return;
       }
-    } catch {}
-  }
 
-  async function loadCustomChannels() {
-    let cached: Channel[] = [];
-    try {
-      const stored = await AsyncStorage.getItem(CUSTOM_CHANNELS_KEY);
-      if (stored) cached = JSON.parse(stored) ?? [];
-    } catch {}
+      const myName = userNameRef.current;
+      const general: Channel[] = [];
+      const custom: Channel[] = [];
+      const group: Channel[] = [];
+      const dm: Channel[] = [];
 
-    if (isSupabaseConfigured) {
-      try {
-        const { data, error } = await supabase.from('channels').select('*').eq('type', 'custom');
-        if (!error && data !== null) {
-          const fromServer: Channel[] = data.map((r: any) => ({
+      for (const r of data) {
+        if (r.type === 'general' || r.type === 'building') {
+          general.push({
+            id: r.id, name: r.name, description: r.description ?? '',
+            icon: r.icon, color: r.color, type: r.type as 'general' | 'building',
+            members: r.members ?? [], createdBy: r.created_by ?? undefined,
+            organizationId: r.organization_id ?? undefined,
+          });
+        } else if (r.type === 'custom') {
+          custom.push({
             id: r.id, name: r.name, description: r.description ?? '',
             icon: r.icon, color: r.color, type: 'custom' as const,
             members: r.members ?? [], createdBy: r.created_by ?? undefined,
-          }));
-          const merged = [...fromServer];
-          for (const local of cached) {
-            if (!merged.find(c => c.id === local.id)) merged.push(local);
-          }
-          setCustomChannels(merged);
-          AsyncStorage.setItem(CUSTOM_CHANNELS_KEY, JSON.stringify(merged)).catch(() => {});
-          return;
-        }
-      } catch {}
-    }
-    if (cached.length > 0) setCustomChannels(cached);
-  }
-
-  async function loadGroupChannels() {
-    let cached: Channel[] = [];
-    try {
-      const stored = await AsyncStorage.getItem(GROUP_CHANNELS_KEY);
-      if (stored) cached = JSON.parse(stored) ?? [];
-    } catch {}
-
-    if (isSupabaseConfigured) {
-      try {
-        const { data, error } = await supabase.from('channels').select('*').eq('type', 'group');
-        if (!error && data !== null) {
-          const fromServer: Channel[] = data.map((r: any) => ({
+          });
+        } else if (r.type === 'group') {
+          group.push({
             id: r.id, name: r.name, description: r.description ?? '',
             icon: r.icon, color: r.color, type: 'group' as const,
             members: r.members ?? [], createdBy: r.created_by ?? undefined,
-          }));
-          const merged = [...fromServer];
-          for (const local of cached) {
-            if (!merged.find(c => c.id === local.id)) merged.push(local);
-          }
-          setGroupChannels(merged);
-          AsyncStorage.setItem(GROUP_CHANNELS_KEY, JSON.stringify(merged)).catch(() => {});
-          return;
-        }
-      } catch {}
-    }
-    if (cached.length > 0) setGroupChannels(cached);
-  }
-
-  async function loadDMChannels() {
-    if (!isSupabaseConfigured) return;
-    try {
-      const { data, error } = await supabase.from('channels').select('*').eq('type', 'dm');
-      if (!error && data) {
-        const myName = userNameRef.current;
-        const channels: Channel[] = data.map((r: any) => {
+          });
+        } else if (r.type === 'dm') {
           const participants: string[] = r.members ?? [];
           const otherName = participants.find(p => p !== myName) ?? r.name;
-          return {
+          dm.push({
             id: r.id, name: otherName, description: r.description ?? '',
             icon: r.icon ?? 'person-circle', color: r.color ?? '#EC4899',
             type: 'dm' as const, members: participants,
             dmParticipants: participants, createdBy: r.created_by ?? undefined,
-          };
-        });
-        setPersistedDmChannels(channels);
+          });
+        }
       }
-    } catch {}
+
+      const mergedCustom = [...custom];
+      for (const local of customCached) {
+        if (!mergedCustom.find(c => c.id === local.id)) mergedCustom.push(local);
+      }
+      const mergedGroup = [...group];
+      for (const local of groupCached) {
+        if (!mergedGroup.find(c => c.id === local.id)) mergedGroup.push(local);
+      }
+
+      setGeneralChannels(general);
+      setCustomChannels(mergedCustom);
+      setGroupChannels(mergedGroup);
+      setPersistedDmChannels(dm);
+
+      AsyncStorage.setItem(CUSTOM_CHANNELS_KEY, JSON.stringify(mergedCustom)).catch(() => {});
+      AsyncStorage.setItem(GROUP_CHANNELS_KEY, JSON.stringify(mergedGroup)).catch(() => {});
+    } catch {
+      if (customCached.length) setCustomChannels(customCached);
+      if (groupCached.length) setGroupChannels(groupCached);
+    }
   }
 
   async function loadPinnedChannels() {
     try {
-      if (isSupabaseConfigured) {
-        const { data: { session } } = await supabase.auth.getSession();
-        if (session?.user?.id) {
-          const { data } = await supabase.from('profiles').select('pinned_channels').eq('id', session.user.id).single();
-          if (data?.pinned_channels && Array.isArray(data.pinned_channels)) {
-            setPinnedChannelIds(data.pinned_channels);
-            AsyncStorage.setItem(PINNED_CHANNELS_KEY, JSON.stringify(data.pinned_channels)).catch(() => {});
-            return;
-          }
+      const userId = userIdRef.current;
+      if (userId && isSupabaseConfigured) {
+        const { data } = await supabase
+          .from('profiles')
+          .select('pinned_channels')
+          .eq('id', userId)
+          .single();
+        if (data?.pinned_channels && Array.isArray(data.pinned_channels)) {
+          setPinnedChannelIds(data.pinned_channels);
+          AsyncStorage.setItem(PINNED_CHANNELS_KEY, JSON.stringify(data.pinned_channels)).catch(() => {});
+          return;
         }
       }
       const stored = await AsyncStorage.getItem(PINNED_CHANNELS_KEY);
@@ -174,9 +170,9 @@ export function useChannels() {
     let orgId = orgIdRef.current;
     if (!orgId) {
       try {
-        const { data: { session } } = await supabase.auth.getSession();
-        if (session?.user?.id) {
-          const { data: prof } = await supabase.from('profiles').select('organization_id').eq('id', session.user.id).single();
+        const userId = userIdRef.current;
+        if (userId) {
+          const { data: prof } = await supabase.from('profiles').select('organization_id').eq('id', userId).single();
           orgId = prof?.organization_id ?? null;
           if (orgId) orgIdRef.current = orgId;
         }
@@ -194,7 +190,7 @@ export function useChannels() {
   const saveGroupChannels = useCallback(async (channels: Channel[]) => {
     try { await AsyncStorage.setItem(GROUP_CHANNELS_KEY, JSON.stringify(channels)); } catch {}
     if (!isSupabaseConfigured) return;
-    let orgId = orgIdRef.current;
+    const orgId = orgIdRef.current;
     for (const ch of channels) {
       await supabase.from('channels').upsert({
         id: ch.id, name: ch.name, description: ch.description ?? null,
@@ -207,9 +203,9 @@ export function useChannels() {
   const savePinnedChannels = useCallback(async (ids: string[]) => {
     try { await AsyncStorage.setItem(PINNED_CHANNELS_KEY, JSON.stringify(ids)); } catch {}
     if (!isSupabaseConfigured) return;
-    const { data: { session } } = await supabase.auth.getSession().catch(() => ({ data: { session: null } }));
-    if (session?.user?.id) {
-      supabase.from('profiles').update({ pinned_channels: ids }).eq('id', session.user.id).catch(() => {});
+    const userId = userIdRef.current;
+    if (userId) {
+      supabase.from('profiles').update({ pinned_channels: ids }).eq('id', userId).catch(() => {});
     }
   }, []);
 

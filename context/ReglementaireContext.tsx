@@ -3,6 +3,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { RegulatoryDoc } from '@/constants/types';
 import { genId, formatDateFR } from '@/lib/utils';
 import { supabase, isSupabaseConfigured } from '@/lib/supabase';
+import { useAuth } from '@/context/AuthContext';
 
 const REG_DOCS_KEY = 'buildtrack_reglementaire_v1';
 
@@ -50,21 +51,17 @@ function fromDoc(doc: RegulatoryDoc): Record<string, any> {
 }
 
 export function ReglementaireProvider({ children }: { children: React.ReactNode }) {
+  const { user } = useAuth();
   const [docs, setDocs] = useState<RegulatoryDoc[]>([]);
   const docsRef = useRef(docs);
-  const orgIdRef = useRef<string | null>(null);
+  const orgIdRef = useRef<string | null>(user?.organizationId ?? null);
   useEffect(() => { docsRef.current = docs; }, [docs]);
+  useEffect(() => { orgIdRef.current = user?.organizationId ?? null; }, [user?.organizationId]);
 
   useEffect(() => {
     async function load() {
-      if (isSupabaseConfigured) {
+      if (isSupabaseConfigured && user) {
         try {
-          const { data: { session } } = await supabase.auth.getSession();
-          if (session?.user?.id) {
-            const { data: profile } = await supabase
-              .from('profiles').select('organization_id').eq('id', session.user.id).single();
-            if (profile?.organization_id) orgIdRef.current = profile.organization_id;
-          }
           const { data, error } = await supabase
             .from('regulatory_docs')
             .select('*')
@@ -83,7 +80,7 @@ export function ReglementaireProvider({ children }: { children: React.ReactNode 
       } catch {}
     }
     load();
-  }, []);
+  }, [user?.id]);
 
   useEffect(() => {
     if (!isSupabaseConfigured) return;
@@ -129,17 +126,7 @@ export function ReglementaireProvider({ children }: { children: React.ReactNode 
     if (isSupabaseConfigured) {
       (async () => {
         try {
-          let orgId = orgIdRef.current;
-          if (!orgId) {
-            const { data: { session } } = await supabase.auth.getSession();
-            if (session?.user?.id) {
-              const { data: prof } = await supabase
-                .from('profiles').select('organization_id')
-                .eq('id', session.user.id).single();
-              orgId = prof?.organization_id ?? null;
-              if (orgId) orgIdRef.current = orgId;
-            }
-          }
+          const orgId = orgIdRef.current;
           const { error } = await supabase.from('regulatory_docs').insert({
             ...fromDoc(newDoc),
             organization_id: orgId,
