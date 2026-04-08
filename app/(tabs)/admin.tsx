@@ -84,7 +84,7 @@ export default function AdminScreen() {
   const {
     plan, subscription, seatUsed, seatMax, canInvite, isLoading,
     pendingInvitations, inviteUser, cancelInvitation, orgUsers,
-    activeOrgUsers, freeOrgUsers, allOrganizations,
+    activeOrgUsers, freeOrgUsers, allOrganizations, deleteOrganization,
   } = useSubscription();
 
   const isSuperAdmin = user?.role === 'super_admin';
@@ -121,6 +121,10 @@ export default function AdminScreen() {
   }
 
   useEffect(() => () => { if (toastTimer.current) clearTimeout(toastTimer.current); }, []);
+
+  const [deleteOrgModalVisible, setDeleteOrgModalVisible] = useState(false);
+  const [deleteOrgConfirmName, setDeleteOrgConfirmName] = useState('');
+  const [deletingOrg, setDeletingOrg] = useState(false);
 
   const [inviteModal, setInviteModal] = useState(false);
   const [inviteEmail, setInviteEmail] = useState('');

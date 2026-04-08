@@ -78,6 +78,7 @@ interface SubscriptionContextValue {
   updateOrgStatus: (orgId: string, status: 'trial' | 'active' | 'suspended' | 'expired') => Promise<{ success: boolean; error?: string }>;
   updateOrganization: (orgId: string, name: string, slug?: string) => Promise<{ success: boolean; error?: string }>;
   createOrganization: (name: string, adminEmail?: string) => Promise<{ success: boolean; error?: string }>;
+  deleteOrganization: (orgId: string) => Promise<{ success: boolean; error?: string }>;
 }
 
 const SubscriptionContext = createContext<SubscriptionContextValue | null>(null);
@@ -660,6 +661,68 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
     }
   }
 
+  async function deleteOrganization(orgId: string): Promise<{ success: boolean; error?: string }> {
+    if (!user || user.role !== 'super_admin') {
+      return { success: false, error: 'Action réservée au super administrateur.' };
+    }
+
+    if (!isSupabaseConfigured) {
+      setAllOrganizations(prev => prev.filter(o => o.id !== orgId));
+      setOrgSummaries(prev => prev.filter(o => o.org.id !== orgId));
+      return { success: true };
+    }
+
+    try {
+      const { data: rpcData, error: rpcErr } = await supabase.rpc('delete_organization', { p_org_id: orgId });
+
+      if (rpcErr) {
+        return { success: false, error: rpcErr.message ?? 'Erreur lors de la suppression.' };
+      }
+
+      const result = rpcData as {
+        success: boolean;
+        error?: string;
+        photo_urls?: string[];
+        document_urls?: string[];
+      };
+
+      if (!result?.success) {
+        return { success: false, error: result?.error ?? 'Erreur lors de la suppression.' };
+      }
+
+      // Suppression des fichiers Storage (best-effort — ne bloque pas si ça échoue)
+      const extractPath = (url: string, bucket: string): string | null => {
+        const marker = `/storage/v1/object/public/${bucket}/`;
+        const idx = url.indexOf(marker);
+        if (idx === -1) return null;
+        return decodeURIComponent(url.slice(idx + marker.length));
+      };
+
+      const photoPaths = (result.photo_urls ?? [])
+        .map(url => extractPath(url, 'photos'))
+        .filter((p): p is string => !!p);
+
+      const docPaths = (result.document_urls ?? [])
+        .map(url => extractPath(url, 'documents'))
+        .filter((p): p is string => !!p);
+
+      if (photoPaths.length > 0) {
+        await supabase.storage.from('photos').remove(photoPaths).catch(() => {});
+      }
+      if (docPaths.length > 0) {
+        await supabase.storage.from('documents').remove(docPaths).catch(() => {});
+      }
+
+      // Mise à jour du state local
+      setAllOrganizations(prev => prev.filter(o => o.id !== orgId));
+      setOrgSummaries(prev => prev.filter(o => o.org.id !== orgId));
+
+      return { success: true };
+    } catch (e: any) {
+      return { success: false, error: e?.message ?? 'Erreur réseau.' };
+    }
+  }
+
   return (
     <SubscriptionContext.Provider
       value={{
@@ -684,6 +747,7 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
         updateOrgStatus,
         updateOrganization,
         createOrganization,
+        deleteOrganization,
       }}
     >
       {children}
