@@ -1527,9 +1527,12 @@ export default function PlansScreen() {
                           <Ionicons name="map-outline" size={13} color={isActive ? C.primary : C.textMuted} />
                         )}
                       </View>
-                      <Text style={[styles.planTabText, isActive && styles.planTabTextActive]} numberOfLines={1}>
-                        {(plan.level && selectedLevel === 'all') ? `${plan.level} — ${plan.name}` : plan.name}
+                      <Text style={[styles.planTabText, isActive && styles.planTabTextActive]} numberOfLines={1} ellipsizeMode="tail">
+                        {plan.name}
                       </Text>
+                      {plan.level && selectedLevel === 'all' && (
+                        <Text style={styles.planTabLevelBadge} numberOfLines={1}>{plan.level}</Text>
+                      )}
                       {planReserveCount > 0 && (
                         <View style={[styles.planTabBadge, isActive && { backgroundColor: C.primary }]}>
                           <Text style={[styles.planTabBadgeText, isActive && { color: '#fff' }]}>{planReserveCount}</Text>
@@ -1561,7 +1564,7 @@ export default function PlansScreen() {
             <>
             <View style={styles.planTitleRow}>
               <View style={styles.planTitleTopRow}>
-                <View style={{ flex: 1, minWidth: 0 }}>
+                <View style={{ flex: 1, minWidth: 0, overflow: 'hidden' as any }}>
                   <Text style={styles.planTitle} numberOfLines={1} ellipsizeMode="tail">
                     {currentPlan?.name ?? 'Plan'}
                   </Text>
@@ -1662,7 +1665,7 @@ export default function PlansScreen() {
               <View style={styles.versionPanel}>
                 <View style={styles.versionPanelHeader}>
                   <Ionicons name="time-outline" size={13} color={C.textSub} />
-                  <Text style={styles.versionPanelTitle}>Révisions — {currentPlan.name}</Text>
+                  <Text style={styles.versionPanelTitle} numberOfLines={1} ellipsizeMode="tail">Révisions — {currentPlan.name}</Text>
                   <TouchableOpacity onPress={() => setShowVersionHistory(false)} hitSlop={8}>
                     <Ionicons name="close" size={16} color={C.textMuted} />
                   </TouchableOpacity>
@@ -2460,13 +2463,14 @@ const styles = StyleSheet.create({
   hierarchyChipLevelText: { fontSize: 11, fontFamily: 'Inter_500Medium', color: C.textSub },
   planTabsBar: { flexDirection: 'row', alignItems: 'center', paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: C.border },
   planTabsRow: { flexDirection: 'row', paddingHorizontal: 12, gap: 6 },
-  planTab: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 10, paddingVertical: 6, borderRadius: 10, backgroundColor: C.surface2, borderWidth: 1, borderColor: C.border, maxWidth: 200 },
+  planTab: { flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: 10, paddingVertical: 6, borderRadius: 10, backgroundColor: C.surface2, borderWidth: 1, borderColor: C.border, maxWidth: 155, minWidth: 60 },
   planTabActive: { backgroundColor: C.primaryBg, borderColor: C.primary + 'A0' },
-  planTabThumb: { width: 20, height: 16, borderRadius: 3, backgroundColor: C.surface, borderWidth: 1, borderColor: C.border, alignItems: 'center', justifyContent: 'center', overflow: 'hidden' },
+  planTabThumb: { width: 20, height: 16, borderRadius: 3, backgroundColor: C.surface, borderWidth: 1, borderColor: C.border, alignItems: 'center', justifyContent: 'center', overflow: 'hidden', flexShrink: 0 },
   planTabThumbImg: { width: 20, height: 16 },
-  planTabText: { fontSize: 12, fontFamily: 'Inter_500Medium', color: C.textSub, flexShrink: 1 },
+  planTabText: { fontSize: 12, fontFamily: 'Inter_500Medium', color: C.textSub, flex: 1, minWidth: 0 },
   planTabTextActive: { color: C.primary, fontFamily: 'Inter_600SemiBold' },
-  planTabBadge: { paddingHorizontal: 5, paddingVertical: 1, borderRadius: 8, backgroundColor: C.border, minWidth: 17, alignItems: 'center' },
+  planTabLevelBadge: { fontSize: 9, fontFamily: 'Inter_500Medium', color: C.textMuted, backgroundColor: C.surface, paddingHorizontal: 4, paddingVertical: 1, borderRadius: 4, overflow: 'hidden', flexShrink: 0 },
+  planTabBadge: { paddingHorizontal: 5, paddingVertical: 1, borderRadius: 8, backgroundColor: C.border, minWidth: 17, alignItems: 'center', flexShrink: 0 },
   planTabBadgeText: { fontSize: 10, fontFamily: 'Inter_700Bold', color: C.textSub },
   planTabsEmpty: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 4, paddingVertical: 6 },
   planTabsEmptyText: { fontSize: 11, fontFamily: 'Inter_400Regular', color: C.textMuted, fontStyle: 'italic' },
@@ -2526,8 +2530,8 @@ const styles = StyleSheet.create({
   tabletDetailOpenBtnText: { fontSize: 13, fontFamily: 'Inter_600SemiBold', color: '#fff' },
 
   planTitleRow: { flexDirection: 'column', paddingHorizontal: 16, paddingTop: 8, paddingBottom: 8, backgroundColor: C.surface, borderBottomWidth: 1, borderBottomColor: C.border },
-  planTitleTopRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  planActionsRow: { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 6, marginTop: 8 },
+  planTitleTopRow: { flexDirection: 'row', alignItems: 'center', gap: 8, overflow: 'hidden' as any },
+  planActionsRow: { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 6, marginTop: 6 },
   planTitle: { fontSize: 14, fontFamily: 'Inter_600SemiBold', color: C.text },
   planSubtitle: { fontSize: 11, fontFamily: 'Inter_400Regular', color: C.textMuted, marginTop: 2 },
   pinSizeRow: { flexDirection: 'row', alignItems: 'center', gap: 4, marginHorizontal: 8 },
