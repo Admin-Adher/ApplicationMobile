@@ -36,11 +36,15 @@ export function useMessages() {
   async function loadRecentMessages() {
     if (!isSupabaseConfigured) return;
     try {
-      const { data } = await supabase
+      const { data, error } = await supabase
         .from('messages')
         .select('*')
         .order('created_at', { ascending: false })
         .limit(200);
+      if (error) {
+        console.warn('[useMessages] loadRecentMessages error:', error.code, error.message);
+        return;
+      }
       if (data && data.length > 0) {
         const userName = userNameRef.current;
         const msgs = data.map((r: any) => toMessage(r, userName));
@@ -56,8 +60,12 @@ export function useMessages() {
           });
           return merged;
         });
+      } else {
+        console.warn('[useMessages] loadRecentMessages returned empty. data:', data);
       }
-    } catch {}
+    } catch (err) {
+      console.warn('[useMessages] loadRecentMessages exception:', err);
+    }
   }
 
   useEffect(() => {

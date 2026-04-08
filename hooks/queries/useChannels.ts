@@ -71,11 +71,19 @@ export function useChannels() {
         .select('*')
         .in('type', ['general', 'building', 'custom', 'group', 'dm']);
 
-      if (error || !data) {
+      if (error) {
+        console.warn('[useChannels] _loadChannelsFromSupabase error:', error.code, error.message);
         if (customCached.length) setCustomChannels(customCached);
         if (groupCached.length) setGroupChannels(groupCached);
         return;
       }
+      if (!data) {
+        console.warn('[useChannels] _loadChannelsFromSupabase: no data returned');
+        if (customCached.length) setCustomChannels(customCached);
+        if (groupCached.length) setGroupChannels(groupCached);
+        return;
+      }
+      console.log('[useChannels] _loadChannelsFromSupabase: loaded', data.length, 'channels');
 
       const myName = userNameRef.current;
       const general: Channel[] = [];
