@@ -51,19 +51,25 @@ Configurées dans Replit (shared) :
 ## Projet Vercel (`vercel-app/`)
 
 Mini-app Next.js déployée sur Vercel qui gère :
-- `POST /api/send-email` — Envoi via Resend (invitation, bienvenue, reset mdp)
+- `POST /api/send-email` — Envoi via Resend (invitation, bienvenue, invitation-acceptée, accès-révoqué)
+- `POST /api/request-password-reset` — Génère le lien Supabase via Admin API + envoie l'email brandé via Resend (nécessite `SUPABASE_SERVICE_ROLE_KEY` dans les env vars Vercel)
 - `/invite?token=xxx` — Page deep link (ouvre l'app ou redirige vers le store)
 - `/.well-known/apple-app-site-association` — Universal Links iOS
 - `/.well-known/assetlinks.json` — App Links Android
 
 **Pour déployer** : voir `vercel-app/README.md`
 
+**Variable d'environnement à ajouter sur Vercel** :
+- `SUPABASE_SERVICE_ROLE_KEY` — Clé service_role Supabase (Dashboard Supabase → Project Settings → API → service_role). Ne jamais mettre dans vercel.json (secret).
+
 ## Système d'emails
 
-3 types d'emails envoyés automatiquement :
+5 types d'emails envoyés automatiquement :
 1. **Invitation** — quand un admin invite un utilisateur (depuis SubscriptionContext)
-2. **Bienvenue** — à l'inscription d'un nouvel utilisateur (depuis AuthContext)
-3. **Réinitialisation mdp** — à implémenter (appeler `sendPasswordResetEmail()` de `lib/email/client.ts`)
+2. **Bienvenue** — à l'inscription d'un nouvel utilisateur, avec nom de l'organisation si disponible (depuis AuthContext)
+3. **Réinitialisation mdp** — email brandé BuildTrack via route dédiée Vercel `/api/request-password-reset` (depuis `requestPasswordReset()` dans `lib/email/client.ts`)
+4. **Invitation acceptée** — quand un invité crée son compte (depuis AuthContext `linkPendingInvitation`)
+5. **Accès révoqué** — quand un admin retire un utilisateur (depuis SubscriptionContext)
 
 ## Base de données (Supabase)
 

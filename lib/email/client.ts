@@ -1,6 +1,7 @@
 import { Platform } from 'react-native';
 
 const VERCEL_API_URL = 'https://buildtrack-mobile.vercel.app/api/send-email';
+const VERCEL_RESET_URL = 'https://buildtrack-mobile.vercel.app/api/request-password-reset';
 
 function getApiUrl(): string {
   if (Platform.OS === 'web' && typeof window !== 'undefined') {
@@ -48,12 +49,21 @@ export async function sendWelcomeEmail(params: {
   await callEmailApi({ type: 'welcome', ...params });
 }
 
-export async function sendPasswordResetEmail(params: {
-  email: string;
-  name: string;
-  resetUrl: string;
-}): Promise<void> {
-  await callEmailApi({ type: 'password-reset', ...params });
+export async function requestPasswordReset(email: string): Promise<{ success: boolean; error?: string }> {
+  try {
+    const response = await fetch(VERCEL_RESET_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email }),
+    });
+    if (!response.ok) {
+      const data = await response.json().catch(() => ({}));
+      return { success: false, error: data?.error ?? response.statusText };
+    }
+    return { success: true };
+  } catch (err: any) {
+    return { success: false, error: err?.message ?? 'Erreur réseau' };
+  }
 }
 
 export async function sendInvitationAcceptedEmail(params: {

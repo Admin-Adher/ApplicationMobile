@@ -805,9 +805,21 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
               refresh_token: signInSession.refresh_token,
             }).catch(() => {});
           }
+          let orgName: string | undefined;
+          if (profile.organizationId) {
+            try {
+              const { data: orgData } = await supabase
+                .from('organizations')
+                .select('name')
+                .eq('id', profile.organizationId)
+                .single();
+              if (orgData?.name) orgName = orgData.name;
+            } catch {}
+          }
           sendWelcomeEmail({
             email: email.trim().toLowerCase(),
             name: name.trim(),
+            organizationName: orgName,
           }).catch(() => {});
           return { success: true };
         }

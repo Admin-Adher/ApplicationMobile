@@ -6,9 +6,9 @@ import { useRouter } from 'expo-router';
 import { C } from '@/constants/colors';
 import { useAuth } from '@/context/AuthContext';
 import { useApp } from '@/context/AppContext';
-import { supabase, isSupabaseConfigured } from '@/lib/supabase';
+import { isSupabaseConfigured } from '@/lib/supabase';
+import { requestPasswordReset } from '@/lib/email/client';
 
-const RESET_REDIRECT = 'https://buildtrack-mobile.vercel.app/reset-password';
 
 const DEMO_ACCOUNTS = [
   { email: 'admin@buildtrack.fr', label: 'Admin', color: C.primary },
@@ -122,13 +122,11 @@ export default function LoginScreen() {
     setForgotStatus('loading');
     setForgotError('');
 
-    const { error } = await supabase.auth.resetPasswordForEmail(trimmed, {
-      redirectTo: RESET_REDIRECT,
-    });
+    const result = await requestPasswordReset(trimmed);
 
-    if (error) {
+    if (!result.success) {
       setForgotStatus('error');
-      setForgotError(error.message ?? 'Impossible d\'envoyer l\'email. Réessayez.');
+      setForgotError(result.error ?? 'Impossible d\'envoyer l\'email. Réessayez.');
       return;
     }
 
