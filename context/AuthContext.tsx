@@ -600,8 +600,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     // Safety timeout: if any Supabase call hangs indefinitely, unblock the UI.
     // Invitation mode can involve multiple round-trips (signUp → profile insert →
-    // signIn → RPC → fetchProfile), so we give 60 s instead of 30 s.
-    const REGISTER_TIMEOUT_MS = 60_000;
+    // signIn → RPC → fetchProfile), so we give 90 s on slow mobile connections.
+    const REGISTER_TIMEOUT_MS = 90_000;
     let timeoutId: ReturnType<typeof setTimeout> | null = null;
     const timeoutPromise = new Promise<{ success: boolean; error?: string }>((resolve) => {
       timeoutId = setTimeout(async () => {
@@ -610,13 +610,20 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         // account was created successfully (the slow part was profile linking or
         // network latency). Resolve with success so no false error is shown —
         // AppContext will handle the state via auth events.
-        try {
-          const { data: sessionData } = await supabase.auth.getSession();
-          if (sessionData?.session?.user?.id) {
-            resolve({ success: true });
-            return;
+        // Retry up to 4 times with 2 s gaps to handle the race condition where the
+        // session is being established just as the timeout fires (common on 4G).
+        for (let attempt = 0; attempt < 4; attempt++) {
+          try {
+            const { data: sessionData } = await supabase.auth.getSession();
+            if (sessionData?.session?.user?.id) {
+              resolve({ success: true });
+              return;
+            }
+          } catch { /* ignore */ }
+          if (attempt < 3) {
+            await new Promise<void>(r => setTimeout(r, 2_000));
           }
-        } catch { /* ignore */ }
+        }
         resolve({ success: false, error: 'La création du compte a pris trop longtemps. Vérifiez votre connexion et réessayez.' });
       }, REGISTER_TIMEOUT_MS);
     });
