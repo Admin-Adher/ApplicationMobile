@@ -1291,6 +1291,29 @@ export default function ReservesScreen() {
             </Animated.View>
           )}
 
+          {fabOpen && activeSitePlans.length > 0 && (
+            <Animated.View style={[styles.fabSubRow, { opacity: fabAnim }]}>
+              <TouchableOpacity
+                style={styles.fabSubLabel}
+                onPress={() => { setFabOpen(false); Animated.spring(fabAnim, { toValue: 0, useNativeDriver: true, tension: 60, friction: 10 }).start(); router.push('/(tabs)/plans' as any); }}
+                activeOpacity={0.85}
+                accessibilityRole="button"
+                accessibilityLabel="Depuis le plan"
+              >
+                <Text style={styles.fabSubLabelText}>Depuis le plan</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.fabSubBtn, { backgroundColor: '#16A34A' }]}
+                onPress={() => { setFabOpen(false); Animated.spring(fabAnim, { toValue: 0, useNativeDriver: true, tension: 60, friction: 10 }).start(); router.push('/(tabs)/plans' as any); }}
+                activeOpacity={0.85}
+                accessibilityRole="button"
+                accessibilityLabel="Depuis le plan"
+              >
+                <Ionicons name="map-outline" size={22} color="#fff" />
+              </TouchableOpacity>
+            </Animated.View>
+          )}
+
           {fabOpen && (
             <Animated.View style={[styles.fabSubRow, { opacity: fabAnim }]}>
               <TouchableOpacity
