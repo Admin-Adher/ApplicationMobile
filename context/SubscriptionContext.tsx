@@ -622,7 +622,7 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
 
       if (adminEmail) {
         const emailLower = adminEmail.trim().toLowerCase();
-        const { data: invData } = await supabase
+        const { data: invData, error: invError } = await supabase
           .from('invitations')
           .insert({
             organization_id: org.id,
@@ -633,6 +633,10 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
           .select()
           .single();
 
+        if (invError) {
+          console.warn('[createOrganization] Invitation insert failed:', invError.message, invError.code);
+        }
+
         if (invData?.token) {
           sendInvitationEmail({
             email: emailLower,
@@ -641,7 +645,11 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
             role: 'admin',
             token: invData.token,
             expiresAt: invData.expires_at,
-          }).catch(() => {});
+          }).catch((err) => {
+            console.warn('[createOrganization] Email send failed:', err?.message ?? err);
+          });
+        } else {
+          console.warn('[createOrganization] No token returned — email not sent. invData:', JSON.stringify(invData));
         }
       }
 
