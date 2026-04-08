@@ -598,13 +598,25 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       isRegisteringRef.current = false;
     };
 
-    // Safety timeout: if any Supabase call hangs indefinitely, unblock the UI
-    // after 30 seconds and return a network error.
-    const REGISTER_TIMEOUT_MS = 30_000;
+    // Safety timeout: if any Supabase call hangs indefinitely, unblock the UI.
+    // Invitation mode can involve multiple round-trips (signUp → profile insert →
+    // signIn → RPC → fetchProfile), so we give 60 s instead of 30 s.
+    const REGISTER_TIMEOUT_MS = 60_000;
     let timeoutId: ReturnType<typeof setTimeout> | null = null;
-    const timeoutPromise = new Promise<{ success: false; error: string }>((resolve) => {
-      timeoutId = setTimeout(() => {
+    const timeoutPromise = new Promise<{ success: boolean; error?: string }>((resolve) => {
+      timeoutId = setTimeout(async () => {
         cleanup();
+        // If the user is already authenticated at the timeout boundary, the auth
+        // account was created successfully (the slow part was profile linking or
+        // network latency). Resolve with success so no false error is shown —
+        // AppContext will handle the state via auth events.
+        try {
+          const { data: sessionData } = await supabase.auth.getSession();
+          if (sessionData?.session?.user?.id) {
+            resolve({ success: true });
+            return;
+          }
+        } catch { /* ignore */ }
         resolve({ success: false, error: 'La création du compte a pris trop longtemps. Vérifiez votre connexion et réessayez.' });
       }, REGISTER_TIMEOUT_MS);
     });
@@ -781,17 +793,58 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           return { success: false, error: "Compte créé. Connectez-vous pour continuer." };
         }
 
-        // For invitation mode: try to link the invitation using an RPC (SECURITY DEFINER)
-        // that bypasses the RLS policy blocking non-admin users from reading invitations.
-        // Falls back silently if the RPC is not yet deployed.
+        // For invitation mode: link the invitation to the newly created profile.
+        // Step 1 — Try the SECURITY DEFINER RPC (bypasses RLS, preferred path).
+        // Step 2 — If RPC fails or isn't deployed, fall back to direct client-side
+        //          queries using the RLS policies that allow a user to read/accept
+        //          invitations sent to their own email.
         if (!organizationName?.trim()) {
+          let rpcLinked = false;
           try {
-            const { error: rpcErr } = await supabase.rpc('link_invitation_for_current_user');
+            const { data: rpcData, error: rpcErr } = await supabase.rpc('link_invitation_for_current_user');
             if (rpcErr) {
-              console.warn('[register] link_invitation_for_current_user RPC error (may not be deployed yet):', rpcErr.code, rpcErr.message);
+              console.warn('[register] link_invitation_for_current_user RPC error:', rpcErr.code, rpcErr.message);
+            } else {
+              rpcLinked = !!(rpcData as any)?.linked;
             }
           } catch (rpcEx) {
             console.warn('[register] link_invitation_for_current_user RPC exception:', rpcEx);
+          }
+
+          // Client-side fallback: query invitations directly (requires the RLS policy
+          // "Utilisateur peut voir ses propres invitations" to be deployed on Supabase).
+          if (!rpcLinked && signInUserId) {
+            try {
+              const emailLower = email.trim().toLowerCase();
+              const { data: inv } = await supabase
+                .from('invitations')
+                .select('*')
+                .eq('email', emailLower)
+                .eq('status', 'pending')
+                .gt('expires_at', new Date().toISOString())
+                .order('created_at', { ascending: false })
+                .limit(1)
+                .maybeSingle();
+
+              if (inv?.organization_id) {
+                // Update profile with org, role, and optional company
+                await supabase.from('profiles').update({
+                  organization_id: inv.organization_id,
+                  role: inv.role,
+                  role_label: ROLE_LABELS[inv.role as UserRole] ?? inv.role,
+                  ...(inv.company_id ? { company_id: inv.company_id } : {}),
+                }).eq('id', signInUserId);
+
+                // Mark invitation as accepted
+                await supabase.from('invitations')
+                  .update({ status: 'accepted' })
+                  .eq('id', inv.id);
+
+                console.log('[register] invitation linked via client-side fallback for org:', inv.organization_id);
+              }
+            } catch (fallbackEx) {
+              console.warn('[register] client-side invitation link fallback failed:', fallbackEx);
+            }
           }
         }
 
