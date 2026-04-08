@@ -19,11 +19,13 @@ Lance : `node node_modules/expo/bin/cli start --web --localhost --port 5000`
 
 Le workflow "Start Frontend" est configuré sur le port 5000.
 
-## Replit — Notes de migration
+## Replit — Notes de migration (complétée)
 
+- **Migration réussie** : L'application tourne correctement sur Replit sans modifications du code source.
 - **CORS** : `scripts/patch-expo-cors.js` patche automatiquement Expo pour autoriser les domaines `.replit.dev` et `.repl.co` (exécuté via `postinstall` dans `package.json`).
 - **Port** : L'app tourne sur le port 5000 (mapé sur le port externe 80).
-- **Base de données Replit** : Un PostgreSQL Neon est provisionné (variables `DATABASE_URL`, `PGHOST`, etc.) — disponible pour un usage futur si besoin.
+- **Base de données** : L'app utilise Supabase hébergé (externe). Un PostgreSQL Replit/Neon est aussi provisionné (variables `DATABASE_URL`, `PGHOST`, etc.) — disponible pour usage futur si besoin.
+- **Architecture conservée** : Le code Supabase existant n'a pas été modifié — l'app se connecte au projet Supabase externe via les variables `EXPO_PUBLIC_SUPABASE_URL` et `EXPO_PUBLIC_SUPABASE_KEY` déjà configurées.
 
 ## Variables d'environnement
 
