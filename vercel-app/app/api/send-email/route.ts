@@ -4,6 +4,8 @@ import {
   invitationEmail,
   welcomeEmail,
   passwordResetEmail,
+  invitationAcceptedEmail,
+  accessRevokedEmail,
 } from '@/lib/templates';
 
 const FROM_EMAIL = 'BuildTrack <onboarding@resend.dev>';
@@ -61,6 +63,20 @@ export async function POST(req: NextRequest) {
       }
       to = email;
       template = passwordResetEmail({ name, resetUrl });
+    } else if (type === 'invitation-accepted') {
+      const { adminEmail, adminName, inviteeName, inviteeEmail, organizationName, role } = body;
+      if (!adminEmail || !adminName || !inviteeName || !inviteeEmail || !organizationName || !role) {
+        return NextResponse.json({ error: 'Paramètres manquants' }, { status: 400, headers });
+      }
+      to = adminEmail;
+      template = invitationAcceptedEmail({ adminName, inviteeName, inviteeEmail, organizationName, role });
+    } else if (type === 'access-revoked') {
+      const { email, name, organizationName } = body;
+      if (!email || !name || !organizationName) {
+        return NextResponse.json({ error: 'Paramètres manquants' }, { status: 400, headers });
+      }
+      to = email;
+      template = accessRevokedEmail({ name, organizationName });
     } else {
       return NextResponse.json({ error: `Type inconnu: ${type}` }, { status: 400, headers });
     }

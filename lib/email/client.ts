@@ -55,3 +55,22 @@ export async function sendPasswordResetEmail(params: {
 }): Promise<void> {
   await callEmailApi({ type: 'password-reset', ...params });
 }
+
+export async function sendInvitationAcceptedEmail(params: {
+  adminEmail: string;
+  adminName: string;
+  inviteeName: string;
+  inviteeEmail: string;
+  organizationName: string;
+  role: string;
+}): Promise<void> {
+  await callEmailApi({ type: 'invitation-accepted', ...params });
+}
+
+export async function sendAccessRevokedEmail(params: {
+  email: string;
+  name: string;
+  organizationName: string;
+}): Promise<void> {
+  await callEmailApi({ type: 'access-revoked', ...params });
+}

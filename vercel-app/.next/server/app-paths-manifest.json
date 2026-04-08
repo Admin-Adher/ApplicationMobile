@@ -2,6 +2,6 @@
   "/_not-found/page": "app/_not-found/page.js",
   "/.well-known/apple-app-site-association/route": "app/.well-known/apple-app-site-association/route.js",
   "/api/send-email/route": "app/api/send-email/route.js",
-  "/invite/page": "app/invite/page.js",
-  "/reset-password/page": "app/reset-password/page.js"
+  "/reset-password/page": "app/reset-password/page.js",
+  "/invite/page": "app/invite/page.js"
 }

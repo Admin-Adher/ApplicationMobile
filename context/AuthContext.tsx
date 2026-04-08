@@ -5,7 +5,7 @@ import { supabase, isSupabaseConfigured } from '@/lib/supabase';
 import { User, UserRole, UserPermissions, PermissionsOverride } from '@/constants/types';
 import { ROLE_LABELS } from '@/constants/roles';
 import { debugLog, debugLogOk, debugLogWarn, debugLogError } from '@/lib/debugLog';
-import { sendWelcomeEmail } from '@/lib/email/client';
+import { sendWelcomeEmail, sendInvitationAcceptedEmail, sendAccessRevokedEmail } from '@/lib/email/client';
 
 /**
  * Module-level flag shared with AppContext so it can ignore auth events
@@ -110,7 +110,7 @@ async function addUserToGeneralChannel(orgId: string, userName: string) {
   } catch {}
 }
 
-async function linkPendingInvitation(userId: string, email: string): Promise<string | undefined> {
+async function linkPendingInvitation(userId: string, email: string, inviteeName?: string): Promise<string | undefined> {
   try {
     const { data: inv } = await supabase
       .from('invitations')
@@ -132,6 +132,24 @@ async function linkPendingInvitation(userId: string, email: string): Promise<str
     }).eq('id', userId);
 
     await supabase.from('invitations').update({ status: 'accepted' }).eq('id', inv.id);
+
+    // Notify the admin who sent the invitation (fire-and-forget)
+    try {
+      const [adminResult, orgResult] = await Promise.all([
+        supabase.from('profiles').select('name, email').eq('id', inv.invited_by).single(),
+        supabase.from('organizations').select('name').eq('id', inv.organization_id).single(),
+      ]);
+      if (adminResult.data?.email && orgResult.data?.name) {
+        sendInvitationAcceptedEmail({
+          adminEmail: adminResult.data.email,
+          adminName: adminResult.data.name ?? 'Admin',
+          inviteeName: inviteeName ?? email,
+          inviteeEmail: email,
+          organizationName: orgResult.data.name,
+          role: inv.role,
+        });
+      }
+    } catch {}
 
     return inv.organization_id;
   } catch {
@@ -192,7 +210,7 @@ async function fetchProfile(userId: string): Promise<User | null> {
     let companyId: string | undefined = (profileData.company_id as string) ?? undefined;
 
     if (!orgId && role !== 'super_admin') {
-      const linkedOrgId = await linkPendingInvitation(userId, profileData.email as string);
+      const linkedOrgId = await linkPendingInvitation(userId, profileData.email as string, profileData.name as string);
       if (linkedOrgId) {
         // Relecture post-invitation : on réessaie directe puis RPC
         const { data: refreshed } = await supabase.from('profiles').select('*').eq('id', userId).single();
@@ -854,6 +872,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }
 
   async function deleteUserProfile(userId: string): Promise<void> {
+    const targetUser = users.find(u => u.id === userId);
+
     if (isSupabaseConfigured) {
       const { error } = await supabase.from('profiles').delete().eq('id', userId);
       if (error) {
@@ -861,6 +881,27 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         return;
       }
     }
+
+    // Send revocation email (fire-and-forget)
+    if (targetUser?.email && targetUser?.name) {
+      try {
+        let orgName = 'votre organisation';
+        if (targetUser.organizationId && isSupabaseConfigured) {
+          const { data: org } = await supabase
+            .from('organizations')
+            .select('name')
+            .eq('id', targetUser.organizationId)
+            .single();
+          if (org?.name) orgName = org.name;
+        }
+        sendAccessRevokedEmail({
+          email: targetUser.email,
+          name: targetUser.name,
+          organizationName: orgName,
+        });
+      } catch {}
+    }
+
     setUsers(prev => prev.filter(u => u.id !== userId));
   }
 

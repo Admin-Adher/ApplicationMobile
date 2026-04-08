@@ -167,3 +167,58 @@ export function passwordResetEmail(params: {
     html: baseLayout(content, 'Réinitialisez votre mot de passe BuildTrack'),
   };
 }
+
+export function invitationAcceptedEmail(params: {
+  adminName: string;
+  inviteeName: string;
+  inviteeEmail: string;
+  organizationName: string;
+  role: string;
+}) {
+  const { adminName, inviteeName, inviteeEmail, organizationName, role } = params;
+  const adminFirstName = adminName.split(' ')[0];
+  const roleLabel = ROLE_LABELS_FR[role] ?? role;
+
+  const content = `
+    <h1>Invitation acceptée ✓</h1>
+    <p>Bonjour ${adminFirstName},</p>
+    <p><strong>${inviteeName}</strong> a accepté votre invitation et a rejoint <strong>${organizationName}</strong> sur BuildTrack.</p>
+    <div class="info-box">
+      <p><strong>Email :</strong> ${inviteeEmail}<br/>
+      <strong>Rôle :</strong> <span class="role-badge">${roleLabel}</span></p>
+    </div>
+    <p>Vous pouvez gérer les accès et les permissions de vos collaborateurs depuis l'écran Administration.</p>
+    <hr class="separator"/>
+    <p style="font-size:12px;color:#8899BB;margin:0;">Si vous n'avez pas envoyé cette invitation, contactez votre administrateur système.</p>
+  `;
+
+  return {
+    subject: `${inviteeName} a rejoint ${organizationName} sur BuildTrack`,
+    html: baseLayout(content, `${inviteeName} a accepté votre invitation`),
+  };
+}
+
+export function accessRevokedEmail(params: {
+  name: string;
+  organizationName: string;
+}) {
+  const { name, organizationName } = params;
+  const firstName = name.split(' ')[0];
+
+  const content = `
+    <h1>Accès révoqué</h1>
+    <p>Bonjour ${firstName},</p>
+    <p>Votre accès à l'organisation <strong>${organizationName}</strong> sur BuildTrack a été révoqué par un administrateur.</p>
+    <div class="info-box">
+      <p>Votre compte BuildTrack existe toujours, mais vous n'avez plus accès aux chantiers et données de <strong>${organizationName}</strong>.</p>
+    </div>
+    <p>Si vous pensez qu'il s'agit d'une erreur, contactez directement votre responsable ou l'administrateur de votre organisation.</p>
+    <hr class="separator"/>
+    <p style="font-size:12px;color:#8899BB;margin:0;">Cet email a été envoyé automatiquement suite à une action d'administration.</p>
+  `;
+
+  return {
+    subject: `Votre accès à ${organizationName} a été révoqué`,
+    html: baseLayout(content, `Votre accès à ${organizationName} sur BuildTrack a été révoqué`),
+  };
+}
