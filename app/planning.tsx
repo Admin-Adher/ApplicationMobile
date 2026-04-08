@@ -400,7 +400,7 @@ function GanttView({ tasks, onTaskPress }: { tasks: Task[]; onTaskPress: (id: st
       if (!coMap.has(key)) coMap.set(key, { co: co ?? null, items: [] });
       const end = sod(parseDeadline(t.deadline) ?? addDays(today, 7));
       const start = sod(getTaskStartDate(t));
-      coMap.get(key)!.items.push({ task: t, start, end });
+      coMap.get(key)?.items.push({ task: t, start, end });
     }
     return [...coMap.entries()]
       .map(([key, { co, items }]) => ({
@@ -638,7 +638,7 @@ function GroupedList({ tasks, groupBy, canEdit, onDelete, onPress }: {
         const co = companies.find(c => c.id === t.company || c.name === t.company);
         const key = co?.id ?? t.company ?? '__none';
         if (!coMap.has(key)) coMap.set(key, []);
-        coMap.get(key)!.push(t);
+        coMap.get(key)?.push(t);
       }
       return [...coMap.entries()].map(([key, ts]) => {
         const co = companies.find(c => c.id === key);

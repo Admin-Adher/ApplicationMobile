@@ -160,6 +160,8 @@ export function ReglementaireProvider({ children }: { children: React.ReactNode 
       if (full) {
         supabase.from('regulatory_docs').update(fromDoc(full)).eq('id', id).then(({ error }: { error: any }) => {
           if (error) console.warn('Erreur mise à jour doc réglementaire:', error.message);
+        }).catch((err: any) => {
+          console.warn('Erreur réseau mise à jour doc réglementaire (données sauvegardées localement):', err?.message ?? err);
         });
       }
     }
@@ -170,6 +172,8 @@ export function ReglementaireProvider({ children }: { children: React.ReactNode 
     if (isSupabaseConfigured) {
       supabase.from('regulatory_docs').delete().eq('id', id).then(({ error }: { error: any }) => {
         if (error) console.warn('Erreur suppression doc réglementaire:', error.message);
+      }).catch((err: any) => {
+        console.warn('Erreur réseau suppression doc réglementaire (supprimé localement):', err?.message ?? err);
       });
     }
   }, []);

@@ -1633,7 +1633,21 @@ export default function OprScreen() {
         visible={signModalOpr !== null}
         transparent
         animationType="slide"
-        onRequestClose={() => setSignModalOpr(null)}
+        onRequestClose={() => {
+          const hasSig = !conducteurPadRef.current?.isEmpty() || !moPadRef.current?.isEmpty();
+          if (hasSig) {
+            Alert.alert(
+              'Fermer sans sauvegarder ?',
+              'Vous avez commencé à signer ce PV. Si vous fermez maintenant, les tracés de signature seront perdus.',
+              [
+                { text: 'Continuer la signature', style: 'cancel' },
+                { text: 'Fermer quand même', style: 'destructive', onPress: () => setSignModalOpr(null) },
+              ]
+            );
+          } else {
+            setSignModalOpr(null);
+          }
+        }}
       >
         <View style={styles.modalOverlay}>
           <ScrollView
@@ -1771,7 +1785,21 @@ export default function OprScreen() {
             <View style={styles.modalActions}>
               <TouchableOpacity
                 style={styles.modalCancelBtn}
-                onPress={() => setSignModalOpr(null)}
+                onPress={() => {
+                  const hasSig = !conducteurPadRef.current?.isEmpty() || !moPadRef.current?.isEmpty();
+                  if (hasSig) {
+                    Alert.alert(
+                      'Annuler la signature ?',
+                      'Les tracés de signature seront perdus si vous annulez maintenant.',
+                      [
+                        { text: 'Continuer', style: 'cancel' },
+                        { text: 'Annuler quand même', style: 'destructive', onPress: () => setSignModalOpr(null) },
+                      ]
+                    );
+                  } else {
+                    setSignModalOpr(null);
+                  }
+                }}
                 accessibilityLabel="Annuler la signature du PV"
                 accessibilityRole="button"
               >

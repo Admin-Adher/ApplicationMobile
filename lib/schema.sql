@@ -228,8 +228,17 @@ create table if not exists public.profiles (
 );
 alter table public.profiles enable row level security;
 drop policy if exists "Profiles visibles par tous les utilisateurs connectés" on public.profiles;
-create policy "Profiles visibles par tous les utilisateurs connectés"
-  on public.profiles for select using (auth.role() = 'authenticated');
+drop policy if exists "Profiles visibles par organisation" on public.profiles;
+create policy "Profiles visibles par organisation"
+  on public.profiles for select
+  using (
+    auth.uid() = id
+    or organization_id = auth_user_org()
+    or exists (
+      select 1 from public.profiles p
+      where p.id = auth.uid() and p.role = 'super_admin'
+    )
+  );
 drop policy if exists "Profil créable par son propriétaire" on public.profiles;
 create policy "Profil créable par son propriétaire"
   on public.profiles for insert with check (auth.uid() = id);
@@ -989,8 +998,10 @@ create table if not exists public.regulatory_docs (
 );
 alter table public.regulatory_docs enable row level security;
 drop policy if exists "Docs réglementaires lisibles par tous" on public.regulatory_docs;
-create policy "Docs réglementaires lisibles par tous"
-  on public.regulatory_docs for select using (auth.role() = 'authenticated');
+drop policy if exists "Docs réglementaires visibles par organisation" on public.regulatory_docs;
+create policy "Docs réglementaires visibles par organisation"
+  on public.regulatory_docs for select
+  using (organization_id = auth_user_org());
 drop policy if exists "Docs réglementaires modifiables" on public.regulatory_docs;
 create policy "Docs réglementaires modifiables"
   on public.regulatory_docs for all using (

@@ -137,6 +137,8 @@ export function PointageProvider({ children }: { children: React.ReactNode }) {
         if (error) {
           console.warn('[sync] addEntry server error (data saved locally):', error.message);
         }
+      }).catch((err: any) => {
+        console.warn('[sync] addEntry network error (data saved locally):', err?.message ?? err);
       });
     }
   }, []);
@@ -152,6 +154,8 @@ export function PointageProvider({ children }: { children: React.ReactNode }) {
           if (error) {
             console.warn('[sync] updateEntry server error (data saved locally):', error.message);
           }
+        }).catch((err: any) => {
+          console.warn('[sync] updateEntry network error (data saved locally):', err?.message ?? err);
         });
       }
     }
@@ -165,6 +169,8 @@ export function PointageProvider({ children }: { children: React.ReactNode }) {
         if (error) {
           console.warn('[sync] deleteEntry server error (data deleted locally):', error.message);
         }
+      }).catch((err: any) => {
+        console.warn('[sync] deleteEntry network error (data deleted locally):', err?.message ?? err);
       });
     }
   }, []);

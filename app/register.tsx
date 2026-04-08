@@ -52,9 +52,13 @@ export default function RegisterScreen() {
       );
 
       if (rpcErr) {
-        console.warn('[register] check_pending_invitation RPC error:', rpcErr.message);
-        // Si le RPC n'est pas encore déployé, on laisse passer —
-        // la vérification côté serveur lors du register() prendra le relais.
+        setLoading(false);
+        Alert.alert(
+          'Vérification impossible',
+          "Impossible de vérifier votre invitation pour l'instant. Vérifiez votre connexion et réessayez.",
+          [{ text: 'OK', style: 'default' }]
+        );
+        return;
       } else if (!hasInvitation) {
         setLoading(false);
         Alert.alert(

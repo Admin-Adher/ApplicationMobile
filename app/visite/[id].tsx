@@ -79,9 +79,9 @@ function buildVisitePDF(visite: Visite, reserves: Reserve[], projectName: string
     : [];
 
   const photoGallery = reservesWithPhotos.length > 0
-    ? `<div class="section-header">Galerie photos (${reservesWithPhotos.reduce((acc, r) => acc + (reservePhotoMap!.get(r.id)?.length ?? 0), 0)} photos)</div>
+    ? `<div class="section-header">Galerie photos (${reservesWithPhotos.reduce((acc, r) => acc + (reservePhotoMap?.get(r.id)?.length ?? 0), 0)} photos)</div>
         ${reservesWithPhotos.map(r => {
-          const srcs = reservePhotoMap!.get(r.id) ?? [];
+          const srcs = reservePhotoMap?.get(r.id) ?? [];
           const rawPhotos = r.photos ?? [];
           return `<div style="margin-bottom:18px;padding:12px 16px;border:1.5px solid #DDE4EE;border-radius:10px;page-break-inside:avoid">
             <div style="font-size:11px;font-weight:700;color:#1A2742;margin-bottom:6px">${r.id} — ${r.title} <span style="color:#6B7280;font-weight:400">· ${r.company} · Bât.${r.building}</span></div>
@@ -264,17 +264,17 @@ export default function VisiteDetailScreen() {
 
   function cycleStatus() {
     const order: VisiteStatus[] = ['planned', 'in_progress', 'completed'];
-    const idx = order.indexOf(visite!.status);
+    const idx = order.indexOf(visite.status);
     const next = order[(idx + 1) % order.length];
-    updateVisite({ ...visite!, status: next });
+    updateVisite({ ...visite, status: next });
   }
 
   function handleDelete() {
-    Alert.alert('Supprimer', `Supprimer la visite "${visite!.title}" ?`, [
+    Alert.alert('Supprimer', `Supprimer la visite "${visite.title}" ?`, [
       { text: 'Annuler', style: 'cancel' },
       {
         text: 'Supprimer', style: 'destructive', onPress: () => {
-          deleteVisite(visite!.id);
+          deleteVisite(visite.id);
           router.back();
         },
       },
@@ -285,15 +285,15 @@ export default function VisiteDetailScreen() {
     if (isSigning) return;
     setIsSigning(true);
     try {
-      const conducteurSig = conducteurSigRef.current?.getSVGData() ?? visite!.conducteurSignature ?? null;
-      const entrepriseSig = entrepriseSigRef.current?.getSVGData() ?? visite!.entrepriseSignature ?? null;
+      const conducteurSig = conducteurSigRef.current?.getSVGData() ?? visite.conducteurSignature ?? null;
+      const entrepriseSig = entrepriseSigRef.current?.getSVGData() ?? visite.entrepriseSignature ?? null;
       const today = formatDateFR(new Date());
       updateVisite({
-        ...visite!,
+        ...visite,
         conducteurSignature: conducteurSig ?? undefined,
         entrepriseSignature: entrepriseSig ?? undefined,
         signedAt: today,
-        entrepriseSignataire: entrepriseSignataire.trim() || visite!.entrepriseSignataire,
+        entrepriseSignataire: entrepriseSignataire.trim() || visite.entrepriseSignataire,
         status: 'completed',
       });
       setSignModalVisible(false);
@@ -304,14 +304,14 @@ export default function VisiteDetailScreen() {
   }
 
   function openEditLoc() {
-    setEditBuilding(visite!.building ?? '');
-    setEditLevel(visite!.level ?? '');
-    setEditZone(visite!.zone ?? '');
+    setEditBuilding(visite.building ?? '');
+    setEditLevel(visite.level ?? '');
+    setEditZone(visite.zone ?? '');
     setEditLocModal(true);
   }
 
   function saveEditLoc() {
-    updateVisite({ ...visite!, building: editBuilding || undefined, level: editLevel || undefined, zone: editZone || undefined });
+    updateVisite({ ...visite, building: editBuilding || undefined, level: editLevel || undefined, zone: editZone || undefined });
     setEditLocModal(false);
   }
 
@@ -329,7 +329,7 @@ export default function VisiteDetailScreen() {
           }
         })
       );
-      const html = buildVisitePDF(visite!, visiteReserves, projectName, reservePhotoMap);
+      const html = buildVisitePDF(visite, visiteReserves, projectName, reservePhotoMap);
       await exportPDFHelper(html, 'CR de visite');
     } catch (e: any) {
       Alert.alert('Erreur', e?.message ?? 'Impossible de générer le PDF');

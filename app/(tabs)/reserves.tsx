@@ -213,6 +213,11 @@ export default function ReservesScreen() {
   const [lotFilter, setLotFilter] = useState<string>('all');
   const [sortKey, setSortKey] = useState<SortKey>('date_desc');
   const [search, setSearch] = useState('');
+  const [debouncedSearch, setDebouncedSearch] = useState('');
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedSearch(search), 250);
+    return () => clearTimeout(t);
+  }, [search]);
   const [sortModalVisible, setSortModalVisible] = useState(false);
   const [filterModalVisible, setFilterModalVisible] = useState(false);
   const [viewMode, setViewMode] = useState<ViewMode>('list');
@@ -392,7 +397,7 @@ export default function ReservesScreen() {
       const matchZone = zoneFilter === 'all' || r.zone === zoneFilter;
       const matchLevel = levelFilter === 'all' || r.level === levelFilter;
       const matchLot = lotFilter === 'all' || r.lotId === lotFilter;
-      const q = search.toLowerCase();
+      const q = debouncedSearch.toLowerCase();
       const lot = r.lotId ? lots.find(l => l.id === r.lotId) : null;
       const matchSearch = !q ||
         r.title.toLowerCase().includes(q) ||
@@ -424,7 +429,7 @@ export default function ReservesScreen() {
       }
     });
     return list;
-  }, [chantierReserves, statusFilter, kindFilter, buildingFilter, priorityFilter, companyFilter, zoneFilter, levelFilter, lotFilter, sortKey, search, nearDeadlineOnly, lots]);
+  }, [chantierReserves, statusFilter, kindFilter, buildingFilter, priorityFilter, companyFilter, zoneFilter, levelFilter, lotFilter, sortKey, debouncedSearch, nearDeadlineOnly, lots]);
 
   const groupedByStatus = useMemo(() => {
     const ORDER: ReserveStatus[] = ['open', 'in_progress', 'waiting', 'verification', 'closed'];

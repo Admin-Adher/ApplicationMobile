@@ -56,7 +56,7 @@ function computeClusters(reserves: Reserve[], scale: number, numberMap: Map<stri
     const gy = Math.floor(r.planY! / cellSize);
     const k = cellKey(gx, gy);
     if (!grid.has(k)) grid.set(k, []);
-    grid.get(k)!.push(r);
+    grid.get(k)?.push(r);
   }
   const assigned = new Set<string>();
   const clusters: PinCluster[] = [];
@@ -714,11 +714,11 @@ export default function PlansScreen() {
           if (dragDist > 10) {
             draggingPinMovedRef.current = true;
           }
-          if (draggingPinMovedRef.current) {
+          if (draggingPinMovedRef.current && draggingPinStartRef.current) {
             isDraggingRef.current = true;
             const s = lastScale.current;
-            const newX = Math.min(100, Math.max(0, draggingPinStartRef.current!.cx + (gs.dx / dynWRef.current / s) * 100));
-            const newY = Math.min(100, Math.max(0, draggingPinStartRef.current!.cy + (gs.dy / dynHRef.current / s) * 100));
+            const newX = Math.min(100, Math.max(0, draggingPinStartRef.current.cx + (gs.dx / dynWRef.current / s) * 100));
+            const newY = Math.min(100, Math.max(0, draggingPinStartRef.current.cy + (gs.dy / dynHRef.current / s) * 100));
             draggingPinPosRef.current = { x: newX, y: newY };
             draggingAnimX.setValue((newX / 100) * dynWRef.current);
             draggingAnimY.setValue((newY / 100) * dynHRef.current);
