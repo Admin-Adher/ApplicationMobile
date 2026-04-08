@@ -58,15 +58,17 @@ BEGIN
     RETURN jsonb_build_object('success', false, 'error', 'organization_not_found');
   END IF;
 
-  -- ── Collecte des URLs Storage (avant suppression des lignes) ──
+  -- ── Collecte des URIs Storage (avant suppression des lignes) ──
+  -- Photos n'ont pas de organization_id direct : passage via reserve → chantier
   SELECT ARRAY(
-    SELECT url FROM public.photos
-    WHERE organization_id = p_org_id AND url IS NOT NULL AND url <> ''
+    SELECT p.uri FROM public.photos p
+    JOIN public.reserves r ON r.id = p.reserve_id
+    WHERE r.organization_id = p_org_id AND p.uri IS NOT NULL AND p.uri <> ''
   ) INTO v_photo_urls;
 
   SELECT ARRAY(
-    SELECT url FROM public.documents
-    WHERE organization_id = p_org_id AND url IS NOT NULL AND url <> ''
+    SELECT uri FROM public.documents
+    WHERE organization_id = p_org_id AND uri IS NOT NULL AND uri <> ''
   ) INTO v_doc_urls;
 
   -- ── Collecte des IDs auth des membres (avant suppression profiles) ──
@@ -80,8 +82,10 @@ BEGIN
   -- 1. Messages (dépend de channels)
   DELETE FROM public.messages        WHERE organization_id = p_org_id;
 
-  -- 2. Photos (dépend de reserves, visites)
-  DELETE FROM public.photos          WHERE organization_id = p_org_id;
+  -- 2. Photos (via reserve_id → reserve → organization_id, pas de colonne directe)
+  DELETE FROM public.photos WHERE reserve_id IN (
+    SELECT id FROM public.reserves WHERE organization_id = p_org_id
+  );
 
   -- 3. Pointage
   DELETE FROM public.time_entries    WHERE organization_id = p_org_id;

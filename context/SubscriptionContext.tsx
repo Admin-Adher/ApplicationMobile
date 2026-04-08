@@ -673,37 +673,60 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
     }
 
     try {
-      const { data: rpcData, error: rpcErr } = await supabase.rpc('delete_organization', { p_org_id: orgId });
-
-      if (rpcErr) {
-        return { success: false, error: rpcErr.message ?? 'Erreur lors de la suppression.' };
-      }
-
-      const result = rpcData as {
-        success: boolean;
-        error?: string;
-        photo_urls?: string[];
-        document_urls?: string[];
-      };
-
-      if (!result?.success) {
-        return { success: false, error: result?.error ?? 'Erreur lors de la suppression.' };
-      }
-
-      // Suppression des fichiers Storage (best-effort — ne bloque pas si ça échoue)
-      const extractPath = (url: string, bucket: string): string | null => {
+      const extractPath = (uri: string, bucket: string): string | null => {
         const marker = `/storage/v1/object/public/${bucket}/`;
-        const idx = url.indexOf(marker);
+        const idx = uri.indexOf(marker);
         if (idx === -1) return null;
-        return decodeURIComponent(url.slice(idx + marker.length));
+        return decodeURIComponent(uri.slice(idx + marker.length));
       };
 
-      const photoPaths = (result.photo_urls ?? [])
-        .map(url => extractPath(url, 'photos'))
-        .filter((p): p is string => !!p);
+      // ── Collect reserve IDs (needed for photo deletion: photos use reserve_id not org_id) ──
+      const { data: reservesData } = await supabase
+        .from('reserves')
+        .select('id')
+        .eq('organization_id', orgId);
+      const reserveIds = (reservesData ?? []).map((r: any) => r.id as string);
 
-      const docPaths = (result.document_urls ?? [])
-        .map(url => extractPath(url, 'documents'))
+      // ── Collect Storage URIs before deletion (best-effort) ──
+      const { data: photoData } = reserveIds.length > 0
+        ? await supabase.from('photos').select('uri').in('reserve_id', reserveIds)
+        : { data: [] };
+      const { data: docData } = await supabase
+        .from('documents')
+        .select('uri')
+        .eq('organization_id', orgId);
+
+      // ── Delete in FK order (super_admin RLS allows all deletes) ──
+      await supabase.from('messages').delete().eq('organization_id', orgId);
+
+      if (reserveIds.length > 0) {
+        await supabase.from('photos').delete().in('reserve_id', reserveIds);
+      }
+
+      await supabase.from('time_entries').delete().eq('organization_id', orgId);
+      await supabase.from('tasks').delete().eq('organization_id', orgId);
+      await supabase.from('reserves').delete().eq('organization_id', orgId);
+      await supabase.from('site_plans').delete().eq('organization_id', orgId);
+      await supabase.from('oprs').delete().eq('organization_id', orgId);
+      await supabase.from('lots').delete().eq('organization_id', orgId);
+      await supabase.from('visites').delete().eq('organization_id', orgId);
+      await supabase.from('incidents').delete().eq('organization_id', orgId);
+      await supabase.from('regulatory_docs').delete().eq('organization_id', orgId);
+      await supabase.from('documents').delete().eq('organization_id', orgId);
+      await supabase.from('chantiers').delete().eq('organization_id', orgId);
+      await supabase.from('channels').delete().eq('organization_id', orgId);
+      await supabase.from('companies').delete().eq('organization_id', orgId);
+      await supabase.from('subscriptions').delete().eq('organization_id', orgId);
+      await supabase.from('invitations').delete().eq('organization_id', orgId);
+      await supabase.from('profiles').delete().eq('organization_id', orgId).neq('id', user.id);
+      await supabase.from('organizations').delete().eq('id', orgId);
+
+      // ── Clean up Storage files (best-effort — does not block on failure) ──
+      const photoPaths = (photoData ?? [])
+        .map((p: any) => extractPath(p.uri ?? '', 'photos'))
+        .filter((p): p is string => !!p);
+      const docPaths = (docData ?? [])
+        .map((d: any) => extractPath(d.uri ?? '', 'documents'))
         .filter((p): p is string => !!p);
 
       if (photoPaths.length > 0) {
@@ -713,13 +736,13 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
         await supabase.storage.from('documents').remove(docPaths).catch(() => {});
       }
 
-      // Mise à jour du state local
+      // ── Update local state ──
       setAllOrganizations(prev => prev.filter(o => o.id !== orgId));
       setOrgSummaries(prev => prev.filter(o => o.org.id !== orgId));
 
       return { success: true };
     } catch (e: any) {
-      return { success: false, error: e?.message ?? 'Erreur réseau.' };
+      return { success: false, error: e?.message ?? 'Erreur lors de la suppression.' };
     }
   }
 
