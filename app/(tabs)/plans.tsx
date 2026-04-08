@@ -1560,91 +1560,99 @@ export default function PlansScreen() {
           {!fullscreen && (
             <>
             <View style={styles.planTitleRow}>
-              <View style={{ flex: 1 }}>
-                <Text style={styles.planTitle}>{currentPlan?.name ?? 'Plan'}</Text>
-                {currentPlan?.uri ? (
-                  <Text style={styles.planSubtitle}>{currentPlan.fileType === 'pdf' ? 'PDF' : isImagePlan ? 'Image' : 'DXF'} · {currentPlan.uploadedAt}</Text>
-                ) : (
-                  <Text style={styles.planSubtitle}>Schématique · {currentPlan?.uploadedAt ?? ''}</Text>
+              <View style={styles.planTitleTopRow}>
+                <View style={{ flex: 1, minWidth: 0 }}>
+                  <Text style={styles.planTitle} numberOfLines={1} ellipsizeMode="tail">
+                    {currentPlan?.name ?? 'Plan'}
+                  </Text>
+                  {currentPlan?.uri ? (
+                    <Text style={styles.planSubtitle}>{currentPlan.fileType === 'pdf' ? 'PDF' : isImagePlan ? 'Image' : 'DXF'} · {currentPlan.uploadedAt}</Text>
+                  ) : (
+                    <Text style={styles.planSubtitle}>Schématique · {currentPlan?.uploadedAt ?? ''}</Text>
+                  )}
+                </View>
+                {allPlanReserves.some(r => r.planX != null && r.planY != null) && (
+                <View style={styles.pinSizeRow}>
+                  {focusedPinId && (
+                    <Text style={{ fontSize: 10, color: '#FBBF24', fontFamily: 'Inter_600SemiBold', marginRight: 2 }}>
+                      #{pinNumberMap.get(focusedPinId) ?? '?'}
+                    </Text>
+                  )}
+                  {(() => {
+                    const indivScale = focusedPinId ? (pinSizes[focusedPinId] ?? 1.0) : null;
+                    const minusDisabled = focusedPinId ? (indivScale! <= 0.4) : pinSizeScale <= 0.5;
+                    const plusDisabled  = focusedPinId ? (indivScale! >= 3.0) : pinSizeScale >= 2.5;
+                    return (
+                      <>
+                        <TouchableOpacity
+                          style={[styles.pinSizeBtn, minusDisabled && { opacity: 0.35 }]}
+                          onPress={() => changePinSize(-0.25)}
+                          disabled={minusDisabled}
+                          accessibilityLabel={focusedPinId ? 'Réduire cette pastille' : 'Réduire les pastilles'}
+                        >
+                          <Ionicons name="remove-circle-outline" size={18} color={focusedPinId ? '#FBBF24' : C.textSub} />
+                        </TouchableOpacity>
+                        <Ionicons name="ellipse" size={9} color={focusedPinId ? '#FBBF24' : C.primary} />
+                        <TouchableOpacity
+                          style={[styles.pinSizeBtn, plusDisabled && { opacity: 0.35 }]}
+                          onPress={() => changePinSize(0.25)}
+                          disabled={plusDisabled}
+                          accessibilityLabel={focusedPinId ? 'Agrandir cette pastille' : 'Agrandir les pastilles'}
+                        >
+                          <Ionicons name="add-circle-outline" size={18} color={focusedPinId ? '#FBBF24' : C.textSub} />
+                        </TouchableOpacity>
+                      </>
+                    );
+                  })()}
+                </View>
                 )}
               </View>
-              {allPlanReserves.some(r => r.planX != null && r.planY != null) && (
-              <View style={styles.pinSizeRow}>
-                {focusedPinId && (
-                  <Text style={{ fontSize: 10, color: '#FBBF24', fontFamily: 'Inter_600SemiBold', marginRight: 2 }}>
-                    #{pinNumberMap.get(focusedPinId) ?? '?'}
-                  </Text>
-                )}
-                {(() => {
-                  const indivScale = focusedPinId ? (pinSizes[focusedPinId] ?? 1.0) : null;
-                  const minusDisabled = focusedPinId ? (indivScale! <= 0.4) : pinSizeScale <= 0.5;
-                  const plusDisabled  = focusedPinId ? (indivScale! >= 3.0) : pinSizeScale >= 2.5;
-                  return (
-                    <>
-                      <TouchableOpacity
-                        style={[styles.pinSizeBtn, minusDisabled && { opacity: 0.35 }]}
-                        onPress={() => changePinSize(-0.25)}
-                        disabled={minusDisabled}
-                        accessibilityLabel={focusedPinId ? 'Réduire cette pastille' : 'Réduire les pastilles'}
-                      >
-                        <Ionicons name="remove-circle-outline" size={18} color={focusedPinId ? '#FBBF24' : C.textSub} />
-                      </TouchableOpacity>
-                      <Ionicons name="ellipse" size={9} color={focusedPinId ? '#FBBF24' : C.primary} />
-                      <TouchableOpacity
-                        style={[styles.pinSizeBtn, plusDisabled && { opacity: 0.35 }]}
-                        onPress={() => changePinSize(0.25)}
-                        disabled={plusDisabled}
-                        accessibilityLabel={focusedPinId ? 'Agrandir cette pastille' : 'Agrandir les pastilles'}
-                      >
-                        <Ionicons name="add-circle-outline" size={18} color={focusedPinId ? '#FBBF24' : C.textSub} />
-                      </TouchableOpacity>
-                    </>
-                  );
-                })()}
-              </View>
-              )}
-              {hasVersions && (
-                <TouchableOpacity
-                  style={[styles.versionBtn, showVersionHistory && styles.versionBtnActive]}
-                  onPress={() => setShowVersionHistory(v => !v)}
-                  accessibilityLabel={`Historique des révisions – ${currentPlan?.revisionCode ?? 'R01'}`}
-                  accessibilityRole="button"
-                >
-                  <Ionicons name="time-outline" size={13} color={showVersionHistory ? C.primary : C.textSub} />
-                  <Text style={[styles.versionBtnText, showVersionHistory && { color: C.primary }]}>
-                    {currentPlan?.revisionCode ?? 'R01'}
-                  </Text>
-                </TouchableOpacity>
-              )}
-              {currentPlan?.uri && permissions.canCreate && (
-                <TouchableOpacity style={[styles.removePlanBtn, importing && { opacity: 0.5 }]} onPress={handleRemovePlan} disabled={importing} accessibilityLabel="Remplacer le plan">
-                  {importing
-                    ? <ActivityIndicator size="small" color={C.primary} />
-                    : <><Ionicons name="swap-horizontal-outline" size={13} color={C.textSub} /><Text style={styles.removePlanText}>Remplacer</Text></>
-                  }
-                </TouchableOpacity>
-              )}
-              {permissions.canDelete && (currentPlan?.uri || currentPlanId) && (
-                <View style={{ flexDirection: 'row', gap: 4 }}>
-                  {currentPlan?.uri && (
+              {(hasVersions || (currentPlan?.uri && permissions.canCreate) || (permissions.canDelete && (currentPlan?.uri || currentPlanId))) && (
+                <View style={styles.planActionsRow}>
+                  {hasVersions && (
                     <TouchableOpacity
-                      style={styles.removePlanBtn}
-                      onPress={handleDeletePlanFile}
-                      accessibilityLabel="Retirer le fichier du plan"
+                      style={[styles.versionBtn, showVersionHistory && styles.versionBtnActive]}
+                      onPress={() => setShowVersionHistory(v => !v)}
+                      accessibilityLabel={`Historique des révisions – ${currentPlan?.revisionCode ?? 'R01'}`}
+                      accessibilityRole="button"
                     >
-                      <Ionicons name="document-outline" size={13} color="#F59E0B" />
-                      <Text style={[styles.removePlanText, { color: '#F59E0B' }]}>Retirer</Text>
+                      <Ionicons name="time-outline" size={13} color={showVersionHistory ? C.primary : C.textSub} />
+                      <Text style={[styles.versionBtnText, showVersionHistory && { color: C.primary }]}>
+                        {currentPlan?.revisionCode ?? 'R01'}
+                      </Text>
                     </TouchableOpacity>
                   )}
-                  {currentPlanId && (
-                    <TouchableOpacity
-                      style={styles.removePlanBtn}
-                      onPress={handleDeletePlan}
-                      accessibilityLabel="Supprimer le plan"
-                    >
-                      <Ionicons name="trash-outline" size={13} color="#EF4444" />
-                      <Text style={[styles.removePlanText, { color: '#EF4444' }]}>Plan</Text>
+                  {currentPlan?.uri && permissions.canCreate && (
+                    <TouchableOpacity style={[styles.removePlanBtn, importing && { opacity: 0.5 }]} onPress={handleRemovePlan} disabled={importing} accessibilityLabel="Remplacer le plan">
+                      {importing
+                        ? <ActivityIndicator size="small" color={C.primary} />
+                        : <><Ionicons name="swap-horizontal-outline" size={13} color={C.textSub} /><Text style={styles.removePlanText}>Remplacer</Text></>
+                      }
                     </TouchableOpacity>
+                  )}
+                  {permissions.canDelete && (currentPlan?.uri || currentPlanId) && (
+                    <>
+                      {currentPlan?.uri && (
+                        <TouchableOpacity
+                          style={styles.removePlanBtn}
+                          onPress={handleDeletePlanFile}
+                          accessibilityLabel="Retirer le fichier du plan"
+                        >
+                          <Ionicons name="document-outline" size={13} color="#F59E0B" />
+                          <Text style={[styles.removePlanText, { color: '#F59E0B' }]}>Retirer</Text>
+                        </TouchableOpacity>
+                      )}
+                      {currentPlanId && (
+                        <TouchableOpacity
+                          style={styles.removePlanBtn}
+                          onPress={handleDeletePlan}
+                          accessibilityLabel="Supprimer le plan"
+                        >
+                          <Ionicons name="trash-outline" size={13} color="#EF4444" />
+                          <Text style={[styles.removePlanText, { color: '#EF4444' }]}>Plan</Text>
+                        </TouchableOpacity>
+                      )}
+                    </>
                   )}
                 </View>
               )}
@@ -2517,7 +2525,9 @@ const styles = StyleSheet.create({
   tabletDetailOpenBtn: { flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: C.primary, paddingHorizontal: 14, paddingVertical: 9, borderRadius: 10 },
   tabletDetailOpenBtnText: { fontSize: 13, fontFamily: 'Inter_600SemiBold', color: '#fff' },
 
-  planTitleRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, paddingVertical: 8, backgroundColor: C.surface, borderBottomWidth: 1, borderBottomColor: C.border },
+  planTitleRow: { flexDirection: 'column', paddingHorizontal: 16, paddingTop: 8, paddingBottom: 8, backgroundColor: C.surface, borderBottomWidth: 1, borderBottomColor: C.border },
+  planTitleTopRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  planActionsRow: { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 6, marginTop: 8 },
   planTitle: { fontSize: 14, fontFamily: 'Inter_600SemiBold', color: C.text },
   planSubtitle: { fontSize: 11, fontFamily: 'Inter_400Regular', color: C.textMuted, marginTop: 2 },
   pinSizeRow: { flexDirection: 'row', alignItems: 'center', gap: 4, marginHorizontal: 8 },
