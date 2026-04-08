@@ -194,7 +194,7 @@ export default function ReservesScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const { company: companyParam } = useLocalSearchParams<{ company?: string }>();
-  const { reserves, companies, isLoading, chantiers, activeChantierId, lots, batchUpdateReserves, updateReserveFields, updateReserveStatus, deleteReserve, addComment, addReserve, reload } = useApp();
+  const { reserves, companies, isLoading, chantiers, activeChantierId, lots, batchUpdateReserves, updateReserveFields, updateReserveStatus, deleteReserve, addComment, addReserve, reload, sitePlans } = useApp();
   const { permissions, user } = useAuth();
 
   const isSousTraitant = user?.role === 'sous_traitant';
@@ -289,6 +289,16 @@ export default function ReservesScreen() {
     }
     return list;
   }, [reserves, chantierFilter, isSousTraitant, sousTraitantCompanyName]);
+
+  const chantiersWithPlans = useMemo(
+    () => new Set(sitePlans.map(p => p.chantierId).filter(Boolean)),
+    [sitePlans]
+  );
+
+  const activeSitePlans = useMemo(
+    () => sitePlans.filter(p => p.chantierId === activeChantierId),
+    [sitePlans, activeChantierId]
+  );
 
   const nearDeadlineReserves = useMemo(() => {
     const now = new Date();
@@ -639,32 +649,46 @@ export default function ReservesScreen() {
     grouped_company: 'people-outline',
   };
 
-  const renderCard = (item: Reserve) => (
-    <View style={styles.selectableRow}>
-      {isSelectMode && (
-        <TouchableOpacity
-          onPress={() => toggleId(item.id)}
-          style={[styles.checkbox, selectedIds.has(item.id) && styles.checkboxChecked]}
-          accessibilityRole="checkbox"
-          accessibilityLabel={`Sélectionner réserve ${item.id}`}
-          accessibilityState={{ checked: selectedIds.has(item.id) }}
-        >
-          {selectedIds.has(item.id) && <Ionicons name="checkmark" size={14} color="#fff" />}
-        </TouchableOpacity>
-      )}
-      <View style={{ flex: 1 }}>
-        <ReserveCard
-          reserve={item}
-          onPress={r => isSelectMode ? toggleId(r.id) : (isWideScreen ? setSelectedReserveId(r.id === selectedReserveId ? null : r.id) : router.push(`/reserve/${r.id}` as any))}
-          onLongPress={permissions.canEdit ? handleContextMenu : undefined}
-          onSwipeRight={permissions.canEdit ? handleQuickStatusChange : undefined}
-          onSwipeLeft={permissions.canEdit ? handleSwipeLeft : undefined}
-          selected={item.id === selectedReserveId}
-          isFlashed={item.id === flashId}
-        />
+  const renderCard = (item: Reserve) => {
+    const noPin = item.planX == null && item.planY == null && chantiersWithPlans.has(item.chantierId ?? '');
+    return (
+      <View style={styles.selectableRow}>
+        {isSelectMode && (
+          <TouchableOpacity
+            onPress={() => toggleId(item.id)}
+            style={[styles.checkbox, selectedIds.has(item.id) && styles.checkboxChecked]}
+            accessibilityRole="checkbox"
+            accessibilityLabel={`Sélectionner réserve ${item.id}`}
+            accessibilityState={{ checked: selectedIds.has(item.id) }}
+          >
+            {selectedIds.has(item.id) && <Ionicons name="checkmark" size={14} color="#fff" />}
+          </TouchableOpacity>
+        )}
+        <View style={{ flex: 1 }}>
+          <ReserveCard
+            reserve={item}
+            onPress={r => isSelectMode ? toggleId(r.id) : (isWideScreen ? setSelectedReserveId(r.id === selectedReserveId ? null : r.id) : router.push(`/reserve/${r.id}` as any))}
+            onLongPress={permissions.canEdit ? handleContextMenu : undefined}
+            onSwipeRight={permissions.canEdit ? handleQuickStatusChange : undefined}
+            onSwipeLeft={permissions.canEdit ? handleSwipeLeft : undefined}
+            selected={item.id === selectedReserveId}
+            isFlashed={item.id === flashId}
+          />
+          {noPin && (
+            <TouchableOpacity
+              style={{ flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: 12, paddingVertical: 5, backgroundColor: '#F59E0B12', borderBottomLeftRadius: 12, borderBottomRightRadius: 12, borderWidth: 1, borderTopWidth: 0, borderColor: '#F59E0B30' }}
+              onPress={() => router.push('/(tabs)/plans' as any)}
+              activeOpacity={0.7}
+            >
+              <Ionicons name="location-outline" size={11} color="#B45309" />
+              <Text style={{ fontSize: 11, fontFamily: 'Inter_500Medium', color: '#B45309', flex: 1 }}>Non localisée sur le plan</Text>
+              <Text style={{ fontSize: 10, fontFamily: 'Inter_600SemiBold', color: '#B45309' }}>Épingler →</Text>
+            </TouchableOpacity>
+          )}
+        </View>
       </View>
-    </View>
-  );
+    );
+  };
 
   const listEmpty = (
     <View style={styles.empty}>

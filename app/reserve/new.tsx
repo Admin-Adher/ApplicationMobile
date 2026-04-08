@@ -357,10 +357,19 @@ export default function NewReserveScreen() {
           reserveId: id,
         });
       });
+      const hasPin = presetX !== null && presetY !== null;
+      const canLocate = !hasPin && chantierPlans.length > 0;
       Alert.alert(
         kind === 'observation' ? 'Observation créée' : 'Réserve créée',
-        `${id} ajoutée avec succès.`,
-        [{ text: 'OK', onPress: () => { setIsSubmitting(false); router.back(); } }],
+        canLocate
+          ? `${id} ajoutée sans épingle sur le plan. Souhaitez-vous la localiser maintenant ?`
+          : `${id} ajoutée avec succès.`,
+        canLocate
+          ? [
+              { text: 'Plus tard', style: 'cancel', onPress: () => { setIsSubmitting(false); router.back(); } },
+              { text: 'Localiser sur le plan →', onPress: () => { setIsSubmitting(false); router.replace('/(tabs)/plans' as any); } },
+            ]
+          : [{ text: 'OK', onPress: () => { setIsSubmitting(false); router.back(); } }],
         { cancelable: false }
       );
     } catch (err) {
@@ -601,6 +610,14 @@ export default function NewReserveScreen() {
                 </TouchableOpacity>
               </View>
             )}
+            {!locationFromPlan && presetX === null && (
+              <View style={styles.pinNudge}>
+                <Ionicons name="location-outline" size={15} color="#B45309" />
+                <Text style={styles.pinNudgeText}>
+                  Cette réserve sera créée <Text style={{ fontFamily: 'Inter_600SemiBold' }}>sans épingle sur le plan</Text>. Pour la localiser précisément, créez-la en appuyant directement sur le plan depuis l'onglet Plans.
+                </Text>
+              </View>
+            )}
           </View>
         )}
 
@@ -795,4 +812,7 @@ const styles = StyleSheet.create({
   planFilterHint: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 8, paddingTop: 8, borderTopWidth: 1, borderTopColor: C.border },
   planFilterHintText: { flex: 1, fontSize: 11, fontFamily: 'Inter_400Regular', color: C.primary },
   planFilterReset: { fontSize: 11, fontFamily: 'Inter_600SemiBold', color: C.primary, textDecorationLine: 'underline' },
+
+  pinNudge: { flexDirection: 'row', alignItems: 'flex-start', gap: 8, backgroundColor: '#F59E0B18', borderRadius: 8, padding: 10, borderWidth: 1, borderColor: '#F59E0B35', marginTop: 10 },
+  pinNudgeText: { flex: 1, fontSize: 11, fontFamily: 'Inter_400Regular', color: '#92400E', lineHeight: 16 },
 });
