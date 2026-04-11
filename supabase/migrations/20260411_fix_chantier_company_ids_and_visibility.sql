@@ -52,6 +52,9 @@ $$;
 
 -- ── 0b. Fonction : company_id de l'utilisateur courant ────────
 
+-- Supprimer l'ancienne version si elle existe (idempotent)
+DROP FUNCTION IF EXISTS public.auth_user_company_id();
+
 CREATE OR REPLACE FUNCTION public.auth_user_company_id()
 RETURNS TEXT LANGUAGE SQL SECURITY DEFINER STABLE AS $$
   SELECT company_id FROM public.profiles WHERE id = auth.uid()
@@ -59,6 +62,9 @@ $$;
 
 -- ── 0c. Fonction : l'utilisateur est-il privilégié ? ─────────
 -- Privileged = super_admin | admin | conducteur → voit tous les chantiers de l'org
+
+-- Supprimer l'ancienne version si elle existe (idempotent)
+DROP FUNCTION IF EXISTS public.auth_user_is_privileged();
 
 CREATE OR REPLACE FUNCTION public.auth_user_is_privileged()
 RETURNS BOOLEAN LANGUAGE SQL SECURITY DEFINER STABLE AS $$
@@ -72,6 +78,10 @@ $$;
 --   2. Même organisation ET rôle privilégié → voit tout dans l'org
 --   3. Même organisation ET chantier sans restriction d'entreprise → visible
 --   4. Même organisation ET company_id de l'utilisateur dans company_ids → visible
+
+-- Supprimer l'ancienne version (TEXT, JSONB) de la migration 20260406
+-- pour éviter l'erreur "function name is not unique"
+DROP FUNCTION IF EXISTS public.chantier_visible_to_current_user(TEXT, JSONB);
 
 CREATE OR REPLACE FUNCTION public.chantier_visible_to_current_user(
   p_org_id UUID,
