@@ -131,6 +131,13 @@ export default function ChannelScreen() {
     if (creator && !merged.includes(creator)) merged.push(creator);
     return merged;
   }, [baseMembers.join(','), overrideMembers.join(','), channelObj?.createdBy]);
+  const displayChannelName = useMemo(() => {
+    if (!isDMChannel) return liveChannelName;
+    const myName = user?.name;
+    if (!myName) return liveChannelName;
+    const other = liveMembers.find(n => n !== myName);
+    return other ?? liveChannelName;
+  }, [isDMChannel, liveChannelName, liveMembers.join(','), user?.name]);
   const isCompanyChannel = channelObj?.type === 'company' || (channelId?.startsWith('company-') ?? false);
   const isEditable = channelObj?.type === 'custom' || channelObj?.type === 'group';
   const canDelete = channelObj?.type === 'custom' || channelObj?.type === 'group';
@@ -599,7 +606,7 @@ export default function ChannelScreen() {
         </TouchableOpacity>
         {isDMChannel ? (
           <View style={[styles.headerIcon, { backgroundColor: color + '20' }]}>
-            <Text style={[styles.headerIconText, { color }]}>{(channelName ?? '?').charAt(0).toUpperCase()}</Text>
+            <Text style={[styles.headerIconText, { color }]}>{(displayChannelName ?? '?').charAt(0).toUpperCase()}</Text>
           </View>
         ) : isGroupChannel ? (
           <View style={[styles.headerIcon, { backgroundColor: color + '20', overflow: 'hidden' }]}>
@@ -611,7 +618,7 @@ export default function ChannelScreen() {
           </View>
         )}
         <View style={{ flex: 1 }}>
-          <Text style={styles.headerName} numberOfLines={1}>{liveChannelName}</Text>
+          <Text style={styles.headerName} numberOfLines={1}>{displayChannelName}</Text>
           {(isDMChannel || isGroupChannel) && liveMembers.length > 0 ? (
             <Text style={styles.headerSub} numberOfLines={1}>{liveMembers.length} membre{liveMembers.length !== 1 ? 's' : ''}</Text>
           ) : isCompanyChannel ? (
@@ -914,7 +921,7 @@ export default function ChannelScreen() {
         onClose={() => setMembersVisible(false)}
         channelId={channelId!}
         channelObj={channelObj}
-        liveChannelName={liveChannelName}
+        liveChannelName={displayChannelName}
         liveMembers={liveMembers}
         color={color}
         isDMChannel={isDMChannel}
