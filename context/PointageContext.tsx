@@ -7,7 +7,7 @@ import { useAuth } from '@/context/AuthContext';
 import { useNetwork } from '@/context/NetworkContext';
 import { genId } from '@/lib/utils';
 
-const POINTAGE_KEY = 'buildtrack_pointage_v1';
+const POINTAGE_PREFIX = 'buildtrack_pointage_v2_';
 
 interface PointageContextValue {
   entries: TimeEntry[];
@@ -61,6 +61,7 @@ export function PointageProvider({ children }: { children: React.ReactNode }) {
   const { user } = useAuth();
   const { isOnline, enqueueOperation } = useNetwork();
   const [entries, setEntries] = useState<TimeEntry[]>([]);
+  const pointageKey = POINTAGE_PREFIX + (user?.id ?? 'anon');
   const entriesRef = useRef(entries);
   const orgIdRef = useRef<string | null>(user?.organizationId ?? null);
   const isOnlineRef = useRef(isOnline);
@@ -79,13 +80,13 @@ export function PointageProvider({ children }: { children: React.ReactNode }) {
           if (!error && data && data.length > 0) {
             const loaded = data.map(toEntry);
             setEntries(loaded);
-            await AsyncStorage.setItem(POINTAGE_KEY, JSON.stringify(loaded)).catch(() => {});
+            await AsyncStorage.setItem(pointageKey, JSON.stringify(loaded)).catch(() => {});
             return;
           }
         } catch {}
       }
       try {
-        const stored = await AsyncStorage.getItem(POINTAGE_KEY);
+        const stored = await AsyncStorage.getItem(pointageKey);
         if (stored) setEntries(JSON.parse(stored));
       } catch {}
     }
@@ -101,7 +102,7 @@ export function PointageProvider({ children }: { children: React.ReactNode }) {
         setEntries(prev => {
           if (prev.find(e => e.id === entry.id)) return prev;
           const updated = [entry, ...prev];
-          AsyncStorage.setItem(POINTAGE_KEY, JSON.stringify(updated)).catch(() => {});
+          AsyncStorage.setItem(pointageKey, JSON.stringify(updated)).catch(() => {});
           return updated;
         });
       })
@@ -109,7 +110,7 @@ export function PointageProvider({ children }: { children: React.ReactNode }) {
         const entry = toEntry(payload.new);
         setEntries(prev => {
           const updated = prev.map(e => e.id === entry.id ? entry : e);
-          AsyncStorage.setItem(POINTAGE_KEY, JSON.stringify(updated)).catch(() => {});
+          AsyncStorage.setItem(pointageKey, JSON.stringify(updated)).catch(() => {});
           return updated;
         });
       })
@@ -117,7 +118,7 @@ export function PointageProvider({ children }: { children: React.ReactNode }) {
         const id = payload.old.id;
         setEntries(prev => {
           const updated = prev.filter(e => e.id !== id);
-          AsyncStorage.setItem(POINTAGE_KEY, JSON.stringify(updated)).catch(() => {});
+          AsyncStorage.setItem(pointageKey, JSON.stringify(updated)).catch(() => {});
           return updated;
         });
       })
@@ -127,7 +128,7 @@ export function PointageProvider({ children }: { children: React.ReactNode }) {
 
   async function persistLocal(data: TimeEntry[]) {
     setEntries(data);
-    try { await AsyncStorage.setItem(POINTAGE_KEY, JSON.stringify(data)); } catch {}
+    try { await AsyncStorage.setItem(pointageKey, JSON.stringify(data)); } catch {}
   }
 
   const addEntry = useCallback(async (entry: Omit<TimeEntry, 'id'>) => {

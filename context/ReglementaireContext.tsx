@@ -6,7 +6,7 @@ import { supabase, isSupabaseConfigured } from '@/lib/supabase';
 import { useAuth } from '@/context/AuthContext';
 import { useNetwork } from '@/context/NetworkContext';
 
-const REG_DOCS_KEY = 'buildtrack_reglementaire_v1';
+const REG_DOCS_PREFIX = 'buildtrack_reglementaire_v2_';
 
 interface ReglementaireContextValue {
   docs: RegulatoryDoc[];
@@ -55,6 +55,7 @@ export function ReglementaireProvider({ children }: { children: React.ReactNode 
   const { user } = useAuth();
   const { isOnline, enqueueOperation } = useNetwork();
   const [docs, setDocs] = useState<RegulatoryDoc[]>([]);
+  const regDocsKey = REG_DOCS_PREFIX + (user?.id ?? 'anon');
   const docsRef = useRef(docs);
   const orgIdRef = useRef<string | null>(user?.organizationId ?? null);
   const isOnlineRef = useRef(isOnline);
@@ -73,13 +74,13 @@ export function ReglementaireProvider({ children }: { children: React.ReactNode 
           if (!error && data) {
             const loaded = data.map(toDoc);
             setDocs(loaded);
-            AsyncStorage.setItem(REG_DOCS_KEY, JSON.stringify(loaded)).catch(() => {});
+            AsyncStorage.setItem(regDocsKey, JSON.stringify(loaded)).catch(() => {});
             return;
           }
         } catch {}
       }
       try {
-        const raw = await AsyncStorage.getItem(REG_DOCS_KEY);
+        const raw = await AsyncStorage.getItem(regDocsKey);
         if (raw) setDocs(JSON.parse(raw));
       } catch {}
     }
@@ -95,7 +96,7 @@ export function ReglementaireProvider({ children }: { children: React.ReactNode 
         setDocs(prev => {
           if (prev.find(d => d.id === doc.id)) return prev;
           const updated = [doc, ...prev];
-          AsyncStorage.setItem(REG_DOCS_KEY, JSON.stringify(updated)).catch(() => {});
+          AsyncStorage.setItem(regDocsKey, JSON.stringify(updated)).catch(() => {});
           return updated;
         });
       })
@@ -103,7 +104,7 @@ export function ReglementaireProvider({ children }: { children: React.ReactNode 
         const doc = toDoc(payload.new);
         setDocs(prev => {
           const updated = prev.map(d => d.id === doc.id ? doc : d);
-          AsyncStorage.setItem(REG_DOCS_KEY, JSON.stringify(updated)).catch(() => {});
+          AsyncStorage.setItem(regDocsKey, JSON.stringify(updated)).catch(() => {});
           return updated;
         });
       })
@@ -111,7 +112,7 @@ export function ReglementaireProvider({ children }: { children: React.ReactNode 
         const id = payload.old.id;
         setDocs(prev => {
           const updated = prev.filter(d => d.id !== id);
-          AsyncStorage.setItem(REG_DOCS_KEY, JSON.stringify(updated)).catch(() => {});
+          AsyncStorage.setItem(regDocsKey, JSON.stringify(updated)).catch(() => {});
           return updated;
         });
       })
@@ -121,7 +122,7 @@ export function ReglementaireProvider({ children }: { children: React.ReactNode 
 
   async function persistLocal(data: RegulatoryDoc[]) {
     setDocs(data);
-    try { await AsyncStorage.setItem(REG_DOCS_KEY, JSON.stringify(data)); } catch {}
+    try { await AsyncStorage.setItem(regDocsKey, JSON.stringify(data)); } catch {}
   }
 
   const addDoc = useCallback(async (doc: Omit<RegulatoryDoc, 'id' | 'createdAt'>) => {

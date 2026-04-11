@@ -14,6 +14,7 @@ const DOCUMENTS_CACHE_KEY = 'buildtrack_documents_cache_v1';
 
 export function useDocuments() {
   const { user } = useAuth();
+  const userId = user?.id;
   const { isOnline, enqueueOperation } = useNetwork();
   const queryClient = useQueryClient();
   const isOnlineRef = useRef(isOnline);
@@ -30,14 +31,14 @@ export function useDocuments() {
             return (data ?? []).map(toDocument);
           }
         : null;
-      return offlineQuery<Document>(DOCUMENTS_CACHE_KEY, fetchFn);
+      return offlineQuery<Document>(DOCUMENTS_CACHE_KEY, fetchFn, userId);
     },
     enabled: !!user && startupReady,
     staleTime: 5 * 60 * 1000,
   });
 
   const persist = useCallback((documents: Document[]) => {
-    writeCache(DOCUMENTS_CACHE_KEY, documents);
+    writeCache(DOCUMENTS_CACHE_KEY, documents, userId);
   }, []);
 
   const addDocument = useCallback(async (d: Document) => {

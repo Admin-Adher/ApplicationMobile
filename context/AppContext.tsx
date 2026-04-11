@@ -30,7 +30,7 @@ import { useRealtimeSync } from '@/hooks/useRealtimeSync';
 export { STANDARD_LOTS } from '@/hooks/queries/useLots';
 export const STATIC_CHANNELS: Channel[] = [];
 
-const ACTIVE_CHANTIER_KEY = 'buildtrack_active_chantier_v2';
+const ACTIVE_CHANTIER_PREFIX = 'buildtrack_active_chantier_v3_';
 
 interface AppContextValue {
   reserves: Reserve[];
@@ -191,25 +191,27 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
     if (!chantierInitializedRef.current) {
       chantierInitializedRef.current = true;
-      AsyncStorage.getItem(ACTIVE_CHANTIER_KEY).then(storedId => {
+      const chKey = ACTIVE_CHANTIER_PREFIX + (authH.user?.id ?? 'anon');
+      AsyncStorage.getItem(chKey).then(storedId => {
         if (storedId && chantiers.some(c => c.id === storedId)) {
           setActiveChantierIdState(storedId);
         } else {
           setActiveChantierIdState(chantiers[0].id);
-          AsyncStorage.setItem(ACTIVE_CHANTIER_KEY, chantiers[0].id).catch(() => {});
+          AsyncStorage.setItem(chKey, chantiers[0].id).catch(() => {});
         }
       }).catch(() => {
         setActiveChantierIdState(chantiers[0].id);
-        AsyncStorage.setItem(ACTIVE_CHANTIER_KEY, chantiers[0].id).catch(() => {});
+        AsyncStorage.setItem(chKey, chantiers[0].id).catch(() => {});
       });
       return;
     }
 
     if (activeChantierId && !chantiers.some(c => c.id === activeChantierId)) {
       setActiveChantierIdState(chantiers[0].id);
-      AsyncStorage.setItem(ACTIVE_CHANTIER_KEY, chantiers[0].id).catch(() => {});
+      const chKey = ACTIVE_CHANTIER_PREFIX + (authH.user?.id ?? 'anon');
+      AsyncStorage.setItem(chKey, chantiers[0].id).catch(() => {});
     }
-  }, [chantiersH.chantiers, activeChantierId]);
+  }, [chantiersH.chantiers, activeChantierId, authH.user?.id]);
 
   useEffect(() => {
     if (!notification) return;
@@ -311,8 +313,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   const setActiveChantier = useCallback((id: string) => {
     setActiveChantierIdState(id);
-    AsyncStorage.setItem(ACTIVE_CHANTIER_KEY, id).catch(() => {});
-  }, []);
+    const chKey = ACTIVE_CHANTIER_PREFIX + (authH.user?.id ?? 'anon');
+    AsyncStorage.setItem(chKey, id).catch(() => {});
+  }, [authH.user?.id]);
 
   const setCurrentUser = useCallback((name: string) => {
     currentUserNameRef.current = name;

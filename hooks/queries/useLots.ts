@@ -35,6 +35,7 @@ export const STANDARD_LOTS: Lot[] = [
 
 export function useLots() {
   const { user } = useAuth();
+  const userId = user?.id;
   const { isOnline, enqueueOperation } = useNetwork();
   const queryClient = useQueryClient();
   const isOnlineRef = useRef(isOnline);
@@ -52,7 +53,7 @@ export function useLots() {
             return data.map(toLot);
           }
         : null;
-      const result = await offlineQuery<Lot>(LOTS_CACHE_KEY, fetchFn);
+      const result = await offlineQuery<Lot>(LOTS_CACHE_KEY, fetchFn, userId);
       return result.length > 0 ? result : STANDARD_LOTS;
     },
     enabled: !!user && startupReady,
@@ -60,7 +61,7 @@ export function useLots() {
   });
 
   const persist = useCallback((lots: Lot[]) => {
-    writeCache(LOTS_CACHE_KEY, lots);
+    writeCache(LOTS_CACHE_KEY, lots, userId);
   }, []);
 
   const addLot = useCallback(async (l: Lot) => {

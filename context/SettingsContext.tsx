@@ -2,12 +2,13 @@ import React, { createContext, useContext, useEffect, useState, useCallback, use
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { AttendanceRecord, Company } from '@/constants/types';
 import { genId, formatDateFR } from '@/lib/utils';
+import { useAuth } from '@/context/AuthContext';
 
-const PROJECT_NAME_KEY = 'buildtrack_project_name_v1';
-const PROJECT_DESC_KEY = 'buildtrack_project_desc_v1';
-const ATTENDANCE_HISTORY_KEY = 'buildtrack_attendance_history_v1';
-const DEFAULT_ARRIVAL_TIME_KEY = 'buildtrack_default_arrival_time_v1';
-const STANDARD_DAY_HOURS_KEY = 'buildtrack_standard_day_hours_v1';
+const PROJECT_NAME_PREFIX = 'buildtrack_project_name_v2_';
+const PROJECT_DESC_PREFIX = 'buildtrack_project_desc_v2_';
+const ATTENDANCE_HISTORY_PREFIX = 'buildtrack_attendance_history_v2_';
+const DEFAULT_ARRIVAL_TIME_PREFIX = 'buildtrack_default_arrival_time_v2_';
+const STANDARD_DAY_HOURS_PREFIX = 'buildtrack_standard_day_hours_v2_';
 
 interface SettingsContextValue {
   projectName: string;
@@ -27,13 +28,21 @@ interface SettingsContextValue {
 const SettingsContext = createContext<SettingsContextValue | null>(null);
 
 export function SettingsProvider({ children }: { children: React.ReactNode }) {
-  const [projectName, setProjectNameState] = useState('Projet Horizon');
-  const [projectDescription, setProjectDescriptionState] = useState('Gestion de chantier numérique');
+  const { user } = useAuth();
+  const [projectName, setProjectNameState] = useState('');
+  const [projectDescription, setProjectDescriptionState] = useState('');
   const [attendanceHistory, setAttendanceHistory] = useState<AttendanceRecord[]>([]);
+  const [defaultArrivalTime, setDefaultArrivalTimeState] = useState('08:00');
+  const [standardDayHours, setStandardDayHoursState] = useState(8);
   const attendanceHistoryRef = useRef(attendanceHistory);
   useEffect(() => { attendanceHistoryRef.current = attendanceHistory; }, [attendanceHistory]);
-  const [defaultArrivalTime, setDefaultArrivalTimeState] = useState('07:30');
-  const [standardDayHours, setStandardDayHoursState] = useState(8);
+
+  const uid = user?.id ?? 'anon';
+  const PROJECT_NAME_KEY = PROJECT_NAME_PREFIX + uid;
+  const PROJECT_DESC_KEY = PROJECT_DESC_PREFIX + uid;
+  const ATTENDANCE_HISTORY_KEY = ATTENDANCE_HISTORY_PREFIX + uid;
+  const DEFAULT_ARRIVAL_TIME_KEY = DEFAULT_ARRIVAL_TIME_PREFIX + uid;
+  const STANDARD_DAY_HOURS_KEY = STANDARD_DAY_HOURS_PREFIX + uid;
 
   useEffect(() => {
     async function load() {

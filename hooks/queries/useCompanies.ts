@@ -14,6 +14,7 @@ const COMPANIES_CACHE_KEY = 'buildtrack_companies_cache_v1';
 
 export function useCompanies() {
   const { user } = useAuth();
+  const userId = user?.id;
   const { isOnline, enqueueOperation } = useNetwork();
   const queryClient = useQueryClient();
   const isOnlineRef = useRef(isOnline);
@@ -36,14 +37,14 @@ export function useCompanies() {
             });
           }
         : null;
-      return offlineQuery<Company>(COMPANIES_CACHE_KEY, fetchFn);
+      return offlineQuery<Company>(COMPANIES_CACHE_KEY, fetchFn, userId);
     },
     enabled: !!user,
     staleTime: 5 * 60 * 1000,
   });
 
   const persist = useCallback((companies: Company[]) => {
-    writeCache(COMPANIES_CACHE_KEY, companies);
+    writeCache(COMPANIES_CACHE_KEY, companies, userId);
   }, []);
 
   const addCompany = useCallback(async (c: Company) => {

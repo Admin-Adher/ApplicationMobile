@@ -14,6 +14,7 @@ const PHOTOS_CACHE_KEY = 'buildtrack_photos_cache_v1';
 
 export function usePhotos() {
   const { user } = useAuth();
+  const userId = user?.id;
   const { isOnline, enqueueOperation } = useNetwork();
   const queryClient = useQueryClient();
   const isOnlineRef = useRef(isOnline);
@@ -30,14 +31,14 @@ export function usePhotos() {
             return (data ?? []).map(toPhoto);
           }
         : null;
-      return offlineQuery<Photo>(PHOTOS_CACHE_KEY, fetchFn);
+      return offlineQuery<Photo>(PHOTOS_CACHE_KEY, fetchFn, userId);
     },
     enabled: !!user && startupReady,
     staleTime: 5 * 60 * 1000,
   });
 
   const persist = useCallback((photos: Photo[]) => {
-    writeCache(PHOTOS_CACHE_KEY, photos);
+    writeCache(PHOTOS_CACHE_KEY, photos, userId);
   }, []);
 
   const addPhoto = useCallback(async (p: Photo) => {

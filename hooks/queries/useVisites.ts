@@ -15,6 +15,7 @@ const VISITES_CACHE_KEY = 'buildtrack_visites_cache_v1';
 
 export function useVisites() {
   const { user } = useAuth();
+  const userId = user?.id;
   const { isOnline, enqueueOperation } = useNetwork();
   const queryClient = useQueryClient();
   const isOnlineRef = useRef(isOnline);
@@ -31,14 +32,14 @@ export function useVisites() {
             return (data ?? []).map(toVisite);
           }
         : null;
-      return offlineQuery<Visite>(VISITES_CACHE_KEY, fetchFn);
+      return offlineQuery<Visite>(VISITES_CACHE_KEY, fetchFn, userId);
     },
     enabled: !!user && startupReady,
     staleTime: 5 * 60 * 1000,
   });
 
   const persist = useCallback((visites: Visite[]) => {
-    writeCache(VISITES_CACHE_KEY, visites);
+    writeCache(VISITES_CACHE_KEY, visites, userId);
   }, []);
 
   const addVisite = useCallback(async (v: Visite) => {

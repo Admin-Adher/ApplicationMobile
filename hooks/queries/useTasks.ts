@@ -15,6 +15,7 @@ const TASKS_CACHE_KEY = 'buildtrack_tasks_cache_v1';
 
 export function useTasks() {
   const { user } = useAuth();
+  const userId = user?.id;
   const { isOnline, enqueueOperation } = useNetwork();
   const queryClient = useQueryClient();
   const isOnlineRef = useRef(isOnline);
@@ -30,14 +31,14 @@ export function useTasks() {
             return (data ?? []).map(toTask);
           }
         : null;
-      return offlineQuery<Task>(TASKS_CACHE_KEY, fetchFn);
+      return offlineQuery<Task>(TASKS_CACHE_KEY, fetchFn, userId);
     },
     enabled: !!user,
     staleTime: 5 * 60 * 1000,
   });
 
   const persist = useCallback((tasks: Task[]) => {
-    writeCache(TASKS_CACHE_KEY, tasks);
+    writeCache(TASKS_CACHE_KEY, tasks, userId);
   }, []);
 
   const addTask = useCallback(async (t: Task) => {

@@ -16,6 +16,7 @@ const RESERVES_CACHE_KEY = 'buildtrack_reserves_cache_v1';
 
 export function useReserves() {
   const { user } = useAuth();
+  const userId = user?.id;
   const { isOnline, enqueueOperation } = useNetwork();
   const queryClient = useQueryClient();
   const isOnlineRef = useRef(isOnline);
@@ -32,14 +33,14 @@ export function useReserves() {
             return (data ?? []).map(toReserve);
           }
         : null;
-      return offlineQuery<Reserve>(RESERVES_CACHE_KEY, fetchFn);
+      return offlineQuery<Reserve>(RESERVES_CACHE_KEY, fetchFn, userId);
     },
     enabled: !!user,
     staleTime: 5 * 60 * 1000,
   });
 
   const persist = useCallback((reserves: Reserve[]) => {
-    writeCache(RESERVES_CACHE_KEY, reserves);
+    writeCache(RESERVES_CACHE_KEY, reserves, userId);
   }, []);
 
   const addReserve = useCallback(async (r: Reserve) => {

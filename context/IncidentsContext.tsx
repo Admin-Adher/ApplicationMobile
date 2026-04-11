@@ -7,7 +7,7 @@ import { useAuth } from '@/context/AuthContext';
 import { useNetwork } from '@/context/NetworkContext';
 import { formatDateFR } from '@/lib/utils';
 
-const INCIDENTS_KEY = 'buildtrack_incidents_v2';
+const INCIDENTS_PREFIX = 'buildtrack_incidents_v3_';
 
 interface IncidentsContextValue {
   incidents: Incident[];
@@ -47,6 +47,7 @@ export function IncidentsProvider({ children }: { children: React.ReactNode }) {
   const { user } = useAuth();
   const { isOnline, enqueueOperation } = useNetwork();
   const [incidents, setIncidents] = useState<Incident[]>([]);
+  const incidentsKey = INCIDENTS_PREFIX + (user?.id ?? 'anon');
   const [isLoading, setIsLoading] = useState(true);
   const incidentsRef = useRef(incidents);
   const orgIdRef = useRef<string | null>(user?.organizationId ?? null);
@@ -69,13 +70,13 @@ export function IncidentsProvider({ children }: { children: React.ReactNode }) {
         } catch {}
       }
       try {
-        const stored = await AsyncStorage.getItem(INCIDENTS_KEY);
+        const stored = await AsyncStorage.getItem(incidentsKey);
         if (stored) {
           setIncidents(JSON.parse(stored));
         } else {
           const mock = makeMockIncidents();
           setIncidents(mock);
-          await AsyncStorage.setItem(INCIDENTS_KEY, JSON.stringify(mock));
+          await AsyncStorage.setItem(incidentsKey, JSON.stringify(mock));
         }
       } catch {
         setIncidents(makeMockIncidents());
@@ -110,7 +111,7 @@ export function IncidentsProvider({ children }: { children: React.ReactNode }) {
 
   async function persist(updated: Incident[]) {
     setIncidents(updated);
-    try { await AsyncStorage.setItem(INCIDENTS_KEY, JSON.stringify(updated)); } catch (e) {
+    try { await AsyncStorage.setItem(incidentsKey, JSON.stringify(updated)); } catch (e) {
       console.warn('Erreur sauvegarde locale incidents:', e);
     }
   }

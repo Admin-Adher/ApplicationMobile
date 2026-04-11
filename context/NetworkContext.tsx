@@ -5,8 +5,9 @@ import React, {
 import { Platform } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { supabase, isSupabaseConfigured } from '@/lib/supabase';
+import { useAuth } from '@/context/AuthContext';
 
-const OFFLINE_QUEUE_KEY = 'buildtrack_offline_queue_v2';
+const OFFLINE_QUEUE_PREFIX = 'buildtrack_offline_queue_v3_';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Types
@@ -102,6 +103,8 @@ const STATUS_LABELS: Record<string, string> = {
 // ─────────────────────────────────────────────────────────────────────────────
 
 export function NetworkProvider({ children }: { children: React.ReactNode }) {
+  const { user } = useAuth();
+  const offlineQueueKey = OFFLINE_QUEUE_PREFIX + (user?.id ?? 'anon');
   const [isOnline, setIsOnline] = useState(true);
   const [queue, setQueue] = useState<QueuedOperation[]>([]);
   const [syncStatus, setSyncStatus] = useState<SyncStatus>('idle');
@@ -115,13 +118,13 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
 
   const saveQueue = useCallback(async (q: QueuedOperation[]) => {
     try {
-      await AsyncStorage.setItem(OFFLINE_QUEUE_KEY, JSON.stringify(q));
+      await AsyncStorage.setItem(offlineQueueKey, JSON.stringify(q));
     } catch {}
   }, []);
 
   const loadQueue = useCallback(async () => {
     try {
-      const raw = await AsyncStorage.getItem(OFFLINE_QUEUE_KEY);
+      const raw = await AsyncStorage.getItem(offlineQueueKey);
       if (raw) {
         const parsed = JSON.parse(raw);
         if (Array.isArray(parsed)) setQueue(parsed);
@@ -354,7 +357,7 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
 
   const clearQueue = useCallback(async () => {
     setQueue([]);
-    await AsyncStorage.removeItem(OFFLINE_QUEUE_KEY);
+    await AsyncStorage.removeItem(offlineQueueKey);
   }, []);
 
   const registerReloadHandler = useCallback((fn: () => void) => {

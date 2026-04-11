@@ -19,6 +19,7 @@ export function useChantiers() {
   const queryClient = useQueryClient();
   const isOnlineRef = useRef(isOnline);
   useEffect(() => { isOnlineRef.current = isOnline; }, [isOnline]);
+  const userId = user?.id;
 
   const chantiersQuery = useQuery({
     queryKey: queryKeys.chantiers(),
@@ -31,7 +32,7 @@ export function useChantiers() {
             return (data ?? []).map(toChantier);
           }
         : null;
-      return offlineQuery<Chantier>(CHANTIERS_CACHE_KEY, fetchFn);
+      return offlineQuery<Chantier>(CHANTIERS_CACHE_KEY, fetchFn, userId);
     },
     enabled: !!user,
     staleTime: 5 * 60 * 1000,
@@ -48,7 +49,7 @@ export function useChantiers() {
             return (data ?? []).map(toSitePlan);
           }
         : null;
-      return offlineQuery<SitePlan>(SITE_PLANS_CACHE_KEY, fetchFn);
+      return offlineQuery<SitePlan>(SITE_PLANS_CACHE_KEY, fetchFn, userId);
     },
     enabled: !!user,
     staleTime: 5 * 60 * 1000,
@@ -62,10 +63,10 @@ export function useChantiers() {
     }
     const newChantiers = [...existing, c];
     queryClient.setQueryData<Chantier[]>(queryKeys.chantiers(), newChantiers);
-    writeCache(CHANTIERS_CACHE_KEY, newChantiers);
+    writeCache(CHANTIERS_CACHE_KEY, newChantiers, userId);
     const existingPlans = queryClient.getQueryData<SitePlan[]>(queryKeys.sitePlans()) ?? [];
     queryClient.setQueryData<SitePlan[]>(queryKeys.sitePlans(), [...existingPlans, ...plans]);
-    writeCache(SITE_PLANS_CACHE_KEY, [...existingPlans, ...plans]);
+    writeCache(SITE_PLANS_CACHE_KEY, [...existingPlans, ...plans], userId);
 
     const buildingChannel: Channel = {
       id: `building-${c.id}`,
@@ -141,7 +142,7 @@ export function useChantiers() {
       (old ?? []).map(x => x.id === c.id ? c : x)
     );
     const updated = queryClient.getQueryData<Chantier[]>(queryKeys.chantiers()) ?? [];
-    writeCache(CHANTIERS_CACHE_KEY, updated);
+    writeCache(CHANTIERS_CACHE_KEY, updated, userId);
     const updatePayload = {
       name: c.name, address: c.address ?? null, description: c.description ?? null,
       start_date: c.startDate ?? null, end_date: c.endDate ?? null, status: c.status,
@@ -167,10 +168,10 @@ export function useChantiers() {
     // Optimistically remove from local cache
     const newChantiers = prev.filter(c => c.id !== id);
     queryClient.setQueryData<Chantier[]>(queryKeys.chantiers(), newChantiers);
-    writeCache(CHANTIERS_CACHE_KEY, newChantiers);
+    writeCache(CHANTIERS_CACHE_KEY, newChantiers, userId);
     const newPlans = prevPlans.filter(p => p.chantierId !== id);
     queryClient.setQueryData<SitePlan[]>(queryKeys.sitePlans(), newPlans);
-    writeCache(SITE_PLANS_CACHE_KEY, newPlans);
+    writeCache(SITE_PLANS_CACHE_KEY, newPlans, userId);
     queryClient.invalidateQueries({ queryKey: queryKeys.reserves() });
     queryClient.invalidateQueries({ queryKey: queryKeys.tasks() });
     queryClient.invalidateQueries({ queryKey: queryKeys.visites() });
@@ -216,7 +217,7 @@ export function useChantiers() {
           console.warn('[sync] deleteChantier erreur serveur:', error.message);
           // Restore local cache on failure
           queryClient.setQueryData<Chantier[]>(queryKeys.chantiers(), [prev.find(c => c.id === id)!, ...newChantiers]);
-          writeCache(CHANTIERS_CACHE_KEY, [prev.find(c => c.id === id)!, ...newChantiers]);
+          writeCache(CHANTIERS_CACHE_KEY, [prev.find(c => c.id === id)!, ...newChantiers], userId);
           Alert.alert('Suppression refusée', 'Le chantier n\'a pas pu être supprimé du serveur.');
         } else if (!deleted2?.length) {
           console.warn('[sync] deleteChantier: aucune ligne supprimée');
@@ -225,7 +226,7 @@ export function useChantiers() {
         console.error('[sync] deleteChantier exception:', e?.message ?? e);
         // Restore local cache on exception
         queryClient.setQueryData<Chantier[]>(queryKeys.chantiers(), [prev.find(c => c.id === id)!, ...newChantiers]);
-        writeCache(CHANTIERS_CACHE_KEY, [prev.find(c => c.id === id)!, ...newChantiers]);
+        writeCache(CHANTIERS_CACHE_KEY, [prev.find(c => c.id === id)!, ...newChantiers], userId);
       }
     }
   }, [queryClient, isOnlineRef, enqueueOperation]);
@@ -237,7 +238,7 @@ export function useChantiers() {
       return [...(old ?? []), p];
     });
     const allPlans = queryClient.getQueryData<SitePlan[]>(queryKeys.sitePlans()) ?? [];
-    writeCache(SITE_PLANS_CACHE_KEY, allPlans);
+    writeCache(SITE_PLANS_CACHE_KEY, allPlans, userId);
     if (!isOnlineRef.current && isSupabaseConfigured) {
       enqueueOperation({ table: 'site_plans', op: 'insert', data: {
         id: p.id, chantier_id: p.chantierId, name: p.name,
@@ -268,7 +269,7 @@ export function useChantiers() {
       (old ?? []).map(x => x.id === p.id ? p : x)
     );
     const allPlans = queryClient.getQueryData<SitePlan[]>(queryKeys.sitePlans()) ?? [];
-    writeCache(SITE_PLANS_CACHE_KEY, allPlans);
+    writeCache(SITE_PLANS_CACHE_KEY, allPlans, userId);
     // Fix 3: offline updateSitePlan includes all fields so nothing is overwritten to null on sync
     if (!isOnlineRef.current && isSupabaseConfigured) {
       enqueueOperation({ table: 'site_plans', op: 'update', filter: { column: 'id', value: p.id }, data: {
@@ -305,7 +306,7 @@ export function useChantiers() {
     const prev = queryClient.getQueryData<SitePlan[]>(queryKeys.sitePlans()) ?? [];
     const previous = prev.find(p => p.id === id);
     queryClient.setQueryData<SitePlan[]>(queryKeys.sitePlans(), prev.filter(p => p.id !== id));
-    writeCache(SITE_PLANS_CACHE_KEY, prev.filter(p => p.id !== id));
+    writeCache(SITE_PLANS_CACHE_KEY, prev.filter(p => p.id !== id), userId);
     if (!isOnlineRef.current && isSupabaseConfigured) {
       enqueueOperation({ table: 'site_plans', op: 'delete', filter: { column: 'id', value: id } });
       return;
@@ -339,7 +340,7 @@ export function useChantiers() {
     };
     const updatedPlans = allPlans.map(p => p.id === parentPlanId ? updatedParent : p).concat([versionedNew]);
     queryClient.setQueryData<SitePlan[]>(queryKeys.sitePlans(), updatedPlans);
-    writeCache(SITE_PLANS_CACHE_KEY, updatedPlans);
+    writeCache(SITE_PLANS_CACHE_KEY, updatedPlans, userId);
     if (isSupabaseConfigured) {
       const { error: updateErr } = await supabase.from('site_plans')
         .update({ is_latest_revision: false, revision_number: parentRevNum }).eq('id', parentPlanId);

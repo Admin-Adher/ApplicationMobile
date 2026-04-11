@@ -1,8 +1,10 @@
 import React, { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Chantier, Message } from '@/constants/types';
+import { useAuth } from '@/context/AuthContext';
 
-const ACTIVE_CHANTIER_KEY = 'buildtrack_active_chantier_v2';
+const ACTIVE_CHANTIER_PREFIX = 'buildtrack_active_chantier_v3_';
+const LAST_READ_PREFIX = 'lastReadByChannel_';
 
 interface Notification {
   msg: Message;
@@ -26,22 +28,24 @@ interface AppUIState {
 const AppUIContext = createContext<AppUIState | null>(null);
 
 export function AppUIProvider({ children }: { children: React.ReactNode }) {
+  const { user } = useAuth();
+  const uid = user?.id ?? 'anon';
   const [activeChantierId, setActiveChantierIdState] = useState<string | null>(null);
   const [lastReadByChannel, setLastReadByChannel] = useState<Record<string, string>>({});
   const [notification, setNotification] = useState<Notification | null>(null);
   const activeChannelIdRef = useRef<string | null>(null);
 
   useEffect(() => {
-    AsyncStorage.getItem(ACTIVE_CHANTIER_KEY).then(id => {
+    AsyncStorage.getItem(ACTIVE_CHANTIER_PREFIX + uid).then(id => {
       if (id) setActiveChantierIdState(id);
     }).catch(() => {});
 
-    AsyncStorage.getItem('lastReadByChannel').then(raw => {
+    AsyncStorage.getItem(LAST_READ_PREFIX + uid).then(raw => {
       if (raw) {
         try { setLastReadByChannel(JSON.parse(raw)); } catch {}
       }
     }).catch(() => {});
-  }, []);
+  }, [uid]);
 
   useEffect(() => {
     if (!notification) return;
@@ -51,17 +55,18 @@ export function AppUIProvider({ children }: { children: React.ReactNode }) {
 
   const setActiveChantierId = useCallback((id: string | null) => {
     setActiveChantierIdState(id);
+    const chKey = ACTIVE_CHANTIER_PREFIX + uid;
     if (id) {
-      AsyncStorage.setItem(ACTIVE_CHANTIER_KEY, id).catch(() => {});
+      AsyncStorage.setItem(chKey, id).catch(() => {});
     } else {
-      AsyncStorage.removeItem(ACTIVE_CHANTIER_KEY).catch(() => {});
+      AsyncStorage.removeItem(chKey).catch(() => {});
     }
-  }, []);
+  }, [uid]);
 
   const setChannelRead = useCallback((channelId: string, timestamp: string) => {
     setLastReadByChannel(prev => {
       const next = { ...prev, [channelId]: timestamp };
-      AsyncStorage.setItem('lastReadByChannel', JSON.stringify(next)).catch(() => {});
+      AsyncStorage.setItem(LAST_READ_PREFIX + uid, JSON.stringify(next)).catch(() => {});
       return next;
     });
   }, []);

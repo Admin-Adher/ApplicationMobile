@@ -4,7 +4,7 @@ import { useApp } from '@/context/AppContext';
 import { useAuth } from '@/context/AuthContext';
 import { parseDeadline, isOverdue } from '@/lib/reserveUtils';
 
-const SEEN_KEY = 'buildtrack_notif_seen_v1';
+const SEEN_PREFIX = 'buildtrack_notif_seen_v2_';
 
 function parseSortable(s: string): number {
   if (!s || s === '—') return 0;
@@ -52,9 +52,10 @@ export function NotificationsProvider({ children }: { children: React.ReactNode 
   const { reserves, tasks, activeChantierId, companies } = useApp();
   const { user } = useAuth();
   const [seenIds, setSeenIds] = useState<Set<string>>(new Set());
+  const seenKey = SEEN_PREFIX + (user?.id ?? 'anon');
 
   useEffect(() => {
-    AsyncStorage.getItem(SEEN_KEY).then(raw => {
+    AsyncStorage.getItem(seenKey).then(raw => {
       if (raw) {
         try {
           const parsed: string[] = JSON.parse(raw);
@@ -68,7 +69,7 @@ export function NotificationsProvider({ children }: { children: React.ReactNode 
 
   async function persistSeen(updated: Set<string>) {
     try {
-      await AsyncStorage.setItem(SEEN_KEY, JSON.stringify([...updated]));
+      await AsyncStorage.setItem(seenKey, JSON.stringify([...updated]));
     } catch {}
   }
 

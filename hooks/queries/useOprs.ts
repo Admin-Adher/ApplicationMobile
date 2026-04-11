@@ -15,6 +15,7 @@ const OPRS_CACHE_KEY = 'buildtrack_oprs_cache_v1';
 
 export function useOprs() {
   const { user } = useAuth();
+  const userId = user?.id;
   const { isOnline, enqueueOperation } = useNetwork();
   const queryClient = useQueryClient();
   const isOnlineRef = useRef(isOnline);
@@ -31,14 +32,14 @@ export function useOprs() {
             return (data ?? []).map(toOpr);
           }
         : null;
-      return offlineQuery<Opr>(OPRS_CACHE_KEY, fetchFn);
+      return offlineQuery<Opr>(OPRS_CACHE_KEY, fetchFn, userId);
     },
     enabled: !!user && startupReady,
     staleTime: 5 * 60 * 1000,
   });
 
   const persist = useCallback((oprs: Opr[]) => {
-    writeCache(OPRS_CACHE_KEY, oprs);
+    writeCache(OPRS_CACHE_KEY, oprs, userId);
   }, []);
 
   const addOpr = useCallback(async (o: Opr) => {

@@ -15,6 +15,7 @@ const MOCK_PROFILES: Profile[] = [
 export function useProfiles() {
   const { user } = useAuth();
   const queryClient = useQueryClient();
+  const userId = user?.id;
 
   const query = useQuery({
     queryKey: queryKeys.profiles(),
@@ -31,7 +32,7 @@ export function useProfiles() {
             }));
           }
         : null;
-      const result = await offlineQuery<Profile>('buildtrack_profiles_cache_v1', fetchFn);
+      const result = await offlineQuery<Profile>('buildtrack_profiles_cache_v1', fetchFn, userId);
       return result.length > 0 ? result : MOCK_PROFILES;
     },
     enabled: !!user,
