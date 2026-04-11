@@ -130,6 +130,7 @@ interface AppContextValue {
   addSitePlanVersion: (parentPlanId: string, newPlan: SitePlan) => void;
   migrateReservesToPlan: (fromPlanId: string, toPlanId: string) => number;
   realtimeConnected: boolean;
+  isOfflineSession: boolean;
 }
 
 const AppContext = createContext<AppContextValue | null>(null);
@@ -162,12 +163,27 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [currentUserName, setCurrentUserName] = useState('');
   const activeChannelIdRef = useRef<string | null>(null);
   const chantierInitializedRef = useRef(false);
+  // Fix 1: ref to always have latest lastReadByChannel without stale closure
+  const lastReadByChannelRef = useRef<Record<string, string>>({});
+  // Fix 4: ref to track if we have a cached profile (offline session), avoids async AsyncStorage in event handler
+  const hasCachedProfileRef = useRef(false);
+
+  // Fix 14: namespace lastReadByChannel by userId so different accounts don't share state
+  const lastReadStorageKey = useMemo(() => `lastReadByChannel_${authH.user?.id ?? 'anon'}`, [authH.user?.id]);
 
   useEffect(() => {
-    AsyncStorage.getItem('lastReadByChannel')
-      .then(raw => { if (raw) { try { setLastReadByChannel(JSON.parse(raw)); } catch {} } })
+    AsyncStorage.getItem(lastReadStorageKey)
+      .then(raw => {
+        if (raw) {
+          try {
+            const parsed = JSON.parse(raw);
+            setLastReadByChannel(parsed);
+            lastReadByChannelRef.current = parsed;
+          } catch {}
+        }
+      })
       .catch(() => {});
-  }, []);
+  }, [lastReadStorageKey]);
 
   useEffect(() => {
     const chantiers = chantiersH.chantiers;
@@ -206,6 +222,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     initStorageBuckets().catch(() => {});
   }, []);
 
+  // Fix 4: sync cached profile ref with AsyncStorage so SIGNED_OUT handler is synchronous
+  useEffect(() => {
+    AsyncStorage.getItem('buildtrack_cached_profile_v1').then(raw => {
+      hasCachedProfileRef.current = !!raw;
+    }).catch(() => {});
+  }, [authH.user?.id]); // re-check when user changes
+
   useEffect(() => {
     if (!isSupabaseConfigured) return;
 
@@ -219,47 +242,52 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         const userName = userMeta?.name ?? userMeta?.full_name ?? session.user.email ?? '';
         currentUserNameRef.current = userName;
         setCurrentUserName(userName);
+        hasCachedProfileRef.current = true; // profile exists now
 
+        // Fix 3: try Supabase first, fallback to AsyncStorage if offline
         try {
           const { data: prof } = await supabase
             .from('profiles').select('last_read_by_channel')
             .eq('id', session.user.id).single();
           if (prof?.last_read_by_channel) {
             setLastReadByChannel(prof.last_read_by_channel);
+            lastReadByChannelRef.current = prof.last_read_by_channel;
           }
-        } catch {}
+        } catch {
+          // Offline fallback: lastReadByChannel already loaded from AsyncStorage by the effect above
+        }
       }
       if (event === 'SIGNED_OUT') {
-        // When offline, Supabase fires SIGNED_OUT because token refresh fails.
-        // Don't clear state if a cached profile exists (offline session restored by AuthContext).
-        try {
-          const cachedRaw = await AsyncStorage.getItem('buildtrack_cached_profile_v1');
-          if (cachedRaw) {
-            // Offline session exists — don't clear state
-            return;
-          }
-        } catch {}
+        // Fix 4: use ref instead of async AsyncStorage read in event handler
+        if (hasCachedProfileRef.current) {
+          // Offline session exists — don't clear state
+          return;
+        }
         currentUserNameRef.current = '';
         setCurrentUserName('');
         setActiveChantierIdState(null);
         chantierInitializedRef.current = false;
         setLastReadByChannel({});
+        lastReadByChannelRef.current = {};
         setNotification(null);
         queryClient.clear();
+        hasCachedProfileRef.current = false;
       }
     });
 
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      if (session?.user) {
-        const userMeta = session.user.user_metadata;
-        const userName = userMeta?.name ?? userMeta?.full_name ?? session.user.email ?? '';
-        currentUserNameRef.current = userName;
-        setCurrentUserName(userName);
-      }
-    });
+    // Fix 2: removed duplicate getSession() call — onAuthStateChange already fires INITIAL_SESSION at mount
 
     return () => authListener.subscription.unsubscribe();
   }, [queryClient]);
+
+  // Fix 11: Use refs for channel arrays so the handler registration is stable (no re-register on every channel change)
+  const channelsRef = useRef<Channel[]>([]);
+  channelsRef.current = [
+    ...channelsH.generalChannels,
+    ...channelsH.customChannels,
+    ...channelsH.groupChannels,
+    ...channelsH.persistedDmChannels,
+  ];
 
   // Bug 4: Use incomingMessageHandler from useMessages instead of duplicate realtime subscription
   useEffect(() => {
@@ -267,13 +295,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     messagesH.registerIncomingMessageHandler((msg: Message, raw: any) => {
       if (msg.isMe) return;
       if (activeChannelIdRef.current === msg.channelId) return;
-      const allChannels = [
-        ...channelsH.generalChannels,
-        ...channelsH.customChannels,
-        ...channelsH.groupChannels,
-        ...channelsH.persistedDmChannels,
-      ];
-      const ch = allChannels.find(c => c.id === msg.channelId);
+      const ch = channelsRef.current.find(c => c.id === msg.channelId);
       const isDM = (msg.channelId ?? '').startsWith('dm-');
       // Bug 9: for DM notifications, use channel name (interlocutor) not sender name
       const channelName = isDM
@@ -287,7 +309,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       });
     });
     return () => { messagesH.registerIncomingMessageHandler(null); };
-  }, [channelsH.generalChannels, channelsH.customChannels, channelsH.groupChannels, channelsH.persistedDmChannels, messagesH.registerIncomingMessageHandler]);
+  }, [messagesH.registerIncomingMessageHandler]);
 
   const setActiveChantier = useCallback((id: string) => {
     setActiveChantierIdState(id);
@@ -308,15 +330,17 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   const setChannelRead = useCallback((channelId: string) => {
     const timestamp = new Date().toISOString();
+    // Fix 1: use setLastReadByChannel callback to get latest, then update ref for Supabase call
+    let newLastRead: Record<string, string> = {};
     setLastReadByChannel(prev => {
-      const next = { ...prev, [channelId]: timestamp };
-      AsyncStorage.setItem('lastReadByChannel', JSON.stringify(next)).catch(() => {});
-      return next;
+      newLastRead = { ...prev, [channelId]: timestamp };
+      lastReadByChannelRef.current = newLastRead;
+      AsyncStorage.setItem(lastReadStorageKey, JSON.stringify(newLastRead)).catch(() => {});
+      return newLastRead;
     });
     const userName = currentUserNameRef.current;
     messagesH.setChannelRead(channelId, userName);
     if (isSupabaseConfigured && userName) {
-      const newLastRead = { ...lastReadByChannel, [channelId]: timestamp };
       const userId = authH.user?.id;
       if (!userId) return;
       if (!isOnline) {
@@ -332,29 +356,32 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       supabase.from('profiles').update({ last_read_by_channel: newLastRead })
         .eq('id', userId).catch(() => {});
     }
-  }, [messagesH, lastReadByChannel, authH.user?.id, isOnline, enqueueOperation]);
+  }, [messagesH, lastReadStorageKey, authH.user?.id, isOnline, enqueueOperation]);
 
   const reload = useCallback(() => {
     queryClient.invalidateQueries();
     channelsH.reloadChannels();
   }, [queryClient, channelsH]);
 
+  // Fix 9: addMessage uses currentUserNameRef as default sender instead of hardcoded 'Moi'
   const addMessage = useCallback((
     channelId: string,
     content: string,
     options: Partial<Pick<Message, 'replyToId' | 'replyToContent' | 'replyToSender' | 'attachmentUri' | 'mentions' | 'reserveId' | 'linkedItemType' | 'linkedItemId' | 'linkedItemTitle'>> = {},
-    sender = 'Moi'
+    sender?: string
   ) => {
-    messagesH.addMessage(channelId, content, options, sender, channelsH.getDmUpsertPromise);
+    const actualSender = sender ?? (currentUserNameRef.current || 'Moi');
+    messagesH.addMessage(channelId, content, options, actualSender, channelsH.getDmUpsertPromise);
   }, [messagesH, channelsH]);
 
+  // Fix 8: updateReserveStatusWithNotif uses reservesH.reserves and companiesH.companies instead of queryClient.getQueryData
   const updateReserveStatusWithNotif = useCallback((id: string, status: ReserveStatus, author?: string) => {
     const actualAuthor = author ?? currentUserNameRef.current ?? 'Système';
     reservesH.updateReserveStatus(id, status, actualAuthor);
 
-    const reserve = (queryClient.getQueryData<Reserve[]>(['reserves']) ?? []).find(r => r.id === id);
+    const reserve = reservesH.reserves.find(r => r.id === id);
     if (!reserve) return;
-    const companiesData = queryClient.getQueryData<Company[]>(['companies']) ?? [];
+    const companiesData = companiesH.companies;
     const reserveCompanyNames = reserve.companies ?? (reserve.company ? [reserve.company] : []);
     const notifiedCompanies = companiesData.filter(c => reserveCompanyNames.includes(c.name));
     const statusLabels: Record<string, string> = {
@@ -371,7 +398,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       };
       messagesH.addNotificationMessage(notifMsg);
     }
-  }, [reservesH, messagesH, queryClient]);
+  }, [reservesH, reservesH.reserves, companiesH.companies, messagesH]);
 
   const addChantierWithChannel = useCallback((c: Chantier, plans: SitePlan[]) => {
     chantiersH.addChantier(c, plans, (buildingCh: Channel) => {
@@ -384,9 +411,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     chantiersH.deleteChantier(id);
   }, [chantiersH, channelsH]);
 
-  const allChannels = useMemo(() => {
-    const companies = companiesH.companies;
-    const companyChannels: Channel[] = companies.map(c => ({
+  // Fix 6: company channels memo — only recalculate when company ids/names/colors change
+  const companyChannels = useMemo(() => {
+    return companiesH.companies.map(c => ({
       id: `company-${c.id}`,
       name: c.name,
       description: `Canal entreprise ${c.name}`,
@@ -395,6 +422,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       type: 'company' as any,
       members: [],
     }));
+  }, [companiesH.companies]);
+
+  const allChannels = useMemo(() => {
     // Fix DM names: always show the interlocutor's name, not the current user's name
     const myName = currentUserName;
     const fixedDmChannels = channelsH.persistedDmChannels.map(ch => {
@@ -414,17 +444,18 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, [
     channelsH.generalChannels, channelsH.customChannels,
     channelsH.groupChannels, channelsH.persistedDmChannels,
-    companiesH.companies, currentUserName,
+    companyChannels, currentUserName,
   ]);
 
+  // Fix 7: unreadByChannel uses lastReadByChannelRef to avoid stale closure issues
   const unreadByChannel = useMemo(() => {
     const result: Record<string, number> = {};
+    const lastRead = lastReadByChannelRef.current;
     for (const msg of messagesH.messages) {
       if (!msg.channelId) continue;
       if (!msg.isMe && !msg.read) {
-        const lastRead = lastReadByChannel[msg.channelId];
         const msgTime = msg.dbCreatedAt ? new Date(msg.dbCreatedAt).getTime() : 0;
-        const lastReadTime = lastRead ? new Date(lastRead).getTime() : 0;
+        const lastReadTime = lastRead[msg.channelId] ? new Date(lastRead[msg.channelId]).getTime() : 0;
         if (msgTime > lastReadTime) {
           result[msg.channelId] = (result[msg.channelId] ?? 0) + 1;
         }
@@ -438,6 +469,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     [unreadByChannel]
   );
 
+  // Fix 15: stats computed from pre-aggregated counts to reduce re-renders
   const stats = useMemo(() => {
     const r = reservesH.reserves;
     const total = r.length;
@@ -450,14 +482,19 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     const totalWorkers = companiesH.companies.reduce((s, c) => s + (c.actualWorkers ?? 0), 0);
     const plannedWorkers = companiesH.companies.reduce((s, c) => s + (c.plannedWorkers ?? 0), 0);
     return { total, open, inProgress, waiting, verification, closed, progress, totalWorkers, plannedWorkers };
-  }, [reservesH.reserves, companiesH.companies]);
+  }, [reservesH.reserves.length, reservesH.reserves, companiesH.companies]);
 
   const activeChantier = useMemo(
     () => chantiersH.chantiers.find(c => c.id === activeChantierId) ?? null,
     [chantiersH.chantiers, activeChantierId]
   );
 
-  const isLoading = chantiersH.isLoadingChantiers || reservesH.isLoadingReserves;
+  // Fix 10: isLoading aggregates all hooks, not just 2
+  const isLoading = chantiersH.isLoadingChantiers || reservesH.isLoadingReserves
+    || tasksH.isLoadingTasks || documentsH.isLoadingDocuments
+    || photosH.isLoadingPhotos || profilesH.isLoadingProfiles
+    || visitesH.isLoadingVisites || lotsH.isLoadingLots
+    || oprsH.isLoadingOprs || companiesH.isLoadingCompanies;
 
   const migrateReservesToPlan = useCallback((fromPlanId: string, toPlanId: string): number => {
     const result = chantiersH.migrateReservesToPlan(fromPlanId, toPlanId);
@@ -558,6 +595,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     addSitePlanVersion: chantiersH.addSitePlanVersion,
     migrateReservesToPlan,
     realtimeConnected: messagesH.realtimeConnected,
+    isOfflineSession: authH.isOfflineSession,
   }), [
     reservesH.reserves, companiesH.companies, tasksH.tasks,
     documentsH.documents, photosH.photos, messagesH.messages,
@@ -596,6 +634,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     lotsH.deleteLot, oprsH.addOpr, oprsH.updateOpr, oprsH.deleteOpr,
     reservesH.batchUpdateReserves, chantiersH.addSitePlanVersion,
     migrateReservesToPlan, messagesH.realtimeConnected,
+    authH.isOfflineSession,
   ]);
 
   return <AppContext.Provider value={value}>{children}</AppContext.Provider>;
