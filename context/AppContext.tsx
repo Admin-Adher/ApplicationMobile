@@ -258,11 +258,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         }
       }
       if (event === 'SIGNED_OUT') {
-        // Fix 4: use ref instead of async AsyncStorage read in event handler
-        if (hasCachedProfileRef.current) {
-          // Offline session exists — don't clear state
-          return;
-        }
+        // Always clear state on sign-out — the per-user namespaced caches
+        // will repopulate correct data when the next user signs in.
+        // Skipping this was causing cross-account contamination on the same device.
         currentUserNameRef.current = '';
         setCurrentUserName('');
         setActiveChantierIdState(null);

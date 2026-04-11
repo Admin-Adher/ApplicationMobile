@@ -184,7 +184,7 @@ export function useMessages() {
     const msg: Message = {
       id: genId(), channelId, sender: actualSender, content, timestamp: ts,
       type: 'message', read: true, isMe: true,
-      reactions: {}, isPinned: false, readBy: [], mentions: options.mentions ?? [],
+      reactions: {}, isPinned: false, readBy: [actualSender], mentions: options.mentions ?? [],
       replyToId: options.replyToId, replyToContent: options.replyToContent,
       replyToSender: options.replyToSender, attachmentUri: options.attachmentUri,
       reserveId: options.reserveId,
@@ -291,7 +291,7 @@ export function useMessages() {
             table: 'messages',
             op: 'update',
             filter: { column: 'id', value: msgId },
-            data: { read_by: [{ userName, at: new Date().toISOString() }] },
+            data: { read_by: [userName] },
           });
         }
         return;
