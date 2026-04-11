@@ -60,10 +60,16 @@ export function ErrorBoundary({ error, retry }: { error: Error; retry: () => voi
       reloadApp();
     }
   };
+  const title = error?.name ? `${error.name}` : 'Erreur';
+  const message = error?.message ?? 'Erreur inconnue au démarrage.';
+  const stack = (error as any)?.stack ? String((error as any).stack) : '';
+  const stackPreview = stack.length > 1200 ? stack.slice(0, 1200) + '\n…' : stack;
   return (
     <View style={eb.container}>
       <Text style={eb.title}>Une erreur est survenue</Text>
-      <Text style={eb.message}>{error?.message ?? 'Erreur inconnue au démarrage.'}</Text>
+      <Text style={eb.message}>{title}</Text>
+      <Text style={eb.message}>{message}</Text>
+      {stackPreview ? <Text style={eb.stack}>{stackPreview}</Text> : null}
       <TouchableOpacity style={eb.button} onPress={handleRestart}>
         <Text style={eb.buttonText}>Redémarrer</Text>
       </TouchableOpacity>
@@ -75,6 +81,7 @@ const eb = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#0F1117', alignItems: 'center', justifyContent: 'center', padding: 32, gap: 16 },
   title: { fontSize: 20, fontWeight: '700', color: '#FFFFFF', textAlign: 'center' },
   message: { fontSize: 13, color: '#9CA3AF', textAlign: 'center', lineHeight: 20 },
+  stack: { fontSize: 11, color: '#6B7280', textAlign: 'left', lineHeight: 16, alignSelf: 'stretch' },
   button: { backgroundColor: '#1D4ED8', paddingVertical: 14, paddingHorizontal: 32, borderRadius: 12, marginTop: 8 },
   buttonText: { color: '#FFFFFF', fontSize: 15, fontWeight: '600' },
 });

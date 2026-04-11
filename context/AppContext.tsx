@@ -484,7 +484,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     const lastRead = lastReadByChannelRef.current;
     const myName = currentUserNameRef.current;
     for (const msg of messagesH.messages) {
-      if (!msg.channelId || msg.isMe) continue;
+      if (!msg.channelId) continue;
+      if (myName && msg.sender === myName) continue;
+      if (msg.isMe) continue;
       // Check readBy directly (more reliable than msg.read which can be stale)
       const iReadIt = myName && msg.readBy.some((u: string) => u === myName);
       if (iReadIt) continue;

@@ -19,6 +19,17 @@ export function useMessages() {
 
   const userNameRef = useRef<string>(user?.name ?? '');
   useEffect(() => { userNameRef.current = user?.name ?? ''; }, [user?.name]);
+
+  useEffect(() => {
+    const myName = user?.name ?? '';
+    if (!myName) return;
+    setMessages(prev => prev.map(m => {
+      const isMe = m.sender === myName;
+      const hasRead = isMe || (m.readBy ?? []).some((u: string) => u === myName);
+      if (m.isMe === isMe && m.read === hasRead) return m;
+      return { ...m, isMe, read: hasRead };
+    }));
+  }, [user?.name]);
   // Bug 7: track orgId for filtering messages by organization
   const orgIdRef = useRef<string | null>(user?.organizationId ?? null);
   useEffect(() => { orgIdRef.current = user?.organizationId ?? null; }, [user?.organizationId]);
