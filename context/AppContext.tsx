@@ -270,7 +270,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         setLastReadByChannel({});
         lastReadByChannelRef.current = {};
         setNotification(null);
+        // Clear both in-memory and persisted query cache so the next
+        // user never sees stale data from a previous session.
         queryClient.clear();
+        AsyncStorage.removeItem('buildtrack_rq_cache_v1').catch(() => {});
         hasCachedProfileRef.current = false;
       }
     });
@@ -363,6 +366,15 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     queryClient.invalidateQueries();
     channelsH.reloadChannels();
   }, [queryClient, channelsH]);
+
+  // When the authenticated user changes, force all queries to refetch.
+  // Without this, stale persisted data from a previous session can be
+  // displayed because refetchOnMount is false and staleTime is 5 min.
+  useEffect(() => {
+    if (authH.user?.id) {
+      queryClient.invalidateQueries();
+    }
+  }, [authH.user?.id, queryClient]);
 
   // Fix 9: addMessage uses currentUserNameRef as default sender instead of hardcoded 'Moi'
   const addMessage = useCallback((
