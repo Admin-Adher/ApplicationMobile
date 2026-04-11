@@ -16,6 +16,8 @@ interface LocationPickerProps {
   showZone?: boolean;
   lockedBuilding?: boolean;
   lockedLevel?: boolean;
+  buildingId?: string;
+  levelId?: string;
 }
 
 const DESELECT_LABEL = '—';
@@ -80,12 +82,15 @@ export default function LocationPicker({
   showZone = true,
   lockedBuilding = false,
   lockedLevel = false,
+  buildingId,
+  levelId,
 }: LocationPickerProps) {
   const hasBuildingsConfig = buildings && buildings.length > 0;
 
+  // Fix 6: try matching by id when name match fails (handles renamed buildings)
   const selectedBuilding = useMemo(
-    () => buildings.find(b => b.name === building) ?? null,
-    [buildings, building]
+    () => buildings.find(b => b.name === building) ?? (buildingId ? buildings.find(b => b.id === buildingId) : null) ?? null,
+    [buildings, building, buildingId]
   );
 
   const levelsForBuilding = useMemo(
@@ -94,8 +99,8 @@ export default function LocationPicker({
   );
 
   const selectedLevel = useMemo(
-    () => levelsForBuilding.find(l => l.name === level) ?? null,
-    [levelsForBuilding, level]
+    () => levelsForBuilding.find(l => l.name === level) ?? (levelId ? levelsForBuilding.find(l => l.id === levelId) : null) ?? null,
+    [levelsForBuilding, level, levelId]
   );
 
   const zonesForLevel = useMemo(

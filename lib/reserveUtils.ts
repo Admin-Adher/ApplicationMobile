@@ -81,19 +81,21 @@ export const RESERVE_TEMPLATES: { category: string; icon: string; items: { title
 ];
 
 export function genReserveId(reserves: { id: string }[], lot?: { code: string } | null): string {
+  // Fix 4: append a short random suffix to avoid collision when two users create simultaneously
+  const suffix = () => Math.random().toString(36).slice(2, 5).toUpperCase();
   if (lot?.code) {
     const prefix = lot.code.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 4);
     const existing = new Set(reserves.map(r => r.id));
     let max = 0;
     for (const r of reserves) {
-      const m = r.id.match(new RegExp(`^${prefix}-(\\d+)$`));
+      const m = r.id.match(new RegExp(`^${prefix}-(\\d+)`));
       if (m) max = Math.max(max, parseInt(m[1], 10));
     }
     let next = max + 1;
-    let candidate = `${prefix}-${String(next).padStart(3, '0')}`;
+    let candidate = `${prefix}-${String(next).padStart(3, '0')}-${suffix()}`;
     while (existing.has(candidate)) {
       next++;
-      candidate = `${prefix}-${String(next).padStart(3, '0')}`;
+      candidate = `${prefix}-${String(next).padStart(3, '0')}-${suffix()}`;
     }
     return candidate;
   }
@@ -104,10 +106,10 @@ export function genReserveId(reserves: { id: string }[], lot?: { code: string } 
     if (m) max = Math.max(max, parseInt(m[1], 10));
   }
   let next = max + 1;
-  let candidate = `RSV-${String(next).padStart(3, '0')}`;
+  let candidate = `RSV-${String(next).padStart(3, '0')}-${suffix()}`;
   while (existing.has(candidate)) {
     next++;
-    candidate = `RSV-${String(next).padStart(3, '0')}`;
+    candidate = `RSV-${String(next).padStart(3, '0')}-${suffix()}`;
   }
   return candidate;
 }

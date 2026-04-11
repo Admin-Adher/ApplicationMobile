@@ -16,7 +16,7 @@ import { genId, formatDateFR } from '@/lib/utils';
 
 export default function NewChantierScreen() {
   const router = useRouter();
-  const { addChantier, chantiers, companies } = useApp();
+  const { addChantier, chantiers, companies, setActiveChantier } = useApp();
   const { user, permissions } = useAuth();
 
   const [name, setName] = useState('');
@@ -54,7 +54,7 @@ export default function NewChantierScreen() {
     setSelectedCompanyIds(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
   }
 
-  function handleSubmit() {
+  async function handleSubmit() {
     if (isSubmitting) return;
     if (!name.trim()) {
       Alert.alert('Champ obligatoire', 'Le nom du chantier est requis.');
@@ -96,13 +96,19 @@ export default function NewChantierScreen() {
       buildings,
     };
 
-    addChantier(newChantier, []);
-
-    Alert.alert(
-      'Chantier créé',
-      `"${name.trim()}" a été créé. Vous pouvez ajouter des plans depuis l'onglet Plans.`,
-      [{ text: 'OK', onPress: () => router.back() }]
-    );
+    try {
+      await addChantier(newChantier, []);
+      // Fix 14: set the new chantier as active immediately after creation
+      setActiveChantier(chantierId);
+      Alert.alert(
+        'Chantier créé',
+        `"${name.trim()}" a été créé. Vous pouvez ajouter des plans depuis l'onglet Plans.`,
+        [{ text: 'OK', onPress: () => router.back() }]
+      );
+    } catch {
+      // Fix 5: reset isSubmitting so the button isn't stuck disabled
+      setIsSubmitting(false);
+    }
   }
 
   return (

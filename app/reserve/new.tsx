@@ -87,7 +87,7 @@ export default function NewReserveScreen() {
       setBuilding(firstBuilding.name);
       setLevel(firstBuilding.levels?.[0]?.name ?? '');
     }
-  }, [activeChantier?.id]);
+  }, [activeChantier?.id, activeChantier?.buildings]);
 
   const locationFromPlan = !!(params.planId && params.building && params.level);
   const buildingLocked = locationFromPlan;

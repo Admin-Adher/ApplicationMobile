@@ -88,6 +88,13 @@ export function useChantiers() {
         created_by: c.createdBy ?? null, buildings: c.buildings ? JSON.stringify(c.buildings) : null,
         organization_id: orgId, company_ids: c.companyIds ?? null,
       }});
+      // Fix 9: also enqueue the building channel when offline
+      enqueueOperation({ table: 'channels', op: 'insert', data: {
+        id: buildingChannel.id, name: c.name, description: c.description ?? '',
+        icon: 'business', color: '#3B82F6', type: 'building',
+        members: user?.name ? [user.name] : [],
+        created_by: user?.name || null, organization_id: orgId,
+      }});
       return;
     }
     if (isSupabaseConfigured) {
@@ -105,12 +112,18 @@ export function useChantiers() {
           Alert.alert('Synchronisation incomplète', `Le chantier "${c.name}" a été créé localement mais n'a pas pu être synchronisé avec le serveur (${err2.message}).`, [{ text: 'OK' }]);
         }
       }
+      // Fix 2: insert plans with full payload matching addSitePlan
       for (const p of plans) {
         await supabase.from('site_plans').insert({
           id: p.id, chantier_id: p.chantierId, name: p.name,
           building: p.building ?? null, level: p.level ?? null,
           building_id: p.buildingId ?? null, level_id: p.levelId ?? null,
-          uri: p.uri ?? null, file_type: p.fileType ?? null, uploaded_at: p.uploadedAt, size: p.size ?? null,
+          uri: p.uri ?? null, file_type: p.fileType ?? null, dxf_name: p.dxfName ?? null,
+          uploaded_at: p.uploadedAt, size: p.size ?? null,
+          revision_code: p.revisionCode ?? null, revision_number: p.revisionNumber ?? null,
+          parent_plan_id: p.parentPlanId ?? null, is_latest_revision: p.isLatestRevision ?? null,
+          revision_note: p.revisionNote ?? null, annotations: p.annotations ?? null,
+          pdf_page_count: p.pdfPageCount ?? null, organization_id: orgId,
         });
       }
       await supabase.from('channels').insert({
@@ -150,10 +163,11 @@ export function useChantiers() {
 
   const deleteChantier = useCallback(async (id: string) => {
     const prev = queryClient.getQueryData<Chantier[]>(queryKeys.chantiers()) ?? [];
+    const prevPlans = queryClient.getQueryData<SitePlan[]>(queryKeys.sitePlans()) ?? [];
+    // Optimistically remove from local cache
     const newChantiers = prev.filter(c => c.id !== id);
     queryClient.setQueryData<Chantier[]>(queryKeys.chantiers(), newChantiers);
     writeCache(CHANTIERS_CACHE_KEY, newChantiers);
-    const prevPlans = queryClient.getQueryData<SitePlan[]>(queryKeys.sitePlans()) ?? [];
     const newPlans = prevPlans.filter(p => p.chantierId !== id);
     queryClient.setQueryData<SitePlan[]>(queryKeys.sitePlans(), newPlans);
     writeCache(SITE_PLANS_CACHE_KEY, newPlans);
@@ -171,7 +185,14 @@ export function useChantiers() {
     if (isSupabaseConfigured) {
       try {
         const buildingChannelId = `building-${id}`;
-        // Récupérer les IDs des réserves avant suppression pour nettoyer les photos liées
+        // Fix 15: try deleting chantier first (if DB has ON DELETE CASCADE it handles everything)
+        const { data: deleted, error: delErr } = await supabase.from('chantiers').delete().eq('id', id).select();
+        if (!delErr && deleted?.length) {
+          // Chantier deleted (possibly via cascade), clean up channel
+          await supabase.from('channels').delete().eq('id', buildingChannelId);
+          return;
+        }
+        // Fallback: manual cascade delete if no DB-level cascade
         const { data: reserveRows } = await supabase
           .from('reserves').select('id').eq('chantier_id', id);
         const reserveIds = (reserveRows ?? []).map((r: any) => r.id);
@@ -190,11 +211,21 @@ export function useChantiers() {
           supabase.from('incidents').delete().eq('chantier_id', id),
         ]);
         await supabase.from('channels').delete().eq('id', buildingChannelId);
-        const { data: deleted, error } = await supabase.from('chantiers').delete().eq('id', id).select();
-        if (error) console.warn('[sync] deleteChantier erreur serveur:', error.message);
-        else if (!deleted?.length) console.warn('[sync] deleteChantier: aucune ligne supprimée');
+        const { data: deleted2, error } = await supabase.from('chantiers').delete().eq('id', id).select();
+        if (error) {
+          console.warn('[sync] deleteChantier erreur serveur:', error.message);
+          // Restore local cache on failure
+          queryClient.setQueryData<Chantier[]>(queryKeys.chantiers(), [prev.find(c => c.id === id)!, ...newChantiers]);
+          writeCache(CHANTIERS_CACHE_KEY, [prev.find(c => c.id === id)!, ...newChantiers]);
+          Alert.alert('Suppression refusée', 'Le chantier n\'a pas pu être supprimé du serveur.');
+        } else if (!deleted2?.length) {
+          console.warn('[sync] deleteChantier: aucune ligne supprimée');
+        }
       } catch (e: any) {
         console.error('[sync] deleteChantier exception:', e?.message ?? e);
+        // Restore local cache on exception
+        queryClient.setQueryData<Chantier[]>(queryKeys.chantiers(), [prev.find(c => c.id === id)!, ...newChantiers]);
+        writeCache(CHANTIERS_CACHE_KEY, [prev.find(c => c.id === id)!, ...newChantiers]);
       }
     }
   }, [queryClient, isOnlineRef, enqueueOperation]);
@@ -238,11 +269,18 @@ export function useChantiers() {
     );
     const allPlans = queryClient.getQueryData<SitePlan[]>(queryKeys.sitePlans()) ?? [];
     writeCache(SITE_PLANS_CACHE_KEY, allPlans);
+    // Fix 3: offline updateSitePlan includes all fields so nothing is overwritten to null on sync
     if (!isOnlineRef.current && isSupabaseConfigured) {
       enqueueOperation({ table: 'site_plans', op: 'update', filter: { column: 'id', value: p.id }, data: {
         chantier_id: p.chantierId, name: p.name,
         building: p.building ?? null, level: p.level ?? null,
-        uri: p.uri ?? null, file_type: p.fileType ?? null, uploaded_at: p.uploadedAt, size: p.size ?? null,
+        building_id: p.buildingId ?? null, level_id: p.levelId ?? null,
+        uri: p.uri ?? null, file_type: p.fileType ?? null, dxf_name: p.dxfName ?? null,
+        uploaded_at: p.uploadedAt, size: p.size ?? null,
+        revision_code: p.revisionCode ?? null, revision_number: p.revisionNumber ?? null,
+        parent_plan_id: p.parentPlanId ?? null, is_latest_revision: p.isLatestRevision ?? null,
+        revision_note: p.revisionNote ?? null, annotations: p.annotations ?? null,
+        pdf_page_count: p.pdfPageCount ?? null,
       }});
       return;
     }

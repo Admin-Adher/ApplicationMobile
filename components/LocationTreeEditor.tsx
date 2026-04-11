@@ -5,19 +5,16 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import { C } from '@/constants/colors';
 import { ChantierBuilding, ChantierLevel, ChantierZone } from '@/constants/types';
-
-function uid() {
-  return Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
-}
+import { genId } from '@/lib/utils';
 
 function generateLevels(basements: number, floors: number): ChantierLevel[] {
   const levels: ChantierLevel[] = [];
   for (let i = basements; i >= 1; i--) {
-    levels.push({ id: uid(), name: `SS${i}`, zones: [] });
+    levels.push({ id: genId(), name: `SS${i}`, zones: [] });
   }
-  levels.push({ id: uid(), name: 'RDC', zones: [] });
+  levels.push({ id: genId(), name: 'RDC', zones: [] });
   for (let i = 1; i <= floors; i++) {
-    levels.push({ id: uid(), name: `R+${i}`, zones: [] });
+    levels.push({ id: genId(), name: `R+${i}`, zones: [] });
   }
   return levels;
 }
@@ -41,7 +38,7 @@ export default function LocationTreeEditor({ buildings, onChange }: Props) {
     const exists = buildings.some(b => b.name.toLowerCase() === name.toLowerCase());
     if (exists) { Alert.alert('Doublon', 'Ce bâtiment existe déjà.'); return; }
     const newBuilding: ChantierBuilding = {
-      id: uid(), name,
+      id: genId(), name,
       levels: generateLevels(basements, floors),
     };
     onChange([...buildings, newBuilding]);
@@ -82,7 +79,7 @@ export default function LocationTreeEditor({ buildings, onChange }: Props) {
       Alert.alert('Doublon', 'Ce niveau existe déjà.');
       return;
     }
-    const newLevel: ChantierLevel = { id: uid(), name, zones: [] };
+    const newLevel: ChantierLevel = { id: genId(), name, zones: [] };
     onChange(buildings.map(b => b.id !== bId ? b : { ...b, levels: [...b.levels, newLevel] }));
     setNewLevelName(prev => ({ ...prev, [bId]: '' }));
   }
@@ -98,7 +95,7 @@ export default function LocationTreeEditor({ buildings, onChange }: Props) {
       Alert.alert('Doublon', 'Cette zone existe déjà.');
       return;
     }
-    const newZone: ChantierZone = { id: uid(), name };
+    const newZone: ChantierZone = { id: genId(), name };
     onChange(buildings.map(b => b.id !== bId ? b : {
       ...b,
       levels: b.levels.map(l => l.id !== lId ? l : { ...l, zones: [...l.zones, newZone] }),

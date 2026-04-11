@@ -49,14 +49,16 @@ export function useReserves() {
       return [r, ...(old ?? [])];
     });
     persist(queryClient.getQueryData<Reserve[]>(queryKeys.reserves()) ?? []);
+    // Fix 16: derive companies first, then company from companies[0] for consistency
+    const companies = r.companies ?? (r.company ? [r.company] : []);
     const payload = {
       id: r.id, title: r.title, description: r.description, building: r.building,
       zone: r.zone, level: r.level,
-      company: (r.companies ?? (r.company ? [r.company] : []))[0] ?? null,
-      companies: r.companies ?? (r.company ? [r.company] : []),
+      company: companies[0] ?? null,
+      companies,
       priority: r.priority, status: r.status, created_at: r.createdAt, deadline: r.deadline,
       comments: r.comments, history: r.history,
-      plan_x: r.planX ?? 50, plan_y: r.planY ?? 50,
+      plan_x: r.planX ?? null, plan_y: r.planY ?? null,
       photo_uri: r.photoUri ?? null, lot_id: r.lotId ?? null, kind: r.kind ?? null,
       chantier_id: r.chantierId ?? null, plan_id: r.planId ?? null,
       visite_id: r.visiteId ?? null, linked_task_id: r.linkedTaskId ?? null,
@@ -71,9 +73,13 @@ export function useReserves() {
       enqueueOperation({ table: 'reserves', op: 'insert', data: payload });
       return;
     }
+    // Fix 12: show Alert on server error instead of silent log
     if (isSupabaseConfigured) {
       const { error } = await supabase.from('reserves').insert(payload);
-      if (error) console.warn('[sync] addReserve server error:', error.message);
+      if (error) {
+        console.warn('[sync] addReserve server error:', error.message);
+        Alert.alert('Synchronisation incomplète', `La réserve a été créée localement mais n'a pas pu être synchronisée (${error.message}).`);
+      }
     }
   }, [queryClient, user, isOnlineRef, enqueueOperation, persist]);
 
@@ -82,14 +88,16 @@ export function useReserves() {
       (old ?? []).map(x => x.id === r.id ? r : x)
     );
     persist(queryClient.getQueryData<Reserve[]>(queryKeys.reserves()) ?? []);
+    // Fix 16: derive companies first, then company from companies[0] for consistency
+    const companies = r.companies ?? (r.company ? [r.company] : []);
     const payload = {
       title: r.title, description: r.description, building: r.building,
       zone: r.zone, level: r.level,
-      company: (r.companies ?? (r.company ? [r.company] : []))[0] ?? null,
-      companies: r.companies ?? (r.company ? [r.company] : []),
+      company: companies[0] ?? null,
+      companies,
       priority: r.priority, status: r.status, deadline: r.deadline,
       comments: r.comments, history: r.history,
-      plan_x: r.planX ?? 50, plan_y: r.planY ?? 50,
+      plan_x: r.planX ?? null, plan_y: r.planY ?? null,
       photo_uri: r.photoUri ?? null, lot_id: r.lotId ?? null, kind: r.kind ?? null,
       chantier_id: r.chantierId ?? null, plan_id: r.planId ?? null,
       visite_id: r.visiteId ?? null, linked_task_id: r.linkedTaskId ?? null,
@@ -139,8 +147,9 @@ export function useReserves() {
     }
   }, [queryClient, isOnlineRef, enqueueOperation, persist]);
 
+  // Fix 11: use query.data instead of queryClient.getQueryData for fresher reactive data
   const updateReserveStatus = useCallback(async (id: string, status: ReserveStatus, author?: string) => {
-    const reserves = queryClient.getQueryData<Reserve[]>(queryKeys.reserves()) ?? [];
+    const reserves = query.data ?? [];
     const reserve = reserves.find(r => r.id === id);
     if (!reserve) return;
     const actualAuthor = author ?? user?.name ?? 'Système';
@@ -161,10 +170,10 @@ export function useReserves() {
       closedBy: isClosing ? actualAuthor : reserve.closedBy,
     };
     return updateReserve(updated);
-  }, [queryClient, user, updateReserve]);
+  }, [query.data, user, updateReserve]);
 
   const addComment = useCallback(async (reserveId: string, content: string, author?: string) => {
-    const reserves = queryClient.getQueryData<Reserve[]>(queryKeys.reserves()) ?? [];
+    const reserves = query.data ?? [];
     const reserve = reserves.find(r => r.id === reserveId);
     if (!reserve) return;
     const comment: Comment = {
