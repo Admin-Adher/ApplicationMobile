@@ -168,8 +168,9 @@ export default function ChannelScreen() {
   const lastTypingBroadcastRef = useRef<number>(0);
 
   useEffect(() => {
-    setChannelRead(channelId!);
-    setActiveChannelId(channelId!);
+    if (!channelId) return;
+    setChannelRead(channelId);
+    setActiveChannelId(channelId);
     if (!isSupabaseConfigured) {
       return () => { setActiveChannelId(null); };
     }

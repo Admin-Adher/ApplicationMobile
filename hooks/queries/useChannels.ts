@@ -414,11 +414,13 @@ export function useChannels() {
     const existing = persistedDmChannelsRef.current.find(c => c.id === chId);
     if (existing) return existing;
 
+    const participants = [myName, otherName];
     const newChannel: Channel = {
       id: chId, name: otherName,
       description: `Message direct avec ${otherName}`,
       icon: 'person-circle', color: '#EC4899', type: 'dm',
-      dmParticipants: [myName, otherName],
+      members: participants,
+      dmParticipants: participants,
     };
 
     if (isSupabaseConfigured) {
