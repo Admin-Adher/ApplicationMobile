@@ -397,7 +397,7 @@ export interface Photo {
 
 export interface Message {
   id: string;
-  channelId: string;
+  channelId?: string;
   sender: string;
   content: string;
   timestamp: string;

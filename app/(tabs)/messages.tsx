@@ -180,6 +180,7 @@ export default function MessagesTabScreen() {
     const mapTime: Record<string, number> = {};
     for (const ch of channels) map[ch.id] = null;
     for (const msg of messages) {
+      if (!msg.channelId) continue;
       const msgTime = getMsgSortTime(msg);
       if (!map[msg.channelId] || msgTime > (mapTime[msg.channelId] ?? 0)) {
         map[msg.channelId] = msg;

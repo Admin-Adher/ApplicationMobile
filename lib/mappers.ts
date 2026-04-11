@@ -248,7 +248,7 @@ export function toMessage(row: any, currentUserName?: string): Message {
     : (row.is_me ?? false);
   return {
     id: row.id,
-    channelId: row.channel_id ?? 'general',
+    channelId: row.channel_id,
     sender: row.sender,
     content: row.content,
     timestamp: row.timestamp,
