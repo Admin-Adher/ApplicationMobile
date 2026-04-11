@@ -8,6 +8,8 @@ import { genId } from '@/lib/utils';
 
 const CUSTOM_CHANNELS_KEY = 'customChannels_v1';
 const GROUP_CHANNELS_KEY = 'groupChannels_v1';
+const GENERAL_CHANNELS_KEY = 'generalChannels_v1';
+const DM_CHANNELS_KEY = 'dmChannels_v1';
 const PINNED_CHANNELS_KEY = 'pinnedChannels_v1';
 const CHANNEL_MEMBERS_OVERRIDE_KEY = 'channelMembersOverride_v1';
 const PENDING_DM_KEY = 'buildtrack_pending_dm_channels_v1';
@@ -46,6 +48,14 @@ export function useChannels() {
     loadAll();
   }, [user?.id]);
 
+  useEffect(() => {
+    AsyncStorage.setItem(GENERAL_CHANNELS_KEY, JSON.stringify(generalChannels)).catch(() => {});
+  }, [generalChannels]);
+
+  useEffect(() => {
+    AsyncStorage.setItem(DM_CHANNELS_KEY, JSON.stringify(persistedDmChannels)).catch(() => {});
+  }, [persistedDmChannels]);
+
   async function loadAll() {
     await Promise.all([
       _loadChannelsFromSupabase(),
@@ -55,18 +65,33 @@ export function useChannels() {
   }
 
   async function _loadChannelsFromSupabase() {
-    const [customCached, groupCached] = await Promise.all([
+    const [customCached, groupCached, generalCached, dmCached, pendingDmCached] = await Promise.all([
       AsyncStorage.getItem(CUSTOM_CHANNELS_KEY)
         .then(s => s ? JSON.parse(s) as Channel[] : [] as Channel[])
         .catch(() => [] as Channel[]),
       AsyncStorage.getItem(GROUP_CHANNELS_KEY)
         .then(s => s ? JSON.parse(s) as Channel[] : [] as Channel[])
         .catch(() => [] as Channel[]),
+      AsyncStorage.getItem(GENERAL_CHANNELS_KEY)
+        .then(s => s ? JSON.parse(s) as Channel[] : [] as Channel[])
+        .catch(() => [] as Channel[]),
+      AsyncStorage.getItem(DM_CHANNELS_KEY)
+        .then(s => s ? JSON.parse(s) as Channel[] : [] as Channel[])
+        .catch(() => [] as Channel[]),
+      AsyncStorage.getItem(PENDING_DM_KEY)
+        .then(s => s ? (JSON.parse(s) as string[]) : [] as string[])
+        .catch(() => [] as string[]),
     ]);
 
+    if (pendingDmCached.length) {
+      setPendingDmChannelIds(new Set(pendingDmCached));
+    }
+
     if (!isSupabaseConfigured) {
+      if (generalCached.length > 0) setGeneralChannels(generalCached);
       if (customCached.length > 0) setCustomChannels(customCached);
       if (groupCached.length > 0) setGroupChannels(groupCached);
+      if (dmCached.length > 0) setPersistedDmChannels(dmCached);
       return;
     }
 
@@ -78,14 +103,18 @@ export function useChannels() {
 
       if (error) {
         console.warn('[useChannels] _loadChannelsFromSupabase error:', error.code, error.message);
+        if (generalCached.length) setGeneralChannels(generalCached);
         if (customCached.length) setCustomChannels(customCached);
         if (groupCached.length) setGroupChannels(groupCached);
+        if (dmCached.length) setPersistedDmChannels(dmCached);
         return;
       }
       if (!data) {
         console.warn('[useChannels] _loadChannelsFromSupabase: no data returned');
+        if (generalCached.length) setGeneralChannels(generalCached);
         if (customCached.length) setCustomChannels(customCached);
         if (groupCached.length) setGroupChannels(groupCached);
+        if (dmCached.length) setPersistedDmChannels(dmCached);
         return;
       }
       console.log('[useChannels] _loadChannelsFromSupabase: loaded', data.length, 'channels');
@@ -142,17 +171,20 @@ export function useChannels() {
       setGroupChannels(mergedGroup);
       setPersistedDmChannels(prev => {
         const mergedDm = [...dm];
-        for (const local of prev) {
+        for (const local of [...dmCached, ...prev]) {
           if (!mergedDm.find(c => c.id === local.id)) mergedDm.push(local);
         }
         return mergedDm;
       });
 
+      AsyncStorage.setItem(GENERAL_CHANNELS_KEY, JSON.stringify(general)).catch(() => {});
       AsyncStorage.setItem(CUSTOM_CHANNELS_KEY, JSON.stringify(mergedCustom)).catch(() => {});
       AsyncStorage.setItem(GROUP_CHANNELS_KEY, JSON.stringify(mergedGroup)).catch(() => {});
     } catch {
+      if (generalCached.length) setGeneralChannels(generalCached);
       if (customCached.length) setCustomChannels(customCached);
       if (groupCached.length) setGroupChannels(groupCached);
+      if (dmCached.length) setPersistedDmChannels(dmCached);
     }
   }
 
