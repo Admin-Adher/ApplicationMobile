@@ -68,11 +68,13 @@ const DEMO_USERS = [
 ];
 
 const DEMO_EMAILS = new Set(DEMO_USERS.map(u => u.email));
+const CACHED_PROFILE_KEY = 'buildtrack_cached_profile_v1';
 
 interface AuthContextValue {
   user: User | null;
   isAuthenticated: boolean;
   isLoading: boolean;
+  isOfflineSession: boolean;
   login: (email: string, password: string) => Promise<{ success: boolean; error?: string }>;
   register: (params: {
     name: string;
@@ -399,6 +401,7 @@ async function seedDemoUsers(shouldAbort: () => boolean): Promise<'done' | 'erro
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [isOfflineSession, setIsOfflineSession] = useState(false);
   const [seedStatus, setSeedStatus] = useState<'idle' | 'seeding' | 'done' | 'error'>('idle');
   const [users, setUsers] = useState<User[]>([]);
   const [usersLoaded, setUsersLoaded] = useState(false);
@@ -406,6 +409,20 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const isSeedingRef = useRef(false);
   const abortSeedingRef = useRef(false);
   const isRegisteringRef = useRef(false);
+
+  // Persist profile to AsyncStorage for offline session restoration
+  const cacheProfile = useCallback((profile: User) => {
+    AsyncStorage.setItem(CACHED_PROFILE_KEY, JSON.stringify(profile)).catch(() => {});
+  }, []);
+  const clearCachedProfile = useCallback(() => {
+    AsyncStorage.removeItem(CACHED_PROFILE_KEY).catch(() => {});
+  }, []);
+  const readCachedProfile = useCallback(async (): Promise<User | null> => {
+    try {
+      const raw = await AsyncStorage.getItem(CACHED_PROFILE_KEY);
+      return raw ? JSON.parse(raw) : null;
+    } catch { return null; }
+  }, []);
   // loginInProgressRef is now a module-level export (shared with AppContext)
   // so that onAuthStateChange in both AuthContext and AppContext skip their
   // SIGNED_IN handlers while login() manages the session directly.
@@ -455,24 +472,57 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           if (profile) {
             debugLogOk(`[AuthContext] fetchProfile() → OK (role=${profile.role}, org=${profile.organizationId ?? 'aucune'})`);
             setUser(profile);
+            setIsOfflineSession(false);
+            cacheProfile(profile);
           } else {
-            debugLogError('[AuthContext] fetchProfile() → null → signOut() déclenché');
-            supabase.auth.signOut().catch(() => {});
-            setUser(null);
+            // fetchProfile returned null — likely network error (offline)
+            // Use cached profile as fallback instead of signing out
+            const cached = await readCachedProfile();
+            if (cached) {
+              debugLogWarn('[AuthContext] fetchProfile() → null (hors ligne?) → profil en cache restauré');
+              setUser(cached);
+              setIsOfflineSession(true);
+            } else {
+              debugLogError('[AuthContext] fetchProfile() → null → signOut() déclenché');
+              supabase.auth.signOut().catch(() => {});
+              setUser(null);
+            }
           }
         } else {
-          debugLogWarn('[AuthContext] getSession() → pas de session active');
+          // No Supabase session — try cached profile for offline access
+          const cached = await readCachedProfile();
+          if (cached) {
+            debugLogWarn('[AuthContext] getSession() → pas de session active → profil en cache restauré (hors ligne)');
+            setUser(cached);
+            setIsOfflineSession(true);
+          } else {
+            debugLogWarn('[AuthContext] getSession() → pas de session active');
+          }
         }
       } catch (err: any) {
         debugLogError(`[AuthContext] getSession().then exception: ${err?.message ?? err}`);
-        setUser(null);
+        // On exception, try cached profile before giving up
+        const cached = await readCachedProfile();
+        if (cached) {
+          setUser(cached);
+          setIsOfflineSession(true);
+        } else {
+          setUser(null);
+        }
       } finally {
         clearTimeout(safetyTimer);
         resolveLoading();
         debugLog('[AuthContext] isLoading → false (initial)');
       }
-    }).catch((err: any) => {
+    }).catch(async (err: any) => {
       debugLogError(`[AuthContext] getSession() rejeté: ${err?.message ?? err}`);
+      // getSession() itself failed (network) — try cached profile
+      const cached = await readCachedProfile();
+      if (cached) {
+        debugLogWarn('[AuthContext] getSession() rejeté → profil en cache restauré (hors ligne)');
+        setUser(cached);
+        setIsOfflineSession(true);
+      }
       clearTimeout(safetyTimer);
       resolveLoading();
     });
@@ -502,18 +552,37 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           if (profile) {
             debugLogOk(`[AuthContext] onAuthStateChange → fetchProfile OK (role=${profile.role})`);
             setUser(profile);
+            setIsOfflineSession(false);
+            cacheProfile(profile);
           } else {
-            debugLogError('[AuthContext] onAuthStateChange → fetchProfile null → signOut()');
-            supabase.auth.signOut().catch(() => {});
-            setUser(null);
+            // fetchProfile null — likely offline, use cached profile
+            const cached = await readCachedProfile();
+            if (cached) {
+              debugLogWarn('[AuthContext] onAuthStateChange → fetchProfile null (hors ligne?) → profil en cache restauré');
+              setUser(cached);
+              setIsOfflineSession(true);
+            } else {
+              debugLogError('[AuthContext] onAuthStateChange → fetchProfile null → signOut()');
+              supabase.auth.signOut().catch(() => {});
+              setUser(null);
+            }
           }
         } finally {
           if (fetchingProfileTimer) clearTimeout(fetchingProfileTimer);
           fetchingProfileRef.current = false;
         }
       } else {
-        debugLogWarn('[AuthContext] onAuthStateChange → session null → user = null');
-        setUser(null);
+        // Session null — likely TOKEN_REFRESH_FAILED while offline
+        // Use cached profile instead of disconnecting the user
+        const cached = await readCachedProfile();
+        if (cached) {
+          debugLogWarn('[AuthContext] onAuthStateChange → session null (hors ligne?) → profil en cache restauré');
+          setUser(cached);
+          setIsOfflineSession(true);
+        } else {
+          debugLogWarn('[AuthContext] onAuthStateChange → session null → user = null');
+          setUser(null);
+        }
       }
     });
 
@@ -986,6 +1055,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
         if (profile) {
           setUser(profile);
+          setIsOfflineSession(false);
+          cacheProfile(profile);
           setSeedStatus('done');
           loginInProgressRef.current = false;
           if (timeoutId) clearTimeout(timeoutId);
@@ -1019,6 +1090,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       // ignore
     }
     setUser(null);
+    setIsOfflineSession(false);
+    clearCachedProfile();
   }
 
   async function updateUserRole(userId: string, newRole: UserRole): Promise<void> {
@@ -1116,6 +1189,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       user,
       isAuthenticated: !!user,
       isLoading,
+      isOfflineSession,
       login,
       register,
       logout,

@@ -227,6 +227,15 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         } catch {}
       }
       if (event === 'SIGNED_OUT') {
+        // When offline, Supabase fires SIGNED_OUT because token refresh fails.
+        // Don't clear state if a cached profile exists (offline session restored by AuthContext).
+        try {
+          const cachedRaw = await AsyncStorage.getItem('buildtrack_cached_profile_v1');
+          if (cachedRaw) {
+            // Offline session exists — don't clear state
+            return;
+          }
+        } catch {}
         currentUserNameRef.current = '';
         setCurrentUserName('');
         setActiveChantierIdState(null);
