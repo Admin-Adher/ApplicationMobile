@@ -120,13 +120,19 @@ export function useMessages() {
   loadRecentMessagesRef.current = () => { loadRecentMessages(); };
 
   useEffect(() => {
-    if (!isSupabaseConfigured) return;
+    if (!isSupabaseConfigured || !user) return;
 
+    const channelName = `messages-realtime-v2-${user.id}`;
     const globalSub = supabase
-      .channel('messages-realtime-v1')
+      .channel(channelName)
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages' }, (payload: any) => {
         const userName = userNameRef.current;
         const msg = toMessage(payload.new, userName);
+        // Filter: only accept messages for channels we should see
+        // (RLS already filters server-side, but this is a safety net)
+        const orgId = orgIdRef.current;
+        const incomingOrgId = payload.new.organization_id;
+        if (orgId && incomingOrgId && incomingOrgId !== orgId) return;
         setMessages(prev => {
           if (prev.find(m => m.id === msg.id)) return prev;
           return [...prev, msg];
@@ -170,7 +176,7 @@ export function useMessages() {
       });
 
     return () => { supabase.removeChannel(globalSub); };
-  }, []);
+  }, [user?.id]);
 
   const addMessage = useCallback((
     channelId: string,
@@ -206,7 +212,9 @@ export function useMessages() {
         : undefined;
       const doInsert = () => {
         supabase.from('messages').insert(insertData).then(({ error }: { error: any }) => {
-          if (error) console.warn('[sync] addMessage error:', error.message);
+          if (error) {
+            console.warn('[sync] addMessage error:', error.code, error.message, error.details);
+          }
         });
       };
       if (pendingUpsert) {

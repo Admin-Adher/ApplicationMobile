@@ -508,10 +508,10 @@ export function useChannels() {
   }, []);
 
   useEffect(() => {
-    if (!isSupabaseConfigured) return;
+    if (!isSupabaseConfigured || !user) return;
 
     const channelSub = supabase
-      .channel('channels-realtime-v1')
+      .channel(`channels-realtime-v2-${user.id}`)
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'channels' }, (payload: any) => {
         const r = payload.new;
         const ch: Channel = {
@@ -564,7 +564,7 @@ export function useChannels() {
       .subscribe();
 
     return () => { supabase.removeChannel(channelSub); };
-  }, []);
+  }, [user?.id]);
 
   return {
     generalChannels,

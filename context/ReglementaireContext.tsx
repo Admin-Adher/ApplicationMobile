@@ -88,9 +88,9 @@ export function ReglementaireProvider({ children }: { children: React.ReactNode 
   }, [user?.id]);
 
   useEffect(() => {
-    if (!isSupabaseConfigured) return;
+    if (!isSupabaseConfigured || !user) return;
     const sub = supabase
-      .channel('realtime-regulatory-docs-v1')
+      .channel(`realtime-regulatory-docs-v2-${user.id}`)
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'regulatory_docs' }, (payload: any) => {
         const doc = toDoc(payload.new);
         setDocs(prev => {
@@ -118,7 +118,7 @@ export function ReglementaireProvider({ children }: { children: React.ReactNode 
       })
       .subscribe();
     return () => { supabase.removeChannel(sub); };
-  }, []);
+  }, [user?.id]);
 
   async function persistLocal(data: RegulatoryDoc[]) {
     setDocs(data);

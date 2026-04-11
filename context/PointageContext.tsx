@@ -94,9 +94,9 @@ export function PointageProvider({ children }: { children: React.ReactNode }) {
   }, [user?.id]);
 
   useEffect(() => {
-    if (!isSupabaseConfigured) return;
+    if (!isSupabaseConfigured || !user) return;
     const sub = supabase
-      .channel('realtime-time-entries-v1')
+      .channel(`realtime-time-entries-v2-${user.id}`)
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'time_entries' }, (payload: any) => {
         const entry = toEntry(payload.new);
         setEntries(prev => {
@@ -124,7 +124,7 @@ export function PointageProvider({ children }: { children: React.ReactNode }) {
       })
       .subscribe();
     return () => { supabase.removeChannel(sub); };
-  }, []);
+  }, [user?.id]);
 
   async function persistLocal(data: TimeEntry[]) {
     setEntries(data);

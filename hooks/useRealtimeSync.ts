@@ -2,11 +2,13 @@ import { useEffect } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { supabase, isSupabaseConfigured } from '@/lib/supabase';
 import { queryKeys } from '@/lib/queryKeys';
+import { useAuth } from '@/context/AuthContext';
 
 const REALTIME_STARTUP_DELAY_MS = 1500;
 
 export function useRealtimeSync() {
   const queryClient = useQueryClient();
+  const { user } = useAuth();
 
   useEffect(() => {
     if (!isSupabaseConfigured) return;
@@ -14,78 +16,79 @@ export function useRealtimeSync() {
     let cleanupFn: (() => void) | null = null;
 
     const timer = setTimeout(() => {
+      const uid = user?.id ?? 'anon';
       const reserveSub = supabase
-        .channel('rq-reserves-v1')
+        .channel(`rq-reserves-v2-${uid}`)
         .on('postgres_changes', { event: '*', schema: 'public', table: 'reserves' }, () => {
           queryClient.invalidateQueries({ queryKey: queryKeys.reserves() });
         })
         .subscribe();
 
       const taskSub = supabase
-        .channel('rq-tasks-v1')
+        .channel(`rq-tasks-v2-${uid}`)
         .on('postgres_changes', { event: '*', schema: 'public', table: 'tasks' }, () => {
           queryClient.invalidateQueries({ queryKey: queryKeys.tasks() });
         })
         .subscribe();
 
       const chantierSub = supabase
-        .channel('rq-chantiers-v1')
+        .channel(`rq-chantiers-v2-${uid}`)
         .on('postgres_changes', { event: '*', schema: 'public', table: 'chantiers' }, () => {
           queryClient.invalidateQueries({ queryKey: queryKeys.chantiers() });
         })
         .subscribe();
 
       const sitePlanSub = supabase
-        .channel('rq-site-plans-v1')
+        .channel(`rq-site-plans-v2-${uid}`)
         .on('postgres_changes', { event: '*', schema: 'public', table: 'site_plans' }, () => {
           queryClient.invalidateQueries({ queryKey: queryKeys.sitePlans() });
         })
         .subscribe();
 
       const visiteSub = supabase
-        .channel('rq-visites-v1')
+        .channel(`rq-visites-v2-${uid}`)
         .on('postgres_changes', { event: '*', schema: 'public', table: 'visites' }, () => {
           queryClient.invalidateQueries({ queryKey: queryKeys.visites() });
         })
         .subscribe();
 
       const lotSub = supabase
-        .channel('rq-lots-v1')
+        .channel(`rq-lots-v2-${uid}`)
         .on('postgres_changes', { event: '*', schema: 'public', table: 'lots' }, () => {
           queryClient.invalidateQueries({ queryKey: queryKeys.lots() });
         })
         .subscribe();
 
       const oprSub = supabase
-        .channel('rq-oprs-v1')
+        .channel(`rq-oprs-v2-${uid}`)
         .on('postgres_changes', { event: '*', schema: 'public', table: 'oprs' }, () => {
           queryClient.invalidateQueries({ queryKey: queryKeys.oprs() });
         })
         .subscribe();
 
       const companySub = supabase
-        .channel('rq-companies-v1')
+        .channel(`rq-companies-v2-${uid}`)
         .on('postgres_changes', { event: '*', schema: 'public', table: 'companies' }, () => {
           queryClient.invalidateQueries({ queryKey: queryKeys.companies() });
         })
         .subscribe();
 
       const photoSub = supabase
-        .channel('rq-photos-v1')
+        .channel(`rq-photos-v2-${uid}`)
         .on('postgres_changes', { event: '*', schema: 'public', table: 'photos' }, () => {
           queryClient.invalidateQueries({ queryKey: queryKeys.photos() });
         })
         .subscribe();
 
       const documentSub = supabase
-        .channel('rq-documents-v1')
+        .channel(`rq-documents-v2-${uid}`)
         .on('postgres_changes', { event: '*', schema: 'public', table: 'documents' }, () => {
           queryClient.invalidateQueries({ queryKey: queryKeys.documents() });
         })
         .subscribe();
 
       const profileSub = supabase
-        .channel('rq-profiles-v1')
+        .channel(`rq-profiles-v2-${uid}`)
         .on('postgres_changes', { event: '*', schema: 'public', table: 'profiles' }, () => {
           queryClient.invalidateQueries({ queryKey: queryKeys.profiles() });
         })
@@ -110,5 +113,5 @@ export function useRealtimeSync() {
       clearTimeout(timer);
       cleanupFn?.();
     };
-  }, [queryClient]);
+  }, [queryClient, user?.id]);
 }

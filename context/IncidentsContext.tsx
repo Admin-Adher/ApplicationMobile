@@ -87,9 +87,9 @@ export function IncidentsProvider({ children }: { children: React.ReactNode }) {
   }, [user?.id]);
 
   useEffect(() => {
-    if (!isSupabaseConfigured) return;
+    if (!isSupabaseConfigured || !user) return;
     const sub = supabase
-      .channel('realtime-incidents-v1')
+      .channel(`realtime-incidents-v2-${user.id}`)
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'incidents' }, (payload: any) => {
         const incident = toIncident(payload.new);
         setIncidents(prev => {
@@ -107,7 +107,7 @@ export function IncidentsProvider({ children }: { children: React.ReactNode }) {
       })
       .subscribe();
     return () => { supabase.removeChannel(sub); };
-  }, []);
+  }, [user?.id]);
 
   async function persist(updated: Incident[]) {
     setIncidents(updated);
