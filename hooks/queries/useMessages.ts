@@ -84,10 +84,21 @@ export function useMessages() {
         const userName = userNameRef.current;
         const msgs = data.map((r: any) => toMessage(r, userName));
         setMessages(prev => {
-          const existingIds = new Set(prev.map(m => m.id));
-          const newOnes = msgs.filter(m => !existingIds.has(m.id));
-          if (newOnes.length === 0) return prev;
-          const merged = [...newOnes, ...prev];
+          // Merge: prefer fresh Supabase data for existing messages
+          // (readBy, read, reactions may have changed server-side)
+          // but keep cached-only messages (offline creates, older than 200 limit)
+          const freshMap = new Map(msgs.map(m => [m.id, m]));
+          let changed = false;
+          const updated = prev.map(m => {
+            const fresh = freshMap.get(m.id);
+            if (!fresh) return m;
+            freshMap.delete(m.id);
+            changed = true;
+            return { ...m, ...fresh };
+          });
+          const newOnes = Array.from(freshMap.values());
+          if (!changed && newOnes.length === 0) return prev;
+          const merged = [...updated, ...newOnes];
           merged.sort((a, b) => {
             const ta = a.dbCreatedAt ? new Date(a.dbCreatedAt).getTime() : 0;
             const tb = b.dbCreatedAt ? new Date(b.dbCreatedAt).getTime() : 0;

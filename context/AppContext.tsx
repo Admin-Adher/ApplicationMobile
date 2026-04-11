@@ -235,7 +235,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     if (!isSupabaseConfigured) return;
 
     const { data: authListener } = supabase.auth.onAuthStateChange(async (event, session) => {
-      if (event === 'SIGNED_IN' && session) {
+      // INITIAL_SESSION fires on app restart with existing session — must also
+      // load lastReadByChannel from Supabase so unread state is correct.
+      if ((event === 'SIGNED_IN' || event === 'INITIAL_SESSION') && session) {
         if (globalSeedingRef.current) return;
         if (registerInProgressRef.current) return;
         if (loginInProgressRef.current) return;
