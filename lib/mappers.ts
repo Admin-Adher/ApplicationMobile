@@ -213,7 +213,13 @@ export function toChantier(row: any): Chantier {
     status: row.status as ChantierStatus,
     createdAt: row.created_at,
     createdBy: row.created_by ?? '',
-    companyIds: Array.isArray(row.company_ids) ? row.company_ids : undefined,
+    companyIds: (() => {
+      const v = row.company_ids;
+      if (Array.isArray(v)) return v;
+      if (typeof v === 'string') { try { const p = JSON.parse(v); return Array.isArray(p) ? p : undefined; } catch { return undefined; } }
+      return undefined;
+    })(),
+    organizationId: row.organization_id ?? undefined,
     buildings: Array.isArray(buildings) ? buildings : undefined,
   };
 }

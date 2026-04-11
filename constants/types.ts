@@ -139,6 +139,7 @@ export interface Chantier {
   createdAt: string;
   createdBy: string;
   companyIds?: string[];
+  organizationId?: string;
   buildings?: ChantierBuilding[];
 }
 
@@ -429,6 +430,7 @@ export interface Channel {
   dmParticipants?: string[];
   members?: string[];
   createdBy?: string;
+  organizationId?: string;
 }
 
 export interface Profile {
