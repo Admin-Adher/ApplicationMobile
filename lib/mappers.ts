@@ -252,6 +252,13 @@ export function toMessage(row: any, currentUserName?: string): Message {
   const isMe = currentUserName
     ? row.sender === currentUserName
     : (row.is_me ?? false);
+  // Compute read from readBy: a message is "read" by the current user if
+  // their name appears in readBy or if they are the sender (isMe).
+  // The DB read column is always true (set by sender) and useless for recipients.
+  const readBy: any[] = row.read_by ?? [];
+  const hasRead = currentUserName
+    ? (isMe || readBy.some((r: any) => typeof r === 'string' ? r === currentUserName : r.userName === currentUserName))
+    : (row.read ?? false);
   return {
     id: row.id,
     channelId: row.channel_id,
@@ -259,7 +266,7 @@ export function toMessage(row: any, currentUserName?: string): Message {
     content: row.content,
     timestamp: row.timestamp,
     type: row.type,
-    read: row.read,
+    read: hasRead,
     isMe,
     replyToId: row.reply_to_id ?? undefined,
     replyToContent: row.reply_to_content ?? undefined,

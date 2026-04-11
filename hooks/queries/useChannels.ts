@@ -6,13 +6,13 @@ import { useNetwork } from '@/context/NetworkContext';
 import { Channel } from '@/constants/types';
 import { genId } from '@/lib/utils';
 
-const CUSTOM_CHANNELS_KEY = 'customChannels_v1';
-const GROUP_CHANNELS_KEY = 'groupChannels_v1';
-const GENERAL_CHANNELS_KEY = 'generalChannels_v1';
-const DM_CHANNELS_KEY = 'dmChannels_v1';
-const PINNED_CHANNELS_KEY = 'pinnedChannels_v1';
-const CHANNEL_MEMBERS_OVERRIDE_KEY = 'channelMembersOverride_v1';
-const PENDING_DM_KEY = 'buildtrack_pending_dm_channels_v1';
+const CUSTOM_CHANNELS_PREFIX = 'customChannels_v2_';
+const GROUP_CHANNELS_PREFIX = 'groupChannels_v2_';
+const GENERAL_CHANNELS_PREFIX = 'generalChannels_v2_';
+const DM_CHANNELS_PREFIX = 'dmChannels_v2_';
+const PINNED_CHANNELS_PREFIX = 'pinnedChannels_v2_';
+const CHANNEL_MEMBERS_OVERRIDE_PREFIX = 'channelMembersOverride_v2_';
+const PENDING_DM_PREFIX = 'buildtrack_pending_dm_channels_v2_';
 const MAX_PINNED = 5;
 
 export function dmChannelId(nameA: string, nameB: string): string {
@@ -43,18 +43,38 @@ export function useChannels() {
   const isOnlineRef = useRef(isOnline);
   useEffect(() => { isOnlineRef.current = isOnline; }, [isOnline]);
 
+  // Namespace cache keys by user ID to prevent cross-account contamination
+  const uid = user?.id ?? 'anon';
+  const CUSTOM_CHANNELS_KEY = CUSTOM_CHANNELS_PREFIX + uid;
+  const GROUP_CHANNELS_KEY = GROUP_CHANNELS_PREFIX + uid;
+  const GENERAL_CHANNELS_KEY = GENERAL_CHANNELS_PREFIX + uid;
+  const DM_CHANNELS_KEY = DM_CHANNELS_PREFIX + uid;
+  const PINNED_CHANNELS_KEY = PINNED_CHANNELS_PREFIX + uid;
+  const CHANNEL_MEMBERS_OVERRIDE_KEY = CHANNEL_MEMBERS_OVERRIDE_PREFIX + uid;
+  const PENDING_DM_KEY = PENDING_DM_PREFIX + uid;
+
   useEffect(() => {
     if (!user) return;
+    // Clear channel state from previous account before loading
+    setGeneralChannels([]);
+    setCustomChannels([]);
+    setGroupChannels([]);
+    setPersistedDmChannels([]);
+    setPinnedChannelIds([]);
+    setChannelMembersOverride({});
+    setPendingDmChannelIds(new Set());
     loadAll();
   }, [user?.id]);
 
   useEffect(() => {
+    if (!user) return;
     AsyncStorage.setItem(GENERAL_CHANNELS_KEY, JSON.stringify(generalChannels)).catch(() => {});
-  }, [generalChannels]);
+  }, [generalChannels, GENERAL_CHANNELS_KEY]);
 
   useEffect(() => {
+    if (!user) return;
     AsyncStorage.setItem(DM_CHANNELS_KEY, JSON.stringify(persistedDmChannels)).catch(() => {});
-  }, [persistedDmChannels]);
+  }, [persistedDmChannels, DM_CHANNELS_KEY]);
 
   async function loadAll() {
     await Promise.all([

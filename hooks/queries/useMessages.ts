@@ -36,6 +36,9 @@ export function useMessages() {
 
   useEffect(() => {
     if (!user) return;
+    // Clear stale messages from previous account immediately
+    setMessages([]);
+    loadedChannelIdsRef.current.clear();
     // Bug 6: namespace cache by userId so different accounts don't share cached messages
     const cacheKey = isSupabaseConfigured ? MESSAGES_CACHE_PREFIX + user.id : MOCK_MESSAGES_KEY;
     AsyncStorage.getItem(cacheKey).then(raw => {
