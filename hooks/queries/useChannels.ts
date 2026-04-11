@@ -301,11 +301,13 @@ export function useChannels() {
     }
     const orgId = orgIdRef.current;
     for (const ch of channels) {
-      await supabase.from('channels').upsert({
-        id: ch.id, name: ch.name, description: ch.description ?? null,
-        icon: ch.icon ?? 'people-circle', color: ch.color ?? '#10B981', type: ch.type,
-        members: ch.members ?? [], created_by: ch.createdBy ?? null, organization_id: orgId ?? null,
-      }).catch(() => {});
+      try {
+        await supabase.from('channels').upsert({
+          id: ch.id, name: ch.name, description: ch.description ?? null,
+          icon: ch.icon ?? 'people-circle', color: ch.color ?? '#10B981', type: ch.type,
+          members: ch.members ?? [], created_by: ch.createdBy ?? null, organization_id: orgId ?? null,
+        });
+      } catch {}
     }
   }, [enqueueOperation]);
 
@@ -318,7 +320,11 @@ export function useChannels() {
       enqueueOperation({ table: 'profiles', op: 'update', filter: { column: 'id', value: userId }, data: { pinned_channels: ids } });
       return;
     }
-    supabase.from('profiles').update({ pinned_channels: ids }).eq('id', userId).catch(() => {});
+    void (async () => {
+      try {
+        await supabase.from('profiles').update({ pinned_channels: ids }).eq('id', userId);
+      } catch {}
+    })();
   }, [enqueueOperation]);
 
   const addCustomChannel = useCallback((name: string, description: string, icon: string, color: string): Channel => {
@@ -346,7 +352,11 @@ export function useChannels() {
         enqueueOperation({ table: 'channels', op: 'delete', filter: { column: 'id', value: id } });
         return;
       }
-      supabase.from('channels').delete().eq('id', id).catch(() => {});
+      void (async () => {
+        try {
+          await supabase.from('channels').delete().eq('id', id);
+        } catch {}
+      })();
     }
   }, [saveCustomChannels, enqueueOperation]);
 
@@ -378,7 +388,11 @@ export function useChannels() {
         enqueueOperation({ table: 'channels', op: 'delete', filter: { column: 'id', value: id } });
         return;
       }
-      supabase.from('channels').delete().eq('id', id).catch(() => {});
+      void (async () => {
+        try {
+          await supabase.from('channels').delete().eq('id', id);
+        } catch {}
+      })();
     }
   }, [saveGroupChannels, enqueueOperation]);
 

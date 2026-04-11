@@ -261,7 +261,11 @@ export function useMessages() {
         enqueueOperation({ table: 'messages', op: 'delete', filter: { column: 'id', value: id } });
         return;
       }
-      supabase.from('messages').delete().eq('id', id).catch(() => {});
+      void (async () => {
+        try {
+          await supabase.from('messages').delete().eq('id', id);
+        } catch {}
+      })();
     }
   }, [enqueueOperation]);
 
@@ -272,7 +276,11 @@ export function useMessages() {
         enqueueOperation({ table: 'messages', op: 'update', filter: { column: 'id', value: msg.id }, data: fromMessage(msg) });
         return;
       }
-      supabase.from('messages').update(fromMessage(msg)).eq('id', msg.id).catch(() => {});
+      void (async () => {
+        try {
+          await supabase.from('messages').update(fromMessage(msg)).eq('id', msg.id);
+        } catch {}
+      })();
     }
   }, [enqueueOperation]);
 
@@ -337,9 +345,13 @@ export function useMessages() {
       const BATCH_SIZE = 100;
       for (let i = 0; i < unreadIds.length; i += BATCH_SIZE) {
         const batch = unreadIds.slice(i, i + BATCH_SIZE);
-        supabase.rpc('mark_messages_read_by', {
-          p_message_ids: batch, p_user_name: userName,
-        }).catch(() => {});
+        void (async () => {
+          try {
+            await supabase.rpc('mark_messages_read_by', {
+              p_message_ids: batch, p_user_name: userName,
+            });
+          } catch {}
+        })();
       }
     }
   }, [enqueueOperation]);
@@ -355,7 +367,11 @@ export function useMessages() {
         enqueueOperation({ table: 'messages', op: 'insert', data: insertData });
         return;
       }
-      supabase.from('messages').insert(insertData).catch(() => {});
+      void (async () => {
+        try {
+          await supabase.from('messages').insert(insertData);
+        } catch {}
+      })();
     }
   }, [enqueueOperation]);
 

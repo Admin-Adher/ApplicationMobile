@@ -370,8 +370,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         });
         return;
       }
-      supabase.from('profiles').update({ last_read_by_channel: newLastRead })
-        .eq('id', userId).catch(() => {});
+      void (async () => {
+        try {
+          await supabase.from('profiles').update({ last_read_by_channel: newLastRead }).eq('id', userId);
+        } catch {}
+      })();
     }
   }, [messagesH, lastReadStorageKey, authH.user?.id, isOnline, enqueueOperation]);
 
