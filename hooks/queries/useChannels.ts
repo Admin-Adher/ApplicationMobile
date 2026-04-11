@@ -76,6 +76,23 @@ export function useChannels() {
     AsyncStorage.setItem(DM_CHANNELS_KEY, JSON.stringify(persistedDmChannels)).catch(() => {});
   }, [persistedDmChannels, DM_CHANNELS_KEY]);
 
+  function normalizeMembers(value: any): string[] {
+    if (!value) return [];
+    if (Array.isArray(value)) return value.filter(Boolean);
+    if (typeof value === 'string') {
+      const s = value.trim();
+      if (!s) return [];
+      if (s.startsWith('[')) {
+        try {
+          const parsed = JSON.parse(s);
+          if (Array.isArray(parsed)) return parsed.filter(Boolean);
+        } catch {}
+      }
+      return s.split(',').map(x => x.trim()).filter(Boolean);
+    }
+    return [];
+  }
+
   async function loadAll() {
     await Promise.all([
       _loadChannelsFromSupabase(),
@@ -146,27 +163,28 @@ export function useChannels() {
       const dm: Channel[] = [];
 
       for (const r of data) {
+        const members = normalizeMembers(r.members);
         if (r.type === 'general' || r.type === 'building') {
           general.push({
             id: r.id, name: r.name, description: r.description ?? '',
             icon: r.icon, color: r.color, type: r.type as 'general' | 'building',
-            members: r.members ?? [], createdBy: r.created_by ?? undefined,
+            members, createdBy: r.created_by ?? undefined,
             organizationId: r.organization_id ?? undefined,
           });
         } else if (r.type === 'custom') {
           custom.push({
             id: r.id, name: r.name, description: r.description ?? '',
             icon: r.icon, color: r.color, type: 'custom' as const,
-            members: r.members ?? [], createdBy: r.created_by ?? undefined,
+            members, createdBy: r.created_by ?? undefined,
           });
         } else if (r.type === 'group') {
           group.push({
             id: r.id, name: r.name, description: r.description ?? '',
             icon: r.icon, color: r.color, type: 'group' as const,
-            members: r.members ?? [], createdBy: r.created_by ?? undefined,
+            members, createdBy: r.created_by ?? undefined,
           });
         } else if (r.type === 'dm') {
-          const participants: string[] = r.members ?? [];
+          const participants = members;
           const otherName = participants.find(p => p !== myName) ?? r.name;
           dm.push({
             id: r.id, name: otherName, description: r.description ?? '',

@@ -171,6 +171,17 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   // Fix 14: namespace lastReadByChannel by userId so different accounts don't share state
   const lastReadStorageKey = useMemo(() => `lastReadByChannel_${authH.user?.id ?? 'anon'}`, [authH.user?.id]);
 
+  // Keep current user name consistent across the app.
+  // Messages/readBy are keyed by profile.name, so using session metadata (email/full_name)
+  // can cause false unread badges after restart.
+  useEffect(() => {
+    const name = authH.user?.name ?? '';
+    if (!name) return;
+    if (currentUserNameRef.current === name) return;
+    currentUserNameRef.current = name;
+    setCurrentUserName(name);
+  }, [authH.user?.name]);
+
   useEffect(() => {
     AsyncStorage.getItem(lastReadStorageKey)
       .then(raw => {
