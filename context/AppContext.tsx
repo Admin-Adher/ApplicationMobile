@@ -156,6 +156,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [notification, setNotification] = useState<{ msg: Message; channelName: string; channelColor: string; channelIcon: string } | null>(null);
 
   const currentUserNameRef = useRef<string>('');
+  const [currentUserName, setCurrentUserName] = useState('');
   const activeChannelIdRef = useRef<string | null>(null);
   const chantierInitializedRef = useRef(false);
 
@@ -214,6 +215,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         const userMeta = session.user.user_metadata;
         const userName = userMeta?.name ?? userMeta?.full_name ?? session.user.email ?? '';
         currentUserNameRef.current = userName;
+        setCurrentUserName(userName);
 
         try {
           const { data: prof } = await supabase
@@ -226,6 +228,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       }
       if (event === 'SIGNED_OUT') {
         currentUserNameRef.current = '';
+        setCurrentUserName('');
         setActiveChantierIdState(null);
         chantierInitializedRef.current = false;
         setLastReadByChannel({});
@@ -239,6 +242,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         const userMeta = session.user.user_metadata;
         const userName = userMeta?.name ?? userMeta?.full_name ?? session.user.email ?? '';
         currentUserNameRef.current = userName;
+        setCurrentUserName(userName);
       }
     });
 
@@ -286,6 +290,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   const setCurrentUser = useCallback((name: string) => {
     currentUserNameRef.current = name;
+    setCurrentUserName(name);
   }, []);
 
   const setActiveChannelId = useCallback((id: string | null) => {
@@ -376,17 +381,26 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       type: 'company' as any,
       members: [],
     }));
+    // Fix DM names: always show the interlocutor's name, not the current user's name
+    const myName = currentUserName;
+    const fixedDmChannels = channelsH.persistedDmChannels.map(ch => {
+      if (ch.type !== 'dm') return ch;
+      const participants = ch.dmParticipants ?? ch.members ?? [];
+      const otherName = participants.find(p => p !== myName) ?? ch.name;
+      if (otherName === ch.name) return ch;
+      return { ...ch, name: otherName, description: `Message direct avec ${otherName}` };
+    });
     return [
       ...channelsH.generalChannels,
       ...channelsH.customChannels,
       ...channelsH.groupChannels,
-      ...channelsH.persistedDmChannels,
+      ...fixedDmChannels,
       ...companyChannels,
     ];
   }, [
     channelsH.generalChannels, channelsH.customChannels,
     channelsH.groupChannels, channelsH.persistedDmChannels,
-    companiesH.companies,
+    companiesH.companies, currentUserName,
   ]);
 
   const unreadByChannel = useMemo(() => {

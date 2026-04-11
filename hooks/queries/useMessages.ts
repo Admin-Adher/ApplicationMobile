@@ -35,7 +35,16 @@ export function useMessages() {
     const cacheKey = isSupabaseConfigured ? MESSAGES_CACHE_KEY : MOCK_MESSAGES_KEY;
     AsyncStorage.getItem(cacheKey).then(raw => {
       if (raw) {
-        try { setMessages(JSON.parse(raw)); } catch {}
+        try {
+          const cached: Message[] = JSON.parse(raw);
+          // Recalculate isMe based on current user — cached isMe may be stale from a different account
+          const currentUserName = userNameRef.current;
+          const fixed = cached.map(m => ({
+            ...m,
+            isMe: currentUserName ? m.sender === currentUserName : m.isMe,
+          }));
+          setMessages(fixed);
+        } catch {}
       }
     }).catch(() => {});
     if (!isSupabaseConfigured) return;
