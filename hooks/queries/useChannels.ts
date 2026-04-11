@@ -402,10 +402,16 @@ export function useChannels() {
     setGeneralChannels(prev => prev.filter(c => c.id !== id));
   }, []);
 
+  // Bug 10: use refs for persistedDmChannels and pendingDmChannelIds to keep useCallback stable
+  const persistedDmChannelsRef = useRef(persistedDmChannels);
+  useEffect(() => { persistedDmChannelsRef.current = persistedDmChannels; }, [persistedDmChannels]);
+  const pendingDmChannelIdsRef = useRef(pendingDmChannelIds);
+  useEffect(() => { pendingDmChannelIdsRef.current = pendingDmChannelIds; }, [pendingDmChannelIds]);
+
   const getOrCreateDMChannel = useCallback((otherName: string): Channel => {
     const myName = userNameRef.current;
     const chId = dmChannelId(myName, otherName);
-    const existing = persistedDmChannels.find(c => c.id === chId);
+    const existing = persistedDmChannelsRef.current.find(c => c.id === chId);
     if (existing) return existing;
 
     const newChannel: Channel = {
@@ -433,7 +439,7 @@ export function useChannels() {
       }
     }
 
-    const newPending = new Set(pendingDmChannelIds).add(chId);
+    const newPending = new Set(pendingDmChannelIdsRef.current).add(chId);
     setPendingDmChannelIds(newPending);
     AsyncStorage.setItem(PENDING_DM_KEY, JSON.stringify([...newPending])).catch(() => {});
 
@@ -441,7 +447,7 @@ export function useChannels() {
     setPersistedDmChannels(prev => prev.some(c => c.id === chId) ? prev : [...prev, newChannel]);
 
     return newChannel;
-  }, [persistedDmChannels, pendingDmChannelIds]);
+  }, [enqueueOperation]);
 
   const getDmUpsertPromise = useCallback((channelId: string) => {
     return dmUpsertPromisesRef.current.get(channelId);

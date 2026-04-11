@@ -9,7 +9,7 @@ import { genId, nowTimestampFR } from '@/lib/utils';
 import { toMessage, fromMessage } from '@/lib/mappers';
 
 const MOCK_MESSAGES_KEY = 'buildtrack_mock_messages_v2';
-const MESSAGES_CACHE_KEY = 'buildtrack_messages_cache_v1';
+const MESSAGES_CACHE_PREFIX = 'buildtrack_messages_cache_v1_';
 
 export function useMessages() {
   const { user } = useAuth();
@@ -19,6 +19,9 @@ export function useMessages() {
 
   const userNameRef = useRef<string>(user?.name ?? '');
   useEffect(() => { userNameRef.current = user?.name ?? ''; }, [user?.name]);
+  // Bug 7: track orgId for filtering messages by organization
+  const orgIdRef = useRef<string | null>(user?.organizationId ?? null);
+  useEffect(() => { orgIdRef.current = user?.organizationId ?? null; }, [user?.organizationId]);
 
   const isOnlineRef = useRef(isOnline);
   useEffect(() => { isOnlineRef.current = isOnline; }, [isOnline]);
@@ -28,20 +31,26 @@ export function useMessages() {
   const messagesRef = useRef<Message[]>(messages);
   useEffect(() => { messagesRef.current = messages; }, [messages]);
   const realtimeWasConnectedRef = useRef(false);
+  // Bug 4: callback ref for AppContext to receive incoming messages without duplicate realtime subscription
+  const incomingMessageHandlerRef = useRef<((msg: Message, raw: any) => void) | null>(null);
 
   useEffect(() => {
     if (!user) return;
-    // Toujours charger le cache en premier pour un affichage immédiat (hors ligne ou non)
-    const cacheKey = isSupabaseConfigured ? MESSAGES_CACHE_KEY : MOCK_MESSAGES_KEY;
+    // Bug 6: namespace cache by userId so different accounts don't share cached messages
+    const cacheKey = isSupabaseConfigured ? MESSAGES_CACHE_PREFIX + user.id : MOCK_MESSAGES_KEY;
     AsyncStorage.getItem(cacheKey).then(raw => {
       if (raw) {
         try {
           const cached: Message[] = JSON.parse(raw);
-          // Recalculate isMe based on current user — cached isMe may be stale from a different account
+          // Bug 3 (already fixed): recalculate isMe based on current user
+          // Bug 13: also recalculate readBy — remove current user from readBy of other people's messages
           const currentUserName = userNameRef.current;
           const fixed = cached.map(m => ({
             ...m,
             isMe: currentUserName ? m.sender === currentUserName : m.isMe,
+            readBy: currentUserName && !m.isMe
+              ? m.readBy.filter((u: string) => u !== currentUserName)
+              : m.readBy,
           }));
           setMessages(fixed);
         } catch {}
@@ -55,11 +64,15 @@ export function useMessages() {
   async function loadRecentMessages() {
     if (!isSupabaseConfigured) return;
     try {
-      const { data, error } = await supabase
+      // Bug 7: filter by organization_id when available to avoid cross-org messages
+      let query = supabase
         .from('messages')
         .select('*')
         .order('created_at', { ascending: false })
         .limit(200);
+      const orgId = orgIdRef.current;
+      if (orgId) query = query.eq('organization_id', orgId);
+      const { data, error } = await query;
       if (error) {
         console.warn('[useMessages] loadRecentMessages error:', error.code, error.message);
         return;
@@ -88,13 +101,16 @@ export function useMessages() {
   }
 
   // Persistance locale : mock mode ET cache Supabase (pour fonctionnement hors ligne)
+  // Bug 6: namespace cache by userId
   useEffect(() => {
     const timer = setTimeout(() => {
-      const key = isSupabaseConfigured ? MESSAGES_CACHE_KEY : MOCK_MESSAGES_KEY;
+      const userId = user?.id;
+      if (!userId) return;
+      const key = isSupabaseConfigured ? MESSAGES_CACHE_PREFIX + userId : MOCK_MESSAGES_KEY;
       AsyncStorage.setItem(key, JSON.stringify(messages)).catch(() => {});
     }, 1500);
     return () => clearTimeout(timer);
-  }, [messages]);
+  }, [messages, user?.id]);
 
   // Garde une ref vers loadRecentMessages pour l'appeler depuis le callback de reconnexion
   const loadRecentMessagesRef = useRef<() => void>(() => {});
@@ -112,6 +128,10 @@ export function useMessages() {
           if (prev.find(m => m.id === msg.id)) return prev;
           return [...prev, msg];
         });
+        // Bug 4: notify AppContext of incoming message (replaces duplicate realtime subscription)
+        if (incomingMessageHandlerRef.current) {
+          incomingMessageHandlerRef.current(msg, payload.new);
+        }
       })
       .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'messages' }, (payload: any) => {
         const userName = userNameRef.current;
@@ -172,15 +192,17 @@ export function useMessages() {
     };
     setMessages(prev => [...prev, msg]);
     if (isSupabaseConfigured) {
+      // Bug 7: include organization_id in insert data
+      const insertData = { ...fromMessage(msg), organization_id: orgIdRef.current ?? null };
       if (!isOnlineRef.current) {
-        enqueueOperation({ table: 'messages', op: 'insert', data: fromMessage(msg) });
+        enqueueOperation({ table: 'messages', op: 'insert', data: insertData });
         return;
       }
       const pendingUpsert = channelId.startsWith('dm-') && getDmUpsertPromise
         ? getDmUpsertPromise(channelId)
         : undefined;
       const doInsert = () => {
-        supabase.from('messages').insert(fromMessage(msg)).then(({ error }: { error: any }) => {
+        supabase.from('messages').insert(insertData).then(({ error }: { error: any }) => {
           if (error) console.warn('[sync] addMessage error:', error.message);
         });
       };
@@ -238,25 +260,28 @@ export function useMessages() {
     }
   }, [enqueueOperation]);
 
-  const markMessagesRead = useCallback(() => {
-    setMessages(prev => prev.map(m => ({ ...m, read: true })));
+  // Bug 11: markMessagesRead now takes optional channelId to only mark that channel's messages
+  const markMessagesRead = useCallback((channelId?: string) => {
+    setMessages(prev => prev.map(m => {
+      if (channelId && m.channelId !== channelId) return m;
+      return { ...m, read: true };
+    }));
   }, []);
 
   const setChannelRead = useCallback((channelId: string, userName: string) => {
-    setMessages(prev => prev.map(m => {
-      if (m.channelId !== channelId || m.isMe) return m;
-      if (m.readBy.includes(userName)) return m;
-      return { ...m, readBy: [...m.readBy, userName] };
-    }));
+    // Bug 8: collect unread IDs from the setMessages callback to avoid stale messagesRef
+    let unreadIds: string[] = [];
+    setMessages(prev => {
+      const updated = prev.map(m => {
+        if (m.channelId !== channelId || m.isMe) return m;
+        if (m.readBy.includes(userName)) return m;
+        unreadIds.push(m.id);
+        return { ...m, readBy: [...m.readBy, userName] };
+      });
+      return updated;
+    });
     if (isSupabaseConfigured && userName) {
-      // Hors ligne : on saute l'appel serveur — sera synchronisé au retour du réseau
-      // via loadRecentMessages + le useEffect setChannelRead dans channel/[id].tsx
       if (!isOnlineRef.current) return;
-      // Utiliser messagesRef au lieu de messages pour éviter la closure stale
-      const currentMessages = messagesRef.current;
-      const unreadIds = currentMessages
-        .filter(m => m.channelId === channelId && !m.isMe && !m.readBy.includes(userName))
-        .map(m => m.id);
       const BATCH_SIZE = 100;
       for (let i = 0; i < unreadIds.length; i += BATCH_SIZE) {
         const batch = unreadIds.slice(i, i + BATCH_SIZE);
@@ -273,11 +298,12 @@ export function useMessages() {
       return [...prev, msg];
     });
     if (isSupabaseConfigured) {
+      const insertData = { ...fromMessage(msg), organization_id: orgIdRef.current ?? null };
       if (!isOnlineRef.current) {
-        enqueueOperation({ table: 'messages', op: 'insert', data: fromMessage(msg) });
+        enqueueOperation({ table: 'messages', op: 'insert', data: insertData });
         return;
       }
-      supabase.from('messages').insert(fromMessage(msg)).catch(() => {});
+      supabase.from('messages').insert(insertData).catch(() => {});
     }
   }, [enqueueOperation]);
 
@@ -367,6 +393,13 @@ export function useMessages() {
     fetchChannelMessages,
     refreshChannelMessages,
     clearMessages,
-    setLastRead: (map: Record<string, string>) => {},
+    // Bug 4: expose handler registration so AppContext can receive incoming messages
+    registerIncomingMessageHandler: useCallback((handler: ((msg: Message, raw: any) => void) | null) => {
+      incomingMessageHandlerRef.current = handler;
+    }, []),
+    // Bug 12: setLastRead now actually persists the map
+    setLastRead: useCallback((map: Record<string, string>) => {
+      AsyncStorage.setItem('lastReadByChannel', JSON.stringify(map)).catch(() => {});
+    }, []),
   };
 }

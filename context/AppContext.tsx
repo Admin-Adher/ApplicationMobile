@@ -82,7 +82,7 @@ interface AppContextValue {
   deleteMessage: (id: string) => void;
   updateMessage: (msg: Message) => void;
   toggleReaction: (emoji: string, msg: Message, userName: string) => void;
-  markMessagesRead: () => void;
+  markMessagesRead: (channelId?: string) => void;
   setChannelRead: (channelId: string) => void;
   setActiveChannelId: (id: string | null) => void;
   dismissNotification: () => void;
@@ -249,39 +249,33 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     return () => authListener.subscription.unsubscribe();
   }, [queryClient]);
 
+  // Bug 4: Use incomingMessageHandler from useMessages instead of duplicate realtime subscription
   useEffect(() => {
     if (!isSupabaseConfigured) return;
-
-    const globalSub = supabase
-      .channel('app-ctx-messages-v3')
-      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages' }, (payload: any) => {
-        const msg = payload.new as any;
-        const isMe = msg.sender === currentUserNameRef.current;
-        if (!isMe && activeChannelIdRef.current !== msg.channel_id) {
-          const allChannels = [
-            ...channelsH.generalChannels,
-            ...channelsH.customChannels,
-            ...channelsH.groupChannels,
-            ...channelsH.persistedDmChannels,
-          ];
-          const ch = allChannels.find(c => c.id === msg.channel_id);
-          const isDM = (msg.channel_id ?? '').startsWith('dm-');
-          setNotification({
-            msg: {
-              id: msg.id, channelId: msg.channel_id, sender: msg.sender, content: msg.content,
-              timestamp: msg.timestamp ?? '', type: 'message', read: false, isMe: false,
-              reactions: msg.reactions ?? {}, isPinned: false, readBy: msg.read_by ?? [], mentions: [],
-            },
-            channelName: isDM ? msg.sender : (ch?.name ?? msg.channel_id),
-            channelColor: ch?.color ?? C.primary,
-            channelIcon: isDM ? 'person-circle' : (ch?.icon ?? 'chatbubbles'),
-          });
-        }
-      })
-      .subscribe();
-
-    return () => { supabase.removeChannel(globalSub); };
-  }, [channelsH.generalChannels, channelsH.customChannels, channelsH.groupChannels, channelsH.persistedDmChannels]);
+    messagesH.registerIncomingMessageHandler((msg: Message, raw: any) => {
+      if (msg.isMe) return;
+      if (activeChannelIdRef.current === msg.channelId) return;
+      const allChannels = [
+        ...channelsH.generalChannels,
+        ...channelsH.customChannels,
+        ...channelsH.groupChannels,
+        ...channelsH.persistedDmChannels,
+      ];
+      const ch = allChannels.find(c => c.id === msg.channelId);
+      const isDM = (msg.channelId ?? '').startsWith('dm-');
+      // Bug 9: for DM notifications, use channel name (interlocutor) not sender name
+      const channelName = isDM
+        ? (ch?.name ?? msg.sender)
+        : (ch?.name ?? msg.channelId ?? '');
+      setNotification({
+        msg,
+        channelName,
+        channelColor: ch?.color ?? C.primary,
+        channelIcon: isDM ? 'person-circle' : (ch?.icon ?? 'chatbubbles'),
+      });
+    });
+    return () => { messagesH.registerIncomingMessageHandler(null); };
+  }, [channelsH.generalChannels, channelsH.customChannels, channelsH.groupChannels, channelsH.persistedDmChannels, messagesH.registerIncomingMessageHandler]);
 
   const setActiveChantier = useCallback((id: string) => {
     setActiveChantierIdState(id);
