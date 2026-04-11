@@ -280,7 +280,7 @@ export default function SuperAdminMessagingHub() {
   const lastMessageByChannel = useMemo(() => {
     const map: Record<string, Message | null> = {};
     for (const ch of channels) {
-      const chMsgs = messages.filter(m => m.channelId === ch.id);
+      const chMsgs = messages.filter(m => m.channelId && m.channelId === ch.id);
       map[ch.id] = chMsgs.length > 0 ? chMsgs[chMsgs.length - 1] : null;
     }
     return map;

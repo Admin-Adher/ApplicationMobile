@@ -392,6 +392,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const unreadByChannel = useMemo(() => {
     const result: Record<string, number> = {};
     for (const msg of messagesH.messages) {
+      if (!msg.channelId) continue;
       if (!msg.isMe && !msg.read) {
         const lastRead = lastReadByChannel[msg.channelId];
         const msgTime = msg.dbCreatedAt ? new Date(msg.dbCreatedAt).getTime() : 0;

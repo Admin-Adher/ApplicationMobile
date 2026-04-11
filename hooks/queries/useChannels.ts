@@ -140,7 +140,13 @@ export function useChannels() {
       setGeneralChannels(general);
       setCustomChannels(mergedCustom);
       setGroupChannels(mergedGroup);
-      setPersistedDmChannels(dm);
+      setPersistedDmChannels(prev => {
+        const mergedDm = [...dm];
+        for (const local of prev) {
+          if (!mergedDm.find(c => c.id === local.id)) mergedDm.push(local);
+        }
+        return mergedDm;
+      });
 
       AsyncStorage.setItem(CUSTOM_CHANNELS_KEY, JSON.stringify(mergedCustom)).catch(() => {});
       AsyncStorage.setItem(GROUP_CHANNELS_KEY, JSON.stringify(mergedGroup)).catch(() => {});
@@ -430,6 +436,9 @@ export function useChannels() {
     const newPending = new Set(pendingDmChannelIds).add(chId);
     setPendingDmChannelIds(newPending);
     AsyncStorage.setItem(PENDING_DM_KEY, JSON.stringify([...newPending])).catch(() => {});
+
+    // Add immediately to persistedDmChannels so it shows up in allChannels without waiting for realtime
+    setPersistedDmChannels(prev => prev.some(c => c.id === chId) ? prev : [...prev, newChannel]);
 
     return newChannel;
   }, [persistedDmChannels, pendingDmChannelIds]);
