@@ -385,7 +385,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   ) => {
     const actualSender = sender ?? (currentUserNameRef.current || 'Moi');
     messagesH.addMessage(channelId, content, options, actualSender, channelsH.getDmUpsertPromise);
-  }, [messagesH, channelsH]);
+    // Auto-mark channel as read when sending — updates lastReadByChannel timestamp
+    // so the channel doesn't appear unread after app restart
+    setChannelRead(channelId);
+  }, [messagesH, channelsH, setChannelRead]);
 
   // Fix 8: updateReserveStatusWithNotif uses reservesH.reserves and companiesH.companies instead of queryClient.getQueryData
   const updateReserveStatusWithNotif = useCallback((id: string, status: ReserveStatus, author?: string) => {
@@ -461,17 +464,21 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   ]);
 
   // Fix 7: unreadByChannel uses lastReadByChannelRef to avoid stale closure issues
+  // A message is unread if: it's from someone else AND current user is NOT in readBy
+  // AND the message arrived after we last read the channel.
   const unreadByChannel = useMemo(() => {
     const result: Record<string, number> = {};
     const lastRead = lastReadByChannelRef.current;
+    const myName = currentUserNameRef.current;
     for (const msg of messagesH.messages) {
-      if (!msg.channelId) continue;
-      if (!msg.isMe && !msg.read) {
-        const msgTime = msg.dbCreatedAt ? new Date(msg.dbCreatedAt).getTime() : 0;
-        const lastReadTime = lastRead[msg.channelId] ? new Date(lastRead[msg.channelId]).getTime() : 0;
-        if (msgTime > lastReadTime) {
-          result[msg.channelId] = (result[msg.channelId] ?? 0) + 1;
-        }
+      if (!msg.channelId || msg.isMe) continue;
+      // Check readBy directly (more reliable than msg.read which can be stale)
+      const iReadIt = myName && msg.readBy.some((u: string) => u === myName);
+      if (iReadIt) continue;
+      const msgTime = msg.dbCreatedAt ? new Date(msg.dbCreatedAt).getTime() : 0;
+      const lastReadTime = lastRead[msg.channelId] ? new Date(lastRead[msg.channelId]).getTime() : 0;
+      if (msgTime > lastReadTime) {
+        result[msg.channelId] = (result[msg.channelId] ?? 0) + 1;
       }
     }
     return result;

@@ -46,14 +46,14 @@ export function useMessages() {
         try {
           const cached: Message[] = JSON.parse(raw);
           // Bug 3 (already fixed): recalculate isMe based on current user
-          // Bug 13: also recalculate readBy — remove current user from readBy of other people's messages
           const currentUserName = userNameRef.current;
           const fixed = cached.map(m => ({
             ...m,
             isMe: currentUserName ? m.sender === currentUserName : m.isMe,
-            readBy: currentUserName && !m.isMe
-              ? m.readBy.filter((u: string) => u !== currentUserName)
-              : m.readBy,
+            // Recompute read from readBy + isMe so it's consistent with toMessage
+            read: currentUserName
+              ? (m.sender === currentUserName || m.readBy.some((u: string) => u === currentUserName))
+              : m.read,
           }));
           setMessages(fixed);
         } catch {}
@@ -200,6 +200,13 @@ export function useMessages() {
       dbCreatedAt: new Date().toISOString(),
     };
     setMessages(prev => [...prev, msg]);
+    // Auto-mark channel as read when sending a message — if I'm the one
+    // writing, there's nothing new for me to read in this channel.
+    setMessages(prev => prev.map(m => {
+      if (m.channelId !== channelId || m.isMe) return m;
+      if (m.readBy.includes(actualSender)) return m;
+      return { ...m, readBy: [...m.readBy, actualSender], read: true };
+    }));
     if (isSupabaseConfigured) {
       // Bug 7: include organization_id in insert data
       const insertData = { ...fromMessage(msg), organization_id: orgIdRef.current ?? null };
@@ -287,7 +294,8 @@ export function useMessages() {
         if (m.channelId !== channelId || m.isMe) return m;
         if (m.readBy.includes(userName)) return m;
         unreadIds.push(m.id);
-        return { ...m, readBy: [...m.readBy, userName] };
+        // Fix: also set read=true so unreadByChannel computation is correct
+        return { ...m, readBy: [...m.readBy, userName], read: true };
       });
       return updated;
     });
