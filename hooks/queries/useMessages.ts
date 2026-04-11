@@ -280,8 +280,19 @@ export function useMessages() {
       });
       return updated;
     });
-    if (isSupabaseConfigured && userName) {
-      if (!isOnlineRef.current) return;
+    if (isSupabaseConfigured && userName && unreadIds.length > 0) {
+      if (!isOnlineRef.current) {
+        // Offline: enqueue per-message read_by updates so they sync when network returns
+        for (const msgId of unreadIds) {
+          enqueueOperation({
+            table: 'messages',
+            op: 'update',
+            filter: { column: 'id', value: msgId },
+            data: { read_by: [{ userName, at: new Date().toISOString() }] },
+          });
+        }
+        return;
+      }
       const BATCH_SIZE = 100;
       for (let i = 0; i < unreadIds.length; i += BATCH_SIZE) {
         const batch = unreadIds.slice(i, i + BATCH_SIZE);
@@ -290,7 +301,7 @@ export function useMessages() {
         }).catch(() => {});
       }
     }
-  }, []);
+  }, [enqueueOperation]);
 
   const addNotificationMessage = useCallback((msg: Message) => {
     setMessages(prev => {

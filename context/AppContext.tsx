@@ -6,7 +6,8 @@ import {
   Comment, ReserveStatus, Chantier, SitePlan, Visite, Lot, Opr,
 } from '@/constants/types';
 import { supabase, isSupabaseConfigured } from '@/lib/supabase';
-import { globalSeedingRef, registerInProgressRef, loginInProgressRef } from '@/context/AuthContext';
+import { useAuth, globalSeedingRef, registerInProgressRef, loginInProgressRef } from '@/context/AuthContext';
+import { useNetwork } from '@/context/NetworkContext';
 import { initStorageBuckets } from '@/lib/storage';
 import { C } from '@/constants/colors';
 import { genId, nowTimestampFR } from '@/lib/utils';
@@ -148,6 +149,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const oprsH = useOprs();
   const channelsH = useChannels();
   const messagesH = useMessages();
+  const authH = useAuth();
+  const { isOnline, enqueueOperation } = useNetwork();
 
   useRealtimeSync();
 
@@ -313,15 +316,23 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     const userName = currentUserNameRef.current;
     messagesH.setChannelRead(channelId, userName);
     if (isSupabaseConfigured && userName) {
-      supabase.auth.getSession().then(({ data: { session } }) => {
-        if (session?.user?.id) {
-          const newLastRead = { ...lastReadByChannel, [channelId]: timestamp };
-          supabase.from('profiles').update({ last_read_by_channel: newLastRead })
-            .eq('id', session.user.id).catch(() => {});
-        }
-      }).catch(() => {});
+      const newLastRead = { ...lastReadByChannel, [channelId]: timestamp };
+      const userId = authH.user?.id;
+      if (!userId) return;
+      if (!isOnline) {
+        // Offline: enqueue profile update for sync when network returns
+        enqueueOperation({
+          table: 'profiles',
+          op: 'update',
+          filter: { column: 'id', value: userId },
+          data: { last_read_by_channel: newLastRead },
+        });
+        return;
+      }
+      supabase.from('profiles').update({ last_read_by_channel: newLastRead })
+        .eq('id', userId).catch(() => {});
     }
-  }, [messagesH, lastReadByChannel]);
+  }, [messagesH, lastReadByChannel, authH.user?.id, isOnline, enqueueOperation]);
 
   const reload = useCallback(() => {
     queryClient.invalidateQueries();
