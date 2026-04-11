@@ -8,8 +8,9 @@ import { useNetwork } from '@/context/NetworkContext';
 import { queryKeys } from '@/lib/queryKeys';
 import { toCompany } from '@/lib/mappers';
 import { Company } from '@/constants/types';
+import { offlineQuery, writeCache } from '@/lib/offlineCache';
 
-const MOCK_COMPANIES_KEY = 'buildtrack_mock_companies_v1';
+const COMPANIES_CACHE_KEY = 'buildtrack_companies_cache_v1';
 
 export function useCompanies() {
   const { user } = useAuth();
@@ -21,27 +22,28 @@ export function useCompanies() {
   const query = useQuery({
     queryKey: queryKeys.companies(),
     queryFn: async (): Promise<Company[]> => {
-      if (!isSupabaseConfigured) {
-        const stored = await AsyncStorage.getItem(MOCK_COMPANIES_KEY).catch(() => null);
-        return stored ? JSON.parse(stored) : [];
-      }
-      const { data, error } = await supabase.from('companies').select('*');
-      if (error) throw error;
-      const raw = data ?? [];
-      const seenIds = new Set<string>();
-      const seenNames = new Set<string>();
-      return raw.map(toCompany).filter(c => {
-        const nameKey = c.name.trim().toLowerCase();
-        if (seenIds.has(c.id) || seenNames.has(nameKey)) return false;
-        seenIds.add(c.id); seenNames.add(nameKey); return true;
-      });
+      const fetchFn = isSupabaseConfigured
+        ? async () => {
+            const { data, error } = await supabase.from('companies').select('*');
+            if (error) throw error;
+            const raw = data ?? [];
+            const seenIds = new Set<string>();
+            const seenNames = new Set<string>();
+            return raw.map(toCompany).filter(c => {
+              const nameKey = c.name.trim().toLowerCase();
+              if (seenIds.has(c.id) || seenNames.has(nameKey)) return false;
+              seenIds.add(c.id); seenNames.add(nameKey); return true;
+            });
+          }
+        : null;
+      return offlineQuery<Company>(COMPANIES_CACHE_KEY, fetchFn);
     },
     enabled: !!user,
     staleTime: 5 * 60 * 1000,
   });
 
   const persist = useCallback((companies: Company[]) => {
-    AsyncStorage.setItem(MOCK_COMPANIES_KEY, JSON.stringify(companies)).catch(() => {});
+    writeCache(COMPANIES_CACHE_KEY, companies);
   }, []);
 
   const addCompany = useCallback(async (c: Company) => {

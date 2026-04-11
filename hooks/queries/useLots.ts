@@ -9,8 +9,9 @@ import { queryKeys } from '@/lib/queryKeys';
 import { toLot, fromLot } from '@/lib/mappers';
 import { Lot } from '@/constants/types';
 import { useStartupDelay } from '@/hooks/useStartupDelay';
+import { offlineQuery, writeCache } from '@/lib/offlineCache';
 
-const MOCK_LOTS_KEY = 'buildtrack_mock_lots_v2';
+const LOTS_CACHE_KEY = 'buildtrack_lots_cache_v1';
 
 export const STANDARD_LOTS: Lot[] = [
   { id: 'lot-00', code: '00', name: 'VRD / Terrassement', color: '#78716C', cctpRef: 'CCTP Titre I — Travaux préparatoires' },
@@ -43,22 +44,23 @@ export function useLots() {
   const query = useQuery({
     queryKey: queryKeys.lots(),
     queryFn: async (): Promise<Lot[]> => {
-      if (!isSupabaseConfigured) {
-        const stored = await AsyncStorage.getItem(MOCK_LOTS_KEY).catch(() => null);
-        if (stored) { const p = JSON.parse(stored); if (Array.isArray(p) && p.length > 0) return p; }
-        return STANDARD_LOTS;
-      }
-      const { data, error } = await supabase.from('lots').select('*');
-      if (error) throw error;
-      if (!data?.length) return STANDARD_LOTS;
-      return data.map(toLot);
+      const fetchFn = isSupabaseConfigured
+        ? async () => {
+            const { data, error } = await supabase.from('lots').select('*');
+            if (error) throw error;
+            if (!data?.length) return STANDARD_LOTS;
+            return data.map(toLot);
+          }
+        : null;
+      const result = await offlineQuery<Lot>(LOTS_CACHE_KEY, fetchFn);
+      return result.length > 0 ? result : STANDARD_LOTS;
     },
     enabled: !!user && startupReady,
     staleTime: 10 * 60 * 1000,
   });
 
   const persist = useCallback((lots: Lot[]) => {
-    AsyncStorage.setItem(MOCK_LOTS_KEY, JSON.stringify(lots)).catch(() => {});
+    writeCache(LOTS_CACHE_KEY, lots);
   }, []);
 
   const addLot = useCallback(async (l: Lot) => {

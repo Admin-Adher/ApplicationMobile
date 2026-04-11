@@ -9,8 +9,9 @@ import { queryKeys } from '@/lib/queryKeys';
 import { toVisite, fromVisite } from '@/lib/mappers';
 import { Visite } from '@/constants/types';
 import { useStartupDelay } from '@/hooks/useStartupDelay';
+import { offlineQuery, writeCache } from '@/lib/offlineCache';
 
-const MOCK_VISITES_KEY = 'buildtrack_mock_visites_v2';
+const VISITES_CACHE_KEY = 'buildtrack_visites_cache_v1';
 
 export function useVisites() {
   const { user } = useAuth();
@@ -23,20 +24,21 @@ export function useVisites() {
   const query = useQuery({
     queryKey: queryKeys.visites(),
     queryFn: async (): Promise<Visite[]> => {
-      if (!isSupabaseConfigured) {
-        const stored = await AsyncStorage.getItem(MOCK_VISITES_KEY).catch(() => null);
-        return stored ? JSON.parse(stored) : [];
-      }
-      const { data, error } = await supabase.from('visites').select('*').order('created_at', { ascending: false });
-      if (error) throw error;
-      return (data ?? []).map(toVisite);
+      const fetchFn = isSupabaseConfigured
+        ? async () => {
+            const { data, error } = await supabase.from('visites').select('*').order('created_at', { ascending: false });
+            if (error) throw error;
+            return (data ?? []).map(toVisite);
+          }
+        : null;
+      return offlineQuery<Visite>(VISITES_CACHE_KEY, fetchFn);
     },
     enabled: !!user && startupReady,
     staleTime: 5 * 60 * 1000,
   });
 
   const persist = useCallback((visites: Visite[]) => {
-    AsyncStorage.setItem(MOCK_VISITES_KEY, JSON.stringify(visites)).catch(() => {});
+    writeCache(VISITES_CACHE_KEY, visites);
   }, []);
 
   const addVisite = useCallback(async (v: Visite) => {

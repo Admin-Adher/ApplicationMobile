@@ -9,8 +9,9 @@ import { queryKeys } from '@/lib/queryKeys';
 import { toOpr, fromOpr } from '@/lib/mappers';
 import { Opr } from '@/constants/types';
 import { useStartupDelay } from '@/hooks/useStartupDelay';
+import { offlineQuery, writeCache } from '@/lib/offlineCache';
 
-const MOCK_OPRS_KEY = 'buildtrack_mock_oprs_v2';
+const OPRS_CACHE_KEY = 'buildtrack_oprs_cache_v1';
 
 export function useOprs() {
   const { user } = useAuth();
@@ -23,20 +24,21 @@ export function useOprs() {
   const query = useQuery({
     queryKey: queryKeys.oprs(),
     queryFn: async (): Promise<Opr[]> => {
-      if (!isSupabaseConfigured) {
-        const stored = await AsyncStorage.getItem(MOCK_OPRS_KEY).catch(() => null);
-        return stored ? JSON.parse(stored) : [];
-      }
-      const { data, error } = await supabase.from('oprs').select('*').order('created_at', { ascending: false });
-      if (error) throw error;
-      return (data ?? []).map(toOpr);
+      const fetchFn = isSupabaseConfigured
+        ? async () => {
+            const { data, error } = await supabase.from('oprs').select('*').order('created_at', { ascending: false });
+            if (error) throw error;
+            return (data ?? []).map(toOpr);
+          }
+        : null;
+      return offlineQuery<Opr>(OPRS_CACHE_KEY, fetchFn);
     },
     enabled: !!user && startupReady,
     staleTime: 5 * 60 * 1000,
   });
 
   const persist = useCallback((oprs: Opr[]) => {
-    AsyncStorage.setItem(MOCK_OPRS_KEY, JSON.stringify(oprs)).catch(() => {});
+    writeCache(OPRS_CACHE_KEY, oprs);
   }, []);
 
   const addOpr = useCallback(async (o: Opr) => {

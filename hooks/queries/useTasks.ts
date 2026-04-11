@@ -9,8 +9,9 @@ import { queryKeys } from '@/lib/queryKeys';
 import { toTask } from '@/lib/mappers';
 import { Task, Comment } from '@/constants/types';
 import { genId } from '@/lib/utils';
+import { offlineQuery, writeCache } from '@/lib/offlineCache';
 
-const MOCK_TASKS_KEY = 'buildtrack_mock_tasks_v3';
+const TASKS_CACHE_KEY = 'buildtrack_tasks_cache_v1';
 
 export function useTasks() {
   const { user } = useAuth();
@@ -22,20 +23,21 @@ export function useTasks() {
   const query = useQuery({
     queryKey: queryKeys.tasks(),
     queryFn: async (): Promise<Task[]> => {
-      if (!isSupabaseConfigured) {
-        const stored = await AsyncStorage.getItem(MOCK_TASKS_KEY).catch(() => null);
-        return stored ? JSON.parse(stored) : [];
-      }
-      const { data, error } = await supabase.from('tasks').select('*');
-      if (error) throw error;
-      return (data ?? []).map(toTask);
+      const fetchFn = isSupabaseConfigured
+        ? async () => {
+            const { data, error } = await supabase.from('tasks').select('*');
+            if (error) throw error;
+            return (data ?? []).map(toTask);
+          }
+        : null;
+      return offlineQuery<Task>(TASKS_CACHE_KEY, fetchFn);
     },
     enabled: !!user,
     staleTime: 5 * 60 * 1000,
   });
 
   const persist = useCallback((tasks: Task[]) => {
-    AsyncStorage.setItem(MOCK_TASKS_KEY, JSON.stringify(tasks)).catch(() => {});
+    writeCache(TASKS_CACHE_KEY, tasks);
   }, []);
 
   const addTask = useCallback(async (t: Task) => {

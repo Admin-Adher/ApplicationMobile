@@ -8,9 +8,10 @@ import { useNetwork } from '@/context/NetworkContext';
 import { queryKeys } from '@/lib/queryKeys';
 import { toChantier, toSitePlan } from '@/lib/mappers';
 import { Chantier, SitePlan, Channel } from '@/constants/types';
+import { offlineQuery, writeCache } from '@/lib/offlineCache';
 
-const MOCK_CHANTIERS_KEY = 'buildtrack_mock_chantiers_v2';
-const MOCK_SITE_PLANS_KEY = 'buildtrack_mock_site_plans_v2';
+const CHANTIERS_CACHE_KEY = 'buildtrack_chantiers_cache_v1';
+const SITE_PLANS_CACHE_KEY = 'buildtrack_site_plans_cache_v1';
 
 export function useChantiers() {
   const { user } = useAuth();
@@ -22,14 +23,15 @@ export function useChantiers() {
   const chantiersQuery = useQuery({
     queryKey: queryKeys.chantiers(),
     queryFn: async (): Promise<Chantier[]> => {
-      if (!isSupabaseConfigured) {
-        const stored = await AsyncStorage.getItem(MOCK_CHANTIERS_KEY).catch(() => null);
-        return stored ? JSON.parse(stored) : [];
-      }
-      const { data, error } = await supabase
-        .from('chantiers').select('*').order('created_at', { ascending: false });
-      if (error) throw error;
-      return (data ?? []).map(toChantier);
+      const fetchFn = isSupabaseConfigured
+        ? async () => {
+            const { data, error } = await supabase
+              .from('chantiers').select('*').order('created_at', { ascending: false });
+            if (error) throw error;
+            return (data ?? []).map(toChantier);
+          }
+        : null;
+      return offlineQuery<Chantier>(CHANTIERS_CACHE_KEY, fetchFn);
     },
     enabled: !!user,
     staleTime: 5 * 60 * 1000,
@@ -38,14 +40,15 @@ export function useChantiers() {
   const sitePlansQuery = useQuery({
     queryKey: queryKeys.sitePlans(),
     queryFn: async (): Promise<SitePlan[]> => {
-      if (!isSupabaseConfigured) {
-        const stored = await AsyncStorage.getItem(MOCK_SITE_PLANS_KEY).catch(() => null);
-        return stored ? JSON.parse(stored) : [];
-      }
-      const { data, error } = await supabase
-        .from('site_plans').select('*').order('created_at', { ascending: false });
-      if (error) throw error;
-      return (data ?? []).map(toSitePlan);
+      const fetchFn = isSupabaseConfigured
+        ? async () => {
+            const { data, error } = await supabase
+              .from('site_plans').select('*').order('created_at', { ascending: false });
+            if (error) throw error;
+            return (data ?? []).map(toSitePlan);
+          }
+        : null;
+      return offlineQuery<SitePlan>(SITE_PLANS_CACHE_KEY, fetchFn);
     },
     enabled: !!user,
     staleTime: 5 * 60 * 1000,
@@ -59,10 +62,10 @@ export function useChantiers() {
     }
     const newChantiers = [...existing, c];
     queryClient.setQueryData<Chantier[]>(queryKeys.chantiers(), newChantiers);
-    AsyncStorage.setItem(MOCK_CHANTIERS_KEY, JSON.stringify(newChantiers)).catch(() => {});
+    writeCache(CHANTIERS_CACHE_KEY, newChantiers);
     const existingPlans = queryClient.getQueryData<SitePlan[]>(queryKeys.sitePlans()) ?? [];
     queryClient.setQueryData<SitePlan[]>(queryKeys.sitePlans(), [...existingPlans, ...plans]);
-    AsyncStorage.setItem(MOCK_SITE_PLANS_KEY, JSON.stringify([...existingPlans, ...plans])).catch(() => {});
+    writeCache(SITE_PLANS_CACHE_KEY, [...existingPlans, ...plans]);
 
     const buildingChannel: Channel = {
       id: `building-${c.id}`,
@@ -125,7 +128,7 @@ export function useChantiers() {
       (old ?? []).map(x => x.id === c.id ? c : x)
     );
     const updated = queryClient.getQueryData<Chantier[]>(queryKeys.chantiers()) ?? [];
-    AsyncStorage.setItem(MOCK_CHANTIERS_KEY, JSON.stringify(updated)).catch(() => {});
+    writeCache(CHANTIERS_CACHE_KEY, updated);
     const updatePayload = {
       name: c.name, address: c.address ?? null, description: c.description ?? null,
       start_date: c.startDate ?? null, end_date: c.endDate ?? null, status: c.status,
@@ -149,11 +152,11 @@ export function useChantiers() {
     const prev = queryClient.getQueryData<Chantier[]>(queryKeys.chantiers()) ?? [];
     const newChantiers = prev.filter(c => c.id !== id);
     queryClient.setQueryData<Chantier[]>(queryKeys.chantiers(), newChantiers);
-    AsyncStorage.setItem(MOCK_CHANTIERS_KEY, JSON.stringify(newChantiers)).catch(() => {});
+    writeCache(CHANTIERS_CACHE_KEY, newChantiers);
     const prevPlans = queryClient.getQueryData<SitePlan[]>(queryKeys.sitePlans()) ?? [];
     const newPlans = prevPlans.filter(p => p.chantierId !== id);
     queryClient.setQueryData<SitePlan[]>(queryKeys.sitePlans(), newPlans);
-    AsyncStorage.setItem(MOCK_SITE_PLANS_KEY, JSON.stringify(newPlans)).catch(() => {});
+    writeCache(SITE_PLANS_CACHE_KEY, newPlans);
     queryClient.invalidateQueries({ queryKey: queryKeys.reserves() });
     queryClient.invalidateQueries({ queryKey: queryKeys.tasks() });
     queryClient.invalidateQueries({ queryKey: queryKeys.visites() });
@@ -203,7 +206,7 @@ export function useChantiers() {
       return [...(old ?? []), p];
     });
     const allPlans = queryClient.getQueryData<SitePlan[]>(queryKeys.sitePlans()) ?? [];
-    AsyncStorage.setItem(MOCK_SITE_PLANS_KEY, JSON.stringify(allPlans)).catch(() => {});
+    writeCache(SITE_PLANS_CACHE_KEY, allPlans);
     if (!isOnlineRef.current && isSupabaseConfigured) {
       enqueueOperation({ table: 'site_plans', op: 'insert', data: {
         id: p.id, chantier_id: p.chantierId, name: p.name,
@@ -234,7 +237,7 @@ export function useChantiers() {
       (old ?? []).map(x => x.id === p.id ? p : x)
     );
     const allPlans = queryClient.getQueryData<SitePlan[]>(queryKeys.sitePlans()) ?? [];
-    AsyncStorage.setItem(MOCK_SITE_PLANS_KEY, JSON.stringify(allPlans)).catch(() => {});
+    writeCache(SITE_PLANS_CACHE_KEY, allPlans);
     if (!isOnlineRef.current && isSupabaseConfigured) {
       enqueueOperation({ table: 'site_plans', op: 'update', filter: { column: 'id', value: p.id }, data: {
         chantier_id: p.chantierId, name: p.name,
@@ -264,7 +267,7 @@ export function useChantiers() {
     const prev = queryClient.getQueryData<SitePlan[]>(queryKeys.sitePlans()) ?? [];
     const previous = prev.find(p => p.id === id);
     queryClient.setQueryData<SitePlan[]>(queryKeys.sitePlans(), prev.filter(p => p.id !== id));
-    AsyncStorage.setItem(MOCK_SITE_PLANS_KEY, JSON.stringify(prev.filter(p => p.id !== id))).catch(() => {});
+    writeCache(SITE_PLANS_CACHE_KEY, prev.filter(p => p.id !== id));
     if (!isOnlineRef.current && isSupabaseConfigured) {
       enqueueOperation({ table: 'site_plans', op: 'delete', filter: { column: 'id', value: id } });
       return;
@@ -298,7 +301,7 @@ export function useChantiers() {
     };
     const updatedPlans = allPlans.map(p => p.id === parentPlanId ? updatedParent : p).concat([versionedNew]);
     queryClient.setQueryData<SitePlan[]>(queryKeys.sitePlans(), updatedPlans);
-    AsyncStorage.setItem(MOCK_SITE_PLANS_KEY, JSON.stringify(updatedPlans)).catch(() => {});
+    writeCache(SITE_PLANS_CACHE_KEY, updatedPlans);
     if (isSupabaseConfigured) {
       const { error: updateErr } = await supabase.from('site_plans')
         .update({ is_latest_revision: false, revision_number: parentRevNum }).eq('id', parentPlanId);

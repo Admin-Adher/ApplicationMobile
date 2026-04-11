@@ -10,8 +10,9 @@ import { toReserve } from '@/lib/mappers';
 import { Reserve, ReserveStatus, Comment } from '@/constants/types';
 import { genId, formatDateFR } from '@/lib/utils';
 import { genReserveId } from '@/lib/reserveUtils';
+import { offlineQuery, writeCache } from '@/lib/offlineCache';
 
-const MOCK_RESERVES_KEY = 'buildtrack_mock_reserves_v3';
+const RESERVES_CACHE_KEY = 'buildtrack_reserves_cache_v1';
 
 export function useReserves() {
   const { user } = useAuth();
@@ -23,21 +24,22 @@ export function useReserves() {
   const query = useQuery({
     queryKey: queryKeys.reserves(),
     queryFn: async (): Promise<Reserve[]> => {
-      if (!isSupabaseConfigured) {
-        const stored = await AsyncStorage.getItem(MOCK_RESERVES_KEY).catch(() => null);
-        return stored ? JSON.parse(stored) : [];
-      }
-      const { data, error } = await supabase
-        .from('reserves').select('*').order('created_at', { ascending: false });
-      if (error) throw error;
-      return (data ?? []).map(toReserve);
+      const fetchFn = isSupabaseConfigured
+        ? async () => {
+            const { data, error } = await supabase
+              .from('reserves').select('*').order('created_at', { ascending: false });
+            if (error) throw error;
+            return (data ?? []).map(toReserve);
+          }
+        : null;
+      return offlineQuery<Reserve>(RESERVES_CACHE_KEY, fetchFn);
     },
     enabled: !!user,
     staleTime: 5 * 60 * 1000,
   });
 
   const persist = useCallback((reserves: Reserve[]) => {
-    AsyncStorage.setItem(MOCK_RESERVES_KEY, JSON.stringify(reserves)).catch(() => {});
+    writeCache(RESERVES_CACHE_KEY, reserves);
   }, []);
 
   const addReserve = useCallback(async (r: Reserve) => {

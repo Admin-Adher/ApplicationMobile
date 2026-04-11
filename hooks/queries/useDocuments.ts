@@ -8,8 +8,9 @@ import { queryKeys } from '@/lib/queryKeys';
 import { toDocument } from '@/lib/mappers';
 import { Document } from '@/constants/types';
 import { useStartupDelay } from '@/hooks/useStartupDelay';
+import { offlineQuery, writeCache } from '@/lib/offlineCache';
 
-const MOCK_DOCUMENTS_KEY = 'buildtrack_mock_documents_v2';
+const DOCUMENTS_CACHE_KEY = 'buildtrack_documents_cache_v1';
 
 export function useDocuments() {
   const { user } = useAuth();
@@ -22,20 +23,21 @@ export function useDocuments() {
   const query = useQuery({
     queryKey: queryKeys.documents(),
     queryFn: async (): Promise<Document[]> => {
-      if (!isSupabaseConfigured) {
-        const stored = await AsyncStorage.getItem(MOCK_DOCUMENTS_KEY).catch(() => null);
-        return stored ? JSON.parse(stored) : [];
-      }
-      const { data, error } = await supabase.from('documents').select('*').order('uploaded_at', { ascending: false });
-      if (error) throw error;
-      return (data ?? []).map(toDocument);
+      const fetchFn = isSupabaseConfigured
+        ? async () => {
+            const { data, error } = await supabase.from('documents').select('*').order('uploaded_at', { ascending: false });
+            if (error) throw error;
+            return (data ?? []).map(toDocument);
+          }
+        : null;
+      return offlineQuery<Document>(DOCUMENTS_CACHE_KEY, fetchFn);
     },
     enabled: !!user && startupReady,
     staleTime: 5 * 60 * 1000,
   });
 
   const persist = useCallback((documents: Document[]) => {
-    AsyncStorage.setItem(MOCK_DOCUMENTS_KEY, JSON.stringify(documents)).catch(() => {});
+    writeCache(DOCUMENTS_CACHE_KEY, documents);
   }, []);
 
   const addDocument = useCallback(async (d: Document) => {

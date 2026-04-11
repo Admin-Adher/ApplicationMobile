@@ -8,8 +8,9 @@ import { queryKeys } from '@/lib/queryKeys';
 import { toPhoto } from '@/lib/mappers';
 import { Photo } from '@/constants/types';
 import { useStartupDelay } from '@/hooks/useStartupDelay';
+import { offlineQuery, writeCache } from '@/lib/offlineCache';
 
-const MOCK_PHOTOS_KEY = 'buildtrack_mock_photos_v4';
+const PHOTOS_CACHE_KEY = 'buildtrack_photos_cache_v1';
 
 export function usePhotos() {
   const { user } = useAuth();
@@ -22,24 +23,21 @@ export function usePhotos() {
   const query = useQuery({
     queryKey: queryKeys.photos(),
     queryFn: async (): Promise<Photo[]> => {
-      if (!isSupabaseConfigured) {
-        const stored = await AsyncStorage.getItem(MOCK_PHOTOS_KEY).catch(() => null);
-        if (stored) {
-          const parsed: Photo[] = JSON.parse(stored);
-          return parsed.map(p => p.uri?.startsWith('blob:') ? { ...p, uri: undefined } : p);
-        }
-        return [];
-      }
-      const { data, error } = await supabase.from('photos').select('*').order('taken_at', { ascending: false });
-      if (error) throw error;
-      return (data ?? []).map(toPhoto);
+      const fetchFn = isSupabaseConfigured
+        ? async () => {
+            const { data, error } = await supabase.from('photos').select('*').order('taken_at', { ascending: false });
+            if (error) throw error;
+            return (data ?? []).map(toPhoto);
+          }
+        : null;
+      return offlineQuery<Photo>(PHOTOS_CACHE_KEY, fetchFn);
     },
     enabled: !!user && startupReady,
     staleTime: 5 * 60 * 1000,
   });
 
   const persist = useCallback((photos: Photo[]) => {
-    AsyncStorage.setItem(MOCK_PHOTOS_KEY, JSON.stringify(photos)).catch(() => {});
+    writeCache(PHOTOS_CACHE_KEY, photos);
   }, []);
 
   const addPhoto = useCallback(async (p: Photo) => {
