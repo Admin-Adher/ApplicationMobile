@@ -6,7 +6,7 @@ import {
   Comment, ReserveStatus, Chantier, SitePlan, Visite, Lot, Opr,
 } from '@/constants/types';
 import { supabase, isSupabaseConfigured } from '@/lib/supabase';
-import { globalSeedingRef, registerInProgressRef } from '@/context/AuthContext';
+import { globalSeedingRef, registerInProgressRef, loginInProgressRef } from '@/context/AuthContext';
 import { initStorageBuckets } from '@/lib/storage';
 import { C } from '@/constants/colors';
 import { genId, nowTimestampFR } from '@/lib/utils';
@@ -209,6 +209,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       if (event === 'SIGNED_IN' && session) {
         if (globalSeedingRef.current) return;
         if (registerInProgressRef.current) return;
+        if (loginInProgressRef.current) return;
 
         const userMeta = session.user.user_metadata;
         const userName = userMeta?.name ?? userMeta?.full_name ?? session.user.email ?? '';

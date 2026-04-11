@@ -4,6 +4,7 @@ import { Alert } from 'react-native';
 import { TimeEntry } from '@/constants/types';
 import { supabase, isSupabaseConfigured } from '@/lib/supabase';
 import { useAuth } from '@/context/AuthContext';
+import { useNetwork } from '@/context/NetworkContext';
 import { genId } from '@/lib/utils';
 
 const POINTAGE_KEY = 'buildtrack_pointage_v1';
@@ -58,11 +59,14 @@ function fromEntry(e: TimeEntry): Record<string, any> {
 
 export function PointageProvider({ children }: { children: React.ReactNode }) {
   const { user } = useAuth();
+  const { isOnline, enqueueOperation } = useNetwork();
   const [entries, setEntries] = useState<TimeEntry[]>([]);
   const entriesRef = useRef(entries);
   const orgIdRef = useRef<string | null>(user?.organizationId ?? null);
+  const isOnlineRef = useRef(isOnline);
   useEffect(() => { entriesRef.current = entries; }, [entries]);
   useEffect(() => { orgIdRef.current = user?.organizationId ?? null; }, [user?.organizationId]);
+  useEffect(() => { isOnlineRef.current = isOnline; }, [isOnline]);
 
   useEffect(() => {
     async function load() {
@@ -130,15 +134,17 @@ export function PointageProvider({ children }: { children: React.ReactNode }) {
     const newEntry: TimeEntry = { ...entry, id: genId() };
     await persistLocal([...entriesRef.current, newEntry]);
     if (isSupabaseConfigured) {
+      if (!isOnlineRef.current) {
+        enqueueOperation({ table: 'time_entries', op: 'insert', data: { ...fromEntry(newEntry), organization_id: orgIdRef.current ?? null } });
+        return;
+      }
       supabase.from('time_entries').insert({ ...fromEntry(newEntry), organization_id: orgIdRef.current ?? null }).then(({ error }: { error: any }) => {
-        if (error) {
-          console.warn('[sync] addEntry server error (data saved locally):', error.message);
-        }
+        if (error) console.warn('[sync] addEntry server error (data saved locally):', error.message);
       }).catch((err: any) => {
         console.warn('[sync] addEntry network error (data saved locally):', err?.message ?? err);
       });
     }
-  }, []);
+  }, [enqueueOperation]);
 
   const updateEntry = useCallback(async (id: string, updates: Partial<TimeEntry>) => {
     const updated = entriesRef.current.map(e => e.id === id ? { ...e, ...updates } : e);
@@ -146,29 +152,33 @@ export function PointageProvider({ children }: { children: React.ReactNode }) {
     if (isSupabaseConfigured) {
       const full = updated.find(e => e.id === id);
       if (full) {
+        if (!isOnlineRef.current) {
+          enqueueOperation({ table: 'time_entries', op: 'update', filter: { column: 'id', value: id }, data: fromEntry(full) });
+          return;
+        }
         supabase.from('time_entries').update(fromEntry(full)).eq('id', id).then(({ error }: { error: any }) => {
-          if (error) {
-            console.warn('[sync] updateEntry server error (data saved locally):', error.message);
-          }
+          if (error) console.warn('[sync] updateEntry server error (data saved locally):', error.message);
         }).catch((err: any) => {
           console.warn('[sync] updateEntry network error (data saved locally):', err?.message ?? err);
         });
       }
     }
-  }, []);
+  }, [enqueueOperation]);
 
   const deleteEntry = useCallback(async (id: string) => {
     await persistLocal(entriesRef.current.filter(e => e.id !== id));
     if (isSupabaseConfigured) {
+      if (!isOnlineRef.current) {
+        enqueueOperation({ table: 'time_entries', op: 'delete', filter: { column: 'id', value: id } });
+        return;
+      }
       supabase.from('time_entries').delete().eq('id', id).then(({ error }: { error: any }) => {
-        if (error) {
-          console.warn('[sync] deleteEntry server error (data deleted locally):', error.message);
-        }
+        if (error) console.warn('[sync] deleteEntry server error (data deleted locally):', error.message);
       }).catch((err: any) => {
         console.warn('[sync] deleteEntry network error (data deleted locally):', err?.message ?? err);
       });
     }
-  }, []);
+  }, [enqueueOperation]);
 
   const getEntriesForDate = useCallback((date: string) => {
     return entriesRef.current.filter(e => e.date === date);

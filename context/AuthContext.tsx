@@ -15,6 +15,7 @@ import { sendWelcomeEmail, sendInvitationAcceptedEmail, sendAccessRevokedEmail }
  */
 export const globalSeedingRef: { current: boolean } = { current: false };
 export const registerInProgressRef: { current: boolean } = { current: false };
+export const loginInProgressRef: { current: boolean } = { current: false };
 
 export const ROLE_PERMISSIONS: Record<UserRole, UserPermissions> = {
   super_admin:    { canCreate: true,  canEdit: true,  canEditOwn: true,  canDelete: true,  canExport: true,  canManageTeams: true,  canViewTeams: true,  canUpdateAttendance: true,  canMovePins: true,  canEditChantier: true  },
@@ -158,44 +159,51 @@ async function linkPendingInvitation(userId: string, email: string, inviteeName?
   }
 }
 
-async function fetchProfile(userId: string): Promise<User | null> {
+async function fetchProfile(userId: string, skipInvitationLink = false): Promise<User | null> {
   try {
-    // ── Tentative 1 : requête directe sur la table ────────────────────
+    // ── Lancer direct query + RPC en parallèle pour gagner du temps ────
+    // La requête directe est rapide si RLS est OK ; le RPC est le fallback
+    // si RLS récursif. En les lançant en parallèle, on évite 1 RTT inutile.
     let profileData: Record<string, unknown> | null = null;
 
-    const { data: directData, error: directError } = await supabase
+    const directPromise = supabase
       .from('profiles')
       .select('*')
       .eq('id', userId)
       .single();
 
+    const rpcPromise = supabase.rpc('get_profile_for_current_user');
+
+    // Attendre la direct query en premier — si elle réussit, on ignore le RPC
+    const { data: directData, error: directError } = await directPromise;
+
     if (!directError && directData) {
       profileData = directData as Record<string, unknown>;
-    } else if (directError) {
-      // La politique RLS peut être récursive (migration 20260417) et provoquer
+    } else {
+      // La politique RLS peut être récursive et provoquer
       // "infinite recursion detected in policy for relation profiles".
-      // On tente alors le RPC SECURITY DEFINER qui contourne les politiques.
+      // Le RPC est déjà en vol — on attend son résultat.
       console.warn(
         '[fetchProfile] Requête directe échouée (probablement RLS récursif) :',
         directError.code, directError.message,
         '— Tentative via RPC get_profile_for_current_user…'
       );
 
-      const { data: rpcRows, error: rpcError } = await supabase
-        .rpc('get_profile_for_current_user');
-
-      if (!rpcError && rpcRows && (rpcRows as unknown[]).length > 0) {
-        profileData = (rpcRows as Record<string, unknown>[])[0];
-        console.log('[fetchProfile] Profil récupéré via RPC (fallback RLS) ✓');
-      } else {
-        console.warn(
-          '[fetchProfile] RPC également échoué :',
-          rpcError?.code, rpcError?.message,
-          '— userId:', userId
-        );
-        if (!rpcError) {
-          console.warn('[fetchProfile] Aucune ligne de profil pour userId:', userId);
+      try {
+        const { data: rpcRows, error: rpcError } = await rpcPromise;
+        if (!rpcError && rpcRows && (rpcRows as unknown[]).length > 0) {
+          profileData = (rpcRows as Record<string, unknown>[])[0];
+          console.log('[fetchProfile] Profil récupéré via RPC (fallback RLS) ✓');
+        } else {
+          console.warn(
+            '[fetchProfile] RPC également échoué :',
+            rpcError?.code, rpcError?.message,
+            '— userId:', userId
+          );
+          return null;
         }
+      } catch (rpcErr) {
+        console.warn('[fetchProfile] RPC exception:', rpcErr);
         return null;
       }
     }
@@ -211,17 +219,34 @@ async function fetchProfile(userId: string): Promise<User | null> {
     let companyId: string | undefined = (profileData.company_id as string) ?? undefined;
 
     if (!orgId && role !== 'super_admin') {
-      const linkedOrgId = await linkPendingInvitation(userId, profileData.email as string, profileData.name as string);
-      if (linkedOrgId) {
-        // Relecture post-invitation : on réessaie directe puis RPC
-        const { data: refreshed } = await supabase.from('profiles').select('*').eq('id', userId).single();
-        if (refreshed) {
-          orgId = (refreshed as Record<string, unknown>).organization_id as string ?? undefined;
-          role = (refreshed as Record<string, unknown>).role as UserRole;
-          roleLabel = ((refreshed as Record<string, unknown>).role_label as string) ?? ROLE_LABELS[role] ?? role;
-          companyId = (refreshed as Record<string, unknown>).company_id as string ?? undefined;
+      if (skipInvitationLink) {
+        // Pendant le login, on ne bloque pas pour lier l'invitation —
+        // on le fait en arrière-plan après avoir rendu la main à l'utilisateur.
+        const email = profileData.email as string;
+        const name = profileData.name as string;
+        linkPendingInvitation(userId, email, name).then(linkedOrgId => {
+          if (linkedOrgId) {
+            supabase.from('profiles').select('*').eq('id', userId).single().then(({ data: refreshed }) => {
+              if (refreshed) {
+                // Mettre à jour le user en arrière-plan — le prochain render prendra les nouvelles valeurs
+                console.log('[fetchProfile] Invitation liée en arrière-plan ✓');
+              }
+            }).catch(() => {});
+            addUserToGeneralChannel(linkedOrgId, name).catch(() => {});
+          }
+        }).catch(() => {});
+      } else {
+        const linkedOrgId = await linkPendingInvitation(userId, profileData.email as string, profileData.name as string);
+        if (linkedOrgId) {
+          const { data: refreshed } = await supabase.from('profiles').select('*').eq('id', userId).single();
+          if (refreshed) {
+            orgId = (refreshed as Record<string, unknown>).organization_id as string ?? undefined;
+            role = (refreshed as Record<string, unknown>).role as UserRole;
+            roleLabel = ((refreshed as Record<string, unknown>).role_label as string) ?? ROLE_LABELS[role] ?? role;
+            companyId = (refreshed as Record<string, unknown>).company_id as string ?? undefined;
+          }
+          await addUserToGeneralChannel(linkedOrgId, profileData.name as string);
         }
-        await addUserToGeneralChannel(linkedOrgId, profileData.name as string);
       }
     }
 
@@ -381,12 +406,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const isSeedingRef = useRef(false);
   const abortSeedingRef = useRef(false);
   const isRegisteringRef = useRef(false);
-  // Raised for the entire duration of login() so that onAuthStateChange
-  // does NOT call fetchProfile() concurrently — login() handles it directly.
-  // This eliminates the race between the SIGNED_IN callback and the direct
-  // fetchProfile() call, and prevents the fire-and-forget signOut() from
-  // firing after login() already returned { success: true }.
-  const loginInProgressRef = useRef(false);
+  // loginInProgressRef is now a module-level export (shared with AppContext)
+  // so that onAuthStateChange in both AuthContext and AppContext skip their
+  // SIGNED_IN handlers while login() manages the session directly.
 
   useEffect(() => {
     if (!isSupabaseConfigured) {
@@ -873,6 +895,28 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     //     after login() already returned { success: true }.
     loginInProgressRef.current = true;
 
+    // Safety timeout: if signInWithPassword or fetchProfile hangs, unblock after 15s
+    const LOGIN_TIMEOUT_MS = 15_000;
+    let timeoutId: ReturnType<typeof setTimeout> | null = null;
+    const timeoutPromise = new Promise<{ success: boolean; error?: string }>((resolve) => {
+      timeoutId = setTimeout(async () => {
+        loginInProgressRef.current = false;
+        // Check if session was actually established despite the timeout
+        try {
+          const { data: { session } } = await supabase.auth.getSession();
+          if (session?.user) {
+            const profile = await fetchProfile(session.user.id, true);
+            if (profile) {
+              setUser(profile);
+              resolve({ success: true });
+              return;
+            }
+          }
+        } catch {}
+        resolve({ success: false, error: 'La connexion a pris trop longtemps. Vérifiez votre réseau et réessayez.' });
+      }, LOGIN_TIMEOUT_MS);
+    });
+
     if (!isSupabaseConfigured) {
       const demoUser = DEMO_USERS.find(u => u.email === email);
       const match = demoUser && DEMO_SEED_PASS && DEMO_SEED_PASS === password ? demoUser : null;
@@ -890,6 +934,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         companyId: match.companyId,
       });
       loginInProgressRef.current = false;
+      if (timeoutId) clearTimeout(timeoutId);
       return { success: true };
     }
     try {
@@ -901,6 +946,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       if (error) {
         abortSeedingRef.current = false;
         loginInProgressRef.current = false;
+        if (timeoutId) clearTimeout(timeoutId);
         if (error.message?.toLowerCase().includes('email not confirmed') ||
             error.message?.toLowerCase().includes('email_not_confirmed')) {
           return {
@@ -918,6 +964,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       // There is no valid JWT in this state — RLS would block every DB read.
       if (authUser && !authSession) {
         loginInProgressRef.current = false;
+        if (timeoutId) clearTimeout(timeoutId);
         return {
           success: false,
           error: "Email non confirmé. Désactivez « Confirm email » dans Supabase → Authentication → Providers → Email, puis relancez l'app.",
@@ -925,26 +972,30 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
 
       if (authUser && authSession) {
-        let profile = await fetchProfile(authUser.id);
+        // Passer skipInvitationLink=true pour ne pas bloquer le login
+        // avec linkPendingInvitation (3-4 appels réseau supplémentaires)
+        let profile = await fetchProfile(authUser.id, true);
 
         if (!profile) {
           // One retry after a short pause — the seeding's signOut may have fired
           // in the tiny window before signInWithPassword completed.
           console.warn('[login] fetchProfile returned null — 1 retry...');
-          await new Promise(r => setTimeout(r, 600));
-          profile = await fetchProfile(authUser.id);
+          await new Promise(r => setTimeout(r, 400));
+          profile = await fetchProfile(authUser.id, true);
         }
 
         if (profile) {
           setUser(profile);
           setSeedStatus('done');
           loginInProgressRef.current = false;
+          if (timeoutId) clearTimeout(timeoutId);
           return { success: true };
         }
       }
 
       // Profile missing — sign out cleanly
       loginInProgressRef.current = false;
+      if (timeoutId) clearTimeout(timeoutId);
       await supabase.auth.signOut();
       return {
         success: false,
@@ -956,6 +1007,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     } catch {
       abortSeedingRef.current = false;
       loginInProgressRef.current = false;
+      if (timeoutId) clearTimeout(timeoutId);
       return { success: false, error: 'Impossible de se connecter. Vérifiez votre réseau.' };
     }
   }

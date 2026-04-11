@@ -4,6 +4,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Incident } from '@/constants/types';
 import { supabase, isSupabaseConfigured } from '@/lib/supabase';
 import { useAuth } from '@/context/AuthContext';
+import { useNetwork } from '@/context/NetworkContext';
 import { formatDateFR } from '@/lib/utils';
 
 const INCIDENTS_KEY = 'buildtrack_incidents_v2';
@@ -44,12 +45,15 @@ function toIncident(row: any): Incident {
 
 export function IncidentsProvider({ children }: { children: React.ReactNode }) {
   const { user } = useAuth();
+  const { isOnline, enqueueOperation } = useNetwork();
   const [incidents, setIncidents] = useState<Incident[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const incidentsRef = useRef(incidents);
   const orgIdRef = useRef<string | null>(user?.organizationId ?? null);
+  const isOnlineRef = useRef(isOnline);
   useEffect(() => { incidentsRef.current = incidents; }, [incidents]);
   useEffect(() => { orgIdRef.current = user?.organizationId ?? null; }, [user?.organizationId]);
+  useEffect(() => { isOnlineRef.current = isOnline; }, [isOnline]);
 
   useEffect(() => {
     async function load() {
@@ -151,27 +155,56 @@ export function IncidentsProvider({ children }: { children: React.ReactNode }) {
 
   const addIncident = useCallback(async (incident: Incident) => {
     await persist([incident, ...incidentsRef.current]);
+    if (!isOnlineRef.current && isSupabaseConfigured) {
+      enqueueOperation({ table: 'incidents', op: 'insert', data: {
+        id: incident.id, title: incident.title, description: incident.description,
+        severity: incident.severity, location: incident.location, building: incident.building,
+        reported_at: incident.reportedAt, reported_by: incident.reportedBy,
+        status: incident.status, witnesses: incident.witnesses, actions: incident.actions,
+        closed_at: incident.closedAt ?? null, closed_by: incident.closedBy ?? null,
+        photo_uri: incident.photoUri ?? null, organization_id: orgIdRef.current ?? null,
+        chantier_id: incident.chantierId ?? null,
+      }});
+      return;
+    }
     await syncToSupabase(incident, 'upsert', (err) => {
       Alert.alert('Synchronisation échouée', `L'incident a été sauvegardé localement mais n'a pas pu être envoyé au serveur.\n${err}`);
     });
-  }, []);
+  }, [enqueueOperation]);
 
   const updateIncident = useCallback(async (incident: Incident) => {
     await persist(incidentsRef.current.map(i => i.id === incident.id ? incident : i));
+    if (!isOnlineRef.current && isSupabaseConfigured) {
+      enqueueOperation({ table: 'incidents', op: 'update', filter: { column: 'id', value: incident.id }, data: {
+        title: incident.title, description: incident.description,
+        severity: incident.severity, location: incident.location, building: incident.building,
+        reported_at: incident.reportedAt, reported_by: incident.reportedBy,
+        status: incident.status, witnesses: incident.witnesses, actions: incident.actions,
+        closed_at: incident.closedAt ?? null, closed_by: incident.closedBy ?? null,
+        photo_uri: incident.photoUri ?? null, chantier_id: incident.chantierId ?? null,
+      }});
+      return;
+    }
     await syncToSupabase(incident, 'upsert', (err) => {
       Alert.alert('Synchronisation échouée', `La modification a été sauvegardée localement mais n'a pas pu être envoyée au serveur.\n${err}`);
     });
-  }, []);
+  }, [enqueueOperation]);
 
   const deleteIncident = useCallback(async (id: string) => {
     const target = incidentsRef.current.find(i => i.id === id);
     await persist(incidentsRef.current.filter(i => i.id !== id));
-    if (target) {
-      await syncToSupabase(target, 'delete', (err) => {
-        Alert.alert('Synchronisation échouée', `La suppression locale a réussi mais n'a pas pu être propagée au serveur.\n${err}`);
-      });
+    if (isSupabaseConfigured) {
+      if (!isOnlineRef.current) {
+        enqueueOperation({ table: 'incidents', op: 'delete', filter: { column: 'id', value: id } });
+        return;
+      }
+      if (target) {
+        await syncToSupabase(target, 'delete', (err) => {
+          Alert.alert('Synchronisation échouée', `La suppression locale a réussi mais n'a pas pu être propagée au serveur.\n${err}`);
+        });
+      }
     }
-  }, []);
+  }, [enqueueOperation]);
 
   return (
     <IncidentsContext.Provider value={{ incidents, isLoading, addIncident, updateIncident, deleteIncident }}>

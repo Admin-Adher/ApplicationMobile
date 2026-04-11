@@ -4,6 +4,7 @@ import { RegulatoryDoc } from '@/constants/types';
 import { genId, formatDateFR } from '@/lib/utils';
 import { supabase, isSupabaseConfigured } from '@/lib/supabase';
 import { useAuth } from '@/context/AuthContext';
+import { useNetwork } from '@/context/NetworkContext';
 
 const REG_DOCS_KEY = 'buildtrack_reglementaire_v1';
 
@@ -52,11 +53,14 @@ function fromDoc(doc: RegulatoryDoc): Record<string, any> {
 
 export function ReglementaireProvider({ children }: { children: React.ReactNode }) {
   const { user } = useAuth();
+  const { isOnline, enqueueOperation } = useNetwork();
   const [docs, setDocs] = useState<RegulatoryDoc[]>([]);
   const docsRef = useRef(docs);
   const orgIdRef = useRef<string | null>(user?.organizationId ?? null);
+  const isOnlineRef = useRef(isOnline);
   useEffect(() => { docsRef.current = docs; }, [docs]);
   useEffect(() => { orgIdRef.current = user?.organizationId ?? null; }, [user?.organizationId]);
+  useEffect(() => { isOnlineRef.current = isOnline; }, [isOnline]);
 
   useEffect(() => {
     async function load() {
@@ -124,20 +128,18 @@ export function ReglementaireProvider({ children }: { children: React.ReactNode 
     const newDoc: RegulatoryDoc = { ...doc, id: genId(), createdAt: formatDateFR(new Date()) };
     await persistLocal([newDoc, ...docsRef.current]);
     if (isSupabaseConfigured) {
-      (async () => {
-        try {
-          const orgId = orgIdRef.current;
-          const { error } = await supabase.from('regulatory_docs').insert({
-            ...fromDoc(newDoc),
-            organization_id: orgId,
-          });
-          if (error) console.warn('Erreur sauvegarde doc réglementaire:', error.message);
-        } catch (e: any) {
-          console.warn('Erreur sauvegarde doc réglementaire:', e?.message ?? e);
-        }
-      })();
+      const payload = { ...fromDoc(newDoc), organization_id: orgIdRef.current };
+      if (!isOnlineRef.current) {
+        enqueueOperation({ table: 'regulatory_docs', op: 'insert', data: payload });
+        return;
+      }
+      supabase.from('regulatory_docs').insert(payload).then(({ error }: { error: any }) => {
+        if (error) console.warn('Erreur sauvegarde doc réglementaire:', error.message);
+      }).catch((e: any) => {
+        console.warn('Erreur sauvegarde doc réglementaire:', e?.message ?? e);
+      });
     }
-  }, []);
+  }, [enqueueOperation]);
 
   const updateDoc = useCallback(async (id: string, updates: Partial<RegulatoryDoc>) => {
     const updated = docsRef.current.map(d => d.id === id ? { ...d, ...updates } : d);
@@ -145,6 +147,10 @@ export function ReglementaireProvider({ children }: { children: React.ReactNode 
     if (isSupabaseConfigured) {
       const full = updated.find(d => d.id === id);
       if (full) {
+        if (!isOnlineRef.current) {
+          enqueueOperation({ table: 'regulatory_docs', op: 'update', filter: { column: 'id', value: id }, data: fromDoc(full) });
+          return;
+        }
         supabase.from('regulatory_docs').update(fromDoc(full)).eq('id', id).then(({ error }: { error: any }) => {
           if (error) console.warn('Erreur mise à jour doc réglementaire:', error.message);
         }).catch((err: any) => {
@@ -152,18 +158,22 @@ export function ReglementaireProvider({ children }: { children: React.ReactNode 
         });
       }
     }
-  }, []);
+  }, [enqueueOperation]);
 
   const deleteDoc = useCallback(async (id: string) => {
     await persistLocal(docsRef.current.filter(d => d.id !== id));
     if (isSupabaseConfigured) {
+      if (!isOnlineRef.current) {
+        enqueueOperation({ table: 'regulatory_docs', op: 'delete', filter: { column: 'id', value: id } });
+        return;
+      }
       supabase.from('regulatory_docs').delete().eq('id', id).then(({ error }: { error: any }) => {
         if (error) console.warn('Erreur suppression doc réglementaire:', error.message);
       }).catch((err: any) => {
         console.warn('Erreur réseau suppression doc réglementaire (supprimé localement):', err?.message ?? err);
       });
     }
-  }, []);
+  }, [enqueueOperation]);
 
   return (
     <ReglementaireContext.Provider value={{ docs, addDoc, updateDoc, deleteDoc }}>

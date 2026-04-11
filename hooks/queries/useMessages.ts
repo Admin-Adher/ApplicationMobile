@@ -1,34 +1,44 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { AppState, AppStateStatus } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { supabase, isSupabaseConfigured } from '@/lib/supabase';
 import { useAuth } from '@/context/AuthContext';
+import { useNetwork } from '@/context/NetworkContext';
 import { Message } from '@/constants/types';
 import { genId, nowTimestampFR } from '@/lib/utils';
 import { toMessage, fromMessage } from '@/lib/mappers';
 
 const MOCK_MESSAGES_KEY = 'buildtrack_mock_messages_v2';
+const MESSAGES_CACHE_KEY = 'buildtrack_messages_cache_v1';
 
 export function useMessages() {
   const { user } = useAuth();
+  const { isOnline, enqueueOperation, registerReloadHandler } = useNetwork();
   const [messages, setMessages] = useState<Message[]>([]);
   const [realtimeConnected, setRealtimeConnected] = useState(false);
 
   const userNameRef = useRef<string>(user?.name ?? '');
   useEffect(() => { userNameRef.current = user?.name ?? ''; }, [user?.name]);
 
+  const isOnlineRef = useRef(isOnline);
+  useEffect(() => { isOnlineRef.current = isOnline; }, [isOnline]);
+
   const loadedChannelIdsRef = useRef<Set<string>>(new Set());
   const dmUpsertPromisesRef = useRef<Map<string, Promise<void>>>(new Map());
+  const messagesRef = useRef<Message[]>(messages);
+  useEffect(() => { messagesRef.current = messages; }, [messages]);
+  const realtimeWasConnectedRef = useRef(false);
 
   useEffect(() => {
     if (!user) return;
-    if (!isSupabaseConfigured) {
-      AsyncStorage.getItem(MOCK_MESSAGES_KEY).then(raw => {
-        if (raw) {
-          try { setMessages(JSON.parse(raw)); } catch {}
-        }
-      }).catch(() => {});
-      return;
-    }
+    // Toujours charger le cache en premier pour un affichage immédiat (hors ligne ou non)
+    const cacheKey = isSupabaseConfigured ? MESSAGES_CACHE_KEY : MOCK_MESSAGES_KEY;
+    AsyncStorage.getItem(cacheKey).then(raw => {
+      if (raw) {
+        try { setMessages(JSON.parse(raw)); } catch {}
+      }
+    }).catch(() => {});
+    if (!isSupabaseConfigured) return;
     loadedChannelIdsRef.current.clear();
     loadRecentMessages();
   }, [user?.id]);
@@ -68,14 +78,18 @@ export function useMessages() {
     }
   }
 
+  // Persistance locale : mock mode ET cache Supabase (pour fonctionnement hors ligne)
   useEffect(() => {
-    if (!isSupabaseConfigured) {
-      const timer = setTimeout(() => {
-        AsyncStorage.setItem(MOCK_MESSAGES_KEY, JSON.stringify(messages)).catch(() => {});
-      }, 1500);
-      return () => clearTimeout(timer);
-    }
+    const timer = setTimeout(() => {
+      const key = isSupabaseConfigured ? MESSAGES_CACHE_KEY : MOCK_MESSAGES_KEY;
+      AsyncStorage.setItem(key, JSON.stringify(messages)).catch(() => {});
+    }, 1500);
+    return () => clearTimeout(timer);
   }, [messages]);
+
+  // Garde une ref vers loadRecentMessages pour l'appeler depuis le callback de reconnexion
+  const loadRecentMessagesRef = useRef<() => void>(() => {});
+  loadRecentMessagesRef.current = () => { loadRecentMessages(); };
 
   useEffect(() => {
     if (!isSupabaseConfigured) return;
@@ -111,7 +125,16 @@ export function useMessages() {
         setMessages(prev => prev.filter(m => m.id !== payload.old.id));
       })
       .subscribe((status: string) => {
-        setRealtimeConnected(status === 'SUBSCRIBED');
+        const isNowConnected = status === 'SUBSCRIBED';
+        setRealtimeConnected(isNowConnected);
+        // Reconnexion : recharger les messages manqués pendant la déconnexion
+        if (isNowConnected && realtimeWasConnectedRef.current) {
+          console.log('[useMessages] Realtime reconnected — reloading recent messages');
+          loadRecentMessagesRef.current();
+        }
+        if (isNowConnected) {
+          realtimeWasConnectedRef.current = true;
+        }
       });
 
     return () => { supabase.removeChannel(globalSub); };
@@ -140,6 +163,10 @@ export function useMessages() {
     };
     setMessages(prev => [...prev, msg]);
     if (isSupabaseConfigured) {
+      if (!isOnlineRef.current) {
+        enqueueOperation({ table: 'messages', op: 'insert', data: fromMessage(msg) });
+        return;
+      }
       const pendingUpsert = channelId.startsWith('dm-') && getDmUpsertPromise
         ? getDmUpsertPromise(channelId)
         : undefined;
@@ -154,21 +181,29 @@ export function useMessages() {
         doInsert();
       }
     }
-  }, []);
+  }, [enqueueOperation]);
 
   const deleteMessage = useCallback((id: string) => {
     setMessages(prev => prev.filter(m => m.id !== id));
     if (isSupabaseConfigured) {
+      if (!isOnlineRef.current) {
+        enqueueOperation({ table: 'messages', op: 'delete', filter: { column: 'id', value: id } });
+        return;
+      }
       supabase.from('messages').delete().eq('id', id).catch(() => {});
     }
-  }, []);
+  }, [enqueueOperation]);
 
   const updateMessage = useCallback((msg: Message) => {
     setMessages(prev => prev.map(m => m.id === msg.id ? msg : m));
     if (isSupabaseConfigured) {
+      if (!isOnlineRef.current) {
+        enqueueOperation({ table: 'messages', op: 'update', filter: { column: 'id', value: msg.id }, data: fromMessage(msg) });
+        return;
+      }
       supabase.from('messages').update(fromMessage(msg)).eq('id', msg.id).catch(() => {});
     }
-  }, []);
+  }, [enqueueOperation]);
 
   const toggleReaction = useCallback((emoji: string, msg: Message, userName: string) => {
     const current = msg.reactions[emoji] ?? [];
@@ -180,6 +215,10 @@ export function useMessages() {
     const optimistic = { ...msg, reactions: newReactions };
     setMessages(prev => prev.map(m => m.id === msg.id ? optimistic : m));
     if (isSupabaseConfigured) {
+      if (!isOnlineRef.current) {
+        enqueueOperation({ table: 'messages', op: 'update', filter: { column: 'id', value: msg.id }, data: { reactions: newReactions } });
+        return;
+      }
       supabase.rpc('toggle_message_reaction', {
         p_message_id: msg.id, p_emoji: emoji, p_user_name: userName,
       }).then(({ error }: { error: any }) => {
@@ -188,7 +227,7 @@ export function useMessages() {
         }
       });
     }
-  }, []);
+  }, [enqueueOperation]);
 
   const markMessagesRead = useCallback(() => {
     setMessages(prev => prev.map(m => ({ ...m, read: true })));
@@ -201,7 +240,12 @@ export function useMessages() {
       return { ...m, readBy: [...m.readBy, userName] };
     }));
     if (isSupabaseConfigured && userName) {
-      const unreadIds = messages
+      // Hors ligne : on saute l'appel serveur — sera synchronisé au retour du réseau
+      // via loadRecentMessages + le useEffect setChannelRead dans channel/[id].tsx
+      if (!isOnlineRef.current) return;
+      // Utiliser messagesRef au lieu de messages pour éviter la closure stale
+      const currentMessages = messagesRef.current;
+      const unreadIds = currentMessages
         .filter(m => m.channelId === channelId && !m.isMe && !m.readBy.includes(userName))
         .map(m => m.id);
       const BATCH_SIZE = 100;
@@ -212,7 +256,7 @@ export function useMessages() {
         }).catch(() => {});
       }
     }
-  }, [messages]);
+  }, []);
 
   const addNotificationMessage = useCallback((msg: Message) => {
     setMessages(prev => {
@@ -220,9 +264,13 @@ export function useMessages() {
       return [...prev, msg];
     });
     if (isSupabaseConfigured) {
+      if (!isOnlineRef.current) {
+        enqueueOperation({ table: 'messages', op: 'insert', data: fromMessage(msg) });
+        return;
+      }
       supabase.from('messages').insert(fromMessage(msg)).catch(() => {});
     }
-  }, []);
+  }, [enqueueOperation]);
 
   const fetchOlderMessages = useCallback(async (channelId: string, beforeCreatedAt: string): Promise<boolean> => {
     if (!isSupabaseConfigured) return false;
@@ -277,6 +325,24 @@ export function useMessages() {
     setMessages([]);
     loadedChannelIdsRef.current.clear();
   }, []);
+
+  // Recharger les messages quand l'app revient en premier plan
+  useEffect(() => {
+    if (!isSupabaseConfigured) return;
+    const subscription = AppState.addEventListener('change', (nextState: AppStateStatus) => {
+      if (nextState === 'active') {
+        loadRecentMessagesRef.current();
+      }
+    });
+    return () => subscription.remove();
+  }, []);
+
+  // Enregistrer le handler de rechargement auprès du NetworkContext
+  // pour recharger les messages après la synchronisation de la file offline
+  useEffect(() => {
+    if (!isSupabaseConfigured) return;
+    registerReloadHandler(() => { loadRecentMessagesRef.current(); });
+  }, [registerReloadHandler]);
 
   return {
     messages,

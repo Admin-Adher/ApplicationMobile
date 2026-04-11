@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { supabase, isSupabaseConfigured } from '@/lib/supabase';
 import { useAuth } from '@/context/AuthContext';
+import { useNetwork } from '@/context/NetworkContext';
 import { Channel } from '@/constants/types';
 import { genId } from '@/lib/utils';
 
@@ -18,6 +19,7 @@ export function dmChannelId(nameA: string, nameB: string): string {
 
 export function useChannels() {
   const { user } = useAuth();
+  const { isOnline, enqueueOperation } = useNetwork();
   const [generalChannels, setGeneralChannels] = useState<Channel[]>([]);
   const [customChannels, setCustomChannels] = useState<Channel[]>([]);
   const [groupChannels, setGroupChannels] = useState<Channel[]>([]);
@@ -35,6 +37,9 @@ export function useChannels() {
 
   const userIdRef = useRef<string | undefined>(user?.id);
   useEffect(() => { userIdRef.current = user?.id; }, [user?.id]);
+
+  const isOnlineRef = useRef(isOnline);
+  useEffect(() => { isOnlineRef.current = isOnline; }, [isOnline]);
 
   useEffect(() => {
     if (!user) return;
@@ -175,6 +180,16 @@ export function useChannels() {
   const saveCustomChannels = useCallback(async (channels: Channel[]) => {
     try { await AsyncStorage.setItem(CUSTOM_CHANNELS_KEY, JSON.stringify(channels)); } catch {}
     if (!isSupabaseConfigured) return;
+    if (!isOnlineRef.current) {
+      for (const ch of channels) {
+        enqueueOperation({ table: 'channels', op: 'upsert' as any, data: {
+          id: ch.id, name: ch.name, description: ch.description ?? null,
+          icon: ch.icon ?? 'chatbubbles', color: ch.color ?? '#10B981', type: ch.type,
+          members: ch.members ?? [], created_by: ch.createdBy ?? null, organization_id: orgIdRef.current ?? null,
+        }});
+      }
+      return;
+    }
     let orgId = orgIdRef.current;
     if (!orgId) {
       try {
@@ -193,11 +208,21 @@ export function useChannels() {
         members: ch.members ?? [], created_by: ch.createdBy ?? null, organization_id: orgId ?? null,
       }).catch(() => {});
     }
-  }, []);
+  }, [enqueueOperation]);
 
   const saveGroupChannels = useCallback(async (channels: Channel[]) => {
     try { await AsyncStorage.setItem(GROUP_CHANNELS_KEY, JSON.stringify(channels)); } catch {}
     if (!isSupabaseConfigured) return;
+    if (!isOnlineRef.current) {
+      for (const ch of channels) {
+        enqueueOperation({ table: 'channels', op: 'upsert' as any, data: {
+          id: ch.id, name: ch.name, description: ch.description ?? null,
+          icon: ch.icon ?? 'people-circle', color: ch.color ?? '#10B981', type: ch.type,
+          members: ch.members ?? [], created_by: ch.createdBy ?? null, organization_id: orgIdRef.current ?? null,
+        }});
+      }
+      return;
+    }
     const orgId = orgIdRef.current;
     for (const ch of channels) {
       await supabase.from('channels').upsert({
@@ -206,16 +231,19 @@ export function useChannels() {
         members: ch.members ?? [], created_by: ch.createdBy ?? null, organization_id: orgId ?? null,
       }).catch(() => {});
     }
-  }, []);
+  }, [enqueueOperation]);
 
   const savePinnedChannels = useCallback(async (ids: string[]) => {
     try { await AsyncStorage.setItem(PINNED_CHANNELS_KEY, JSON.stringify(ids)); } catch {}
     if (!isSupabaseConfigured) return;
     const userId = userIdRef.current;
-    if (userId) {
-      supabase.from('profiles').update({ pinned_channels: ids }).eq('id', userId).catch(() => {});
+    if (!userId) return;
+    if (!isOnlineRef.current) {
+      enqueueOperation({ table: 'profiles', op: 'update', filter: { column: 'id', value: userId }, data: { pinned_channels: ids } });
+      return;
     }
-  }, []);
+    supabase.from('profiles').update({ pinned_channels: ids }).eq('id', userId).catch(() => {});
+  }, [enqueueOperation]);
 
   const addCustomChannel = useCallback((name: string, description: string, icon: string, color: string): Channel => {
     const creator = userNameRef.current;
@@ -238,9 +266,13 @@ export function useChannels() {
       return updated;
     });
     if (isSupabaseConfigured) {
+      if (!isOnlineRef.current) {
+        enqueueOperation({ table: 'channels', op: 'delete', filter: { column: 'id', value: id } });
+        return;
+      }
       supabase.from('channels').delete().eq('id', id).catch(() => {});
     }
-  }, [saveCustomChannels]);
+  }, [saveCustomChannels, enqueueOperation]);
 
   const addGroupChannel = useCallback((name: string, members: string[], color: string): Channel => {
     const creator = userNameRef.current;
@@ -266,9 +298,13 @@ export function useChannels() {
       return updated;
     });
     if (isSupabaseConfigured) {
+      if (!isOnlineRef.current) {
+        enqueueOperation({ table: 'channels', op: 'delete', filter: { column: 'id', value: id } });
+        return;
+      }
       supabase.from('channels').delete().eq('id', id).catch(() => {});
     }
-  }, [saveGroupChannels]);
+  }, [saveGroupChannels, enqueueOperation]);
 
   const _updateAndPersistChannel = useCallback((updatedCh: Channel) => {
     if (updatedCh.type === 'custom') {
@@ -375,14 +411,20 @@ export function useChannels() {
 
     if (isSupabaseConfigured) {
       const orgId = orgIdRef.current;
-      const upsertPromise: Promise<void> = supabase.from('channels').upsert({
+      const channelData = {
         id: chId, name: otherName,
         description: `Message direct avec ${otherName}`,
         icon: 'person-circle', color: '#EC4899', type: 'dm',
         members: [myName, otherName], created_by: myName, organization_id: orgId ?? null,
-      }).then(() => { dmUpsertPromisesRef.current.delete(chId); })
-        .catch(() => { dmUpsertPromisesRef.current.delete(chId); });
-      dmUpsertPromisesRef.current.set(chId, upsertPromise);
+      };
+      if (!isOnlineRef.current) {
+        enqueueOperation({ table: 'channels', op: 'upsert' as any, data: channelData });
+      } else {
+        const upsertPromise: Promise<void> = supabase.from('channels').upsert(channelData)
+          .then(() => { dmUpsertPromisesRef.current.delete(chId); })
+          .catch(() => { dmUpsertPromisesRef.current.delete(chId); });
+        dmUpsertPromisesRef.current.set(chId, upsertPromise);
+      }
     }
 
     const newPending = new Set(pendingDmChannelIds).add(chId);
