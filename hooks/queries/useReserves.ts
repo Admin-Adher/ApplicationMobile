@@ -10,7 +10,7 @@ import { toReserve } from '@/lib/mappers';
 import { Reserve, ReserveStatus, Comment } from '@/constants/types';
 import { genId, formatDateFR } from '@/lib/utils';
 import { genReserveId } from '@/lib/reserveUtils';
-import { offlineQuery, writeCache } from '@/lib/offlineCache';
+import { mergeWithCache, readCache, writeCache } from '@/lib/offlineCache';
 
 const RESERVES_CACHE_KEY = 'buildtrack_reserves_cache_v1';
 
@@ -25,15 +25,28 @@ export function useReserves() {
   const query = useQuery({
     queryKey: queryKeys.reserves(),
     queryFn: async (): Promise<Reserve[]> => {
-      const fetchFn = isSupabaseConfigured
-        ? async () => {
-            const { data, error } = await supabase
-              .from('reserves').select('*').order('created_at', { ascending: false });
-            if (error) throw error;
-            return (data ?? []).map(toReserve);
-          }
-        : null;
-      return offlineQuery<Reserve>(RESERVES_CACHE_KEY, fetchFn, userId);
+      // Read cache first so offline-created reserves can be displayed instantly.
+      const cached = await readCache<Reserve>(RESERVES_CACHE_KEY, userId);
+
+      // No backend (mock mode)
+      if (!isSupabaseConfigured) {
+        return cached ?? [];
+      }
+
+      // Try online fetch; merge with cache to keep local-only (offline-created) items.
+      try {
+        const { data, error } = await supabase
+          .from('reserves').select('*').order('created_at', { ascending: false });
+        if (error) throw error;
+        const fresh = (data ?? []).map(toReserve);
+        const merged = mergeWithCache<Reserve>(fresh, cached);
+        await writeCache(RESERVES_CACHE_KEY, merged, userId);
+        return merged;
+      } catch (err) {
+        // If fetch fails (offline), fall back to cache.
+        console.warn(`[useReserves] fetch failed, using cache`, err);
+        return cached ?? [];
+      }
     },
     enabled: !!user,
     staleTime: 5 * 60 * 1000,

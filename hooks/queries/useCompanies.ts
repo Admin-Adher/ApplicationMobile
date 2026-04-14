@@ -8,7 +8,7 @@ import { useNetwork } from '@/context/NetworkContext';
 import { queryKeys } from '@/lib/queryKeys';
 import { toCompany } from '@/lib/mappers';
 import { Company } from '@/constants/types';
-import { offlineQuery, writeCache } from '@/lib/offlineCache';
+import { mergeWithCache, readCache, writeCache } from '@/lib/offlineCache';
 
 const COMPANIES_CACHE_KEY = 'buildtrack_companies_cache_v1';
 
@@ -23,21 +23,33 @@ export function useCompanies() {
   const query = useQuery({
     queryKey: queryKeys.companies(),
     queryFn: async (): Promise<Company[]> => {
-      const fetchFn = isSupabaseConfigured
-        ? async () => {
-            const { data, error } = await supabase.from('companies').select('*');
-            if (error) throw error;
-            const raw = data ?? [];
-            const seenIds = new Set<string>();
-            const seenNames = new Set<string>();
-            return raw.map(toCompany).filter(c => {
-              const nameKey = c.name.trim().toLowerCase();
-              if (seenIds.has(c.id) || seenNames.has(nameKey)) return false;
-              seenIds.add(c.id); seenNames.add(nameKey); return true;
-            });
-          }
-        : null;
-      return offlineQuery<Company>(COMPANIES_CACHE_KEY, fetchFn, userId);
+      // Read cache first so offline-created companies can be displayed instantly.
+      const cached = await readCache<Company>(COMPANIES_CACHE_KEY, userId);
+
+      // No backend (mock mode)
+      if (!isSupabaseConfigured) {
+        return cached ?? [];
+      }
+
+      // Try online fetch; merge with cache to keep local-only (offline-created) items.
+      try {
+        const { data, error } = await supabase.from('companies').select('*');
+        if (error) throw error;
+        const raw = data ?? [];
+        const seenIds = new Set<string>();
+        const seenNames = new Set<string>();
+        const fresh = raw.map(toCompany).filter(c => {
+          const nameKey = c.name.trim().toLowerCase();
+          if (seenIds.has(c.id) || seenNames.has(nameKey)) return false;
+          seenIds.add(c.id); seenNames.add(nameKey); return true;
+        });
+        const merged = mergeWithCache<Company>(fresh, cached);
+        await writeCache(COMPANIES_CACHE_KEY, merged, userId);
+        return merged;
+      } catch (err) {
+        console.warn(`[useCompanies] fetch failed, using cache`, err);
+        return cached ?? [];
+      }
     },
     enabled: !!user,
     staleTime: 5 * 60 * 1000,
@@ -69,7 +81,13 @@ export function useCompanies() {
     }
     if (isSupabaseConfigured) {
       const { error } = await supabase.from('companies').insert(payload);
-      if (error) console.warn('[sync] addCompany error:', error.message);
+      if (error) {
+        console.warn('[sync] addCompany error:', error.message);
+        Alert.alert(
+          'Synchronisation incomplète',
+          `L'entreprise a été créée localement mais n'a pas pu être synchronisée (${error.message}).`
+        );
+      }
     }
   }, [queryClient, user, isOnlineRef, enqueueOperation, persist]);
 
