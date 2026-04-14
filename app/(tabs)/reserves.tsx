@@ -233,7 +233,7 @@ export default function ReservesScreen() {
   const [isSelectMode, setIsSelectMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [pdfExportModalVisible, setPdfExportModalVisible] = useState(false);
-  const [pdfExportMode, setPdfExportMode] = useState<'all' | 'company_single' | 'company_multi' | 'manual'>('all');
+  const [pdfExportMode, setPdfExportMode] = useState<'all' | 'company_single' | 'company_multi' | 'company_none' | 'manual'>('all');
   const [pdfCompanySingle, setPdfCompanySingle] = useState<string>('');
   const [pdfCompaniesMulti, setPdfCompaniesMulti] = useState<Set<string>>(new Set());
   const [batchModalVisible, setBatchModalVisible] = useState(false);
@@ -436,6 +436,11 @@ export default function ReservesScreen() {
     return list;
   }, [chantierReserves, statusFilter, kindFilter, buildingFilter, priorityFilter, companyFilter, zoneFilter, levelFilter, lotFilter, sortKey, debouncedSearch, nearDeadlineOnly, lots]);
 
+  const isSansEntrepriseReserve = useCallback((r: Reserve) => {
+    const names = r.companies ?? (r.company ? [r.company] : []);
+    return names.length === 0;
+  }, []);
+
   const handleConfirmPdfExport = useCallback(async () => {
     if (pdfExportMode === 'all') {
       setPdfExportModalVisible(false);
@@ -443,10 +448,20 @@ export default function ReservesScreen() {
       return;
     }
 
+    if (pdfExportMode === 'company_none') {
+      const list = filtered.filter(isSansEntrepriseReserve);
+      if (list.length === 0) return;
+      setPdfExportModalVisible(false);
+      await handleExportPDFForList(list);
+      return;
+    }
+
     if (pdfExportMode === 'company_single') {
       const companyName = pdfCompanySingle;
       if (!companyName) return;
-      const list = filtered.filter(r => (r.companies ?? (r.company ? [r.company] : [])).includes(companyName));
+      const list = companyName === '—'
+        ? filtered.filter(isSansEntrepriseReserve)
+        : filtered.filter(r => (r.companies ?? (r.company ? [r.company] : [])).includes(companyName));
       if (list.length === 0) return;
       setPdfExportModalVisible(false);
       await handleExportPDFForList(list);
@@ -457,8 +472,9 @@ export default function ReservesScreen() {
       const selected = Array.from(pdfCompaniesMulti);
       if (selected.length === 0) return;
       const list = filtered.filter(r => {
+        if (selected.includes('—') && isSansEntrepriseReserve(r)) return true;
         const names = r.companies ?? (r.company ? [r.company] : []);
-        return selected.some(cn => names.includes(cn));
+        return selected.some(cn => cn !== '—' && names.includes(cn));
       });
       if (list.length === 0) return;
       setPdfExportModalVisible(false);
@@ -496,6 +512,26 @@ export default function ReservesScreen() {
         return { title: company, key: company, data, color: co?.color ?? C.primary };
       });
   }, [filtered, companies]);
+
+  const pdfPreviewCount = useMemo(() => {
+    if (pdfExportMode === 'all') return filtered.length;
+    if (pdfExportMode === 'company_none') return filtered.filter(isSansEntrepriseReserve).length;
+    if (pdfExportMode === 'company_single') {
+      if (!pdfCompanySingle) return 0;
+      if (pdfCompanySingle === '—') return filtered.filter(isSansEntrepriseReserve).length;
+      return filtered.filter(r => (r.companies ?? (r.company ? [r.company] : [])).includes(pdfCompanySingle)).length;
+    }
+    if (pdfExportMode === 'company_multi') {
+      if (pdfCompaniesMulti.size === 0) return 0;
+      const selected = Array.from(pdfCompaniesMulti);
+      return filtered.filter(r => {
+        if (selected.includes('—') && isSansEntrepriseReserve(r)) return true;
+        const names = r.companies ?? (r.company ? [r.company] : []);
+        return selected.some(cn => cn !== '—' && names.includes(cn));
+      }).length;
+    }
+    return 0;
+  }, [filtered, isSansEntrepriseReserve, pdfCompaniesMulti, pdfCompanySingle, pdfExportMode]);
 
   const isSortActive = sortKey !== 'date_desc';
   const obsCount = useMemo(() => chantierReserves.filter(r => r.kind === 'observation').length, [chantierReserves]);
@@ -1460,6 +1496,13 @@ export default function ReservesScreen() {
               </TouchableOpacity>
 
               <TouchableOpacity
+                style={[styles.modalOption, pdfExportMode === 'company_none' && styles.modalOptionActive]}
+                onPress={() => setPdfExportMode('company_none')}
+              >
+                <Text style={[styles.modalOptionText, pdfExportMode === 'company_none' && styles.modalOptionTextActive]}>Réserves sans entreprise</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
                 style={[styles.modalOption, pdfExportMode === 'manual' && styles.modalOptionActive]}
                 onPress={() => setPdfExportMode('manual')}
               >
@@ -1471,45 +1514,61 @@ export default function ReservesScreen() {
               <View style={{ maxHeight: 220 }}>
                 <ScrollView>
                   {groupedByCompany.map(g => (
-                    <TouchableOpacity
-                      key={g.key}
-                      style={[styles.companyPickRow, pdfCompanySingle === g.key && styles.companyPickRowActive]}
-                      onPress={() => setPdfCompanySingle(g.key)}
-                    >
-                      <Text style={styles.companyPickRowText}>{g.title}</Text>
-                      <Text style={styles.companyPickRowCount}>{g.data.length}</Text>
-                    </TouchableOpacity>
-                  ))}
+                      <TouchableOpacity
+                        key={g.key}
+                        style={[styles.companyPickRow, pdfCompanySingle === g.key && styles.companyPickRowActive]}
+                        onPress={() => setPdfCompanySingle(g.key)}
+                      >
+                        <Text style={styles.companyPickRowText}>{g.key === '—' ? 'Sans entreprise' : g.title}</Text>
+                        <Text style={styles.companyPickRowCount}>{g.data.length}</Text>
+                      </TouchableOpacity>
+                    ))}
                 </ScrollView>
               </View>
             )}
 
             {pdfExportMode === 'company_multi' && (
               <View style={{ maxHeight: 220 }}>
+                <View style={styles.multiPickActions}>
+                  <TouchableOpacity
+                    style={styles.multiPickBtn}
+                    onPress={() => {
+                      setPdfCompaniesMulti(new Set(groupedByCompany.map(g => g.key)));
+                    }}
+                  >
+                    <Text style={styles.multiPickBtnText}>Tout</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={styles.multiPickBtn}
+                    onPress={() => setPdfCompaniesMulti(new Set())}
+                  >
+                    <Text style={styles.multiPickBtnText}>Aucun</Text>
+                  </TouchableOpacity>
+                </View>
                 <ScrollView>
                   {groupedByCompany.map(g => {
-                    const checked = pdfCompaniesMulti.has(g.key);
-                    return (
-                      <TouchableOpacity
-                        key={g.key}
-                        style={styles.companyPickRow}
-                        onPress={() => {
-                          setPdfCompaniesMulti(prev => {
-                            const next = new Set(prev);
-                            if (next.has(g.key)) next.delete(g.key);
-                            else next.add(g.key);
-                            return next;
-                          });
-                        }}
-                      >
-                        <View style={[styles.checkbox, checked && styles.checkboxChecked]}>
-                          {checked && <Ionicons name="checkmark" size={14} color="#fff" />}
-                        </View>
-                        <Text style={styles.companyPickRowText}>{g.title}</Text>
-                        <Text style={styles.companyPickRowCount}>{g.data.length}</Text>
-                      </TouchableOpacity>
-                    );
-                  })}
+                      const checked = pdfCompaniesMulti.has(g.key);
+                      return (
+                        <TouchableOpacity
+                          key={g.key}
+                          style={styles.companyPickRow}
+                          onPress={() => {
+                            setPdfCompaniesMulti(prev => {
+                              const next = new Set(prev);
+                              if (next.has(g.key)) next.delete(g.key);
+                              else next.add(g.key);
+                              return next;
+                            });
+                          }}
+                        >
+                          <View style={[styles.checkbox, checked && styles.checkboxChecked]}>
+                            {checked && <Ionicons name="checkmark" size={14} color="#fff" />}
+                          </View>
+                          <Text style={styles.companyPickRowText}>{g.key === '—' ? 'Sans entreprise' : g.title}</Text>
+                          <Text style={styles.companyPickRowCount}>{g.data.length}</Text>
+                        </TouchableOpacity>
+                      );
+                    })}
                 </ScrollView>
               </View>
             )}
@@ -1517,6 +1576,12 @@ export default function ReservesScreen() {
             {pdfExportMode === 'manual' && (
               <Text style={styles.modalHint}>
                 Un mode sélection s’ouvrira. Sélectionne les réserves puis utilise le bouton PDF dans la barre d’actions.
+              </Text>
+            )}
+
+            {pdfExportMode !== 'manual' && (
+              <Text style={styles.modalPreview}>
+                {pdfPreviewCount} réserve{pdfPreviewCount !== 1 ? 's' : ''} vont être exportée{pdfPreviewCount !== 1 ? 's' : ''}.
               </Text>
             )}
 
@@ -2186,14 +2251,21 @@ const styles = StyleSheet.create({
   modalOptionTextActive: { color: C.primary },
   companyPickRow: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 10, paddingHorizontal: 10, borderRadius: 12, borderWidth: 1, borderColor: C.border, backgroundColor: C.surface2, marginBottom: 8 },
   companyPickRowActive: { borderColor: C.primary, backgroundColor: C.primaryBg },
+  companyPickRowDisabled: { opacity: 0.55 },
   companyPickRowText: { flex: 1, fontSize: 13, fontFamily: 'Inter_500Medium', color: C.text },
+  companyPickRowTextDisabled: { color: C.textMuted },
   companyPickRowCount: { fontSize: 12, fontFamily: 'Inter_600SemiBold', color: C.textSub },
+  multiPickActions: { flexDirection: 'row', gap: 8, marginBottom: 8 },
+  multiPickBtn: { paddingHorizontal: 10, paddingVertical: 6, borderRadius: 999, borderWidth: 1, borderColor: C.border, backgroundColor: C.surface2 },
+  multiPickBtnText: { fontSize: 12, fontFamily: 'Inter_600SemiBold', color: C.textSub },
   modalHint: { fontSize: 12, fontFamily: 'Inter_400Regular', color: C.textSub, marginTop: 6, marginBottom: 12 },
+  modalPreview: { fontSize: 12, fontFamily: 'Inter_600SemiBold', color: C.text, marginTop: 4 },
   modalActions: { flexDirection: 'row', justifyContent: 'flex-end', gap: 10, marginTop: 12 },
   modalCancelBtn: { paddingHorizontal: 12, paddingVertical: 9, borderRadius: 12, borderWidth: 1, borderColor: C.border, backgroundColor: C.surface2 },
   modalCancelBtnText: { fontSize: 12, fontFamily: 'Inter_600SemiBold', color: C.textSub },
   modalConfirmBtn: { paddingHorizontal: 12, paddingVertical: 9, borderRadius: 12, backgroundColor: C.primary },
   modalConfirmBtnText: { fontSize: 12, fontFamily: 'Inter_700Bold', color: '#fff' },
+  checkboxDisabled: { backgroundColor: C.surface2, borderColor: C.border },
   bottomSheet: {
     backgroundColor: C.surface, borderTopLeftRadius: 20, borderTopRightRadius: 20,
     paddingHorizontal: 16, paddingBottom: 32, paddingTop: 12, maxHeight: '85%',
