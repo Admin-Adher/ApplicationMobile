@@ -14,7 +14,7 @@ import { ReserveKind, ReservePriority, ReserveStatus, ReservePhoto } from '@/con
 import Header from '@/components/Header';
 import DateInput from '@/components/DateInput';
 import BottomSheetPicker from '@/components/BottomSheetPicker';
-import { uploadPhoto } from '@/lib/storage';
+import { uploadPhoto, persistLocalPhoto } from '@/lib/storage';
 import { genId } from '@/lib/utils';
 import {
   RESERVE_PRIORITIES, RESERVE_TEMPLATES,
@@ -269,17 +269,21 @@ export default function NewReserveScreen() {
       const today = new Date().toISOString().split('T')[0];
 
       let storageUrl: string | null = null;
-      let uploadFailed = false;
       try {
         storageUrl = await uploadPhoto(uri, filename);
       } catch (uploadErr: any) {
-        uploadFailed = true;
+        // Upload failed (offline or network error) — persist photo locally so it survives app restart
+      }
+
+      // If upload failed, copy the temp photo to persistent storage so it won't be cleared by the OS
+      let finalUri = storageUrl ?? await persistLocalPhoto(uri);
+
+      if (!storageUrl) {
         Alert.alert(
-          'Upload échoué',
-          `La photo n'a pas pu être envoyée au serveur (${uploadErr?.message ?? 'erreur réseau'}). Elle est sauvegardée localement uniquement.`
+          'Mode hors ligne',
+          "La photo a été sauvegardée localement. Elle sera synchronisée lorsque la connexion sera rétablie."
         );
       }
-      const finalUri = storageUrl ?? uri;
 
       const newPhoto: ReservePhoto = {
         id: genId(),

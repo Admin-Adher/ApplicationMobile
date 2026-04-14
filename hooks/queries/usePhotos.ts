@@ -1,5 +1,6 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useCallback, useEffect, useRef } from 'react';
+import { Alert } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { supabase, isSupabaseConfigured } from '@/lib/supabase';
 import { useAuth } from '@/context/AuthContext';
@@ -8,7 +9,7 @@ import { queryKeys } from '@/lib/queryKeys';
 import { toPhoto } from '@/lib/mappers';
 import { Photo } from '@/constants/types';
 import { useStartupDelay } from '@/hooks/useStartupDelay';
-import { offlineQuery, writeCache } from '@/lib/offlineCache';
+import { mergeWithCache, readCache, writeCache } from '@/lib/offlineCache';
 
 const PHOTOS_CACHE_KEY = 'buildtrack_photos_cache_v1';
 
@@ -24,14 +25,27 @@ export function usePhotos() {
   const query = useQuery({
     queryKey: queryKeys.photos(),
     queryFn: async (): Promise<Photo[]> => {
-      const fetchFn = isSupabaseConfigured
-        ? async () => {
-            const { data, error } = await supabase.from('photos').select('*').order('taken_at', { ascending: false });
-            if (error) throw error;
-            return (data ?? []).map(toPhoto);
-          }
-        : null;
-      return offlineQuery<Photo>(PHOTOS_CACHE_KEY, fetchFn, userId);
+      // Read cache first so offline-created photos can be displayed instantly.
+      const cached = await readCache<Photo>(PHOTOS_CACHE_KEY, userId);
+
+      // No backend (mock mode)
+      if (!isSupabaseConfigured) {
+        return cached ?? [];
+      }
+
+      // Try online fetch; merge with cache to keep local-only (offline-created) items.
+      try {
+        const { data, error } = await supabase.from('photos').select('*').order('taken_at', { ascending: false });
+        if (error) throw error;
+        const fresh = (data ?? []).map(toPhoto);
+        const merged = mergeWithCache<Photo>(fresh, cached);
+        await writeCache(PHOTOS_CACHE_KEY, merged, userId);
+        return merged;
+      } catch (err) {
+        // If fetch fails (offline), fall back to cache.
+        console.warn(`[usePhotos] fetch failed, using cache`, err);
+        return cached ?? [];
+      }
     },
     enabled: !!user && startupReady,
     staleTime: 5 * 60 * 1000,
@@ -59,7 +73,10 @@ export function usePhotos() {
     }
     if (isSupabaseConfigured) {
       const { error } = await supabase.from('photos').insert(payload);
-      if (error) console.warn('[sync] addPhoto error:', error.message);
+      if (error) {
+        console.warn('[sync] addPhoto error:', error.message);
+        Alert.alert('Synchronisation incomplète', `La photo a été sauvegardée localement mais n'a pas pu être synchronisée (${error.message}).`);
+      }
     }
   }, [queryClient, user, isOnlineRef, enqueueOperation, persist]);
 

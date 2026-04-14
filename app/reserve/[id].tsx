@@ -28,7 +28,7 @@ import Header from '@/components/Header';
 import DateInput from '@/components/DateInput';
 import { useAuth } from '@/context/AuthContext';
 import { useSettings } from '@/context/SettingsContext';
-import { uploadPhoto } from '@/lib/storage';
+import { uploadPhoto, persistLocalPhoto } from '@/lib/storage';
 import { isSupabaseConfigured } from '@/lib/supabase';
 import { genId, formatDateFR } from '@/lib/utils';
 import {
@@ -630,8 +630,23 @@ export default function ReserveDetailScreen() {
     setEditPhotoUploading(true);
     try {
       const filename = `reserve_photo_${Date.now()}.jpg`;
-      const storageUrl = await uploadPhoto(uri, filename);
-      const finalUri = storageUrl ?? uri;
+      let storageUrl: string | null = null;
+      try {
+        storageUrl = await uploadPhoto(uri, filename);
+      } catch {
+        // Upload failed (offline or network error) — persist photo locally so it survives app restart
+      }
+
+      // If upload failed, copy the temp photo to persistent storage so it won't be cleared by the OS
+      const finalUri = storageUrl ?? await persistLocalPhoto(uri);
+
+      if (!storageUrl) {
+        Alert.alert(
+          'Mode hors ligne',
+          "La photo a été sauvegardée localement. Elle sera synchronisée lorsque la connexion sera rétablie."
+        );
+      }
+
       const today = formatDateFR(new Date());
       const newPhoto: ReservePhoto = { id: genId(), uri: finalUri, kind: 'defect', takenAt: today, takenBy: user?.name ?? '' };
       setEditPhotos(prev => [...prev, newPhoto]);

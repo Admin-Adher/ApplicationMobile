@@ -80,6 +80,40 @@ export async function uploadDocumentDetailed(
   }
 }
 
+/**
+ * Check if a URI points to a local file (not a remote URL).
+ */
+export function isLocalUri(uri: string): boolean {
+  return uri.startsWith('file://') || uri.startsWith('content://') || uri.startsWith('ph://') || uri.startsWith('data:');
+}
+
+/**
+ * Copy a photo from a temporary location (camera cache, gallery temp) to the
+ * app's persistent documentDirectory so it survives app restarts.
+ * Returns the persistent local URI, or the original URI on web / if already persistent.
+ */
+export async function persistLocalPhoto(uri: string): Promise<string> {
+  if (Platform.OS === 'web') return uri;
+  if (!isLocalUri(uri)) return uri; // already a remote URL
+  if (uri.startsWith(FileSystem.documentDirectory ?? '\0')) return uri; // already persistent
+
+  try {
+    const dir = `${FileSystem.documentDirectory}photos/`;
+    const dirInfo = await FileSystem.getInfoAsync(dir);
+    if (!dirInfo.exists) {
+      await FileSystem.makeDirectoryAsync(dir, { intermediates: true });
+    }
+    const ext = uri.split('.').pop()?.toLowerCase() ?? 'jpg';
+    const safeExt = ['jpg', 'jpeg', 'png', 'webp', 'gif'].includes(ext) ? ext : 'jpg';
+    const destUri = `${dir}reserve_${Date.now()}_${Math.random().toString(36).slice(2, 7)}.${safeExt}`;
+    await FileSystem.copyAsync({ from: uri, to: destUri });
+    return destUri;
+  } catch (e) {
+    console.warn('[persistLocalPhoto] failed to copy, using original URI:', e);
+    return uri; // fallback: use original (may break after restart, but better than losing the photo entirely)
+  }
+}
+
 export async function initStorageBuckets(): Promise<void> {
   // Les buckets doivent être créés via Supabase SQL Editor (voir lib/schema.sql).
   // La création programmatique via la clé anon est bloquée par RLS.
