@@ -134,7 +134,7 @@ export function IncidentsProvider({ children }: { children: React.ReactNode }) {
         const { error } = await supabase.from('incidents').delete().eq('id', incident.id);
         if (error) throw error;
       } else {
-        const { error } = await supabase.from('incidents').upsert({
+        const { error } = await (supabase.from('incidents') as any).upsert({
           id: incident.id,
           title: incident.title,
           description: incident.description,
