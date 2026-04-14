@@ -6,6 +6,7 @@ import { supabase, isSupabaseConfigured } from '@/lib/supabase';
 import { useAuth } from '@/context/AuthContext';
 import { useNetwork } from '@/context/NetworkContext';
 import { genId } from '@/lib/utils';
+import { mergeWithCache } from '@/lib/offlineCache';
 
 const POINTAGE_PREFIX = 'buildtrack_pointage_v2_';
 
@@ -71,24 +72,30 @@ export function PointageProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     async function load() {
+      // Always read cache first so offline-created entries survive.
+      let cached: TimeEntry[] | null = null;
+      try {
+        const stored = await AsyncStorage.getItem(pointageKey);
+        if (stored) cached = JSON.parse(stored);
+      } catch {}
+
       if (isSupabaseConfigured && user) {
         try {
           const { data, error } = await supabase
             .from('time_entries')
             .select('*')
             .order('created_at', { ascending: false });
-          if (!error && data && data.length > 0) {
-            const loaded = data.map(toEntry);
-            setEntries(loaded);
-            await AsyncStorage.setItem(pointageKey, JSON.stringify(loaded)).catch(() => {});
+          if (!error && data) {
+            const fresh = data.map(toEntry);
+            const merged = mergeWithCache<TimeEntry>(fresh, cached);
+            setEntries(merged);
+            await AsyncStorage.setItem(pointageKey, JSON.stringify(merged)).catch(() => {});
             return;
           }
         } catch {}
       }
-      try {
-        const stored = await AsyncStorage.getItem(pointageKey);
-        if (stored) setEntries(JSON.parse(stored));
-      } catch {}
+      // Fallback to cache
+      if (cached) setEntries(cached);
     }
     load();
   }, [user?.id]);
@@ -145,7 +152,7 @@ export function PointageProvider({ children }: { children: React.ReactNode }) {
         console.warn('[sync] addEntry network error (data saved locally):', err?.message ?? err);
       });
     }
-  }, [enqueueOperation]);
+  }, [enqueueOperation, pointageKey]);
 
   const updateEntry = useCallback(async (id: string, updates: Partial<TimeEntry>) => {
     const updated = entriesRef.current.map(e => e.id === id ? { ...e, ...updates } : e);
@@ -164,7 +171,7 @@ export function PointageProvider({ children }: { children: React.ReactNode }) {
         });
       }
     }
-  }, [enqueueOperation]);
+  }, [enqueueOperation, pointageKey]);
 
   const deleteEntry = useCallback(async (id: string) => {
     await persistLocal(entriesRef.current.filter(e => e.id !== id));
@@ -179,7 +186,7 @@ export function PointageProvider({ children }: { children: React.ReactNode }) {
         console.warn('[sync] deleteEntry network error (data deleted locally):', err?.message ?? err);
       });
     }
-  }, [enqueueOperation]);
+  }, [enqueueOperation, pointageKey]);
 
   const getEntriesForDate = useCallback((date: string) => {
     return entriesRef.current.filter(e => e.date === date);

@@ -6,6 +6,7 @@ import { supabase, isSupabaseConfigured } from '@/lib/supabase';
 import { useAuth } from '@/context/AuthContext';
 import { useNetwork } from '@/context/NetworkContext';
 import { formatDateFR } from '@/lib/utils';
+import { mergeWithCache } from '@/lib/offlineCache';
 
 const INCIDENTS_PREFIX = 'buildtrack_incidents_v3_';
 
@@ -59,27 +60,33 @@ export function IncidentsProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     async function load() {
       setIsLoading(true);
+      // Always read cache first so offline-created incidents survive.
+      let cached: Incident[] | null = null;
+      try {
+        const stored = await AsyncStorage.getItem(incidentsKey);
+        if (stored) cached = JSON.parse(stored);
+      } catch {}
+
       if (isSupabaseConfigured && user) {
         try {
           const { data, error } = await supabase.from('incidents').select('*').order('reported_at', { ascending: false });
-          if (!error && data && data.length > 0) {
-            setIncidents(data.map(toIncident));
+          if (!error && data) {
+            const fresh = data.map(toIncident);
+            const merged = mergeWithCache<Incident>(fresh, cached);
+            setIncidents(merged);
+            try { await AsyncStorage.setItem(incidentsKey, JSON.stringify(merged)); } catch {}
             setIsLoading(false);
             return;
           }
         } catch {}
       }
-      try {
-        const stored = await AsyncStorage.getItem(incidentsKey);
-        if (stored) {
-          setIncidents(JSON.parse(stored));
-        } else {
-          const mock = makeMockIncidents();
-          setIncidents(mock);
-          await AsyncStorage.setItem(incidentsKey, JSON.stringify(mock));
-        }
-      } catch {
-        setIncidents(makeMockIncidents());
+      // Fallback to cache (or mock)
+      if (cached) {
+        setIncidents(cached);
+      } else {
+        const mock = makeMockIncidents();
+        setIncidents(mock);
+        try { await AsyncStorage.setItem(incidentsKey, JSON.stringify(mock)); } catch {}
       }
       setIsLoading(false);
     }
@@ -171,7 +178,7 @@ export function IncidentsProvider({ children }: { children: React.ReactNode }) {
     await syncToSupabase(incident, 'upsert', (err) => {
       Alert.alert('Synchronisation échouée', `L'incident a été sauvegardé localement mais n'a pas pu être envoyé au serveur.\n${err}`);
     });
-  }, [enqueueOperation]);
+  }, [enqueueOperation, incidentsKey]);
 
   const updateIncident = useCallback(async (incident: Incident) => {
     await persist(incidentsRef.current.map(i => i.id === incident.id ? incident : i));
@@ -189,7 +196,7 @@ export function IncidentsProvider({ children }: { children: React.ReactNode }) {
     await syncToSupabase(incident, 'upsert', (err) => {
       Alert.alert('Synchronisation échouée', `La modification a été sauvegardée localement mais n'a pas pu être envoyée au serveur.\n${err}`);
     });
-  }, [enqueueOperation]);
+  }, [enqueueOperation, incidentsKey]);
 
   const deleteIncident = useCallback(async (id: string) => {
     const target = incidentsRef.current.find(i => i.id === id);
@@ -205,7 +212,7 @@ export function IncidentsProvider({ children }: { children: React.ReactNode }) {
         });
       }
     }
-  }, [enqueueOperation]);
+  }, [enqueueOperation, incidentsKey]);
 
   return (
     <IncidentsContext.Provider value={{ incidents, isLoading, addIncident, updateIncident, deleteIncident }}>

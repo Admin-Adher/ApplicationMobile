@@ -284,7 +284,7 @@ export function useChannels() {
         members: ch.members ?? [], created_by: ch.createdBy ?? null, organization_id: orgId ?? null,
       }).catch(() => {});
     }
-  }, [enqueueOperation]);
+  }, [enqueueOperation, CUSTOM_CHANNELS_KEY]);
 
   const saveGroupChannels = useCallback(async (channels: Channel[]) => {
     try { await AsyncStorage.setItem(GROUP_CHANNELS_KEY, JSON.stringify(channels)); } catch {}
@@ -309,7 +309,7 @@ export function useChannels() {
         });
       } catch {}
     }
-  }, [enqueueOperation]);
+  }, [enqueueOperation, GROUP_CHANNELS_KEY]);
 
   const savePinnedChannels = useCallback(async (ids: string[]) => {
     try { await AsyncStorage.setItem(PINNED_CHANNELS_KEY, JSON.stringify(ids)); } catch {}
@@ -325,7 +325,7 @@ export function useChannels() {
         await supabase.from('profiles').update({ pinned_channels: ids }).eq('id', userId);
       } catch {}
     })();
-  }, [enqueueOperation]);
+  }, [enqueueOperation, PINNED_CHANNELS_KEY]);
 
   const addCustomChannel = useCallback((name: string, description: string, icon: string, color: string): Channel => {
     const creator = userNameRef.current;
@@ -441,7 +441,7 @@ export function useChannels() {
         return updated;
       });
     }
-  }, [customChannels, groupChannels, _updateAndPersistChannel]);
+  }, [customChannels, groupChannels, _updateAndPersistChannel, CHANNEL_MEMBERS_OVERRIDE_KEY]);
 
   const removeChannelMember = useCallback((id: string, memberName: string) => {
     const ch = [...customChannels, ...groupChannels].find(c => c.id === id);
@@ -458,7 +458,7 @@ export function useChannels() {
         return updated;
       });
     }
-  }, [customChannels, groupChannels, _updateAndPersistChannel]);
+  }, [customChannels, groupChannels, _updateAndPersistChannel, CHANNEL_MEMBERS_OVERRIDE_KEY]);
 
   const pinChannel = useCallback((id: string): { success: boolean; reason?: string } => {
     if (pinnedChannelIds.includes(id)) return { success: false, reason: 'already_pinned' };
@@ -533,7 +533,7 @@ export function useChannels() {
     setPersistedDmChannels(prev => prev.some(c => c.id === chId) ? prev : [...prev, newChannel]);
 
     return newChannel;
-  }, [enqueueOperation]);
+  }, [enqueueOperation, PENDING_DM_KEY]);
 
   const getDmUpsertPromise = useCallback((channelId: string) => {
     return dmUpsertPromisesRef.current.get(channelId);

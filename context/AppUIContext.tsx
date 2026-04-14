@@ -69,7 +69,7 @@ export function AppUIProvider({ children }: { children: React.ReactNode }) {
       AsyncStorage.setItem(LAST_READ_PREFIX + uid, JSON.stringify(next)).catch(() => {});
       return next;
     });
-  }, []);
+  }, [uid]);
 
   const setLastRead = useCallback((map: Record<string, string>) => {
     setLastReadByChannel(map);

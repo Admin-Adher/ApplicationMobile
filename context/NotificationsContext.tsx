@@ -65,7 +65,7 @@ export function NotificationsProvider({ children }: { children: React.ReactNode 
         } catch {}
       }
     });
-  }, []);
+  }, [seenKey]);
 
   async function persistSeen(updated: Set<string>) {
     try {
@@ -191,7 +191,7 @@ export function NotificationsProvider({ children }: { children: React.ReactNode 
       persistSeen(updated);
       return updated;
     });
-  }, []);
+  }, [seenKey]);
 
   const markAllRead = useCallback(() => {
     setSeenIds(prev => {
@@ -200,7 +200,7 @@ export function NotificationsProvider({ children }: { children: React.ReactNode 
       persistSeen(updated);
       return updated;
     });
-  }, [notifications]);
+  }, [notifications, seenKey]);
 
   return (
     <NotificationsContext.Provider value={{ notifications, unreadCount, markRead, markAllRead }}>

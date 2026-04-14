@@ -62,27 +62,27 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
       } catch {}
     }
     load();
-  }, []);
+  }, [uid]);
 
   const setProjectName = useCallback(async (name: string) => {
     setProjectNameState(name);
     try { await AsyncStorage.setItem(PROJECT_NAME_KEY, name); } catch {}
-  }, []);
+  }, [PROJECT_NAME_KEY]);
 
   const setProjectDescription = useCallback(async (desc: string) => {
     setProjectDescriptionState(desc);
     try { await AsyncStorage.setItem(PROJECT_DESC_KEY, desc); } catch {}
-  }, []);
+  }, [PROJECT_DESC_KEY]);
 
   const setDefaultArrivalTime = useCallback(async (time: string) => {
     setDefaultArrivalTimeState(time);
     try { await AsyncStorage.setItem(DEFAULT_ARRIVAL_TIME_KEY, time); } catch {}
-  }, []);
+  }, [DEFAULT_ARRIVAL_TIME_KEY]);
 
   const setStandardDayHours = useCallback(async (hours: number) => {
     setStandardDayHoursState(hours);
     try { await AsyncStorage.setItem(STANDARD_DAY_HOURS_KEY, String(hours)); } catch {}
-  }, []);
+  }, [STANDARD_DAY_HOURS_KEY]);
 
   const saveAttendanceSnapshot = useCallback(async (companies: Company[], savedBy: string) => {
     const today = formatDateFR(new Date());
@@ -99,18 +99,18 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
     const updated = [...attendanceHistoryRef.current, ...records];
     setAttendanceHistory(updated);
     try { await AsyncStorage.setItem(ATTENDANCE_HISTORY_KEY, JSON.stringify(updated)); } catch {}
-  }, []);
+  }, [ATTENDANCE_HISTORY_KEY]);
 
   const deleteAttendanceRecord = useCallback(async (id: string) => {
     const updated = attendanceHistoryRef.current.filter(r => r.id !== id);
     setAttendanceHistory(updated);
     try { await AsyncStorage.setItem(ATTENDANCE_HISTORY_KEY, JSON.stringify(updated)); } catch {}
-  }, []);
+  }, [ATTENDANCE_HISTORY_KEY]);
 
   const clearAttendanceHistory = useCallback(async () => {
     setAttendanceHistory([]);
     try { await AsyncStorage.removeItem(ATTENDANCE_HISTORY_KEY); } catch {}
-  }, []);
+  }, [ATTENDANCE_HISTORY_KEY]);
 
   return (
     <SettingsContext.Provider value={{

@@ -5,6 +5,7 @@ import { genId, formatDateFR } from '@/lib/utils';
 import { supabase, isSupabaseConfigured } from '@/lib/supabase';
 import { useAuth } from '@/context/AuthContext';
 import { useNetwork } from '@/context/NetworkContext';
+import { mergeWithCache } from '@/lib/offlineCache';
 
 const REG_DOCS_PREFIX = 'buildtrack_reglementaire_v2_';
 
@@ -65,6 +66,13 @@ export function ReglementaireProvider({ children }: { children: React.ReactNode 
 
   useEffect(() => {
     async function load() {
+      // Always read cache first so offline-created docs survive.
+      let cached: RegulatoryDoc[] | null = null;
+      try {
+        const raw = await AsyncStorage.getItem(regDocsKey);
+        if (raw) cached = JSON.parse(raw);
+      } catch {}
+
       if (isSupabaseConfigured && user) {
         try {
           const { data, error } = await supabase
@@ -72,17 +80,16 @@ export function ReglementaireProvider({ children }: { children: React.ReactNode 
             .select('*')
             .order('created_at', { ascending: false });
           if (!error && data) {
-            const loaded = data.map(toDoc);
-            setDocs(loaded);
-            AsyncStorage.setItem(regDocsKey, JSON.stringify(loaded)).catch(() => {});
+            const fresh = data.map(toDoc);
+            const merged = mergeWithCache<RegulatoryDoc>(fresh, cached);
+            setDocs(merged);
+            AsyncStorage.setItem(regDocsKey, JSON.stringify(merged)).catch(() => {});
             return;
           }
         } catch {}
       }
-      try {
-        const raw = await AsyncStorage.getItem(regDocsKey);
-        if (raw) setDocs(JSON.parse(raw));
-      } catch {}
+      // Fallback to cache
+      if (cached) setDocs(cached);
     }
     load();
   }, [user?.id]);
@@ -140,7 +147,7 @@ export function ReglementaireProvider({ children }: { children: React.ReactNode 
         console.warn('Erreur sauvegarde doc réglementaire:', e?.message ?? e);
       });
     }
-  }, [enqueueOperation]);
+  }, [enqueueOperation, regDocsKey]);
 
   const updateDoc = useCallback(async (id: string, updates: Partial<RegulatoryDoc>) => {
     const updated = docsRef.current.map(d => d.id === id ? { ...d, ...updates } : d);
@@ -159,7 +166,7 @@ export function ReglementaireProvider({ children }: { children: React.ReactNode 
         });
       }
     }
-  }, [enqueueOperation]);
+  }, [enqueueOperation, regDocsKey]);
 
   const deleteDoc = useCallback(async (id: string) => {
     await persistLocal(docsRef.current.filter(d => d.id !== id));
@@ -174,7 +181,7 @@ export function ReglementaireProvider({ children }: { children: React.ReactNode 
         console.warn('Erreur réseau suppression doc réglementaire (supprimé localement):', err?.message ?? err);
       });
     }
-  }, [enqueueOperation]);
+  }, [enqueueOperation, regDocsKey]);
 
   return (
     <ReglementaireContext.Provider value={{ docs, addDoc, updateDoc, deleteDoc }}>

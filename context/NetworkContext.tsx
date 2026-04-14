@@ -121,7 +121,7 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
     try {
       await AsyncStorage.setItem(offlineQueueKey, JSON.stringify(q));
     } catch {}
-  }, []);
+  }, [offlineQueueKey]);
 
   const loadQueue = useCallback(async () => {
     try {
@@ -131,7 +131,7 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
         if (Array.isArray(parsed)) setQueue(parsed);
       }
     } catch {}
-  }, []);
+  }, [offlineQueueKey]);
 
   // ── Network detection ──────────────────────────────────────────────────────
 
@@ -171,7 +171,7 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
     check();
     const interval = setInterval(check, 10_000);
     return () => clearInterval(interval);
-  }, []);
+  }, [loadQueue]);
 
   // ── Trigger sync when coming back online ───────────────────────────────────
 
@@ -399,7 +399,7 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
   const clearQueue = useCallback(async () => {
     setQueue([]);
     await AsyncStorage.removeItem(offlineQueueKey);
-  }, []);
+  }, [offlineQueueKey]);
 
   const registerReloadHandler = useCallback((fn: () => void) => {
     reloadHandlerRef.current = fn;
