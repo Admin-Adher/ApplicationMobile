@@ -3,7 +3,7 @@ import { useAuth } from '@/context/AuthContext';
 import { supabase, isSupabaseConfigured } from '@/lib/supabase';
 import { queryKeys } from '@/lib/queryKeys';
 import { Profile } from '@/constants/types';
-import { offlineQuery, writeCache } from '@/lib/offlineCache';
+import { mergeWithCache, readCache, writeCache } from '@/lib/offlineCache';
 
 const MOCK_PROFILES: Profile[] = [
   { id: 'demo-0', name: 'Admin Système', role: 'admin', roleLabel: 'Administrateur', email: 'admin@buildtrack.fr' },
@@ -17,23 +17,35 @@ export function useProfiles() {
   const queryClient = useQueryClient();
   const userId = user?.id;
 
+  const PROFILES_CACHE_KEY = 'buildtrack_profiles_cache_v1';
   const query = useQuery({
     queryKey: queryKeys.profiles(),
     queryFn: async (): Promise<Profile[]> => {
-      const fetchFn = isSupabaseConfigured
-        ? async () => {
-            const q = user?.organizationId
-              ? supabase.from('profiles').select('id, name, role, role_label, email').eq('organization_id', user.organizationId)
-              : supabase.from('profiles').select('id, name, role, role_label, email');
-            const { data, error } = await q;
-            if (error) throw error;
-            return (data ?? []).map((p: any) => ({
-              id: p.id, name: p.name, role: p.role, roleLabel: p.role_label, email: p.email,
-            }));
-          }
-        : null;
-      const result = await offlineQuery<Profile>('buildtrack_profiles_cache_v1', fetchFn, userId);
-      return result.length > 0 ? result : MOCK_PROFILES;
+      let cached = await readCache<Profile>(PROFILES_CACHE_KEY, userId);
+      const rqCached = queryClient.getQueryData<Profile[]>(queryKeys.profiles());
+      if (!cached && rqCached?.length) cached = rqCached;
+      else if (cached && rqCached?.length) {
+        const cachedIds = new Set(cached.map(p => p.id));
+        const extra = rqCached.filter(p => !cachedIds.has(p.id));
+        if (extra.length) cached = [...cached, ...extra];
+      }
+      if (!isSupabaseConfigured) return (cached?.length ? cached : MOCK_PROFILES);
+      try {
+        const q = user?.organizationId
+          ? supabase.from('profiles').select('id, name, role, role_label, email').eq('organization_id', user.organizationId)
+          : supabase.from('profiles').select('id, name, role, role_label, email');
+        const { data, error } = await q;
+        if (error) throw error;
+        const fresh = (data ?? []).map((p: any) => ({
+          id: p.id, name: p.name, role: p.role, roleLabel: p.role_label, email: p.email,
+        }));
+        const merged = mergeWithCache<Profile>(fresh, cached);
+        await writeCache(PROFILES_CACHE_KEY, merged, userId);
+        return merged.length > 0 ? merged : MOCK_PROFILES;
+      } catch (err) {
+        console.warn('[useProfiles] fetch failed, using cache', err);
+        return (cached?.length ? cached : MOCK_PROFILES);
+      }
     },
     enabled: !!user,
     staleTime: 10 * 60 * 1000,

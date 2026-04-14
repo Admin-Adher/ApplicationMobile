@@ -9,7 +9,7 @@ import { queryKeys } from '@/lib/queryKeys';
 import { toTask } from '@/lib/mappers';
 import { Task, Comment } from '@/constants/types';
 import { genId } from '@/lib/utils';
-import { offlineQuery, writeCache } from '@/lib/offlineCache';
+import { mergeWithCache, readCache, writeCache } from '@/lib/offlineCache';
 
 const TASKS_CACHE_KEY = 'buildtrack_tasks_cache_v1';
 
@@ -24,14 +24,26 @@ export function useTasks() {
   const query = useQuery({
     queryKey: queryKeys.tasks(),
     queryFn: async (): Promise<Task[]> => {
-      const fetchFn = isSupabaseConfigured
-        ? async () => {
-            const { data, error } = await supabase.from('tasks').select('*');
-            if (error) throw error;
-            return (data ?? []).map(toTask);
-          }
-        : null;
-      return offlineQuery<Task>(TASKS_CACHE_KEY, fetchFn, userId);
+      let cached = await readCache<Task>(TASKS_CACHE_KEY, userId);
+      const rqCached = queryClient.getQueryData<Task[]>(queryKeys.tasks());
+      if (!cached && rqCached?.length) cached = rqCached;
+      else if (cached && rqCached?.length) {
+        const cachedIds = new Set(cached.map(t => t.id));
+        const extra = rqCached.filter(t => !cachedIds.has(t.id));
+        if (extra.length) cached = [...cached, ...extra];
+      }
+      if (!isSupabaseConfigured) return cached ?? [];
+      try {
+        const { data, error } = await supabase.from('tasks').select('*');
+        if (error) throw error;
+        const fresh = (data ?? []).map(toTask);
+        const merged = mergeWithCache<Task>(fresh, cached);
+        await writeCache(TASKS_CACHE_KEY, merged, userId);
+        return merged;
+      } catch (err) {
+        console.warn(`[useTasks] fetch failed, using cache`, err);
+        return cached ?? [];
+      }
     },
     enabled: !!user,
     staleTime: 5 * 60 * 1000,
@@ -39,7 +51,7 @@ export function useTasks() {
 
   const persist = useCallback((tasks: Task[]) => {
     writeCache(TASKS_CACHE_KEY, tasks, userId);
-  }, []);
+  }, [userId]);
 
   const addTask = useCallback(async (t: Task) => {
     const orgId = user?.organizationId ?? null;

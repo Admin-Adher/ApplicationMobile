@@ -23,8 +23,17 @@ export function useCompanies() {
   const query = useQuery({
     queryKey: queryKeys.companies(),
     queryFn: async (): Promise<Company[]> => {
-      // Read cache first so offline-created companies can be displayed instantly.
-      const cached = await readCache<Company>(COMPANIES_CACHE_KEY, userId);
+      // Read manual AsyncStorage cache first so offline-created companies can be displayed instantly.
+      let cached = await readCache<Company>(COMPANIES_CACHE_KEY, userId);
+
+      // Also read RQ in-memory cache (restored by PersistQueryClientProvider on app restart).
+      const rqCached = queryClient.getQueryData<Company[]>(queryKeys.companies());
+      if (!cached && rqCached?.length) cached = rqCached;
+      else if (cached && rqCached?.length) {
+        const cachedIds = new Set(cached.map(c => c.id));
+        const extra = rqCached.filter(c => !cachedIds.has(c.id));
+        if (extra.length) cached = [...cached, ...extra];
+      }
 
       // No backend (mock mode)
       if (!isSupabaseConfigured) {
@@ -57,7 +66,7 @@ export function useCompanies() {
 
   const persist = useCallback((companies: Company[]) => {
     writeCache(COMPANIES_CACHE_KEY, companies, userId);
-  }, []);
+  }, [userId]);
 
   const addCompany = useCallback(async (c: Company) => {
     const orgId = user?.organizationId ?? null;

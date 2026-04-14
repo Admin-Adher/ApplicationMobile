@@ -8,7 +8,7 @@ import { queryKeys } from '@/lib/queryKeys';
 import { toDocument } from '@/lib/mappers';
 import { Document } from '@/constants/types';
 import { useStartupDelay } from '@/hooks/useStartupDelay';
-import { offlineQuery, writeCache } from '@/lib/offlineCache';
+import { mergeWithCache, readCache, writeCache } from '@/lib/offlineCache';
 
 const DOCUMENTS_CACHE_KEY = 'buildtrack_documents_cache_v1';
 
@@ -24,14 +24,26 @@ export function useDocuments() {
   const query = useQuery({
     queryKey: queryKeys.documents(),
     queryFn: async (): Promise<Document[]> => {
-      const fetchFn = isSupabaseConfigured
-        ? async () => {
-            const { data, error } = await supabase.from('documents').select('*').order('uploaded_at', { ascending: false });
-            if (error) throw error;
-            return (data ?? []).map(toDocument);
-          }
-        : null;
-      return offlineQuery<Document>(DOCUMENTS_CACHE_KEY, fetchFn, userId);
+      let cached = await readCache<Document>(DOCUMENTS_CACHE_KEY, userId);
+      const rqCached = queryClient.getQueryData<Document[]>(queryKeys.documents());
+      if (!cached && rqCached?.length) cached = rqCached;
+      else if (cached && rqCached?.length) {
+        const cachedIds = new Set(cached.map(d => d.id));
+        const extra = rqCached.filter(d => !cachedIds.has(d.id));
+        if (extra.length) cached = [...cached, ...extra];
+      }
+      if (!isSupabaseConfigured) return cached ?? [];
+      try {
+        const { data, error } = await supabase.from('documents').select('*').order('uploaded_at', { ascending: false });
+        if (error) throw error;
+        const fresh = (data ?? []).map(toDocument);
+        const merged = mergeWithCache<Document>(fresh, cached);
+        await writeCache(DOCUMENTS_CACHE_KEY, merged, userId);
+        return merged;
+      } catch (err) {
+        console.warn(`[useDocuments] fetch failed, using cache`, err);
+        return cached ?? [];
+      }
     },
     enabled: !!user && startupReady,
     staleTime: 5 * 60 * 1000,
@@ -39,7 +51,7 @@ export function useDocuments() {
 
   const persist = useCallback((documents: Document[]) => {
     writeCache(DOCUMENTS_CACHE_KEY, documents, userId);
-  }, []);
+  }, [userId]);
 
   const addDocument = useCallback(async (d: Document) => {
     const orgId = user?.organizationId ?? null;

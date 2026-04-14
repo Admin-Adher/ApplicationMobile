@@ -9,7 +9,7 @@ import { queryKeys } from '@/lib/queryKeys';
 import { toOpr, fromOpr } from '@/lib/mappers';
 import { Opr } from '@/constants/types';
 import { useStartupDelay } from '@/hooks/useStartupDelay';
-import { offlineQuery, writeCache } from '@/lib/offlineCache';
+import { mergeWithCache, readCache, writeCache } from '@/lib/offlineCache';
 
 const OPRS_CACHE_KEY = 'buildtrack_oprs_cache_v1';
 
@@ -25,14 +25,26 @@ export function useOprs() {
   const query = useQuery({
     queryKey: queryKeys.oprs(),
     queryFn: async (): Promise<Opr[]> => {
-      const fetchFn = isSupabaseConfigured
-        ? async () => {
-            const { data, error } = await supabase.from('oprs').select('*').order('created_at', { ascending: false });
-            if (error) throw error;
-            return (data ?? []).map(toOpr);
-          }
-        : null;
-      return offlineQuery<Opr>(OPRS_CACHE_KEY, fetchFn, userId);
+      let cached = await readCache<Opr>(OPRS_CACHE_KEY, userId);
+      const rqCached = queryClient.getQueryData<Opr[]>(queryKeys.oprs());
+      if (!cached && rqCached?.length) cached = rqCached;
+      else if (cached && rqCached?.length) {
+        const cachedIds = new Set(cached.map(o => o.id));
+        const extra = rqCached.filter(o => !cachedIds.has(o.id));
+        if (extra.length) cached = [...cached, ...extra];
+      }
+      if (!isSupabaseConfigured) return cached ?? [];
+      try {
+        const { data, error } = await supabase.from('oprs').select('*').order('created_at', { ascending: false });
+        if (error) throw error;
+        const fresh = (data ?? []).map(toOpr);
+        const merged = mergeWithCache<Opr>(fresh, cached);
+        await writeCache(OPRS_CACHE_KEY, merged, userId);
+        return merged;
+      } catch (err) {
+        console.warn(`[useOprs] fetch failed, using cache`, err);
+        return cached ?? [];
+      }
     },
     enabled: !!user && startupReady,
     staleTime: 5 * 60 * 1000,
@@ -40,7 +52,7 @@ export function useOprs() {
 
   const persist = useCallback((oprs: Opr[]) => {
     writeCache(OPRS_CACHE_KEY, oprs, userId);
-  }, []);
+  }, [userId]);
 
   const addOpr = useCallback(async (o: Opr) => {
     const orgId = user?.organizationId ?? null;

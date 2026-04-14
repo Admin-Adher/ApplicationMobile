@@ -8,7 +8,7 @@ import { useNetwork } from '@/context/NetworkContext';
 import { queryKeys } from '@/lib/queryKeys';
 import { toChantier, toSitePlan } from '@/lib/mappers';
 import { Chantier, SitePlan, Channel } from '@/constants/types';
-import { offlineQuery, writeCache } from '@/lib/offlineCache';
+import { mergeWithCache, readCache, writeCache } from '@/lib/offlineCache';
 
 const CHANTIERS_CACHE_KEY = 'buildtrack_chantiers_cache_v1';
 const SITE_PLANS_CACHE_KEY = 'buildtrack_site_plans_cache_v1';
@@ -24,15 +24,27 @@ export function useChantiers() {
   const chantiersQuery = useQuery({
     queryKey: queryKeys.chantiers(),
     queryFn: async (): Promise<Chantier[]> => {
-      const fetchFn = isSupabaseConfigured
-        ? async () => {
-            const { data, error } = await supabase
-              .from('chantiers').select('*').order('created_at', { ascending: false });
-            if (error) throw error;
-            return (data ?? []).map(toChantier);
-          }
-        : null;
-      return offlineQuery<Chantier>(CHANTIERS_CACHE_KEY, fetchFn, userId);
+      let cached = await readCache<Chantier>(CHANTIERS_CACHE_KEY, userId);
+      const rqCached = queryClient.getQueryData<Chantier[]>(queryKeys.chantiers());
+      if (!cached && rqCached?.length) cached = rqCached;
+      else if (cached && rqCached?.length) {
+        const cachedIds = new Set(cached.map(c => c.id));
+        const extra = rqCached.filter(c => !cachedIds.has(c.id));
+        if (extra.length) cached = [...cached, ...extra];
+      }
+      if (!isSupabaseConfigured) return cached ?? [];
+      try {
+        const { data, error } = await supabase
+          .from('chantiers').select('*').order('created_at', { ascending: false });
+        if (error) throw error;
+        const fresh = (data ?? []).map(toChantier);
+        const merged = mergeWithCache<Chantier>(fresh, cached);
+        await writeCache(CHANTIERS_CACHE_KEY, merged, userId);
+        return merged;
+      } catch (err) {
+        console.warn('[useChantiers] fetch failed, using cache', err);
+        return cached ?? [];
+      }
     },
     enabled: !!user,
     staleTime: 5 * 60 * 1000,
@@ -41,15 +53,27 @@ export function useChantiers() {
   const sitePlansQuery = useQuery({
     queryKey: queryKeys.sitePlans(),
     queryFn: async (): Promise<SitePlan[]> => {
-      const fetchFn = isSupabaseConfigured
-        ? async () => {
-            const { data, error } = await supabase
-              .from('site_plans').select('*').order('created_at', { ascending: false });
-            if (error) throw error;
-            return (data ?? []).map(toSitePlan);
-          }
-        : null;
-      return offlineQuery<SitePlan>(SITE_PLANS_CACHE_KEY, fetchFn, userId);
+      let cached = await readCache<SitePlan>(SITE_PLANS_CACHE_KEY, userId);
+      const rqCached = queryClient.getQueryData<SitePlan[]>(queryKeys.sitePlans());
+      if (!cached && rqCached?.length) cached = rqCached;
+      else if (cached && rqCached?.length) {
+        const cachedIds = new Set(cached.map(p => p.id));
+        const extra = rqCached.filter(p => !cachedIds.has(p.id));
+        if (extra.length) cached = [...cached, ...extra];
+      }
+      if (!isSupabaseConfigured) return cached ?? [];
+      try {
+        const { data, error } = await supabase
+          .from('site_plans').select('*').order('created_at', { ascending: false });
+        if (error) throw error;
+        const fresh = (data ?? []).map(toSitePlan);
+        const merged = mergeWithCache<SitePlan>(fresh, cached);
+        await writeCache(SITE_PLANS_CACHE_KEY, merged, userId);
+        return merged;
+      } catch (err) {
+        console.warn('[useChantiers/sitePlans] fetch failed, using cache', err);
+        return cached ?? [];
+      }
     },
     enabled: !!user,
     staleTime: 5 * 60 * 1000,

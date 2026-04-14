@@ -25,8 +25,17 @@ export function usePhotos() {
   const query = useQuery({
     queryKey: queryKeys.photos(),
     queryFn: async (): Promise<Photo[]> => {
-      // Read cache first so offline-created photos can be displayed instantly.
-      const cached = await readCache<Photo>(PHOTOS_CACHE_KEY, userId);
+      // Read manual AsyncStorage cache first so offline-created photos can be displayed instantly.
+      let cached = await readCache<Photo>(PHOTOS_CACHE_KEY, userId);
+
+      // Also read RQ in-memory cache (restored by PersistQueryClientProvider on app restart).
+      const rqCached = queryClient.getQueryData<Photo[]>(queryKeys.photos());
+      if (!cached && rqCached?.length) cached = rqCached;
+      else if (cached && rqCached?.length) {
+        const cachedIds = new Set(cached.map(p => p.id));
+        const extra = rqCached.filter(p => !cachedIds.has(p.id));
+        if (extra.length) cached = [...cached, ...extra];
+      }
 
       // No backend (mock mode)
       if (!isSupabaseConfigured) {
@@ -53,7 +62,7 @@ export function usePhotos() {
 
   const persist = useCallback((photos: Photo[]) => {
     writeCache(PHOTOS_CACHE_KEY, photos, userId);
-  }, []);
+  }, [userId]);
 
   const addPhoto = useCallback(async (p: Photo) => {
     const orgId = user?.organizationId ?? null;

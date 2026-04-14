@@ -9,7 +9,7 @@ import { queryKeys } from '@/lib/queryKeys';
 import { toLot, fromLot } from '@/lib/mappers';
 import { Lot } from '@/constants/types';
 import { useStartupDelay } from '@/hooks/useStartupDelay';
-import { offlineQuery, writeCache } from '@/lib/offlineCache';
+import { mergeWithCache, readCache, writeCache } from '@/lib/offlineCache';
 
 const LOTS_CACHE_KEY = 'buildtrack_lots_cache_v1';
 
@@ -45,16 +45,26 @@ export function useLots() {
   const query = useQuery({
     queryKey: queryKeys.lots(),
     queryFn: async (): Promise<Lot[]> => {
-      const fetchFn = isSupabaseConfigured
-        ? async () => {
-            const { data, error } = await supabase.from('lots').select('*');
-            if (error) throw error;
-            if (!data?.length) return STANDARD_LOTS;
-            return data.map(toLot);
-          }
-        : null;
-      const result = await offlineQuery<Lot>(LOTS_CACHE_KEY, fetchFn, userId);
-      return result.length > 0 ? result : STANDARD_LOTS;
+      let cached = await readCache<Lot>(LOTS_CACHE_KEY, userId);
+      const rqCached = queryClient.getQueryData<Lot[]>(queryKeys.lots());
+      if (!cached && rqCached?.length) cached = rqCached;
+      else if (cached && rqCached?.length) {
+        const cachedIds = new Set(cached.map(l => l.id));
+        const extra = rqCached.filter(l => !cachedIds.has(l.id));
+        if (extra.length) cached = [...cached, ...extra];
+      }
+      if (!isSupabaseConfigured) return (cached?.length ? cached : STANDARD_LOTS);
+      try {
+        const { data, error } = await supabase.from('lots').select('*');
+        if (error) throw error;
+        const fresh = (!data?.length) ? STANDARD_LOTS : data.map(toLot);
+        const merged = mergeWithCache<Lot>(fresh, cached);
+        await writeCache(LOTS_CACHE_KEY, merged, userId);
+        return merged.length > 0 ? merged : STANDARD_LOTS;
+      } catch (err) {
+        console.warn(`[useLots] fetch failed, using cache`, err);
+        return (cached?.length ? cached : STANDARD_LOTS);
+      }
     },
     enabled: !!user && startupReady,
     staleTime: 10 * 60 * 1000,
@@ -62,7 +72,7 @@ export function useLots() {
 
   const persist = useCallback((lots: Lot[]) => {
     writeCache(LOTS_CACHE_KEY, lots, userId);
-  }, []);
+  }, [userId]);
 
   const addLot = useCallback(async (l: Lot) => {
     const orgId = user?.organizationId ?? null;

@@ -25,8 +25,20 @@ export function useReserves() {
   const query = useQuery({
     queryKey: queryKeys.reserves(),
     queryFn: async (): Promise<Reserve[]> => {
-      // Read cache first so offline-created reserves can be displayed instantly.
-      const cached = await readCache<Reserve>(RESERVES_CACHE_KEY, userId);
+      // Read manual AsyncStorage cache first so offline-created reserves can be displayed instantly.
+      let cached = await readCache<Reserve>(RESERVES_CACHE_KEY, userId);
+
+      // Also read RQ in-memory cache (restored by PersistQueryClientProvider on app restart).
+      // If the manual cache is empty or was written with a stale userId, the RQ cache
+      // may still contain the offline reserves — use it as a fallback source for merging.
+      const rqCached = queryClient.getQueryData<Reserve[]>(queryKeys.reserves());
+      if (!cached && rqCached?.length) cached = rqCached;
+      else if (cached && rqCached?.length) {
+        // Merge both sources: items in rqCached but not in cached (e.g. written by stale persist)
+        const cachedIds = new Set(cached.map(r => r.id));
+        const extra = rqCached.filter(r => !cachedIds.has(r.id));
+        if (extra.length) cached = [...cached, ...extra];
+      }
 
       // No backend (mock mode)
       if (!isSupabaseConfigured) {
@@ -54,7 +66,7 @@ export function useReserves() {
 
   const persist = useCallback((reserves: Reserve[]) => {
     writeCache(RESERVES_CACHE_KEY, reserves, userId);
-  }, []);
+  }, [userId]);
 
   const addReserve = useCallback(async (r: Reserve) => {
     const orgId = user?.organizationId ?? null;

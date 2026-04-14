@@ -9,7 +9,7 @@ import { queryKeys } from '@/lib/queryKeys';
 import { toVisite, fromVisite } from '@/lib/mappers';
 import { Visite } from '@/constants/types';
 import { useStartupDelay } from '@/hooks/useStartupDelay';
-import { offlineQuery, writeCache } from '@/lib/offlineCache';
+import { mergeWithCache, readCache, writeCache } from '@/lib/offlineCache';
 
 const VISITES_CACHE_KEY = 'buildtrack_visites_cache_v1';
 
@@ -25,14 +25,26 @@ export function useVisites() {
   const query = useQuery({
     queryKey: queryKeys.visites(),
     queryFn: async (): Promise<Visite[]> => {
-      const fetchFn = isSupabaseConfigured
-        ? async () => {
-            const { data, error } = await supabase.from('visites').select('*').order('created_at', { ascending: false });
-            if (error) throw error;
-            return (data ?? []).map(toVisite);
-          }
-        : null;
-      return offlineQuery<Visite>(VISITES_CACHE_KEY, fetchFn, userId);
+      let cached = await readCache<Visite>(VISITES_CACHE_KEY, userId);
+      const rqCached = queryClient.getQueryData<Visite[]>(queryKeys.visites());
+      if (!cached && rqCached?.length) cached = rqCached;
+      else if (cached && rqCached?.length) {
+        const cachedIds = new Set(cached.map(v => v.id));
+        const extra = rqCached.filter(v => !cachedIds.has(v.id));
+        if (extra.length) cached = [...cached, ...extra];
+      }
+      if (!isSupabaseConfigured) return cached ?? [];
+      try {
+        const { data, error } = await supabase.from('visites').select('*').order('created_at', { ascending: false });
+        if (error) throw error;
+        const fresh = (data ?? []).map(toVisite);
+        const merged = mergeWithCache<Visite>(fresh, cached);
+        await writeCache(VISITES_CACHE_KEY, merged, userId);
+        return merged;
+      } catch (err) {
+        console.warn(`[useVisites] fetch failed, using cache`, err);
+        return cached ?? [];
+      }
     },
     enabled: !!user && startupReady,
     staleTime: 5 * 60 * 1000,
@@ -40,7 +52,7 @@ export function useVisites() {
 
   const persist = useCallback((visites: Visite[]) => {
     writeCache(VISITES_CACHE_KEY, visites, userId);
-  }, []);
+  }, [userId]);
 
   const addVisite = useCallback(async (v: Visite) => {
     const orgId = user?.organizationId ?? null;
