@@ -967,6 +967,23 @@ export default function ReservesScreen() {
           </View>
         )}
 
+        {closedCount > 0 && statusFilter !== 'closed' && (
+          <TouchableOpacity
+            style={styles.archiveBanner}
+            onPress={() => setStatusFilter('closed')}
+            activeOpacity={0.85}
+            accessibilityRole="button"
+            accessibilityLabel={`${closedCount} réserve${closedCount > 1 ? 's' : ''} archivée${closedCount > 1 ? 's' : ''}`}
+          >
+            <Ionicons name="archive-outline" size={14} color={C.closed} />
+            <Text style={styles.archiveBannerText}>
+              <Text style={{ fontFamily: 'Inter_700Bold', color: C.closed }}>{closedCount}</Text>
+              {' '}réserve{closedCount > 1 ? 's' : ''} archivée{closedCount > 1 ? 's' : ''} — voir les archives
+            </Text>
+            <Ionicons name="chevron-forward" size={13} color={C.closed} />
+          </TouchableOpacity>
+        )}
+
         {isSousTraitant && sousTraitantCompanyName && (
           <View style={styles.stBanner}>
             <Ionicons name="shield-checkmark-outline" size={13} color={C.primary} />
@@ -1877,7 +1894,7 @@ export default function ReservesScreen() {
       {/* Advanced Filters Modal */}
       <Modal visible={filterModalVisible} transparent animationType="slide" onRequestClose={() => setFilterModalVisible(false)}>
         <TouchableOpacity style={styles.modalOverlay} activeOpacity={1} onPress={() => setFilterModalVisible(false)}>
-          <TouchableOpacity activeOpacity={1} style={[styles.bottomSheet, { paddingBottom: insets.bottom + 32 }]}>
+          <View style={[styles.bottomSheet, { paddingBottom: insets.bottom + 32 }]}>
             <View style={styles.sheetHandle} />
             <View style={styles.sheetTitleRow}>
               <Text style={styles.sheetTitle}>Filtres avancés</Text>
@@ -1888,7 +1905,8 @@ export default function ReservesScreen() {
               )}
             </View>
 
-            <ScrollView showsVerticalScrollIndicator={false}>
+            <View style={{ flex: 1, overflow: 'hidden' }}>
+            <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 16 }}>
               <Text style={styles.sheetSectionLabel}>TYPE</Text>
               <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.chipScroll}>
                 <View style={styles.chipRowInline}>
@@ -2072,7 +2090,8 @@ export default function ReservesScreen() {
                 <Text style={styles.applyBtnText}>Appliquer</Text>
               </TouchableOpacity>
             </ScrollView>
-          </TouchableOpacity>
+            </View>
+          </View>
         </TouchableOpacity>
       </Modal>
     </View>
@@ -2269,7 +2288,7 @@ const styles = StyleSheet.create({
   bottomSheet: {
     backgroundColor: C.surface, borderTopLeftRadius: 20, borderTopRightRadius: 20,
     paddingHorizontal: 16, paddingBottom: 32, paddingTop: 12, maxHeight: '85%',
-    width: '100%', maxWidth: 640,
+    width: '100%', maxWidth: 640, overflow: 'hidden',
   },
   sheetHandle: { width: 40, height: 4, borderRadius: 2, backgroundColor: C.border, alignSelf: 'center', marginBottom: 16 },
   sheetTitleRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 },
@@ -2415,6 +2434,15 @@ const styles = StyleSheet.create({
   },
   deadlineReminderText: {
     flex: 1, fontSize: 12, fontFamily: 'Inter_400Regular', color: '#92400E',
+  },
+
+  archiveBanner: {
+    flexDirection: 'row', alignItems: 'center', gap: 8,
+    backgroundColor: '#F3F4F6', borderRadius: 8, paddingHorizontal: 12, paddingVertical: 9,
+    marginBottom: 8, borderWidth: 1, borderColor: '#D1D5DB',
+  },
+  archiveBannerText: {
+    flex: 1, fontSize: 12, fontFamily: 'Inter_400Regular', color: C.textSub,
   },
 
   progressBanner: {
