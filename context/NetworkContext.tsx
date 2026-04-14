@@ -253,6 +253,10 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
           }
           // Handle 'reserves' table: upload photo_uri and embedded photos[].uri
           if (op.table === 'reserves') {
+            // Normalize placeholder values that may break inserts/updates
+            if (data.deadline === '—' || data.deadline === '') {
+              data.deadline = null;
+            }
             if (data.photo_uri && isLocalUri(data.photo_uri)) {
               try {
                 const remoteUrl = await uploadPhoto(data.photo_uri, `sync_reserve_${Date.now()}.jpg`);
@@ -295,8 +299,23 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
           result = op.filter
             ? await q.eq(op.filter.column, op.filter.value)
             : await q;
-          // If RLS blocked the delete, data will be [] with no error — treat as failure
+          // If DELETE returned 0 rows with no error, it can mean either:
+          // - row doesn't exist anymore (success from our POV)
+          // - RLS blocked the delete (should be retried)
           if (!result.error && Array.isArray(result.data) && result.data.length === 0) {
+            if (op.table === 'reserves' && op.filter?.column === 'id') {
+              try {
+                const { data: exists, error: existsErr } = await (supabase as any)
+                  .from('reserves')
+                  .select('id')
+                  .eq('id', op.filter.value)
+                  .maybeSingle();
+                // If row doesn't exist, treat delete as success (drop from queue)
+                if (!existsErr && !exists) {
+                  continue;
+                }
+              } catch {}
+            }
             console.warn(`[queue] DELETE on ${op.table} blocked by RLS (0 rows deleted), re-queuing`);
             failedOps.push(op);
             continue;

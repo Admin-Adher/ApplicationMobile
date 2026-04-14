@@ -80,12 +80,13 @@ export function useReserves() {
     persist(queryClient.getQueryData<Reserve[]>(queryKeys.reserves()) ?? []);
     // Fix 16: derive companies first, then company from companies[0] for consistency
     const companies = r.companies ?? (r.company ? [r.company] : []);
+    const deadlineValue = !r.deadline || r.deadline === '—' ? null : r.deadline;
     const payload = {
       id: r.id, title: r.title, description: r.description, building: r.building,
       zone: r.zone, level: r.level,
       company: companies[0] ?? null,
       companies,
-      priority: r.priority, status: r.status, created_at: r.createdAt, deadline: r.deadline,
+      priority: r.priority, status: r.status, created_at: r.createdAt, deadline: deadlineValue,
       comments: r.comments, history: r.history,
       plan_x: r.planX ?? null, plan_y: r.planY ?? null,
       photo_uri: r.photoUri ?? null, lot_id: r.lotId ?? null, kind: r.kind ?? null,
@@ -119,12 +120,13 @@ export function useReserves() {
     persist(queryClient.getQueryData<Reserve[]>(queryKeys.reserves()) ?? []);
     // Fix 16: derive companies first, then company from companies[0] for consistency
     const companies = r.companies ?? (r.company ? [r.company] : []);
+    const deadlineValue = !r.deadline || r.deadline === '—' ? null : r.deadline;
     const payload = {
       title: r.title, description: r.description, building: r.building,
       zone: r.zone, level: r.level,
       company: companies[0] ?? null,
       companies,
-      priority: r.priority, status: r.status, deadline: r.deadline,
+      priority: r.priority, status: r.status, deadline: deadlineValue,
       comments: r.comments, history: r.history,
       plan_x: r.planX ?? null, plan_y: r.planY ?? null,
       photo_uri: r.photoUri ?? null, lot_id: r.lotId ?? null, kind: r.kind ?? null,
@@ -166,12 +168,17 @@ export function useReserves() {
       if (error) {
         console.warn('[sync] deleteReserve erreur serveur:', error.message);
         if (previous) {
-          queryClient.setQueryData<Reserve[]>(queryKeys.reserves(), old => [previous, ...(old ?? [])]);
-          persist([previous, ...(queryClient.getQueryData<Reserve[]>(queryKeys.reserves()) ?? [])]);
+          queryClient.setQueryData<Reserve[]>(queryKeys.reserves(), old => {
+            const cur = old ?? [];
+            if (cur.some(r => r.id === previous.id)) return cur;
+            return [previous, ...cur];
+          });
+          persist(queryClient.getQueryData<Reserve[]>(queryKeys.reserves()) ?? []);
           Alert.alert('Suppression refusée', 'Vous n\'avez pas les droits pour supprimer cette réserve, ou elle n\'existe plus sur le serveur.');
         }
       } else if (!deleted?.length) {
-        console.warn('[sync] deleteReserve: aucune ligne supprimée');
+        // If the row doesn't exist server-side (ex: never synced), keep local deletion.
+        console.warn('[sync] deleteReserve: aucune ligne supprimée (probablement déjà supprimée ou jamais synchronisée)');
       }
     }
   }, [queryClient, isOnlineRef, enqueueOperation, persist]);
