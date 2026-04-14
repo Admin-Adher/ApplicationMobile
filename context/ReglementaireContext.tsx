@@ -75,10 +75,14 @@ export function ReglementaireProvider({ children }: { children: React.ReactNode 
 
       if (isSupabaseConfigured && user) {
         try {
-          const { data, error } = await supabase
+          let q = (supabase as any)
             .from('regulatory_docs')
             .select('*')
             .order('created_at', { ascending: false });
+          if (user.role !== 'super_admin' && user.organizationId) {
+            q = q.eq('organization_id', user.organizationId);
+          }
+          const { data, error } = await q;
           if (!error && data) {
             const fresh = data.map(toDoc);
             const merged = mergeWithCache<RegulatoryDoc>(fresh, cached);
@@ -141,7 +145,7 @@ export function ReglementaireProvider({ children }: { children: React.ReactNode 
         enqueueOperation({ table: 'regulatory_docs', op: 'insert', data: payload });
         return;
       }
-      supabase.from('regulatory_docs').insert(payload).then(({ error }: { error: any }) => {
+      (supabase as any).from('regulatory_docs').insert(payload).then(({ error }: { error: any }) => {
         if (error) console.warn('Erreur sauvegarde doc réglementaire:', error.message);
       }).catch((e: any) => {
         console.warn('Erreur sauvegarde doc réglementaire:', e?.message ?? e);
@@ -159,7 +163,7 @@ export function ReglementaireProvider({ children }: { children: React.ReactNode 
           enqueueOperation({ table: 'regulatory_docs', op: 'update', filter: { column: 'id', value: id }, data: fromDoc(full) });
           return;
         }
-        supabase.from('regulatory_docs').update(fromDoc(full)).eq('id', id).then(({ error }: { error: any }) => {
+        (supabase as any).from('regulatory_docs').update(fromDoc(full)).eq('id', id).then(({ error }: { error: any }) => {
           if (error) console.warn('Erreur mise à jour doc réglementaire:', error.message);
         }).catch((err: any) => {
           console.warn('Erreur réseau mise à jour doc réglementaire (données sauvegardées localement):', err?.message ?? err);
@@ -175,7 +179,7 @@ export function ReglementaireProvider({ children }: { children: React.ReactNode 
         enqueueOperation({ table: 'regulatory_docs', op: 'delete', filter: { column: 'id', value: id } });
         return;
       }
-      supabase.from('regulatory_docs').delete().eq('id', id).then(({ error }: { error: any }) => {
+      (supabase as any).from('regulatory_docs').delete().eq('id', id).then(({ error }: { error: any }) => {
         if (error) console.warn('Erreur suppression doc réglementaire:', error.message);
       }).catch((err: any) => {
         console.warn('Erreur réseau suppression doc réglementaire (supprimé localement):', err?.message ?? err);

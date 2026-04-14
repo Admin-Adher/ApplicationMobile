@@ -35,7 +35,11 @@ export function useVisites() {
       }
       if (!isSupabaseConfigured) return cached ?? [];
       try {
-        const { data, error } = await supabase.from('visites').select('*').order('created_at', { ascending: false });
+        let q = ((supabase as any).from('visites') as any).select('*').order('created_at', { ascending: false });
+        if (user!.role !== 'super_admin' && user!.organizationId) {
+          q = q.eq('organization_id', user!.organizationId);
+        }
+        const { data, error } = await q;
         if (error) throw error;
         const fresh = (data ?? []).map(toVisite);
         const merged = mergeWithCache<Visite>(fresh, cached);
@@ -66,7 +70,7 @@ export function useVisites() {
       return;
     }
     if (isSupabaseConfigured) {
-      const { error } = await supabase.from('visites').insert(fromVisite(v, orgId));
+      const { error } = await (supabase as any).from('visites').insert(fromVisite(v, orgId));
       if (error) console.warn('[sync] addVisite error:', error.message);
     }
   }, [queryClient, user, isOnlineRef, enqueueOperation, persist]);
@@ -83,7 +87,7 @@ export function useVisites() {
       return;
     }
     if (isSupabaseConfigured) {
-      supabase.from('visites').update(fields).eq('id', v.id).then(({ error }: { error: any }) => {
+      (supabase as any).from('visites').update(fields).eq('id', v.id).then(({ error }: { error: any }) => {
         if (error) console.warn('[sync] updateVisite error:', error.message);
       });
     }
@@ -99,7 +103,7 @@ export function useVisites() {
       return;
     }
     if (isSupabaseConfigured) {
-      const { data: deleted, error } = await supabase.from('visites').delete().eq('id', id).select();
+      const { data: deleted, error } = await (supabase as any).from('visites').delete().eq('id', id).select();
       if (error) {
         console.warn('[sync] deleteVisite erreur serveur:', error.message);
         if (previous) {
@@ -127,7 +131,7 @@ export function useVisites() {
       return;
     }
     if (isSupabaseConfigured) {
-      supabase.from('visites').update({ reserve_ids: updated.reserveIds }).eq('id', visiteId)
+      (supabase as any).from('visites').update({ reserve_ids: updated.reserveIds }).eq('id', visiteId)
         .then(({ error }: { error: any }) => {
           if (error) console.warn('[sync] linkReserveToVisite error:', error.message);
         });

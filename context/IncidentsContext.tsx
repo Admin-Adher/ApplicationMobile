@@ -69,7 +69,11 @@ export function IncidentsProvider({ children }: { children: React.ReactNode }) {
 
       if (isSupabaseConfigured && user) {
         try {
-          const { data, error } = await supabase.from('incidents').select('*').order('reported_at', { ascending: false });
+          let q = (supabase as any).from('incidents').select('*').order('reported_at', { ascending: false });
+          if (user.role !== 'super_admin' && user.organizationId) {
+            q = q.eq('organization_id', user.organizationId);
+          }
+          const { data, error } = await q;
           if (!error && data) {
             const fresh = data.map(toIncident);
             const merged = mergeWithCache<Incident>(fresh, cached);
@@ -131,10 +135,10 @@ export function IncidentsProvider({ children }: { children: React.ReactNode }) {
     if (!isSupabaseConfigured) return;
     try {
       if (mode === 'delete') {
-        const { error } = await supabase.from('incidents').delete().eq('id', incident.id);
+        const { error } = await (supabase as any).from('incidents').delete().eq('id', incident.id);
         if (error) throw error;
       } else {
-        const { error } = await (supabase.from('incidents') as any).upsert({
+        const { error } = await ((supabase as any).from('incidents') as any).upsert({
           id: incident.id,
           title: incident.title,
           description: incident.description,

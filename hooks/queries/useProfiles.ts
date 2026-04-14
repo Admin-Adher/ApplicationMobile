@@ -32,8 +32,8 @@ export function useProfiles() {
       if (!isSupabaseConfigured) return (cached?.length ? cached : MOCK_PROFILES);
       try {
         const q = user?.organizationId
-          ? supabase.from('profiles').select('id, name, role, role_label, email').eq('organization_id', user.organizationId)
-          : supabase.from('profiles').select('id, name, role, role_label, email');
+          ? (supabase as any).from('profiles').select('id, name, role, role_label, email').eq('organization_id', user.organizationId)
+          : (supabase as any).from('profiles').select('id, name, role, role_label, email');
         const { data, error } = await q;
         if (error) throw error;
         const fresh = (data ?? []).map((p: any) => ({

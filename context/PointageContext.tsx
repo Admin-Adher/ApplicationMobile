@@ -81,10 +81,14 @@ export function PointageProvider({ children }: { children: React.ReactNode }) {
 
       if (isSupabaseConfigured && user) {
         try {
-          const { data, error } = await supabase
+          let q = (supabase as any)
             .from('time_entries')
             .select('*')
             .order('created_at', { ascending: false });
+          if (user.role !== 'super_admin' && user.organizationId) {
+            q = q.eq('organization_id', user.organizationId);
+          }
+          const { data, error } = await q;
           if (!error && data) {
             const fresh = data.map(toEntry);
             const merged = mergeWithCache<TimeEntry>(fresh, cached);
@@ -146,7 +150,7 @@ export function PointageProvider({ children }: { children: React.ReactNode }) {
         enqueueOperation({ table: 'time_entries', op: 'insert', data: { ...fromEntry(newEntry), organization_id: orgIdRef.current ?? null } });
         return;
       }
-      supabase.from('time_entries').insert({ ...fromEntry(newEntry), organization_id: orgIdRef.current ?? null }).then(({ error }: { error: any }) => {
+      (supabase as any).from('time_entries').insert({ ...fromEntry(newEntry), organization_id: orgIdRef.current ?? null }).then(({ error }: { error: any }) => {
         if (error) console.warn('[sync] addEntry server error (data saved locally):', error.message);
       }).catch((err: any) => {
         console.warn('[sync] addEntry network error (data saved locally):', err?.message ?? err);
@@ -164,7 +168,7 @@ export function PointageProvider({ children }: { children: React.ReactNode }) {
           enqueueOperation({ table: 'time_entries', op: 'update', filter: { column: 'id', value: id }, data: fromEntry(full) });
           return;
         }
-        supabase.from('time_entries').update(fromEntry(full)).eq('id', id).then(({ error }: { error: any }) => {
+        (supabase as any).from('time_entries').update(fromEntry(full)).eq('id', id).then(({ error }: { error: any }) => {
           if (error) console.warn('[sync] updateEntry server error (data saved locally):', error.message);
         }).catch((err: any) => {
           console.warn('[sync] updateEntry network error (data saved locally):', err?.message ?? err);
@@ -180,7 +184,7 @@ export function PointageProvider({ children }: { children: React.ReactNode }) {
         enqueueOperation({ table: 'time_entries', op: 'delete', filter: { column: 'id', value: id } });
         return;
       }
-      supabase.from('time_entries').delete().eq('id', id).then(({ error }: { error: any }) => {
+      (supabase as any).from('time_entries').delete().eq('id', id).then(({ error }: { error: any }) => {
         if (error) console.warn('[sync] deleteEntry server error (data deleted locally):', error.message);
       }).catch((err: any) => {
         console.warn('[sync] deleteEntry network error (data deleted locally):', err?.message ?? err);

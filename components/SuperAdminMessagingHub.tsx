@@ -202,8 +202,8 @@ export default function SuperAdminMessagingHub() {
     setLoadingOrgs(true);
     try {
       const [{ data: orgsData }, { data: chData }] = await Promise.all([
-        supabase.from('organizations').select('id, name, slug').order('name'),
-        supabase.from('channels')
+        (supabase as any).from('organizations').select('id, name, slug').order('name'),
+        (supabase as any).from('channels')
           .select('id, name, description, type, icon, color, organization_id, members, created_by')
           .in('type', ['general', 'building', 'company', 'custom'])
           .not('organization_id', 'is', null)
@@ -347,7 +347,7 @@ export default function SuperAdminMessagingHub() {
     }
     setSending(true);
     try {
-      const { error } = await supabase.rpc('send_announcement_message', {
+      const { error } = await (supabase as any).rpc('send_announcement_message', {
         p_channel_id: announceChannelId,
         p_content: announceText.trim(),
       });

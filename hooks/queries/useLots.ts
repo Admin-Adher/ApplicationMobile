@@ -55,7 +55,11 @@ export function useLots() {
       }
       if (!isSupabaseConfigured) return (cached?.length ? cached : STANDARD_LOTS);
       try {
-        const { data, error } = await supabase.from('lots').select('*');
+        let q = ((supabase as any).from('lots') as any).select('*');
+        if (user!.role !== 'super_admin' && user!.organizationId) {
+          q = q.eq('organization_id', user!.organizationId);
+        }
+        const { data, error } = await q;
         if (error) throw error;
         const fresh = (!data?.length) ? STANDARD_LOTS : data.map(toLot);
         const merged = mergeWithCache<Lot>(fresh, cached);
@@ -89,7 +93,7 @@ export function useLots() {
       return;
     }
     if (isSupabaseConfigured) {
-      const { error } = await supabase.from('lots').insert(fromLot(l, orgId));
+      const { error } = await (supabase as any).from('lots').insert(fromLot(l, orgId));
       if (error) console.warn('[sync] addLot error:', error.message);
     }
   }, [queryClient, user, isOnlineRef, enqueueOperation, persist]);
@@ -106,7 +110,7 @@ export function useLots() {
       return;
     }
     if (isSupabaseConfigured) {
-      supabase.from('lots').update(fields).eq('id', l.id).then(({ error }: { error: any }) => {
+      (supabase as any).from('lots').update(fields).eq('id', l.id).then(({ error }: { error: any }) => {
         if (error) console.warn('[sync] updateLot error:', error.message);
       });
     }
@@ -122,7 +126,7 @@ export function useLots() {
       return;
     }
     if (isSupabaseConfigured) {
-      const { data: deleted, error } = await supabase.from('lots').delete().eq('id', id).select();
+      const { data: deleted, error } = await (supabase as any).from('lots').delete().eq('id', id).select();
       if (error) {
         console.warn('[sync] deleteLot erreur serveur:', error.message);
         if (previous) {

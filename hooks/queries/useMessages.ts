@@ -240,7 +240,7 @@ export function useMessages() {
         ? getDmUpsertPromise(channelId)
         : undefined;
       const doInsert = () => {
-        supabase.from('messages').insert(insertData).then(({ error }: { error: any }) => {
+        (supabase as any).from('messages').insert(insertData).then(({ error }: { error: any }) => {
           if (error) {
             console.warn('[sync] addMessage error:', error.code, error.message, error.details);
           }
@@ -263,7 +263,7 @@ export function useMessages() {
       }
       void (async () => {
         try {
-          await supabase.from('messages').delete().eq('id', id);
+          await (supabase as any).from('messages').delete().eq('id', id);
         } catch {}
       })();
     }
@@ -278,7 +278,7 @@ export function useMessages() {
       }
       void (async () => {
         try {
-          await supabase.from('messages').update(fromMessage(msg)).eq('id', msg.id);
+          await (supabase as any).from('messages').update(fromMessage(msg)).eq('id', msg.id);
         } catch {}
       })();
     }
@@ -298,7 +298,7 @@ export function useMessages() {
         enqueueOperation({ table: 'messages', op: 'update', filter: { column: 'id', value: msg.id }, data: { reactions: newReactions } });
         return;
       }
-      supabase.rpc('toggle_message_reaction', {
+      (supabase as any).rpc('toggle_message_reaction', {
         p_message_id: msg.id, p_emoji: emoji, p_user_name: userName,
       }).then(({ error }: { error: any }) => {
         if (error) {
@@ -347,7 +347,7 @@ export function useMessages() {
         const batch = unreadIds.slice(i, i + BATCH_SIZE);
         void (async () => {
           try {
-            await supabase.rpc('mark_messages_read_by', {
+            await (supabase as any).rpc('mark_messages_read_by', {
               p_message_ids: batch, p_user_name: userName,
             });
           } catch {}
@@ -369,7 +369,7 @@ export function useMessages() {
       }
       void (async () => {
         try {
-          await supabase.from('messages').insert(insertData);
+          await (supabase as any).from('messages').insert(insertData);
         } catch {}
       })();
     }
@@ -378,7 +378,7 @@ export function useMessages() {
   const fetchOlderMessages = useCallback(async (channelId: string, beforeCreatedAt: string): Promise<boolean> => {
     if (!isSupabaseConfigured) return false;
     try {
-      const { data, error } = await supabase
+      const { data, error } = await (supabase as any)
         .from('messages').select('*')
         .eq('channel_id', channelId)
         .lt('created_at', beforeCreatedAt)

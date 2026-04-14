@@ -34,8 +34,11 @@ export function useChantiers() {
       }
       if (!isSupabaseConfigured) return cached ?? [];
       try {
-        const { data, error } = await supabase
-          .from('chantiers').select('*').order('created_at', { ascending: false });
+        let q = ((supabase as any).from('chantiers') as any).select('*').order('created_at', { ascending: false });
+        if (user!.role !== 'super_admin' && user!.organizationId) {
+          q = q.eq('organization_id', user!.organizationId);
+        }
+        const { data, error } = await q;
         if (error) throw error;
         const fresh = (data ?? []).map(toChantier);
         const merged = mergeWithCache<Chantier>(fresh, cached);
@@ -63,8 +66,11 @@ export function useChantiers() {
       }
       if (!isSupabaseConfigured) return cached ?? [];
       try {
-        const { data, error } = await supabase
-          .from('site_plans').select('*').order('created_at', { ascending: false });
+        let spQ = ((supabase as any).from('site_plans') as any).select('*').order('created_at', { ascending: false });
+        if (user!.role !== 'super_admin' && user!.organizationId) {
+          spQ = spQ.eq('organization_id', user!.organizationId);
+        }
+        const { data, error } = await spQ;
         if (error) throw error;
         const fresh = (data ?? []).map(toSitePlan);
         const merged = mergeWithCache<SitePlan>(fresh, cached);
@@ -129,17 +135,17 @@ export function useChantiers() {
         created_by: c.createdBy ?? null, buildings: c.buildings ? JSON.stringify(c.buildings) : null,
         organization_id: orgId, company_ids: c.companyIds ?? null,
       };
-      let { error } = await supabase.from('chantiers').insert(chantierPayload);
+      let { error } = await (supabase as any).from('chantiers').insert(chantierPayload);
       if (error) {
         await supabase.auth.refreshSession().catch(() => {});
-        const { error: err2 } = await supabase.from('chantiers').insert(chantierPayload);
+        const { error: err2 } = await (supabase as any).from('chantiers').insert(chantierPayload);
         if (err2) {
           Alert.alert('Synchronisation incomplète', `Le chantier "${c.name}" a été créé localement mais n'a pas pu être synchronisé avec le serveur (${err2.message}).`, [{ text: 'OK' }]);
         }
       }
       // Fix 2: insert plans with full payload matching addSitePlan
       for (const p of plans) {
-        await supabase.from('site_plans').insert({
+        await (supabase as any).from('site_plans').insert({
           id: p.id, chantier_id: p.chantierId, name: p.name,
           building: p.building ?? null, level: p.level ?? null,
           building_id: p.buildingId ?? null, level_id: p.levelId ?? null,
@@ -151,7 +157,7 @@ export function useChantiers() {
           pdf_page_count: p.pdfPageCount ?? null, organization_id: orgId,
         });
       }
-      await supabase.from('channels').insert({
+      await (supabase as any).from('channels').insert({
         id: buildingChannel.id, name: c.name, description: c.description ?? '',
         icon: 'business', color: '#3B82F6', type: 'building',
         members: user?.name ? [user.name] : [],
@@ -177,10 +183,10 @@ export function useChantiers() {
       return;
     }
     if (isSupabaseConfigured) {
-      const { error } = await supabase.from('chantiers').update(updatePayload).eq('id', c.id);
+      const { error } = await (supabase as any).from('chantiers').update(updatePayload).eq('id', c.id);
       if (error) {
         await supabase.auth.refreshSession().catch(() => {});
-        const { error: err2 } = await supabase.from('chantiers').update(updatePayload).eq('id', c.id);
+        const { error: err2 } = await (supabase as any).from('chantiers').update(updatePayload).eq('id', c.id);
         if (err2) Alert.alert('Synchronisation incomplète', `Le chantier "${c.name}" a été modifié localement mais n'a pas pu être synchronisé (${err2.message}).`, [{ text: 'OK' }]);
       }
     }
@@ -211,32 +217,32 @@ export function useChantiers() {
       try {
         const buildingChannelId = `building-${id}`;
         // Fix 15: try deleting chantier first (if DB has ON DELETE CASCADE it handles everything)
-        const { data: deleted, error: delErr } = await supabase.from('chantiers').delete().eq('id', id).select();
+        const { data: deleted, error: delErr } = await (supabase as any).from('chantiers').delete().eq('id', id).select();
         if (!delErr && deleted?.length) {
           // Chantier deleted (possibly via cascade), clean up channel
-          await supabase.from('channels').delete().eq('id', buildingChannelId);
+          await (supabase as any).from('channels').delete().eq('id', buildingChannelId);
           return;
         }
         // Fallback: manual cascade delete if no DB-level cascade
-        const { data: reserveRows } = await supabase
+        const { data: reserveRows } = await (supabase as any)
           .from('reserves').select('id').eq('chantier_id', id);
         const reserveIds = (reserveRows ?? []).map((r: any) => r.id);
         await Promise.all([
           reserveIds.length > 0
-            ? supabase.from('photos').delete().in('reserve_id', reserveIds)
+            ? (supabase as any).from('photos').delete().in('reserve_id', reserveIds)
             : Promise.resolve(),
-          supabase.from('reserves').delete().eq('chantier_id', id),
-          supabase.from('tasks').delete().eq('chantier_id', id),
-          supabase.from('visites').delete().eq('chantier_id', id),
-          supabase.from('lots').delete().eq('chantier_id', id),
-          supabase.from('oprs').delete().eq('chantier_id', id),
-          supabase.from('site_plans').delete().eq('chantier_id', id),
-          supabase.from('messages').delete().eq('channel_id', buildingChannelId),
-          supabase.from('documents').delete().eq('chantier_id', id),
-          supabase.from('incidents').delete().eq('chantier_id', id),
+          (supabase as any).from('reserves').delete().eq('chantier_id', id),
+          (supabase as any).from('tasks').delete().eq('chantier_id', id),
+          (supabase as any).from('visites').delete().eq('chantier_id', id),
+          (supabase as any).from('lots').delete().eq('chantier_id', id),
+          (supabase as any).from('oprs').delete().eq('chantier_id', id),
+          (supabase as any).from('site_plans').delete().eq('chantier_id', id),
+          (supabase as any).from('messages').delete().eq('channel_id', buildingChannelId),
+          (supabase as any).from('documents').delete().eq('chantier_id', id),
+          (supabase as any).from('incidents').delete().eq('chantier_id', id),
         ]);
-        await supabase.from('channels').delete().eq('id', buildingChannelId);
-        const { data: deleted2, error } = await supabase.from('chantiers').delete().eq('id', id).select();
+        await (supabase as any).from('channels').delete().eq('id', buildingChannelId);
+        const { data: deleted2, error } = await (supabase as any).from('chantiers').delete().eq('id', id).select();
         if (error) {
           console.warn('[sync] deleteChantier erreur serveur:', error.message);
           // Restore local cache on failure
@@ -273,7 +279,7 @@ export function useChantiers() {
       return;
     }
     if (isSupabaseConfigured) {
-      const { error } = await supabase.from('site_plans').insert({
+      const { error } = await (supabase as any).from('site_plans').insert({
         id: p.id, chantier_id: p.chantierId, name: p.name,
         building: p.building ?? null, level: p.level ?? null,
         building_id: p.buildingId ?? null, level_id: p.levelId ?? null,
@@ -310,7 +316,7 @@ export function useChantiers() {
       return;
     }
     if (isSupabaseConfigured) {
-      supabase.from('site_plans').update({
+      (supabase as any).from('site_plans').update({
         chantier_id: p.chantierId, name: p.name,
         building: p.building ?? null, level: p.level ?? null,
         building_id: p.buildingId ?? null, level_id: p.levelId ?? null,
@@ -336,7 +342,7 @@ export function useChantiers() {
       return;
     }
     if (isSupabaseConfigured) {
-      const { data: deleted, error } = await supabase.from('site_plans').delete().eq('id', id).select();
+      const { data: deleted, error } = await (supabase as any).from('site_plans').delete().eq('id', id).select();
       if (error) {
         console.warn('[sync] deleteSitePlan erreur serveur:', error.message);
         if (previous) {
@@ -366,10 +372,10 @@ export function useChantiers() {
     queryClient.setQueryData<SitePlan[]>(queryKeys.sitePlans(), updatedPlans);
     writeCache(SITE_PLANS_CACHE_KEY, updatedPlans, userId);
     if (isSupabaseConfigured) {
-      const { error: updateErr } = await supabase.from('site_plans')
+      const { error: updateErr } = await (supabase as any).from('site_plans')
         .update({ is_latest_revision: false, revision_number: parentRevNum }).eq('id', parentPlanId);
       if (updateErr) console.error('[addSitePlanVersion] update parent error:', updateErr.message);
-      const { error: insertErr } = await supabase.from('site_plans').insert({
+      const { error: insertErr } = await (supabase as any).from('site_plans').insert({
         id: versionedNew.id, chantier_id: versionedNew.chantierId, name: versionedNew.name,
         uri: versionedNew.uri ?? null, file_type: versionedNew.fileType ?? null,
         dxf_name: versionedNew.dxfName ?? null, size: versionedNew.size ?? null,
@@ -393,7 +399,7 @@ export function useChantiers() {
     );
     if (isSupabaseConfigured) {
       Promise.all(migrated.map(r =>
-        supabase.from('reserves').update({ plan_id: toPlanId }).eq('id', r.id)
+        (supabase as any).from('reserves').update({ plan_id: toPlanId }).eq('id', r.id)
       )).then(results => {
         if (results.some((res: any) => res.error)) console.warn('[sync] migrateReservesToPlan some errors');
       });

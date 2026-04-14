@@ -35,7 +35,11 @@ export function useOprs() {
       }
       if (!isSupabaseConfigured) return cached ?? [];
       try {
-        const { data, error } = await supabase.from('oprs').select('*').order('created_at', { ascending: false });
+        let q = ((supabase as any).from('oprs') as any).select('*').order('created_at', { ascending: false });
+        if (user!.role !== 'super_admin' && user!.organizationId) {
+          q = q.eq('organization_id', user!.organizationId);
+        }
+        const { data, error } = await q;
         if (error) throw error;
         const fresh = (data ?? []).map(toOpr);
         const merged = mergeWithCache<Opr>(fresh, cached);
@@ -66,7 +70,7 @@ export function useOprs() {
       return;
     }
     if (isSupabaseConfigured) {
-      const { error } = await supabase.from('oprs').insert(fromOpr(o, orgId));
+      const { error } = await (supabase as any).from('oprs').insert(fromOpr(o, orgId));
       if (error) console.warn('[sync] addOpr error:', error.message);
     }
   }, [queryClient, user, isOnlineRef, enqueueOperation, persist]);
@@ -83,7 +87,7 @@ export function useOprs() {
       return;
     }
     if (isSupabaseConfigured) {
-      supabase.from('oprs').update(fields).eq('id', o.id).then(({ error }: { error: any }) => {
+      (supabase as any).from('oprs').update(fields).eq('id', o.id).then(({ error }: { error: any }) => {
         if (error) console.warn('[sync] updateOpr error:', error.message);
       });
     }
@@ -99,7 +103,7 @@ export function useOprs() {
       return;
     }
     if (isSupabaseConfigured) {
-      const { data: deleted, error } = await supabase.from('oprs').delete().eq('id', id).select();
+      const { data: deleted, error } = await (supabase as any).from('oprs').delete().eq('id', id).select();
       if (error) {
         console.warn('[sync] deleteOpr erreur serveur:', error.message);
         if (previous) {

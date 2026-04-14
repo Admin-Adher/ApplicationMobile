@@ -34,7 +34,11 @@ export function useDocuments() {
       }
       if (!isSupabaseConfigured) return cached ?? [];
       try {
-        const { data, error } = await supabase.from('documents').select('*').order('uploaded_at', { ascending: false });
+        let q = ((supabase as any).from('documents') as any).select('*').order('uploaded_at', { ascending: false });
+        if (user!.role !== 'super_admin' && user!.organizationId) {
+          q = q.eq('organization_id', user!.organizationId);
+        }
+        const { data, error } = await q;
         if (error) throw error;
         const fresh = (data ?? []).map(toDocument);
         const merged = mergeWithCache<Document>(fresh, cached);
@@ -70,7 +74,7 @@ export function useDocuments() {
       return;
     }
     if (isSupabaseConfigured) {
-      const { error } = await supabase.from('documents').insert(payload);
+      const { error } = await (supabase as any).from('documents').insert(payload);
       if (error) console.warn('[sync] addDocument error:', error.message);
     }
   }, [queryClient, user, isOnlineRef, enqueueOperation, persist]);
@@ -84,7 +88,7 @@ export function useDocuments() {
       return;
     }
     if (isSupabaseConfigured) {
-      supabase.from('documents').delete().eq('id', id).then(({ error }: { error: any }) => {
+      (supabase as any).from('documents').delete().eq('id', id).then(({ error }: { error: any }) => {
         if (error) console.warn('[sync] deleteDocument error:', error.message);
       });
     }

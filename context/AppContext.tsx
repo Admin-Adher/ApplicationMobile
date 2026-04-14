@@ -261,7 +261,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
         // Fix 3: try Supabase first, fallback to AsyncStorage if offline
         try {
-          const { data: prof } = await supabase
+          const { data: prof } = await (supabase as any)
             .from('profiles').select('last_read_by_channel')
             .eq('id', session.user.id).single();
           if (prof?.last_read_by_channel) {
@@ -372,7 +372,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       }
       void (async () => {
         try {
-          await supabase.from('profiles').update({ last_read_by_channel: newLastRead }).eq('id', userId);
+          await (supabase as any).from('profiles').update({ last_read_by_channel: newLastRead }).eq('id', userId);
         } catch {}
       })();
     }

@@ -47,8 +47,11 @@ export function useReserves() {
 
       // Try online fetch; merge with cache to keep local-only (offline-created) items.
       try {
-        const { data, error } = await supabase
-          .from('reserves').select('*').order('created_at', { ascending: false });
+        let q = ((supabase as any).from('reserves') as any).select('*').order('created_at', { ascending: false });
+        if (user!.role !== 'super_admin' && user!.organizationId) {
+          q = q.eq('organization_id', user!.organizationId);
+        }
+        const { data, error } = await q;
         if (error) throw error;
         const fresh = (data ?? []).map(toReserve);
         const merged = mergeWithCache<Reserve>(fresh, cached);
@@ -101,7 +104,7 @@ export function useReserves() {
     }
     // Fix 12: show Alert on server error instead of silent log
     if (isSupabaseConfigured) {
-      const { error } = await supabase.from('reserves').insert(payload);
+      const { error } = await (supabase as any).from('reserves').insert(payload);
       if (error) {
         console.warn('[sync] addReserve server error:', error.message);
         Alert.alert('Synchronisation incomplète', `La réserve a été créée localement mais n'a pas pu être synchronisée (${error.message}).`);
@@ -139,7 +142,7 @@ export function useReserves() {
       return;
     }
     if (isSupabaseConfigured) {
-      supabase.from('reserves').update(payload).eq('id', r.id).then(({ error }: { error: any }) => {
+      (supabase as any).from('reserves').update(payload).eq('id', r.id).then(({ error }: { error: any }) => {
         if (error) console.warn('[sync] updateReserve error:', error.message);
       });
     }
@@ -159,7 +162,7 @@ export function useReserves() {
       return;
     }
     if (isSupabaseConfigured) {
-      const { data: deleted, error } = await supabase.from('reserves').delete().eq('id', id).select();
+      const { data: deleted, error } = await (supabase as any).from('reserves').delete().eq('id', id).select();
       if (error) {
         console.warn('[sync] deleteReserve erreur serveur:', error.message);
         if (previous) {
@@ -212,7 +215,7 @@ export function useReserves() {
     );
     persist(queryClient.getQueryData<Reserve[]>(queryKeys.reserves()) ?? []);
     if (isSupabaseConfigured) {
-      supabase.from('reserves').update({ comments: updated.comments }).eq('id', reserveId)
+      (supabase as any).from('reserves').update({ comments: updated.comments }).eq('id', reserveId)
         .then(({ error }: { error: any }) => {
           if (error) console.warn('[sync] addComment error:', error.message);
         });
@@ -267,7 +270,7 @@ export function useReserves() {
     );
     if (isSupabaseConfigured) {
       Promise.all(updated.map(r =>
-        supabase.from('reserves').update({
+        (supabase as any).from('reserves').update({
           status: r.status,
           company: (r.companies ?? (r.company ? [r.company] : []))[0] ?? null,
           companies: r.companies ?? (r.company ? [r.company] : []),

@@ -44,7 +44,11 @@ export function usePhotos() {
 
       // Try online fetch; merge with cache to keep local-only (offline-created) items.
       try {
-        const { data, error } = await supabase.from('photos').select('*').order('taken_at', { ascending: false });
+        let q = ((supabase as any).from('photos') as any).select('*').order('taken_at', { ascending: false });
+        if (user!.role !== 'super_admin' && user!.organizationId) {
+          q = q.eq('organization_id', user!.organizationId);
+        }
+        const { data, error } = await q;
         if (error) throw error;
         const fresh = (data ?? []).map(toPhoto);
         const merged = mergeWithCache<Photo>(fresh, cached);
@@ -81,7 +85,7 @@ export function usePhotos() {
       return;
     }
     if (isSupabaseConfigured) {
-      const { error } = await supabase.from('photos').insert(payload);
+      const { error } = await (supabase as any).from('photos').insert(payload);
       if (error) {
         console.warn('[sync] addPhoto error:', error.message);
         Alert.alert('Synchronisation incomplète', `La photo a été sauvegardée localement mais n'a pas pu être synchronisée (${error.message}).`);
@@ -98,7 +102,7 @@ export function usePhotos() {
       return;
     }
     if (isSupabaseConfigured) {
-      supabase.from('photos').delete().eq('id', id).then(({ error }: { error: any }) => {
+      (supabase as any).from('photos').delete().eq('id', id).then(({ error }: { error: any }) => {
         if (error) console.warn('[sync] deletePhoto error:', error.message);
       });
     }

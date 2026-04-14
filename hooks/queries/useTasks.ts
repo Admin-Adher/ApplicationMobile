@@ -34,7 +34,11 @@ export function useTasks() {
       }
       if (!isSupabaseConfigured) return cached ?? [];
       try {
-        const { data, error } = await supabase.from('tasks').select('*');
+        let q = ((supabase as any).from('tasks') as any).select('*');
+        if (user!.role !== 'super_admin' && user!.organizationId) {
+          q = q.eq('organization_id', user!.organizationId);
+        }
+        const { data, error } = await q;
         if (error) throw error;
         const fresh = (data ?? []).map(toTask);
         const merged = mergeWithCache<Task>(fresh, cached);
@@ -73,7 +77,7 @@ export function useTasks() {
       return;
     }
     if (isSupabaseConfigured) {
-      const { error } = await supabase.from('tasks').insert(payload);
+      const { error } = await (supabase as any).from('tasks').insert(payload);
       if (error) console.warn('[sync] addTask error:', error.message);
     }
   }, [queryClient, user, isOnlineRef, enqueueOperation, persist]);
@@ -95,7 +99,7 @@ export function useTasks() {
       return;
     }
     if (isSupabaseConfigured) {
-      supabase.from('tasks').update(payload).eq('id', t.id).then(({ error }: { error: any }) => {
+      (supabase as any).from('tasks').update(payload).eq('id', t.id).then(({ error }: { error: any }) => {
         if (error) console.warn('[sync] updateTask error:', error.message);
       });
     }
@@ -111,7 +115,7 @@ export function useTasks() {
       return;
     }
     if (isSupabaseConfigured) {
-      const { data: deleted, error } = await supabase.from('tasks').delete().eq('id', id).select();
+      const { data: deleted, error } = await (supabase as any).from('tasks').delete().eq('id', id).select();
       if (error) {
         console.warn('[sync] deleteTask erreur serveur:', error.message);
         if (previous) {
@@ -138,7 +142,7 @@ export function useTasks() {
     );
     persist(queryClient.getQueryData<Task[]>(queryKeys.tasks()) ?? []);
     if (isSupabaseConfigured) {
-      supabase.from('tasks').update({ comments: updated.comments }).eq('id', taskId)
+      (supabase as any).from('tasks').update({ comments: updated.comments }).eq('id', taskId)
         .then(({ error }: { error: any }) => {
           if (error) console.warn('[sync] addTaskComment error:', error.message);
         });

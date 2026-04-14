@@ -133,10 +133,14 @@ export function useChannels() {
     }
 
     try {
-      const { data, error } = await supabase
+      let chQ = (supabase as any)
         .from('channels')
         .select('*')
         .in('type', ['general', 'building', 'custom', 'group', 'dm']);
+      if (user?.role !== 'super_admin' && user?.organizationId) {
+        chQ = chQ.eq('organization_id', user.organizationId);
+      }
+      const { data, error } = await chQ;
 
       if (error) {
         console.warn('[useChannels] _loadChannelsFromSupabase error:', error.code, error.message);
@@ -230,7 +234,7 @@ export function useChannels() {
     try {
       const userId = userIdRef.current;
       if (userId && isSupabaseConfigured) {
-        const { data } = await supabase
+        const { data } = await (supabase as any)
           .from('profiles')
           .select('pinned_channels')
           .eq('id', userId)
@@ -271,14 +275,14 @@ export function useChannels() {
       try {
         const userId = userIdRef.current;
         if (userId) {
-          const { data: prof } = await supabase.from('profiles').select('organization_id').eq('id', userId).single();
+          const { data: prof } = await (supabase as any).from('profiles').select('organization_id').eq('id', userId).single();
           orgId = prof?.organization_id ?? null;
           if (orgId) orgIdRef.current = orgId;
         }
       } catch {}
     }
     for (const ch of channels) {
-      await supabase.from('channels').upsert({
+      await (supabase as any).from('channels').upsert({
         id: ch.id, name: ch.name, description: ch.description ?? null,
         icon: ch.icon ?? 'chatbubbles', color: ch.color ?? '#10B981', type: ch.type,
         members: ch.members ?? [], created_by: ch.createdBy ?? null, organization_id: orgId ?? null,
@@ -302,7 +306,7 @@ export function useChannels() {
     const orgId = orgIdRef.current;
     for (const ch of channels) {
       try {
-        await supabase.from('channels').upsert({
+        await (supabase as any).from('channels').upsert({
           id: ch.id, name: ch.name, description: ch.description ?? null,
           icon: ch.icon ?? 'people-circle', color: ch.color ?? '#10B981', type: ch.type,
           members: ch.members ?? [], created_by: ch.createdBy ?? null, organization_id: orgId ?? null,
@@ -322,7 +326,7 @@ export function useChannels() {
     }
     void (async () => {
       try {
-        await supabase.from('profiles').update({ pinned_channels: ids }).eq('id', userId);
+        await (supabase as any).from('profiles').update({ pinned_channels: ids }).eq('id', userId);
       } catch {}
     })();
   }, [enqueueOperation, PINNED_CHANNELS_KEY]);
@@ -354,7 +358,7 @@ export function useChannels() {
       }
       void (async () => {
         try {
-          await supabase.from('channels').delete().eq('id', id);
+          await (supabase as any).from('channels').delete().eq('id', id);
         } catch {}
       })();
     }
@@ -390,7 +394,7 @@ export function useChannels() {
       }
       void (async () => {
         try {
-          await supabase.from('channels').delete().eq('id', id);
+          await (supabase as any).from('channels').delete().eq('id', id);
         } catch {}
       })();
     }
@@ -518,7 +522,7 @@ export function useChannels() {
       if (!isOnlineRef.current) {
         enqueueOperation({ table: 'channels', op: 'upsert' as any, data: channelData });
       } else {
-        const upsertPromise: Promise<void> = supabase.from('channels').upsert(channelData)
+        const upsertPromise: Promise<void> = (supabase as any).from('channels').upsert(channelData)
           .then(() => { dmUpsertPromisesRef.current.delete(chId); })
           .catch(() => { dmUpsertPromisesRef.current.delete(chId); });
         dmUpsertPromisesRef.current.set(chId, upsertPromise);

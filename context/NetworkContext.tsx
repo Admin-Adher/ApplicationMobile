@@ -201,7 +201,7 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
         if (op.conflictCheck) {
           const { entityId, previousStatus, newStatus, author, history, closedAt, closedBy } = op.conflictCheck;
 
-          const { data: serverData, error: fetchErr } = await supabase
+          const { data: serverData, error: fetchErr } = await (supabase as any)
             .from('reserves')
             .select('status, title')
             .eq('id', entityId)
@@ -226,7 +226,7 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
           }
 
           // No conflict: apply our change
-          const { error: applyErr } = await supabase.from('reserves').update({
+          const { error: applyErr } = await (supabase as any).from('reserves').update({
             status: newStatus,
             history,
             closed_at: closedAt ?? null,
@@ -281,17 +281,17 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
         let result: { error: any; data?: any[] | null };
 
         if (op.op === 'insert') {
-          result = await supabase.from(op.table).insert(data!);
+          result = await (supabase as any).from(op.table).insert(data!);
           // 23505 = unique violation → already exists → treat as success
           if (result.error?.code === '23505') result = { error: null };
         } else if (op.op === 'update') {
-          const q = supabase.from(op.table).update(data!);
+          const q = (supabase as any).from(op.table).update(data!);
           result = op.filter
             ? await q.eq(op.filter.column, op.filter.value)
             : await q;
         } else {
           // Use .select() so we can detect RLS-blocked DELETEs (error=null but 0 rows)
-          const q = supabase.from(op.table).delete().select();
+          const q = (supabase as any).from(op.table).delete().select();
           result = op.filter
             ? await q.eq(op.filter.column, op.filter.value)
             : await q;
@@ -353,7 +353,7 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
       },
     ];
 
-    const { error: resolveErr } = await supabase.from('reserves').update({
+    const { error: resolveErr } = await (supabase as any).from('reserves').update({
       status: chosenStatus,
       history,
       closed_at: chosenStatus === 'closed' ? (conflict.closedAt ?? now) : null,

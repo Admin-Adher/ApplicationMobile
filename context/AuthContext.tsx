@@ -97,7 +97,7 @@ const AuthContext = createContext<AuthContextValue | null>(null);
 
 async function addUserToGeneralChannel(orgId: string, userName: string) {
   try {
-    const { data } = await supabase
+    const { data } = await (supabase as any)
       .from('channels')
       .select('id, members')
       .eq('organization_id', orgId)
@@ -106,7 +106,7 @@ async function addUserToGeneralChannel(orgId: string, userName: string) {
     if (!data) return;
     const current: string[] = data.members ?? [];
     if (!current.includes(userName)) {
-      await supabase
+      await (supabase as any)
         .from('channels')
         .update({ members: [...current, userName] })
         .eq('id', data.id);
@@ -116,7 +116,7 @@ async function addUserToGeneralChannel(orgId: string, userName: string) {
 
 async function linkPendingInvitation(userId: string, email: string, inviteeName?: string): Promise<string | undefined> {
   try {
-    const { data: inv } = await supabase
+    const { data: inv } = await (supabase as any)
       .from('invitations')
       .select('*')
       .eq('email', email.toLowerCase())
@@ -128,20 +128,20 @@ async function linkPendingInvitation(userId: string, email: string, inviteeName?
 
     if (!inv) return undefined;
 
-    await supabase.from('profiles').update({
+    await (supabase as any).from('profiles').update({
       organization_id: inv.organization_id,
       role: inv.role,
       role_label: ROLE_LABELS[inv.role as UserRole] ?? inv.role,
       ...(inv.company_id ? { company_id: inv.company_id } : {}),
     }).eq('id', userId);
 
-    await supabase.from('invitations').update({ status: 'accepted' }).eq('id', inv.id);
+    await (supabase as any).from('invitations').update({ status: 'accepted' }).eq('id', inv.id);
 
     // Notify the admin who sent the invitation (fire-and-forget)
     try {
       const [adminResult, orgResult] = await Promise.all([
-        supabase.from('profiles').select('name, email').eq('id', inv.invited_by).single(),
-        supabase.from('organizations').select('name').eq('id', inv.organization_id).single(),
+        (supabase as any).from('profiles').select('name, email').eq('id', inv.invited_by).single(),
+        (supabase as any).from('organizations').select('name').eq('id', inv.organization_id).single(),
       ]);
       if (adminResult.data?.email && orgResult.data?.name) {
         sendInvitationAcceptedEmail({
@@ -168,13 +168,13 @@ async function fetchProfile(userId: string, skipInvitationLink = false): Promise
     // si RLS récursif. En les lançant en parallèle, on évite 1 RTT inutile.
     let profileData: Record<string, unknown> | null = null;
 
-    const directPromise = supabase
+    const directPromise = (supabase as any)
       .from('profiles')
       .select('*')
       .eq('id', userId)
       .single();
 
-    const rpcPromise = supabase.rpc('get_profile_for_current_user');
+    const rpcPromise = (supabase as any).rpc('get_profile_for_current_user');
 
     // Attendre la direct query en premier — si elle réussit, on ignore le RPC
     const { data: directData, error: directError } = await directPromise;
@@ -228,7 +228,7 @@ async function fetchProfile(userId: string, skipInvitationLink = false): Promise
         const name = profileData.name as string;
         linkPendingInvitation(userId, email, name).then(linkedOrgId => {
           if (linkedOrgId) {
-            supabase.from('profiles').select('*').eq('id', userId).single().then(({ data: refreshed }) => {
+            (supabase as any).from('profiles').select('*').eq('id', userId).single().then(({ data: refreshed }: { data: any }) => {
               if (refreshed) {
                 // Mettre à jour le user en arrière-plan — le prochain render prendra les nouvelles valeurs
                 console.log('[fetchProfile] Invitation liée en arrière-plan ✓');
@@ -240,7 +240,7 @@ async function fetchProfile(userId: string, skipInvitationLink = false): Promise
       } else {
         const linkedOrgId = await linkPendingInvitation(userId, profileData.email as string, profileData.name as string);
         if (linkedOrgId) {
-          const { data: refreshed } = await supabase.from('profiles').select('*').eq('id', userId).single();
+          const { data: refreshed } = await (supabase as any).from('profiles').select('*').eq('id', userId).single();
           if (refreshed) {
             orgId = (refreshed as Record<string, unknown>).organization_id as string ?? undefined;
             role = (refreshed as Record<string, unknown>).role as UserRole;
@@ -325,7 +325,7 @@ async function seedOneUser(u: typeof DEMO_USERS[number], shouldAbort: () => bool
 
   const orgId = (u.role === 'super_admin') ? undefined : '00000000-0000-0000-0000-000000000001';
 
-  const { error: upsertErr } = await supabase.from('profiles').upsert({
+  const { error: upsertErr } = await (supabase as any).from('profiles').upsert({
     id: authUserId,
     name: u.name,
     role: u.role,
@@ -598,10 +598,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     if (!user || !isSupabaseConfigured) return;
     if (usersLoadedRef.current) return;
     usersLoadedRef.current = true;
-    supabase.from('profiles').select('id, name, role, role_label, email, organization_id, company_id, permissions_override').then(({ data, error }: { data: any; error: any }) => {
+    (supabase as any).from('profiles').select('id, name, role, role_label, email, organization_id, company_id, permissions_override').then(({ data, error }: { data: any; error: any }) => {
       if (error) {
         console.warn('[AuthContext] profiles.select error:', error.code, error.message);
-        return supabase.from('profiles').select('id, name, role, role_label, email, organization_id').then(({ data: fallbackData, error: fallbackError }: { data: any; error: any }) => {
+        return (supabase as any).from('profiles').select('id, name, role, role_label, email, organization_id').then(({ data: fallbackData, error: fallbackError }: { data: any; error: any }) => {
           if (fallbackError) {
             console.warn('[AuthContext] profiles fallback select error:', fallbackError.code, fallbackError.message);
             usersLoadedRef.current = false;
@@ -804,7 +804,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         // Note: if signUp did not return a session (email confirmation required),
         // this insert will fail (RLS) but we continue — the user will need to
         // confirm their email first, and signIn below will catch it.
-        const { error: profileInsertErr } = await supabase.from('profiles').insert({
+        const { error: profileInsertErr } = await (supabase as any).from('profiles').insert({
           id: userId,
           name: name.trim(),
           email: email.trim().toLowerCase(),
@@ -867,7 +867,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         if (!rpcLinked && signInUserId) {
           try {
             const emailLower = email.trim().toLowerCase();
-            const { data: inv } = await supabase
+            const { data: inv } = await (supabase as any)
               .from('invitations')
               .select('*')
               .eq('email', emailLower)
@@ -878,14 +878,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
               .maybeSingle();
 
             if (inv?.organization_id) {
-              await supabase.from('profiles').update({
+              await (supabase as any).from('profiles').update({
                 organization_id: inv.organization_id,
                 role: inv.role,
                 role_label: ROLE_LABELS[inv.role as UserRole] ?? inv.role,
                 ...(inv.company_id ? { company_id: inv.company_id } : {}),
               }).eq('id', signInUserId);
 
-              await supabase.from('invitations')
+              await (supabase as any).from('invitations')
                 .update({ status: 'accepted' })
                 .eq('id', inv.id);
 
@@ -917,7 +917,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           let orgName: string | undefined;
           if (profile.organizationId) {
             try {
-              const { data: orgData } = await supabase
+              const { data: orgData } = await (supabase as any)
                 .from('organizations')
                 .select('name')
                 .eq('id', profile.organizationId)
@@ -1097,7 +1097,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   async function updateUserRole(userId: string, newRole: UserRole): Promise<void> {
     const newLabel = ROLE_LABELS[newRole];
     if (isSupabaseConfigured) {
-      const { error } = await supabase.from('profiles').update({
+      const { error } = await (supabase as any).from('profiles').update({
         role: newRole,
         role_label: newLabel,
       }).eq('id', userId);
@@ -1113,7 +1113,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   async function updateUserCompany(userId: string, companyId: string | null): Promise<void> {
     if (isSupabaseConfigured) {
-      const { error } = await supabase.from('profiles').update({
+      const { error } = await (supabase as any).from('profiles').update({
         company_id: companyId,
       }).eq('id', userId);
       if (error) {
@@ -1130,7 +1130,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const targetUser = users.find(u => u.id === userId);
 
     if (isSupabaseConfigured) {
-      const { error } = await supabase.from('profiles').delete().eq('id', userId);
+      const { error } = await (supabase as any).from('profiles').delete().eq('id', userId);
       if (error) {
         Alert.alert('Erreur', "Le profil n'a pas pu être supprimé. Vérifiez vos permissions.");
         return;
@@ -1142,7 +1142,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       try {
         let orgName = 'votre organisation';
         if (targetUser.organizationId && isSupabaseConfigured) {
-          const { data: org } = await supabase
+          const { data: org } = await (supabase as any)
             .from('organizations')
             .select('name')
             .eq('id', targetUser.organizationId)
@@ -1162,7 +1162,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   async function updateUserPermissions(userId: string, override: PermissionsOverride): Promise<void> {
     if (isSupabaseConfigured) {
-      const { error } = await supabase.from('profiles').update({
+      const { error } = await (supabase as any).from('profiles').update({
         permissions_override: override,
       }).eq('id', userId);
       if (error) {
