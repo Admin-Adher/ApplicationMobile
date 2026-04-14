@@ -453,6 +453,7 @@ export default function AdminScreen() {
         email: email.trim() || undefined,
         siret: siret.trim() || undefined,
         insurance: insurance.trim() || undefined,
+        organizationId: isSuperAdmin ? (selectedOrgId ?? user?.organizationId) : user?.organizationId,
       });
       showToast('Entreprise ajoutée');
     }

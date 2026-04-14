@@ -140,8 +140,7 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
     const safetyTimer = setTimeout(resolveSafety, 10_000);
 
     try {
-      const { data: plansData } = await supabase
-        .from('plans')
+      const { data: plansData } = await (supabase.from('plans') as any)
         .select('*')
         .order('price_monthly', { ascending: true });
 
@@ -157,13 +156,11 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
       }
 
       if (user.role === 'super_admin') {
-        const { data: orgs } = await supabase
-          .from('organizations')
+        const { data: orgs } = await (supabase.from('organizations') as any)
           .select('*')
           .order('created_at', { ascending: false });
 
-        const { data: subs } = await supabase
-          .from('subscriptions')
+        const { data: subs } = await (supabase.from('subscriptions') as any)
           .select('*, plans(*)');
 
         if (gen !== loadGenRef.current) return;
@@ -195,8 +192,7 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
         return;
       }
 
-      const { data: orgData } = await supabase
-        .from('organizations')
+      const { data: orgData } = await (supabase.from('organizations') as any)
         .select('*')
         .eq('id', user.organizationId)
         .single();
@@ -211,8 +207,7 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
         });
       }
 
-      const { data: subData } = await supabase
-        .from('subscriptions')
+      const { data: subData } = await (supabase.from('subscriptions') as any)
         .select('*, plans(*)')
         .eq('organization_id', user.organizationId)
         .single();
@@ -226,11 +221,10 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
           new Date(subData.trial_ends_at) < new Date()
         ) {
           resolvedStatus = 'expired';
-          supabase
-            .from('subscriptions')
+          (supabase.from('subscriptions') as any)
             .update({ status: 'expired' })
             .eq('id', subData.id)
-            .then(({ error }) => {
+            .then(({ error }: { error: any }) => {
               if (error) console.warn('Erreur mise à jour statut abonnement expiré:', error.message);
             });
         } else if (
@@ -239,11 +233,10 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
           new Date(subData.expires_at) < new Date()
         ) {
           resolvedStatus = 'expired';
-          supabase
-            .from('subscriptions')
+          (supabase.from('subscriptions') as any)
             .update({ status: 'expired' })
             .eq('id', subData.id)
-            .then(({ error }) => {
+            .then(({ error }: { error: any }) => {
               if (error) console.warn('Erreur mise à jour statut abonnement expiré:', error.message);
             });
         }
@@ -274,8 +267,7 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
         // Note: invitations are filtered client-side by expires_at > now() to exclude expired ones.
         // Expired rows keep status='pending' in the DB (no auto-transition to 'expired').
         // A Supabase Edge Function (cron) would be required to automate that transition.
-        const { data: invData } = await supabase
-          .from('invitations')
+        const { data: invData } = await (supabase.from('invitations') as any)
           .select('*')
           .eq('organization_id', user.organizationId)
           .eq('status', 'pending')
@@ -395,8 +387,7 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
     }
 
     try {
-      const { data, error } = await supabase
-        .from('invitations')
+      const { data, error } = await (supabase.from('invitations') as any)
         .insert({
           organization_id: user.organizationId,
           email: emailLower,
@@ -443,7 +434,7 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
 
   async function cancelInvitation(id: string): Promise<void> {
     if (isSupabaseConfigured) {
-      const { error } = await supabase.from('invitations').delete().eq('id', id);
+      const { error } = await (supabase.from('invitations') as any).delete().eq('id', id);
       if (error) {
         Alert.alert('Erreur', "L'invitation n'a pas pu être annulée. Veuillez réessayer.");
         return;
@@ -463,8 +454,7 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
       return { success: true };
     }
     try {
-      const { error } = await supabase
-        .from('subscriptions')
+      const { error } = await (supabase.from('subscriptions') as any)
         .update({ plan_id: planId, status: 'active' })
         .eq('organization_id', orgId);
 
@@ -487,8 +477,7 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
       return { success: true };
     }
     try {
-      const { data, error } = await supabase
-        .from('subscriptions')
+      const { data, error } = await (supabase.from('subscriptions') as any)
         .update({ status })
         .eq('organization_id', orgId)
         .select('id');
@@ -531,8 +520,7 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
       const patch: Record<string, string> = { name: trimmed };
       if (newSlug) patch.slug = newSlug;
 
-      const { data, error } = await supabase
-        .from('organizations')
+      const { data, error } = await (supabase.from('organizations') as any)
         .update(patch)
         .eq('id', orgId)
         .select('id, slug');
@@ -594,8 +582,7 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
     }
 
     try {
-      const { data: org, error: orgErr } = await supabase
-        .from('organizations')
+      const { data: org, error: orgErr } = await (supabase.from('organizations') as any)
         .insert({ name, slug })
         .select()
         .single();
@@ -604,15 +591,31 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
         return { success: false, error: orgErr?.message ?? "Impossible de créer l'organisation." };
       }
 
+      // Update local state immediately so the new org appears in the UI without waiting for refresh.
+      const newOrg: Organization = {
+        id: org.id,
+        name: org.name,
+        slug: org.slug,
+        createdAt: org.created_at,
+      };
+      setAllOrganizations(prev => [newOrg, ...prev]);
+      setOrgSummaries(prev => [{
+        org: newOrg,
+        planName: enterprisePlan?.name ?? 'Entreprise',
+        planId: enterprisePlan?.id ?? 'plan-entreprise',
+        status: 'active',
+        seatMax: -1,
+      }, ...prev]);
+
       const enterprisePlan = allPlans.find(p => p.name === 'Entreprise') ?? allPlans[allPlans.length - 1];
-      await supabase.from('subscriptions').insert({
+      await (supabase.from('subscriptions') as any).insert({
         organization_id: org.id,
         plan_id: enterprisePlan?.id ?? allPlans[0]?.id,
         status: 'active',
         started_at: new Date().toISOString(),
       });
 
-      await supabase.from('channels').insert({
+      await (supabase.from('channels') as any).insert({
         id: `general-${org.id}`,
         name: 'Général',
         type: 'general',
@@ -623,8 +626,7 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
 
       if (adminEmail) {
         const emailLower = adminEmail.trim().toLowerCase();
-        const { data: invData, error: invError } = await supabase
-          .from('invitations')
+        const { data: invData, error: invError } = await (supabase.from('invitations') as any)
           .insert({
             organization_id: org.id,
             email: emailLower,
@@ -681,53 +683,51 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
       };
 
       // ── Collect reserve IDs (needed for photo deletion: photos use reserve_id not org_id) ──
-      const { data: reservesData } = await supabase
-        .from('reserves')
+      const { data: reservesData } = await (supabase.from('reserves') as any)
         .select('id')
         .eq('organization_id', orgId);
       const reserveIds = (reservesData ?? []).map((r: any) => r.id as string);
 
       // ── Collect Storage URIs before deletion (best-effort) ──
       const { data: photoData } = reserveIds.length > 0
-        ? await supabase.from('photos').select('uri').in('reserve_id', reserveIds)
+        ? await (supabase.from('photos') as any).select('uri').in('reserve_id', reserveIds)
         : { data: [] };
-      const { data: docData } = await supabase
-        .from('documents')
+      const { data: docData } = await (supabase.from('documents') as any)
         .select('uri')
         .eq('organization_id', orgId);
 
       // ── Delete in FK order (super_admin RLS allows all deletes) ──
-      await supabase.from('messages').delete().eq('organization_id', orgId);
+      await (supabase.from('messages') as any).delete().eq('organization_id', orgId);
 
       if (reserveIds.length > 0) {
-        await supabase.from('photos').delete().in('reserve_id', reserveIds);
+        await (supabase.from('photos') as any).delete().in('reserve_id', reserveIds);
       }
 
-      await supabase.from('time_entries').delete().eq('organization_id', orgId);
-      await supabase.from('tasks').delete().eq('organization_id', orgId);
-      await supabase.from('reserves').delete().eq('organization_id', orgId);
-      await supabase.from('site_plans').delete().eq('organization_id', orgId);
-      await supabase.from('oprs').delete().eq('organization_id', orgId);
-      await supabase.from('lots').delete().eq('organization_id', orgId);
-      await supabase.from('visites').delete().eq('organization_id', orgId);
-      await supabase.from('incidents').delete().eq('organization_id', orgId);
-      await supabase.from('regulatory_docs').delete().eq('organization_id', orgId);
-      await supabase.from('documents').delete().eq('organization_id', orgId);
-      await supabase.from('chantiers').delete().eq('organization_id', orgId);
-      await supabase.from('channels').delete().eq('organization_id', orgId);
-      await supabase.from('companies').delete().eq('organization_id', orgId);
-      await supabase.from('subscriptions').delete().eq('organization_id', orgId);
-      await supabase.from('invitations').delete().eq('organization_id', orgId);
-      await supabase.from('profiles').delete().eq('organization_id', orgId).neq('id', user.id);
-      await supabase.from('organizations').delete().eq('id', orgId);
+      await (supabase.from('time_entries') as any).delete().eq('organization_id', orgId);
+      await (supabase.from('tasks') as any).delete().eq('organization_id', orgId);
+      await (supabase.from('reserves') as any).delete().eq('organization_id', orgId);
+      await (supabase.from('site_plans') as any).delete().eq('organization_id', orgId);
+      await (supabase.from('oprs') as any).delete().eq('organization_id', orgId);
+      await (supabase.from('lots') as any).delete().eq('organization_id', orgId);
+      await (supabase.from('visites') as any).delete().eq('organization_id', orgId);
+      await (supabase.from('incidents') as any).delete().eq('organization_id', orgId);
+      await (supabase.from('regulatory_docs') as any).delete().eq('organization_id', orgId);
+      await (supabase.from('documents') as any).delete().eq('organization_id', orgId);
+      await (supabase.from('chantiers') as any).delete().eq('organization_id', orgId);
+      await (supabase.from('channels') as any).delete().eq('organization_id', orgId);
+      await (supabase.from('companies') as any).delete().eq('organization_id', orgId);
+      await (supabase.from('subscriptions') as any).delete().eq('organization_id', orgId);
+      await (supabase.from('invitations') as any).delete().eq('organization_id', orgId);
+      await (supabase.from('profiles') as any).delete().eq('organization_id', orgId).neq('id', user.id);
+      await (supabase.from('organizations') as any).delete().eq('id', orgId);
 
       // ── Clean up Storage files (best-effort — does not block on failure) ──
       const photoPaths = (photoData ?? [])
         .map((p: any) => extractPath(p.uri ?? '', 'photos'))
-        .filter((p): p is string => !!p);
+        .filter((p: any): p is string => !!p);
       const docPaths = (docData ?? [])
         .map((d: any) => extractPath(d.uri ?? '', 'documents'))
-        .filter((p): p is string => !!p);
+        .filter((p: any): p is string => !!p);
 
       if (photoPaths.length > 0) {
         await supabase.storage.from('photos').remove(photoPaths).catch(() => {});

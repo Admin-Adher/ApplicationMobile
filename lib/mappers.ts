@@ -46,6 +46,7 @@ export function toCompany(row: any): Company {
     siret: row.siret ?? undefined,
     insurance: row.insurance ?? undefined,
     qualifications: row.qualifications ?? undefined,
+    organizationId: row.organization_id ?? undefined,
   };
 }
 

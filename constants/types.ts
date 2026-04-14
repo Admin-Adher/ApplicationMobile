@@ -20,7 +20,7 @@ export interface UserPermissions {
 
 export type PermissionsOverride = Partial<UserPermissions>;
 export type SubscriptionStatus = 'trial' | 'active' | 'suspended' | 'expired';
-export type PlanName = 'Solo' | 'Équipe' | 'Groupe';
+export type PlanName = 'Solo' | 'Équipe' | 'Groupe' | 'Entreprise';
 export type IncidentSeverity = 'minor' | 'moderate' | 'major' | 'critical';
 export type IncidentStatus = 'open' | 'investigating' | 'resolved';
 export type ChantierStatus = 'active' | 'completed' | 'paused';
@@ -350,6 +350,7 @@ export interface Company {
   qualifications?: string;
   lots?: string[];
   email?: string;
+  organizationId?: string;
 }
 
 export interface Task {

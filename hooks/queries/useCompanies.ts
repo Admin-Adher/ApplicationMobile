@@ -42,12 +42,18 @@ export function useCompanies() {
 
       // Try online fetch; merge with cache to keep local-only (offline-created) items.
       try {
-        const { data, error } = await supabase.from('companies').select('*');
+        let q = (supabase.from('companies') as any).select('*');
+        // Non-super_admin users should only see their own org's companies.
+        // Super_admin sees all (filtered client-side by organizationId).
+        if (user!.role !== 'super_admin' && user!.organizationId) {
+          q = q.eq('organization_id', user!.organizationId);
+        }
+        const { data, error } = await q;
         if (error) throw error;
         const raw = data ?? [];
         const seenIds = new Set<string>();
         const seenNames = new Set<string>();
-        const fresh = raw.map(toCompany).filter(c => {
+        const fresh = raw.map(toCompany).filter((c: Company) => {
           const nameKey = c.name.trim().toLowerCase();
           if (seenIds.has(c.id) || seenNames.has(nameKey)) return false;
           seenIds.add(c.id); seenNames.add(nameKey); return true;
@@ -73,7 +79,9 @@ export function useCompanies() {
     const existing = queryClient.getQueryData<Company[]>(queryKeys.companies()) ?? [];
     const nameKey = c.name.trim().toLowerCase();
     if (existing.some(x => x.id === c.id || x.name.trim().toLowerCase() === nameKey)) return;
-    const newList = [...existing, c];
+    // Ensure organizationId is set before first cache write to avoid stale cache on restart.
+    const companyWithOrg = c.organizationId ? c : { ...c, organizationId: orgId ?? undefined };
+    const newList = [...existing, companyWithOrg];
     queryClient.setQueryData<Company[]>(queryKeys.companies(), newList);
     persist(newList);
     const payload = {
@@ -89,7 +97,7 @@ export function useCompanies() {
       return;
     }
     if (isSupabaseConfigured) {
-      const { error } = await supabase.from('companies').insert(payload);
+      const { error } = await (supabase.from('companies') as any).insert(payload);
       if (error) {
         console.warn('[sync] addCompany error:', error.message);
         Alert.alert(
@@ -117,7 +125,7 @@ export function useCompanies() {
       return;
     }
     if (isSupabaseConfigured) {
-      supabase.from('companies').update(payload).eq('id', c.id).then(({ error }: { error: any }) => {
+      (supabase.from('companies') as any).update(payload).eq('id', c.id).then(({ error }: { error: any }) => {
         if (error) console.warn('[sync] updateCompanyFull error:', error.message);
       });
     }
@@ -133,7 +141,7 @@ export function useCompanies() {
       return;
     }
     if (isSupabaseConfigured) {
-      const { data: deleted, error } = await supabase.from('companies').delete().eq('id', id).select();
+      const { data: deleted, error } = await (supabase.from('companies') as any).delete().eq('id', id).select();
       if (error) {
         console.warn('[sync] deleteCompany erreur serveur:', error.message);
         if (previous) {
@@ -160,7 +168,7 @@ export function useCompanies() {
       return;
     }
     if (isSupabaseConfigured) {
-      supabase.from('companies').update({ actual_workers: actual }).eq('id', id)
+      (supabase.from('companies') as any).update({ actual_workers: actual }).eq('id', id)
         .then(({ error }: { error: any }) => {
           if (error) console.warn('[sync] updateCompanyWorkers error:', error.message);
         });
@@ -177,7 +185,7 @@ export function useCompanies() {
       return;
     }
     if (isSupabaseConfigured) {
-      supabase.from('companies').update({ hours_worked: hours }).eq('id', id)
+      (supabase.from('companies') as any).update({ hours_worked: hours }).eq('id', id)
         .then(({ error }: { error: any }) => {
           if (error) console.warn('[sync] updateCompanyHours error:', error.message);
         });
