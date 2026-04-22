@@ -102,6 +102,7 @@ CREATE POLICY "Profil créable par son propriétaire"
 -- UPDATE : propre profil OU admin de la même org
 DROP POLICY IF EXISTS "Profil modifiable par son propriétaire" ON public.profiles;
 DROP POLICY IF EXISTS "Profil modifiable par admin de la même organisation" ON public.profiles;
+DROP POLICY IF EXISTS "Profil modifiable par admin ou propriétaire" ON public.profiles;
 CREATE POLICY "Profil modifiable par admin ou propriétaire"
   ON public.profiles FOR UPDATE
   USING (
@@ -114,6 +115,7 @@ CREATE POLICY "Profil modifiable par admin ou propriétaire"
 
 -- DELETE : propre profil OU admin de la même org
 DROP POLICY IF EXISTS "Profil supprimable par admin de la même organisation" ON public.profiles;
+DROP POLICY IF EXISTS "Profil supprimable par admin ou propriétaire" ON public.profiles;
 CREATE POLICY "Profil supprimable par admin ou propriétaire"
   ON public.profiles FOR DELETE
   USING (
@@ -403,6 +405,7 @@ CREATE POLICY "OPRs modifiables par org"
 -- ── TABLE : channels ──────────────────────────────────────────────────
 DROP POLICY IF EXISTS "Channels lisibles par membres" ON public.channels;
 DROP POLICY IF EXISTS "Super admin lit tous les canaux" ON public.channels;
+DROP POLICY IF EXISTS "Channels lisibles par membres ou org" ON public.channels;
 CREATE POLICY "Channels lisibles par membres ou org"
   ON public.channels FOR SELECT
   USING (
@@ -531,6 +534,7 @@ CREATE POLICY "Docs réglementaires modifiables par admin"
 -- ── TABLE : invitations ───────────────────────────────────────────────
 DROP POLICY IF EXISTS "Invitations visibles par admin" ON public.invitations;
 DROP POLICY IF EXISTS "Utilisateur peut voir ses propres invitations" ON public.invitations;
+DROP POLICY IF EXISTS "Invitations visibles par admin ou propriétaire" ON public.invitations;
 CREATE POLICY "Invitations visibles par admin ou propriétaire"
   ON public.invitations FOR SELECT
   USING (
@@ -549,6 +553,7 @@ CREATE POLICY "Invitations créables par admin"
 
 DROP POLICY IF EXISTS "Invitations modifiables par admin" ON public.invitations;
 DROP POLICY IF EXISTS "Invité peut accepter sa propre invitation" ON public.invitations;
+DROP POLICY IF EXISTS "Invitations modifiables par admin ou invité" ON public.invitations;
 CREATE POLICY "Invitations modifiables par admin ou invité"
   ON public.invitations FOR UPDATE
   USING (
