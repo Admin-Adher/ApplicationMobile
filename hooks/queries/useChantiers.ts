@@ -407,6 +407,24 @@ export function useChantiers() {
     return migrated.length;
   }, [queryClient]);
 
+  // Synchronisation temps réel : rechargement automatique quand un chantier change
+  useEffect(() => {
+    if (!userId || !isSupabaseConfigured) return;
+    const channel = (supabase as any)
+      .channel('realtime-chantiers')
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'chantiers' },
+        (_payload: any) => {
+          queryClient.invalidateQueries({ queryKey: queryKeys.chantiers() });
+        }
+      )
+      .subscribe();
+    return () => {
+      (supabase as any).removeChannel(channel);
+    };
+  }, [userId, queryClient]);
+
   return {
     chantiers: chantiersQuery.data ?? [],
     sitePlans: sitePlansQuery.data ?? [],

@@ -192,6 +192,24 @@ export function useCompanies() {
     }
   }, [queryClient, isOnlineRef, enqueueOperation, persist]);
 
+  // Synchronisation temps réel : rechargement automatique quand une entreprise change
+  useEffect(() => {
+    if (!userId || !isSupabaseConfigured) return;
+    const channel = (supabase as any)
+      .channel('realtime-companies')
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'companies' },
+        (_payload: any) => {
+          queryClient.invalidateQueries({ queryKey: queryKeys.companies() });
+        }
+      )
+      .subscribe();
+    return () => {
+      (supabase as any).removeChannel(channel);
+    };
+  }, [userId, queryClient]);
+
   return {
     companies: query.data ?? [],
     isLoadingCompanies: query.isLoading,

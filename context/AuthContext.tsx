@@ -679,6 +679,25 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     return () => clearTimeout(timer);
   }, [user?.id]);
 
+  // Synchronisation temps réel : rechargement automatique quand un profil change
+  useEffect(() => {
+    if (!user || !isSupabaseConfigured) return;
+    const channel = (supabase as any)
+      .channel('realtime-profiles')
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'profiles' },
+        (_payload: any) => {
+          usersLoadedRef.current = false;
+          loadAllUsers();
+        }
+      )
+      .subscribe();
+    return () => {
+      (supabase as any).removeChannel(channel);
+    };
+  }, [user?.id, loadAllUsers]);
+
   useEffect(() => {
     if (!isSupabaseConfigured) return;
     if (!isLoading && !user && seedStatus === 'idle') {
