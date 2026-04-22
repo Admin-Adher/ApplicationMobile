@@ -598,47 +598,73 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     if (!user || !isSupabaseConfigured) return;
     if (usersLoadedRef.current) return;
     usersLoadedRef.current = true;
-    (supabase as any).from('profiles').select('id, name, role, role_label, email, organization_id, company_id, permissions_override').then(({ data, error }: { data: any; error: any }) => {
-      if (error) {
-        console.warn('[AuthContext] profiles.select error:', error.code, error.message);
-        return (supabase as any).from('profiles').select('id, name, role, role_label, email, organization_id').then(({ data: fallbackData, error: fallbackError }: { data: any; error: any }) => {
-          if (fallbackError) {
-            console.warn('[AuthContext] profiles fallback select error:', fallbackError.code, fallbackError.message);
-            usersLoadedRef.current = false;
+
+    const mapProfile = (p: any): User => ({
+      id: p.id,
+      name: p.name,
+      role: p.role as UserRole,
+      roleLabel: p.role_label ?? ROLE_LABELS[p.role as UserRole] ?? p.role,
+      email: p.email,
+      organizationId: p.organization_id ?? undefined,
+      companyId: p.company_id ?? undefined,
+      permissionsOverride: (p.permissions_override && Object.keys(p.permissions_override).length > 0)
+        ? p.permissions_override as PermissionsOverride
+        : undefined,
+    });
+
+    // Essai 1 : RPC SECURITY DEFINER get_org_users() — contourne RLS,
+    // évite la récursion infinie dans la politique profiles SELECT.
+    (supabase as any).rpc('get_org_users').then(({ data: rpcData, error: rpcErr }: { data: any; error: any }) => {
+      if (!rpcErr && rpcData && rpcData.length > 0) {
+        setUsers(rpcData.map(mapProfile));
+        setUsersLoaded(true);
+        return;
+      }
+      if (rpcErr) {
+        console.warn('[AuthContext] get_org_users RPC error (RLS fix SQL pas encore appliqué?):', rpcErr.code, rpcErr.message);
+      }
+
+      // Essai 2 : requête directe sur profiles (peut échouer si RLS récursif)
+      (supabase as any).from('profiles')
+        .select('id, name, role, role_label, email, organization_id, company_id, permissions_override')
+        .then(({ data, error }: { data: any; error: any }) => {
+          if (!error && data && data.length > 0) {
+            setUsers(data.map(mapProfile));
+            setUsersLoaded(true);
             return;
           }
-          if (fallbackData && fallbackData.length > 0) {
-            setUsers(fallbackData.map((p: any) => ({
-              id: p.id,
-              name: p.name,
-              role: p.role as UserRole,
-              roleLabel: p.role_label ?? ROLE_LABELS[p.role as UserRole] ?? p.role,
-              email: p.email,
-              organizationId: p.organization_id ?? undefined,
-              companyId: undefined,
-              permissionsOverride: undefined,
-            })));
-            setUsersLoaded(true);
+          if (error) {
+            console.warn('[AuthContext] profiles.select error (récursion RLS?):', error.code, error.message,
+              '— Appliquez supabase/migrations/20260422_fix_rls_infinite_recursion.sql dans le SQL Editor Supabase.');
           }
+
+          // Essai 3 : requête minimale sans permissions_override
+          (supabase as any).from('profiles')
+            .select('id, name, role, role_label, email, organization_id')
+            .then(({ data: d3, error: e3 }: { data: any; error: any }) => {
+              if (e3) {
+                console.warn('[AuthContext] profiles minimal select error:', e3.code, e3.message);
+                usersLoadedRef.current = false;
+                return;
+              }
+              if (d3 && d3.length > 0) {
+                setUsers(d3.map((p: any) => ({
+                  id: p.id, name: p.name, role: p.role as UserRole,
+                  roleLabel: p.role_label ?? ROLE_LABELS[p.role as UserRole] ?? p.role,
+                  email: p.email, organizationId: p.organization_id ?? undefined,
+                  companyId: undefined, permissionsOverride: undefined,
+                })));
+                setUsersLoaded(true);
+              } else {
+                usersLoadedRef.current = false;
+              }
+            }).catch(() => { usersLoadedRef.current = false; });
+        }).catch((err: any) => {
+          console.warn('[AuthContext] profiles.select exception:', err);
+          usersLoadedRef.current = false;
         });
-      }
-      if (data && data.length > 0) {
-        setUsers(data.map((p: any) => ({
-          id: p.id,
-          name: p.name,
-          role: p.role as UserRole,
-          roleLabel: p.role_label ?? ROLE_LABELS[p.role as UserRole] ?? p.role,
-          email: p.email,
-          organizationId: p.organization_id ?? undefined,
-          companyId: p.company_id ?? undefined,
-          permissionsOverride: (p.permissions_override && Object.keys(p.permissions_override).length > 0)
-            ? p.permissions_override as PermissionsOverride
-            : undefined,
-        })));
-        setUsersLoaded(true);
-      }
     }).catch((err: any) => {
-      console.warn('[AuthContext] profiles.select exception:', err);
+      console.warn('[AuthContext] get_org_users RPC exception:', err);
       usersLoadedRef.current = false;
     });
   }, [user]);
