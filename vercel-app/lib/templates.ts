@@ -402,3 +402,58 @@ export function reserveOverdueEmail(params: {
   };
 }
 
+export function reserveOverdueEscalationEmail(params: {
+  recipientName: string;
+  reserveTitle: string;
+  reserveId: string;
+  deadline: string;
+  daysLate: number;
+  reminderDays: number;
+  priority?: string;
+  companyName: string;
+  chantierName?: string;
+  reserveCode?: string;
+  reserveUrl?: string;
+}) {
+  const {
+    recipientName, reserveTitle, reserveId, deadline, daysLate, reminderDays,
+    priority, companyName, chantierName, reserveCode, reserveUrl,
+  } = params;
+  const firstName = recipientName.split(' ')[0];
+  const prio = PRIORITY_LABELS_FR[priority ?? 'medium'] ?? PRIORITY_LABELS_FR.medium;
+  const deepLinkUrl = reserveUrl ?? `${APP_URL}/reserve/${encodeURIComponent(reserveId)}`;
+  const deadlineDate = new Date(deadline).toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' });
+  const dayWord = daysLate <= 1 ? 'jour' : 'jours';
+
+  const content = `
+    <h1 style="color:#DC2626;">Escalade — réserve non résolue</h1>
+    <p>Bonjour ${firstName},</p>
+    <p>La réserve ci-dessous, impliquant l'entreprise <strong>${companyName}</strong>${chantierName ? ` sur le chantier <strong>${chantierName}</strong>` : ''}, n'a pas été traitée malgré <strong>${reminderDays} rappels quotidiens</strong> envoyés à ses destinataires. Elle est désormais escaladée à l'équipe d'administration.</p>
+
+    <div class="info-box" style="border-left-color:#DC2626;background:#FEF2F2;">
+      <p style="font-size:15px;font-weight:700;color:#1A2742;margin:0 0 6px;">${reserveTitle}</p>
+      ${reserveCode ? `<p style="font-size:11px;color:#8899BB;margin:0 0 10px;">Réf. ${reserveCode}</p>` : ''}
+      <p style="margin:0 0 6px;">
+        <span style="display:inline-block;background:${prio.color}18;color:${prio.color};font-size:11px;font-weight:700;padding:3px 10px;border-radius:12px;margin-right:6px;">${prio.label.toUpperCase()}</span>
+        <span style="display:inline-block;background:#DC262618;color:#DC2626;font-size:11px;font-weight:700;padding:3px 10px;border-radius:12px;">EN RETARD DE ${daysLate} ${dayWord.toUpperCase()}</span>
+        <span style="display:inline-block;background:#7C3AED18;color:#7C3AED;font-size:11px;font-weight:700;padding:3px 10px;border-radius:12px;margin-left:6px;">ESCALADE ADMIN</span>
+      </p>
+      <p style="margin:8px 0 0;font-size:13px;color:#5E738A;">Échéance dépassée : <strong style="color:#DC2626;">${deadlineDate}</strong></p>
+    </div>
+
+    <p style="font-size:14px;color:#334155;">Merci de relancer ${companyName} ou de prendre le relais directement depuis l'application.</p>
+
+    <div style="text-align:center;">
+      <a href="${deepLinkUrl}" class="btn" style="background:#DC2626;">Voir la réserve →</a>
+    </div>
+
+    <hr class="separator"/>
+    <p style="font-size:12px;color:#8899BB;margin:0;">Vous recevez cet email en tant qu'administrateur de l'organisation BuildTrack. Les rappels quotidiens à ${companyName} ont été suspendus pour éviter le spam.</p>
+  `;
+
+  return {
+    subject: `[Escalade ${daysLate}j] ${reserveTitle} — ${companyName} ne répond pas`,
+    html: baseLayout(content, `Escalade : réserve non résolue après ${reminderDays} rappels`),
+  };
+}
+

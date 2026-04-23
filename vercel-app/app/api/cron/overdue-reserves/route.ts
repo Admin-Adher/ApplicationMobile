@@ -1,8 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { Resend } from 'resend';
 import { createClient } from '@supabase/supabase-js';
-import { reserveOverdueEmail, APP_URL } from '@/lib/templates';
+import { reserveOverdueEmail, reserveOverdueEscalationEmail, APP_URL } from '@/lib/templates';
 import { buildReserveUrl } from '@/lib/reserve-token';
+
+const SUBCONTRACTOR_REMINDER_LIMIT = 7; // après N rappels quotidiens, on escalade aux admins
 
 function safeReserveUrl(reserveId: string, email: string): string {
   try {
@@ -62,7 +64,7 @@ export async function GET(req: NextRequest) {
   try {
     const { data: reserves, error: rErr } = await supabase
       .from('reserves')
-      .select('id, title, priority, status, deadline, companies, company, chantier_id, organization_id, overdue_last_notified_date')
+      .select('id, title, priority, status, deadline, companies, company, chantier_id, organization_id, overdue_last_notified_date, overdue_reminder_count')
       .not('status', 'in', '(closed,verification)')
       .not('deadline', 'is', null)
       .lt('deadline', today);
@@ -82,7 +84,7 @@ export async function GET(req: NextRequest) {
 
     const { data: profiles } = await supabase
       .from('profiles')
-      .select('id, name, email, company_id, organization_id')
+      .select('id, name, email, company_id, organization_id, role')
       .in('organization_id', orgIds.length ? orgIds : ['__none__']);
 
     const { data: chantiers } = chantierIds.length
@@ -96,19 +98,32 @@ export async function GET(req: NextRequest) {
       companiesByOrg.set(c.organization_id, arr);
     }
     const profilesByCompany = new Map<string, any[]>();
+    const adminsByOrg = new Map<string, any[]>();
     for (const p of profiles ?? []) {
-      if (!p.company_id || !p.email) continue;
-      const arr = profilesByCompany.get(p.company_id) ?? [];
-      arr.push(p);
-      profilesByCompany.set(p.company_id, arr);
+      if (!p.email) continue;
+      if (p.company_id) {
+        const arr = profilesByCompany.get(p.company_id) ?? [];
+        arr.push(p);
+        profilesByCompany.set(p.company_id, arr);
+      }
+      if (p.role === 'admin' || p.role === 'super_admin') {
+        const arr = adminsByOrg.get(p.organization_id) ?? [];
+        arr.push(p);
+        adminsByOrg.set(p.organization_id, arr);
+      }
     }
     const chantierName = new Map<string, string>();
     for (const c of chantiers ?? []) chantierName.set(c.id, c.name);
 
+    // Date d'hier (pour détecter les ruptures de série → reset compteur)
+    const yesterdayD = new Date();
+    yesterdayD.setHours(0, 0, 0, 0);
+    yesterdayD.setDate(yesterdayD.getDate() - 1);
+    const yesterday = yesterdayD.toISOString().split('T')[0];
+
     for (const r of list) {
       try {
-        // Rappel quotidien : on envoie chaque jour tant que la réserve reste en retard,
-        // mais une seule fois par jour (idempotent si la cron tourne plusieurs fois).
+        // Rappel quotidien : 1 seul envoi par jour max (idempotent).
         if (r.overdue_last_notified_date === today) continue;
 
         const reserveCompanyNames: string[] = (r.companies ?? (r.company ? [r.company] : [])) as string[];
@@ -121,51 +136,112 @@ export async function GET(req: NextRequest) {
         if (matchedCompanies.length === 0) continue;
 
         const daysLate = daysBetween(r.deadline, today);
-        const sentEmails = new Set<string>();
 
-        for (const company of matchedCompanies) {
-          const recipients = profilesByCompany.get(company.id) ?? [];
-          for (const p of recipients) {
-            const key = `${p.email.toLowerCase()}|${company.id}`;
+        // Si la réserve n'a pas été notifiée hier (ou jamais), on remet le compteur à 0
+        // (cas d'une réserve qui sort/rentre du retard via modification de l'échéance).
+        const previousCount: number =
+          (typeof r.overdue_reminder_count === 'number' ? r.overdue_reminder_count : 0);
+        const continuingStreak =
+          r.overdue_last_notified_date === yesterday || r.overdue_last_notified_date === today;
+        const reminderCount = continuingStreak ? previousCount : 0;
+        const escalate = reminderCount >= SUBCONTRACTOR_REMINDER_LIMIT;
+
+        const sentEmails = new Set<string>();
+        let sentForReserve = 0;
+
+        if (!escalate) {
+          // ── Phase 1 : rappel quotidien aux destinataires des entreprises concernées ──
+          for (const company of matchedCompanies) {
+            const recipients = profilesByCompany.get(company.id) ?? [];
+            for (const p of recipients) {
+              const key = `${p.email.toLowerCase()}|${company.id}`;
+              if (sentEmails.has(key)) continue;
+              sentEmails.add(key);
+
+              const tpl = reserveOverdueEmail({
+                recipientName: p.name || p.email,
+                reserveTitle: r.title,
+                reserveId: r.id,
+                deadline: r.deadline,
+                daysLate,
+                priority: r.priority,
+                companyName: company.name,
+                chantierName: r.chantier_id ? chantierName.get(r.chantier_id) : undefined,
+                reserveCode: r.id,
+                reserveUrl: safeReserveUrl(r.id, p.email),
+              } as any);
+
+              const { error: sendErr } = await resend.emails.send({
+                from: FROM_EMAIL,
+                to: p.email,
+                subject: tpl.subject,
+                html: tpl.html,
+              });
+              if (sendErr) {
+                stats.errors++;
+                console.warn('[cron overdue] envoi échoué', p.email, sendErr.message);
+              } else {
+                stats.emailsSent++;
+                sentForReserve++;
+              }
+            }
+          }
+        } else {
+          // ── Phase 2 : escalade aux administrateurs de l'organisation ──
+          const admins = adminsByOrg.get(r.organization_id) ?? [];
+          if (admins.length === 0) {
+            console.warn('[cron overdue] escalade impossible — aucun admin pour org', r.organization_id);
+          }
+          const escalationCompanyName = matchedCompanies.map((c: any) => c.name).join(', ');
+          for (const a of admins) {
+            const key = a.email.toLowerCase();
             if (sentEmails.has(key)) continue;
             sentEmails.add(key);
 
-            const tpl = reserveOverdueEmail({
-              recipientName: p.name || p.email,
+            const tpl = reserveOverdueEscalationEmail({
+              recipientName: a.name || a.email,
               reserveTitle: r.title,
               reserveId: r.id,
               deadline: r.deadline,
               daysLate,
+              reminderDays: reminderCount,
               priority: r.priority,
-              companyName: company.name,
+              companyName: escalationCompanyName,
               chantierName: r.chantier_id ? chantierName.get(r.chantier_id) : undefined,
               reserveCode: r.id,
-              reserveUrl: safeReserveUrl(r.id, p.email),
-            } as any);
+              reserveUrl: safeReserveUrl(r.id, a.email),
+            });
 
             const { error: sendErr } = await resend.emails.send({
               from: FROM_EMAIL,
-              to: p.email,
+              to: a.email,
               subject: tpl.subject,
               html: tpl.html,
             });
             if (sendErr) {
               stats.errors++;
-              console.warn('[cron overdue] envoi échoué', p.email, sendErr.message);
+              console.warn('[cron overdue] escalade échouée', a.email, sendErr.message);
             } else {
               stats.emailsSent++;
+              sentForReserve++;
             }
           }
         }
 
+        // Mise à jour du flag : compteur incrémenté (cap utile pour la phase escalade
+        // qui continue à tourner sans dépasser la limite déjà atteinte).
+        const nextCount = escalate ? reminderCount : reminderCount + 1;
         const { error: upErr } = await supabase
           .from('reserves')
-          .update({ overdue_last_notified_date: today })
+          .update({
+            overdue_last_notified_date: today,
+            overdue_reminder_count: nextCount,
+          })
           .eq('id', r.id);
         if (upErr) {
           stats.errors++;
           console.warn('[cron overdue] update flag échoué', r.id, upErr.message);
-        } else {
+        } else if (sentForReserve > 0) {
           stats.notified++;
         }
       } catch (err: any) {
