@@ -9,7 +9,18 @@ import {
   reserveCreatedEmail,
   reserveStatusChangedEmail,
   reserveOverdueEmail,
+  APP_URL,
 } from '@/lib/templates';
+import { buildReserveUrl } from '@/lib/reserve-token';
+
+function safeReserveUrl(reserveId: string, recipientEmail: string): string {
+  try {
+    return buildReserveUrl(APP_URL, reserveId, recipientEmail);
+  } catch (e: any) {
+    console.warn('[send-email] reserveUrl signature impossible:', e?.message);
+    return `${APP_URL}/reserve/${encodeURIComponent(reserveId)}`;
+  }
+}
 
 const FROM_EMAIL = 'BuildTrack <onboarding@resend.dev>';
 
@@ -85,7 +96,8 @@ export async function POST(req: NextRequest) {
       template = reserveCreatedEmail({
         recipientName, reserveTitle, reserveId, priority, deadline,
         building, level, zone, description, chantierName, companyName, createdBy, reserveCode,
-      });
+        reserveUrl: safeReserveUrl(reserveId, email),
+      } as any);
     } else if (type === 'reserve-status-changed') {
       const {
         email, recipientName, reserveTitle, reserveId, newStatus, previousStatus,
@@ -98,7 +110,8 @@ export async function POST(req: NextRequest) {
       template = reserveStatusChangedEmail({
         recipientName, reserveTitle, reserveId, newStatus, previousStatus,
         changedBy, companyName, chantierName, reserveCode,
-      });
+        reserveUrl: safeReserveUrl(reserveId, email),
+      } as any);
     } else if (type === 'reserve-overdue') {
       const {
         email, recipientName, reserveTitle, reserveId, deadline, daysLate,
@@ -111,7 +124,8 @@ export async function POST(req: NextRequest) {
       template = reserveOverdueEmail({
         recipientName, reserveTitle, reserveId, deadline, daysLate,
         priority, companyName, chantierName, reserveCode,
-      });
+        reserveUrl: safeReserveUrl(reserveId, email),
+      } as any);
     } else if (type === 'access-revoked') {
       const { email, name, organizationName } = body;
       if (!email || !name || !organizationName) {

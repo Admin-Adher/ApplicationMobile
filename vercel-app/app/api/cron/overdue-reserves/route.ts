@@ -1,7 +1,17 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { Resend } from 'resend';
 import { createClient } from '@supabase/supabase-js';
-import { reserveOverdueEmail } from '@/lib/templates';
+import { reserveOverdueEmail, APP_URL } from '@/lib/templates';
+import { buildReserveUrl } from '@/lib/reserve-token';
+
+function safeReserveUrl(reserveId: string, email: string): string {
+  try {
+    return buildReserveUrl(APP_URL, reserveId, email);
+  } catch (e: any) {
+    console.warn('[cron overdue] reserveUrl signature impossible:', e?.message);
+    return `${APP_URL}/reserve/${encodeURIComponent(reserveId)}`;
+  }
+}
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
@@ -128,7 +138,8 @@ export async function GET(req: NextRequest) {
               companyName: company.name,
               chantierName: r.chantier_id ? chantierName.get(r.chantier_id) : undefined,
               reserveCode: r.id,
-            });
+              reserveUrl: safeReserveUrl(r.id, p.email),
+            } as any);
 
             const { error: sendErr } = await resend.emails.send({
               from: FROM_EMAIL,

@@ -1,4 +1,4 @@
-const APP_URL = 'https://buildtrack-mobile.vercel.app';
+export const APP_URL = 'https://buildtrack-mobile.vercel.app';
 const BRAND_COLOR = '#003082';
 const ACCENT_COLOR = '#FFCB00';
 
@@ -257,10 +257,11 @@ export function reserveCreatedEmail(params: {
   const {
     recipientName, reserveTitle, reserveId, priority, deadline,
     building, level, zone, description, chantierName, companyName, createdBy, reserveCode,
-  } = params;
+    reserveUrl,
+  } = params as typeof params & { reserveUrl?: string };
   const firstName = recipientName.split(' ')[0];
   const prio = PRIORITY_LABELS_FR[priority ?? 'medium'] ?? PRIORITY_LABELS_FR.medium;
-  const deepLinkUrl = `${APP_URL}/reserve/${encodeURIComponent(reserveId)}`;
+  const deepLinkUrl = reserveUrl ?? `${APP_URL}/reserve/${encodeURIComponent(reserveId)}`;
   const deadlineDate = deadline
     ? new Date(deadline).toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' })
     : null;
@@ -317,11 +318,11 @@ export function reserveStatusChangedEmail(params: {
   chantierName?: string;
   reserveCode?: string;
 }) {
-  const { recipientName, reserveTitle, reserveId, newStatus, previousStatus, changedBy, companyName, chantierName, reserveCode } = params;
+  const { recipientName, reserveTitle, reserveId, newStatus, previousStatus, changedBy, companyName, chantierName, reserveCode, reserveUrl } = params as typeof params & { reserveUrl?: string };
   const firstName = recipientName.split(' ')[0];
   const next = STATUS_LABELS_FR[newStatus] ?? { label: newStatus, color: '#1A2742' };
   const prev = previousStatus ? (STATUS_LABELS_FR[previousStatus] ?? { label: previousStatus, color: '#8899BB' }) : null;
-  const deepLinkUrl = `${APP_URL}/reserve/${encodeURIComponent(reserveId)}`;
+  const deepLinkUrl = reserveUrl ?? `${APP_URL}/reserve/${encodeURIComponent(reserveId)}`;
 
   const content = `
     <h1>Statut de réserve mis à jour</h1>
@@ -363,10 +364,10 @@ export function reserveOverdueEmail(params: {
   chantierName?: string;
   reserveCode?: string;
 }) {
-  const { recipientName, reserveTitle, reserveId, deadline, daysLate, priority, companyName, chantierName, reserveCode } = params;
+  const { recipientName, reserveTitle, reserveId, deadline, daysLate, priority, companyName, chantierName, reserveCode, reserveUrl } = params as typeof params & { reserveUrl?: string };
   const firstName = recipientName.split(' ')[0];
   const prio = PRIORITY_LABELS_FR[priority ?? 'medium'] ?? PRIORITY_LABELS_FR.medium;
-  const deepLinkUrl = `${APP_URL}/reserve/${encodeURIComponent(reserveId)}`;
+  const deepLinkUrl = reserveUrl ?? `${APP_URL}/reserve/${encodeURIComponent(reserveId)}`;
   const deadlineDate = new Date(deadline).toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' });
   const dayWord = daysLate <= 1 ? 'jour' : 'jours';
 

@@ -16,6 +16,9 @@ Mini-app Next.js déployée sur Vercel pour :
 | `IOS_TEAM_ID` | Ton Apple Team ID (10 caractères, ex: ABC123DEF4) |
 | `NEXT_PUBLIC_SUPABASE_URL` | URL Supabase : `https://jzeojdpgglbxjdasjgta.supabase.co` |
 | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Clé anon Supabase (même que `EXPO_PUBLIC_SUPABASE_KEY`) |
+| `SUPABASE_SERVICE_ROLE_KEY` | Clé `service_role` Supabase (utilisée par le cron + la page publique `/reserve/[id]`) |
+| `RESERVE_TOKEN_SECRET` | Secret aléatoire ≥ 32 caractères (signe les liens `?t=…` envoyés par email pour la page publique de consultation des réserves). À générer une seule fois : `openssl rand -hex 32` |
+| `CRON_SECRET` | Secret optionnel pour authentifier l'appel cron `/api/cron/overdue-reserves` |
 
 ### 2. Déployer
 
