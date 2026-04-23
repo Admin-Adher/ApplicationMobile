@@ -15,6 +15,7 @@ import Header from '@/components/Header';
 import DateInput from '@/components/DateInput';
 import BottomSheetPicker from '@/components/BottomSheetPicker';
 import CompanySelector from '@/components/CompanySelector';
+import { notifyReserveCreated } from '@/lib/email/notifyReserveCreated';
 import { uploadPhoto, persistLocalPhoto } from '@/lib/storage';
 import { genId } from '@/lib/utils';
 import {
@@ -57,7 +58,7 @@ function SelectRow<T extends string>({
 export default function NewReserveScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
-  const { companies, addReserve, reserves, addPhoto, activeChantierId, chantiers, sitePlans, lots, linkReserveToVisite, visites } = useApp();
+  const { companies, addReserve, reserves, addPhoto, activeChantierId, chantiers, sitePlans, lots, linkReserveToVisite, visites, profiles } = useApp();
   const { user, permissions } = useAuth();
   const params = useLocalSearchParams<{
     building?: string; level?: string; buildingId?: string; levelId?: string;
@@ -324,7 +325,7 @@ export default function NewReserveScreen() {
       const author = user?.name ?? 'Conducteur de travaux';
       const id = genReserveId(reserves, selectedLot);
       const isoToday = new Date().toISOString().split('T')[0];
-      addReserve({
+      const newReserve = {
         id,
         kind,
         title: title.trim(),
@@ -348,7 +349,18 @@ export default function NewReserveScreen() {
         planId: selectedPlanId || undefined,
         lotId: lotId || undefined,
         visiteId: visiteId || undefined,
-      });
+      };
+      addReserve(newReserve);
+      if (kind !== 'observation') {
+        notifyReserveCreated({
+          reserve: newReserve,
+          selectedCompanyNames: selectedCompanies,
+          companies,
+          profiles,
+          chantiers,
+          createdByName: author,
+        });
+      }
       if (visiteId) linkReserveToVisite(id, visiteId);
       photos.forEach(p => {
         addPhoto({

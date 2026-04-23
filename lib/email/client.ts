@@ -77,6 +77,25 @@ export async function sendInvitationAcceptedEmail(params: {
   await callEmailApi({ type: 'invitation-accepted', ...params });
 }
 
+export async function sendReserveCreatedEmail(params: {
+  email: string;
+  recipientName: string;
+  reserveTitle: string;
+  reserveId: string;
+  priority?: string;
+  deadline?: string | null;
+  building?: string;
+  level?: string;
+  zone?: string;
+  description?: string;
+  chantierName?: string;
+  companyName: string;
+  createdBy: string;
+  reserveCode?: string;
+}): Promise<void> {
+  await callEmailApi({ type: 'reserve-created', ...params });
+}
+
 export async function sendAccessRevokedEmail(params: {
   email: string;
   name: string;

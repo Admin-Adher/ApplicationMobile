@@ -6,6 +6,7 @@ import {
   passwordResetEmail,
   invitationAcceptedEmail,
   accessRevokedEmail,
+  reserveCreatedEmail,
 } from '@/lib/templates';
 
 const FROM_EMAIL = 'BuildTrack <onboarding@resend.dev>';
@@ -70,6 +71,19 @@ export async function POST(req: NextRequest) {
       }
       to = adminEmail;
       template = invitationAcceptedEmail({ adminName, inviteeName, inviteeEmail, organizationName, role });
+    } else if (type === 'reserve-created') {
+      const {
+        email, recipientName, reserveTitle, reserveId, priority, deadline,
+        building, level, zone, description, chantierName, companyName, createdBy, reserveCode,
+      } = body;
+      if (!email || !recipientName || !reserveTitle || !reserveId || !companyName || !createdBy) {
+        return NextResponse.json({ error: 'Paramètres manquants' }, { status: 400, headers });
+      }
+      to = email;
+      template = reserveCreatedEmail({
+        recipientName, reserveTitle, reserveId, priority, deadline,
+        building, level, zone, description, chantierName, companyName, createdBy, reserveCode,
+      });
     } else if (type === 'access-revoked') {
       const { email, name, organizationName } = body;
       if (!email || !name || !organizationName) {

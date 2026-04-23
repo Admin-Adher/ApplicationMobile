@@ -441,6 +441,7 @@ export interface Profile {
   roleLabel: string;
   email: string;
   organizationId?: string;
+  companyId?: string;
   permissionsOverride?: PermissionsOverride;
 }
 

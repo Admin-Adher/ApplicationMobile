@@ -231,3 +231,70 @@ export function accessRevokedEmail(params: {
     html: baseLayout(content, `Votre accès à ${organizationName} sur BuildTrack a été révoqué`),
   };
 }
+
+const PRIORITY_LABELS_FR: Record<string, { label: string; color: string }> = {
+  low:      { label: 'Faible',   color: '#6B7280' },
+  medium:   { label: 'Moyenne',  color: '#D97706' },
+  high:     { label: 'Haute',    color: '#EA580C' },
+  critical: { label: 'Critique', color: '#DC2626' },
+};
+
+export function reserveCreatedEmail(params: {
+  recipientName: string;
+  reserveTitle: string;
+  reserveId: string;
+  priority?: string;
+  deadline?: string | null;
+  building?: string;
+  level?: string;
+  zone?: string;
+  description?: string;
+  chantierName?: string;
+  companyName: string;
+  createdBy: string;
+  reserveCode?: string;
+}) {
+  const {
+    recipientName, reserveTitle, reserveId, priority, deadline,
+    building, level, zone, description, chantierName, companyName, createdBy, reserveCode,
+  } = params;
+  const firstName = recipientName.split(' ')[0];
+  const prio = PRIORITY_LABELS_FR[priority ?? 'medium'] ?? PRIORITY_LABELS_FR.medium;
+  const deepLinkUrl = `${APP_URL}/reserve/${encodeURIComponent(reserveId)}`;
+  const deadlineDate = deadline
+    ? new Date(deadline).toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' })
+    : null;
+  const locationParts = [building, level, zone].filter(Boolean);
+  const locationStr = locationParts.length > 0 ? locationParts.join(' • ') : null;
+
+  const content = `
+    <h1>Nouvelle réserve pour ${companyName}</h1>
+    <p>Bonjour ${firstName},</p>
+    <p><strong>${createdBy}</strong> vient de créer une nouvelle réserve impliquant votre entreprise <strong>${companyName}</strong>${chantierName ? ` sur le chantier <strong>${chantierName}</strong>` : ''}.</p>
+
+    <div class="info-box" style="border-left-color:${prio.color};">
+      <p style="font-size:15px;font-weight:700;color:#1A2742;margin:0 0 6px;">${reserveTitle}</p>
+      ${reserveCode ? `<p style="font-size:11px;color:#8899BB;margin:0 0 8px;">Réf. ${reserveCode}</p>` : ''}
+      <p style="margin:0;">
+        <span style="display:inline-block;background:${prio.color}18;color:${prio.color};font-size:11px;font-weight:700;padding:3px 10px;border-radius:12px;margin-right:6px;">${prio.label.toUpperCase()}</span>
+        ${deadlineDate ? `<span style="font-size:12px;color:#5E738A;">Échéance : <strong style="color:#1A2742;">${deadlineDate}</strong></span>` : ''}
+      </p>
+    </div>
+
+    ${locationStr ? `<p style="font-size:13px;color:#5E738A;margin:6px 0;"><strong style="color:#1A2742;">Localisation :</strong> ${locationStr}</p>` : ''}
+    ${description ? `<p style="font-size:13px;color:#334155;background:#F4F7FB;padding:12px 14px;border-radius:8px;margin:10px 0;">${description}</p>` : ''}
+
+    <div style="text-align:center;">
+      <a href="${deepLinkUrl}" class="btn">Voir la réserve →</a>
+    </div>
+
+    <hr class="separator"/>
+    <p style="font-size:12px;color:#8899BB;margin:0;">Vous recevez cet email car votre profil est rattaché à <strong>${companyName}</strong> dans BuildTrack.</p>
+  `;
+
+  return {
+    subject: `[${prio.label}] Nouvelle réserve — ${reserveTitle}`,
+    html: baseLayout(content, `Nouvelle réserve pour ${companyName} : ${reserveTitle}`),
+  };
+}
+

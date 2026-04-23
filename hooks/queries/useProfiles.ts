@@ -32,12 +32,14 @@ export function useProfiles() {
       if (!isSupabaseConfigured) return (cached?.length ? cached : MOCK_PROFILES);
       try {
         const q = user?.organizationId
-          ? (supabase as any).from('profiles').select('id, name, role, role_label, email').eq('organization_id', user.organizationId)
-          : (supabase as any).from('profiles').select('id, name, role, role_label, email');
+          ? (supabase as any).from('profiles').select('id, name, role, role_label, email, company_id, organization_id').eq('organization_id', user.organizationId)
+          : (supabase as any).from('profiles').select('id, name, role, role_label, email, company_id, organization_id');
         const { data, error } = await q;
         if (error) throw error;
         const fresh = (data ?? []).map((p: any) => ({
           id: p.id, name: p.name, role: p.role, roleLabel: p.role_label, email: p.email,
+          companyId: p.company_id ?? undefined,
+          organizationId: p.organization_id ?? undefined,
         }));
         const merged = mergeWithCache<Profile>(fresh, cached);
         await writeCache(PROFILES_CACHE_KEY, merged, userId);
