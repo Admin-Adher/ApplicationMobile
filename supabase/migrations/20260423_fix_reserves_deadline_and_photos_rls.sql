@@ -28,8 +28,26 @@ ALTER TABLE public.reserves ALTER COLUMN comments DROP NOT NULL;
 ALTER TABLE public.reserves ALTER COLUMN history DROP NOT NULL;
 ALTER TABLE public.reserves ALTER COLUMN created_at DROP NOT NULL;
 
--- Même chose pour tasks
+-- ── Fix colonnes NOT NULL dans tasks, visites, lots, oprs ────────────
 ALTER TABLE public.tasks ALTER COLUMN deadline DROP NOT NULL;
+ALTER TABLE public.tasks ALTER COLUMN description DROP NOT NULL;
+ALTER TABLE public.tasks ALTER COLUMN assignee DROP NOT NULL;
+ALTER TABLE public.tasks ALTER COLUMN company DROP NOT NULL;
+
+ALTER TABLE public.visites ALTER COLUMN title DROP NOT NULL;
+ALTER TABLE public.visites ALTER COLUMN date DROP NOT NULL;
+ALTER TABLE public.visites ALTER COLUMN conducteur DROP NOT NULL;
+ALTER TABLE public.visites ALTER COLUMN reserve_ids DROP NOT NULL;
+
+ALTER TABLE public.lots ALTER COLUMN code DROP NOT NULL;
+ALTER TABLE public.lots ALTER COLUMN name DROP NOT NULL;
+ALTER TABLE public.lots ALTER COLUMN color DROP NOT NULL;
+
+ALTER TABLE public.oprs ALTER COLUMN title DROP NOT NULL;
+ALTER TABLE public.oprs ALTER COLUMN date DROP NOT NULL;
+ALTER TABLE public.oprs ALTER COLUMN building DROP NOT NULL;
+ALTER TABLE public.oprs ALTER COLUMN level DROP NOT NULL;
+ALTER TABLE public.oprs ALTER COLUMN conducteur DROP NOT NULL;
 
 -- ── Fix 3 : colonnes NOT NULL mais optionnelles dans companies ────────
 ALTER TABLE public.companies ALTER COLUMN short_name DROP NOT NULL;

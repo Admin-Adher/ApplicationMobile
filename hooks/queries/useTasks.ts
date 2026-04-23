@@ -65,9 +65,15 @@ export function useTasks() {
     });
     persist(queryClient.getQueryData<Task[]>(queryKeys.tasks()) ?? []);
     const payload = {
-      id: t.id, title: t.title, description: t.description, status: t.status,
-      priority: t.priority, start_date: t.startDate ?? null,
-      deadline: t.deadline, assignee: t.assignee, progress: t.progress, company: t.company,
+      id: t.id, title: t.title ?? '',
+      description: t.description ?? '',
+      status: t.status ?? 'todo',
+      priority: t.priority ?? 'medium',
+      start_date: t.startDate ?? null,
+      deadline: t.deadline ?? null,
+      assignee: t.assignee ?? '',
+      progress: t.progress ?? 0,
+      company: t.company ?? '',
       reserve_id: t.reserveId ?? null, comments: t.comments ?? [], history: t.history ?? [],
       chantier_id: t.chantierId ?? null, created_at: t.createdAt ?? new Date().toISOString(),
       organization_id: orgId,
@@ -88,9 +94,15 @@ export function useTasks() {
     );
     persist(queryClient.getQueryData<Task[]>(queryKeys.tasks()) ?? []);
     const payload = {
-      title: t.title, description: t.description, status: t.status,
-      priority: t.priority, start_date: t.startDate ?? null,
-      deadline: t.deadline, assignee: t.assignee, progress: t.progress, company: t.company,
+      title: t.title ?? '',
+      description: t.description ?? '',
+      status: t.status ?? 'todo',
+      priority: t.priority ?? 'medium',
+      start_date: t.startDate ?? null,
+      deadline: t.deadline ?? null,
+      assignee: t.assignee ?? '',
+      progress: t.progress ?? 0,
+      company: t.company ?? '',
       reserve_id: t.reserveId ?? null, comments: t.comments ?? [], history: t.history ?? [],
       chantier_id: t.chantierId ?? null,
     };

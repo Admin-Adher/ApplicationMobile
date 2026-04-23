@@ -112,10 +112,13 @@ export function toVisite(row: any): Visite {
 
 export function fromVisite(v: Visite, orgId?: string | null): Record<string, any> {
   return {
-    id: v.id, chantier_id: v.chantierId, title: v.title, date: v.date,
+    id: v.id, chantier_id: v.chantierId ?? null,
+    title: v.title ?? '',
+    date: v.date ?? new Date().toISOString().split('T')[0],
     start_time: v.startTime ?? null,
     end_time: v.endTime ?? null,
-    conducteur: v.conducteur, status: v.status,
+    conducteur: v.conducteur ?? '',
+    status: v.status ?? 'open',
     visit_type: v.visitType ?? null,
     concerned_company_ids: v.concernedCompanyIds ?? null,
     building: v.building ?? null, level: v.level ?? null, zone: v.zone ?? null,
@@ -125,7 +128,8 @@ export function fromVisite(v: Visite, orgId?: string | null): Record<string, any
     default_plan_id: v.defaultPlanId ?? null,
     checklist_items: v.checklistItems ?? null,
     reserve_deadline_date: v.reserveDeadlineDate ?? null,
-    reserve_ids: v.reserveIds, created_at: v.createdAt,
+    reserve_ids: v.reserveIds ?? [],
+    created_at: v.createdAt ?? new Date().toISOString(),
     conducteur_signature: v.conducteurSignature ?? null,
     entreprise_signature: v.entrepriseSignature ?? null,
     signed_at: v.signedAt ?? null,
@@ -147,7 +151,10 @@ export function toLot(row: any): Lot {
 
 export function fromLot(l: Lot, orgId?: string | null): Record<string, any> {
   return {
-    id: l.id, code: l.code, name: l.name, color: l.color,
+    id: l.id,
+    code: l.code ?? '',
+    name: l.name ?? '',
+    color: l.color ?? '#6B7280',
     chantier_id: l.chantierId ?? null,
     company_id: l.companyId ?? null,
     cctp_ref: l.cctpRef ?? null,
@@ -179,10 +186,14 @@ export function toOpr(row: any): Opr {
 
 export function fromOpr(o: Opr, orgId?: string | null): Record<string, any> {
   return {
-    id: o.id, chantier_id: o.chantierId, title: o.title,
-    date: o.date, building: o.building, level: o.level,
+    id: o.id, chantier_id: o.chantierId ?? null,
+    title: o.title ?? '',
+    date: o.date ?? new Date().toISOString().split('T')[0],
+    building: o.building ?? '',
+    level: o.level ?? '',
     zone: o.zone ?? null,
-    conducteur: o.conducteur, status: o.status,
+    conducteur: o.conducteur ?? '',
+    status: o.status ?? 'open',
     items: o.items, signed_by: o.signedBy ?? null, signed_at: o.signedAt ?? null,
     maire_ouvrage: o.maireOuvrage ?? null,
     conducteur_signature: o.conducteurSignature ?? null,
