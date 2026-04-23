@@ -85,9 +85,9 @@ export function useCompanies() {
     queryClient.setQueryData<Company[]>(queryKeys.companies(), newList);
     persist(newList);
     const payload = {
-      id: c.id, name: c.name, short_name: c.shortName ?? null, color: c.color,
-      planned_workers: c.plannedWorkers, actual_workers: c.actualWorkers,
-      hours_worked: c.hoursWorked, zone: c.zone ?? null, contact: c.phone ?? null,
+      id: c.id, name: c.name, short_name: c.shortName ?? '', color: c.color,
+      planned_workers: c.plannedWorkers ?? 0, actual_workers: c.actualWorkers ?? 0,
+      hours_worked: c.hoursWorked ?? 0, zone: c.zone ?? '', contact: c.phone ?? '',
       email: c.email ?? null, lots: c.lots ?? null, siret: c.siret ?? null,
       insurance: c.insurance ?? null, qualifications: c.qualifications ?? null,
       organization_id: orgId,
@@ -114,9 +114,9 @@ export function useCompanies() {
     );
     persist(queryClient.getQueryData<Company[]>(queryKeys.companies()) ?? []);
     const payload = {
-      name: c.name, short_name: c.shortName ?? null, color: c.color,
-      planned_workers: c.plannedWorkers, actual_workers: c.actualWorkers,
-      hours_worked: c.hoursWorked, zone: c.zone ?? null, contact: c.phone ?? null,
+      name: c.name, short_name: c.shortName ?? '', color: c.color,
+      planned_workers: c.plannedWorkers ?? 0, actual_workers: c.actualWorkers ?? 0,
+      hours_worked: c.hoursWorked ?? 0, zone: c.zone ?? '', contact: c.phone ?? '',
       email: c.email ?? null, lots: c.lots ?? null, siret: c.siret ?? null,
       insurance: c.insurance ?? null, qualifications: c.qualifications ?? null,
     };

@@ -31,6 +31,11 @@ ALTER TABLE public.reserves ALTER COLUMN created_at DROP NOT NULL;
 -- Même chose pour tasks
 ALTER TABLE public.tasks ALTER COLUMN deadline DROP NOT NULL;
 
+-- ── Fix 3 : colonnes NOT NULL mais optionnelles dans companies ────────
+ALTER TABLE public.companies ALTER COLUMN short_name DROP NOT NULL;
+ALTER TABLE public.companies ALTER COLUMN zone DROP NOT NULL;
+ALTER TABLE public.companies ALTER COLUMN contact DROP NOT NULL;
+
 -- ── Fix 2 : politique RLS photos — autoriser via organization_id direct
 DROP POLICY IF EXISTS "Photos visibles par organisation" ON public.photos;
 CREATE POLICY "Photos visibles par organisation"
