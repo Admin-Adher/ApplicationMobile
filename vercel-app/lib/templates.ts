@@ -298,3 +298,106 @@ export function reserveCreatedEmail(params: {
   };
 }
 
+const STATUS_LABELS_FR: Record<string, { label: string; color: string }> = {
+  open:         { label: 'Ouverte',       color: '#DC2626' },
+  in_progress:  { label: 'En cours',      color: '#2563EB' },
+  waiting:      { label: 'En attente',    color: '#D97706' },
+  verification: { label: 'À vérifier',    color: '#7C3AED' },
+  closed:       { label: 'Levée',         color: '#16A34A' },
+};
+
+export function reserveStatusChangedEmail(params: {
+  recipientName: string;
+  reserveTitle: string;
+  reserveId: string;
+  newStatus: string;
+  previousStatus?: string;
+  changedBy: string;
+  companyName: string;
+  chantierName?: string;
+  reserveCode?: string;
+}) {
+  const { recipientName, reserveTitle, reserveId, newStatus, previousStatus, changedBy, companyName, chantierName, reserveCode } = params;
+  const firstName = recipientName.split(' ')[0];
+  const next = STATUS_LABELS_FR[newStatus] ?? { label: newStatus, color: '#1A2742' };
+  const prev = previousStatus ? (STATUS_LABELS_FR[previousStatus] ?? { label: previousStatus, color: '#8899BB' }) : null;
+  const deepLinkUrl = `${APP_URL}/reserve/${encodeURIComponent(reserveId)}`;
+
+  const content = `
+    <h1>Statut de réserve mis à jour</h1>
+    <p>Bonjour ${firstName},</p>
+    <p><strong>${changedBy}</strong> a mis à jour le statut d'une réserve impliquant <strong>${companyName}</strong>${chantierName ? ` sur le chantier <strong>${chantierName}</strong>` : ''}.</p>
+
+    <div class="info-box" style="border-left-color:${next.color};">
+      <p style="font-size:15px;font-weight:700;color:#1A2742;margin:0 0 6px;">${reserveTitle}</p>
+      ${reserveCode ? `<p style="font-size:11px;color:#8899BB;margin:0 0 10px;">Réf. ${reserveCode}</p>` : ''}
+      <p style="margin:0;font-size:13px;color:#5E738A;">
+        ${prev ? `<span style="display:inline-block;background:#F4F7FB;color:${prev.color};font-size:11px;font-weight:700;padding:3px 10px;border-radius:12px;text-decoration:line-through;">${prev.label.toUpperCase()}</span>
+        <span style="margin:0 6px;color:#8899BB;">→</span>` : ''}
+        <span style="display:inline-block;background:${next.color}18;color:${next.color};font-size:11px;font-weight:700;padding:3px 10px;border-radius:12px;">${next.label.toUpperCase()}</span>
+      </p>
+    </div>
+
+    <div style="text-align:center;">
+      <a href="${deepLinkUrl}" class="btn">Voir la réserve →</a>
+    </div>
+
+    <hr class="separator"/>
+    <p style="font-size:12px;color:#8899BB;margin:0;">Vous recevez cet email car votre profil est rattaché à <strong>${companyName}</strong> dans BuildTrack.</p>
+  `;
+
+  return {
+    subject: `[${next.label}] Réserve mise à jour — ${reserveTitle}`,
+    html: baseLayout(content, `Statut de réserve : ${next.label}`),
+  };
+}
+
+export function reserveOverdueEmail(params: {
+  recipientName: string;
+  reserveTitle: string;
+  reserveId: string;
+  deadline: string;
+  daysLate: number;
+  priority?: string;
+  companyName: string;
+  chantierName?: string;
+  reserveCode?: string;
+}) {
+  const { recipientName, reserveTitle, reserveId, deadline, daysLate, priority, companyName, chantierName, reserveCode } = params;
+  const firstName = recipientName.split(' ')[0];
+  const prio = PRIORITY_LABELS_FR[priority ?? 'medium'] ?? PRIORITY_LABELS_FR.medium;
+  const deepLinkUrl = `${APP_URL}/reserve/${encodeURIComponent(reserveId)}`;
+  const deadlineDate = new Date(deadline).toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' });
+  const dayWord = daysLate <= 1 ? 'jour' : 'jours';
+
+  const content = `
+    <h1 style="color:#DC2626;">Réserve en retard</h1>
+    <p>Bonjour ${firstName},</p>
+    <p>Une réserve impliquant <strong>${companyName}</strong>${chantierName ? ` sur le chantier <strong>${chantierName}</strong>` : ''} a <strong>dépassé son échéance</strong> et n'est toujours pas levée.</p>
+
+    <div class="info-box" style="border-left-color:#DC2626;background:#FEF2F2;">
+      <p style="font-size:15px;font-weight:700;color:#1A2742;margin:0 0 6px;">${reserveTitle}</p>
+      ${reserveCode ? `<p style="font-size:11px;color:#8899BB;margin:0 0 10px;">Réf. ${reserveCode}</p>` : ''}
+      <p style="margin:0 0 6px;">
+        <span style="display:inline-block;background:${prio.color}18;color:${prio.color};font-size:11px;font-weight:700;padding:3px 10px;border-radius:12px;margin-right:6px;">${prio.label.toUpperCase()}</span>
+        <span style="display:inline-block;background:#DC262618;color:#DC2626;font-size:11px;font-weight:700;padding:3px 10px;border-radius:12px;">EN RETARD DE ${daysLate} ${dayWord.toUpperCase()}</span>
+      </p>
+      <p style="margin:8px 0 0;font-size:13px;color:#5E738A;">Échéance dépassée : <strong style="color:#DC2626;">${deadlineDate}</strong></p>
+    </div>
+
+    <p style="font-size:14px;color:#334155;">Merci de traiter cette réserve dans les plus brefs délais ou de mettre à jour son statut depuis l'application.</p>
+
+    <div style="text-align:center;">
+      <a href="${deepLinkUrl}" class="btn" style="background:#DC2626;">Traiter la réserve →</a>
+    </div>
+
+    <hr class="separator"/>
+    <p style="font-size:12px;color:#8899BB;margin:0;">Vous recevez cet email car votre profil est rattaché à <strong>${companyName}</strong> dans BuildTrack.</p>
+  `;
+
+  return {
+    subject: `[Retard ${daysLate}j] Réserve à traiter — ${reserveTitle}`,
+    html: baseLayout(content, `Réserve en retard de ${daysLate} ${dayWord} : ${reserveTitle}`),
+  };
+}
+

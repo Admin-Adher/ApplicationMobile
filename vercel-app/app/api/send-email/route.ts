@@ -7,6 +7,8 @@ import {
   invitationAcceptedEmail,
   accessRevokedEmail,
   reserveCreatedEmail,
+  reserveStatusChangedEmail,
+  reserveOverdueEmail,
 } from '@/lib/templates';
 
 const FROM_EMAIL = 'BuildTrack <onboarding@resend.dev>';
@@ -83,6 +85,32 @@ export async function POST(req: NextRequest) {
       template = reserveCreatedEmail({
         recipientName, reserveTitle, reserveId, priority, deadline,
         building, level, zone, description, chantierName, companyName, createdBy, reserveCode,
+      });
+    } else if (type === 'reserve-status-changed') {
+      const {
+        email, recipientName, reserveTitle, reserveId, newStatus, previousStatus,
+        changedBy, companyName, chantierName, reserveCode,
+      } = body;
+      if (!email || !recipientName || !reserveTitle || !reserveId || !newStatus || !changedBy || !companyName) {
+        return NextResponse.json({ error: 'Paramètres manquants' }, { status: 400, headers });
+      }
+      to = email;
+      template = reserveStatusChangedEmail({
+        recipientName, reserveTitle, reserveId, newStatus, previousStatus,
+        changedBy, companyName, chantierName, reserveCode,
+      });
+    } else if (type === 'reserve-overdue') {
+      const {
+        email, recipientName, reserveTitle, reserveId, deadline, daysLate,
+        priority, companyName, chantierName, reserveCode,
+      } = body;
+      if (!email || !recipientName || !reserveTitle || !reserveId || !deadline || daysLate == null || !companyName) {
+        return NextResponse.json({ error: 'Paramètres manquants' }, { status: 400, headers });
+      }
+      to = email;
+      template = reserveOverdueEmail({
+        recipientName, reserveTitle, reserveId, deadline, daysLate,
+        priority, companyName, chantierName, reserveCode,
       });
     } else if (type === 'access-revoked') {
       const { email, name, organizationName } = body;

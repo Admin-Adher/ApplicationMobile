@@ -26,6 +26,7 @@ import { useOprs } from '@/hooks/queries/useOprs';
 import { useChannels, dmChannelId } from '@/hooks/queries/useChannels';
 import { useMessages } from '@/hooks/queries/useMessages';
 import { useRealtimeSync } from '@/hooks/useRealtimeSync';
+import { notifyReserveStatusChanged, notifyReserveOverdue } from '@/lib/email/notifyReserveCreated';
 
 export { STANDARD_LOTS } from '@/hooks/queries/useLots';
 export const STATIC_CHANNELS: Channel[] = [];
@@ -392,6 +393,47 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     }
   }, [authH.user?.id, queryClient]);
 
+  const overdueScanRef = useRef(false);
+  useEffect(() => {
+    if (overdueScanRef.current) return;
+    if (!authH.user?.id) return;
+    if (!reservesH.reserves.length || !profilesH.profiles.length) return;
+    overdueScanRef.current = true;
+
+    const OVERDUE_KEY = 'buildtrack_overdue_notified_v1';
+    (async () => {
+      try {
+        const raw = await AsyncStorage.getItem(OVERDUE_KEY);
+        const notified: Record<string, string> = raw ? JSON.parse(raw) : {};
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+
+        for (const r of reservesH.reserves) {
+          if (!r.deadline || r.deadline === '—') continue;
+          if (r.status === 'closed' || r.status === 'verification') continue;
+          const dl = new Date(r.deadline);
+          if (Number.isNaN(dl.getTime())) continue;
+          dl.setHours(0, 0, 0, 0);
+          if (dl >= today) continue;
+          const daysLate = Math.max(1, Math.round((today.getTime() - dl.getTime()) / 86400000));
+          const key = `${r.id}|${r.deadline}`;
+          if (notified[key]) continue;
+          notified[key] = new Date().toISOString();
+          notifyReserveOverdue({
+            reserve: r,
+            daysLate,
+            companies: companiesH.companies,
+            profiles: profilesH.profiles,
+            chantiers: chantiersH.chantiers,
+          });
+        }
+        await AsyncStorage.setItem(OVERDUE_KEY, JSON.stringify(notified));
+      } catch (err: any) {
+        console.warn('[overdue scan] erreur:', err?.message ?? err);
+      }
+    })();
+  }, [authH.user?.id, reservesH.reserves, profilesH.profiles, companiesH.companies, chantiersH.chantiers]);
+
   // Fix 9: addMessage uses currentUserNameRef as default sender instead of hardcoded 'Moi'
   const addMessage = useCallback((
     channelId: string,
@@ -409,10 +451,24 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   // Fix 8: updateReserveStatusWithNotif uses reservesH.reserves and companiesH.companies instead of queryClient.getQueryData
   const updateReserveStatusWithNotif = useCallback((id: string, status: ReserveStatus, author?: string) => {
     const actualAuthor = author ?? currentUserNameRef.current ?? 'Système';
+    const previousReserve = reservesH.reserves.find(r => r.id === id);
+    const previousStatus = previousReserve?.status;
     reservesH.updateReserveStatus(id, status, actualAuthor);
 
     const reserve = reservesH.reserves.find(r => r.id === id);
     if (!reserve) return;
+
+    if (previousStatus !== status) {
+      notifyReserveStatusChanged({
+        reserve: { ...reserve, status },
+        newStatus: status,
+        previousStatus,
+        companies: companiesH.companies,
+        profiles: profilesH.profiles,
+        chantiers: chantiersH.chantiers,
+        changedByName: actualAuthor,
+      });
+    }
     const companiesData = companiesH.companies;
     const reserveCompanyNames = reserve.companies ?? (reserve.company ? [reserve.company] : []);
     const notifiedCompanies = companiesData.filter(c => reserveCompanyNames.includes(c.name));
@@ -430,7 +486,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       };
       messagesH.addNotificationMessage(notifMsg);
     }
-  }, [reservesH, reservesH.reserves, companiesH.companies, messagesH]);
+  }, [reservesH, reservesH.reserves, companiesH.companies, messagesH, profilesH.profiles, chantiersH.chantiers]);
 
   const addChantierWithChannel = useCallback((c: Chantier, plans: SitePlan[]) => {
     chantiersH.addChantier(c, plans, (buildingCh: Channel) => {

@@ -96,6 +96,36 @@ export async function sendReserveCreatedEmail(params: {
   await callEmailApi({ type: 'reserve-created', ...params });
 }
 
+export async function sendReserveStatusChangedEmail(params: {
+  email: string;
+  recipientName: string;
+  reserveTitle: string;
+  reserveId: string;
+  newStatus: string;
+  previousStatus?: string;
+  changedBy: string;
+  companyName: string;
+  chantierName?: string;
+  reserveCode?: string;
+}): Promise<void> {
+  await callEmailApi({ type: 'reserve-status-changed', ...params });
+}
+
+export async function sendReserveOverdueEmail(params: {
+  email: string;
+  recipientName: string;
+  reserveTitle: string;
+  reserveId: string;
+  deadline: string;
+  daysLate: number;
+  priority?: string;
+  companyName: string;
+  chantierName?: string;
+  reserveCode?: string;
+}): Promise<void> {
+  await callEmailApi({ type: 'reserve-overdue', ...params });
+}
+
 export async function sendAccessRevokedEmail(params: {
   email: string;
   name: string;
