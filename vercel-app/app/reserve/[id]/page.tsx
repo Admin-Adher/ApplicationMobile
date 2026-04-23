@@ -246,8 +246,26 @@ export default async function ReservePublicPage({
             </div>
           )}
 
-          <div style={{ marginTop: 24, padding: 14, background: '#FFF8E1', borderRadius: 8, fontSize: 12, color: '#7A5C00' }}>
-            Pour ajouter un commentaire, modifier le statut ou téléverser une photo, ouvrez la réserve depuis l'application BuildTrack.
+          <div style={{ marginTop: 24, display: 'flex', flexDirection: 'column' as const, gap: 10 }}>
+            <a
+              href={`buildtrack://reserve/${encodeURIComponent(reserve.id)}`}
+              style={{
+                display: 'block', textAlign: 'center' as const,
+                background: BRAND, color: '#fff', textDecoration: 'none',
+                padding: '14px 20px', borderRadius: 8, fontWeight: 700, fontSize: 14,
+              }}
+            >
+              Ouvrir dans l'app BuildTrack →
+            </a>
+            <div style={{ padding: 12, background: '#FFF8E1', borderRadius: 8, fontSize: 12, color: '#7A5C00', textAlign: 'center' as const }}>
+              Pour ajouter un commentaire, modifier le statut ou téléverser une photo, ouvrez la réserve depuis l'application.
+            </div>
+            <div style={{ display: 'flex', gap: 8, justifyContent: 'center' as const, fontSize: 11, color: '#8899BB' }}>
+              Pas encore l'app ?
+              <a href="https://apps.apple.com/app/buildtrack" style={{ color: BRAND, textDecoration: 'none', fontWeight: 600 }}>App Store</a>
+              <span>·</span>
+              <a href="https://play.google.com/store/apps/details?id=com.buildtrack.app" style={{ color: BRAND, textDecoration: 'none', fontWeight: 600 }}>Google Play</a>
+            </div>
           </div>
         </div>
 

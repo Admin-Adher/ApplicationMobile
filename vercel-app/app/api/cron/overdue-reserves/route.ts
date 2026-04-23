@@ -62,7 +62,7 @@ export async function GET(req: NextRequest) {
   try {
     const { data: reserves, error: rErr } = await supabase
       .from('reserves')
-      .select('id, title, priority, status, deadline, companies, company, chantier_id, organization_id, overdue_notified_for_deadline')
+      .select('id, title, priority, status, deadline, companies, company, chantier_id, organization_id, overdue_last_notified_date')
       .not('status', 'in', '(closed,verification)')
       .not('deadline', 'is', null)
       .lt('deadline', today);
@@ -107,7 +107,9 @@ export async function GET(req: NextRequest) {
 
     for (const r of list) {
       try {
-        if (r.overdue_notified_for_deadline === r.deadline) continue;
+        // Rappel quotidien : on envoie chaque jour tant que la réserve reste en retard,
+        // mais une seule fois par jour (idempotent si la cron tourne plusieurs fois).
+        if (r.overdue_last_notified_date === today) continue;
 
         const reserveCompanyNames: string[] = (r.companies ?? (r.company ? [r.company] : [])) as string[];
         if (reserveCompanyNames.length === 0) continue;
@@ -158,7 +160,7 @@ export async function GET(req: NextRequest) {
 
         const { error: upErr } = await supabase
           .from('reserves')
-          .update({ overdue_notified_for_deadline: r.deadline })
+          .update({ overdue_last_notified_date: today })
           .eq('id', r.id);
         if (upErr) {
           stats.errors++;
