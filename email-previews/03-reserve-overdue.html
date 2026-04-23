@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>BuildTrack</title>
+  <style>
+    body { margin: 0; padding: 0; background: #F4F7FB; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif; }
+    .wrapper { max-width: 560px; margin: 0 auto; padding: 32px 16px; }
+    .header { background: #003082; border-radius: 16px 16px 0 0; padding: 28px 36px; }
+    .logo-row { display: flex; align-items: center; gap: 14px; }
+    .logo-box { display: inline-flex; align-items: center; justify-content: center; width: 44px; height: 44px; background: #FFCB00; border-radius: 10px; font-size: 22px; font-weight: 700; color: #003082; flex-shrink: 0; }
+    .brand-name { font-size: 18px; font-weight: 700; color: #fff; line-height: 1.2; }
+    .brand-sub { font-size: 12px; color: rgba(255,255,255,0.65); }
+    .divider-bar { width: 36px; height: 3px; background: #FFCB00; border-radius: 2px; margin: 14px 0 0; }
+    .body { background: #fff; padding: 36px; border-left: 1px solid #DDE4EE; border-right: 1px solid #DDE4EE; }
+    .footer { background: #EEF3FA; border-radius: 0 0 16px 16px; padding: 20px 36px; text-align: center; border: 1px solid #DDE4EE; border-top: 0; }
+    .footer p { font-size: 11px; color: #8899BB; margin: 0; line-height: 1.6; }
+    h1 { font-size: 22px; font-weight: 700; color: #003082; margin: 0 0 12px; }
+    p { font-size: 14px; color: #334155; line-height: 1.7; margin: 0 0 14px; }
+    .btn { display: inline-block; background: #FFCB00; color: #003082 !important; font-size: 15px; font-weight: 700; text-decoration: none; padding: 14px 32px; border-radius: 12px; margin: 10px 0 20px; }
+    .info-box { background: #EEF3FA; border-radius: 10px; padding: 16px 20px; border-left: 3px solid #003082; margin: 18px 0; }
+    .info-box p { margin: 0; font-size: 13px; color: #334155; }
+    .token-box { background: #F4F7FB; border-radius: 10px; padding: 14px 20px; border: 1px solid #DDE4EE; text-align: center; margin: 16px 0; }
+    .token { font-size: 22px; font-weight: 700; color: #003082; letter-spacing: 3px; font-family: 'Courier New', monospace; }
+    .role-badge { display: inline-block; background: #EEF3FA; border: 1px solid #00308233; color: #003082; font-size: 12px; font-weight: 600; padding: 4px 12px; border-radius: 20px; margin: 4px 0; }
+    .separator { border: none; border-top: 1px solid #EEF3FA; margin: 24px 0; }
+  </style>
+</head>
+<body>
+  <span style="display:none;max-height:0;overflow:hidden;">Réserve en retard de 8 jours : Reprise étanchéité toiture sud</span>
+  <div class="wrapper">
+    <div class="header">
+      <div class="logo-row">
+        <div class="logo-box">B</div>
+        <div>
+          <div class="brand-name">Bouygues</div>
+          <div class="brand-sub">Construction</div>
+          <div class="divider-bar"></div>
+        </div>
+      </div>
+    </div>
+    <div class="body">
+      
+    <h1 style="color:#DC2626;">Réserve en retard</h1>
+    <p>Bonjour Marc,</p>
+    <p>Une réserve impliquant <strong>Étanchéité Provence SARL</strong> sur le chantier <strong>Résidence Les Lauriers</strong> a <strong>dépassé son échéance</strong> et n'est toujours pas levée.</p>
+
+    <div class="info-box" style="border-left-color:#DC2626;background:#FEF2F2;">
+      <p style="font-size:15px;font-weight:700;color:#1A2742;margin:0 0 6px;">Reprise étanchéité toiture sud</p>
+      <p style="font-size:11px;color:#8899BB;margin:0 0 10px;">Réf. R-LOT05-042</p>
+      <p style="margin:0 0 6px;">
+        <span style="display:inline-block;background:#EA580C18;color:#EA580C;font-size:11px;font-weight:700;padding:3px 10px;border-radius:12px;margin-right:6px;">HAUTE</span>
+        <span style="display:inline-block;background:#DC262618;color:#DC2626;font-size:11px;font-weight:700;padding:3px 10px;border-radius:12px;">EN RETARD DE 8 JOURS</span>
+      </p>
+      <p style="margin:8px 0 0;font-size:13px;color:#5E738A;">Échéance dépassée : <strong style="color:#DC2626;">15 avril 2026</strong></p>
+    </div>
+
+    <p style="font-size:14px;color:#334155;">Merci de traiter cette réserve dans les plus brefs délais ou de mettre à jour son statut depuis l'application.</p>
+
+    <div style="text-align:center;">
+      <a href="https://buildtrack-mobile.vercel.app/reserve/R-LOT05-042" class="btn" style="background:#DC2626;">Traiter la réserve →</a>
+    </div>
+
+    <hr class="separator"/>
+    <p style="font-size:12px;color:#8899BB;margin:0;">Vous recevez cet email car votre profil est rattaché à <strong>Étanchéité Provence SARL</strong> dans BuildTrack.</p>
+  
+    </div>
+    <div class="footer">
+      <p>BuildTrack — Gestion de chantier numérique<br/>
+      Cet email a été envoyé automatiquement, merci de ne pas y répondre.<br/>
+      &copy; 2026 Bouygues Construction. Tous droits réservés.</p>
+    </div>
+  </div>
+</body>
+</html>
