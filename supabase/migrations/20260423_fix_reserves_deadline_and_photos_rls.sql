@@ -13,10 +13,22 @@
 --     son organization_id. On ajoute cette vérification directe.
 -- ============================================================
 
--- ── Fix 1 : deadline nullable dans reserves ─────────────────────────
+-- ── Fix 1 : colonnes NOT NULL mais optionnelles dans reserves ────────
+-- Ces colonnes ont des défauts dans le schéma mais l'app peut envoyer
+-- null pour les champs non remplis → on les rend toutes nullable.
 ALTER TABLE public.reserves ALTER COLUMN deadline DROP NOT NULL;
+ALTER TABLE public.reserves ALTER COLUMN description DROP NOT NULL;
+ALTER TABLE public.reserves ALTER COLUMN building DROP NOT NULL;
+ALTER TABLE public.reserves ALTER COLUMN zone DROP NOT NULL;
+ALTER TABLE public.reserves ALTER COLUMN level DROP NOT NULL;
+ALTER TABLE public.reserves ALTER COLUMN company DROP NOT NULL;
+ALTER TABLE public.reserves ALTER COLUMN plan_x DROP NOT NULL;
+ALTER TABLE public.reserves ALTER COLUMN plan_y DROP NOT NULL;
+ALTER TABLE public.reserves ALTER COLUMN comments DROP NOT NULL;
+ALTER TABLE public.reserves ALTER COLUMN history DROP NOT NULL;
+ALTER TABLE public.reserves ALTER COLUMN created_at DROP NOT NULL;
 
--- Optionnel : même chose pour tasks (même pattern)
+-- Même chose pour tasks
 ALTER TABLE public.tasks ALTER COLUMN deadline DROP NOT NULL;
 
 -- ── Fix 2 : politique RLS photos — autoriser via organization_id direct

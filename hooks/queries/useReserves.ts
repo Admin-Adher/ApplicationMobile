@@ -82,13 +82,16 @@ export function useReserves() {
     const companies = r.companies ?? (r.company ? [r.company] : []);
     const deadlineValue = !r.deadline || r.deadline === '—' ? null : r.deadline;
     const payload = {
-      id: r.id, title: r.title, description: r.description, building: r.building,
-      zone: r.zone, level: r.level,
-      company: companies[0] ?? null,
+      id: r.id, title: r.title,
+      description: r.description ?? '',
+      building: r.building ?? '',
+      zone: r.zone ?? '',
+      level: r.level ?? '',
+      company: companies[0] ?? '',
       companies,
       priority: r.priority, status: r.status, created_at: r.createdAt, deadline: deadlineValue,
-      comments: r.comments, history: r.history,
-      plan_x: r.planX ?? null, plan_y: r.planY ?? null,
+      comments: r.comments ?? [], history: r.history ?? [],
+      plan_x: r.planX ?? 50, plan_y: r.planY ?? 50,
       photo_uri: r.photoUri ?? null, lot_id: r.lotId ?? null, kind: r.kind ?? null,
       chantier_id: r.chantierId ?? null, plan_id: r.planId ?? null,
       visite_id: r.visiteId ?? null, linked_task_id: r.linkedTaskId ?? null,
@@ -122,13 +125,16 @@ export function useReserves() {
     const companies = r.companies ?? (r.company ? [r.company] : []);
     const deadlineValue = !r.deadline || r.deadline === '—' ? null : r.deadline;
     const payload = {
-      title: r.title, description: r.description, building: r.building,
-      zone: r.zone, level: r.level,
-      company: companies[0] ?? null,
+      title: r.title,
+      description: r.description ?? '',
+      building: r.building ?? '',
+      zone: r.zone ?? '',
+      level: r.level ?? '',
+      company: companies[0] ?? '',
       companies,
       priority: r.priority, status: r.status, deadline: deadlineValue,
-      comments: r.comments, history: r.history,
-      plan_x: r.planX ?? null, plan_y: r.planY ?? null,
+      comments: r.comments ?? [], history: r.history ?? [],
+      plan_x: r.planX ?? 50, plan_y: r.planY ?? 50,
       photo_uri: r.photoUri ?? null, lot_id: r.lotId ?? null, kind: r.kind ?? null,
       chantier_id: r.chantierId ?? null, plan_id: r.planId ?? null,
       visite_id: r.visiteId ?? null, linked_task_id: r.linkedTaskId ?? null,
@@ -279,9 +285,10 @@ export function useReserves() {
       Promise.all(updated.map(r =>
         (supabase as any).from('reserves').update({
           status: r.status,
-          company: (r.companies ?? (r.company ? [r.company] : []))[0] ?? null,
+          company: (r.companies ?? (r.company ? [r.company] : []))[0] ?? '',
           companies: r.companies ?? (r.company ? [r.company] : []),
-          deadline: r.deadline, priority: r.priority, history: r.history,
+          deadline: (!r.deadline || r.deadline === '—') ? null : r.deadline,
+          priority: r.priority, history: r.history,
           closed_at: r.closedAt ?? null, closed_by: r.closedBy ?? null,
         }).eq('id', r.id)
       )).then(results => {
