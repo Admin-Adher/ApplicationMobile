@@ -22,6 +22,7 @@ import {
   preRenderPdfPageToDataUrl,
 } from '@/lib/pdfBase';
 import PdfPlanViewer, { type PdfPlanViewerHandle } from '@/components/PdfPlanViewer';
+import CompanySelector from '@/components/CompanySelector';
 import StatusBadge, { STATUS_CONFIG } from '@/components/StatusBadge';
 import PriorityBadge from '@/components/PriorityBadge';
 import Header from '@/components/Header';
@@ -1560,33 +1561,17 @@ export default function ReserveDetailScreen() {
               />
 
               <Text style={mStyles.label}>ENTREPRISES</Text>
-              {companies.length === 0 ? (
-                <Text style={mStyles.hint}>Aucune entreprise configurée.</Text>
-              ) : (
-                <>
-                  {companies.map(co => {
-                    const sel = editCompanies.includes(co.name);
-                    return (
-                      <TouchableOpacity
-                        key={co.id}
-                        style={[mStyles.coRow, sel && { borderColor: co.color, backgroundColor: co.color + '15' }]}
-                        onPress={() => setEditCompanies(prev => sel ? prev.filter(n => n !== co.name) : [...prev, co.name])}
-                        activeOpacity={0.7}
-                      >
-                        <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: co.color, flexShrink: 0 }} />
-                        <Text style={[mStyles.coRowText, sel && { color: co.color, fontFamily: 'Inter_600SemiBold' }]}>{co.name}</Text>
-                        <View style={[mStyles.coCheck, sel && { backgroundColor: co.color, borderColor: co.color }]}>
-                          {sel && <Ionicons name="checkmark" size={11} color="#fff" />}
-                        </View>
-                      </TouchableOpacity>
-                    );
-                  })}
-                  {editCompanies.length > 1 && (
-                    <Text style={[mStyles.hint, { color: C.primary, marginTop: 4 }]}>
-                      {editCompanies.length} entreprises sélectionnées — toutes seront notifiées lors d'un changement de statut.
-                    </Text>
-                  )}
-                </>
+              <CompanySelector
+                mode="multi"
+                identifier="name"
+                companies={companies}
+                value={editCompanies}
+                onChange={setEditCompanies}
+              />
+              {editCompanies.length > 1 && (
+                <Text style={[mStyles.hint, { color: C.primary, marginTop: 4 }]}>
+                  {editCompanies.length} entreprises sélectionnées — toutes seront notifiées lors d'un changement de statut.
+                </Text>
               )}
 
               <Text style={mStyles.label}>PRIORITÉ</Text>

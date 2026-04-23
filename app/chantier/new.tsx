@@ -11,6 +11,7 @@ import { useAuth } from '@/context/AuthContext';
 import Header from '@/components/Header';
 import DateInput from '@/components/DateInput';
 import LocationTreeEditor from '@/components/LocationTreeEditor';
+import CompanySelector from '@/components/CompanySelector';
 import { Chantier, ChantierBuilding } from '@/constants/types';
 import { genId, formatDateFR } from '@/lib/utils';
 
@@ -168,28 +169,18 @@ export default function NewChantierScreen() {
           <View style={styles.card}>
             <Text style={styles.label}>Entreprises associées</Text>
             <Text style={styles.hint}>Sélectionnez les entreprises intervenant sur ce chantier (optionnel).</Text>
-            {companies.map(co => {
-              const sel = selectedCompanyIds.includes(co.id);
-              return (
-                <TouchableOpacity
-                  key={co.id}
-                  style={[styles.coRow, sel && { borderColor: co.color, backgroundColor: co.color + '15' }]}
-                  onPress={() => toggleChantierCompany(co.id)}
-                  activeOpacity={0.7}
-                >
-                  <View style={[styles.coDot, { backgroundColor: co.color }]} />
-                  <View style={{ flex: 1 }}>
-                    <Text style={[styles.coName, sel && { color: co.color, fontFamily: 'Inter_600SemiBold' }]}>{co.name}</Text>
-                    {co.shortName && co.shortName !== co.name && (
-                      <Text style={styles.coShort}>{co.shortName}</Text>
-                    )}
-                  </View>
-                  <View style={[styles.coCheck, sel && { backgroundColor: co.color, borderColor: co.color }]}>
-                    {sel && <Ionicons name="checkmark" size={12} color="#fff" />}
-                  </View>
-                </TouchableOpacity>
-              );
-            })}
+            <CompanySelector
+              mode="multi"
+              identifier="id"
+              companies={companies}
+              value={selectedCompanyIds}
+              onChange={(next) => {
+                const toAdd = next.filter(id => !selectedCompanyIds.includes(id));
+                const toRemove = selectedCompanyIds.filter(id => !next.includes(id));
+                toAdd.forEach(id => toggleChantierCompany(id));
+                toRemove.forEach(id => toggleChantierCompany(id));
+              }}
+            />
           </View>
         )}
 

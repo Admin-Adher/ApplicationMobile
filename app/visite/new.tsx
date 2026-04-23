@@ -14,6 +14,7 @@ import Header from '@/components/Header';
 import DateInput from '@/components/DateInput';
 import { genId, formatDateFR } from '@/lib/utils';
 import LocationPicker from '@/components/LocationPicker';
+import CompanySelector from '@/components/CompanySelector';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -635,30 +636,18 @@ export default function NewVisiteScreen() {
           <View style={styles.card}>
             <Text style={styles.sectionLabel}>ENTREPRISES CONCERNÉES</Text>
             <Text style={styles.sublabel}>Entreprises inspectées lors de cette visite</Text>
-            <View style={styles.companyGrid}>
-              {companies.map(co => {
-                const selected = concernedCompanyIds.includes(co.id);
-                return (
-                  <TouchableOpacity
-                    key={co.id}
-                    style={[styles.companyChip, selected && { borderColor: co.color, backgroundColor: co.color + '18' }]}
-                    onPress={() => toggleConcernedCompany(co.id)}
-                    activeOpacity={0.75}
-                  >
-                    <View style={[styles.companyDot, { backgroundColor: co.color }]} />
-                    <Text style={[styles.companyChipText, selected && { color: co.color, fontFamily: 'Inter_600SemiBold' }]}>
-                      {co.shortName}
-                    </Text>
-                    {selected && <Ionicons name="checkmark" size={13} color={co.color} />}
-                  </TouchableOpacity>
-                );
-              })}
-            </View>
-            {concernedCompanyIds.length > 0 && (
-              <Text style={styles.selectionCount}>
-                {concernedCompanyIds.length} entreprise{concernedCompanyIds.length > 1 ? 's' : ''} sélectionnée{concernedCompanyIds.length > 1 ? 's' : ''}
-              </Text>
-            )}
+            <CompanySelector
+              mode="multi"
+              identifier="id"
+              companies={companies}
+              value={concernedCompanyIds}
+              onChange={(next) => {
+                const toAdd = next.filter(id => !concernedCompanyIds.includes(id));
+                const toRemove = concernedCompanyIds.filter(id => !next.includes(id));
+                toAdd.forEach(id => toggleConcernedCompany(id));
+                toRemove.forEach(id => toggleConcernedCompany(id));
+              }}
+            />
           </View>
         )}
 

@@ -12,6 +12,7 @@ import { useAuth } from '@/context/AuthContext';
 import Header from '@/components/Header';
 import LocationTreeEditor from '@/components/LocationTreeEditor';
 import DateInput from '@/components/DateInput';
+import CompanySelector from '@/components/CompanySelector';
 import { Chantier, ChantierBuilding, ChantierStatus } from '@/constants/types';
 
 const STATUS_OPTIONS: { value: ChantierStatus; label: string; color: string; icon: string }[] = [
@@ -422,28 +423,19 @@ export default function ManageChantiersScreen() {
                 {companies.length > 0 && (
                   <View style={styles.editCard}>
                     <Text style={styles.editLabel}>Entreprises associées</Text>
-                    {companies.map(co => {
-                      const sel = editModal.selectedCompanyIds.includes(co.id);
-                      return (
-                        <TouchableOpacity
-                          key={co.id}
-                          style={[styles.coRow, sel && { borderColor: co.color, backgroundColor: co.color + '15' }]}
-                          onPress={() => toggleEditCompany(co.id)}
-                          activeOpacity={0.7}
-                        >
-                          <View style={[styles.coDot, { backgroundColor: co.color }]} />
-                          <View style={{ flex: 1 }}>
-                            <Text style={[styles.coName, sel && { color: co.color, fontFamily: 'Inter_600SemiBold' }]}>{co.name}</Text>
-                            {co.shortName && co.shortName !== co.name && (
-                              <Text style={styles.coShort}>{co.shortName}</Text>
-                            )}
-                          </View>
-                          <View style={[styles.coCheck, sel && { backgroundColor: co.color, borderColor: co.color }]}>
-                            {sel && <Ionicons name="checkmark" size={12} color="#fff" />}
-                          </View>
-                        </TouchableOpacity>
-                      );
-                    })}
+                    <CompanySelector
+                      mode="multi"
+                      identifier="id"
+                      companies={companies}
+                      value={editModal.selectedCompanyIds}
+                      onChange={(next) => {
+                        const cur = editModal.selectedCompanyIds;
+                        const toAdd = next.filter(id => !cur.includes(id));
+                        const toRemove = cur.filter(id => !next.includes(id));
+                        toAdd.forEach(id => toggleEditCompany(id));
+                        toRemove.forEach(id => toggleEditCompany(id));
+                      }}
+                    />
                   </View>
                 )}
             </ScrollView>

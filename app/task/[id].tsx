@@ -10,6 +10,7 @@ import { useApp } from '@/context/AppContext';
 import { useAuth } from '@/context/AuthContext';
 import Header from '@/components/Header';
 import DateInput from '@/components/DateInput';
+import CompanySelector from '@/components/CompanySelector';
 import { Task, TaskStatus, ReservePriority } from '@/constants/types';
 import { validateDeadline } from '@/lib/reserveUtils';
 
@@ -234,53 +235,17 @@ export default function EditTaskScreen() {
 
           {/* Entreprise */}
           <Text style={styles.label}>Entreprise</Text>
-          {companies.length === 0 ? (
-            <View style={styles.emptyCompanies}>
-              <Ionicons name="business-outline" size={14} color={C.textMuted} />
-              <Text style={styles.emptyCompaniesText}>Aucune entreprise enregistrée</Text>
-            </View>
-          ) : (
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 12 }}>
-              <View style={{ flexDirection: 'row', gap: 8, paddingRight: 4 }}>
-                {/* None */}
-                <TouchableOpacity
-                  style={[styles.companyChip, companyId === '' && styles.companyChipNoneActive]}
-                  onPress={() => permissions.canEdit && setCompanyId('')}
-                >
-                  <Text style={[styles.companyChipText, companyId === '' && { color: C.textSub, fontFamily: 'Inter_600SemiBold' }]}>
-                    Aucune
-                  </Text>
-                </TouchableOpacity>
-
-                {companies.map(c => {
-                  const active = companyId === c.id;
-                  return (
-                    <TouchableOpacity
-                      key={c.id}
-                      style={[
-                        styles.companyChip,
-                        active && { backgroundColor: c.color + '18', borderColor: c.color, borderWidth: 1.5 },
-                      ]}
-                      onPress={() => permissions.canEdit && setCompanyId(c.id)}
-                    >
-                      <View style={[styles.companyDot, { backgroundColor: c.color }]} />
-                      <Text style={[styles.companyChipText, active && { color: c.color, fontFamily: 'Inter_600SemiBold' }]}>
-                        {c.shortName}
-                      </Text>
-                      {active && <Ionicons name="checkmark-circle" size={13} color={c.color} />}
-                    </TouchableOpacity>
-                  );
-                })}
-              </View>
-            </ScrollView>
-          )}
-
-          {selectedCompany && (
-            <View style={[styles.companyPreview, { borderLeftColor: selectedCompany.color }]}>
-              <View style={[styles.companyPreviewDot, { backgroundColor: selectedCompany.color }]} />
-              <Text style={styles.companyPreviewName}>{selectedCompany.name}</Text>
-            </View>
-          )}
+          <CompanySelector
+            mode="single"
+            identifier="id"
+            companies={companies}
+            value={companyId === '' ? null : companyId}
+            onChange={(v) => permissions.canEdit && setCompanyId(v ?? '')}
+            allowNone
+            noneLabel="Aucune"
+            disabled={!permissions.canEdit}
+            emptyText="Aucune entreprise enregistrée"
+          />
 
           {/* Responsable */}
           <Text style={[styles.label, { marginTop: 14 }]}>Responsable</Text>

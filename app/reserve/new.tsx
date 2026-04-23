@@ -14,6 +14,7 @@ import { ReserveKind, ReservePriority, ReserveStatus, ReservePhoto } from '@/con
 import Header from '@/components/Header';
 import DateInput from '@/components/DateInput';
 import BottomSheetPicker from '@/components/BottomSheetPicker';
+import CompanySelector from '@/components/CompanySelector';
 import { uploadPhoto, persistLocalPhoto } from '@/lib/storage';
 import { genId } from '@/lib/utils';
 import {
@@ -643,46 +644,21 @@ export default function NewReserveScreen() {
         {/* ENTREPRISES */}
         <View style={styles.card}>
           <Text style={styles.label}>Entreprises responsables *</Text>
-          {companies.length === 0 ? (
-            <View style={styles.warningRow}>
-              <Ionicons name="alert-circle-outline" size={14} color={C.medium} />
-              <Text style={styles.warningText}>
-                Aucune entreprise configurée. Ajoutez d'abord une entreprise dans l'onglet Équipes.
+          <CompanySelector
+            mode="multi"
+            identifier="name"
+            companies={companies}
+            value={selectedCompanies}
+            onChange={setSelectedCompanies}
+            emptyText="Aucune entreprise configurée. Ajoutez d'abord une entreprise dans l'onglet Équipes."
+          />
+          {selectedCompanies.length > 1 && (
+            <View style={styles.multiCompanyHint}>
+              <Ionicons name="information-circle-outline" size={12} color={C.primary} />
+              <Text style={styles.multiCompanyHintText}>
+                {selectedCompanies.length} entreprises sélectionnées — toutes seront notifiées.
               </Text>
             </View>
-          ) : (
-            <>
-              {companies.map(co => {
-                const selected = selectedCompanies.includes(co.name);
-                return (
-                  <TouchableOpacity
-                    key={co.id}
-                    style={[styles.companyRow, selected && { backgroundColor: co.color + '15', borderColor: co.color }]}
-                    onPress={() => toggleCompany(co.name)}
-                    activeOpacity={0.7}
-                  >
-                    <View style={[styles.companyColorDot, { backgroundColor: co.color }]} />
-                    <View style={{ flex: 1 }}>
-                      <Text style={[styles.companyRowName, selected && { color: co.color, fontFamily: 'Inter_600SemiBold' }]}>{co.name}</Text>
-                      {co.shortName && co.shortName !== co.name && (
-                        <Text style={styles.companyRowShort}>{co.shortName}</Text>
-                      )}
-                    </View>
-                    <View style={[styles.companyCheckbox, selected && { backgroundColor: co.color, borderColor: co.color }]}>
-                      {selected && <Ionicons name="checkmark" size={12} color="#fff" />}
-                    </View>
-                  </TouchableOpacity>
-                );
-              })}
-              {selectedCompanies.length > 1 && (
-                <View style={styles.multiCompanyHint}>
-                  <Ionicons name="information-circle-outline" size={12} color={C.primary} />
-                  <Text style={styles.multiCompanyHintText}>
-                    {selectedCompanies.length} entreprises sélectionnées — toutes seront notifiées.
-                  </Text>
-                </View>
-              )}
-            </>
           )}
         </View>
 
