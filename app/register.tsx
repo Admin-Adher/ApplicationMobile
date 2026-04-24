@@ -5,7 +5,7 @@ import {
 import { useState } from 'react';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useRouter } from 'expo-router';
+import { useRouter, useLocalSearchParams } from 'expo-router';
 import { C } from '@/constants/colors';
 import { useAuth } from '@/context/AuthContext';
 import { supabase } from '@/lib/supabase';
@@ -15,8 +15,14 @@ export default function RegisterScreen() {
   const router = useRouter();
   const { register } = useAuth();
 
+  const search = useLocalSearchParams<{ email?: string; org?: string; invitedBy?: string }>();
+  const prefilledEmail = typeof search.email === 'string' ? search.email : '';
+  const orgName = typeof search.org === 'string' ? search.org : '';
+  const invitedByName = typeof search.invitedBy === 'string' ? search.invitedBy : '';
+  const fromInvitation = prefilledEmail.length > 0;
+
   const [name, setName] = useState('');
-  const [email, setEmail] = useState('');
+  const [email, setEmail] = useState(prefilledEmail);
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [showPass, setShowPass] = useState(false);
@@ -109,12 +115,28 @@ export default function RegisterScreen() {
 
         <View style={styles.formContainer}>
           {/* Bannière d'info */}
-          <View style={styles.infoBanner}>
-            <Ionicons name="mail-outline" size={15} color={C.inProgress} />
-            <Text style={styles.infoBannerText}>
-              Utilisez l'adresse email sur laquelle vous avez reçu votre invitation.
-            </Text>
-          </View>
+          {fromInvitation ? (
+            <View style={styles.invitationBanner}>
+              <View style={styles.invitationBannerIcon}>
+                <Ionicons name="mail-open-outline" size={18} color={C.primary} />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.invitationBannerTitle}>Invitation acceptée</Text>
+                <Text style={styles.invitationBannerText}>
+                  {invitedByName ? <><Text style={styles.invitationBannerBold}>{invitedByName}</Text> vous invite</> : 'Vous avez été invité'}
+                  {orgName ? <> à rejoindre <Text style={styles.invitationBannerBold}>{orgName}</Text></> : null}.
+                  {' '}Créez votre compte pour activer votre accès.
+                </Text>
+              </View>
+            </View>
+          ) : (
+            <View style={styles.infoBanner}>
+              <Ionicons name="mail-outline" size={15} color={C.inProgress} />
+              <Text style={styles.infoBannerText}>
+                Utilisez l'adresse email sur laquelle vous avez reçu votre invitation.
+              </Text>
+            </View>
+          )}
 
           <View style={styles.card}>
             <Text style={styles.cardTitle}>Rejoindre une organisation</Text>
@@ -138,8 +160,8 @@ export default function RegisterScreen() {
             {/* Email */}
             <View style={styles.field}>
               <Text style={styles.label}>Email d'invitation</Text>
-              <View style={styles.inputWrap}>
-                <Ionicons name="mail-outline" size={18} color={C.textMuted} />
+              <View style={[styles.inputWrap, fromInvitation && styles.inputWrapLocked]}>
+                <Ionicons name="mail-outline" size={18} color={fromInvitation ? C.primary : C.textMuted} />
                 <TextInput
                   style={styles.input}
                   placeholder="votre@email.fr"
@@ -149,8 +171,15 @@ export default function RegisterScreen() {
                   keyboardType="email-address"
                   autoCapitalize="none"
                   autoCorrect={false}
+                  editable={!fromInvitation}
                 />
+                {fromInvitation && (
+                  <Ionicons name="lock-closed" size={14} color={C.primary} />
+                )}
               </View>
+              {fromInvitation && (
+                <Text style={styles.lockedHint}>Email pré-rempli à partir de votre invitation.</Text>
+              )}
             </View>
 
             {/* Mot de passe */}
@@ -310,6 +339,39 @@ const styles = StyleSheet.create({
     fontFamily: 'Inter_400Regular',
     color: C.inProgress,
     lineHeight: 17,
+  },
+  invitationBanner: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 12,
+    backgroundColor: C.primaryBg,
+    borderRadius: 12,
+    paddingVertical: 14,
+    paddingHorizontal: 14,
+    marginBottom: 16,
+    borderWidth: 1,
+    borderColor: C.primary + '33',
+  },
+  invitationBannerIcon: {
+    width: 36, height: 36, borderRadius: 18, backgroundColor: C.surface,
+    alignItems: 'center', justifyContent: 'center',
+    borderWidth: 1, borderColor: C.primary + '33',
+  },
+  invitationBannerTitle: {
+    fontSize: 13, fontFamily: 'Inter_700Bold', color: C.primary, marginBottom: 4,
+  },
+  invitationBannerText: {
+    fontSize: 12.5, fontFamily: 'Inter_400Regular', color: C.text, lineHeight: 18,
+  },
+  invitationBannerBold: {
+    fontFamily: 'Inter_700Bold', color: C.primary,
+  },
+  inputWrapLocked: {
+    backgroundColor: C.primaryBg,
+    borderColor: C.primary + '33',
+  },
+  lockedHint: {
+    fontSize: 11, fontFamily: 'Inter_400Regular', color: C.textMuted, marginTop: 6, marginLeft: 4,
   },
   card: {
     backgroundColor: C.surface,
