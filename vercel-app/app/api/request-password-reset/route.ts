@@ -1,11 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
-import { Resend } from 'resend';
+import { sendEmail } from '@/lib/sender';
 import { passwordResetEmail } from '@/lib/templates';
 
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL ?? 'https://jzeojdpgglbxjdasjgta.supabase.co';
 const SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY ?? '';
-const FROM_EMAIL = 'BuildTrack <onboarding@resend.dev>';
 const RESET_REDIRECT = 'https://buildtrack-mobile.vercel.app/reset-password';
 
 const CORS_HEADERS = {
@@ -60,29 +59,19 @@ export async function POST(req: NextRequest) {
     }
 
     const resetUrl = linkData.properties.action_link;
-
-    const resendKey = process.env.RESEND_API_KEY;
-    if (!resendKey) {
-      console.warn('[request-password-reset] RESEND_API_KEY absent — mode simulation');
-      return NextResponse.json({ success: true, simulated: true }, { headers: CORS_HEADERS });
-    }
-
-    const resend = new Resend(resendKey);
     const template = passwordResetEmail({ name, resetUrl });
 
-    const { error: sendError } = await resend.emails.send({
-      from: FROM_EMAIL,
+    const result = await sendEmail({
       to: email.toLowerCase().trim(),
       subject: template.subject,
       html: template.html,
     });
 
-    if (sendError) {
-      console.error('[request-password-reset] Resend error:', sendError);
-      return NextResponse.json({ error: sendError.message }, { status: 500, headers: CORS_HEADERS });
+    if (!result.success) {
+      return NextResponse.json({ error: result.error ?? "Échec de l'envoi" }, { status: 500, headers: CORS_HEADERS });
     }
 
-    return NextResponse.json({ success: true }, { headers: CORS_HEADERS });
+    return NextResponse.json({ success: true, simulated: result.simulated ?? false }, { headers: CORS_HEADERS });
   } catch (err: any) {
     console.error('[request-password-reset] Exception:', err?.message ?? err);
     return NextResponse.json({ error: 'Erreur serveur' }, { status: 500, headers: CORS_HEADERS });

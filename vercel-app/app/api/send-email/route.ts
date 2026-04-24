@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { Resend } from 'resend';
+import { sendEmail } from '@/lib/sender';
 import {
   invitationEmail,
   welcomeEmail,
@@ -20,14 +20,6 @@ function safeReserveUrl(reserveId: string, recipientEmail: string): string {
     console.warn('[send-email] reserveUrl signature impossible:', e?.message);
     return `${APP_URL}/reserve/${encodeURIComponent(reserveId)}`;
   }
-}
-
-const FROM_EMAIL = 'BuildTrack <onboarding@resend.dev>';
-
-function getResend(): Resend | null {
-  const key = process.env.RESEND_API_KEY;
-  if (!key) return null;
-  return new Resend(key);
 }
 
 export async function POST(req: NextRequest) {
@@ -137,25 +129,11 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: `Type inconnu: ${type}` }, { status: 400, headers });
     }
 
-    const resend = getResend();
-    if (!resend) {
-      console.warn('[Email] RESEND_API_KEY absent — mode simulation');
-      return NextResponse.json({ success: true, simulated: true }, { headers });
+    const result = await sendEmail({ to, subject: template.subject, html: template.html });
+    if (!result.success) {
+      return NextResponse.json({ error: result.error ?? "Échec de l'envoi" }, { status: 500, headers });
     }
-
-    const { error } = await resend.emails.send({
-      from: FROM_EMAIL,
-      to,
-      subject: template.subject,
-      html: template.html,
-    });
-
-    if (error) {
-      console.error('[Email] Erreur Resend:', error);
-      return NextResponse.json({ error: error.message }, { status: 500, headers });
-    }
-
-    return NextResponse.json({ success: true }, { headers });
+    return NextResponse.json({ success: true, simulated: result.simulated ?? false }, { headers });
   } catch (err: any) {
     console.error('[Email] Exception:', err?.message ?? err);
     return NextResponse.json({ error: 'Erreur serveur' }, { status: 500, headers });

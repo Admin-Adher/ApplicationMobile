@@ -32,11 +32,11 @@ export interface SendEmailParams {
 
 export async function sendEmail(
   params: SendEmailParams
-): Promise<{ success: boolean; error?: string }> {
+): Promise<{ success: boolean; error?: string; simulated?: boolean }> {
   const transporter = getTransporter();
   if (!transporter) {
     console.log('[Email] Mode simulation — email non envoyé à', params.to);
-    return { success: true };
+    return { success: true, simulated: true };
   }
 
   const from = process.env.EMAIL_FROM || DEFAULT_FROM;

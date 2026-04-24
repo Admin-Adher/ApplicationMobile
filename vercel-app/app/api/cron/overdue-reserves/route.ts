@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { Resend } from 'resend';
 import { createClient } from '@supabase/supabase-js';
+import { sendEmail } from '@/lib/sender';
 import { reserveOverdueEmail, reserveOverdueEscalationEmail, APP_URL } from '@/lib/templates';
 import { buildReserveUrl } from '@/lib/reserve-token';
 
@@ -17,14 +17,6 @@ function safeReserveUrl(reserveId: string, email: string): string {
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
-
-const FROM_EMAIL = 'BuildTrack <onboarding@resend.dev>';
-
-function getResend(): Resend | null {
-  const key = process.env.RESEND_API_KEY;
-  if (!key) return null;
-  return new Resend(key);
-}
 
 function getServiceClient() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -52,10 +44,9 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: 'Non autorisé' }, { status: 401 });
   }
 
-  const resend = getResend();
   const supabase = getServiceClient();
-  if (!resend || !supabase) {
-    return NextResponse.json({ error: 'Configuration manquante (RESEND_API_KEY ou SUPABASE_SERVICE_ROLE_KEY)' }, { status: 500 });
+  if (!supabase) {
+    return NextResponse.json({ error: 'Configuration manquante (SUPABASE_SERVICE_ROLE_KEY)' }, { status: 500 });
   }
 
   const today = todayISO();
@@ -171,15 +162,14 @@ export async function GET(req: NextRequest) {
                 reserveUrl: safeReserveUrl(r.id, p.email),
               } as any);
 
-              const { error: sendErr } = await resend.emails.send({
-                from: FROM_EMAIL,
+              const sendRes = await sendEmail({
                 to: p.email,
                 subject: tpl.subject,
                 html: tpl.html,
               });
-              if (sendErr) {
+              if (!sendRes.success) {
                 stats.errors++;
-                console.warn('[cron overdue] envoi échoué', p.email, sendErr.message);
+                console.warn('[cron overdue] envoi échoué', p.email, sendRes.error);
               } else {
                 stats.emailsSent++;
                 sentForReserve++;
@@ -212,15 +202,14 @@ export async function GET(req: NextRequest) {
               reserveUrl: safeReserveUrl(r.id, a.email),
             });
 
-            const { error: sendErr } = await resend.emails.send({
-              from: FROM_EMAIL,
+            const sendRes = await sendEmail({
               to: a.email,
               subject: tpl.subject,
               html: tpl.html,
             });
-            if (sendErr) {
+            if (!sendRes.success) {
               stats.errors++;
-              console.warn('[cron overdue] escalade échouée', a.email, sendErr.message);
+              console.warn('[cron overdue] escalade échouée', a.email, sendRes.error);
             } else {
               stats.emailsSent++;
               sentForReserve++;

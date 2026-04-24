@@ -1,7 +1,7 @@
 # BuildTrack — Vercel App
 
 Mini-app Next.js déployée sur Vercel pour :
-- **API email** : `/api/send-email` (utilise Resend)
+- **API email** : `/api/send-email` (utilise Gmail SMTP via nodemailer)
 - **Deep links** : `/invite?token=xxx` (ouvre l'app ou redirige vers le store)
 - **Universal Links iOS** : `/.well-known/apple-app-site-association`
 - **App Links Android** : `/.well-known/assetlinks.json`
@@ -12,7 +12,9 @@ Mini-app Next.js déployée sur Vercel pour :
 
 | Variable | Description |
 |---|---|
-| `RESEND_API_KEY` | Clé API Resend (re_...) |
+| `GMAIL_USER` | Adresse Gmail expéditrice (ex: `buildtrack.admin@gmail.com`) |
+| `GMAIL_APP_PASSWORD` | Mot de passe d'application Google 16 caractères (myaccount.google.com/apppasswords) |
+| `EMAIL_FROM` | (optionnel) Expéditeur affiché, défaut `BuildTrack <buildtrack.admin@gmail.com>` |
 | `IOS_TEAM_ID` | Ton Apple Team ID (10 caractères, ex: ABC123DEF4) |
 | `NEXT_PUBLIC_SUPABASE_URL` | URL Supabase : `https://jzeojdpgglbxjdasjgta.supabase.co` |
 | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Clé anon Supabase (même que `EXPO_PUBLIC_SUPABASE_KEY`) |
@@ -49,7 +51,7 @@ Configure-le comme variable d'environnement `IOS_TEAM_ID` dans Vercel.
 vercel-app/
 ├── app/
 │   ├── api/
-│   │   └── send-email/route.ts   ← API Resend
+│   │   └── send-email/route.ts   ← API d'envoi (Gmail SMTP)
 │   ├── invite/page.tsx            ← Page deep link invitation
 │   ├── .well-known/
 │   │   └── apple-app-site-association/route.ts  ← Universal Links iOS
