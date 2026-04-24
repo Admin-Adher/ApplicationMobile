@@ -7,7 +7,7 @@
 - **Frontend mobile** : Expo (React Native) avec Expo Router pour la navigation
 - **Backend** : Supabase (service hébergé — auth, PostgreSQL avec RLS, realtime, storage)
 - **Web target** : Metro bundler, tourne comme SPA sur le port 5000
-- **Emails transactionnels** : Resend (via l'API Vercel)
+- **Emails transactionnels** : Gmail SMTP via nodemailer (depuis l'API Vercel et la route dev locale)
 - **Deep links & landing pages** : Vercel (`https://buildtrack-mobile.vercel.app`)
 
 ## Démarrer l'application
@@ -33,14 +33,17 @@ Configurées dans Replit (shared) :
 - `EXPO_PUBLIC_SUPABASE_URL` — URL du projet Supabase
 - `EXPO_PUBLIC_SUPABASE_KEY` — Clé anon Supabase (public, intentionnellement côté client)
 - `EXPO_PUBLIC_APP_URL` — URL Vercel : `https://buildtrack-mobile.vercel.app`
-- `RESEND_API_KEY` — Clé API Resend (secret — à configurer dans Replit Secrets si les emails sont nécessaires)
+- `GMAIL_USER` — Adresse Gmail expéditrice (`buildtrack.admin@gmail.com`)
+- `GMAIL_APP_PASSWORD` — Mot de passe d'application Google (16 caractères, secret Replit)
+- `EMAIL_FROM` — Expéditeur affiché : `BuildTrack <buildtrack.admin@gmail.com>`
 
 ## Fichiers clés
 
 - `lib/supabase.ts` — Client Supabase
 - `lib/email/client.ts` — Client email (appelle l'API Vercel)
 - `lib/email/templates.ts` — Templates HTML (pour référence — les vrais sont dans vercel-app/)
-- `lib/email/sender.ts` — Wrapper Resend (utilisé par la route API locale en dev)
+- `lib/email/sender.ts` — Wrapper nodemailer/Gmail SMTP (utilisé par la route API locale en dev)
+- `vercel-app/lib/sender.ts` — Même wrapper côté app Vercel
 - `app/api/send-email+api.ts` — Route API Expo (dev uniquement)
 - `context/AuthContext.tsx` — Auth + envoi email de bienvenue à l'inscription
 - `context/SubscriptionContext.tsx` — Invitations + envoi email d'invitation
