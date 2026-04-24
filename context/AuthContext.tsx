@@ -114,6 +114,31 @@ async function addUserToGeneralChannel(orgId: string, userName: string) {
   } catch {}
 }
 
+async function notifyAdminOfAcceptedInvitation(params: {
+  invitedById: string;
+  organizationId: string;
+  role: string;
+  inviteeEmail: string;
+  inviteeName?: string;
+}): Promise<void> {
+  try {
+    const [adminResult, orgResult] = await Promise.all([
+      (supabase as any).from('profiles').select('name, email').eq('id', params.invitedById).single(),
+      (supabase as any).from('organizations').select('name').eq('id', params.organizationId).single(),
+    ]);
+    if (adminResult.data?.email && orgResult.data?.name) {
+      sendInvitationAcceptedEmail({
+        adminEmail: adminResult.data.email,
+        adminName: adminResult.data.name ?? 'Admin',
+        inviteeName: params.inviteeName ?? params.inviteeEmail,
+        inviteeEmail: params.inviteeEmail,
+        organizationName: orgResult.data.name,
+        role: params.role,
+      });
+    }
+  } catch {}
+}
+
 async function linkPendingInvitation(userId: string, email: string, inviteeName?: string): Promise<string | undefined> {
   try {
     const { data: inv } = await (supabase as any)
@@ -138,22 +163,13 @@ async function linkPendingInvitation(userId: string, email: string, inviteeName?
     await (supabase as any).from('invitations').update({ status: 'accepted' }).eq('id', inv.id);
 
     // Notify the admin who sent the invitation (fire-and-forget)
-    try {
-      const [adminResult, orgResult] = await Promise.all([
-        (supabase as any).from('profiles').select('name, email').eq('id', inv.invited_by).single(),
-        (supabase as any).from('organizations').select('name').eq('id', inv.organization_id).single(),
-      ]);
-      if (adminResult.data?.email && orgResult.data?.name) {
-        sendInvitationAcceptedEmail({
-          adminEmail: adminResult.data.email,
-          adminName: adminResult.data.name ?? 'Admin',
-          inviteeName: inviteeName ?? email,
-          inviteeEmail: email,
-          organizationName: orgResult.data.name,
-          role: inv.role,
-        });
-      }
-    } catch {}
+    notifyAdminOfAcceptedInvitation({
+      invitedById: inv.invited_by,
+      organizationId: inv.organization_id,
+      role: inv.role,
+      inviteeEmail: email,
+      inviteeName,
+    });
 
     return inv.organization_id;
   } catch {
@@ -896,15 +912,47 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         //          queries using the RLS policies that allow a user to read/accept
         //          invitations sent to their own email.
         let rpcLinked = false;
+        let rpcLinkedOrgId: string | undefined;
+        let rpcLinkedRole: string | undefined;
         try {
           const { data: rpcData, error: rpcErr } = await supabase.rpc('link_invitation_for_current_user');
           if (rpcErr) {
             console.warn('[register] link_invitation_for_current_user RPC error:', rpcErr.code, rpcErr.message);
           } else {
             rpcLinked = !!(rpcData as any)?.linked;
+            rpcLinkedOrgId = (rpcData as any)?.organization_id;
+            rpcLinkedRole = (rpcData as any)?.role;
           }
         } catch (rpcEx) {
           console.warn('[register] link_invitation_for_current_user RPC exception:', rpcEx);
+        }
+
+        // Notify the admin who sent the invitation when the RPC linked it.
+        // The fallback path uses linkPendingInvitation() which already notifies.
+        if (rpcLinked && rpcLinkedOrgId) {
+          try {
+            const emailLower = email.trim().toLowerCase();
+            const { data: acceptedInv } = await (supabase as any)
+              .from('invitations')
+              .select('invited_by, role')
+              .eq('email', emailLower)
+              .eq('organization_id', rpcLinkedOrgId)
+              .eq('status', 'accepted')
+              .order('created_at', { ascending: false })
+              .limit(1)
+              .maybeSingle();
+            if (acceptedInv?.invited_by) {
+              notifyAdminOfAcceptedInvitation({
+                invitedById: acceptedInv.invited_by,
+                organizationId: rpcLinkedOrgId,
+                role: acceptedInv.role ?? rpcLinkedRole ?? 'observateur',
+                inviteeEmail: emailLower,
+                inviteeName: name.trim(),
+              });
+            }
+          } catch (notifyEx) {
+            console.warn('[register] admin notification (RPC path) failed:', notifyEx);
+          }
         }
 
         // Client-side fallback: query invitations directly (requires the RLS policy
@@ -933,6 +981,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
               await (supabase as any).from('invitations')
                 .update({ status: 'accepted' })
                 .eq('id', inv.id);
+
+              // Notify the admin who sent the invitation (fire-and-forget)
+              notifyAdminOfAcceptedInvitation({
+                invitedById: inv.invited_by,
+                organizationId: inv.organization_id,
+                role: inv.role,
+                inviteeEmail: emailLower,
+                inviteeName: name.trim(),
+              });
 
               console.log('[register] invitation linked via client-side fallback for org:', inv.organization_id);
             }
