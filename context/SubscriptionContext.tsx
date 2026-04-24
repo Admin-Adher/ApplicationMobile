@@ -180,7 +180,8 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
               planName: sub?.plans?.name ?? '—',
               planId: sub?.plan_id ?? '',
               status: (sub?.status ?? 'trial') as OrgSummary['status'],
-              seatMax: sub?.plans?.max_users ?? 5,
+              // Unlimited seats for all organizations.
+              seatMax: -1,
             };
           });
           setOrgSummaries(summaries);
@@ -316,9 +317,10 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
   const freeOrgUsers = orgUsers.filter(u => FREE_ROLES.includes(u.role as UserRole));
 
   const seatUsed = activeOrgUsers.length;
-  const seatMax = plan?.maxUsers ?? (user?.role === 'super_admin' ? -1 : 3);
+  // All organizations have unlimited seats.
+  const seatMax = -1;
   const subscriptionActive = !subscription || subscription.status === 'active' || subscription.status === 'trial';
-  const canInvite = subscriptionActive && (seatMax === -1 || seatUsed < seatMax);
+  const canInvite = subscriptionActive;
 
   async function inviteUser(
     email: string,

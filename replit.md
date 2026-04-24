@@ -88,6 +88,13 @@ RLS via fonctions SECURITY DEFINER : `auth_user_org()`, `auth_user_role()`, `aut
 
 `super_admin`, `admin`, `conducteur`, `chef_equipe`, `observateur`, `sous_traitant`
 
+## Limites de sièges
+
+Toutes les organisations ont **un nombre illimité de sièges** (`seatMax = -1`). La logique de quota est désactivée côté client dans `context/SubscriptionContext.tsx` :
+- `seatMax` est forcé à `-1` (illimité) pour toutes les orgs
+- `canInvite` ne dépend plus que de l'état de l'abonnement (`active` ou `trial`)
+- Aucun changement de schéma DB requis — les colonnes `plans.max_users` sont ignorées par le client
+
 ## URL Scheme (Deep Links)
 
 Scheme Expo : `buildtrack://`
