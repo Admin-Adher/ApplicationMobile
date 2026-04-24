@@ -15,6 +15,7 @@ import { UserRole, Company } from '@/constants/types';
 import { isSupabaseConfigured } from '@/lib/supabase';
 import { genId } from '@/lib/utils';
 import { ROLES, ROLE_INFO, PLAN_COLORS, FREE_ROLES, AVATAR_COLORS, hashColor, formatDate } from '@/lib/adminUtils';
+import { sendInvitationEmail } from '@/lib/email/client';
 
 const WINDOW_H = Dimensions.get('window').height;
 const MODAL_SCROLL_MAX_H = WINDOW_H * 0.62;
@@ -85,7 +86,10 @@ export default function AdminScreen() {
     plan, subscription, seatUsed, seatMax, canInvite, isLoading,
     pendingInvitations, inviteUser, cancelInvitation, orgUsers,
     activeOrgUsers, freeOrgUsers, allOrganizations, deleteOrganization,
+    organization,
   } = useSubscription();
+
+  const [resendingInvId, setResendingInvId] = useState<string | null>(null);
 
   const isSuperAdmin = user?.role === 'super_admin';
   const isAdmin = user?.role === 'admin' || isSuperAdmin;
@@ -313,6 +317,30 @@ export default function AdminScreen() {
       Alert.alert('Token d\'invitation', inviteToken);
       setTokenCopied(true);
       setTimeout(() => setTokenCopied(false), 2500);
+    }
+  }
+
+  async function handleResendInvitation(inv: { id: string; email: string; role: UserRole; token: string; expiresAt: string }) {
+    if (!user) return;
+    setResendingInvId(inv.id);
+    try {
+      const result = await sendInvitationEmail({
+        email: inv.email,
+        invitedByName: user.name,
+        organizationName: organization?.name ?? 'votre organisation',
+        role: inv.role,
+        token: inv.token,
+        expiresAt: inv.expiresAt,
+      });
+      if (result?.success === false) {
+        Alert.alert('Envoi impossible', result.error ?? "L'email n'a pas pu être renvoyé.");
+      } else {
+        showToast(`Email renvoyé à ${inv.email}`);
+      }
+    } catch (e: any) {
+      Alert.alert('Envoi impossible', e?.message ?? "L'email n'a pas pu être renvoyé.");
+    } finally {
+      setResendingInvId(null);
     }
   }
 
@@ -788,14 +816,31 @@ export default function AdminScreen() {
                           : `Invité par ${inviterName} · expire dans ${expiresIn}j`}
                       </Text>
                     </View>
-                    <TouchableOpacity
-                      style={[styles.iconBtnLabelled, styles.iconBtnLabelledDanger]}
-                      onPress={() => handleCancelInvitation(inv.id, inv.email)}
-                      accessibilityLabel={isExpired ? 'Supprimer cette invitation expirée' : 'Annuler cette invitation'}
-                    >
-                      <Ionicons name="close" size={14} color={C.open} />
-                      <Text style={[styles.iconBtnLabelText, { color: C.open }]}>{isExpired ? 'Supprimer' : 'Annuler'}</Text>
-                    </TouchableOpacity>
+                    <View style={{ flexDirection: 'row', gap: 6, alignItems: 'center' }}>
+                      {!isExpired && (
+                        <TouchableOpacity
+                          style={styles.iconBtnLabelled}
+                          onPress={() => handleResendInvitation(inv)}
+                          disabled={resendingInvId === inv.id}
+                          accessibilityLabel="Renvoyer l'email d'invitation"
+                        >
+                          {resendingInvId === inv.id ? (
+                            <ActivityIndicator size="small" color={C.primary} />
+                          ) : (
+                            <Ionicons name="paper-plane-outline" size={14} color={C.primary} />
+                          )}
+                          <Text style={styles.iconBtnLabelText}>Renvoyer</Text>
+                        </TouchableOpacity>
+                      )}
+                      <TouchableOpacity
+                        style={[styles.iconBtnLabelled, styles.iconBtnLabelledDanger]}
+                        onPress={() => handleCancelInvitation(inv.id, inv.email)}
+                        accessibilityLabel={isExpired ? 'Supprimer cette invitation expirée' : 'Annuler cette invitation'}
+                      >
+                        <Ionicons name="close" size={14} color={C.open} />
+                        <Text style={[styles.iconBtnLabelText, { color: C.open }]}>{isExpired ? 'Supprimer' : 'Annuler'}</Text>
+                      </TouchableOpacity>
+                    </View>
                   </View>
                 );
               })}

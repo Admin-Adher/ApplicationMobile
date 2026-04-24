@@ -13,7 +13,7 @@ function getApiUrl(): string {
   return VERCEL_API_URL;
 }
 
-async function callEmailApi(body: Record<string, unknown>): Promise<void> {
+async function callEmailApi(body: Record<string, unknown>): Promise<{ success: boolean; error?: string }> {
   try {
     const url = getApiUrl();
     const response = await fetch(url, {
@@ -23,10 +23,15 @@ async function callEmailApi(body: Record<string, unknown>): Promise<void> {
     });
     if (!response.ok) {
       const data = await response.json().catch(() => ({}));
-      console.warn('[Email Client] Échec envoi email:', data?.error ?? response.statusText);
+      const errMsg = data?.error ?? response.statusText;
+      console.warn('[Email Client] Échec envoi email:', errMsg);
+      return { success: false, error: errMsg };
     }
+    return { success: true };
   } catch (err: any) {
-    console.warn('[Email Client] Erreur réseau:', err?.message ?? err);
+    const errMsg = err?.message ?? 'Erreur réseau';
+    console.warn('[Email Client] Erreur réseau:', errMsg);
+    return { success: false, error: errMsg };
   }
 }
 
@@ -37,8 +42,8 @@ export async function sendInvitationEmail(params: {
   role: string;
   token: string;
   expiresAt: string;
-}): Promise<void> {
-  await callEmailApi({ type: 'invitation', ...params });
+}): Promise<{ success: boolean; error?: string }> {
+  return callEmailApi({ type: 'invitation', ...params });
 }
 
 export async function sendWelcomeEmail(params: {
