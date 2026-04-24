@@ -389,6 +389,15 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
     }
 
     try {
+      // Clean up any stale invitation row (accepted, expired, or otherwise lingering)
+      // for the same email + organization. The DB has a unique constraint on
+      // (organization_id, email) — without this delete, the INSERT below fails
+      // silently with a generic "Impossible de créer l'invitation." error.
+      await (supabase.from('invitations') as any)
+        .delete()
+        .eq('organization_id', user.organizationId)
+        .eq('email', emailLower);
+
       const { data, error } = await (supabase.from('invitations') as any)
         .insert({
           organization_id: user.organizationId,
@@ -401,7 +410,9 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
         .single();
 
       if (error || !data) {
-        return { success: false, error: "Impossible de créer l'invitation." };
+        const msg = error?.message ? `Impossible de créer l'invitation : ${error.message}` : "Impossible de créer l'invitation.";
+        console.warn('[inviteUser] insert error:', error?.code, error?.message, error?.details);
+        return { success: false, error: msg };
       }
 
       const newInv: Invitation = {
