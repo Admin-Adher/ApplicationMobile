@@ -390,13 +390,20 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
 
     try {
       // Clean up any stale invitation row (accepted, expired, or otherwise lingering)
-      // for the same email + organization. The DB has a unique constraint on
-      // (organization_id, email) — without this delete, the INSERT below fails
-      // silently with a generic "Impossible de créer l'invitation." error.
+      // for the same email + organization. The DB may have a unique constraint on
+      // (organization_id, email) — without this delete, a re-invite would collide.
       await (supabase.from('invitations') as any)
         .delete()
         .eq('organization_id', user.organizationId)
         .eq('email', emailLower);
+
+      // Generate token + expiry client-side. The invitations table has NOT NULL
+      // constraints on `token` and `expires_at` without DB-side defaults, so we
+      // must supply them explicitly otherwise the INSERT fails for every email.
+      const newToken =
+        (globalThis.crypto as Crypto | undefined)?.randomUUID?.() ??
+        `inv_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
+      const newExpiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
 
       const { data, error } = await (supabase.from('invitations') as any)
         .insert({
@@ -404,6 +411,9 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
           email: emailLower,
           role,
           invited_by: user.id,
+          token: newToken,
+          expires_at: newExpiresAt,
+          status: 'pending',
           ...(companyId ? { company_id: companyId } : {}),
         })
         .select()
