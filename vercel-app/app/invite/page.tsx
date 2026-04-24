@@ -31,7 +31,9 @@ function InviteContent() {
     return () => clearTimeout(timer);
   }, [token, platform]);
 
-  const registerUrl = `https://buildtrack-mobile.vercel.app/register`;
+  const registerUrl = token
+    ? `https://buildtrack-mobile.vercel.app/register?token=${encodeURIComponent(token)}`
+    : `https://buildtrack-mobile.vercel.app/register`;
 
   return (
     <div style={styles.container}>
