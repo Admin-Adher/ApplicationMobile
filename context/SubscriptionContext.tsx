@@ -265,9 +265,19 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
       }
 
       if (user.role === 'admin' || user.role === 'super_admin') {
+        // Opportunistic cleanup: delete invitations that expired more than 30 days
+        // ago for this org. Runs each time an admin loads the screen, which keeps
+        // the DB tidy without needing a server-side cron job.
+        const cleanupCutoff = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
+        (supabase.from('invitations') as any)
+          .delete()
+          .eq('organization_id', user.organizationId)
+          .lt('expires_at', cleanupCutoff)
+          .then(() => {})
+          .catch(() => {});
+
         // Note: invitations are filtered client-side by expires_at > now() to exclude expired ones.
         // Expired rows keep status='pending' in the DB (no auto-transition to 'expired').
-        // A Supabase Edge Function (cron) would be required to automate that transition.
         const { data: invData } = await (supabase.from('invitations') as any)
           .select('*')
           .eq('organization_id', user.organizationId)
