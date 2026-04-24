@@ -15,7 +15,6 @@ import { UserRole, Company } from '@/constants/types';
 import { isSupabaseConfigured } from '@/lib/supabase';
 import { genId } from '@/lib/utils';
 import { ROLES, ROLE_INFO, PLAN_COLORS, FREE_ROLES, AVATAR_COLORS, hashColor, formatDate } from '@/lib/adminUtils';
-import { sendInvitationEmail } from '@/lib/email/client';
 
 const WINDOW_H = Dimensions.get('window').height;
 const MODAL_SCROLL_MAX_H = WINDOW_H * 0.62;
@@ -84,7 +83,7 @@ export default function AdminScreen() {
   const { companies, lots, addCompany, updateCompanyFull, deleteCompany, updateCompanyWorkers, updateCompanyHours } = useApp();
   const {
     plan, subscription, seatUsed, seatMax, canInvite, isLoading,
-    pendingInvitations, inviteUser, cancelInvitation, orgUsers,
+    pendingInvitations, inviteUser, cancelInvitation, resendInvitation, orgUsers,
     activeOrgUsers, freeOrgUsers, allOrganizations, deleteOrganization,
     organization,
   } = useSubscription();
@@ -320,28 +319,46 @@ export default function AdminScreen() {
     }
   }
 
-  async function handleResendInvitation(inv: { id: string; email: string; role: UserRole; token: string; expiresAt: string }) {
-    if (!user) return;
+  async function doResend(inv: { id: string; email: string; resendCount?: number }) {
     setResendingInvId(inv.id);
     try {
-      const result = await sendInvitationEmail({
-        email: inv.email,
-        invitedByName: user.name,
-        organizationName: organization?.name ?? 'votre organisation',
-        role: inv.role,
-        token: inv.token,
-        expiresAt: inv.expiresAt,
-      });
-      if (result?.success === false) {
+      const result = await resendInvitation(inv.id);
+      if (!result.success) {
         Alert.alert('Envoi impossible', result.error ?? "L'email n'a pas pu être renvoyé.");
       } else {
-        showToast(`Email renvoyé à ${inv.email}`);
+        const total = (inv.resendCount ?? 0) + 1;
+        showToast(`Email renvoyé à ${inv.email} (${total}× au total)`);
       }
-    } catch (e: any) {
-      Alert.alert('Envoi impossible', e?.message ?? "L'email n'a pas pu être renvoyé.");
     } finally {
       setResendingInvId(null);
     }
+  }
+
+  function handleResendInvitation(inv: { id: string; email: string; role: UserRole; token: string; expiresAt: string; resendCount?: number; lastResentAt?: string }) {
+    if (!user) return;
+    const count = inv.resendCount ?? 0;
+    // Throttle: avoid sending more than once per 2 minutes
+    if (inv.lastResentAt) {
+      const since = Date.now() - new Date(inv.lastResentAt).getTime();
+      if (since < 2 * 60 * 1000) {
+        const seconds = Math.ceil((2 * 60 * 1000 - since) / 1000);
+        Alert.alert('Trop tôt', `Veuillez patienter ${seconds}s avant un nouveau renvoi.`);
+        return;
+      }
+    }
+    // Spam guard: ask confirmation past 3 resends
+    if (count >= 3) {
+      Alert.alert(
+        'Risque de spam',
+        `Vous avez déjà renvoyé cet email ${count} fois à ${inv.email}. Continuer ?`,
+        [
+          { text: 'Non', style: 'cancel' },
+          { text: 'Renvoyer quand même', onPress: () => doResend(inv) },
+        ]
+      );
+      return;
+    }
+    doResend(inv);
   }
 
   function handleCancelInvitation(id: string, emailAddr: string) {
@@ -815,6 +832,11 @@ export default function AdminScreen() {
                           ? 'Invitation expirée'
                           : `Invité par ${inviterName} · expire dans ${expiresIn}j`}
                       </Text>
+                      {!isExpired && (inv.resendCount ?? 0) > 0 && (
+                        <Text style={[styles.inviteExpiry, { color: (inv.resendCount ?? 0) >= 3 ? '#EF4444' : C.textMuted, marginTop: 2 }]}>
+                          Renvoyé {inv.resendCount}× {inv.lastResentAt ? `· dernier envoi ${formatDate(inv.lastResentAt)}` : ''}
+                        </Text>
+                      )}
                     </View>
                     <View style={{ flexDirection: 'row', gap: 6, alignItems: 'center' }}>
                       {!isExpired && (

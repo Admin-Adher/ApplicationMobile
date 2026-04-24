@@ -73,6 +73,7 @@ interface SubscriptionContextValue {
   orgSummaries: OrgSummary[];
   inviteUser: (email: string, role: UserRole, companyId?: string) => Promise<{ success: boolean; error?: string; token?: string }>;
   cancelInvitation: (id: string) => Promise<void>;
+  resendInvitation: (id: string) => Promise<{ success: boolean; error?: string }>;
   refreshSubscription: () => void;
   updateOrgPlan: (orgId: string, planId: string) => Promise<{ success: boolean; error?: string }>;
   updateOrgStatus: (orgId: string, status: 'trial' | 'active' | 'suspended' | 'expired') => Promise<{ success: boolean; error?: string }>;
@@ -299,6 +300,8 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
               createdAt: i.created_at,
               expiresAt: i.expires_at,
               companyId: i.company_id ?? undefined,
+              resendCount: i.resend_count ?? 0,
+              lastResentAt: i.last_resent_at ?? undefined,
             }))
           );
         }
@@ -463,6 +466,46 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
     } catch {
       return { success: false, error: 'Erreur réseau.' };
     }
+  }
+
+  async function resendInvitation(id: string): Promise<{ success: boolean; error?: string }> {
+    if (!user) return { success: false, error: 'Non authentifié.' };
+    const inv = pendingInvitations.find(i => i.id === id);
+    if (!inv) return { success: false, error: 'Invitation introuvable.' };
+    if (new Date(inv.expiresAt).getTime() <= Date.now()) {
+      return { success: false, error: 'Invitation expirée. Créez-en une nouvelle.' };
+    }
+
+    const emailResult = await sendInvitationEmail({
+      email: inv.email,
+      invitedByName: user.name,
+      organizationName: organization?.name ?? 'votre organisation',
+      role: inv.role,
+      token: inv.token,
+      expiresAt: inv.expiresAt,
+    });
+    if (!emailResult.success) {
+      return { success: false, error: emailResult.error };
+    }
+
+    // Best-effort counter increment. If the migration adding resend_count /
+    // last_resent_at hasn't been applied yet, the UPDATE silently no-ops and
+    // the email send still counts as success.
+    const newCount = (inv.resendCount ?? 0) + 1;
+    const nowIso = new Date().toISOString();
+    try {
+      const { error: updErr } = await (supabase.from('invitations') as any)
+        .update({ resend_count: newCount, last_resent_at: nowIso })
+        .eq('id', id);
+      if (!updErr) {
+        setPendingInvitations(prev =>
+          prev.map(i => (i.id === id ? { ...i, resendCount: newCount, lastResentAt: nowIso } : i))
+        );
+      }
+    } catch {
+      // ignore — columns may not exist yet
+    }
+    return { success: true };
   }
 
   async function cancelInvitation(id: string): Promise<void> {
@@ -798,6 +841,7 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
         orgSummaries,
         inviteUser,
         cancelInvitation,
+        resendInvitation,
         refreshSubscription,
         updateOrgPlan,
         updateOrgStatus,

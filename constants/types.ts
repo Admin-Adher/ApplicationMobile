@@ -93,6 +93,8 @@ export interface Invitation {
   createdAt: string;
   expiresAt: string;
   companyId?: string;
+  resendCount?: number;
+  lastResentAt?: string;
 }
 
 export interface Comment {
