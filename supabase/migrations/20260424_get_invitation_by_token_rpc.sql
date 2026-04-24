@@ -35,7 +35,7 @@ AS $$
     i.email,
     i.role,
     COALESCE(o.name, '') AS organization_name,
-    COALESCE(p.full_name, '') AS invited_by_name,
+    COALESCE(p.name, '') AS invited_by_name,
     i.expires_at,
     i.status
   FROM public.invitations i
