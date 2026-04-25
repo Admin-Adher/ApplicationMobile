@@ -108,12 +108,17 @@ export default function LevelPickerSheet({
       onRequestClose={() => { setQuery(''); onClose(); }}
       statusBarTranslucent
     >
-      <TouchableOpacity
-        style={styles.backdrop}
-        activeOpacity={1}
-        onPress={() => { setQuery(''); onClose(); }}
-      />
-      <View style={styles.sheet}>
+      {/* Conteneur racine flex:1 pour stabiliser `height: 78%` du sheet
+          contre le plein écran (cf. BuildingPickerSheet : sans ce wrapper,
+          Android avec statusBarTranslucent peut écraser la sheet en bas
+          d'écran pendant l'animation slide). */}
+      <View style={styles.modalRoot}>
+        <TouchableOpacity
+          style={styles.backdrop}
+          activeOpacity={1}
+          onPress={() => { setQuery(''); onClose(); }}
+        />
+        <View style={styles.sheet}>
         <View style={styles.handleHitArea} {...handlePan.panHandlers}>
           <View style={styles.handle} />
         </View>
@@ -272,6 +277,7 @@ export default function LevelPickerSheet({
             </>
           )}
         </ScrollView>
+        </View>
       </View>
     </Modal>
   );
@@ -332,7 +338,10 @@ function LevelRow({
 }
 
 const styles = StyleSheet.create({
-  backdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.45)' },
+  modalRoot: { flex: 1, justifyContent: 'flex-end' },
+  // Backdrop en absoluteFill pour qu'il couvre toujours tout l'écran sans
+  // dépendre du flex layout — évite les rendus partiels intermittents.
+  backdrop: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(0,0,0,0.45)' },
   sheet: {
     backgroundColor: C.surface,
     borderTopLeftRadius: 20,
@@ -385,7 +394,12 @@ const styles = StyleSheet.create({
     color: C.text,
     paddingVertical: 0,
   },
-  list: { marginTop: 4 },
+  // flex:1 + minHeight:0 : la liste prend tout l'espace résiduel sous le
+  // header/search et scrolle correctement. Sans ça, sur Android, un
+  // ScrollView dans un flex column sans dimension explicite essaie de se
+  // dimensionner à la hauteur intrinsèque de son contenu et collapse à
+  // 0 px dès que ça déborde (cf. même bug corrigé dans BuildingPickerSheet).
+  list: { flex: 1, minHeight: 0, marginTop: 4 },
   sectionHeader: {
     flexDirection: 'row',
     alignItems: 'center',
