@@ -18,6 +18,8 @@ import { ROLES, ROLE_INFO, PLAN_COLORS, FREE_ROLES, AVATAR_COLORS, hashColor, fo
 
 const WINDOW_H = Dimensions.get('window').height;
 const MODAL_SCROLL_MAX_H = WINDOW_H * 0.62;
+const APK_DOWNLOAD_URL =
+  'https://github.com/Admin-Adher/ApplicationMobile/releases/latest/download/buildtrack-release.apk';
 
 function SafeKAV({ children }: { children: React.ReactNode }) {
   if (Platform.OS === 'ios') {
@@ -137,6 +139,7 @@ export default function AdminScreen() {
   const [inviteSending, setInviteSending] = useState(false);
   const [inviteToken, setInviteToken] = useState<string | null>(null);
   const [tokenCopied, setTokenCopied] = useState(false);
+  const [apkLinkCopied, setApkLinkCopied] = useState(false);
   const [userSearch, setUserSearch] = useState('');
   const [roleFilter, setRoleFilter] = useState<UserRole | 'all'>('all');
   const [companySearch, setCompanySearch] = useState('');
@@ -323,6 +326,19 @@ export default function AdminScreen() {
       Alert.alert('Token d\'invitation', inviteToken);
       setTokenCopied(true);
       setTimeout(() => setTokenCopied(false), 2500);
+    }
+  }
+
+  function handleCopyApkLink() {
+    if (Platform.OS === 'web' && typeof navigator !== 'undefined' && navigator.clipboard) {
+      navigator.clipboard.writeText(APK_DOWNLOAD_URL).then(() => {
+        setApkLinkCopied(true);
+        setTimeout(() => setApkLinkCopied(false), 2500);
+      }).catch(() => Alert.alert('Lien APK', APK_DOWNLOAD_URL));
+    } else {
+      Alert.alert('Lien de téléchargement Android', APK_DOWNLOAD_URL);
+      setApkLinkCopied(true);
+      setTimeout(() => setApkLinkCopied(false), 2500);
     }
   }
 
@@ -1442,6 +1458,33 @@ export default function AdminScreen() {
                     <Text style={styles.inviteHint}>
                       Ce code est valable 7 jours. L'accès est lié à l'adresse {inviteEmail} — l'utilisateur doit créer son compte avec cette adresse.
                     </Text>
+
+                    <View style={styles.apkShareBox}>
+                      <View style={styles.apkShareHeader}>
+                        <Ionicons name="logo-android" size={18} color={C.primary} />
+                        <Text style={styles.apkShareTitle}>Application Android</Text>
+                      </View>
+                      <Text style={styles.apkShareText}>
+                        BuildTrack n'est pas encore publié sur Google Play. Partagez ce lien à {inviteEmail} pour qu'il/elle installe l'application Android :
+                      </Text>
+                      <View style={styles.apkLinkBox}>
+                        <Text style={styles.apkLinkTxt} numberOfLines={1} selectable>{APK_DOWNLOAD_URL}</Text>
+                      </View>
+                      <TouchableOpacity
+                        style={[styles.copyBtn, apkLinkCopied && styles.copyBtnDone]}
+                        onPress={handleCopyApkLink}
+                      >
+                        <Ionicons
+                          name={apkLinkCopied ? 'checkmark-circle' : 'link-outline'}
+                          size={16}
+                          color={apkLinkCopied ? '#10B981' : C.primary}
+                        />
+                        <Text style={[styles.copyBtnTxt, apkLinkCopied && styles.copyBtnTxtDone]}>
+                          {apkLinkCopied ? 'Lien copié !' : 'Copier le lien de téléchargement'}
+                        </Text>
+                      </TouchableOpacity>
+                    </View>
+
                     <TouchableOpacity style={styles.saveBtn} onPress={handleCloseInviteModal}>
                       <Text style={styles.saveBtnText}>Fermer</Text>
                     </TouchableOpacity>
@@ -1988,6 +2031,29 @@ const styles = StyleSheet.create({
   copyBtnDone: { borderColor: '#10B981', backgroundColor: '#ECFDF5' },
   copyBtnTxt: { fontSize: 14, fontFamily: 'Inter_600SemiBold', color: C.primary },
   copyBtnTxtDone: { color: '#10B981' },
+
+  apkShareBox: {
+    marginTop: 6,
+    marginBottom: 14,
+    padding: 14,
+    backgroundColor: C.primaryBg,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: C.border,
+    gap: 10,
+  },
+  apkShareHeader: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  apkShareTitle: { fontSize: 14, fontFamily: 'Inter_700Bold', color: C.primary },
+  apkShareText: { fontSize: 12, fontFamily: 'Inter_400Regular', color: C.textSub, lineHeight: 17 },
+  apkLinkBox: {
+    backgroundColor: '#fff',
+    borderRadius: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    borderWidth: 1,
+    borderColor: C.border,
+  },
+  apkLinkTxt: { fontSize: 11, fontFamily: 'Inter_500Medium', color: C.textSub },
 
   clearFilterBtn: {
     flexDirection: 'row', alignItems: 'center', gap: 6,
