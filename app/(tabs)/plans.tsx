@@ -37,6 +37,7 @@ const PIN_SIZE_KEY = 'plans_pin_size_scale';
 const PIN_SIZES_KEY = 'plans_pin_sizes_v2';
 const RECENT_BUILDINGS_KEY = 'plans_recent_buildings_v1';
 const RECENT_LEVELS_KEY = 'plans_recent_levels_v1';
+const RECENT_FAMILY_KEY = 'plans_recent_family_v1';
 const HYBRID_PICKER_THRESHOLD = 5;
 const HYBRID_LEVEL_THRESHOLD = 6;
 const VISIBLE_RECENT_CHIPS = 3;
@@ -391,6 +392,9 @@ export default function PlansScreen() {
   const [recentBuildingsByChantier, setRecentBuildingsByChantier] = useState<Record<string, string[]>>({});
   const [levelPickerOpen, setLevelPickerOpen] = useState(false);
   const [recentLevelsByBuilding, setRecentLevelsByBuilding] = useState<Record<string, string[]>>({});
+  // Mémorise la dernière famille de bâtiments choisie dans le picker, par chantier.
+  // Permet de retomber directement sur la bonne catégorie à la réouverture.
+  const [recentFamilyByChantier, setRecentFamilyByChantier] = useState<Record<string, string>>({});
 
   const pdfViewerRef = useRef<PdfPlanViewerHandle>(null);
   const reserveListRef = useRef<FlatList<Reserve> | null>(null);
@@ -416,6 +420,9 @@ export default function PlansScreen() {
     });
     AsyncStorage.getItem(RECENT_LEVELS_KEY).then(v => {
       if (v) { try { setRecentLevelsByBuilding(JSON.parse(v)); } catch {} }
+    });
+    AsyncStorage.getItem(RECENT_FAMILY_KEY).then(v => {
+      if (v) { try { setRecentFamilyByChantier(JSON.parse(v)); } catch {} }
     });
   }, []);
 
@@ -2668,6 +2675,16 @@ export default function PlansScreen() {
           setActivePlanId(null);
         }}
         orphansSelected={selectedBuilding === '__none__'}
+        initialFamily={activeChantierId ? recentFamilyByChantier[activeChantierId] : undefined}
+        onFamilyChange={(famKey) => {
+          if (!activeChantierId) return;
+          setRecentFamilyByChantier(prev => {
+            if (prev[activeChantierId] === famKey) return prev;
+            const updated = { ...prev, [activeChantierId]: famKey };
+            AsyncStorage.setItem(RECENT_FAMILY_KEY, JSON.stringify(updated)).catch(() => {});
+            return updated;
+          });
+        }}
       />
 
       {/* Level picker sheet (récents + recherche pour bâtiments à plusieurs niveaux) */}

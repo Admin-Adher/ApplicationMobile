@@ -25,6 +25,12 @@ interface Props {
   onSelectOrphans?: () => void;
   orphansSelected?: boolean;
   orphansLabel?: string;
+  /** Famille à présélectionner à l'ouverture (mémorisée par chantier).
+   *  Si la clé n'existe plus dans les familles détectées, on retombe
+   *  sur la famille du bâtiment actif, puis sur "Toutes". */
+  initialFamily?: string;
+  /** Callback déclenché quand l'utilisateur change de famille via les chips. */
+  onFamilyChange?: (familyKey: string) => void;
 }
 
 const ALL_FAMILY = '__all__';
@@ -240,6 +246,7 @@ function sortBySuffix(a: ItemWithSuffix, b: ItemWithSuffix) {
 export default function BuildingPickerSheet({
   visible, onClose, buildings, selectedId, recentIds, onSelect,
   hasOrphanPlans, onSelectOrphans, orphansSelected, orphansLabel = 'Général',
+  initialFamily, onFamilyChange,
 }: Props) {
   const insets = useSafeAreaInsets();
   const [query, setQuery] = useState('');
@@ -265,13 +272,29 @@ export default function BuildingPickerSheet({
     [buildings]
   );
 
-  // À l'ouverture, présélectionner la famille du bâtiment actif (si grouping).
+  // À l'ouverture, choisir la famille à pré-sélectionner avec cette priorité :
+  //   1. `initialFamily` (mémorisée par chantier) si la clé existe encore
+  //   2. La famille du bâtiment actuellement sélectionné
+  //   3. "Toutes"
   useEffect(() => {
     if (!visible) return;
     if (!useGrouping) { setActiveFamily(ALL_FAMILY); return; }
+
+    const validKeys = new Set<string>([ALL_FAMILY, ...families.map(f => f.key)]);
+    if (initialFamily && validKeys.has(initialFamily)) {
+      setActiveFamily(initialFamily);
+      return;
+    }
     const fam = familyOf.get(selectedId);
     setActiveFamily(fam ?? ALL_FAMILY);
-  }, [visible, useGrouping, familyOf, selectedId]);
+  }, [visible, useGrouping, familyOf, selectedId, initialFamily, families]);
+
+  // Wrapper qui notifie le parent à chaque changement de famille,
+  // pour qu'il puisse persister le choix entre les sessions.
+  const handleSetActiveFamily = (key: string) => {
+    setActiveFamily(key);
+    onFamilyChange?.(key);
+  };
 
   const filteredFlat = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -361,7 +384,7 @@ export default function BuildingPickerSheet({
               label="Toutes"
               count={buildings.length}
               active={activeFamily === ALL_FAMILY}
-              onPress={() => setActiveFamily(ALL_FAMILY)}
+              onPress={() => handleSetActiveFamily(ALL_FAMILY)}
             />
             {families.map(f => (
               <FamilyChip
@@ -369,7 +392,7 @@ export default function BuildingPickerSheet({
                 label={f.label}
                 count={f.items.length}
                 active={activeFamily === f.key}
-                onPress={() => setActiveFamily(f.key)}
+                onPress={() => handleSetActiveFamily(f.key)}
               />
             ))}
           </ScrollView>
