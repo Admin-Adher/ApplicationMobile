@@ -117,7 +117,13 @@ function findClosestFamily(key: string, realKeys: Iterable<string>): string | nu
   return best;
 }
 
-type ItemWithSuffix = BuildingItem & { suffix: string | null };
+type ItemWithSuffix = BuildingItem & {
+  suffix: string | null;
+  // Si défini, le bâtiment a été rapatrié dans une famille proche par
+  // correction de coquille. Contient l'étiquette d'origine attendue
+  // (ex. "Lockoff") pour l'affichage du badge "synonyme".
+  typoOf?: string;
+};
 type Family = { key: string; label: string; items: ItemWithSuffix[] };
 
 function buildFamilies(buildings: BuildingItem[]): {
@@ -152,6 +158,22 @@ function buildFamilies(buildings: BuildingItem[]): {
     if (bucket.items.length >= 2) realKeys.push(key);
   }
 
+  // Pré-calcule l'étiquette d'affichage de chaque famille réelle pour
+  // pouvoir étiqueter les items absorbés (typoOf) avec la bonne graphie.
+  const labelOfKey = new Map<string, string>();
+  for (const key of realKeys) {
+    const bucket = groups.get(key)!;
+    let label = '';
+    let bestCount = -1;
+    for (const [lbl, count] of bucket.labelCounts) {
+      if (count > bestCount || (count === bestCount && lbl < label)) {
+        label = lbl;
+        bestCount = count;
+      }
+    }
+    labelOfKey.set(key, label);
+  }
+
   // Coquilles : tout singleton dont la clé est à 1-2 caractères près d'une
   // famille réelle (ex. "Lockoof" → "Lockoff") est rapatrié dans cette
   // famille. Les singletons restants finissent dans "Autres".
@@ -160,7 +182,12 @@ function buildFamilies(buildings: BuildingItem[]): {
     const target = findClosestFamily(key, realKeys);
     if (target) {
       const tBucket = groups.get(target)!;
-      for (const it of bucket.items) tBucket.items.push(it);
+      const targetLabel = labelOfKey.get(target) ?? target;
+      for (const it of bucket.items) {
+        // Marque l'item comme "rattaché par correction" — le badge "synonyme"
+        // s'affichera dans la liste pour signaler la coquille à l'utilisateur.
+        tBucket.items.push({ ...it, typoOf: targetLabel });
+      }
       // On n'incrémente PAS labelCounts : la graphie correcte de la famille
       // existante reste prioritaire pour l'étiquette affichée.
       groups.delete(key);
@@ -171,17 +198,7 @@ function buildFamilies(buildings: BuildingItem[]): {
   for (const [key, bucket] of groups) {
     if (bucket.items.length >= 2) {
       bucket.items.sort(sortBySuffix);
-      // Étiquette affichée : graphie d'origine la plus fréquente (ex. on
-      // privilégie "GuestBlock" si vu 4 fois plutôt que "Guestblock").
-      let label = '';
-      let bestCount = -1;
-      for (const [lbl, count] of bucket.labelCounts) {
-        if (count > bestCount || (count === bestCount && lbl < label)) {
-          label = lbl;
-          bestCount = count;
-        }
-      }
-      families.push({ key, label, items: bucket.items });
+      families.push({ key, label: labelOfKey.get(key) ?? key, items: bucket.items });
     } else {
       // Famille singleton sans correspondance proche → on la rejette dans "Autres".
       for (const it of bucket.items) others.push({ ...it, suffix: null });
@@ -536,7 +553,15 @@ function SectionHeader({ icon, label }: { icon: any; label: string }) {
 
 function BuildingRow({
   b, active, pinned, onPress,
-}: { b: BuildingItem; active?: boolean; pinned?: boolean; onPress: () => void }) {
+}: {
+  b: BuildingItem & { typoOf?: string };
+  active?: boolean;
+  pinned?: boolean;
+  onPress: () => void;
+}) {
+  const typoLabel = b.typoOf
+    ? `Probable coquille — rattaché à "${b.typoOf}"`
+    : undefined;
   return (
     <TouchableOpacity
       style={[styles.row, active && styles.rowActive]}
@@ -560,6 +585,20 @@ function BuildingRow({
           </Text>
           {pinned && (
             <Ionicons name="star" size={10} color={C.accent} style={{ marginLeft: 4 }} />
+          )}
+          {b.typoOf && (
+            <View
+              style={styles.typoBadge}
+              accessibilityLabel={typoLabel}
+              {...(Platform.OS === 'web'
+                ? ({ title: typoLabel } as any)
+                : {})}
+            >
+              <Ionicons name="alert-circle" size={10} color={C.waiting} />
+              <Text style={styles.typoBadgeText} numberOfLines={1}>
+                {b.typoOf}
+              </Text>
+            </View>
           )}
         </View>
         <View style={styles.rowSubRow}>
@@ -699,7 +738,27 @@ const styles = StyleSheet.create({
     alignItems: 'center', justifyContent: 'center',
   },
   iconActive: { backgroundColor: C.primary },
-  rowTitleRow: { flexDirection: 'row', alignItems: 'center' },
+  rowTitleRow: { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap' },
+  typoBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 3,
+    marginLeft: 6,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 6,
+    backgroundColor: C.waitingBg,
+    borderWidth: 1,
+    borderColor: C.waiting,
+    maxWidth: 140,
+  },
+  typoBadgeText: {
+    fontSize: 9,
+    fontFamily: 'Inter_700Bold',
+    color: C.waiting,
+    textTransform: 'uppercase',
+    letterSpacing: 0.4,
+  },
   rowTitle: { fontSize: 14, fontFamily: 'Inter_600SemiBold', color: C.text, flexShrink: 1 },
   rowTitleActive: { color: C.primary },
   rowSubRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 2 },
