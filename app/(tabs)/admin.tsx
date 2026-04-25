@@ -774,12 +774,12 @@ export default function AdminScreen() {
                     <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 5, marginTop: 3 }}>
                       <RoleBadge role={u.role} />
                       {u.companyId && (() => {
-                        const co = viewCompanies.find(c => c.id === u.companyId);
+                        const co = viewCompanies.find(c => c.id === u.companyId) ?? companies.find(c => c.id === u.companyId);
                         if (!co) return null;
                         return (
-                          <View style={[styles.companyBadge, { backgroundColor: co.color + '18', borderColor: co.color + '55' }]}>
-                            <View style={[styles.companyBadgeDot, { backgroundColor: co.color }]} />
-                            <Text style={[styles.companyBadgeText, { color: co.color }]} numberOfLines={1}>{co.shortName}</Text>
+                          <View style={styles.inviteCompanyPill}>
+                            <Ionicons name="business-outline" size={10} color={co.color || C.textMuted} />
+                            <Text style={styles.inviteCompanyPillText} numberOfLines={1}>{co.name}</Text>
                           </View>
                         );
                       })()}
