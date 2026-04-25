@@ -543,17 +543,17 @@ export default function PlansScreen() {
     : null;
 
   const allPlanReserves = useMemo(() => {
-    // Trois cas filtrés du plan :
-    //  - réserves clôturées (statut 'closed') : le défaut a été corrigé, on
-    //    ne veut plus voir la pastille
-    //  - réserves archivées (archivedAt non null) : action manuelle de mise
-    //    à l'écart, indépendante du statut
+    // Filtres systématiques du plan :
+    //  - réserves archivées (archivedAt non null) : toujours masquées,
+    //    quel que soit le filtre utilisateur
+    //  - réserves clôturées (statut 'closed') : masquées par défaut, mais
+    //    affichées si l'utilisateur sélectionne explicitement le filtre
+    //    "Clôturé" (utile pour vérifier l'emplacement d'une réserve résolue)
     //  - réserves supprimées : déjà absentes (suppression définitive en BD)
-    let list = reserves.filter(r =>
-      r.planId === currentPlanId
-      && r.status !== 'closed'
-      && !r.archivedAt
-    );
+    let list = reserves.filter(r => r.planId === currentPlanId && !r.archivedAt);
+    if (statusFilter !== 'closed') {
+      list = list.filter(r => r.status !== 'closed');
+    }
     if (isSousTraitant && sousTraitantCompanyName) {
       list = list.filter(r => {
         const names = r.companies ?? (r.company ? [r.company] : []);
@@ -561,7 +561,7 @@ export default function PlansScreen() {
       });
     }
     return list;
-  }, [reserves, currentPlanId, isSousTraitant, sousTraitantCompanyName]);
+  }, [reserves, currentPlanId, isSousTraitant, sousTraitantCompanyName, statusFilter]);
   const pinNumberMap = useMemo(() => {
     const map = new Map<string, number>();
     const sorted = [...allPlanReserves].sort((a, b) => a.createdAt.localeCompare(b.createdAt));
