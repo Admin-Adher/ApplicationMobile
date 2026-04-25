@@ -1,14 +1,22 @@
+import { useRef, useState } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, Linking, Platform, Alert } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import * as Clipboard from 'expo-clipboard';
+import * as FileSystem from 'expo-file-system';
+import * as Sharing from 'expo-sharing';
 import { useAppUpdate } from '@/hooks/useAppUpdate';
+
+type DownloadState = 'idle' | 'downloading' | 'opening';
 
 export default function UpdateBanner() {
   const { updateAvailable, latestLabel, publishedRelative, downloadUrl, dismiss } = useAppUpdate();
+  const [state, setState] = useState<DownloadState>('idle');
+  const [progress, setProgress] = useState(0);
+  const resumableRef = useRef<FileSystem.DownloadResumable | null>(null);
 
   if (!updateAvailable) return null;
 
-  const handleUpdate = async () => {
+  const fallbackToBrowser = async () => {
     try {
       const supported = await Linking.canOpenURL(downloadUrl);
       if (supported) {
@@ -17,15 +25,101 @@ export default function UpdateBanner() {
         window.open(downloadUrl, '_blank');
       } else {
         await Clipboard.setStringAsync(downloadUrl);
-        Alert.alert('Lien copié', 'Le lien de téléchargement a été copié dans le presse-papier.');
+        Alert.alert('Lien copié', 'Le lien a été copié dans le presse-papier.');
       }
     } catch {
       try {
         await Clipboard.setStringAsync(downloadUrl);
-        Alert.alert('Lien copié', 'Le lien de téléchargement a été copié dans le presse-papier.');
+        Alert.alert('Lien copié', 'Le lien a été copié dans le presse-papier.');
       } catch {}
     }
   };
+
+  const handleUpdate = async () => {
+    if (state !== 'idle') return;
+
+    // Sur le web on garde l'ouverture dans un nouvel onglet
+    if (Platform.OS === 'web') {
+      await fallbackToBrowser();
+      return;
+    }
+
+    // Sur iOS on ne devrait jamais arriver ici (updateAvailable=false sur iOS),
+    // mais par sécurité on retombe sur le navigateur.
+    if (Platform.OS !== 'android') {
+      await fallbackToBrowser();
+      return;
+    }
+
+    try {
+      setState('downloading');
+      setProgress(0);
+
+      const fileName = `buildtrack-${latestLabel ? latestLabel.replace(/\s+/g, '-').toLowerCase() : 'release'}.apk`;
+      const targetUri = (FileSystem.cacheDirectory ?? FileSystem.documentDirectory ?? '') + fileName;
+
+      // On supprime un éventuel téléchargement précédent du même nom pour
+      // éviter qu'expo-file-system reprenne un fichier corrompu.
+      try { await FileSystem.deleteAsync(targetUri, { idempotent: true }); } catch {}
+
+      const resumable = FileSystem.createDownloadResumable(
+        downloadUrl,
+        targetUri,
+        {},
+        (p) => {
+          if (p.totalBytesExpectedToWrite > 0) {
+            setProgress(p.totalBytesWritten / p.totalBytesExpectedToWrite);
+          }
+        },
+      );
+      resumableRef.current = resumable;
+
+      const result = await resumable.downloadAsync();
+      resumableRef.current = null;
+
+      if (!result?.uri) {
+        throw new Error('Téléchargement interrompu');
+      }
+
+      setState('opening');
+
+      const canShare = await Sharing.isAvailableAsync();
+      if (canShare) {
+        // Android : ouvre le sheet "Ouvrir avec…" qui propose le programme
+        // d'installation de paquets pour finaliser la mise à jour.
+        await Sharing.shareAsync(result.uri, {
+          mimeType: 'application/vnd.android.package-archive',
+          dialogTitle: 'Installer la mise à jour BuildTrack',
+          UTI: 'public.archive',
+        });
+      } else {
+        await fallbackToBrowser();
+      }
+      setState('idle');
+      setProgress(0);
+    } catch (err) {
+      resumableRef.current = null;
+      setState('idle');
+      setProgress(0);
+      Alert.alert(
+        'Téléchargement impossible',
+        'Le téléchargement intégré a échoué. On va l\'ouvrir dans votre navigateur.',
+        [
+          { text: 'Annuler', style: 'cancel' },
+          { text: 'Ouvrir', onPress: () => { fallbackToBrowser(); } },
+        ],
+      );
+    }
+  };
+
+  const isBusy = state !== 'idle';
+  const pct = Math.round(progress * 100);
+  const buttonLabel =
+    state === 'downloading'
+      ? `Téléchargement ${pct}%`
+      : state === 'opening'
+        ? 'Ouverture…'
+        : 'Mettre à jour';
 
   return (
     <View style={styles.banner}>
@@ -37,15 +131,31 @@ export default function UpdateBanner() {
           Nouvelle version disponible{latestLabel ? ` · ${latestLabel}` : ''}
         </Text>
         <Text style={styles.subtitle} numberOfLines={1}>
-          {publishedRelative ? `Publiée ${publishedRelative}` : 'Mettez à jour pour les dernières améliorations'}
+          {state === 'downloading'
+            ? 'Téléchargement en cours, ne fermez pas l\'application'
+            : publishedRelative
+              ? `Publiée ${publishedRelative}`
+              : 'Mettez à jour pour les dernières améliorations'}
         </Text>
+        {state === 'downloading' && (
+          <View style={styles.progressTrack}>
+            <View style={[styles.progressFill, { width: `${Math.max(2, pct)}%` }]} />
+          </View>
+        )}
       </View>
-      <TouchableOpacity style={styles.updateBtn} onPress={handleUpdate} activeOpacity={0.85}>
-        <Text style={styles.updateBtnText}>Mettre à jour</Text>
+      <TouchableOpacity
+        style={[styles.updateBtn, isBusy && styles.updateBtnBusy]}
+        onPress={handleUpdate}
+        activeOpacity={0.85}
+        disabled={isBusy}
+      >
+        <Text style={styles.updateBtnText} numberOfLines={1}>{buttonLabel}</Text>
       </TouchableOpacity>
-      <TouchableOpacity style={styles.closeBtn} onPress={dismiss} hitSlop={8}>
-        <Ionicons name="close" size={18} color="#FFFFFFCC" />
-      </TouchableOpacity>
+      {!isBusy && (
+        <TouchableOpacity style={styles.closeBtn} onPress={dismiss} hitSlop={8}>
+          <Ionicons name="close" size={18} color="#FFFFFFCC" />
+        </TouchableOpacity>
+      )}
     </View>
   );
 }
@@ -90,11 +200,28 @@ const styles = StyleSheet.create({
     fontFamily: 'Inter_500Medium',
     marginTop: 2,
   },
+  progressTrack: {
+    marginTop: 6,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: '#FFFFFF33',
+    overflow: 'hidden',
+  },
+  progressFill: {
+    height: '100%',
+    borderRadius: 2,
+    backgroundColor: '#FFFFFF',
+  },
   updateBtn: {
     backgroundColor: '#FFFFFF',
     borderRadius: 999,
     paddingHorizontal: 14,
     paddingVertical: 8,
+    minWidth: 110,
+    alignItems: 'center',
+  },
+  updateBtnBusy: {
+    opacity: 0.85,
   },
   updateBtnText: {
     color: '#E0512B',
