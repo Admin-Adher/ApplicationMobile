@@ -10,17 +10,19 @@ import { toReserve } from '@/lib/mappers';
 import { Reserve, ReserveStatus, Comment } from '@/constants/types';
 import { genId, formatDateFR } from '@/lib/utils';
 import { genReserveId } from '@/lib/reserveUtils';
-import { mergeWithCache, readCache, writeCache } from '@/lib/offlineCache';
+import { mergeWithCache, readCache, writeCache, pendingIdsForTable } from '@/lib/offlineCache';
 
 const RESERVES_CACHE_KEY = 'buildtrack_reserves_cache_v1';
 
 export function useReserves() {
   const { user } = useAuth();
   const userId = user?.id;
-  const { isOnline, enqueueOperation } = useNetwork();
+  const { isOnline, enqueueOperation, queue } = useNetwork();
   const queryClient = useQueryClient();
   const isOnlineRef = useRef(isOnline);
   useEffect(() => { isOnlineRef.current = isOnline; }, [isOnline]);
+  const queueRef = useRef(queue);
+  useEffect(() => { queueRef.current = queue; }, [queue]);
 
   const query = useQuery({
     queryKey: queryKeys.reserves(),
@@ -54,7 +56,8 @@ export function useReserves() {
         const { data, error } = await q;
         if (error) throw error;
         const fresh = (data ?? []).map(toReserve);
-        const merged = mergeWithCache<Reserve>(fresh, cached);
+        const pendingIds = pendingIdsForTable(queueRef.current ?? [], 'reserves');
+        const merged = mergeWithCache<Reserve>(fresh, cached, pendingIds);
         await writeCache(RESERVES_CACHE_KEY, merged, userId);
         return merged;
       } catch (err) {

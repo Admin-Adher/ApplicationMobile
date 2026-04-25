@@ -9,17 +9,19 @@ import { queryKeys } from '@/lib/queryKeys';
 import { toTask } from '@/lib/mappers';
 import { Task, Comment } from '@/constants/types';
 import { genId } from '@/lib/utils';
-import { mergeWithCache, readCache, writeCache } from '@/lib/offlineCache';
+import { mergeWithCache, readCache, writeCache, pendingIdsForTable } from '@/lib/offlineCache';
 
 const TASKS_CACHE_KEY = 'buildtrack_tasks_cache_v1';
 
 export function useTasks() {
   const { user } = useAuth();
   const userId = user?.id;
-  const { isOnline, enqueueOperation } = useNetwork();
+  const { isOnline, enqueueOperation, queue } = useNetwork();
   const queryClient = useQueryClient();
   const isOnlineRef = useRef(isOnline);
   useEffect(() => { isOnlineRef.current = isOnline; }, [isOnline]);
+  const queueRef = useRef(queue);
+  useEffect(() => { queueRef.current = queue; }, [queue]);
 
   const query = useQuery({
     queryKey: queryKeys.tasks(),
@@ -41,7 +43,8 @@ export function useTasks() {
         const { data, error } = await q;
         if (error) throw error;
         const fresh = (data ?? []).map(toTask);
-        const merged = mergeWithCache<Task>(fresh, cached);
+        const pendingIds = pendingIdsForTable(queueRef.current ?? [], 'tasks');
+        const merged = mergeWithCache<Task>(fresh, cached, pendingIds);
         await writeCache(TASKS_CACHE_KEY, merged, userId);
         return merged;
       } catch (err) {

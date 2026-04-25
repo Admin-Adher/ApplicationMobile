@@ -69,16 +69,56 @@ export async function offlineQuery<T>(
 }
 
 /**
- * Merge fresh data with cached data, keeping local-only items.
- * Useful when some items were created offline and don't yet exist on server.
+ * Compute the set of row IDs that have a pending offline mutation
+ * (insert or update) for the given table.
+ *
+ * Used by `mergeWithCache` to distinguish:
+ *   - rows that are missing from the server response because they were
+ *     created/updated offline and not yet synced  → KEEP from cache
+ *   - rows that are missing from the server response because they were
+ *     deleted server-side (or by another device)  → DROP, do not resurrect
+ */
+export function pendingIdsForTable(
+  queue: Array<{
+    table: string;
+    op: 'insert' | 'update' | 'delete';
+    data?: any;
+    filter?: { column: string; value: string };
+  }>,
+  table: string,
+): Set<string> {
+  const ids = new Set<string>();
+  for (const op of queue) {
+    if (op.table !== table) continue;
+    if (op.op === 'insert' && op.data?.id) {
+      ids.add(String(op.data.id));
+    } else if (op.op === 'update' && op.filter?.column === 'id' && op.filter.value) {
+      ids.add(String(op.filter.value));
+    }
+  }
+  return ids;
+}
+
+/**
+ * Merge fresh server data with cached data, keeping ONLY the local-only items
+ * that have a pending offline mutation. Without `pendingIds`, no cached item
+ * is preserved — server is the source of truth.
+ *
+ * Why: previously this helper kept any cached item missing from the server
+ * response, treating them all as "offline-created". That caused server-side
+ * deletions to never propagate (the deleted row stayed in cache forever and
+ * was re-added on every fetch as a ghost).
  */
 export function mergeWithCache<T extends { id: string }>(
   fresh: T[],
   cached: T[] | null,
+  pendingIds?: Set<string>,
 ): T[] {
-  if (!cached) return fresh;
+  if (!cached || cached.length === 0) return fresh;
+  if (!pendingIds || pendingIds.size === 0) return fresh;
   const freshIds = new Set(fresh.map(item => item.id));
-  // Keep cached items that don't exist in fresh (created offline)
-  const localOnly = cached.filter(item => !freshIds.has(item.id));
+  const localOnly = cached.filter(
+    item => !freshIds.has(item.id) && pendingIds.has(item.id),
+  );
   return [...fresh, ...localOnly];
 }

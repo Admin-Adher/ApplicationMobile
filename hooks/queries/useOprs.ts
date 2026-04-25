@@ -9,17 +9,19 @@ import { queryKeys } from '@/lib/queryKeys';
 import { toOpr, fromOpr } from '@/lib/mappers';
 import { Opr } from '@/constants/types';
 import { useStartupDelay } from '@/hooks/useStartupDelay';
-import { mergeWithCache, readCache, writeCache } from '@/lib/offlineCache';
+import { mergeWithCache, readCache, writeCache, pendingIdsForTable } from '@/lib/offlineCache';
 
 const OPRS_CACHE_KEY = 'buildtrack_oprs_cache_v1';
 
 export function useOprs() {
   const { user } = useAuth();
   const userId = user?.id;
-  const { isOnline, enqueueOperation } = useNetwork();
+  const { isOnline, enqueueOperation, queue } = useNetwork();
   const queryClient = useQueryClient();
   const isOnlineRef = useRef(isOnline);
   useEffect(() => { isOnlineRef.current = isOnline; }, [isOnline]);
+  const queueRef = useRef(queue);
+  useEffect(() => { queueRef.current = queue; }, [queue]);
   const startupReady = useStartupDelay(!!user);
 
   const query = useQuery({
@@ -42,7 +44,8 @@ export function useOprs() {
         const { data, error } = await q;
         if (error) throw error;
         const fresh = (data ?? []).map(toOpr);
-        const merged = mergeWithCache<Opr>(fresh, cached);
+        const pendingIds = pendingIdsForTable(queueRef.current ?? [], 'oprs');
+        const merged = mergeWithCache<Opr>(fresh, cached, pendingIds);
         await writeCache(OPRS_CACHE_KEY, merged, userId);
         return merged;
       } catch (err) {

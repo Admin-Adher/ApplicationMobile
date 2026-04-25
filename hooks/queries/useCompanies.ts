@@ -8,17 +8,19 @@ import { useNetwork } from '@/context/NetworkContext';
 import { queryKeys } from '@/lib/queryKeys';
 import { toCompany } from '@/lib/mappers';
 import { Company } from '@/constants/types';
-import { mergeWithCache, readCache, writeCache } from '@/lib/offlineCache';
+import { mergeWithCache, readCache, writeCache, pendingIdsForTable } from '@/lib/offlineCache';
 
 const COMPANIES_CACHE_KEY = 'buildtrack_companies_cache_v1';
 
 export function useCompanies() {
   const { user } = useAuth();
   const userId = user?.id;
-  const { isOnline, enqueueOperation } = useNetwork();
+  const { isOnline, enqueueOperation, queue } = useNetwork();
   const queryClient = useQueryClient();
   const isOnlineRef = useRef(isOnline);
   useEffect(() => { isOnlineRef.current = isOnline; }, [isOnline]);
+  const queueRef = useRef(queue);
+  useEffect(() => { queueRef.current = queue; }, [queue]);
 
   const query = useQuery({
     queryKey: queryKeys.companies(),
@@ -58,7 +60,8 @@ export function useCompanies() {
           if (seenIds.has(c.id) || seenNames.has(nameKey)) return false;
           seenIds.add(c.id); seenNames.add(nameKey); return true;
         });
-        const merged = mergeWithCache<Company>(fresh, cached);
+        const pendingIds = pendingIdsForTable(queueRef.current ?? [], 'companies');
+        const merged = mergeWithCache<Company>(fresh, cached, pendingIds);
         await writeCache(COMPANIES_CACHE_KEY, merged, userId);
         return merged;
       } catch (err) {

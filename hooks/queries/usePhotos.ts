@@ -9,17 +9,19 @@ import { queryKeys } from '@/lib/queryKeys';
 import { toPhoto } from '@/lib/mappers';
 import { Photo } from '@/constants/types';
 import { useStartupDelay } from '@/hooks/useStartupDelay';
-import { mergeWithCache, readCache, writeCache } from '@/lib/offlineCache';
+import { mergeWithCache, readCache, writeCache, pendingIdsForTable } from '@/lib/offlineCache';
 
 const PHOTOS_CACHE_KEY = 'buildtrack_photos_cache_v1';
 
 export function usePhotos() {
   const { user } = useAuth();
   const userId = user?.id;
-  const { isOnline, enqueueOperation } = useNetwork();
+  const { isOnline, enqueueOperation, queue } = useNetwork();
   const queryClient = useQueryClient();
   const isOnlineRef = useRef(isOnline);
   useEffect(() => { isOnlineRef.current = isOnline; }, [isOnline]);
+  const queueRef = useRef(queue);
+  useEffect(() => { queueRef.current = queue; }, [queue]);
   const startupReady = useStartupDelay(!!user);
 
   const query = useQuery({
@@ -51,7 +53,8 @@ export function usePhotos() {
         const { data, error } = await q;
         if (error) throw error;
         const fresh = (data ?? []).map(toPhoto);
-        const merged = mergeWithCache<Photo>(fresh, cached);
+        const pendingIds = pendingIdsForTable(queueRef.current ?? [], 'photos');
+        const merged = mergeWithCache<Photo>(fresh, cached, pendingIds);
         await writeCache(PHOTOS_CACHE_KEY, merged, userId);
         return merged;
       } catch (err) {

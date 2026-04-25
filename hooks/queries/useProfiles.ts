@@ -3,7 +3,7 @@ import { useAuth } from '@/context/AuthContext';
 import { supabase, isSupabaseConfigured } from '@/lib/supabase';
 import { queryKeys } from '@/lib/queryKeys';
 import { Profile } from '@/constants/types';
-import { mergeWithCache, readCache, writeCache } from '@/lib/offlineCache';
+import { mergeWithCache, readCache, writeCache, pendingIdsForTable } from '@/lib/offlineCache';
 
 const MOCK_PROFILES: Profile[] = [
   { id: 'demo-0', name: 'Admin Système', role: 'admin', roleLabel: 'Administrateur', email: 'admin@buildtrack.fr' },
@@ -42,6 +42,8 @@ export function useProfiles() {
           organizationId: p.organization_id ?? undefined,
         }));
         const merged = mergeWithCache<Profile>(fresh, cached);
+        // Note: profiles aren't mutated through the offline queue, so no
+        // pendingIds are needed — the server is always the source of truth.
         await writeCache(PROFILES_CACHE_KEY, merged, userId);
         return merged.length > 0 ? merged : MOCK_PROFILES;
       } catch (err) {

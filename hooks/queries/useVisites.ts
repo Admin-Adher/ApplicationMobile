@@ -9,17 +9,19 @@ import { queryKeys } from '@/lib/queryKeys';
 import { toVisite, fromVisite } from '@/lib/mappers';
 import { Visite } from '@/constants/types';
 import { useStartupDelay } from '@/hooks/useStartupDelay';
-import { mergeWithCache, readCache, writeCache } from '@/lib/offlineCache';
+import { mergeWithCache, readCache, writeCache, pendingIdsForTable } from '@/lib/offlineCache';
 
 const VISITES_CACHE_KEY = 'buildtrack_visites_cache_v1';
 
 export function useVisites() {
   const { user } = useAuth();
   const userId = user?.id;
-  const { isOnline, enqueueOperation } = useNetwork();
+  const { isOnline, enqueueOperation, queue } = useNetwork();
   const queryClient = useQueryClient();
   const isOnlineRef = useRef(isOnline);
   useEffect(() => { isOnlineRef.current = isOnline; }, [isOnline]);
+  const queueRef = useRef(queue);
+  useEffect(() => { queueRef.current = queue; }, [queue]);
   const startupReady = useStartupDelay(!!user);
 
   const query = useQuery({
@@ -42,7 +44,8 @@ export function useVisites() {
         const { data, error } = await q;
         if (error) throw error;
         const fresh = (data ?? []).map(toVisite);
-        const merged = mergeWithCache<Visite>(fresh, cached);
+        const pendingIds = pendingIdsForTable(queueRef.current ?? [], 'visites');
+        const merged = mergeWithCache<Visite>(fresh, cached, pendingIds);
         await writeCache(VISITES_CACHE_KEY, merged, userId);
         return merged;
       } catch (err) {

@@ -8,17 +8,19 @@ import { useNetwork } from '@/context/NetworkContext';
 import { queryKeys } from '@/lib/queryKeys';
 import { toChantier, toSitePlan } from '@/lib/mappers';
 import { Chantier, SitePlan, Channel } from '@/constants/types';
-import { mergeWithCache, readCache, writeCache } from '@/lib/offlineCache';
+import { mergeWithCache, readCache, writeCache, pendingIdsForTable } from '@/lib/offlineCache';
 
 const CHANTIERS_CACHE_KEY = 'buildtrack_chantiers_cache_v1';
 const SITE_PLANS_CACHE_KEY = 'buildtrack_site_plans_cache_v1';
 
 export function useChantiers() {
   const { user } = useAuth();
-  const { isOnline, enqueueOperation } = useNetwork();
+  const { isOnline, enqueueOperation, queue } = useNetwork();
   const queryClient = useQueryClient();
   const isOnlineRef = useRef(isOnline);
   useEffect(() => { isOnlineRef.current = isOnline; }, [isOnline]);
+  const queueRef = useRef(queue);
+  useEffect(() => { queueRef.current = queue; }, [queue]);
   const userId = user?.id;
 
   const chantiersQuery = useQuery({
@@ -41,7 +43,8 @@ export function useChantiers() {
         const { data, error } = await q;
         if (error) throw error;
         const fresh = (data ?? []).map(toChantier);
-        const merged = mergeWithCache<Chantier>(fresh, cached);
+        const pendingIds = pendingIdsForTable(queueRef.current ?? [], 'chantiers');
+        const merged = mergeWithCache<Chantier>(fresh, cached, pendingIds);
         await writeCache(CHANTIERS_CACHE_KEY, merged, userId);
         return merged;
       } catch (err) {
@@ -73,7 +76,8 @@ export function useChantiers() {
         const { data, error } = await spQ;
         if (error) throw error;
         const fresh = (data ?? []).map(toSitePlan);
-        const merged = mergeWithCache<SitePlan>(fresh, cached);
+        const pendingIds = pendingIdsForTable(queueRef.current ?? [], 'site_plans');
+        const merged = mergeWithCache<SitePlan>(fresh, cached, pendingIds);
         await writeCache(SITE_PLANS_CACHE_KEY, merged, userId);
         return merged;
       } catch (err) {
