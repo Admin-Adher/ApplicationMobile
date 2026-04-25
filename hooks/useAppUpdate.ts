@@ -1,14 +1,14 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Platform } from 'react-native';
 import Constants from 'expo-constants';
+import * as Application from 'expo-application';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 const RELEASES_API = 'https://api.github.com/repos/Admin-Adher/ApplicationMobile/releases/latest';
 export const APK_DOWNLOAD_URL = 'https://github.com/Admin-Adher/ApplicationMobile/releases/latest/download/buildtrack-release.apk';
 
-const CACHE_KEY = 'app.update.latestRelease.v2';
-const DISMISS_KEY = 'app.update.dismissedBuild.v2';
-const CACHE_TTL_MS = 6 * 60 * 60 * 1000;
+const CACHE_KEY = 'app.update.latestRelease.v3';
+const DISMISS_KEY = 'app.update.dismissedBuild.v3';
 
 interface CachedRelease {
   tag: string;
@@ -50,6 +50,15 @@ function compareSemver(a: string, b: string): number {
 }
 
 function getCurrentBuildNumber(): number | null {
+  // Source la plus fiable: numéro de build natif de l'APK installé.
+  if (Platform.OS === 'android') {
+    const native = (Application as any).nativeBuildVersion;
+    if (typeof native === 'string' && /^\d+$/.test(native)) {
+      const n = parseInt(native, 10);
+      if (n > 0) return n;
+    }
+  }
+  // Fallback: config Expo (utile sur web et en mode dev).
   const cfg: any = Constants.expoConfig ?? (Constants as any).manifest;
   const code = cfg?.android?.versionCode;
   if (typeof code === 'number') return code;
@@ -58,6 +67,10 @@ function getCurrentBuildNumber(): number | null {
 }
 
 function getCurrentSemver(): string {
+  const fromNative = (Application as any).nativeApplicationVersion;
+  if (typeof fromNative === 'string' && fromNative.length > 0) {
+    return cleanSemver(fromNative) ?? fromNative;
+  }
   const cfg: any = Constants.expoConfig ?? (Constants as any).manifest;
   return cleanSemver(cfg?.version) ?? '0.0.0';
 }
@@ -89,22 +102,8 @@ export function useAppUpdate(): AppUpdateState {
     setLatestSemver(rel.semver);
   }, []);
 
-  const fetchLatest = useCallback(async (force = false) => {
-    setLoading(true);
+  const fetchLatest = useCallback(async () => {
     try {
-      if (!force) {
-        const raw = await AsyncStorage.getItem(CACHE_KEY);
-        if (raw) {
-          try {
-            const cached: CachedRelease = JSON.parse(raw);
-            if (cached && Date.now() - cached.fetchedAt < CACHE_TTL_MS) {
-              applyRelease(cached);
-              setLoading(false);
-              return;
-            }
-          } catch {}
-        }
-      }
       const res = await fetch(RELEASES_API, {
         headers: { Accept: 'application/vnd.github+json' },
       });
@@ -130,14 +129,23 @@ export function useAppUpdate(): AppUpdateState {
   useEffect(() => {
     let cancelled = false;
     (async () => {
+      // Affichage immédiat depuis le cache (s'il existe).
       try {
+        const raw = await AsyncStorage.getItem(CACHE_KEY);
+        if (raw && !cancelled) {
+          try {
+            const cached: CachedRelease = JSON.parse(raw);
+            if (cached) applyRelease(cached);
+          } catch {}
+        }
         const d = await AsyncStorage.getItem(DISMISS_KEY);
         if (!cancelled) setDismissed(d);
       } catch {}
-      if (!cancelled) await fetchLatest(false);
+      // Toujours rafraîchir en arrière-plan (stale-while-revalidate).
+      if (!cancelled) await fetchLatest();
     })();
     return () => { cancelled = true; };
-  }, [fetchLatest]);
+  }, [fetchLatest, applyRelease]);
 
   // Étiquette à afficher pour la dernière version
   let latestLabel: string | null = null;
@@ -174,6 +182,6 @@ export function useAppUpdate(): AppUpdateState {
     latestLabel,
     downloadUrl: APK_DOWNLOAD_URL,
     dismiss,
-    refresh: () => fetchLatest(true),
+    refresh: fetchLatest,
   };
 }

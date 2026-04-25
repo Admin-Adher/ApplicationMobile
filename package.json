@@ -24,6 +24,7 @@
     "babel-preset-expo": "~13.0.0",
     "drizzle-zod": "^0.8.3",
     "expo": "~53.0.0",
+    "expo-application": "^55.0.14",
     "expo-asset": "~11.1.7",
     "expo-build-properties": "^0.14.8",
     "expo-clipboard": "~7.1.5",
