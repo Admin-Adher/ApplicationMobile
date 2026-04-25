@@ -7,6 +7,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useState, useMemo, useEffect, useRef, useCallback } from 'react';
 import { useRouter } from 'expo-router';
+import * as Clipboard from 'expo-clipboard';
 import { C } from '@/constants/colors';
 import { useApp } from '@/context/AppContext';
 import { useAuth } from '@/context/AuthContext';
@@ -330,15 +331,18 @@ export default function AdminScreen() {
   }
 
   function handleCopyApkLink() {
-    if (Platform.OS === 'web' && typeof navigator !== 'undefined' && navigator.clipboard) {
-      navigator.clipboard.writeText(APK_DOWNLOAD_URL).then(() => {
-        setApkLinkCopied(true);
-        setTimeout(() => setApkLinkCopied(false), 2500);
-      }).catch(() => Alert.alert('Lien APK', APK_DOWNLOAD_URL));
-    } else {
-      Alert.alert('Lien de téléchargement Android', APK_DOWNLOAD_URL);
+    const flagCopied = () => {
       setApkLinkCopied(true);
       setTimeout(() => setApkLinkCopied(false), 2500);
+    };
+    if (Platform.OS === 'web' && typeof navigator !== 'undefined' && navigator.clipboard) {
+      navigator.clipboard.writeText(APK_DOWNLOAD_URL).then(flagCopied).catch(() => {
+        Alert.alert('Lien APK', APK_DOWNLOAD_URL);
+      });
+    } else {
+      Clipboard.setStringAsync(APK_DOWNLOAD_URL).then(flagCopied).catch(() => {
+        Alert.alert('Lien APK', APK_DOWNLOAD_URL);
+      });
     }
   }
 
