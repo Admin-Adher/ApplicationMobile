@@ -7,8 +7,6 @@ import { Suspense } from 'react';
 const BRAND = '#003082';
 const ACCENT = '#FFCB00';
 const APP_SCHEME = process.env.NEXT_PUBLIC_EXPO_APP_SCHEME ?? 'buildtrack';
-const APP_STORE_URL = 'https://apps.apple.com/app/buildtrack';
-const PLAY_STORE_URL = 'https://play.google.com/store/apps/details?id=com.buildtrack.app';
 
 function InviteContent() {
   const params = useSearchParams();
@@ -63,24 +61,20 @@ function InviteContent() {
             <a href={registerUrl} style={styles.btn}>
               Créer mon compte →
             </a>
-            <p style={styles.hint}>
-              Ou téléchargez l'app mobile BuildTrack pour accéder à toutes les fonctionnalités.
-            </p>
-            <div style={styles.storeRow}>
-              <a href={APP_STORE_URL} style={styles.storeBtn}>📱 App Store</a>
-              <a href={PLAY_STORE_URL} style={styles.storeBtn}>🤖 Google Play</a>
+            <div style={styles.installNote}>
+              <p style={styles.installNoteTitle}>📱 Vous préférez l'application mobile ?</p>
+              <p style={styles.installNoteText}>
+                BuildTrack n'est pas encore disponible sur l'App Store ou Google Play. Demandez à la personne qui vous a invité de vous transmettre le fichier d'installation de l'application.
+              </p>
             </div>
           </>
         ) : !deepLinkAttempted ? (
           <>
             <p style={styles.body}>Ouverture de BuildTrack en cours...</p>
             <div style={styles.loader} />
-            <p style={styles.bodySmall}>Si l'application ne s'ouvre pas, téléchargez-la :</p>
-            <a
-              href={platform === 'ios' ? APP_STORE_URL : PLAY_STORE_URL}
-              style={styles.btn}
-            >
-              Télécharger BuildTrack
+            <p style={styles.bodySmall}>Si l'application ne s'ouvre pas, vous pouvez continuer sur le web :</p>
+            <a href={registerUrl} style={styles.btn}>
+              Continuer sur le web →
             </a>
           </>
         ) : (
@@ -88,15 +82,15 @@ function InviteContent() {
             <p style={styles.body}>
               BuildTrack n'est pas encore installé sur votre appareil.
             </p>
-            <a
-              href={platform === 'ios' ? APP_STORE_URL : PLAY_STORE_URL}
-              style={styles.btn}
-            >
-              {platform === 'ios' ? '📱 Télécharger sur l\'App Store' : '🤖 Télécharger sur Google Play'}
-            </a>
-            <a href={registerUrl} style={{ ...styles.btn, ...styles.btnSecondary }}>
+            <a href={registerUrl} style={styles.btn}>
               Continuer sur le web →
             </a>
+            <div style={styles.installNote}>
+              <p style={styles.installNoteTitle}>📱 Vous préférez l'application mobile ?</p>
+              <p style={styles.installNoteText}>
+                BuildTrack n'est pas encore disponible sur l'App Store ou Google Play. Demandez à la personne qui vous a invité de vous transmettre le fichier d'installation de l'application.
+              </p>
+            </div>
           </>
         )}
 
@@ -208,30 +202,25 @@ const styles: Record<string, React.CSSProperties> = {
     textDecoration: 'none',
     margin: '0 0 14px',
   },
-  btnSecondary: {
-    background: '#EEF3FA',
-    color: BRAND,
-  },
-  hint: {
-    fontSize: '12px',
-    color: '#8899BB',
-    margin: '0 0 12px',
-  },
-  storeRow: {
-    display: 'flex',
-    gap: '10px',
-    justifyContent: 'center',
-    marginBottom: '14px',
-  },
-  storeBtn: {
-    background: '#EEF3FA',
-    color: BRAND,
-    fontWeight: '600',
-    fontSize: '13px',
-    padding: '10px 18px',
-    borderRadius: '10px',
-    textDecoration: 'none',
+  installNote: {
+    marginTop: '16px',
+    padding: '14px 16px',
+    background: '#F4F7FB',
     border: '1px solid #DDE4EE',
+    borderRadius: '12px',
+    textAlign: 'left',
+  },
+  installNoteTitle: {
+    fontSize: '13px',
+    fontWeight: '700',
+    color: BRAND,
+    margin: '0 0 6px',
+  },
+  installNoteText: {
+    fontSize: '12px',
+    color: '#475569',
+    lineHeight: '1.55',
+    margin: '0',
   },
   loader: {
     width: '36px',
