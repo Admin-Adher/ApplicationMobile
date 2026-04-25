@@ -11,6 +11,9 @@ env:
   EXPO_PUBLIC_SUPABASE_URL: ${{ secrets.EXPO_PUBLIC_SUPABASE_URL || 'https://jzeojdpgglbxjdasjgta.supabase.co' }}
   EXPO_PUBLIC_SUPABASE_KEY: ${{ secrets.EXPO_PUBLIC_SUPABASE_KEY || 'sb_publishable_82T9HBSLycSJ2T6OBaDNLA_01V1mXda' }}
 
+permissions:
+  contents: write
+
 jobs:
   build:
     name: Build APK
@@ -63,10 +66,31 @@ jobs:
       - name: Find APK location
         run: find android/app/build/outputs/apk -name "*.apk" | tee apk-paths.txt
 
+      - name: Stage APK with stable name
+        run: |
+          mkdir -p release-assets
+          cp android/app/build/outputs/apk/release/*.apk release-assets/buildtrack-release.apk
+          ls -lh release-assets/
+
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
           name: buildtrack-release.apk
-          path: android/app/build/outputs/apk/release/*.apk
+          path: release-assets/buildtrack-release.apk
           retention-days: 30
           if-no-files-found: error
+
+      - name: Publish APK as public GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: android-build-${{ github.run_number }}
+          name: BuildTrack Android — Build ${{ github.run_number }}
+          body: |
+            Build Android automatique #${{ github.run_number }}
+            Commit : ${{ github.sha }}
+
+            Téléchargement direct (pointe toujours vers la dernière version) :
+            https://github.com/${{ github.repository }}/releases/latest/download/buildtrack-release.apk
+          files: release-assets/buildtrack-release.apk
+          make_latest: 'true'
+          prerelease: false

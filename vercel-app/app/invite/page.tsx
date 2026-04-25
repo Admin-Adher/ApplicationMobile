@@ -7,6 +7,8 @@ import { Suspense } from 'react';
 const BRAND = '#003082';
 const ACCENT = '#FFCB00';
 const APP_SCHEME = process.env.NEXT_PUBLIC_EXPO_APP_SCHEME ?? 'buildtrack';
+const APK_DOWNLOAD_URL =
+  'https://github.com/Admin-Adher/ApplicationMobile/releases/latest/download/buildtrack-release.apk';
 
 function InviteContent() {
   const params = useSearchParams();
@@ -62,9 +64,15 @@ function InviteContent() {
               Créer mon compte →
             </a>
             <div style={styles.installNote}>
-              <p style={styles.installNoteTitle}>📱 Vous préférez l'application mobile ?</p>
+              <p style={styles.installNoteTitle}>📱 Vous préférez l'application Android ?</p>
               <p style={styles.installNoteText}>
-                BuildTrack n'est pas encore disponible sur l'App Store ou Google Play. Demandez à la personne qui vous a invité de vous transmettre le fichier d'installation de l'application.
+                Téléchargez la dernière version de BuildTrack pour Android :
+              </p>
+              <a href={APK_DOWNLOAD_URL} style={styles.installNoteBtn}>
+                ⬇️ Télécharger l'APK
+              </a>
+              <p style={styles.installNoteHint}>
+                BuildTrack n'est pas encore publié sur l'App Store ni Google Play.
               </p>
             </div>
           </>
@@ -76,6 +84,11 @@ function InviteContent() {
             <a href={registerUrl} style={styles.btn}>
               Continuer sur le web →
             </a>
+            {platform === 'android' && (
+              <a href={APK_DOWNLOAD_URL} style={styles.btnSecondary}>
+                ⬇️ Télécharger l'application Android
+              </a>
+            )}
           </>
         ) : (
           <>
@@ -85,12 +98,27 @@ function InviteContent() {
             <a href={registerUrl} style={styles.btn}>
               Continuer sur le web →
             </a>
-            <div style={styles.installNote}>
-              <p style={styles.installNoteTitle}>📱 Vous préférez l'application mobile ?</p>
-              <p style={styles.installNoteText}>
-                BuildTrack n'est pas encore disponible sur l'App Store ou Google Play. Demandez à la personne qui vous a invité de vous transmettre le fichier d'installation de l'application.
-              </p>
-            </div>
+            {platform === 'android' ? (
+              <div style={styles.installNote}>
+                <p style={styles.installNoteTitle}>📱 Installer l'application Android</p>
+                <p style={styles.installNoteText}>
+                  Téléchargez le fichier APK officiel de BuildTrack et installez-le sur votre téléphone :
+                </p>
+                <a href={APK_DOWNLOAD_URL} style={styles.installNoteBtn}>
+                  ⬇️ Télécharger l'APK
+                </a>
+                <p style={styles.installNoteHint}>
+                  Au lancement de l'installation, Android peut vous demander d'autoriser les sources inconnues. BuildTrack n'est pas encore publié sur Google Play.
+                </p>
+              </div>
+            ) : (
+              <div style={styles.installNote}>
+                <p style={styles.installNoteTitle}>📱 Application mobile</p>
+                <p style={styles.installNoteText}>
+                  BuildTrack n'est pas encore disponible sur l'App Store. En attendant, utilisez la version web.
+                </p>
+              </div>
+            )}
           </>
         )}
 
@@ -202,6 +230,18 @@ const styles: Record<string, React.CSSProperties> = {
     textDecoration: 'none',
     margin: '0 0 14px',
   },
+  btnSecondary: {
+    display: 'block',
+    background: '#EEF3FA',
+    color: BRAND,
+    fontWeight: '700',
+    fontSize: '14px',
+    padding: '12px 24px',
+    borderRadius: '12px',
+    textDecoration: 'none',
+    margin: '0 0 14px',
+    border: '1px solid #DDE4EE',
+  },
   installNote: {
     marginTop: '16px',
     padding: '14px 16px',
@@ -220,6 +260,24 @@ const styles: Record<string, React.CSSProperties> = {
     fontSize: '12px',
     color: '#475569',
     lineHeight: '1.55',
+    margin: '0 0 10px',
+  },
+  installNoteBtn: {
+    display: 'inline-block',
+    background: '#fff',
+    color: BRAND,
+    fontWeight: '700',
+    fontSize: '13px',
+    padding: '10px 16px',
+    borderRadius: '10px',
+    textDecoration: 'none',
+    border: `1.5px solid ${BRAND}`,
+    marginBottom: '8px',
+  },
+  installNoteHint: {
+    fontSize: '11px',
+    color: '#8899BB',
+    lineHeight: '1.5',
     margin: '0',
   },
   loader: {
