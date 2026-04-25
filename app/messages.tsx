@@ -4,8 +4,9 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect, useCallback } from 'react';
 import { useRouter } from 'expo-router';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { C } from '@/constants/colors';
 import { useApp } from '@/context/AppContext';
 import { useAuth } from '@/context/AuthContext';
@@ -14,6 +15,16 @@ import NewChannelModal from '@/components/NewChannelModal';
 import NewDMModal from '@/components/NewDMModal';
 import NewGroupModal from '@/components/NewGroupModal';
 import SuperAdminMessagingHub from '@/components/SuperAdminMessagingHub';
+
+const STORAGE_KEY_COLLAPSED = 'messages.collapsedSections.v1';
+const STORAGE_KEY_DENSITY = 'messages.density.v1';
+const STORAGE_KEY_DISMISSED_PIN = 'messages.dismissedPinSuggestion.v1';
+const PREVIEW_COUNT = 5;            // Combien de canaux affichés avant "Voir tout"
+const ALPHA_BUCKET_THRESHOLD = 10;  // Au-delà, on regroupe par initiale dans Canaux entreprises
+const PIN_SUGGESTION_MIN_UNREAD = 3;
+
+type DensityMode = 'comfort' | 'compact';
+type FilterMode = 'all' | 'unread' | 'company' | 'chantier' | 'dm-group';
 
 const AVATAR_COLORS = [C.primary, '#059669', '#D97706', '#7C3AED', '#DB2777', '#EA580C', '#0891B2'];
 function getAvatarColor(name: string) {
@@ -75,16 +86,18 @@ function ChannelAvatar({ channel }: { channel: Channel }) {
   );
 }
 
-function ChannelItem({ channel, lastMsg, unread, isPinned, onPress, onLongPress }: {
+function ChannelItem({ channel, lastMsg, unread, isPinned, density, onPress, onLongPress }: {
   channel: Channel;
   lastMsg: Message | null;
   unread: number;
   isPinned: boolean;
+  density: DensityMode;
   onPress: () => void;
   onLongPress: () => void;
 }) {
   const hasUnread = unread > 0;
   const avatarColor = channel.type === 'dm' ? getAvatarColor(channel.name) : channel.color;
+  const compact = density === 'compact';
 
   const previewText = () => {
     if (!lastMsg) return 'Aucun message';
@@ -100,13 +113,16 @@ function ChannelItem({ channel, lastMsg, unread, isPinned, onPress, onLongPress 
 
   return (
     <TouchableOpacity
-      style={[styles.channelItem, hasUnread && styles.channelItemUnread]}
+      style={[
+        compact ? styles.channelItemCompact : styles.channelItem,
+        hasUnread && styles.channelItemUnread,
+      ]}
       onPress={onPress}
       onLongPress={onLongPress}
       delayLongPress={400}
       activeOpacity={0.75}
     >
-      <View style={{ position: 'relative' }}>
+      <View style={[{ position: 'relative' }, compact && { transform: [{ scale: 0.78 }] }]}>
         <ChannelAvatar channel={channel} />
         {hasUnread && <View style={styles.unreadDot} />}
         {isPinned && (
@@ -117,7 +133,13 @@ function ChannelItem({ channel, lastMsg, unread, isPinned, onPress, onLongPress 
       </View>
       <View style={styles.channelBody}>
         <View style={styles.channelTop}>
-          <Text style={[styles.channelName, hasUnread && styles.channelNameUnread]} numberOfLines={1}>
+          <Text
+            style={[
+              compact ? styles.channelNameCompact : styles.channelName,
+              hasUnread && styles.channelNameUnread,
+            ]}
+            numberOfLines={1}
+          >
             {displayName}
           </Text>
           {lastMsg && (
@@ -126,16 +148,29 @@ function ChannelItem({ channel, lastMsg, unread, isPinned, onPress, onLongPress 
             </Text>
           )}
         </View>
-        <View style={styles.channelBottom}>
-          <Text style={[styles.channelPreview, hasUnread && styles.channelPreviewUnread]} numberOfLines={1}>
-            {previewText()}
-          </Text>
-          {hasUnread ? (
-            <View style={[styles.unreadBadge, { backgroundColor: avatarColor }]}>
-              <Text style={styles.unreadBadgeText}>{unread > 99 ? '99+' : unread}</Text>
+        {compact ? (
+          hasUnread ? (
+            <View style={styles.compactUnreadRow}>
+              <Text style={[styles.channelPreview, styles.channelPreviewUnread]} numberOfLines={1}>
+                {previewText()}
+              </Text>
+              <View style={[styles.unreadBadge, { backgroundColor: avatarColor }]}>
+                <Text style={styles.unreadBadgeText}>{unread > 99 ? '99+' : unread}</Text>
+              </View>
             </View>
-          ) : null}
-        </View>
+          ) : null
+        ) : (
+          <View style={styles.channelBottom}>
+            <Text style={[styles.channelPreview, hasUnread && styles.channelPreviewUnread]} numberOfLines={1}>
+              {previewText()}
+            </Text>
+            {hasUnread ? (
+              <View style={[styles.unreadBadge, { backgroundColor: avatarColor }]}>
+                <Text style={styles.unreadBadgeText}>{unread > 99 ? '99+' : unread}</Text>
+              </View>
+            ) : null}
+          </View>
+        )}
       </View>
     </TouchableOpacity>
   );
@@ -155,7 +190,55 @@ export default function MessagesScreen() {
   const [showNewDM, setShowNewDM] = useState(false);
   const [showNewGroup, setShowNewGroup] = useState(false);
   const [actionSheet, setActionSheet] = useState<Channel | null>(null);
+
+  // [Idée 4] Filtre rapide actif
+  const [filter, setFilter] = useState<FilterMode>('all');
+  // [Idée 1] Sections repliées (titre -> bool)
+  const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
+  // [Idée 3] Sections où l'utilisateur a cliqué "Voir tout"
+  const [expandedSections, setExpandedSections] = useState<Record<string, boolean>>({});
+  // [Idée 6] Densité d'affichage
+  const [density, setDensity] = useState<DensityMode>('comfort');
+  // [Idée 7] Suggestion d'épinglage déjà rejetée
+  const [dismissedPinId, setDismissedPinId] = useState<string | null>(null);
+
   const topPad = insets.top;
+
+  // Charge les préférences persistées
+  useEffect(() => {
+    (async () => {
+      try {
+        const [c, d, p] = await Promise.all([
+          AsyncStorage.getItem(STORAGE_KEY_COLLAPSED),
+          AsyncStorage.getItem(STORAGE_KEY_DENSITY),
+          AsyncStorage.getItem(STORAGE_KEY_DISMISSED_PIN),
+        ]);
+        if (c) setCollapsed(JSON.parse(c));
+        if (d === 'compact' || d === 'comfort') setDensity(d);
+        if (p) setDismissedPinId(p);
+      } catch {}
+    })();
+  }, []);
+
+  const toggleCollapsed = useCallback((title: string) => {
+    setCollapsed(prev => {
+      const next = { ...prev, [title]: !prev[title] };
+      AsyncStorage.setItem(STORAGE_KEY_COLLAPSED, JSON.stringify(next)).catch(() => {});
+      return next;
+    });
+  }, []);
+
+  const toggleDensity = useCallback(() => {
+    setDensity(prev => {
+      const next: DensityMode = prev === 'comfort' ? 'compact' : 'comfort';
+      AsyncStorage.setItem(STORAGE_KEY_DENSITY, next).catch(() => {});
+      return next;
+    });
+  }, []);
+
+  const toggleExpandedSection = useCallback((title: string) => {
+    setExpandedSections(prev => ({ ...prev, [title]: !prev[title] }));
+  }, []);
 
   const totalUnread = Object.values(unreadByChannel).reduce((a, b) => a + b, 0);
 
@@ -195,11 +278,65 @@ export default function MessagesScreen() {
     return <SuperAdminMessagingHub />;
   }
 
-  const generalChannels = filteredChannels.filter(ch => ch.type === 'general' || ch.type === 'building');
-  const companyChannels = filteredChannels.filter(ch => ch.type === 'company');
-  const customChannels = filteredChannels.filter(ch => ch.type === 'custom');
-  const groupChannels = filteredChannels.filter(ch => ch.type === 'group');
-  const dmChannels = filteredChannels.filter(ch => ch.type === 'dm');
+  // [Idée 2] Tri intelligent : non-lus → récents → silencieux (alphabétique)
+  const sortChannels = useCallback((items: Channel[]): Channel[] => {
+    return [...items].sort((a, b) => {
+      const ua = unreadByChannel[a.id] ?? 0;
+      const ub = unreadByChannel[b.id] ?? 0;
+      if (ua !== ub) return ub - ua;
+      const ma = lastMessageByChannel[a.id];
+      const mb = lastMessageByChannel[b.id];
+      const ta = ma ? getMsgSortTime(ma) : 0;
+      const tb = mb ? getMsgSortTime(mb) : 0;
+      if (ta !== tb) return tb - ta;
+      return a.name.localeCompare(b.name, 'fr');
+    });
+  }, [unreadByChannel, lastMessageByChannel]);
+
+  const generalChannels = useMemo(
+    () => sortChannels(filteredChannels.filter(ch => ch.type === 'general' || ch.type === 'building')),
+    [filteredChannels, sortChannels]
+  );
+  const companyChannels = useMemo(
+    () => sortChannels(filteredChannels.filter(ch => ch.type === 'company')),
+    [filteredChannels, sortChannels]
+  );
+  const customChannels = useMemo(
+    () => sortChannels(filteredChannels.filter(ch => ch.type === 'custom')),
+    [filteredChannels, sortChannels]
+  );
+  const groupChannels = useMemo(
+    () => sortChannels(filteredChannels.filter(ch => ch.type === 'group')),
+    [filteredChannels, sortChannels]
+  );
+  const dmChannels = useMemo(
+    () => sortChannels(filteredChannels.filter(ch => ch.type === 'dm')),
+    [filteredChannels, sortChannels]
+  );
+
+  // [Idée 4] Compteurs pour les chips
+  const unreadChannels = useMemo(
+    () => sortChannels(filteredChannels.filter(ch => (unreadByChannel[ch.id] ?? 0) > 0)),
+    [filteredChannels, unreadByChannel, sortChannels]
+  );
+
+  // [Idée 7] Suggestion d'épinglage : canal le plus actif non-épinglé
+  const pinSuggestion = useMemo(() => {
+    if (pinnedChannels.length >= maxPinnedChannels) return null;
+    const candidates = channels
+      .filter(ch => !pinnedChannelIds.includes(ch.id))
+      .filter(ch => (unreadByChannel[ch.id] ?? 0) >= PIN_SUGGESTION_MIN_UNREAD)
+      .filter(ch => ch.id !== dismissedPinId);
+    if (candidates.length === 0) return null;
+    return candidates.sort(
+      (a, b) => (unreadByChannel[b.id] ?? 0) - (unreadByChannel[a.id] ?? 0)
+    )[0];
+  }, [channels, pinnedChannelIds, pinnedChannels, maxPinnedChannels, unreadByChannel, dismissedPinId]);
+
+  function dismissPinSuggestion(id: string) {
+    setDismissedPinId(id);
+    AsyncStorage.setItem(STORAGE_KEY_DISMISSED_PIN, id).catch(() => {});
+  }
 
   function goToChannel(ch: Channel) {
     router.push({
@@ -256,22 +393,42 @@ export default function MessagesScreen() {
     'Canaux personnalisés': 'Aucun canal personnalisé',
   };
 
-  function renderSection(title: string, items: Channel[], onAction?: () => void, actionLabel?: string) {
-    if (items.length === 0 && !onAction) return null;
+  function renderChannelRow(ch: Channel, i: number) {
     return (
-      <>
-        <View style={styles.sectionHeader}>
-          <Text style={styles.sectionLabel}>{title}</Text>
-          {onAction && (
-            <TouchableOpacity style={styles.sectionAction} onPress={onAction}>
-              <Ionicons name="add" size={16} color={C.primary} />
-              <Text style={styles.sectionActionText}>{actionLabel}</Text>
-            </TouchableOpacity>
-          )}
-        </View>
-        {items.length > 0 ? (
-          <View style={styles.channelGroup}>
-            {items.map((ch, i) => (
+      <View key={ch.id}>
+        {i > 0 && <View style={styles.divider} />}
+        <ChannelItem
+          channel={ch}
+          lastMsg={lastMessageByChannel[ch.id]}
+          unread={unreadByChannel[ch.id] ?? 0}
+          isPinned={pinnedChannelIds.includes(ch.id)}
+          density={density}
+          onPress={() => goToChannel(ch)}
+          onLongPress={() => setActionSheet(ch)}
+        />
+      </View>
+    );
+  }
+
+  // [Idée 5] Regroupement alphabétique pour la section Entreprises quand >= seuil
+  function renderAlphaBuckets(items: Channel[]) {
+    const buckets: Record<string, Channel[]> = {};
+    for (const ch of items) {
+      const letter = (ch.name.charAt(0) || '#').toUpperCase();
+      const key = /[A-Z]/.test(letter) ? letter : '#';
+      (buckets[key] = buckets[key] ?? []).push(ch);
+    }
+    const keys = Object.keys(buckets).sort();
+    return (
+      <View style={styles.channelGroup}>
+        {keys.map((k, idx) => (
+          <View key={k}>
+            {idx > 0 && <View style={styles.divider} />}
+            <View style={styles.alphaHeader}>
+              <Text style={styles.alphaHeaderText}>{k}</Text>
+              <Text style={styles.alphaHeaderCount}>{buckets[k].length}</Text>
+            </View>
+            {buckets[k].map((ch, i) => (
               <View key={ch.id}>
                 {i > 0 && <View style={styles.divider} />}
                 <ChannelItem
@@ -279,24 +436,136 @@ export default function MessagesScreen() {
                   lastMsg={lastMessageByChannel[ch.id]}
                   unread={unreadByChannel[ch.id] ?? 0}
                   isPinned={pinnedChannelIds.includes(ch.id)}
+                  density={density}
                   onPress={() => goToChannel(ch)}
                   onLongPress={() => setActionSheet(ch)}
                 />
               </View>
             ))}
           </View>
-        ) : (
-          <View style={styles.emptySection}>
-            <Text style={styles.emptySectionText}>
-              {EMPTY_LABELS[title] ?? 'Aucun élément'}
-            </Text>
+        ))}
+      </View>
+    );
+  }
+
+  function renderSection(
+    title: string,
+    items: Channel[],
+    opts?: {
+      onAction?: () => void;
+      actionLabel?: string;
+      alphaBuckets?: boolean;       // [Idée 5]
+      hideEmpty?: boolean;
+      forceFullList?: boolean;      // ignore le limit "Voir tout" (utile en mode filtre)
+    }
+  ) {
+    const { onAction, actionLabel, alphaBuckets, hideEmpty, forceFullList } = opts ?? {};
+    if (items.length === 0 && (!onAction || hideEmpty)) return null;
+
+    const isCollapsed = !!collapsed[title];
+    const isExpanded = !!expandedSections[title];
+    const useAlpha = alphaBuckets && items.length >= ALPHA_BUCKET_THRESHOLD;
+
+    // [Idée 3] Limit à 5 si beaucoup de canaux (sauf alpha buckets ou forceFullList)
+    const shouldLimit = !useAlpha && !forceFullList && items.length > PREVIEW_COUNT && !isExpanded;
+    const visibleItems = shouldLimit ? items.slice(0, PREVIEW_COUNT) : items;
+    const hiddenCount = items.length - visibleItems.length;
+
+    // Compteur de non-lus dans cette section
+    const sectionUnread = items.reduce((acc, ch) => acc + (unreadByChannel[ch.id] ?? 0), 0);
+
+    return (
+      <>
+        <TouchableOpacity
+          style={styles.sectionHeader}
+          onPress={() => toggleCollapsed(title)}
+          activeOpacity={0.7}
+        >
+          <View style={styles.sectionTitleRow}>
+            <Ionicons
+              name={isCollapsed ? 'chevron-forward' : 'chevron-down'}
+              size={14}
+              color={C.textMuted}
+            />
+            <Text style={styles.sectionLabel}>{title}</Text>
+            <View style={styles.sectionCountPill}>
+              <Text style={styles.sectionCountText}>{items.length}</Text>
+            </View>
+            {sectionUnread > 0 && (
+              <View style={styles.sectionUnreadDot}>
+                <Text style={styles.sectionUnreadDotText}>{sectionUnread > 99 ? '99+' : sectionUnread}</Text>
+              </View>
+            )}
           </View>
+          {onAction && (
+            <TouchableOpacity
+              style={styles.sectionAction}
+              onPress={(e) => { e.stopPropagation?.(); onAction(); }}
+            >
+              <Ionicons name="add" size={16} color={C.primary} />
+              <Text style={styles.sectionActionText}>{actionLabel}</Text>
+            </TouchableOpacity>
+          )}
+        </TouchableOpacity>
+        {!isCollapsed && (
+          items.length > 0 ? (
+            useAlpha ? (
+              renderAlphaBuckets(items)
+            ) : (
+              <View style={styles.channelGroup}>
+                {visibleItems.map((ch, i) => renderChannelRow(ch, i))}
+                {hiddenCount > 0 && (
+                  <>
+                    <View style={styles.divider} />
+                    <TouchableOpacity
+                      style={styles.showMoreBtn}
+                      onPress={() => toggleExpandedSection(title)}
+                      activeOpacity={0.7}
+                    >
+                      <Text style={styles.showMoreText}>
+                        Voir les {hiddenCount} autre{hiddenCount > 1 ? 's' : ''}
+                      </Text>
+                      <Ionicons name="chevron-down" size={14} color={C.primary} />
+                    </TouchableOpacity>
+                  </>
+                )}
+                {isExpanded && items.length > PREVIEW_COUNT && (
+                  <>
+                    <View style={styles.divider} />
+                    <TouchableOpacity
+                      style={styles.showMoreBtn}
+                      onPress={() => toggleExpandedSection(title)}
+                      activeOpacity={0.7}
+                    >
+                      <Text style={styles.showMoreText}>Réduire</Text>
+                      <Ionicons name="chevron-up" size={14} color={C.primary} />
+                    </TouchableOpacity>
+                  </>
+                )}
+              </View>
+            )
+          ) : (
+            <View style={styles.emptySection}>
+              <Text style={styles.emptySectionText}>
+                {EMPTY_LABELS[title] ?? 'Aucun élément'}
+              </Text>
+            </View>
+          )
         )}
       </>
     );
   }
 
-  const showPinned = pinnedChannels.length > 0 && !search.trim();
+  const showPinned = pinnedChannels.length > 0 && !search.trim() && filter === 'all';
+
+  // [Idée 4] Définition des chips
+  const chips: { id: FilterMode; label: string; badge?: number; icon?: string }[] = [
+    { id: 'all', label: 'Tous' },
+    { id: 'unread', label: 'Non lus', badge: unreadChannels.length, icon: 'mail-unread-outline' },
+    { id: 'company', label: 'Entreprises', icon: 'business-outline' },
+    { id: 'chantier', label: 'Chantier', icon: 'construct-outline' },
+    { id: 'dm-group', label: 'DM & Groupes', icon: 'chatbubbles-outline' },
+  ];
 
   return (
     <View style={styles.container}>
@@ -311,6 +580,18 @@ export default function MessagesScreen() {
               <Text style={styles.subtitle}>{totalUnread} non lu{totalUnread > 1 ? 's' : ''}</Text>
             )}
           </View>
+          {/* [Idée 6] Toggle densité */}
+          <TouchableOpacity
+            style={styles.headerBtn}
+            onPress={toggleDensity}
+            accessibilityLabel={density === 'comfort' ? 'Passer en mode compact' : 'Passer en mode confort'}
+          >
+            <Ionicons
+              name={density === 'comfort' ? 'reorder-three-outline' : 'reorder-four-outline'}
+              size={20}
+              color={C.primary}
+            />
+          </TouchableOpacity>
           <TouchableOpacity style={styles.headerBtn} onPress={() => setShowNewDM(true)}>
             <Ionicons name="chatbubble-ellipses-outline" size={20} color={C.primary} />
           </TouchableOpacity>
@@ -336,10 +617,85 @@ export default function MessagesScreen() {
             </TouchableOpacity>
           )}
         </View>
+        {/* [Idée 4] Chips de filtre rapide */}
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={styles.chipsRow}
+        >
+          {chips.map(chip => {
+            const active = filter === chip.id;
+            return (
+              <TouchableOpacity
+                key={chip.id}
+                style={[styles.chip, active && styles.chipActive]}
+                onPress={() => setFilter(chip.id)}
+                activeOpacity={0.7}
+              >
+                {chip.icon && (
+                  <Ionicons
+                    name={chip.icon as any}
+                    size={13}
+                    color={active ? '#fff' : C.textSub}
+                  />
+                )}
+                <Text style={[styles.chipText, active && styles.chipTextActive]}>
+                  {chip.label}
+                </Text>
+                {!!chip.badge && chip.badge > 0 && (
+                  <View style={[styles.chipBadge, active && styles.chipBadgeActive]}>
+                    <Text style={[styles.chipBadgeText, active && styles.chipBadgeTextActive]}>
+                      {chip.badge > 99 ? '99+' : chip.badge}
+                    </Text>
+                  </View>
+                )}
+              </TouchableOpacity>
+            );
+          })}
+        </ScrollView>
       </View>
 
       <ScrollView showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
         <View style={styles.content}>
+          {/* [Idée 7] Suggestion d'épinglage */}
+          {pinSuggestion && filter === 'all' && !search.trim() && (
+            <View style={styles.pinSuggestion}>
+              <View style={[styles.pinSuggestionIcon, { backgroundColor: C.waiting + '20' }]}>
+                <Ionicons name="pin" size={16} color={C.waiting} />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.pinSuggestionTitle} numberOfLines={1}>
+                  Épingler « {pinSuggestion.name} » ?
+                </Text>
+                <Text style={styles.pinSuggestionSub}>
+                  {unreadByChannel[pinSuggestion.id]} messages non lus — accédez-y plus vite.
+                </Text>
+              </View>
+              <TouchableOpacity
+                style={styles.pinSuggestionBtn}
+                onPress={() => {
+                  const r = pinChannel(pinSuggestion.id);
+                  if (!r.success && r.reason === 'limit_reached') {
+                    Alert.alert(
+                      'Limite atteinte',
+                      `Vous pouvez épingler au maximum ${maxPinnedChannels} conversations.`,
+                      [{ text: 'OK' }]
+                    );
+                  }
+                }}
+              >
+                <Text style={styles.pinSuggestionBtnText}>Épingler</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.pinSuggestionDismiss}
+                onPress={() => dismissPinSuggestion(pinSuggestion.id)}
+                accessibilityLabel="Ignorer la suggestion"
+              >
+                <Ionicons name="close" size={16} color={C.textMuted} />
+              </TouchableOpacity>
+            </View>
+          )}
+
           {showPinned && (
             <>
               <View style={styles.sectionHeader}>
@@ -358,6 +714,7 @@ export default function MessagesScreen() {
                       lastMsg={lastMessageByChannel[ch.id]}
                       unread={unreadByChannel[ch.id] ?? 0}
                       isPinned={true}
+                      density={density}
                       onPress={() => goToChannel(ch)}
                       onLongPress={() => setActionSheet(ch)}
                     />
@@ -367,13 +724,38 @@ export default function MessagesScreen() {
             </>
           )}
 
-          {renderSection('Canaux chantier', generalChannels)}
-          {renderSection('Canaux entreprises', companyChannels)}
-          {renderSection('Canaux personnalisés', customChannels, () => setShowNewChannel(true), 'Nouveau')}
-          {renderSection('Groupes', groupChannels, () => setShowNewGroup(true), 'Nouveau')}
-          {renderSection('Messages directs', dmChannels, () => setShowNewDM(true), 'Nouveau DM')}
+          {/* [Idée 4] Application des filtres aux sections affichées */}
+          {filter === 'unread' && (
+            unreadChannels.length > 0
+              ? renderSection('Non lus', unreadChannels, { forceFullList: true })
+              : (
+                <View style={styles.empty}>
+                  <Ionicons name="checkmark-done-circle-outline" size={40} color={C.textMuted} />
+                  <Text style={styles.emptyText}>Tout est lu — bravo !</Text>
+                </View>
+              )
+          )}
+          {(filter === 'all' || filter === 'chantier') &&
+            renderSection('Canaux chantier', generalChannels)}
+          {(filter === 'all' || filter === 'company') &&
+            renderSection('Canaux entreprises', companyChannels, { alphaBuckets: true })}
+          {filter === 'all' &&
+            renderSection('Canaux personnalisés', customChannels, {
+              onAction: () => setShowNewChannel(true),
+              actionLabel: 'Nouveau',
+            })}
+          {(filter === 'all' || filter === 'dm-group') &&
+            renderSection('Groupes', groupChannels, {
+              onAction: () => setShowNewGroup(true),
+              actionLabel: 'Nouveau',
+            })}
+          {(filter === 'all' || filter === 'dm-group') &&
+            renderSection('Messages directs', dmChannels, {
+              onAction: () => setShowNewDM(true),
+              actionLabel: 'Nouveau DM',
+            })}
 
-          {filteredChannels.length === 0 && (
+          {filteredChannels.length === 0 && filter === 'all' && (
             <View style={styles.empty}>
               <Ionicons name="search-outline" size={40} color={C.textMuted} />
               <Text style={styles.emptyText}>Aucun résultat</Text>
@@ -617,4 +999,78 @@ const styles = StyleSheet.create({
     backgroundColor: C.surface2, borderRadius: 14, alignItems: 'center',
   },
   sheetCancelText: { fontSize: 16, fontFamily: 'Inter_600SemiBold', color: C.textSub },
+
+  // [Idée 1] Headers de section pliables
+  sectionTitleRow: { flexDirection: 'row', alignItems: 'center', gap: 6, flex: 1 },
+  sectionCountPill: {
+    backgroundColor: C.surface2, borderRadius: 8, paddingHorizontal: 6, paddingVertical: 1,
+    minWidth: 20, alignItems: 'center',
+  },
+  sectionCountText: { fontSize: 10, fontFamily: 'Inter_700Bold', color: C.textSub },
+  sectionUnreadDot: {
+    backgroundColor: C.open, borderRadius: 9, paddingHorizontal: 6, paddingVertical: 1,
+    minWidth: 18, alignItems: 'center',
+  },
+  sectionUnreadDotText: { fontSize: 10, fontFamily: 'Inter_700Bold', color: '#fff' },
+
+  // [Idée 3] Bouton "Voir tout"
+  showMoreBtn: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 4,
+    paddingVertical: 12, backgroundColor: C.surface,
+  },
+  showMoreText: { fontSize: 13, fontFamily: 'Inter_600SemiBold', color: C.primary },
+
+  // [Idée 4] Chips de filtre
+  chipsRow: { gap: 6, paddingTop: 10, paddingRight: 4 },
+  chip: {
+    flexDirection: 'row', alignItems: 'center', gap: 5,
+    paddingHorizontal: 12, paddingVertical: 7,
+    backgroundColor: C.surface2, borderRadius: 18,
+    borderWidth: 1, borderColor: C.border,
+  },
+  chipActive: { backgroundColor: C.primary, borderColor: C.primary },
+  chipText: { fontSize: 12, fontFamily: 'Inter_600SemiBold', color: C.textSub },
+  chipTextActive: { color: '#fff' },
+  chipBadge: {
+    backgroundColor: C.open, borderRadius: 8, paddingHorizontal: 5, minWidth: 16,
+    alignItems: 'center',
+  },
+  chipBadgeActive: { backgroundColor: '#fff' },
+  chipBadgeText: { fontSize: 10, fontFamily: 'Inter_700Bold', color: '#fff' },
+  chipBadgeTextActive: { color: C.primary },
+
+  // [Idée 5] Headers alphabétiques
+  alphaHeader: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    paddingHorizontal: 14, paddingVertical: 6, backgroundColor: C.surface2,
+  },
+  alphaHeaderText: { fontSize: 12, fontFamily: 'Inter_700Bold', color: C.textSub, letterSpacing: 0.5 },
+  alphaHeaderCount: { fontSize: 11, fontFamily: 'Inter_500Medium', color: C.textMuted },
+
+  // [Idée 6] Mode compact
+  channelItemCompact: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 12, paddingVertical: 8 },
+  channelNameCompact: { fontSize: 14, fontFamily: 'Inter_500Medium', color: C.text, flex: 1 },
+  compactUnreadRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+
+  // [Idée 7] Bannière suggestion d'épinglage
+  pinSuggestion: {
+    flexDirection: 'row', alignItems: 'center', gap: 10,
+    backgroundColor: C.surface, borderRadius: 12,
+    borderWidth: 1, borderColor: C.waiting + '40',
+    padding: 10, marginBottom: 14,
+  },
+  pinSuggestionIcon: {
+    width: 32, height: 32, borderRadius: 16,
+    alignItems: 'center', justifyContent: 'center',
+  },
+  pinSuggestionTitle: { fontSize: 13, fontFamily: 'Inter_600SemiBold', color: C.text },
+  pinSuggestionSub: { fontSize: 11, fontFamily: 'Inter_400Regular', color: C.textMuted, marginTop: 1 },
+  pinSuggestionBtn: {
+    backgroundColor: C.waiting, paddingHorizontal: 12, paddingVertical: 7, borderRadius: 8,
+  },
+  pinSuggestionBtnText: { fontSize: 12, fontFamily: 'Inter_700Bold', color: '#fff' },
+  pinSuggestionDismiss: {
+    width: 28, height: 28, borderRadius: 14, alignItems: 'center', justifyContent: 'center',
+    backgroundColor: C.surface2,
+  },
 });
