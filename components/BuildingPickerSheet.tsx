@@ -385,6 +385,7 @@ export default function BuildingPickerSheet({
           <ScrollView
             horizontal
             showsHorizontalScrollIndicator={false}
+            style={styles.familiesScroll}
             contentContainerStyle={styles.familiesRow}
           >
             <FamilyChip
@@ -719,24 +720,32 @@ const styles = StyleSheet.create({
     color: C.text,
     paddingVertical: 0,
   },
+  // Hauteur explicite pour empêcher la ScrollView horizontale de se
+  // collapser à 0px dans le flex column du sheet (sinon la liste passe
+  // par-dessus les chips). flexGrow:0/flexShrink:0 verrouille la hauteur.
+  familiesScroll: {
+    flexGrow: 0,
+    flexShrink: 0,
+    height: 56,
+  },
   familiesRow: {
     flexDirection: 'row',
-    paddingTop: 10,
+    alignItems: 'center',
+    paddingTop: 8,
     paddingBottom: 4,
     paddingHorizontal: 2,
   },
   familyChip: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingLeft: 14,
-    paddingRight: 6,
-    paddingVertical: 6,
-    borderRadius: 20,
+    paddingLeft: 12,
+    paddingRight: 5,
+    paddingVertical: 5,
+    borderRadius: 18,
     backgroundColor: C.surface2,
     borderWidth: 1,
     borderColor: C.border,
-    minHeight: 40, // hauteur suffisante pour ne pas rogner le badge de comptage
-    minWidth: 80, // garantit assez de place pour le label le plus court
+    minHeight: 36,
     marginRight: 6, // remplace `gap` au cas où la version RN/Android est capricieuse
   },
   familyChipActive: { backgroundColor: C.primary, borderColor: C.primary },
@@ -745,21 +754,21 @@ const styles = StyleSheet.create({
     lineHeight: 18,
     fontFamily: 'Inter_600SemiBold',
     color: C.textSub,
-    marginRight: 8, // remplace `gap` du parent
+    marginRight: 6, // remplace `gap` du parent
     includeFontPadding: false,
   },
   familyChipTextActive: { color: '#fff' },
   familyChipCount: {
     fontSize: 11,
-    lineHeight: 14, // évite que ascender/descender soient rognés par overflow:hidden
+    lineHeight: 16, // assez d'espace pour les ascendants/descendants des chiffres
     fontFamily: 'Inter_700Bold',
     color: C.textMuted,
     backgroundColor: C.surface,
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 12,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 10,
     overflow: 'hidden',
-    minWidth: 26,
+    minWidth: 22,
     textAlign: 'center',
     includeFontPadding: false,
   },
