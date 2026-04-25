@@ -502,6 +502,20 @@ export default function PlansScreen() {
   // Alias to the early declaration — all downstream code uses this name.
   const chantierHierarchyBuildings = chantierHierarchyBuildingsEarly;
 
+  // Renvoie le dernier niveau visité pour ce bâtiment s'il existe encore
+  // dans la hiérarchie. Sinon, retombe sur 'all'. On utilise la 1ère entrée
+  // de `recentLevelsByBuilding` qui est toujours le plus récent (cf. effet
+  // qui maintient cette liste).
+  const pickInitialLevelForBuilding = (buildingId: string): string => {
+    const building = chantierHierarchyBuildings.find(b => b.id === buildingId);
+    if (!building || !building.levels?.length) return 'all';
+    const recents = recentLevelsByBuilding[buildingId];
+    if (!recents?.length) return 'all';
+    const lastVisited = recents[0];
+    if (building.levels.some(l => l.id === lastVisited)) return lastVisited;
+    return 'all';
+  };
+
   const orphanPlans = useMemo(
     () => chantierPlans.filter(p => !p.buildingId && !p.building),
     [chantierPlans]
@@ -1612,7 +1626,7 @@ export default function PlansScreen() {
                   <TouchableOpacity
                     key={b.id}
                     style={[styles.hierarchyChip, selectedBuilding === b.id && styles.hierarchyChipActive]}
-                    onPress={() => { setSelectedBuilding(b.id); setSelectedLevel('all'); setActivePlanId(null); }}
+                    onPress={() => { setSelectedBuilding(b.id); setSelectedLevel(pickInitialLevelForBuilding(b.id)); setActivePlanId(null); }}
                   >
                     <Ionicons name="business-outline" size={11} color={selectedBuilding === b.id ? C.primary : C.textSub} />
                     <Text style={[styles.hierarchyChipText, selectedBuilding === b.id && styles.hierarchyChipTextActive]}>{b.name}</Text>
@@ -1641,7 +1655,7 @@ export default function PlansScreen() {
                     <TouchableOpacity
                       key={b.id}
                       style={[styles.hierarchyChip, isActive && styles.hierarchyChipActive]}
-                      onPress={() => { setSelectedBuilding(b.id); setSelectedLevel('all'); setActivePlanId(null); }}
+                      onPress={() => { setSelectedBuilding(b.id); setSelectedLevel(pickInitialLevelForBuilding(b.id)); setActivePlanId(null); }}
                     >
                       <Ionicons name="business-outline" size={11} color={isActive ? C.primary : C.textSub} />
                       <Text
@@ -2665,7 +2679,7 @@ export default function PlansScreen() {
         recentIds={recentBuildingIds}
         onSelect={(id) => {
           setSelectedBuilding(id);
-          setSelectedLevel('all');
+          setSelectedLevel(pickInitialLevelForBuilding(id));
           setActivePlanId(null);
         }}
         hasOrphanPlans={hasOrphanPlans}
@@ -2711,7 +2725,11 @@ export default function PlansScreen() {
         onStatusFilterChange={setStatusFilter}
         buildings={buildings}
         selectedBuilding={selectedBuilding}
-        onBuildingChange={(b) => { setSelectedBuilding(b); setSelectedLevel('all'); setActivePlanId(null); }}
+        onBuildingChange={(b) => {
+          setSelectedBuilding(b);
+          setSelectedLevel(b === 'all' || b === '__none__' ? 'all' : pickInitialLevelForBuilding(b));
+          setActivePlanId(null);
+        }}
         planLevels={planLevelsForBuilding}
         selectedLevel={selectedLevel}
         onLevelChange={(l) => { setSelectedLevel(l); setActivePlanId(null); }}
