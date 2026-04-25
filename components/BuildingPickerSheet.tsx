@@ -567,20 +567,26 @@ function FamilyChip({
       {/* Important : pas de numberOfLines, pas de flexShrink, pas de gap
           parent. Sur certaines builds Android, ces combinaisons causent
           un Text rendu avec largeur 0. On utilise un marginRight explicite
-          sur le label pour éviter `gap` (intermittent < RN 0.74 sur Android),
-          et on force un minWidth pour empêcher tout collapse. */}
+          sur le label pour éviter `gap` (intermittent < RN 0.74 sur Android). */}
       <Text
         style={[styles.familyChipText, active && styles.familyChipTextActive]}
         allowFontScaling={false}
       >
         {label}
       </Text>
-      <Text
-        style={[styles.familyChipCount, active && styles.familyChipCountActive]}
-        allowFontScaling={false}
-      >
-        {count}
-      </Text>
+      {/* Le badge est un View (et non un Text avec backgroundColor) :
+          sur Android, Text + backgroundColor + borderRadius + overflow
+          produit des hauteurs intrinsèques instables d'un rendu à l'autre,
+          ce qui faisait varier la hauteur du chip parent. Un View a une
+          taille déterministe basée uniquement sur ses paddings. */}
+      <View style={[styles.familyChipCountWrap, active && styles.familyChipCountWrapActive]}>
+        <Text
+          style={[styles.familyChipCountText, active && styles.familyChipCountTextActive]}
+          allowFontScaling={false}
+        >
+          {count}
+        </Text>
+      </View>
     </TouchableOpacity>
   );
 }
@@ -740,12 +746,14 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingLeft: 12,
     paddingRight: 5,
-    paddingVertical: 5,
+    // height (et non minHeight) verrouille la hauteur du chip pour que
+    // le rendu ne change pas selon les variations intrinsèques du badge
+    // de comptage (Android RN peut produire des hauteurs Text instables).
+    height: 36,
     borderRadius: 18,
     backgroundColor: C.surface2,
     borderWidth: 1,
     borderColor: C.border,
-    minHeight: 36,
     marginRight: 6, // remplace `gap` au cas où la version RN/Android est capricieuse
   },
   familyChipActive: { backgroundColor: C.primary, borderColor: C.primary },
@@ -758,21 +766,26 @@ const styles = StyleSheet.create({
     includeFontPadding: false,
   },
   familyChipTextActive: { color: '#fff' },
-  familyChipCount: {
+  // Badge = View à hauteur fixe → géométrie déterministe sur Android.
+  familyChipCountWrap: {
+    height: 22,
+    minWidth: 26,
+    paddingHorizontal: 7,
+    borderRadius: 11,
+    backgroundColor: C.surface,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  familyChipCountWrapActive: { backgroundColor: '#fff' },
+  familyChipCountText: {
     fontSize: 11,
-    lineHeight: 16, // assez d'espace pour les ascendants/descendants des chiffres
+    lineHeight: 14,
     fontFamily: 'Inter_700Bold',
     color: C.textMuted,
-    backgroundColor: C.surface,
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-    borderRadius: 10,
-    overflow: 'hidden',
-    minWidth: 22,
     textAlign: 'center',
     includeFontPadding: false,
   },
-  familyChipCountActive: { color: C.primary, backgroundColor: '#fff' },
+  familyChipCountTextActive: { color: C.primary },
   list: { marginTop: 4 },
   sectionHeader: {
     flexDirection: 'row',
