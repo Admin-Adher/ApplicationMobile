@@ -9,6 +9,7 @@ import { PlanDrawing, PlanDrawingTool, Reserve } from '@/constants/types';
 import { genId } from '@/lib/utils';
 import * as FileSystem from 'expo-file-system';
 import * as pdfjsLib from '@/lib/pdfjs';
+import { getPlanUriCacheFirst, getCachedPlanUri } from '@/lib/planCache';
 
 const STATUS_COLORS: Record<string, string> = {
   open: '#EF4444', in_progress: '#F59E0B', waiting: '#6B7280',
@@ -812,6 +813,8 @@ const MobileViewer = forwardRef<PdfPlanViewerHandle, PdfPlanViewerProps>(functio
   );
   const [uriLoading, setUriLoading] = useState(isLocalUri || isRemoteUri);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [fromCache, setFromCache] = useState(false);
+  const [offlineUnavailable, setOfflineUnavailable] = useState(false);
 
   const MAX_BASE64_SIZE = 25 * 1024 * 1024;
 
@@ -823,60 +826,76 @@ const MobileViewer = forwardRef<PdfPlanViewerHandle, PdfPlanViewerProps>(functio
       return uri.toLowerCase().endsWith('.png') ? 'image/png' : 'image/jpeg';
     }
 
-    async function downloadRemoteToBase64(): Promise<void> {
-      // Download remote PDF/image to a local cache file, then read it as base64.
-      // This bypasses WebView CORS / null-origin issues with PDF.js.
-      const cleanName = planUri.split('/').pop()?.split('?')[0] ?? `plan_${planId}`;
-      const safeName = cleanName.replace(/[^a-zA-Z0-9._-]/g, '_').slice(-80);
-      const dest = `${FileSystem.cacheDirectory}plan_${planId}_${safeName}`;
+    async function inlineFromLocalFile(localUri: string): Promise<string | null> {
+      const info = await FileSystem.getInfoAsync(localUri);
+      const size = info.exists && 'size' in info ? (info.size as number) : 0;
+      if (size > MAX_BASE64_SIZE) return null;
+      const b64 = await FileSystem.readAsStringAsync(localUri, { encoding: FileSystem.EncodingType.Base64 });
+      return `data:${mimeFor(localUri)};base64,${b64}`;
+    }
+
+    async function loadRemote(): Promise<void> {
+      // Cache-first: if we already have it, show it instantly even offline.
+      // Otherwise download (which also stores it for next time).
       try {
-        const dl = await FileSystem.downloadAsync(planUri, dest);
+        const { localUri, fromCache: wasCached } = await getPlanUriCacheFirst(planUri);
         if (cancelled) return;
-        if (dl.status && dl.status >= 400) {
-          throw new Error(`HTTP ${dl.status}`);
-        }
-        const info = await FileSystem.getInfoAsync(dl.uri);
-        const size = info.exists && 'size' in info ? (info.size as number) : 0;
-        if (size > MAX_BASE64_SIZE) {
-          // File too large to inline — fall back to direct URL (PDF.js will try to fetch).
-          if (!cancelled) {
-            setResolvedUri(planUri);
-            setUriLoading(false);
-            setLoadError(null);
-          }
-          return;
-        }
-        const b64 = await FileSystem.readAsStringAsync(dl.uri, { encoding: FileSystem.EncodingType.Base64 });
+        const dataUrl = await inlineFromLocalFile(localUri);
         if (cancelled) return;
-        setResolvedUri(`data:${mimeFor(planUri)};base64,${b64}`);
-        setUriLoading(false);
-        setLoadError(null);
-      } catch (e: unknown) {
-        const msg = e instanceof Error ? e.message : String(e);
-        if (!cancelled) {
-          // Fall back to direct URL so the WebView can still try.
-          setResolvedUri(planUri);
+        if (dataUrl) {
+          setResolvedUri(dataUrl);
+          setFromCache(wasCached);
           setUriLoading(false);
-          setLoadError(`Téléchargement échoué : ${msg}`);
+          setLoadError(null);
+          setOfflineUnavailable(false);
+        } else {
+          // Too large to inline — fall back to direct URL (only works online).
+          setResolvedUri(planUri);
+          setFromCache(false);
+          setUriLoading(false);
+          setLoadError(null);
+          setOfflineUnavailable(false);
         }
+      } catch (e: unknown) {
+        if (cancelled) return;
+        // Network failed — try the cache as a last resort (handles "was cached
+        // but the cached lookup itself failed" edge case).
+        try {
+          const cached = await getCachedPlanUri(planUri);
+          if (cached) {
+            const dataUrl = await inlineFromLocalFile(cached);
+            if (cancelled) return;
+            if (dataUrl) {
+              setResolvedUri(dataUrl);
+              setFromCache(true);
+              setUriLoading(false);
+              setLoadError(null);
+              setOfflineUnavailable(false);
+              return;
+            }
+          }
+        } catch {}
+        // Truly unavailable: no network AND no cache.
+        const msg = e instanceof Error ? e.message : String(e);
+        setResolvedUri('');
+        setFromCache(false);
+        setUriLoading(false);
+        setOfflineUnavailable(true);
+        setLoadError(`Plan non disponible hors ligne. ${msg}`);
       }
     }
 
-    async function readLocalToBase64(): Promise<void> {
+    async function loadLocal(): Promise<void> {
       try {
-        const info = await FileSystem.getInfoAsync(planUri);
-        const size = info.exists && 'size' in info ? (info.size as number) : 0;
-        if (size > MAX_BASE64_SIZE) {
-          if (!cancelled) {
-            setResolvedUri(planUri);
-            setUriLoading(false);
-          }
-          return;
-        }
-        const b64 = await FileSystem.readAsStringAsync(planUri, { encoding: FileSystem.EncodingType.Base64 });
+        const dataUrl = await inlineFromLocalFile(planUri);
         if (cancelled) return;
-        setResolvedUri(`data:${mimeFor(planUri)};base64,${b64}`);
-        setUriLoading(false);
+        if (dataUrl) {
+          setResolvedUri(dataUrl);
+          setUriLoading(false);
+        } else {
+          setResolvedUri(planUri);
+          setUriLoading(false);
+        }
       } catch {
         if (!cancelled) {
           setResolvedUri(planUri);
@@ -889,16 +908,22 @@ const MobileViewer = forwardRef<PdfPlanViewerHandle, PdfPlanViewerProps>(functio
       setUriLoading(true);
       setResolvedUri('');
       setLoadError(null);
-      readLocalToBase64();
+      setFromCache(false);
+      setOfflineUnavailable(false);
+      loadLocal();
     } else if (isRemoteUri) {
       setUriLoading(true);
       setResolvedUri('');
       setLoadError(null);
-      downloadRemoteToBase64();
+      setFromCache(false);
+      setOfflineUnavailable(false);
+      loadRemote();
     } else {
       setResolvedUri(planUri);
       setUriLoading(false);
       setLoadError(null);
+      setFromCache(false);
+      setOfflineUnavailable(false);
     }
     return () => { cancelled = true; };
   }, [planUri, planId, isImagePlan, isLocalUri, isRemoteUri]);
@@ -1039,10 +1064,23 @@ const MobileViewer = forwardRef<PdfPlanViewerHandle, PdfPlanViewerProps>(functio
         allowUniversalAccessFromFileURLs
       />
       ) : null}
-      {loadError && !uriLoading ? (
+      {offlineUnavailable && !uriLoading ? (
+        <View style={{ position: 'absolute' as any, top: 0, left: 0, right: 0, bottom: 0, backgroundColor: '#0F1117', alignItems: 'center', justifyContent: 'center', padding: 24, gap: 10 }}>
+          <Ionicons name="cloud-offline-outline" size={42} color={C.textMuted} />
+          <Text style={{ color: C.text, fontSize: 14, fontFamily: 'Inter_600SemiBold', textAlign: 'center' }}>Plan non disponible hors ligne</Text>
+          <Text style={{ color: C.textMuted, fontSize: 12, textAlign: 'center', lineHeight: 17 }}>Connectez-vous à Internet pour télécharger ce plan une première fois — il sera ensuite consultable hors ligne.</Text>
+        </View>
+      ) : null}
+      {loadError && !uriLoading && !offlineUnavailable ? (
         <View style={{ position: 'absolute' as any, bottom: 90, left: 12, right: 12, backgroundColor: 'rgba(127,29,29,0.92)', borderRadius: 8, padding: 10 }}>
           <Text style={{ color: '#FECACA', fontSize: 11, fontFamily: 'Inter_600SemiBold' }}>Erreur de chargement du plan</Text>
           <Text style={{ color: '#FEE2E2', fontSize: 10, marginTop: 4 }} numberOfLines={3}>{loadError}</Text>
+        </View>
+      ) : null}
+      {fromCache && !uriLoading && !loadError ? (
+        <View style={{ position: 'absolute' as any, top: 8, right: 8, backgroundColor: 'rgba(15,17,23,0.85)', borderRadius: 999, paddingHorizontal: 9, paddingVertical: 4, flexDirection: 'row', alignItems: 'center', gap: 4, borderWidth: 1, borderColor: 'rgba(148,163,184,0.3)' }}>
+          <Ionicons name="cloud-done-outline" size={11} color="#94A3B8" />
+          <Text style={{ color: '#94A3B8', fontSize: 10, fontFamily: 'Inter_500Medium' }}>Hors ligne</Text>
         </View>
       ) : null}
 
