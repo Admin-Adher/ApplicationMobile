@@ -17,6 +17,8 @@ import NewDMModal from '@/components/NewDMModal';
 import NewGroupModal from '@/components/NewGroupModal';
 import SuperAdminMessagingHub from '@/components/SuperAdminMessagingHub';
 
+const ALPHA_BUCKET_THRESHOLD = 10; // au-delà, on regroupe les entreprises par initiale
+
 const AVATAR_COLORS = [C.primary, '#059669', '#D97706', '#7C3AED', '#DB2777', '#EA580C', '#0891B2'];
 function getAvatarColor(name: string) {
   let hash = 0;
@@ -224,6 +226,28 @@ export default function MessagesTabScreen() {
   const groupChannels = filteredChannels.filter(ch => ch.type === 'group');
   const dmChannels = filteredChannels.filter(ch => ch.type === 'dm');
 
+  // ── Section "Canaux entreprises" : tri alpha + filtre + repli ──────────
+  const [companyFilter, setCompanyFilter] = useState('');
+  const [companiesCollapsedOverride, setCompaniesCollapsedOverride] = useState<boolean | null>(null);
+
+  const sortedCompanyChannels = useMemo(
+    () => [...companyChannels].sort((a, b) =>
+      a.name.localeCompare(b.name, 'fr', { sensitivity: 'base' })
+    ),
+    [companyChannels]
+  );
+
+  const companyUnreadTotal = useMemo(
+    () => sortedCompanyChannels.reduce((acc, ch) => acc + (unreadByChannel[ch.id] ?? 0), 0),
+    [sortedCompanyChannels, unreadByChannel]
+  );
+
+  const filteredCompanyChannels = useMemo(() => {
+    const q = companyFilter.trim().toLowerCase();
+    if (!q) return sortedCompanyChannels;
+    return sortedCompanyChannels.filter(ch => ch.name.toLowerCase().includes(q));
+  }, [sortedCompanyChannels, companyFilter]);
+
   function goToChannel(ch: Channel) {
     router.push({
       pathname: '/channel/[id]',
@@ -350,6 +374,119 @@ export default function MessagesTabScreen() {
   const showPinned = pinnedChannels.length > 0 && !search.trim();
   const isSearching = search.trim().length >= 2;
 
+  // ── Rendu de la section Entreprises (collapsible + alpha buckets) ─────
+  const companiesAutoCollapsed = sortedCompanyChannels.length >= ALPHA_BUCKET_THRESHOLD;
+  const isCompaniesCollapsed = !isSearching && (companiesCollapsedOverride ?? companiesAutoCollapsed);
+
+  function renderCompanyChannelRow(ch: Channel, withDivider: boolean) {
+    return (
+      <View key={ch.id}>
+        {withDivider && <View style={styles.divider} />}
+        <ChannelItem
+          channel={ch}
+          lastMsg={lastMessageByChannel[ch.id]}
+          unread={unreadByChannel[ch.id] ?? 0}
+          isPinned={pinnedChannelIds.includes(ch.id)}
+          onPress={() => goToChannel(ch)}
+          onLongPress={() => setActionSheet(ch)}
+        />
+      </View>
+    );
+  }
+
+  function renderCompanySection() {
+    if (sortedCompanyChannels.length === 0) return null;
+
+    const useAlpha = filteredCompanyChannels.length >= ALPHA_BUCKET_THRESHOLD;
+    const buckets: Record<string, Channel[]> = {};
+    if (useAlpha) {
+      for (const ch of filteredCompanyChannels) {
+        const letter = (ch.name.charAt(0) || '#').toUpperCase();
+        const key = /[A-Z]/.test(letter) ? letter : '#';
+        (buckets[key] = buckets[key] ?? []).push(ch);
+      }
+    }
+    const bucketKeys = Object.keys(buckets).sort();
+
+    return (
+      <View style={{ marginBottom: 4 }}>
+        <TouchableOpacity
+          style={styles.collapsibleHeader}
+          onPress={() => setCompaniesCollapsedOverride(!isCompaniesCollapsed)}
+          activeOpacity={0.7}
+          accessibilityRole="button"
+          accessibilityLabel={`Canaux entreprises, ${sortedCompanyChannels.length} ${isCompaniesCollapsed ? 'replié' : 'déplié'}`}
+        >
+          <View style={styles.collapsibleHeaderLeft}>
+            <Ionicons
+              name={isCompaniesCollapsed ? 'chevron-forward' : 'chevron-down'}
+              size={14}
+              color={C.textMuted}
+            />
+            <Text style={styles.sectionLabel}>Canaux entreprises</Text>
+            <View style={styles.sectionCountPill}>
+              <Text style={styles.sectionCountText}>{sortedCompanyChannels.length}</Text>
+            </View>
+            {companyUnreadTotal > 0 && (
+              <View style={styles.sectionUnreadBadge}>
+                <Text style={styles.sectionUnreadBadgeText}>
+                  {companyUnreadTotal > 99 ? '99+' : companyUnreadTotal}
+                </Text>
+              </View>
+            )}
+          </View>
+        </TouchableOpacity>
+
+        {!isCompaniesCollapsed && (
+          <>
+            {sortedCompanyChannels.length >= ALPHA_BUCKET_THRESHOLD && (
+              <View style={styles.companyFilterWrap}>
+                <Ionicons name="search-outline" size={14} color={C.textMuted} />
+                <TextInput
+                  style={styles.companyFilterInput}
+                  placeholder="Filtrer les entreprises..."
+                  placeholderTextColor={C.textMuted}
+                  value={companyFilter}
+                  onChangeText={setCompanyFilter}
+                  autoCorrect={false}
+                  autoCapitalize="none"
+                />
+                {companyFilter.length > 0 && (
+                  <TouchableOpacity onPress={() => setCompanyFilter('')}>
+                    <Ionicons name="close-circle" size={14} color={C.textMuted} />
+                  </TouchableOpacity>
+                )}
+              </View>
+            )}
+
+            {filteredCompanyChannels.length === 0 ? (
+              <View style={styles.emptySection}>
+                <Text style={styles.emptySectionText}>Aucune entreprise correspondante</Text>
+              </View>
+            ) : useAlpha ? (
+              <View style={styles.channelGroup}>
+                {bucketKeys.map((k, idx) => (
+                  <View key={k}>
+                    {idx > 0 && <View style={styles.divider} />}
+                    <View style={styles.alphaHeader}>
+                      <Text style={styles.alphaHeaderText}>{k}</Text>
+                      <Text style={styles.alphaHeaderCount}>{buckets[k].length}</Text>
+                    </View>
+                    {buckets[k].map((ch, i) => renderCompanyChannelRow(ch, i > 0))}
+                  </View>
+                ))}
+              </View>
+            ) : (
+              <View style={styles.channelGroup}>
+                {filteredCompanyChannels.map((ch, i) => renderCompanyChannelRow(ch, i > 0))}
+              </View>
+            )}
+          </>
+        )}
+      </View>
+    );
+  }
+
   return (
     <View style={styles.container}>
       <View style={[styles.header, { paddingTop: topPad + 12 }]}>
@@ -443,7 +580,7 @@ export default function MessagesTabScreen() {
               </View>
             )}
             {renderSection('Canaux chantier', buildingChannels)}
-            {renderSection('Canaux entreprises', companyChannels)}
+            {renderCompanySection()}
             {renderSection('Canaux personnalisés', customChannels, () => setShowNewChannel(true), 'Nouveau')}
             {renderSection('Groupes', groupChannels, () => setShowNewGroup(true), 'Nouveau')}
             {renderSection('Messages directs', dmChannels, () => setShowNewDM(true), 'Nouveau DM')}
@@ -701,6 +838,42 @@ const styles = StyleSheet.create({
   },
   sectionAction: { flexDirection: 'row', alignItems: 'center', gap: 4 },
   sectionActionText: { fontSize: 12, fontFamily: 'Inter_600SemiBold', color: C.primary },
+  collapsibleHeader: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    paddingVertical: 8, marginTop: 4,
+  },
+  collapsibleHeaderLeft: { flexDirection: 'row', alignItems: 'center', gap: 6, flex: 1 },
+  sectionCountPill: {
+    backgroundColor: C.surface2, borderRadius: 9, minWidth: 18, height: 18,
+    paddingHorizontal: 6, alignItems: 'center', justifyContent: 'center',
+    borderWidth: 1, borderColor: C.border,
+  },
+  sectionCountText: { fontSize: 10, fontFamily: 'Inter_700Bold', color: C.textSub },
+  sectionUnreadBadge: {
+    backgroundColor: C.open, borderRadius: 9, minWidth: 18, height: 18,
+    paddingHorizontal: 6, alignItems: 'center', justifyContent: 'center',
+    marginLeft: 2,
+  },
+  sectionUnreadBadgeText: { fontSize: 10, fontFamily: 'Inter_700Bold', color: '#fff' },
+  companyFilterWrap: {
+    flexDirection: 'row', alignItems: 'center', gap: 8,
+    backgroundColor: C.surface, borderRadius: 12,
+    paddingHorizontal: 12, paddingVertical: 8,
+    borderWidth: 1, borderColor: C.border, marginBottom: 8,
+  },
+  companyFilterInput: {
+    flex: 1, fontSize: 13, fontFamily: 'Inter_400Regular', color: C.text,
+    paddingVertical: 0,
+  },
+  alphaHeader: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    paddingHorizontal: 14, paddingVertical: 6,
+    backgroundColor: C.surface2,
+  },
+  alphaHeaderText: {
+    fontSize: 12, fontFamily: 'Inter_700Bold', color: C.textSub, letterSpacing: 0.5,
+  },
+  alphaHeaderCount: { fontSize: 10, fontFamily: 'Inter_500Medium', color: C.textMuted },
   channelGroup: {
     backgroundColor: C.surface, borderRadius: 14, borderWidth: 1,
     borderColor: C.border, marginBottom: 20, overflow: 'hidden',
