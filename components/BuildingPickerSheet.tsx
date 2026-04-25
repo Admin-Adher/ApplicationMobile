@@ -332,12 +332,19 @@ export default function BuildingPickerSheet({
       onRequestClose={() => { setQuery(''); onClose(); }}
       statusBarTranslucent
     >
-      <TouchableOpacity
-        style={styles.backdrop}
-        activeOpacity={1}
-        onPress={() => { setQuery(''); onClose(); }}
-      />
-      <View style={styles.sheet}>
+      {/* Conteneur racine flex:1 pour que `height: 78%` du sheet soit
+          calculé de manière fiable contre le plein écran. Sans ce wrapper,
+          le Modal RN pose backdrop (flex:1) + sheet (height:78%) côte à
+          côte sans parent stable, et avec `statusBarTranslucent` sur
+          Android la hauteur effective change pendant l'animation slide
+          → on se retrouve parfois avec un sheet écrasé en bas d'écran. */}
+      <View style={styles.modalRoot}>
+        <TouchableOpacity
+          style={styles.backdrop}
+          activeOpacity={1}
+          onPress={() => { setQuery(''); onClose(); }}
+        />
+        <View style={styles.sheet}>
         <View style={styles.handleHitArea} {...handlePan.panHandlers}>
           <View style={styles.handle} />
         </View>
@@ -541,6 +548,7 @@ export default function BuildingPickerSheet({
             </>
           )}
         </ScrollView>
+        </View>
       </View>
     </Modal>
   );
@@ -655,7 +663,10 @@ function BuildingRow({
 }
 
 const styles = StyleSheet.create({
-  backdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.45)' },
+  modalRoot: { flex: 1, justifyContent: 'flex-end' },
+  // Backdrop en absoluteFill pour qu'il couvre toujours tout l'écran sans
+  // dépendre du flex layout — évite les rendus partiels intermittents.
+  backdrop: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(0,0,0,0.45)' },
   sheet: {
     backgroundColor: C.surface,
     borderTopLeftRadius: 20,
@@ -719,18 +730,19 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingLeft: 14,
     paddingRight: 6,
-    paddingVertical: 7,
-    borderRadius: 18,
+    paddingVertical: 6,
+    borderRadius: 20,
     backgroundColor: C.surface2,
     borderWidth: 1,
     borderColor: C.border,
-    minHeight: 32,
+    minHeight: 40, // hauteur suffisante pour ne pas rogner le badge de comptage
     minWidth: 80, // garantit assez de place pour le label le plus court
     marginRight: 6, // remplace `gap` au cas où la version RN/Android est capricieuse
   },
   familyChipActive: { backgroundColor: C.primary, borderColor: C.primary },
   familyChipText: {
     fontSize: 13,
+    lineHeight: 18,
     fontFamily: 'Inter_600SemiBold',
     color: C.textSub,
     marginRight: 8, // remplace `gap` du parent
@@ -739,14 +751,15 @@ const styles = StyleSheet.create({
   familyChipTextActive: { color: '#fff' },
   familyChipCount: {
     fontSize: 11,
+    lineHeight: 14, // évite que ascender/descender soient rognés par overflow:hidden
     fontFamily: 'Inter_700Bold',
     color: C.textMuted,
     backgroundColor: C.surface,
-    paddingHorizontal: 7,
-    paddingVertical: 2,
-    borderRadius: 10,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 12,
     overflow: 'hidden',
-    minWidth: 22,
+    minWidth: 26,
     textAlign: 'center',
     includeFontPadding: false,
   },
