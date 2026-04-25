@@ -30,13 +30,17 @@ import DxfCanvasOverlay from '@/components/plans/DxfCanvasOverlay';
 import FiltersSheet from '@/components/plans/FiltersSheet';
 import ReservesSheet from '@/components/plans/ReservesSheet';
 import BuildingPickerSheet, { type BuildingItem } from '@/components/BuildingPickerSheet';
+import LevelPickerSheet, { type LevelItem } from '@/components/LevelPickerSheet';
 
 const HINT_KEY = 'plans_hint_seen';
 const PIN_SIZE_KEY = 'plans_pin_size_scale';
 const PIN_SIZES_KEY = 'plans_pin_sizes_v2';
 const RECENT_BUILDINGS_KEY = 'plans_recent_buildings_v1';
+const RECENT_LEVELS_KEY = 'plans_recent_levels_v1';
 const HYBRID_PICKER_THRESHOLD = 5;
+const HYBRID_LEVEL_THRESHOLD = 6;
 const VISIBLE_RECENT_CHIPS = 3;
+const VISIBLE_RECENT_LEVEL_CHIPS = 3;
 
 const STATUS_ORDER: ReserveStatus[] = ['open', 'in_progress', 'waiting', 'verification', 'closed'];
 
@@ -385,6 +389,8 @@ export default function PlansScreen() {
   const [dxfLoading, setDxfLoading] = useState(false);
   const [buildingPickerOpen, setBuildingPickerOpen] = useState(false);
   const [recentBuildingsByChantier, setRecentBuildingsByChantier] = useState<Record<string, string[]>>({});
+  const [levelPickerOpen, setLevelPickerOpen] = useState(false);
+  const [recentLevelsByBuilding, setRecentLevelsByBuilding] = useState<Record<string, string[]>>({});
 
   const pdfViewerRef = useRef<PdfPlanViewerHandle>(null);
   const reserveListRef = useRef<FlatList<Reserve> | null>(null);
@@ -407,6 +413,9 @@ export default function PlansScreen() {
     AsyncStorage.getItem(PIN_SIZES_KEY).then(v => { if (v) { try { setPinSizes(JSON.parse(v)); } catch {} } });
     AsyncStorage.getItem(RECENT_BUILDINGS_KEY).then(v => {
       if (v) { try { setRecentBuildingsByChantier(JSON.parse(v)); } catch {} }
+    });
+    AsyncStorage.getItem(RECENT_LEVELS_KEY).then(v => {
+      if (v) { try { setRecentLevelsByBuilding(JSON.parse(v)); } catch {} }
     });
   }, []);
 
@@ -553,6 +562,72 @@ export default function PlansScreen() {
     const map = new Map(buildingItems.map(b => [b.id, b]));
     return order.map(id => map.get(id)).filter(Boolean) as BuildingItem[];
   }, [useHybridPicker, selectedBuilding, recentBuildingIds, chantierHierarchyBuildings, buildingItems]);
+
+  // ----- Level picker (per active building) -----
+  const activeBuildingForLevels = useMemo(() => {
+    if (selectedBuilding === 'all' || selectedBuilding === '__none__') return null;
+    return chantierHierarchyBuildings.find(b => b.id === selectedBuilding) ?? null;
+  }, [chantierHierarchyBuildings, selectedBuilding]);
+
+  const levelItems = useMemo<LevelItem[]>(() => {
+    if (!activeBuildingForLevels) return [];
+    const bldg = activeBuildingForLevels;
+    return bldg.levels.map(l => {
+      const planCount = chantierPlans.filter(p =>
+        (p.buildingId === bldg.id || (!p.buildingId && p.building === bldg.name)) &&
+        (p.levelId === l.id || (!p.levelId && p.level === l.name))
+      ).length;
+      const reserveCount = reserves.filter(r =>
+        !r.archivedAt && r.status !== 'closed' &&
+        (r.buildingId === bldg.id || (!r.buildingId && r.building === bldg.name)) &&
+        (r.levelId === l.id || (!r.levelId && r.level === l.name))
+      ).length;
+      return { id: l.id, name: l.name, planCount, reserveCount };
+    });
+  }, [activeBuildingForLevels, chantierPlans, reserves]);
+
+  const useHybridLevelPicker = levelItems.length >= HYBRID_LEVEL_THRESHOLD;
+
+  const recentLevelIds = useMemo(
+    () => (activeBuildingForLevels ? recentLevelsByBuilding[activeBuildingForLevels.id] ?? [] : []),
+    [recentLevelsByBuilding, activeBuildingForLevels]
+  );
+
+  // Track recently consulted levels per building.
+  useEffect(() => {
+    if (!activeBuildingForLevels) return;
+    if (selectedLevel === 'all') return;
+    if (!activeBuildingForLevels.levels.some(l => l.id === selectedLevel)) return;
+    const bid = activeBuildingForLevels.id;
+    setRecentLevelsByBuilding(prev => {
+      const current = prev[bid] ?? [];
+      if (current[0] === selectedLevel) return prev;
+      const next = [selectedLevel, ...current.filter(id => id !== selectedLevel)].slice(0, 8);
+      const updated = { ...prev, [bid]: next };
+      AsyncStorage.setItem(RECENT_LEVELS_KEY, JSON.stringify(updated)).catch(() => {});
+      return updated;
+    });
+  }, [selectedLevel, activeBuildingForLevels]);
+
+  const visibleRecentLevelChips = useMemo<LevelItem[]>(() => {
+    if (!useHybridLevelPicker || !activeBuildingForLevels) return [];
+    const order: string[] = [];
+    if (selectedLevel !== 'all' && activeBuildingForLevels.levels.some(l => l.id === selectedLevel)) {
+      order.push(selectedLevel);
+    }
+    for (const id of recentLevelIds) {
+      if (!order.includes(id)) order.push(id);
+      if (order.length >= VISIBLE_RECENT_LEVEL_CHIPS) break;
+    }
+    if (order.length < VISIBLE_RECENT_LEVEL_CHIPS) {
+      for (const l of activeBuildingForLevels.levels) {
+        if (!order.includes(l.id)) order.push(l.id);
+        if (order.length >= VISIBLE_RECENT_LEVEL_CHIPS) break;
+      }
+    }
+    const map = new Map(levelItems.map(l => [l.id, l]));
+    return order.map(id => map.get(id)).filter(Boolean) as LevelItem[];
+  }, [useHybridLevelPicker, activeBuildingForLevels, selectedLevel, recentLevelIds, levelItems]);
 
   const levelsForNewPlanBuilding = useMemo(() => {
     if (!newPlanModal.buildingId && !newPlanModal.building) return [];
@@ -1599,31 +1674,73 @@ export default function PlansScreen() {
             </View>
           )}
           {/* Hierarchy navigation — level chips (uniquement si un bâtiment réel est sélectionné) */}
-          {chantierHierarchyBuildings.length > 0 && selectedBuilding !== 'all' && selectedBuilding !== '__none__' && (() => {
-            const bldg = chantierHierarchyBuildings.find(b => b.id === selectedBuilding);
-            if (!bldg || bldg.levels.length === 0) return null;
-            return (
-              <View style={styles.hierarchyRowLevel}>
-                <View style={styles.hierarchyChipsLevel}>
+          {activeBuildingForLevels && activeBuildingForLevels.levels.length > 0 && !useHybridLevelPicker && (
+            <View style={styles.hierarchyRowLevel}>
+              <View style={styles.hierarchyChipsLevel}>
+                <TouchableOpacity
+                  style={[styles.hierarchyChipLevel, selectedLevel === 'all' && styles.hierarchyChipLevelActive]}
+                  onPress={() => { setSelectedLevel('all'); setActivePlanId(null); }}
+                >
+                  <Text style={[styles.hierarchyChipLevelText, selectedLevel === 'all' && { color: C.primary, fontFamily: 'Inter_600SemiBold' }]}>Tous niveaux</Text>
+                </TouchableOpacity>
+                {activeBuildingForLevels.levels.map(l => (
                   <TouchableOpacity
-                    style={[styles.hierarchyChipLevel, selectedLevel === 'all' && styles.hierarchyChipLevelActive]}
-                    onPress={() => { setSelectedLevel('all'); setActivePlanId(null); }}
+                    key={l.id}
+                    style={[styles.hierarchyChipLevel, selectedLevel === l.id && styles.hierarchyChipLevelActive]}
+                    onPress={() => { setSelectedLevel(l.id); setActivePlanId(null); }}
                   >
-                    <Text style={[styles.hierarchyChipLevelText, selectedLevel === 'all' && { color: C.primary, fontFamily: 'Inter_600SemiBold' }]}>Tous niveaux</Text>
+                    <Text style={[styles.hierarchyChipLevelText, selectedLevel === l.id && { color: C.primary, fontFamily: 'Inter_600SemiBold' }]}>{l.name}</Text>
                   </TouchableOpacity>
-                  {bldg.levels.map(l => (
+                ))}
+              </View>
+            </View>
+          )}
+
+          {/* Hierarchy navigation — level chips hybrides (récents + Tous · N) pour bâtiments avec ≥6 niveaux */}
+          {activeBuildingForLevels && useHybridLevelPicker && (
+            <View style={styles.hierarchyRowLevel}>
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.hierarchyChipsLevel}>
+                <TouchableOpacity
+                  style={[styles.hierarchyChipLevel, selectedLevel === 'all' && styles.hierarchyChipLevelActive]}
+                  onPress={() => { setSelectedLevel('all'); setActivePlanId(null); }}
+                >
+                  <Text style={[styles.hierarchyChipLevelText, selectedLevel === 'all' && { color: C.primary, fontFamily: 'Inter_600SemiBold' }]}>Tous niveaux</Text>
+                </TouchableOpacity>
+                {visibleRecentLevelChips.map(l => {
+                  const isActive = selectedLevel === l.id;
+                  return (
                     <TouchableOpacity
                       key={l.id}
-                      style={[styles.hierarchyChipLevel, selectedLevel === l.id && styles.hierarchyChipLevelActive]}
+                      style={[styles.hierarchyChipLevel, isActive && styles.hierarchyChipLevelActive]}
                       onPress={() => { setSelectedLevel(l.id); setActivePlanId(null); }}
                     >
-                      <Text style={[styles.hierarchyChipLevelText, selectedLevel === l.id && { color: C.primary, fontFamily: 'Inter_600SemiBold' }]}>{l.name}</Text>
+                      <Text
+                        style={[styles.hierarchyChipLevelText, isActive && { color: C.primary, fontFamily: 'Inter_600SemiBold' }]}
+                        numberOfLines={1}
+                      >
+                        {l.name}
+                      </Text>
+                      {l.reserveCount > 0 && (
+                        <View style={styles.hierarchyChipBadge}>
+                          <Text style={styles.hierarchyChipBadgeText}>{l.reserveCount}</Text>
+                        </View>
+                      )}
                     </TouchableOpacity>
-                  ))}
-                </View>
-              </View>
-            );
-          })()}
+                  );
+                })}
+                <TouchableOpacity
+                  style={styles.hierarchyChipAll}
+                  onPress={() => setLevelPickerOpen(true)}
+                  accessibilityLabel={`Voir tous les niveaux (${activeBuildingForLevels.levels.length})`}
+                >
+                  <Text style={styles.hierarchyChipAllText}>
+                    Tous · {activeBuildingForLevels.levels.length}
+                  </Text>
+                  <Ionicons name="chevron-down" size={12} color="#fff" />
+                </TouchableOpacity>
+              </ScrollView>
+            </View>
+          )}
 
           {/* Row 2: Plan tabs with thumbnails */}
           <View style={styles.planTabsBar}>
@@ -2552,6 +2669,22 @@ export default function PlansScreen() {
         }}
         orphansSelected={selectedBuilding === '__none__'}
       />
+
+      {/* Level picker sheet (récents + recherche pour bâtiments à plusieurs niveaux) */}
+      {activeBuildingForLevels && (
+        <LevelPickerSheet
+          visible={levelPickerOpen}
+          onClose={() => setLevelPickerOpen(false)}
+          buildingName={activeBuildingForLevels.name}
+          levels={levelItems}
+          selectedId={selectedLevel}
+          recentIds={recentLevelIds}
+          onSelect={(id) => {
+            setSelectedLevel(id);
+            setActivePlanId(null);
+          }}
+        />
+      )}
 
       {/* Filters sheet */}
       <FiltersSheet
