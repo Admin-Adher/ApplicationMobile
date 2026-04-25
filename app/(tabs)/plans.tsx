@@ -29,10 +29,14 @@ import PdfPlanViewer, { type PdfPlanViewerHandle } from '@/components/PdfPlanVie
 import DxfCanvasOverlay from '@/components/plans/DxfCanvasOverlay';
 import FiltersSheet from '@/components/plans/FiltersSheet';
 import ReservesSheet from '@/components/plans/ReservesSheet';
+import BuildingPickerSheet, { type BuildingItem } from '@/components/BuildingPickerSheet';
 
 const HINT_KEY = 'plans_hint_seen';
 const PIN_SIZE_KEY = 'plans_pin_size_scale';
 const PIN_SIZES_KEY = 'plans_pin_sizes_v2';
+const RECENT_BUILDINGS_KEY = 'plans_recent_buildings_v1';
+const HYBRID_PICKER_THRESHOLD = 5;
+const VISIBLE_RECENT_CHIPS = 3;
 
 const STATUS_ORDER: ReserveStatus[] = ['open', 'in_progress', 'waiting', 'verification', 'closed'];
 
@@ -379,6 +383,8 @@ export default function PlansScreen() {
   const draggingAnimSzHalf = useRef(12);
   const draggingFirstMoveRef = useRef(false);
   const [dxfLoading, setDxfLoading] = useState(false);
+  const [buildingPickerOpen, setBuildingPickerOpen] = useState(false);
+  const [recentBuildingsByChantier, setRecentBuildingsByChantier] = useState<Record<string, string[]>>({});
 
   const pdfViewerRef = useRef<PdfPlanViewerHandle>(null);
   const reserveListRef = useRef<FlatList<Reserve> | null>(null);
@@ -399,6 +405,9 @@ export default function PlansScreen() {
     AsyncStorage.getItem(HINT_KEY).then(v => { if (v === '1') setHintSeen(true); });
     AsyncStorage.getItem(PIN_SIZE_KEY).then(v => { if (v) { const n = parseFloat(v); if (!isNaN(n)) setPinSizeScale(n); } });
     AsyncStorage.getItem(PIN_SIZES_KEY).then(v => { if (v) { try { setPinSizes(JSON.parse(v)); } catch {} } });
+    AsyncStorage.getItem(RECENT_BUILDINGS_KEY).then(v => {
+      if (v) { try { setRecentBuildingsByChantier(JSON.parse(v)); } catch {} }
+    });
   }, []);
 
   useEffect(() => {
@@ -484,6 +493,66 @@ export default function PlansScreen() {
   const hasOrphanPlans = orphanPlans.length > 0;
 
   const showBuildingChips = chantierHierarchyBuildings.length > 1 || hasOrphanPlans;
+  const useHybridPicker = chantierHierarchyBuildings.length >= HYBRID_PICKER_THRESHOLD;
+
+  const buildingItems = useMemo<BuildingItem[]>(() => {
+    return chantierHierarchyBuildings.map(b => {
+      const planCount = chantierPlans.filter(p =>
+        p.buildingId === b.id || (!p.buildingId && p.building === b.name)
+      ).length;
+      const reserveCount = reserves.filter(r =>
+        !r.archivedAt && r.status !== 'closed' && (
+          r.buildingId === b.id || (!r.buildingId && r.building === b.name)
+        )
+      ).length;
+      return { id: b.id, name: b.name, planCount, reserveCount };
+    });
+  }, [chantierHierarchyBuildings, chantierPlans, reserves]);
+
+  const recentBuildingIds = useMemo(
+    () => (activeChantierId ? recentBuildingsByChantier[activeChantierId] ?? [] : []),
+    [recentBuildingsByChantier, activeChantierId]
+  );
+
+  // Track recently consulted buildings (per chantier) — most recent first, max 8.
+  useEffect(() => {
+    if (!activeChantierId) return;
+    if (selectedBuilding === 'all' || selectedBuilding === '__none__') return;
+    if (!chantierHierarchyBuildings.some(b => b.id === selectedBuilding)) return;
+    setRecentBuildingsByChantier(prev => {
+      const current = prev[activeChantierId] ?? [];
+      if (current[0] === selectedBuilding) return prev;
+      const next = [selectedBuilding, ...current.filter(id => id !== selectedBuilding)].slice(0, 8);
+      const updated = { ...prev, [activeChantierId]: next };
+      AsyncStorage.setItem(RECENT_BUILDINGS_KEY, JSON.stringify(updated)).catch(() => {});
+      return updated;
+    });
+  }, [selectedBuilding, activeChantierId, chantierHierarchyBuildings]);
+
+  // Visible chips for hybrid mode: always include the active building, then fill with recents.
+  const visibleRecentChips = useMemo<BuildingItem[]>(() => {
+    if (!useHybridPicker) return [];
+    const order: string[] = [];
+    if (
+      selectedBuilding !== 'all' &&
+      selectedBuilding !== '__none__' &&
+      chantierHierarchyBuildings.some(b => b.id === selectedBuilding)
+    ) {
+      order.push(selectedBuilding);
+    }
+    for (const id of recentBuildingIds) {
+      if (!order.includes(id)) order.push(id);
+      if (order.length >= VISIBLE_RECENT_CHIPS) break;
+    }
+    if (order.length < VISIBLE_RECENT_CHIPS) {
+      for (const b of chantierHierarchyBuildings) {
+        if (!order.includes(b.id)) order.push(b.id);
+        if (order.length >= VISIBLE_RECENT_CHIPS) break;
+      }
+    }
+    const map = new Map(buildingItems.map(b => [b.id, b]));
+    return order.map(id => map.get(id)).filter(Boolean) as BuildingItem[];
+  }, [useHybridPicker, selectedBuilding, recentBuildingIds, chantierHierarchyBuildings, buildingItems]);
 
   const levelsForNewPlanBuilding = useMemo(() => {
     if (!newPlanModal.buildingId && !newPlanModal.building) return [];
@@ -1454,7 +1523,7 @@ export default function PlansScreen() {
           </View>
 
           {/* Hierarchy navigation — building chips (masqué si 1 seul bâtiment et aucun plan orphelin) */}
-          {showBuildingChips && (
+          {showBuildingChips && !useHybridPicker && (
             <View style={styles.hierarchyRow}>
               <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.hierarchyChips}>
                 {chantierHierarchyBuildings.map(b => (
@@ -1476,6 +1545,56 @@ export default function PlansScreen() {
                     <Text style={[styles.hierarchyChipText, selectedBuilding === '__none__' && styles.hierarchyChipTextActive]}>Général</Text>
                   </TouchableOpacity>
                 )}
+              </ScrollView>
+            </View>
+          )}
+
+          {/* Hierarchy navigation — hybrid (récents + Tous · N) pour chantiers à plusieurs bâtiments */}
+          {showBuildingChips && useHybridPicker && (
+            <View style={styles.hierarchyRow}>
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.hierarchyChips}>
+                {visibleRecentChips.map(b => {
+                  const isActive = selectedBuilding === b.id;
+                  return (
+                    <TouchableOpacity
+                      key={b.id}
+                      style={[styles.hierarchyChip, isActive && styles.hierarchyChipActive]}
+                      onPress={() => { setSelectedBuilding(b.id); setSelectedLevel('all'); setActivePlanId(null); }}
+                    >
+                      <Ionicons name="business-outline" size={11} color={isActive ? C.primary : C.textSub} />
+                      <Text
+                        style={[styles.hierarchyChipText, isActive && styles.hierarchyChipTextActive]}
+                        numberOfLines={1}
+                      >
+                        {b.name}
+                      </Text>
+                      {b.reserveCount > 0 && (
+                        <View style={styles.hierarchyChipBadge}>
+                          <Text style={styles.hierarchyChipBadgeText}>{b.reserveCount}</Text>
+                        </View>
+                      )}
+                    </TouchableOpacity>
+                  );
+                })}
+                {hasOrphanPlans && (
+                  <TouchableOpacity
+                    style={[styles.hierarchyChip, selectedBuilding === '__none__' && styles.hierarchyChipActive]}
+                    onPress={() => { setSelectedBuilding('__none__'); setSelectedLevel('all'); setActivePlanId(null); }}
+                  >
+                    <Ionicons name="layers-outline" size={11} color={selectedBuilding === '__none__' ? C.primary : C.textSub} />
+                    <Text style={[styles.hierarchyChipText, selectedBuilding === '__none__' && styles.hierarchyChipTextActive]}>Général</Text>
+                  </TouchableOpacity>
+                )}
+                <TouchableOpacity
+                  style={styles.hierarchyChipAll}
+                  onPress={() => setBuildingPickerOpen(true)}
+                  accessibilityLabel={`Voir tous les bâtiments (${chantierHierarchyBuildings.length})`}
+                >
+                  <Text style={styles.hierarchyChipAllText}>
+                    Tous · {chantierHierarchyBuildings.length}
+                  </Text>
+                  <Ionicons name="chevron-down" size={12} color="#fff" />
+                </TouchableOpacity>
               </ScrollView>
             </View>
           )}
@@ -2413,6 +2532,27 @@ export default function PlansScreen() {
         </TouchableOpacity>
       </Modal>
 
+      {/* Building picker sheet (récents + recherche dans tous les bâtiments) */}
+      <BuildingPickerSheet
+        visible={buildingPickerOpen}
+        onClose={() => setBuildingPickerOpen(false)}
+        buildings={buildingItems}
+        selectedId={selectedBuilding}
+        recentIds={recentBuildingIds}
+        onSelect={(id) => {
+          setSelectedBuilding(id);
+          setSelectedLevel('all');
+          setActivePlanId(null);
+        }}
+        hasOrphanPlans={hasOrphanPlans}
+        onSelectOrphans={() => {
+          setSelectedBuilding('__none__');
+          setSelectedLevel('all');
+          setActivePlanId(null);
+        }}
+        orphansSelected={selectedBuilding === '__none__'}
+      />
+
       {/* Filters sheet */}
       <FiltersSheet
         visible={showFilters}
@@ -2468,6 +2608,18 @@ const styles = StyleSheet.create({
   hierarchyChipActive: { backgroundColor: C.primaryBg, borderColor: C.primary },
   hierarchyChipText: { fontSize: 12, fontFamily: 'Inter_500Medium', color: C.textSub },
   hierarchyChipTextActive: { color: C.primary, fontFamily: 'Inter_600SemiBold' },
+  hierarchyChipBadge: {
+    minWidth: 16, height: 16, paddingHorizontal: 4, marginLeft: 2,
+    borderRadius: 8, backgroundColor: C.open,
+    alignItems: 'center', justifyContent: 'center',
+  },
+  hierarchyChipBadgeText: { fontSize: 9, fontFamily: 'Inter_700Bold', color: '#fff' },
+  hierarchyChipAll: {
+    flexDirection: 'row', alignItems: 'center', gap: 4,
+    paddingHorizontal: 12, paddingVertical: 5, borderRadius: 16,
+    backgroundColor: C.primary,
+  },
+  hierarchyChipAllText: { fontSize: 12, fontFamily: 'Inter_700Bold', color: '#fff' },
   hierarchyChipLevel: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 12, backgroundColor: C.surface, borderWidth: 1, borderColor: C.border },
   hierarchyChipLevelActive: { backgroundColor: C.primaryBg, borderColor: C.primary },
   hierarchyChipLevelText: { fontSize: 11, fontFamily: 'Inter_500Medium', color: C.textSub },
