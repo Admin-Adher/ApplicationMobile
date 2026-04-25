@@ -102,3 +102,13 @@ Toutes les organisations ont **un nombre illimité de sièges** (`seatMax = -1`)
 
 Scheme Expo : `buildtrack://`
 - `buildtrack://invite?token=xxx` — Accepter une invitation
+
+## Diagnostic du compte (Paramètres → Compte)
+
+Panneau pliable dans Paramètres → Compte qui :
+- Compare le profil local (`user.role`, `user.organizationId`) au profil serveur Supabase (refetch live)
+- Vérifie l'état de la session JWT (active / expirée)
+- Liste les incohérences détectées : org_id désync, rôle désync, profil sans organisation, session expirée, rôle non autorisé pour la création
+- Donne un message d'action clair pour chaque problème
+
+Utile pour diagnostiquer les erreurs RLS de type "row-level security policy violation" lors de la création de réserves/tâches.

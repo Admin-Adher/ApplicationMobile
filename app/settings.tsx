@@ -12,6 +12,7 @@ import { useAuth } from '@/context/AuthContext';
 import { useSubscription } from '@/context/SubscriptionContext';
 import { AttendanceRecord } from '@/constants/types';
 import BottomNavBar from '@/components/BottomNavBar';
+import { supabase, isSupabaseConfigured } from '@/lib/supabase';
 
 function groupByDate(records: AttendanceRecord[]): Record<string, AttendanceRecord[]> {
   const groups: Record<string, AttendanceRecord[]> = {};
@@ -57,6 +58,81 @@ export default function SettingsScreen() {
   const [activeTab, setActiveTab] = useState<'compte' | 'project' | 'attendance' | 'integrations'>('compte');
   const isAdmin = user?.role === 'admin' || user?.role === 'super_admin';
   const isSousTraitant = user?.role === 'sous_traitant';
+
+  type DiagState = {
+    loading: boolean;
+    sessionUserId: string | null;
+    sessionExpiresAt: number | null;
+    serverRole: string | null;
+    serverOrgId: string | null;
+    error: string | null;
+  } | null;
+  const [diag, setDiag] = useState<DiagState>(null);
+  const [diagOpen, setDiagOpen] = useState(false);
+
+  async function runDiagnostic() {
+    setDiag({ loading: true, sessionUserId: null, sessionExpiresAt: null, serverRole: null, serverOrgId: null, error: null });
+    if (!isSupabaseConfigured) {
+      setDiag({ loading: false, sessionUserId: null, sessionExpiresAt: null, serverRole: null, serverOrgId: null, error: 'Supabase non configuré (mode hors-ligne).' });
+      return;
+    }
+    try {
+      const { data: { session } } = await (supabase as any).auth.getSession();
+      if (!session?.user?.id) {
+        setDiag({ loading: false, sessionUserId: null, sessionExpiresAt: null, serverRole: null, serverOrgId: null, error: 'Aucune session active. Reconnectez-vous.' });
+        return;
+      }
+      const { data: profile, error: profErr } = await (supabase as any)
+        .from('profiles')
+        .select('organization_id, role')
+        .eq('id', session.user.id)
+        .single();
+      if (profErr) {
+        setDiag({ loading: false, sessionUserId: session.user.id, sessionExpiresAt: session.expires_at ?? null, serverRole: null, serverOrgId: null, error: `Profil introuvable côté serveur (${profErr.message}).` });
+        return;
+      }
+      setDiag({
+        loading: false,
+        sessionUserId: session.user.id,
+        sessionExpiresAt: session.expires_at ?? null,
+        serverRole: profile?.role ?? null,
+        serverOrgId: profile?.organization_id ?? null,
+        error: null,
+      });
+    } catch (err: any) {
+      setDiag({ loading: false, sessionUserId: null, sessionExpiresAt: null, serverRole: null, serverOrgId: null, error: err?.message ?? 'Erreur inconnue.' });
+    }
+  }
+
+  function toggleDiag() {
+    if (!diagOpen) {
+      setDiagOpen(true);
+      runDiagnostic();
+    } else {
+      setDiagOpen(false);
+    }
+  }
+
+  const diagIssues: { level: 'error' | 'warn'; msg: string }[] = [];
+  if (diag && !diag.loading && !diag.error) {
+    const allowedRoles = ['admin', 'conducteur', 'chef_equipe', 'super_admin'];
+    if (diag.serverOrgId && user?.organizationId && diag.serverOrgId !== user.organizationId) {
+      diagIssues.push({ level: 'error', msg: `Organisation locale (${user.organizationId.slice(0, 8)}…) ≠ serveur (${diag.serverOrgId.slice(0, 8)}…). Reconnectez-vous.` });
+    }
+    if (!diag.serverOrgId && diag.serverRole !== 'super_admin') {
+      diagIssues.push({ level: 'error', msg: "Votre profil serveur n'a pas d'organisation. Vous ne pouvez ni créer ni voir de réserves." });
+    }
+    if (diag.serverRole && diag.serverRole !== user?.role) {
+      diagIssues.push({ level: 'warn', msg: `Rôle local (${user?.role}) ≠ rôle serveur (${diag.serverRole}). Reconnectez-vous pour rafraîchir.` });
+    }
+    if (diag.serverRole && !allowedRoles.includes(diag.serverRole)) {
+      diagIssues.push({ level: 'warn', msg: `Rôle ${diag.serverRole} : lecture seule (création de réserves/tâches impossible).` });
+    }
+    if (diag.sessionExpiresAt && diag.sessionExpiresAt * 1000 < Date.now()) {
+      diagIssues.push({ level: 'error', msg: 'Session JWT expirée. Reconnectez-vous.' });
+    }
+  }
+  const diagOk = diag && !diag.loading && !diag.error && diagIssues.length === 0;
 
   const grouped = useMemo(() => {
     const g = groupByDate(attendanceHistory);
@@ -223,6 +299,92 @@ export default function SettingsScreen() {
                 </View>
                 <Ionicons name="chevron-forward" size={16} color="#8B5CF6" />
               </TouchableOpacity>
+            )}
+
+            <TouchableOpacity style={styles.navRow} onPress={toggleDiag}>
+              <View style={[styles.navIcon, { backgroundColor: diagOk ? '#ECFDF5' : (diag && (diag.error || diagIssues.length > 0) ? '#FEF2F2' : '#F3F4F6') }]}>
+                <Ionicons
+                  name={diagOk ? 'checkmark-circle' : (diag && (diag.error || diagIssues.length > 0) ? 'warning' : 'pulse-outline')}
+                  size={18}
+                  color={diagOk ? '#10B981' : (diag && (diag.error || diagIssues.length > 0) ? '#EF4444' : C.textMuted)}
+                />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.navLabel}>Diagnostic du compte</Text>
+                <Text style={styles.navSubPlain}>
+                  {diagOk ? 'Tout est synchronisé avec le serveur'
+                    : diag?.error ? diag.error
+                    : diag && diagIssues.length > 0 ? `${diagIssues.length} problème${diagIssues.length > 1 ? 's' : ''} détecté${diagIssues.length > 1 ? 's' : ''}`
+                    : 'Vérifier la cohérence local ↔ serveur'}
+                </Text>
+              </View>
+              <Ionicons name={diagOpen ? 'chevron-up' : 'chevron-down'} size={16} color={C.textMuted} />
+            </TouchableOpacity>
+
+            {diagOpen && (
+              <View style={[styles.card, { marginTop: 8 }]}>
+                {diag?.loading && (
+                  <Text style={styles.emptyText}>Vérification en cours…</Text>
+                )}
+                {diag && !diag.loading && (
+                  <>
+                    <View style={styles.diagRow}>
+                      <Text style={styles.diagLabel}>ID utilisateur</Text>
+                      <Text style={styles.diagValue} numberOfLines={1}>{user?.id ?? '—'}</Text>
+                    </View>
+                    <View style={styles.diagRow}>
+                      <Text style={styles.diagLabel}>Rôle (local)</Text>
+                      <Text style={styles.diagValue}>{user?.role ?? '—'}</Text>
+                    </View>
+                    <View style={styles.diagRow}>
+                      <Text style={styles.diagLabel}>Rôle (serveur)</Text>
+                      <Text style={styles.diagValue}>{diag.serverRole ?? '—'}</Text>
+                    </View>
+                    <View style={styles.diagRow}>
+                      <Text style={styles.diagLabel}>Organisation (local)</Text>
+                      <Text style={styles.diagValue} numberOfLines={1}>{user?.organizationId ?? '—'}</Text>
+                    </View>
+                    <View style={styles.diagRow}>
+                      <Text style={styles.diagLabel}>Organisation (serveur)</Text>
+                      <Text style={styles.diagValue} numberOfLines={1}>{diag.serverOrgId ?? '—'}</Text>
+                    </View>
+                    <View style={styles.diagRow}>
+                      <Text style={styles.diagLabel}>Session</Text>
+                      <Text style={styles.diagValue}>
+                        {diag.sessionUserId
+                          ? (diag.sessionExpiresAt && diag.sessionExpiresAt * 1000 > Date.now()
+                              ? `Active (expire ${new Date(diag.sessionExpiresAt * 1000).toLocaleString('fr-FR')})`
+                              : 'Expirée')
+                          : 'Aucune'}
+                      </Text>
+                    </View>
+
+                    {diag.error && (
+                      <View style={styles.diagAlertError}>
+                        <Ionicons name="close-circle" size={16} color="#EF4444" />
+                        <Text style={styles.diagAlertTextError}>{diag.error}</Text>
+                      </View>
+                    )}
+                    {diagIssues.map((issue, i) => (
+                      <View key={i} style={issue.level === 'error' ? styles.diagAlertError : styles.diagAlertWarn}>
+                        <Ionicons name={issue.level === 'error' ? 'close-circle' : 'alert-circle'} size={16} color={issue.level === 'error' ? '#EF4444' : '#F59E0B'} />
+                        <Text style={issue.level === 'error' ? styles.diagAlertTextError : styles.diagAlertTextWarn}>{issue.msg}</Text>
+                      </View>
+                    ))}
+                    {diagOk && (
+                      <View style={styles.diagAlertOk}>
+                        <Ionicons name="checkmark-circle" size={16} color="#10B981" />
+                        <Text style={styles.diagAlertTextOk}>Profil local et serveur synchronisés. Création de réserves autorisée.</Text>
+                      </View>
+                    )}
+
+                    <TouchableOpacity style={styles.diagRefreshBtn} onPress={runDiagnostic}>
+                      <Ionicons name="refresh" size={14} color={C.primary} />
+                      <Text style={styles.diagRefreshTxt}>Relancer le diagnostic</Text>
+                    </TouchableOpacity>
+                  </>
+                )}
+              </View>
             )}
 
             <TouchableOpacity style={[styles.navRow, styles.navRowDanger]} onPress={handleLogout}>
@@ -667,4 +829,16 @@ const styles = StyleSheet.create({
   recName: { flex: 1, fontSize: 13, fontFamily: 'Inter_400Regular', color: C.text },
   recVal: { fontSize: 13, fontFamily: 'Inter_600SemiBold' },
   recHours: { fontSize: 12, fontFamily: 'Inter_400Regular', color: C.textMuted, minWidth: 36, textAlign: 'right' },
+
+  diagRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 7, borderBottomWidth: 1, borderBottomColor: C.border, gap: 12 },
+  diagLabel: { fontSize: 12, fontFamily: 'Inter_500Medium', color: C.textMuted, flexShrink: 0 },
+  diagValue: { fontSize: 12, fontFamily: 'Inter_500Medium', color: C.text, flex: 1, textAlign: 'right' },
+  diagAlertOk: { flexDirection: 'row', alignItems: 'flex-start', gap: 8, backgroundColor: '#ECFDF5', borderRadius: 10, padding: 12, marginTop: 12, borderWidth: 1, borderColor: '#A7F3D0' },
+  diagAlertWarn: { flexDirection: 'row', alignItems: 'flex-start', gap: 8, backgroundColor: '#FFFBEB', borderRadius: 10, padding: 12, marginTop: 12, borderWidth: 1, borderColor: '#FCD34D' },
+  diagAlertError: { flexDirection: 'row', alignItems: 'flex-start', gap: 8, backgroundColor: '#FEF2F2', borderRadius: 10, padding: 12, marginTop: 12, borderWidth: 1, borderColor: '#FCA5A5' },
+  diagAlertTextOk: { flex: 1, fontSize: 12, fontFamily: 'Inter_500Medium', color: '#065F46', lineHeight: 17 },
+  diagAlertTextWarn: { flex: 1, fontSize: 12, fontFamily: 'Inter_500Medium', color: '#92400E', lineHeight: 17 },
+  diagAlertTextError: { flex: 1, fontSize: 12, fontFamily: 'Inter_500Medium', color: '#991B1B', lineHeight: 17 },
+  diagRefreshBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, paddingVertical: 10, marginTop: 10, borderRadius: 10, backgroundColor: C.primaryBg, borderWidth: 1, borderColor: C.primary + '40' },
+  diagRefreshTxt: { fontSize: 13, fontFamily: 'Inter_600SemiBold', color: C.primary },
 });
