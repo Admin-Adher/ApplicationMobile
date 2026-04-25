@@ -49,12 +49,12 @@ export async function POST(req: NextRequest) {
     let to: string = '';
 
     if (type === 'invitation') {
-      const { email, invitedByName, organizationName, role, token, expiresAt } = body;
+      const { email, invitedByName, organizationName, role, token, expiresAt, companyName } = body;
       if (!email || !invitedByName || !organizationName || !role || !token || !expiresAt) {
         return NextResponse.json({ error: 'Paramètres manquants' }, { status: 400, headers });
       }
       to = email;
-      template = invitationEmail({ email, invitedByName, organizationName, role, token, expiresAt });
+      template = invitationEmail({ email, invitedByName, organizationName, role, token, expiresAt, companyName });
     } else if (type === 'welcome') {
       const { email, name, organizationName } = body;
       if (!email || !name) {

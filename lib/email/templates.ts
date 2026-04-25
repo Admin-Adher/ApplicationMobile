@@ -72,16 +72,21 @@ export function invitationEmail(params: {
   role: string;
   token: string;
   expiresAt: string;
+  companyName?: string;
 }) {
-  const { invitedByName, organizationName, email, role, token, expiresAt } = params;
+  const { invitedByName, organizationName, email, role, token, expiresAt, companyName } = params;
   const roleLabel = ROLE_LABELS_FR[role] ?? role;
   const registerUrl = `${APP_URL}/register`;
   const expDate = new Date(expiresAt).toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' });
+  const companyBlock = companyName
+    ? `<p style="text-align:center;margin-top:-4px;">Entreprise rattachée : <strong>${companyName}</strong></p>`
+    : '';
 
   const content = `
     <h1>Vous avez été invité !</h1>
     <p><strong>${invitedByName}</strong> vous invite à rejoindre l'organisation <strong>${organizationName}</strong> sur BuildTrack en tant que :</p>
     <p style="text-align:center;"><span class="role-badge">${roleLabel}</span></p>
+    ${companyBlock}
     <p>Créez votre compte avec cette adresse email (<strong>${email}</strong>) pour accepter l'invitation :</p>
     <div style="text-align:center;">
       <a href="${registerUrl}" class="btn">Créer mon compte →</a>

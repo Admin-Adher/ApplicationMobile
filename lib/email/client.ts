@@ -42,6 +42,7 @@ export async function sendInvitationEmail(params: {
   role: string;
   token: string;
   expiresAt: string;
+  companyName?: string;
 }): Promise<{ success: boolean; error?: string }> {
   return callEmailApi({ type: 'invitation', ...params });
 }

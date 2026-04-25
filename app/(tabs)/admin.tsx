@@ -281,12 +281,19 @@ export default function AdminScreen() {
       return;
     }
     setInviteEmailError('');
+    // Le rattachement entreprise est obligatoire pour les sous-traitants,
+    // optionnel pour les autres rôles (sauf admin qui n'est jamais lié à une seule entreprise).
+    if (inviteRole === 'sous_traitant' && !inviteCompanyId) {
+      Alert.alert(
+        'Entreprise requise',
+        "Un sous-traitant doit être rattaché à une entreprise. Sélectionnez-en une dans la liste."
+      );
+      return;
+    }
+    const companyIdToSend =
+      inviteRole !== 'admin' && inviteCompanyId ? inviteCompanyId : undefined;
     setInviteSending(true);
-    const result = await inviteUser(
-      emailTrimmed,
-      inviteRole,
-      inviteRole === 'sous_traitant' && inviteCompanyId ? inviteCompanyId : undefined
-    );
+    const result = await inviteUser(emailTrimmed, inviteRole, companyIdToSend);
     setInviteSending(false);
     if (result.success) {
       setInviteToken(result.token ?? null);
@@ -1481,9 +1488,40 @@ export default function AdminScreen() {
                       })}
                     </View>
 
-                    {inviteRole === 'sous_traitant' && viewCompanies.length > 0 && (
+                    {inviteRole !== 'admin' && viewCompanies.length > 0 && (
                       <View style={styles.field}>
-                        <Text style={styles.fieldLabel}>Entreprise rattachée <Text style={{ color: C.textMuted, fontFamily: 'Inter_400Regular' }}>(optionnel)</Text></Text>
+                        <Text style={styles.fieldLabel}>
+                          Entreprise rattachée{' '}
+                          {inviteRole === 'sous_traitant' ? (
+                            <Text style={{ color: '#EF4444', fontFamily: 'Inter_600SemiBold' }}>*</Text>
+                          ) : (
+                            <Text style={{ color: C.textMuted, fontFamily: 'Inter_400Regular' }}>(optionnel)</Text>
+                          )}
+                        </Text>
+                        <Text style={[styles.roleOptionDesc, { marginBottom: 8 }]}>
+                          {inviteRole === 'sous_traitant'
+                            ? "Le collaborateur sera rattaché à cette entreprise et n'aura accès qu'à ses canaux et ses réserves."
+                            : 'Le collaborateur sera rattaché à cette entreprise par défaut. Vous pourrez le modifier plus tard.'}
+                        </Text>
+                        {/* Option "Aucune" — uniquement pour les rôles non sous-traitant */}
+                        {inviteRole !== 'sous_traitant' && (
+                          <TouchableOpacity
+                            style={[
+                              styles.roleOption,
+                              inviteCompanyId === '' && { backgroundColor: C.surface2, borderColor: C.border },
+                            ]}
+                            onPress={() => setInviteCompanyId('')}
+                          >
+                            <View style={[styles.roleOptionDot, { backgroundColor: C.textMuted }]} />
+                            <View style={{ flex: 1 }}>
+                              <Text style={[styles.roleOptionText, inviteCompanyId === '' && { fontFamily: 'Inter_600SemiBold' }]}>
+                                Aucune entreprise
+                              </Text>
+                              <Text style={styles.roleOptionDesc}>Accès général sans rattachement</Text>
+                            </View>
+                            {inviteCompanyId === '' && <Ionicons name="checkmark-circle" size={18} color={C.textSub} />}
+                          </TouchableOpacity>
+                        )}
                         {viewCompanies.map(co => (
                           <TouchableOpacity
                             key={co.id}

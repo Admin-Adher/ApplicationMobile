@@ -17,11 +17,11 @@ export async function POST(request: Request) {
     }
 
     if (type === 'invitation') {
-      const { email, invitedByName, organizationName, role, token, expiresAt } = body;
+      const { email, invitedByName, organizationName, role, token, expiresAt, companyName } = body;
       if (!email || !invitedByName || !organizationName || !role || !token || !expiresAt) {
         return Response.json({ error: 'Paramètres manquants pour invitation' }, { status: 400 });
       }
-      const template = invitationEmail({ email, invitedByName, organizationName, role, token, expiresAt });
+      const template = invitationEmail({ email, invitedByName, organizationName, role, token, expiresAt, companyName });
       const result = await sendEmail({ to: email, ...template });
       if (!result.success) {
         return Response.json({ error: result.error ?? "Échec de l'envoi" }, { status: 500 });

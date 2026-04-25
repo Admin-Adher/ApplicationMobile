@@ -74,16 +74,21 @@ export function invitationEmail(params: {
   role: string;
   token: string;
   expiresAt: string;
+  companyName?: string;
 }) {
-  const { invitedByName, organizationName, email, role, token, expiresAt } = params;
+  const { invitedByName, organizationName, email, role, token, expiresAt, companyName } = params;
   const roleLabel = ROLE_LABELS_FR[role] ?? role;
   const deepLinkUrl = `${APP_URL}/invite?token=${token}`;
   const expDate = new Date(expiresAt).toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' });
+  const companyBlock = companyName
+    ? `<p style="text-align:center;margin-top:-4px;">Entreprise rattachée : <strong>${companyName}</strong></p>`
+    : '';
 
   const content = `
     <h1>Vous avez été invité !</h1>
     <p><strong>${invitedByName}</strong> vous invite à rejoindre l'organisation <strong>${organizationName}</strong> sur BuildTrack en tant que :</p>
     <p style="text-align:center;"><span class="role-badge">${roleLabel}</span></p>
+    ${companyBlock}
     <p>Cliquez sur le bouton ci-dessous pour rejoindre l'organisation. Si vous avez l'application, elle s'ouvrira directement :</p>
     <div style="text-align:center;">
       <a href="${deepLinkUrl}" class="btn">Rejoindre ${organizationName} →</a>

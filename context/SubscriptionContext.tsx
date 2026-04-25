@@ -453,6 +453,19 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
 
       setPendingInvitations(prev => [newInv, ...prev]);
 
+      let companyName: string | undefined;
+      if (companyId) {
+        try {
+          const { data: co } = await (supabase.from('companies') as any)
+            .select('name')
+            .eq('id', companyId)
+            .maybeSingle();
+          if (co?.name) companyName = co.name;
+        } catch {
+          // ignore — best effort enrichment
+        }
+      }
+
       sendInvitationEmail({
         email: emailLower,
         invitedByName: user.name,
@@ -460,6 +473,7 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
         role,
         token: data.token,
         expiresAt: data.expires_at,
+        companyName,
       }).catch(() => {});
 
       return { success: true, token: data.token };
@@ -476,6 +490,19 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
       return { success: false, error: 'Invitation expirée. Créez-en une nouvelle.' };
     }
 
+    let companyName: string | undefined;
+    if (inv.companyId) {
+      try {
+        const { data: co } = await (supabase.from('companies') as any)
+          .select('name')
+          .eq('id', inv.companyId)
+          .maybeSingle();
+        if (co?.name) companyName = co.name;
+      } catch {
+        // ignore — best effort enrichment
+      }
+    }
+
     const emailResult = await sendInvitationEmail({
       email: inv.email,
       invitedByName: user.name,
@@ -483,7 +510,9 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
       role: inv.role,
       token: inv.token,
       expiresAt: inv.expiresAt,
+      companyName,
     });
+
     if (!emailResult.success) {
       return { success: false, error: emailResult.error };
     }
