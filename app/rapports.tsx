@@ -12,7 +12,9 @@ import {
   wrapHTML,
   buildInfoGrid,
   loadPhotoAsDataUrl,
+  escapeHtml,
 } from '@/lib/pdfBase';
+import { getISOWeek } from '@/lib/utils';
 import { useApp } from '@/context/AppContext';
 import { useAuth } from '@/context/AuthContext';
 import { useSettings } from '@/context/SettingsContext';
@@ -30,7 +32,7 @@ function buildLotSummaryRows(reserves: any[], companies: any[]): string {
     const pct = coReserves.length > 0 ? Math.round((closed / coReserves.length) * 100) : 0;
     const barColor = pct >= 80 ? '#059669' : pct >= 40 ? '#F59E0B' : '#DC2626';
     return `<tr>
-      <td style="padding:8px 10px;border-bottom:1px solid #EEF3FA;font-weight:600">${name}</td>
+      <td style="padding:8px 10px;border-bottom:1px solid #EEF3FA;font-weight:600">${escapeHtml(name)}</td>
       <td style="padding:8px 10px;border-bottom:1px solid #EEF3FA;text-align:center;font-weight:700;color:#003082">${coReserves.length}</td>
       <td style="padding:8px 10px;border-bottom:1px solid #EEF3FA;text-align:center;color:#DC2626;font-weight:700">${open}</td>
       <td style="padding:8px 10px;border-bottom:1px solid #EEF3FA;text-align:center;color:#059669;font-weight:700">${closed}</td>
@@ -66,31 +68,31 @@ function buildDailyHTML(reserves: any[], companies: any[], tasks: any[], inciden
   const tdS = 'padding:7px 10px;border-bottom:1px solid #EEF3FA;vertical-align:top';
 
   const personnelRows = companies.map((c: any) =>
-    `<tr><td style="${tdS}">${c.name}</td><td style="${tdS};text-align:center;font-weight:700">${c.actualWorkers}</td><td style="${tdS};text-align:center">${c.plannedWorkers}</td><td style="${tdS};text-align:center;color:${c.actualWorkers >= c.plannedWorkers ? '#059669' : '#DC2626'}">${c.actualWorkers >= c.plannedWorkers ? '✓' : '↓'}</td></tr>`
+    `<tr><td style="${tdS}">${escapeHtml(c.name)}</td><td style="${tdS};text-align:center;font-weight:700">${c.actualWorkers}</td><td style="${tdS};text-align:center">${c.plannedWorkers}</td><td style="${tdS};text-align:center;color:${c.actualWorkers >= c.plannedWorkers ? '#059669' : '#DC2626'}">${c.actualWorkers >= c.plannedWorkers ? '✓' : '↓'}</td></tr>`
   ).join('');
 
   const taskRows = tasks.filter((t: any) => t.status === 'in_progress').map((t: any) =>
-    `<tr><td style="${tdS}">${t.title}</td><td style="${tdS}">${t.assignee}</td><td style="${tdS};text-align:center">
+    `<tr><td style="${tdS}">${escapeHtml(t.title)}</td><td style="${tdS}">${escapeHtml(t.assignee)}</td><td style="${tdS};text-align:center">
       <div style="background:#E8F0FE;border-radius:4px;height:8px;width:100%;margin-bottom:3px"><div style="background:#003082;height:8px;border-radius:4px;width:${t.progress}%"></div></div>
       <span style="font-size:10px;color:#003082;font-weight:700">${t.progress}%</span>
-    </td><td style="${tdS}">${t.deadline}</td></tr>`
+    </td><td style="${tdS}">${escapeHtml(t.deadline)}</td></tr>`
   ).join('');
 
   const incidentRows = openIncidents.map((i: any) =>
-    `<tr><td style="${tdS}"><span style="color:${severityColors[i.severity] || '#000'};font-weight:700">${severityLabels[i.severity] || i.severity}</span></td>
-      <td style="${tdS}">${i.title}</td><td style="${tdS}">Bât. ${i.building} — ${i.location}</td>
-      <td style="${tdS}">${incidentStatusLabels[i.status] || i.status}</td>
-      <td style="${tdS}">${i.reportedAt}</td><td style="${tdS}">${i.reportedBy}</td></tr>`
+    `<tr><td style="${tdS}"><span style="color:${severityColors[i.severity] || '#000'};font-weight:700">${severityLabels[i.severity] || escapeHtml(i.severity)}</span></td>
+      <td style="${tdS}">${escapeHtml(i.title)}</td><td style="${tdS}">Bât. ${escapeHtml(i.building)} — ${escapeHtml(i.location)}</td>
+      <td style="${tdS}">${incidentStatusLabels[i.status] || escapeHtml(i.status)}</td>
+      <td style="${tdS}">${escapeHtml(i.reportedAt)}</td><td style="${tdS}">${escapeHtml(i.reportedBy)}</td></tr>`
   ).join('');
 
   const reserveRows = activeReserves.map((r: any) =>
-    `<tr><td style="${tdS};font-weight:700;font-size:10px">${r.id}</td>
-      <td style="${tdS}">${r.title}</td>
-      <td style="${tdS}">Bât. ${r.building} — ${r.level}</td>
-      <td style="${tdS}">${r.company}</td>
-      <td style="${tdS}"><span style="color:${pColor[r.priority] || '#000'};font-weight:700">${priorityLabels[r.priority] || r.priority}</span></td>
-      <td style="${tdS}"><span style="color:${statusColors[r.status] || '#000'}">${statusLabels[r.status] || r.status}</span></td>
-      <td style="${tdS}">${r.deadline}</td></tr>`
+    `<tr><td style="${tdS};font-weight:700;font-size:10px">${escapeHtml(r.id)}</td>
+      <td style="${tdS}">${escapeHtml(r.title)}</td>
+      <td style="${tdS}">Bât. ${escapeHtml(r.building)} — ${escapeHtml(r.level)}</td>
+      <td style="${tdS}">${escapeHtml(r.company)}</td>
+      <td style="${tdS}"><span style="color:${pColor[r.priority] || '#000'};font-weight:700">${priorityLabels[r.priority] || escapeHtml(r.priority)}</span></td>
+      <td style="${tdS}"><span style="color:${statusColors[r.status] || '#000'}">${statusLabels[r.status] || escapeHtml(r.status)}</span></td>
+      <td style="${tdS}">${escapeHtml(r.deadline)}</td></tr>`
   ).join('');
 
   const incidentAlert = openIncidents.length > 0
@@ -99,7 +101,7 @@ function buildDailyHTML(reserves: any[], companies: any[], tasks: any[], inciden
 
   const body = `
     ${buildLetterhead('Rapport journalier', now, docRef, today, projectName)}
-    <div style="font-size:10px;color:#6B7280;margin-top:-16px;margin-bottom:20px">Rédigé par : <strong style="color:#1A2742">${userName}</strong></div>
+    <div style="font-size:10px;color:#6B7280;margin-top:-16px;margin-bottom:20px">Rédigé par : <strong style="color:#1A2742">${escapeHtml(userName)}</strong></div>
     ${incidentAlert}
     ${buildKpiRow([
       { val: stats.total, label: 'Réserves totales', color: '#003082' },
@@ -170,8 +172,8 @@ function buildWeeklyHTML(reserves: any[], companies: any[], tasks: any[], incide
   const tdS = 'padding:7px 10px;border-bottom:1px solid #EEF3FA;font-size:11px';
 
   const body = `
-    ${buildLetterhead(`Rapport hebdomadaire — Semaine ${weekNum}`, `${projectName}`, docRef, today, projectName)}
-    <div style="font-size:10px;color:#6B7280;margin-top:-16px;margin-bottom:20px">Rédigé par : <strong style="color:#1A2742">${userName}</strong></div>
+    ${buildLetterhead(`Rapport hebdomadaire — Semaine ${weekNum}`, projectName, docRef, today, projectName)}
+    <div style="font-size:10px;color:#6B7280;margin-top:-16px;margin-bottom:20px">Rédigé par : <strong style="color:#1A2742">${escapeHtml(userName)}</strong></div>
     ${buildKpiRow([
       { val: `${stats.progress}%`, label: 'Taux de clôture', color: '#003082' },
       { val: `${stats.closed}/${stats.total}`, label: 'Réserves clôturées', color: '#059669' },
@@ -218,9 +220,9 @@ function buildWeeklyHTML(reserves: any[], companies: any[], tasks: any[], incide
         <th style="${thS}">Bâtiment</th><th style="${thS}">Entreprise</th><th style="${thS}">Échéance</th>
       </tr></thead>
       <tbody>${criticalReserves.map((r: any) =>
-        `<tr><td style="${tdS};font-weight:700">${r.id}</td><td style="${tdS}">${r.title}</td>
-         <td style="${tdS}">Bât. ${r.building}</td><td style="${tdS}">${r.company}</td>
-         <td style="${tdS};color:#DC2626;font-weight:600">${r.deadline}</td></tr>`
+        `<tr><td style="${tdS};font-weight:700">${escapeHtml(r.id)}</td><td style="${tdS}">${escapeHtml(r.title)}</td>
+         <td style="${tdS}">Bât. ${escapeHtml(r.building)}</td><td style="${tdS}">${escapeHtml(r.company)}</td>
+         <td style="${tdS};color:#DC2626;font-weight:600">${escapeHtml(r.deadline)}</td></tr>`
       ).join('') || `<tr><td style="${tdS};color:#059669" colspan="5">Aucune réserve critique ouverte</td></tr>`}</tbody>
     </table>
 
@@ -232,9 +234,9 @@ function buildWeeklyHTML(reserves: any[], companies: any[], tasks: any[], incide
       </tr></thead>
       <tbody>${openIncidents.map((i: any) =>
         `<tr>
-          <td style="${tdS}"><span style="color:${severityColors[i.severity]||'#000'};font-weight:700">${severityLabels[i.severity]||i.severity}</span></td>
-          <td style="${tdS}">${i.title}</td><td style="${tdS}">Bât. ${i.building}</td>
-          <td style="${tdS}">${incStatusLabels[i.status]||i.status}</td><td style="${tdS}">${i.reportedAt}</td>
+          <td style="${tdS}"><span style="color:${severityColors[i.severity]||'#000'};font-weight:700">${severityLabels[i.severity]||escapeHtml(i.severity)}</span></td>
+          <td style="${tdS}">${escapeHtml(i.title)}</td><td style="${tdS}">Bât. ${escapeHtml(i.building)}</td>
+          <td style="${tdS}">${incStatusLabels[i.status]||escapeHtml(i.status)}</td><td style="${tdS}">${escapeHtml(i.reportedAt)}</td>
         </tr>`
       ).join('') || `<tr><td style="${tdS};color:#059669" colspan="5">Aucun incident ouvert cette semaine</td></tr>`}</tbody>
     </table>
@@ -274,20 +276,20 @@ function buildIncidentHTML(incident: any, projectName: string): string {
     ${buildInfoGrid(infoItems)}
     <div class="section-header">Description de l'incident</div>
     <div style="background:#F9FAFB;border-radius:10px;padding:14px 18px;margin-bottom:14px;border-left:4px solid #3B82F6;font-size:13px;color:#1A2742;line-height:1.6">
-      ${incident.description || 'Aucune description.'}
+      ${escapeHtml(incident.description) || 'Aucune description.'}
     </div>
     <div class="section-header">Témoins</div>
     <div style="background:#F9FAFB;border-radius:10px;padding:14px 18px;margin-bottom:14px;border-left:4px solid #6B7280;font-size:13px;color:#1A2742;line-height:1.6">
-      ${incident.witnesses || 'Aucun témoin renseigné.'}
+      ${escapeHtml(incident.witnesses) || 'Aucun témoin renseigné.'}
     </div>
     <div class="section-header">Actions correctives</div>
     <div style="background:#F9FAFB;border-radius:10px;padding:14px 18px;margin-bottom:14px;border-left:4px solid #F59E0B;font-size:13px;color:#1A2742;line-height:1.6">
-      ${incident.actions || 'Aucune action corrective renseignée.'}
+      ${escapeHtml(incident.actions) || 'Aucune action corrective renseignée.'}
     </div>
     ${incident.closedAt ? `
       <div class="section-header">Clôture</div>
       <div style="background:#ECFDF5;border-radius:10px;padding:14px 18px;margin-bottom:14px;border-left:4px solid #059669;font-size:13px;color:#1A2742;line-height:1.6">
-        Résolu le <strong>${incident.closedAt}</strong>${incident.closedBy ? ` par <strong>${incident.closedBy}</strong>` : ''}.
+        Résolu le <strong>${escapeHtml(incident.closedAt)}</strong>${incident.closedBy ? ` par <strong>${escapeHtml(incident.closedBy)}</strong>` : ''}.
       </div>` : ''}
     ${buildDocFooter(projectName)}
   `;
@@ -323,17 +325,17 @@ async function buildCompanyReserveHTML(company: any, companyReserves: any[], pro
   const rows = companyReserves.map((r: any, idx: number) => {
     const photo = photoMap[r.id];
     return `<tr style="background:${idx % 2 === 0 ? '#fff' : '#F9FAFB'}">
-      <td style="${tdS};font-weight:700;white-space:nowrap;vertical-align:middle">${r.id}</td>
+      <td style="${tdS};font-weight:700;white-space:nowrap;vertical-align:middle">${escapeHtml(r.id)}</td>
       <td style="${tdS}">
         ${photo ? `<img src="${photo}" style="width:64px;height:auto;max-height:64px;object-fit:contain;background:#F9FAFB;border-radius:5px;border:1px solid #DDE4EE;float:left;margin-right:8px;margin-bottom:2px;display:block" />` : ''}
-        <span style="font-weight:600">${r.title}</span>
-        ${r.description && r.description !== r.title ? `<div style="color:#6B7280;font-size:10px;margin-top:2px;clear:both">${r.description.slice(0, 80)}${r.description.length > 80 ? '…' : ''}</div>` : ''}
+        <span style="font-weight:600">${escapeHtml(r.title)}</span>
+        ${r.description && r.description !== r.title ? `<div style="color:#6B7280;font-size:10px;margin-top:2px;clear:both">${escapeHtml(r.description.slice(0, 80))}${r.description.length > 80 ? '…' : ''}</div>` : ''}
       </td>
-      <td style="${tdS};white-space:nowrap">Bât. ${r.building}<br><span style="color:#6B7280;font-size:10px">${r.zone} — ${r.level}</span></td>
-      <td style="${tdS}"><span style="color:${priorityColors[r.priority]||'#000'};font-weight:700">${priorityLabels[r.priority]||r.priority}</span></td>
-      <td style="${tdS}"><span style="color:${statusColors[r.status]||'#000'};font-weight:700">${statusLabels[r.status]||r.status}</span></td>
-      <td style="${tdS};white-space:nowrap${r.deadline && r.deadline !== '—' && !r.closedAt ? ';color:#DC2626;font-weight:600' : ''}">${r.deadline||'—'}</td>
-      <td style="${tdS};color:#059669">${r.closedAt||'—'}</td>
+      <td style="${tdS};white-space:nowrap">Bât. ${escapeHtml(r.building)}<br><span style="color:#6B7280;font-size:10px">${escapeHtml(r.zone)} — ${escapeHtml(r.level)}</span></td>
+      <td style="${tdS}"><span style="color:${priorityColors[r.priority]||'#000'};font-weight:700">${priorityLabels[r.priority]||escapeHtml(r.priority)}</span></td>
+      <td style="${tdS}"><span style="color:${statusColors[r.status]||'#000'};font-weight:700">${statusLabels[r.status]||escapeHtml(r.status)}</span></td>
+      <td style="${tdS};white-space:nowrap${r.deadline && r.deadline !== '—' && !r.closedAt ? ';color:#DC2626;font-weight:600' : ''}">${escapeHtml(r.deadline)||'—'}</td>
+      <td style="${tdS};color:#059669">${escapeHtml(r.closedAt)||'—'}</td>
     </tr>`;
   }).join('');
 
@@ -435,11 +437,7 @@ export default function RapportsScreen() {
   }
 
   const today = new Date().toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
-  const weekNum = (() => {
-    const d = new Date();
-    const startOfYear = new Date(d.getFullYear(), 0, 1);
-    return Math.ceil(((d.getTime() - startOfYear.getTime()) / 86400000 + startOfYear.getDay() + 1) / 7);
-  })();
+  const weekNum = getISOWeek(new Date());
 
   async function exportPDF(type: 'daily' | 'weekly') {
     if (!permissions.canExport) {

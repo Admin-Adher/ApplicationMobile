@@ -3,9 +3,15 @@ import DateInput from '@/components/DateInput';
 import { useState, useCallback, useEffect } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Ionicons } from '@expo/vector-icons';
-import * as Print from 'expo-print';
-import * as Sharing from 'expo-sharing';
 import * as Location from 'expo-location';
+import {
+  exportPDF as exportPDFHelper,
+  wrapHTML,
+  buildLetterhead,
+  buildKpiRow,
+  buildDocFooter,
+  escapeHtml,
+} from '@/lib/pdfBase';
 import { router } from 'expo-router';
 import { C } from '@/constants/colors';
 import { useAuth } from '@/context/AuthContext';
@@ -73,7 +79,6 @@ function frToISO(frDate: string): string {
 
 function buildJournalHTML(entries: JournalEntry[], projectName: string): string {
   const exportDate = formatDateFR(new Date());
-  const exportTime = new Date().toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
   const docRef = `JC-${formatDateFR(new Date()).replace(/\//g, '')}`;
 
   const totalWorkers = entries.reduce((s, e) => s + (e.workerCount || 0), 0);
@@ -93,115 +98,67 @@ function buildJournalHTML(entries: JournalEntry[], projectName: string): string 
       : '';
     return `
       <tr style="background:${idx % 2 === 0 ? '#fff' : '#F9FAFB'}">
-        <td style="padding:8px 10px;border-bottom:1px solid #EEF3FA;font-weight:700;white-space:nowrap;font-size:11px">${e.date}</td>
-        <td style="padding:8px 10px;border-bottom:1px solid #EEF3FA;font-size:12px">${e.weather}${weatherExtra}</td>
+        <td style="padding:8px 10px;border-bottom:1px solid #EEF3FA;font-weight:700;white-space:nowrap;font-size:11px">${escapeHtml(e.date)}</td>
+        <td style="padding:8px 10px;border-bottom:1px solid #EEF3FA;font-size:12px">${escapeHtml(e.weather)}${escapeHtml(weatherExtra)}</td>
         <td style="padding:8px 10px;border-bottom:1px solid #EEF3FA;text-align:center;font-weight:700;font-size:13px;color:#003082">${e.workerCount}</td>
         <td style="padding:8px 10px;border-bottom:1px solid #EEF3FA;font-size:11px;line-height:1.5">
-          <div>${e.workDone}</div>
-          ${hasMaterials ? `<div style="color:#6B7280;margin-top:4px;font-size:10px">📦 ${e.materials}</div>` : ''}
-          ${hasObservations ? `<div style="color:#6B7280;margin-top:4px;font-size:10px">📝 ${e.observations}</div>` : ''}
-          ${hasVisitors ? `<div style="color:#3B82F6;margin-top:4px;font-size:10px">👤 Visiteurs : ${e.visitors}</div>` : ''}
+          <div>${escapeHtml(e.workDone)}</div>
+          ${hasMaterials ? `<div style="color:#6B7280;margin-top:4px;font-size:10px">📦 ${escapeHtml(e.materials)}</div>` : ''}
+          ${hasObservations ? `<div style="color:#6B7280;margin-top:4px;font-size:10px">📝 ${escapeHtml(e.observations)}</div>` : ''}
+          ${hasVisitors ? `<div style="color:#3B82F6;margin-top:4px;font-size:10px">👤 Visiteurs : ${escapeHtml(e.visitors)}</div>` : ''}
         </td>
         <td style="padding:8px 10px;border-bottom:1px solid #EEF3FA;font-size:11px">
           ${hasIncident
-            ? `<span style="color:#DC2626;font-weight:700">⚠ ${e.incidents}</span>`
+            ? `<span style="color:#DC2626;font-weight:700">⚠ ${escapeHtml(e.incidents)}</span>`
             : `<span style="color:#059669">—</span>`
           }
         </td>
-        <td style="padding:8px 10px;border-bottom:1px solid #EEF3FA;font-size:11px;color:#6B7280">${e.author}</td>
+        <td style="padding:8px 10px;border-bottom:1px solid #EEF3FA;font-size:11px;color:#6B7280">${escapeHtml(e.author)}</td>
       </tr>
     `;
   }).join('');
 
-  return `<!DOCTYPE html><html lang="fr"><head><meta charset="UTF-8">
-    <style>
-      * { box-sizing: border-box; margin: 0; padding: 0; }
-      body { font-family: Arial, Helvetica, sans-serif; background: #fff; color: #1A2742; font-size: 12px; padding: 28px 32px; line-height: 1.5; }
-      @media print {
-        body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-        @page { margin: 15mm 12mm; }
-        tr { page-break-inside: avoid; }
-      }
-    </style>
-  </head><body>
-
-    <!-- Letterhead -->
-    <div style="display:flex;justify-content:space-between;align-items:flex-start;padding-bottom:18px;border-bottom:3px solid #003082;margin-bottom:22px">
-      <div style="display:flex;align-items:center;gap:12px">
-        <div style="width:42px;height:42px;background:#003082;border-radius:8px;display:flex;align-items:center;justify-content:center;color:#fff;font-weight:800;font-size:18px">BT</div>
-        <div>
-          <div style="font-size:20px;font-weight:800;color:#003082">BuildTrack</div>
-          <div style="font-size:10px;color:#6B7280">Gestion de chantier numérique</div>
-        </div>
-      </div>
-      <div style="text-align:right">
-        <div style="font-size:15px;font-weight:700;color:#1A2742">Journal de chantier officiel</div>
-        <div style="font-size:11px;color:#6B7280;margin-top:3px">${dateRange}</div>
-        <div style="font-size:10px;color:#6B7280;margin-top:8px">Projet : <strong style="color:#1A2742">${projectName}</strong></div>
-        <div style="font-size:10px;color:#6B7280">Réf. : <strong style="color:#1A2742">${docRef}</strong> &nbsp;|&nbsp; Exporté le <strong style="color:#1A2742">${exportDate}</strong> à ${exportTime}</div>
-      </div>
-    </div>
-
-    <!-- KPIs -->
-    <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:20px">
-      ${[
-        { val: entries.length, label: 'Entrées journal', color: '#003082' },
-        { val: totalWorkers, label: 'Effectif cumulé', color: '#003082' },
-        { val: avgWorkers, label: 'Moy. journalière', color: '#1A2742' },
-        { val: entriesWithIncidents, label: 'Jours avec incidents', color: entriesWithIncidents > 0 ? '#DC2626' : '#059669' },
-      ].map(k => `
-        <div style="flex:1;min-width:90px;border:1.5px solid #DDE4EE;border-radius:10px;padding:12px 14px;text-align:center">
-          <div style="font-size:26px;font-weight:800;color:${k.color}">${k.val}</div>
-          <div style="font-size:10px;color:#6B7280;margin-top:2px">${k.label}</div>
-        </div>
-      `).join('')}
-    </div>
-
-    <!-- Section header -->
-    <div style="font-size:11px;font-weight:700;color:#6B7280;text-transform:uppercase;letter-spacing:0.7px;margin-bottom:10px;padding-bottom:6px;border-bottom:1.5px solid #DDE4EE">
-      Registre des journées (${entries.length} entrée${entries.length !== 1 ? 's' : ''})
-    </div>
-
-    <!-- Main table -->
-    <table style="width:100%;border-collapse:collapse">
+  const body = `
+    ${buildLetterhead('Journal de chantier officiel', dateRange, docRef, exportDate, projectName)}
+    ${buildKpiRow([
+      { val: entries.length, label: 'Entrées journal', color: '#003082' },
+      { val: totalWorkers, label: 'Effectif cumulé', color: '#003082' },
+      { val: avgWorkers, label: 'Moy. journalière', color: '#1A2742' },
+      { val: entriesWithIncidents, label: 'Jours avec incidents', color: entriesWithIncidents > 0 ? '#DC2626' : '#059669' },
+    ])}
+    <div class="section-header">Registre des journées (${entries.length} entrée${entries.length !== 1 ? 's' : ''})</div>
+    <table>
       <thead>
         <tr>
-          <th style="background:#003082;color:#fff;padding:8px 10px;text-align:left;font-size:10px;text-transform:uppercase;letter-spacing:0.5px">Date</th>
-          <th style="background:#003082;color:#fff;padding:8px 10px;text-align:left;font-size:10px;text-transform:uppercase;letter-spacing:0.5px">Météo</th>
-          <th style="background:#003082;color:#fff;padding:8px 10px;text-align:center;font-size:10px;text-transform:uppercase;letter-spacing:0.5px">Effectif</th>
-          <th style="background:#003082;color:#fff;padding:8px 10px;text-align:left;font-size:10px;text-transform:uppercase;letter-spacing:0.5px">Travaux réalisés / Matériaux / Observations</th>
-          <th style="background:#003082;color:#fff;padding:8px 10px;text-align:left;font-size:10px;text-transform:uppercase;letter-spacing:0.5px">Incidents</th>
-          <th style="background:#003082;color:#fff;padding:8px 10px;text-align:left;font-size:10px;text-transform:uppercase;letter-spacing:0.5px">Rédacteur</th>
+          <th>Date</th><th>Météo</th><th style="text-align:center">Effectif</th>
+          <th>Travaux réalisés / Matériaux / Observations</th>
+          <th>Incidents</th><th>Rédacteur</th>
         </tr>
       </thead>
       <tbody>
         ${rows || '<tr><td colspan="6" style="padding:20px;text-align:center;color:#6B7280">Aucune entrée dans le journal</td></tr>'}
       </tbody>
     </table>
-
-    <!-- Signature block -->
-    <div style="display:flex;gap:24px;margin-top:32px;padding-top:20px;border-top:2px solid #EEF3FA">
-      <div style="flex:1;border:1.5px solid #DDE4EE;border-radius:10px;padding:14px 18px;background:#FAFBFF">
-        <div style="font-size:9px;color:#6B7280;text-transform:uppercase;letter-spacing:0.6px;margin-bottom:30px;font-weight:700">Conducteur de travaux</div>
-        <div style="border-bottom:2px solid #1A2742;margin-bottom:6px"></div>
+    <div class="sig-row" style="margin-top:32px;padding-top:20px;border-top:2px solid #EEF3FA">
+      <div class="sig-block">
+        <div class="sig-label">Conducteur de travaux</div>
+        <div class="sig-line"></div>
         <div style="font-size:11px;color:#6B7280">Signature et cachet</div>
       </div>
-      <div style="flex:1;border:1.5px solid #DDE4EE;border-radius:10px;padding:14px 18px;background:#FAFBFF">
-        <div style="font-size:9px;color:#6B7280;text-transform:uppercase;letter-spacing:0.6px;margin-bottom:30px;font-weight:700">Maître d'œuvre</div>
-        <div style="border-bottom:2px solid #1A2742;margin-bottom:6px"></div>
+      <div class="sig-block">
+        <div class="sig-label">Maître d'œuvre</div>
+        <div class="sig-line"></div>
         <div style="font-size:11px;color:#6B7280">Signature et cachet</div>
       </div>
-      <div style="flex:1;border:1.5px solid #DDE4EE;border-radius:10px;padding:14px 18px;background:#FAFBFF">
-        <div style="font-size:9px;color:#6B7280;text-transform:uppercase;letter-spacing:0.6px;margin-bottom:8px;font-weight:700">Certification</div>
+      <div class="sig-block">
+        <div class="sig-label">Certification</div>
         <div style="font-size:11px;color:#1A2742;line-height:1.5">Je soussigné(e) certifie l'exactitude des informations contenues dans ce journal de chantier.</div>
       </div>
     </div>
+    ${buildDocFooter(projectName)}
+  `;
 
-    <div style="margin-top:20px;padding-top:12px;border-top:1.5px solid #DDE4EE;display:flex;justify-content:space-between;font-size:9px;color:#6B7280">
-      <span>Généré par BuildTrack — ${projectName}</span>
-      <span>Document officiel — Confidential — ${exportDate}</span>
-    </div>
-  </body></html>`;
+  return wrapHTML(body, `Journal de chantier — ${projectName}`);
 }
 
 export default function JournalScreen() {
@@ -355,25 +312,9 @@ export default function JournalScreen() {
       Alert.alert('Accès refusé', "Votre rôle ne permet pas d'exporter.");
       return;
     }
-    const html = buildJournalHTML(entries, projectName);
-    if (Platform.OS === 'web') {
-      const iframe = document.createElement('iframe');
-      iframe.style.cssText = 'position:fixed;right:0;bottom:0;width:0;height:0;border:0';
-      document.body.appendChild(iframe);
-      const doc = iframe.contentWindow?.document;
-      if (doc) {
-        doc.open(); doc.write(html); doc.close();
-        setTimeout(() => {
-          try { iframe.contentWindow?.print(); } catch {}
-          setTimeout(() => document.body.removeChild(iframe), 5000);
-        }, 300);
-      }
-      return;
-    }
     try {
-      const { uri } = await Print.printToFileAsync({ html, base64: false });
-      const canShare = await Sharing.isAvailableAsync();
-      if (canShare) await Sharing.shareAsync(uri, { mimeType: 'application/pdf', dialogTitle: 'Journal de chantier' });
+      const html = buildJournalHTML(entries, projectName);
+      await exportPDFHelper(html, 'Journal de chantier');
     } catch (e: any) {
       Alert.alert('Erreur', e?.message ?? 'Impossible de générer le PDF');
     }

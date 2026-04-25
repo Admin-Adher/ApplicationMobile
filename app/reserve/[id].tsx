@@ -796,8 +796,9 @@ export default function ReserveDetailScreen() {
 
       const html = buildReservePDF(reserve, projectName, company, resolvedSrcs, planData, pinNumInPlan);
       await exportPDFHelper(html, `Fiche ${reserve.id}`);
-    } catch {
-      Alert.alert('Erreur', "Impossible de générer le PDF.");
+    } catch (e: any) {
+      console.error('[exportPDF] Fiche réserve', e);
+      Alert.alert('Erreur', e?.message ?? "Impossible de générer le PDF.");
     }
   }
 

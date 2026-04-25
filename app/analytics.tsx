@@ -2,9 +2,16 @@ import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Platform, Alert }
 import { Ionicons } from '@expo/vector-icons';
 import { useMemo } from 'react';
 import { useRouter } from 'expo-router';
-import * as Print from 'expo-print';
-import * as Sharing from 'expo-sharing';
 import { C } from '@/constants/colors';
+import {
+  exportPDF as exportPDFHelper,
+  wrapHTML,
+  buildLetterhead,
+  buildKpiRow,
+  buildDocFooter,
+  escapeHtml,
+} from '@/lib/pdfBase';
+import { getISOWeekKey } from '@/lib/utils';
 import { useApp } from '@/context/AppContext';
 import { useAuth } from '@/context/AuthContext';
 import { useSettings } from '@/context/SettingsContext';
@@ -19,14 +26,6 @@ function getWeekLabel(date: Date): string {
   const dd = String(monday.getDate()).padStart(2, '0');
   const mm = String(monday.getMonth() + 1).padStart(2, '0');
   return `${dd}/${mm}`;
-}
-
-function getISOWeek(date: Date): string {
-  const d = new Date(date);
-  d.setHours(0, 0, 0, 0);
-  d.setDate(d.getDate() + 3 - ((d.getDay() + 6) % 7));
-  const week1 = new Date(d.getFullYear(), 0, 4);
-  return d.getFullYear() + '-W' + String(1 + Math.round(((d.getTime() - week1.getTime()) / 86400000 - 3 + ((week1.getDay() + 6) % 7)) / 7)).padStart(2, '0');
 }
 
 function MiniBar({ value, max, color }: { value: number; max: number; color: string }) {
@@ -45,66 +44,50 @@ function buildAnalyticsPDF(
   projectName: string,
   userName: string,
 ): string {
+  const today = new Date().toLocaleDateString('fr-FR');
+  const docRef = `ANA-${new Date().toISOString().slice(0, 10)}`;
   const totalReserves = reserves.length;
   const closedReserves = reserves.filter(r => r.status === 'closed').length;
   const overdueReserves = reserves.filter(r => isOverdue(r.deadline, r.status)).length;
   const closureRate = totalReserves > 0 ? Math.round((closedReserves / totalReserves) * 100) : 0;
 
   const weekRows = weekStats.map(w =>
-    `<tr><td>${w.label}</td><td style="color:#1A6FD8;font-weight:bold">${w.created}</td><td style="color:#10B981;font-weight:bold">${w.closed}</td><td>${w.created > 0 ? Math.round((w.closed / w.created) * 100) : 0}%</td></tr>`
+    `<tr><td>${escapeHtml(w.label)}</td><td style="color:#003082;font-weight:bold">${w.created}</td><td style="color:#059669;font-weight:bold">${w.closed}</td><td>${w.created > 0 ? Math.round((w.closed / w.created) * 100) : 0}%</td></tr>`
   ).join('');
 
   const companyRows = companyStats.map(c =>
     `<tr>
-      <td><strong>${c.companyName}</strong></td>
+      <td><strong>${escapeHtml(c.companyName)}</strong></td>
       <td>${c.total}</td>
-      <td style="color:#10B981;font-weight:bold">${c.closed}</td>
-      <td style="color:${c.rate >= 75 ? '#10B981' : c.rate >= 50 ? '#F59E0B' : '#EF4444'};font-weight:bold">${c.rate}%</td>
-      <td style="color:${c.overdue > 0 ? '#EF4444' : '#10B981'}">${c.overdue}</td>
+      <td style="color:#059669;font-weight:bold">${c.closed}</td>
+      <td style="color:${c.rate >= 75 ? '#059669' : c.rate >= 50 ? '#F59E0B' : '#DC2626'};font-weight:bold">${c.rate}%</td>
+      <td style="color:${c.overdue > 0 ? '#DC2626' : '#059669'}">${c.overdue}</td>
     </tr>`
   ).join('');
 
-  return `<!DOCTYPE html><html><head><meta charset="UTF-8">
-  <style>
-    body { font-family: Arial, sans-serif; padding: 30px; color: #111; }
-    h1 { color: #1A6FD8; font-size: 22px; }
-    h2 { color: #333; font-size: 16px; border-bottom: 2px solid #1A6FD8; padding-bottom: 4px; margin-top: 28px; }
-    .meta { color: #666; font-size: 12px; margin-bottom: 20px; }
-    .kpi { display: flex; gap: 16px; flex-wrap: wrap; margin-top: 10px; }
-    .kpi-card { border: 2px solid #1A6FD8; border-radius: 10px; padding: 14px 22px; text-align: center; min-width: 120px; }
-    .kpi-val { font-size: 30px; font-weight: bold; color: #1A6FD8; }
-    .kpi-label { font-size: 12px; color: #666; margin-top: 4px; }
-    table { width: 100%; border-collapse: collapse; margin-top: 10px; font-size: 13px; }
-    th { background: #1A6FD8; color: white; padding: 9px; text-align: left; }
-    td { padding: 7px 9px; border-bottom: 1px solid #eee; }
-    tr:nth-child(even) td { background: #f9fbff; }
-    .footer { margin-top: 30px; border-top: 1px solid #ccc; padding-top: 12px; color: #999; font-size: 11px; text-align: center; }
-  </style></head><body>
-  <h1>${projectName} — Tableau de bord analytique</h1>
-  <p class="meta">Généré le ${new Date().toLocaleDateString('fr-FR')} | ${userName}</p>
+  const body = `
+    ${buildLetterhead('Tableau de bord analytique', projectName, docRef, today, projectName)}
+    <div style="font-size:10px;color:#6B7280;margin-top:-16px;margin-bottom:20px">Généré par : <strong style="color:#1A2742">${escapeHtml(userName)}</strong></div>
+    ${buildKpiRow([
+      { val: totalReserves, label: 'Réserves totales', color: '#003082' },
+      { val: closedReserves, label: 'Clôturées', color: '#059669' },
+      { val: `${closureRate}%`, label: 'Taux de clôture', color: '#003082' },
+      { val: overdueReserves, label: 'En retard', color: overdueReserves > 0 ? '#DC2626' : '#059669' },
+    ])}
+    <div class="section-header">Évolution hebdomadaire — 8 dernières semaines</div>
+    <table>
+      <thead><tr><th>Semaine</th><th>Créées</th><th>Clôturées</th><th>Taux levée</th></tr></thead>
+      <tbody>${weekRows || '<tr><td colspan="4" style="text-align:center;color:#6B7280">Aucune donnée</td></tr>'}</tbody>
+    </table>
+    <div class="section-header">Performance par entreprise</div>
+    <table>
+      <thead><tr><th>Entreprise</th><th>Total</th><th>Clôturées</th><th>Taux</th><th>En retard</th></tr></thead>
+      <tbody>${companyRows || '<tr><td colspan="5" style="text-align:center;color:#6B7280">Aucune donnée</td></tr>'}</tbody>
+    </table>
+    ${buildDocFooter(projectName)}
+  `;
 
-  <h2>Indicateurs clés</h2>
-  <div class="kpi">
-    <div class="kpi-card"><div class="kpi-val">${totalReserves}</div><div class="kpi-label">Réserves totales</div></div>
-    <div class="kpi-card"><div class="kpi-val" style="color:#10B981">${closedReserves}</div><div class="kpi-label">Clôturées</div></div>
-    <div class="kpi-card"><div class="kpi-val">${closureRate}%</div><div class="kpi-label">Taux de clôture</div></div>
-    <div class="kpi-card"><div class="kpi-val" style="color:${overdueReserves > 0 ? '#EF4444' : '#10B981'}">${overdueReserves}</div><div class="kpi-label">En retard</div></div>
-  </div>
-
-  <h2>Évolution hebdomadaire — 8 dernières semaines</h2>
-  <table>
-    <thead><tr><th>Semaine</th><th>Créées</th><th>Clôturées</th><th>Taux levée</th></tr></thead>
-    <tbody>${weekRows || '<tr><td colspan="4" style="text-align:center;color:#999">Aucune donnée</td></tr>'}</tbody>
-  </table>
-
-  <h2>Performance par entreprise</h2>
-  <table>
-    <thead><tr><th>Entreprise</th><th>Total</th><th>Clôturées</th><th>Taux</th><th>En retard</th></tr></thead>
-    <tbody>${companyRows || '<tr><td colspan="5" style="text-align:center;color:#999">Aucune donnée</td></tr>'}</tbody>
-  </table>
-
-  <div class="footer">Rapport analytique généré par BuildTrack — ${projectName}</div>
-  </body></html>`;
+  return wrapHTML(body, `Analytique — ${projectName}`);
 }
 
 export default function AnalyticsScreen() {
@@ -120,17 +103,17 @@ export default function AnalyticsScreen() {
     for (let i = 7; i >= 0; i--) {
       const d = new Date(now);
       d.setDate(now.getDate() - i * 7);
-      const week = getISOWeek(d);
+      const week = getISOWeekKey(d);
       weeks.push({ week, label: `S. ${getWeekLabel(d)}`, created: 0, closed: 0 });
     }
     reserves.forEach(r => {
       const createdDate = new Date(r.createdAt);
-      const createdWeek = getISOWeek(createdDate);
+      const createdWeek = getISOWeekKey(createdDate);
       const wi = weeks.findIndex(w => w.week === createdWeek);
       if (wi >= 0) weeks[wi].created++;
       if (r.status === 'closed' && r.closedAt) {
         const closedDate = new Date(r.closedAt);
-        const closedWeek = getISOWeek(closedDate);
+        const closedWeek = getISOWeekKey(closedDate);
         const cWi = weeks.findIndex(w => w.week === closedWeek);
         if (cWi >= 0) weeks[cWi].closed++;
       }
@@ -180,26 +163,13 @@ export default function AnalyticsScreen() {
   const maxWeekVal = Math.max(...weekStats.map(w => Math.max(w.created, w.closed)), 1);
 
   async function handleExportPDF() {
-    if (!permissions.canExport) return;
-    const html = buildAnalyticsPDF(weekStats, companyStats, reserves, projectName, userName);
-    if (Platform.OS === 'web') {
-      const iframe = document.createElement('iframe');
-      iframe.style.cssText = 'position:fixed;right:0;bottom:0;width:0;height:0;border:0';
-      document.body.appendChild(iframe);
-      const doc = iframe.contentWindow?.document;
-      if (doc) {
-        doc.open(); doc.write(html); doc.close();
-        setTimeout(() => {
-          try { iframe.contentWindow?.print(); } catch {}
-          setTimeout(() => document.body.removeChild(iframe), 5000);
-        }, 300);
-      }
+    if (!permissions.canExport) {
+      Alert.alert('Accès refusé', "Votre rôle ne permet pas d'exporter.");
       return;
     }
     try {
-      const { uri } = await Print.printToFileAsync({ html, base64: false });
-      const canShare = await Sharing.isAvailableAsync();
-      if (canShare) await Sharing.shareAsync(uri, { mimeType: 'application/pdf', dialogTitle: 'Tableau de bord analytique' });
+      const html = buildAnalyticsPDF(weekStats, companyStats, reserves, projectName, userName);
+      await exportPDFHelper(html, 'Tableau de bord analytique');
     } catch (e: any) {
       Alert.alert('Erreur', e?.message ?? 'Impossible de générer le PDF');
     }

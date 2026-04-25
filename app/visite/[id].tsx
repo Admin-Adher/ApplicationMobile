@@ -13,6 +13,7 @@ import {
   buildKpiRow,
   buildDocFooter,
   wrapHTML,
+  escapeHtml,
 } from '@/lib/pdfBase';
 import { useApp } from '@/context/AppContext';
 import { useAuth } from '@/context/AuthContext';
@@ -60,17 +61,17 @@ function buildVisitePDF(visite: Visite, reserves: Reserve[], projectName: string
 
   const rows = sortedReserves.map((r, idx) =>
     `<tr style="background:${idx % 2 === 0 ? '#fff' : '#F9FAFB'}">
-      <td style="padding:9px 10px;border-bottom:1px solid #EEF3FA;font-size:11px;font-weight:700;white-space:nowrap">${r.id}</td>
-      <td style="padding:9px 10px;border-bottom:1px solid #EEF3FA;font-size:12px;font-weight:600">${r.title}</td>
-      <td style="padding:9px 10px;border-bottom:1px solid #EEF3FA;font-size:12px;white-space:nowrap">Bât.${r.building} — ${r.level}</td>
-      <td style="padding:9px 10px;border-bottom:1px solid #EEF3FA;font-size:12px">${r.company}</td>
+      <td style="padding:9px 10px;border-bottom:1px solid #EEF3FA;font-size:11px;font-weight:700;white-space:nowrap">${escapeHtml(r.id)}</td>
+      <td style="padding:9px 10px;border-bottom:1px solid #EEF3FA;font-size:12px;font-weight:600">${escapeHtml(r.title)}</td>
+      <td style="padding:9px 10px;border-bottom:1px solid #EEF3FA;font-size:12px;white-space:nowrap">Bât.${escapeHtml(r.building)} — ${escapeHtml(r.level)}</td>
+      <td style="padding:9px 10px;border-bottom:1px solid #EEF3FA;font-size:12px">${escapeHtml(r.company)}</td>
       <td style="padding:9px 10px;border-bottom:1px solid #EEF3FA;text-align:center">
-        <span style="background:${priorityBg[r.priority]||'#F9FAFB'};color:${priorityColors[r.priority]||'#6B7280'};font-size:11px;font-weight:700;padding:3px 10px;border-radius:10px">${PRIORITY_LABELS[r.priority]||r.priority}</span>
+        <span style="background:${priorityBg[r.priority]||'#F9FAFB'};color:${priorityColors[r.priority]||'#6B7280'};font-size:11px;font-weight:700;padding:3px 10px;border-radius:10px">${PRIORITY_LABELS[r.priority]||escapeHtml(r.priority)}</span>
       </td>
       <td style="padding:9px 10px;border-bottom:1px solid #EEF3FA;text-align:center">
-        <span style="background:${statusBg[r.status]||'#F9FAFB'};color:${statusColor[r.status]||'#6B7280'};font-size:11px;font-weight:700;padding:3px 10px;border-radius:10px">${RESERVE_STATUS_LABELS[r.status]||r.status}</span>
+        <span style="background:${statusBg[r.status]||'#F9FAFB'};color:${statusColor[r.status]||'#6B7280'};font-size:11px;font-weight:700;padding:3px 10px;border-radius:10px">${RESERVE_STATUS_LABELS[r.status]||escapeHtml(r.status)}</span>
       </td>
-      <td style="padding:9px 10px;border-bottom:1px solid #EEF3FA;font-size:12px;white-space:nowrap">${r.deadline}</td>
+      <td style="padding:9px 10px;border-bottom:1px solid #EEF3FA;font-size:12px;white-space:nowrap">${escapeHtml(r.deadline)}</td>
     </tr>`
   ).join('');
 
@@ -84,7 +85,7 @@ function buildVisitePDF(visite: Visite, reserves: Reserve[], projectName: string
           const srcs = reservePhotoMap?.get(r.id) ?? [];
           const rawPhotos = r.photos ?? [];
           return `<div style="margin-bottom:18px;padding:12px 16px;border:1.5px solid #DDE4EE;border-radius:10px;page-break-inside:avoid">
-            <div style="font-size:11px;font-weight:700;color:#1A2742;margin-bottom:6px">${r.id} — ${r.title} <span style="color:#6B7280;font-weight:400">· ${r.company} · Bât.${r.building}</span></div>
+            <div style="font-size:11px;font-weight:700;color:#1A2742;margin-bottom:6px">${escapeHtml(r.id)} — ${escapeHtml(r.title)} <span style="color:#6B7280;font-weight:400">· ${escapeHtml(r.company)} · Bât.${escapeHtml(r.building)}</span></div>
             ${buildPhotoGrid(srcs.slice(0, 4).map((src, i) => ({
               src,
               badge: (rawPhotos[i]?.kind === 'resolution') ? '🟢 Levée' : '🔴 Constat',
@@ -112,9 +113,9 @@ function buildVisitePDF(visite: Visite, reserves: Reserve[], projectName: string
          <thead><tr><th>Nom</th><th>Fonction</th><th>Entreprise</th></tr></thead>
          <tbody>${visite.participants.map((p, i) =>
            `<tr style="background:${i % 2 === 0 ? '#fff' : '#F9FAFB'}">
-             <td style="padding:8px 10px;font-size:12px;font-weight:600">${p.name}</td>
-             <td style="padding:8px 10px;font-size:12px">${p.role ?? '—'}</td>
-             <td style="padding:8px 10px;font-size:12px">${p.company ?? '—'}</td>
+             <td style="padding:8px 10px;font-size:12px;font-weight:600">${escapeHtml(p.name)}</td>
+             <td style="padding:8px 10px;font-size:12px">${escapeHtml(p.role ?? '—')}</td>
+             <td style="padding:8px 10px;font-size:12px">${escapeHtml(p.company ?? '—')}</td>
            </tr>`
          ).join('')}</tbody>
        </table>`
@@ -179,14 +180,14 @@ function buildVisitePDF(visite: Visite, reserves: Reserve[], projectName: string
       <div class="sig-block">
         <div class="sig-label">Conducteur de travaux</div>
         ${conducteurSigHtml}
-        <div class="sig-name">${visite.conducteur}</div>
-        <div class="sig-date">Date : ${visite.signedAt ?? visite.date}</div>
+        <div class="sig-name">${escapeHtml(visite.conducteur)}</div>
+        <div class="sig-date">Date : ${escapeHtml(visite.signedAt ?? visite.date)}</div>
       </div>
       <div class="sig-block">
         <div class="sig-label">Lu et approuvé — Entreprise(s)</div>
         ${entrepriseSigHtml}
-        <div class="sig-name">${visite.entrepriseSignataire ?? ''}</div>
-        <div class="sig-date">Date : ${visite.signedAt ?? ''}</div>
+        <div class="sig-name">${escapeHtml(visite.entrepriseSignataire ?? '')}</div>
+        <div class="sig-date">Date : ${escapeHtml(visite.signedAt ?? '')}</div>
       </div>
     </div>
     ${photoGallery}

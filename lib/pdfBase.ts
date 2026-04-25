@@ -3,6 +3,21 @@ import * as Print from 'expo-print';
 import * as Sharing from 'expo-sharing';
 import * as FileSystem from 'expo-file-system';
 
+/**
+ * Escapes user-supplied strings so they are safe to embed in HTML.
+ * Prevents layout breakage from characters like <, >, &, " and '
+ * and eliminates the risk of HTML injection in generated PDFs.
+ */
+export function escapeHtml(str: string | null | undefined): string {
+  if (str == null) return '';
+  return String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
 export const PDF_BRAND_COLOR = '#003082';
 export const PDF_ACCENT = '#1A6FD8';
 export const PDF_BG = '#F4F7FB';
@@ -186,10 +201,10 @@ export function buildLetterhead(
         </div>
       </div>
       <div class="letterhead-right">
-        <div class="letterhead-doc-type">${docType}</div>
-        <div class="letterhead-doc-title">${docTitle}</div>
-        <div class="letterhead-ref">Projet : <strong>${projectName}</strong></div>
-        <div class="letterhead-ref">Réf. : <strong>${docRef}</strong> &nbsp;|&nbsp; Date : <strong>${date}</strong></div>
+        <div class="letterhead-doc-type">${escapeHtml(docType)}</div>
+        <div class="letterhead-doc-title">${escapeHtml(docTitle)}</div>
+        <div class="letterhead-ref">Projet : <strong>${escapeHtml(projectName)}</strong></div>
+        <div class="letterhead-ref">Réf. : <strong>${escapeHtml(docRef)}</strong> &nbsp;|&nbsp; Date : <strong>${escapeHtml(date)}</strong></div>
       </div>
     </div>
   `;
@@ -197,13 +212,13 @@ export function buildLetterhead(
 
 export function buildInfoGrid(items: Array<{ label: string; value: string }>): string {
   return `<div class="info-grid">${items.map(i =>
-    `<div class="info-card"><div class="info-card-label">${i.label}</div><div class="info-card-value">${i.value}</div></div>`
+    `<div class="info-card"><div class="info-card-label">${escapeHtml(i.label)}</div><div class="info-card-value">${escapeHtml(i.value)}</div></div>`
   ).join('')}</div>`;
 }
 
 export function buildKpiRow(items: Array<{ val: string | number; label: string; color?: string }>): string {
   return `<div class="kpi-row">${items.map(i =>
-    `<div class="kpi-card"><div class="kpi-val" style="color:${i.color ?? '#003082'}">${i.val}</div><div class="kpi-label">${i.label}</div></div>`
+    `<div class="kpi-card"><div class="kpi-val" style="color:${i.color ?? '#003082'}">${typeof i.val === 'number' ? i.val : escapeHtml(i.val)}</div><div class="kpi-label">${escapeHtml(i.label)}</div></div>`
   ).join('')}</div>`;
 }
 
@@ -211,7 +226,7 @@ export function buildDocFooter(projectName: string): string {
   const now = new Date().toLocaleDateString('fr-FR', { day: '2-digit', month: 'long', year: 'numeric' });
   return `
     <div class="doc-footer">
-      <span>Généré par BuildTrack — ${projectName}</span>
+      <span>Généré par BuildTrack — ${escapeHtml(projectName)}</span>
       <span>Document confidentiel — ${now}</span>
     </div>
   `;
@@ -234,10 +249,10 @@ export function buildPhotoGrid(
         <div class="photo-item">
           <img class="photo-img" src="${p.src}" onerror="this.style.opacity='0.2'" />
           ${p.badge
-            ? `<span class="photo-badge" style="background:${p.badgeColor ?? PDF_BG};color:${p.badgeTextColor ?? PDF_TEXT}">${p.badge}</span>`
+            ? `<span class="photo-badge" style="background:${p.badgeColor ?? PDF_BG};color:${p.badgeTextColor ?? PDF_TEXT}">${escapeHtml(p.badge)}</span>`
             : ''}
           ${p.caption
-            ? `<div class="photo-caption">${p.caption}</div>`
+            ? `<div class="photo-caption">${escapeHtml(p.caption)}</div>`
             : ''}
         </div>
       `).join('')}
@@ -249,7 +264,7 @@ export function wrapHTML(body: string, title: string): string {
   return `<!DOCTYPE html><html lang="fr"><head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>${title}</title>
+    <title>${escapeHtml(title)}</title>
     <style>${PDF_BASE_CSS}</style>
   </head><body>
     <div class="container">

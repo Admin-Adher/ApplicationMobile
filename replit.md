@@ -37,6 +37,19 @@ Configurées dans Replit (shared) :
 - `GMAIL_APP_PASSWORD` — Mot de passe d'application Google (16 caractères, secret Replit)
 - `EMAIL_FROM` — Expéditeur affiché : `BuildTrack <buildtrack.admin@gmail.com>`
 
+## Améliorations PDF (audit sécurité — mai 2025)
+
+- `lib/pdfBase.ts` — Ajout de `escapeHtml` exportée ; tous les helpers (`buildLetterhead`, `buildInfoGrid`, `buildKpiRow`, `buildDocFooter`, `buildPhotoGrid`, `wrapHTML`) échappent désormais toutes les chaînes utilisateur via `escapeHtml` en interne.
+- `lib/utils.ts` — Ajout de `getISOWeek(date): number` (semaine ISO 8601 correcte) et `getISOWeekKey(date): string` (clé "YYYY-Www" pour groupement hebdomadaire).
+- `app/rapports.tsx` — Calcul `weekNum` corrigé (ISO standard via `getISOWeek`) ; `escapeHtml` appliqué dans tous les builders HTML (`buildLotSummaryRows`, `buildDailyHTML`, `buildWeeklyHTML`, `buildIncidentHTML`, `buildCompanyReserveHTML`).
+- `app/meeting-report.tsx` — `buildMeetingHTML` réécrit avec `wrapHTML`/`buildLetterhead`/`buildInfoGrid`/`buildDocFooter` + `escapeHtml` ; `handleExportPDF` utilise maintenant `exportPDFHelper` (plus d'iframe hack).
+- `app/journal.tsx` — `buildJournalHTML` réécrit avec helpers pdfBase + `escapeHtml` ; `handleExportPDF` utilise `exportPDFHelper`.
+- `app/analytics.tsx` — `buildAnalyticsPDF` réécrit avec helpers pdfBase + couleur de marque `#003082` corrigée + `escapeHtml` ; `handleExportPDF` utilise `exportPDFHelper` + `Alert` si pas de permission ; `weekStats` utilise `getISOWeekKey` depuis utils.
+- `app/(tabs)/reserves.tsx` — `generateReportPDF` : `window.open` remplacé par `exportPDFHelper` ; `escapeHtml` appliqué à noms entreprises, titres, bâtiments ; imports Print/Sharing inutilisés supprimés.
+- `app/opr.tsx` — `escapeHtml` appliqué dans les trois builders PDF (PV de réception, levée de réserves, lettre de convocation) ; signatures, noms de lots, entreprises, notes.
+- `app/visite/[id].tsx` — `escapeHtml` appliqué aux réserves, participants et signature.
+- `app/reserve/[id].tsx` — Catch de l'export PDF amélioré (log + message d'erreur détaillé).
+
 ## Fichiers clés
 
 - `lib/supabase.ts` — Client Supabase

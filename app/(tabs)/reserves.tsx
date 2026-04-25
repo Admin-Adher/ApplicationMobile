@@ -11,8 +11,6 @@ import { useRouter, useLocalSearchParams } from 'expo-router';
 import { useState, useMemo, useCallback, useRef, useEffect } from 'react';
 import { SkeletonList } from '@/components/SkeletonCard';
 import * as ImagePicker from 'expo-image-picker';
-import * as Print from 'expo-print';
-import * as Sharing from 'expo-sharing';
 import { C } from '@/constants/colors';
 import { useApp } from '@/context/AppContext';
 import { useAuth } from '@/context/AuthContext';
@@ -20,7 +18,7 @@ import { Reserve, ReserveStatus, ReservePriority, ReserveKind } from '@/constant
 import ReserveCard from '@/components/ReserveCard';
 import DateInput from '@/components/DateInput';
 import { isOverdue, formatDate, genReserveId } from '@/lib/reserveUtils';
-import { PDF_BASE_CSS, PDF_BRAND_COLOR, PDF_MUTED, PDF_TEXT } from '@/lib/pdfBase';
+import { PDF_BASE_CSS, PDF_BRAND_COLOR, PDF_MUTED, PDF_TEXT, exportPDF as exportPDFHelper, escapeHtml } from '@/lib/pdfBase';
 
 function buildReservesCSV(reserves: Reserve[]): string {
   const header = 'ID,Titre,Bâtiment,Zone,Niveau,Entreprise,Priorité,Statut,Créé le,Échéance,Description';
@@ -107,7 +105,7 @@ async function generateReportPDF(
     .map(([co, stats]) => {
       const rate = stats.total > 0 ? Math.round((stats.closed / stats.total) * 100) : 0;
       return `<tr>
-        <td>${co}</td>
+        <td>${escapeHtml(co)}</td>
         <td style="text-align:center">${stats.total}</td>
         <td style="text-align:center;color:${C.closed}">${stats.closed}</td>
         <td style="text-align:center;color:${stats.overdue > 0 ? C.open : PDF_MUTED}">${stats.overdue}</td>
@@ -120,15 +118,17 @@ async function generateReportPDF(
     .map(r => {
       const overdue = isOverdue(r.deadline, r.status);
       const lot = r.lotId ? lots.find(l => l.id === r.lotId) : null;
+      const lotLabel = lot ? escapeHtml((lot.number ? `Lot ${lot.number} — ` : '') + lot.name) : '—';
+      const coNames = (r.companies && r.companies.length > 0 ? r.companies : r.company ? [r.company] : ['—']);
       return `<tr style="${overdue ? 'background:#FFF1F2' : ''}">
-        <td style="font-weight:bold;color:${PDF_BRAND_COLOR}">${r.id}</td>
-        <td>${r.title}</td>
-        <td>${lot ? (lot.number ? `Lot ${lot.number} — ` : '') + lot.name : '—'}</td>
-        <td>Bât. ${r.building} — ${r.zone}</td>
-        <td>${(r.companies && r.companies.length > 0 ? r.companies : r.company ? [r.company] : ['—']).join(', ')}</td>
+        <td style="font-weight:bold;color:${PDF_BRAND_COLOR}">${escapeHtml(r.id)}</td>
+        <td>${escapeHtml(r.title)}</td>
+        <td>${lotLabel}</td>
+        <td>Bât. ${escapeHtml(r.building)} — ${escapeHtml(r.zone)}</td>
+        <td>${coNames.map(c => escapeHtml(c)).join(', ')}</td>
         <td><span style="background:${STATUS_COLORS[r.status]}20;color:${STATUS_COLORS[r.status]};padding:2px 8px;border-radius:8px;font-size:10px;font-weight:bold">${STATUS_LABELS[r.status]}</span></td>
         <td><span style="background:${PRIORITY_COLORS[r.priority]}20;color:${PRIORITY_COLORS[r.priority]};padding:2px 8px;border-radius:8px;font-size:10px;font-weight:bold">${PRIORITY_LABELS[r.priority]}</span></td>
-        <td style="${overdue ? 'color:' + C.open + ';font-weight:bold' : ''}">${r.deadline ?? '—'}</td>
+        <td style="${overdue ? 'color:' + C.open + ';font-weight:bold' : ''}">${escapeHtml(r.deadline ?? '—')}</td>
       </tr>`;
     }).join('');
 
@@ -180,15 +180,7 @@ async function generateReportPDF(
     ${overdueCount > 0 ? `<p style="color:${C.open};font-size:11px">* Les lignes surlignées en rouge indiquent des réserves en retard.</p>` : ''}
   </div></body></html>`;
 
-  if (Platform.OS === 'web') {
-    const w = window.open('', '_blank');
-    if (w) { w.document.write(html); w.document.close(); w.print(); }
-    return;
-  }
-  const { uri } = await Print.printToFileAsync({ html, base64: false });
-  if (await Sharing.isAvailableAsync()) {
-    await Sharing.shareAsync(uri, { mimeType: 'application/pdf', UTI: 'com.adobe.pdf' });
-  }
+  await exportPDFHelper(html, `Rapport_Réserves_${chantierName}`);
 }
 
 export default function ReservesScreen() {

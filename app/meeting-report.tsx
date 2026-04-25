@@ -4,9 +4,15 @@ import { useState, useCallback, useEffect } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
-import * as Print from 'expo-print';
-import * as Sharing from 'expo-sharing';
 import { C } from '@/constants/colors';
+import {
+  exportPDF as exportPDFHelper,
+  wrapHTML,
+  buildLetterhead,
+  buildInfoGrid,
+  buildDocFooter,
+  escapeHtml,
+} from '@/lib/pdfBase';
 import { useAuth } from '@/context/AuthContext';
 import { useSettings } from '@/context/SettingsContext';
 import { useApp } from '@/context/AppContext';
@@ -62,16 +68,16 @@ function buildMeetingHTML(report: MeetingReport, projectName: string): string {
     ? report.decisions.map((d, i) =>
         `<div style="display:flex;gap:10px;align-items:flex-start;padding:8px 0;border-bottom:1px solid #EEF3FA">
           <div style="min-width:22px;height:22px;background:#003082;border-radius:50%;color:#fff;font-size:10px;font-weight:800;display:flex;align-items:center;justify-content:center">${i + 1}</div>
-          <div style="font-size:12px;color:#1A2742;line-height:1.5">${d}</div>
+          <div style="font-size:12px;color:#1A2742;line-height:1.5">${escapeHtml(d)}</div>
         </div>`
       ).join('')
     : `<div style="font-size:12px;color:#6B7280;font-style:italic">Aucune décision formalisée lors de cette réunion.</div>`;
 
   const actionsHtml = report.actions.map(a =>
     `<tr>
-      <td style="padding:8px 10px;border-bottom:1px solid #EEF3FA;font-size:11px">${a.description}</td>
-      <td style="padding:8px 10px;border-bottom:1px solid #EEF3FA;font-size:11px;font-weight:600">${a.responsible}</td>
-      <td style="padding:8px 10px;border-bottom:1px solid #EEF3FA;font-size:11px">${a.deadline}</td>
+      <td style="padding:8px 10px;border-bottom:1px solid #EEF3FA;font-size:11px">${escapeHtml(a.description)}</td>
+      <td style="padding:8px 10px;border-bottom:1px solid #EEF3FA;font-size:11px;font-weight:600">${escapeHtml(a.responsible)}</td>
+      <td style="padding:8px 10px;border-bottom:1px solid #EEF3FA;font-size:11px">${escapeHtml(a.deadline)}</td>
       <td style="padding:8px 10px;border-bottom:1px solid #EEF3FA;text-align:center">
         <span style="background:${a.status === 'done' ? '#ECFDF5' : '#FFFBEB'};color:${a.status === 'done' ? '#059669' : '#D97706'};font-size:10px;font-weight:700;padding:2px 10px;border-radius:10px">
           ${a.status === 'done' ? '✓ Fait' : '⏳ En attente'}
@@ -80,104 +86,60 @@ function buildMeetingHTML(report: MeetingReport, projectName: string): string {
     </tr>`
   ).join('');
 
-  const sH = (t: string) => `<div style="font-size:11px;font-weight:700;color:#6B7280;text-transform:uppercase;letter-spacing:0.7px;margin-bottom:10px;margin-top:22px;padding-bottom:6px;border-bottom:1.5px solid #DDE4EE">${t}</div>`;
+  const sH = (t: string) => `<div class="section-header">${t}</div>`;
 
   const participantsList = report.participants.split('\n').filter(p => p.trim()).map(p =>
-    `<span style="display:inline-block;background:#F4F7FB;border:1px solid #DDE4EE;border-radius:20px;padding:3px 10px;font-size:11px;margin:3px 4px 3px 0">${p.trim()}</span>`
+    `<span style="display:inline-block;background:#F4F7FB;border:1px solid #DDE4EE;border-radius:20px;padding:3px 10px;font-size:11px;margin:3px 4px 3px 0">${escapeHtml(p.trim())}</span>`
   ).join('');
 
   const agendaItems = report.agenda.split('\n').filter(a => a.trim()).map((item, i) =>
     `<div style="display:flex;gap:10px;padding:6px 0;font-size:12px">
       <span style="color:#003082;font-weight:700;min-width:20px">${i + 1}.</span>
-      <span>${item.replace(/^\d+\.\s*/, '')}</span>
+      <span>${escapeHtml(item.replace(/^\d+\.\s*/, ''))}</span>
     </div>`
   ).join('');
 
-  return `<!DOCTYPE html><html lang="fr"><head><meta charset="UTF-8">
-    <style>
-      * { box-sizing: border-box; margin: 0; padding: 0; }
-      body { font-family: Arial, Helvetica, sans-serif; background: #fff; color: #1A2742; font-size: 12px; padding: 28px 32px; line-height: 1.5; }
-      @media print { body { -webkit-print-color-adjust: exact; print-color-adjust: exact; } @page { margin: 15mm 12mm; } }
-    </style>
-  </head><body>
-
-    <!-- Letterhead -->
-    <div style="display:flex;justify-content:space-between;align-items:flex-start;padding-bottom:18px;border-bottom:3px solid #003082;margin-bottom:22px">
-      <div style="display:flex;align-items:center;gap:12px">
-        <div style="width:42px;height:42px;background:#003082;border-radius:8px;display:flex;align-items:center;justify-content:center;color:#fff;font-weight:800;font-size:18px">BT</div>
-        <div>
-          <div style="font-size:20px;font-weight:800;color:#003082">BuildTrack</div>
-          <div style="font-size:10px;color:#6B7280">Gestion de chantier numérique</div>
-        </div>
-      </div>
-      <div style="text-align:right">
-        <div style="font-size:15px;font-weight:700;color:#1A2742">Compte-rendu de réunion</div>
-        <div style="font-size:12px;color:#6B7280;margin-top:3px">${report.subject}</div>
-        <div style="font-size:10px;color:#6B7280;margin-top:8px">Projet : <strong style="color:#1A2742">${projectName}</strong></div>
-        <div style="font-size:10px;color:#6B7280">Réf. : <strong style="color:#1A2742">${docRef}</strong></div>
-      </div>
-    </div>
-
-    <!-- Info cards -->
-    <div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:20px">
-      ${[
-        { label: 'Date de réunion', value: report.date },
-        { label: 'Lieu', value: report.location || 'Non précisé' },
-        { label: 'Rédigé par', value: report.redactedBy },
-        { label: 'Actions total', value: `${doneCount}/${report.actions.length} faites` },
-      ].map(i => `
-        <div style="flex:1;min-width:130px;background:#F4F7FB;border-radius:8px;padding:10px 14px;border:1px solid #DDE4EE">
-          <div style="font-size:9px;color:#6B7280;text-transform:uppercase;letter-spacing:0.7px;margin-bottom:4px;font-weight:700">${i.label}</div>
-          <div style="font-size:13px;font-weight:700;color:#1A2742">${i.value}</div>
-        </div>`).join('')}
-    </div>
-
+  const body = `
+    ${buildLetterhead('Compte-rendu de réunion', report.subject, docRef, exportDate, projectName)}
+    ${buildInfoGrid([
+      { label: 'Date de réunion', value: report.date },
+      { label: 'Lieu', value: report.location || 'Non précisé' },
+      { label: 'Rédigé par', value: report.redactedBy },
+      { label: 'Actions total', value: `${doneCount}/${report.actions.length} faites` },
+    ])}
     ${pendingCount > 0 ? `
-      <div style="background:#FFFBEB;border-left:4px solid #F59E0B;padding:10px 14px;border-radius:0 8px 8px 0;margin-bottom:16px;font-size:12px;color:#92400E">
-        ⏳ <strong>${pendingCount} action${pendingCount > 1 ? 's' : ''} en attente</strong> depuis cette réunion
-      </div>` : ''}
-
+      <div class="alert alert-warning">⏳ <strong>${pendingCount} action${pendingCount > 1 ? 's' : ''} en attente</strong> depuis cette réunion</div>` : ''}
     ${sH('Ordre du jour')}
     <div style="background:#F4F7FB;border-radius:10px;padding:12px 16px;margin-bottom:4px">${agendaItems || '<div style="color:#6B7280;font-style:italic">Ordre du jour non précisé</div>'}</div>
-
     ${sH('Participants')}
     <div style="padding:10px 0">${participantsList || '<span style="color:#6B7280;font-style:italic">Non précisé</span>'}</div>
-
     ${sH('Compte-rendu des discussions')}
-    <div style="background:#F9FAFB;border-radius:10px;padding:14px 16px;border:1px solid #DDE4EE;font-size:12px;line-height:1.7;white-space:pre-wrap">${report.notes || 'Aucun compte-rendu saisi.'}</div>
-
+    <div style="background:#F9FAFB;border-radius:10px;padding:14px 16px;border:1px solid #DDE4EE;font-size:12px;line-height:1.7;white-space:pre-wrap">${escapeHtml(report.notes) || 'Aucun compte-rendu saisi.'}</div>
     ${sH('Décisions prises')}
     ${decisionsHtml}
-
     ${report.actions.length > 0 ? `
       ${sH(`Plan d'actions (${report.actions.length})`)}
-      <table style="width:100%;border-collapse:collapse">
+      <table>
         <thead><tr>
-          <th style="background:#003082;color:#fff;padding:8px 10px;text-align:left;font-size:10px;text-transform:uppercase;letter-spacing:0.5px">Action</th>
-          <th style="background:#003082;color:#fff;padding:8px 10px;text-align:left;font-size:10px;text-transform:uppercase;letter-spacing:0.5px">Responsable</th>
-          <th style="background:#003082;color:#fff;padding:8px 10px;text-align:left;font-size:10px;text-transform:uppercase;letter-spacing:0.5px">Échéance</th>
-          <th style="background:#003082;color:#fff;padding:8px 10px;text-align:center;font-size:10px;text-transform:uppercase;letter-spacing:0.5px">Statut</th>
+          <th>Action</th><th>Responsable</th><th>Échéance</th><th style="text-align:center">Statut</th>
         </tr></thead>
         <tbody>${actionsHtml}</tbody>
       </table>` : ''}
-
-    <div style="display:flex;gap:24px;margin-top:32px;padding-top:20px;border-top:2px solid #EEF3FA">
-      <div style="flex:1;border:1.5px solid #DDE4EE;border-radius:10px;padding:14px 18px;background:#FAFBFF">
-        <div style="font-size:9px;color:#6B7280;text-transform:uppercase;letter-spacing:0.6px;margin-bottom:8px;font-weight:700">Prochaine réunion</div>
-        <div style="font-size:13px;font-weight:700;color:#1A2742">${report.nextMeeting || 'À définir'}</div>
+    <div class="sig-row" style="margin-top:32px;padding-top:20px;border-top:2px solid #EEF3FA">
+      <div class="sig-block">
+        <div class="sig-label">Prochaine réunion</div>
+        <div style="font-size:13px;font-weight:700;color:#1A2742">${escapeHtml(report.nextMeeting) || 'À définir'}</div>
       </div>
-      <div style="flex:1;border:1.5px solid #DDE4EE;border-radius:10px;padding:14px 18px;background:#FAFBFF">
-        <div style="font-size:9px;color:#6B7280;text-transform:uppercase;letter-spacing:0.6px;margin-bottom:30px;font-weight:700">Signature du rédacteur</div>
-        <div style="border-bottom:2px solid #1A2742;margin-bottom:6px"></div>
-        <div style="font-size:12px;font-weight:700;color:#1A2742">${report.redactedBy}</div>
+      <div class="sig-block">
+        <div class="sig-label">Signature du rédacteur</div>
+        <div class="sig-line"></div>
+        <div class="sig-name">${escapeHtml(report.redactedBy)}</div>
       </div>
     </div>
+    ${buildDocFooter(projectName)}
+  `;
 
-    <div style="margin-top:28px;padding-top:12px;border-top:1.5px solid #DDE4EE;display:flex;justify-content:space-between;font-size:9px;color:#6B7280">
-      <span>Généré par BuildTrack — ${projectName}</span>
-      <span>Document confidentiel — Exporté le ${exportDate}</span>
-    </div>
-  </body></html>`;
+  return wrapHTML(body, `CR de réunion — ${report.subject}`);
 }
 
 export default function MeetingReportScreen() {
@@ -314,25 +276,9 @@ export default function MeetingReportScreen() {
       Alert.alert('Accès refusé', "Votre rôle ne permet pas d'exporter.");
       return;
     }
-    const html = buildMeetingHTML(report, projectName);
-    if (Platform.OS === 'web') {
-      const iframe = document.createElement('iframe');
-      iframe.style.cssText = 'position:fixed;right:0;bottom:0;width:0;height:0;border:0';
-      document.body.appendChild(iframe);
-      const doc = iframe.contentWindow?.document;
-      if (doc) {
-        doc.open(); doc.write(html); doc.close();
-        setTimeout(() => {
-          try { iframe.contentWindow?.print(); } catch {}
-          setTimeout(() => document.body.removeChild(iframe), 5000);
-        }, 300);
-      }
-      return;
-    }
     try {
-      const { uri } = await Print.printToFileAsync({ html, base64: false });
-      const canShare = await Sharing.isAvailableAsync();
-      if (canShare) await Sharing.shareAsync(uri, { mimeType: 'application/pdf', dialogTitle: 'Partager le CR' });
+      const html = buildMeetingHTML(report, projectName);
+      await exportPDFHelper(html, `CR-${report.id}`);
     } catch (e: any) {
       Alert.alert('Erreur', e?.message ?? 'Impossible de générer le PDF');
     }

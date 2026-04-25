@@ -24,6 +24,7 @@ import {
   buildKpiRow,
   buildDocFooter,
   wrapHTML,
+  escapeHtml,
 } from '@/lib/pdfBase';
 import { useApp } from '@/context/AppContext';
 import { useAuth } from '@/context/AuthContext';
@@ -63,14 +64,14 @@ function buildOprPDF(opr: Opr, projectName: string): string {
 
   const rows = opr.items.map((item, idx) =>
     `<tr style="background:${idx % 2 === 0 ? '#fff' : '#F9FAFB'}">
-      <td style="padding:8px 10px;border-bottom:1px solid #EEF3FA;font-size:11px;font-weight:700">${item.lotName}</td>
-      <td style="padding:8px 10px;border-bottom:1px solid #EEF3FA;font-size:11px;color:#6B7280">${item.entreprise ?? '—'}</td>
+      <td style="padding:8px 10px;border-bottom:1px solid #EEF3FA;font-size:11px;font-weight:700">${escapeHtml(item.lotName)}</td>
+      <td style="padding:8px 10px;border-bottom:1px solid #EEF3FA;font-size:11px;color:#6B7280">${escapeHtml(item.entreprise ?? '—')}</td>
       <td style="padding:8px 10px;border-bottom:1px solid #EEF3FA;text-align:center">
         <span style="background:${statusBg[item.status]};color:${statusColors[item.status]};font-weight:700;font-size:11px;padding:3px 10px;border-radius:12px">${statusIcons[item.status]} ${ITEM_STATUS_CFG[item.status].label}</span>
       </td>
-      <td style="padding:8px 10px;border-bottom:1px solid #EEF3FA;font-size:11px;${item.status === 'reserve' && item.deadline ? 'color:#DC2626;font-weight:700' : 'color:#6B7280'}">${item.status === 'reserve' ? (item.deadline ?? '—') : '—'}</td>
-      <td style="padding:8px 10px;border-bottom:1px solid #EEF3FA;font-size:11px;color:#003082;font-weight:700">${item.status === 'reserve' ? (item.reserveId ?? '—') : '—'}</td>
-      <td style="padding:8px 10px;border-bottom:1px solid #EEF3FA;font-size:11px">${item.note ?? ''}</td>
+      <td style="padding:8px 10px;border-bottom:1px solid #EEF3FA;font-size:11px;${item.status === 'reserve' && item.deadline ? 'color:#DC2626;font-weight:700' : 'color:#6B7280'}">${item.status === 'reserve' ? escapeHtml(item.deadline ?? '—') : '—'}</td>
+      <td style="padding:8px 10px;border-bottom:1px solid #EEF3FA;font-size:11px;color:#003082;font-weight:700">${item.status === 'reserve' ? escapeHtml(item.reserveId ?? '—') : '—'}</td>
+      <td style="padding:8px 10px;border-bottom:1px solid #EEF3FA;font-size:11px">${escapeHtml(item.note ?? '')}</td>
     </tr>`
   ).join('');
 
@@ -91,8 +92,8 @@ function buildOprPDF(opr: Opr, projectName: string): string {
              ? `<img src="${svgStringToDataUrl(opr.conducteurSignature)}" style="width:100%;max-width:260px;height:80px;object-fit:contain;border-bottom:2px solid #1A2742;display:block;margin-bottom:6px" />`
              : '<div class="sig-line"></div>'
            }
-           <div class="sig-name">${opr.conducteur}</div>
-           <div class="sig-date">Signé le ${signedDate}</div>
+           <div class="sig-name">${escapeHtml(opr.conducteur)}</div>
+           <div class="sig-date">Signé le ${escapeHtml(signedDate)}</div>
          </div>
          <div class="sig-block">
            <div class="sig-label">Maître d'ouvrage</div>
@@ -100,8 +101,8 @@ function buildOprPDF(opr: Opr, projectName: string): string {
              ? `<img src="${svgStringToDataUrl(opr.moSignature)}" style="width:100%;max-width:260px;height:80px;object-fit:contain;border-bottom:2px solid #1A2742;display:block;margin-bottom:6px" />`
              : '<div class="sig-line"></div>'
            }
-           <div class="sig-name">${opr.maireOuvrage ?? '—'}</div>
-           <div class="sig-date">Signé le ${signedDate}</div>
+           <div class="sig-name">${escapeHtml(opr.maireOuvrage ?? '—')}</div>
+           <div class="sig-date">Signé le ${escapeHtml(signedDate)}</div>
          </div>
        </div>`
     : `<div class="section-header">Signatures</div>
@@ -109,13 +110,13 @@ function buildOprPDF(opr: Opr, projectName: string): string {
          <div class="sig-block">
            <div class="sig-label">Conducteur de travaux</div>
            <div class="sig-line"></div>
-           <div class="sig-name">${opr.conducteur}</div>
+           <div class="sig-name">${escapeHtml(opr.conducteur)}</div>
            <div class="sig-date">Date : _______________</div>
          </div>
          <div class="sig-block">
            <div class="sig-label">Maître d'ouvrage</div>
            <div class="sig-line"></div>
-           <div class="sig-name">${opr.maireOuvrage ?? ''}</div>
+           <div class="sig-name">${escapeHtml(opr.maireOuvrage ?? '')}</div>
            <div class="sig-date">Date : _______________</div>
          </div>
        </div>`;
@@ -142,8 +143,8 @@ function buildOprPDF(opr: Opr, projectName: string): string {
       <tbody>
         ${participants.map((p, idx) => `
           <tr style="background:${idx % 2 === 0 ? '#fff' : '#F9FAFB'}">
-            <td style="padding:7px 10px;border-bottom:1px solid #EEF3FA;font-size:11px;font-weight:700">${p.name}</td>
-            <td style="padding:7px 10px;border-bottom:1px solid #EEF3FA;font-size:11px;color:#6B7280">${p.company || '—'}</td>
+            <td style="padding:7px 10px;border-bottom:1px solid #EEF3FA;font-size:11px;font-weight:700">${escapeHtml(p.name)}</td>
+            <td style="padding:7px 10px;border-bottom:1px solid #EEF3FA;font-size:11px;color:#6B7280">${escapeHtml(p.company || '—')}</td>
             <td style="padding:7px 10px;border-bottom:1px solid #EEF3FA;text-align:center">
               <span style="background:${p.present ? '#ECFDF5' : '#FEF2F2'};color:${p.present ? '#059669' : '#DC2626'};font-weight:700;font-size:10px;padding:2px 8px;border-radius:10px">${p.present ? '✓ Présent' : '✗ Absent'}</span>
             </td>
@@ -214,16 +215,16 @@ async function buildPvLeveePDF(opr: Opr, reserves: Reserve[], projectName: strin
     const reserve = item.reserveId ? reserves.find(r => r.id === item.reserveId) : undefined;
     const isLevee = reserve?.status === 'closed';
     return `<tr style="background:${idx % 2 === 0 ? '#fff' : '#F9FAFB'}">
-      <td style="padding:8px 10px;border-bottom:1px solid #EEF3FA;font-weight:700;font-size:11px">${item.lotName}</td>
-      <td style="padding:8px 10px;border-bottom:1px solid #EEF3FA;font-size:11px;color:#003082;font-weight:700">${item.reserveId ?? '—'}</td>
-      <td style="padding:8px 10px;border-bottom:1px solid #EEF3FA;font-size:11px">${item.description !== item.lotName ? item.description : (reserve?.title ?? '—')}</td>
+      <td style="padding:8px 10px;border-bottom:1px solid #EEF3FA;font-weight:700;font-size:11px">${escapeHtml(item.lotName)}</td>
+      <td style="padding:8px 10px;border-bottom:1px solid #EEF3FA;font-size:11px;color:#003082;font-weight:700">${escapeHtml(item.reserveId ?? '—')}</td>
+      <td style="padding:8px 10px;border-bottom:1px solid #EEF3FA;font-size:11px">${escapeHtml(item.description !== item.lotName ? item.description : (reserve?.title ?? '—'))}</td>
       <td style="padding:8px 10px;border-bottom:1px solid #EEF3FA;text-align:center">
         ${isLevee
           ? '<span style="background:#ECFDF5;color:#059669;font-weight:700;padding:3px 10px;border-radius:12px;font-size:10px">✓ Levée</span>'
           : '<span style="background:#FEF2F2;color:#DC2626;font-weight:700;padding:3px 10px;border-radius:12px;font-size:10px">⚠ En attente</span>'}
       </td>
-      <td style="padding:8px 10px;border-bottom:1px solid #EEF3FA;font-size:11px;color:#059669">${reserve?.closedAt ?? '—'}</td>
-      <td style="padding:8px 10px;border-bottom:1px solid #EEF3FA;font-size:11px;color:#6B7280">${reserve?.closedBy ?? '—'}</td>
+      <td style="padding:8px 10px;border-bottom:1px solid #EEF3FA;font-size:11px;color:#059669">${escapeHtml(reserve?.closedAt ?? '—')}</td>
+      <td style="padding:8px 10px;border-bottom:1px solid #EEF3FA;font-size:11px;color:#6B7280">${escapeHtml(reserve?.closedBy ?? '—')}</td>
     </tr>`;
   }).join('');
 
@@ -234,7 +235,7 @@ async function buildPvLeveePDF(opr: Opr, reserves: Reserve[], projectName: strin
       if (!reserve) return '';
       const photos = photoData[reserve.id];
       return `<div style="margin-bottom:20px;page-break-inside:avoid">
-        <div style="font-size:11px;font-weight:700;color:#1A2742;margin-bottom:8px;background:#F4F7FB;padding:6px 10px;border-radius:6px">${item.lotName} — ${reserve.title}</div>
+        <div style="font-size:11px;font-weight:700;color:#1A2742;margin-bottom:8px;background:#F4F7FB;padding:6px 10px;border-radius:6px">${escapeHtml(item.lotName)} — ${escapeHtml(reserve.title)}</div>
         <div style="display:flex;gap:16px;flex-wrap:wrap">
           ${photos.defect ? `<div style="text-align:center"><img src="${photos.defect}" style="width:200px;height:auto;max-height:240px;object-fit:contain;background:#FFF5F5;border-radius:8px;border:2px solid #FCA5A5;display:block" /><div style="font-size:10px;color:#DC2626;font-weight:700;margin-top:4px">🔴 Constat initial</div></div>` : ''}
           ${photos.resolution ? `<div style="text-align:center"><img src="${photos.resolution}" style="width:200px;height:auto;max-height:240px;object-fit:contain;background:#F0FFF4;border-radius:8px;border:2px solid #6EE7B7;display:block" /><div style="font-size:10px;color:#059669;font-weight:700;margin-top:4px">🟢 Levée constatée</div></div>` : ''}
@@ -260,14 +261,14 @@ async function buildPvLeveePDF(opr: Opr, reserves: Reserve[], projectName: strin
         <div class="sig-block">
           <div class="sig-label">Conducteur de travaux</div>
           ${conducteurSigHtml}
-          <div class="sig-name">${opr.conducteur}</div>
-          <div class="sig-date">Date : ${dateShort}</div>
+          <div class="sig-name">${escapeHtml(opr.conducteur)}</div>
+          <div class="sig-date">Date : ${escapeHtml(dateShort)}</div>
         </div>
         <div class="sig-block">
           <div class="sig-label">Maître d'ouvrage</div>
           ${moSigHtml}
-          <div class="sig-name">${opr.maireOuvrage ?? '—'}</div>
-          <div class="sig-date">Date : ${dateShort}</div>
+          <div class="sig-name">${escapeHtml(opr.maireOuvrage ?? '—')}</div>
+          <div class="sig-date">Date : ${escapeHtml(dateShort)}</div>
         </div>
       </div>
     </div>`;
@@ -324,19 +325,19 @@ function buildConvocationPDF(opr: Opr, projectName: string, conducteur: string):
 
   const reserveRows = reserveItems.map((item, idx) =>
     `<tr style="background:${idx % 2 === 0 ? '#fff' : '#F9FAFB'}">
-      <td style="padding:7px 10px;border-bottom:1px solid #EEF3FA;font-size:11px;font-weight:700">${item.lotName}</td>
-      <td style="padding:7px 10px;border-bottom:1px solid #EEF3FA;font-size:11px;color:#6B7280">${item.entreprise ?? '—'}</td>
-      <td style="padding:7px 10px;border-bottom:1px solid #EEF3FA;font-size:11px;color:#DC2626;font-weight:700">${item.deadline ?? '—'}</td>
-      <td style="padding:7px 10px;border-bottom:1px solid #EEF3FA;font-size:11px">${item.note ?? ''}</td>
+      <td style="padding:7px 10px;border-bottom:1px solid #EEF3FA;font-size:11px;font-weight:700">${escapeHtml(item.lotName)}</td>
+      <td style="padding:7px 10px;border-bottom:1px solid #EEF3FA;font-size:11px;color:#6B7280">${escapeHtml(item.entreprise ?? '—')}</td>
+      <td style="padding:7px 10px;border-bottom:1px solid #EEF3FA;font-size:11px;color:#DC2626;font-weight:700">${escapeHtml(item.deadline ?? '—')}</td>
+      <td style="padding:7px 10px;border-bottom:1px solid #EEF3FA;font-size:11px">${escapeHtml(item.note ?? '')}</td>
     </tr>`
   ).join('');
 
   const participants = signatories.length > 0
     ? signatories.map(s =>
         `<tr>
-          <td style="padding:7px 10px;border-bottom:1px solid #EEF3FA;font-size:11px;font-weight:600">${s.name}</td>
-          <td style="padding:7px 10px;border-bottom:1px solid #EEF3FA;font-size:11px;color:#6B7280">${s.role}</td>
-          <td style="padding:7px 10px;border-bottom:1px solid #EEF3FA;font-size:11px;color:#6B7280">${s.email ?? '—'}</td>
+          <td style="padding:7px 10px;border-bottom:1px solid #EEF3FA;font-size:11px;font-weight:600">${escapeHtml(s.name)}</td>
+          <td style="padding:7px 10px;border-bottom:1px solid #EEF3FA;font-size:11px;color:#6B7280">${escapeHtml(s.role)}</td>
+          <td style="padding:7px 10px;border-bottom:1px solid #EEF3FA;font-size:11px;color:#6B7280">${escapeHtml(s.email ?? '—')}</td>
           <td style="padding:7px 10px;border-bottom:1px solid #EEF3FA;text-align:center">
             ${s.signedAt
               ? '<span style="background:#ECFDF5;color:#059669;font-size:10px;font-weight:700;padding:2px 8px;border-radius:10px">✓ Confirmé</span>'
