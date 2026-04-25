@@ -824,6 +824,9 @@ export default function AdminScreen() {
                 const expiresIn = Math.ceil((new Date(inv.expiresAt).getTime() - Date.now()) / (1000 * 60 * 60 * 24));
                 const inviterName = getInviterName(inv.invitedBy);
                 const isExpired = expiresIn <= 0;
+                const inviteCompany = inv.companyId
+                  ? (viewCompanies.find(c => c.id === inv.companyId) ?? companies.find(c => c.id === inv.companyId))
+                  : null;
                 return (
                   <View key={inv.id} style={[styles.inviteCard, isExpired && styles.inviteCardExpired]}>
                     <View style={[styles.inviteIconWrap, isExpired && { backgroundColor: '#FEF2F2' }]}>
@@ -831,8 +834,18 @@ export default function AdminScreen() {
                     </View>
                     <View style={{ flex: 1 }}>
                       <Text style={styles.inviteEmail}>{inv.email}</Text>
-                      <View style={[styles.inviteRoleBadge, { backgroundColor: roleInfo.bg }]}>
-                        <Text style={[styles.inviteRoleTxt, { color: roleInfo.color }]}>{roleInfo.label}</Text>
+                      <View style={styles.inviteBadgesRow}>
+                        <View style={[styles.inviteRoleBadge, { backgroundColor: roleInfo.bg }]}>
+                          <Text style={[styles.inviteRoleTxt, { color: roleInfo.color }]}>{roleInfo.label}</Text>
+                        </View>
+                        {inviteCompany && (
+                          <View style={styles.inviteCompanyPill}>
+                            <Ionicons name="business-outline" size={10} color={inviteCompany.color || C.textMuted} />
+                            <Text style={styles.inviteCompanyPillText} numberOfLines={1}>
+                              {inviteCompany.name}
+                            </Text>
+                          </View>
+                        )}
                       </View>
                       <Text style={[styles.inviteExpiry, isExpired && { color: '#EF4444' }]}>
                         {isExpired
@@ -1879,8 +1892,22 @@ const styles = StyleSheet.create({
     backgroundColor: C.primaryBg, alignItems: 'center', justifyContent: 'center',
   },
   inviteEmail: { fontSize: 14, fontFamily: 'Inter_600SemiBold', color: C.text, marginBottom: 4 },
-  inviteRoleBadge: { borderRadius: 6, paddingHorizontal: 8, paddingVertical: 3, alignSelf: 'flex-start', marginBottom: 4 },
+  inviteBadgesRow: { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 6, marginBottom: 4 },
+  inviteRoleBadge: { borderRadius: 6, paddingHorizontal: 8, paddingVertical: 3, alignSelf: 'flex-start' },
   inviteRoleTxt: { fontSize: 11, fontFamily: 'Inter_600SemiBold' },
+  inviteCompanyPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: '#F3F4F6',
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+    borderRadius: 6,
+    paddingHorizontal: 6,
+    paddingVertical: 3,
+    maxWidth: 180,
+  },
+  inviteCompanyPillText: { fontSize: 11, fontFamily: 'Inter_600SemiBold', color: '#374151' },
   inviteExpiry: { fontSize: 11, fontFamily: 'Inter_400Regular', color: C.textMuted },
 
   overlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.45)', justifyContent: 'flex-end' },
