@@ -1,4 +1,4 @@
-import React, { useMemo, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   View, Text, StyleSheet, TouchableOpacity, Modal,
   ScrollView, TextInput, Platform, PanResponder,
@@ -27,12 +27,97 @@ interface Props {
   orphansLabel?: string;
 }
 
+const ALL_FAMILY = '__all__';
+const OTHERS_FAMILY = '__others__';
+// Activer le regroupement uniquement si au moins 2 familles "réelles" et un volume utile.
+const GROUPING_MIN_FAMILIES = 2;
+const GROUPING_MIN_BUILDINGS = 8;
+
+type ParsedName = { prefix: string; suffix: string };
+
+function parseBuildingName(name: string): ParsedName | null {
+  const t = name.trim();
+  // 1) "Prefix 12", "Prefix-12", "Prefix.12", "Prefix #12"
+  let m = t.match(/^(.+?)[\s\-_.#]+(\d+)$/);
+  if (m) return { prefix: m[1].trim(), suffix: m[2] };
+  // 2) "Prefix A", "Prefix N12", éventuellement suivi de " — Description"
+  m = t.match(/^(.+?)[\s\-_.#]+([A-Z]\d{0,3})(?:\s*[—\-:·].*)?$/i);
+  if (m) return { prefix: m[1].trim(), suffix: m[2].toUpperCase() };
+  return null;
+}
+
+type ItemWithSuffix = BuildingItem & { suffix: string | null };
+type Family = { key: string; label: string; items: ItemWithSuffix[] };
+
+function buildFamilies(buildings: BuildingItem[]): {
+  families: Family[];
+  useGrouping: boolean;
+  familyOf: Map<string, string>;
+} {
+  const groups = new Map<string, ItemWithSuffix[]>();
+  const others: ItemWithSuffix[] = [];
+
+  for (const b of buildings) {
+    const parsed = parseBuildingName(b.name);
+    if (parsed) {
+      const arr = groups.get(parsed.prefix) ?? [];
+      arr.push({ ...b, suffix: parsed.suffix });
+      groups.set(parsed.prefix, arr);
+    } else {
+      others.push({ ...b, suffix: null });
+    }
+  }
+
+  const families: Family[] = [];
+  for (const [prefix, items] of groups) {
+    if (items.length >= 2) {
+      items.sort(sortBySuffix);
+      families.push({ key: prefix, label: prefix, items });
+    } else {
+      // Famille singleton → on la rejette dans "Autres".
+      for (const it of items) others.push({ ...it, suffix: null });
+    }
+  }
+
+  families.sort((a, b) => b.items.length - a.items.length || a.label.localeCompare(b.label));
+
+  if (others.length > 0) {
+    others.sort((a, b) => a.name.localeCompare(b.name, 'fr', { numeric: true }));
+    families.push({ key: OTHERS_FAMILY, label: 'Autres', items: others });
+  }
+
+  const realFamilies = families.filter(f => f.key !== OTHERS_FAMILY);
+  const useGrouping =
+    realFamilies.length >= GROUPING_MIN_FAMILIES && buildings.length >= GROUPING_MIN_BUILDINGS;
+
+  const familyOf = new Map<string, string>();
+  for (const fam of families) {
+    for (const it of fam.items) familyOf.set(it.id, fam.key);
+  }
+
+  return { families, useGrouping, familyOf };
+}
+
+function sortBySuffix(a: ItemWithSuffix, b: ItemWithSuffix) {
+  const ax = a.suffix ?? '';
+  const bx = b.suffix ?? '';
+  // Comparaison numérique d'abord (ex. "2" < "12"), puis lexicale (ex. "A" < "B").
+  const an = parseInt(ax.replace(/[^\d]/g, ''), 10);
+  const bn = parseInt(bx.replace(/[^\d]/g, ''), 10);
+  const aHas = !isNaN(an);
+  const bHas = !isNaN(bn);
+  if (aHas && bHas && an !== bn) return an - bn;
+  if (aHas !== bHas) return aHas ? -1 : 1;
+  return ax.localeCompare(bx, 'fr', { numeric: true });
+}
+
 export default function BuildingPickerSheet({
   visible, onClose, buildings, selectedId, recentIds, onSelect,
   hasOrphanPlans, onSelectOrphans, orphansSelected, orphansLabel = 'Général',
 }: Props) {
   const insets = useSafeAreaInsets();
   const [query, setQuery] = useState('');
+  const [activeFamily, setActiveFamily] = useState<string>(ALL_FAMILY);
 
   const handlePan = useRef(
     PanResponder.create({
@@ -49,11 +134,30 @@ export default function BuildingPickerSheet({
     return recentIds.map(id => map.get(id)).filter(Boolean) as BuildingItem[];
   }, [buildings, recentIds]);
 
-  const filtered = useMemo(() => {
+  const { families, useGrouping, familyOf } = useMemo(
+    () => buildFamilies(buildings),
+    [buildings]
+  );
+
+  // À l'ouverture, présélectionner la famille du bâtiment actif (si grouping).
+  useEffect(() => {
+    if (!visible) return;
+    if (!useGrouping) { setActiveFamily(ALL_FAMILY); return; }
+    const fam = familyOf.get(selectedId);
+    setActiveFamily(fam ?? ALL_FAMILY);
+  }, [visible, useGrouping, familyOf, selectedId]);
+
+  const filteredFlat = useMemo(() => {
     const q = query.trim().toLowerCase();
     if (!q) return buildings;
     return buildings.filter(b => b.name.toLowerCase().includes(q));
   }, [buildings, query]);
+
+  const familyView = useMemo(() => {
+    if (!useGrouping || query) return null;
+    if (activeFamily === ALL_FAMILY) return null;
+    return families.find(f => f.key === activeFamily) ?? null;
+  }, [useGrouping, query, activeFamily, families]);
 
   function pick(id: string) {
     onSelect(id);
@@ -68,7 +172,8 @@ export default function BuildingPickerSheet({
   }
 
   const bottomPad = Platform.OS === 'web' ? 24 : Math.max(insets.bottom + 16, 32);
-  const showRecents = !query && recents.length > 0;
+  const showRecents = !query && !familyView && recents.length > 0;
+  const showOrphansEntry = !query && !familyView && hasOrphanPlans;
 
   return (
     <Modal
@@ -119,6 +224,31 @@ export default function BuildingPickerSheet({
           )}
         </View>
 
+        {/* Familles auto-détectées (préfixes) */}
+        {useGrouping && !query && (
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={styles.familiesRow}
+          >
+            <FamilyChip
+              label="Toutes"
+              count={buildings.length}
+              active={activeFamily === ALL_FAMILY}
+              onPress={() => setActiveFamily(ALL_FAMILY)}
+            />
+            {families.map(f => (
+              <FamilyChip
+                key={f.key}
+                label={f.label}
+                count={f.items.length}
+                active={activeFamily === f.key}
+                onPress={() => setActiveFamily(f.key)}
+              />
+            ))}
+          </ScrollView>
+        )}
+
         <ScrollView
           showsVerticalScrollIndicator={false}
           style={styles.list}
@@ -140,7 +270,7 @@ export default function BuildingPickerSheet({
             </>
           )}
 
-          {!query && hasOrphanPlans && (
+          {showOrphansEntry && (
             <>
               <SectionHeader icon="layers-outline" label="Plans non rattachés" />
               <TouchableOpacity
@@ -166,30 +296,99 @@ export default function BuildingPickerSheet({
             </>
           )}
 
-          <SectionHeader
-            icon="business-outline"
-            label={query
-              ? `Résultats · ${filtered.length}`
-              : `Tous les bâtiments · ${buildings.length}`}
-          />
-          {filtered.length === 0 ? (
-            <View style={styles.empty}>
-              <Ionicons name="search-outline" size={20} color={C.textMuted} />
-              <Text style={styles.emptyText}>Aucun bâtiment ne correspond à « {query} »</Text>
-            </View>
-          ) : (
-            filtered.map(b => (
-              <BuildingRow
-                key={b.id}
-                b={b}
-                active={b.id === selectedId}
-                onPress={() => pick(b.id)}
+          {/* Vue famille : grille compacte de pastilles (numéros / lettres) */}
+          {familyView && (
+            <>
+              <SectionHeader
+                icon="grid-outline"
+                label={`${familyView.label} · ${familyView.items.length}`}
               />
-            ))
+              <View style={styles.suffixGrid}>
+                {familyView.items.map(b => {
+                  const isActive = b.id === selectedId;
+                  return (
+                    <TouchableOpacity
+                      key={b.id}
+                      style={[styles.suffixCell, isActive && styles.suffixCellActive]}
+                      onPress={() => pick(b.id)}
+                      activeOpacity={0.7}
+                    >
+                      <Text
+                        style={[styles.suffixCellText, isActive && styles.suffixCellTextActive]}
+                        numberOfLines={1}
+                      >
+                        {b.suffix ?? b.name}
+                      </Text>
+                      {b.reserveCount > 0 && (
+                        <View style={styles.suffixDot} />
+                      )}
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+
+              <SectionHeader icon="list-outline" label="Détails" />
+              {familyView.items.map(b => (
+                <BuildingRow
+                  key={`detail-${b.id}`}
+                  b={b}
+                  active={b.id === selectedId}
+                  onPress={() => pick(b.id)}
+                />
+              ))}
+            </>
+          )}
+
+          {/* Vue à plat : liste complète (ou résultats de recherche) */}
+          {!familyView && (
+            <>
+              <SectionHeader
+                icon="business-outline"
+                label={query
+                  ? `Résultats · ${filteredFlat.length}`
+                  : `Tous les bâtiments · ${buildings.length}`}
+              />
+              {filteredFlat.length === 0 ? (
+                <View style={styles.empty}>
+                  <Ionicons name="search-outline" size={20} color={C.textMuted} />
+                  <Text style={styles.emptyText}>
+                    Aucun bâtiment ne correspond à « {query} »
+                  </Text>
+                </View>
+              ) : (
+                filteredFlat.map(b => (
+                  <BuildingRow
+                    key={b.id}
+                    b={b}
+                    active={b.id === selectedId}
+                    onPress={() => pick(b.id)}
+                  />
+                ))
+              )}
+            </>
           )}
         </ScrollView>
       </View>
     </Modal>
+  );
+}
+
+function FamilyChip({
+  label, count, active, onPress,
+}: { label: string; count: number; active: boolean; onPress: () => void }) {
+  return (
+    <TouchableOpacity
+      style={[styles.familyChip, active && styles.familyChipActive]}
+      onPress={onPress}
+      activeOpacity={0.7}
+    >
+      <Text style={[styles.familyChipText, active && styles.familyChipTextActive]} numberOfLines={1}>
+        {label}
+      </Text>
+      <Text style={[styles.familyChipCount, active && styles.familyChipCountActive]}>
+        {count}
+      </Text>
+    </TouchableOpacity>
   );
 }
 
@@ -303,6 +502,39 @@ const styles = StyleSheet.create({
     color: C.text,
     paddingVertical: 0,
   },
+  familiesRow: {
+    flexDirection: 'row',
+    gap: 6,
+    paddingTop: 10,
+    paddingBottom: 4,
+    paddingHorizontal: 2,
+  },
+  familyChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingLeft: 12,
+    paddingRight: 8,
+    paddingVertical: 6,
+    borderRadius: 16,
+    backgroundColor: C.surface2,
+    borderWidth: 1,
+    borderColor: C.border,
+  },
+  familyChipActive: { backgroundColor: C.primary, borderColor: C.primary },
+  familyChipText: { fontSize: 12, fontFamily: 'Inter_600SemiBold', color: C.textSub },
+  familyChipTextActive: { color: '#fff' },
+  familyChipCount: {
+    fontSize: 11,
+    fontFamily: 'Inter_700Bold',
+    color: C.textMuted,
+    backgroundColor: C.surface,
+    paddingHorizontal: 6,
+    paddingVertical: 1,
+    borderRadius: 8,
+    overflow: 'hidden',
+  },
+  familyChipCountActive: { color: C.primary, backgroundColor: '#fff' },
   list: { marginTop: 4 },
   sectionHeader: {
     flexDirection: 'row',
@@ -348,4 +580,32 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   emptyText: { fontSize: 13, fontFamily: 'Inter_400Regular', color: C.textMuted, textAlign: 'center', paddingHorizontal: 24 },
+  suffixGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    paddingHorizontal: 4,
+    paddingVertical: 4,
+  },
+  suffixCell: {
+    minWidth: 48,
+    paddingHorizontal: 10,
+    paddingVertical: 10,
+    borderRadius: 10,
+    backgroundColor: C.surface2,
+    borderWidth: 1,
+    borderColor: C.border,
+    alignItems: 'center',
+    justifyContent: 'center',
+    position: 'relative',
+  },
+  suffixCellActive: { backgroundColor: C.primary, borderColor: C.primary },
+  suffixCellText: { fontSize: 14, fontFamily: 'Inter_700Bold', color: C.text },
+  suffixCellTextActive: { color: '#fff' },
+  suffixDot: {
+    position: 'absolute',
+    top: 4, right: 4,
+    width: 6, height: 6, borderRadius: 3,
+    backgroundColor: C.open,
+  },
 });
