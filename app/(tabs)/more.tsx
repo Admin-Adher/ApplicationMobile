@@ -9,6 +9,7 @@ import { useApp } from '@/context/AppContext';
 import { useAuth } from '@/context/AuthContext';
 import { useSettings } from '@/context/SettingsContext';
 import { useIncidents } from '@/context/IncidentsContext';
+import UpdateBanner from '@/components/UpdateBanner';
 
 const ROLE_COLORS: Record<string, string> = {
   super_admin: '#8B5CF6',
@@ -166,6 +167,9 @@ export default function MoreScreen() {
         contentContainerStyle={[styles.content, { paddingBottom: bottomPad + 40 }]}
         showsVerticalScrollIndicator={false}
       >
+        {/* Bandeau mise à jour APK */}
+        <UpdateBanner />
+
         {/* Carte utilisateur */}
         {user && (
           <View style={[styles.userCard, { borderLeftColor: roleColor }]}>
