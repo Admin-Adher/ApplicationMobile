@@ -21,6 +21,7 @@
     },
     "android": {
       "package": "com.buildtrack.app",
+      "versionCode": 544,
       "adaptiveIcon": {
         "foregroundImage": "./assets/images/adaptive-icon.png",
         "backgroundColor": "#1B2B5E"

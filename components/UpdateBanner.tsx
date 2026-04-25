@@ -4,7 +4,7 @@ import * as Clipboard from 'expo-clipboard';
 import { useAppUpdate } from '@/hooks/useAppUpdate';
 
 export default function UpdateBanner() {
-  const { updateAvailable, latestVersion, downloadUrl, dismiss } = useAppUpdate();
+  const { updateAvailable, latestLabel, downloadUrl, dismiss } = useAppUpdate();
 
   if (!updateAvailable) return null;
 
@@ -34,7 +34,7 @@ export default function UpdateBanner() {
       </View>
       <View style={styles.textWrap}>
         <Text style={styles.title} numberOfLines={1}>
-          Nouvelle version disponible{latestVersion ? ` · ${latestVersion}` : ''}
+          Nouvelle version disponible{latestLabel ? ` · ${latestLabel}` : ''}
         </Text>
         <Text style={styles.subtitle} numberOfLines={1}>
           Mettez à jour pour les dernières améliorations

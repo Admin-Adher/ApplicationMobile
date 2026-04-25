@@ -6,24 +6,39 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 const RELEASES_API = 'https://api.github.com/repos/Admin-Adher/ApplicationMobile/releases/latest';
 export const APK_DOWNLOAD_URL = 'https://github.com/Admin-Adher/ApplicationMobile/releases/latest/download/buildtrack-release.apk';
 
-const CACHE_KEY = 'app.update.latestRelease.v1';
-const DISMISS_KEY = 'app.update.dismissedVersion.v1';
+const CACHE_KEY = 'app.update.latestRelease.v2';
+const DISMISS_KEY = 'app.update.dismissedBuild.v2';
 const CACHE_TTL_MS = 6 * 60 * 60 * 1000;
 
 interface CachedRelease {
-  version: string;
+  tag: string;
+  buildNumber: number | null;
+  semver: string | null;
   fetchedAt: number;
   notes?: string;
 }
 
-function cleanVersion(v: string | null | undefined): string {
-  if (!v) return '';
-  return String(v).trim().replace(/^v/i, '').split(/[-+ ]/)[0];
+function cleanSemver(v: string | null | undefined): string | null {
+  if (!v) return null;
+  const m = String(v).match(/(\d+)\.(\d+)(?:\.(\d+))?/);
+  if (!m) return null;
+  return `${m[1]}.${m[2]}.${m[3] ?? '0'}`;
 }
 
-function compareVersions(a: string, b: string): number {
-  const pa = cleanVersion(a).split('.').map(n => parseInt(n, 10) || 0);
-  const pb = cleanVersion(b).split('.').map(n => parseInt(n, 10) || 0);
+function extractBuildNumber(tag: string | null | undefined): number | null {
+  if (!tag) return null;
+  // Format attendu: "android-build-544", "build-544", "v544", etc.
+  const m = String(tag).match(/(?:build[-_]?|^v)(\d+)/i);
+  if (m) return parseInt(m[1], 10);
+  // Fallback: tout dernier nombre du tag
+  const all = String(tag).match(/(\d+)/g);
+  if (all && all.length === 1) return parseInt(all[0], 10);
+  return null;
+}
+
+function compareSemver(a: string, b: string): number {
+  const pa = a.split('.').map(n => parseInt(n, 10) || 0);
+  const pb = b.split('.').map(n => parseInt(n, 10) || 0);
   const len = Math.max(pa.length, pb.length);
   for (let i = 0; i < len; i++) {
     const da = pa[i] ?? 0;
@@ -34,25 +49,45 @@ function compareVersions(a: string, b: string): number {
   return 0;
 }
 
+function getCurrentBuildNumber(): number | null {
+  const cfg: any = Constants.expoConfig ?? (Constants as any).manifest;
+  const code = cfg?.android?.versionCode;
+  if (typeof code === 'number') return code;
+  if (typeof code === 'string' && /^\d+$/.test(code)) return parseInt(code, 10);
+  return null;
+}
+
+function getCurrentSemver(): string {
+  const cfg: any = Constants.expoConfig ?? (Constants as any).manifest;
+  return cleanSemver(cfg?.version) ?? '0.0.0';
+}
+
 export interface AppUpdateState {
   loading: boolean;
   updateAvailable: boolean;
-  currentVersion: string;
-  latestVersion: string | null;
+  currentLabel: string;
+  latestLabel: string | null;
   downloadUrl: string;
   dismiss: () => Promise<void>;
   refresh: () => Promise<void>;
 }
 
 export function useAppUpdate(): AppUpdateState {
-  const currentVersion = cleanVersion(
-    (Constants.expoConfig as any)?.version ??
-    (Constants as any).manifest?.version ??
-    '0.0.0'
-  );
-  const [latestVersion, setLatestVersion] = useState<string | null>(null);
-  const [dismissedVersion, setDismissedVersion] = useState<string | null>(null);
+  const currentBuild = getCurrentBuildNumber();
+  const currentSemver = getCurrentSemver();
+  const currentLabel = currentBuild != null ? `Build ${currentBuild}` : currentSemver;
+
+  const [latestTag, setLatestTag] = useState<string | null>(null);
+  const [latestBuild, setLatestBuild] = useState<number | null>(null);
+  const [latestSemver, setLatestSemver] = useState<string | null>(null);
+  const [dismissed, setDismissed] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+
+  const applyRelease = useCallback((rel: CachedRelease) => {
+    setLatestTag(rel.tag || null);
+    setLatestBuild(rel.buildNumber);
+    setLatestSemver(rel.semver);
+  }, []);
 
   const fetchLatest = useCallback(async (force = false) => {
     setLoading(true);
@@ -62,8 +97,8 @@ export function useAppUpdate(): AppUpdateState {
         if (raw) {
           try {
             const cached: CachedRelease = JSON.parse(raw);
-            if (cached.version && Date.now() - cached.fetchedAt < CACHE_TTL_MS) {
-              setLatestVersion(cleanVersion(cached.version));
+            if (cached && Date.now() - cached.fetchedAt < CACHE_TTL_MS) {
+              applyRelease(cached);
               setLoading(false);
               return;
             }
@@ -76,53 +111,67 @@ export function useAppUpdate(): AppUpdateState {
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json();
       const tag: string = data?.tag_name ?? data?.name ?? '';
-      const version = cleanVersion(tag);
-      if (version) {
-        setLatestVersion(version);
-        const payload: CachedRelease = {
-          version,
-          fetchedAt: Date.now(),
-          notes: data?.body,
-        };
-        await AsyncStorage.setItem(CACHE_KEY, JSON.stringify(payload));
-      }
+      const payload: CachedRelease = {
+        tag,
+        buildNumber: extractBuildNumber(tag),
+        semver: cleanSemver(tag) ?? cleanSemver(data?.name),
+        fetchedAt: Date.now(),
+        notes: data?.body,
+      };
+      applyRelease(payload);
+      await AsyncStorage.setItem(CACHE_KEY, JSON.stringify(payload));
     } catch {
       // Réseau / GitHub indisponible — on ignore silencieusement.
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [applyRelease]);
 
   useEffect(() => {
     let cancelled = false;
     (async () => {
       try {
         const d = await AsyncStorage.getItem(DISMISS_KEY);
-        if (!cancelled) setDismissedVersion(d);
+        if (!cancelled) setDismissed(d);
       } catch {}
       if (!cancelled) await fetchLatest(false);
     })();
     return () => { cancelled = true; };
   }, [fetchLatest]);
 
-  const dismiss = useCallback(async () => {
-    if (!latestVersion) return;
-    try {
-      await AsyncStorage.setItem(DISMISS_KEY, latestVersion);
-      setDismissedVersion(latestVersion);
-    } catch {}
-  }, [latestVersion]);
+  // Étiquette à afficher pour la dernière version
+  let latestLabel: string | null = null;
+  if (latestBuild != null) latestLabel = `Build ${latestBuild}`;
+  else if (latestSemver) latestLabel = latestSemver;
+  else if (latestTag) latestLabel = latestTag;
 
-  const updateAvailable = !!latestVersion
-    && compareVersions(latestVersion, currentVersion) > 0
-    && (!dismissedVersion || compareVersions(latestVersion, dismissedVersion) > 0)
-    && Platform.OS !== 'ios'; // l'APK ne s'applique pas à iOS
+  // Détection mise à jour
+  let isNewer = false;
+  if (latestBuild != null && currentBuild != null) {
+    isNewer = latestBuild > currentBuild;
+  } else if (latestSemver) {
+    isNewer = compareSemver(latestSemver, currentSemver) > 0;
+  }
+
+  // Filtre dismiss : on garde caché tant que la dernière étiquette n'a pas changé
+  const dismissKey = latestBuild != null ? `build:${latestBuild}` : (latestTag ?? '');
+  const isDismissed = !!dismissed && dismissed === dismissKey;
+
+  const dismiss = useCallback(async () => {
+    if (!dismissKey) return;
+    try {
+      await AsyncStorage.setItem(DISMISS_KEY, dismissKey);
+      setDismissed(dismissKey);
+    } catch {}
+  }, [dismissKey]);
+
+  const updateAvailable = isNewer && !isDismissed && Platform.OS !== 'ios';
 
   return {
     loading,
     updateAvailable,
-    currentVersion,
-    latestVersion,
+    currentLabel,
+    latestLabel,
     downloadUrl: APK_DOWNLOAD_URL,
     dismiss,
     refresh: () => fetchLatest(true),
