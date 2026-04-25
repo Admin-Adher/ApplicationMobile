@@ -721,15 +721,32 @@ export default function AdminScreen() {
                 ? `${filteredUsers.length} / ${rolesTotal} utilisateur${rolesTotal !== 1 ? 's' : ''}`
                 : `${rolesTotal} utilisateur${rolesTotal !== 1 ? 's' : ''}`}
             </Text>
-            <TouchableOpacity
-              style={styles.addBtn}
-              onPress={() => setInviteModal(true)}
-              accessibilityRole="button"
-              accessibilityLabel="Inviter un nouveau membre"
-            >
-              <Ionicons name="person-add-outline" size={17} color="#fff" />
-              <Text style={styles.addBtnText}>Inviter</Text>
-            </TouchableOpacity>
+            <View style={styles.headerActionsRow}>
+              <TouchableOpacity
+                style={[styles.apkLinkBtn, apkLinkCopied && styles.apkLinkBtnDone]}
+                onPress={handleCopyApkLink}
+                accessibilityRole="button"
+                accessibilityLabel="Copier le lien de téléchargement de l'application Android"
+              >
+                <Ionicons
+                  name={apkLinkCopied ? 'checkmark-circle' : 'logo-android'}
+                  size={15}
+                  color={apkLinkCopied ? '#10B981' : C.primary}
+                />
+                <Text style={[styles.apkLinkBtnText, apkLinkCopied && styles.apkLinkBtnTextDone]}>
+                  {apkLinkCopied ? 'Copié !' : 'Lien APK'}
+                </Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.addBtn}
+                onPress={() => setInviteModal(true)}
+                accessibilityRole="button"
+                accessibilityLabel="Inviter un nouveau membre"
+              >
+                <Ionicons name="person-add-outline" size={17} color="#fff" />
+                <Text style={styles.addBtnText}>Inviter</Text>
+              </TouchableOpacity>
+            </View>
           </View>
 
           <View style={styles.searchWrap}>
@@ -1737,6 +1754,15 @@ const styles = StyleSheet.create({
     backgroundColor: C.primary, borderRadius: 10, paddingHorizontal: 14, paddingVertical: 8,
   },
   addBtnText: { fontSize: 13, fontFamily: 'Inter_600SemiBold', color: '#fff' },
+  headerActionsRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  apkLinkBtn: {
+    flexDirection: 'row', alignItems: 'center', gap: 5,
+    backgroundColor: C.primaryBg, borderRadius: 10, paddingHorizontal: 12, paddingVertical: 8,
+    borderWidth: 1, borderColor: C.primary,
+  },
+  apkLinkBtnDone: { backgroundColor: '#ECFDF5', borderColor: '#10B981' },
+  apkLinkBtnText: { fontSize: 13, fontFamily: 'Inter_600SemiBold', color: C.primary },
+  apkLinkBtnTextDone: { color: '#10B981' },
 
   searchWrap: {
     flexDirection: 'row', alignItems: 'center', gap: 8,
