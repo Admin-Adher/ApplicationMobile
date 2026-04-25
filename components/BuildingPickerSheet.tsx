@@ -786,7 +786,17 @@ const styles = StyleSheet.create({
     includeFontPadding: false,
   },
   familyChipCountTextActive: { color: C.primary },
-  list: { marginTop: 4 },
+  // flex:1 pour que la liste prenne TOUT l'espace résiduel sous les chips,
+  // et minHeight:0 pour que la contrainte flex prime sur la hauteur
+  // intrinsèque du contenu. Sans ça, sur Android, un ScrollView dans un
+  // flex column sans dimension explicite tente de se dimensionner à la
+  // hauteur de son contenu : avec 38 bâtiments + récents + orphelins en
+  // mode "Toutes", le contenu fait ~2200 px et dépasse l'espace disponible
+  // dans la sheet (78% = ~620 px), ce qui fait collapser le ScrollView
+  // à 0 px et masque toute la liste. Le bug ne se manifestait qu'en mode
+  // "Toutes" car les vues familles individuelles (≤ 12 items) tenaient
+  // dans l'espace résiduel sans déborder.
+  list: { flex: 1, minHeight: 0, marginTop: 4 },
   sectionHeader: {
     flexDirection: 'row',
     alignItems: 'center',
