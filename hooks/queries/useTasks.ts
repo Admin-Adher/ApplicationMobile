@@ -9,7 +9,7 @@ import { queryKeys } from '@/lib/queryKeys';
 import { toTask } from '@/lib/mappers';
 import { Task, Comment } from '@/constants/types';
 import { genId } from '@/lib/utils';
-import { mergeWithCache, readCache, writeCache, pendingIdsForTable } from '@/lib/offlineCache';
+import { mergeWithCache, readCache, writeCache, pendingIdsForTable, isSupabaseSessionValid } from '@/lib/offlineCache';
 
 const TASKS_CACHE_KEY = 'buildtrack_tasks_cache_v1';
 
@@ -35,6 +35,7 @@ export function useTasks() {
         if (extra.length) cached = [...cached, ...extra];
       }
       if (!isSupabaseConfigured) return cached ?? [];
+      if (!(await isSupabaseSessionValid())) return cached ?? [];
       try {
         let q = ((supabase as any).from('tasks') as any).select('*');
         if (user!.role !== 'super_admin' && user!.organizationId) {

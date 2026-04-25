@@ -5,6 +5,7 @@ import { useAuth } from '@/context/AuthContext';
 import { useNetwork } from '@/context/NetworkContext';
 import { Channel } from '@/constants/types';
 import { genId } from '@/lib/utils';
+import { isSupabaseSessionValid } from '@/lib/offlineCache';
 
 const CUSTOM_CHANNELS_PREFIX = 'customChannels_v2_';
 const GROUP_CHANNELS_PREFIX = 'groupChannels_v2_';
@@ -125,6 +126,17 @@ export function useChannels() {
     }
 
     if (!isSupabaseConfigured) {
+      if (generalCached.length > 0) setGeneralChannels(generalCached);
+      if (customCached.length > 0) setCustomChannels(customCached);
+      if (groupCached.length > 0) setGroupChannels(groupCached);
+      if (dmCached.length > 0) setPersistedDmChannels(dmCached);
+      return;
+    }
+
+    // Don't query Supabase without a usable JWT — RLS would return [] and the
+    // empty array would overwrite all the cached channels (typical symptom
+    // after a cold start following an APK auto-update).
+    if (!(await isSupabaseSessionValid())) {
       if (generalCached.length > 0) setGeneralChannels(generalCached);
       if (customCached.length > 0) setCustomChannels(customCached);
       if (groupCached.length > 0) setGroupChannels(groupCached);

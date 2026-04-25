@@ -9,7 +9,7 @@ import { queryKeys } from '@/lib/queryKeys';
 import { toOpr, fromOpr } from '@/lib/mappers';
 import { Opr } from '@/constants/types';
 import { useStartupDelay } from '@/hooks/useStartupDelay';
-import { mergeWithCache, readCache, writeCache, pendingIdsForTable } from '@/lib/offlineCache';
+import { mergeWithCache, readCache, writeCache, pendingIdsForTable, isSupabaseSessionValid } from '@/lib/offlineCache';
 
 const OPRS_CACHE_KEY = 'buildtrack_oprs_cache_v1';
 
@@ -36,6 +36,7 @@ export function useOprs() {
         if (extra.length) cached = [...cached, ...extra];
       }
       if (!isSupabaseConfigured) return cached ?? [];
+      if (!(await isSupabaseSessionValid())) return cached ?? [];
       try {
         let q = ((supabase as any).from('oprs') as any).select('*').order('created_at', { ascending: false });
         if (user!.role !== 'super_admin' && user!.organizationId) {

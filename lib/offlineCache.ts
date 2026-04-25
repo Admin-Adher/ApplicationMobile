@@ -1,4 +1,33 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { supabase, isSupabaseConfigured } from './supabase';
+
+/**
+ * Returns true only when Supabase has a usable session (non-expired JWT).
+ *
+ * This MUST be called before issuing a SELECT against an RLS-protected table
+ * on cold start, after a token-refresh window, or when the app comes back from
+ * background. Without it, Supabase silently returns `data: [], error: null`
+ * when the JWT is missing or expired (because RLS denies anonymous reads),
+ * and that empty array would otherwise overwrite the local cache — making it
+ * look like all of the user's data was deleted server-side.
+ *
+ * We also subtract a 10-second safety margin from `expires_at` to avoid the
+ * race where the token is technically valid but supabase-js is mid-refresh.
+ */
+export async function isSupabaseSessionValid(): Promise<boolean> {
+  if (!isSupabaseConfigured) return false;
+  try {
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session?.user?.id) return false;
+    if (typeof session.expires_at === 'number') {
+      const nowSec = Math.floor(Date.now() / 1000);
+      if (session.expires_at - 10 < nowSec) return false;
+    }
+    return true;
+  } catch {
+    return false;
+  }
+}
 
 /**
  * Offline-first cache utility for hooks using useQuery.

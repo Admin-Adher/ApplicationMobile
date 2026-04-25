@@ -10,7 +10,7 @@ import { toReserve } from '@/lib/mappers';
 import { Reserve, ReserveStatus, Comment } from '@/constants/types';
 import { genId, formatDateFR } from '@/lib/utils';
 import { genReserveId } from '@/lib/reserveUtils';
-import { mergeWithCache, readCache, writeCache, pendingIdsForTable } from '@/lib/offlineCache';
+import { mergeWithCache, readCache, writeCache, pendingIdsForTable, isSupabaseSessionValid } from '@/lib/offlineCache';
 
 const RESERVES_CACHE_KEY = 'buildtrack_reserves_cache_v1';
 
@@ -46,6 +46,10 @@ export function useReserves() {
       if (!isSupabaseConfigured) {
         return cached ?? [];
       }
+
+      // Don't fetch with a missing/expired JWT — Supabase returns [] under
+      // RLS, which would silently overwrite the local cache.
+      if (!(await isSupabaseSessionValid())) return cached ?? [];
 
       // Try online fetch; merge with cache to keep local-only (offline-created) items.
       try {

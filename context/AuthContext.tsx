@@ -6,6 +6,7 @@ import { User, UserRole, UserPermissions, PermissionsOverride } from '@/constant
 import { ROLE_LABELS } from '@/constants/roles';
 import { debugLog, debugLogOk, debugLogWarn, debugLogError } from '@/lib/debugLog';
 import { sendWelcomeEmail, sendInvitationAcceptedEmail, sendAccessRevokedEmail } from '@/lib/email/client';
+import { markIntentionalLogout } from '@/lib/authIntent';
 
 /**
  * Module-level flag shared with AppContext so it can ignore auth events
@@ -1222,6 +1223,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }
 
   async function logout() {
+    // Mark the upcoming SIGNED_OUT event as intentional so AppContext knows
+    // to wipe the offline cache. Without this flag, AppContext can't tell an
+    // intentional logout apart from a transient auto-signout fired by
+    // supabase-js when a token refresh fails — and it would wipe data the
+    // user still wants to see offline.
+    markIntentionalLogout();
     try {
       if (isSupabaseConfigured) await supabase.auth.signOut();
     } catch {

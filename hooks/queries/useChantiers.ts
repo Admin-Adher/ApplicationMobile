@@ -8,7 +8,7 @@ import { useNetwork } from '@/context/NetworkContext';
 import { queryKeys } from '@/lib/queryKeys';
 import { toChantier, toSitePlan } from '@/lib/mappers';
 import { Chantier, SitePlan, Channel } from '@/constants/types';
-import { mergeWithCache, readCache, writeCache, pendingIdsForTable } from '@/lib/offlineCache';
+import { mergeWithCache, readCache, writeCache, pendingIdsForTable, isSupabaseSessionValid } from '@/lib/offlineCache';
 
 const CHANTIERS_CACHE_KEY = 'buildtrack_chantiers_cache_v1';
 const SITE_PLANS_CACHE_KEY = 'buildtrack_site_plans_cache_v1';
@@ -35,6 +35,11 @@ export function useChantiers() {
         if (extra.length) cached = [...cached, ...extra];
       }
       if (!isSupabaseConfigured) return cached ?? [];
+      // Avoid hitting Supabase without a usable JWT — RLS would silently
+      // return [] and the empty array would overwrite the local cache,
+      // making the user think every chantier was deleted (typical symptom
+      // after a cold start following an APK auto-update).
+      if (!(await isSupabaseSessionValid())) return cached ?? [];
       try {
         let q = ((supabase as any).from('chantiers') as any).select('*').order('created_at', { ascending: false });
         if (user!.role !== 'super_admin' && user!.organizationId) {
@@ -68,6 +73,7 @@ export function useChantiers() {
         if (extra.length) cached = [...cached, ...extra];
       }
       if (!isSupabaseConfigured) return cached ?? [];
+      if (!(await isSupabaseSessionValid())) return cached ?? [];
       try {
         let spQ = ((supabase as any).from('site_plans') as any).select('*').order('created_at', { ascending: false });
         if (user!.role !== 'super_admin' && user!.organizationId) {

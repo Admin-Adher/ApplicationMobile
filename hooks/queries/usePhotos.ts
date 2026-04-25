@@ -9,7 +9,7 @@ import { queryKeys } from '@/lib/queryKeys';
 import { toPhoto } from '@/lib/mappers';
 import { Photo } from '@/constants/types';
 import { useStartupDelay } from '@/hooks/useStartupDelay';
-import { mergeWithCache, readCache, writeCache, pendingIdsForTable } from '@/lib/offlineCache';
+import { mergeWithCache, readCache, writeCache, pendingIdsForTable, isSupabaseSessionValid } from '@/lib/offlineCache';
 
 const PHOTOS_CACHE_KEY = 'buildtrack_photos_cache_v1';
 
@@ -43,6 +43,7 @@ export function usePhotos() {
       if (!isSupabaseConfigured) {
         return cached ?? [];
       }
+      if (!(await isSupabaseSessionValid())) return cached ?? [];
 
       // Try online fetch; merge with cache to keep local-only (offline-created) items.
       try {

@@ -6,6 +6,7 @@ import {
   Comment, ReserveStatus, Chantier, SitePlan, Visite, Lot, Opr,
 } from '@/constants/types';
 import { supabase, isSupabaseConfigured } from '@/lib/supabase';
+import { consumeIntentionalLogout } from '@/lib/authIntent';
 import { useAuth, globalSeedingRef, registerInProgressRef, loginInProgressRef } from '@/context/AuthContext';
 import { useNetwork } from '@/context/NetworkContext';
 import { initStorageBuckets } from '@/lib/storage';
@@ -276,9 +277,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         }
       }
       if (event === 'SIGNED_OUT') {
-        // Always clear state on sign-out — the per-user namespaced caches
-        // will repopulate correct data when the next user signs in.
-        // Skipping this was causing cross-account contamination on the same device.
+        // Distinguish an intentional logout (the user tapped "Logout") from
+        // an automatic SIGNED_OUT fired by supabase-js when a token refresh
+        // fails or the session is invalidated. Only the intentional one
+        // should wipe the per-user offline caches — automatic ones leave
+        // them intact so the user keeps seeing their data while AuthContext
+        // either recovers a fresh session or falls back to the cached profile.
+        const intentional = consumeIntentionalLogout();
         currentUserNameRef.current = '';
         setCurrentUserName('');
         setActiveChantierIdState(null);
@@ -286,11 +291,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         setLastReadByChannel({});
         lastReadByChannelRef.current = {};
         setNotification(null);
-        // Clear both in-memory and persisted query cache so the next
-        // user never sees stale data from a previous session.
-        queryClient.clear();
-        AsyncStorage.removeItem('buildtrack_rq_cache_v1').catch(() => {});
-        hasCachedProfileRef.current = false;
+        if (intentional) {
+          // Clear both in-memory and persisted query cache so the next
+          // user never sees stale data from a previous session.
+          queryClient.clear();
+          AsyncStorage.removeItem('buildtrack_rq_cache_v1').catch(() => {});
+          hasCachedProfileRef.current = false;
+        }
       }
     });
 

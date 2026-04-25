@@ -3,7 +3,7 @@ import { useAuth } from '@/context/AuthContext';
 import { supabase, isSupabaseConfigured } from '@/lib/supabase';
 import { queryKeys } from '@/lib/queryKeys';
 import { Profile } from '@/constants/types';
-import { mergeWithCache, readCache, writeCache, pendingIdsForTable } from '@/lib/offlineCache';
+import { mergeWithCache, readCache, writeCache, pendingIdsForTable, isSupabaseSessionValid } from '@/lib/offlineCache';
 
 const MOCK_PROFILES: Profile[] = [
   { id: 'demo-0', name: 'Admin Système', role: 'admin', roleLabel: 'Administrateur', email: 'admin@buildtrack.fr' },
@@ -30,6 +30,7 @@ export function useProfiles() {
         if (extra.length) cached = [...cached, ...extra];
       }
       if (!isSupabaseConfigured) return (cached?.length ? cached : MOCK_PROFILES);
+      if (!(await isSupabaseSessionValid())) return (cached?.length ? cached : MOCK_PROFILES);
       try {
         const q = user?.organizationId
           ? (supabase as any).from('profiles').select('id, name, role, role_label, email, company_id, organization_id').eq('organization_id', user.organizationId)

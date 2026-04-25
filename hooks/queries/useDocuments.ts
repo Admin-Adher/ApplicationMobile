@@ -8,7 +8,7 @@ import { queryKeys } from '@/lib/queryKeys';
 import { toDocument } from '@/lib/mappers';
 import { Document } from '@/constants/types';
 import { useStartupDelay } from '@/hooks/useStartupDelay';
-import { mergeWithCache, readCache, writeCache, pendingIdsForTable } from '@/lib/offlineCache';
+import { mergeWithCache, readCache, writeCache, pendingIdsForTable, isSupabaseSessionValid } from '@/lib/offlineCache';
 
 const DOCUMENTS_CACHE_KEY = 'buildtrack_documents_cache_v1';
 
@@ -35,6 +35,7 @@ export function useDocuments() {
         if (extra.length) cached = [...cached, ...extra];
       }
       if (!isSupabaseConfigured) return cached ?? [];
+      if (!(await isSupabaseSessionValid())) return cached ?? [];
       try {
         let q = ((supabase as any).from('documents') as any).select('*').order('uploaded_at', { ascending: false });
         if (user!.role !== 'super_admin' && user!.organizationId) {

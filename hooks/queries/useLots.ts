@@ -9,7 +9,7 @@ import { queryKeys } from '@/lib/queryKeys';
 import { toLot, fromLot } from '@/lib/mappers';
 import { Lot } from '@/constants/types';
 import { useStartupDelay } from '@/hooks/useStartupDelay';
-import { mergeWithCache, readCache, writeCache, pendingIdsForTable } from '@/lib/offlineCache';
+import { mergeWithCache, readCache, writeCache, pendingIdsForTable, isSupabaseSessionValid } from '@/lib/offlineCache';
 
 const LOTS_CACHE_KEY = 'buildtrack_lots_cache_v1';
 
@@ -56,6 +56,7 @@ export function useLots() {
         if (extra.length) cached = [...cached, ...extra];
       }
       if (!isSupabaseConfigured) return (cached?.length ? cached : STANDARD_LOTS);
+      if (!(await isSupabaseSessionValid())) return (cached?.length ? cached : STANDARD_LOTS);
       try {
         let q = ((supabase as any).from('lots') as any).select('*');
         if (user!.role !== 'super_admin' && user!.organizationId) {

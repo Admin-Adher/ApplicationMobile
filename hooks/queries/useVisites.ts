@@ -9,7 +9,7 @@ import { queryKeys } from '@/lib/queryKeys';
 import { toVisite, fromVisite } from '@/lib/mappers';
 import { Visite } from '@/constants/types';
 import { useStartupDelay } from '@/hooks/useStartupDelay';
-import { mergeWithCache, readCache, writeCache, pendingIdsForTable } from '@/lib/offlineCache';
+import { mergeWithCache, readCache, writeCache, pendingIdsForTable, isSupabaseSessionValid } from '@/lib/offlineCache';
 
 const VISITES_CACHE_KEY = 'buildtrack_visites_cache_v1';
 
@@ -36,6 +36,7 @@ export function useVisites() {
         if (extra.length) cached = [...cached, ...extra];
       }
       if (!isSupabaseConfigured) return cached ?? [];
+      if (!(await isSupabaseSessionValid())) return cached ?? [];
       try {
         let q = ((supabase as any).from('visites') as any).select('*').order('created_at', { ascending: false });
         if (user!.role !== 'super_admin' && user!.organizationId) {

@@ -8,7 +8,7 @@ import { useNetwork } from '@/context/NetworkContext';
 import { queryKeys } from '@/lib/queryKeys';
 import { toCompany } from '@/lib/mappers';
 import { Company } from '@/constants/types';
-import { mergeWithCache, readCache, writeCache, pendingIdsForTable } from '@/lib/offlineCache';
+import { mergeWithCache, readCache, writeCache, pendingIdsForTable, isSupabaseSessionValid } from '@/lib/offlineCache';
 
 const COMPANIES_CACHE_KEY = 'buildtrack_companies_cache_v1';
 
@@ -41,6 +41,7 @@ export function useCompanies() {
       if (!isSupabaseConfigured) {
         return cached ?? [];
       }
+      if (!(await isSupabaseSessionValid())) return cached ?? [];
 
       // Try online fetch; merge with cache to keep local-only (offline-created) items.
       try {
