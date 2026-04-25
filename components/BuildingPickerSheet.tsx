@@ -37,10 +37,13 @@ type ParsedName = { prefix: string; suffix: string };
 
 function parseBuildingName(name: string): ParsedName | null {
   const t = name.trim();
-  // 1) "Prefix 12", "Prefix-12", "Prefix.12", "Prefix #12"
-  let m = t.match(/^(.+?)[\s\-_.#]+(\d+)$/);
+  // 1) "Prefix 12", "Prefix 1-niv2", "Prefix 3.2" — préfixe séparé du suffixe par un espace
+  let m = t.match(/^(.+?)\s+(\d+[\w.\-]*)$/);
   if (m) return { prefix: m[1].trim(), suffix: m[2] };
-  // 2) "Prefix A", "Prefix N12", éventuellement suivi de " — Description"
+  // 2) "Prefix-12", "Prefix.12", "Prefix#12" — séparateurs ponctuels, suffixe purement numérique
+  m = t.match(/^(.+?)[\-_.#]+(\d+)$/);
+  if (m) return { prefix: m[1].trim(), suffix: m[2] };
+  // 3) "Prefix A", "Prefix N12", éventuellement suivi de " — Description"
   m = t.match(/^(.+?)[\s\-_.#]+([A-Z]\d{0,3})(?:\s*[—\-:·].*)?$/i);
   if (m) return { prefix: m[1].trim(), suffix: m[2].toUpperCase() };
   return null;
@@ -296,48 +299,64 @@ export default function BuildingPickerSheet({
             </>
           )}
 
-          {/* Vue famille : grille compacte de pastilles (numéros / lettres) */}
-          {familyView && (
-            <>
-              <SectionHeader
-                icon="grid-outline"
-                label={`${familyView.label} · ${familyView.items.length}`}
-              />
-              <View style={styles.suffixGrid}>
-                {familyView.items.map(b => {
-                  const isActive = b.id === selectedId;
-                  return (
-                    <TouchableOpacity
-                      key={b.id}
-                      style={[styles.suffixCell, isActive && styles.suffixCellActive]}
-                      onPress={() => pick(b.id)}
-                      activeOpacity={0.7}
-                    >
-                      <Text
-                        style={[styles.suffixCellText, isActive && styles.suffixCellTextActive]}
-                        numberOfLines={1}
-                      >
-                        {b.suffix ?? b.name}
-                      </Text>
-                      {b.reserveCount > 0 && (
-                        <View style={styles.suffixDot} />
-                      )}
-                    </TouchableOpacity>
-                  );
-                })}
-              </View>
-
-              <SectionHeader icon="list-outline" label="Détails" />
-              {familyView.items.map(b => (
-                <BuildingRow
-                  key={`detail-${b.id}`}
-                  b={b}
-                  active={b.id === selectedId}
-                  onPress={() => pick(b.id)}
-                />
-              ))}
-            </>
-          )}
+          {/* Vue famille : grille compacte de pastilles (numéros / lettres) + détails */}
+          {familyView && (() => {
+            const gridItems = familyView.items.filter(b => b.suffix !== null);
+            // Grille n'est utile que si on a au moins 3 vrais suffixes courts
+            // ET si tous les items en ont un (sinon mélange visuel disgracieux,
+            // notamment pour la famille "Autres" qui n'a que des noms longs).
+            const showGrid = gridItems.length >= 3 && gridItems.length === familyView.items.length;
+            return (
+              <>
+                {showGrid && (
+                  <>
+                    <SectionHeader
+                      icon="grid-outline"
+                      label={`${familyView.label} · ${familyView.items.length}`}
+                    />
+                    <View style={styles.suffixGrid}>
+                      {gridItems.map(b => {
+                        const isActive = b.id === selectedId;
+                        return (
+                          <TouchableOpacity
+                            key={b.id}
+                            style={[styles.suffixCell, isActive && styles.suffixCellActive]}
+                            onPress={() => pick(b.id)}
+                            activeOpacity={0.7}
+                          >
+                            <Text
+                              style={[styles.suffixCellText, isActive && styles.suffixCellTextActive]}
+                              numberOfLines={1}
+                            >
+                              {b.suffix}
+                            </Text>
+                            {b.reserveCount > 0 && (
+                              <View style={styles.suffixDot} />
+                            )}
+                          </TouchableOpacity>
+                        );
+                      })}
+                    </View>
+                    <SectionHeader icon="list-outline" label="Détails" />
+                  </>
+                )}
+                {!showGrid && (
+                  <SectionHeader
+                    icon="business-outline"
+                    label={`${familyView.label} · ${familyView.items.length}`}
+                  />
+                )}
+                {familyView.items.map(b => (
+                  <BuildingRow
+                    key={`detail-${b.id}`}
+                    b={b}
+                    active={b.id === selectedId}
+                    onPress={() => pick(b.id)}
+                  />
+                ))}
+              </>
+            );
+          })()}
 
           {/* Vue à plat : liste complète (ou résultats de recherche) */}
           {!familyView && (
