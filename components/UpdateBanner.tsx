@@ -4,6 +4,7 @@ import { Ionicons } from '@expo/vector-icons';
 import * as Clipboard from 'expo-clipboard';
 import * as FileSystem from 'expo-file-system';
 import * as Sharing from 'expo-sharing';
+import * as IntentLauncher from 'expo-intent-launcher';
 import { useAppUpdate } from '@/hooks/useAppUpdate';
 
 type DownloadState = 'idle' | 'downloading' | 'opening';
@@ -83,18 +84,50 @@ export default function UpdateBanner() {
 
       setState('opening');
 
-      const canShare = await Sharing.isAvailableAsync();
-      if (canShare) {
-        // Android : ouvre le sheet "Ouvrir avec…" qui propose le programme
-        // d'installation de paquets pour finaliser la mise à jour.
-        await Sharing.shareAsync(result.uri, {
-          mimeType: 'application/vnd.android.package-archive',
-          dialogTitle: 'Installer la mise à jour BuildTrack',
-          UTI: 'public.archive',
-        });
-      } else {
-        await fallbackToBrowser();
+      // Étape 1 : convertir le file:// en content:// (FileProvider Expo).
+      // Indispensable depuis Android 7 (FileUriExposedException sinon).
+      let contentUri: string | null = null;
+      try {
+        contentUri = await FileSystem.getContentUriAsync(result.uri);
+      } catch {
+        contentUri = null;
       }
+
+      // Étape 2 : ouvrir directement le programme d'installation de paquets
+      // via ACTION_VIEW. C'est le seul intent qui déclenche l'écran natif
+      // « Voulez-vous installer cette application ? ».
+      let installLaunched = false;
+      if (contentUri) {
+        try {
+          await IntentLauncher.startActivityAsync(
+            'android.intent.action.VIEW',
+            {
+              data: contentUri,
+              flags: 1, // FLAG_GRANT_READ_URI_PERMISSION
+              type: 'application/vnd.android.package-archive',
+            },
+          );
+          installLaunched = true;
+        } catch {
+          installLaunched = false;
+        }
+      }
+
+      // Étape 3 : si l'intent VIEW a échoué (vieux Android, OEM, etc.),
+      // on retombe sur le sheet de partage en dernier recours.
+      if (!installLaunched) {
+        const canShare = await Sharing.isAvailableAsync();
+        if (canShare) {
+          await Sharing.shareAsync(result.uri, {
+            mimeType: 'application/vnd.android.package-archive',
+            dialogTitle: 'Installer la mise à jour BuildTrack',
+            UTI: 'public.archive',
+          });
+        } else {
+          await fallbackToBrowser();
+        }
+      }
+
       setState('idle');
       setProgress(0);
     } catch (err) {
