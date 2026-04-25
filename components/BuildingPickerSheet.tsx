@@ -555,14 +555,21 @@ function FamilyChip({
       onPress={onPress}
       activeOpacity={0.7}
     >
-      {/* Pas de numberOfLines ici : dans un ScrollView horizontal, un Text
-          en flex-row sans largeur explicite se contracte à 0px quand on
-          force numberOfLines=1. On laisse le texte se dimensionner librement
-          puisque les chips sont déjà dans un scroll horizontal. */}
-      <Text style={[styles.familyChipText, active && styles.familyChipTextActive]}>
+      {/* Important : pas de numberOfLines, pas de flexShrink, pas de gap
+          parent. Sur certaines builds Android, ces combinaisons causent
+          un Text rendu avec largeur 0. On utilise un marginRight explicite
+          sur le label pour éviter `gap` (intermittent < RN 0.74 sur Android),
+          et on force un minWidth pour empêcher tout collapse. */}
+      <Text
+        style={[styles.familyChipText, active && styles.familyChipTextActive]}
+        allowFontScaling={false}
+      >
         {label}
       </Text>
-      <Text style={[styles.familyChipCount, active && styles.familyChipCountActive]}>
+      <Text
+        style={[styles.familyChipCount, active && styles.familyChipCountActive]}
+        allowFontScaling={false}
+      >
         {count}
       </Text>
     </TouchableOpacity>
@@ -703,7 +710,6 @@ const styles = StyleSheet.create({
   },
   familiesRow: {
     flexDirection: 'row',
-    gap: 6,
     paddingTop: 10,
     paddingBottom: 4,
     paddingHorizontal: 2,
@@ -711,30 +717,38 @@ const styles = StyleSheet.create({
   familyChip: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 6,
-    paddingLeft: 12,
-    paddingRight: 8,
-    paddingVertical: 6,
-    borderRadius: 16,
+    paddingLeft: 14,
+    paddingRight: 6,
+    paddingVertical: 7,
+    borderRadius: 18,
     backgroundColor: C.surface2,
     borderWidth: 1,
     borderColor: C.border,
-    // Empêche le chip de se contracter dans le ScrollView horizontal —
-    // sinon le label se réduit à 0px quand l'espace est étroit.
-    flexShrink: 0,
+    minHeight: 32,
+    minWidth: 80, // garantit assez de place pour le label le plus court
+    marginRight: 6, // remplace `gap` au cas où la version RN/Android est capricieuse
   },
   familyChipActive: { backgroundColor: C.primary, borderColor: C.primary },
-  familyChipText: { fontSize: 12, fontFamily: 'Inter_600SemiBold', color: C.textSub },
+  familyChipText: {
+    fontSize: 13,
+    fontFamily: 'Inter_600SemiBold',
+    color: C.textSub,
+    marginRight: 8, // remplace `gap` du parent
+    includeFontPadding: false,
+  },
   familyChipTextActive: { color: '#fff' },
   familyChipCount: {
     fontSize: 11,
     fontFamily: 'Inter_700Bold',
     color: C.textMuted,
     backgroundColor: C.surface,
-    paddingHorizontal: 6,
-    paddingVertical: 1,
-    borderRadius: 8,
+    paddingHorizontal: 7,
+    paddingVertical: 2,
+    borderRadius: 10,
     overflow: 'hidden',
+    minWidth: 22,
+    textAlign: 'center',
+    includeFontPadding: false,
   },
   familyChipCountActive: { color: C.primary, backgroundColor: '#fff' },
   list: { marginTop: 4 },
