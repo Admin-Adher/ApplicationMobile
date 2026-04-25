@@ -4,7 +4,7 @@ import * as Clipboard from 'expo-clipboard';
 import { useAppUpdate } from '@/hooks/useAppUpdate';
 
 export default function UpdateBanner() {
-  const { updateAvailable, latestLabel, downloadUrl, dismiss } = useAppUpdate();
+  const { updateAvailable, latestLabel, publishedRelative, downloadUrl, dismiss } = useAppUpdate();
 
   if (!updateAvailable) return null;
 
@@ -37,7 +37,7 @@ export default function UpdateBanner() {
           Nouvelle version disponible{latestLabel ? ` · ${latestLabel}` : ''}
         </Text>
         <Text style={styles.subtitle} numberOfLines={1}>
-          Mettez à jour pour les dernières améliorations
+          {publishedRelative ? `Publiée ${publishedRelative}` : 'Mettez à jour pour les dernières améliorations'}
         </Text>
       </View>
       <TouchableOpacity style={styles.updateBtn} onPress={handleUpdate} activeOpacity={0.85}>

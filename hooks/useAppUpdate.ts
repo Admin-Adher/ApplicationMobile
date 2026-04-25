@@ -15,6 +15,7 @@ interface CachedRelease {
   buildNumber: number | null;
   semver: string | null;
   fetchedAt: number;
+  publishedAt?: string | null;
   notes?: string;
 }
 
@@ -80,9 +81,32 @@ export interface AppUpdateState {
   updateAvailable: boolean;
   currentLabel: string;
   latestLabel: string | null;
+  latestPublishedAt: string | null;
+  publishedRelative: string | null;
   downloadUrl: string;
   dismiss: () => Promise<void>;
   refresh: () => Promise<void>;
+}
+
+function formatRelativeFr(iso: string | null): string | null {
+  if (!iso) return null;
+  const t = Date.parse(iso);
+  if (Number.isNaN(t)) return null;
+  const diffMs = Date.now() - t;
+  if (diffMs < 0) return 'à l\'instant';
+  const min = Math.floor(diffMs / 60000);
+  if (min < 1) return 'à l\'instant';
+  if (min < 60) return `il y a ${min} min`;
+  const h = Math.floor(min / 60);
+  if (h < 24) return `il y a ${h} h`;
+  const d = Math.floor(h / 24);
+  if (d < 7) return `il y a ${d} j`;
+  const w = Math.floor(d / 7);
+  if (w < 5) return `il y a ${w} sem.`;
+  const mo = Math.floor(d / 30);
+  if (mo < 12) return `il y a ${mo} mois`;
+  const y = Math.floor(d / 365);
+  return `il y a ${y} an${y > 1 ? 's' : ''}`;
 }
 
 export function useAppUpdate(): AppUpdateState {
@@ -93,6 +117,7 @@ export function useAppUpdate(): AppUpdateState {
   const [latestTag, setLatestTag] = useState<string | null>(null);
   const [latestBuild, setLatestBuild] = useState<number | null>(null);
   const [latestSemver, setLatestSemver] = useState<string | null>(null);
+  const [latestPublishedAt, setLatestPublishedAt] = useState<string | null>(null);
   const [dismissed, setDismissed] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -100,6 +125,7 @@ export function useAppUpdate(): AppUpdateState {
     setLatestTag(rel.tag || null);
     setLatestBuild(rel.buildNumber);
     setLatestSemver(rel.semver);
+    setLatestPublishedAt(rel.publishedAt ?? null);
   }, []);
 
   const fetchLatest = useCallback(async () => {
@@ -115,6 +141,7 @@ export function useAppUpdate(): AppUpdateState {
         buildNumber: extractBuildNumber(tag),
         semver: cleanSemver(tag) ?? cleanSemver(data?.name),
         fetchedAt: Date.now(),
+        publishedAt: data?.published_at ?? data?.created_at ?? null,
         notes: data?.body,
       };
       applyRelease(payload);
@@ -180,6 +207,8 @@ export function useAppUpdate(): AppUpdateState {
     updateAvailable,
     currentLabel,
     latestLabel,
+    latestPublishedAt,
+    publishedRelative: formatRelativeFr(latestPublishedAt),
     downloadUrl: APK_DOWNLOAD_URL,
     dismiss,
     refresh: fetchLatest,
