@@ -21,6 +21,7 @@ interface Props {
 }
 
 export default function ReserveCard({ reserve, onPress, onLongPress, onSwipeRight, onSwipeLeft, selected, isFlashed }: Props) {
+  const isArchived = !!reserve.archivedAt;
   const router = useRouter();
   const { lots } = useApp();
   const swipeRef = useRef<Swipeable>(null);
@@ -56,16 +57,16 @@ export default function ReserveCard({ reserve, onPress, onLongPress, onSwipeRigh
     <TouchableOpacity
       style={styles.swipeLeftAction}
       onPress={() => { swipeRef.current?.close(); onSwipeLeft?.(reserve); }}
-      accessibilityLabel="Archiver cette réserve"
+      accessibilityLabel={isArchived ? 'Désarchiver cette réserve' : 'Archiver cette réserve'}
     >
-      <Ionicons name="archive-outline" size={20} color="#fff" />
-      <Text style={styles.swipeActionText}>Archiver</Text>
+      <Ionicons name={isArchived ? 'archive' : 'archive-outline'} size={20} color="#fff" />
+      <Text style={styles.swipeActionText}>{isArchived ? 'Désarchiver' : 'Archiver'}</Text>
     </TouchableOpacity>
   );
 
   const card = (
     <TouchableOpacity
-      style={[styles.card, overdue && styles.cardOverdue, isObservation && styles.cardObservation, selected && styles.cardSelected]}
+      style={[styles.card, overdue && styles.cardOverdue, isObservation && styles.cardObservation, selected && styles.cardSelected, isArchived && styles.cardArchived]}
       onPress={() => onPress ? onPress(reserve) : router.push(`/reserve/${reserve.id}` as any)}
       onLongPress={() => onLongPress?.(reserve)}
       delayLongPress={400}
@@ -86,6 +87,12 @@ export default function ReserveCard({ reserve, onPress, onLongPress, onSwipeRigh
             <View style={styles.obsBadge}>
               <Ionicons name="eye-outline" size={10} color="#0EA5E9" />
               <Text style={styles.obsText}>Observation</Text>
+            </View>
+          ) : null}
+          {isArchived ? (
+            <View style={styles.archivedBadge}>
+              <Ionicons name="archive" size={10} color="#6B7280" />
+              <Text style={styles.archivedText}>Archivée</Text>
             </View>
           ) : null}
         </View>
@@ -298,6 +305,26 @@ const styles = StyleSheet.create({
     fontSize: 10,
     fontFamily: 'Inter_600SemiBold',
     color: '#0EA5E9',
+  },
+  archivedBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 3,
+    backgroundColor: '#6B728015',
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#6B728030',
+  },
+  archivedText: {
+    fontSize: 10,
+    fontFamily: 'Inter_600SemiBold',
+    color: '#6B7280',
+  },
+  cardArchived: {
+    opacity: 0.65,
+    borderStyle: 'dashed',
   },
   overdueBadge: {
     flexDirection: 'row',

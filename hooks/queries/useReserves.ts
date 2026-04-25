@@ -144,6 +144,7 @@ export function useReserves() {
       enterprise_acknowledged_at: r.enterpriseAcknowledgedAt ?? null,
       company_signatures: r.companySignatures ?? null,
       closed_at: r.closedAt ?? null, closed_by: r.closedBy ?? null,
+      archived_at: r.archivedAt ?? null, archived_by: r.archivedBy ?? null,
     };
     if (!isOnlineRef.current && isSupabaseConfigured) {
       enqueueOperation({ table: 'reserves', op: 'update', filter: { column: 'id', value: r.id }, data: payload });
@@ -210,6 +211,49 @@ export function useReserves() {
       history: [...reserve.history, historyEntry],
       closedAt: isClosing ? now : reserve.closedAt,
       closedBy: isClosing ? actualAuthor : reserve.closedBy,
+    };
+    return updateReserve(updated);
+  }, [query.data, user, updateReserve]);
+
+  // Archive / désarchive : action distincte du changement de statut.
+  // Une réserve archivée garde son statut métier (ouverte, en cours, clôturée…)
+  // mais est masquée du plan et de la liste des réserves actives. Elle reste
+  // consultable via le toggle "Voir les archives".
+  const archiveReserve = useCallback(async (id: string, author?: string) => {
+    const reserves = query.data ?? [];
+    const reserve = reserves.find(r => r.id === id);
+    if (!reserve || reserve.archivedAt) return;
+    const actualAuthor = author ?? user?.name ?? 'Système';
+    const now = new Date().toISOString();
+    const today = now.split('T')[0];
+    const historyEntry = {
+      id: genId(), action: 'Archivée', author: actualAuthor, createdAt: today,
+      oldValue: 'Active', newValue: 'Archivée',
+    };
+    const updated: Reserve = {
+      ...reserve,
+      archivedAt: now,
+      archivedBy: actualAuthor,
+      history: [...reserve.history, historyEntry],
+    };
+    return updateReserve(updated);
+  }, [query.data, user, updateReserve]);
+
+  const unarchiveReserve = useCallback(async (id: string, author?: string) => {
+    const reserves = query.data ?? [];
+    const reserve = reserves.find(r => r.id === id);
+    if (!reserve || !reserve.archivedAt) return;
+    const actualAuthor = author ?? user?.name ?? 'Système';
+    const today = new Date().toISOString().split('T')[0];
+    const historyEntry = {
+      id: genId(), action: 'Désarchivée', author: actualAuthor, createdAt: today,
+      oldValue: 'Archivée', newValue: 'Active',
+    };
+    const updated: Reserve = {
+      ...reserve,
+      archivedAt: undefined,
+      archivedBy: undefined,
+      history: [...reserve.history, historyEntry],
     };
     return updateReserve(updated);
   }, [query.data, user, updateReserve]);
@@ -305,6 +349,8 @@ export function useReserves() {
     updateReserveFields,
     deleteReserve,
     updateReserveStatus,
+    archiveReserve,
+    unarchiveReserve,
     addComment,
     batchUpdateReserves,
     invalidateReserves: () => queryClient.invalidateQueries({ queryKey: queryKeys.reserves() }),

@@ -71,6 +71,8 @@ interface AppContextValue {
   updateReserveFields: (r: Reserve) => void;
   deleteReserve: (id: string) => void;
   updateReserveStatus: (id: string, status: ReserveStatus, author?: string) => void;
+  archiveReserve: (id: string, author?: string) => void;
+  unarchiveReserve: (id: string, author?: string) => void;
   addComment: (reserveId: string, content: string, author?: string) => void;
   addCompany: (c: Company) => void;
   updateCompanyWorkers: (id: string, actual: number) => void;
@@ -633,6 +635,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     updateReserveFields: reservesH.updateReserveFields,
     deleteReserve: reservesH.deleteReserve,
     updateReserveStatus: updateReserveStatusWithNotif,
+    archiveReserve: reservesH.archiveReserve,
+    unarchiveReserve: reservesH.unarchiveReserve,
     addComment: reservesH.addComment,
     addCompany: companiesH.addCompany,
     updateCompanyWorkers: companiesH.updateCompanyWorkers,
@@ -704,7 +708,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     setActiveChantier, chantiersH.addSitePlan, chantiersH.updateSitePlan,
     chantiersH.deleteSitePlan, reservesH.addReserve, reservesH.updateReserve,
     reservesH.updateReserveFields, reservesH.deleteReserve,
-    updateReserveStatusWithNotif, reservesH.addComment,
+    updateReserveStatusWithNotif, reservesH.archiveReserve, reservesH.unarchiveReserve, reservesH.addComment,
     companiesH.addCompany, companiesH.updateCompanyWorkers,
     companiesH.updateCompanyFull, companiesH.deleteCompany,
     companiesH.updateCompanyHours, reload, setCurrentUser,

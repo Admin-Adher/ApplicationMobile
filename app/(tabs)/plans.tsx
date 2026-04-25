@@ -543,11 +543,17 @@ export default function PlansScreen() {
     : null;
 
   const allPlanReserves = useMemo(() => {
-    // Les réserves clôturées (= archivées dans cette app) ne doivent plus
-    // apparaître sur le plan : ni en pastille active, ni en fantôme grisé,
-    // ni dans la feuille de liste du plan, ni dans le compteur.
-    // Les réserves supprimées sont déjà absentes (suppression définitive).
-    let list = reserves.filter(r => r.planId === currentPlanId && r.status !== 'closed');
+    // Trois cas filtrés du plan :
+    //  - réserves clôturées (statut 'closed') : le défaut a été corrigé, on
+    //    ne veut plus voir la pastille
+    //  - réserves archivées (archivedAt non null) : action manuelle de mise
+    //    à l'écart, indépendante du statut
+    //  - réserves supprimées : déjà absentes (suppression définitive en BD)
+    let list = reserves.filter(r =>
+      r.planId === currentPlanId
+      && r.status !== 'closed'
+      && !r.archivedAt
+    );
     if (isSousTraitant && sousTraitantCompanyName) {
       list = list.filter(r => {
         const names = r.companies ?? (r.company ? [r.company] : []);

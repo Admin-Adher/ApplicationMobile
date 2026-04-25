@@ -22,6 +22,7 @@ export function toReserve(row: any): Reserve {
     planX: row.plan_x, planY: row.plan_y, photoUri: row.photo_uri ?? undefined,
     photoAnnotations: row.photo_annotations ?? undefined,
     closedAt: row.closed_at ?? undefined, closedBy: row.closed_by ?? undefined,
+    archivedAt: row.archived_at ?? undefined, archivedBy: row.archived_by ?? undefined,
     photos: row.photos ?? undefined,
     lotId: row.lot_id ?? undefined,
     kind: row.kind ?? undefined,

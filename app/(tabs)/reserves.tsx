@@ -195,7 +195,7 @@ export default function ReservesScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const { company: companyParam } = useLocalSearchParams<{ company?: string }>();
-  const { reserves, companies, isLoading, chantiers, activeChantierId, lots, batchUpdateReserves, updateReserveFields, updateReserveStatus, deleteReserve, addComment, addReserve, reload, sitePlans } = useApp();
+  const { reserves, companies, isLoading, chantiers, activeChantierId, lots, batchUpdateReserves, updateReserveFields, updateReserveStatus, deleteReserve, archiveReserve, unarchiveReserve, addComment, addReserve, reload, sitePlans } = useApp();
   const { permissions, user } = useAuth();
 
   const isSousTraitant = user?.role === 'sous_traitant';
@@ -289,6 +289,11 @@ export default function ReservesScreen() {
 
   const [pdfLoading, setPdfLoading] = useState(false);
 
+  // Toggle pour afficher les archives. Désactivé par défaut : les réserves
+  // archivées sont masquées de la liste principale et apparaissent seulement
+  // quand l'utilisateur clique sur la bannière "X réserves archivées".
+  const [showArchived, setShowArchived] = useState(false);
+
   const chantierReserves = useMemo(() => {
     let list = chantierFilter === 'all' ? reserves : reserves.filter(r => r.chantierId === chantierFilter);
     if (isSousTraitant && sousTraitantCompanyName) {
@@ -297,7 +302,23 @@ export default function ReservesScreen() {
         return names.includes(sousTraitantCompanyName!);
       });
     }
+    // Filtre archives : par défaut on cache, sinon on n'affiche QUE les archives
+    list = showArchived
+      ? list.filter(r => !!r.archivedAt)
+      : list.filter(r => !r.archivedAt);
     return list;
+  }, [reserves, chantierFilter, isSousTraitant, sousTraitantCompanyName, showArchived]);
+
+  // Compteur d'archives (basé sur la sélection de chantier mais ignorant le toggle).
+  const archivedCount = useMemo(() => {
+    let list = chantierFilter === 'all' ? reserves : reserves.filter(r => r.chantierId === chantierFilter);
+    if (isSousTraitant && sousTraitantCompanyName) {
+      list = list.filter(r => {
+        const names = r.companies ?? (r.company ? [r.company] : []);
+        return names.includes(sousTraitantCompanyName!);
+      });
+    }
+    return list.filter(r => !!r.archivedAt).length;
   }, [reserves, chantierFilter, isSousTraitant, sousTraitantCompanyName]);
 
   const chantiersWithPlans = useMemo(
@@ -692,19 +713,36 @@ export default function ReservesScreen() {
   }
 
   function handleSwipeLeft(reserve: Reserve) {
-    Alert.alert(
-      'Archiver cette réserve',
-      `Clôturer "${reserve.title}" ?`,
-      [
-        { text: 'Annuler', style: 'cancel' },
-        {
-          text: 'Clôturer', onPress: () => {
-            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
-            updateReserveStatus(reserve.id, 'closed', user?.name ?? 'Conducteur de travaux');
+    const isArchived = !!reserve.archivedAt;
+    if (isArchived) {
+      Alert.alert(
+        'Désarchiver cette réserve',
+        `Remettre "${reserve.title}" dans les réserves actives ?`,
+        [
+          { text: 'Annuler', style: 'cancel' },
+          {
+            text: 'Désarchiver', onPress: () => {
+              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
+              unarchiveReserve(reserve.id, user?.name ?? 'Conducteur de travaux');
+            },
           },
-        },
-      ]
-    );
+        ]
+      );
+    } else {
+      Alert.alert(
+        'Archiver cette réserve',
+        `Mettre "${reserve.title}" de côté ? La réserve sera masquée du plan et de la liste, mais restera consultable depuis les archives. Son statut (${reserve.status === 'closed' ? 'Clôturé' : reserve.status === 'open' ? 'Ouvert' : reserve.status === 'in_progress' ? 'En cours' : reserve.status === 'waiting' ? 'En attente' : 'Vérification'}) ne change pas.`,
+        [
+          { text: 'Annuler', style: 'cancel' },
+          {
+            text: 'Archiver', onPress: () => {
+              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
+              archiveReserve(reserve.id, user?.name ?? 'Conducteur de travaux');
+            },
+          },
+        ]
+      );
+    }
   }
 
   async function handleTabletComment(reserve: Reserve) {
@@ -967,20 +1005,34 @@ export default function ReservesScreen() {
           </View>
         )}
 
-        {closedCount > 0 && statusFilter !== 'closed' && (
+        {(archivedCount > 0 || showArchived) && (
           <TouchableOpacity
-            style={styles.archiveBanner}
-            onPress={() => setStatusFilter('closed')}
+            style={[styles.archiveBanner, showArchived && styles.archiveBannerActive]}
+            onPress={() => setShowArchived(v => !v)}
             activeOpacity={0.85}
             accessibilityRole="button"
-            accessibilityLabel={`${closedCount} réserve${closedCount > 1 ? 's' : ''} archivée${closedCount > 1 ? 's' : ''}`}
+            accessibilityLabel={
+              showArchived
+                ? 'Revenir aux réserves actives'
+                : `${archivedCount} réserve${archivedCount > 1 ? 's' : ''} archivée${archivedCount > 1 ? 's' : ''}`
+            }
           >
-            <Ionicons name="archive-outline" size={14} color={C.closed} />
+            <Ionicons name={showArchived ? 'archive' : 'archive-outline'} size={14} color="#6B7280" />
             <Text style={styles.archiveBannerText}>
-              <Text style={{ fontFamily: 'Inter_700Bold', color: C.closed }}>{closedCount}</Text>
-              {' '}réserve{closedCount > 1 ? 's' : ''} archivée{closedCount > 1 ? 's' : ''} — voir les archives
+              {showArchived ? (
+                <>
+                  <Text style={{ fontFamily: 'Inter_700Bold', color: '#6B7280' }}>Vue archives</Text>
+                  {' — '}
+                  {archivedCount} réserve{archivedCount > 1 ? 's' : ''} archivée{archivedCount > 1 ? 's' : ''} — revenir aux actives
+                </>
+              ) : (
+                <>
+                  <Text style={{ fontFamily: 'Inter_700Bold', color: '#6B7280' }}>{archivedCount}</Text>
+                  {' '}réserve{archivedCount > 1 ? 's' : ''} archivée{archivedCount > 1 ? 's' : ''} — voir les archives
+                </>
+              )}
             </Text>
-            <Ionicons name="chevron-forward" size={13} color={C.closed} />
+            <Ionicons name={showArchived ? 'close-circle' : 'chevron-forward'} size={13} color="#6B7280" />
           </TouchableOpacity>
         )}
 
@@ -2440,6 +2492,9 @@ const styles = StyleSheet.create({
     flexDirection: 'row', alignItems: 'center', gap: 8,
     backgroundColor: '#F3F4F6', borderRadius: 8, paddingHorizontal: 12, paddingVertical: 9,
     marginBottom: 8, borderWidth: 1, borderColor: '#D1D5DB',
+  },
+  archiveBannerActive: {
+    backgroundColor: '#E5E7EB', borderColor: '#9CA3AF',
   },
   archiveBannerText: {
     flex: 1, fontSize: 12, fontFamily: 'Inter_400Regular', color: C.textSub,

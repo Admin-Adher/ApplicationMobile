@@ -327,6 +327,8 @@ export interface Reserve {
   linkedTaskId?: string;
   closedAt?: string;
   closedBy?: string;
+  archivedAt?: string;
+  archivedBy?: string;
   chantierId?: string;
   planId?: string;
   enterpriseSignature?: string;
