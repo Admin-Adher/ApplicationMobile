@@ -278,6 +278,7 @@ export default function RootLayout() {
                         <Stack.Screen name="visites" options={{ headerShown: false }} />
                         <Stack.Screen name="visite/new" options={{ headerShown: false }} />
                         <Stack.Screen name="visite/[id]" options={{ headerShown: false }} />
+                        <Stack.Screen name="admin/user/[id]" options={{ headerShown: false }} />
                         <Stack.Screen name="+not-found" />
                       </Stack>
                       </AppErrorBoundary>
