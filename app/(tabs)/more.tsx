@@ -10,6 +10,7 @@ import { useAuth } from '@/context/AuthContext';
 import { useSettings } from '@/context/SettingsContext';
 import { useIncidents } from '@/context/IncidentsContext';
 import UpdateBanner from '@/components/UpdateBanner';
+import UpdateCheckRow from '@/components/UpdateCheckRow';
 
 const ROLE_COLORS: Record<string, string> = {
   super_admin: '#8B5CF6',
@@ -251,7 +252,8 @@ export default function MoreScreen() {
             <Text style={styles.infoTitle}>BuildTrack</Text>
           </View>
           <Text style={styles.infoText}>Application de gestion de chantier numérique</Text>
-          <Text style={styles.infoVersion}>Version 1.0.0 — {projectName}</Text>
+          <Text style={styles.infoVersion}>{projectName}</Text>
+          <UpdateCheckRow />
         </View>
 
         <TouchableOpacity style={styles.logoutFullBtn} onPress={handleLogout}>
