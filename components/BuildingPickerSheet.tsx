@@ -77,6 +77,46 @@ function familyKey(prefix: string): string {
   return prefix.toLowerCase().replace(/\s+/g, ' ').trim();
 }
 
+// Distance de Levenshtein (édition de chaînes) — utilisée pour rattacher
+// les noms tapés avec une coquille (ex. "Lockoof" → famille "Lockoff")
+// à la famille la plus proche. Implémentation itérative O(n·m).
+function levenshtein(a: string, b: string): number {
+  if (a === b) return 0;
+  if (!a.length) return b.length;
+  if (!b.length) return a.length;
+  const prev = new Array(b.length + 1);
+  const curr = new Array(b.length + 1);
+  for (let j = 0; j <= b.length; j++) prev[j] = j;
+  for (let i = 1; i <= a.length; i++) {
+    curr[0] = i;
+    for (let j = 1; j <= b.length; j++) {
+      const cost = a.charCodeAt(i - 1) === b.charCodeAt(j - 1) ? 0 : 1;
+      curr[j] = Math.min(curr[j - 1] + 1, prev[j] + 1, prev[j - 1] + cost);
+    }
+    for (let j = 0; j <= b.length; j++) prev[j] = curr[j];
+  }
+  return prev[b.length];
+}
+
+// Cherche dans `realKeys` la famille la plus proche de `key` au sens
+// de Levenshtein. Tolérance : ~20% de la longueur du mot le plus long,
+// avec un minimum de 1 (donc une coquille d'1 caractère est toujours
+// rattrapée). Renvoie null si aucune correspondance n'est assez proche.
+function findClosestFamily(key: string, realKeys: Iterable<string>): string | null {
+  let best: string | null = null;
+  let bestDist = Infinity;
+  for (const rk of realKeys) {
+    const longest = Math.max(key.length, rk.length);
+    const threshold = Math.max(1, Math.floor(longest * 0.2));
+    const d = levenshtein(key, rk);
+    if (d <= threshold && d < bestDist) {
+      best = rk;
+      bestDist = d;
+    }
+  }
+  return best;
+}
+
 type ItemWithSuffix = BuildingItem & { suffix: string | null };
 type Family = { key: string; label: string; items: ItemWithSuffix[] };
 
@@ -105,6 +145,28 @@ function buildFamilies(buildings: BuildingItem[]): {
     }
   }
 
+  // Identifie les familles "réelles" (≥ 2 items) avant d'essayer d'absorber
+  // les singletons (probables coquilles) dans la famille la plus proche.
+  const realKeys: string[] = [];
+  for (const [key, bucket] of groups) {
+    if (bucket.items.length >= 2) realKeys.push(key);
+  }
+
+  // Coquilles : tout singleton dont la clé est à 1-2 caractères près d'une
+  // famille réelle (ex. "Lockoof" → "Lockoff") est rapatrié dans cette
+  // famille. Les singletons restants finissent dans "Autres".
+  for (const [key, bucket] of [...groups.entries()]) {
+    if (bucket.items.length >= 2) continue;
+    const target = findClosestFamily(key, realKeys);
+    if (target) {
+      const tBucket = groups.get(target)!;
+      for (const it of bucket.items) tBucket.items.push(it);
+      // On n'incrémente PAS labelCounts : la graphie correcte de la famille
+      // existante reste prioritaire pour l'étiquette affichée.
+      groups.delete(key);
+    }
+  }
+
   const families: Family[] = [];
   for (const [key, bucket] of groups) {
     if (bucket.items.length >= 2) {
@@ -121,7 +183,7 @@ function buildFamilies(buildings: BuildingItem[]): {
       }
       families.push({ key, label, items: bucket.items });
     } else {
-      // Famille singleton → on la rejette dans "Autres".
+      // Famille singleton sans correspondance proche → on la rejette dans "Autres".
       for (const it of bucket.items) others.push({ ...it, suffix: null });
     }
   }
