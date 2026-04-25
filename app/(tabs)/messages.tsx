@@ -4,8 +4,9 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { useRouter } from 'expo-router';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { C } from '@/constants/colors';
 import { useApp } from '@/context/AppContext';
 import { useAuth } from '@/context/AuthContext';
@@ -18,6 +19,7 @@ import NewGroupModal from '@/components/NewGroupModal';
 import SuperAdminMessagingHub from '@/components/SuperAdminMessagingHub';
 
 const ALPHA_BUCKET_THRESHOLD = 10; // au-delà, on regroupe les entreprises par initiale
+const STORAGE_KEY_COMPANIES_COLLAPSED = 'messages.tabs.companiesCollapsed.v1';
 
 const AVATAR_COLORS = [C.primary, '#059669', '#D97706', '#7C3AED', '#DB2777', '#EA580C', '#0891B2'];
 function getAvatarColor(name: string) {
@@ -229,6 +231,32 @@ export default function MessagesTabScreen() {
   // ── Section "Canaux entreprises" : tri alpha + filtre + repli ──────────
   const [companyFilter, setCompanyFilter] = useState('');
   const [companiesCollapsedOverride, setCompaniesCollapsedOverride] = useState<boolean | null>(null);
+  const [companiesPrefLoaded, setCompaniesPrefLoaded] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    AsyncStorage.getItem(STORAGE_KEY_COMPANIES_COLLAPSED)
+      .then(raw => {
+        if (cancelled) return;
+        if (raw === 'true') setCompaniesCollapsedOverride(true);
+        else if (raw === 'false') setCompaniesCollapsedOverride(false);
+        setCompaniesPrefLoaded(true);
+      })
+      .catch(() => { if (!cancelled) setCompaniesPrefLoaded(true); });
+    return () => { cancelled = true; };
+  }, []);
+
+  useEffect(() => {
+    if (!companiesPrefLoaded) return;
+    if (companiesCollapsedOverride === null) {
+      AsyncStorage.removeItem(STORAGE_KEY_COMPANIES_COLLAPSED).catch(() => {});
+    } else {
+      AsyncStorage.setItem(
+        STORAGE_KEY_COMPANIES_COLLAPSED,
+        companiesCollapsedOverride ? 'true' : 'false'
+      ).catch(() => {});
+    }
+  }, [companiesCollapsedOverride, companiesPrefLoaded]);
 
   const sortedCompanyChannels = useMemo(
     () => [...companyChannels].sort((a, b) =>
