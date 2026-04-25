@@ -860,26 +860,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           signUpSession = signUpData.session;
         }
 
-        // Invitation mode: insert profile with no org — org will be linked
-        // by the link_invitation_for_current_user RPC once the user is authenticated.
-        // Note: if signUp did not return a session (email confirmation required),
-        // this insert will fail (RLS) but we continue — the user will need to
-        // confirm their email first, and signIn below will catch it.
-        const { error: profileInsertErr } = await (supabase as any).from('profiles').insert({
-          id: userId,
-          name: name.trim(),
-          email: email.trim().toLowerCase(),
-          role: 'observateur',
-          role_label: ROLE_LABELS['observateur'],
-          organization_id: null,
-        });
-
-        if (profileInsertErr) {
-          console.warn('[register] profiles.insert (invitation) error:', profileInsertErr.code, profileInsertErr.message);
-        }
-
-        // If signUp already returned a session (email confirmation disabled),
-        // skip the redundant signInWithPassword to save one network round-trip.
+        // ── Étape 1 : garantir une session active AVANT toute écriture DB ───
+        // signUp() peut retourner { session: null } si "Confirm email" est
+        // activé sur Supabase, ou si la propagation du JWT côté client est
+        // ralentie (réseau lent). Sans session, auth.uid() est NULL et
+        // toute INSERT sur profiles est bloquée par la policy RLS
+        // "Profil créable par son propriétaire" (auth.uid() = id).
+        // → On force un signInWithPassword si signUp ne nous a rien donné,
+        //   pour être SÛR d'avoir une session avant de toucher à profiles.
         let signInSession = signUpSession;
         let signInUserId = signUpSession ? userId : undefined;
 
@@ -906,6 +894,26 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           return { success: false, error: "Compte créé. Connectez-vous pour continuer." };
         }
 
+        // ── Étape 2 : créer le profil maintenant qu'on a une session ────────
+        // Tentative d'INSERT côté client (chemin rapide). Si elle échoue
+        // pour une raison quelconque (RLS, timing, conflit), pas grave :
+        // l'étape 3 (RPC link_invitation_for_current_user) fait un UPSERT
+        // côté serveur en SECURITY DEFINER — le profil sera créé là.
+        const { error: profileInsertErr } = await (supabase as any).from('profiles').insert({
+          id: signInUserId,
+          name: name.trim(),
+          email: email.trim().toLowerCase(),
+          role: 'observateur',
+          role_label: ROLE_LABELS['observateur'],
+          organization_id: null,
+        });
+
+        if (profileInsertErr && profileInsertErr.code !== '23505') {
+          // 23505 = duplicate key (profile already exists from a previous attempt) → OK
+          console.warn('[register] profiles.insert (invitation) error:', profileInsertErr.code, profileInsertErr.message,
+            '— Le RPC link_invitation_for_current_user prendra le relais via UPSERT.');
+        }
+
         // Link the invitation to the newly created profile.
         // Step 1 — Try the SECURITY DEFINER RPC (bypasses RLS, preferred path).
         // Step 2 — If RPC fails or isn't deployed, fall back to direct client-side
@@ -915,7 +923,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         let rpcLinkedOrgId: string | undefined;
         let rpcLinkedRole: string | undefined;
         try {
-          const { data: rpcData, error: rpcErr } = await supabase.rpc('link_invitation_for_current_user');
+          // On passe p_name pour que le RPC puisse créer le profil via UPSERT
+          // si l'INSERT côté client a été bloqué par RLS (cas où la session
+          // n'était pas encore propagée dans les headers du client supabase-js).
+          const { data: rpcData, error: rpcErr } = await supabase.rpc(
+            'link_invitation_for_current_user',
+            { p_name: name.trim() }
+          );
           if (rpcErr) {
             console.warn('[register] link_invitation_for_current_user RPC error:', rpcErr.code, rpcErr.message);
           } else {
@@ -1153,6 +1167,28 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           console.warn('[login] fetchProfile returned null — 1 retry...');
           await new Promise(r => setTimeout(r, 400));
           profile = await fetchProfile(authUser.id, true);
+        }
+
+        // Recovery : si le profil est toujours manquant et que l'utilisateur
+        // a une invitation en attente (cas d'une inscription précédente où
+        // l'INSERT profiles avait échoué silencieusement à cause de la RLS),
+        // on appelle le RPC qui fait un UPSERT du profil + lie l'invitation.
+        if (!profile) {
+          console.warn('[login] profil manquant — tentative de récupération via link_invitation_for_current_user...');
+          try {
+            const { data: rpcData, error: rpcErr } = await supabase.rpc(
+              'link_invitation_for_current_user',
+              { p_name: authUser.email?.split('@')[0] ?? '' }
+            );
+            if (!rpcErr && (rpcData as any)?.linked) {
+              console.log('[login] profil créé via RPC ✓ — re-fetch...');
+              profile = await fetchProfile(authUser.id, true);
+            } else if (rpcErr) {
+              console.warn('[login] RPC recovery failed:', rpcErr.code, rpcErr.message);
+            }
+          } catch (rpcEx) {
+            console.warn('[login] RPC recovery exception:', rpcEx);
+          }
         }
 
         if (profile) {
