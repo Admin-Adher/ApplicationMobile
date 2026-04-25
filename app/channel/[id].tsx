@@ -109,7 +109,7 @@ export default function ChannelScreen() {
   const {
     messages, addMessage, deleteMessage, updateMessage, toggleReaction, setChannelRead, setActiveChannelId,
     channels, removeCustomChannel, removeGroupChannel, renameChannel,
-    addChannelMember, removeChannelMember, profiles, channelMembersOverride,
+    addChannelMember, removeChannelMember, profiles, companies, channelMembersOverride,
     reserves, sitePlans, tasks, visites, oprs, fetchOlderMessages, fetchChannelMessages,
     refreshChannelMessages,
   } = useApp();
@@ -988,25 +988,36 @@ export default function ChannelScreen() {
               <View style={{ padding: 20, alignItems: 'center' }}>
                 <Text style={styles.emptyText}>Tous les utilisateurs sont déjà membres</Text>
               </View>
-            ) : profiles.filter(p => p.name !== user?.name && !liveMembers.includes(p.name)).map(p => (
-              <TouchableOpacity
-                key={p.id}
-                style={styles.memberItem}
-                onPress={() => { addChannelMember(channelId!, p.name); setAddMemberVisible(false); }}
-              >
-                <View style={[styles.memberAvatar, { backgroundColor: getAvatarColor(p.name) + '25' }]}>
-                  <Text style={[styles.memberAvatarText, { color: getAvatarColor(p.name) }]}>{p.name.charAt(0)}</Text>
-                </View>
-                <View style={{ flex: 1 }}>
-                  <Text style={styles.memberName}>{p.name}</Text>
-                  <Text style={styles.memberSub}>{p.role}</Text>
-                </View>
-                <View style={[styles.addBadge, { backgroundColor: C.primary + '15' }]}>
-                  <Ionicons name="add" size={12} color={C.primary} />
-                  <Text style={[styles.addBadgeText, { color: C.primary }]}>Ajouter</Text>
-                </View>
-              </TouchableOpacity>
-            ))}
+            ) : profiles.filter(p => p.name !== user?.name && !liveMembers.includes(p.name)).map(p => {
+              const co = p.companyId ? companies.find(c => c.id === p.companyId) : null;
+              return (
+                <TouchableOpacity
+                  key={p.id}
+                  style={styles.memberItem}
+                  onPress={() => { addChannelMember(channelId!, p.name); setAddMemberVisible(false); }}
+                >
+                  <View style={[styles.memberAvatar, { backgroundColor: getAvatarColor(p.name) + '25' }]}>
+                    <Text style={[styles.memberAvatarText, { color: getAvatarColor(p.name) }]}>{p.name.charAt(0)}</Text>
+                  </View>
+                  <View style={{ flex: 1, gap: 3 }}>
+                    <Text style={styles.memberName}>{p.name}</Text>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 6 }}>
+                      <Text style={styles.memberSub}>{p.role}</Text>
+                      {co && (
+                        <View style={styles.addMemberCompanyPill}>
+                          <Ionicons name="business-outline" size={10} color={co.color || C.textMuted} />
+                          <Text style={styles.addMemberCompanyPillText} numberOfLines={1}>{co.name}</Text>
+                        </View>
+                      )}
+                    </View>
+                  </View>
+                  <View style={[styles.addBadge, { backgroundColor: C.primary + '15' }]}>
+                    <Ionicons name="add" size={12} color={C.primary} />
+                    <Text style={[styles.addBadgeText, { color: C.primary }]}>Ajouter</Text>
+                  </View>
+                </TouchableOpacity>
+              );
+            })}
             <TouchableOpacity style={styles.sheetCancelBtn} onPress={() => setAddMemberVisible(false)}>
               <Text style={styles.sheetCancelText}>Annuler</Text>
             </TouchableOpacity>
@@ -1097,6 +1108,19 @@ const styles = StyleSheet.create({
   memberSub: { fontSize: 11, fontFamily: 'Inter_400Regular', color: C.textMuted },
   addBadge: { flexDirection: 'row', alignItems: 'center', gap: 3, borderRadius: 10, paddingHorizontal: 8, paddingVertical: 3 },
   addBadgeText: { fontSize: 11, fontFamily: 'Inter_600SemiBold' },
+  addMemberCompanyPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: '#F3F4F6',
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+    borderRadius: 6,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    maxWidth: 160,
+  },
+  addMemberCompanyPillText: { fontSize: 10, fontFamily: 'Inter_600SemiBold', color: '#374151' },
   sheetCancelBtn: { marginTop: 10, backgroundColor: C.surface2, borderRadius: 12, paddingVertical: 13, alignItems: 'center' },
   sheetCancelText: { fontSize: 15, fontFamily: 'Inter_600SemiBold', color: C.textSub },
 });

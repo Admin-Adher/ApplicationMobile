@@ -4,6 +4,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { C } from '@/constants/colors';
 import { Channel, Profile, User } from '@/constants/types';
+import { useApp } from '@/context/AppContext';
 import { getAvatarColor } from './MessageBubble';
 
 interface Props {
@@ -38,7 +39,21 @@ export default function MembersModal({
 }: Props) {
   const router = useRouter();
   const insets = useSafeAreaInsets();
+  const { companies } = useApp();
   const isCompanyChannel = channelObj?.type === 'company';
+
+  function CompanyPill({ name }: { name: string }) {
+    const profile = profiles.find(p => p.name === name);
+    if (!profile?.companyId) return null;
+    const co = companies.find(c => c.id === profile.companyId);
+    if (!co) return null;
+    return (
+      <View style={styles.companyPill}>
+        <Ionicons name="business-outline" size={10} color={co.color || C.textMuted} />
+        <Text style={styles.companyPillText} numberOfLines={1}>{co.name}</Text>
+      </View>
+    );
+  }
 
   return (
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
@@ -85,7 +100,10 @@ export default function MembersModal({
                     <View style={[styles.memberAvatar, { backgroundColor: getAvatarColor(name) + '25' }]}>
                       <Text style={[styles.memberAvatarText, { color: getAvatarColor(name) }]}>{name.charAt(0)}</Text>
                     </View>
-                    <Text style={styles.memberName}>{name}</Text>
+                    <View style={styles.memberInfo}>
+                      <Text style={styles.memberName} numberOfLines={1}>{name}</Text>
+                      <CompanyPill name={name} />
+                    </View>
                     {name === user?.name && <View style={styles.meBadge}><Text style={styles.meBadgeText}>Vous</Text></View>}
                   </View>
                 ))}
@@ -108,7 +126,10 @@ export default function MembersModal({
                     <View style={[styles.memberAvatar, { backgroundColor: getAvatarColor(name) + '25' }]}>
                       <Text style={[styles.memberAvatarText, { color: getAvatarColor(name) }]}>{name.charAt(0)}</Text>
                     </View>
-                    <Text style={styles.memberName}>{name}</Text>
+                    <View style={styles.memberInfo}>
+                      <Text style={styles.memberName} numberOfLines={1}>{name}</Text>
+                      <CompanyPill name={name} />
+                    </View>
                     {name === user?.name && <View style={styles.meBadge}><Text style={styles.meBadgeText}>Vous</Text></View>}
                     {channelObj?.createdBy === name && name !== user?.name && (
                       <View style={[styles.meBadge, { backgroundColor: C.primary + '15' }]}>
@@ -147,7 +168,10 @@ export default function MembersModal({
                     <View style={[styles.memberAvatar, { backgroundColor: getAvatarColor(name) + '25' }]}>
                       <Text style={[styles.memberAvatarText, { color: getAvatarColor(name) }]}>{name.charAt(0)}</Text>
                     </View>
-                    <Text style={styles.memberName}>{name}</Text>
+                    <View style={styles.memberInfo}>
+                      <Text style={styles.memberName} numberOfLines={1}>{name}</Text>
+                      <CompanyPill name={name} />
+                    </View>
                     {name === user?.name && <View style={styles.meBadge}><Text style={styles.meBadgeText}>Vous</Text></View>}
                   </View>
                 ))}
@@ -244,7 +268,22 @@ const styles = StyleSheet.create({
   memberItem: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 8 },
   memberAvatar: { width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center' },
   memberAvatarText: { fontSize: 15, fontFamily: 'Inter_700Bold' },
-  memberName: { flex: 1, fontSize: 14, fontFamily: 'Inter_500Medium', color: C.text },
+  memberInfo: { flex: 1, gap: 3 },
+  memberName: { fontSize: 14, fontFamily: 'Inter_500Medium', color: C.text },
+  companyPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    alignSelf: 'flex-start',
+    gap: 4,
+    backgroundColor: '#F3F4F6',
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+    borderRadius: 6,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    maxWidth: 200,
+  },
+  companyPillText: { fontSize: 10, fontFamily: 'Inter_600SemiBold', color: '#374151' },
   meBadge: { backgroundColor: C.closed + '20', borderRadius: 10, paddingHorizontal: 8, paddingVertical: 3 },
   meBadgeText: { fontSize: 10, fontFamily: 'Inter_600SemiBold', color: C.closed },
   removeBtn: { padding: 4 },
