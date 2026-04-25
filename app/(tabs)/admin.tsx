@@ -318,15 +318,18 @@ export default function AdminScreen() {
 
   function handleCopyToken() {
     if (!inviteToken) return;
-    if (Platform.OS === 'web' && typeof navigator !== 'undefined' && navigator.clipboard) {
-      navigator.clipboard.writeText(inviteToken).then(() => {
-        setTokenCopied(true);
-        setTimeout(() => setTokenCopied(false), 2500);
-      }).catch(() => Alert.alert('Token', inviteToken));
-    } else {
-      Alert.alert('Token d\'invitation', inviteToken);
+    const flagCopied = () => {
       setTokenCopied(true);
       setTimeout(() => setTokenCopied(false), 2500);
+    };
+    if (Platform.OS === 'web' && typeof navigator !== 'undefined' && navigator.clipboard) {
+      navigator.clipboard.writeText(inviteToken).then(flagCopied).catch(() => {
+        Alert.alert('Token', inviteToken);
+      });
+    } else {
+      Clipboard.setStringAsync(inviteToken).then(flagCopied).catch(() => {
+        Alert.alert('Token d\'invitation', inviteToken);
+      });
     }
   }
 
