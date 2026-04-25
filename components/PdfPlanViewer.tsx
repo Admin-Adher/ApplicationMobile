@@ -488,7 +488,15 @@ function setSvgSize(){
 
 
 if(!IS_IMAGE){
-  pdfjsLib.GlobalWorkerOptions.workerSrc='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+  // Workers can't be loaded cross-origin from a null/about:blank origin in WebView.
+  // Disable the worker so PDF.js falls back to running on the main thread — slower
+  // for huge PDFs but reliable inside the Android/iOS WebView.
+  try{
+    if(window.pdfjsLib){
+      window.pdfjsLib.GlobalWorkerOptions.workerSrc='';
+      if('disableWorker' in window.pdfjsLib){window.pdfjsLib.disableWorker=true;}
+    }
+  }catch(_){}
 }
 
 var BASE_FIT_SCALE=1;
@@ -578,11 +586,16 @@ if(IS_IMAGE){
   };
   img.onerror=function(){
     loading.style.display='none';
+    errMsg.innerHTML='Impossible de charger l\\'image.<br>Vérifiez votre connexion et réessayez.<br><span style="color:#94A3B8;font-size:11px;margin-top:8px;display:block">URI: '+(PLAN_URI||'').slice(0,80)+'</span>';
     errMsg.style.display='flex';
+    post({type:'planError',error:'image_load_failed',uri:String(PLAN_URI||'').slice(0,200)});
   };
   img.src=PLAN_URI;
 }else{
-  pdfjsLib.getDocument({url:PLAN_URI,withCredentials:false}).promise.then(function(doc){
+  // disableWorker:true is critical when the document origin is null (about:blank
+  // in WebView) — cross-origin worker scripts are blocked by the browser.
+  var docArgs={url:PLAN_URI,withCredentials:false,disableWorker:true,isEvalSupported:false};
+  pdfjsLib.getDocument(docArgs).promise.then(function(doc){
     pdfDoc=doc;pageCount=doc.numPages;
     post({type:'pageCount',count:pageCount});
     return renderPage(1);
@@ -590,9 +603,12 @@ if(IS_IMAGE){
     loading.style.display='none';
     container.style.display='block';
     post({type:'planReady'});
-  }).catch(function(){
+  }).catch(function(err){
     loading.style.display='none';
+    var msg=(err&&(err.message||err.name))||String(err)||'Erreur inconnue';
+    errMsg.innerHTML='Impossible de charger le plan PDF.<br>Vérifiez votre connexion et réessayez.<br><span style="color:#94A3B8;font-size:11px;margin-top:8px;display:block">'+String(msg).slice(0,200)+'</span>';
     errMsg.style.display='flex';
+    post({type:'planError',error:String(msg).slice(0,400)});
   });
 }
 
@@ -790,47 +806,102 @@ const MobileViewer = forwardRef<PdfPlanViewerHandle, PdfPlanViewerProps>(functio
   const captureResolveRef = useRef<((url: string | null) => void) | null>(null);
 
   const isLocalUri = planUri.startsWith('file://') || planUri.startsWith('content://');
-  const [resolvedUri, setResolvedUri] = useState<string>(isLocalUri ? '' : planUri);
-  const [uriLoading, setUriLoading] = useState(isLocalUri);
+  const isRemoteUri = planUri.startsWith('http://') || planUri.startsWith('https://');
+  const [resolvedUri, setResolvedUri] = useState<string>(
+    (isLocalUri || isRemoteUri) ? '' : planUri,
+  );
+  const [uriLoading, setUriLoading] = useState(isLocalUri || isRemoteUri);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
-  const MAX_BASE64_SIZE = 10 * 1024 * 1024;
+  const MAX_BASE64_SIZE = 25 * 1024 * 1024;
 
   useEffect(() => {
     let cancelled = false;
-    if (planUri.startsWith('file://') || planUri.startsWith('content://')) {
-      setUriLoading(true);
-      setResolvedUri('');
-      FileSystem.getInfoAsync(planUri)
-        .then(info => {
-          if (cancelled) return;
-          const size = info.exists && 'size' in info ? (info.size as number) : 0;
-          if (size > MAX_BASE64_SIZE) {
+
+    function mimeFor(uri: string): string {
+      if (!isImagePlan) return 'application/pdf';
+      return uri.toLowerCase().endsWith('.png') ? 'image/png' : 'image/jpeg';
+    }
+
+    async function downloadRemoteToBase64(): Promise<void> {
+      // Download remote PDF/image to a local cache file, then read it as base64.
+      // This bypasses WebView CORS / null-origin issues with PDF.js.
+      const cleanName = planUri.split('/').pop()?.split('?')[0] ?? `plan_${planId}`;
+      const safeName = cleanName.replace(/[^a-zA-Z0-9._-]/g, '_').slice(-80);
+      const dest = `${FileSystem.cacheDirectory}plan_${planId}_${safeName}`;
+      try {
+        const dl = await FileSystem.downloadAsync(planUri, dest);
+        if (cancelled) return;
+        if (dl.status && dl.status >= 400) {
+          throw new Error(`HTTP ${dl.status}`);
+        }
+        const info = await FileSystem.getInfoAsync(dl.uri);
+        const size = info.exists && 'size' in info ? (info.size as number) : 0;
+        if (size > MAX_BASE64_SIZE) {
+          // File too large to inline — fall back to direct URL (PDF.js will try to fetch).
+          if (!cancelled) {
             setResolvedUri(planUri);
             setUriLoading(false);
-            return;
+            setLoadError(null);
           }
-          return FileSystem.readAsStringAsync(planUri, { encoding: FileSystem.EncodingType.Base64 });
-        })
-        .then(b64 => {
-          if (cancelled || !b64) return;
-          const mime = isImagePlan
-            ? (planUri.toLowerCase().endsWith('.png') ? 'image/png' : 'image/jpeg')
-            : 'application/pdf';
-          setResolvedUri(`data:${mime};base64,${b64}`);
+          return;
+        }
+        const b64 = await FileSystem.readAsStringAsync(dl.uri, { encoding: FileSystem.EncodingType.Base64 });
+        if (cancelled) return;
+        setResolvedUri(`data:${mimeFor(planUri)};base64,${b64}`);
+        setUriLoading(false);
+        setLoadError(null);
+      } catch (e: unknown) {
+        const msg = e instanceof Error ? e.message : String(e);
+        if (!cancelled) {
+          // Fall back to direct URL so the WebView can still try.
+          setResolvedUri(planUri);
           setUriLoading(false);
-        })
-        .catch(() => {
+          setLoadError(`Téléchargement échoué : ${msg}`);
+        }
+      }
+    }
+
+    async function readLocalToBase64(): Promise<void> {
+      try {
+        const info = await FileSystem.getInfoAsync(planUri);
+        const size = info.exists && 'size' in info ? (info.size as number) : 0;
+        if (size > MAX_BASE64_SIZE) {
           if (!cancelled) {
             setResolvedUri(planUri);
             setUriLoading(false);
           }
-        });
+          return;
+        }
+        const b64 = await FileSystem.readAsStringAsync(planUri, { encoding: FileSystem.EncodingType.Base64 });
+        if (cancelled) return;
+        setResolvedUri(`data:${mimeFor(planUri)};base64,${b64}`);
+        setUriLoading(false);
+      } catch {
+        if (!cancelled) {
+          setResolvedUri(planUri);
+          setUriLoading(false);
+        }
+      }
+    }
+
+    if (isLocalUri) {
+      setUriLoading(true);
+      setResolvedUri('');
+      setLoadError(null);
+      readLocalToBase64();
+    } else if (isRemoteUri) {
+      setUriLoading(true);
+      setResolvedUri('');
+      setLoadError(null);
+      downloadRemoteToBase64();
     } else {
       setResolvedUri(planUri);
       setUriLoading(false);
+      setLoadError(null);
     }
     return () => { cancelled = true; };
-  }, [planUri]);
+  }, [planUri, planId, isImagePlan, isLocalUri, isRemoteUri]);
 
   const [mode, setMode] = useState<'view' | 'annotate'>('view');
   const [tool, setTool] = useState<PlanDrawingTool>('pen');
@@ -918,6 +989,9 @@ const MobileViewer = forwardRef<PdfPlanViewerHandle, PdfPlanViewerProps>(functio
         }
       } else if (msg.type === 'zoomChange') {
         onZoomChange?.(msg.zoom);
+      } else if (msg.type === 'planError') {
+        console.warn('[PdfPlanViewer] WebView plan load error:', msg.error, msg.uri ?? '');
+        setLoadError(typeof msg.error === 'string' ? msg.error : 'Erreur de chargement du plan.');
       }
     } catch {}
   }, [reserves, onPlanTap, onReserveSelect, onAnnotationsChange, onZoomChange, onPinMove, onPinFocus, onReady]);
@@ -946,10 +1020,14 @@ const MobileViewer = forwardRef<PdfPlanViewerHandle, PdfPlanViewerProps>(functio
       <WebView
         ref={webViewRef}
         key={resolvedUri}
-        source={{ html }}
+        // baseUrl gives the WebView a real origin so cross-origin requests
+        // (PDF.js worker, CDN script) work even when source is HTML string.
+        source={{ html, baseUrl: 'https://localhost' }}
         onMessage={onMessage}
         style={mob.webview}
         javaScriptEnabled
+        domStorageEnabled
+        mixedContentMode="always"
         scrollEnabled={false}
         showsVerticalScrollIndicator={false}
         showsHorizontalScrollIndicator={false}
@@ -957,8 +1035,15 @@ const MobileViewer = forwardRef<PdfPlanViewerHandle, PdfPlanViewerProps>(functio
         overScrollMode="never"
         originWhitelist={['*']}
         allowFileAccess
+        allowFileAccessFromFileURLs
         allowUniversalAccessFromFileURLs
       />
+      ) : null}
+      {loadError && !uriLoading ? (
+        <View style={{ position: 'absolute' as any, bottom: 90, left: 12, right: 12, backgroundColor: 'rgba(127,29,29,0.92)', borderRadius: 8, padding: 10 }}>
+          <Text style={{ color: '#FECACA', fontSize: 11, fontFamily: 'Inter_600SemiBold' }}>Erreur de chargement du plan</Text>
+          <Text style={{ color: '#FEE2E2', fontSize: 10, marginTop: 4 }} numberOfLines={3}>{loadError}</Text>
+        </View>
       ) : null}
 
       <View style={mob.barWrap}>
