@@ -223,10 +223,22 @@ export default function UserEditScreen() {
           <View style={styles.userCardInfo}>
             <Text style={styles.userName}>{target.name}</Text>
             <Text style={styles.userEmail}>{target.email}</Text>
-            <View style={[styles.roleBadge, { backgroundColor: (roleInfo?.bg ?? '#F3F4F6') }]}>
-              <Text style={[styles.roleBadgeTxt, { color: roleInfo?.color ?? C.textSub }]}>
-                {roleInfo?.label ?? target.roleLabel}
-              </Text>
+            <View style={styles.userCardBadgesRow}>
+              <View style={[styles.roleBadge, { backgroundColor: (roleInfo?.bg ?? '#F3F4F6') }]}>
+                <Text style={[styles.roleBadgeTxt, { color: roleInfo?.color ?? C.textSub }]}>
+                  {roleInfo?.label ?? target.roleLabel}
+                </Text>
+              </View>
+              {(() => {
+                const co = companies.find(c => c.id === (localCompanyId || target.companyId));
+                if (!co) return null;
+                return (
+                  <View style={styles.userCardCompanyPill}>
+                    <Ionicons name="business-outline" size={10} color={co.color || C.textMuted} />
+                    <Text style={styles.userCardCompanyPillText} numberOfLines={1}>{co.name}</Text>
+                  </View>
+                );
+              })()}
             </View>
           </View>
         </View>
@@ -439,6 +451,20 @@ const styles = StyleSheet.create({
     paddingHorizontal: 8, paddingVertical: 3, marginTop: 2,
   },
   roleBadgeTxt: { fontSize: 12, fontFamily: 'Inter_600SemiBold' },
+  userCardBadgesRow: { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 6, marginTop: 6 },
+  userCardCompanyPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: '#F3F4F6',
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+    borderRadius: 6,
+    paddingHorizontal: 6,
+    paddingVertical: 3,
+    maxWidth: 200,
+  },
+  userCardCompanyPillText: { fontSize: 11, fontFamily: 'Inter_600SemiBold', color: '#374151' },
 
   section: {
     backgroundColor: C.surface, borderRadius: 14,
