@@ -37,16 +37,44 @@ type ParsedName = { prefix: string; suffix: string };
 
 function parseBuildingName(name: string): ParsedName | null {
   const t = name.trim();
-  // 1) "Prefix 12", "Prefix 1-niv2", "Prefix 3.2" — préfixe séparé du suffixe par un espace
-  let m = t.match(/^(.+?)\s+(\d+[\w.\-]*)$/);
-  if (m) return { prefix: m[1].trim(), suffix: m[2] };
-  // 2) "Prefix-12", "Prefix.12", "Prefix#12" — séparateurs ponctuels, suffixe purement numérique
-  m = t.match(/^(.+?)[\-_.#]+(\d+)$/);
-  if (m) return { prefix: m[1].trim(), suffix: m[2] };
-  // 3) "Prefix A", "Prefix N12", éventuellement suivi de " — Description"
-  m = t.match(/^(.+?)[\s\-_.#]+([A-Z]\d{0,3})(?:\s*[—\-:·].*)?$/i);
+  if (!t) return null;
+
+  // Stratégie : on coupe le nom au PREMIER bloc de chiffres rencontré.
+  // Tout ce qui précède (lettres + espaces + ponctuations légères) devient
+  // le préfixe (ex. "GuestBlock", "One bedroom", "Service building zone").
+  // Le bloc de chiffres et tout ce qui suit (ex. " izquierda", "-niv2",
+  // " derecha") devient le suffixe — ce qui permet de rassembler dans la
+  // même famille des noms comme "Lockoff1 derecha", "Lockoff 4 izquierda"
+  // et "Lockoff8 izquierda" sous la famille "Lockoff".
+  //
+  // Exemples couverts :
+  //   "Villa1"                 → prefix="Villa",                suffix="1"
+  //   "Villa 1"                → prefix="Villa",                suffix="1"
+  //   "GuestBlock 12"          → prefix="GuestBlock",           suffix="12"
+  //   "Guestblock 3-niv2"      → prefix="Guestblock",           suffix="3-niv2"
+  //   "Lockoff1 derecha"       → prefix="Lockoff",              suffix="1 derecha"
+  //   "Lockoff 4 izquierda"    → prefix="Lockoff",              suffix="4 izquierda"
+  //   "One bedroom6"           → prefix="One bedroom",          suffix="6"
+  //   "One bedroom duplex2"    → prefix="One bedroom duplex",   suffix="2"
+  //   "Service building zone1" → prefix="Service building zone", suffix="1"
+  let m = t.match(/^([^\d]*?[A-Za-zÀ-ÖØ-öø-ÿ])[\s\-_.#]*(\d+.*)$/);
+  if (m) {
+    const prefix = m[1].trim().replace(/[\s\-_.#]+$/, '');
+    const suffix = m[2].trim();
+    if (prefix.length > 0) return { prefix, suffix };
+  }
+
+  // Cas alternatif : "Bâtiment A", "Tour B" — suffixe = lettre majuscule isolée.
+  m = t.match(/^(.+?)[\s\-_.#]+([A-Z])(?:\s*[—\-:·].*)?$/);
   if (m) return { prefix: m[1].trim(), suffix: m[2].toUpperCase() };
+
   return null;
+}
+
+// Clé de regroupement insensible à la casse et aux espaces redondants, pour
+// fusionner "GuestBlock" et "Guestblock" dans la même famille.
+function familyKey(prefix: string): string {
+  return prefix.toLowerCase().replace(/\s+/g, ' ').trim();
 }
 
 type ItemWithSuffix = BuildingItem & { suffix: string | null };
@@ -57,28 +85,44 @@ function buildFamilies(buildings: BuildingItem[]): {
   useGrouping: boolean;
   familyOf: Map<string, string>;
 } {
-  const groups = new Map<string, ItemWithSuffix[]>();
+  type Bucket = { items: ItemWithSuffix[]; labelCounts: Map<string, number> };
+  const groups = new Map<string, Bucket>();
   const others: ItemWithSuffix[] = [];
 
   for (const b of buildings) {
     const parsed = parseBuildingName(b.name);
     if (parsed) {
-      const arr = groups.get(parsed.prefix) ?? [];
-      arr.push({ ...b, suffix: parsed.suffix });
-      groups.set(parsed.prefix, arr);
+      const key = familyKey(parsed.prefix);
+      let bucket = groups.get(key);
+      if (!bucket) {
+        bucket = { items: [], labelCounts: new Map() };
+        groups.set(key, bucket);
+      }
+      bucket.items.push({ ...b, suffix: parsed.suffix });
+      bucket.labelCounts.set(parsed.prefix, (bucket.labelCounts.get(parsed.prefix) ?? 0) + 1);
     } else {
       others.push({ ...b, suffix: null });
     }
   }
 
   const families: Family[] = [];
-  for (const [prefix, items] of groups) {
-    if (items.length >= 2) {
-      items.sort(sortBySuffix);
-      families.push({ key: prefix, label: prefix, items });
+  for (const [key, bucket] of groups) {
+    if (bucket.items.length >= 2) {
+      bucket.items.sort(sortBySuffix);
+      // Étiquette affichée : graphie d'origine la plus fréquente (ex. on
+      // privilégie "GuestBlock" si vu 4 fois plutôt que "Guestblock").
+      let label = '';
+      let bestCount = -1;
+      for (const [lbl, count] of bucket.labelCounts) {
+        if (count > bestCount || (count === bestCount && lbl < label)) {
+          label = lbl;
+          bestCount = count;
+        }
+      }
+      families.push({ key, label, items: bucket.items });
     } else {
       // Famille singleton → on la rejette dans "Autres".
-      for (const it of items) others.push({ ...it, suffix: null });
+      for (const it of bucket.items) others.push({ ...it, suffix: null });
     }
   }
 
@@ -302,10 +346,18 @@ export default function BuildingPickerSheet({
           {/* Vue famille : grille compacte de pastilles (numéros / lettres) + détails */}
           {familyView && (() => {
             const gridItems = familyView.items.filter(b => b.suffix !== null);
-            // Grille n'est utile que si on a au moins 3 vrais suffixes courts
-            // ET si tous les items en ont un (sinon mélange visuel disgracieux,
-            // notamment pour la famille "Autres" qui n'a que des noms longs).
-            const showGrid = gridItems.length >= 3 && gridItems.length === familyView.items.length;
+            // Grille n'est utile que si on a au moins 3 vrais suffixes COURTS
+            // ET si tous les items en ont un. On exclut les suffixes contenant
+            // un mot (ex. "1 izquierda", "3-niv2") pour éviter les pastilles
+            // tronquées et préférer la vue liste, plus lisible.
+            const allShort = gridItems.every(b => {
+              const s = b.suffix ?? '';
+              return s.length <= 4 && /^[\w]+$/.test(s);
+            });
+            const showGrid =
+              gridItems.length >= 3 &&
+              gridItems.length === familyView.items.length &&
+              allShort;
             return (
               <>
                 {showGrid && (
