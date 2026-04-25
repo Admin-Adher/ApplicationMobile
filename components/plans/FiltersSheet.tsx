@@ -12,7 +12,8 @@ const STATUSES = [
   { key: 'in_progress',  label: 'En cours',  color: '#F59E0B' },
   { key: 'waiting',      label: 'Attente',   color: '#6B7280' },
   { key: 'verification', label: 'Vérif.',    color: '#8B5CF6' },
-  { key: 'closed',       label: 'Clôturé',   color: '#10B981' },
+  // 'closed' retiré : les réserves clôturées/archivées n'apparaissent plus
+  // sur le plan, donc ce filtre ne donnerait jamais de résultats.
 ] as const;
 
 interface FiltersSheetProps {

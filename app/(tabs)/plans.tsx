@@ -543,7 +543,11 @@ export default function PlansScreen() {
     : null;
 
   const allPlanReserves = useMemo(() => {
-    let list = reserves.filter(r => r.planId === currentPlanId);
+    // Les réserves clôturées (= archivées dans cette app) ne doivent plus
+    // apparaître sur le plan : ni en pastille active, ni en fantôme grisé,
+    // ni dans la feuille de liste du plan, ni dans le compteur.
+    // Les réserves supprimées sont déjà absentes (suppression définitive).
+    let list = reserves.filter(r => r.planId === currentPlanId && r.status !== 'closed');
     if (isSousTraitant && sousTraitantCompanyName) {
       list = list.filter(r => {
         const names = r.companies ?? (r.company ? [r.company] : []);
