@@ -84,7 +84,7 @@ export function useReserves() {
     // Fix 16: derive companies first, then company from companies[0] for consistency
     const companies = r.companies ?? (r.company ? [r.company] : []);
     const deadlineValue = !r.deadline || r.deadline === '—' ? null : r.deadline;
-    const payload = {
+    const buildPayload = (orgIdValue: string | null) => ({
       id: r.id, title: r.title,
       description: r.description ?? '',
       building: r.building ?? '',
@@ -103,20 +103,89 @@ export function useReserves() {
       enterprise_signataire: r.enterpriseSignataire ?? null,
       enterprise_acknowledged_at: r.enterpriseAcknowledgedAt ?? null,
       company_signatures: r.companySignatures ?? null,
-      organization_id: orgId,
-    };
+      organization_id: orgIdValue,
+    });
+    const payload = buildPayload(orgId);
     if (!isOnlineRef.current && isSupabaseConfigured) {
       enqueueOperation({ table: 'reserves', op: 'insert', data: payload });
       return;
     }
-    // Fix 12: show Alert on server error instead of silent log
-    if (isSupabaseConfigured) {
-      const { error } = await (supabase as any).from('reserves').insert(payload);
-      if (error) {
-        console.warn('[sync] addReserve server error:', error.message);
-        Alert.alert('Synchronisation incomplète', `La réserve a été créée localement mais n'a pas pu être synchronisée (${error.message}).`);
+    if (!isSupabaseConfigured) return;
+
+    const rollback = () => {
+      queryClient.setQueryData<Reserve[]>(queryKeys.reserves(), old => (old ?? []).filter(x => x.id !== r.id));
+      persist(queryClient.getQueryData<Reserve[]>(queryKeys.reserves()) ?? []);
+    };
+
+    const { error } = await (supabase as any).from('reserves').insert(payload);
+    if (!error) return;
+
+    console.warn('[sync] addReserve server error:', error.code, error.message, '(org sent:', orgId, ', role:', user?.role, ')');
+
+    const isRlsError = (error.code === '42501') || /row-level security/i.test(error.message ?? '');
+    if (isRlsError) {
+      // Most likely cause: stale local profile (organization_id) vs server profile.
+      // Refetch the profile and retry once with the fresh organization_id.
+      try {
+        const { data: { session } } = await (supabase as any).auth.getSession();
+        if (!session?.user?.id) {
+          rollback();
+          Alert.alert('Session expirée', 'Votre session a expiré. Reconnectez-vous pour créer une réserve.');
+          return;
+        }
+        const { data: freshProfile } = await (supabase as any)
+          .from('profiles')
+          .select('organization_id, role')
+          .eq('id', session.user.id)
+          .single();
+        const freshOrgId = freshProfile?.organization_id ?? null;
+        const freshRole = freshProfile?.role ?? null;
+        const allowedRoles = ['admin', 'conducteur', 'chef_equipe', 'super_admin'];
+
+        if (!allowedRoles.includes(freshRole)) {
+          rollback();
+          Alert.alert(
+            'Permission refusée',
+            `Votre rôle actuel (${freshRole ?? 'inconnu'}) ne permet pas de créer des réserves. Contactez votre administrateur.`
+          );
+          return;
+        }
+        if (!freshOrgId) {
+          rollback();
+          Alert.alert(
+            'Profil incomplet',
+            "Votre compte n'est pas rattaché à une organisation. Contactez votre administrateur ou utilisez le lien d'invitation."
+          );
+          return;
+        }
+        if (freshOrgId !== orgId) {
+          // Stale local org id — retry with the fresh value
+          console.warn('[sync] addReserve retry with fresh organization_id:', freshOrgId, '(was:', orgId, ')');
+          const { error: retryErr } = await (supabase as any).from('reserves').insert(buildPayload(freshOrgId));
+          if (!retryErr) return;
+          console.warn('[sync] addReserve retry also failed:', retryErr.code, retryErr.message);
+          rollback();
+          Alert.alert('Synchronisation impossible', `La réserve n'a pas pu être créée (${retryErr.message}). Reconnectez-vous puis réessayez.`);
+          return;
+        }
+        // Fresh org_id matches what we sent — RLS still rejected. The server-side profile
+        // and the row both have the same org but the policy still blocked. This usually means
+        // the JWT in the request didn't include the right user. Force a session refresh.
+        rollback();
+        Alert.alert(
+          'Synchronisation impossible',
+          "Votre session est désynchronisée avec le serveur. Déconnectez-vous puis reconnectez-vous, puis réessayez."
+        );
+      } catch (diagErr: any) {
+        console.warn('[sync] addReserve diagnostic failed:', diagErr?.message);
+        rollback();
+        Alert.alert('Synchronisation incomplète', `La réserve n'a pas pu être synchronisée (${error.message}).`);
       }
+      return;
     }
+
+    // Non-RLS error: keep local copy (so user doesn't lose their input) and tell them.
+    Alert.alert('Synchronisation incomplète', `La réserve a été créée localement mais n'a pas pu être synchronisée (${error.message}).`);
   }, [queryClient, user, isOnlineRef, enqueueOperation, persist]);
 
   const updateReserve = useCallback(async (r: Reserve) => {
