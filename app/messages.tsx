@@ -183,6 +183,7 @@ export default function MessagesScreen() {
     channels, messages, unreadByChannel, profiles,
     addCustomChannel, addGroupChannel, getOrCreateDMChannel,
     pinnedChannelIds, pinChannel, unpinChannel, maxPinnedChannels,
+    setChannelRead,
   } = useApp();
   const { user } = useAuth();
   const [search, setSearch] = useState('');
@@ -338,6 +339,30 @@ export default function MessagesScreen() {
     AsyncStorage.setItem(STORAGE_KEY_DISMISSED_PIN, id).catch(() => {});
   }
 
+  // Marquer toute une section comme lue
+  function markSectionRead(title: string, items: Channel[]) {
+    const unreadItems = items.filter(ch => (unreadByChannel[ch.id] ?? 0) > 0);
+    if (unreadItems.length === 0) {
+      Alert.alert('Tout est déjà lu', `Aucun message non lu dans « ${title} ».`);
+      return;
+    }
+    const total = unreadItems.reduce((acc, ch) => acc + (unreadByChannel[ch.id] ?? 0), 0);
+    Alert.alert(
+      'Marquer comme lus',
+      `Marquer ${total} message${total > 1 ? 's' : ''} non lu${total > 1 ? 's' : ''} dans « ${title} » comme lu${total > 1 ? 's' : ''} ?`,
+      [
+        { text: 'Annuler', style: 'cancel' },
+        {
+          text: 'Confirmer',
+          style: 'default',
+          onPress: () => {
+            for (const ch of unreadItems) setChannelRead(ch.id);
+          },
+        },
+      ]
+    );
+  }
+
   function goToChannel(ch: Channel) {
     router.push({
       pathname: '/channel/[id]',
@@ -479,6 +504,8 @@ export default function MessagesScreen() {
         <TouchableOpacity
           style={styles.sectionHeader}
           onPress={() => toggleCollapsed(title)}
+          onLongPress={() => markSectionRead(title, items)}
+          delayLongPress={500}
           activeOpacity={0.7}
         >
           <View style={styles.sectionTitleRow}>
@@ -492,9 +519,13 @@ export default function MessagesScreen() {
               <Text style={styles.sectionCountText}>{items.length}</Text>
             </View>
             {sectionUnread > 0 && (
-              <View style={styles.sectionUnreadDot}>
+              <TouchableOpacity
+                style={styles.sectionUnreadDot}
+                onPress={() => markSectionRead(title, items)}
+                accessibilityLabel={`Marquer ${sectionUnread} messages comme lus`}
+              >
                 <Text style={styles.sectionUnreadDotText}>{sectionUnread > 99 ? '99+' : sectionUnread}</Text>
-              </View>
+              </TouchableOpacity>
             )}
           </View>
           {onAction && (
