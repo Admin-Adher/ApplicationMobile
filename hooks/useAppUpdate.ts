@@ -9,6 +9,8 @@ export const APK_DOWNLOAD_URL = 'https://github.com/Admin-Adher/ApplicationMobil
 
 const CACHE_KEY = 'app.update.latestRelease.v3';
 const DISMISS_KEY = 'app.update.dismissedBuild.v3';
+const LAST_SEEN_BUILD_KEY = 'app.update.lastSeenBuild.v1';
+const JUST_UPDATED_ACK_KEY = 'app.update.justUpdatedAck.v1';
 
 interface CachedRelease {
   tag: string;
@@ -86,6 +88,9 @@ export interface AppUpdateState {
   downloadUrl: string;
   dismiss: () => Promise<void>;
   refresh: () => Promise<void>;
+  justUpdated: boolean;
+  justUpdatedFromBuild: number | null;
+  acknowledgeJustUpdated: () => Promise<void>;
 }
 
 function formatRelativeFr(iso: string | null): string | null {
@@ -120,6 +125,8 @@ export function useAppUpdate(): AppUpdateState {
   const [latestPublishedAt, setLatestPublishedAt] = useState<string | null>(null);
   const [dismissed, setDismissed] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [justUpdated, setJustUpdated] = useState(false);
+  const [justUpdatedFromBuild, setJustUpdatedFromBuild] = useState<number | null>(null);
 
   const applyRelease = useCallback((rel: CachedRelease) => {
     setLatestTag(rel.tag || null);
@@ -168,11 +175,47 @@ export function useAppUpdate(): AppUpdateState {
         const d = await AsyncStorage.getItem(DISMISS_KEY);
         if (!cancelled) setDismissed(d);
       } catch {}
+
+      // Détection « mise à jour réalisée » : on compare le build natif
+      // au dernier build qu'on avait vu lors d'un précédent lancement.
+      // Si le build courant est plus récent et qu'on n'a pas déjà confirmé
+      // cette version, on déclenche le toast de succès.
+      try {
+        if (currentBuild != null && Platform.OS !== 'web') {
+          const lastSeenRaw = await AsyncStorage.getItem(LAST_SEEN_BUILD_KEY);
+          const ackRaw = await AsyncStorage.getItem(JUST_UPDATED_ACK_KEY);
+          const lastSeen = lastSeenRaw ? parseInt(lastSeenRaw, 10) : null;
+          const ack = ackRaw ? parseInt(ackRaw, 10) : null;
+          if (
+            lastSeen != null &&
+            !Number.isNaN(lastSeen) &&
+            currentBuild > lastSeen &&
+            ack !== currentBuild
+          ) {
+            if (!cancelled) {
+              setJustUpdated(true);
+              setJustUpdatedFromBuild(lastSeen);
+            }
+          }
+          // On enregistre toujours le build courant pour la prochaine fois.
+          await AsyncStorage.setItem(LAST_SEEN_BUILD_KEY, String(currentBuild));
+        }
+      } catch {}
+
       // Toujours rafraîchir en arrière-plan (stale-while-revalidate).
       if (!cancelled) await fetchLatest();
     })();
     return () => { cancelled = true; };
-  }, [fetchLatest, applyRelease]);
+  }, [fetchLatest, applyRelease, currentBuild]);
+
+  const acknowledgeJustUpdated = useCallback(async () => {
+    setJustUpdated(false);
+    if (currentBuild != null) {
+      try {
+        await AsyncStorage.setItem(JUST_UPDATED_ACK_KEY, String(currentBuild));
+      } catch {}
+    }
+  }, [currentBuild]);
 
   // Étiquette à afficher pour la dernière version
   let latestLabel: string | null = null;
@@ -212,5 +255,8 @@ export function useAppUpdate(): AppUpdateState {
     downloadUrl: APK_DOWNLOAD_URL,
     dismiss,
     refresh: fetchLatest,
+    justUpdated,
+    justUpdatedFromBuild,
+    acknowledgeJustUpdated,
   };
 }

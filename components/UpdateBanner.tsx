@@ -1,5 +1,5 @@
-import { useRef, useState } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, Linking, Platform, Alert } from 'react-native';
+import { useEffect, useRef, useState } from 'react';
+import { View, Text, StyleSheet, TouchableOpacity, Linking, Platform, Alert, AppState, AppStateStatus } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import * as Clipboard from 'expo-clipboard';
 import * as FileSystem from 'expo-file-system';
@@ -10,10 +10,79 @@ import { useAppUpdate } from '@/hooks/useAppUpdate';
 type DownloadState = 'idle' | 'downloading' | 'opening';
 
 export default function UpdateBanner() {
-  const { updateAvailable, latestLabel, publishedRelative, downloadUrl, dismiss } = useAppUpdate();
+  const {
+    updateAvailable,
+    latestLabel,
+    publishedRelative,
+    downloadUrl,
+    dismiss,
+    justUpdated,
+    justUpdatedFromBuild,
+    acknowledgeJustUpdated,
+    currentLabel,
+  } = useAppUpdate();
   const [state, setState] = useState<DownloadState>('idle');
   const [progress, setProgress] = useState(0);
   const resumableRef = useRef<FileSystem.DownloadResumable | null>(null);
+  const downloadedUriRef = useRef<string | null>(null);
+  const installLaunchedRef = useRef(false);
+  const stateRef = useRef<DownloadState>('idle');
+
+  useEffect(() => {
+    stateRef.current = state;
+  }, [state]);
+
+  // Quand l'utilisateur revient dans l'app après l'écran d'installation
+  // Android (qu'il ait validé ou annulé), on remet le bouton à zéro et on
+  // nettoie le fichier APK en cache pour ne pas accumuler.
+  useEffect(() => {
+    const sub = AppState.addEventListener('change', async (next: AppStateStatus) => {
+      if (next === 'active' && installLaunchedRef.current) {
+        installLaunchedRef.current = false;
+        if (stateRef.current !== 'idle') {
+          setState('idle');
+          setProgress(0);
+        }
+        const uri = downloadedUriRef.current;
+        downloadedUriRef.current = null;
+        if (uri) {
+          try { await FileSystem.deleteAsync(uri, { idempotent: true }); } catch {}
+        }
+      }
+    });
+    return () => { sub.remove(); };
+  }, []);
+
+  // Auto-dismiss du toast de succès au bout de 8 s.
+  useEffect(() => {
+    if (!justUpdated) return;
+    const t = setTimeout(() => { acknowledgeJustUpdated(); }, 8000);
+    return () => clearTimeout(t);
+  }, [justUpdated, acknowledgeJustUpdated]);
+
+  // Bannière verte de confirmation après une mise à jour réussie
+  if (justUpdated) {
+    return (
+      <View style={[styles.banner, styles.bannerSuccess]}>
+        <View style={[styles.iconWrap, styles.iconWrapSuccess]}>
+          <Ionicons name="checkmark-circle" size={20} color="#FFFFFF" />
+        </View>
+        <View style={styles.textWrap}>
+          <Text style={styles.title} numberOfLines={1}>
+            Mise à jour installée · {currentLabel}
+          </Text>
+          <Text style={styles.subtitle} numberOfLines={1}>
+            {justUpdatedFromBuild != null
+              ? `Vous étiez sur le Build ${justUpdatedFromBuild}`
+              : 'Vous utilisez la dernière version'}
+          </Text>
+        </View>
+        <TouchableOpacity style={styles.closeBtn} onPress={() => { acknowledgeJustUpdated(); }} hitSlop={8}>
+          <Ionicons name="close" size={18} color="#FFFFFFCC" />
+        </TouchableOpacity>
+      </View>
+    );
+  }
 
   if (!updateAvailable) return null;
 
@@ -82,6 +151,7 @@ export default function UpdateBanner() {
         throw new Error('Téléchargement interrompu');
       }
 
+      downloadedUriRef.current = result.uri;
       setState('opening');
 
       // Étape 1 : convertir le file:// en content:// (FileProvider Expo).
@@ -108,6 +178,7 @@ export default function UpdateBanner() {
             },
           );
           installLaunched = true;
+          installLaunchedRef.current = true;
         } catch {
           installLaunched = false;
         }
@@ -118,6 +189,7 @@ export default function UpdateBanner() {
       if (!installLaunched) {
         const canShare = await Sharing.isAvailableAsync();
         if (canShare) {
+          installLaunchedRef.current = true;
           await Sharing.shareAsync(result.uri, {
             mimeType: 'application/vnd.android.package-archive',
             dialogTitle: 'Installer la mise à jour BuildTrack',
@@ -125,11 +197,16 @@ export default function UpdateBanner() {
           });
         } else {
           await fallbackToBrowser();
+          // Le navigateur n'a pas de retour à gérer côté AppState.
+          setState('idle');
+          setProgress(0);
         }
       }
 
-      setState('idle');
-      setProgress(0);
+      // NB : on ne reset PAS state/progress ici quand l'install est lancée.
+      // Le listener AppState s'en charge au retour de l'utilisateur, ce qui
+      // évite que le bouton repasse à « Mettre à jour » avant que l'écran
+      // d'installation soit même affiché.
     } catch (err) {
       resumableRef.current = null;
       setState('idle');
@@ -210,6 +287,9 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 2 },
     elevation: 3,
   },
+  bannerSuccess: {
+    backgroundColor: '#10B981',
+  },
   iconWrap: {
     width: 36,
     height: 36,
@@ -217,6 +297,9 @@ const styles = StyleSheet.create({
     backgroundColor: '#FFFFFF22',
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  iconWrapSuccess: {
+    backgroundColor: '#FFFFFF33',
   },
   textWrap: {
     flex: 1,
