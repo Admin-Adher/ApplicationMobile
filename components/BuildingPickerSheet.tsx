@@ -532,7 +532,11 @@ function FamilyChip({
       onPress={onPress}
       activeOpacity={0.7}
     >
-      <Text style={[styles.familyChipText, active && styles.familyChipTextActive]} numberOfLines={1}>
+      {/* Pas de numberOfLines ici : dans un ScrollView horizontal, un Text
+          en flex-row sans largeur explicite se contracte à 0px quand on
+          force numberOfLines=1. On laisse le texte se dimensionner librement
+          puisque les chips sont déjà dans un scroll horizontal. */}
+      <Text style={[styles.familyChipText, active && styles.familyChipTextActive]}>
         {label}
       </Text>
       <Text style={[styles.familyChipCount, active && styles.familyChipCountActive]}>
@@ -692,6 +696,9 @@ const styles = StyleSheet.create({
     backgroundColor: C.surface2,
     borderWidth: 1,
     borderColor: C.border,
+    // Empêche le chip de se contracter dans le ScrollView horizontal —
+    // sinon le label se réduit à 0px quand l'espace est étroit.
+    flexShrink: 0,
   },
   familyChipActive: { backgroundColor: C.primary, borderColor: C.primary },
   familyChipText: { fontSize: 12, fontFamily: 'Inter_600SemiBold', color: C.textSub },
