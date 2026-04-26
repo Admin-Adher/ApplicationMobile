@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   View, Text, StyleSheet, TouchableOpacity, Modal,
-  ScrollView, TextInput, Platform, PanResponder,
+  ScrollView, TextInput, Platform, PanResponder, useWindowDimensions,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -56,6 +56,13 @@ export default function LevelPickerSheet({
 }: Props) {
   const insets = useSafeAreaInsets();
   const [query, setQuery] = useState('');
+
+  // Hauteur de la sheet en PIXELS (cf. BuildingPickerSheet) : `height: '78%'`
+  // est instable sur Android quand le parent n'a pas de hauteur explicite,
+  // donc on dérive depuis useWindowDimensions pour avoir une valeur fiable
+  // et réactive aux rotations.
+  const { height: windowHeight } = useWindowDimensions();
+  const sheetHeight = Math.round(windowHeight * 0.78);
 
   const handlePan = useRef(
     PanResponder.create({
@@ -118,7 +125,7 @@ export default function LevelPickerSheet({
           activeOpacity={1}
           onPress={() => { setQuery(''); onClose(); }}
         />
-        <View style={styles.sheet}>
+        <View style={[styles.sheet, { height: sheetHeight }]}>
         <View style={styles.handleHitArea} {...handlePan.panHandlers}>
           <View style={styles.handle} />
         </View>
@@ -348,7 +355,8 @@ const styles = StyleSheet.create({
     borderTopRightRadius: 20,
     paddingHorizontal: 16,
     paddingTop: 8,
-    height: '78%',
+    // height fournie inline en PIXELS (cf. sheetHeight ci-dessus).
+    flexShrink: 0,
     ...Platform.select({
       web: { boxShadow: '0 -4px 24px rgba(0,0,0,0.12)' } as any,
       default: {

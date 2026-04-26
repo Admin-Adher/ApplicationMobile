@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   View, Text, StyleSheet, TouchableOpacity, Modal,
-  ScrollView, TextInput, Platform, PanResponder,
+  ScrollView, TextInput, Platform, PanResponder, useWindowDimensions,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -252,6 +252,18 @@ export default function BuildingPickerSheet({
   const [query, setQuery] = useState('');
   const [activeFamily, setActiveFamily] = useState<string>(ALL_FAMILY);
 
+  // Hauteur de la sheet en PIXELS ABSOLUS (pas en pourcentage).
+  // Yoga (RN layout) ne calcule fiablement `height: '78%'` que si le parent
+  // a une hauteur explicite en pixels — `flex:1` ne suffit pas toujours et
+  // peut, sur Android, retomber sur la hauteur intrinsèque du contenu pendant
+  // la phase de mesure : la sheet s'effondre alors quand le contenu varie
+  // (typiquement en passant de "Lockoff" à "Toutes" où le contenu rendu
+  // change drastiquement de hauteur). useWindowDimensions donne une valeur
+  // stable + réactive aux rotations d'écran, indépendante de toute cascade
+  // flex/percent.
+  const { height: windowHeight } = useWindowDimensions();
+  const sheetHeight = Math.round(windowHeight * 0.78);
+
   const handlePan = useRef(
     PanResponder.create({
       onStartShouldSetPanResponder: () => false,
@@ -344,7 +356,7 @@ export default function BuildingPickerSheet({
           activeOpacity={1}
           onPress={() => { setQuery(''); onClose(); }}
         />
-        <View style={styles.sheet}>
+        <View style={[styles.sheet, { height: sheetHeight }]}>
         <View style={styles.handleHitArea} {...handlePan.panHandlers}>
           <View style={styles.handle} />
         </View>
@@ -680,7 +692,9 @@ const styles = StyleSheet.create({
     borderTopRightRadius: 20,
     paddingHorizontal: 16,
     paddingTop: 8,
-    height: '78%',
+    // height fournie inline en PIXELS (cf. sheetHeight ci-dessus) pour
+    // contourner la limitation Yoga sur les pourcentages de hauteur.
+    flexShrink: 0,
     ...Platform.select({
       web: { boxShadow: '0 -4px 24px rgba(0,0,0,0.12)' } as any,
       default: {
