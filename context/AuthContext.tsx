@@ -468,8 +468,20 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       return;
     }
 
-    // Safety valve: if auth init hangs for any reason, unblock the UI after 10s
-    const AUTH_TIMEOUT_MS = 10_000;
+    // ─────────────────────────────────────────────────────────────────────────
+    // Instant-restore pattern (cold-start optimization)
+    // ─────────────────────────────────────────────────────────────────────────
+    // 1. Lire IMMÉDIATEMENT le profil en cache (AsyncStorage, ~50ms) et libérer
+    //    l'UI tout de suite si on en trouve un. L'utilisateur voit l'app sans
+    //    attendre le réseau (DNS froid + TLS handshake + refresh token Supabase
+    //    peut prendre 3-10s à la 1ère ouverture du jour).
+    // 2. En arrière-plan, valider la session via Supabase et mettre à jour le
+    //    profil silencieusement si différent — ou signOut si session invalide.
+    // ─────────────────────────────────────────────────────────────────────────
+
+    // Safety valve: if auth init hangs for any reason, unblock the UI after 3s
+    // (réduit de 10s à 3s grâce au cached profile en fallback immédiat)
+    const AUTH_TIMEOUT_MS = 3_000;
     let loadingResolved = false;
     const resolveLoading = () => {
       if (!loadingResolved) {
@@ -479,12 +491,25 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     };
     const safetyTimer = setTimeout(resolveLoading, AUTH_TIMEOUT_MS);
 
-    debugLog('[AuthContext] getSession() → appel initial');
+    // Étape 1 — Cached profile en priorité absolue
+    debugLog('[AuthContext] readCachedProfile() → instant-restore');
+    readCachedProfile().then((cached) => {
+      if (cached && !loadingResolved) {
+        debugLogOk(`[AuthContext] Profil restauré depuis cache (instant-restore) → ${cached.email}`);
+        setUser(cached);
+        setIsOfflineSession(true); // sera repassé à false si getSession() valide
+        clearTimeout(safetyTimer);
+        resolveLoading();
+      }
+    }).catch(() => {});
+
+    // Étape 2 — Validation Supabase en arrière-plan (n'attend PAS le résultat
+    // pour libérer l'UI ; setUser silencieux si profil change)
+    debugLog('[AuthContext] getSession() → validation arrière-plan');
     supabase.auth.getSession().then(async ({ data: { session } }: { data: { session: any } }) => {
       try {
         if (session?.user) {
           debugLogOk(`[AuthContext] Session trouvée → user=${session.user.email}`);
-          debugLog('[AuthContext] fetchProfile() → début');
           const profile = await fetchProfile(session.user.id);
           if (profile) {
             debugLogOk(`[AuthContext] fetchProfile() → OK (role=${profile.role}, org=${profile.organizationId ?? 'aucune'})`);
@@ -492,54 +517,43 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             setIsOfflineSession(false);
             cacheProfile(profile);
           } else {
-            // fetchProfile returned null — likely network error (offline)
-            // Use cached profile as fallback instead of signing out
+            // fetchProfile null — likely network error → garder le cached profile
+            // (déjà setUser via instant-restore) en mode offline
             const cached = await readCachedProfile();
             if (cached) {
-              debugLogWarn('[AuthContext] fetchProfile() → null (hors ligne?) → profil en cache restauré');
+              debugLogWarn('[AuthContext] fetchProfile() → null (hors ligne?) → cached profile conservé');
               setUser(cached);
               setIsOfflineSession(true);
             } else {
-              debugLogError('[AuthContext] fetchProfile() → null → signOut() déclenché');
+              debugLogError('[AuthContext] fetchProfile() → null + pas de cache → signOut()');
               supabase.auth.signOut().catch(() => {});
               setUser(null);
             }
           }
         } else {
-          // No Supabase session — try cached profile for offline access
+          // Pas de session Supabase → si on avait restauré un cached profile,
+          // le garder en mode offline (pas de signOut intempestif)
           const cached = await readCachedProfile();
           if (cached) {
-            debugLogWarn('[AuthContext] getSession() → pas de session active → profil en cache restauré (hors ligne)');
+            debugLogWarn('[AuthContext] getSession() → null → cached profile conservé (hors ligne)');
             setUser(cached);
             setIsOfflineSession(true);
           } else {
             debugLogWarn('[AuthContext] getSession() → pas de session active');
+            setUser(null);
           }
         }
       } catch (err: any) {
         debugLogError(`[AuthContext] getSession().then exception: ${err?.message ?? err}`);
-        // On exception, try cached profile before giving up
-        const cached = await readCachedProfile();
-        if (cached) {
-          setUser(cached);
-          setIsOfflineSession(true);
-        } else {
-          setUser(null);
-        }
       } finally {
         clearTimeout(safetyTimer);
         resolveLoading();
-        debugLog('[AuthContext] isLoading → false (initial)');
+        debugLog('[AuthContext] isLoading → false (background sync done)');
       }
     }).catch(async (err: any) => {
       debugLogError(`[AuthContext] getSession() rejeté: ${err?.message ?? err}`);
-      // getSession() itself failed (network) — try cached profile
-      const cached = await readCachedProfile();
-      if (cached) {
-        debugLogWarn('[AuthContext] getSession() rejeté → profil en cache restauré (hors ligne)');
-        setUser(cached);
-        setIsOfflineSession(true);
-      }
+      // getSession() rejeté (réseau) — le cached profile est déjà en place via
+      // l'instant-restore, on libère juste isLoading
       clearTimeout(safetyTimer);
       resolveLoading();
     });
