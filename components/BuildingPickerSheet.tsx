@@ -211,7 +211,11 @@ function buildFamilies(buildings: BuildingItem[]): {
     }
   }
 
-  families.sort((a, b) => b.items.length - a.items.length || a.label.localeCompare(b.label));
+  // Tri alphabétique A→Z (insensible à la casse, gère les accents et chiffres
+  // via { numeric: true } pour avoir "Lockoff 2" avant "Lockoff 10").
+  families.sort((a, b) =>
+    a.label.localeCompare(b.label, 'fr', { sensitivity: 'base', numeric: true })
+  );
 
   if (others.length > 0) {
     others.sort((a, b) => a.name.localeCompare(b.name, 'fr', { numeric: true }));
