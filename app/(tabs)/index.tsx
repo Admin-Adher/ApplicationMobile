@@ -172,6 +172,7 @@ export default function DashboardScreen() {
   const [analyticsTab, setAnalyticsTab] = useState<'trend' | 'companies'>('trend');
   const [viewMode, setViewMode] = useState<'chantier' | 'portfolio'>('chantier');
   const [globalSearchVisible, setGlobalSearchVisible] = useState(false);
+  const [personnelExpanded, setPersonnelExpanded] = useState(false);
 
   const isSousTraitant = user?.role === 'sous_traitant';
 
@@ -683,35 +684,6 @@ export default function DashboardScreen() {
           </View>
         )}
 
-        {chantiers.length > 0 && permissions.canViewTeams && (
-          <View style={styles.card}>
-            <View style={styles.cardHeader}>
-              <Text style={styles.cardTitle}>Personnel aujourd'hui</Text>
-              <Text style={styles.cardSub}>
-                {`${stats.totalWorkers} / ${stats.plannedWorkers} personnes`}
-              </Text>
-            </View>
-            {visibleCompanies.map(co => {
-              const pct = co.plannedWorkers > 0 ? (co.actualWorkers / co.plannedWorkers) * 100 : 0;
-              const isOver = co.actualWorkers > co.plannedWorkers;
-              const isUnder = co.plannedWorkers > 0 && co.actualWorkers < co.plannedWorkers * 0.7;
-              const barColor = isOver ? C.waiting : isUnder ? C.open : co.color;
-              return (
-                <View key={co.id} style={styles.coRow}>
-                  <View style={[styles.coDot, { backgroundColor: co.color }]} />
-                  <Text style={styles.coName}>{co.shortName}</Text>
-                  <View style={styles.coBarWrap}>
-                    <View style={[styles.coBarFill, { width: `${Math.min(pct, 100)}%` as any, backgroundColor: barColor }]} />
-                  </View>
-                  <Text style={[styles.coCount, { color: isOver ? C.waiting : isUnder ? C.open : co.color }]}>
-                    {co.actualWorkers}/{co.plannedWorkers}{isOver ? ' ↑' : isUnder ? ' ↓' : ''}
-                  </Text>
-                </View>
-              );
-            })}
-          </View>
-        )}
-
         {criticalReserves.length > 0 && (
           <View style={styles.alertCard}>
             <View style={styles.alertHeader}>
@@ -767,6 +739,88 @@ export default function DashboardScreen() {
             ))}
           </View>
         )}
+
+        {chantiers.length > 0 && permissions.canViewTeams && (() => {
+          // Compactage : on ne montre par défaut que les entreprises ayant
+          // de l'activité aujourd'hui (effectif réel ou planifié > 0).
+          // Les entreprises 0/0 sont masquées derrière un bouton "Voir tout".
+          const activeCompanies = visibleCompanies.filter(
+            co => co.actualWorkers > 0 || co.plannedWorkers > 0
+          );
+          const inactiveCount = visibleCompanies.length - activeCompanies.length;
+          const displayList = personnelExpanded ? visibleCompanies : activeCompanies;
+          const hasNoActivity = activeCompanies.length === 0;
+
+          return (
+            <View style={styles.card}>
+              <View style={styles.cardHeader}>
+                <Text style={styles.cardTitle}>Personnel aujourd'hui</Text>
+                <Text style={styles.cardSub}>
+                  {`${stats.totalWorkers} / ${stats.plannedWorkers} personnes`}
+                </Text>
+              </View>
+
+              {/* État vide compact : aucune entreprise active aujourd'hui */}
+              {hasNoActivity && !personnelExpanded && (
+                <TouchableOpacity
+                  style={styles.personnelEmptyRow}
+                  onPress={() => setPersonnelExpanded(true)}
+                  activeOpacity={0.7}
+                >
+                  <Ionicons name="people-outline" size={16} color={C.textSub} />
+                  <Text style={styles.personnelEmptyText}>
+                    Aucune présence renseignée · {visibleCompanies.length} entreprise{visibleCompanies.length > 1 ? 's' : ''}
+                  </Text>
+                  <Ionicons name="chevron-down" size={14} color={C.textSub} />
+                </TouchableOpacity>
+              )}
+
+              {/* Liste (active par défaut, complète si expanded) */}
+              {(!hasNoActivity || personnelExpanded) && displayList.map(co => {
+                const pct = co.plannedWorkers > 0 ? (co.actualWorkers / co.plannedWorkers) * 100 : 0;
+                const isOver = co.actualWorkers > co.plannedWorkers;
+                const isUnder = co.plannedWorkers > 0 && co.actualWorkers < co.plannedWorkers * 0.7;
+                const barColor = isOver ? C.waiting : isUnder ? C.open : co.color;
+                return (
+                  <View key={co.id} style={styles.coRow}>
+                    <View style={[styles.coDot, { backgroundColor: co.color }]} />
+                    <Text style={styles.coName}>{co.shortName}</Text>
+                    <View style={styles.coBarWrap}>
+                      <View style={[styles.coBarFill, { width: `${Math.min(pct, 100)}%` as any, backgroundColor: barColor }]} />
+                    </View>
+                    <Text style={[styles.coCount, { color: isOver ? C.waiting : isUnder ? C.open : co.color }]}>
+                      {co.actualWorkers}/{co.plannedWorkers}{isOver ? ' ↑' : isUnder ? ' ↓' : ''}
+                    </Text>
+                  </View>
+                );
+              })}
+
+              {/* Toggle expand / collapse — seulement si y'a quelque chose à cacher/montrer */}
+              {!hasNoActivity && inactiveCount > 0 && !personnelExpanded && (
+                <TouchableOpacity
+                  style={styles.personnelToggle}
+                  onPress={() => setPersonnelExpanded(true)}
+                  activeOpacity={0.7}
+                >
+                  <Ionicons name="chevron-down" size={14} color={C.primary} />
+                  <Text style={styles.personnelToggleText}>
+                    Voir les {inactiveCount} autre{inactiveCount > 1 ? 's' : ''} entreprise{inactiveCount > 1 ? 's' : ''}
+                  </Text>
+                </TouchableOpacity>
+              )}
+              {personnelExpanded && visibleCompanies.length > 5 && (
+                <TouchableOpacity
+                  style={styles.personnelToggle}
+                  onPress={() => setPersonnelExpanded(false)}
+                  activeOpacity={0.7}
+                >
+                  <Ionicons name="chevron-up" size={14} color={C.primary} />
+                  <Text style={styles.personnelToggleText}>Réduire</Text>
+                </TouchableOpacity>
+              )}
+            </View>
+          );
+        })()}
 
         {lateTasks.length > 0 && !isSousTraitant && (
           <View style={styles.delayCard}>
@@ -1037,6 +1091,36 @@ const styles = StyleSheet.create({
   coBarWrap: { flex: 1, height: 8, backgroundColor: C.surface2, borderRadius: 4, overflow: 'hidden' },
   coBarFill: { height: 8, borderRadius: 4 },
   coCount: { fontSize: 12, fontFamily: 'Inter_700Bold', width: 52, textAlign: 'right' },
+  personnelEmptyRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    backgroundColor: C.surface2,
+    borderRadius: 8,
+  },
+  personnelEmptyText: {
+    flex: 1,
+    fontSize: 13,
+    fontFamily: 'Inter_500Medium',
+    color: C.textSub,
+  },
+  personnelToggle: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 4,
+    paddingVertical: 8,
+    marginTop: 6,
+    borderTopWidth: 1,
+    borderTopColor: C.surface2,
+  },
+  personnelToggleText: {
+    fontSize: 12,
+    fontFamily: 'Inter_600SemiBold',
+    color: C.primary,
+  },
 
   dashLoadingState: {
     flexGrow: 1, alignItems: 'center', justifyContent: 'center', padding: 40,
