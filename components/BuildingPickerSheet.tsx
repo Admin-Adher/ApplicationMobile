@@ -314,8 +314,12 @@ export default function BuildingPickerSheet({
 
   const filteredFlat = useMemo(() => {
     const q = query.trim().toLowerCase();
-    if (!q) return buildings;
-    return buildings.filter(b => b.name.toLowerCase().includes(q));
+    const list = !q ? buildings : buildings.filter(b => b.name.toLowerCase().includes(q));
+    // Tri alphabétique A→Z avec gestion intelligente des numéros
+    // (ex. "GuestBlock 2" avant "GuestBlock 10")
+    return [...list].sort((a, b) =>
+      a.name.localeCompare(b.name, 'fr', { sensitivity: 'base', numeric: true })
+    );
   }, [buildings, query]);
 
   const familyView = useMemo(() => {
