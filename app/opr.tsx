@@ -33,7 +33,8 @@ import { Opr, OprItem, OprSignatory, OprStatus, Reserve } from '@/constants/type
 import Header from '@/components/Header';
 import BottomNavBar from '@/components/BottomNavBar';
 import SignaturePad, { SignaturePadRef } from '@/components/SignaturePad';
-import { genId, formatDateFR } from '@/lib/utils';
+import { genId, formatDateFR, nowTimestampFR } from '@/lib/utils';
+import { formatDate } from '@/lib/reserveUtils';
 import LocationPicker from '@/components/LocationPicker';
 
 const ITEM_STATUS_CFG = {
@@ -583,7 +584,7 @@ export default function OprScreen() {
       items,
       maireOuvrage: maireOuvrage.trim() || undefined,
       visitContradictoire: visitDateForm.trim() || undefined,
-      createdAt: formatDateFR(new Date()),
+      createdAt: nowTimestampFR(),
     };
     addOpr(opr);
     setTitle('');
@@ -669,7 +670,7 @@ export default function OprScreen() {
       return;
     }
 
-    const now = formatDateFR(new Date());
+    const now = nowTimestampFR();
     updateOpr({
       ...signModalOpr,
       status: 'signed',
@@ -714,7 +715,7 @@ export default function OprScreen() {
   }
 
   function verifyLevee(opr: Opr, itemId: string) {
-    const now = formatDateFR(new Date());
+    const now = nowTimestampFR();
     const updated = opr.items.map(item =>
       item.id === itemId ? { ...item, verifiedAt: now, verifiedBy: user?.name ?? 'Conducteur' } : item
     );
@@ -1433,7 +1434,7 @@ export default function OprScreen() {
                   {opr.status === 'signed' && (
                     <View style={styles.signedBadge}>
                       <Ionicons name="checkmark-circle" size={14} color={C.closed} />
-                      <Text style={styles.signedText}>PV signé le {opr.signedAt}</Text>
+                      <Text style={styles.signedText}>PV signé le {formatDate(opr.signedAt ?? '')}</Text>
                     </View>
                   )}
                   {permissions.canDelete && (
@@ -1482,7 +1483,7 @@ export default function OprScreen() {
                         {sig.signedAt ? (
                           <View style={styles.sigSignedBadge}>
                             <Ionicons name="checkmark-circle" size={12} color={C.closed} />
-                            <Text style={styles.sigSignedText}>{sig.signedAt}</Text>
+                            <Text style={styles.sigSignedText}>{formatDate(sig.signedAt)}</Text>
                           </View>
                         ) : (
                           <View style={styles.sigPendingBadge}>

@@ -10,7 +10,8 @@ import { useAuth } from '@/context/AuthContext';
 import { useApp } from '@/context/AppContext';
 import { Opr } from '@/constants/types';
 import SignaturePad, { SignaturePadRef } from '@/components/SignaturePad';
-import { formatDateFR } from '@/lib/utils';
+import { formatDateFR, nowTimestampFR } from '@/lib/utils';
+import { formatDate } from '@/lib/reserveUtils';
 
 const ITEM_STATUS_CFG = {
   ok: { label: 'Conforme', color: C.closed, icon: 'checkmark-circle' },
@@ -64,7 +65,7 @@ export default function OprSessionScreen() {
     }
     setSigning(true);
     try {
-      const now = formatDateFR(new Date());
+      const now = nowTimestampFR();
       const updatedSignatories = signatories.map(s =>
         s.name.trim().toLowerCase() === signerName.trim().toLowerCase()
           ? { ...s, signed: true, signedAt: now, signature: sigData }
@@ -240,7 +241,7 @@ export default function OprSessionScreen() {
                       color={s.signed ? C.closed : C.textMuted}
                     />
                     <Text style={[styles.signatoryName, s.signed && { color: C.closed }]}>{s.name}</Text>
-                    {s.signed && s.signedAt && <Text style={styles.signatoryDate}>le {s.signedAt}</Text>}
+                    {s.signed && s.signedAt && <Text style={styles.signatoryDate}>le {formatDate(s.signedAt)}</Text>}
                   </View>
                 ))}
               </View>
@@ -268,7 +269,7 @@ export default function OprSessionScreen() {
           <View style={[styles.sectionCard, { backgroundColor: C.closedBg, borderColor: C.closed + '60' }]}>
             <View style={styles.signedRow}>
               <Ionicons name="checkmark-circle" size={20} color={C.closed} />
-              <Text style={styles.signedText}>PV signé le {opr.signedAt}</Text>
+              <Text style={styles.signedText}>PV signé le {formatDate(opr.signedAt ?? '')}</Text>
             </View>
           </View>
         )}
