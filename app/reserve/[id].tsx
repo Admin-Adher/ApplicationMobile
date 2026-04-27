@@ -1521,7 +1521,10 @@ export default function ReserveDetailScreen() {
                       </TouchableOpacity>
                       <TouchableOpacity
                         onPress={handleSaveEditComment}
-                        style={[styles.sendBtn, { paddingHorizontal: 14, flexDirection: 'row', gap: 6 }]}
+                        style={[
+                          styles.sendBtn,
+                          { width: 'auto', height: 'auto', paddingHorizontal: 14, paddingVertical: 9, flexDirection: 'row', gap: 6 },
+                        ]}
                       >
                         <Ionicons name="checkmark" size={16} color="#fff" />
                         <Text style={{ color: '#fff', fontWeight: '600' }}>Enregistrer</Text>
