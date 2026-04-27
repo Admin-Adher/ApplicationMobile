@@ -38,6 +38,7 @@ export default function ReserveCard({ reserve, onPress, onLongPress, onSwipeRigh
   const overdue = isOverdue(reserve.deadline, reserve.status);
   const daysLeft = deadlineDaysLeft(reserve.deadline);
   const showDeadline = reserve.deadline && reserve.deadline !== '—';
+  const nearDeadline = !overdue && !isArchived && reserve.status !== 'closed' && daysLeft !== null && daysLeft <= 3;
   const lot = reserve.lotId ? lots.find(l => l.id === reserve.lotId) : null;
   const isObservation = reserve.kind === 'observation';
   const firstPhotoUri = reserve.photos?.[0]?.uri ?? reserve.photoUri ?? null;
@@ -73,7 +74,7 @@ export default function ReserveCard({ reserve, onPress, onLongPress, onSwipeRigh
 
   const card = (
     <TouchableOpacity
-      style={[styles.card, overdue && styles.cardOverdue, isObservation && styles.cardObservation, selected && styles.cardSelected, isArchived && styles.cardArchived]}
+      style={[styles.card, overdue && styles.cardOverdue, nearDeadline && styles.cardNearDeadline, isObservation && styles.cardObservation, selected && styles.cardSelected, isArchived && styles.cardArchived]}
       onPress={() => onPress ? onPress(reserve) : router.push(`/reserve/${reserve.id}` as any)}
       onLongPress={() => onLongPress?.(reserve)}
       delayLongPress={400}
@@ -267,6 +268,10 @@ const styles = StyleSheet.create({
     borderColor: C.open + '50',
     borderLeftWidth: 3,
     borderLeftColor: C.open,
+  },
+  cardNearDeadline: {
+    borderLeftWidth: 3,
+    borderLeftColor: '#D97706',
   },
   cardObservation: {
     borderLeftWidth: 3,
