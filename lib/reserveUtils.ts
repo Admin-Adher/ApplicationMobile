@@ -80,6 +80,26 @@ export const RESERVE_TEMPLATES: { category: string; icon: string; items: { title
   },
 ];
 
+export function levelSortKey(name: string): number {
+  const t = (name ?? '').trim();
+  if (/^(rdc|r\.?d\.?c\.?|rc|rez)/i.test(t)) return 0;
+  const m1 = t.match(/^r\s*([+\-])\s*(\d+)/i);
+  if (m1) return parseInt(m1[2], 10) * (m1[1] === '-' ? -1 : 1);
+  const m2 = t.match(/^([+\-]?\d+)$/);
+  if (m2) return parseInt(m2[1], 10);
+  const m3 = t.match(/(?:ss|s\.?s\.?|sous.?sol\s*)(\d+)/i);
+  if (m3) return -parseInt(m3[1], 10);
+  if (/sous.?sol|s\.?s\.?/i.test(t)) return -1;
+  return 999;
+}
+
+export function compareLevels(a: string, b: string): number {
+  const ka = levelSortKey(a);
+  const kb = levelSortKey(b);
+  if (ka !== kb) return ka - kb;
+  return a.localeCompare(b, 'fr', { numeric: true });
+}
+
 export function genReserveId(reserves: { id: string }[], lot?: { code: string } | null): string {
   // Fix 4: append a short random suffix to avoid collision when two users create simultaneously
   const suffix = () => Math.random().toString(36).slice(2, 5).toUpperCase();

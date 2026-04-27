@@ -22,6 +22,7 @@ import PriorityBadge from '@/components/PriorityBadge';
 import { uploadDocumentDetailed, isLocalUri } from '@/lib/storage';
 import { genId, formatDateFR } from '@/lib/utils';
 import { loadFileAsDataUrl, preRenderPdfPageToDataUrl } from '@/lib/pdfBase';
+import { compareLevels } from '@/lib/reserveUtils';
 import { parseDxf, DxfParseResult } from '@/lib/dxfParser';
 import { openChantierSwitcher } from '@/components/ChantierSwitcherSheet';
 import QRCodeDisplay from '@/components/QRCodeDisplay';
@@ -669,7 +670,7 @@ export default function PlansScreen() {
   const planLevelsForBuilding = useMemo(() => {
     const scope = selectedBuilding === 'all' ? chantierPlans : chantierPlans.filter(p => (p.building ?? '') === selectedBuilding);
     const lvls = Array.from(new Set(scope.map(p => p.level).filter(Boolean))) as string[];
-    return lvls.sort();
+    return lvls.sort(compareLevels);
   }, [chantierPlans, selectedBuilding]);
 
   const filteredPlans = useMemo(() => {
@@ -843,7 +844,7 @@ export default function PlansScreen() {
 
   const planLevels = useMemo(() => {
     const lvls = reserves.filter(r => r.planId === currentPlanId).map(r => r.level);
-    return Array.from(new Set(lvls)).filter(Boolean).sort() as string[];
+    return Array.from(new Set(lvls)).filter(Boolean).sort(compareLevels) as string[];
   }, [reserves, currentPlanId]);
 
   const currentDxfLayers = currentPlanId && dxfData[currentPlanId]

@@ -17,7 +17,7 @@ import { useAuth } from '@/context/AuthContext';
 import { Reserve, ReserveStatus, ReservePriority, ReserveKind } from '@/constants/types';
 import ReserveCard from '@/components/ReserveCard';
 import DateInput from '@/components/DateInput';
-import { isOverdue, formatDate, genReserveId } from '@/lib/reserveUtils';
+import { isOverdue, formatDate, genReserveId, compareLevels } from '@/lib/reserveUtils';
 import { PDF_BASE_CSS, PDF_BRAND_COLOR, PDF_MUTED, PDF_TEXT, exportPDF as exportPDFHelper, escapeHtml } from '@/lib/pdfBase';
 
 function buildReservesCSV(reserves: Reserve[]): string {
@@ -377,7 +377,7 @@ export default function ReservesScreen() {
 
   const levels = useMemo(() => {
     const l = new Set(chantierReserves.map(r => r.level).filter(Boolean));
-    return Array.from(l).sort();
+    return Array.from(l).sort(compareLevels);
   }, [chantierReserves]);
 
   const activeFilterCount = (buildingFilter !== 'all' ? 1 : 0)
