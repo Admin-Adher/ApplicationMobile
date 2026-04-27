@@ -1043,12 +1043,12 @@ export default function ReservesScreen() {
             onPress={() => setNearDeadlineOnly(v => !v)}
             activeOpacity={0.85}
             accessibilityRole="button"
-            accessibilityLabel={`${nearDeadlineReserves.length} réserves expirent dans moins de 3 jours`}
+            accessibilityLabel={`${nearDeadlineReserves.length} réserves arrivent à échéance dans moins de 3 jours`}
           >
             <Ionicons name="alarm-outline" size={14} color="#D97706" />
             <Text style={styles.deadlineReminderText}>
               <Text style={{ fontFamily: 'Inter_700Bold' }}>{nearDeadlineReserves.length} réserve{nearDeadlineReserves.length > 1 ? 's' : ''}</Text>
-              {' '}expire{nearDeadlineReserves.length > 1 ? 'nt' : ''} dans moins de 3 jours{nearDeadlineOnly ? ' — filtre actif' : ' — voir'}
+              {' '}arrive{nearDeadlineReserves.length > 1 ? 'nt' : ''} à échéance dans moins de 3 jours{nearDeadlineOnly ? ' — filtre actif' : ' — voir'}
             </Text>
             <Ionicons name={nearDeadlineOnly ? 'close-circle' : 'chevron-forward'} size={13} color="#D97706" />
           </TouchableOpacity>
