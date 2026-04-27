@@ -75,6 +75,8 @@ interface AppContextValue {
   archiveReserve: (id: string, author?: string) => void;
   unarchiveReserve: (id: string, author?: string) => void;
   addComment: (reserveId: string, content: string, author?: string) => void;
+  updateComment: (reserveId: string, commentId: string, newContent: string) => void;
+  deleteComment: (reserveId: string, commentId: string) => void;
   addCompany: (c: Company) => void;
   updateCompanyWorkers: (id: string, actual: number) => void;
   updateCompanyFull: (c: Company) => void;
@@ -645,6 +647,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     archiveReserve: reservesH.archiveReserve,
     unarchiveReserve: reservesH.unarchiveReserve,
     addComment: reservesH.addComment,
+    updateComment: reservesH.updateComment,
+    deleteComment: reservesH.deleteComment,
     addCompany: companiesH.addCompany,
     updateCompanyWorkers: companiesH.updateCompanyWorkers,
     updateCompanyFull: companiesH.updateCompanyFull,
@@ -715,7 +719,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     setActiveChantier, chantiersH.addSitePlan, chantiersH.updateSitePlan,
     chantiersH.deleteSitePlan, reservesH.addReserve, reservesH.updateReserve,
     reservesH.updateReserveFields, reservesH.deleteReserve,
-    updateReserveStatusWithNotif, reservesH.archiveReserve, reservesH.unarchiveReserve, reservesH.addComment,
+    updateReserveStatusWithNotif, reservesH.archiveReserve, reservesH.unarchiveReserve, reservesH.addComment, reservesH.updateComment, reservesH.deleteComment,
     companiesH.addCompany, companiesH.updateCompanyWorkers,
     companiesH.updateCompanyFull, companiesH.deleteCompany,
     companiesH.updateCompanyHours, reload, setCurrentUser,

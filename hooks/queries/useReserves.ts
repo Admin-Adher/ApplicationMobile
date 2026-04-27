@@ -359,6 +359,7 @@ export function useReserves() {
     if (!reserve) return;
     const comment: Comment = {
       id: genId(), content, author: author ?? user?.name ?? 'Inconnu',
+      authorId: user?.id,
       createdAt: nowTimestampFR(),
     };
     const updated: Reserve = { ...reserve, comments: [...reserve.comments, comment] };
@@ -370,6 +371,54 @@ export function useReserves() {
       (supabase as any).from('reserves').update({ comments: updated.comments }).eq('id', reserveId)
         .then(({ error }: { error: any }) => {
           if (error) console.warn('[sync] addComment error:', error.message);
+        });
+    }
+  }, [queryClient, user, persist]);
+
+  const updateComment = useCallback(async (reserveId: string, commentId: string, newContent: string) => {
+    const reserves = queryClient.getQueryData<Reserve[]>(queryKeys.reserves()) ?? [];
+    const reserve = reserves.find(r => r.id === reserveId);
+    if (!reserve) return;
+    const target = reserve.comments.find(c => c.id === commentId);
+    if (!target) return;
+    const isOwner = (target.authorId && user?.id && target.authorId === user.id) ||
+                    (!target.authorId && target.author === user?.name);
+    if (!isOwner) return;
+    const updatedComments = reserve.comments.map(c =>
+      c.id === commentId ? { ...c, content: newContent, editedAt: nowTimestampFR() } : c
+    );
+    const updated: Reserve = { ...reserve, comments: updatedComments };
+    queryClient.setQueryData<Reserve[]>(queryKeys.reserves(), old =>
+      (old ?? []).map(r => r.id === reserveId ? updated : r)
+    );
+    persist(queryClient.getQueryData<Reserve[]>(queryKeys.reserves()) ?? []);
+    if (isSupabaseConfigured) {
+      (supabase as any).from('reserves').update({ comments: updatedComments }).eq('id', reserveId)
+        .then(({ error }: { error: any }) => {
+          if (error) console.warn('[sync] updateComment error:', error.message);
+        });
+    }
+  }, [queryClient, user, persist]);
+
+  const deleteComment = useCallback(async (reserveId: string, commentId: string) => {
+    const reserves = queryClient.getQueryData<Reserve[]>(queryKeys.reserves()) ?? [];
+    const reserve = reserves.find(r => r.id === reserveId);
+    if (!reserve) return;
+    const target = reserve.comments.find(c => c.id === commentId);
+    if (!target) return;
+    const isOwner = (target.authorId && user?.id && target.authorId === user.id) ||
+                    (!target.authorId && target.author === user?.name);
+    if (!isOwner) return;
+    const updatedComments = reserve.comments.filter(c => c.id !== commentId);
+    const updated: Reserve = { ...reserve, comments: updatedComments };
+    queryClient.setQueryData<Reserve[]>(queryKeys.reserves(), old =>
+      (old ?? []).map(r => r.id === reserveId ? updated : r)
+    );
+    persist(queryClient.getQueryData<Reserve[]>(queryKeys.reserves()) ?? []);
+    if (isSupabaseConfigured) {
+      (supabase as any).from('reserves').update({ comments: updatedComments }).eq('id', reserveId)
+        .then(({ error }: { error: any }) => {
+          if (error) console.warn('[sync] deleteComment error:', error.message);
         });
     }
   }, [queryClient, user, persist]);
@@ -447,6 +496,8 @@ export function useReserves() {
     archiveReserve,
     unarchiveReserve,
     addComment,
+    updateComment,
+    deleteComment,
     batchUpdateReserves,
     invalidateReserves: () => queryClient.invalidateQueries({ queryKey: queryKeys.reserves() }),
   };

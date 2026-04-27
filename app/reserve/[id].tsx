@@ -411,11 +411,13 @@ export default function ReserveDetailScreen() {
   const insets = useSafeAreaInsets();
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
-  const { reserves, tasks, updateReserveStatus, updateReserveFields, deleteReserve, addComment, companies, channels, addPhoto, sitePlans, activeChantierId, chantiers } = useApp();
+  const { reserves, tasks, updateReserveStatus, updateReserveFields, deleteReserve, addComment, updateComment, deleteComment, companies, channels, addPhoto, sitePlans, activeChantierId, chantiers } = useApp();
   const { user, permissions } = useAuth();
   const { projectName } = useSettings();
   const [comment, setComment] = useState('');
   const [showCommentBox, setShowCommentBox] = useState(false);
+  const [editingCommentId, setEditingCommentId] = useState<string | null>(null);
+  const [editingCommentText, setEditingCommentText] = useState('');
   const [editModalVisible, setEditModalVisible] = useState(false);
   const [photoFullScreen, setPhotoFullScreen] = useState(false);
   const [selectedPhotoIndex, setSelectedPhotoIndex] = useState(0);
@@ -927,6 +929,44 @@ export default function ReserveDetailScreen() {
     setShowCommentBox(false);
   }
 
+  function handleStartEditComment(c: { id: string; content: string }) {
+    setEditingCommentId(c.id);
+    setEditingCommentText(c.content);
+  }
+
+  function handleCancelEditComment() {
+    setEditingCommentId(null);
+    setEditingCommentText('');
+  }
+
+  function handleSaveEditComment() {
+    if (!reserve || !editingCommentId) return;
+    const trimmed = editingCommentText.trim();
+    if (trimmed.length === 0) return;
+    updateComment(reserve.id, editingCommentId, trimmed);
+    setEditingCommentId(null);
+    setEditingCommentText('');
+  }
+
+  function handleDeleteComment(commentId: string) {
+    if (!reserve) return;
+    const doDelete = () => deleteComment(reserve.id, commentId);
+    if (Platform.OS === 'web') {
+      if (typeof window !== 'undefined' && window.confirm('Supprimer ce commentaire ?')) {
+        doDelete();
+      }
+    } else {
+      Alert.alert(
+        'Supprimer le commentaire',
+        'Cette action est irréversible.',
+        [
+          { text: 'Annuler', style: 'cancel' },
+          { text: 'Supprimer', style: 'destructive', onPress: doDelete },
+        ]
+      );
+    }
+  }
+
   const ackDone = !!reserve.enterpriseAcknowledgedAt;
   const signDone = !!reserve.enterpriseSignature;
   const isMultiCompany = reserveCompanyNames.length > 1;
@@ -1426,20 +1466,74 @@ export default function ReserveDetailScreen() {
             <Text style={styles.emptyText}>Aucun commentaire — appuyez sur + pour en ajouter</Text>
           )}
 
-          {[...reserve.comments].reverse().map(c => (
-            <View key={c.id} style={styles.commentCard}>
-              <View style={styles.commentTop}>
-                <View style={styles.avatarCircle}>
-                  <Text style={styles.avatarText}>{c.author.charAt(0)}</Text>
+          {[...reserve.comments].reverse().map(c => {
+            const isOwner = (c.authorId && user?.id && c.authorId === user.id) ||
+                            (!c.authorId && c.author === user?.name);
+            const isEditing = editingCommentId === c.id;
+            return (
+              <View key={c.id} style={styles.commentCard}>
+                <View style={styles.commentTop}>
+                  <View style={styles.avatarCircle}>
+                    <Text style={styles.avatarText}>{c.author.charAt(0)}</Text>
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.commentAuthor}>{c.author}</Text>
+                    <Text style={styles.commentDate}>
+                      {formatDate(c.createdAt)}
+                      {c.editedAt ? ` · modifié le ${formatDate(c.editedAt)}` : ''}
+                    </Text>
+                  </View>
+                  {isOwner && !isEditing && (
+                    <View style={{ flexDirection: 'row', gap: 8 }}>
+                      <TouchableOpacity
+                        onPress={() => handleStartEditComment(c)}
+                        style={styles.commentActionBtn}
+                        accessibilityLabel="Modifier le commentaire"
+                      >
+                        <Ionicons name="create-outline" size={16} color={C.primary} />
+                      </TouchableOpacity>
+                      <TouchableOpacity
+                        onPress={() => handleDeleteComment(c.id)}
+                        style={styles.commentActionBtn}
+                        accessibilityLabel="Supprimer le commentaire"
+                      >
+                        <Ionicons name="trash-outline" size={16} color={C.open} />
+                      </TouchableOpacity>
+                    </View>
+                  )}
                 </View>
-                <View>
-                  <Text style={styles.commentAuthor}>{c.author}</Text>
-                  <Text style={styles.commentDate}>{formatDate(c.createdAt)}</Text>
-                </View>
+                {isEditing ? (
+                  <View style={{ marginTop: 8 }}>
+                    <TextInput
+                      style={styles.commentInput}
+                      value={editingCommentText}
+                      onChangeText={setEditingCommentText}
+                      multiline
+                      maxLength={500}
+                      autoFocus
+                    />
+                    <View style={{ flexDirection: 'row', justifyContent: 'flex-end', gap: 8, marginTop: 8 }}>
+                      <TouchableOpacity
+                        onPress={handleCancelEditComment}
+                        style={[styles.commentActionBtn, { paddingHorizontal: 12 }]}
+                      >
+                        <Text style={{ color: C.textMuted, fontWeight: '600' }}>Annuler</Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity
+                        onPress={handleSaveEditComment}
+                        style={[styles.sendBtn, { paddingHorizontal: 14, flexDirection: 'row', gap: 6 }]}
+                      >
+                        <Ionicons name="checkmark" size={16} color="#fff" />
+                        <Text style={{ color: '#fff', fontWeight: '600' }}>Enregistrer</Text>
+                      </TouchableOpacity>
+                    </View>
+                  </View>
+                ) : (
+                  <Text style={styles.commentContent}>{c.content}</Text>
+                )}
               </View>
-              <Text style={styles.commentContent}>{c.content}</Text>
-            </View>
-          ))}
+            );
+          })}
         </View>
 
         <View style={styles.card}>
@@ -1812,6 +1906,7 @@ const styles = StyleSheet.create({
   commentAuthor: { fontSize: 13, fontFamily: 'Inter_600SemiBold', color: C.text },
   commentDate: { fontSize: 11, fontFamily: 'Inter_400Regular', color: C.textMuted },
   commentContent: { fontSize: 13, fontFamily: 'Inter_400Regular', color: C.textSub, lineHeight: 20 },
+  commentActionBtn: { padding: 6, borderRadius: 6, alignItems: 'center', justifyContent: 'center' },
   historyItem: { flexDirection: 'row', gap: 10, paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: C.border },
   historyDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: C.primary, marginTop: 4 },
   historyAction: { fontSize: 13, fontFamily: 'Inter_500Medium', color: C.text },

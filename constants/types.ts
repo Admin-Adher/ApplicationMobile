@@ -100,8 +100,10 @@ export interface Invitation {
 export interface Comment {
   id: string;
   author: string;
+  authorId?: string;
   content: string;
   createdAt: string;
+  editedAt?: string;
 }
 
 export interface HistoryEntry {
