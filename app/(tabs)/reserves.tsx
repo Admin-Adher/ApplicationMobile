@@ -918,15 +918,15 @@ export default function ReservesScreen() {
     <View style={styles.container}>
       <View style={[styles.header, { paddingTop: topPad + 8 }]}>
         <View style={styles.headerRow}>
-          <View style={{ flex: 1 }}>
-            <Text style={styles.title}>Réserves</Text>
-            <Text style={styles.subtitle}>
+          <View style={{ flex: 1, minWidth: 0, marginRight: 8 }}>
+            <Text style={styles.title} numberOfLines={1} ellipsizeMode="tail">Réserves</Text>
+            <Text style={styles.subtitle} numberOfLines={2} ellipsizeMode="tail">
               {isLoading ? 'Chargement…' : isSelectMode
                 ? `${selectedIds.size} sélectionnée${selectedIds.size !== 1 ? 's' : ''} sur ${filtered.length}`
                 : `${filtered.length} / ${chantierReserves.length} réserve${chantierReserves.length !== 1 ? 's' : ''}${overdueCount > 0 ? ` · ${overdueCount} en retard` : ''}`}
             </Text>
           </View>
-          <View style={{ flexDirection: 'row', gap: 6 }}>
+          <View style={{ flexDirection: 'row', gap: 6, flexShrink: 0, alignItems: 'center' }}>
             {permissions.canExport && filtered.length > 0 && !isSelectMode && (
               <>
                 <TouchableOpacity style={styles.selectBtn} onPress={handleExportCSV} accessibilityLabel="Exporter en CSV">
