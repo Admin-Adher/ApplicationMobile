@@ -21,7 +21,7 @@ import { STATUS_CONFIG } from '@/components/StatusBadge';
 import PriorityBadge from '@/components/PriorityBadge';
 import { uploadDocumentDetailed, isLocalUri } from '@/lib/storage';
 import { genId, formatDateFR } from '@/lib/utils';
-import { loadFileAsDataUrl, preRenderPdfPageToDataUrl } from '@/lib/pdfBase';
+import { loadFileAsDataUrl, preRenderPdfPageToDataUrl, exportPDF as exportPDFHelper } from '@/lib/pdfBase';
 import { compareLevels } from '@/lib/reserveUtils';
 import { parseDxf, DxfParseResult } from '@/lib/dxfParser';
 import { openChantierSwitcher } from '@/components/ChantierSwitcherSheet';
@@ -323,10 +323,12 @@ ${fallbackCanvasScript ? `<script>${fallbackCanvasScript}<\/script>` : ''}
       setTimeout(() => { try { win.print(); } catch {} }, (!useStaticImg && isPdf) ? 2500 : 400);
     }
   } else {
+    // Native: generate the PDF file then open the OS share sheet
+    // (WhatsApp, Mail, Drive, etc.)
     try {
-      await Print.printAsync({ html });
+      await exportPDFHelper(html, `Plan_${planName}`);
     } catch {
-      Alert.alert('Erreur', "Impossible d'imprimer le PDF.");
+      Alert.alert('Erreur', "Impossible de générer le PDF.");
     }
   }
 }
