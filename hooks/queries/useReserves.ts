@@ -354,7 +354,11 @@ export function useReserves() {
   }, [query.data, user, updateReserve]);
 
   const addComment = useCallback(async (reserveId: string, content: string, author?: string) => {
-    const reserves = query.data ?? [];
+    // IMPORTANT : lire depuis queryClient.getQueryData (live cache) et non depuis
+    // query.data (qui peut être stale dans le closure du useCallback). Sinon, après
+    // une suppression de commentaire, l'ajout suivant repart de l'ancienne liste
+    // et fait "réapparaître" le commentaire supprimé.
+    const reserves = queryClient.getQueryData<Reserve[]>(queryKeys.reserves()) ?? [];
     const reserve = reserves.find(r => r.id === reserveId);
     if (!reserve) return;
     const comment: Comment = {
@@ -362,13 +366,14 @@ export function useReserves() {
       authorId: user?.id,
       createdAt: nowTimestampFR(),
     };
-    const updated: Reserve = { ...reserve, comments: [...reserve.comments, comment] };
+    const updatedComments = [...reserve.comments, comment];
+    const updated: Reserve = { ...reserve, comments: updatedComments };
     queryClient.setQueryData<Reserve[]>(queryKeys.reserves(), old =>
       (old ?? []).map(r => r.id === reserveId ? updated : r)
     );
     persist(queryClient.getQueryData<Reserve[]>(queryKeys.reserves()) ?? []);
     if (isSupabaseConfigured) {
-      (supabase as any).from('reserves').update({ comments: updated.comments }).eq('id', reserveId)
+      (supabase as any).from('reserves').update({ comments: updatedComments }).eq('id', reserveId)
         .then(({ error }: { error: any }) => {
           if (error) console.warn('[sync] addComment error:', error.message);
         });
