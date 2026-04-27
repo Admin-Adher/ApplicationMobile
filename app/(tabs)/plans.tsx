@@ -19,7 +19,7 @@ import { Reserve, SitePlan, ReserveStatus } from '@/constants/types';
 import StatusBadge from '@/components/StatusBadge';
 import { STATUS_CONFIG } from '@/components/StatusBadge';
 import PriorityBadge from '@/components/PriorityBadge';
-import { uploadDocumentDetailed } from '@/lib/storage';
+import { uploadDocumentDetailed, isLocalUri } from '@/lib/storage';
 import { genId, formatDateFR } from '@/lib/utils';
 import { loadFileAsDataUrl, preRenderPdfPageToDataUrl } from '@/lib/pdfBase';
 import { parseDxf, DxfParseResult } from '@/lib/dxfParser';
@@ -1775,12 +1775,13 @@ export default function PlansScreen() {
                 ) : filteredPlans.map(plan => {
                   const isActive = currentPlanId === plan.id;
                   const planReserveCount = reserves.filter(r => r.planId === plan.id).length;
+                  const isUnsynced = !!(plan.uri && isLocalUri(plan.uri));
                   return (
                     <TouchableOpacity
                       key={plan.id}
-                      style={[styles.planTab, isActive && styles.planTabActive]}
+                      style={[styles.planTab, isActive && styles.planTabActive, { position: 'relative' }]}
                       onPress={() => handleSelectPlan(plan.id)}
-                      accessibilityLabel={`Plan ${plan.name}${planReserveCount > 0 ? `, ${planReserveCount} réserves` : ''}`}
+                      accessibilityLabel={`Plan ${plan.name}${planReserveCount > 0 ? `, ${planReserveCount} réserves` : ''}${isUnsynced ? ', non synchronisé avec le serveur' : ''}`}
                       accessibilityState={{ selected: isActive }}
                     >
                       <View style={styles.planTabThumb}>
@@ -1794,6 +1795,11 @@ export default function PlansScreen() {
                           <Ionicons name="map-outline" size={13} color={isActive ? C.primary : C.textMuted} />
                         )}
                       </View>
+                      {isUnsynced && (
+                        <View style={styles.planTabSyncDot} accessibilityLabel="Fichier non envoyé au serveur">
+                          <Ionicons name="cloud-offline" size={9} color="#fff" />
+                        </View>
+                      )}
                       <Text style={[styles.planTabText, isActive && styles.planTabTextActive]} numberOfLines={1} ellipsizeMode="tail">
                         {plan.name}
                       </Text>
@@ -2796,6 +2802,7 @@ const styles = StyleSheet.create({
   planTab: { flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: 10, paddingVertical: 6, borderRadius: 10, backgroundColor: C.surface2, borderWidth: 1, borderColor: C.border, maxWidth: 155, minWidth: 60 },
   planTabActive: { backgroundColor: C.primaryBg, borderColor: C.primary + 'A0' },
   planTabThumb: { width: 20, height: 16, borderRadius: 3, backgroundColor: C.surface, borderWidth: 1, borderColor: C.border, alignItems: 'center', justifyContent: 'center', overflow: 'hidden', flexShrink: 0 },
+  planTabSyncDot: { position: 'absolute', top: 2, left: 16, width: 12, height: 12, borderRadius: 6, backgroundColor: '#DC2626', alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: '#fff' },
   planTabThumbImg: { width: 20, height: 16 },
   planTabText: { fontSize: 12, fontFamily: 'Inter_500Medium', color: C.textSub, flex: 1, minWidth: 0 },
   planTabTextActive: { color: C.primary, fontFamily: 'Inter_600SemiBold' },
