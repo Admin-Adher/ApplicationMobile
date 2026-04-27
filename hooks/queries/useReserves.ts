@@ -8,7 +8,7 @@ import { useNetwork } from '@/context/NetworkContext';
 import { queryKeys } from '@/lib/queryKeys';
 import { toReserve } from '@/lib/mappers';
 import { Reserve, ReserveStatus, Comment } from '@/constants/types';
-import { genId, formatDateFR } from '@/lib/utils';
+import { genId, formatDateFR, nowTimestampFR } from '@/lib/utils';
 import { genReserveId } from '@/lib/reserveUtils';
 import { mergeWithCache, readCache, writeCache, pendingIdsForTable, isSupabaseSessionValid } from '@/lib/offlineCache';
 import { uploadLocalPhotosInPayload } from '@/lib/storage';
@@ -297,7 +297,7 @@ export function useReserves() {
       verification: 'Vérification', closed: 'Clôturé',
     };
     const historyEntry = {
-      id: genId(), action: 'Statut modifié', author: actualAuthor, createdAt: now,
+      id: genId(), action: 'Statut modifié', author: actualAuthor, createdAt: nowTimestampFR(),
       oldValue: statusLabels[reserve.status], newValue: statusLabels[status],
     };
     const isClosing = status === 'closed' && reserve.status !== 'closed';
@@ -322,7 +322,7 @@ export function useReserves() {
     const now = new Date().toISOString();
     const today = now.split('T')[0];
     const historyEntry = {
-      id: genId(), action: 'Archivée', author: actualAuthor, createdAt: today,
+      id: genId(), action: 'Archivée', author: actualAuthor, createdAt: nowTimestampFR(),
       oldValue: 'Active', newValue: 'Archivée',
     };
     const updated: Reserve = {
@@ -341,7 +341,7 @@ export function useReserves() {
     const actualAuthor = author ?? user?.name ?? 'Système';
     const today = new Date().toISOString().split('T')[0];
     const historyEntry = {
-      id: genId(), action: 'Désarchivée', author: actualAuthor, createdAt: today,
+      id: genId(), action: 'Désarchivée', author: actualAuthor, createdAt: nowTimestampFR(),
       oldValue: 'Archivée', newValue: 'Active',
     };
     const updated: Reserve = {
@@ -393,7 +393,7 @@ export function useReserves() {
       const historyEntries: typeof reserve.history = [];
       if (updates.status && updates.status !== reserve.status) {
         historyEntries.push({
-          id: genId(), action: 'Statut modifié (lot)', author: actualAuthor, createdAt: now,
+          id: genId(), action: 'Statut modifié (lot)', author: actualAuthor, createdAt: nowTimestampFR(),
           oldValue: statusLabels[reserve.status], newValue: statusLabels[updates.status],
         });
       }
@@ -401,7 +401,7 @@ export function useReserves() {
       const oldCompanies = reserve.companies ?? (reserve.company ? [reserve.company] : []);
       if (newCompanies && JSON.stringify(newCompanies) !== JSON.stringify(oldCompanies)) {
         historyEntries.push({
-          id: genId(), action: 'Entreprises modifiées (lot)', author: actualAuthor, createdAt: now,
+          id: genId(), action: 'Entreprises modifiées (lot)', author: actualAuthor, createdAt: nowTimestampFR(),
           oldValue: oldCompanies.join(', '), newValue: newCompanies.join(', '),
         });
       }

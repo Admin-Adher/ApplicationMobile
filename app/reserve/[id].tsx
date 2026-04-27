@@ -31,7 +31,7 @@ import { useAuth } from '@/context/AuthContext';
 import { useSettings } from '@/context/SettingsContext';
 import { uploadPhoto, persistLocalPhoto } from '@/lib/storage';
 import { isSupabaseConfigured } from '@/lib/supabase';
-import { genId, formatDateFR } from '@/lib/utils';
+import { genId, formatDateFR, nowTimestampFR } from '@/lib/utils';
 import {
   RESERVE_PRIORITIES,
   isOverdue, formatDate, validateDeadline,
@@ -545,7 +545,7 @@ export default function ReserveDetailScreen() {
           id: genId(),
           action: `Levée signée (${signingForCompany})`,
           author: signataire,
-          createdAt: today,
+          createdAt: nowTimestampFR(),
         }],
       };
     } else {
@@ -558,7 +558,7 @@ export default function ReserveDetailScreen() {
           id: genId(),
           action: 'Levée signée',
           author: signataire,
-          createdAt: today,
+          createdAt: nowTimestampFR(),
         }],
       };
     }
@@ -588,7 +588,7 @@ export default function ReserveDetailScreen() {
                 id: genId(),
                 action: 'Réception accusée',
                 author,
-                createdAt: today,
+                createdAt: nowTimestampFR(),
               }],
             };
             updateReserveFields(updated);
@@ -706,7 +706,7 @@ export default function ReserveDetailScreen() {
       id: genId(),
       action: 'Réserve modifiée',
       author,
-      createdAt: today,
+      createdAt: nowTimestampFR(),
       oldValue: changes.length > 0 ? changes.map(c => c.oldVal).join(', ') : undefined,
       newValue: changes.length > 0 ? changes.map(c => c.newVal).join(', ') : undefined,
     };

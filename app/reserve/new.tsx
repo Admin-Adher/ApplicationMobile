@@ -17,7 +17,7 @@ import BottomSheetPicker from '@/components/BottomSheetPicker';
 import CompanySelector from '@/components/CompanySelector';
 import { notifyReserveCreated } from '@/lib/email/notifyReserveCreated';
 import { uploadPhoto, persistLocalPhoto } from '@/lib/storage';
-import { genId } from '@/lib/utils';
+import { genId, nowTimestampFR } from '@/lib/utils';
 import {
   RESERVE_PRIORITIES, RESERVE_TEMPLATES,
   genReserveId, validateDeadline,
@@ -340,7 +340,7 @@ export default function NewReserveScreen() {
         createdAt: isoToday,
         deadline: deadline || '—',
         comments: [],
-        history: [{ id: 'h0', action: kind === 'observation' ? 'Observation créée' : 'Réserve créée', author, createdAt: isoToday }],
+        history: [{ id: 'h0', action: kind === 'observation' ? 'Observation créée' : 'Réserve créée', author, createdAt: nowTimestampFR() }],
         planX: presetX ?? undefined,
         planY: presetY ?? undefined,
         photoUri: photos[0]?.uri ?? undefined,
