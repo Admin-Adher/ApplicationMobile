@@ -12,7 +12,7 @@ import { useAuth } from '@/context/AuthContext';
 import { Visite, VisiteParticipant, VisiteStatus, VisiteType, VisiteChecklistItem } from '@/constants/types';
 import Header from '@/components/Header';
 import DateInput from '@/components/DateInput';
-import { genId, formatDateFR } from '@/lib/utils';
+import { genId, formatDateFR, nowTimestampFR } from '@/lib/utils';
 import LocationPicker from '@/components/LocationPicker';
 import CompanySelector from '@/components/CompanySelector';
 
@@ -359,7 +359,7 @@ export default function NewVisiteScreen() {
     }
     setIsSubmitting(true);
 
-    const today          = formatDateFR(new Date());
+    const today          = nowTimestampFR();
     const conducteurName = conducteur.trim() || (user?.name ?? 'Équipe BuildTrack');
     const baseDate       = parseDateFR(date);
 

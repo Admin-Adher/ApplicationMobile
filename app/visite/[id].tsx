@@ -19,7 +19,8 @@ import { useApp } from '@/context/AppContext';
 import { useAuth } from '@/context/AuthContext';
 import { useSettings } from '@/context/SettingsContext';
 import { Visite, Reserve, VisiteStatus, OprStatus } from '@/constants/types';
-import { formatDateFR } from '@/lib/utils';
+import { formatDateFR, nowTimestampFR } from '@/lib/utils';
+import { formatDate } from '@/lib/reserveUtils';
 import Header from '@/components/Header';
 import BottomNavBar from '@/components/BottomNavBar';
 import SignaturePad, { SignaturePadRef } from '@/components/SignaturePad';
@@ -181,13 +182,13 @@ function buildVisitePDF(visite: Visite, reserves: Reserve[], projectName: string
         <div class="sig-label">Conducteur de travaux</div>
         ${conducteurSigHtml}
         <div class="sig-name">${escapeHtml(visite.conducteur)}</div>
-        <div class="sig-date">Date : ${escapeHtml(visite.signedAt ?? visite.date)}</div>
+        <div class="sig-date">Date : ${escapeHtml(visite.signedAt ? formatDate(visite.signedAt) : visite.date)}</div>
       </div>
       <div class="sig-block">
         <div class="sig-label">Lu et approuvé — Entreprise(s)</div>
         ${entrepriseSigHtml}
         <div class="sig-name">${escapeHtml(visite.entrepriseSignataire ?? '')}</div>
-        <div class="sig-date">Date : ${escapeHtml(visite.signedAt ?? '')}</div>
+        <div class="sig-date">Date : ${escapeHtml(visite.signedAt ? formatDate(visite.signedAt) : '')}</div>
       </div>
     </div>
     ${photoGallery}
@@ -288,7 +289,7 @@ export default function VisiteDetailScreen() {
     try {
       const conducteurSig = conducteurSigRef.current?.getSVGData() ?? visite.conducteurSignature ?? null;
       const entrepriseSig = entrepriseSigRef.current?.getSVGData() ?? visite.entrepriseSignature ?? null;
-      const today = formatDateFR(new Date());
+      const today = nowTimestampFR();
       updateVisite({
         ...visite,
         conducteurSignature: conducteurSig ?? undefined,
@@ -597,7 +598,7 @@ export default function VisiteDetailScreen() {
               color={visite.signedAt ? C.closed : C.primary}
             />
             <Text style={[styles.signBtnText, visite.signedAt && styles.signBtnTextSigned]}>
-              {visite.signedAt ? `PV signé le ${visite.signedAt}` : 'Signer le PV de visite'}
+              {visite.signedAt ? `PV signé le ${formatDate(visite.signedAt)}` : 'Signer le PV de visite'}
             </Text>
           </TouchableOpacity>
         )}
