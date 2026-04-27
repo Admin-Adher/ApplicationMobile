@@ -431,14 +431,21 @@ export default function SettingsScreen() {
                         </Text>
                         {queue.slice(0, 5).map((op) => (
                           <View key={op.id} style={styles.queueItem}>
-                            <View style={styles.queueItemDot} />
+                            <View style={[styles.queueItemDot, op.lastError && styles.queueItemDotErr]} />
                             <View style={{ flex: 1 }}>
                               <Text style={styles.queueItemTitle} numberOfLines={1}>
                                 {op.op.toUpperCase()} · {op.table}
+                                {op.filter ? ` · ${String(op.filter.value).slice(0, 8)}…` : ''}
                               </Text>
                               <Text style={styles.queueItemMeta} numberOfLines={1}>
                                 {new Date(op.queuedAt).toLocaleString('fr-FR')}
+                                {op.attemptCount ? ` · ${op.attemptCount} échec${op.attemptCount > 1 ? 's' : ''}` : ''}
                               </Text>
+                              {op.lastError && (
+                                <Text style={styles.queueItemError} numberOfLines={3}>
+                                  {op.lastError}
+                                </Text>
+                              )}
                             </View>
                           </View>
                         ))}
@@ -937,10 +944,12 @@ const styles = StyleSheet.create({
   queueHeaderRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 6 },
   queueHeaderTxt: { fontSize: 13, fontFamily: 'Inter_600SemiBold', color: '#92400E' },
   queueHint: { fontSize: 11, fontFamily: 'Inter_400Regular', color: '#78350F', lineHeight: 16, marginBottom: 8 },
-  queueItem: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: 6, borderTopWidth: 1, borderTopColor: '#FDE68A' },
-  queueItemDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: '#F59E0B' },
+  queueItem: { flexDirection: 'row', alignItems: 'flex-start', gap: 8, paddingVertical: 8, borderTopWidth: 1, borderTopColor: '#FDE68A' },
+  queueItemDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: '#F59E0B', marginTop: 6 },
+  queueItemDotErr: { backgroundColor: '#EF4444' },
   queueItemTitle: { fontSize: 12, fontFamily: 'Inter_600SemiBold', color: '#92400E' },
   queueItemMeta: { fontSize: 10, fontFamily: 'Inter_400Regular', color: '#78350F', marginTop: 1 },
+  queueItemError: { fontSize: 11, fontFamily: 'Inter_500Medium', color: '#991B1B', marginTop: 4, lineHeight: 15, backgroundColor: '#FEF2F2', borderRadius: 6, paddingHorizontal: 6, paddingVertical: 4 },
   queueMore: { fontSize: 11, fontFamily: 'Inter_500Medium', color: '#78350F', textAlign: 'center', paddingVertical: 6 },
   queueActionsRow: { flexDirection: 'row', gap: 8, marginTop: 10 },
   queueRetryBtn: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, paddingVertical: 8, borderRadius: 8, borderWidth: 1, borderColor: '#A7F3D0', backgroundColor: '#ECFDF5' },

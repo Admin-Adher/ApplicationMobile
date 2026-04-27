@@ -50,6 +50,10 @@ export interface QueuedOperation {
     closedAt?: string;
     closedBy?: string;
   };
+  /** Last server error captured during a failed sync attempt (set by processSyncQueue). */
+  lastError?: string;
+  /** Number of failed sync attempts. */
+  attemptCount?: number;
 }
 
 export type SyncStatus = 'idle' | 'syncing' | 'conflict' | 'done' | 'error';
@@ -231,6 +235,29 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
     const currentQueue = queue;
     setSyncProgress({ done: 0, total: currentQueue.length });
 
+    // Helper: re-queue an op while attaching the latest error message and
+    // bumping its attempt counter so the user can see in the UI why it stays
+    // stuck after each retry.
+    const fail = (op: QueuedOperation, err: any) => {
+      let msg: string;
+      if (!err) msg = 'Erreur inconnue';
+      else if (typeof err === 'string') msg = err;
+      else if (err.message) {
+        msg = err.message;
+        if (err.code) msg = `[${err.code}] ${msg}`;
+        if (err.details) msg += ` — ${err.details}`;
+        if (err.hint) msg += ` (${err.hint})`;
+      } else {
+        try { msg = JSON.stringify(err); } catch { msg = String(err); }
+      }
+      console.warn(`[queue] ${op.op} ${op.table} failed:`, msg);
+      failedOps.push({
+        ...op,
+        lastError: msg,
+        attemptCount: (op.attemptCount ?? 0) + 1,
+      });
+    };
+
     let processed = 0;
     for (const op of currentQueue) {
       try {
@@ -244,7 +271,7 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
             .eq('id', entityId)
             .single();
 
-          if (fetchErr) { failedOps.push(op); continue; }
+          if (fetchErr) { fail(op, fetchErr); continue; }
 
           if (serverData && serverData.status !== previousStatus && serverData.status !== newStatus) {
             // Someone else changed the status while we were offline → conflict
@@ -270,7 +297,7 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
             closed_by: closedBy ?? null,
           }).eq('id', entityId);
 
-          if (applyErr) failedOps.push(op);
+          if (applyErr) fail(op, applyErr);
           continue;
         }
 
@@ -291,13 +318,11 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
             const prep = await uploadLocalPhotosInPayload(op.table, data);
             if (prep.data) data = prep.data;
             if (!prep.allOk) {
-              console.warn(`[queue] some local files failed to upload for ${op.table}, will retry on next pass`);
-              failedOps.push(op); // keep op in queue for next retry
+              fail(op, 'Échec upload de fichiers locaux (photos/plans). Nouvelle tentative au prochain passage.');
               continue;
             }
           } catch (e) {
-            console.warn(`[queue] uploadLocalPhotosInPayload failed for ${op.table}, will retry:`, e);
-            failedOps.push(op);
+            fail(op, e);
             continue;
           }
         }
@@ -310,10 +335,30 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
           // 23505 = unique violation → already exists → treat as success
           if (result.error?.code === '23505') result = { error: null };
         } else if (op.op === 'update') {
-          const q = (supabase as any).from(op.table).update(data!);
+          // Use .select() so we can detect UPDATEs that affected 0 rows — that
+          // happens when the row was deleted server-side (drop from queue) or
+          // when an RLS policy silently blocks the write (re-queue with hint).
+          const q = (supabase as any).from(op.table).update(data!).select();
           result = op.filter
             ? await q.eq(op.filter.column, op.filter.value)
             : await q;
+          if (!result.error && Array.isArray(result.data) && result.data.length === 0) {
+            if (op.filter?.column === 'id') {
+              try {
+                const { data: exists, error: existsErr } = await (supabase as any)
+                  .from(op.table)
+                  .select('id')
+                  .eq('id', op.filter.value)
+                  .maybeSingle();
+                if (!existsErr && !exists) {
+                  // Row no longer exists → treat as success
+                  continue;
+                }
+              } catch {}
+            }
+            fail(op, `UPDATE sur ${op.table} a affecté 0 ligne. Probablement bloqué par une policy RLS, ou l'élément ne vous appartient plus.`);
+            continue;
+          }
         } else {
           // Use .select() so we can detect RLS-blocked DELETEs (error=null but 0 rows)
           const q = (supabase as any).from(op.table).delete().select();
@@ -337,15 +382,14 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
                 }
               } catch {}
             }
-            console.warn(`[queue] DELETE on ${op.table} blocked by RLS (0 rows deleted), re-queuing`);
-            failedOps.push(op);
+            fail(op, `DELETE sur ${op.table} bloqué par une policy RLS (0 ligne supprimée).`);
             continue;
           }
         }
 
-        if (result.error) failedOps.push(op);
-      } catch {
-        failedOps.push(op);
+        if (result.error) fail(op, result.error);
+      } catch (e) {
+        fail(op, e);
       } finally {
         processed += 1;
         setSyncProgress({ done: processed, total: currentQueue.length });
