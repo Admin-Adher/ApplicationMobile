@@ -359,7 +359,7 @@ export function useReserves() {
     if (!reserve) return;
     const comment: Comment = {
       id: genId(), content, author: author ?? user?.name ?? 'Inconnu',
-      createdAt: new Date().toISOString().split('T')[0],
+      createdAt: nowTimestampFR(),
     };
     const updated: Reserve = { ...reserve, comments: [...reserve.comments, comment] };
     queryClient.setQueryData<Reserve[]>(queryKeys.reserves(), old =>
