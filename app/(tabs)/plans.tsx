@@ -1,8 +1,8 @@
-import React, { useState, useRef, useMemo, useEffect } from 'react';
+import React, { useState, useRef, useMemo, useEffect, useCallback } from 'react';
 import {
   View, Text, StyleSheet, TouchableOpacity, ScrollView, FlatList, Platform,
   Modal, PanResponder, Animated, Image, KeyboardAvoidingView, Keyboard,
-  ActivityIndicator, Alert, TextInput, useWindowDimensions,
+  ActivityIndicator, Alert, TextInput, useWindowDimensions, Pressable,
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Haptics from 'expo-haptics';
@@ -380,6 +380,14 @@ export default function PlansScreen() {
   const [searchQuery, setSearchQuery] = useState('');
   const [planDimensions, setPlanDimensions] = useState({ width: 320, height: 240 });
   const [pinSizeScale, setPinSizeScale] = useState(1.0);
+
+  // PDF export modal state
+  const [pdfModalVisible, setPdfModalVisible] = useState(false);
+  const [pdfMode, setPdfMode] = useState<'all' | 'company_single' | 'company_multi' | 'company_none' | 'manual'>('all');
+  const [pdfCompanySingle, setPdfCompanySingle] = useState<string | null>(null);
+  const [pdfCompaniesMulti, setPdfCompaniesMulti] = useState<Set<string>>(new Set());
+  const [pdfManualSelection, setPdfManualSelection] = useState<Set<string>>(new Set());
+  const [pdfLoading, setPdfLoading] = useState(false);
   const [pinSizes, setPinSizes] = useState<Record<string, number>>({});
   const [focusedPinId, setFocusedPinId] = useState<string | null>(null);
   const [draggingPinId, setDraggingPinId] = useState<string | null>(null);
@@ -741,6 +749,75 @@ export default function PlansScreen() {
     if (levelFilter !== 'all') list = list.filter(r => r.level === levelFilter);
     return list;
   }, [allPlanReserves, statusFilter, companyFilter, levelFilter]);
+
+  // PDF export: groupings & filtered list based on chosen mode
+  const pdfGroupedByCompany = useMemo(() => {
+    const groups = new Map<string, { key: string; title: string; data: Reserve[] }>();
+    planReserves.forEach(r => {
+      const key = (r.company && r.company.trim()) ? r.company.trim() : '—';
+      const title = key === '—' ? 'Sans entreprise' : key;
+      if (!groups.has(key)) groups.set(key, { key, title, data: [] });
+      groups.get(key)!.data.push(r);
+    });
+    return Array.from(groups.values()).sort((a, b) => a.title.localeCompare(b.title, 'fr'));
+  }, [planReserves]);
+
+  const pdfFilteredList = useMemo<Reserve[]>(() => {
+    if (pdfMode === 'all') return planReserves;
+    if (pdfMode === 'company_none') return planReserves.filter(r => !r.company || !r.company.trim());
+    if (pdfMode === 'company_single') {
+      if (!pdfCompanySingle) return [];
+      if (pdfCompanySingle === '—') return planReserves.filter(r => !r.company || !r.company.trim());
+      return planReserves.filter(r => (r.company || '').trim() === pdfCompanySingle);
+    }
+    if (pdfMode === 'company_multi') {
+      if (pdfCompaniesMulti.size === 0) return [];
+      return planReserves.filter(r => {
+        const key = (r.company && r.company.trim()) ? r.company.trim() : '—';
+        return pdfCompaniesMulti.has(key);
+      });
+    }
+    if (pdfMode === 'manual') {
+      return planReserves.filter(r => pdfManualSelection.has(r.id));
+    }
+    return planReserves;
+  }, [planReserves, pdfMode, pdfCompanySingle, pdfCompaniesMulti, pdfManualSelection]);
+
+  const pdfPreviewCount = pdfFilteredList.length;
+
+  const openPdfModal = useCallback(() => {
+    setPdfMode('all');
+    setPdfCompanySingle(null);
+    setPdfCompaniesMulti(new Set());
+    setPdfManualSelection(new Set());
+    setPdfModalVisible(true);
+  }, []);
+
+  const handleConfirmPdfExport = useCallback(async () => {
+    if (pdfFilteredList.length === 0) {
+      Alert.alert('Aucune réserve', "Aucune réserve ne correspond à votre sélection.");
+      return;
+    }
+    setPdfLoading(true);
+    try {
+      await exportPlanPDF(
+        currentPlan?.name ?? 'Plan',
+        activeChantier?.name ?? '',
+        pdfFilteredList,
+        pinNumberMap,
+        currentPlan?.uri ?? null,
+        currentPlan?.fileType ?? null,
+        pinSizeScale,
+        companies,
+        pdfViewerRef,
+      );
+      setPdfModalVisible(false);
+    } catch {
+      Alert.alert('Erreur', "Impossible de générer le PDF.");
+    } finally {
+      setPdfLoading(false);
+    }
+  }, [pdfFilteredList, currentPlan, activeChantier, pinNumberMap, pinSizeScale, companies]);
 
   const pinSize = Math.round((isTablet ? 48 : 44) * pinSizeScale);
   const clusterSize = Math.round((isTablet ? 60 : 52) * pinSizeScale);
@@ -2370,7 +2447,7 @@ export default function PlansScreen() {
                   <View style={styles.tabletPanelHdr}>
                     <Ionicons name="list-outline" size={14} color={C.primary} />
                     <Text style={styles.tabletPanelTitle}>{planReserves.length > 0 ? `${planReserves.length} réserve${planReserves.length > 1 ? 's' : ''}` : 'Réserves'}</Text>
-                    <TouchableOpacity style={styles.exportBtn} onPress={() => exportPlanPDF(currentPlan?.name ?? 'Plan', activeChantier?.name ?? '', planReserves, pinNumberMap, currentPlan?.uri ?? null, currentPlan?.fileType ?? null, pinSizeScale, companies, pdfViewerRef)} accessibilityLabel="Exporter en PDF">
+                    <TouchableOpacity style={styles.exportBtn} onPress={openPdfModal} accessibilityLabel="Exporter en PDF">
                       <Ionicons name="document-text-outline" size={13} color={C.primary} />
                       <Text style={styles.exportBtnText}>PDF</Text>
                     </TouchableOpacity>
@@ -2429,7 +2506,7 @@ export default function PlansScreen() {
           searchQuery={searchQuery}
           onSearchChange={setSearchQuery}
           onReservePress={(r) => { setSelected(r); }}
-          onExport={() => exportPlanPDF(currentPlan?.name ?? 'Plan', activeChantier?.name ?? '', planReserves, pinNumberMap, currentPlan?.uri ?? null, currentPlan?.fileType ?? null, pinSizeScale, companies, pdfViewerRef)}
+          onExport={openPdfModal}
           canCreate={permissions.canCreate}
           currentPlan={currentPlan}
           activeChantierId={activeChantierId}
@@ -2450,6 +2527,220 @@ export default function PlansScreen() {
           <Ionicons name="add" size={26} color="#fff" />
         </TouchableOpacity>
       )}
+
+      {/* PDF export modal */}
+      <Modal
+        visible={pdfModalVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setPdfModalVisible(false)}
+      >
+        <Pressable style={styles.pdfModalOverlay} onPress={() => setPdfModalVisible(false)}>
+          <Pressable style={styles.pdfModalCard} onPress={() => {}}>
+            <View style={styles.pdfModalHeaderRow}>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.modalTitle}>Télécharger en PDF</Text>
+                <Text style={styles.modalMeta}>Plan : {currentPlan?.name ?? '—'}</Text>
+              </View>
+              <TouchableOpacity onPress={() => setPdfModalVisible(false)} accessibilityLabel="Fermer">
+                <Ionicons name="close" size={20} color={C.textMuted} />
+              </TouchableOpacity>
+            </View>
+
+            <View style={styles.pdfOptionGroup}>
+              <TouchableOpacity
+                style={[styles.pdfOption, pdfMode === 'all' && styles.pdfOptionActive]}
+                onPress={() => setPdfMode('all')}
+              >
+                <Ionicons name="albums-outline" size={14} color={pdfMode === 'all' ? '#fff' : C.text} />
+                <Text style={[styles.pdfOptionText, pdfMode === 'all' && styles.pdfOptionTextActive]}>
+                  Toutes les réserves du plan
+                </Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={[styles.pdfOption, pdfMode === 'company_single' && styles.pdfOptionActive]}
+                onPress={() => setPdfMode('company_single')}
+              >
+                <Ionicons name="business-outline" size={14} color={pdfMode === 'company_single' ? '#fff' : C.text} />
+                <Text style={[styles.pdfOptionText, pdfMode === 'company_single' && styles.pdfOptionTextActive]}>
+                  Une entreprise
+                </Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={[styles.pdfOption, pdfMode === 'company_multi' && styles.pdfOptionActive]}
+                onPress={() => setPdfMode('company_multi')}
+              >
+                <Ionicons name="people-outline" size={14} color={pdfMode === 'company_multi' ? '#fff' : C.text} />
+                <Text style={[styles.pdfOptionText, pdfMode === 'company_multi' && styles.pdfOptionTextActive]}>
+                  Plusieurs entreprises
+                </Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={[styles.pdfOption, pdfMode === 'manual' && styles.pdfOptionActive]}
+                onPress={() => setPdfMode('manual')}
+              >
+                <Ionicons name="checkbox-outline" size={14} color={pdfMode === 'manual' ? '#fff' : C.text} />
+                <Text style={[styles.pdfOptionText, pdfMode === 'manual' && styles.pdfOptionTextActive]}>
+                  Sélection manuelle
+                </Text>
+              </TouchableOpacity>
+            </View>
+
+            {pdfMode === 'company_single' && (
+              <View style={styles.pdfPickerWrap}>
+                <ScrollView>
+                  {pdfGroupedByCompany.length === 0 && (
+                    <Text style={styles.pdfEmptyHint}>Aucune réserve sur ce plan.</Text>
+                  )}
+                  {pdfGroupedByCompany.map(g => {
+                    const active = pdfCompanySingle === g.key;
+                    return (
+                      <TouchableOpacity
+                        key={g.key}
+                        style={[styles.pdfPickRow, active && styles.pdfPickRowActive]}
+                        onPress={() => setPdfCompanySingle(g.key)}
+                      >
+                        <View style={[styles.pdfRadio, active && styles.pdfRadioActive]}>
+                          {active && <View style={styles.pdfRadioDot} />}
+                        </View>
+                        <Text style={[styles.pdfPickRowText, active && styles.pdfPickRowTextActive]} numberOfLines={1}>
+                          {g.title}
+                        </Text>
+                        <Text style={styles.pdfPickRowCount}>{g.data.length}</Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </ScrollView>
+              </View>
+            )}
+
+            {pdfMode === 'company_multi' && (
+              <View style={styles.pdfPickerWrap}>
+                <View style={styles.pdfPickActions}>
+                  <TouchableOpacity
+                    style={styles.pdfPickActionBtn}
+                    onPress={() => setPdfCompaniesMulti(new Set(pdfGroupedByCompany.map(g => g.key)))}
+                  >
+                    <Text style={styles.pdfPickActionBtnText}>Tout</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={styles.pdfPickActionBtn}
+                    onPress={() => setPdfCompaniesMulti(new Set())}
+                  >
+                    <Text style={styles.pdfPickActionBtnText}>Aucun</Text>
+                  </TouchableOpacity>
+                </View>
+                <ScrollView>
+                  {pdfGroupedByCompany.length === 0 && (
+                    <Text style={styles.pdfEmptyHint}>Aucune réserve sur ce plan.</Text>
+                  )}
+                  {pdfGroupedByCompany.map(g => {
+                    const checked = pdfCompaniesMulti.has(g.key);
+                    return (
+                      <TouchableOpacity
+                        key={g.key}
+                        style={styles.pdfPickRow}
+                        onPress={() => {
+                          setPdfCompaniesMulti(prev => {
+                            const next = new Set(prev);
+                            if (next.has(g.key)) next.delete(g.key);
+                            else next.add(g.key);
+                            return next;
+                          });
+                        }}
+                      >
+                        <View style={[styles.pdfCheckbox, checked && styles.pdfCheckboxChecked]}>
+                          {checked && <Ionicons name="checkmark" size={12} color="#fff" />}
+                        </View>
+                        <Text style={styles.pdfPickRowText} numberOfLines={1}>{g.title}</Text>
+                        <Text style={styles.pdfPickRowCount}>{g.data.length}</Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </ScrollView>
+              </View>
+            )}
+
+            {pdfMode === 'manual' && (
+              <View style={styles.pdfPickerWrap}>
+                <View style={styles.pdfPickActions}>
+                  <TouchableOpacity
+                    style={styles.pdfPickActionBtn}
+                    onPress={() => setPdfManualSelection(new Set(planReserves.map(r => r.id)))}
+                  >
+                    <Text style={styles.pdfPickActionBtnText}>Tout</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={styles.pdfPickActionBtn}
+                    onPress={() => setPdfManualSelection(new Set())}
+                  >
+                    <Text style={styles.pdfPickActionBtnText}>Aucun</Text>
+                  </TouchableOpacity>
+                </View>
+                <ScrollView>
+                  {planReserves.length === 0 && (
+                    <Text style={styles.pdfEmptyHint}>Aucune réserve sur ce plan.</Text>
+                  )}
+                  {planReserves.map(r => {
+                    const checked = pdfManualSelection.has(r.id);
+                    const num = pinNumberMap.get(r.id);
+                    return (
+                      <TouchableOpacity
+                        key={r.id}
+                        style={styles.pdfPickRow}
+                        onPress={() => {
+                          setPdfManualSelection(prev => {
+                            const next = new Set(prev);
+                            if (next.has(r.id)) next.delete(r.id);
+                            else next.add(r.id);
+                            return next;
+                          });
+                        }}
+                      >
+                        <View style={[styles.pdfCheckbox, checked && styles.pdfCheckboxChecked]}>
+                          {checked && <Ionicons name="checkmark" size={12} color="#fff" />}
+                        </View>
+                        <View style={[styles.pdfPinBadge, { backgroundColor: getCompanyColor(r.company, companies) }]}>
+                          <Text style={styles.pdfPinBadgeText}>{num ?? '—'}</Text>
+                        </View>
+                        <View style={{ flex: 1 }}>
+                          <Text style={styles.pdfPickRowText} numberOfLines={1}>{r.title}</Text>
+                          <Text style={styles.pdfPickRowSub} numberOfLines={1}>
+                            {(r.company || 'Sans entreprise')} · {r.level || '—'}
+                          </Text>
+                        </View>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </ScrollView>
+              </View>
+            )}
+
+            <Text style={styles.pdfPreview}>
+              {pdfPreviewCount} réserve{pdfPreviewCount !== 1 ? 's' : ''} sera{pdfPreviewCount !== 1 ? 'ont' : ''} exportée{pdfPreviewCount !== 1 ? 's' : ''}.
+            </Text>
+
+            <View style={styles.pdfModalActions}>
+              <TouchableOpacity style={styles.pdfCancelBtn} onPress={() => setPdfModalVisible(false)} disabled={pdfLoading}>
+                <Text style={styles.pdfCancelBtnText}>Annuler</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.pdfConfirmBtn, (pdfLoading || pdfPreviewCount === 0) && { opacity: 0.5 }]}
+                onPress={() => { void handleConfirmPdfExport(); }}
+                disabled={pdfLoading || pdfPreviewCount === 0}
+              >
+                {pdfLoading
+                  ? <ActivityIndicator size="small" color="#fff" />
+                  : <Ionicons name="download-outline" size={15} color="#fff" />}
+                <Text style={styles.pdfConfirmBtnText}>Télécharger</Text>
+              </TouchableOpacity>
+            </View>
+          </Pressable>
+        </Pressable>
+      </Modal>
 
       {/* Mobile reserve popup with status buttons */}
       <Modal visible={!!selected} transparent animationType="slide" onRequestClose={() => setSelected(null)}>
@@ -2982,4 +3273,37 @@ const styles = StyleSheet.create({
   structureLevelName: { fontSize: 13, fontFamily: 'Inter_500Medium', color: C.textSub, flex: 1 },
   structureLevelAddBtn: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 10, paddingVertical: 6, borderRadius: 8, backgroundColor: C.primaryBg, borderWidth: 1, borderColor: C.primary + '40' },
   structureLevelAddText: { fontSize: 12, fontFamily: 'Inter_600SemiBold', color: C.primary },
+
+  pdfModalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.6)', justifyContent: 'center', alignItems: 'center', padding: 16 },
+  pdfModalCard: { backgroundColor: C.surface, borderRadius: 18, padding: 16, gap: 12, maxHeight: '90%', width: '100%', maxWidth: 560 },
+  pdfModalHeaderRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 12 },
+  pdfOptionGroup: { gap: 6 },
+  pdfOption: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: 10, paddingHorizontal: 12, borderRadius: 10, backgroundColor: C.surface2, borderWidth: 1, borderColor: C.border },
+  pdfOptionActive: { backgroundColor: C.primary, borderColor: C.primary },
+  pdfOptionText: { fontSize: 13, fontFamily: 'Inter_500Medium', color: C.text, flex: 1 },
+  pdfOptionTextActive: { color: '#fff', fontFamily: 'Inter_600SemiBold' },
+  pdfPickerWrap: { maxHeight: 240, borderWidth: 1, borderColor: C.border, borderRadius: 10, padding: 6, backgroundColor: C.surface2 },
+  pdfPickActions: { flexDirection: 'row', gap: 6, marginBottom: 6 },
+  pdfPickActionBtn: { paddingHorizontal: 10, paddingVertical: 5, borderRadius: 7, backgroundColor: C.primaryBg, borderWidth: 1, borderColor: C.primary + '40' },
+  pdfPickActionBtnText: { fontSize: 11, fontFamily: 'Inter_600SemiBold', color: C.primary },
+  pdfPickRow: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 8, paddingHorizontal: 8, borderRadius: 8 },
+  pdfPickRowActive: { backgroundColor: C.primaryBg },
+  pdfPickRowText: { fontSize: 13, fontFamily: 'Inter_500Medium', color: C.text, flex: 1 },
+  pdfPickRowTextActive: { color: C.primary, fontFamily: 'Inter_600SemiBold' },
+  pdfPickRowSub: { fontSize: 11, fontFamily: 'Inter_400Regular', color: C.textMuted, marginTop: 1 },
+  pdfPickRowCount: { fontSize: 11, fontFamily: 'Inter_600SemiBold', color: C.textMuted, paddingHorizontal: 7, paddingVertical: 2, backgroundColor: C.surface, borderRadius: 6, borderWidth: 1, borderColor: C.border },
+  pdfRadio: { width: 16, height: 16, borderRadius: 8, borderWidth: 1.5, borderColor: C.border, alignItems: 'center', justifyContent: 'center' },
+  pdfRadioActive: { borderColor: C.primary },
+  pdfRadioDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: C.primary },
+  pdfCheckbox: { width: 18, height: 18, borderRadius: 5, borderWidth: 1.5, borderColor: C.border, alignItems: 'center', justifyContent: 'center', backgroundColor: C.surface },
+  pdfCheckboxChecked: { backgroundColor: C.primary, borderColor: C.primary },
+  pdfPinBadge: { width: 24, height: 24, borderRadius: 12, alignItems: 'center', justifyContent: 'center' },
+  pdfPinBadgeText: { fontSize: 10, fontFamily: 'Inter_700Bold', color: '#fff' },
+  pdfEmptyHint: { fontSize: 12, fontFamily: 'Inter_400Regular', color: C.textMuted, textAlign: 'center', padding: 16 },
+  pdfPreview: { fontSize: 12, fontFamily: 'Inter_500Medium', color: C.textSub, textAlign: 'center' },
+  pdfModalActions: { flexDirection: 'row', gap: 10, marginTop: 4 },
+  pdfCancelBtn: { flex: 1, paddingVertical: 12, borderRadius: 12, borderWidth: 1, borderColor: C.border, alignItems: 'center', justifyContent: 'center' },
+  pdfCancelBtnText: { fontSize: 14, fontFamily: 'Inter_500Medium', color: C.textSub },
+  pdfConfirmBtn: { flex: 2, flexDirection: 'row', gap: 6, paddingVertical: 12, borderRadius: 12, backgroundColor: C.primary, alignItems: 'center', justifyContent: 'center' },
+  pdfConfirmBtnText: { fontSize: 14, fontFamily: 'Inter_600SemiBold', color: '#fff' },
 });
