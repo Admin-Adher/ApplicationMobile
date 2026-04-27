@@ -11,6 +11,7 @@ import { useRouter, useLocalSearchParams } from 'expo-router';
 import { useState, useMemo, useCallback, useRef, useEffect } from 'react';
 import { SkeletonList } from '@/components/SkeletonCard';
 import * as ImagePicker from 'expo-image-picker';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { C } from '@/constants/colors';
 import { useApp } from '@/context/AppContext';
 import { useAuth } from '@/context/AuthContext';
@@ -289,6 +290,23 @@ export default function ReservesScreen() {
   // archivées sont masquées de la liste principale et apparaissent seulement
   // quand l'utilisateur clique sur la bannière "X réserves archivées".
   const [showArchived, setShowArchived] = useState(false);
+
+  // Toggle compact : masque la barre de progression et le bandeau d'échéance
+  // pour libérer de l'espace vertical sur mobile. Persisté localement.
+  const HEADER_COMPACT_KEY = 'reserves_header_compact_v1';
+  const [headerCompact, setHeaderCompact] = useState(false);
+  useEffect(() => {
+    AsyncStorage.getItem(HEADER_COMPACT_KEY)
+      .then(v => { if (v === '1') setHeaderCompact(true); })
+      .catch(() => {});
+  }, []);
+  const toggleHeaderCompact = useCallback(() => {
+    setHeaderCompact(prev => {
+      const next = !prev;
+      AsyncStorage.setItem(HEADER_COMPACT_KEY, next ? '1' : '0').catch(() => {});
+      return next;
+    });
+  }, []);
 
   const chantierReserves = useMemo(() => {
     let list = chantierFilter === 'all' ? reserves : reserves.filter(r => r.chantierId === chantierFilter);
@@ -949,6 +967,20 @@ export default function ReservesScreen() {
                 </Text>
               </TouchableOpacity>
             )}
+            {chantierReserves.length > 0 && !isLoading && (
+              <TouchableOpacity
+                style={[styles.headerCompactBtn, headerCompact && styles.headerCompactBtnActive]}
+                onPress={toggleHeaderCompact}
+                accessibilityRole="button"
+                accessibilityLabel={headerCompact ? 'Afficher la barre de progression et les alertes' : 'Masquer la barre de progression et les alertes'}
+              >
+                <Ionicons
+                  name={headerCompact ? 'chevron-down' : 'chevron-up'}
+                  size={16}
+                  color={headerCompact ? C.primary : C.textSub}
+                />
+              </TouchableOpacity>
+            )}
           </View>
         </View>
 
@@ -965,7 +997,7 @@ export default function ReservesScreen() {
           </View>
         )}
 
-        {chantierReserves.length > 0 && !isLoading && (
+        {chantierReserves.length > 0 && !isLoading && !headerCompact && (
           <View style={styles.progressBanner}>
             <View style={styles.progressTextRow}>
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}>
@@ -1034,7 +1066,7 @@ export default function ReservesScreen() {
           </View>
         )}
 
-        {nearDeadlineReserves.length > 0 && (
+        {nearDeadlineReserves.length > 0 && !headerCompact && (
           <TouchableOpacity
             style={[styles.deadlineReminderBanner, nearDeadlineOnly && styles.deadlineReminderBannerActive]}
             onPress={() => setNearDeadlineOnly(v => !v)}
@@ -2221,6 +2253,12 @@ const styles = StyleSheet.create({
   selectBtnActive: { backgroundColor: C.open + '15', borderColor: C.open },
   selectBtnText: { fontSize: 11, fontFamily: 'Inter_500Medium', color: C.textSub },
   selectBtnTextActive: { color: C.open },
+  headerCompactBtn: {
+    width: 30, height: 30, borderRadius: 15,
+    alignItems: 'center', justifyContent: 'center',
+    backgroundColor: C.surface2, borderWidth: 1, borderColor: C.border,
+  },
+  headerCompactBtnActive: { backgroundColor: C.primaryBg, borderColor: C.primary + '40' },
   selectBar: {
     flexDirection: 'row', gap: 10, marginBottom: 8,
   },
