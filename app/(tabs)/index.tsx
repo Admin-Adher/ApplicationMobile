@@ -10,6 +10,7 @@ import { useApp } from '@/context/AppContext';
 import { useAuth } from '@/context/AuthContext';
 import { useIncidents } from '@/context/IncidentsContext';
 import { useNotifications } from '@/context/NotificationsContext';
+import { useNetwork } from '@/context/NetworkContext';
 import { parseDeadline, isOverdue } from '@/lib/reserveUtils';
 import { Task, ReserveWeekStat, CompanyClosureStat } from '@/constants/types';
 import PortfolioDashboard from '@/components/PortfolioDashboard';
@@ -167,6 +168,7 @@ export default function DashboardScreen() {
   const { user, permissions } = useAuth();
   const { incidents } = useIncidents();
   const { unreadCount } = useNotifications();
+  const { queueCount, syncStatus, isOnline } = useNetwork();
   const topPad = insets.top;
   const [refreshing, setRefreshing] = useState(false);
   const [analyticsTab, setAnalyticsTab] = useState<'trend' | 'companies'>('trend');
@@ -314,6 +316,26 @@ export default function DashboardScreen() {
             </View>
           </View>
           <View style={styles.headerActions}>
+            {queueCount > 0 && (
+              <TouchableOpacity
+                style={styles.syncChip}
+                onPress={() => router.push('/settings' as any)}
+                accessibilityRole="button"
+                accessibilityLabel={`${queueCount} élément${queueCount > 1 ? 's' : ''} en attente de synchronisation${!isOnline ? ', hors ligne' : ''}`}
+                hitSlop={8}
+              >
+                {syncStatus === 'syncing' ? (
+                  <ActivityIndicator size="small" color="#fff" />
+                ) : (
+                  <Ionicons
+                    name={isOnline ? 'cloud-upload-outline' : 'cloud-offline-outline'}
+                    size={12}
+                    color="#fff"
+                  />
+                )}
+                <Text style={styles.syncChipText}>{queueCount}</Text>
+              </TouchableOpacity>
+            )}
             {realtimeConnected && (
               <View style={styles.realtimeDot} />
             )}
@@ -885,6 +907,18 @@ const styles = StyleSheet.create({
   realtimeDot: {
     width: 8, height: 8, borderRadius: 4,
     backgroundColor: '#22C55E',
+  },
+  syncChip: {
+    flexDirection: 'row', alignItems: 'center', gap: 4,
+    paddingHorizontal: 8, paddingVertical: 4,
+    borderRadius: 10,
+    backgroundColor: '#F59E0B',
+    minHeight: 22,
+  },
+  syncChipText: {
+    color: '#fff',
+    fontFamily: 'Inter_700Bold',
+    fontSize: 11,
   },
   iconHeaderBtn: {
     width: 36, height: 36,
