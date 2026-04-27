@@ -1364,72 +1364,78 @@ export default function ReservesScreen() {
 
       {isSelectMode && selectedIds.size > 0 && (
         <View style={styles.batchBar}>
-          <Text style={styles.batchBarCount}>{selectedIds.size} sélect.</Text>
-          {permissions.canExport && (
+          <Text style={styles.batchBarCount}>{selectedIds.size}</Text>
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={styles.batchBarScroll}
+          >
+            {permissions.canExport && (
+              <TouchableOpacity
+                style={styles.batchBarBtn}
+                onPress={() => {
+                  const list = filtered.filter(r => selectedIds.has(r.id));
+                  if (list.length === 0) return;
+                  void handleExportPDFForList(list);
+                }}
+                disabled={pdfLoading}
+              >
+                <Ionicons name="document-text-outline" size={14} color="#fff" />
+                <Text style={styles.batchBarBtnText}>PDF</Text>
+              </TouchableOpacity>
+            )}
             <TouchableOpacity
               style={styles.batchBarBtn}
-              onPress={() => {
-                const list = filtered.filter(r => selectedIds.has(r.id));
-                if (list.length === 0) return;
-                void handleExportPDFForList(list);
-              }}
-              disabled={pdfLoading}
+              onPress={() => { setBatchAction('status'); setBatchModalVisible(true); }}
             >
-              <Ionicons name="document-text-outline" size={15} color="#fff" />
-              <Text style={styles.batchBarBtnText}>PDF</Text>
+              <Ionicons name="swap-horizontal-outline" size={14} color="#fff" />
+              <Text style={styles.batchBarBtnText}>Statut</Text>
             </TouchableOpacity>
-          )}
-          <TouchableOpacity
-            style={styles.batchBarBtn}
-            onPress={() => { setBatchAction('status'); setBatchModalVisible(true); }}
-          >
-            <Ionicons name="swap-horizontal-outline" size={15} color="#fff" />
-            <Text style={styles.batchBarBtnText}>Statut</Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={styles.batchBarBtn}
-            onPress={() => { setBatchAction('company'); setBatchModalVisible(true); }}
-          >
-            <Ionicons name="people-outline" size={15} color="#fff" />
-            <Text style={styles.batchBarBtnText}>Entreprise</Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={styles.batchBarBtn}
-            onPress={() => { setBatchAction('deadline'); setBatchModalVisible(true); }}
-          >
-            <Ionicons name="calendar-outline" size={15} color="#fff" />
-            <Text style={styles.batchBarBtnText}>Échéance</Text>
-          </TouchableOpacity>
-          {permissions.canDelete && (
             <TouchableOpacity
-              style={[styles.batchBarBtn, styles.batchBarBtnDelete]}
-              onPress={() => {
-                if (selectedIds.size === 0) return;
-                const ids = Array.from(selectedIds);
-                Alert.alert(
-                  'Confirmer la suppression',
-                  `Supprimer ${ids.length} réserve${ids.length > 1 ? 's' : ''} ? Cette action est irréversible.`,
-                  [
-                    { text: 'Annuler', style: 'cancel' },
-                    {
-                      text: 'Supprimer', style: 'destructive',
-                      onPress: () => {
-                        ids.forEach(id => deleteReserve(id));
-                        setBatchModalVisible(false);
-                        setBatchAction(null);
-                        setIsSelectMode(false);
-                        setSelectedIds(new Set());
-                        Alert.alert('Supprimé', `${ids.length} réserve${ids.length > 1 ? 's' : ''} supprimée${ids.length > 1 ? 's' : ''}.`);
-                      },
-                    },
-                  ]
-                );
-              }}
+              style={styles.batchBarBtn}
+              onPress={() => { setBatchAction('company'); setBatchModalVisible(true); }}
             >
-              <Ionicons name="trash-outline" size={15} color="#fff" />
-              <Text style={styles.batchBarBtnText}>Supprimer</Text>
+              <Ionicons name="people-outline" size={14} color="#fff" />
+              <Text style={styles.batchBarBtnText}>Entreprise</Text>
             </TouchableOpacity>
-          )}
+            <TouchableOpacity
+              style={styles.batchBarBtn}
+              onPress={() => { setBatchAction('deadline'); setBatchModalVisible(true); }}
+            >
+              <Ionicons name="calendar-outline" size={14} color="#fff" />
+              <Text style={styles.batchBarBtnText}>Échéance</Text>
+            </TouchableOpacity>
+            {permissions.canDelete && (
+              <TouchableOpacity
+                style={[styles.batchBarBtn, styles.batchBarBtnDelete]}
+                onPress={() => {
+                  if (selectedIds.size === 0) return;
+                  const ids = Array.from(selectedIds);
+                  Alert.alert(
+                    'Confirmer la suppression',
+                    `Supprimer ${ids.length} réserve${ids.length > 1 ? 's' : ''} ? Cette action est irréversible.`,
+                    [
+                      { text: 'Annuler', style: 'cancel' },
+                      {
+                        text: 'Supprimer', style: 'destructive',
+                        onPress: () => {
+                          ids.forEach(id => deleteReserve(id));
+                          setBatchModalVisible(false);
+                          setBatchAction(null);
+                          setIsSelectMode(false);
+                          setSelectedIds(new Set());
+                          Alert.alert('Supprimé', `${ids.length} réserve${ids.length > 1 ? 's' : ''} supprimée${ids.length > 1 ? 's' : ''}.`);
+                        },
+                      },
+                    ]
+                  );
+                }}
+              >
+                <Ionicons name="trash-outline" size={14} color="#fff" />
+                <Text style={styles.batchBarBtnText}>Supprimer</Text>
+              </TouchableOpacity>
+            )}
+          </ScrollView>
         </View>
       )}
 
@@ -2316,19 +2322,28 @@ const styles = StyleSheet.create({
     left: 0, right: 0,
     backgroundColor: C.primary,
     flexDirection: 'row', alignItems: 'center',
-    paddingHorizontal: 12, paddingVertical: 12, gap: 8,
-    paddingBottom: Platform.OS === 'ios' ? 28 : 12,
+    paddingLeft: 12, paddingRight: 4, paddingVertical: 6, gap: 8,
+    paddingBottom: Platform.OS === 'ios' ? 18 : 6,
     ...Platform.select({
       web: { boxShadow: '0px -4px 16px rgba(0,48,130,0.25)' } as any,
       default: { shadowColor: '#003082', shadowOffset: { width: 0, height: -4 }, shadowOpacity: 0.25, shadowRadius: 10, elevation: 10 },
     }),
   },
-  batchBarCount: { fontSize: 12, fontFamily: 'Inter_600SemiBold', color: '#fff', flex: 1 },
+  batchBarCount: {
+    fontSize: 13, fontFamily: 'Inter_700Bold', color: '#fff',
+    minWidth: 22, textAlign: 'center',
+    backgroundColor: 'rgba(255,255,255,0.18)',
+    paddingHorizontal: 8, paddingVertical: 4, borderRadius: 999,
+    overflow: 'hidden',
+  },
+  batchBarScroll: {
+    flexDirection: 'row', alignItems: 'center', gap: 6, paddingRight: 12,
+  },
   batchBarBtn: {
     flexDirection: 'row', alignItems: 'center', gap: 4,
-    backgroundColor: 'rgba(255,255,255,0.20)', paddingHorizontal: 10, paddingVertical: 7, borderRadius: 10,
+    backgroundColor: 'rgba(255,255,255,0.20)', paddingHorizontal: 10, paddingVertical: 6, borderRadius: 8,
   },
-  batchBarBtnDelete: { backgroundColor: 'rgba(220,38,38,0.35)' },
+  batchBarBtnDelete: { backgroundColor: 'rgba(220,38,38,0.40)' },
   batchBarBtnText: { fontSize: 11, fontFamily: 'Inter_600SemiBold', color: '#fff' },
   batchDesc: { fontSize: 13, fontFamily: 'Inter_400Regular', color: C.textSub, marginBottom: 14, fontStyle: 'italic' },
   coDot: { width: 10, height: 10, borderRadius: 5 },
