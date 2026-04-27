@@ -2232,10 +2232,11 @@ const styles = StyleSheet.create({
   selectBarBtnText: { fontSize: 12, fontFamily: 'Inter_500Medium', color: C.primary },
   searchWrap: {
     flexDirection: 'row', alignItems: 'center', gap: 8,
-    backgroundColor: C.surface2, borderRadius: 10, paddingHorizontal: 12,
-    paddingVertical: 7, marginBottom: 6, borderWidth: 1, borderColor: C.border,
+    backgroundColor: C.surface2, borderRadius: 8, paddingHorizontal: 10,
+    paddingVertical: 4, marginBottom: 6, borderWidth: 1, borderColor: C.border,
+    minHeight: 34,
   },
-  searchInput: { flex: 1, fontSize: 13, fontFamily: 'Inter_400Regular', color: C.text },
+  searchInput: { flex: 1, fontSize: 13, fontFamily: 'Inter_400Regular', color: C.text, paddingVertical: 0 },
   toolRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 4 },
   kindRow: { flexDirection: 'row', marginBottom: 4, paddingBottom: 2 },
   kindChip: {
