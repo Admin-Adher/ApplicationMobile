@@ -71,6 +71,7 @@ interface NetworkContextValue {
   dismissConflicts: () => void;
   registerReloadHandler: (fn: () => void) => void;
   clearQueue: () => Promise<void>;
+  retrySync: () => Promise<void>;
 }
 
 const NetworkContext = createContext<NetworkContextValue>({
@@ -85,6 +86,7 @@ const NetworkContext = createContext<NetworkContextValue>({
   dismissConflicts: () => {},
   registerReloadHandler: () => {},
   clearQueue: async () => {},
+  retrySync: async () => {},
 });
 
 export function useNetwork() {
@@ -463,6 +465,7 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
       dismissConflicts,
       registerReloadHandler,
       clearQueue,
+      retrySync: processSyncQueue,
     }}>
       {children}
     </NetworkContext.Provider>

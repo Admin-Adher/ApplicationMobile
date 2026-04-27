@@ -52,7 +52,7 @@ export default function SettingsScreen() {
   const { companies } = useApp();
   const { user, logout, permissions } = useAuth();
   const { organization, plan, subscription, seatUsed, seatMax } = useSubscription();
-  const { queue, queueCount, isOnline, syncStatus, clearQueue } = useNetwork();
+  const { queue, queueCount, isOnline, syncStatus, syncProgress, clearQueue, retrySync } = useNetwork();
 
   const [nameInput, setNameInput] = useState(projectName);
   const [descInput, setDescInput] = useState(projectDescription);
@@ -445,10 +445,28 @@ export default function SettingsScreen() {
                         {queue.length > 5 && (
                           <Text style={styles.queueMore}>+ {queue.length - 5} autre{queue.length - 5 > 1 ? 's' : ''}…</Text>
                         )}
-                        <TouchableOpacity style={styles.queueClearBtn} onPress={handleClearQueue}>
-                          <Ionicons name="trash-outline" size={14} color="#EF4444" />
-                          <Text style={styles.queueClearTxt}>Vider la file</Text>
-                        </TouchableOpacity>
+                        <View style={styles.queueActionsRow}>
+                          <TouchableOpacity
+                            style={[styles.queueRetryBtn, (!isOnline || syncStatus === 'syncing') && styles.queueBtnDisabled]}
+                            onPress={() => { if (isOnline && syncStatus !== 'syncing') retrySync(); }}
+                            disabled={!isOnline || syncStatus === 'syncing'}
+                          >
+                            <Ionicons
+                              name={syncStatus === 'syncing' ? 'sync' : 'refresh'}
+                              size={14}
+                              color={!isOnline || syncStatus === 'syncing' ? '#9CA3AF' : '#10B981'}
+                            />
+                            <Text style={[styles.queueRetryTxt, (!isOnline || syncStatus === 'syncing') && styles.queueBtnDisabledTxt]}>
+                              {syncStatus === 'syncing'
+                                ? (syncProgress.total > 0 ? `Sync ${syncProgress.done}/${syncProgress.total}` : 'Sync…')
+                                : !isOnline ? 'Hors ligne' : 'Réessayer'}
+                            </Text>
+                          </TouchableOpacity>
+                          <TouchableOpacity style={styles.queueClearBtn} onPress={handleClearQueue}>
+                            <Ionicons name="trash-outline" size={14} color="#EF4444" />
+                            <Text style={styles.queueClearTxt}>Vider</Text>
+                          </TouchableOpacity>
+                        </View>
                       </View>
                     )}
 
@@ -924,6 +942,11 @@ const styles = StyleSheet.create({
   queueItemTitle: { fontSize: 12, fontFamily: 'Inter_600SemiBold', color: '#92400E' },
   queueItemMeta: { fontSize: 10, fontFamily: 'Inter_400Regular', color: '#78350F', marginTop: 1 },
   queueMore: { fontSize: 11, fontFamily: 'Inter_500Medium', color: '#78350F', textAlign: 'center', paddingVertical: 6 },
-  queueClearBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, marginTop: 10, paddingVertical: 8, borderRadius: 8, borderWidth: 1, borderColor: '#FCA5A5', backgroundColor: '#FEF2F2' },
+  queueActionsRow: { flexDirection: 'row', gap: 8, marginTop: 10 },
+  queueRetryBtn: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, paddingVertical: 8, borderRadius: 8, borderWidth: 1, borderColor: '#A7F3D0', backgroundColor: '#ECFDF5' },
+  queueRetryTxt: { fontSize: 12, fontFamily: 'Inter_600SemiBold', color: '#10B981' },
+  queueBtnDisabled: { backgroundColor: '#F3F4F6', borderColor: '#E5E7EB' },
+  queueBtnDisabledTxt: { color: '#9CA3AF' },
+  queueClearBtn: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, paddingVertical: 8, borderRadius: 8, borderWidth: 1, borderColor: '#FCA5A5', backgroundColor: '#FEF2F2' },
   queueClearTxt: { fontSize: 12, fontFamily: 'Inter_600SemiBold', color: '#EF4444' },
 });
