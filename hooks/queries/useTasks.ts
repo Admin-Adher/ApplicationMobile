@@ -149,6 +149,7 @@ export function useTasks() {
     if (!task) return;
     const comment: Comment = {
       id: genId(), content, author: author ?? user?.name ?? 'Inconnu',
+      authorId: user?.id,
       createdAt: nowTimestampFR(),
     };
     const updated: Task = { ...task, comments: [...(task.comments ?? []), comment] };
@@ -164,6 +165,54 @@ export function useTasks() {
     }
   }, [queryClient, user, persist]);
 
+  const updateTaskComment = useCallback(async (taskId: string, commentId: string, newContent: string) => {
+    const tasks = queryClient.getQueryData<Task[]>(queryKeys.tasks()) ?? [];
+    const task = tasks.find(t => t.id === taskId);
+    if (!task) return;
+    const target = (task.comments ?? []).find(c => c.id === commentId);
+    if (!target) return;
+    const isOwner = (target.authorId && user?.id && target.authorId === user.id) ||
+                    (!target.authorId && target.author === user?.name);
+    if (!isOwner) return;
+    const updatedComments = (task.comments ?? []).map(c =>
+      c.id === commentId ? { ...c, content: newContent, editedAt: nowTimestampFR() } : c
+    );
+    const updated: Task = { ...task, comments: updatedComments };
+    queryClient.setQueryData<Task[]>(queryKeys.tasks(), old =>
+      (old ?? []).map(t => t.id === taskId ? updated : t)
+    );
+    persist(queryClient.getQueryData<Task[]>(queryKeys.tasks()) ?? []);
+    if (isSupabaseConfigured) {
+      (supabase as any).from('tasks').update({ comments: updatedComments }).eq('id', taskId)
+        .then(({ error }: { error: any }) => {
+          if (error) console.warn('[sync] updateTaskComment error:', error.message);
+        });
+    }
+  }, [queryClient, user, persist]);
+
+  const deleteTaskComment = useCallback(async (taskId: string, commentId: string) => {
+    const tasks = queryClient.getQueryData<Task[]>(queryKeys.tasks()) ?? [];
+    const task = tasks.find(t => t.id === taskId);
+    if (!task) return;
+    const target = (task.comments ?? []).find(c => c.id === commentId);
+    if (!target) return;
+    const isOwner = (target.authorId && user?.id && target.authorId === user.id) ||
+                    (!target.authorId && target.author === user?.name);
+    if (!isOwner) return;
+    const updatedComments = (task.comments ?? []).filter(c => c.id !== commentId);
+    const updated: Task = { ...task, comments: updatedComments };
+    queryClient.setQueryData<Task[]>(queryKeys.tasks(), old =>
+      (old ?? []).map(t => t.id === taskId ? updated : t)
+    );
+    persist(queryClient.getQueryData<Task[]>(queryKeys.tasks()) ?? []);
+    if (isSupabaseConfigured) {
+      (supabase as any).from('tasks').update({ comments: updatedComments }).eq('id', taskId)
+        .then(({ error }: { error: any }) => {
+          if (error) console.warn('[sync] deleteTaskComment error:', error.message);
+        });
+    }
+  }, [queryClient, user, persist]);
+
   return {
     tasks: query.data ?? [],
     isLoadingTasks: query.isLoading,
@@ -171,6 +220,8 @@ export function useTasks() {
     updateTask,
     deleteTask,
     addTaskComment,
+    updateTaskComment,
+    deleteTaskComment,
     invalidateTasks: () => queryClient.invalidateQueries({ queryKey: queryKeys.tasks() }),
   };
 }

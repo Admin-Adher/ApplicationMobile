@@ -97,6 +97,8 @@ interface AppContextValue {
   updateTask: (t: Task) => void;
   deleteTask: (id: string) => void;
   addTaskComment: (taskId: string, content: string, author?: string) => void;
+  updateTaskComment: (taskId: string, commentId: string, newContent: string) => void;
+  deleteTaskComment: (taskId: string, commentId: string) => void;
   addPhoto: (p: Photo) => void;
   deletePhoto: (id: string) => void;
   addDocument: (d: Document) => void;
@@ -669,6 +671,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     updateTask: tasksH.updateTask,
     deleteTask: tasksH.deleteTask,
     addTaskComment: tasksH.addTaskComment,
+    updateTaskComment: tasksH.updateTaskComment,
+    deleteTaskComment: tasksH.deleteTaskComment,
     addPhoto: photosH.addPhoto,
     deletePhoto: photosH.deletePhoto,
     addDocument: documentsH.addDocument,
@@ -728,7 +732,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     messagesH.toggleReaction, messagesH.markMessagesRead,
     setChannelRead, setActiveChannelId, dismissNotification,
     tasksH.addTask, tasksH.updateTask, tasksH.deleteTask,
-    tasksH.addTaskComment, photosH.addPhoto, photosH.deletePhoto,
+    tasksH.addTaskComment, tasksH.updateTaskComment, tasksH.deleteTaskComment,
+    photosH.addPhoto, photosH.deletePhoto,
     documentsH.addDocument, documentsH.deleteDocument,
     channelsH.addCustomChannel, channelsH.removeCustomChannel,
     channelsH.addGroupChannel, channelsH.removeGroupChannel,
