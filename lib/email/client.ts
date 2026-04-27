@@ -6,7 +6,13 @@ const VERCEL_RESET_URL = 'https://buildtrack-mobile.vercel.app/api/request-passw
 function getApiUrl(): string {
   if (Platform.OS === 'web' && typeof window !== 'undefined') {
     const host = window.location?.hostname ?? '';
-    if (host === 'localhost' || host === '127.0.0.1') {
+    if (
+      host === 'localhost' ||
+      host === '127.0.0.1' ||
+      host.endsWith('.replit.dev') ||
+      host.endsWith('.repl.co') ||
+      host.endsWith('.replit.app')
+    ) {
       return '/api/send-email';
     }
   }
