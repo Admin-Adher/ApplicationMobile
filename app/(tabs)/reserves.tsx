@@ -1529,133 +1529,164 @@ export default function ReservesScreen() {
         animationType="fade"
         onRequestClose={() => setPdfExportModalVisible(false)}
       >
-        <Pressable style={styles.modalOverlayCenter} onPress={() => setPdfExportModalVisible(false)}>
-          <Pressable style={styles.modalCard} onPress={() => {}}>
-            <Text style={styles.modalTitle}>Télécharger en PDF</Text>
-            <Text style={styles.modalSubtitle}>Choisis ce que tu veux exporter</Text>
+        <Pressable style={styles.pdfModalOverlay} onPress={() => setPdfExportModalVisible(false)}>
+          <Pressable style={styles.pdfModalCard} onPress={() => {}}>
+            <View style={styles.pdfModalHeaderRow}>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.modalTitle}>Télécharger en PDF</Text>
+                <Text style={styles.modalSubtitle}>Choisis ce que tu veux exporter</Text>
+              </View>
+              <TouchableOpacity onPress={() => setPdfExportModalVisible(false)} accessibilityLabel="Fermer">
+                <Ionicons name="close" size={20} color={C.textMuted} />
+              </TouchableOpacity>
+            </View>
 
-            <View style={styles.modalOptionGroup}>
+            <View style={styles.pdfOptionGroup}>
               <TouchableOpacity
-                style={[styles.modalOption, pdfExportMode === 'all' && styles.modalOptionActive]}
+                style={[styles.pdfOption, pdfExportMode === 'all' && styles.pdfOptionActive]}
                 onPress={() => setPdfExportMode('all')}
               >
-                <Text style={[styles.modalOptionText, pdfExportMode === 'all' && styles.modalOptionTextActive]}>Toutes les réserves (filtre actuel)</Text>
+                <Ionicons name="albums-outline" size={14} color={pdfExportMode === 'all' ? '#fff' : C.text} />
+                <Text style={[styles.pdfOptionText, pdfExportMode === 'all' && styles.pdfOptionTextActive]}>Toutes les réserves (filtre actuel)</Text>
               </TouchableOpacity>
 
               <TouchableOpacity
-                style={[styles.modalOption, pdfExportMode === 'company_single' && styles.modalOptionActive]}
+                style={[styles.pdfOption, pdfExportMode === 'company_single' && styles.pdfOptionActive]}
                 onPress={() => setPdfExportMode('company_single')}
               >
-                <Text style={[styles.modalOptionText, pdfExportMode === 'company_single' && styles.modalOptionTextActive]}>Une entreprise</Text>
+                <Ionicons name="business-outline" size={14} color={pdfExportMode === 'company_single' ? '#fff' : C.text} />
+                <Text style={[styles.pdfOptionText, pdfExportMode === 'company_single' && styles.pdfOptionTextActive]}>Une entreprise</Text>
               </TouchableOpacity>
 
               <TouchableOpacity
-                style={[styles.modalOption, pdfExportMode === 'company_multi' && styles.modalOptionActive]}
+                style={[styles.pdfOption, pdfExportMode === 'company_multi' && styles.pdfOptionActive]}
                 onPress={() => setPdfExportMode('company_multi')}
               >
-                <Text style={[styles.modalOptionText, pdfExportMode === 'company_multi' && styles.modalOptionTextActive]}>Plusieurs entreprises</Text>
+                <Ionicons name="people-outline" size={14} color={pdfExportMode === 'company_multi' ? '#fff' : C.text} />
+                <Text style={[styles.pdfOptionText, pdfExportMode === 'company_multi' && styles.pdfOptionTextActive]}>Plusieurs entreprises</Text>
               </TouchableOpacity>
 
               <TouchableOpacity
-                style={[styles.modalOption, pdfExportMode === 'company_none' && styles.modalOptionActive]}
+                style={[styles.pdfOption, pdfExportMode === 'company_none' && styles.pdfOptionActive]}
                 onPress={() => setPdfExportMode('company_none')}
               >
-                <Text style={[styles.modalOptionText, pdfExportMode === 'company_none' && styles.modalOptionTextActive]}>Réserves sans entreprise</Text>
+                <Ionicons name="ban-outline" size={14} color={pdfExportMode === 'company_none' ? '#fff' : C.text} />
+                <Text style={[styles.pdfOptionText, pdfExportMode === 'company_none' && styles.pdfOptionTextActive]}>Réserves sans entreprise</Text>
               </TouchableOpacity>
 
               <TouchableOpacity
-                style={[styles.modalOption, pdfExportMode === 'manual' && styles.modalOptionActive]}
+                style={[styles.pdfOption, pdfExportMode === 'manual' && styles.pdfOptionActive]}
                 onPress={() => setPdfExportMode('manual')}
               >
-                <Text style={[styles.modalOptionText, pdfExportMode === 'manual' && styles.modalOptionTextActive]}>Sélection manuelle</Text>
+                <Ionicons name="checkbox-outline" size={14} color={pdfExportMode === 'manual' ? '#fff' : C.text} />
+                <Text style={[styles.pdfOptionText, pdfExportMode === 'manual' && styles.pdfOptionTextActive]}>Sélection manuelle</Text>
               </TouchableOpacity>
             </View>
 
             {pdfExportMode === 'company_single' && (
-              <View style={{ maxHeight: 220 }}>
+              <View style={styles.pdfPickerWrap}>
                 <ScrollView>
-                  {groupedByCompany.map(g => (
+                  {groupedByCompany.length === 0 && (
+                    <Text style={styles.pdfEmptyHint}>Aucune réserve avec cette sélection.</Text>
+                  )}
+                  {groupedByCompany.map(g => {
+                    const active = pdfCompanySingle === g.key;
+                    return (
                       <TouchableOpacity
                         key={g.key}
-                        style={[styles.companyPickRow, pdfCompanySingle === g.key && styles.companyPickRowActive]}
+                        style={[styles.pdfPickRow, active && styles.pdfPickRowActive]}
                         onPress={() => setPdfCompanySingle(g.key)}
                       >
-                        <Text style={styles.companyPickRowText}>{g.key === '—' ? 'Sans entreprise' : g.title}</Text>
-                        <Text style={styles.companyPickRowCount}>{g.data.length}</Text>
+                        <View style={[styles.pdfRadio, active && styles.pdfRadioActive]}>
+                          {active && <View style={styles.pdfRadioDot} />}
+                        </View>
+                        <Text style={[styles.pdfPickRowText, active && styles.pdfPickRowTextActive]} numberOfLines={1}>
+                          {g.key === '—' ? 'Sans entreprise' : g.title}
+                        </Text>
+                        <Text style={styles.pdfPickRowCount}>{g.data.length}</Text>
                       </TouchableOpacity>
-                    ))}
+                    );
+                  })}
                 </ScrollView>
               </View>
             )}
 
             {pdfExportMode === 'company_multi' && (
-              <View style={{ maxHeight: 220 }}>
-                <View style={styles.multiPickActions}>
+              <View style={styles.pdfPickerWrap}>
+                <View style={styles.pdfPickActions}>
                   <TouchableOpacity
-                    style={styles.multiPickBtn}
-                    onPress={() => {
-                      setPdfCompaniesMulti(new Set(groupedByCompany.map(g => g.key)));
-                    }}
+                    style={styles.pdfPickActionBtn}
+                    onPress={() => setPdfCompaniesMulti(new Set(groupedByCompany.map(g => g.key)))}
                   >
-                    <Text style={styles.multiPickBtnText}>Tout</Text>
+                    <Text style={styles.pdfPickActionBtnText}>Tout</Text>
                   </TouchableOpacity>
                   <TouchableOpacity
-                    style={styles.multiPickBtn}
+                    style={styles.pdfPickActionBtn}
                     onPress={() => setPdfCompaniesMulti(new Set())}
                   >
-                    <Text style={styles.multiPickBtnText}>Aucun</Text>
+                    <Text style={styles.pdfPickActionBtnText}>Aucun</Text>
                   </TouchableOpacity>
                 </View>
                 <ScrollView>
+                  {groupedByCompany.length === 0 && (
+                    <Text style={styles.pdfEmptyHint}>Aucune réserve avec cette sélection.</Text>
+                  )}
                   {groupedByCompany.map(g => {
-                      const checked = pdfCompaniesMulti.has(g.key);
-                      return (
-                        <TouchableOpacity
-                          key={g.key}
-                          style={styles.companyPickRow}
-                          onPress={() => {
-                            setPdfCompaniesMulti(prev => {
-                              const next = new Set(prev);
-                              if (next.has(g.key)) next.delete(g.key);
-                              else next.add(g.key);
-                              return next;
-                            });
-                          }}
-                        >
-                          <View style={[styles.checkbox, checked && styles.checkboxChecked]}>
-                            {checked && <Ionicons name="checkmark" size={14} color="#fff" />}
-                          </View>
-                          <Text style={styles.companyPickRowText}>{g.key === '—' ? 'Sans entreprise' : g.title}</Text>
-                          <Text style={styles.companyPickRowCount}>{g.data.length}</Text>
-                        </TouchableOpacity>
-                      );
-                    })}
+                    const checked = pdfCompaniesMulti.has(g.key);
+                    return (
+                      <TouchableOpacity
+                        key={g.key}
+                        style={styles.pdfPickRow}
+                        onPress={() => {
+                          setPdfCompaniesMulti(prev => {
+                            const next = new Set(prev);
+                            if (next.has(g.key)) next.delete(g.key);
+                            else next.add(g.key);
+                            return next;
+                          });
+                        }}
+                      >
+                        <View style={[styles.pdfCheckbox, checked && styles.pdfCheckboxChecked]}>
+                          {checked && <Ionicons name="checkmark" size={12} color="#fff" />}
+                        </View>
+                        <Text style={styles.pdfPickRowText} numberOfLines={1}>
+                          {g.key === '—' ? 'Sans entreprise' : g.title}
+                        </Text>
+                        <Text style={styles.pdfPickRowCount}>{g.data.length}</Text>
+                      </TouchableOpacity>
+                    );
+                  })}
                 </ScrollView>
               </View>
             )}
 
             {pdfExportMode === 'manual' && (
-              <Text style={styles.modalHint}>
-                Un mode sélection s’ouvrira. Sélectionne les réserves puis utilise le bouton PDF dans la barre d’actions.
+              <Text style={styles.pdfEmptyHint}>
+                Un mode sélection s'ouvrira. Coche les réserves voulues puis utilise le bouton PDF dans la barre d'actions.
               </Text>
             )}
 
-            {pdfExportMode !== 'manual' && (
-              <Text style={styles.modalPreview}>
-                {pdfPreviewCount} réserve{pdfPreviewCount !== 1 ? 's' : ''} vont être exportée{pdfPreviewCount !== 1 ? 's' : ''}.
-              </Text>
-            )}
+            <Text style={styles.pdfPreview}>
+              {pdfExportMode === 'manual'
+                ? 'La sélection se fera après fermeture du modal.'
+                : `${pdfPreviewCount} réserve${pdfPreviewCount !== 1 ? 's' : ''} sera${pdfPreviewCount !== 1 ? 'ont' : ''} exportée${pdfPreviewCount !== 1 ? 's' : ''}.`
+              }
+            </Text>
 
-            <View style={styles.modalActions}>
-              <TouchableOpacity style={styles.modalCancelBtn} onPress={() => setPdfExportModalVisible(false)}>
-                <Text style={styles.modalCancelBtnText}>Annuler</Text>
+            <View style={styles.pdfModalActions}>
+              <TouchableOpacity style={styles.pdfCancelBtn} onPress={() => setPdfExportModalVisible(false)} disabled={pdfLoading}>
+                <Text style={styles.pdfCancelBtnText}>Annuler</Text>
               </TouchableOpacity>
               <TouchableOpacity
-                style={[styles.modalConfirmBtn, pdfLoading && { opacity: 0.6 }]}
+                style={[styles.pdfConfirmBtn, (pdfLoading || (pdfExportMode !== 'manual' && pdfPreviewCount === 0)) && { opacity: 0.5 }]}
                 onPress={() => { void handleConfirmPdfExport(); }}
-                disabled={pdfLoading}
+                disabled={pdfLoading || (pdfExportMode !== 'manual' && pdfPreviewCount === 0)}
               >
-                <Text style={styles.modalConfirmBtnText}>Télécharger</Text>
+                {pdfLoading
+                  ? <ActivityIndicator size="small" color="#fff" />
+                  : <Ionicons name="download-outline" size={16} color="#fff" />
+                }
+                <Text style={styles.pdfConfirmBtnText}>Télécharger</Text>
               </TouchableOpacity>
             </View>
           </Pressable>
@@ -2303,31 +2334,37 @@ const styles = StyleSheet.create({
   coDot: { width: 10, height: 10, borderRadius: 5 },
   statusDot: { width: 10, height: 10, borderRadius: 5 },
   modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.45)', justifyContent: 'flex-end', alignItems: 'center' },
-  modalOverlayCenter: { flex: 1, backgroundColor: 'rgba(0,0,0,0.45)', justifyContent: 'center', alignItems: 'center', padding: 18 },
-  modalCard: { width: '100%', maxWidth: 520, backgroundColor: C.surface, borderRadius: 16, padding: 16, borderWidth: 1, borderColor: C.border },
   modalTitle: { fontSize: 16, fontFamily: 'Inter_700Bold', color: C.text },
-  modalSubtitle: { marginTop: 2, fontSize: 12, fontFamily: 'Inter_400Regular', color: C.textSub, marginBottom: 10 },
-  modalOptionGroup: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 12 },
-  modalOption: { paddingHorizontal: 10, paddingVertical: 8, borderRadius: 999, borderWidth: 1, borderColor: C.border, backgroundColor: C.surface2 },
-  modalOptionActive: { borderColor: C.primary, backgroundColor: C.primaryBg },
-  modalOptionText: { fontSize: 12, fontFamily: 'Inter_500Medium', color: C.textSub },
-  modalOptionTextActive: { color: C.primary },
-  companyPickRow: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 10, paddingHorizontal: 10, borderRadius: 12, borderWidth: 1, borderColor: C.border, backgroundColor: C.surface2, marginBottom: 8 },
-  companyPickRowActive: { borderColor: C.primary, backgroundColor: C.primaryBg },
-  companyPickRowDisabled: { opacity: 0.55 },
-  companyPickRowText: { flex: 1, fontSize: 13, fontFamily: 'Inter_500Medium', color: C.text },
-  companyPickRowTextDisabled: { color: C.textMuted },
-  companyPickRowCount: { fontSize: 12, fontFamily: 'Inter_600SemiBold', color: C.textSub },
-  multiPickActions: { flexDirection: 'row', gap: 8, marginBottom: 8 },
-  multiPickBtn: { paddingHorizontal: 10, paddingVertical: 6, borderRadius: 999, borderWidth: 1, borderColor: C.border, backgroundColor: C.surface2 },
-  multiPickBtnText: { fontSize: 12, fontFamily: 'Inter_600SemiBold', color: C.textSub },
-  modalHint: { fontSize: 12, fontFamily: 'Inter_400Regular', color: C.textSub, marginTop: 6, marginBottom: 12 },
-  modalPreview: { fontSize: 12, fontFamily: 'Inter_600SemiBold', color: C.text, marginTop: 4 },
-  modalActions: { flexDirection: 'row', justifyContent: 'flex-end', gap: 10, marginTop: 12 },
-  modalCancelBtn: { paddingHorizontal: 12, paddingVertical: 9, borderRadius: 12, borderWidth: 1, borderColor: C.border, backgroundColor: C.surface2 },
-  modalCancelBtnText: { fontSize: 12, fontFamily: 'Inter_600SemiBold', color: C.textSub },
-  modalConfirmBtn: { paddingHorizontal: 12, paddingVertical: 9, borderRadius: 12, backgroundColor: C.primary },
-  modalConfirmBtnText: { fontSize: 12, fontFamily: 'Inter_700Bold', color: '#fff' },
+  modalSubtitle: { marginTop: 2, fontSize: 12, fontFamily: 'Inter_400Regular', color: C.textSub },
+  pdfModalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.6)', justifyContent: 'center', alignItems: 'center', padding: 16 },
+  pdfModalCard: { backgroundColor: C.surface, borderRadius: 18, padding: 16, gap: 12, maxHeight: '90%', width: '100%', maxWidth: 560 },
+  pdfModalHeaderRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 12 },
+  pdfOptionGroup: { gap: 6 },
+  pdfOption: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: 10, paddingHorizontal: 12, borderRadius: 10, backgroundColor: C.surface2, borderWidth: 1, borderColor: C.border },
+  pdfOptionActive: { backgroundColor: C.primary, borderColor: C.primary },
+  pdfOptionText: { fontSize: 13, fontFamily: 'Inter_500Medium', color: C.text, flex: 1 },
+  pdfOptionTextActive: { color: '#fff', fontFamily: 'Inter_600SemiBold' },
+  pdfPickerWrap: { maxHeight: 240, borderWidth: 1, borderColor: C.border, borderRadius: 10, padding: 6, backgroundColor: C.surface2 },
+  pdfPickActions: { flexDirection: 'row', gap: 6, marginBottom: 6 },
+  pdfPickActionBtn: { paddingHorizontal: 10, paddingVertical: 5, borderRadius: 7, backgroundColor: C.primaryBg, borderWidth: 1, borderColor: C.primary + '40' },
+  pdfPickActionBtnText: { fontSize: 11, fontFamily: 'Inter_600SemiBold', color: C.primary },
+  pdfPickRow: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 8, paddingHorizontal: 8, borderRadius: 8 },
+  pdfPickRowActive: { backgroundColor: C.primaryBg },
+  pdfPickRowText: { fontSize: 13, fontFamily: 'Inter_500Medium', color: C.text, flex: 1 },
+  pdfPickRowTextActive: { color: C.primary, fontFamily: 'Inter_600SemiBold' },
+  pdfPickRowCount: { fontSize: 11, fontFamily: 'Inter_600SemiBold', color: C.textMuted, paddingHorizontal: 7, paddingVertical: 2, backgroundColor: C.surface, borderRadius: 6, borderWidth: 1, borderColor: C.border },
+  pdfRadio: { width: 16, height: 16, borderRadius: 8, borderWidth: 1.5, borderColor: C.border, alignItems: 'center', justifyContent: 'center' },
+  pdfRadioActive: { borderColor: C.primary },
+  pdfRadioDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: C.primary },
+  pdfCheckbox: { width: 18, height: 18, borderRadius: 5, borderWidth: 1.5, borderColor: C.border, alignItems: 'center', justifyContent: 'center', backgroundColor: C.surface },
+  pdfCheckboxChecked: { backgroundColor: C.primary, borderColor: C.primary },
+  pdfEmptyHint: { fontSize: 12, fontFamily: 'Inter_400Regular', color: C.textMuted, textAlign: 'center', padding: 16 },
+  pdfPreview: { fontSize: 12, fontFamily: 'Inter_500Medium', color: C.textSub, textAlign: 'center' },
+  pdfModalActions: { flexDirection: 'row', gap: 10, marginTop: 4 },
+  pdfCancelBtn: { flex: 1, paddingVertical: 12, borderRadius: 12, borderWidth: 1, borderColor: C.border, alignItems: 'center', justifyContent: 'center' },
+  pdfCancelBtnText: { fontSize: 14, fontFamily: 'Inter_500Medium', color: C.textSub },
+  pdfConfirmBtn: { flex: 2, flexDirection: 'row', gap: 6, paddingVertical: 12, borderRadius: 12, backgroundColor: C.primary, alignItems: 'center', justifyContent: 'center' },
+  pdfConfirmBtnText: { fontSize: 14, fontFamily: 'Inter_600SemiBold', color: '#fff' },
   checkboxDisabled: { backgroundColor: C.surface2, borderColor: C.border },
   bottomSheet: {
     backgroundColor: C.surface, borderTopLeftRadius: 20, borderTopRightRadius: 20,
