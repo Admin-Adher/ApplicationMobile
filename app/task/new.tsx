@@ -13,7 +13,7 @@ import DateInput from '@/components/DateInput';
 import CompanySelector from '@/components/CompanySelector';
 import { Task, TaskStatus, ReservePriority } from '@/constants/types';
 import { validateDeadline } from '@/lib/reserveUtils';
-import { genId, formatDateFR } from '@/lib/utils';
+import { genId, formatDateFR, nowTimestampFR } from '@/lib/utils';
 
 const STATUS_OPTS: { value: TaskStatus; label: string; color: string; icon: string }[] = [
   { value: 'todo',        label: 'À faire',   color: C.textMuted,  icon: 'ellipse-outline' },
@@ -118,7 +118,7 @@ export default function NewTaskScreen() {
         id: genId(),
         action: 'Tâche créée',
         author: user?.name ?? 'Système',
-        createdAt: formatDateFR(new Date()),
+        createdAt: nowTimestampFR(),
       }],
       createdAt: formatDateFR(new Date()),
     };

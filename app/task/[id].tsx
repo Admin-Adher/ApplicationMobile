@@ -12,7 +12,7 @@ import Header from '@/components/Header';
 import DateInput from '@/components/DateInput';
 import CompanySelector from '@/components/CompanySelector';
 import { Task, TaskStatus, ReservePriority } from '@/constants/types';
-import { validateDeadline } from '@/lib/reserveUtils';
+import { validateDeadline, formatDate } from '@/lib/reserveUtils';
 
 const STATUS_OPTS: { value: TaskStatus; label: string; color: string; icon: string }[] = [
   { value: 'todo',        label: 'À faire',   color: C.textMuted,  icon: 'ellipse-outline' },
@@ -374,7 +374,7 @@ export default function EditTaskScreen() {
                 </View>
                 <View style={{ flex: 1 }}>
                   <Text style={styles.commentAuthor}>{c.author}</Text>
-                  <Text style={styles.commentDate}>{c.createdAt}</Text>
+                  <Text style={styles.commentDate}>{formatDate(c.createdAt)}</Text>
                 </View>
               </View>
               <Text style={styles.commentText}>{c.content}</Text>
@@ -408,7 +408,7 @@ export default function EditTaskScreen() {
                 <View style={styles.historyDot} />
                 <View style={{ flex: 1 }}>
                   <Text style={styles.historyText}>{h.action}</Text>
-                  <Text style={styles.historyMeta}>{h.author} — {h.createdAt}</Text>
+                  <Text style={styles.historyMeta}>{h.author} — {formatDate(h.createdAt)}</Text>
                 </View>
               </View>
             ))}
