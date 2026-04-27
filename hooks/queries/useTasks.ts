@@ -54,7 +54,6 @@ export function useTasks() {
       }
     },
     enabled: !!user,
-    staleTime: 5 * 60 * 1000,
   });
 
   const persist = useCallback((tasks: Task[]) => {

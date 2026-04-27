@@ -11,6 +11,7 @@ import { Reserve, ReserveStatus, Comment } from '@/constants/types';
 import { genId, formatDateFR } from '@/lib/utils';
 import { genReserveId } from '@/lib/reserveUtils';
 import { mergeWithCache, readCache, writeCache, pendingIdsForTable, isSupabaseSessionValid } from '@/lib/offlineCache';
+import { uploadLocalPhotosInPayload } from '@/lib/storage';
 
 const RESERVES_CACHE_KEY = 'buildtrack_reserves_cache_v1';
 
@@ -71,7 +72,6 @@ export function useReserves() {
       }
     },
     enabled: !!user,
-    staleTime: 5 * 60 * 1000,
   });
 
   const persist = useCallback((reserves: Reserve[]) => {
@@ -116,12 +116,23 @@ export function useReserves() {
     }
     if (!isSupabaseConfigured) return;
 
+    // Upload any local photo URIs BEFORE inserting the row, so we never
+    // ship a `file://` path to Supabase. If even one upload fails we fall
+    // back to the offline queue, which retries the whole thing later.
+    const prep = await uploadLocalPhotosInPayload('reserves', payload);
+    if (!prep.allOk) {
+      console.warn('[sync] addReserve: photo upload failed, queuing for later sync');
+      enqueueOperation({ table: 'reserves', op: 'insert', data: payload });
+      return;
+    }
+    const finalPayload = prep.data!;
+
     const rollback = () => {
       queryClient.setQueryData<Reserve[]>(queryKeys.reserves(), old => (old ?? []).filter(x => x.id !== r.id));
       persist(queryClient.getQueryData<Reserve[]>(queryKeys.reserves()) ?? []);
     };
 
-    const { error } = await (supabase as any).from('reserves').insert(payload);
+    const { error } = await (supabase as any).from('reserves').insert(finalPayload);
     if (!error) return;
 
     console.warn('[sync] addReserve server error:', error.code, error.message, '(org sent:', orgId, ', role:', user?.role, ')');
@@ -163,9 +174,10 @@ export function useReserves() {
           return;
         }
         if (freshOrgId !== orgId) {
-          // Stale local org id — retry with the fresh value
+          // Stale local org id — retry with the fresh value (reuse the
+          // already-uploaded photo URLs from finalPayload, no need to re-upload).
           console.warn('[sync] addReserve retry with fresh organization_id:', freshOrgId, '(was:', orgId, ')');
-          const { error: retryErr } = await (supabase as any).from('reserves').insert(buildPayload(freshOrgId));
+          const { error: retryErr } = await (supabase as any).from('reserves').insert({ ...finalPayload, organization_id: freshOrgId });
           if (!retryErr) return;
           console.warn('[sync] addReserve retry also failed:', retryErr.code, retryErr.message);
           rollback();
@@ -227,7 +239,14 @@ export function useReserves() {
       return;
     }
     if (isSupabaseConfigured) {
-      (supabase as any).from('reserves').update(payload).eq('id', r.id).then(({ error }: { error: any }) => {
+      // Upload local photos before updating the row (same rationale as in addReserve).
+      const prep = await uploadLocalPhotosInPayload('reserves', payload);
+      if (!prep.allOk) {
+        console.warn('[sync] updateReserve: photo upload failed, queuing for later sync');
+        enqueueOperation({ table: 'reserves', op: 'update', filter: { column: 'id', value: r.id }, data: payload });
+        return;
+      }
+      (supabase as any).from('reserves').update(prep.data!).eq('id', r.id).then(({ error }: { error: any }) => {
         if (error) console.warn('[sync] updateReserve error:', error.message);
       });
     }

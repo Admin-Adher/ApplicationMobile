@@ -55,7 +55,6 @@ export function useVisites() {
       }
     },
     enabled: !!user && startupReady,
-    staleTime: 5 * 60 * 1000,
   });
 
   const persist = useCallback((visites: Visite[]) => {

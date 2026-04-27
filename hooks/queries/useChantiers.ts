@@ -58,7 +58,7 @@ export function useChantiers() {
       }
     },
     enabled: !!user,
-    staleTime: 5 * 60 * 1000,
+
   });
 
   const sitePlansQuery = useQuery({
@@ -92,7 +92,7 @@ export function useChantiers() {
       }
     },
     enabled: !!user,
-    staleTime: 5 * 60 * 1000,
+
   });
 
   const addChantier = useCallback(async (c: Chantier, plans: SitePlan[], onCreated?: (ch: Channel) => void) => {

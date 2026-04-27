@@ -10,6 +10,7 @@ import { toPhoto } from '@/lib/mappers';
 import { Photo } from '@/constants/types';
 import { useStartupDelay } from '@/hooks/useStartupDelay';
 import { mergeWithCache, readCache, writeCache, pendingIdsForTable, isSupabaseSessionValid } from '@/lib/offlineCache';
+import { uploadLocalPhotosInPayload } from '@/lib/storage';
 
 const PHOTOS_CACHE_KEY = 'buildtrack_photos_cache_v1';
 
@@ -65,7 +66,6 @@ export function usePhotos() {
       }
     },
     enabled: !!user && startupReady,
-    staleTime: 5 * 60 * 1000,
   });
 
   const persist = useCallback((photos: Photo[]) => {
@@ -89,7 +89,16 @@ export function usePhotos() {
       return;
     }
     if (isSupabaseConfigured) {
-      const { error } = await (supabase as any).from('photos').insert(payload);
+      // Upload the local file to Supabase Storage first; if that fails,
+      // queue the row for a later sync attempt instead of pushing a broken
+      // local URI into the photos table.
+      const prep = await uploadLocalPhotosInPayload('photos', payload);
+      if (!prep.allOk) {
+        console.warn('[sync] addPhoto: upload failed, queuing for later sync');
+        enqueueOperation({ table: 'photos', op: 'insert', data: payload });
+        return;
+      }
+      const { error } = await (supabase as any).from('photos').insert(prep.data!);
       if (error) {
         console.warn('[sync] addPhoto error:', error.message);
         Alert.alert('Synchronisation incomplète', `La photo a été sauvegardée localement mais n'a pas pu être synchronisée (${error.message}).`);

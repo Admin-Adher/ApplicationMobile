@@ -53,7 +53,6 @@ export function useProfiles() {
       }
     },
     enabled: !!user,
-    staleTime: 10 * 60 * 1000,
   });
 
   return {

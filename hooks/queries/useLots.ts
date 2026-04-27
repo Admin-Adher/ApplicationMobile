@@ -75,7 +75,6 @@ export function useLots() {
       }
     },
     enabled: !!user && startupReady,
-    staleTime: 10 * 60 * 1000,
   });
 
   const persist = useCallback((lots: Lot[]) => {

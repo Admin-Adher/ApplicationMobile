@@ -54,7 +54,6 @@ export function useDocuments() {
       }
     },
     enabled: !!user && startupReady,
-    staleTime: 5 * 60 * 1000,
   });
 
   const persist = useCallback((documents: Document[]) => {

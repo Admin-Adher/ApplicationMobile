@@ -55,7 +55,6 @@ export function useOprs() {
       }
     },
     enabled: !!user && startupReady,
-    staleTime: 5 * 60 * 1000,
   });
 
   const persist = useCallback((oprs: Opr[]) => {

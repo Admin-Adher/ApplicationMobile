@@ -71,7 +71,6 @@ export function useCompanies() {
       }
     },
     enabled: !!user,
-    staleTime: 5 * 60 * 1000,
   });
 
   const persist = useCallback((companies: Company[]) => {

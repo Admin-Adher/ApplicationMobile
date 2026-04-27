@@ -2,11 +2,12 @@ import React, {
   createContext, useContext, useEffect, useRef,
   useState, useCallback,
 } from 'react';
-import { Platform } from 'react-native';
+import { Platform, AppState, AppStateStatus } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { supabase, isSupabaseConfigured } from '@/lib/supabase';
 import { uploadPhoto, isLocalUri } from '@/lib/storage';
 import { useAuth } from '@/context/AuthContext';
+import { queryClient } from '@/lib/queryClient';
 
 const OFFLINE_QUEUE_PREFIX = 'buildtrack_offline_queue_v3_';
 
@@ -173,16 +174,40 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
     return () => clearInterval(interval);
   }, [loadQueue]);
 
-  // ── Trigger sync when coming back online ───────────────────────────────────
+  // ── Trigger sync + refetch when coming back online ─────────────────────────
+  //
+  // When connectivity is restored we always force a refetch of every React
+  // Query so Supabase becomes the source of truth again — the cache may have
+  // been showing stale data while we were offline. In addition, any queued
+  // mutations are replayed.
 
   useEffect(() => {
     if (isOnline && !prevOnlineRef.current) {
-      if (isSupabaseConfigured && queue.length > 0) {
-        processSyncQueue();
+      if (isSupabaseConfigured) {
+        if (queue.length > 0) processSyncQueue();
+        // Network just came back — invalidate every cached query so Supabase
+        // re-becomes the source of truth.
+        queryClient.invalidateQueries();
       }
     }
     prevOnlineRef.current = isOnline;
   }, [isOnline]);
+
+  // ── Refetch when the app comes back to the foreground (native) ─────────────
+  //
+  // React Query's `refetchOnWindowFocus` only fires on web. On iOS / Android
+  // we hook into AppState transitions and invalidate all queries when the user
+  // returns to the app, so the data shown is whatever Supabase currently has.
+
+  useEffect(() => {
+    if (Platform.OS === 'web') return;
+    const sub = AppState.addEventListener('change', (next: AppStateStatus) => {
+      if (next === 'active' && isSupabaseConfigured) {
+        queryClient.invalidateQueries();
+      }
+    });
+    return () => sub.remove();
+  }, []);
 
   // ── Sync logic ─────────────────────────────────────────────────────────────
 
