@@ -17,7 +17,7 @@ import { useAuth } from '@/context/AuthContext';
 import { Reserve, ReserveStatus, ReservePriority, ReserveKind } from '@/constants/types';
 import ReserveCard from '@/components/ReserveCard';
 import DateInput from '@/components/DateInput';
-import { isOverdue, formatDate, genReserveId, compareLevels } from '@/lib/reserveUtils';
+import { isOverdue, isDueSoon, formatDate, genReserveId, compareLevels } from '@/lib/reserveUtils';
 import { PDF_BASE_CSS, PDF_BRAND_COLOR, PDF_MUTED, PDF_TEXT, exportPDF as exportPDFHelper, printPDF as printPDFHelper, escapeHtml } from '@/lib/pdfBase';
 
 function buildReservesCSV(reserves: Reserve[]): string {
@@ -327,17 +327,10 @@ export default function ReservesScreen() {
     [sitePlans, activeChantierId]
   );
 
-  const nearDeadlineReserves = useMemo(() => {
-    const now = new Date();
-    const in3Days = new Date(now);
-    in3Days.setDate(in3Days.getDate() + 3);
-    return chantierReserves.filter(r => {
-      if (r.status === 'closed') return false;
-      const dl = parseDeadline(r.deadline);
-      if (!dl) return false;
-      return dl >= now && dl <= in3Days;
-    });
-  }, [chantierReserves]);
+  const nearDeadlineReserves = useMemo(
+    () => chantierReserves.filter(r => isDueSoon(r.deadline, r.status, 3)),
+    [chantierReserves]
+  );
 
   function handleExportCSV() {
     const csv = buildReservesCSV(filtered);
@@ -905,7 +898,7 @@ export default function ReservesScreen() {
 
   return (
     <View style={styles.container}>
-      <View style={[styles.header, { paddingTop: topPad + 12 }]}>
+      <View style={[styles.header, { paddingTop: topPad + 8 }]}>
         <View style={styles.headerRow}>
           <View style={{ flex: 1 }}>
             <Text style={styles.title}>Réserves</Text>
@@ -2212,14 +2205,14 @@ const styles = StyleSheet.create({
   header: {
     paddingLeft: 24,
     paddingRight: 16,
-    paddingBottom: 6,
+    paddingBottom: 4,
     borderBottomWidth: 1,
     borderBottomColor: C.border,
     backgroundColor: C.surface,
   },
-  headerRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 10 },
-  title: { fontSize: 22, fontFamily: 'Inter_700Bold', color: C.text },
-  subtitle: { fontSize: 12, fontFamily: 'Inter_400Regular', color: C.textSub, marginTop: 2 },
+  headerRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 6 },
+  title: { fontSize: 19, fontFamily: 'Inter_700Bold', color: C.text },
+  subtitle: { fontSize: 11, fontFamily: 'Inter_400Regular', color: C.textSub, marginTop: 1 },
   selectBtn: {
     flexDirection: 'row', alignItems: 'center', gap: 4,
     paddingHorizontal: 10, paddingVertical: 7, borderRadius: 20,
@@ -2240,10 +2233,10 @@ const styles = StyleSheet.create({
   searchWrap: {
     flexDirection: 'row', alignItems: 'center', gap: 8,
     backgroundColor: C.surface2, borderRadius: 10, paddingHorizontal: 12,
-    paddingVertical: 10, marginBottom: 8, borderWidth: 1, borderColor: C.border,
+    paddingVertical: 7, marginBottom: 6, borderWidth: 1, borderColor: C.border,
   },
-  searchInput: { flex: 1, fontSize: 14, fontFamily: 'Inter_400Regular', color: C.text },
-  toolRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 6 },
+  searchInput: { flex: 1, fontSize: 13, fontFamily: 'Inter_400Regular', color: C.text },
+  toolRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 4 },
   kindRow: { flexDirection: 'row', marginBottom: 4, paddingBottom: 2 },
   kindChip: {
     paddingHorizontal: 12, paddingVertical: 5, borderRadius: 16, flexDirection: 'row', alignItems: 'center', gap: 4,
@@ -2277,10 +2270,10 @@ const styles = StyleSheet.create({
   chantierBar: { marginBottom: 8 },
   stBanner: {
     flexDirection: 'row', alignItems: 'center', gap: 8,
-    backgroundColor: C.primaryBg, borderRadius: 8, paddingHorizontal: 12, paddingVertical: 8,
-    marginBottom: 8, borderWidth: 1, borderColor: C.primary + '30',
+    backgroundColor: C.primaryBg, borderRadius: 8, paddingHorizontal: 12, paddingVertical: 6,
+    marginBottom: 6, borderWidth: 1, borderColor: C.primary + '30',
   },
-  stBannerText: { fontSize: 12, fontFamily: 'Inter_400Regular', color: C.text, flex: 1 },
+  stBannerText: { fontSize: 11, fontFamily: 'Inter_400Regular', color: C.text, flex: 1 },
   chantierChip: {
     flexDirection: 'row', alignItems: 'center', gap: 6,
     paddingHorizontal: 12, paddingVertical: 6, borderRadius: 20,
@@ -2552,46 +2545,46 @@ const styles = StyleSheet.create({
 
   deadlineReminderBanner: {
     flexDirection: 'row', alignItems: 'center', gap: 8,
-    backgroundColor: '#FEF3C7', borderRadius: 8, paddingHorizontal: 12, paddingVertical: 9,
-    marginBottom: 8, borderWidth: 1, borderColor: '#FCD34D',
+    backgroundColor: '#FEF3C7', borderRadius: 8, paddingHorizontal: 12, paddingVertical: 6,
+    marginBottom: 6, borderWidth: 1, borderColor: '#FCD34D',
   },
   deadlineReminderBannerActive: {
     backgroundColor: '#FFFBEB', borderColor: '#D97706',
   },
   deadlineReminderText: {
-    flex: 1, fontSize: 12, fontFamily: 'Inter_400Regular', color: '#92400E',
+    flex: 1, fontSize: 11, fontFamily: 'Inter_400Regular', color: '#92400E',
   },
 
   archiveBanner: {
     flexDirection: 'row', alignItems: 'center', gap: 8,
-    backgroundColor: '#F3F4F6', borderRadius: 8, paddingHorizontal: 12, paddingVertical: 9,
-    marginBottom: 8, borderWidth: 1, borderColor: '#D1D5DB',
+    backgroundColor: '#F3F4F6', borderRadius: 8, paddingHorizontal: 12, paddingVertical: 6,
+    marginBottom: 6, borderWidth: 1, borderColor: '#D1D5DB',
   },
   archiveBannerActive: {
     backgroundColor: '#E5E7EB', borderColor: '#9CA3AF',
   },
   archiveBannerText: {
-    flex: 1, fontSize: 12, fontFamily: 'Inter_400Regular', color: C.textSub,
+    flex: 1, fontSize: 11, fontFamily: 'Inter_400Regular', color: C.textSub,
   },
 
   progressBanner: {
-    backgroundColor: C.surface, borderRadius: 10, paddingHorizontal: 14, paddingVertical: 10,
-    marginBottom: 8, borderWidth: 1, borderColor: C.border,
+    backgroundColor: C.surface, borderRadius: 10, paddingHorizontal: 12, paddingVertical: 7,
+    marginBottom: 6, borderWidth: 1, borderColor: C.border,
   },
   progressTextRow: {
-    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6,
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4,
   },
   progressLabel: {
-    fontSize: 13, fontFamily: 'Inter_400Regular', color: C.textSub,
+    fontSize: 12, fontFamily: 'Inter_400Regular', color: C.textSub,
   },
   progressPct: {
-    fontSize: 14, fontFamily: 'Inter_700Bold',
+    fontSize: 13, fontFamily: 'Inter_700Bold',
   },
   progressTrack: {
-    height: 5, borderRadius: 3, backgroundColor: C.border, overflow: 'hidden',
+    height: 4, borderRadius: 2, backgroundColor: C.border, overflow: 'hidden',
   },
   progressFill: {
-    height: 5, borderRadius: 3,
+    height: 4, borderRadius: 2,
   },
 
   contextIdWrap: {
