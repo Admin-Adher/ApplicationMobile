@@ -9,6 +9,7 @@ import StatusBadge from './StatusBadge';
 import PriorityBadge from './PriorityBadge';
 import { isOverdue, formatDate, deadlineDaysLeft, formatRelativeDate } from '@/lib/reserveUtils';
 import { useApp } from '@/context/AppContext';
+import { isLocalUri } from '@/lib/storage';
 
 interface Props {
   reserve: Reserve;
@@ -40,6 +41,12 @@ export default function ReserveCard({ reserve, onPress, onLongPress, onSwipeRigh
   const lot = reserve.lotId ? lots.find(l => l.id === reserve.lotId) : null;
   const isObservation = reserve.kind === 'observation';
   const firstPhotoUri = reserve.photos?.[0]?.uri ?? reserve.photoUri ?? null;
+  // True when at least one photo attached to this reserve still points to a
+  // local file URI (camera cache, picker temp), meaning it has NOT yet been
+  // uploaded to Supabase Storage and so won't be visible on other devices.
+  const hasUnsyncedPhoto =
+    (typeof reserve.photoUri === 'string' && isLocalUri(reserve.photoUri)) ||
+    (Array.isArray(reserve.photos) && reserve.photos.some(p => p?.uri && isLocalUri(p.uri)));
   const relativeDate = formatRelativeDate(reserve.createdAt);
 
   const renderRightActions = () => (
@@ -160,7 +167,21 @@ export default function ReserveCard({ reserve, onPress, onLongPress, onSwipeRigh
         </View>
 
         {firstPhotoUri ? (
-          <Image source={{ uri: firstPhotoUri }} style={styles.photoThumb} resizeMode="cover" accessibilityLabel="Photo de la réserve" />
+          <View style={styles.photoThumbWrap}>
+            <Image source={{ uri: firstPhotoUri }} style={styles.photoThumb} resizeMode="cover" accessibilityLabel="Photo de la réserve" />
+            {hasUnsyncedPhoto && (
+              <View style={styles.syncDot} accessibilityLabel="Photo non envoyée au serveur">
+                <Ionicons name="cloud-offline" size={10} color="#fff" />
+              </View>
+            )}
+          </View>
+        ) : hasUnsyncedPhoto ? (
+          <View style={[styles.photoThumb, styles.photoThumbPlaceholder]}>
+            <Ionicons name="image-outline" size={20} color={C.textMuted} />
+            <View style={styles.syncDot} accessibilityLabel="Photo non envoyée au serveur">
+              <Ionicons name="cloud-offline" size={10} color="#fff" />
+            </View>
+          </View>
         ) : null}
       </View>
 
@@ -373,6 +394,29 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: C.border,
     flexShrink: 0,
+  },
+  photoThumbWrap: {
+    position: 'relative',
+    flexShrink: 0,
+  },
+  photoThumbPlaceholder: {
+    backgroundColor: C.surface2,
+    alignItems: 'center',
+    justifyContent: 'center',
+    position: 'relative',
+  },
+  syncDot: {
+    position: 'absolute',
+    top: -4,
+    right: -4,
+    width: 18,
+    height: 18,
+    borderRadius: 9,
+    backgroundColor: '#DC2626',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1.5,
+    borderColor: '#fff',
   },
   bottom: {
     flexDirection: 'row',
