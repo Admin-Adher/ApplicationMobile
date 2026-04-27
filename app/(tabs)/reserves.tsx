@@ -1662,13 +1662,13 @@ export default function ReservesScreen() {
 
             {pdfExportMode === 'manual' && (
               <Text style={styles.pdfEmptyHint}>
-                Un mode sélection s'ouvrira. Coche les réserves voulues puis utilise le bouton PDF dans la barre d'actions.
+                Coche les réserves souhaitées dans la liste, puis génère le PDF depuis la barre d'actions en bas.
               </Text>
             )}
 
             <Text style={styles.pdfPreview}>
               {pdfExportMode === 'manual'
-                ? 'La sélection se fera après fermeture du modal.'
+                ? 'Le modal se fermera et le mode sélection s\'activera.'
                 : `${pdfPreviewCount} réserve${pdfPreviewCount !== 1 ? 's' : ''} sera${pdfPreviewCount !== 1 ? 'ont' : ''} exportée${pdfPreviewCount !== 1 ? 's' : ''}.`
               }
             </Text>
@@ -1684,9 +1684,9 @@ export default function ReservesScreen() {
               >
                 {pdfLoading
                   ? <ActivityIndicator size="small" color="#fff" />
-                  : <Ionicons name="download-outline" size={16} color="#fff" />
+                  : <Ionicons name={pdfExportMode === 'manual' ? 'arrow-forward-circle-outline' : 'download-outline'} size={16} color="#fff" />
                 }
-                <Text style={styles.pdfConfirmBtnText}>Télécharger</Text>
+                <Text style={styles.pdfConfirmBtnText}>{pdfExportMode === 'manual' ? 'Commencer' : 'Télécharger'}</Text>
               </TouchableOpacity>
             </View>
           </Pressable>
