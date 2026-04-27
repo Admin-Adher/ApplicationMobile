@@ -182,6 +182,25 @@ export async function uploadLocalPhotosInPayload(
       if (remote) data.uri = remote;
       else allOk = false;
     }
+  } else if (table === 'site_plans') {
+    // Site plans can be PDF, image or DXF — use the generic document uploader
+    // (the `documents` Storage bucket) instead of the photo bucket.
+    if (typeof data.uri === 'string' && isLocalUri(data.uri)) {
+      hadLocal = true;
+      const ext = (() => {
+        const m = data.uri.match(/\.([a-zA-Z0-9]{2,5})(?:\?|$)/);
+        return m ? m[1].toLowerCase() : (data.file_type === 'pdf' ? 'pdf' : data.file_type === 'dxf' ? 'dxf' : 'jpg');
+      })();
+      const safeName = (typeof data.name === 'string' ? data.name : 'plan').replace(/[^a-zA-Z0-9._-]/g, '_');
+      const filename = `plan_${Date.now()}_${safeName}.${ext}`;
+      const mime =
+        data.file_type === 'pdf' ? 'application/pdf' :
+        data.file_type === 'dxf' ? 'application/octet-stream' :
+        undefined;
+      const { url } = await uploadDocumentDetailed(data.uri, filename, mime);
+      if (url) data.uri = url;
+      else allOk = false;
+    }
   }
 
   return { data, allOk, hadLocal };

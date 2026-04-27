@@ -8,6 +8,7 @@ import { useNetwork } from '@/context/NetworkContext';
 import { queryKeys } from '@/lib/queryKeys';
 import { toChantier, toSitePlan } from '@/lib/mappers';
 import { Chantier, SitePlan, Channel } from '@/constants/types';
+import { uploadLocalPhotosInPayload } from '@/lib/storage';
 import { mergeWithCache, readCache, writeCache, pendingIdsForTable, isSupabaseSessionValid } from '@/lib/offlineCache';
 
 const CHANTIERS_CACHE_KEY = 'buildtrack_chantiers_cache_v1';
@@ -155,7 +156,7 @@ export function useChantiers() {
       }
       // Fix 2: insert plans with full payload matching addSitePlan
       for (const p of plans) {
-        await (supabase as any).from('site_plans').insert({
+        const planPayload = {
           id: p.id, chantier_id: p.chantierId, name: p.name,
           building: p.building ?? null, level: p.level ?? null,
           building_id: p.buildingId ?? null, level_id: p.levelId ?? null,
@@ -165,7 +166,14 @@ export function useChantiers() {
           parent_plan_id: p.parentPlanId ?? null, is_latest_revision: p.isLatestRevision ?? null,
           revision_note: p.revisionNote ?? null, annotations: p.annotations ?? null,
           pdf_page_count: p.pdfPageCount ?? null, organization_id: orgId,
-        });
+        };
+        const prep = await uploadLocalPhotosInPayload('site_plans', planPayload);
+        if (!prep.allOk) {
+          console.warn('[sync] addChantier: plan file upload failed, queuing for later sync');
+          enqueueOperation({ table: 'site_plans', op: 'insert', data: planPayload });
+          continue;
+        }
+        await (supabase as any).from('site_plans').insert(prep.data!);
       }
       await (supabase as any).from('channels').insert({
         id: buildingChannel.id, name: c.name, description: c.description ?? '',
@@ -289,7 +297,7 @@ export function useChantiers() {
       return;
     }
     if (isSupabaseConfigured) {
-      const { error } = await (supabase as any).from('site_plans').insert({
+      const insertPayload = {
         id: p.id, chantier_id: p.chantierId, name: p.name,
         building: p.building ?? null, level: p.level ?? null,
         building_id: p.buildingId ?? null, level_id: p.levelId ?? null,
@@ -299,7 +307,17 @@ export function useChantiers() {
         parent_plan_id: p.parentPlanId ?? null, is_latest_revision: p.isLatestRevision ?? null,
         revision_note: p.revisionNote ?? null, annotations: p.annotations ?? null,
         pdf_page_count: p.pdfPageCount ?? null, organization_id: orgId,
-      });
+      };
+      // If the plan file is still a local URI (camera cache, picker temp file),
+      // upload it to Supabase Storage first; otherwise other devices won't be
+      // able to display it. If the upload fails, queue the row for a later sync.
+      const prep = await uploadLocalPhotosInPayload('site_plans', insertPayload);
+      if (!prep.allOk) {
+        console.warn('[sync] addSitePlan: file upload failed, queuing for later sync');
+        enqueueOperation({ table: 'site_plans', op: 'insert', data: insertPayload });
+        return;
+      }
+      const { error } = await (supabase as any).from('site_plans').insert(prep.data!);
       if (error) console.warn('[sync] addSitePlan server error:', error.message);
     }
   }, [queryClient, user, isOnlineRef, enqueueOperation]);
@@ -326,7 +344,7 @@ export function useChantiers() {
       return;
     }
     if (isSupabaseConfigured) {
-      (supabase as any).from('site_plans').update({
+      const updatePayload = {
         chantier_id: p.chantierId, name: p.name,
         building: p.building ?? null, level: p.level ?? null,
         building_id: p.buildingId ?? null, level_id: p.levelId ?? null,
@@ -336,7 +354,14 @@ export function useChantiers() {
         parent_plan_id: p.parentPlanId ?? null, is_latest_revision: p.isLatestRevision ?? null,
         revision_note: p.revisionNote ?? null, annotations: p.annotations ?? null,
         pdf_page_count: p.pdfPageCount ?? null,
-      }).eq('id', p.id).then(({ error }: { error: any }) => {
+      };
+      const prep = await uploadLocalPhotosInPayload('site_plans', updatePayload);
+      if (!prep.allOk) {
+        console.warn('[sync] updateSitePlan: file upload failed, queuing for later sync');
+        enqueueOperation({ table: 'site_plans', op: 'update', filter: { column: 'id', value: p.id }, data: updatePayload });
+        return;
+      }
+      (supabase as any).from('site_plans').update(prep.data!).eq('id', p.id).then(({ error }: { error: any }) => {
         if (error) console.warn('[sync] updateSitePlan error:', error.message);
       });
     }
@@ -385,7 +410,7 @@ export function useChantiers() {
       const { error: updateErr } = await (supabase as any).from('site_plans')
         .update({ is_latest_revision: false, revision_number: parentRevNum }).eq('id', parentPlanId);
       if (updateErr) console.error('[addSitePlanVersion] update parent error:', updateErr.message);
-      const { error: insertErr } = await (supabase as any).from('site_plans').insert({
+      const versionPayload = {
         id: versionedNew.id, chantier_id: versionedNew.chantierId, name: versionedNew.name,
         uri: versionedNew.uri ?? null, file_type: versionedNew.fileType ?? null,
         dxf_name: versionedNew.dxfName ?? null, size: versionedNew.size ?? null,
@@ -394,10 +419,17 @@ export function useChantiers() {
         revision_code: finalRevCode, revision_number: revNum,
         parent_plan_id: parentPlanId, is_latest_revision: true,
         revision_note: versionedNew.revisionNote ?? null, organization_id: orgId,
-      });
+      };
+      const prep = await uploadLocalPhotosInPayload('site_plans', versionPayload);
+      if (!prep.allOk) {
+        console.warn('[sync] addSitePlanVersion: file upload failed, queuing for later sync');
+        enqueueOperation({ table: 'site_plans', op: 'insert', data: versionPayload });
+        return;
+      }
+      const { error: insertErr } = await (supabase as any).from('site_plans').insert(prep.data!);
       if (insertErr) console.warn('[sync] addSitePlanVersion insert error:', insertErr.message);
     }
-  }, [queryClient, user, isOnlineRef]);
+  }, [queryClient, user, isOnlineRef, enqueueOperation]);
 
   const migrateReservesToPlan = useCallback(async (fromPlanId: string, toPlanId: string): Promise<number> => {
     const reserves = queryClient.getQueryData<any[]>(queryKeys.reserves()) ?? [];

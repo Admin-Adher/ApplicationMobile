@@ -5,7 +5,7 @@ import React, {
 import { Platform, AppState, AppStateStatus } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { supabase, isSupabaseConfigured } from '@/lib/supabase';
-import { uploadPhoto, isLocalUri } from '@/lib/storage';
+import { uploadPhoto, isLocalUri, uploadLocalPhotosInPayload } from '@/lib/storage';
 import { useAuth } from '@/context/AuthContext';
 import { queryClient } from '@/lib/queryClient';
 
@@ -262,47 +262,31 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
           continue;
         }
 
-        // ── Upload local photos before replaying insert/update ───────────────
-        // When the queued operation contains local file URIs (offline photos),
-        // upload them to Supabase Storage first and replace with remote URLs.
-        const data = op.data ? { ...op.data } : op.data;
+        // ── Upload local photos / files before replaying insert/update ───────
+        // When the queued operation contains local URIs (offline photos, plan
+        // PDFs, etc.), upload them to Supabase Storage first and replace with
+        // remote URLs. Delegated to the shared helper used by online writes,
+        // so the behaviour stays consistent across both code paths.
+        let data = op.data ? { ...op.data } : op.data;
         if (data) {
-          // Handle 'photos' table: upload the uri field if it's a local path
-          if (op.table === 'photos' && data.uri && isLocalUri(data.uri)) {
-            try {
-              const remoteUrl = await uploadPhoto(data.uri, `sync_photo_${Date.now()}.jpg`);
-              if (remoteUrl) data.uri = remoteUrl;
-            } catch (e) {
-              console.warn('[queue] failed to upload photo for photos table, keeping local URI:', e);
-            }
-          }
-          // Handle 'reserves' table: upload photo_uri and embedded photos[].uri
           if (op.table === 'reserves') {
             // Normalize placeholder values that may break inserts/updates
             if (data.deadline === '—' || data.deadline === '') {
               data.deadline = null;
             }
-            if (data.photo_uri && isLocalUri(data.photo_uri)) {
-              try {
-                const remoteUrl = await uploadPhoto(data.photo_uri, `sync_reserve_${Date.now()}.jpg`);
-                if (remoteUrl) data.photo_uri = remoteUrl;
-              } catch (e) {
-                console.warn('[queue] failed to upload photo_uri for reserves:', e);
-              }
+          }
+          try {
+            const prep = await uploadLocalPhotosInPayload(op.table, data);
+            if (prep.data) data = prep.data;
+            if (!prep.allOk) {
+              console.warn(`[queue] some local files failed to upload for ${op.table}, will retry on next pass`);
+              failedOps.push(op); // keep op in queue for next retry
+              continue;
             }
-            if (Array.isArray(data.photos)) {
-              for (let i = 0; i < data.photos.length; i++) {
-                const p = data.photos[i];
-                if (p && p.uri && isLocalUri(p.uri)) {
-                  try {
-                    const remoteUrl = await uploadPhoto(p.uri, `sync_reserve_photo_${Date.now()}_${i}.jpg`);
-                    if (remoteUrl) data.photos[i] = { ...p, uri: remoteUrl };
-                  } catch (e) {
-                    console.warn(`[queue] failed to upload embedded photo ${i} for reserves:`, e);
-                  }
-                }
-              }
-            }
+          } catch (e) {
+            console.warn(`[queue] uploadLocalPhotosInPayload failed for ${op.table}, will retry:`, e);
+            failedOps.push(op);
+            continue;
           }
         }
 
