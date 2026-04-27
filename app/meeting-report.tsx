@@ -19,7 +19,8 @@ import { useApp } from '@/context/AppContext';
 import Header from '@/components/Header';
 import { MeetingReport, MeetingReportAction } from '@/constants/types';
 import BottomNavBar from '@/components/BottomNavBar';
-import { genId, formatDateFR } from '@/lib/utils';
+import { genId, formatDateFR, nowTimestampFR } from '@/lib/utils';
+import { formatDate } from '@/lib/reserveUtils';
 
 const CRR_TEMPLATES = [
   {
@@ -59,7 +60,7 @@ const CRR_TEMPLATES = [
 const MEETING_KEY = 'buildtrack_meetings_v1';
 
 function buildMeetingHTML(report: MeetingReport, projectName: string): string {
-  const exportDate = formatDateFR(new Date());
+  const exportDate = nowTimestampFR();
   const docRef = `CRR-${report.date.replace(/\//g, '')}-${report.id.slice(0, 6).toUpperCase()}`;
   const doneCount = report.actions.filter(a => a.status === 'done').length;
   const pendingCount = report.actions.length - doneCount;
@@ -260,7 +261,7 @@ export default function MeetingReportScreen() {
       actions: [],
       nextMeeting: nextMeeting.trim(),
       redactedBy: user?.name ?? 'Équipe',
-      createdAt: formatDateFR(new Date()),
+      createdAt: nowTimestampFR(),
     };
     setReports(prev => {
       const updated = [report, ...prev];
@@ -380,7 +381,10 @@ export default function MeetingReportScreen() {
                 <View style={{ flex: 1 }}>
                   <Text style={styles.reportTitle}>{report.subject}</Text>
                   <Text style={styles.reportMeta}>{report.date} — {report.location}</Text>
-                  <Text style={styles.reportMeta}>Rédigé par {report.redactedBy}</Text>
+                  <Text style={styles.reportMeta}>
+                    Rédigé par {report.redactedBy}
+                    {report.createdAt ? ` · le ${formatDate(report.createdAt)}` : ''}
+                  </Text>
                 </View>
                 {permissions.canExport && (
                   <TouchableOpacity style={styles.pdfBtn} onPress={() => handleExportPDF(report)}>
