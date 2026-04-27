@@ -59,6 +59,12 @@ interface NetworkContextValue {
   queue: QueuedOperation[];
   queueCount: number;
   syncStatus: SyncStatus;
+  /**
+   * Live progress while `syncStatus === 'syncing'`. `total` is the number of
+   * operations the current pass started with, `done` is how many have been
+   * processed (success or failure) so far. Both are 0 outside an active sync.
+   */
+  syncProgress: { done: number; total: number };
   conflicts: StatusConflict[];
   enqueueOperation: (op: Omit<QueuedOperation, 'id' | 'queuedAt'>) => void;
   resolveConflict: (conflictId: string, chosenStatus: string) => Promise<void>;
@@ -72,6 +78,7 @@ const NetworkContext = createContext<NetworkContextValue>({
   queue: [],
   queueCount: 0,
   syncStatus: 'idle',
+  syncProgress: { done: 0, total: 0 },
   conflicts: [],
   enqueueOperation: () => {},
   resolveConflict: async () => {},
@@ -110,6 +117,7 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
   const [isOnline, setIsOnline] = useState(true);
   const [queue, setQueue] = useState<QueuedOperation[]>([]);
   const [syncStatus, setSyncStatus] = useState<SyncStatus>('idle');
+  const [syncProgress, setSyncProgress] = useState<{ done: number; total: number }>({ done: 0, total: 0 });
   const [conflicts, setConflicts] = useState<StatusConflict[]>([]);
 
   const prevOnlineRef = useRef(true);
@@ -219,7 +227,9 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
     const pendingConflicts: StatusConflict[] = [];
     const failedOps: QueuedOperation[] = [];
     const currentQueue = queue;
+    setSyncProgress({ done: 0, total: currentQueue.length });
 
+    let processed = 0;
     for (const op of currentQueue) {
       try {
         // ── Status-change conflict detection ───────────────────────────────
@@ -334,6 +344,9 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
         if (result.error) failedOps.push(op);
       } catch {
         failedOps.push(op);
+      } finally {
+        processed += 1;
+        setSyncProgress({ done: processed, total: currentQueue.length });
       }
     }
 
@@ -359,6 +372,10 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
       // Auto-reset status after feedback
       setTimeout(() => setSyncStatus('idle'), 4000);
     }
+
+    // Reset live progress now that the pass is finished — the chip falls back
+    // to just showing the pending count.
+    setSyncProgress({ done: 0, total: 0 });
 
     syncingRef.current = false;
   }
@@ -439,6 +456,7 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
       queue,
       queueCount: queue.length,
       syncStatus,
+      syncProgress,
       conflicts,
       enqueueOperation,
       resolveConflict,

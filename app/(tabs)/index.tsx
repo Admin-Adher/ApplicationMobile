@@ -168,7 +168,7 @@ export default function DashboardScreen() {
   const { user, permissions } = useAuth();
   const { incidents } = useIncidents();
   const { unreadCount } = useNotifications();
-  const { queueCount, syncStatus, isOnline } = useNetwork();
+  const { queueCount, syncStatus, syncProgress, isOnline } = useNetwork();
   const topPad = insets.top;
   const [refreshing, setRefreshing] = useState(false);
   const [analyticsTab, setAnalyticsTab] = useState<'trend' | 'companies'>('trend');
@@ -333,7 +333,11 @@ export default function DashboardScreen() {
                     color="#fff"
                   />
                 )}
-                <Text style={styles.syncChipText}>{queueCount}</Text>
+                <Text style={styles.syncChipText}>
+                  {syncStatus === 'syncing' && syncProgress.total > 0
+                    ? `${syncProgress.done}/${syncProgress.total}`
+                    : queueCount}
+                </Text>
               </TouchableOpacity>
             )}
             {realtimeConnected && (
