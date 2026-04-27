@@ -452,6 +452,10 @@ export function svgStringToDataUrl(svg: string): string {
   return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
 }
 
+/**
+ * Generates a PDF and opens the OS share sheet (WhatsApp, Mail, Drive, etc.).
+ * On web, opens the document in a new browser tab so the user can save/print.
+ */
 export async function exportPDF(html: string, filename: string = 'buildtrack-export'): Promise<void> {
   if (Platform.OS === 'web') {
     const win = window.open('', '_blank');
@@ -470,5 +474,33 @@ export async function exportPDF(html: string, filename: string = 'buildtrack-exp
     }
   } catch (e: any) {
     throw new Error(e?.message ?? 'PDF generation failed');
+  }
+}
+
+/**
+ * Generates a PDF and opens the OS print/save dialog (no share sheet).
+ * Use this when the user wants to save the PDF to their device or print it,
+ * not send it to another app.
+ *
+ * - Native: opens the system print dialog (which lets the user save the PDF
+ *   to Files / Drive / etc., or send it to a printer).
+ * - Web: opens the document in a new browser tab and triggers the print
+ *   dialog so the user can save it as PDF.
+ */
+export async function printPDF(html: string, _filename: string = 'buildtrack-export'): Promise<void> {
+  if (Platform.OS === 'web') {
+    const win = window.open('', '_blank');
+    if (win) {
+      win.document.write(html);
+      win.document.close();
+      win.focus();
+      setTimeout(() => { try { win.print(); } catch {} }, 500);
+    }
+    return;
+  }
+  try {
+    await Print.printAsync({ html });
+  } catch (e: any) {
+    throw new Error(e?.message ?? 'PDF print failed');
   }
 }

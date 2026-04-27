@@ -18,7 +18,7 @@ import { Reserve, ReserveStatus, ReservePriority, ReserveKind } from '@/constant
 import ReserveCard from '@/components/ReserveCard';
 import DateInput from '@/components/DateInput';
 import { isOverdue, formatDate, genReserveId, compareLevels } from '@/lib/reserveUtils';
-import { PDF_BASE_CSS, PDF_BRAND_COLOR, PDF_MUTED, PDF_TEXT, exportPDF as exportPDFHelper, escapeHtml } from '@/lib/pdfBase';
+import { PDF_BASE_CSS, PDF_BRAND_COLOR, PDF_MUTED, PDF_TEXT, exportPDF as exportPDFHelper, printPDF as printPDFHelper, escapeHtml } from '@/lib/pdfBase';
 
 function buildReservesCSV(reserves: Reserve[]): string {
   const header = 'ID,Titre,Bâtiment,Zone,Niveau,Entreprise,Priorité,Statut,Créé le,Échéance,Description';
@@ -76,7 +76,7 @@ function toSortableDate(s: string): string {
   return p.length === 3 ? `${p[2]}-${p[1]}-${p[0]}` : s;
 }
 
-async function generateReportPDF(
+async function generateReportPDF(action: 'share' | 'print',
   reserves: Reserve[],
   chantierName: string,
   lots: { id: string; name: string; color: string; number?: string }[],
@@ -180,7 +180,11 @@ async function generateReportPDF(
     ${overdueCount > 0 ? `<p style="color:${C.open};font-size:11px">* Les lignes surlignées en rouge indiquent des réserves en retard.</p>` : ''}
   </div></body></html>`;
 
-  await exportPDFHelper(html, `Rapport_Réserves_${chantierName}`);
+  if (action === 'print') {
+    await printPDFHelper(html, `Rapport_Réserves_${chantierName}`);
+  } else {
+    await exportPDFHelper(html, `Rapport_Réserves_${chantierName}`);
+  }
 }
 
 export default function ReservesScreen() {
@@ -350,14 +354,14 @@ export default function ReservesScreen() {
     }
   }
 
-  async function handleExportPDFForList(list: Reserve[]) {
+  async function handleExportPDFForList(list: Reserve[], action: 'share' | 'print' = 'share') {
     if (pdfLoading) return;
     setPdfLoading(true);
     try {
       const chantierName = chantierFilter !== 'all'
         ? chantiers.find(c => c.id === chantierFilter)?.name ?? 'Chantier'
         : 'Tous les chantiers';
-      await generateReportPDF(list, chantierName, lots);
+      await generateReportPDF(action, list, chantierName, lots);
     } catch (e) {
       Alert.alert('Erreur', 'Impossible de générer le rapport PDF.');
     } finally {
@@ -454,10 +458,10 @@ export default function ReservesScreen() {
     return names.length === 0;
   }, []);
 
-  const handleConfirmPdfExport = useCallback(async () => {
+  const handleConfirmPdfExport = useCallback(async (action: 'share' | 'print' = 'share') => {
     if (pdfExportMode === 'all') {
       setPdfExportModalVisible(false);
-      await handleExportPDFForList(filtered);
+      await handleExportPDFForList(filtered, action);
       return;
     }
 
@@ -465,7 +469,7 @@ export default function ReservesScreen() {
       const list = filtered.filter(isSansEntrepriseReserve);
       if (list.length === 0) return;
       setPdfExportModalVisible(false);
-      await handleExportPDFForList(list);
+      await handleExportPDFForList(list, action);
       return;
     }
 
@@ -477,7 +481,7 @@ export default function ReservesScreen() {
         : filtered.filter(r => (r.companies ?? (r.company ? [r.company] : [])).includes(companyName));
       if (list.length === 0) return;
       setPdfExportModalVisible(false);
-      await handleExportPDFForList(list);
+      await handleExportPDFForList(list, action);
       return;
     }
 
@@ -491,7 +495,7 @@ export default function ReservesScreen() {
       });
       if (list.length === 0) return;
       setPdfExportModalVisible(false);
-      await handleExportPDFForList(list);
+      await handleExportPDFForList(list, action);
       return;
     }
 
@@ -1680,20 +1684,44 @@ export default function ReservesScreen() {
             </Text>
 
             <View style={styles.pdfModalActions}>
-              <TouchableOpacity style={styles.pdfCancelBtn} onPress={() => setPdfExportModalVisible(false)} disabled={pdfLoading}>
-                <Text style={styles.pdfCancelBtnText}>Annuler</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={[styles.pdfConfirmBtn, (pdfLoading || (pdfExportMode !== 'manual' && pdfPreviewCount === 0)) && { opacity: 0.5 }]}
-                onPress={() => { void handleConfirmPdfExport(); }}
-                disabled={pdfLoading || (pdfExportMode !== 'manual' && pdfPreviewCount === 0)}
-              >
-                {pdfLoading
-                  ? <ActivityIndicator size="small" color="#fff" />
-                  : <Ionicons name={pdfExportMode === 'manual' ? 'arrow-forward-circle-outline' : 'download-outline'} size={16} color="#fff" />
-                }
-                <Text style={styles.pdfConfirmBtnText}>{pdfExportMode === 'manual' ? 'Commencer' : 'Télécharger'}</Text>
-              </TouchableOpacity>
+              {pdfExportMode === 'manual' ? (
+                <>
+                  <TouchableOpacity style={styles.pdfCancelBtn} onPress={() => setPdfExportModalVisible(false)} disabled={pdfLoading}>
+                    <Text style={styles.pdfCancelBtnText}>Annuler</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[styles.pdfConfirmBtn, pdfLoading && { opacity: 0.5 }]}
+                    onPress={() => { void handleConfirmPdfExport(); }}
+                    disabled={pdfLoading}
+                  >
+                    {pdfLoading
+                      ? <ActivityIndicator size="small" color="#fff" />
+                      : <Ionicons name="arrow-forward-circle-outline" size={16} color="#fff" />}
+                    <Text style={styles.pdfConfirmBtnText}>Commencer</Text>
+                  </TouchableOpacity>
+                </>
+              ) : (
+                <>
+                  <TouchableOpacity
+                    style={[styles.pdfDownloadBtn, (pdfLoading || pdfPreviewCount === 0) && { opacity: 0.5 }]}
+                    onPress={() => { void handleConfirmPdfExport('print'); }}
+                    disabled={pdfLoading || pdfPreviewCount === 0}
+                  >
+                    <Ionicons name="download-outline" size={16} color={C.primary} />
+                    <Text style={styles.pdfDownloadBtnText}>Télécharger</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[styles.pdfConfirmBtn, (pdfLoading || pdfPreviewCount === 0) && { opacity: 0.5 }]}
+                    onPress={() => { void handleConfirmPdfExport('share'); }}
+                    disabled={pdfLoading || pdfPreviewCount === 0}
+                  >
+                    {pdfLoading
+                      ? <ActivityIndicator size="small" color="#fff" />
+                      : <Ionicons name="share-social-outline" size={16} color="#fff" />}
+                    <Text style={styles.pdfConfirmBtnText}>Partager le PDF</Text>
+                  </TouchableOpacity>
+                </>
+              )}
             </View>
           </Pressable>
         </Pressable>
@@ -2378,7 +2406,9 @@ const styles = StyleSheet.create({
   pdfModalActions: { flexDirection: 'row', gap: 10, marginTop: 4 },
   pdfCancelBtn: { flex: 1, paddingVertical: 12, borderRadius: 12, borderWidth: 1, borderColor: C.border, alignItems: 'center', justifyContent: 'center' },
   pdfCancelBtnText: { fontSize: 14, fontFamily: 'Inter_500Medium', color: C.textSub },
-  pdfConfirmBtn: { flex: 2, flexDirection: 'row', gap: 6, paddingVertical: 12, borderRadius: 12, backgroundColor: C.primary, alignItems: 'center', justifyContent: 'center' },
+  pdfDownloadBtn: { flex: 1, flexDirection: 'row', gap: 6, paddingVertical: 12, borderRadius: 12, borderWidth: 1.5, borderColor: C.primary, backgroundColor: '#fff', alignItems: 'center', justifyContent: 'center' },
+  pdfDownloadBtnText: { fontSize: 14, fontFamily: 'Inter_600SemiBold', color: C.primary },
+  pdfConfirmBtn: { flex: 1, flexDirection: 'row', gap: 6, paddingVertical: 12, borderRadius: 12, backgroundColor: C.primary, alignItems: 'center', justifyContent: 'center' },
   pdfConfirmBtnText: { fontSize: 14, fontFamily: 'Inter_600SemiBold', color: '#fff' },
   checkboxDisabled: { backgroundColor: C.surface2, borderColor: C.border },
   bottomSheet: {

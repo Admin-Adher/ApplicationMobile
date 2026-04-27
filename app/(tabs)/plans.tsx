@@ -21,7 +21,7 @@ import { STATUS_CONFIG } from '@/components/StatusBadge';
 import PriorityBadge from '@/components/PriorityBadge';
 import { uploadDocumentDetailed, isLocalUri } from '@/lib/storage';
 import { genId, formatDateFR } from '@/lib/utils';
-import { loadFileAsDataUrl, preRenderPdfPageToDataUrl, exportPDF as exportPDFHelper } from '@/lib/pdfBase';
+import { loadFileAsDataUrl, preRenderPdfPageToDataUrl, exportPDF as exportPDFHelper, printPDF as printPDFHelper } from '@/lib/pdfBase';
 import { compareLevels } from '@/lib/reserveUtils';
 import { parseDxf, DxfParseResult } from '@/lib/dxfParser';
 import { openChantierSwitcher } from '@/components/ChantierSwitcherSheet';
@@ -164,6 +164,7 @@ async function exportPlanPDF(
   pinSizeScale: number = 1.0,
   companiesForColor: Array<{ name: string; color: string }> = [],
   captureRef?: React.RefObject<PdfPlanViewerHandle> | null,
+  action: 'share' | 'print' = 'share',
 ) {
   const STATUS_FR: Record<string, string> = {
     open: 'Ouvert', in_progress: 'En cours', waiting: 'En attente',
@@ -318,15 +319,21 @@ ${fallbackCanvasScript ? `<script>${fallbackCanvasScript}<\/script>` : ''}
     const win = window.open('', '_blank');
     if (win) {
       win.document.open(); win.document.write(html); win.document.close();
-      // Only need delay for the native PDF fallback canvas (which shouldn't happen on web
-      // since pre-rendering succeeds). Keep a small delay for safety.
-      setTimeout(() => { try { win.print(); } catch {} }, (!useStaticImg && isPdf) ? 2500 : 400);
+      if (action === 'print') {
+        // Open the browser's print dialog so the user can save as PDF.
+        setTimeout(() => { try { win.print(); } catch {} }, (!useStaticImg && isPdf) ? 2500 : 600);
+      }
+      // 'share' on web simply opens the document in a new tab.
     }
   } else {
-    // Native: generate the PDF file then open the OS share sheet
-    // (WhatsApp, Mail, Drive, etc.)
     try {
-      await exportPDFHelper(html, `Plan_${planName}`);
+      if (action === 'print') {
+        // Native: open the OS print/save dialog (no share sheet).
+        await printPDFHelper(html, `Plan_${planName}`);
+      } else {
+        // Native: open the OS share sheet (WhatsApp, Mail, Drive, etc.).
+        await exportPDFHelper(html, `Plan_${planName}`);
+      }
     } catch {
       Alert.alert('Erreur', "Impossible de générer le PDF.");
     }
@@ -796,7 +803,7 @@ export default function PlansScreen() {
     setPdfModalVisible(true);
   }, []);
 
-  const handleConfirmPdfExport = useCallback(async () => {
+  const handleConfirmPdfExport = useCallback(async (action: 'share' | 'print' = 'share') => {
     if (pdfFilteredList.length === 0) {
       Alert.alert('Aucune réserve', "Aucune réserve ne correspond à votre sélection.");
       return;
@@ -813,6 +820,7 @@ export default function PlansScreen() {
         pinSizeScale,
         companies,
         pdfViewerRef,
+        action,
       );
       setPdfModalVisible(false);
     } catch {
@@ -2727,18 +2735,23 @@ export default function PlansScreen() {
             </Text>
 
             <View style={styles.pdfModalActions}>
-              <TouchableOpacity style={styles.pdfCancelBtn} onPress={() => setPdfModalVisible(false)} disabled={pdfLoading}>
-                <Text style={styles.pdfCancelBtnText}>Annuler</Text>
+              <TouchableOpacity
+                style={[styles.pdfDownloadBtn, (pdfLoading || pdfPreviewCount === 0) && { opacity: 0.5 }]}
+                onPress={() => { void handleConfirmPdfExport('print'); }}
+                disabled={pdfLoading || pdfPreviewCount === 0}
+              >
+                <Ionicons name="download-outline" size={15} color={C.primary} />
+                <Text style={styles.pdfDownloadBtnText}>Télécharger</Text>
               </TouchableOpacity>
               <TouchableOpacity
                 style={[styles.pdfConfirmBtn, (pdfLoading || pdfPreviewCount === 0) && { opacity: 0.5 }]}
-                onPress={() => { void handleConfirmPdfExport(); }}
+                onPress={() => { void handleConfirmPdfExport('share'); }}
                 disabled={pdfLoading || pdfPreviewCount === 0}
               >
                 {pdfLoading
                   ? <ActivityIndicator size="small" color="#fff" />
-                  : <Ionicons name="download-outline" size={15} color="#fff" />}
-                <Text style={styles.pdfConfirmBtnText}>Télécharger</Text>
+                  : <Ionicons name="share-social-outline" size={15} color="#fff" />}
+                <Text style={styles.pdfConfirmBtnText}>Partager le PDF</Text>
               </TouchableOpacity>
             </View>
           </Pressable>
@@ -3307,6 +3320,8 @@ const styles = StyleSheet.create({
   pdfModalActions: { flexDirection: 'row', gap: 10, marginTop: 4 },
   pdfCancelBtn: { flex: 1, paddingVertical: 12, borderRadius: 12, borderWidth: 1, borderColor: C.border, alignItems: 'center', justifyContent: 'center' },
   pdfCancelBtnText: { fontSize: 14, fontFamily: 'Inter_500Medium', color: C.textSub },
-  pdfConfirmBtn: { flex: 2, flexDirection: 'row', gap: 6, paddingVertical: 12, borderRadius: 12, backgroundColor: C.primary, alignItems: 'center', justifyContent: 'center' },
+  pdfDownloadBtn: { flex: 1, flexDirection: 'row', gap: 6, paddingVertical: 12, borderRadius: 12, borderWidth: 1.5, borderColor: C.primary, backgroundColor: '#fff', alignItems: 'center', justifyContent: 'center' },
+  pdfDownloadBtnText: { fontSize: 14, fontFamily: 'Inter_600SemiBold', color: C.primary },
+  pdfConfirmBtn: { flex: 1, flexDirection: 'row', gap: 6, paddingVertical: 12, borderRadius: 12, backgroundColor: C.primary, alignItems: 'center', justifyContent: 'center' },
   pdfConfirmBtnText: { fontSize: 14, fontFamily: 'Inter_600SemiBold', color: '#fff' },
 });
