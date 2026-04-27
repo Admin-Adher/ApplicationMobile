@@ -303,7 +303,13 @@ export async function loadPhotoAsDataUrl(uri: string): Promise<string> {
       try {
         const ext = lc.split('?')[0].split('.').pop() ?? 'jpg';
         const safeExt = ['jpg', 'jpeg', 'png', 'webp', 'gif'].includes(ext) ? ext : 'jpg';
-        const tempUri = `${FileSystem.cacheDirectory ?? ''}ph_${Date.now()}.${safeExt}`;
+        // Use a unique random suffix in addition to Date.now() because parallel
+        // calls (e.g. Promise.all over multiple photos) execute within the same
+        // millisecond and would otherwise download to the SAME temp file —
+        // causing one photo to overwrite the others and the PDF to show the
+        // same image multiple times.
+        const uniq = `${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
+        const tempUri = `${FileSystem.cacheDirectory ?? ''}ph_${uniq}.${safeExt}`;
         const { uri: localUri, status } = await FileSystem.downloadAsync(uri, tempUri);
         if (status !== 200) throw new Error(`HTTP ${status}`);
         const base64 = await FileSystem.readAsStringAsync(localUri, {
@@ -368,7 +374,8 @@ export async function loadFileAsDataUrl(
       // it is only for local paths.
       try {
         const ext = fileType === 'pdf' ? 'pdf' : 'jpg';
-        const tempUri = `${FileSystem.cacheDirectory ?? ''}plan_${Date.now()}.${ext}`;
+        const uniq = `${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
+        const tempUri = `${FileSystem.cacheDirectory ?? ''}plan_${uniq}.${ext}`;
         const { uri: localUri, status } = await FileSystem.downloadAsync(uri, tempUri);
         if (status !== 200) throw new Error(`HTTP ${status}`);
         const base64 = await FileSystem.readAsStringAsync(localUri, {
