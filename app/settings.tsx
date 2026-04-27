@@ -2,7 +2,7 @@ import {
   View, Text, StyleSheet, ScrollView, TextInput, TouchableOpacity, Alert, Platform, KeyboardAvoidingView,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { useRouter } from 'expo-router';
 import { C } from '@/constants/colors';
 import Header from '@/components/Header';
@@ -13,6 +13,7 @@ import { useSubscription } from '@/context/SubscriptionContext';
 import { AttendanceRecord } from '@/constants/types';
 import BottomNavBar from '@/components/BottomNavBar';
 import { supabase, isSupabaseConfigured } from '@/lib/supabase';
+import { useNetwork } from '@/context/NetworkContext';
 
 function groupByDate(records: AttendanceRecord[]): Record<string, AttendanceRecord[]> {
   const groups: Record<string, AttendanceRecord[]> = {};
@@ -51,6 +52,7 @@ export default function SettingsScreen() {
   const { companies } = useApp();
   const { user, logout, permissions } = useAuth();
   const { organization, plan, subscription, seatUsed, seatMax } = useSubscription();
+  const { queue, queueCount, isOnline, syncStatus, clearQueue } = useNetwork();
 
   const [nameInput, setNameInput] = useState(projectName);
   const [descInput, setDescInput] = useState(projectDescription);
@@ -69,6 +71,13 @@ export default function SettingsScreen() {
   } | null;
   const [diag, setDiag] = useState<DiagState>(null);
   const [diagOpen, setDiagOpen] = useState(false);
+
+  useEffect(() => {
+    if (queueCount > 0 && !diagOpen) {
+      setDiagOpen(true);
+      runDiagnostic();
+    }
+  }, [queueCount]);
 
   async function runDiagnostic() {
     setDiag({ loading: true, sessionUserId: null, sessionExpiresAt: null, serverRole: null, serverOrgId: null, error: null });
@@ -132,7 +141,32 @@ export default function SettingsScreen() {
       diagIssues.push({ level: 'error', msg: 'Session JWT expirée. Reconnectez-vous.' });
     }
   }
+  if (queueCount > 0) {
+    diagIssues.push({
+      level: 'warn',
+      msg: `${queueCount} opération${queueCount > 1 ? 's' : ''} en attente de synchronisation${!isOnline ? ' (hors ligne)' : ''}.`,
+    });
+  }
   const diagOk = diag && !diag.loading && !diag.error && diagIssues.length === 0;
+
+  function handleClearQueue() {
+    if (queueCount === 0) return;
+    Alert.alert(
+      'Vider la file de synchronisation',
+      `${queueCount} opération${queueCount > 1 ? 's' : ''} bloquée${queueCount > 1 ? 's' : ''} ${queueCount > 1 ? 'seront supprimées' : 'sera supprimée'} sans être envoyée${queueCount > 1 ? 's' : ''} au serveur. Cette action est irréversible.`,
+      [
+        { text: 'Annuler', style: 'cancel' },
+        {
+          text: 'Vider',
+          style: 'destructive',
+          onPress: async () => {
+            await clearQueue();
+            Alert.alert('File vidée', 'Les opérations en attente ont été supprimées.');
+          },
+        },
+      ],
+    );
+  }
 
   const grouped = useMemo(() => {
     const g = groupByDate(attendanceHistory);
@@ -375,6 +409,46 @@ export default function SettingsScreen() {
                       <View style={styles.diagAlertOk}>
                         <Ionicons name="checkmark-circle" size={16} color="#10B981" />
                         <Text style={styles.diagAlertTextOk}>Profil local et serveur synchronisés. Création de réserves autorisée.</Text>
+                      </View>
+                    )}
+
+                    {queueCount > 0 && (
+                      <View style={styles.queueBlock}>
+                        <View style={styles.queueHeaderRow}>
+                          <Ionicons
+                            name={syncStatus === 'syncing' ? 'sync' : (isOnline ? 'cloud-upload-outline' : 'cloud-offline-outline')}
+                            size={14}
+                            color="#F59E0B"
+                          />
+                          <Text style={styles.queueHeaderTxt}>
+                            File de synchronisation ({queueCount})
+                          </Text>
+                        </View>
+                        <Text style={styles.queueHint}>
+                          {isOnline
+                            ? 'Ces opérations attendent d\'être envoyées au serveur. Si elles restent bloquées, elles ont probablement été refusées (ex. permission RLS, données invalides) et peuvent être vidées.'
+                            : 'Hors ligne — les opérations seront envoyées dès le retour de la connexion.'}
+                        </Text>
+                        {queue.slice(0, 5).map((op) => (
+                          <View key={op.id} style={styles.queueItem}>
+                            <View style={styles.queueItemDot} />
+                            <View style={{ flex: 1 }}>
+                              <Text style={styles.queueItemTitle} numberOfLines={1}>
+                                {op.op.toUpperCase()} · {op.table}
+                              </Text>
+                              <Text style={styles.queueItemMeta} numberOfLines={1}>
+                                {new Date(op.queuedAt).toLocaleString('fr-FR')}
+                              </Text>
+                            </View>
+                          </View>
+                        ))}
+                        {queue.length > 5 && (
+                          <Text style={styles.queueMore}>+ {queue.length - 5} autre{queue.length - 5 > 1 ? 's' : ''}…</Text>
+                        )}
+                        <TouchableOpacity style={styles.queueClearBtn} onPress={handleClearQueue}>
+                          <Ionicons name="trash-outline" size={14} color="#EF4444" />
+                          <Text style={styles.queueClearTxt}>Vider la file</Text>
+                        </TouchableOpacity>
                       </View>
                     )}
 
@@ -841,4 +915,15 @@ const styles = StyleSheet.create({
   diagAlertTextError: { flex: 1, fontSize: 12, fontFamily: 'Inter_500Medium', color: '#991B1B', lineHeight: 17 },
   diagRefreshBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, paddingVertical: 10, marginTop: 10, borderRadius: 10, backgroundColor: C.primaryBg, borderWidth: 1, borderColor: C.primary + '40' },
   diagRefreshTxt: { fontSize: 13, fontFamily: 'Inter_600SemiBold', color: C.primary },
+  queueBlock: { marginTop: 12, padding: 12, borderRadius: 10, backgroundColor: '#FFFBEB', borderWidth: 1, borderColor: '#FDE68A' },
+  queueHeaderRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 6 },
+  queueHeaderTxt: { fontSize: 13, fontFamily: 'Inter_600SemiBold', color: '#92400E' },
+  queueHint: { fontSize: 11, fontFamily: 'Inter_400Regular', color: '#78350F', lineHeight: 16, marginBottom: 8 },
+  queueItem: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: 6, borderTopWidth: 1, borderTopColor: '#FDE68A' },
+  queueItemDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: '#F59E0B' },
+  queueItemTitle: { fontSize: 12, fontFamily: 'Inter_600SemiBold', color: '#92400E' },
+  queueItemMeta: { fontSize: 10, fontFamily: 'Inter_400Regular', color: '#78350F', marginTop: 1 },
+  queueMore: { fontSize: 11, fontFamily: 'Inter_500Medium', color: '#78350F', textAlign: 'center', paddingVertical: 6 },
+  queueClearBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, marginTop: 10, paddingVertical: 8, borderRadius: 8, borderWidth: 1, borderColor: '#FCA5A5', backgroundColor: '#FEF2F2' },
+  queueClearTxt: { fontSize: 12, fontFamily: 'Inter_600SemiBold', color: '#EF4444' },
 });
