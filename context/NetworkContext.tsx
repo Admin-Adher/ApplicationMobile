@@ -62,6 +62,13 @@ interface NetworkContextValue {
   isOnline: boolean;
   queue: QueuedOperation[];
   queueCount: number;
+  /**
+   * `true` once the offline queue has been hydrated from AsyncStorage for the
+   * current user. Read-side hooks (useReserves, usePhotos, …) MUST gate any
+   * cache-overwriting fetch on this — fetching before the queue is loaded can
+   * miss pending mutations and let an empty server response wipe the cache.
+   */
+  queueLoaded: boolean;
   syncStatus: SyncStatus;
   /**
    * Live progress while `syncStatus === 'syncing'`. `total` is the number of
@@ -82,6 +89,7 @@ const NetworkContext = createContext<NetworkContextValue>({
   isOnline: true,
   queue: [],
   queueCount: 0,
+  queueLoaded: true,
   syncStatus: 'idle',
   syncProgress: { done: 0, total: 0 },
   conflicts: [],
@@ -119,9 +127,11 @@ const STATUS_LABELS: Record<string, string> = {
 
 export function NetworkProvider({ children }: { children: React.ReactNode }) {
   const { user } = useAuth();
-  const offlineQueueKey = OFFLINE_QUEUE_PREFIX + (user?.id ?? 'anon');
+  const userId = user?.id;
+  const offlineQueueKey = OFFLINE_QUEUE_PREFIX + (userId ?? 'anon');
   const [isOnline, setIsOnline] = useState(true);
   const [queue, setQueue] = useState<QueuedOperation[]>([]);
+  const [queueLoaded, setQueueLoaded] = useState(false);
   const [syncStatus, setSyncStatus] = useState<SyncStatus>('idle');
   const [syncProgress, setSyncProgress] = useState<{ done: number; total: number }>({ done: 0, total: 0 });
   const [conflicts, setConflicts] = useState<StatusConflict[]>([]);
@@ -129,6 +139,9 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
   const prevOnlineRef = useRef(true);
   const syncingRef = useRef(false);
   const reloadHandlerRef = useRef<(() => void) | null>(null);
+  const lastLoadedKeyRef = useRef<string | null>(null);
+  const queueRef = useRef<QueuedOperation[]>([]);
+  useEffect(() => { queueRef.current = queue; }, [queue]);
 
   // ── Queue persistence ──────────────────────────────────────────────────────
 
@@ -138,21 +151,91 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
     } catch {}
   }, [offlineQueueKey]);
 
+  // Load the queue for the *current* user. We defer hydration until we know
+  // user.id to avoid the catastrophic race where the queue is initially loaded
+  // under the `..._anon` key (empty) and then never re-merged once user.id
+  // arrives — losing every offline mutation made before login finished
+  // restoring. We also migrate any orphan `..._anon` queue (mutations enqueued
+  // before authentication completed) into the per-user key so they can sync.
   const loadQueue = useCallback(async () => {
+    setQueueLoaded(false);
+    const userKey = userId ? OFFLINE_QUEUE_PREFIX + userId : null;
+    const anonKey = OFFLINE_QUEUE_PREFIX + 'anon';
     try {
-      const raw = await AsyncStorage.getItem(offlineQueueKey);
-      if (raw) {
-        const parsed = JSON.parse(raw);
-        if (Array.isArray(parsed)) setQueue(parsed);
+      let merged: QueuedOperation[] = [];
+      const seen = new Set<string>();
+
+      // Read user-scoped queue if available
+      if (userKey) {
+        try {
+          const rawUser = await AsyncStorage.getItem(userKey);
+          if (rawUser) {
+            const parsed = JSON.parse(rawUser);
+            if (Array.isArray(parsed)) {
+              for (const op of parsed) {
+                if (op?.id && !seen.has(op.id)) { seen.add(op.id); merged.push(op); }
+              }
+            }
+          }
+        } catch {}
+
+        // Migrate any orphan anonymous queue (mutations made before login finished)
+        try {
+          const rawAnon = await AsyncStorage.getItem(anonKey);
+          if (rawAnon) {
+            const parsedAnon = JSON.parse(rawAnon);
+            if (Array.isArray(parsedAnon) && parsedAnon.length > 0) {
+              for (const op of parsedAnon) {
+                if (op?.id && !seen.has(op.id)) { seen.add(op.id); merged.push(op); }
+              }
+              await AsyncStorage.setItem(userKey, JSON.stringify(merged));
+              await AsyncStorage.removeItem(anonKey);
+              console.warn(`[NetworkContext] migrated ${parsedAnon.length} anon queue items to ${userKey}`);
+            }
+          }
+        } catch {}
+      } else {
+        // No user yet — read anon-only queue (rare; usually we just wait for user.id)
+        try {
+          const rawAnon = await AsyncStorage.getItem(anonKey);
+          if (rawAnon) {
+            const parsed = JSON.parse(rawAnon);
+            if (Array.isArray(parsed)) merged = parsed;
+          }
+        } catch {}
       }
-    } catch {}
-  }, [offlineQueueKey]);
+
+      setQueue(merged);
+      lastLoadedKeyRef.current = userKey ?? anonKey;
+    } catch {
+      setQueue([]);
+    } finally {
+      setQueueLoaded(true);
+    }
+  }, [userId]);
+
+  // ── Hydrate queue when user.id changes (cold start, login, switch) ─────────
+  useEffect(() => {
+    // Reset hydration whenever the active key changes so hooks correctly gate
+    // their queryFn until the new user's queue is loaded.
+    const targetKey = userId ? OFFLINE_QUEUE_PREFIX + userId : OFFLINE_QUEUE_PREFIX + 'anon';
+    if (lastLoadedKeyRef.current === targetKey) return;
+    setQueueLoaded(false);
+    setQueue([]);
+    loadQueue();
+  }, [userId, loadQueue]);
+
+  // Once the queue finishes loading, force every gated query to re-evaluate
+  // its queryFn so they can finally fetch from the server safely.
+  useEffect(() => {
+    if (queueLoaded) {
+      try { queryClient.invalidateQueries(); } catch {}
+    }
+  }, [queueLoaded]);
 
   // ── Network detection ──────────────────────────────────────────────────────
 
   useEffect(() => {
-    loadQueue();
-
     if (Platform.OS === 'web') {
       const current = typeof navigator !== 'undefined' ? navigator.onLine : true;
       setIsOnline(current);
@@ -186,7 +269,7 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
     check();
     const interval = setInterval(check, 10_000);
     return () => clearInterval(interval);
-  }, [loadQueue]);
+  }, []);
 
   // ── Trigger sync + refetch when coming back online ─────────────────────────
   //
@@ -206,6 +289,27 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
     }
     prevOnlineRef.current = isOnline;
   }, [isOnline]);
+
+  // ── Cold-start sync trigger ────────────────────────────────────────────────
+  //
+  // Once the offline queue has been hydrated AND we are online AND the user
+  // is authenticated, immediately attempt to flush any pending mutations.
+  // Without this, a user who reopens the app online (with a queue full of
+  // offline reserves / photos) would have to manually pull-to-refresh to
+  // trigger sync — which in practice means data sits unsynced for hours.
+  useEffect(() => {
+    if (!queueLoaded) return;
+    if (!isOnline) return;
+    if (!isSupabaseConfigured) return;
+    if (!userId) return;
+    if (queue.length === 0) return;
+    if (syncingRef.current) return;
+    // Defer slightly so it doesn't race the very first render of the auth gate.
+    const t = setTimeout(() => {
+      processSyncQueue();
+    }, 800);
+    return () => clearTimeout(t);
+  }, [queueLoaded, isOnline, userId, queue.length]);
 
   // ── Refetch + self-heal when the app comes back to the foreground (native) ─
   //
@@ -257,6 +361,12 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
       }
 
       queryClient.invalidateQueries();
+
+      // Si la file contient des opérations en attente, tenter immédiatement
+      // de les rejouer maintenant que la session a été rafraîchie.
+      if (queueRef.current.length > 0 && !syncingRef.current) {
+        processSyncQueue();
+      }
     };
 
     const sub = AppState.addEventListener('change', (next: AppStateStatus) => {
@@ -360,6 +470,16 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
           }
           try {
             const prep = await uploadLocalPhotosInPayload(op.table, data);
+            // Special case: a `photos` row whose underlying local file is gone.
+            // The helper returns `{ data: null, allOk: true }` to signal "drop
+            // this op" — the photo can never be re-uploaded, so re-queuing
+            // forever is just noise.
+            if (prep.data === null && prep.allOk && op.table === 'photos') {
+              console.warn(`[queue] dropping photos op ${op.id}: local file missing on disk`);
+              processed += 1;
+              setSyncProgress({ done: processed, total: currentQueue.length });
+              continue;
+            }
             if (prep.data) data = prep.data;
             if (!prep.allOk) {
               fail(op, 'Échec upload de fichiers locaux (photos/plans). Nouvelle tentative au prochain passage.');
@@ -449,6 +569,13 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
     setQueue(remaining);
     await saveQueue(remaining);
 
+    // Always invalidate every cached query so any successfully-synced rows
+    // are immediately refetched and the UI reflects the merged server state.
+    // Without this, an offline-created reserve stays visible only via the
+    // local cache until the user pulls to refresh — and any server-side row
+    // still missing from the cache would never appear.
+    try { queryClient.invalidateQueries(); } catch {}
+
     if (pendingConflicts.length > 0) {
       setConflicts(pendingConflicts);
       setSyncStatus('conflict');
@@ -533,7 +660,9 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
 
   const clearQueue = useCallback(async () => {
     setQueue([]);
-    await AsyncStorage.removeItem(offlineQueueKey);
+    try { await AsyncStorage.removeItem(offlineQueueKey); } catch {}
+    // Also clear any orphan anon queue so it doesn't get re-migrated later.
+    try { await AsyncStorage.removeItem(OFFLINE_QUEUE_PREFIX + 'anon'); } catch {}
   }, [offlineQueueKey]);
 
   const registerReloadHandler = useCallback((fn: () => void) => {
@@ -545,6 +674,7 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
       isOnline,
       queue,
       queueCount: queue.length,
+      queueLoaded,
       syncStatus,
       syncProgress,
       conflicts,

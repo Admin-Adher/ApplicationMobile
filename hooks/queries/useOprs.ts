@@ -16,7 +16,7 @@ const OPRS_CACHE_KEY = 'buildtrack_oprs_cache_v1';
 export function useOprs() {
   const { user } = useAuth();
   const userId = user?.id;
-  const { isOnline, enqueueOperation, queue } = useNetwork();
+  const { isOnline, enqueueOperation, queue, queueLoaded } = useNetwork();
   const queryClient = useQueryClient();
   const isOnlineRef = useRef(isOnline);
   useEffect(() => { isOnlineRef.current = isOnline; }, [isOnline]);
@@ -37,6 +37,7 @@ export function useOprs() {
       }
       if (!isSupabaseConfigured) return cached ?? [];
       if (!(await isSupabaseSessionValid())) return cached ?? [];
+      if (!queueLoaded) return cached ?? [];
       try {
         let q = ((supabase as any).from('oprs') as any).select('*').order('created_at', { ascending: false });
         if (user!.role !== 'super_admin' && user!.organizationId) {
@@ -46,7 +47,7 @@ export function useOprs() {
         if (error) throw error;
         const fresh = (data ?? []).map(toOpr);
         const pendingIds = pendingIdsForTable(queueRef.current ?? [], 'oprs');
-        const merged = mergeWithCache<Opr>(fresh, cached, pendingIds);
+        const merged = mergeWithCache<Opr>(fresh, cached, pendingIds, { queueLoaded });
         await writeCache(OPRS_CACHE_KEY, merged, userId);
         return merged;
       } catch (err) {

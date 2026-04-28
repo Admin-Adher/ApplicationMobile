@@ -137,17 +137,50 @@ export function pendingIdsForTable(
  * response, treating them all as "offline-created". That caused server-side
  * deletions to never propagate (the deleted row stayed in cache forever and
  * was re-added on every fetch as a ghost).
+ *
+ * Safety net: when `options.queueLoaded === false`, the offline queue has not
+ * yet been hydrated from AsyncStorage, so we cannot trust `pendingIds` to be
+ * complete. In that case we fall back to a permissive merge that keeps every
+ * cached row not present in `fresh` — this avoids the catastrophic data-loss
+ * scenario where a cold-start fetch returns [] (RLS, network blip) and the
+ * empty result wipes the entire local cache before the queue is restored.
  */
 export function mergeWithCache<T extends { id: string }>(
   fresh: T[],
   cached: T[] | null,
   pendingIds?: Set<string>,
+  options?: { queueLoaded?: boolean },
 ): T[] {
   if (!cached || cached.length === 0) return fresh;
+  if (options && options.queueLoaded === false) {
+    const freshIds = new Set(fresh.map(item => item.id));
+    const localOnly = cached.filter(item => !freshIds.has(item.id));
+    return [...fresh, ...localOnly];
+  }
   if (!pendingIds || pendingIds.size === 0) return fresh;
   const freshIds = new Set(fresh.map(item => item.id));
   const localOnly = cached.filter(
     item => !freshIds.has(item.id) && pendingIds.has(item.id),
   );
   return [...fresh, ...localOnly];
+}
+
+/**
+ * Verify a local file URI still points to an existing file. Used by the sync
+ * queue to detect photos whose underlying file was wiped by the OS (low-storage
+ * cleanup, app data clear) so the operation can be either dropped or surfaced
+ * to the user instead of failing forever.
+ *
+ * Returns true on web, on remote URLs, or when the file genuinely exists.
+ */
+export async function localFileExists(uri: string): Promise<boolean> {
+  if (!uri) return false;
+  if (!uri.startsWith('file://')) return true;
+  try {
+    const FileSystem = require('expo-file-system');
+    const info = await FileSystem.getInfoAsync(uri);
+    return !!info?.exists;
+  } catch {
+    return true;
+  }
 }

@@ -17,7 +17,7 @@ const PHOTOS_CACHE_KEY = 'buildtrack_photos_cache_v1';
 export function usePhotos() {
   const { user } = useAuth();
   const userId = user?.id;
-  const { isOnline, enqueueOperation, queue } = useNetwork();
+  const { isOnline, enqueueOperation, queue, queueLoaded } = useNetwork();
   const queryClient = useQueryClient();
   const isOnlineRef = useRef(isOnline);
   useEffect(() => { isOnlineRef.current = isOnline; }, [isOnline]);
@@ -45,6 +45,7 @@ export function usePhotos() {
         return cached ?? [];
       }
       if (!(await isSupabaseSessionValid())) return cached ?? [];
+      if (!queueLoaded) return cached ?? [];
 
       // Try online fetch; merge with cache to keep local-only (offline-created) items.
       try {
@@ -56,7 +57,7 @@ export function usePhotos() {
         if (error) throw error;
         const fresh = (data ?? []).map(toPhoto);
         const pendingIds = pendingIdsForTable(queueRef.current ?? [], 'photos');
-        const merged = mergeWithCache<Photo>(fresh, cached, pendingIds);
+        const merged = mergeWithCache<Photo>(fresh, cached, pendingIds, { queueLoaded });
         await writeCache(PHOTOS_CACHE_KEY, merged, userId);
         return merged;
       } catch (err) {

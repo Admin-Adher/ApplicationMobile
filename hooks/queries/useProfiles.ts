@@ -1,5 +1,6 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useAuth } from '@/context/AuthContext';
+import { useNetwork } from '@/context/NetworkContext';
 import { supabase, isSupabaseConfigured } from '@/lib/supabase';
 import { queryKeys } from '@/lib/queryKeys';
 import { Profile } from '@/constants/types';
@@ -14,6 +15,7 @@ const MOCK_PROFILES: Profile[] = [
 
 export function useProfiles() {
   const { user } = useAuth();
+  const { queueLoaded } = useNetwork();
   const queryClient = useQueryClient();
   const userId = user?.id;
 
@@ -31,6 +33,7 @@ export function useProfiles() {
       }
       if (!isSupabaseConfigured) return (cached?.length ? cached : MOCK_PROFILES);
       if (!(await isSupabaseSessionValid())) return (cached?.length ? cached : MOCK_PROFILES);
+      if (!queueLoaded) return (cached?.length ? cached : MOCK_PROFILES);
       try {
         const q = user?.organizationId
           ? (supabase as any).from('profiles').select('id, name, role, role_label, email, company_id, organization_id').eq('organization_id', user.organizationId)
@@ -42,7 +45,7 @@ export function useProfiles() {
           companyId: p.company_id ?? undefined,
           organizationId: p.organization_id ?? undefined,
         }));
-        const merged = mergeWithCache<Profile>(fresh, cached);
+        const merged = mergeWithCache<Profile>(fresh, cached, new Set<string>(), { queueLoaded });
         // Note: profiles aren't mutated through the offline queue, so no
         // pendingIds are needed — the server is always the source of truth.
         await writeCache(PROFILES_CACHE_KEY, merged, userId);

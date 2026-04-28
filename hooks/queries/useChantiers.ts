@@ -16,7 +16,7 @@ const SITE_PLANS_CACHE_KEY = 'buildtrack_site_plans_cache_v1';
 
 export function useChantiers() {
   const { user } = useAuth();
-  const { isOnline, enqueueOperation, queue } = useNetwork();
+  const { isOnline, enqueueOperation, queue, queueLoaded } = useNetwork();
   const queryClient = useQueryClient();
   const isOnlineRef = useRef(isOnline);
   useEffect(() => { isOnlineRef.current = isOnline; }, [isOnline]);
@@ -41,6 +41,7 @@ export function useChantiers() {
       // making the user think every chantier was deleted (typical symptom
       // after a cold start following an APK auto-update).
       if (!(await isSupabaseSessionValid())) return cached ?? [];
+      if (!queueLoaded) return cached ?? [];
       try {
         let q = ((supabase as any).from('chantiers') as any).select('*').order('created_at', { ascending: false });
         if (user!.role !== 'super_admin' && user!.organizationId) {
@@ -50,7 +51,7 @@ export function useChantiers() {
         if (error) throw error;
         const fresh = (data ?? []).map(toChantier);
         const pendingIds = pendingIdsForTable(queueRef.current ?? [], 'chantiers');
-        const merged = mergeWithCache<Chantier>(fresh, cached, pendingIds);
+        const merged = mergeWithCache<Chantier>(fresh, cached, pendingIds, { queueLoaded });
         await writeCache(CHANTIERS_CACHE_KEY, merged, userId);
         return merged;
       } catch (err) {
@@ -75,6 +76,7 @@ export function useChantiers() {
       }
       if (!isSupabaseConfigured) return cached ?? [];
       if (!(await isSupabaseSessionValid())) return cached ?? [];
+      if (!queueLoaded) return cached ?? [];
       try {
         let spQ = ((supabase as any).from('site_plans') as any).select('*').order('created_at', { ascending: false });
         if (user!.role !== 'super_admin' && user!.organizationId) {
@@ -84,7 +86,7 @@ export function useChantiers() {
         if (error) throw error;
         const fresh = (data ?? []).map(toSitePlan);
         const pendingIds = pendingIdsForTable(queueRef.current ?? [], 'site_plans');
-        const merged = mergeWithCache<SitePlan>(fresh, cached, pendingIds);
+        const merged = mergeWithCache<SitePlan>(fresh, cached, pendingIds, { queueLoaded });
         await writeCache(SITE_PLANS_CACHE_KEY, merged, userId);
         return merged;
       } catch (err) {

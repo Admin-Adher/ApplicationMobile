@@ -135,3 +135,21 @@ Deux ajustements indispensables pour éviter les blocages "spinner infini" sur R
 2. **`AppState` → `auth.startAutoRefresh()` / `stopAutoRefresh()`** — Recommandation officielle Supabase pour RN. Suspend le timer d'auto-refresh quand l'app est en arrière-plan et le relance au retour. Sans ça, le SDK accumule des refresh en retard et bloque les appels suivants.
 
 ⚠️ Ne pas retirer ces deux mécanismes : le bug "Vérification en cours… infinie" et "création de réserve qui ne marche plus après mise en veille" reviendrait immédiatement.
+
+## Protection anti-perte de données au démarrage à froid (avril 2026)
+
+Bug critique corrigé : au cold start (relance d'app, mise à jour APK), il existait une fenêtre où la file de synchronisation hors-ligne n'était pas encore chargée mais les hooks React Query lançaient déjà un fetch Supabase. Si ce fetch revenait vide (RLS, JWT expiré, blip réseau), le `mergeWithCache` écrasait toutes les réserves/photos/tâches en cache local — donnant l'impression d'une suppression totale.
+
+7 corrections appliquées :
+
+1. **`context/NetworkContext.tsx`** — nouveau flag `queueLoaded` exposé via le contexte (false jusqu'à ce que la file soit hydratée depuis AsyncStorage). Chargement de la file différé jusqu'à ce que le `userId` soit connu, avec migration automatique des anciennes clés `..._anon` → `..._<uuid>`. Sync de cold-start déclenché 800 ms après hydratation. `processSyncQueue` invalide ensuite toutes les requêtes RQ.
+
+2. **`lib/offlineCache.ts`** — `mergeWithCache(fresh, cached, pendingIds, options?)` accepte un 4ᵉ argument `{ queueLoaded }`. Quand `queueLoaded === false`, tous les items en cache absents du fetch sont préservés (ne sont pas considérés comme supprimés côté serveur). Helper `localFileExists()` ajouté.
+
+3-5. **Hooks queries** (`useReserves`, `usePhotos`, `useTasks`, `useChantiers`, `useVisites`, `useLots`, `useOprs`, `useDocuments`, `useCompanies`, `useProfiles`) — destructurent `queueLoaded` depuis `useNetwork()`, court-circuitent le fetch tant que `!queueLoaded`, et passent `{ queueLoaded }` au `mergeWithCache`.
+
+6. **`lib/queryPersister.ts`** — wrapper `namespacedStorage` qui isole le cache RQ persisté par utilisateur (`buildtrack_rq_cache_v1_<userId>`). API : `setPersisterUserId(userId)` (appelé depuis `AuthContext` via `useEffect` sur `user?.id`), `clearPersistedRqCache(userId)`, et clé `LAST_USER_KEY` pour l'hydratation au cold start. Empêche tout bleed de cache d'un compte vers un autre.
+
+7. **`lib/storage.ts`** — sentinelle `MISSING_LOCAL_FILE` retournée par `uploadPhoto` quand le fichier source n'existe plus (nettoyage OS, low storage). `uploadLocalPhotosInPayload` saute proprement les entrées `photos[]` concernées et signale l'opération comme à supprimer (`{data:null, allOk:true}`). `processSyncQueue` retire alors l'op de la file au lieu de boucler indéfiniment.
+
+`AppContext` (handler `SIGNED_OUT`) appelle `clearPersistedRqCache(justSignedOutId)` + `clearPersistedRqCache(null)` (legacy) pour purger le cache au logout intentionnel.

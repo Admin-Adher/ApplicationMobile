@@ -18,7 +18,7 @@ const RESERVES_CACHE_KEY = 'buildtrack_reserves_cache_v1';
 export function useReserves() {
   const { user } = useAuth();
   const userId = user?.id;
-  const { isOnline, enqueueOperation, queue } = useNetwork();
+  const { isOnline, enqueueOperation, queue, queueLoaded } = useNetwork();
   const queryClient = useQueryClient();
   const isOnlineRef = useRef(isOnline);
   useEffect(() => { isOnlineRef.current = isOnline; }, [isOnline]);
@@ -52,6 +52,11 @@ export function useReserves() {
       // RLS, which would silently overwrite the local cache.
       if (!(await isSupabaseSessionValid())) return cached ?? [];
 
+      // Don't fetch until the offline queue has been hydrated. Otherwise an
+      // empty fetch (RLS denied, network blip) combined with an empty queue
+      // would wipe the local cache before the queue is loaded.
+      if (!queueLoaded) return cached ?? [];
+
       // Try online fetch; merge with cache to keep local-only (offline-created) items.
       try {
         let q = ((supabase as any).from('reserves') as any).select('*').order('created_at', { ascending: false });
@@ -62,7 +67,7 @@ export function useReserves() {
         if (error) throw error;
         const fresh = (data ?? []).map(toReserve);
         const pendingIds = pendingIdsForTable(queueRef.current ?? [], 'reserves');
-        const merged = mergeWithCache<Reserve>(fresh, cached, pendingIds);
+        const merged = mergeWithCache<Reserve>(fresh, cached, pendingIds, { queueLoaded });
         await writeCache(RESERVES_CACHE_KEY, merged, userId);
         return merged;
       } catch (err) {

@@ -10,6 +10,7 @@ import { consumeIntentionalLogout } from '@/lib/authIntent';
 import { useAuth, globalSeedingRef, registerInProgressRef, loginInProgressRef } from '@/context/AuthContext';
 import { useNetwork } from '@/context/NetworkContext';
 import { initStorageBuckets } from '@/lib/storage';
+import { clearPersistedRqCache } from '@/lib/queryPersister';
 import { C } from '@/constants/colors';
 import { genId, nowTimestampFR } from '@/lib/utils';
 import { queryKeys } from '@/lib/queryKeys';
@@ -297,9 +298,14 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         setNotification(null);
         if (intentional) {
           // Clear both in-memory and persisted query cache so the next
-          // user never sees stale data from a previous session.
+          // user never sees stale data from a previous session. We clear
+          // both the legacy global key and the per-user namespaced key
+          // (introduced in queryPersister.ts) for the just-logged-out user.
           queryClient.clear();
           AsyncStorage.removeItem('buildtrack_rq_cache_v1').catch(() => {});
+          const justSignedOutId = session?.user?.id ?? null;
+          clearPersistedRqCache(justSignedOutId).catch(() => {});
+          clearPersistedRqCache(null).catch(() => {});
           hasCachedProfileRef.current = false;
         }
       }

@@ -43,8 +43,31 @@ function withTimeout<T>(p: Promise<T>, ms: number, label: string): Promise<T> {
   });
 }
 
+/**
+ * Sentinel returned by uploadPhoto / uploadDocumentDetailed when the local
+ * source file no longer exists on disk (OS-level cleanup, app data wipe, etc.).
+ * Callers can detect this case and drop the photo from the payload instead of
+ * re-queuing the operation forever.
+ */
+export const MISSING_LOCAL_FILE = '__BUILDTRACK_MISSING_LOCAL_FILE__';
+
+async function localFileMissing(uri: string): Promise<boolean> {
+  if (Platform.OS === 'web') return false;
+  if (!uri.startsWith('file://')) return false;
+  try {
+    const info = await FileSystem.getInfoAsync(uri);
+    return !info?.exists;
+  } catch {
+    return false;
+  }
+}
+
 export async function uploadPhoto(uri: string, filename: string): Promise<string | null> {
   if (!isSupabaseConfigured) return null;
+  if (await localFileMissing(uri)) {
+    console.warn('[uploadPhoto] local file missing, dropping:', uri);
+    return MISSING_LOCAL_FILE;
+  }
   try {
     const { data: fileData } = await readFileAsArrayBuffer(uri);
     const ext = filename.split('.').pop()?.toLowerCase() ?? 'jpg';
@@ -183,18 +206,25 @@ export async function uploadLocalPhotosInPayload(
     if (typeof data.photo_uri === 'string' && isLocalUri(data.photo_uri)) {
       hadLocal = true;
       const remote = await uploadPhoto(data.photo_uri, `reserve_${Date.now()}.jpg`);
-      if (remote) data.photo_uri = remote;
+      if (remote === MISSING_LOCAL_FILE) data.photo_uri = null;
+      else if (remote) data.photo_uri = remote;
       else allOk = false;
     }
     if (Array.isArray(data.photos)) {
-      const newPhotos = [...data.photos];
-      for (let i = 0; i < newPhotos.length; i++) {
-        const p = newPhotos[i];
+      const newPhotos: any[] = [];
+      for (let i = 0; i < data.photos.length; i++) {
+        const p = data.photos[i];
         if (p && typeof p.uri === 'string' && isLocalUri(p.uri)) {
           hadLocal = true;
           const remote = await uploadPhoto(p.uri, `reserve_photo_${Date.now()}_${i}.jpg`);
-          if (remote) newPhotos[i] = { ...p, uri: remote };
-          else allOk = false;
+          if (remote === MISSING_LOCAL_FILE) {
+            // file gone — drop this photo from the row instead of blocking sync
+            continue;
+          }
+          if (remote) newPhotos.push({ ...p, uri: remote });
+          else { newPhotos.push(p); allOk = false; }
+        } else {
+          newPhotos.push(p);
         }
       }
       data.photos = newPhotos;
@@ -203,6 +233,12 @@ export async function uploadLocalPhotosInPayload(
     if (typeof data.uri === 'string' && isLocalUri(data.uri)) {
       hadLocal = true;
       const remote = await uploadPhoto(data.uri, `photo_${Date.now()}.jpg`);
+      if (remote === MISSING_LOCAL_FILE) {
+        // The local source for this photo row is gone (low-storage cleanup,
+        // app data wipe). Signal "drop" via a special marker so the queue
+        // processor can remove the operation entirely.
+        return { data: null, allOk: true, hadLocal: true };
+      }
       if (remote) data.uri = remote;
       else allOk = false;
     }

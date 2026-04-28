@@ -36,7 +36,7 @@ export const STANDARD_LOTS: Lot[] = [
 export function useLots() {
   const { user } = useAuth();
   const userId = user?.id;
-  const { isOnline, enqueueOperation, queue } = useNetwork();
+  const { isOnline, enqueueOperation, queue, queueLoaded } = useNetwork();
   const queryClient = useQueryClient();
   const isOnlineRef = useRef(isOnline);
   useEffect(() => { isOnlineRef.current = isOnline; }, [isOnline]);
@@ -57,6 +57,7 @@ export function useLots() {
       }
       if (!isSupabaseConfigured) return (cached?.length ? cached : STANDARD_LOTS);
       if (!(await isSupabaseSessionValid())) return (cached?.length ? cached : STANDARD_LOTS);
+      if (!queueLoaded) return (cached?.length ? cached : STANDARD_LOTS);
       try {
         let q = ((supabase as any).from('lots') as any).select('*');
         if (user!.role !== 'super_admin' && user!.organizationId) {
@@ -66,7 +67,7 @@ export function useLots() {
         if (error) throw error;
         const fresh = (!data?.length) ? STANDARD_LOTS : data.map(toLot);
         const pendingIds = pendingIdsForTable(queueRef.current ?? [], 'lots');
-        const merged = mergeWithCache<Lot>(fresh, cached, pendingIds);
+        const merged = mergeWithCache<Lot>(fresh, cached, pendingIds, { queueLoaded });
         await writeCache(LOTS_CACHE_KEY, merged, userId);
         return merged.length > 0 ? merged : STANDARD_LOTS;
       } catch (err) {

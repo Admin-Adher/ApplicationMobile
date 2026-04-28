@@ -7,6 +7,7 @@ import { ROLE_LABELS } from '@/constants/roles';
 import { debugLog, debugLogOk, debugLogWarn, debugLogError } from '@/lib/debugLog';
 import { sendWelcomeEmail, sendInvitationAcceptedEmail, sendAccessRevokedEmail } from '@/lib/email/client';
 import { markIntentionalLogout } from '@/lib/authIntent';
+import { setPersisterUserId } from '@/lib/queryPersister';
 
 /**
  * Module-level flag shared with AppContext so it can ignore auth events
@@ -426,6 +427,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const isSeedingRef = useRef(false);
   const abortSeedingRef = useRef(false);
   const isRegisteringRef = useRef(false);
+
+  // Keep the React Query persister namespaced by the active user so that the
+  // hydrated cache can never bleed across accounts (User A logs out, User B
+  // logs in → User B should never see User A's reserves, even briefly).
+  useEffect(() => {
+    setPersisterUserId(user?.id ?? null);
+  }, [user?.id]);
 
   // Persist profile to AsyncStorage for offline session restoration
   const cacheProfile = useCallback((profile: User) => {

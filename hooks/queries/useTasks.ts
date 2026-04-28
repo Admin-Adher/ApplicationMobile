@@ -16,7 +16,7 @@ const TASKS_CACHE_KEY = 'buildtrack_tasks_cache_v1';
 export function useTasks() {
   const { user } = useAuth();
   const userId = user?.id;
-  const { isOnline, enqueueOperation, queue } = useNetwork();
+  const { isOnline, enqueueOperation, queue, queueLoaded } = useNetwork();
   const queryClient = useQueryClient();
   const isOnlineRef = useRef(isOnline);
   useEffect(() => { isOnlineRef.current = isOnline; }, [isOnline]);
@@ -36,6 +36,7 @@ export function useTasks() {
       }
       if (!isSupabaseConfigured) return cached ?? [];
       if (!(await isSupabaseSessionValid())) return cached ?? [];
+      if (!queueLoaded) return cached ?? [];
       try {
         let q = ((supabase as any).from('tasks') as any).select('*');
         if (user!.role !== 'super_admin' && user!.organizationId) {
@@ -45,7 +46,7 @@ export function useTasks() {
         if (error) throw error;
         const fresh = (data ?? []).map(toTask);
         const pendingIds = pendingIdsForTable(queueRef.current ?? [], 'tasks');
-        const merged = mergeWithCache<Task>(fresh, cached, pendingIds);
+        const merged = mergeWithCache<Task>(fresh, cached, pendingIds, { queueLoaded });
         await writeCache(TASKS_CACHE_KEY, merged, userId);
         return merged;
       } catch (err) {
