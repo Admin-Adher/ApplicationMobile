@@ -79,6 +79,23 @@ export default function SettingsScreen() {
     }
   }, [queueCount]);
 
+  // Helper : ajoute un délai d'expiration à une promesse Supabase. Sans cela,
+  // un appel auth/réseau qui ne répond jamais (verrou interne du client après
+  // une mise en veille de l'app, websocket coincé, réseau bloqué…) laisse le
+  // diagnostic en "Vérification en cours…" indéfiniment.
+  function withTimeout<T>(p: Promise<T>, ms: number, label: string): Promise<T> {
+    return new Promise<T>((resolve, reject) => {
+      const t = setTimeout(
+        () => reject(new Error(`Délai dépassé (${label} > ${Math.round(ms / 1000)}s). Vérifiez votre connexion ou réessayez.`)),
+        ms,
+      );
+      p.then(
+        v => { clearTimeout(t); resolve(v); },
+        e => { clearTimeout(t); reject(e); },
+      );
+    });
+  }
+
   async function runDiagnostic() {
     setDiag({ loading: true, sessionUserId: null, sessionExpiresAt: null, serverRole: null, serverOrgId: null, error: null });
     if (!isSupabaseConfigured) {
@@ -86,16 +103,24 @@ export default function SettingsScreen() {
       return;
     }
     try {
-      const { data: { session } } = await (supabase as any).auth.getSession();
+      const { data: { session } } = await withTimeout(
+        (supabase as any).auth.getSession(),
+        5000,
+        'session',
+      );
       if (!session?.user?.id) {
         setDiag({ loading: false, sessionUserId: null, sessionExpiresAt: null, serverRole: null, serverOrgId: null, error: 'Aucune session active. Reconnectez-vous.' });
         return;
       }
-      const { data: profile, error: profErr } = await (supabase as any)
-        .from('profiles')
-        .select('organization_id, role')
-        .eq('id', session.user.id)
-        .single();
+      const { data: profile, error: profErr } = await withTimeout(
+        (supabase as any)
+          .from('profiles')
+          .select('organization_id, role')
+          .eq('id', session.user.id)
+          .single(),
+        8000,
+        'profil',
+      );
       if (profErr) {
         setDiag({ loading: false, sessionUserId: session.user.id, sessionExpiresAt: session.expires_at ?? null, serverRole: null, serverOrgId: null, error: `Profil introuvable côté serveur (${profErr.message}).` });
         return;
