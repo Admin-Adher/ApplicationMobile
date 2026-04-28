@@ -28,6 +28,7 @@ import PriorityBadge from '@/components/PriorityBadge';
 import Header from '@/components/Header';
 import DateInput from '@/components/DateInput';
 import { useAuth } from '@/context/AuthContext';
+import { useNetwork } from '@/context/NetworkContext';
 import { useSettings } from '@/context/SettingsContext';
 import { uploadPhoto, persistLocalPhoto } from '@/lib/storage';
 import { isSupabaseConfigured } from '@/lib/supabase';
@@ -413,6 +414,7 @@ export default function ReserveDetailScreen() {
   const router = useRouter();
   const { reserves, tasks, updateReserveStatus, updateReserveFields, deleteReserve, addComment, updateComment, deleteComment, companies, channels, addPhoto, sitePlans, activeChantierId, chantiers } = useApp();
   const { user, permissions } = useAuth();
+  const { isOnline } = useNetwork();
   const { projectName } = useSettings();
   const [comment, setComment] = useState('');
   const [showCommentBox, setShowCommentBox] = useState(false);
@@ -633,11 +635,16 @@ export default function ReserveDetailScreen() {
     setEditPhotoUploading(true);
     try {
       const filename = `reserve_photo_${Date.now()}.jpg`;
+      // Si hors-ligne, on évite le tour par le SDK Supabase (qui peut rester
+      // suspendu plusieurs dizaines de secondes) et on persiste directement
+      // la photo en local. La file de sync ré-uploadera à la reconnexion.
       let storageUrl: string | null = null;
-      try {
-        storageUrl = await uploadPhoto(uri, filename);
-      } catch {
-        // Upload failed (offline or network error) — persist photo locally so it survives app restart
+      if (isOnline) {
+        try {
+          storageUrl = await uploadPhoto(uri, filename);
+        } catch {
+          // Échec réseau imprévu — fallback persistance locale.
+        }
       }
 
       // If upload failed, copy the temp photo to persistent storage so it won't be cleared by the OS
@@ -645,8 +652,10 @@ export default function ReserveDetailScreen() {
 
       if (!storageUrl) {
         Alert.alert(
-          'Mode hors ligne',
-          "La photo a été sauvegardée localement. Elle sera synchronisée lorsque la connexion sera rétablie."
+          isOnline ? 'Synchronisation différée' : 'Mode hors ligne',
+          isOnline
+            ? "Le serveur n'a pas répondu à temps. La photo a été sauvegardée localement et sera renvoyée plus tard."
+            : "La photo a été sauvegardée localement. Elle sera synchronisée lorsque la connexion sera rétablie.",
         );
       }
 

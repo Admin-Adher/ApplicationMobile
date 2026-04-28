@@ -23,6 +23,26 @@ async function readFileAsArrayBuffer(uri: string): Promise<{ data: Uint8Array; m
   return { data: base64ToUint8Array(base64), mimeType: 'application/octet-stream' };
 }
 
+// Délai max pour tout l'upload (lecture + envoi + réponse Supabase). 10 s est
+// assez long pour une 4G correcte, et assez court pour que l'app ne semble
+// pas "cassée" en mode hors-ligne (où le SDK Supabase peut rester suspendu
+// 30 s+ avant de signaler une erreur réseau). Si le délai est dépassé, on
+// renvoie null et l'appelant bascule sur la persistance locale + file de sync.
+const PHOTO_UPLOAD_TIMEOUT_MS = 10_000;
+
+function withTimeout<T>(p: Promise<T>, ms: number, label: string): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const t = setTimeout(
+      () => reject(new Error(`Délai dépassé (${label} > ${Math.round(ms / 1000)}s)`)),
+      ms,
+    );
+    p.then(
+      v => { clearTimeout(t); resolve(v); },
+      e => { clearTimeout(t); reject(e); },
+    );
+  });
+}
+
 export async function uploadPhoto(uri: string, filename: string): Promise<string | null> {
   if (!isSupabaseConfigured) return null;
   try {
@@ -30,9 +50,13 @@ export async function uploadPhoto(uri: string, filename: string): Promise<string
     const ext = filename.split('.').pop()?.toLowerCase() ?? 'jpg';
     const contentType = ext === 'png' ? 'image/png' : ext === 'jpg' || ext === 'jpeg' ? 'image/jpeg' : 'image/jpeg';
     const path = `${Date.now()}_${filename.replace(/[^a-zA-Z0-9._-]/g, '_')}`;
-    const { data, error } = await supabase.storage
-      .from('photos')
-      .upload(path, fileData, { contentType, upsert: false });
+    const { data, error } = await withTimeout(
+      supabase.storage
+        .from('photos')
+        .upload(path, fileData, { contentType, upsert: false }),
+      PHOTO_UPLOAD_TIMEOUT_MS,
+      'upload photo',
+    );
     if (error) {
       console.warn('uploadPhoto Supabase error:', error.message);
       return null;

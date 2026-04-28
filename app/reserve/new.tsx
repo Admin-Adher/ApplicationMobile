@@ -10,6 +10,7 @@ import * as ImagePicker from 'expo-image-picker';
 import { C } from '@/constants/colors';
 import { useApp } from '@/context/AppContext';
 import { useAuth } from '@/context/AuthContext';
+import { useNetwork } from '@/context/NetworkContext';
 import { ReserveKind, ReservePriority, ReserveStatus, ReservePhoto } from '@/constants/types';
 import Header from '@/components/Header';
 import DateInput from '@/components/DateInput';
@@ -60,6 +61,7 @@ export default function NewReserveScreen() {
   const router = useRouter();
   const { companies, addReserve, reserves, addPhoto, activeChantierId, chantiers, sitePlans, lots, linkReserveToVisite, visites, profiles } = useApp();
   const { user, permissions } = useAuth();
+  const { isOnline } = useNetwork();
   const params = useLocalSearchParams<{
     building?: string; level?: string; buildingId?: string; levelId?: string;
     planX?: string; planY?: string;
@@ -270,11 +272,18 @@ export default function NewReserveScreen() {
       const author = user?.name ?? 'Conducteur de travaux';
       const today = new Date().toISOString().split('T')[0];
 
+      // Si on sait déjà être hors-ligne, on ne tente pas l'upload (le SDK
+      // Supabase peut rester suspendu plusieurs dizaines de secondes avant de
+      // signaler l'erreur réseau, ce qui donne l'impression que l'app est
+      // cassée). On bascule directement sur la persistance locale ; la photo
+      // sera ré-uploadée automatiquement par la file de sync à la reconnexion.
       let storageUrl: string | null = null;
-      try {
-        storageUrl = await uploadPhoto(uri, filename);
-      } catch (uploadErr: any) {
-        // Upload failed (offline or network error) — persist photo locally so it survives app restart
+      if (isOnline) {
+        try {
+          storageUrl = await uploadPhoto(uri, filename);
+        } catch (uploadErr: any) {
+          // Échec réseau imprévu — on persiste la photo en local.
+        }
       }
 
       // If upload failed, copy the temp photo to persistent storage so it won't be cleared by the OS
@@ -282,8 +291,10 @@ export default function NewReserveScreen() {
 
       if (!storageUrl) {
         Alert.alert(
-          'Mode hors ligne',
-          "La photo a été sauvegardée localement. Elle sera synchronisée lorsque la connexion sera rétablie."
+          isOnline ? 'Synchronisation différée' : 'Mode hors ligne',
+          isOnline
+            ? "Le serveur n'a pas répondu à temps. La photo a été sauvegardée localement et sera renvoyée plus tard."
+            : "La photo a été sauvegardée localement. Elle sera synchronisée lorsque la connexion sera rétablie.",
         );
       }
 
