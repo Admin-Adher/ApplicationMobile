@@ -211,8 +211,8 @@ async function exportPlanPDF(
   const isPdf = fileType === 'pdf';
   const RENDER_W = 720;
   // Pin radius and font scale with the user's chosen pinSizeScale (base radius = 10px at 720px wide)
-  const PIN_R = Math.max(5, Math.round(10 * pinSizeScale));
-  const PIN_FONT = Math.max(7, Math.round(9 * pinSizeScale));
+  const PIN_R = Math.max(3, Math.round(10 * pinSizeScale));
+  const PIN_FONT = Math.max(5, Math.round(9 * pinSizeScale));
 
   // ── Pre-render PDF page to JPEG data URL ─────────────────────────────────
   // On web: use PDF.js directly (has DOM access). On native: capture the
@@ -491,7 +491,7 @@ export default function PlansScreen() {
     if (pinId) {
       setPinSizes(prev => {
         const current = prev[pinId] ?? 1.0;
-        const next = Math.min(3.0, Math.max(0.4, parseFloat((current + delta).toFixed(2))));
+        const next = Math.min(3.0, Math.max(0.25, parseFloat((current + delta).toFixed(2))));
         const updated = { ...prev, [pinId]: next };
         AsyncStorage.setItem(PIN_SIZES_KEY, JSON.stringify(updated));
         return updated;
@@ -500,7 +500,7 @@ export default function PlansScreen() {
       focusedPinTimerRef.current = setTimeout(() => setFocusedPinIdRef.current(null), 5000);
     } else {
       setPinSizeScale(prev => {
-        const next = Math.min(2.5, Math.max(0.5, parseFloat((prev + delta).toFixed(2))));
+        const next = Math.min(2.5, Math.max(0.25, parseFloat((prev + delta).toFixed(2))));
         AsyncStorage.setItem(PIN_SIZE_KEY, String(next));
         return next;
       });
@@ -1944,7 +1944,7 @@ export default function PlansScreen() {
                   )}
                   {(() => {
                     const indivScale = focusedPinId ? (pinSizes[focusedPinId] ?? 1.0) : null;
-                    const minusDisabled = focusedPinId ? (indivScale! <= 0.4) : pinSizeScale <= 0.5;
+                    const minusDisabled = focusedPinId ? (indivScale! <= 0.25) : pinSizeScale <= 0.25;
                     const plusDisabled  = focusedPinId ? (indivScale! >= 3.0) : pinSizeScale >= 2.5;
                     return (
                       <>
