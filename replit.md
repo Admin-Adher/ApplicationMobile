@@ -125,3 +125,13 @@ Panneau pliable dans Paramètres → Compte qui :
 - Donne un message d'action clair pour chaque problème
 
 Utile pour diagnostiquer les erreurs RLS de type "row-level security policy violation" lors de la création de réserves/tâches.
+
+## Configuration critique du client Supabase (lib/supabase.ts)
+
+Deux ajustements indispensables pour éviter les blocages "spinner infini" sur React Native après un retour d'arrière-plan :
+
+1. **`auth.lock` personnalisé (`safeLock`)** — Le verrou par défaut de supabase-js v2 (`processLock`) peut rester tenu par une promesse fantôme si l'app est gelée pendant un refresh de token. Notre implémentation applique un délai d'acquisition strict (`acquireTimeout`) et libère de force si dépassé, évitant les deadlocks définitifs.
+
+2. **`AppState` → `auth.startAutoRefresh()` / `stopAutoRefresh()`** — Recommandation officielle Supabase pour RN. Suspend le timer d'auto-refresh quand l'app est en arrière-plan et le relance au retour. Sans ça, le SDK accumule des refresh en retard et bloque les appels suivants.
+
+⚠️ Ne pas retirer ces deux mécanismes : le bug "Vérification en cours… infinie" et "création de réserve qui ne marche plus après mise en veille" reviendrait immédiatement.
