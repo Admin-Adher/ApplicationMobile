@@ -86,7 +86,7 @@ export default function SettingsScreen() {
   function withTimeout<T>(p: Promise<T>, ms: number, label: string): Promise<T> {
     return new Promise<T>((resolve, reject) => {
       const t = setTimeout(
-        () => reject(new Error(`Délai dépassé (${label} > ${Math.round(ms / 1000)}s). Vérifiez votre connexion ou réessayez.`)),
+        () => reject(new Error(`Connexion lente ou instable (${label}). Vérifiez votre réseau et réessayez.`)),
         ms,
       );
       p.then(
@@ -105,7 +105,7 @@ export default function SettingsScreen() {
     try {
       const { data: { session } } = await withTimeout(
         (supabase as any).auth.getSession(),
-        5000,
+        15000,
         'session',
       );
       if (!session?.user?.id) {
@@ -118,7 +118,7 @@ export default function SettingsScreen() {
           .select('organization_id, role')
           .eq('id', session.user.id)
           .single(),
-        8000,
+        15000,
         'profil',
       );
       if (profErr) {

@@ -2,33 +2,36 @@ import { Platform } from 'react-native';
 import * as FileSystem from 'expo-file-system';
 import { supabase, isSupabaseConfigured } from './supabase';
 
-function base64ToUint8Array(base64: string): Uint8Array {
-  const binary = atob(base64);
-  const bytes = new Uint8Array(binary.length);
-  for (let i = 0; i < binary.length; i++) {
-    bytes[i] = binary.charCodeAt(i);
-  }
-  return bytes;
-}
+// ── File reading ──────────────────────────────────────────────────────────────
+// On native, we use fetch(uri) to obtain a proper Blob that the Supabase
+// Storage SDK can handle reliably.  On older Android where fetch may refuse
+// a content:// URI we fall back to FileSystem base64 + manual Uint8Array.
+// On web, we use fetch + blob as well (works for blob:, data: and http URIs).
 
-async function readFileAsArrayBuffer(uri: string): Promise<{ data: Uint8Array; mimeType: string }> {
-  if (Platform.OS === 'web') {
+async function readFileAsBlob(uri: string): Promise<{ data: Blob; mimeType: string }> {
+  try {
     const response = await fetch(uri);
-    if (!response.ok) throw new Error('Impossible de lire le fichier source.');
+    if (!response.ok) throw new Error(`fetch ${uri} → HTTP ${response.status}`);
     const blob = await response.blob();
-    const arrayBuffer = await blob.arrayBuffer();
-    return { data: new Uint8Array(arrayBuffer), mimeType: blob.type || 'application/octet-stream' };
+    return { data: blob, mimeType: blob.type || 'application/octet-stream' };
+  } catch (fetchErr) {
+    if (Platform.OS === 'web') throw fetchErr;
+    // Fallback for content:// URIs on older Android that fetch cannot access.
+    const base64 = await FileSystem.readAsStringAsync(uri, {
+      encoding: FileSystem.EncodingType.Base64,
+    });
+    const binary = atob(base64);
+    const bytes = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+    const blob = new Blob([bytes], { type: 'application/octet-stream' });
+    return { data: blob, mimeType: 'application/octet-stream' };
   }
-  const base64 = await FileSystem.readAsStringAsync(uri, { encoding: FileSystem.EncodingType.Base64 });
-  return { data: base64ToUint8Array(base64), mimeType: 'application/octet-stream' };
 }
 
-// Délai max pour tout l'upload (lecture + envoi + réponse Supabase). 10 s est
-// assez long pour une 4G correcte, et assez court pour que l'app ne semble
-// pas "cassée" en mode hors-ligne (où le SDK Supabase peut rester suspendu
-// 30 s+ avant de signaler une erreur réseau). Si le délai est dépassé, on
-// renvoie null et l'appelant bascule sur la persistance locale + file de sync.
-const PHOTO_UPLOAD_TIMEOUT_MS = 10_000;
+// Délai max pour tout l'upload (lecture + envoi + réponse Supabase).
+// 30 s couvre les réseaux mobiles lents (chantier, zones rurales). Si le délai
+// est dépassé, on renvoie null et l'appelant bascule sur la file de sync.
+const PHOTO_UPLOAD_TIMEOUT_MS = 30_000;
 
 function withTimeout<T>(p: Promise<T>, ms: number, label: string): Promise<T> {
   return new Promise<T>((resolve, reject) => {
@@ -69,10 +72,19 @@ export async function uploadPhoto(uri: string, filename: string): Promise<string
     return MISSING_LOCAL_FILE;
   }
   try {
-    const { data: fileData } = await readFileAsArrayBuffer(uri);
     const ext = filename.split('.').pop()?.toLowerCase() ?? 'jpg';
-    const contentType = ext === 'png' ? 'image/png' : ext === 'jpg' || ext === 'jpeg' ? 'image/jpeg' : 'image/jpeg';
+    const contentType =
+      ext === 'png'
+        ? 'image/png'
+        : ext === 'jpg' || ext === 'jpeg'
+        ? 'image/jpeg'
+        : 'image/jpeg';
     const path = `${Date.now()}_${filename.replace(/[^a-zA-Z0-9._-]/g, '_')}`;
+
+    // Read as Blob — reliable on both web and native (Supabase Storage SDK
+    // handles Blob correctly; Uint8Array was unreliable on React Native/Hermes).
+    const { data: fileData } = await readFileAsBlob(uri);
+
     const { data, error } = await withTimeout(
       supabase.storage
         .from('photos')
@@ -87,7 +99,7 @@ export async function uploadPhoto(uri: string, filename: string): Promise<string
     const { data: urlData } = supabase.storage.from('photos').getPublicUrl(data.path);
     return urlData.publicUrl;
   } catch (e) {
-    console.warn('uploadPhoto failed, using local URI:', e);
+    console.warn('uploadPhoto failed:', e);
     return null;
   }
 }
@@ -106,9 +118,14 @@ export async function uploadDocumentDetailed(
   filename: string,
   mimeType?: string
 ): Promise<{ url: string | null; error: string | null }> {
-  if (!isSupabaseConfigured) return { url: null, error: 'Supabase non configuré (variables EXPO_PUBLIC_SUPABASE_URL / EXPO_PUBLIC_SUPABASE_KEY manquantes).' };
+  if (!isSupabaseConfigured)
+    return {
+      url: null,
+      error:
+        'Supabase non configuré (variables EXPO_PUBLIC_SUPABASE_URL / EXPO_PUBLIC_SUPABASE_KEY manquantes).',
+    };
   try {
-    const { data: fileData, mimeType: detectedMime } = await readFileAsArrayBuffer(uri);
+    const { data: fileData, mimeType: detectedMime } = await readFileAsBlob(uri);
     const contentType = mimeType || detectedMime || 'application/octet-stream';
     const path = `${Date.now()}_${filename.replace(/[^a-zA-Z0-9._-]/g, '_')}`;
     const { data, error } = await supabase.storage
@@ -131,7 +148,12 @@ export async function uploadDocumentDetailed(
  * Check if a URI points to a local file (not a remote URL).
  */
 export function isLocalUri(uri: string): boolean {
-  return uri.startsWith('file://') || uri.startsWith('content://') || uri.startsWith('ph://') || uri.startsWith('data:');
+  return (
+    uri.startsWith('file://') ||
+    uri.startsWith('content://') ||
+    uri.startsWith('ph://') ||
+    uri.startsWith('data:')
+  );
 }
 
 /**
@@ -141,8 +163,8 @@ export function isLocalUri(uri: string): boolean {
  */
 export async function persistLocalPhoto(uri: string): Promise<string> {
   if (Platform.OS === 'web') return uri;
-  if (!isLocalUri(uri)) return uri; // already a remote URL
-  if (uri.startsWith(FileSystem.documentDirectory ?? '\0')) return uri; // already persistent
+  if (!isLocalUri(uri)) return uri;
+  if (uri.startsWith(FileSystem.documentDirectory ?? '\0')) return uri;
 
   try {
     const dir = `${FileSystem.documentDirectory}photos/`;
@@ -157,7 +179,7 @@ export async function persistLocalPhoto(uri: string): Promise<string> {
     return destUri;
   } catch (e) {
     console.warn('[persistLocalPhoto] failed to copy, using original URI:', e);
-    return uri; // fallback: use original (may break after restart, but better than losing the photo entirely)
+    return uri;
   }
 }
 
@@ -171,13 +193,6 @@ export async function initStorageBuckets(): Promise<void> {
  * (file://, content://, ph://, data:) to Supabase Storage, replacing them
  * with public URLs in-place.
  *
- * Why : even when the app is online, an individual photo upload can fail
- * (transient network blip, RLS hiccup, bucket quota, expired session). When
- * that happens, the local URI used to leak into Supabase as text — meaning
- * the row was synced but the photo only existed on the device that took it.
- * This helper lets the calling code detect that case and re-queue the
- * operation for a later sync attempt instead of pushing a broken row.
- *
  * Returns:
  *   - data    : a NEW payload object with remote URLs (do not mutate the input)
  *   - allOk   : true only if every local URI we found was uploaded successfully
@@ -185,11 +200,6 @@ export async function initStorageBuckets(): Promise<void> {
  *   - hadLocal: true if at least one field still pointed to a local URI when
  *               we were called (useful for callers to know "did this row need
  *               photo work")
- *
- * Currently handles fields used by the `reserves` and `photos` tables:
- *   - reserves : photo_uri (string), photos[].uri (array of objects)
- *   - photos   : uri (string)
- * Extending this helper to other tables (visites, oprs, …) is a one-line job.
  */
 export async function uploadLocalPhotosInPayload(
   table: string,
@@ -218,7 +228,6 @@ export async function uploadLocalPhotosInPayload(
           hadLocal = true;
           const remote = await uploadPhoto(p.uri, `reserve_photo_${Date.now()}_${i}.jpg`);
           if (remote === MISSING_LOCAL_FILE) {
-            // file gone — drop this photo from the row instead of blocking sync
             continue;
           }
           if (remote) newPhotos.push({ ...p, uri: remote });
@@ -234,29 +243,35 @@ export async function uploadLocalPhotosInPayload(
       hadLocal = true;
       const remote = await uploadPhoto(data.uri, `photo_${Date.now()}.jpg`);
       if (remote === MISSING_LOCAL_FILE) {
-        // The local source for this photo row is gone (low-storage cleanup,
-        // app data wipe). Signal "drop" via a special marker so the queue
-        // processor can remove the operation entirely.
         return { data: null, allOk: true, hadLocal: true };
       }
       if (remote) data.uri = remote;
       else allOk = false;
     }
   } else if (table === 'site_plans') {
-    // Site plans can be PDF, image or DXF — use the generic document uploader
-    // (the `documents` Storage bucket) instead of the photo bucket.
     if (typeof data.uri === 'string' && isLocalUri(data.uri)) {
       hadLocal = true;
       const ext = (() => {
         const m = data.uri.match(/\.([a-zA-Z0-9]{2,5})(?:\?|$)/);
-        return m ? m[1].toLowerCase() : (data.file_type === 'pdf' ? 'pdf' : data.file_type === 'dxf' ? 'dxf' : 'jpg');
+        return m
+          ? m[1].toLowerCase()
+          : data.file_type === 'pdf'
+          ? 'pdf'
+          : data.file_type === 'dxf'
+          ? 'dxf'
+          : 'jpg';
       })();
-      const safeName = (typeof data.name === 'string' ? data.name : 'plan').replace(/[^a-zA-Z0-9._-]/g, '_');
+      const safeName = (typeof data.name === 'string' ? data.name : 'plan').replace(
+        /[^a-zA-Z0-9._-]/g,
+        '_',
+      );
       const filename = `plan_${Date.now()}_${safeName}.${ext}`;
       const mime =
-        data.file_type === 'pdf' ? 'application/pdf' :
-        data.file_type === 'dxf' ? 'application/octet-stream' :
-        undefined;
+        data.file_type === 'pdf'
+          ? 'application/pdf'
+          : data.file_type === 'dxf'
+          ? 'application/octet-stream'
+          : undefined;
       const { url } = await uploadDocumentDetailed(data.uri, filename, mime);
       if (url) data.uri = url;
       else allOk = false;
