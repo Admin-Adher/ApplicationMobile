@@ -207,17 +207,61 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
     prevOnlineRef.current = isOnline;
   }, [isOnline]);
 
-  // ── Refetch when the app comes back to the foreground (native) ─────────────
+  // ── Refetch + self-heal when the app comes back to the foreground (native) ─
   //
   // React Query's `refetchOnWindowFocus` only fires on web. On iOS / Android
-  // we hook into AppState transitions and invalidate all queries when the user
-  // returns to the app, so the data shown is whatever Supabase currently has.
+  // we hook into AppState transitions when the user returns to the app.
+  //
+  // En plus de simplement invalider les caches, on "réveille" activement le
+  // client Supabase : après une longue mise en veille (ou un changement de
+  // réseau Wi-Fi ↔ 4G), le singleton auth peut conserver un verrou interne
+  // ou un websocket realtime fantôme qui fait que tous les appels suivants
+  // restent en suspens (spinner infini). On :
+  //   1. Sonde `getSession()` avec un délai d'expiration court ;
+  //   2. Si la sonde échoue/expire, on force `refreshSession()` pour casser
+  //      le verrou et obtenir un nouveau token ;
+  //   3. On force la reconnexion du canal realtime (no-op s'il est sain) ;
+  //   4. Puis on invalide toutes les queries pour repartir d'une source
+  //      serveur fraîche.
 
   useEffect(() => {
     if (Platform.OS === 'web') return;
+    if (!isSupabaseConfigured) return;
+
+    const wakeUp = async () => {
+      const withTimeout = <T,>(p: Promise<T>, ms: number) =>
+        new Promise<T>((resolve, reject) => {
+          const t = setTimeout(() => reject(new Error('timeout')), ms);
+          p.then(
+            v => { clearTimeout(t); resolve(v); },
+            e => { clearTimeout(t); reject(e); },
+          );
+        });
+
+      try {
+        await withTimeout((supabase as any).auth.getSession(), 4000);
+      } catch {
+        // Le client semble bloqué ; on tente une remise à zéro douce du token.
+        try {
+          await withTimeout((supabase as any).auth.refreshSession(), 6000);
+        } catch (err) {
+          console.warn('[wake] refreshSession failed:', (err as any)?.message ?? err);
+        }
+      }
+
+      // Reconnecter le websocket realtime s'il a été coupé en arrière-plan.
+      try {
+        (supabase as any).realtime?.connect?.();
+      } catch (err) {
+        console.warn('[wake] realtime.connect failed:', (err as any)?.message ?? err);
+      }
+
+      queryClient.invalidateQueries();
+    };
+
     const sub = AppState.addEventListener('change', (next: AppStateStatus) => {
-      if (next === 'active' && isSupabaseConfigured) {
-        queryClient.invalidateQueries();
+      if (next === 'active') {
+        wakeUp();
       }
     });
     return () => sub.remove();
