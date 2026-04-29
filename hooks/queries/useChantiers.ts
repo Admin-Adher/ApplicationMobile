@@ -24,17 +24,35 @@ export function useChantiers() {
   useEffect(() => { queueRef.current = queue; }, [queue]);
   const userId = user?.id;
 
+  useEffect(() => {
+    if (!userId) return;
+    readCache<Chantier>(CHANTIERS_CACHE_KEY, userId).then(manualCached => {
+      if (!manualCached?.length) return;
+      const rqCurrent = queryClient.getQueryData<Chantier[]>(queryKeys.chantiers());
+      if (!rqCurrent?.length) return;
+      const manualIds = new Set(manualCached.map(c => c.id));
+      if (rqCurrent.some(c => !manualIds.has(c.id))) {
+        queryClient.setQueryData<Chantier[]>(queryKeys.chantiers(), rqCurrent.filter(c => manualIds.has(c.id)));
+      }
+    });
+    readCache<SitePlan>(SITE_PLANS_CACHE_KEY, userId).then(manualCached => {
+      if (!manualCached?.length) return;
+      const rqCurrent = queryClient.getQueryData<SitePlan[]>(queryKeys.sitePlans());
+      if (!rqCurrent?.length) return;
+      const manualIds = new Set(manualCached.map(p => p.id));
+      if (rqCurrent.some(p => !manualIds.has(p.id))) {
+        queryClient.setQueryData<SitePlan[]>(queryKeys.sitePlans(), rqCurrent.filter(p => manualIds.has(p.id)));
+      }
+    });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [userId]);
+
   const chantiersQuery = useQuery({
     queryKey: queryKeys.chantiers(),
     queryFn: async (): Promise<Chantier[]> => {
       let cached = await readCache<Chantier>(CHANTIERS_CACHE_KEY, userId);
       const rqCached = queryClient.getQueryData<Chantier[]>(queryKeys.chantiers());
       if (!cached && rqCached?.length) cached = rqCached;
-      else if (cached && rqCached?.length) {
-        const cachedIds = new Set(cached.map(c => c.id));
-        const extra = rqCached.filter(c => !cachedIds.has(c.id));
-        if (extra.length) cached = [...cached, ...extra];
-      }
       if (!isSupabaseConfigured) return cached ?? [];
       // Avoid hitting Supabase without a usable JWT — RLS would silently
       // return [] and the empty array would overwrite the local cache,
@@ -69,11 +87,6 @@ export function useChantiers() {
       let cached = await readCache<SitePlan>(SITE_PLANS_CACHE_KEY, userId);
       const rqCached = queryClient.getQueryData<SitePlan[]>(queryKeys.sitePlans());
       if (!cached && rqCached?.length) cached = rqCached;
-      else if (cached && rqCached?.length) {
-        const cachedIds = new Set(cached.map(p => p.id));
-        const extra = rqCached.filter(p => !cachedIds.has(p.id));
-        if (extra.length) cached = [...cached, ...extra];
-      }
       if (!isSupabaseConfigured) return cached ?? [];
       if (!(await isSupabaseSessionValid())) return cached ?? [];
       if (!queueLoaded) return cached ?? [];

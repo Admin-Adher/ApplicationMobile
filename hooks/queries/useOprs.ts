@@ -24,17 +24,26 @@ export function useOprs() {
   useEffect(() => { queueRef.current = queue; }, [queue]);
   const startupReady = useStartupDelay(!!user);
 
+  useEffect(() => {
+    if (!userId) return;
+    readCache<Opr>(OPRS_CACHE_KEY, userId).then(manualCached => {
+      if (!manualCached?.length) return;
+      const rqCurrent = queryClient.getQueryData<Opr[]>(queryKeys.oprs());
+      if (!rqCurrent?.length) return;
+      const manualIds = new Set(manualCached.map(o => o.id));
+      if (rqCurrent.some(o => !manualIds.has(o.id))) {
+        queryClient.setQueryData<Opr[]>(queryKeys.oprs(), rqCurrent.filter(o => manualIds.has(o.id)));
+      }
+    });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [userId]);
+
   const query = useQuery({
     queryKey: queryKeys.oprs(),
     queryFn: async (): Promise<Opr[]> => {
       let cached = await readCache<Opr>(OPRS_CACHE_KEY, userId);
       const rqCached = queryClient.getQueryData<Opr[]>(queryKeys.oprs());
       if (!cached && rqCached?.length) cached = rqCached;
-      else if (cached && rqCached?.length) {
-        const cachedIds = new Set(cached.map(o => o.id));
-        const extra = rqCached.filter(o => !cachedIds.has(o.id));
-        if (extra.length) cached = [...cached, ...extra];
-      }
       if (!isSupabaseConfigured) return cached ?? [];
       if (!(await isSupabaseSessionValid())) return cached ?? [];
       if (!queueLoaded) return cached ?? [];

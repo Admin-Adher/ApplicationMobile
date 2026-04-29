@@ -1,4 +1,5 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useEffect } from 'react';
 import { useAuth } from '@/context/AuthContext';
 import { useNetwork } from '@/context/NetworkContext';
 import { supabase, isSupabaseConfigured } from '@/lib/supabase';
@@ -20,17 +21,27 @@ export function useProfiles() {
   const userId = user?.id;
 
   const PROFILES_CACHE_KEY = 'buildtrack_profiles_cache_v1';
+
+  useEffect(() => {
+    if (!userId) return;
+    readCache<Profile>(PROFILES_CACHE_KEY, userId).then(manualCached => {
+      if (!manualCached?.length) return;
+      const rqCurrent = queryClient.getQueryData<Profile[]>(queryKeys.profiles());
+      if (!rqCurrent?.length) return;
+      const manualIds = new Set(manualCached.map(p => p.id));
+      if (rqCurrent.some(p => !manualIds.has(p.id))) {
+        queryClient.setQueryData<Profile[]>(queryKeys.profiles(), rqCurrent.filter(p => manualIds.has(p.id)));
+      }
+    });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [userId]);
+
   const query = useQuery({
     queryKey: queryKeys.profiles(),
     queryFn: async (): Promise<Profile[]> => {
       let cached = await readCache<Profile>(PROFILES_CACHE_KEY, userId);
       const rqCached = queryClient.getQueryData<Profile[]>(queryKeys.profiles());
       if (!cached && rqCached?.length) cached = rqCached;
-      else if (cached && rqCached?.length) {
-        const cachedIds = new Set(cached.map(p => p.id));
-        const extra = rqCached.filter(p => !cachedIds.has(p.id));
-        if (extra.length) cached = [...cached, ...extra];
-      }
       if (!isSupabaseConfigured) return (cached?.length ? cached : MOCK_PROFILES);
       if (!(await isSupabaseSessionValid())) return (cached?.length ? cached : MOCK_PROFILES);
       if (!queueLoaded) return (cached?.length ? cached : MOCK_PROFILES);

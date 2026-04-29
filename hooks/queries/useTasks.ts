@@ -23,17 +23,26 @@ export function useTasks() {
   const queueRef = useRef(queue);
   useEffect(() => { queueRef.current = queue; }, [queue]);
 
+  useEffect(() => {
+    if (!userId) return;
+    readCache<Task>(TASKS_CACHE_KEY, userId).then(manualCached => {
+      if (!manualCached?.length) return;
+      const rqCurrent = queryClient.getQueryData<Task[]>(queryKeys.tasks());
+      if (!rqCurrent?.length) return;
+      const manualIds = new Set(manualCached.map(t => t.id));
+      if (rqCurrent.some(t => !manualIds.has(t.id))) {
+        queryClient.setQueryData<Task[]>(queryKeys.tasks(), rqCurrent.filter(t => manualIds.has(t.id)));
+      }
+    });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [userId]);
+
   const query = useQuery({
     queryKey: queryKeys.tasks(),
     queryFn: async (): Promise<Task[]> => {
       let cached = await readCache<Task>(TASKS_CACHE_KEY, userId);
       const rqCached = queryClient.getQueryData<Task[]>(queryKeys.tasks());
       if (!cached && rqCached?.length) cached = rqCached;
-      else if (cached && rqCached?.length) {
-        const cachedIds = new Set(cached.map(t => t.id));
-        const extra = rqCached.filter(t => !cachedIds.has(t.id));
-        if (extra.length) cached = [...cached, ...extra];
-      }
       if (!isSupabaseConfigured) return cached ?? [];
       if (!(await isSupabaseSessionValid())) return cached ?? [];
       if (!queueLoaded) return cached ?? [];

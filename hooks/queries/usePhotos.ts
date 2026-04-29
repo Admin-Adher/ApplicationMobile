@@ -25,20 +25,26 @@ export function usePhotos() {
   useEffect(() => { queueRef.current = queue; }, [queue]);
   const startupReady = useStartupDelay(!!user);
 
+  useEffect(() => {
+    if (!userId) return;
+    readCache<Photo>(PHOTOS_CACHE_KEY, userId).then(manualCached => {
+      if (!manualCached?.length) return;
+      const rqCurrent = queryClient.getQueryData<Photo[]>(queryKeys.photos());
+      if (!rqCurrent?.length) return;
+      const manualIds = new Set(manualCached.map(p => p.id));
+      if (rqCurrent.some(p => !manualIds.has(p.id))) {
+        queryClient.setQueryData<Photo[]>(queryKeys.photos(), rqCurrent.filter(p => manualIds.has(p.id)));
+      }
+    });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [userId]);
+
   const query = useQuery({
     queryKey: queryKeys.photos(),
     queryFn: async (): Promise<Photo[]> => {
-      // Read manual AsyncStorage cache first so offline-created photos can be displayed instantly.
       let cached = await readCache<Photo>(PHOTOS_CACHE_KEY, userId);
-
-      // Also read RQ in-memory cache (restored by PersistQueryClientProvider on app restart).
       const rqCached = queryClient.getQueryData<Photo[]>(queryKeys.photos());
       if (!cached && rqCached?.length) cached = rqCached;
-      else if (cached && rqCached?.length) {
-        const cachedIds = new Set(cached.map(p => p.id));
-        const extra = rqCached.filter(p => !cachedIds.has(p.id));
-        if (extra.length) cached = [...cached, ...extra];
-      }
 
       // No backend (mock mode)
       if (!isSupabaseConfigured) {

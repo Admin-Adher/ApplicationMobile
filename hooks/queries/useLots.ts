@@ -44,17 +44,26 @@ export function useLots() {
   useEffect(() => { queueRef.current = queue; }, [queue]);
   const startupReady = useStartupDelay(!!user);
 
+  useEffect(() => {
+    if (!userId) return;
+    readCache<Lot>(LOTS_CACHE_KEY, userId).then(manualCached => {
+      if (!manualCached?.length) return;
+      const rqCurrent = queryClient.getQueryData<Lot[]>(queryKeys.lots());
+      if (!rqCurrent?.length) return;
+      const manualIds = new Set(manualCached.map(l => l.id));
+      if (rqCurrent.some(l => !manualIds.has(l.id))) {
+        queryClient.setQueryData<Lot[]>(queryKeys.lots(), rqCurrent.filter(l => manualIds.has(l.id)));
+      }
+    });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [userId]);
+
   const query = useQuery({
     queryKey: queryKeys.lots(),
     queryFn: async (): Promise<Lot[]> => {
       let cached = await readCache<Lot>(LOTS_CACHE_KEY, userId);
       const rqCached = queryClient.getQueryData<Lot[]>(queryKeys.lots());
       if (!cached && rqCached?.length) cached = rqCached;
-      else if (cached && rqCached?.length) {
-        const cachedIds = new Set(cached.map(l => l.id));
-        const extra = rqCached.filter(l => !cachedIds.has(l.id));
-        if (extra.length) cached = [...cached, ...extra];
-      }
       if (!isSupabaseConfigured) return (cached?.length ? cached : STANDARD_LOTS);
       if (!(await isSupabaseSessionValid())) return (cached?.length ? cached : STANDARD_LOTS);
       if (!queueLoaded) return (cached?.length ? cached : STANDARD_LOTS);

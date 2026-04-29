@@ -23,17 +23,26 @@ export function useDocuments() {
   useEffect(() => { queueRef.current = queue; }, [queue]);
   const startupReady = useStartupDelay(!!user);
 
+  useEffect(() => {
+    if (!userId) return;
+    readCache<Document>(DOCUMENTS_CACHE_KEY, userId).then(manualCached => {
+      if (!manualCached?.length) return;
+      const rqCurrent = queryClient.getQueryData<Document[]>(queryKeys.documents());
+      if (!rqCurrent?.length) return;
+      const manualIds = new Set(manualCached.map(d => d.id));
+      if (rqCurrent.some(d => !manualIds.has(d.id))) {
+        queryClient.setQueryData<Document[]>(queryKeys.documents(), rqCurrent.filter(d => manualIds.has(d.id)));
+      }
+    });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [userId]);
+
   const query = useQuery({
     queryKey: queryKeys.documents(),
     queryFn: async (): Promise<Document[]> => {
       let cached = await readCache<Document>(DOCUMENTS_CACHE_KEY, userId);
       const rqCached = queryClient.getQueryData<Document[]>(queryKeys.documents());
       if (!cached && rqCached?.length) cached = rqCached;
-      else if (cached && rqCached?.length) {
-        const cachedIds = new Set(cached.map(d => d.id));
-        const extra = rqCached.filter(d => !cachedIds.has(d.id));
-        if (extra.length) cached = [...cached, ...extra];
-      }
       if (!isSupabaseConfigured) return cached ?? [];
       if (!(await isSupabaseSessionValid())) return cached ?? [];
       if (!queueLoaded) return cached ?? [];

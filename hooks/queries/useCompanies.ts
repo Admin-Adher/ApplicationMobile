@@ -22,20 +22,26 @@ export function useCompanies() {
   const queueRef = useRef(queue);
   useEffect(() => { queueRef.current = queue; }, [queue]);
 
+  useEffect(() => {
+    if (!userId) return;
+    readCache<Company>(COMPANIES_CACHE_KEY, userId).then(manualCached => {
+      if (!manualCached?.length) return;
+      const rqCurrent = queryClient.getQueryData<Company[]>(queryKeys.companies());
+      if (!rqCurrent?.length) return;
+      const manualIds = new Set(manualCached.map(c => c.id));
+      if (rqCurrent.some(c => !manualIds.has(c.id))) {
+        queryClient.setQueryData<Company[]>(queryKeys.companies(), rqCurrent.filter(c => manualIds.has(c.id)));
+      }
+    });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [userId]);
+
   const query = useQuery({
     queryKey: queryKeys.companies(),
     queryFn: async (): Promise<Company[]> => {
-      // Read manual AsyncStorage cache first so offline-created companies can be displayed instantly.
       let cached = await readCache<Company>(COMPANIES_CACHE_KEY, userId);
-
-      // Also read RQ in-memory cache (restored by PersistQueryClientProvider on app restart).
       const rqCached = queryClient.getQueryData<Company[]>(queryKeys.companies());
       if (!cached && rqCached?.length) cached = rqCached;
-      else if (cached && rqCached?.length) {
-        const cachedIds = new Set(cached.map(c => c.id));
-        const extra = rqCached.filter(c => !cachedIds.has(c.id));
-        if (extra.length) cached = [...cached, ...extra];
-      }
 
       // No backend (mock mode)
       if (!isSupabaseConfigured) {
