@@ -25,23 +25,48 @@ export function useReserves() {
   const queueRef = useRef(queue);
   useEffect(() => { queueRef.current = queue; }, [queue]);
 
+  // ── On mount: clean stale ghost items from the RQ persisted cache ──────────
+  // The RQ persisted cache (restored by PersistQueryClientProvider on startup)
+  // can contain items that were already deleted — because the app was closed
+  // before the 1-second throttled save completed after a deleteReserve().
+  // The manual AsyncStorage cache (RESERVES_CACHE_KEY) is always written
+  // synchronously on every mutation, so it is the ground truth.
+  // We compare both on mount and drop any ghost items from the RQ cache
+  // BEFORE the queryFn fires — this eliminates the startup flash entirely.
+  useEffect(() => {
+    if (!userId) return;
+    readCache<Reserve>(RESERVES_CACHE_KEY, userId).then(manualCached => {
+      if (!manualCached?.length) return;
+      const rqCurrent = queryClient.getQueryData<Reserve[]>(queryKeys.reserves());
+      if (!rqCurrent?.length) return;
+      const manualIds = new Set(manualCached.map(r => r.id));
+      const hasGhosts = rqCurrent.some(r => !manualIds.has(r.id));
+      if (hasGhosts) {
+        queryClient.setQueryData<Reserve[]>(
+          queryKeys.reserves(),
+          rqCurrent.filter(r => manualIds.has(r.id)),
+        );
+      }
+    });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [userId]);
+
   const query = useQuery({
     queryKey: queryKeys.reserves(),
     queryFn: async (): Promise<Reserve[]> => {
       // Read manual AsyncStorage cache first so offline-created reserves can be displayed instantly.
+      // This cache is written synchronously on every mutation (add, update, delete)
+      // so it is always the ground truth for locally-known state.
       let cached = await readCache<Reserve>(RESERVES_CACHE_KEY, userId);
 
-      // Also read RQ in-memory cache (restored by PersistQueryClientProvider on app restart).
-      // If the manual cache is empty or was written with a stale userId, the RQ cache
-      // may still contain the offline reserves — use it as a fallback source for merging.
+      // Use the RQ in-memory cache ONLY as a fallback when the manual cache is
+      // completely empty (first install, cache cleared by the OS, etc.).
+      // We do NOT merge individual items from rqCached back into the manual cache
+      // when the manual cache already has data — that would resurrect items that
+      // were correctly deleted via deleteReserve() → persist(), creating a cycle
+      // where server-deleted rows re-appear on every restart.
       const rqCached = queryClient.getQueryData<Reserve[]>(queryKeys.reserves());
       if (!cached && rqCached?.length) cached = rqCached;
-      else if (cached && rqCached?.length) {
-        // Merge both sources: items in rqCached but not in cached (e.g. written by stale persist)
-        const cachedIds = new Set(cached.map(r => r.id));
-        const extra = rqCached.filter(r => !cachedIds.has(r.id));
-        if (extra.length) cached = [...cached, ...extra];
-      }
 
       // No backend (mock mode)
       if (!isSupabaseConfigured) {
