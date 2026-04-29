@@ -7,6 +7,7 @@ import { useNetwork } from '@/context/NetworkContext';
 import { Message } from '@/constants/types';
 import { genId, nowTimestampFR } from '@/lib/utils';
 import { toMessage, fromMessage } from '@/lib/mappers';
+import { isSupabaseSessionValid } from '@/lib/offlineCache';
 
 const MOCK_MESSAGES_KEY = 'buildtrack_mock_messages_v2';
 const MESSAGES_CACHE_PREFIX = 'buildtrack_messages_cache_v1_';
@@ -77,6 +78,9 @@ export function useMessages() {
 
   async function loadRecentMessages() {
     if (!isSupabaseConfigured) return;
+    // Guard: don't hit Supabase with an expired JWT — it returns [] under RLS
+    // and would clear all cached messages. Also avoids a pointless round-trip.
+    if (!(await isSupabaseSessionValid())) return;
     try {
       // Bug 7: filter by organization_id when available to avoid cross-org messages
       let query = supabase

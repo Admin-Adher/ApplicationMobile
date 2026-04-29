@@ -125,24 +125,20 @@ export function useChannels() {
       setPendingDmChannelIds(new Set(pendingDmCached));
     }
 
-    if (!isSupabaseConfigured) {
-      if (generalCached.length > 0) setGeneralChannels(generalCached);
-      if (customCached.length > 0) setCustomChannels(customCached);
-      if (groupCached.length > 0) setGroupChannels(groupCached);
-      if (dmCached.length > 0) setPersistedDmChannels(dmCached);
-      return;
-    }
+    // ── Show cached data IMMEDIATELY so the UI is responsive while we wait
+    // for the Supabase response. This is the same pattern as useReserves:
+    // cache-first display, then background refresh with fresh server data.
+    if (generalCached.length > 0) setGeneralChannels(generalCached);
+    if (customCached.length > 0) setCustomChannels(customCached);
+    if (groupCached.length > 0) setGroupChannels(groupCached);
+    if (dmCached.length > 0) setPersistedDmChannels(dmCached);
+
+    if (!isSupabaseConfigured) return;
 
     // Don't query Supabase without a usable JWT — RLS would return [] and the
     // empty array would overwrite all the cached channels (typical symptom
     // after a cold start following an APK auto-update).
-    if (!(await isSupabaseSessionValid())) {
-      if (generalCached.length > 0) setGeneralChannels(generalCached);
-      if (customCached.length > 0) setCustomChannels(customCached);
-      if (groupCached.length > 0) setGroupChannels(groupCached);
-      if (dmCached.length > 0) setPersistedDmChannels(dmCached);
-      return;
-    }
+    if (!(await isSupabaseSessionValid())) return;
 
     try {
       let chQ = (supabase as any)
@@ -156,19 +152,11 @@ export function useChannels() {
 
       if (error) {
         console.warn('[useChannels] _loadChannelsFromSupabase error:', error.code, error.message);
-        if (generalCached.length) setGeneralChannels(generalCached);
-        if (customCached.length) setCustomChannels(customCached);
-        if (groupCached.length) setGroupChannels(groupCached);
-        if (dmCached.length) setPersistedDmChannels(dmCached);
-        return;
+        return; // cached data already showing
       }
       if (!data) {
         console.warn('[useChannels] _loadChannelsFromSupabase: no data returned');
-        if (generalCached.length) setGeneralChannels(generalCached);
-        if (customCached.length) setCustomChannels(customCached);
-        if (groupCached.length) setGroupChannels(groupCached);
-        if (dmCached.length) setPersistedDmChannels(dmCached);
-        return;
+        return; // cached data already showing
       }
       console.log('[useChannels] _loadChannelsFromSupabase: loaded', data.length, 'channels');
 
@@ -244,21 +232,23 @@ export function useChannels() {
 
   async function loadPinnedChannels() {
     try {
-      const userId = userIdRef.current;
-      if (userId && isSupabaseConfigured) {
-        const { data } = await (supabase as any)
-          .from('profiles')
-          .select('pinned_channels')
-          .eq('id', userId)
-          .single();
-        if (data?.pinned_channels && Array.isArray(data.pinned_channels)) {
-          setPinnedChannelIds(data.pinned_channels);
-          AsyncStorage.setItem(PINNED_CHANNELS_KEY, JSON.stringify(data.pinned_channels)).catch(() => {});
-          return;
-        }
-      }
+      // Show cached pinned channels immediately, then refresh from Supabase.
       const stored = await AsyncStorage.getItem(PINNED_CHANNELS_KEY);
       if (stored) setPinnedChannelIds(JSON.parse(stored));
+
+      const userId = userIdRef.current;
+      if (!userId || !isSupabaseConfigured) return;
+      if (!(await isSupabaseSessionValid())) return;
+
+      const { data } = await (supabase as any)
+        .from('profiles')
+        .select('pinned_channels')
+        .eq('id', userId)
+        .single();
+      if (data?.pinned_channels && Array.isArray(data.pinned_channels)) {
+        setPinnedChannelIds(data.pinned_channels);
+        AsyncStorage.setItem(PINNED_CHANNELS_KEY, JSON.stringify(data.pinned_channels)).catch(() => {});
+      }
     } catch {}
   }
 
