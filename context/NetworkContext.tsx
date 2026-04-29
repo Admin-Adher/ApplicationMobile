@@ -121,6 +121,23 @@ const STATUS_LABELS: Record<string, string> = {
   closed: 'Clôturé',
 };
 
+// Ping URLs for native connectivity detection
+const PING_URLS = [
+  'https://clients3.google.com/generate_204',
+  'https://connectivitycheck.gstatic.com/generate_204',
+];
+
+// Reusable promise timeout helper (does not need a label in this context)
+function withTimeoutMs<T>(p: Promise<T>, ms: number): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const t = setTimeout(() => reject(new Error(`timeout after ${ms}ms`)), ms);
+    p.then(
+      v => { clearTimeout(t); resolve(v); },
+      e => { clearTimeout(t); reject(e); },
+    );
+  });
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Provider
 // ─────────────────────────────────────────────────────────────────────────────
@@ -140,8 +157,25 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
   const syncingRef = useRef(false);
   const reloadHandlerRef = useRef<(() => void) | null>(null);
   const lastLoadedKeyRef = useRef<string | null>(null);
+
+  // ── Stable refs so any closure (including stale ones in AppState) can always
+  // access the CURRENT queue and the CURRENT processSyncQueue implementation.
+  // This is the fix for the "stale closure" bug where AppState and ping
+  // handlers captured the initial empty queue and never saw later updates.
   const queueRef = useRef<QueuedOperation[]>([]);
   useEffect(() => { queueRef.current = queue; }, [queue]);
+
+  const isOnlineRef = useRef(true);
+  useEffect(() => { isOnlineRef.current = isOnline; }, [isOnline]);
+
+  // processSyncQueueRef is always updated to point to the latest version of
+  // processSyncQueue on every render, so stale closures can safely call
+  // processSyncQueueRef.current() and get the correct behaviour.
+  const processSyncQueueRef = useRef<() => Promise<void>>(async () => {});
+
+  // Throttle: track when the last sync attempt started so ping-driven retries
+  // don't hammer the server (max one attempt per 20 seconds).
+  const lastSyncAttemptRef = useRef<number>(0);
 
   // ── Queue persistence ──────────────────────────────────────────────────────
 
@@ -216,8 +250,6 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
 
   // ── Hydrate queue when user.id changes (cold start, login, switch) ─────────
   useEffect(() => {
-    // Reset hydration whenever the active key changes so hooks correctly gate
-    // their queryFn until the new user's queue is loaded.
     const targetKey = userId ? OFFLINE_QUEUE_PREFIX + userId : OFFLINE_QUEUE_PREFIX + 'anon';
     if (lastLoadedKeyRef.current === targetKey) return;
     setQueueLoaded(false);
@@ -234,6 +266,11 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
   }, [queueLoaded]);
 
   // ── Network detection ──────────────────────────────────────────────────────
+  //
+  // Native: active pinging every 10 s. After each ping we also check whether
+  // there are pending ops that need syncing — this handles the case where
+  // isOnline was ALREADY true when the app woke up (no state change → the
+  // isOnline-change effect below wouldn't fire).
 
   useEffect(() => {
     if (Platform.OS === 'web') {
@@ -249,12 +286,6 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
       };
     }
 
-    // Native: ping every 10 s for reliable detection in construction environments
-    const PING_URLS = [
-      'https://clients3.google.com/generate_204',
-      'https://connectivitycheck.gstatic.com/generate_204',
-    ];
-
     const check = async () => {
       let online = false;
       for (const url of PING_URLS) {
@@ -264,6 +295,20 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
         } catch {}
       }
       setIsOnline(online);
+
+      // Safety-net: if we are online with pending ops and not already syncing,
+      // trigger a sync attempt — but no more than once every 20 seconds.
+      // This covers the case where the app woke up with isOnline already true
+      // (no state transition) so the isOnline-change effect below never fired.
+      if (
+        online &&
+        isSupabaseConfigured &&
+        queueRef.current.length > 0 &&
+        !syncingRef.current &&
+        Date.now() - lastSyncAttemptRef.current > 20_000
+      ) {
+        processSyncQueueRef.current();
+      }
     };
 
     check();
@@ -272,18 +317,11 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   // ── Trigger sync + refetch when coming back online ─────────────────────────
-  //
-  // When connectivity is restored we always force a refetch of every React
-  // Query so Supabase becomes the source of truth again — the cache may have
-  // been showing stale data while we were offline. In addition, any queued
-  // mutations are replayed.
 
   useEffect(() => {
     if (isOnline && !prevOnlineRef.current) {
       if (isSupabaseConfigured) {
-        if (queue.length > 0) processSyncQueue();
-        // Network just came back — invalidate every cached query so Supabase
-        // re-becomes the source of truth.
+        if (queueRef.current.length > 0) processSyncQueueRef.current();
         queryClient.invalidateQueries();
       }
     }
@@ -294,9 +332,7 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
   //
   // Once the offline queue has been hydrated AND we are online AND the user
   // is authenticated, immediately attempt to flush any pending mutations.
-  // Without this, a user who reopens the app online (with a queue full of
-  // offline reserves / photos) would have to manually pull-to-refresh to
-  // trigger sync — which in practice means data sits unsynced for hours.
+
   useEffect(() => {
     if (!queueLoaded) return;
     if (!isOnline) return;
@@ -304,89 +340,124 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
     if (!userId) return;
     if (queue.length === 0) return;
     if (syncingRef.current) return;
-    // Defer slightly so it doesn't race the very first render of the auth gate.
     const t = setTimeout(() => {
-      processSyncQueue();
+      processSyncQueueRef.current();
     }, 800);
     return () => clearTimeout(t);
   }, [queueLoaded, isOnline, userId, queue.length]);
 
-  // ── Refetch + self-heal when the app comes back to the foreground (native) ─
+  // ── Foreground wake-up: session heal + sync (native only) ──────────────────
   //
-  // React Query's `refetchOnWindowFocus` only fires on web. On iOS / Android
-  // we hook into AppState transitions when the user returns to the app.
+  // This is the fix for the long-standing "sync doesn't happen after a long
+  // background sleep" bug. Root causes addressed here:
   //
-  // En plus de simplement invalider les caches, on "réveille" activement le
-  // client Supabase : après une longue mise en veille (ou un changement de
-  // réseau Wi-Fi ↔ 4G), le singleton auth peut conserver un verrou interne
-  // ou un websocket realtime fantôme qui fait que tous les appels suivants
-  // restent en suspens (spinner infini). On :
-  //   1. Sonde `getSession()` avec un délai d'expiration court ;
-  //   2. Si la sonde échoue/expire, on force `refreshSession()` pour casser
-  //      le verrou et obtenir un nouveau token ;
-  //   3. On force la reconnexion du canal realtime (no-op s'il est sain) ;
-  //   4. Puis on invalide toutes les queries pour repartir d'une source
-  //      serveur fraîche.
+  //   1. Stale closure: AppState listener was created once at mount, capturing
+  //      processSyncQueue with queue=[] (initial state). Now we call via ref.
+  //
+  //   2. Frozen Supabase client: after a long sleep the auth lock can be stuck
+  //      (a refresh was in-flight when JS was frozen). We use refreshSession()
+  //      with a strict timeout to break the lock and get a fresh token.
+  //
+  //   3. isOnline already true: if the device had connectivity before and after
+  //      the sleep, isOnline never changes state, so the isOnline effect above
+  //      never fires. We explicitly re-ping here and trigger sync if online.
+  //
+  //   4. Realtime WebSocket zombie: the WS connection can become a ghost after
+  //      a long sleep. We force-reconnect here.
 
   useEffect(() => {
     if (Platform.OS === 'web') return;
     if (!isSupabaseConfigured) return;
 
-    const wakeUp = async () => {
-      const withTimeout = <T,>(p: Promise<T>, ms: number) =>
-        new Promise<T>((resolve, reject) => {
-          const t = setTimeout(() => reject(new Error('timeout')), ms);
-          p.then(
-            v => { clearTimeout(t); resolve(v); },
-            e => { clearTimeout(t); reject(e); },
-          );
-        });
+    // Track when the app last went to background so we know if a long sleep occurred.
+    let backgroundAt = 0;
 
-      try {
-        await withTimeout((supabase as any).auth.getSession(), 4000);
-      } catch {
-        // Le client semble bloqué ; on tente une remise à zéro douce du token.
+    const wakeUp = async () => {
+      const sleptMs = backgroundAt > 0 ? Date.now() - backgroundAt : 0;
+      const longSleep = sleptMs > 30_000; // more than 30 s in background
+
+      // ── 1. Heal the Supabase auth client ──────────────────────────────────
+      // After a long sleep the access token is likely expired and/or the
+      // internal auth lock is frozen. Calling refreshSession() with a short
+      // timeout forces a new token AND breaks any stuck lock (our safeLock
+      // implementation in lib/supabase.ts will time out and release the lock).
+      // We always refresh after a long sleep; for short returns we only probe.
+      if (longSleep) {
         try {
-          await withTimeout((supabase as any).auth.refreshSession(), 6000);
+          await withTimeoutMs((supabase as any).auth.refreshSession(), 8000);
         } catch (err) {
           console.warn('[wake] refreshSession failed:', (err as any)?.message ?? err);
+          // Fallback: try a plain getSession to unstick the client
+          try { await withTimeoutMs((supabase as any).auth.getSession(), 4000); } catch {}
+        }
+      } else {
+        try {
+          await withTimeoutMs((supabase as any).auth.getSession(), 4000);
+        } catch {
+          try {
+            await withTimeoutMs((supabase as any).auth.refreshSession(), 6000);
+          } catch (err) {
+            console.warn('[wake] refreshSession (short sleep) failed:', (err as any)?.message ?? err);
+          }
         }
       }
 
-      // Reconnecter le websocket realtime s'il a été coupé en arrière-plan.
-      try {
-        (supabase as any).realtime?.connect?.();
-      } catch (err) {
-        console.warn('[wake] realtime.connect failed:', (err as any)?.message ?? err);
+      // ── 2. Reconnect the Realtime WebSocket ───────────────────────────────
+      try { (supabase as any).realtime?.connect?.(); } catch {}
+
+      // ── 3. Re-ping to get a fresh connectivity reading ───────────────────
+      // We can't rely on the stale isOnline state: if the network was already
+      // active before sleep, isOnline is still true and the change-based effect
+      // won't fire. We ping explicitly and act on the result.
+      let online = false;
+      for (const url of PING_URLS) {
+        try {
+          const res = await withTimeoutMs(
+            fetch(url, { method: 'HEAD', cache: 'no-cache' }),
+            5000,
+          );
+          if (res.ok || res.status === 204) { online = true; break; }
+        } catch {}
       }
+      setIsOnline(online);
+      isOnlineRef.current = online;
 
-      queryClient.invalidateQueries();
+      // ── 4. Invalidate all cached queries ─────────────────────────────────
+      try { queryClient.invalidateQueries(); } catch {}
 
-      // Si la file contient des opérations en attente, tenter immédiatement
-      // de les rejouer maintenant que la session a été rafraîchie.
-      if (queueRef.current.length > 0 && !syncingRef.current) {
-        processSyncQueue();
+      // ── 5. Trigger sync if we have pending operations ─────────────────────
+      if (online && queueRef.current.length > 0 && !syncingRef.current) {
+        processSyncQueueRef.current();
       }
     };
 
     const sub = AppState.addEventListener('change', (next: AppStateStatus) => {
       if (next === 'active') {
         wakeUp();
+      } else if (next === 'background' || next === 'inactive') {
+        backgroundAt = Date.now();
       }
     });
+
     return () => sub.remove();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // ── Sync logic ─────────────────────────────────────────────────────────────
 
   async function processSyncQueue() {
-    if (syncingRef.current || queue.length === 0 || !isSupabaseConfigured) return;
+    // IMPORTANT: use queueRef.current (not queue from closure) so this function
+    // works correctly even when called from a stale closure (AppState listener,
+    // ping interval, etc.).
+    if (syncingRef.current || queueRef.current.length === 0 || !isSupabaseConfigured) return;
     syncingRef.current = true;
+    lastSyncAttemptRef.current = Date.now();
     setSyncStatus('syncing');
 
     const pendingConflicts: StatusConflict[] = [];
     const failedOps: QueuedOperation[] = [];
-    const currentQueue = queue;
+    // Snapshot the queue from the ref (always current, not a stale closure)
+    const currentQueue = [...queueRef.current];
     setSyncProgress({ done: 0, total: currentQueue.length });
 
     // Helper: re-queue an op while attaching the latest error message and
@@ -428,7 +499,6 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
           if (fetchErr) { fail(op, fetchErr); continue; }
 
           if (serverData && serverData.status !== previousStatus && serverData.status !== newStatus) {
-            // Someone else changed the status while we were offline → conflict
             pendingConflicts.push({
               id: op.id,
               reserveId: entityId,
@@ -440,10 +510,9 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
               closedAt,
               closedBy,
             });
-            continue; // wait for user resolution
+            continue;
           }
 
-          // No conflict: apply our change
           const { error: applyErr } = await (supabase as any).from('reserves').update({
             status: newStatus,
             history,
@@ -456,24 +525,15 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
         }
 
         // ── Upload local photos / files before replaying insert/update ───────
-        // When the queued operation contains local URIs (offline photos, plan
-        // PDFs, etc.), upload them to Supabase Storage first and replace with
-        // remote URLs. Delegated to the shared helper used by online writes,
-        // so the behaviour stays consistent across both code paths.
         let data = op.data ? { ...op.data } : op.data;
         if (data) {
           if (op.table === 'reserves') {
-            // Normalize placeholder values that may break inserts/updates
             if (data.deadline === '—' || data.deadline === '') {
               data.deadline = null;
             }
           }
           try {
             const prep = await uploadLocalPhotosInPayload(op.table, data);
-            // Special case: a `photos` row whose underlying local file is gone.
-            // The helper returns `{ data: null, allOk: true }` to signal "drop
-            // this op" — the photo can never be re-uploaded, so re-queuing
-            // forever is just noise.
             if (prep.data === null && prep.allOk && op.table === 'photos') {
               console.warn(`[queue] dropping photos op ${op.id}: local file missing on disk`);
               processed += 1;
@@ -496,12 +556,8 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
 
         if (op.op === 'insert') {
           result = await (supabase as any).from(op.table).insert(data!);
-          // 23505 = unique violation → already exists → treat as success
           if (result.error?.code === '23505') result = { error: null };
         } else if (op.op === 'update') {
-          // Use .select() so we can detect UPDATEs that affected 0 rows — that
-          // happens when the row was deleted server-side (drop from queue) or
-          // when an RLS policy silently blocks the write (re-queue with hint).
           const q = (supabase as any).from(op.table).update(data!).select();
           result = op.filter
             ? await q.eq(op.filter.column, op.filter.value)
@@ -515,7 +571,6 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
                   .eq('id', op.filter.value)
                   .maybeSingle();
                 if (!existsErr && !exists) {
-                  // Row no longer exists → treat as success
                   continue;
                 }
               } catch {}
@@ -524,14 +579,10 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
             continue;
           }
         } else {
-          // Use .select() so we can detect RLS-blocked DELETEs (error=null but 0 rows)
           const q = (supabase as any).from(op.table).delete().select();
           result = op.filter
             ? await q.eq(op.filter.column, op.filter.value)
             : await q;
-          // If DELETE returned 0 rows with no error, it can mean either:
-          // - row doesn't exist anymore (success from our POV)
-          // - RLS blocked the delete (should be retried)
           if (!result.error && Array.isArray(result.data) && result.data.length === 0) {
             if (op.table === 'reserves' && op.filter?.column === 'id') {
               try {
@@ -540,7 +591,6 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
                   .select('id')
                   .eq('id', op.filter.value)
                   .maybeSingle();
-                // If row doesn't exist, treat delete as success (drop from queue)
                 if (!existsErr && !exists) {
                   continue;
                 }
@@ -569,11 +619,6 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
     setQueue(remaining);
     await saveQueue(remaining);
 
-    // Always invalidate every cached query so any successfully-synced rows
-    // are immediately refetched and the UI reflects the merged server state.
-    // Without this, an offline-created reserve stays visible only via the
-    // local cache until the user pulls to refresh — and any server-side row
-    // still missing from the cache would never appear.
     try { queryClient.invalidateQueries(); } catch {}
 
     if (pendingConflicts.length > 0) {
@@ -581,21 +626,22 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
       setSyncStatus('conflict');
     } else if (failedOps.length > 0) {
       setSyncStatus('error');
-      // Still reload so we get the data that did sync successfully
       reloadHandlerRef.current?.();
     } else {
       setSyncStatus('done');
       reloadHandlerRef.current?.();
-      // Auto-reset status after feedback
       setTimeout(() => setSyncStatus('idle'), 4000);
     }
 
-    // Reset live progress now that the pass is finished — the chip falls back
-    // to just showing the pending count.
     setSyncProgress({ done: 0, total: 0 });
-
     syncingRef.current = false;
   }
+
+  // Keep processSyncQueueRef always pointing at the latest implementation so
+  // stale closures (AppState listener, ping interval) call the right version.
+  // This is intentionally assigned during render (not in a useEffect) so the
+  // ref is always current before any async callback fires.
+  processSyncQueueRef.current = processSyncQueue;
 
   // ── Conflict resolution ────────────────────────────────────────────────────
 
@@ -661,7 +707,6 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
   const clearQueue = useCallback(async () => {
     setQueue([]);
     try { await AsyncStorage.removeItem(offlineQueueKey); } catch {}
-    // Also clear any orphan anon queue so it doesn't get re-migrated later.
     try { await AsyncStorage.removeItem(OFFLINE_QUEUE_PREFIX + 'anon'); } catch {}
   }, [offlineQueueKey]);
 
