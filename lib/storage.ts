@@ -105,6 +105,22 @@ async function _uploadPhotoWithError(
       return { url: null, error: msg };
     }
     const { data: urlData } = supabase.storage.from('photos').getPublicUrl(data.path);
+
+    // ── Delete the local copy after a successful upload ───────────────────────
+    // Photos are copied to documentDirectory/photos/ via persistLocalPhoto()
+    // for offline resilience. Once the upload succeeds, the remote URL is the
+    // source of truth — the local file must be deleted to prevent device
+    // storage from filling up over time (every offline-taken photo would
+    // otherwise accumulate permanently on the device).
+    if (Platform.OS !== 'web') {
+      try {
+        const docDir = FileSystem.documentDirectory ?? '';
+        if (docDir && uri.startsWith(docDir)) {
+          await FileSystem.deleteAsync(uri, { idempotent: true });
+        }
+      } catch {}
+    }
+
     return { url: urlData.publicUrl, error: null };
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
@@ -200,6 +216,52 @@ export async function persistLocalPhoto(uri: string): Promise<string> {
 export async function initStorageBuckets(): Promise<void> {
   // Les buckets doivent être créés via Supabase SQL Editor (voir lib/schema.sql).
   // La création programmatique via la clé anon est bloquée par RLS.
+}
+
+/**
+ * Purge local photo files from documentDirectory/photos/ that are no longer
+ * referenced by any pending offline operation.
+ *
+ * Call this after a successful sync pass (no failed ops) to reclaim device
+ * storage. Files referenced in `referencedUris` are kept; everything else in
+ * the photos folder that is older than `maxAgeMs` (default 7 days) is deleted.
+ *
+ * The age guard prevents accidentally deleting photos taken offline within the
+ * current sync window (in case they weren't enqueued yet).
+ */
+export async function purgeOrphanedPhotoFiles(
+  referencedUris: Set<string>,
+  maxAgeMs = 7 * 24 * 60 * 60 * 1000,
+): Promise<void> {
+  if (Platform.OS === 'web') return;
+  try {
+    const dir = `${FileSystem.documentDirectory ?? ''}photos/`;
+    const dirInfo = await FileSystem.getInfoAsync(dir);
+    if (!dirInfo.exists) return;
+
+    const files = await FileSystem.readDirectoryAsync(dir);
+    const now = Date.now();
+    let deleted = 0;
+
+    for (const filename of files) {
+      const fullPath = `${dir}${filename}`;
+      if (referencedUris.has(fullPath)) continue; // still needed by a queued op
+      try {
+        const info = await FileSystem.getInfoAsync(fullPath, { md5: false });
+        if (!info.exists) continue;
+        // modificationTime is seconds since epoch on iOS/Android
+        const mtime = (info as any).modificationTime;
+        const ageMs = typeof mtime === 'number' ? now - mtime * 1000 : maxAgeMs + 1;
+        if (ageMs < maxAgeMs) continue; // too recent — keep
+        await FileSystem.deleteAsync(fullPath, { idempotent: true });
+        deleted += 1;
+      } catch {}
+    }
+
+    if (deleted > 0) {
+      console.log(`[storage] purged ${deleted} orphaned local photo file(s)`);
+    }
+  } catch {}
 }
 
 /**

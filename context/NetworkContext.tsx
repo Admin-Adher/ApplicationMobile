@@ -5,7 +5,7 @@ import React, {
 import { Platform, AppState, AppStateStatus } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { supabase, isSupabaseConfigured } from '@/lib/supabase';
-import { isLocalUri, uploadLocalPhotosInPayload } from '@/lib/storage';
+import { isLocalUri, uploadLocalPhotosInPayload, purgeOrphanedPhotoFiles } from '@/lib/storage';
 import { useAuth } from '@/context/AuthContext';
 import { queryClient } from '@/lib/queryClient';
 
@@ -692,6 +692,26 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
       setSyncStatus('done');
       reloadHandlerRef.current?.();
       setTimeout(() => setSyncStatus('idle'), 4000);
+
+      // ── Purge orphaned local photo files after a clean sync ───────────────
+      // When all operations synced successfully there are no remaining local
+      // URIs that need to be preserved. Collect any local URIs still referenced
+      // by the (now-empty) queue — should be none — and delete everything else
+      // in documentDirectory/photos/ that is older than 7 days.
+      // This prevents device storage from filling with undeleted photo copies.
+      const referencedUris = new Set<string>();
+      for (const op of remaining) {
+        const d = op.data;
+        if (!d) continue;
+        if (typeof d.photo_uri === 'string' && isLocalUri(d.photo_uri)) referencedUris.add(d.photo_uri);
+        if (Array.isArray(d.photos)) {
+          for (const p of d.photos) {
+            if (p?.uri && isLocalUri(p.uri)) referencedUris.add(p.uri);
+          }
+        }
+        if (typeof d.uri === 'string' && isLocalUri(d.uri)) referencedUris.add(d.uri);
+      }
+      purgeOrphanedPhotoFiles(referencedUris).catch(() => {});
     }
 
     setSyncProgress({ done: 0, total: 0 });

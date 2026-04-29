@@ -28,6 +28,19 @@ const namespacedStorage = {
   },
   setItem: async (_key: string, value: string): Promise<void> => {
     try {
+      // ── Size guard ────────────────────────────────────────────────────────
+      // AsyncStorage is limited to ~6 MB on Android. The RQ cache stores every
+      // query result (reserves, photos, chantiers, lots, companies, …) in a
+      // single key. On large projects this can overflow and fill the device.
+      // If the serialised cache exceeds 4 MB we skip writing rather than risk
+      // a quota error that would corrupt or silently drop other app data.
+      const MAX_BYTES = 4 * 1024 * 1024; // 4 MB
+      if (value.length > MAX_BYTES) {
+        console.warn(
+          '[queryPersister] cache too large (' + Math.round(value.length / 1024) + ' KB) — skipping persist to avoid storage overflow',
+        );
+        return;
+      }
       await AsyncStorage.setItem(userScopedKey(currentUserId), value);
     } catch {}
   },
