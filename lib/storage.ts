@@ -65,11 +65,18 @@ async function localFileMissing(uri: string): Promise<boolean> {
   }
 }
 
-export async function uploadPhoto(uri: string, filename: string): Promise<string | null> {
-  if (!isSupabaseConfigured) return null;
+/**
+ * Internal helper: upload a photo and return both the URL and the error message.
+ * This allows callers to surface the actual failure reason instead of a generic message.
+ */
+async function _uploadPhotoWithError(
+  uri: string,
+  filename: string,
+): Promise<{ url: string | null; error: string | null }> {
+  if (!isSupabaseConfigured) return { url: null, error: 'Supabase non configuré' };
   if (await localFileMissing(uri)) {
     console.warn('[uploadPhoto] local file missing, dropping:', uri);
-    return MISSING_LOCAL_FILE;
+    return { url: MISSING_LOCAL_FILE as any, error: null };
   }
   try {
     const ext = filename.split('.').pop()?.toLowerCase() ?? 'jpg';
@@ -93,15 +100,22 @@ export async function uploadPhoto(uri: string, filename: string): Promise<string
       'upload photo',
     );
     if (error) {
-      console.warn('uploadPhoto Supabase error:', error.message);
-      return null;
+      const msg = `[${error.message}]${error.statusCode ? ` HTTP ${error.statusCode}` : ''}`;
+      console.warn('uploadPhoto Supabase error:', msg);
+      return { url: null, error: msg };
     }
     const { data: urlData } = supabase.storage.from('photos').getPublicUrl(data.path);
-    return urlData.publicUrl;
+    return { url: urlData.publicUrl, error: null };
   } catch (e) {
-    console.warn('uploadPhoto failed:', e);
-    return null;
+    const msg = e instanceof Error ? e.message : String(e);
+    console.warn('uploadPhoto failed:', msg);
+    return { url: null, error: msg };
   }
+}
+
+export async function uploadPhoto(uri: string, filename: string): Promise<string | null> {
+  const { url } = await _uploadPhotoWithError(uri, filename);
+  return url;
 }
 
 export async function uploadDocument(
@@ -194,31 +208,33 @@ export async function initStorageBuckets(): Promise<void> {
  * with public URLs in-place.
  *
  * Returns:
- *   - data    : a NEW payload object with remote URLs (do not mutate the input)
- *   - allOk   : true only if every local URI we found was uploaded successfully
- *               (also true when there were no local URIs at all)
- *   - hadLocal: true if at least one field still pointed to a local URI when
- *               we were called (useful for callers to know "did this row need
- *               photo work")
+ *   - data        : a NEW payload object with remote URLs (do not mutate the input)
+ *   - allOk       : true only if every local URI we found was uploaded successfully
+ *                   (also true when there were no local URIs at all)
+ *   - hadLocal    : true if at least one field still pointed to a local URI when
+ *                   we were called (useful for callers to know "did this row need
+ *                   photo work")
+ *   - uploadErrors: list of actual error messages from failed uploads (for display/logging)
  */
 export async function uploadLocalPhotosInPayload(
   table: string,
   payload: Record<string, any> | null | undefined,
-): Promise<{ data: Record<string, any> | null | undefined; allOk: boolean; hadLocal: boolean }> {
+): Promise<{ data: Record<string, any> | null | undefined; allOk: boolean; hadLocal: boolean; uploadErrors: string[] }> {
   if (!payload || !isSupabaseConfigured) {
-    return { data: payload, allOk: true, hadLocal: false };
+    return { data: payload, allOk: true, hadLocal: false, uploadErrors: [] };
   }
   const data = { ...payload };
   let allOk = true;
   let hadLocal = false;
+  const uploadErrors: string[] = [];
 
   if (table === 'reserves') {
     if (typeof data.photo_uri === 'string' && isLocalUri(data.photo_uri)) {
       hadLocal = true;
-      const remote = await uploadPhoto(data.photo_uri, `reserve_${Date.now()}.jpg`);
-      if (remote === MISSING_LOCAL_FILE) data.photo_uri = null;
+      const { url: remote, error: uploadErr } = await _uploadPhotoWithError(data.photo_uri, `reserve_${Date.now()}.jpg`);
+      if (remote === (MISSING_LOCAL_FILE as any)) data.photo_uri = null;
       else if (remote) data.photo_uri = remote;
-      else allOk = false;
+      else { allOk = false; if (uploadErr) uploadErrors.push(`photo_uri: ${uploadErr}`); }
     }
     if (Array.isArray(data.photos)) {
       const newPhotos: any[] = [];
@@ -226,12 +242,12 @@ export async function uploadLocalPhotosInPayload(
         const p = data.photos[i];
         if (p && typeof p.uri === 'string' && isLocalUri(p.uri)) {
           hadLocal = true;
-          const remote = await uploadPhoto(p.uri, `reserve_photo_${Date.now()}_${i}.jpg`);
-          if (remote === MISSING_LOCAL_FILE) {
+          const { url: remote, error: uploadErr } = await _uploadPhotoWithError(p.uri, `reserve_photo_${Date.now()}_${i}.jpg`);
+          if (remote === (MISSING_LOCAL_FILE as any)) {
             continue;
           }
           if (remote) newPhotos.push({ ...p, uri: remote });
-          else { newPhotos.push(p); allOk = false; }
+          else { newPhotos.push(p); allOk = false; if (uploadErr) uploadErrors.push(`photos[${i}]: ${uploadErr}`); }
         } else {
           newPhotos.push(p);
         }
@@ -241,12 +257,12 @@ export async function uploadLocalPhotosInPayload(
   } else if (table === 'photos') {
     if (typeof data.uri === 'string' && isLocalUri(data.uri)) {
       hadLocal = true;
-      const remote = await uploadPhoto(data.uri, `photo_${Date.now()}.jpg`);
-      if (remote === MISSING_LOCAL_FILE) {
-        return { data: null, allOk: true, hadLocal: true };
+      const { url: remote, error: uploadErr } = await _uploadPhotoWithError(data.uri, `photo_${Date.now()}.jpg`);
+      if (remote === (MISSING_LOCAL_FILE as any)) {
+        return { data: null, allOk: true, hadLocal: true, uploadErrors: [] };
       }
       if (remote) data.uri = remote;
-      else allOk = false;
+      else { allOk = false; if (uploadErr) uploadErrors.push(uploadErr); }
     }
   } else if (table === 'site_plans') {
     if (typeof data.uri === 'string' && isLocalUri(data.uri)) {
@@ -272,11 +288,11 @@ export async function uploadLocalPhotosInPayload(
           : data.file_type === 'dxf'
           ? 'application/octet-stream'
           : undefined;
-      const { url } = await uploadDocumentDetailed(data.uri, filename, mime);
+      const { url, error: uploadErr } = await uploadDocumentDetailed(data.uri, filename, mime);
       if (url) data.uri = url;
-      else allOk = false;
+      else { allOk = false; if (uploadErr) uploadErrors.push(uploadErr); }
     }
   }
 
-  return { data, allOk, hadLocal };
+  return { data, allOk, hadLocal, uploadErrors };
 }

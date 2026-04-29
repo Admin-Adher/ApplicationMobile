@@ -5,7 +5,7 @@ import React, {
 import { Platform, AppState, AppStateStatus } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { supabase, isSupabaseConfigured } from '@/lib/supabase';
-import { uploadPhoto, isLocalUri, uploadLocalPhotosInPayload } from '@/lib/storage';
+import { isLocalUri, uploadLocalPhotosInPayload } from '@/lib/storage';
 import { useAuth } from '@/context/AuthContext';
 import { queryClient } from '@/lib/queryClient';
 
@@ -454,6 +454,16 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
     lastSyncAttemptRef.current = Date.now();
     setSyncStatus('syncing');
 
+    // ── Ensure the Supabase session is fresh before any upload ────────────────
+    // A stale/expired JWT causes Storage uploads to fail with HTTP 401 under
+    // RLS, resulting in the endless "32 échecs" cycle the user sees.
+    // We always refresh here (cheap no-op if the token is still valid).
+    try {
+      await withTimeoutMs((supabase as any).auth.refreshSession(), 8000);
+    } catch {
+      try { await withTimeoutMs((supabase as any).auth.getSession(), 4000); } catch {}
+    }
+
     const pendingConflicts: StatusConflict[] = [];
     const failedOps: QueuedOperation[] = [];
     // Snapshot the queue from the ref (always current, not a stale closure)
@@ -542,8 +552,59 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
             }
             if (prep.data) data = prep.data;
             if (!prep.allOk) {
-              fail(op, 'Échec upload de fichiers locaux (photos/plans). Nouvelle tentative au prochain passage.');
-              continue;
+              if (op.table === 'reserves') {
+                // ── Partial photo failure for a reserve ───────────────────────
+                // The photo upload failed but the reserve's text data (title,
+                // description, status, lot, company, etc.) must not be held
+                // hostage by it. Strategy:
+                //   1. Strip the local photo URIs from the payload.
+                //   2. Proceed with the insert/update so the reserve is saved.
+                //   3. Re-queue a photo-only UPDATE so the photos keep retrying.
+                const safeData = { ...(data ?? {}) };
+                const pendingPhotoData: Record<string, any> = {};
+
+                if (typeof safeData.photo_uri === 'string' && isLocalUri(safeData.photo_uri)) {
+                  pendingPhotoData.photo_uri = safeData.photo_uri;
+                  safeData.photo_uri = null;
+                }
+                if (Array.isArray(safeData.photos)) {
+                  const localOnes = safeData.photos.filter(
+                    (p: any) => p?.uri && isLocalUri(p.uri),
+                  );
+                  if (localOnes.length > 0) {
+                    pendingPhotoData.photos = localOnes;
+                    safeData.photos = safeData.photos.filter(
+                      (p: any) => !p?.uri || !isLocalUri(p.uri),
+                    );
+                  }
+                }
+
+                data = safeData;
+
+                // Re-queue a photo-only UPDATE (will keep retrying until it succeeds)
+                const reserveId = safeData.id ?? op.filter?.value;
+                if (Object.keys(pendingPhotoData).length > 0 && reserveId) {
+                  const errDetail = prep.uploadErrors?.join(' | ') ?? '';
+                  console.warn(
+                    `[queue] reserve ${reserveId}: syncing text data without photos. Upload errors: ${errDetail}`,
+                  );
+                  failedOps.push({
+                    id: genQueueId(),
+                    queuedAt: new Date().toISOString(),
+                    table: 'reserves',
+                    op: 'update',
+                    filter: { column: 'id', value: reserveId },
+                    data: pendingPhotoData,
+                    lastError: errDetail || 'Échec upload photo. Nouvelle tentative au prochain passage.',
+                    attemptCount: (op.attemptCount ?? 0) + 1,
+                  });
+                }
+                // Fall through to the generic replay below with safeData
+              } else {
+                const errDetail = prep.uploadErrors?.join(' | ') ?? '';
+                fail(op, errDetail || 'Échec upload de fichiers locaux (photos/plans). Nouvelle tentative au prochain passage.');
+                continue;
+              }
             }
           } catch (e) {
             fail(op, e);
