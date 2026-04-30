@@ -63,6 +63,20 @@ export default function LocationTreeEditor({ buildings, onChange }: Props) {
     }));
   }
 
+  function renameBuilding(bId: string, newName: string) {
+    const trimmed = newName.trim();
+    if (!trimmed) return;
+    const current = buildings.find(b => b.id === bId);
+    if (!current) return;
+    if (current.name === trimmed) return;
+    const exists = buildings.some(b => b.id !== bId && b.name.toLowerCase() === trimmed.toLowerCase());
+    if (exists) {
+      Alert.alert('Doublon', 'Un autre bâtiment porte déjà ce nom.');
+      return;
+    }
+    onChange(buildings.map(b => b.id !== bId ? b : { ...b, name: trimmed }));
+  }
+
   function removeLevel(bId: string, lId: string) {
     onChange(buildings.map(b => b.id !== bId ? b : {
       ...b,
@@ -175,38 +189,15 @@ export default function LocationTreeEditor({ buildings, onChange }: Props) {
       {/* Liste des bâtiments */}
       {buildings.map(building => (
         <View key={building.id} style={styles.buildingCard}>
-          <TouchableOpacity
-            style={styles.buildingHeader}
-            onPress={() => setExpandedBuildingId(
+          <BuildingHeader
+            building={building}
+            expanded={expandedBuildingId === building.id}
+            onToggle={() => setExpandedBuildingId(
               expandedBuildingId === building.id ? null : building.id
             )}
-            activeOpacity={0.8}
-          >
-            <View style={styles.buildingIconWrap}>
-              <Ionicons name="business-outline" size={16} color={C.primary} />
-            </View>
-            <View style={{ flex: 1 }}>
-              <Text style={styles.buildingName}>{building.name}</Text>
-              <Text style={styles.buildingMeta}>
-                {building.levels.length} niveau{building.levels.length !== 1 ? 'x' : ''}
-                {building.levels.length > 0
-                  ? ` · ${building.levels[0].name} → ${building.levels[building.levels.length - 1].name}`
-                  : ''}
-              </Text>
-            </View>
-            <TouchableOpacity
-              onPress={() => removeBuilding(building.id)}
-              hitSlop={10}
-              style={styles.buildingDeleteBtn}
-            >
-              <Ionicons name="trash-outline" size={15} color={C.critical} />
-            </TouchableOpacity>
-            <Ionicons
-              name={expandedBuildingId === building.id ? 'chevron-up' : 'chevron-down'}
-              size={16}
-              color={C.textMuted}
-            />
-          </TouchableOpacity>
+            onRename={(name) => renameBuilding(building.id, name)}
+            onRemove={() => removeBuilding(building.id)}
+          />
 
           {expandedBuildingId === building.id && (
             <View style={styles.buildingBody}>
@@ -300,6 +291,91 @@ export default function LocationTreeEditor({ buildings, onChange }: Props) {
           </Text>
         </View>
       )}
+    </View>
+  );
+}
+
+function BuildingHeader({
+  building,
+  expanded,
+  onToggle,
+  onRename,
+  onRemove,
+}: {
+  building: ChantierBuilding;
+  expanded: boolean;
+  onToggle: () => void;
+  onRename: (name: string) => void;
+  onRemove: () => void;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [editName, setEditName] = useState(building.name);
+
+  function commit() {
+    const next = editName.trim();
+    if (next && next !== building.name) {
+      onRename(next);
+    } else {
+      setEditName(building.name);
+    }
+    setEditing(false);
+  }
+
+  return (
+    <View style={styles.buildingHeader}>
+      <TouchableOpacity
+        onPress={onToggle}
+        activeOpacity={0.8}
+        style={styles.buildingIconWrap}
+      >
+        <Ionicons name="business-outline" size={16} color={C.primary} />
+      </TouchableOpacity>
+      <View style={{ flex: 1 }}>
+        {editing ? (
+          <TextInput
+            style={styles.buildingNameInput}
+            value={editName}
+            onChangeText={setEditName}
+            autoFocus
+            onBlur={commit}
+            onSubmitEditing={commit}
+            returnKeyType="done"
+            selectTextOnFocus
+          />
+        ) : (
+          <TouchableOpacity
+            onPress={() => { setEditName(building.name); setEditing(true); }}
+            activeOpacity={0.7}
+          >
+            <View style={styles.buildingNameRow}>
+              <Text style={styles.buildingName}>{building.name}</Text>
+              <Ionicons name="pencil-outline" size={12} color={C.textMuted} />
+            </View>
+          </TouchableOpacity>
+        )}
+        <TouchableOpacity onPress={onToggle} activeOpacity={0.8}>
+          <Text style={styles.buildingMeta}>
+            {building.levels.length} niveau{building.levels.length !== 1 ? 'x' : ''}
+            {building.levels.length > 0
+              ? ` · ${building.levels[0].name} → ${building.levels[building.levels.length - 1].name}`
+              : ''}
+          </Text>
+        </TouchableOpacity>
+      </View>
+      <TouchableOpacity
+        onPress={onRemove}
+        hitSlop={10}
+        style={styles.buildingDeleteBtn}
+      >
+        <Ionicons name="trash-outline" size={15} color={C.critical} />
+      </TouchableOpacity>
+      <TouchableOpacity onPress={onToggle} hitSlop={8}>
+        <Ionicons
+          name={expanded ? 'chevron-up' : 'chevron-down'}
+          size={16}
+          color={C.textMuted}
+        />
+      </TouchableOpacity>
     </View>
   );
 }
@@ -436,7 +512,12 @@ const styles = StyleSheet.create({
     width: 32, height: 32, borderRadius: 8,
     backgroundColor: C.primaryBg, alignItems: 'center', justifyContent: 'center',
   },
+  buildingNameRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   buildingName: { fontSize: 14, fontFamily: 'Inter_600SemiBold', color: C.text },
+  buildingNameInput: {
+    fontSize: 14, fontFamily: 'Inter_600SemiBold', color: C.text,
+    borderBottomWidth: 1, borderBottomColor: C.primary, paddingVertical: 2, paddingHorizontal: 0,
+  },
   buildingMeta: { fontSize: 11, fontFamily: 'Inter_400Regular', color: C.textMuted, marginTop: 1 },
   buildingDeleteBtn: { padding: 6 },
   buildingBody: { borderTopWidth: 1, borderTopColor: C.border, padding: 14, paddingTop: 12 },
