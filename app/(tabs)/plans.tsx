@@ -39,6 +39,8 @@ const PIN_SIZES_KEY = 'plans_pin_sizes_v2';
 const RECENT_BUILDINGS_KEY = 'plans_recent_buildings_v1';
 const RECENT_LEVELS_KEY = 'plans_recent_levels_v1';
 const RECENT_FAMILY_KEY = 'plans_recent_family_v1';
+const LAST_VIEW_KEY = 'plans_last_view_v1';
+type PlansLastView = { planId: string | null; buildingId: string; levelId: string };
 const HYBRID_PICKER_THRESHOLD = 5;
 const HYBRID_LEVEL_THRESHOLD = 6;
 const VISIBLE_RECENT_CHIPS = 3;
@@ -429,6 +431,11 @@ export default function PlansScreen() {
   const prevChantierIdRef = useRef<string | null | undefined>(undefined);
   const hasAutoSelectedBuildingRef = useRef(false);
 
+  // Last view persistence (selected plan / building / level per chantier)
+  const [lastViewByChantier, setLastViewByChantier] = useState<Record<string, PlansLastView>>({});
+  const lastViewLoadedRef = useRef(false);
+  const [lastViewHydrated, setLastViewHydrated] = useState(false);
+
   useEffect(() => {
     AsyncStorage.getItem(HINT_KEY).then(v => { if (v === '1') setHintSeen(true); });
     AsyncStorage.getItem(PIN_SIZE_KEY).then(v => { if (v) { const n = parseFloat(v); if (!isNaN(n)) setPinSizeScale(n); } });
@@ -442,6 +449,16 @@ export default function PlansScreen() {
     AsyncStorage.getItem(RECENT_FAMILY_KEY).then(v => {
       if (v) { try { setRecentFamilyByChantier(JSON.parse(v)); } catch {} }
     });
+    AsyncStorage.getItem(LAST_VIEW_KEY).then(v => {
+      let parsed: Record<string, PlansLastView> = {};
+      if (v) { try { parsed = JSON.parse(v); } catch {} }
+      lastViewLoadedRef.current = true;
+      setLastViewByChantier(parsed);
+      setLastViewHydrated(true);
+    }).catch(() => {
+      lastViewLoadedRef.current = true;
+      setLastViewHydrated(true);
+    });
   }, []);
 
   useEffect(() => {
@@ -452,33 +469,69 @@ export default function PlansScreen() {
     return () => { showSub.remove(); hideSub.remove(); };
   }, []);
 
-  // Unified effect: resets state on chantier change AND auto-selects the first
-  // building as soon as hierarchy data is available — fixing the race condition
-  // where the previous two separate effects caused selectedBuilding to never
-  // reach 'all' in time for the auto-selection check.
+  // Unified effect: resets/restores state on chantier change AND auto-selects
+  // the first building as soon as hierarchy data is available.
+  // On cold start (or when re-visiting a chantier), restore the previously
+  // selected plan / building / level from persisted storage.
   useEffect(() => {
+    if (!lastViewHydrated) return; // wait for persisted view to load
     const isNewChantier = prevChantierIdRef.current !== activeChantierId;
     prevChantierIdRef.current = activeChantierId ?? null;
+    const saved = activeChantierId ? lastViewByChantier[activeChantierId] : null;
 
     if (isNewChantier) {
-      // Full reset whenever the active chantier changes
       hasAutoSelectedBuildingRef.current = false;
-      setActivePlanId(null);
-      setSelectedLevel('all');
       setStatusFilter('all');
       setCompanyFilter('all');
       setLevelFilter('all');
-      setSelectedBuilding('all');
+      if (saved) {
+        // Restore previous plan / building / level for this chantier
+        setActivePlanId(saved.planId ?? null);
+        setSelectedBuilding(saved.buildingId ?? 'all');
+        setSelectedLevel(saved.levelId ?? 'all');
+        // Don't auto-override the restored building selection
+        hasAutoSelectedBuildingRef.current = true;
+      } else {
+        setActivePlanId(null);
+        setSelectedBuilding('all');
+        setSelectedLevel('all');
+      }
     }
 
     // Auto-select the first building once hierarchy data is available.
-    // This handles both: data already loaded when chantier changes, and
-    // data arriving asynchronously after the initial reset.
+    // Only runs for first-time chantier visits (no saved view).
     if (!hasAutoSelectedBuildingRef.current && chantierHierarchyBuildingsEarly.length > 0) {
       hasAutoSelectedBuildingRef.current = true;
       setSelectedBuilding(chantierHierarchyBuildingsEarly[0].id);
     }
-  }, [activeChantierId, chantierHierarchyBuildingsEarly]);
+  }, [activeChantierId, chantierHierarchyBuildingsEarly, lastViewHydrated, lastViewByChantier]);
+
+  // Persist the current view (plan / building / level) for the active chantier
+  // so a cold restart returns the user to where they were.
+  useEffect(() => {
+    if (!activeChantierId || !lastViewLoadedRef.current) return;
+    // Don't save until after the initial restore for this chantier has run
+    if (prevChantierIdRef.current !== activeChantierId) return;
+    const cur = lastViewByChantier[activeChantierId];
+    if (
+      cur
+      && cur.planId === activePlanId
+      && cur.buildingId === selectedBuilding
+      && cur.levelId === selectedLevel
+    ) {
+      return; // unchanged
+    }
+    const next: Record<string, PlansLastView> = {
+      ...lastViewByChantier,
+      [activeChantierId]: {
+        planId: activePlanId,
+        buildingId: selectedBuilding,
+        levelId: selectedLevel,
+      },
+    };
+    setLastViewByChantier(next);
+    AsyncStorage.setItem(LAST_VIEW_KEY, JSON.stringify(next)).catch(() => {});
+  }, [activePlanId, selectedBuilding, selectedLevel, activeChantierId, lastViewByChantier]);
 
   function dismissHint() {
     setHintSeen(true);
