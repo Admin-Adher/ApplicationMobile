@@ -151,6 +151,44 @@ export default function LocationTreeEditor({ buildings, onChange }: Props) {
     onChange(buildings.map(b => b.id !== bId ? b : { ...b, levels: generatedLevels }));
   }
 
+  function moveItem<T>(arr: T[], index: number, dir: -1 | 1): T[] {
+    const next = [...arr];
+    const target = index + dir;
+    if (target < 0 || target >= next.length) return next;
+    [next[index], next[target]] = [next[target], next[index]];
+    return next;
+  }
+
+  function moveBuilding(bId: string, dir: -1 | 1) {
+    const idx = buildings.findIndex(b => b.id === bId);
+    if (idx < 0) return;
+    onChange(moveItem(buildings, idx, dir));
+  }
+
+  function moveLevel(bId: string, lId: string, dir: -1 | 1) {
+    onChange(buildings.map(b => {
+      if (b.id !== bId) return b;
+      const idx = b.levels.findIndex(l => l.id === lId);
+      if (idx < 0) return b;
+      return { ...b, levels: moveItem(b.levels, idx, dir) };
+    }));
+  }
+
+  function moveZone(bId: string, lId: string, zId: string, dir: -1 | 1) {
+    onChange(buildings.map(b => {
+      if (b.id !== bId) return b;
+      return {
+        ...b,
+        levels: b.levels.map(l => {
+          if (l.id !== lId) return l;
+          const idx = l.zones.findIndex(z => z.id === zId);
+          if (idx < 0) return l;
+          return { ...l, zones: moveItem(l.zones, idx, dir) };
+        }),
+      };
+    }));
+  }
+
   return (
     <View>
       {/* Générateur rapide */}
@@ -207,11 +245,15 @@ export default function LocationTreeEditor({ buildings, onChange }: Props) {
       </View>
 
       {/* Liste des bâtiments */}
-      {buildings.map(building => (
+      {buildings.map((building, bIdx) => (
         <View key={building.id} style={styles.buildingCard}>
           <BuildingHeader
             building={building}
             expanded={expandedBuildingId === building.id}
+            canMoveUp={bIdx > 0}
+            canMoveDown={bIdx < buildings.length - 1}
+            onMoveUp={() => moveBuilding(building.id, -1)}
+            onMoveDown={() => moveBuilding(building.id, 1)}
             onToggle={() => setExpandedBuildingId(
               expandedBuildingId === building.id ? null : building.id
             )}
@@ -251,11 +293,16 @@ export default function LocationTreeEditor({ buildings, onChange }: Props) {
                   buildingId={building.id}
                   newZoneName={newZoneName}
                   setNewZoneName={setNewZoneName}
+                  canMoveUp={idx > 0}
+                  canMoveDown={idx < building.levels.length - 1}
+                  onMoveUp={() => moveLevel(building.id, level.id, -1)}
+                  onMoveDown={() => moveLevel(building.id, level.id, 1)}
                   onRename={(name) => renameBuildingLevel(building.id, level.id, name)}
                   onRemove={() => removeLevel(building.id, level.id)}
                   onAddZone={() => addZone(building.id, level.id)}
                   onRemoveZone={(zId) => removeZone(building.id, level.id, zId)}
                   onRenameZone={(zId, name) => renameZone(building.id, level.id, zId, name)}
+                  onMoveZone={(zId, dir) => moveZone(building.id, level.id, zId, dir)}
                 />
               ))}
 
@@ -319,12 +366,20 @@ export default function LocationTreeEditor({ buildings, onChange }: Props) {
 function BuildingHeader({
   building,
   expanded,
+  canMoveUp,
+  canMoveDown,
+  onMoveUp,
+  onMoveDown,
   onToggle,
   onRename,
   onRemove,
 }: {
   building: ChantierBuilding;
   expanded: boolean;
+  canMoveUp: boolean;
+  canMoveDown: boolean;
+  onMoveUp: () => void;
+  onMoveDown: () => void;
   onToggle: () => void;
   onRename: (name: string) => void;
   onRemove: () => void;
@@ -383,6 +438,24 @@ function BuildingHeader({
           </Text>
         </TouchableOpacity>
       </View>
+      <View style={styles.reorderColumn}>
+        <TouchableOpacity
+          onPress={onMoveUp}
+          disabled={!canMoveUp}
+          hitSlop={6}
+          style={styles.reorderBtn}
+        >
+          <Ionicons name="chevron-up" size={14} color={canMoveUp ? C.text : C.border} />
+        </TouchableOpacity>
+        <TouchableOpacity
+          onPress={onMoveDown}
+          disabled={!canMoveDown}
+          hitSlop={6}
+          style={styles.reorderBtn}
+        >
+          <Ionicons name="chevron-down" size={14} color={canMoveDown ? C.text : C.border} />
+        </TouchableOpacity>
+      </View>
       <TouchableOpacity
         onPress={onRemove}
         hitSlop={10}
@@ -406,21 +479,31 @@ function LevelRow({
   buildingId,
   newZoneName,
   setNewZoneName,
+  canMoveUp,
+  canMoveDown,
+  onMoveUp,
+  onMoveDown,
   onRename,
   onRemove,
   onAddZone,
   onRemoveZone,
   onRenameZone,
+  onMoveZone,
 }: {
   level: ChantierLevel;
   buildingId: string;
   newZoneName: Record<string, string>;
   setNewZoneName: React.Dispatch<React.SetStateAction<Record<string, string>>>;
+  canMoveUp: boolean;
+  canMoveDown: boolean;
+  onMoveUp: () => void;
+  onMoveDown: () => void;
   onRename: (name: string) => void;
   onRemove: () => void;
   onAddZone: () => void;
   onRemoveZone: (zId: string) => void;
   onRenameZone: (zId: string, name: string) => void;
+  onMoveZone: (zId: string, dir: -1 | 1) => void;
 }) {
   const [expanded, setExpanded] = useState(false);
   const [editing, setEditing] = useState(false);
@@ -464,6 +547,22 @@ function LevelRow({
             <Text style={styles.levelZoneCount}>{level.zones.length}</Text>
           )}
         </TouchableOpacity>
+        <TouchableOpacity
+          onPress={onMoveUp}
+          disabled={!canMoveUp}
+          hitSlop={6}
+          style={styles.levelMoveBtn}
+        >
+          <Ionicons name="chevron-up" size={12} color={canMoveUp ? C.textSub : C.border} />
+        </TouchableOpacity>
+        <TouchableOpacity
+          onPress={onMoveDown}
+          disabled={!canMoveDown}
+          hitSlop={6}
+          style={styles.levelMoveBtn}
+        >
+          <Ionicons name="chevron-down" size={12} color={canMoveDown ? C.textSub : C.border} />
+        </TouchableOpacity>
         <TouchableOpacity onPress={onRemove} hitSlop={8} style={styles.levelDeleteBtn}>
           <Ionicons name="close" size={13} color={C.textMuted} />
         </TouchableOpacity>
@@ -471,10 +570,14 @@ function LevelRow({
 
       {expanded && (
         <View style={styles.zoneContainer}>
-          {level.zones.map(zone => (
+          {level.zones.map((zone, zIdx) => (
             <ZoneRow
               key={zone.id}
               zone={zone}
+              canMoveUp={zIdx > 0}
+              canMoveDown={zIdx < level.zones.length - 1}
+              onMoveUp={() => onMoveZone(zone.id, -1)}
+              onMoveDown={() => onMoveZone(zone.id, 1)}
               onRename={(name) => onRenameZone(zone.id, name)}
               onRemove={() => onRemoveZone(zone.id)}
             />
@@ -505,10 +608,18 @@ function LevelRow({
 
 function ZoneRow({
   zone,
+  canMoveUp,
+  canMoveDown,
+  onMoveUp,
+  onMoveDown,
   onRename,
   onRemove,
 }: {
   zone: ChantierZone;
+  canMoveUp: boolean;
+  canMoveDown: boolean;
+  onMoveUp: () => void;
+  onMoveDown: () => void;
   onRename: (name: string) => void;
   onRemove: () => void;
 }) {
@@ -548,6 +659,12 @@ function ZoneRow({
           <Text style={styles.zoneName}>{zone.name}</Text>
         </TouchableOpacity>
       )}
+      <TouchableOpacity onPress={onMoveUp} disabled={!canMoveUp} hitSlop={6} style={styles.zoneMoveBtn}>
+        <Ionicons name="chevron-up" size={11} color={canMoveUp ? C.textSub : C.border} />
+      </TouchableOpacity>
+      <TouchableOpacity onPress={onMoveDown} disabled={!canMoveDown} hitSlop={6} style={styles.zoneMoveBtn}>
+        <Ionicons name="chevron-down" size={11} color={canMoveDown ? C.textSub : C.border} />
+      </TouchableOpacity>
       <TouchableOpacity onPress={onRemove} hitSlop={8}>
         <Ionicons name="close" size={11} color={C.textMuted} />
       </TouchableOpacity>
@@ -594,6 +711,13 @@ const styles = StyleSheet.create({
   },
   buildingMeta: { fontSize: 11, fontFamily: 'Inter_400Regular', color: C.textMuted, marginTop: 1 },
   buildingDeleteBtn: { padding: 6 },
+  reorderColumn: { flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 2, marginRight: 2 },
+  reorderBtn: {
+    width: 22, height: 18, borderRadius: 5, backgroundColor: C.inputBg,
+    borderWidth: 1, borderColor: C.border, alignItems: 'center', justifyContent: 'center',
+  },
+  levelMoveBtn: { paddingHorizontal: 4, paddingVertical: 2 },
+  zoneMoveBtn: { paddingHorizontal: 3, paddingVertical: 2 },
   buildingBody: { borderTopWidth: 1, borderTopColor: C.border, padding: 14, paddingTop: 12 },
 
   resetLevelsBtn: {
