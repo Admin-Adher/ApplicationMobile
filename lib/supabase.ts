@@ -2,8 +2,8 @@ import { createClient } from '@supabase/supabase-js';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Platform, AppState } from 'react-native';
 
-const SUPABASE_URL = process.env.EXPO_PUBLIC_SUPABASE_URL;
-const SUPABASE_KEY = process.env.EXPO_PUBLIC_SUPABASE_KEY;
+export const SUPABASE_URL = process.env.EXPO_PUBLIC_SUPABASE_URL;
+export const SUPABASE_KEY = process.env.EXPO_PUBLIC_SUPABASE_KEY;
 
 if (!SUPABASE_URL || !SUPABASE_KEY) {
   console.warn(

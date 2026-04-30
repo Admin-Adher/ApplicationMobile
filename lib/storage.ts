@@ -1,6 +1,6 @@
 import { Platform } from 'react-native';
 import * as FileSystem from 'expo-file-system';
-import { supabase, isSupabaseConfigured } from './supabase';
+import { supabase, isSupabaseConfigured, SUPABASE_URL, SUPABASE_KEY } from './supabase';
 
 // ── File reading ──────────────────────────────────────────────────────────────
 // On native, we use fetch(uri) to obtain a proper Blob that the Supabase
@@ -68,6 +68,17 @@ async function localFileMissing(uri: string): Promise<boolean> {
 /**
  * Internal helper: upload a photo and return both the URL and the error message.
  * This allows callers to surface the actual failure reason instead of a generic message.
+ *
+ * ── Why FileSystem.uploadAsync instead of supabase.storage.upload ─────────────
+ * The Supabase JS SDK uploads files via fetch() + Blob body. On Android/React
+ * Native (Hermes engine), Blob bodies in fetch() consistently fail with the
+ * opaque error "Network request failed" — even when Supabase API calls and
+ * realtime connections work perfectly. This is a long-standing React Native
+ * limitation: the native network layer does not support Blob request bodies.
+ *
+ * FileSystem.uploadAsync() bypasses JS fetch entirely. It reads the file
+ * natively from disk and sends it through the platform's HTTP stack, which
+ * correctly handles file:// URIs and binary payloads on both iOS and Android.
  */
 async function _uploadPhotoWithError(
   uri: string,
@@ -81,37 +92,68 @@ async function _uploadPhotoWithError(
   try {
     const ext = filename.split('.').pop()?.toLowerCase() ?? 'jpg';
     const contentType =
-      ext === 'png'
-        ? 'image/png'
-        : ext === 'jpg' || ext === 'jpeg'
-        ? 'image/jpeg'
-        : 'image/jpeg';
+      ext === 'png' ? 'image/png' :
+      ext === 'jpg' || ext === 'jpeg' ? 'image/jpeg' :
+      'image/jpeg';
     const path = `${Date.now()}_${filename.replace(/[^a-zA-Z0-9._-]/g, '_')}`;
 
-    // Read as Blob — reliable on both web and native (Supabase Storage SDK
-    // handles Blob correctly; Uint8Array was unreliable on React Native/Hermes).
-    const { data: fileData } = await readFileAsBlob(uri);
+    let publicUrl: string;
 
-    const { data, error } = await withTimeout(
-      supabase.storage
-        .from('photos')
-        .upload(path, fileData, { contentType, upsert: false }),
-      PHOTO_UPLOAD_TIMEOUT_MS,
-      'upload photo',
-    );
-    if (error) {
-      const msg = `[${error.message}]${error.statusCode ? ` HTTP ${error.statusCode}` : ''}`;
-      console.warn('uploadPhoto Supabase error:', msg);
-      return { url: null, error: msg };
+    if (Platform.OS !== 'web' && SUPABASE_URL && SUPABASE_KEY) {
+      // ── Native path: FileSystem.uploadAsync (native HTTP, no Blob) ───────────
+      // Avoid the "Network request failed" caused by Blob bodies in RN's fetch.
+      const { data: sessionData } = await supabase.auth.getSession();
+      const accessToken = sessionData?.session?.access_token ?? SUPABASE_KEY;
+
+      const uploadUrl = `${SUPABASE_URL}/storage/v1/object/photos/${path}`;
+      const result = await withTimeout(
+        FileSystem.uploadAsync(uploadUrl, uri, {
+          httpMethod: 'POST',
+          uploadType: FileSystem.FileSystemUploadType.BINARY_CONTENT,
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+            apikey: SUPABASE_KEY,
+            'Content-Type': contentType,
+          },
+        }),
+        PHOTO_UPLOAD_TIMEOUT_MS,
+        'upload photo native',
+      );
+
+      if (result.status < 200 || result.status >= 300) {
+        let detail = result.body ?? '';
+        try { detail = JSON.parse(result.body ?? '')?.message ?? result.body ?? ''; } catch {}
+        const msg = `[HTTP ${result.status}] ${detail}`;
+        console.warn('[uploadPhoto] native upload error:', msg);
+        return { url: null, error: msg };
+      }
+
+      const { data: urlData } = supabase.storage.from('photos').getPublicUrl(path);
+      publicUrl = urlData.publicUrl;
+    } else {
+      // ── Web path: Blob via Supabase JS SDK ───────────────────────────────────
+      const { data: fileData } = await readFileAsBlob(uri);
+      const { data, error } = await withTimeout(
+        supabase.storage
+          .from('photos')
+          .upload(path, fileData, { contentType, upsert: false }),
+        PHOTO_UPLOAD_TIMEOUT_MS,
+        'upload photo web',
+      );
+      if (error) {
+        const msg = `[${error.message}]${error.statusCode ? ` HTTP ${error.statusCode}` : ''}`;
+        console.warn('[uploadPhoto] Supabase SDK error:', msg);
+        return { url: null, error: msg };
+      }
+      const { data: urlData } = supabase.storage.from('photos').getPublicUrl(data.path);
+      publicUrl = urlData.publicUrl;
     }
-    const { data: urlData } = supabase.storage.from('photos').getPublicUrl(data.path);
 
     // ── Delete the local copy after a successful upload ───────────────────────
     // Photos are copied to documentDirectory/photos/ via persistLocalPhoto()
-    // for offline resilience. Once the upload succeeds, the remote URL is the
+    // for offline resilience. Once the upload succeeds the remote URL is the
     // source of truth — the local file must be deleted to prevent device
-    // storage from filling up over time (every offline-taken photo would
-    // otherwise accumulate permanently on the device).
+    // storage from filling up over time.
     if (Platform.OS !== 'web') {
       try {
         const docDir = FileSystem.documentDirectory ?? '';
@@ -121,10 +163,10 @@ async function _uploadPhotoWithError(
       } catch {}
     }
 
-    return { url: urlData.publicUrl, error: null };
+    return { url: publicUrl, error: null };
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
-    console.warn('uploadPhoto failed:', msg);
+    console.warn('[uploadPhoto] failed:', msg);
     return { url: null, error: msg };
   }
 }
