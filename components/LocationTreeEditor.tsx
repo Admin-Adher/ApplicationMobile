@@ -126,6 +126,26 @@ export default function LocationTreeEditor({ buildings, onChange }: Props) {
     }));
   }
 
+  function renameZone(bId: string, lId: string, zId: string, newName: string) {
+    const trimmed = newName.trim();
+    if (!trimmed) return;
+    const building = buildings.find(b => b.id === bId);
+    const level = building?.levels.find(l => l.id === lId);
+    if (!level) return;
+    const current = level.zones.find(z => z.id === zId);
+    if (!current || current.name === trimmed) return;
+    if (level.zones.some(z => z.id !== zId && z.name.toLowerCase() === trimmed.toLowerCase())) {
+      Alert.alert('Doublon', 'Une autre zone porte déjà ce nom à ce niveau.');
+      return;
+    }
+    onChange(buildings.map(b => b.id !== bId ? b : {
+      ...b,
+      levels: b.levels.map(l => l.id !== lId ? l : {
+        ...l, zones: l.zones.map(z => z.id !== zId ? z : { ...z, name: trimmed }),
+      }),
+    }));
+  }
+
   function applyGenerator(bId: string) {
     const generatedLevels = generateLevels(basements, floors);
     onChange(buildings.map(b => b.id !== bId ? b : { ...b, levels: generatedLevels }));
@@ -235,6 +255,7 @@ export default function LocationTreeEditor({ buildings, onChange }: Props) {
                   onRemove={() => removeLevel(building.id, level.id)}
                   onAddZone={() => addZone(building.id, level.id)}
                   onRemoveZone={(zId) => removeZone(building.id, level.id, zId)}
+                  onRenameZone={(zId, name) => renameZone(building.id, level.id, zId, name)}
                 />
               ))}
 
@@ -389,6 +410,7 @@ function LevelRow({
   onRemove,
   onAddZone,
   onRemoveZone,
+  onRenameZone,
 }: {
   level: ChantierLevel;
   buildingId: string;
@@ -398,6 +420,7 @@ function LevelRow({
   onRemove: () => void;
   onAddZone: () => void;
   onRemoveZone: (zId: string) => void;
+  onRenameZone: (zId: string, name: string) => void;
 }) {
   const [expanded, setExpanded] = useState(false);
   const [editing, setEditing] = useState(false);
@@ -449,13 +472,12 @@ function LevelRow({
       {expanded && (
         <View style={styles.zoneContainer}>
           {level.zones.map(zone => (
-            <View key={zone.id} style={styles.zoneRow}>
-              <Ionicons name="navigate-circle-outline" size={11} color={C.textMuted} />
-              <Text style={styles.zoneName}>{zone.name}</Text>
-              <TouchableOpacity onPress={() => onRemoveZone(zone.id)} hitSlop={8}>
-                <Ionicons name="close" size={11} color={C.textMuted} />
-              </TouchableOpacity>
-            </View>
+            <ZoneRow
+              key={zone.id}
+              zone={zone}
+              onRename={(name) => onRenameZone(zone.id, name)}
+              onRemove={() => onRemoveZone(zone.id)}
+            />
           ))}
           <View style={styles.zoneAddRow}>
             <TextInput
@@ -477,6 +499,58 @@ function LevelRow({
           </View>
         </View>
       )}
+    </View>
+  );
+}
+
+function ZoneRow({
+  zone,
+  onRename,
+  onRemove,
+}: {
+  zone: ChantierZone;
+  onRename: (name: string) => void;
+  onRemove: () => void;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [editName, setEditName] = useState(zone.name);
+
+  function commit() {
+    const next = editName.trim();
+    if (next && next !== zone.name) {
+      onRename(next);
+    } else {
+      setEditName(zone.name);
+    }
+    setEditing(false);
+  }
+
+  return (
+    <View style={styles.zoneRow}>
+      <Ionicons name="navigate-circle-outline" size={11} color={C.textMuted} />
+      {editing ? (
+        <TextInput
+          style={styles.zoneEditInput}
+          value={editName}
+          onChangeText={setEditName}
+          autoFocus
+          onBlur={commit}
+          onSubmitEditing={commit}
+          returnKeyType="done"
+          selectTextOnFocus
+        />
+      ) : (
+        <TouchableOpacity
+          onPress={() => { setEditName(zone.name); setEditing(true); }}
+          activeOpacity={0.7}
+          style={{ flex: 1 }}
+        >
+          <Text style={styles.zoneName}>{zone.name}</Text>
+        </TouchableOpacity>
+      )}
+      <TouchableOpacity onPress={onRemove} hitSlop={8}>
+        <Ionicons name="close" size={11} color={C.textMuted} />
+      </TouchableOpacity>
     </View>
   );
 }
@@ -547,6 +621,10 @@ const styles = StyleSheet.create({
   zoneContainer: { paddingLeft: 18, marginBottom: 6 },
   zoneRow: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingVertical: 4 },
   zoneName: { flex: 1, fontSize: 12, fontFamily: 'Inter_400Regular', color: C.textSub },
+  zoneEditInput: {
+    flex: 1, fontSize: 12, fontFamily: 'Inter_400Regular', color: C.text,
+    borderBottomWidth: 1, borderBottomColor: C.primary, paddingVertical: 1, paddingHorizontal: 0,
+  },
   zoneAddRow: { flexDirection: 'row', gap: 8, marginTop: 4 },
   zoneInput: {
     flex: 1, fontSize: 12, fontFamily: 'Inter_400Regular', color: C.text,
