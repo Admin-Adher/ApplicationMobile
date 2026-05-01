@@ -8,6 +8,7 @@ import { supabase, isSupabaseConfigured } from '@/lib/supabase';
 import { isLocalUri, uploadLocalPhotosInPayload, purgeOrphanedPhotoFiles } from '@/lib/storage';
 import { useAuth } from '@/context/AuthContext';
 import { queryClient } from '@/lib/queryClient';
+import type { Comment } from '@/constants/types';
 
 const OFFLINE_QUEUE_PREFIX = 'buildtrack_offline_queue_v3_';
 
@@ -28,10 +29,34 @@ export interface StatusConflict {
 }
 
 /**
+ * A comment-level delta for task comment mutations.
+ *
+ * Stored in the queue instead of a full `comments` array snapshot so the sync
+ * engine can fetch the server state and apply each delta by comment ID — making
+ * comment ops safe in the face of concurrent writes from other devices.
+ *
+ * - `add`    : insert `comment` if its `id` is not already in the server array.
+ * - `edit`   : find the comment by `commentId`, update `content` and `editedAt`.
+ * - `delete` : remove the comment by `commentId`.
+ */
+export interface CommentPatch {
+  action: 'add' | 'edit' | 'delete';
+  /** Full comment object — required for `add`. */
+  comment?: Comment;
+  /** Target comment ID — required for `edit` and `delete`. */
+  commentId?: string;
+  /** New text — required for `edit`. */
+  newContent?: string;
+  /** ISO timestamp — set for `edit`. */
+  editedAt?: string;
+}
+
+/**
  * A single queued offline mutation.
  *
  * Generic operations: table + op + filter + data → replayed verbatim against Supabase.
  * Status-change operations also carry a conflictCheck so we can detect concurrent edits.
+ * Comment operations carry a commentPatch so each delta is merged server-side by ID.
  */
 export interface QueuedOperation {
   id: string;
@@ -50,6 +75,12 @@ export interface QueuedOperation {
     closedAt?: string;
     closedBy?: string;
   };
+  /**
+   * Present only for task comment mutations (add / edit / delete a single comment).
+   * When set, `data` is ignored — the engine fetches the server's `comments` array
+   * and applies the patch by comment ID before writing back.
+   */
+  commentPatch?: CommentPatch;
   /** Last server error captured during a failed sync attempt (set by processSyncQueue). */
   lastError?: string;
   /** Number of failed sync attempts. */
@@ -537,6 +568,59 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
           }).eq('id', entityId);
 
           if (applyErr) fail(op, applyErr);
+          continue;
+        }
+
+        // ── Comment patch (CRDT-lite merge by comment ID) ─────────────────
+        // Replaces the old "store full comments array" approach.  Each comment
+        // op carries only the delta (add/edit/delete a single comment). The
+        // engine fetches the live server array and merges by ID so concurrent
+        // writes from other devices are never silently overwritten.
+        if (op.commentPatch && op.table === 'tasks' && op.filter?.column === 'id') {
+          const taskId = op.filter.value;
+          const patch  = op.commentPatch;
+
+          const { data: serverTask, error: fetchErr } = await (supabase as any)
+            .from('tasks')
+            .select('comments')
+            .eq('id', taskId)
+            .maybeSingle();
+
+          if (fetchErr) { fail(op, fetchErr); continue; }
+
+          // Row is gone — treat as success (nothing to patch)
+          if (!serverTask) continue;
+
+          const serverComments: Comment[] = Array.isArray(serverTask.comments)
+            ? serverTask.comments
+            : [];
+
+          let merged: Comment[];
+          if (patch.action === 'add' && patch.comment) {
+            // Idempotent: skip if the comment ID is already present
+            merged = serverComments.some(c => c.id === patch.comment!.id)
+              ? serverComments
+              : [...serverComments, patch.comment];
+          } else if (patch.action === 'edit' && patch.commentId) {
+            merged = serverComments.map(c =>
+              c.id === patch.commentId
+                ? { ...c, content: patch.newContent ?? c.content, editedAt: patch.editedAt }
+                : c
+            );
+          } else if (patch.action === 'delete' && patch.commentId) {
+            merged = serverComments.filter(c => c.id !== patch.commentId);
+          } else {
+            // Malformed patch — drop silently
+            console.warn('[queue] commentPatch malformed, dropping:', JSON.stringify(patch));
+            continue;
+          }
+
+          const { error: writeErr } = await (supabase as any)
+            .from('tasks')
+            .update({ comments: merged })
+            .eq('id', taskId);
+
+          if (writeErr) fail(op, writeErr);
           continue;
         }
 

@@ -5,6 +5,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { supabase, isSupabaseConfigured } from '@/lib/supabase';
 import { useAuth } from '@/context/AuthContext';
 import { useNetwork } from '@/context/NetworkContext';
+import type { CommentPatch } from '@/context/NetworkContext';
 import { queryKeys } from '@/lib/queryKeys';
 import { toTask } from '@/lib/mappers';
 import { Task, Comment } from '@/constants/types';
@@ -160,28 +161,69 @@ export function useTasks() {
     }
   }, [queryClient, isOnlineRef, enqueueOperation, persist]);
 
+  // ── Shared helper: enqueue a comment delta ──────────────────────────────────
+  // Used by the three comment mutation functions below for both the error-retry
+  // path (online write failed) and the offline-first path (no connection).
+  // Storing a delta (patch) instead of a full comments array snapshot makes the
+  // sync engine safe in the face of concurrent writes from other devices: each
+  // op is merged server-side by comment ID rather than blindly overwriting.
+  const enqueueCommentPatch = useCallback((taskId: string, patch: CommentPatch) => {
+    enqueueOperation({
+      table: 'tasks',
+      op: 'update',
+      filter: { column: 'id', value: taskId },
+      commentPatch: patch,
+      // No `data` — the engine uses commentPatch exclusively when it is set.
+    });
+  }, [enqueueOperation]);
+
   const addTaskComment = useCallback(async (taskId: string, content: string, author?: string) => {
     const tasks = queryClient.getQueryData<Task[]>(queryKeys.tasks()) ?? [];
     const task = tasks.find(t => t.id === taskId);
     if (!task) return;
+
     const comment: Comment = {
-      id: genId(), content, author: author ?? user?.name ?? 'Inconnu',
+      id: genId(),
+      content,
+      author: author ?? user?.name ?? 'Inconnu',
       authorId: user?.id,
       createdAt: nowTimestampFR(),
     };
-    const updated: Task = { ...task, comments: [...(task.comments ?? []), comment] };
+    const patch: CommentPatch = { action: 'add', comment };
+
+    // Optimistic update: append the comment to the local cache
+    const optimistic: Task = { ...task, comments: [...(task.comments ?? []), comment] };
     queryClient.setQueryData<Task[]>(queryKeys.tasks(), old =>
-      (old ?? []).map(t => t.id === taskId ? updated : t)
+      (old ?? []).map(t => t.id === taskId ? optimistic : t)
     );
     persist(queryClient.getQueryData<Task[]>(queryKeys.tasks()) ?? []);
-    if (isSupabaseConfigured) {
-      const { error } = await (supabase as any).from('tasks').update({ comments: updated.comments }).eq('id', taskId);
-      if (error) {
-        console.warn('[sync] addTaskComment error, queuing for retry:', error.message);
-        enqueueOperation({ table: 'tasks', op: 'update', filter: { column: 'id', value: taskId }, data: { comments: updated.comments } });
-      }
+
+    if (!isSupabaseConfigured) return;
+
+    // Online path: fetch server comments then merge by ID — safe against
+    // concurrent writes from other devices since the last cache refresh.
+    try {
+      const { data: serverTask, error: fetchErr } = await (supabase as any)
+        .from('tasks').select('comments').eq('id', taskId).maybeSingle();
+      if (fetchErr) throw fetchErr;
+      const serverComments: Comment[] = Array.isArray(serverTask?.comments)
+        ? serverTask.comments : [];
+      const merged = serverComments.some(c => c.id === comment.id)
+        ? serverComments
+        : [...serverComments, comment];
+      const { error: writeErr } = await (supabase as any)
+        .from('tasks').update({ comments: merged }).eq('id', taskId);
+      if (writeErr) throw writeErr;
+      // Reconcile local cache with the actual server state
+      queryClient.setQueryData<Task[]>(queryKeys.tasks(), old =>
+        (old ?? []).map(t => t.id === taskId ? { ...t, comments: merged } : t)
+      );
+      persist(queryClient.getQueryData<Task[]>(queryKeys.tasks()) ?? []);
+    } catch (err: any) {
+      console.warn('[sync] addTaskComment error, queuing delta for retry:', err?.message ?? err);
+      enqueueCommentPatch(taskId, patch);
     }
-  }, [queryClient, user, isOnlineRef, enqueueOperation, persist]);
+  }, [queryClient, user, isOnlineRef, enqueueCommentPatch, persist]);
 
   const updateTaskComment = useCallback(async (taskId: string, commentId: string, newContent: string) => {
     const tasks = queryClient.getQueryData<Task[]>(queryKeys.tasks()) ?? [];
@@ -192,22 +234,43 @@ export function useTasks() {
     const isOwner = (target.authorId && user?.id && target.authorId === user.id) ||
                     (!target.authorId && target.author === user?.name);
     if (!isOwner) return;
-    const updatedComments = (task.comments ?? []).map(c =>
-      c.id === commentId ? { ...c, content: newContent, editedAt: nowTimestampFR() } : c
+
+    const editedAt = nowTimestampFR();
+    const patch: CommentPatch = { action: 'edit', commentId, newContent, editedAt };
+
+    // Optimistic update
+    const optimisticComments = (task.comments ?? []).map(c =>
+      c.id === commentId ? { ...c, content: newContent, editedAt } : c
     );
-    const updated: Task = { ...task, comments: updatedComments };
     queryClient.setQueryData<Task[]>(queryKeys.tasks(), old =>
-      (old ?? []).map(t => t.id === taskId ? updated : t)
+      (old ?? []).map(t => t.id === taskId ? { ...t, comments: optimisticComments } : t)
     );
     persist(queryClient.getQueryData<Task[]>(queryKeys.tasks()) ?? []);
-    if (isSupabaseConfigured) {
-      const { error } = await (supabase as any).from('tasks').update({ comments: updatedComments }).eq('id', taskId);
-      if (error) {
-        console.warn('[sync] updateTaskComment error, queuing for retry:', error.message);
-        enqueueOperation({ table: 'tasks', op: 'update', filter: { column: 'id', value: taskId }, data: { comments: updatedComments } });
-      }
+
+    if (!isSupabaseConfigured) return;
+
+    // Online path: fetch-then-merge by ID
+    try {
+      const { data: serverTask, error: fetchErr } = await (supabase as any)
+        .from('tasks').select('comments').eq('id', taskId).maybeSingle();
+      if (fetchErr) throw fetchErr;
+      const serverComments: Comment[] = Array.isArray(serverTask?.comments)
+        ? serverTask.comments : [];
+      const merged = serverComments.map(c =>
+        c.id === commentId ? { ...c, content: newContent, editedAt } : c
+      );
+      const { error: writeErr } = await (supabase as any)
+        .from('tasks').update({ comments: merged }).eq('id', taskId);
+      if (writeErr) throw writeErr;
+      queryClient.setQueryData<Task[]>(queryKeys.tasks(), old =>
+        (old ?? []).map(t => t.id === taskId ? { ...t, comments: merged } : t)
+      );
+      persist(queryClient.getQueryData<Task[]>(queryKeys.tasks()) ?? []);
+    } catch (err: any) {
+      console.warn('[sync] updateTaskComment error, queuing delta for retry:', err?.message ?? err);
+      enqueueCommentPatch(taskId, patch);
     }
-  }, [queryClient, user, isOnlineRef, enqueueOperation, persist]);
+  }, [queryClient, user, isOnlineRef, enqueueCommentPatch, persist]);
 
   const deleteTaskComment = useCallback(async (taskId: string, commentId: string) => {
     const tasks = queryClient.getQueryData<Task[]>(queryKeys.tasks()) ?? [];
@@ -218,20 +281,38 @@ export function useTasks() {
     const isOwner = (target.authorId && user?.id && target.authorId === user.id) ||
                     (!target.authorId && target.author === user?.name);
     if (!isOwner) return;
-    const updatedComments = (task.comments ?? []).filter(c => c.id !== commentId);
-    const updated: Task = { ...task, comments: updatedComments };
+
+    const patch: CommentPatch = { action: 'delete', commentId };
+
+    // Optimistic update
+    const optimisticComments = (task.comments ?? []).filter(c => c.id !== commentId);
     queryClient.setQueryData<Task[]>(queryKeys.tasks(), old =>
-      (old ?? []).map(t => t.id === taskId ? updated : t)
+      (old ?? []).map(t => t.id === taskId ? { ...t, comments: optimisticComments } : t)
     );
     persist(queryClient.getQueryData<Task[]>(queryKeys.tasks()) ?? []);
-    if (isSupabaseConfigured) {
-      const { error } = await (supabase as any).from('tasks').update({ comments: updatedComments }).eq('id', taskId);
-      if (error) {
-        console.warn('[sync] deleteTaskComment error, queuing for retry:', error.message);
-        enqueueOperation({ table: 'tasks', op: 'update', filter: { column: 'id', value: taskId }, data: { comments: updatedComments } });
-      }
+
+    if (!isSupabaseConfigured) return;
+
+    // Online path: fetch-then-merge by ID
+    try {
+      const { data: serverTask, error: fetchErr } = await (supabase as any)
+        .from('tasks').select('comments').eq('id', taskId).maybeSingle();
+      if (fetchErr) throw fetchErr;
+      const serverComments: Comment[] = Array.isArray(serverTask?.comments)
+        ? serverTask.comments : [];
+      const merged = serverComments.filter(c => c.id !== commentId);
+      const { error: writeErr } = await (supabase as any)
+        .from('tasks').update({ comments: merged }).eq('id', taskId);
+      if (writeErr) throw writeErr;
+      queryClient.setQueryData<Task[]>(queryKeys.tasks(), old =>
+        (old ?? []).map(t => t.id === taskId ? { ...t, comments: merged } : t)
+      );
+      persist(queryClient.getQueryData<Task[]>(queryKeys.tasks()) ?? []);
+    } catch (err: any) {
+      console.warn('[sync] deleteTaskComment error, queuing delta for retry:', err?.message ?? err);
+      enqueueCommentPatch(taskId, patch);
     }
-  }, [queryClient, user, isOnlineRef, enqueueOperation, persist]);
+  }, [queryClient, user, isOnlineRef, enqueueCommentPatch, persist]);
 
   return {
     tasks: query.data ?? [],
