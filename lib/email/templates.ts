@@ -227,3 +227,138 @@ export function accessRevokedEmail(params: {
     html: baseLayout(content, `Votre accès à ${organizationName} sur BuildTrack a été révoqué`),
   };
 }
+
+export function reserveCreatedEmail(params: {
+  recipientName: string;
+  reserveTitle: string;
+  reserveId: string;
+  reserveUrl?: string;
+  priority?: string;
+  deadline?: string | null;
+  building?: string;
+  level?: string;
+  zone?: string;
+  description?: string;
+  chantierName?: string;
+  companyName: string;
+  createdBy: string;
+  reserveCode?: string;
+}) {
+  const {
+    recipientName, reserveTitle, reserveId, reserveUrl, priority, deadline,
+    building, level, zone, description, chantierName, companyName, createdBy, reserveCode,
+  } = params;
+  const firstName = recipientName.split(' ')[0];
+  const url = reserveUrl ?? `${APP_URL}/reserve/${encodeURIComponent(reserveId)}`;
+  const detailRows = [
+    chantierName ? `<tr><td style="color:#64748B;font-size:13px;padding:4px 0;">Chantier</td><td style="font-size:13px;font-weight:600;padding:4px 0 4px 12px;">${chantierName}</td></tr>` : '',
+    companyName ? `<tr><td style="color:#64748B;font-size:13px;padding:4px 0;">Entreprise</td><td style="font-size:13px;font-weight:600;padding:4px 0 4px 12px;">${companyName}</td></tr>` : '',
+    priority ? `<tr><td style="color:#64748B;font-size:13px;padding:4px 0;">Priorité</td><td style="font-size:13px;font-weight:600;padding:4px 0 4px 12px;">${priority}</td></tr>` : '',
+    deadline ? `<tr><td style="color:#64748B;font-size:13px;padding:4px 0;">Échéance</td><td style="font-size:13px;font-weight:600;padding:4px 0 4px 12px;">${deadline}</td></tr>` : '',
+    building ? `<tr><td style="color:#64748B;font-size:13px;padding:4px 0;">Bâtiment</td><td style="font-size:13px;font-weight:600;padding:4px 0 4px 12px;">${building}${level ? ` – ${level}` : ''}${zone ? ` / ${zone}` : ''}</td></tr>` : '',
+  ].filter(Boolean).join('');
+
+  const content = `
+    <h1>Nouvelle réserve assignée</h1>
+    <p>Bonjour ${firstName},</p>
+    <p>Une nouvelle réserve a été créée et assignée à votre entreprise par <strong>${createdBy}</strong>.</p>
+    <div class="info-box">
+      <p style="font-size:15px;font-weight:700;margin-bottom:8px;">${reserveTitle}${reserveCode ? ` <span style="font-size:12px;font-weight:400;color:#64748B;">(#${reserveCode})</span>` : ''}</p>
+      <table style="border-collapse:collapse;width:100%;">${detailRows}</table>
+    </div>
+    ${description ? `<p style="color:#475569;font-size:13px;"><strong>Description :</strong> ${description}</p>` : ''}
+    <a href="${url}" class="btn">Voir la réserve</a>
+    <p style="font-size:12px;color:#8899BB;margin:0;">Si le bouton ne fonctionne pas, copiez ce lien : ${url}</p>
+  `;
+
+  return {
+    subject: `Nouvelle réserve : ${reserveTitle}`,
+    html: baseLayout(content, `Réserve assignée à ${companyName}`),
+  };
+}
+
+export function reserveStatusChangedEmail(params: {
+  recipientName: string;
+  reserveTitle: string;
+  reserveId: string;
+  reserveUrl?: string;
+  newStatus: string;
+  previousStatus?: string;
+  changedBy: string;
+  companyName: string;
+  chantierName?: string;
+  reserveCode?: string;
+}) {
+  const {
+    recipientName, reserveTitle, reserveId, reserveUrl, newStatus,
+    previousStatus, changedBy, companyName, chantierName, reserveCode,
+  } = params;
+  const firstName = recipientName.split(' ')[0];
+  const url = reserveUrl ?? `${APP_URL}/reserve/${encodeURIComponent(reserveId)}`;
+  const statusLabel: Record<string, string> = {
+    open: 'Ouverte', in_progress: 'En cours', verification: 'Vérification', closed: 'Clôturée',
+  };
+  const newLabel = statusLabel[newStatus] ?? newStatus;
+  const prevLabel = previousStatus ? (statusLabel[previousStatus] ?? previousStatus) : null;
+
+  const content = `
+    <h1>Mise à jour de réserve</h1>
+    <p>Bonjour ${firstName},</p>
+    <p>Le statut d'une réserve qui vous concerne a été mis à jour par <strong>${changedBy}</strong>.</p>
+    <div class="info-box">
+      <p style="font-size:15px;font-weight:700;margin-bottom:8px;">${reserveTitle}${reserveCode ? ` <span style="font-size:12px;font-weight:400;color:#64748B;">(#${reserveCode})</span>` : ''}</p>
+      ${prevLabel ? `<p style="font-size:13px;margin:4px 0;color:#64748B;">Ancien statut : <strong>${prevLabel}</strong></p>` : ''}
+      <p style="font-size:13px;margin:4px 0;">Nouveau statut : <strong>${newLabel}</strong></p>
+      ${chantierName ? `<p style="font-size:13px;margin:4px 0;color:#64748B;">Chantier : ${chantierName}</p>` : ''}
+      ${companyName ? `<p style="font-size:13px;margin:4px 0;color:#64748B;">Entreprise : ${companyName}</p>` : ''}
+    </div>
+    <a href="${url}" class="btn">Voir la réserve</a>
+    <p style="font-size:12px;color:#8899BB;margin:0;">Si le bouton ne fonctionne pas, copiez ce lien : ${url}</p>
+  `;
+
+  return {
+    subject: `Réserve mise à jour : ${reserveTitle}`,
+    html: baseLayout(content, `Statut mis à jour : ${newLabel}`),
+  };
+}
+
+export function reserveOverdueEmail(params: {
+  recipientName: string;
+  reserveTitle: string;
+  reserveId: string;
+  reserveUrl?: string;
+  deadline: string;
+  daysLate: number;
+  priority?: string;
+  companyName: string;
+  chantierName?: string;
+  reserveCode?: string;
+}) {
+  const {
+    recipientName, reserveTitle, reserveId, reserveUrl, deadline, daysLate,
+    priority, companyName, chantierName, reserveCode,
+  } = params;
+  const firstName = recipientName.split(' ')[0];
+  const url = reserveUrl ?? `${APP_URL}/reserve/${encodeURIComponent(reserveId)}`;
+
+  const content = `
+    <h1>⚠️ Réserve en retard</h1>
+    <p>Bonjour ${firstName},</p>
+    <p>La réserve suivante est <strong>en retard de ${daysLate} jour${daysLate > 1 ? 's' : ''}</strong> et nécessite votre attention.</p>
+    <div class="info-box" style="border-left-color:#EF4444;">
+      <p style="font-size:15px;font-weight:700;margin-bottom:8px;">${reserveTitle}${reserveCode ? ` <span style="font-size:12px;font-weight:400;color:#64748B;">(#${reserveCode})</span>` : ''}</p>
+      <p style="font-size:13px;margin:4px 0;color:#EF4444;font-weight:600;">Échéance dépassée : ${deadline}</p>
+      ${priority ? `<p style="font-size:13px;margin:4px 0;color:#64748B;">Priorité : ${priority}</p>` : ''}
+      ${chantierName ? `<p style="font-size:13px;margin:4px 0;color:#64748B;">Chantier : ${chantierName}</p>` : ''}
+      ${companyName ? `<p style="font-size:13px;margin:4px 0;color:#64748B;">Entreprise : ${companyName}</p>` : ''}
+    </div>
+    <p>Merci de mettre à jour le statut de cette réserve dès que possible.</p>
+    <a href="${url}" class="btn">Traiter la réserve</a>
+    <p style="font-size:12px;color:#8899BB;margin:0;">Si le bouton ne fonctionne pas, copiez ce lien : ${url}</p>
+  `;
+
+  return {
+    subject: `⚠️ Réserve en retard (${daysLate}j) : ${reserveTitle}`,
+    html: baseLayout(content, `Réserve en retard de ${daysLate} jour${daysLate > 1 ? 's' : ''}`),
+  };
+}

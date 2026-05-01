@@ -61,9 +61,26 @@ export async function sendWelcomeEmail(params: {
   await callEmailApi({ type: 'welcome', ...params });
 }
 
+function getResetUrl(): string {
+  if (Platform.OS === 'web' && typeof window !== 'undefined') {
+    const host = window.location?.hostname ?? '';
+    if (
+      host === 'localhost' ||
+      host === '127.0.0.1' ||
+      host.endsWith('.replit.dev') ||
+      host.endsWith('.repl.co') ||
+      host.endsWith('.replit.app')
+    ) {
+      return '/api/request-password-reset';
+    }
+  }
+  return VERCEL_RESET_URL;
+}
+
 export async function requestPasswordReset(email: string): Promise<{ success: boolean; error?: string }> {
   try {
-    const response = await fetch(VERCEL_RESET_URL, {
+    const url = getResetUrl();
+    const response = await fetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ email }),

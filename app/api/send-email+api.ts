@@ -5,6 +5,9 @@ import {
   passwordResetEmail,
   invitationAcceptedEmail,
   accessRevokedEmail,
+  reserveCreatedEmail,
+  reserveStatusChangedEmail,
+  reserveOverdueEmail,
 } from '@/lib/email/templates';
 
 export async function POST(request: Request) {
@@ -74,6 +77,63 @@ export async function POST(request: Request) {
         return Response.json({ error: 'Paramètres manquants pour access-revoked' }, { status: 400 });
       }
       const template = accessRevokedEmail({ name, organizationName });
+      const result = await sendEmail({ to: email, ...template });
+      if (!result.success) {
+        return Response.json({ error: result.error ?? "Échec de l'envoi" }, { status: 500 });
+      }
+      return Response.json({ success: true });
+    }
+
+    if (type === 'reserve-created') {
+      const {
+        email, recipientName, reserveTitle, reserveId, priority, deadline,
+        building, level, zone, description, chantierName, companyName, createdBy, reserveCode,
+      } = body;
+      if (!email || !recipientName || !reserveTitle || !reserveId || !companyName || !createdBy) {
+        return Response.json({ error: 'Paramètres manquants pour reserve-created' }, { status: 400 });
+      }
+      const template = reserveCreatedEmail({
+        recipientName, reserveTitle, reserveId, priority, deadline,
+        building, level, zone, description, chantierName, companyName, createdBy, reserveCode,
+      });
+      const result = await sendEmail({ to: email, ...template });
+      if (!result.success) {
+        return Response.json({ error: result.error ?? "Échec de l'envoi" }, { status: 500 });
+      }
+      return Response.json({ success: true });
+    }
+
+    if (type === 'reserve-status-changed') {
+      const {
+        email, recipientName, reserveTitle, reserveId, newStatus, previousStatus,
+        changedBy, companyName, chantierName, reserveCode,
+      } = body;
+      if (!email || !recipientName || !reserveTitle || !reserveId || !newStatus || !changedBy || !companyName) {
+        return Response.json({ error: 'Paramètres manquants pour reserve-status-changed' }, { status: 400 });
+      }
+      const template = reserveStatusChangedEmail({
+        recipientName, reserveTitle, reserveId, newStatus, previousStatus,
+        changedBy, companyName, chantierName, reserveCode,
+      });
+      const result = await sendEmail({ to: email, ...template });
+      if (!result.success) {
+        return Response.json({ error: result.error ?? "Échec de l'envoi" }, { status: 500 });
+      }
+      return Response.json({ success: true });
+    }
+
+    if (type === 'reserve-overdue') {
+      const {
+        email, recipientName, reserveTitle, reserveId, deadline, daysLate,
+        priority, companyName, chantierName, reserveCode,
+      } = body;
+      if (!email || !recipientName || !reserveTitle || !reserveId || !deadline || daysLate == null || !companyName) {
+        return Response.json({ error: 'Paramètres manquants pour reserve-overdue' }, { status: 400 });
+      }
+      const template = reserveOverdueEmail({
+        recipientName, reserveTitle, reserveId, deadline, daysLate,
+        priority, companyName, chantierName, reserveCode,
+      });
       const result = await sendEmail({ to: email, ...template });
       if (!result.success) {
         return Response.json({ error: result.error ?? "Échec de l'envoi" }, { status: 500 });
