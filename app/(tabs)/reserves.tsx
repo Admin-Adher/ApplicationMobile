@@ -2028,7 +2028,7 @@ export default function ReservesScreen() {
       {/* Advanced Filters Modal */}
       <Modal visible={filterModalVisible} transparent animationType="slide" onRequestClose={() => setFilterModalVisible(false)}>
         <TouchableOpacity style={styles.modalOverlay} activeOpacity={1} onPress={() => setFilterModalVisible(false)}>
-          <View style={[styles.bottomSheet, { paddingBottom: insets.bottom + 32 }]}>
+          <TouchableOpacity activeOpacity={1} style={[styles.bottomSheet, { paddingBottom: insets.bottom + 16 }]}>
             <View style={styles.sheetHandle} />
             <View style={styles.sheetTitleRow}>
               <Text style={styles.sheetTitle}>Filtres avancés</Text>
@@ -2039,8 +2039,7 @@ export default function ReservesScreen() {
               )}
             </View>
 
-            <View style={{ flex: 1, overflow: 'hidden' }}>
-            <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 16 }}>
+            <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 8 }}>
               <Text style={styles.sheetSectionLabel}>TYPE</Text>
               <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.chipScroll}>
                 <View style={styles.chipRowInline}>
@@ -2220,12 +2219,12 @@ export default function ReservesScreen() {
                 </>
               )}
 
-              <TouchableOpacity style={styles.applyBtn} onPress={() => setFilterModalVisible(false)}>
-                <Text style={styles.applyBtnText}>Appliquer</Text>
-              </TouchableOpacity>
             </ScrollView>
-            </View>
-          </View>
+
+            <TouchableOpacity style={styles.applyBtn} onPress={() => setFilterModalVisible(false)}>
+              <Text style={styles.applyBtnText}>Appliquer</Text>
+            </TouchableOpacity>
+          </TouchableOpacity>
         </TouchableOpacity>
       </Modal>
     </View>
