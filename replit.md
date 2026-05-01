@@ -36,8 +36,8 @@ Le workflow "Start Frontend" est configuré sur le port 5000.
 Configurées dans Replit (shared) :
 - `EXPO_PUBLIC_SUPABASE_URL` — URL du projet Supabase
 - `EXPO_PUBLIC_SUPABASE_KEY` — Clé anon Supabase (public, intentionnellement côté client)
-- `EXPO_PUBLIC_APP_URL` — URL de l'app Replit (dev domain)
-- `EXPO_PUBLIC_API_URL` — URL de l'API locale (port 3001, ex: `https://xxx.replit.dev:3001`)
+- `EXPO_PUBLIC_APP_URL` — URL de l'app Replit (dev domain, ex: `https://xxx.replit.dev`)
+- `EXPO_PUBLIC_API_URL` — URL de l'API locale (même domaine que l'app, ex: `https://xxx.replit.dev`)
 - `GMAIL_USER` — Adresse Gmail expéditrice (`buildtrack.admin@gmail.com`)
 - `GMAIL_APP_PASSWORD` — Mot de passe d'application Google 16 caractères (à configurer en secret)
 - `EMAIL_FROM` — Expéditeur affiché : `BuildTrack <buildtrack.admin@gmail.com>`
