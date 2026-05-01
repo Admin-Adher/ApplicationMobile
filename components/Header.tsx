@@ -1,5 +1,5 @@
-import React from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, Platform } from 'react-native';
+import React, { useEffect, useRef } from 'react';
+import { View, Text, StyleSheet, TouchableOpacity, Platform, Animated } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
@@ -27,7 +27,25 @@ export default function Header({
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const topPad = insets.top;
-  const { isOnline, queueCount } = useNetwork();
+  const { isOnline, queueCount, stuckCount } = useNetwork();
+
+  const pulseAnim = useRef(new Animated.Value(1)).current;
+  const pulseLoop = useRef<Animated.CompositeAnimation | null>(null);
+
+  useEffect(() => {
+    if (stuckCount > 0) {
+      pulseLoop.current = Animated.loop(
+        Animated.sequence([
+          Animated.timing(pulseAnim, { toValue: 0.25, duration: 650, useNativeDriver: true }),
+          Animated.timing(pulseAnim, { toValue: 1, duration: 650, useNativeDriver: true }),
+        ])
+      );
+      pulseLoop.current.start();
+    } else {
+      pulseLoop.current?.stop();
+      pulseAnim.setValue(1);
+    }
+  }, [stuckCount]);
 
   function handleBack() {
     if (onBack) onBack();
@@ -38,6 +56,35 @@ export default function Header({
     if (onSearchPress) onSearchPress();
     else router.push('/search' as any);
   }
+
+  // ── Dot state ───────────────────────────────────────────────────────────────
+  // Priority: offline > stuck > online-with-queue > online
+  const dotInteractive = stuckCount > 0 || (!isOnline && queueCount > 0);
+  const dotColor = !isOnline
+    ? '#EF4444'
+    : stuckCount > 0
+    ? '#F59E0B'
+    : '#22C55E';
+  const dotExpanded = (!isOnline && queueCount > 0) || stuckCount > 0;
+  const dotCount = !isOnline
+    ? queueCount
+    : stuckCount;
+  const showDotCount = dotExpanded && dotCount > 0;
+
+  const dotContent = (
+    <Animated.View
+      style={[
+        styles.networkDot,
+        { backgroundColor: dotColor },
+        dotExpanded && styles.networkDotExpanded,
+        stuckCount > 0 && { opacity: pulseAnim },
+      ]}
+    >
+      {showDotCount && (
+        <Text style={styles.networkDotText}>{dotCount > 9 ? '9+' : dotCount}</Text>
+      )}
+    </Animated.View>
+  );
 
   return (
     <View style={[styles.container, { paddingTop: topPad + 8 }]}>
@@ -50,15 +97,22 @@ export default function Header({
         <View style={styles.titleWrap}>
           <View style={styles.titleRow}>
             <Text style={styles.title}>{title}</Text>
-            <View style={[
-              styles.networkDot,
-              { backgroundColor: isOnline ? '#22C55E' : '#EF4444' },
-              (!isOnline && queueCount > 0) && styles.networkDotExpanded,
-            ]}>
-              {!isOnline && queueCount > 0 && (
-                <Text style={styles.networkDotText}>{queueCount > 9 ? '9+' : queueCount}</Text>
-              )}
-            </View>
+            {dotInteractive ? (
+              <TouchableOpacity
+                onPress={() => router.push('/settings' as any)}
+                hitSlop={10}
+                accessibilityRole="button"
+                accessibilityLabel={
+                  stuckCount > 0
+                    ? `${stuckCount} opération${stuckCount > 1 ? 's' : ''} bloquée${stuckCount > 1 ? 's' : ''} — ouvrir les paramètres`
+                    : `${queueCount} opération${queueCount > 1 ? 's' : ''} hors ligne — ouvrir les paramètres`
+                }
+              >
+                {dotContent}
+              </TouchableOpacity>
+            ) : (
+              dotContent
+            )}
           </View>
           {subtitle ? <Text style={styles.subtitle}>{subtitle}</Text> : null}
         </View>

@@ -63,6 +63,11 @@ interface NetworkContextValue {
   queue: QueuedOperation[];
   queueCount: number;
   /**
+   * Number of queued operations that have failed ≥ 3 times and are considered
+   * "stuck" — they need manual attention (retry or clear) in Settings.
+   */
+  stuckCount: number;
+  /**
    * `true` once the offline queue has been hydrated from AsyncStorage for the
    * current user. Read-side hooks (useReserves, usePhotos, …) MUST gate any
    * cache-overwriting fetch on this — fetching before the queue is loaded can
@@ -89,6 +94,7 @@ const NetworkContext = createContext<NetworkContextValue>({
   isOnline: true,
   queue: [],
   queueCount: 0,
+  stuckCount: 0,
   queueLoaded: true,
   syncStatus: 'idle',
   syncProgress: { done: 0, total: 0 },
@@ -800,6 +806,7 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
       isOnline,
       queue,
       queueCount: queue.length,
+      stuckCount: queue.filter(op => (op.attemptCount ?? 0) >= 3).length,
       queueLoaded,
       syncStatus,
       syncProgress,
