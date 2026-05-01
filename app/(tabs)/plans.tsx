@@ -376,17 +376,24 @@ async function exportGlobalReport(
     .filter(r => companyFilter === null || (r.company ?? '').trim() === companyFilter)
     .filter(r => !statusFilter || statusFilter.size === 0 || statusFilter.has(r.status));
 
-  // 2. Group reserves by planId
+  // 2. Group reserves by planId — reserves with no planId are "orphans"
   const reservesByPlan = new Map<string, Reserve[]>();
+  const orphanReserves: Reserve[] = [];
   for (const r of filteredReserves) {
-    if (!r.planId) continue;
+    if (!r.planId) {
+      orphanReserves.push(r);
+      continue;
+    }
     if (!reservesByPlan.has(r.planId)) reservesByPlan.set(r.planId, []);
     reservesByPlan.get(r.planId)!.push(r);
   }
 
-  // 3. Unique building names, sorted alphabetically (empty string = "Sans bâtiment" → at end)
+  // 3. Keep only plans that have at least one filtered reserve, then derive buildings
+  const activePlanIds = new Set(reservesByPlan.keys());
+  const plansWithReserves = chantierPlans.filter(p => activePlanIds.has(p.id));
+
   const buildingNames = Array.from(
-    new Set(chantierPlans.map(p => p.building ?? ''))
+    new Set(plansWithReserves.map(p => p.building ?? ''))
   ).sort((a, b) => {
     if (!a && !b) return 0;
     if (!a) return 1;
@@ -394,21 +401,25 @@ async function exportGlobalReport(
     return a.localeCompare(b, 'fr');
   });
 
-  // 4. Build one HTML section per building
-  const totalPdfPlans = chantierPlans.filter(
-    p => isPlanPdf(p) && p.uri && (reservesByPlan.get(p.id) ?? []).length > 0
+  // 4. Build one HTML section per building — skip buildings and plans with 0 reserves
+  const totalPdfPlans = plansWithReserves.filter(
+    p => isPlanPdf(p) && p.uri
   ).length;
   let processedPdfPlans = 0;
   const buildingSections: string[] = [];
 
   for (const building of buildingNames) {
-    const buildingPlans = chantierPlans.filter(p => (p.building ?? '') === building);
+    const buildingPlans = plansWithReserves.filter(p => (p.building ?? '') === building);
     const buildingLabel = building || 'Sans bâtiment';
     let buildingReserveCount = 0;
     const planBlocks: string[] = [];
 
     for (const plan of buildingPlans) {
       const planReserves = reservesByPlan.get(plan.id) ?? [];
+
+      // Skip plans with no reserves after filtering
+      if (planReserves.length === 0) continue;
+
       buildingReserveCount += planReserves.length;
 
       // Build plan image HTML with SVG pin overlay (supports both image and PDF plans)
@@ -435,7 +446,7 @@ async function exportGlobalReport(
       };
 
       let planImgHtml = '';
-      if (plan.uri && planReserves.length > 0) {
+      if (plan.uri) {
         // Use isPlanPdf() so plans without an explicit fileType (fileType===undefined,
         // which happens when the DB column is NULL for older records) are still handled.
         // Without this, both branches below would be skipped and no image would appear.
@@ -489,17 +500,17 @@ async function exportGlobalReport(
       const levelBadge = plan.level
         ? `<span style="font-size:11px;font-weight:600;background:#e2e8f0;color:#64748b;padding:2px 8px;border-radius:10px;margin-left:6px;">${plan.level}</span>`
         : '';
-      const tableHtml = planReserves.length === 0
-        ? `<div class="no-reserves">Aucune réserve sur ce plan</div>`
-        : `<table><thead><tr><th>#</th><th>Titre</th><th>Entreprise</th><th>Niveau</th><th>Statut</th><th>Priorité</th><th>Échéance</th></tr></thead><tbody>${rows}</tbody></table>`;
 
       planBlocks.push(`
         <div class="plan-section">
           <div class="plan-header">📐 ${plan.name}${levelBadge}<span style="margin-left:auto;font-size:11px;color:#94a3b8;">${planReserves.length} réserve${planReserves.length !== 1 ? 's' : ''}</span></div>
           ${planImgHtml}
-          ${tableHtml}
+          <table><thead><tr><th>#</th><th>Titre</th><th>Entreprise</th><th>Niveau</th><th>Statut</th><th>Priorité</th><th>Échéance</th></tr></thead><tbody>${rows}</tbody></table>
         </div>`);
     }
+
+    // Skip buildings where all plans ended up empty after filtering
+    if (buildingReserveCount === 0) continue;
 
     buildingSections.push(`
       <div class="building-section">
@@ -510,6 +521,39 @@ async function exportGlobalReport(
         </div>
         ${planBlocks.join('')}
       </div>`);
+  }
+
+  // 4b. "Réserves hors plan" section — reserves not placed on any plan
+  let orphanSectionHtml = '';
+  if (orphanReserves.length > 0) {
+    const orphanRows = orphanReserves.map((r, i) => {
+      const n = i + 1;
+      const color = getCompanyColor(r.company ?? '', companiesForColor);
+      const statusColor = STATUS_COLORS[r.status] ?? '#6b7280';
+      const priorityColor = PRIORITY_COLORS[r.priority] ?? '#6b7280';
+      return `<tr>
+        <td style="text-align:center;width:36px;"><span style="display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px;border-radius:50%;background:${color};color:#fff;font-weight:700;font-size:11px;">${n}</span></td>
+        <td style="font-weight:600;">${r.title}</td>
+        <td>${r.company || '—'}</td>
+        <td>${r.building || '—'}</td>
+        <td>${r.level || '—'}</td>
+        <td><span style="color:${statusColor};font-weight:600;">${STATUS_FR[r.status] ?? r.status}</span></td>
+        <td><span style="color:${priorityColor};font-weight:600;">${PRIORITY_FR[r.priority] ?? r.priority}</span></td>
+        <td>${r.deadline || '—'}</td>
+      </tr>`;
+    }).join('');
+    orphanSectionHtml = `
+      <div class="building-section">
+        <div class="building-header" style="background:linear-gradient(135deg,#475569 0%,#64748b 100%);">
+          <span style="font-size:22px;">📍</span>
+          Réserves hors plan
+          <span class="building-reserve-count">${orphanReserves.length} réserve${orphanReserves.length !== 1 ? 's' : ''} non géolocalisée${orphanReserves.length !== 1 ? 's' : ''}</span>
+        </div>
+        <div class="plan-section" style="border-radius:0 0 8px 8px;">
+          <div class="plan-header" style="color:#64748b;font-style:italic;">Ces réserves ne sont pas positionnées sur un plan</div>
+          <table><thead><tr><th>#</th><th>Titre</th><th>Entreprise</th><th>Bâtiment</th><th>Niveau</th><th>Statut</th><th>Priorité</th><th>Échéance</th></tr></thead><tbody>${orphanRows}</tbody></table>
+        </div>
+      </div>`;
   }
 
   // 5. Summary table grouped by status
@@ -541,8 +585,11 @@ async function exportGlobalReport(
   const statusLabel = (!statusFilter || statusFilter.size === 0)
     ? null
     : Array.from(statusFilter).map(s => STATUS_FR_LABELS[s] ?? s).join(', ');
-  const totalBuildings = buildingNames.length;
-  const totalPlans = chantierPlans.length;
+  // Cover stats: only count buildings/plans that actually contain reserves
+  // buildingSections is already populated (only sections with reserves were pushed)
+  const totalBuildings = buildingSections.length;
+  const totalPlans = plansWithReserves.filter(p => (reservesByPlan.get(p.id) ?? []).length > 0).length;
+  const totalOrphans = orphanReserves.length;
 
   const html = `<!DOCTYPE html>
 <html lang="fr">
@@ -593,12 +640,14 @@ tbody td{padding:7px 10px;vertical-align:middle;}
   ${statusLabel ? `<div style="font-size:13px;color:#1E3A5F;background:#e8f0fe;padding:5px 18px;border-radius:16px;display:inline-block;margin-top:8px;">📌 Statuts : ${statusLabel}</div>` : ''}
   <div class="cover-stats">
     <div class="stat-block"><span class="stat-num">${totalReserves}</span><span class="stat-lbl">réserves</span></div>
-    <div class="stat-block"><span class="stat-num">${totalBuildings}</span><span class="stat-lbl">bâtiments</span></div>
-    <div class="stat-block"><span class="stat-num">${totalPlans}</span><span class="stat-lbl">plans</span></div>
+    <div class="stat-block"><span class="stat-num">${totalBuildings}</span><span class="stat-lbl">bâtiment${totalBuildings !== 1 ? 's' : ''}</span></div>
+    <div class="stat-block"><span class="stat-num">${totalPlans}</span><span class="stat-lbl">plan${totalPlans !== 1 ? 's' : ''}</span></div>
+    ${totalOrphans > 0 ? `<div class="stat-block"><span class="stat-num" style="color:#64748b;">${totalOrphans}</span><span class="stat-lbl">hors plan</span></div>` : ''}
   </div>
   <div class="cover-date">Généré le ${dateStr} · BuildTrack</div>
 </div>
 ${buildingSections.join('\n')}
+${orphanSectionHtml}
 <div class="summary-section">
   <div class="summary-title">📊 Tableau de synthèse</div>
   <table class="summary-table">
