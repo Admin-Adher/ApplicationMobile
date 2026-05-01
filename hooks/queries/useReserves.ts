@@ -297,9 +297,14 @@ export function useReserves() {
         enqueueOperation({ table: 'reserves', op: 'update', filter: { column: 'id', value: r.id }, data: payload });
         return;
       }
-      (supabase as any).from('reserves').update(prep.data!).eq('id', r.id).then(({ error }: { error: any }) => {
-        if (error) console.warn('[sync] updateReserve error:', error.message);
-      });
+      // Await the result so we can detect failures and queue a retry.
+      // prep.data! already has remote photo URLs (file:// paths were uploaded
+      // above), so the sync engine's upload step will be a no-op for those.
+      const { error } = await (supabase as any).from('reserves').update(prep.data!).eq('id', r.id);
+      if (error) {
+        console.warn('[sync] updateReserve error, queuing for retry:', error.message);
+        enqueueOperation({ table: 'reserves', op: 'update', filter: { column: 'id', value: r.id }, data: prep.data! });
+      }
     }
   }, [queryClient, isOnlineRef, enqueueOperation, persist]);
 
@@ -319,15 +324,27 @@ export function useReserves() {
     if (isSupabaseConfigured) {
       const { data: deleted, error } = await (supabase as any).from('reserves').delete().eq('id', id).select();
       if (error) {
-        console.warn('[sync] deleteReserve erreur serveur:', error.message);
-        if (previous) {
+        console.warn('[sync] deleteReserve erreur serveur:', error.code, error.message);
+        // Distinguish a genuine permission denial (42501 / RLS) from a
+        // network or session error. Only roll back for real server rejections —
+        // for everything else, keep the local deletion and queue a retry so the
+        // server catches up when connectivity/auth is restored.
+        const isPermissionDenied =
+          error.code === '42501' ||
+          /row-level security|permission denied/i.test(error.message ?? '');
+        if (isPermissionDenied && previous) {
           queryClient.setQueryData<Reserve[]>(queryKeys.reserves(), old => {
             const cur = old ?? [];
             if (cur.some(r => r.id === previous.id)) return cur;
             return [previous, ...cur];
           });
           persist(queryClient.getQueryData<Reserve[]>(queryKeys.reserves()) ?? []);
-          Alert.alert('Suppression refusée', 'Vous n\'avez pas les droits pour supprimer cette réserve, ou elle n\'existe plus sur le serveur.');
+          Alert.alert('Suppression refusée', "Vous n'avez pas les droits pour supprimer cette réserve, ou elle n'existe plus sur le serveur.");
+        } else {
+          // Network / session error: local deletion is already applied and persisted.
+          // Queue the delete so the sync engine retries it when connectivity is restored.
+          console.warn('[sync] deleteReserve: erreur réseau/session, opération enqueued pour retry');
+          enqueueOperation({ table: 'reserves', op: 'delete', filter: { column: 'id', value: id } });
         }
       } else if (!deleted?.length) {
         // If the row doesn't exist server-side (ex: never synced), keep local deletion.
