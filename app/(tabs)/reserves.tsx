@@ -2028,7 +2028,7 @@ export default function ReservesScreen() {
       {/* Advanced Filters Modal */}
       <Modal visible={filterModalVisible} transparent animationType="slide" onRequestClose={() => setFilterModalVisible(false)}>
         <TouchableOpacity style={styles.modalOverlay} activeOpacity={1} onPress={() => setFilterModalVisible(false)}>
-          <TouchableOpacity activeOpacity={1} style={[styles.bottomSheet, { paddingBottom: insets.bottom + 16 }]}>
+          <TouchableOpacity activeOpacity={1} style={[styles.bottomSheet, { paddingBottom: insets.bottom + 16, paddingTop: 0 }]}>
 
             {/* Handle */}
             <View style={styles.filtHandleArea}>
