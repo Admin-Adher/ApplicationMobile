@@ -3,20 +3,27 @@ import { Platform } from 'react-native';
 const VERCEL_API_URL = 'https://buildtrack-mobile.vercel.app/api/send-email';
 const VERCEL_RESET_URL = 'https://buildtrack-mobile.vercel.app/api/request-password-reset';
 
-function getApiUrl(): string {
+function getBaseApiUrl(): string {
   if (Platform.OS === 'web' && typeof window !== 'undefined') {
     const host = window.location?.hostname ?? '';
-    if (
+    const isLocal =
       host === 'localhost' ||
       host === '127.0.0.1' ||
       host.endsWith('.replit.dev') ||
       host.endsWith('.repl.co') ||
-      host.endsWith('.replit.app')
-    ) {
-      return '/api/send-email';
+      host.endsWith('.replit.app');
+
+    if (isLocal) {
+      const apiUrl = process.env.EXPO_PUBLIC_API_URL;
+      if (apiUrl) return apiUrl;
+      return `${window.location.protocol}//${window.location.hostname}:3001`;
     }
   }
-  return VERCEL_API_URL;
+  return 'https://buildtrack-mobile.vercel.app';
+}
+
+function getApiUrl(): string {
+  return `${getBaseApiUrl()}/api/send-email`;
 }
 
 async function callEmailApi(body: Record<string, unknown>): Promise<{ success: boolean; error?: string }> {
@@ -62,19 +69,7 @@ export async function sendWelcomeEmail(params: {
 }
 
 function getResetUrl(): string {
-  if (Platform.OS === 'web' && typeof window !== 'undefined') {
-    const host = window.location?.hostname ?? '';
-    if (
-      host === 'localhost' ||
-      host === '127.0.0.1' ||
-      host.endsWith('.replit.dev') ||
-      host.endsWith('.repl.co') ||
-      host.endsWith('.replit.app')
-    ) {
-      return '/api/request-password-reset';
-    }
-  }
-  return VERCEL_RESET_URL;
+  return `${getBaseApiUrl()}/api/request-password-reset`;
 }
 
 export async function requestPasswordReset(email: string): Promise<{ success: boolean; error?: string }> {

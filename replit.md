@@ -19,23 +19,29 @@ Lance : `node node_modules/expo/bin/cli start --web --localhost --port 5000`
 
 Le workflow "Start Frontend" est configuré sur le port 5000.
 
-## Replit — Notes de migration (complétée)
+## Replit — Notes de migration (complétée mai 2026)
 
-- **Migration réussie** : L'application tourne correctement sur Replit sans modifications du code source.
-- **CORS** : `scripts/patch-expo-cors.js` patche automatiquement Expo pour autoriser les domaines `.replit.dev` et `.repl.co` (exécuté via `postinstall` dans `package.json`).
-- **Port** : L'app tourne sur le port 5000 (mapé sur le port externe 80).
-- **Base de données** : L'app utilise Supabase hébergé (externe). Un PostgreSQL Replit/Neon est aussi provisionné (variables `DATABASE_URL`, `PGHOST`, etc.) — disponible pour usage futur si besoin.
-- **Architecture conservée** : Le code Supabase existant n'a pas été modifié — l'app se connecte au projet Supabase externe via les variables `EXPO_PUBLIC_SUPABASE_URL` et `EXPO_PUBLIC_SUPABASE_KEY` déjà configurées.
+- **Migration réussie** : L'application tourne correctement sur Replit avec deux workflows : "Start Frontend" (Expo Metro, port 5000) et "Start API" (Express, port 3001).
+- **CORS** : `scripts/patch-expo-cors.js` patche automatiquement Expo pour autoriser les domaines `.replit.dev` et `.repl.co` (exécuté via `postinstall`).
+- **API locale** : `server/api.js` — serveur Express qui remplace l'ancienne app Vercel Next.js. Expose :
+  - `POST /api/send-email` — envoi d'emails transactionnels (invitation, welcome, réserves, etc.)
+  - `POST /api/request-password-reset` — réinitialisation de mot de passe via Supabase Admin API
+  - `GET  /api/cron/overdue-reserves` — cron de rappel pour réserves en retard
+  - `GET  /api/health` — health check
+- **Architecture conservée** : Supabase conservé comme backend principal (auth, RLS, realtime, stockage). Le PostgreSQL Replit/Neon est disponible pour usage futur.
+- **Client email mis à jour** : `lib/email/client.ts` utilise `EXPO_PUBLIC_API_URL` pour pointer vers le serveur API local sur les domaines Replit.
 
 ## Variables d'environnement
 
 Configurées dans Replit (shared) :
 - `EXPO_PUBLIC_SUPABASE_URL` — URL du projet Supabase
 - `EXPO_PUBLIC_SUPABASE_KEY` — Clé anon Supabase (public, intentionnellement côté client)
-- `EXPO_PUBLIC_APP_URL` — URL Vercel : `https://buildtrack-mobile.vercel.app`
+- `EXPO_PUBLIC_APP_URL` — URL de l'app Replit (dev domain)
+- `EXPO_PUBLIC_API_URL` — URL de l'API locale (port 3001, ex: `https://xxx.replit.dev:3001`)
 - `GMAIL_USER` — Adresse Gmail expéditrice (`buildtrack.admin@gmail.com`)
-- `GMAIL_APP_PASSWORD` — Mot de passe d'application Google (16 caractères, secret Replit)
+- `GMAIL_APP_PASSWORD` — Mot de passe d'application Google 16 caractères (à configurer en secret)
 - `EMAIL_FROM` — Expéditeur affiché : `BuildTrack <buildtrack.admin@gmail.com>`
+- `SUPABASE_SERVICE_ROLE_KEY` — Clé service Supabase (pour password reset, à configurer en secret)
 
 ## Correctif critique — Écran vide / "Vérification en cours..." après veille prolongée (mai 2026)
 

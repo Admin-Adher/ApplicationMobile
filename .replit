@@ -19,6 +19,10 @@ author = "agent"
 task = "workflow.run"
 args = "Start Frontend"
 
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "Start API"
+
 [[workflows.workflow]]
 name = "Start Frontend"
 author = "agent"
@@ -30,6 +34,22 @@ outputType = "webview"
 task = "shell.exec"
 args = "npm run start"
 waitForPort = 5000
+
+[[workflows.workflow]]
+name = "Start API"
+author = "agent"
+
+[workflows.workflow.metadata]
+outputType = "console"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "npm run start:api"
+waitForPort = 3001
+
+[[ports]]
+localPort = 3001
+externalPort = 3001
 
 [[ports]]
 localPort = 5000
@@ -56,3 +76,4 @@ EXPO_PUBLIC_SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXB
 EXPO_PUBLIC_APP_URL = "https://c0c3fbe9-59b0-4c34-8b17-f502ce66b6c6-00-2yn0s596lu351.kirk.replit.dev"
 GMAIL_USER = "buildtrack.admin@gmail.com"
 EMAIL_FROM = "BuildTrack <buildtrack.admin@gmail.com>"
+EXPO_PUBLIC_API_URL = "https://95b21c12-3ca6-4ae6-9147-c3611a2ee48b-00-1ub9ysg8bxigo.janeway.replit.dev:3001"

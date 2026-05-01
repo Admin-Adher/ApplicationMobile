@@ -4,6 +4,7 @@
   "main": "expo-router/entry",
   "scripts": {
     "start": "node node_modules/expo/bin/cli start --web --localhost --port 5000",
+    "start:api": "node server/api.js",
     "android": "node node_modules/expo/bin/cli run:android",
     "ios": "node node_modules/expo/bin/cli run:ios",
     "web": "node node_modules/expo/bin/cli export --platform web",
@@ -67,6 +68,7 @@
     "@babel/core": "^7.29.0",
     "@types/react": "~19.0.10",
     "eas-cli": "^18.5.0",
+    "express": "^5.2.1",
     "typescript": "~5.8.3"
   }
 }
