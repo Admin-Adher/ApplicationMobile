@@ -353,6 +353,7 @@ async function exportGlobalReport(
   companiesForColor: Array<{ name: string; color: string }>,
   action: 'share' | 'print' = 'share',
   onProgress?: (current: number, total: number, planName: string) => void,
+  statusFilter?: Set<string>,
 ): Promise<void> {
   const STATUS_FR: Record<string, string> = {
     open: 'Ouvert', in_progress: 'En cours', waiting: 'En attente',
@@ -369,10 +370,10 @@ async function exportGlobalReport(
     critical: '#ef4444', high: '#f97316', medium: '#3b82f6', low: '#6b7280',
   };
 
-  // 1. Filter reserves by company
-  const filteredReserves = companyFilter === null
-    ? allChantierReserves
-    : allChantierReserves.filter(r => (r.company ?? '').trim() === companyFilter);
+  // 1. Filter reserves by company + status
+  const filteredReserves = allChantierReserves
+    .filter(r => companyFilter === null || (r.company ?? '').trim() === companyFilter)
+    .filter(r => !statusFilter || statusFilter.size === 0 || statusFilter.has(r.status));
 
   // 2. Group reserves by planId
   const reservesByPlan = new Map<string, Reserve[]>();
@@ -520,6 +521,12 @@ async function exportGlobalReport(
 
   const dateStr = new Date().toLocaleDateString('fr-FR', { day: '2-digit', month: 'long', year: 'numeric' });
   const companyLabel = companyFilter ?? 'Toutes les entreprises';
+  const STATUS_FR_LABELS: Record<string, string> = {
+    open: 'Ouvert', in_progress: 'En cours', waiting: 'En attente', verification: 'Vérification', closed: 'Clôturé',
+  };
+  const statusLabel = (!statusFilter || statusFilter.size === 0)
+    ? null
+    : Array.from(statusFilter).map(s => STATUS_FR_LABELS[s] ?? s).join(', ');
   const totalBuildings = buildingNames.length;
   const totalPlans = chantierPlans.length;
 
@@ -569,6 +576,7 @@ tbody td{padding:7px 10px;vertical-align:middle;}
   <div class="cover-chantier">${chantierName}</div>
   <div class="cover-divider"></div>
   <div class="cover-company">🏢 ${companyLabel}</div>
+  ${statusLabel ? `<div style="font-size:13px;color:#1E3A5F;background:#e8f0fe;padding:5px 18px;border-radius:16px;display:inline-block;margin-top:8px;">📌 Statuts : ${statusLabel}</div>` : ''}
   <div class="cover-stats">
     <div class="stat-block"><span class="stat-num">${totalReserves}</span><span class="stat-lbl">réserves</span></div>
     <div class="stat-block"><span class="stat-num">${totalBuildings}</span><span class="stat-lbl">bâtiments</span></div>
@@ -667,6 +675,7 @@ export default function PlansScreen() {
   const [globalReportProgress, setGlobalReportProgress] = useState<{ current: number; total: number; planName: string } | null>(null);
   // Global report state
   const [globalReportCompany, setGlobalReportCompany] = useState<string | null>(null);
+  const [globalReportStatusFilter, setGlobalReportStatusFilter] = useState<Set<string>>(new Set());
   const [pinSizes, setPinSizes] = useState<Record<string, number>>({});
   const [focusedPinId, setFocusedPinId] = useState<string | null>(null);
   const [draggingPinId, setDraggingPinId] = useState<string | null>(null);
@@ -1135,11 +1144,13 @@ export default function PlansScreen() {
       .sort((a, b) => a.label.localeCompare(b.label, 'fr'));
   }, [chantierReserves]);
 
-  // How many reserves will appear in the global report with the current company filter
+  // How many reserves will appear in the global report with the current company + status filters
   const globalReportPreviewCount = useMemo(() => {
-    if (globalReportCompany === null) return chantierReserves.length;
-    return chantierReserves.filter(r => (r.company ?? '').trim() === globalReportCompany).length;
-  }, [chantierReserves, globalReportCompany]);
+    let rs = chantierReserves;
+    if (globalReportCompany !== null) rs = rs.filter(r => (r.company ?? '').trim() === globalReportCompany);
+    if (globalReportStatusFilter.size > 0) rs = rs.filter(r => globalReportStatusFilter.has(r.status));
+    return rs.length;
+  }, [chantierReserves, globalReportCompany, globalReportStatusFilter]);
 
   const openPdfModal = useCallback(() => {
     setPdfScope('plan');
@@ -1148,6 +1159,7 @@ export default function PlansScreen() {
     setPdfCompaniesMulti(new Set());
     setPdfManualSelection(new Set());
     setGlobalReportCompany(null);
+    setGlobalReportStatusFilter(new Set());
     setPdfModalVisible(true);
   }, []);
 
@@ -1169,6 +1181,7 @@ export default function PlansScreen() {
           companies,
           action,
           (current, total, planName) => setGlobalReportProgress({ current, total, planName }),
+          globalReportStatusFilter,
         );
         setPdfModalVisible(false);
       } catch {
@@ -1204,7 +1217,7 @@ export default function PlansScreen() {
     } finally {
       setPdfLoading(false);
     }
-  }, [pdfScope, globalReportPreviewCount, activeChantier, chantierPlans, chantierReserves, globalReportCompany, companies, pdfFilteredList, currentPlan, pinNumberMap, pinSizeScale]);
+  }, [pdfScope, globalReportPreviewCount, activeChantier, chantierPlans, chantierReserves, globalReportCompany, globalReportStatusFilter, companies, pdfFilteredList, currentPlan, pinNumberMap, pinSizeScale]);
 
   const pinSize = Math.round((isTablet ? 48 : 44) * pinSizeScale);
   const clusterSize = Math.round((isTablet ? 60 : 52) * pinSizeScale);
@@ -3045,6 +3058,64 @@ export default function PlansScreen() {
                     <Text style={styles.pdfEmptyHint}>Aucune réserve sur ce chantier.</Text>
                   )}
                 </View>
+
+                {/* Status filter chips */}
+                {(() => {
+                  const STATUS_OPTIONS = [
+                    { key: 'open',         label: 'Ouvert',        color: '#ef4444' },
+                    { key: 'in_progress',  label: 'En cours',      color: '#3b82f6' },
+                    { key: 'waiting',      label: 'En attente',    color: '#f59e0b' },
+                    { key: 'verification', label: 'Vérification',  color: '#8b5cf6' },
+                    { key: 'closed',       label: 'Clôturé',       color: '#22c55e' },
+                  ];
+                  const allSelected = globalReportStatusFilter.size === 0;
+                  const toggleStatus = (key: string) => {
+                    setGlobalReportStatusFilter(prev => {
+                      const next = new Set(prev);
+                      if (next.has(key)) { next.delete(key); } else { next.add(key); }
+                      return next;
+                    });
+                  };
+                  return (
+                    <View style={{ marginTop: 12 }}>
+                      <Text style={{ fontSize: 11, fontFamily: 'Inter_600SemiBold', color: C.textSub, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 7 }}>
+                        Filtrer par statut
+                      </Text>
+                      <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
+                        <TouchableOpacity
+                          onPress={() => setGlobalReportStatusFilter(new Set())}
+                          style={{
+                            paddingHorizontal: 10, paddingVertical: 5, borderRadius: 14,
+                            backgroundColor: allSelected ? C.primary : '#F1F5F9',
+                            borderWidth: 1, borderColor: allSelected ? C.primary : '#E2E8F0',
+                          }}
+                        >
+                          <Text style={{ fontSize: 11, fontFamily: 'Inter_600SemiBold', color: allSelected ? '#fff' : C.textSub }}>
+                            Tous
+                          </Text>
+                        </TouchableOpacity>
+                        {STATUS_OPTIONS.map(s => {
+                          const active = globalReportStatusFilter.has(s.key);
+                          return (
+                            <TouchableOpacity
+                              key={s.key}
+                              onPress={() => toggleStatus(s.key)}
+                              style={{
+                                paddingHorizontal: 10, paddingVertical: 5, borderRadius: 14,
+                                backgroundColor: active ? s.color : '#F1F5F9',
+                                borderWidth: 1, borderColor: active ? s.color : '#E2E8F0',
+                              }}
+                            >
+                              <Text style={{ fontSize: 11, fontFamily: 'Inter_600SemiBold', color: active ? '#fff' : C.textSub }}>
+                                {s.label}
+                              </Text>
+                            </TouchableOpacity>
+                          );
+                        })}
+                      </View>
+                    </View>
+                  );
+                })()}
               </View>
             )}
 
@@ -3183,9 +3254,12 @@ export default function PlansScreen() {
               const suffix = pdfScope === 'global'
                 ? ` · ${chantierPlans.length} plan${chantierPlans.length !== 1 ? 's' : ''}`
                 : '';
+              const statusHint = pdfScope === 'global' && globalReportStatusFilter.size > 0
+                ? ` (${globalReportStatusFilter.size} statut${globalReportStatusFilter.size > 1 ? 's' : ''} sélectionné${globalReportStatusFilter.size > 1 ? 's' : ''})`
+                : '';
               return (
                 <Text style={styles.pdfPreview}>
-                  {count} réserve{count !== 1 ? 's' : ''} sera{count !== 1 ? 'ont' : ''} exportée{count !== 1 ? 's' : ''}{suffix}.
+                  {count} réserve{count !== 1 ? 's' : ''} sera{count !== 1 ? 'ont' : ''} exportée{count !== 1 ? 's' : ''}{suffix}{statusHint}.
                 </Text>
               );
             })()}
