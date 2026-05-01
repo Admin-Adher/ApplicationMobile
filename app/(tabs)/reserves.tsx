@@ -2029,194 +2029,244 @@ export default function ReservesScreen() {
       <Modal visible={filterModalVisible} transparent animationType="slide" onRequestClose={() => setFilterModalVisible(false)}>
         <TouchableOpacity style={styles.modalOverlay} activeOpacity={1} onPress={() => setFilterModalVisible(false)}>
           <TouchableOpacity activeOpacity={1} style={[styles.bottomSheet, { paddingBottom: insets.bottom + 16 }]}>
-            <View style={styles.sheetHandle} />
-            <View style={styles.sheetTitleRow}>
-              <Text style={styles.sheetTitle}>Filtres avancés</Text>
-              {activeFilterCount > 0 && (
-                <TouchableOpacity onPress={resetAllFilters}>
-                  <Text style={styles.resetText}>Réinitialiser tout</Text>
-                </TouchableOpacity>
-              )}
+
+            {/* Handle */}
+            <View style={styles.filtHandleArea}>
+              <View style={styles.sheetHandle} />
             </View>
 
-            <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 8 }}>
-              <Text style={styles.sheetSectionLabel}>TYPE</Text>
-              <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.chipScroll}>
-                <View style={styles.chipRowInline}>
-                  <TouchableOpacity
-                    style={[styles.chip, kindFilter === 'all' && styles.chipActive]}
-                    onPress={() => setKindFilter('all')}
-                    accessibilityRole="button"
-                    accessibilityLabel="Tous types"
-                    accessibilityState={{ selected: kindFilter === 'all' }}
-                  >
-                    <Text style={[styles.chipText, kindFilter === 'all' && styles.chipTextActive]}>Tous types</Text>
+            {/* Header — same layout as Plans FiltersSheet */}
+            <View style={styles.filtHeader}>
+              <View style={styles.filtHeaderLeft}>
+                <Ionicons name="options-outline" size={18} color={C.primary} />
+                <Text style={styles.filtTitle}>Filtres avancés</Text>
+                {activeFilterCount > 0 && (
+                  <View style={styles.filtBadge}>
+                    <Text style={styles.filtBadgeText}>{activeFilterCount}</Text>
+                  </View>
+                )}
+              </View>
+              <View style={styles.filtHeaderRight}>
+                {activeFilterCount > 0 && (
+                  <TouchableOpacity style={styles.filtResetBtn} onPress={resetAllFilters}>
+                    <Ionicons name="refresh-outline" size={14} color={C.textSub} />
+                    <Text style={styles.filtResetText}>Réinitialiser</Text>
                   </TouchableOpacity>
-                  <TouchableOpacity
-                    style={[styles.chip, kindFilter === 'reserve' && { backgroundColor: '#EF444415', borderColor: '#EF4444' }]}
-                    onPress={() => setKindFilter('reserve')}
-                    accessibilityRole="button"
-                    accessibilityLabel="Réserves uniquement"
-                    accessibilityState={{ selected: kindFilter === 'reserve' }}
-                  >
-                    <Ionicons name="warning-outline" size={12} color={kindFilter === 'reserve' ? '#EF4444' : C.textSub} />
-                    <Text style={[styles.chipText, kindFilter === 'reserve' && { color: '#EF4444' }]}>Réserves</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity
-                    style={[styles.chip, kindFilter === 'observation' && { backgroundColor: '#0EA5E915', borderColor: '#0EA5E9' }]}
-                    onPress={() => setKindFilter('observation')}
-                    accessibilityRole="button"
-                    accessibilityLabel="Observations uniquement"
-                    accessibilityState={{ selected: kindFilter === 'observation' }}
-                  >
-                    <Ionicons name="eye-outline" size={12} color={kindFilter === 'observation' ? '#0EA5E9' : C.textSub} />
-                    <Text style={[styles.chipText, kindFilter === 'observation' && { color: '#0EA5E9' }]}>
-                      Observations{obsCount > 0 ? ` (${obsCount})` : ''}
-                    </Text>
-                  </TouchableOpacity>
-                </View>
-              </ScrollView>
+                )}
+                <TouchableOpacity style={styles.filtCloseBtn} onPress={() => setFilterModalVisible(false)}>
+                  <Ionicons name="close" size={20} color={C.textMuted} />
+                </TouchableOpacity>
+              </View>
+            </View>
 
-              <Text style={styles.sheetSectionLabel}>BÂTIMENT</Text>
-              <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.chipScroll}>
-                <View style={styles.chipRowInline}>
-                  {['all', ...buildings].map(b => (
+            <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.filtContent}>
+
+              {/* TYPE */}
+              <View style={styles.filtSection}>
+                <View style={styles.filtSectionHeader}>
+                  <Ionicons name="swap-horizontal-outline" size={13} color={C.textSub} />
+                  <Text style={styles.filtSectionTitle}>Type</Text>
+                </View>
+                <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+                  <View style={styles.filtChipRow}>
                     <TouchableOpacity
-                      key={b}
-                      style={[styles.chip, buildingFilter === b && styles.chipActive]}
-                      onPress={() => setBuildingFilter(b)}
-                      accessibilityRole="button"
-                      accessibilityLabel={b === 'all' ? 'Tous les bâtiments' : `Bâtiment ${b}`}
+                      style={[styles.filtChip, kindFilter === 'all' && styles.filtChipActive]}
+                      onPress={() => setKindFilter('all')}
                     >
-                      <Text style={[styles.chipText, buildingFilter === b && styles.chipTextActive]}>
-                        {b === 'all' ? 'Tous' : `Bât. ${b}`}
+                      <Text style={[styles.filtChipText, kindFilter === 'all' && styles.filtChipTextActive]}>Tous types</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={[styles.filtChip, kindFilter === 'reserve' && { backgroundColor: '#EF444420', borderColor: '#EF4444' }]}
+                      onPress={() => setKindFilter('reserve')}
+                    >
+                      <Ionicons name="warning-outline" size={12} color={kindFilter === 'reserve' ? '#EF4444' : C.textSub} />
+                      <Text style={[styles.filtChipText, kindFilter === 'reserve' && { color: '#EF4444', fontFamily: 'Inter_600SemiBold' }]}>Réserves</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={[styles.filtChip, kindFilter === 'observation' && { backgroundColor: '#0EA5E920', borderColor: '#0EA5E9' }]}
+                      onPress={() => setKindFilter('observation')}
+                    >
+                      <Ionicons name="eye-outline" size={12} color={kindFilter === 'observation' ? '#0EA5E9' : C.textSub} />
+                      <Text style={[styles.filtChipText, kindFilter === 'observation' && { color: '#0EA5E9', fontFamily: 'Inter_600SemiBold' }]}>
+                        Observations{obsCount > 0 ? ` (${obsCount})` : ''}
                       </Text>
                     </TouchableOpacity>
-                  ))}
-                </View>
-              </ScrollView>
+                  </View>
+                </ScrollView>
+              </View>
 
-              <Text style={styles.sheetSectionLabel}>PRIORITÉ</Text>
-              <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.chipScroll}>
-                <View style={styles.chipRowInline}>
-                  {([
-                    { key: 'all', label: 'Toutes', color: C.textSub },
-                    { key: 'critical', label: 'Critique', color: C.critical },
-                    { key: 'high', label: 'Haute', color: C.high },
-                    { key: 'medium', label: 'Moyenne', color: C.medium },
-                    { key: 'low', label: 'Basse', color: C.low },
-                  ] as const).map(p => (
-                    <TouchableOpacity
-                      key={p.key}
-                      style={[styles.chip, priorityFilter === p.key && { backgroundColor: p.color + '20', borderColor: p.color }]}
-                      onPress={() => setPriorityFilter(p.key as 'all' | ReservePriority)}
-                      accessibilityRole="button"
-                      accessibilityLabel={`Priorité ${p.label}`}
-                    >
-                      <Text style={[styles.chipText, priorityFilter === p.key && { color: p.color }]}>{p.label}</Text>
-                    </TouchableOpacity>
-                  ))}
+              {/* BÂTIMENT */}
+              {buildings.length >= 1 && (
+                <View style={styles.filtSection}>
+                  <View style={styles.filtSectionHeader}>
+                    <Ionicons name="business-outline" size={13} color={C.textSub} />
+                    <Text style={styles.filtSectionTitle}>Bâtiment</Text>
+                  </View>
+                  <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+                    <View style={styles.filtChipRow}>
+                      {['all', ...buildings].map(b => (
+                        <TouchableOpacity
+                          key={b}
+                          style={[styles.filtChip, buildingFilter === b && styles.filtChipActive]}
+                          onPress={() => setBuildingFilter(b)}
+                        >
+                          {b !== 'all' && <Ionicons name="business-outline" size={12} color={buildingFilter === b ? '#fff' : C.textSub} />}
+                          {b === 'all' && <Ionicons name="grid-outline" size={12} color={buildingFilter === b ? '#fff' : C.textSub} />}
+                          <Text style={[styles.filtChipText, buildingFilter === b && styles.filtChipTextActive]}>
+                            {b === 'all' ? 'Tous' : b}
+                          </Text>
+                        </TouchableOpacity>
+                      ))}
+                    </View>
+                  </ScrollView>
                 </View>
-              </ScrollView>
+              )}
 
-              <Text style={styles.sheetSectionLabel}>ZONE</Text>
-              <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.chipScroll}>
-                <View style={styles.chipRowInline}>
-                  {['all', ...zones].map(z => (
-                    <TouchableOpacity
-                      key={z}
-                      style={[styles.chip, zoneFilter === z && styles.chipActive]}
-                      onPress={() => setZoneFilter(z)}
-                      accessibilityRole="button"
-                      accessibilityLabel={z === 'all' ? 'Toutes les zones' : `Zone ${z}`}
-                    >
-                      <Text style={[styles.chipText, zoneFilter === z && styles.chipTextActive]}>
-                        {z === 'all' ? 'Toutes' : z}
-                      </Text>
-                    </TouchableOpacity>
-                  ))}
+              {/* PRIORITÉ */}
+              <View style={styles.filtSection}>
+                <View style={styles.filtSectionHeader}>
+                  <Ionicons name="alert-circle-outline" size={13} color={C.textSub} />
+                  <Text style={styles.filtSectionTitle}>Priorité</Text>
                 </View>
-              </ScrollView>
+                <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+                  <View style={styles.filtChipRow}>
+                    {([
+                      { key: 'all', label: 'Toutes', color: C.textSub },
+                      { key: 'critical', label: 'Critique', color: C.critical },
+                      { key: 'high', label: 'Haute', color: C.high },
+                      { key: 'medium', label: 'Moyenne', color: C.medium },
+                      { key: 'low', label: 'Basse', color: C.low },
+                    ] as const).map(p => (
+                      <TouchableOpacity
+                        key={p.key}
+                        style={[
+                          styles.filtChip,
+                          priorityFilter === p.key && p.key === 'all' && styles.filtChipActive,
+                          priorityFilter === p.key && p.key !== 'all' && { backgroundColor: p.color + '20', borderColor: p.color },
+                        ]}
+                        onPress={() => setPriorityFilter(p.key as 'all' | ReservePriority)}
+                      >
+                        <Text style={[
+                          styles.filtChipText,
+                          priorityFilter === p.key && p.key === 'all' && styles.filtChipTextActive,
+                          priorityFilter === p.key && p.key !== 'all' && { color: p.color, fontFamily: 'Inter_600SemiBold' },
+                        ]}>{p.label}</Text>
+                      </TouchableOpacity>
+                    ))}
+                  </View>
+                </ScrollView>
+              </View>
 
+              {/* ZONE */}
+              {zones.length > 0 && (
+                <View style={styles.filtSection}>
+                  <View style={styles.filtSectionHeader}>
+                    <Ionicons name="location-outline" size={13} color={C.textSub} />
+                    <Text style={styles.filtSectionTitle}>Zone</Text>
+                  </View>
+                  <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+                    <View style={styles.filtChipRow}>
+                      {['all', ...zones].map(z => (
+                        <TouchableOpacity
+                          key={z}
+                          style={[styles.filtChip, zoneFilter === z && styles.filtChipActive]}
+                          onPress={() => setZoneFilter(z)}
+                        >
+                          <Text style={[styles.filtChipText, zoneFilter === z && styles.filtChipTextActive]}>
+                            {z === 'all' ? 'Toutes' : z}
+                          </Text>
+                        </TouchableOpacity>
+                      ))}
+                    </View>
+                  </ScrollView>
+                </View>
+              )}
+
+              {/* NIVEAU */}
               {levels.length > 0 && (
-                <>
-                  <Text style={styles.sheetSectionLabel}>NIVEAU</Text>
-                  <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.chipScroll}>
-                    <View style={styles.chipRowInline}>
+                <View style={styles.filtSection}>
+                  <View style={styles.filtSectionHeader}>
+                    <Ionicons name="layers-outline" size={13} color={C.textSub} />
+                    <Text style={styles.filtSectionTitle}>Niveau</Text>
+                  </View>
+                  <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+                    <View style={styles.filtChipRow}>
                       {['all', ...levels].map(lv => (
                         <TouchableOpacity
                           key={lv}
-                          style={[styles.chip, levelFilter === lv && styles.chipActive]}
+                          style={[styles.filtChip, levelFilter === lv && styles.filtChipActive]}
                           onPress={() => setLevelFilter(lv)}
-                          accessibilityRole="button"
-                          accessibilityLabel={lv === 'all' ? 'Tous les niveaux' : `Niveau ${lv}`}
                         >
-                          <Text style={[styles.chipText, levelFilter === lv && styles.chipTextActive]}>
+                          <Text style={[styles.filtChipText, levelFilter === lv && styles.filtChipTextActive]}>
                             {lv === 'all' ? 'Tous' : lv}
                           </Text>
                         </TouchableOpacity>
                       ))}
                     </View>
                   </ScrollView>
-                </>
+                </View>
               )}
 
-              <Text style={styles.sheetSectionLabel}>ENTREPRISE</Text>
-              <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.chipScroll}>
-                <View style={styles.chipRowInline}>
-                  <TouchableOpacity
-                    style={[styles.chip, companyFilter === 'all' && styles.chipActive]}
-                    onPress={() => setCompanyFilter('all')}
-                    accessibilityRole="button"
-                    accessibilityLabel="Toutes les entreprises"
-                  >
-                    <Text style={[styles.chipText, companyFilter === 'all' && styles.chipTextActive]}>Toutes</Text>
-                  </TouchableOpacity>
-                  {companies.map(co => (
-                    <TouchableOpacity
-                      key={co.id}
-                      style={[styles.chip, companyFilter === co.name && { backgroundColor: co.color + '20', borderColor: co.color }]}
-                      onPress={() => setCompanyFilter(co.name)}
-                      accessibilityRole="button"
-                      accessibilityLabel={`Entreprise ${co.name}`}
-                    >
-                      <View style={[styles.dot, { backgroundColor: co.color }]} />
-                      <Text style={[styles.chipText, companyFilter === co.name && { color: co.color }]}>{co.shortName}</Text>
-                    </TouchableOpacity>
-                  ))}
-                </View>
-              </ScrollView>
-
-              {lots.length > 0 && (
-                <>
-                  <Text style={styles.sheetSectionLabel}>CORPS D'ÉTAT (LOT)</Text>
-                  <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.chipScroll}>
-                    <View style={styles.chipRowInline}>
+              {/* ENTREPRISE */}
+              {companies.length > 0 && (
+                <View style={styles.filtSection}>
+                  <View style={styles.filtSectionHeader}>
+                    <Ionicons name="construct-outline" size={13} color={C.textSub} />
+                    <Text style={styles.filtSectionTitle}>Entreprise</Text>
+                  </View>
+                  <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+                    <View style={styles.filtChipRow}>
                       <TouchableOpacity
-                        style={[styles.chip, lotFilter === 'all' && styles.chipActive]}
-                        onPress={() => setLotFilter('all')}
-                        accessibilityRole="button"
-                        accessibilityLabel="Tous les lots"
+                        style={[styles.filtChip, companyFilter === 'all' && styles.filtChipActive]}
+                        onPress={() => setCompanyFilter('all')}
                       >
-                        <Text style={[styles.chipText, lotFilter === 'all' && styles.chipTextActive]}>Tous</Text>
+                        <Text style={[styles.filtChipText, companyFilter === 'all' && styles.filtChipTextActive]}>Toutes</Text>
+                      </TouchableOpacity>
+                      {companies.map(co => (
+                        <TouchableOpacity
+                          key={co.id}
+                          style={[styles.filtChip, companyFilter === co.name && { backgroundColor: co.color + '20', borderColor: co.color }]}
+                          onPress={() => setCompanyFilter(companyFilter === co.name ? 'all' : co.name)}
+                        >
+                          <View style={[styles.dot, { backgroundColor: co.color }]} />
+                          <Text style={[styles.filtChipText, companyFilter === co.name && { color: co.color, fontFamily: 'Inter_600SemiBold' }]}>{co.shortName}</Text>
+                        </TouchableOpacity>
+                      ))}
+                    </View>
+                  </ScrollView>
+                </View>
+              )}
+
+              {/* CORPS D'ÉTAT (LOT) */}
+              {lots.length > 0 && (
+                <View style={styles.filtSection}>
+                  <View style={styles.filtSectionHeader}>
+                    <Ionicons name="briefcase-outline" size={13} color={C.textSub} />
+                    <Text style={styles.filtSectionTitle}>Corps d'état (Lot)</Text>
+                  </View>
+                  <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+                    <View style={styles.filtChipRow}>
+                      <TouchableOpacity
+                        style={[styles.filtChip, lotFilter === 'all' && styles.filtChipActive]}
+                        onPress={() => setLotFilter('all')}
+                      >
+                        <Text style={[styles.filtChipText, lotFilter === 'all' && styles.filtChipTextActive]}>Tous</Text>
                       </TouchableOpacity>
                       {lots.map(lot => (
                         <TouchableOpacity
                           key={lot.id}
-                          style={[styles.chip, lotFilter === lot.id && { backgroundColor: (lot.color ?? C.primary) + '20', borderColor: lot.color ?? C.primary }]}
-                          onPress={() => setLotFilter(lot.id)}
-                          accessibilityRole="button"
-                          accessibilityLabel={`Lot ${lot.number ?? ''} ${lot.name}`}
+                          style={[styles.filtChip, lotFilter === lot.id && { backgroundColor: (lot.color ?? C.primary) + '20', borderColor: lot.color ?? C.primary }]}
+                          onPress={() => setLotFilter(lotFilter === lot.id ? 'all' : lot.id)}
                         >
                           {lot.color && <View style={[styles.dot, { backgroundColor: lot.color }]} />}
-                          <Text style={[styles.chipText, lotFilter === lot.id && { color: lot.color ?? C.primary }]} numberOfLines={1}>
+                          <Text style={[styles.filtChipText, lotFilter === lot.id && { color: lot.color ?? C.primary, fontFamily: 'Inter_600SemiBold' }]} numberOfLines={1}>
                             {lot.number ? `${lot.number}. ` : ''}{lot.name}
                           </Text>
                         </TouchableOpacity>
                       ))}
                     </View>
                   </ScrollView>
-                </>
+                </View>
               )}
 
             </ScrollView>
@@ -2470,12 +2520,32 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14, paddingVertical: 8, borderRadius: 20, borderWidth: 1.5,
     borderColor: C.border, backgroundColor: C.surface2, flexDirection: 'row', alignItems: 'center', gap: 5,
   },
-  chipActive: { backgroundColor: C.primaryBg, borderColor: C.primary },
+  chipActive: { backgroundColor: C.primary, borderColor: C.primary },
   chipText: { fontSize: 13, fontFamily: 'Inter_500Medium', color: C.textSub },
-  chipTextActive: { color: C.primary },
+  chipTextActive: { color: '#fff', fontFamily: 'Inter_600SemiBold' },
   dot: { width: 7, height: 7, borderRadius: 4 },
-  applyBtn: { marginTop: 20, marginBottom: 8, backgroundColor: C.primary, borderRadius: 12, paddingVertical: 14, alignItems: 'center' },
+  applyBtn: { marginTop: 12, marginBottom: 8, backgroundColor: C.primary, borderRadius: 14, paddingVertical: 14, alignItems: 'center', marginHorizontal: 0 },
   applyBtnText: { fontSize: 15, fontFamily: 'Inter_600SemiBold', color: '#fff' },
+
+  filtHandleArea: { alignSelf: 'stretch', alignItems: 'center', paddingVertical: 10 },
+  filtHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginHorizontal: -16, paddingHorizontal: 16, paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: C.border },
+  filtHeaderLeft: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  filtHeaderRight: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  filtTitle: { fontSize: 16, fontFamily: 'Inter_700Bold', color: C.text },
+  filtBadge: { backgroundColor: C.primary, borderRadius: 10, width: 20, height: 20, alignItems: 'center', justifyContent: 'center' },
+  filtBadgeText: { fontSize: 11, fontFamily: 'Inter_700Bold', color: '#fff' },
+  filtResetBtn: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 10, paddingVertical: 6, borderRadius: 8, backgroundColor: C.surface2, borderWidth: 1, borderColor: C.border },
+  filtResetText: { fontSize: 12, fontFamily: 'Inter_500Medium', color: C.textSub },
+  filtCloseBtn: { padding: 4 },
+  filtContent: { paddingHorizontal: 0, paddingTop: 16, paddingBottom: 8, gap: 20 },
+  filtSection: { gap: 10 },
+  filtSectionHeader: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  filtSectionTitle: { fontSize: 13, fontFamily: 'Inter_600SemiBold', color: C.text, flex: 1 },
+  filtChipRow: { flexDirection: 'row', gap: 6 },
+  filtChip: { flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: 12, paddingVertical: 8, borderRadius: 20, backgroundColor: C.surface2, borderWidth: 1.5, borderColor: C.border },
+  filtChipActive: { backgroundColor: C.primary, borderColor: C.primary },
+  filtChipText: { fontSize: 13, fontFamily: 'Inter_500Medium', color: C.textSub },
+  filtChipTextActive: { color: '#fff', fontFamily: 'Inter_600SemiBold' },
 
   fabContainer: {
     position: 'absolute',
