@@ -354,6 +354,7 @@ async function exportGlobalReport(
   action: 'share' | 'print' = 'share',
   onProgress?: (current: number, total: number, planName: string) => void,
   statusFilter?: Set<string>,
+  preRenderedImages?: Map<string, string>,
 ): Promise<void> {
   const STATUS_FR: Record<string, string> = {
     open: 'Ouvert', in_progress: 'En cours', waiting: 'En attente',
@@ -449,15 +450,22 @@ async function exportGlobalReport(
         } else if (planIsPdf) {
           processedPdfPlans++;
           onProgress?.(processedPdfPlans, totalPdfPlans, plan.name);
-          try {
-            const pdfDataUrl = await loadFileAsDataUrl(plan.uri, 'pdf');
-            if (pdfDataUrl) {
-              const preRendered = await preRenderPdfPageToDataUrl(pdfDataUrl, 720);
-              if (preRendered) {
-                planImgHtml = buildGlobalPlanImg(preRendered);
+          // On native: use pre-rendered JPEG captured from the hidden PdfPlanViewer.
+          // On web: render the first PDF page via PDF.js (has DOM + canvas access).
+          const nativePreview = preRenderedImages?.get(plan.id);
+          if (nativePreview) {
+            planImgHtml = buildGlobalPlanImg(nativePreview);
+          } else if (Platform.OS === 'web') {
+            try {
+              const pdfDataUrl = await loadFileAsDataUrl(plan.uri, 'pdf');
+              if (pdfDataUrl) {
+                const preRendered = await preRenderPdfPageToDataUrl(pdfDataUrl, 720);
+                if (preRendered) {
+                  planImgHtml = buildGlobalPlanImg(preRendered);
+                }
               }
-            }
-          } catch { /* skip if PDF rendering fails */ }
+            } catch { /* skip if PDF rendering fails */ }
+          }
         }
       }
 
@@ -700,6 +708,42 @@ export default function PlansScreen() {
 
   const pdfViewerRef = useRef<PdfPlanViewerHandle>(null);
   const reserveListRef = useRef<FlatList<Reserve> | null>(null);
+
+  // Hidden PDF viewer for pre-rendering plan images in the global report on native.
+  // On web, preRenderPdfPageToDataUrl() handles this directly.
+  const preRenderRef = useRef<PdfPlanViewerHandle>(null);
+  const [preRenderState, setPreRenderState] = useState<{ uri: string; planId: string } | null>(null);
+  const preRenderReadyRef = useRef<(() => void) | null>(null);
+
+  const onPreRenderReady = useCallback(() => {
+    preRenderReadyRef.current?.();
+    preRenderReadyRef.current = null;
+  }, []);
+
+  const capturePreRenderPlan = useCallback(
+    (planUri: string, planId: string): Promise<string | null> => {
+      if (Platform.OS === 'web') return Promise.resolve(null);
+      return new Promise<string | null>((resolve) => {
+        const done = (dataUrl: string | null) => {
+          preRenderReadyRef.current = null;
+          setPreRenderState(null);
+          resolve(dataUrl);
+        };
+        const timeout = setTimeout(() => done(null), 30000);
+        preRenderReadyRef.current = async () => {
+          clearTimeout(timeout);
+          try {
+            const dataUrl = await preRenderRef.current?.captureImageDataUrl() ?? null;
+            done(dataUrl);
+          } catch {
+            done(null);
+          }
+        };
+        setPreRenderState({ uri: planUri, planId });
+      });
+    },
+    []
+  );
 
   // Declared early so it can be used as a proper dependency in the effect below.
   // (Babel transpiles const→var; declaring after the useEffect would leave the
@@ -1179,6 +1223,28 @@ export default function PlansScreen() {
       setPdfLoading(true);
       setGlobalReportProgress(null);
       try {
+        // ── Native: pre-render each PDF plan image using the hidden PdfPlanViewer ──
+        // On web, PDF.js renders plans directly inside exportGlobalReport.
+        // On native, preRenderPdfPageToDataUrl() returns null (no DOM), so we must
+        // pre-render each plan in a hidden WebView and capture it as a JPEG.
+        const preRenderedImages = new Map<string, string>();
+        if (Platform.OS !== 'web') {
+          const filteredReserves = chantierReserves
+            .filter(r => globalReportCompany === null || (r.company ?? '').trim() === globalReportCompany)
+            .filter(r => !globalReportStatusFilter || globalReportStatusFilter.size === 0 || globalReportStatusFilter.has(r.status));
+          const reservedPlanIds = new Set(filteredReserves.map(r => r.planId).filter(Boolean) as string[]);
+          const pdfPlansWithReserves = chantierPlans.filter(
+            p => isPlanPdf(p) && !!p.uri && reservedPlanIds.has(p.id)
+          );
+          for (let i = 0; i < pdfPlansWithReserves.length; i++) {
+            const plan = pdfPlansWithReserves[i];
+            setGlobalReportProgress({ current: i + 1, total: pdfPlansWithReserves.length, planName: plan.name });
+            const dataUrl = await capturePreRenderPlan(plan.uri!, plan.id);
+            if (dataUrl) preRenderedImages.set(plan.id, dataUrl);
+          }
+          setGlobalReportProgress(null);
+        }
+
         await exportGlobalReport(
           activeChantier?.name ?? '',
           chantierPlans,
@@ -1188,6 +1254,7 @@ export default function PlansScreen() {
           action,
           (current, total, planName) => setGlobalReportProgress({ current, total, planName }),
           globalReportStatusFilter,
+          preRenderedImages,
         );
         setPdfModalVisible(false);
       } catch {
@@ -1223,7 +1290,7 @@ export default function PlansScreen() {
     } finally {
       setPdfLoading(false);
     }
-  }, [pdfScope, globalReportPreviewCount, activeChantier, chantierPlans, chantierReserves, globalReportCompany, globalReportStatusFilter, companies, pdfFilteredList, currentPlan, pinNumberMap, pinSizeScale]);
+  }, [pdfScope, globalReportPreviewCount, activeChantier, chantierPlans, chantierReserves, globalReportCompany, globalReportStatusFilter, companies, pdfFilteredList, currentPlan, pinNumberMap, pinSizeScale, capturePreRenderPlan]);
 
   const pinSize = Math.round((isTablet ? 48 : 44) * pinSizeScale);
   const clusterSize = Math.round((isTablet ? 60 : 52) * pinSizeScale);
@@ -3636,6 +3703,31 @@ export default function PlansScreen() {
         }}
         activeFiltersCount={activeFilters}
       />
+
+      {/* Hidden PDF plan viewer — pre-renders each PDF plan page to JPEG for the
+          global report on native. On web, PDF.js in preRenderPdfPageToDataUrl()
+          handles this directly without needing a mounted WebView component. */}
+      {Platform.OS !== 'web' && preRenderState !== null && (
+        <View style={{ position: 'absolute', left: -9999, width: 720, height: 540, opacity: 0, pointerEvents: 'none' }}>
+          <PdfPlanViewer
+            ref={preRenderRef}
+            planUri={preRenderState.uri}
+            planId={preRenderState.planId}
+            isImagePlan={false}
+            reserves={[]}
+            ghostReserves={[]}
+            pinNumberMap={new Map()}
+            annotations={[]}
+            onPlanTap={() => {}}
+            onReserveSelect={() => {}}
+            onAnnotationsChange={() => {}}
+            onReady={onPreRenderReady}
+            companies={[]}
+            canAnnotate={false}
+            canCreate={false}
+          />
+        </View>
+      )}
     </View>
   );
 }
