@@ -1,6 +1,12 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { supabase, isSupabaseConfigured } from './supabase';
 
+// Maximum time we wait for getSession() before giving up.
+// This is the last-resort safety valve for every query hook: if the auth lock
+// is still stuck despite the fixes in lib/supabase.ts, queries won't block
+// forever — they fall back to the local cache within SESSION_CHECK_TIMEOUT_MS.
+const SESSION_CHECK_TIMEOUT_MS = 4_000;
+
 /**
  * Returns true only when Supabase has a usable session (non-expired JWT).
  *
@@ -11,16 +17,28 @@ import { supabase, isSupabaseConfigured } from './supabase';
  * and that empty array would otherwise overwrite the local cache — making it
  * look like all of the user's data was deleted server-side.
  *
- * We also subtract a 10-second safety margin from `expires_at` to avoid the
- * race where the token is technically valid but supabase-js is mid-refresh.
+ * Safety: a strict 4-second timeout ensures that a stuck auth lock (e.g. after
+ * the app resumes from a long background sleep) can never block query hooks
+ * indefinitely. If the check times out, we return false so the query falls
+ * back to the cached data and the UI stays responsive.
  */
 export async function isSupabaseSessionValid(): Promise<boolean> {
   if (!isSupabaseConfigured) return false;
   try {
-    const { data: { session } } = await supabase.auth.getSession();
+    // Race getSession() against a strict timeout.
+    // If the Supabase auth lock is stuck, getSession() may never resolve.
+    // After SESSION_CHECK_TIMEOUT_MS we treat the session as unavailable so
+    // query functions return cached data instead of blocking forever.
+    const timeoutPromise = new Promise<null>((_, reject) =>
+      setTimeout(() => reject(new Error('session-check-timeout')), SESSION_CHECK_TIMEOUT_MS)
+    );
+    const sessionPromise = supabase.auth.getSession().then(r => r.data.session);
+    const session = await Promise.race([sessionPromise, timeoutPromise]);
     if (!session?.user?.id) return false;
     if (typeof session.expires_at === 'number') {
       const nowSec = Math.floor(Date.now() / 1000);
+      // 10-second margin: avoid the race where the token is technically valid
+      // but supabase-js is mid-refresh and about to swap it out.
       if (session.expires_at - 10 < nowSec) return false;
     }
     return true;

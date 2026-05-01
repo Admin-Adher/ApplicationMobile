@@ -55,33 +55,52 @@ export const isSupabaseConfigured = isValidUrl(SUPABASE_URL) && Boolean(SUPABASE
 // ─────────────────────────────────────────────────────────────────────────────
 // Verrou auth tolérant — fix critique React Native
 //
-// Par défaut, supabase-js v2 utilise un verrou interne (`processLock`) pour
-// sérialiser les opérations auth (refreshSession, getSession, etc.). Sur React
-// Native, quand l'app passe en arrière-plan pendant qu'un refresh est en cours,
-// l'exécution JS est gelée. Au réveil, le verrou reste tenu par une promesse
-// fantôme qui ne se résoudra jamais → tous les appels auth suivants attendent
-// le verrou à l'infini, ce qui bloque AUSSI toutes les requêtes Supabase
-// (storage, DB) qui ont besoin de récupérer le token.
+// Bug critique identifié :
+//   Supabase-js v2 passe acquireTimeoutMs = Infinity à notre safeLock.
+//   Math.max(50, Infinity) = Infinity → le setTimeout ne se déclenche JAMAIS.
+//   Quand l'app est mise en veille pendant un refresh en cours, le verrou
+//   reste tenu par une promesse fantôme (JS gelé). Au réveil, TOUS les appels
+//   getSession() / refreshSession() attendent ce verrou à l'infini :
+//     → diagnostic bloqué sur "Vérification en cours..."
+//     → query hooks bloqués → écrans vides à l'infini
 //
-// Notre verrou maison applique un délai d'attente strict (`acquireTimeout`).
-// Si on n'arrive pas à acquérir dans ce délai, on libère de force et on
-// poursuit. Pire scénario : deux refresh concurrents (sans gravité, le second
-// utilise simplement le résultat du premier via le cache de session).
+// Fix : plafonnement strict du timeout à LOCK_MAX_MS (5 s).
+//   Si on n'acquiert pas le verrou en 5 s on force la libération et on
+//   continue. Pire scénario : deux refresh concurrents (bénin — le second
+//   réutilise le token du premier depuis le cache de session).
+//
+// Fix complémentaire : au retour en premier plan (AppState → 'active'),
+//   on réinitialise lockChain à une promesse déjà résolue, ce qui libère
+//   instantanément tout appel en attente, avant de relancer startAutoRefresh.
+// ─────────────────────────────────────────────────────────────────────────────
+
+const LOCK_MAX_MS = 5_000;
+
 let lockChain: Promise<unknown> = Promise.resolve();
+
+export function resetAuthLock() {
+  lockChain = Promise.resolve();
+  console.warn('[supabase-lock] lock chain reset (app resumed from background)');
+}
+
 function safeLock<R>(_name: string, acquireTimeoutMs: number, fn: () => Promise<R>): Promise<R> {
   const previous = lockChain;
   let release!: () => void;
   const next = new Promise<void>(resolve => { release = resolve; });
   lockChain = next;
 
+  // CRITICAL FIX: cap acquireTimeoutMs to LOCK_MAX_MS regardless of what
+  // supabase-js passes (it can pass Infinity, making the timer never fire).
+  const effectiveTimeout = Math.min(Math.max(50, acquireTimeoutMs), LOCK_MAX_MS);
+
   const wait = new Promise<void>((resolve) => {
     let done = false;
     const timer = setTimeout(() => {
       if (done) return;
       done = true;
-      console.warn(`[supabase-lock] acquire timeout (${acquireTimeoutMs}ms), forcing release`);
+      console.warn(`[supabase-lock] acquire timeout after ${effectiveTimeout}ms (was ${acquireTimeoutMs}ms), forcing release`);
       resolve();
-    }, Math.max(50, acquireTimeoutMs));
+    }, effectiveTimeout);
     previous.finally(() => {
       if (done) return;
       done = true;
@@ -114,24 +133,17 @@ export const supabase: SupabaseClientType = isSupabaseConfigured
 // ─────────────────────────────────────────────────────────────────────────────
 // Démarrage / arrêt du auto-refresh selon l'état de l'app (React Native)
 //
-// Recommandation officielle Supabase pour React Native :
-// https://supabase.com/docs/reference/javascript/initializing#react-native-options
-//
-// Sans ces appels, le timer interne d'auto-refresh continue à essayer de
-// fonctionner alors que JS est gelé en arrière-plan. Au réveil, on se retrouve
-// avec des refresh en retard, des verrous tenus, et des requêtes qui pendent.
-//
-// Avec ces appels :
-//   - Au passage en arrière-plan : on stoppe le timer (plus de refresh fantôme)
-//   - Au retour au premier plan  : on relance le timer ; supabase-js déclenche
-//     immédiatement un refresh si le token est expiré ou proche de l'être.
-//
-// Enregistré une seule fois ici (au chargement du module), donc indépendant
-// des providers React qui peuvent monter/démonter.
+// Fix renforcé : au retour en premier plan on réinitialise d'abord le verrou
+// AVANT de relancer startAutoRefresh(), de sorte que le refresh qui suit ne
+// soit jamais bloqué derrière une promesse fantôme de la session précédente.
+// ─────────────────────────────────────────────────────────────────────────────
 if (isSupabaseConfigured && Platform.OS !== 'web') {
   AppState.addEventListener('change', (state) => {
     try {
       if (state === 'active') {
+        // 1. Libère le verrou AVANT le refresh pour éviter tout blocage
+        resetAuthLock();
+        // 2. Relance le timer de refresh (déclenche un refresh immédiat si expiré)
         (supabase as any).auth?.startAutoRefresh?.();
       } else {
         (supabase as any).auth?.stopAutoRefresh?.();

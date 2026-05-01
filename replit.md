@@ -37,6 +37,31 @@ Configurées dans Replit (shared) :
 - `GMAIL_APP_PASSWORD` — Mot de passe d'application Google (16 caractères, secret Replit)
 - `EMAIL_FROM` — Expéditeur affiché : `BuildTrack <buildtrack.admin@gmail.com>`
 
+## Correctif critique — Écran vide / "Vérification en cours..." après veille prolongée (mai 2026)
+
+**Fichiers modifiés** : `lib/supabase.ts`, `lib/offlineCache.ts`, `lib/queryClient.ts`
+
+**Symptômes** : Après que l'app n'a pas été ouverte depuis un certain temps (veille prolongée), au retour :
+- Dashboard et Plans affichent un écran blanc
+- Réserves restent sur le squelette "Chargement..."
+- Diagnostic des paramètres bloqué sur "Vérification en cours..." à l'infini
+
+**Causes racines identifiées (3)** :
+
+1. **Lock Supabase bloqué à l'infini** (`lib/supabase.ts:84`) — La fonction `safeLock` utilisait `Math.max(50, acquireTimeoutMs)`. Supabase-js interne passe `Infinity` comme `acquireTimeoutMs`. Résultat : `Math.max(50, Infinity) = Infinity` → le setTimeout ne se déclenche jamais. Quand l'app est gelée en veille pendant un refresh, le verrou reste tenu par une promesse fantôme. Tous les appels `getSession()` suivants bloquent à l'infini.
+
+2. **`isSupabaseSessionValid()` sans timeout** (`lib/offlineCache.ts:20`) — Appelée dans TOUS les hooks de query (useReserves, useChantiers, useCompanies, etc.). Sans timeout, si `getSession()` bloque → toutes les queries bloquent → écrans vides à l'infini.
+
+3. **`focusManager` React Query non câblé à `AppState`** (`lib/queryClient.ts`) — Sans ce câblage, `refetchOnWindowFocus: true` n'a aucun effet sur React Native. Aucun refetch automatique n'est déclenché au retour en premier plan.
+
+**Correctifs appliqués** :
+
+- `lib/supabase.ts` : Plafonnement strict du timeout d'acquisition du lock à `LOCK_MAX_MS = 5000ms` (`Math.min(Math.max(50, acquireTimeoutMs), LOCK_MAX_MS)`). Ajout de `resetAuthLock()` exportée + appelée dans le listener `AppState 'active'` AVANT `startAutoRefresh()` pour garantir que le verrou est libéré immédiatement au réveil.
+
+- `lib/offlineCache.ts` : `isSupabaseSessionValid()` utilise désormais `Promise.race([getSession(), timeout(4s)])`. Si `getSession()` dépasse 4 secondes, retourne `false` → les queries utilisent le cache local → l'UI reste responsive.
+
+- `lib/queryClient.ts` : `focusManager.setEventListener()` câblé à `AppState.addEventListener('change', ...)` sur React Native. Au retour en premier plan (`state === 'active'`), React Query déclenche automatiquement un refetch de toutes les queries stale.
+
 ## Correctif critique — Perte de données hors connexion (mai 2026)
 
 **Fichier** : `hooks/queries/useReserves.ts` — fonction `addReserve`
