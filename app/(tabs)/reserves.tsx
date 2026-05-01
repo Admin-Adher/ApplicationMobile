@@ -2095,7 +2095,7 @@ export default function ReservesScreen() {
                 </ScrollView>
               </View>
 
-              {/* BÂTIMENT */}
+              {/* BÂTIMENT — localisation macro */}
               {buildings.length >= 1 && (
                 <View style={styles.filtSection}>
                   <View style={styles.filtSectionHeader}>
@@ -2122,7 +2122,119 @@ export default function ReservesScreen() {
                 </View>
               )}
 
-              {/* PRIORITÉ */}
+              {/* NIVEAU — localisation intermédiaire (étage) */}
+              {levels.length > 0 && (
+                <View style={styles.filtSection}>
+                  <View style={styles.filtSectionHeader}>
+                    <Ionicons name="layers-outline" size={13} color={C.textSub} />
+                    <Text style={styles.filtSectionTitle}>Niveau</Text>
+                  </View>
+                  <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+                    <View style={styles.filtChipRow}>
+                      {['all', ...levels].map(lv => (
+                        <TouchableOpacity
+                          key={lv}
+                          style={[styles.filtChip, levelFilter === lv && styles.filtChipActive]}
+                          onPress={() => setLevelFilter(lv)}
+                        >
+                          <Text style={[styles.filtChipText, levelFilter === lv && styles.filtChipTextActive]}>
+                            {lv === 'all' ? 'Tous' : lv}
+                          </Text>
+                        </TouchableOpacity>
+                      ))}
+                    </View>
+                  </ScrollView>
+                </View>
+              )}
+
+              {/* ZONE — localisation micro */}
+              {zones.length > 0 && (
+                <View style={styles.filtSection}>
+                  <View style={styles.filtSectionHeader}>
+                    <Ionicons name="location-outline" size={13} color={C.textSub} />
+                    <Text style={styles.filtSectionTitle}>Zone</Text>
+                  </View>
+                  <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+                    <View style={styles.filtChipRow}>
+                      {['all', ...zones].map(z => (
+                        <TouchableOpacity
+                          key={z}
+                          style={[styles.filtChip, zoneFilter === z && styles.filtChipActive]}
+                          onPress={() => setZoneFilter(z)}
+                        >
+                          <Text style={[styles.filtChipText, zoneFilter === z && styles.filtChipTextActive]}>
+                            {z === 'all' ? 'Toutes' : z}
+                          </Text>
+                        </TouchableOpacity>
+                      ))}
+                    </View>
+                  </ScrollView>
+                </View>
+              )}
+
+              {/* ENTREPRISE — responsabilité */}
+              {companies.length > 0 && (
+                <View style={styles.filtSection}>
+                  <View style={styles.filtSectionHeader}>
+                    <Ionicons name="construct-outline" size={13} color={C.textSub} />
+                    <Text style={styles.filtSectionTitle}>Entreprise</Text>
+                  </View>
+                  <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+                    <View style={styles.filtChipRow}>
+                      <TouchableOpacity
+                        style={[styles.filtChip, companyFilter === 'all' && styles.filtChipActive]}
+                        onPress={() => setCompanyFilter('all')}
+                      >
+                        <Text style={[styles.filtChipText, companyFilter === 'all' && styles.filtChipTextActive]}>Toutes</Text>
+                      </TouchableOpacity>
+                      {companies.map(co => (
+                        <TouchableOpacity
+                          key={co.id}
+                          style={[styles.filtChip, companyFilter === co.name && { backgroundColor: co.color + '20', borderColor: co.color }]}
+                          onPress={() => setCompanyFilter(companyFilter === co.name ? 'all' : co.name)}
+                        >
+                          <View style={[styles.dot, { backgroundColor: co.color }]} />
+                          <Text style={[styles.filtChipText, companyFilter === co.name && { color: co.color, fontFamily: 'Inter_600SemiBold' }]}>{co.shortName}</Text>
+                        </TouchableOpacity>
+                      ))}
+                    </View>
+                  </ScrollView>
+                </View>
+              )}
+
+              {/* CORPS D'ÉTAT (LOT) — sous-catégorie travaux */}
+              {lots.length > 0 && (
+                <View style={styles.filtSection}>
+                  <View style={styles.filtSectionHeader}>
+                    <Ionicons name="briefcase-outline" size={13} color={C.textSub} />
+                    <Text style={styles.filtSectionTitle}>Corps d'état (Lot)</Text>
+                  </View>
+                  <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+                    <View style={styles.filtChipRow}>
+                      <TouchableOpacity
+                        style={[styles.filtChip, lotFilter === 'all' && styles.filtChipActive]}
+                        onPress={() => setLotFilter('all')}
+                      >
+                        <Text style={[styles.filtChipText, lotFilter === 'all' && styles.filtChipTextActive]}>Tous</Text>
+                      </TouchableOpacity>
+                      {lots.map(lot => (
+                        <TouchableOpacity
+                          key={lot.id}
+                          style={[styles.filtChip, lotFilter === lot.id && { backgroundColor: (lot.color ?? C.primary) + '20', borderColor: lot.color ?? C.primary }]}
+                          onPress={() => setLotFilter(lotFilter === lot.id ? 'all' : lot.id)}
+                        >
+                          {lot.color && <View style={[styles.dot, { backgroundColor: lot.color }]} />}
+                          <Text style={[styles.filtChipText, lotFilter === lot.id && { color: lot.color ?? C.primary, fontFamily: 'Inter_600SemiBold' }]} numberOfLines={1}>
+                            {lot.number ? `${lot.number}. ` : ''}{lot.name}
+                          </Text>
+                        </TouchableOpacity>
+                      ))}
+                    </View>
+                  </ScrollView>
+                </View>
+              )}
+
+              {/* PRIORITÉ — qualification de l'urgence (en dernier) */}
               <View style={styles.filtSection}>
                 <View style={styles.filtSectionHeader}>
                   <Ionicons name="alert-circle-outline" size={13} color={C.textSub} />
@@ -2156,118 +2268,6 @@ export default function ReservesScreen() {
                   </View>
                 </ScrollView>
               </View>
-
-              {/* ZONE */}
-              {zones.length > 0 && (
-                <View style={styles.filtSection}>
-                  <View style={styles.filtSectionHeader}>
-                    <Ionicons name="location-outline" size={13} color={C.textSub} />
-                    <Text style={styles.filtSectionTitle}>Zone</Text>
-                  </View>
-                  <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-                    <View style={styles.filtChipRow}>
-                      {['all', ...zones].map(z => (
-                        <TouchableOpacity
-                          key={z}
-                          style={[styles.filtChip, zoneFilter === z && styles.filtChipActive]}
-                          onPress={() => setZoneFilter(z)}
-                        >
-                          <Text style={[styles.filtChipText, zoneFilter === z && styles.filtChipTextActive]}>
-                            {z === 'all' ? 'Toutes' : z}
-                          </Text>
-                        </TouchableOpacity>
-                      ))}
-                    </View>
-                  </ScrollView>
-                </View>
-              )}
-
-              {/* NIVEAU */}
-              {levels.length > 0 && (
-                <View style={styles.filtSection}>
-                  <View style={styles.filtSectionHeader}>
-                    <Ionicons name="layers-outline" size={13} color={C.textSub} />
-                    <Text style={styles.filtSectionTitle}>Niveau</Text>
-                  </View>
-                  <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-                    <View style={styles.filtChipRow}>
-                      {['all', ...levels].map(lv => (
-                        <TouchableOpacity
-                          key={lv}
-                          style={[styles.filtChip, levelFilter === lv && styles.filtChipActive]}
-                          onPress={() => setLevelFilter(lv)}
-                        >
-                          <Text style={[styles.filtChipText, levelFilter === lv && styles.filtChipTextActive]}>
-                            {lv === 'all' ? 'Tous' : lv}
-                          </Text>
-                        </TouchableOpacity>
-                      ))}
-                    </View>
-                  </ScrollView>
-                </View>
-              )}
-
-              {/* ENTREPRISE */}
-              {companies.length > 0 && (
-                <View style={styles.filtSection}>
-                  <View style={styles.filtSectionHeader}>
-                    <Ionicons name="construct-outline" size={13} color={C.textSub} />
-                    <Text style={styles.filtSectionTitle}>Entreprise</Text>
-                  </View>
-                  <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-                    <View style={styles.filtChipRow}>
-                      <TouchableOpacity
-                        style={[styles.filtChip, companyFilter === 'all' && styles.filtChipActive]}
-                        onPress={() => setCompanyFilter('all')}
-                      >
-                        <Text style={[styles.filtChipText, companyFilter === 'all' && styles.filtChipTextActive]}>Toutes</Text>
-                      </TouchableOpacity>
-                      {companies.map(co => (
-                        <TouchableOpacity
-                          key={co.id}
-                          style={[styles.filtChip, companyFilter === co.name && { backgroundColor: co.color + '20', borderColor: co.color }]}
-                          onPress={() => setCompanyFilter(companyFilter === co.name ? 'all' : co.name)}
-                        >
-                          <View style={[styles.dot, { backgroundColor: co.color }]} />
-                          <Text style={[styles.filtChipText, companyFilter === co.name && { color: co.color, fontFamily: 'Inter_600SemiBold' }]}>{co.shortName}</Text>
-                        </TouchableOpacity>
-                      ))}
-                    </View>
-                  </ScrollView>
-                </View>
-              )}
-
-              {/* CORPS D'ÉTAT (LOT) */}
-              {lots.length > 0 && (
-                <View style={styles.filtSection}>
-                  <View style={styles.filtSectionHeader}>
-                    <Ionicons name="briefcase-outline" size={13} color={C.textSub} />
-                    <Text style={styles.filtSectionTitle}>Corps d'état (Lot)</Text>
-                  </View>
-                  <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-                    <View style={styles.filtChipRow}>
-                      <TouchableOpacity
-                        style={[styles.filtChip, lotFilter === 'all' && styles.filtChipActive]}
-                        onPress={() => setLotFilter('all')}
-                      >
-                        <Text style={[styles.filtChipText, lotFilter === 'all' && styles.filtChipTextActive]}>Tous</Text>
-                      </TouchableOpacity>
-                      {lots.map(lot => (
-                        <TouchableOpacity
-                          key={lot.id}
-                          style={[styles.filtChip, lotFilter === lot.id && { backgroundColor: (lot.color ?? C.primary) + '20', borderColor: lot.color ?? C.primary }]}
-                          onPress={() => setLotFilter(lotFilter === lot.id ? 'all' : lot.id)}
-                        >
-                          {lot.color && <View style={[styles.dot, { backgroundColor: lot.color }]} />}
-                          <Text style={[styles.filtChipText, lotFilter === lot.id && { color: lot.color ?? C.primary, fontFamily: 'Inter_600SemiBold' }]} numberOfLines={1}>
-                            {lot.number ? `${lot.number}. ` : ''}{lot.name}
-                          </Text>
-                        </TouchableOpacity>
-                      ))}
-                    </View>
-                  </ScrollView>
-                </View>
-              )}
 
             </ScrollView>
 
