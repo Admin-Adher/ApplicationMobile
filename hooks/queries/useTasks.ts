@@ -124,9 +124,11 @@ export function useTasks() {
       return;
     }
     if (isSupabaseConfigured) {
-      (supabase as any).from('tasks').update(payload).eq('id', t.id).then(({ error }: { error: any }) => {
-        if (error) console.warn('[sync] updateTask error:', error.message);
-      });
+      const { error } = await (supabase as any).from('tasks').update(payload).eq('id', t.id);
+      if (error) {
+        console.warn('[sync] updateTask error, queuing for retry:', error.message);
+        enqueueOperation({ table: 'tasks', op: 'update', filter: { column: 'id', value: t.id }, data: payload });
+      }
     }
   }, [queryClient, isOnlineRef, enqueueOperation, persist]);
 
@@ -142,10 +144,15 @@ export function useTasks() {
     if (isSupabaseConfigured) {
       const { data: deleted, error } = await (supabase as any).from('tasks').delete().eq('id', id).select();
       if (error) {
-        console.warn('[sync] deleteTask erreur serveur:', error.message);
-        if (previous) {
+        console.warn('[sync] deleteTask erreur serveur:', error.code, error.message);
+        const isPermissionDenied = error.code === '42501' || /row-level security|permission denied/i.test(error.message ?? '');
+        if (isPermissionDenied && previous) {
           queryClient.setQueryData<Task[]>(queryKeys.tasks(), old => [previous, ...(old ?? [])]);
-          Alert.alert('Suppression refusée', 'Vous n\'avez pas les droits pour supprimer cette tâche, ou elle n\'existe plus sur le serveur.');
+          persist(queryClient.getQueryData<Task[]>(queryKeys.tasks()) ?? []);
+          Alert.alert('Suppression refusée', "Vous n'avez pas les droits pour supprimer cette tâche, ou elle n'existe plus sur le serveur.");
+        } else {
+          console.warn('[sync] deleteTask: erreur réseau/session, opération enqueued pour retry');
+          enqueueOperation({ table: 'tasks', op: 'delete', filter: { column: 'id', value: id } });
         }
       } else if (!deleted?.length) {
         console.warn('[sync] deleteTask: aucune ligne supprimée');
@@ -168,12 +175,13 @@ export function useTasks() {
     );
     persist(queryClient.getQueryData<Task[]>(queryKeys.tasks()) ?? []);
     if (isSupabaseConfigured) {
-      (supabase as any).from('tasks').update({ comments: updated.comments }).eq('id', taskId)
-        .then(({ error }: { error: any }) => {
-          if (error) console.warn('[sync] addTaskComment error:', error.message);
-        });
+      const { error } = await (supabase as any).from('tasks').update({ comments: updated.comments }).eq('id', taskId);
+      if (error) {
+        console.warn('[sync] addTaskComment error, queuing for retry:', error.message);
+        enqueueOperation({ table: 'tasks', op: 'update', filter: { column: 'id', value: taskId }, data: { comments: updated.comments } });
+      }
     }
-  }, [queryClient, user, persist]);
+  }, [queryClient, user, isOnlineRef, enqueueOperation, persist]);
 
   const updateTaskComment = useCallback(async (taskId: string, commentId: string, newContent: string) => {
     const tasks = queryClient.getQueryData<Task[]>(queryKeys.tasks()) ?? [];
@@ -193,12 +201,13 @@ export function useTasks() {
     );
     persist(queryClient.getQueryData<Task[]>(queryKeys.tasks()) ?? []);
     if (isSupabaseConfigured) {
-      (supabase as any).from('tasks').update({ comments: updatedComments }).eq('id', taskId)
-        .then(({ error }: { error: any }) => {
-          if (error) console.warn('[sync] updateTaskComment error:', error.message);
-        });
+      const { error } = await (supabase as any).from('tasks').update({ comments: updatedComments }).eq('id', taskId);
+      if (error) {
+        console.warn('[sync] updateTaskComment error, queuing for retry:', error.message);
+        enqueueOperation({ table: 'tasks', op: 'update', filter: { column: 'id', value: taskId }, data: { comments: updatedComments } });
+      }
     }
-  }, [queryClient, user, persist]);
+  }, [queryClient, user, isOnlineRef, enqueueOperation, persist]);
 
   const deleteTaskComment = useCallback(async (taskId: string, commentId: string) => {
     const tasks = queryClient.getQueryData<Task[]>(queryKeys.tasks()) ?? [];
@@ -216,12 +225,13 @@ export function useTasks() {
     );
     persist(queryClient.getQueryData<Task[]>(queryKeys.tasks()) ?? []);
     if (isSupabaseConfigured) {
-      (supabase as any).from('tasks').update({ comments: updatedComments }).eq('id', taskId)
-        .then(({ error }: { error: any }) => {
-          if (error) console.warn('[sync] deleteTaskComment error:', error.message);
-        });
+      const { error } = await (supabase as any).from('tasks').update({ comments: updatedComments }).eq('id', taskId);
+      if (error) {
+        console.warn('[sync] deleteTaskComment error, queuing for retry:', error.message);
+        enqueueOperation({ table: 'tasks', op: 'update', filter: { column: 'id', value: taskId }, data: { comments: updatedComments } });
+      }
     }
-  }, [queryClient, user, persist]);
+  }, [queryClient, user, isOnlineRef, enqueueOperation, persist]);
 
   return {
     tasks: query.data ?? [],

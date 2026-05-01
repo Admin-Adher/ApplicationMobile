@@ -101,9 +101,11 @@ export function useDocuments() {
       return;
     }
     if (isSupabaseConfigured) {
-      (supabase as any).from('documents').delete().eq('id', id).then(({ error }: { error: any }) => {
-        if (error) console.warn('[sync] deleteDocument error:', error.message);
-      });
+      const { error } = await (supabase as any).from('documents').delete().eq('id', id);
+      if (error) {
+        console.warn('[sync] deleteDocument error, queuing for retry:', error.message);
+        enqueueOperation({ table: 'documents', op: 'delete', filter: { column: 'id', value: id } });
+      }
     }
   }, [queryClient, isOnlineRef, enqueueOperation, persist]);
 

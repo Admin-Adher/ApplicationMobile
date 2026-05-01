@@ -100,9 +100,11 @@ export function useOprs() {
       return;
     }
     if (isSupabaseConfigured) {
-      (supabase as any).from('oprs').update(fields).eq('id', o.id).then(({ error }: { error: any }) => {
-        if (error) console.warn('[sync] updateOpr error:', error.message);
-      });
+      const { error } = await (supabase as any).from('oprs').update(fields).eq('id', o.id);
+      if (error) {
+        console.warn('[sync] updateOpr error, queuing for retry:', error.message);
+        enqueueOperation({ table: 'oprs', op: 'update', filter: { column: 'id', value: o.id }, data: fields });
+      }
     }
   }, [queryClient, user, isOnlineRef, enqueueOperation, persist]);
 
@@ -118,10 +120,15 @@ export function useOprs() {
     if (isSupabaseConfigured) {
       const { data: deleted, error } = await (supabase as any).from('oprs').delete().eq('id', id).select();
       if (error) {
-        console.warn('[sync] deleteOpr erreur serveur:', error.message);
-        if (previous) {
+        console.warn('[sync] deleteOpr erreur serveur:', error.code, error.message);
+        const isPermissionDenied = error.code === '42501' || /row-level security|permission denied/i.test(error.message ?? '');
+        if (isPermissionDenied && previous) {
           queryClient.setQueryData<Opr[]>(queryKeys.oprs(), old => [previous, ...(old ?? [])]);
-          Alert.alert('Suppression refusée', 'Vous n\'avez pas les droits pour supprimer cet OPR, ou il n\'existe plus sur le serveur.');
+          persist(queryClient.getQueryData<Opr[]>(queryKeys.oprs()) ?? []);
+          Alert.alert('Suppression refusée', "Vous n'avez pas les droits pour supprimer cet OPR, ou il n'existe plus sur le serveur.");
+        } else {
+          console.warn('[sync] deleteOpr: erreur réseau/session, opération enqueued pour retry');
+          enqueueOperation({ table: 'oprs', op: 'delete', filter: { column: 'id', value: id } });
         }
       } else if (!deleted?.length) {
         console.warn('[sync] deleteOpr: aucune ligne supprimée');

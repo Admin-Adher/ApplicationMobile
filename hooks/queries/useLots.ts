@@ -123,9 +123,11 @@ export function useLots() {
       return;
     }
     if (isSupabaseConfigured) {
-      (supabase as any).from('lots').update(fields).eq('id', l.id).then(({ error }: { error: any }) => {
-        if (error) console.warn('[sync] updateLot error:', error.message);
-      });
+      const { error } = await (supabase as any).from('lots').update(fields).eq('id', l.id);
+      if (error) {
+        console.warn('[sync] updateLot error, queuing for retry:', error.message);
+        enqueueOperation({ table: 'lots', op: 'update', filter: { column: 'id', value: l.id }, data: fields });
+      }
     }
   }, [queryClient, user, isOnlineRef, enqueueOperation, persist]);
 
@@ -141,10 +143,15 @@ export function useLots() {
     if (isSupabaseConfigured) {
       const { data: deleted, error } = await (supabase as any).from('lots').delete().eq('id', id).select();
       if (error) {
-        console.warn('[sync] deleteLot erreur serveur:', error.message);
-        if (previous) {
+        console.warn('[sync] deleteLot erreur serveur:', error.code, error.message);
+        const isPermissionDenied = error.code === '42501' || /row-level security|permission denied/i.test(error.message ?? '');
+        if (isPermissionDenied && previous) {
           queryClient.setQueryData<Lot[]>(queryKeys.lots(), old => [...(old ?? []), previous]);
-          Alert.alert('Suppression refusée', 'Vous n\'avez pas les droits pour supprimer ce lot, ou il n\'existe plus sur le serveur.');
+          persist(queryClient.getQueryData<Lot[]>(queryKeys.lots()) ?? []);
+          Alert.alert('Suppression refusée', "Vous n'avez pas les droits pour supprimer ce lot, ou il n'existe plus sur le serveur.");
+        } else {
+          console.warn('[sync] deleteLot: erreur réseau/session, opération enqueued pour retry');
+          enqueueOperation({ table: 'lots', op: 'delete', filter: { column: 'id', value: id } });
         }
       } else if (!deleted?.length) {
         console.warn('[sync] deleteLot: aucune ligne supprimée');

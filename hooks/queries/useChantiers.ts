@@ -218,9 +218,15 @@ export function useChantiers() {
     if (isSupabaseConfigured) {
       const { error } = await (supabase as any).from('chantiers').update(updatePayload).eq('id', c.id);
       if (error) {
+        // Try refreshing the session once, then retry.
         await supabase.auth.refreshSession().catch(() => {});
         const { error: err2 } = await (supabase as any).from('chantiers').update(updatePayload).eq('id', c.id);
-        if (err2) Alert.alert('Synchronisation incomplète', `Le chantier "${c.name}" a été modifié localement mais n'a pas pu être synchronisé (${err2.message}).`, [{ text: 'OK' }]);
+        if (err2) {
+          // Both attempts failed — queue for retry instead of alerting the user.
+          // Local cache already has the correct state; the server will catch up on reconnect.
+          console.warn('[sync] updateChantier: both attempts failed, queuing for retry:', err2.message);
+          enqueueOperation({ table: 'chantiers', op: 'update', filter: { column: 'id', value: c.id }, data: updatePayload });
+        }
       }
     }
   }, [queryClient, isOnlineRef, enqueueOperation]);
@@ -376,9 +382,11 @@ export function useChantiers() {
         enqueueOperation({ table: 'site_plans', op: 'update', filter: { column: 'id', value: p.id }, data: updatePayload });
         return;
       }
-      (supabase as any).from('site_plans').update(prep.data!).eq('id', p.id).then(({ error }: { error: any }) => {
-        if (error) console.warn('[sync] updateSitePlan error:', error.message);
-      });
+      const { error } = await (supabase as any).from('site_plans').update(prep.data!).eq('id', p.id);
+      if (error) {
+        console.warn('[sync] updateSitePlan error, queuing for retry:', error.message);
+        enqueueOperation({ table: 'site_plans', op: 'update', filter: { column: 'id', value: p.id }, data: prep.data! });
+      }
     }
   }, [queryClient, isOnlineRef, enqueueOperation]);
 
@@ -394,10 +402,15 @@ export function useChantiers() {
     if (isSupabaseConfigured) {
       const { data: deleted, error } = await (supabase as any).from('site_plans').delete().eq('id', id).select();
       if (error) {
-        console.warn('[sync] deleteSitePlan erreur serveur:', error.message);
-        if (previous) {
+        console.warn('[sync] deleteSitePlan erreur serveur:', error.code, error.message);
+        const isPermissionDenied = error.code === '42501' || /row-level security|permission denied/i.test(error.message ?? '');
+        if (isPermissionDenied && previous) {
           queryClient.setQueryData<SitePlan[]>(queryKeys.sitePlans(), old => [...(old ?? []), previous]);
-          Alert.alert('Suppression refusée', 'Vous n\'avez pas les droits pour supprimer ce plan, ou il n\'existe plus sur le serveur.');
+          writeCache(SITE_PLANS_CACHE_KEY, queryClient.getQueryData<SitePlan[]>(queryKeys.sitePlans()) ?? [], userId);
+          Alert.alert('Suppression refusée', "Vous n'avez pas les droits pour supprimer ce plan, ou il n'existe plus sur le serveur.");
+        } else {
+          console.warn('[sync] deleteSitePlan: erreur réseau/session, opération enqueued pour retry');
+          enqueueOperation({ table: 'site_plans', op: 'delete', filter: { column: 'id', value: id } });
         }
       } else if (!deleted?.length) {
         console.warn('[sync] deleteSitePlan: aucune ligne supprimée');

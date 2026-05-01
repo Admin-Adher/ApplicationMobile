@@ -1,6 +1,5 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useCallback, useEffect, useRef } from 'react';
-import { Alert } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { supabase, isSupabaseConfigured } from '@/lib/supabase';
 import { useAuth } from '@/context/AuthContext';
@@ -107,8 +106,8 @@ export function usePhotos() {
       }
       const { error } = await (supabase as any).from('photos').insert(prep.data!);
       if (error) {
-        console.warn('[sync] addPhoto error:', error.message);
-        Alert.alert('Synchronisation incomplète', `La photo a été sauvegardée localement mais n'a pas pu être synchronisée (${error.message}).`);
+        console.warn('[sync] addPhoto error, queuing for retry:', error.message);
+        enqueueOperation({ table: 'photos', op: 'insert', data: payload });
       }
     }
   }, [queryClient, user, isOnlineRef, enqueueOperation, persist]);
@@ -122,9 +121,11 @@ export function usePhotos() {
       return;
     }
     if (isSupabaseConfigured) {
-      (supabase as any).from('photos').delete().eq('id', id).then(({ error }: { error: any }) => {
-        if (error) console.warn('[sync] deletePhoto error:', error.message);
-      });
+      const { error } = await (supabase as any).from('photos').delete().eq('id', id);
+      if (error) {
+        console.warn('[sync] deletePhoto error, queuing for retry:', error.message);
+        enqueueOperation({ table: 'photos', op: 'delete', filter: { column: 'id', value: id } });
+      }
     }
   }, [queryClient, isOnlineRef, enqueueOperation, persist]);
 

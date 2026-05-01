@@ -100,9 +100,11 @@ export function useVisites() {
       return;
     }
     if (isSupabaseConfigured) {
-      (supabase as any).from('visites').update(fields).eq('id', v.id).then(({ error }: { error: any }) => {
-        if (error) console.warn('[sync] updateVisite error:', error.message);
-      });
+      const { error } = await (supabase as any).from('visites').update(fields).eq('id', v.id);
+      if (error) {
+        console.warn('[sync] updateVisite error, queuing for retry:', error.message);
+        enqueueOperation({ table: 'visites', op: 'update', filter: { column: 'id', value: v.id }, data: fields });
+      }
     }
   }, [queryClient, user, isOnlineRef, enqueueOperation, persist]);
 
@@ -118,10 +120,15 @@ export function useVisites() {
     if (isSupabaseConfigured) {
       const { data: deleted, error } = await (supabase as any).from('visites').delete().eq('id', id).select();
       if (error) {
-        console.warn('[sync] deleteVisite erreur serveur:', error.message);
-        if (previous) {
+        console.warn('[sync] deleteVisite erreur serveur:', error.code, error.message);
+        const isPermissionDenied = error.code === '42501' || /row-level security|permission denied/i.test(error.message ?? '');
+        if (isPermissionDenied && previous) {
           queryClient.setQueryData<Visite[]>(queryKeys.visites(), old => [previous, ...(old ?? [])]);
-          Alert.alert('Suppression refusée', 'Vous n\'avez pas les droits pour supprimer cette visite, ou elle n\'existe plus sur le serveur.');
+          persist(queryClient.getQueryData<Visite[]>(queryKeys.visites()) ?? []);
+          Alert.alert('Suppression refusée', "Vous n'avez pas les droits pour supprimer cette visite, ou elle n'existe plus sur le serveur.");
+        } else {
+          console.warn('[sync] deleteVisite: erreur réseau/session, opération enqueued pour retry');
+          enqueueOperation({ table: 'visites', op: 'delete', filter: { column: 'id', value: id } });
         }
       } else if (!deleted?.length) {
         console.warn('[sync] deleteVisite: aucune ligne supprimée');
@@ -144,10 +151,11 @@ export function useVisites() {
       return;
     }
     if (isSupabaseConfigured) {
-      (supabase as any).from('visites').update({ reserve_ids: updated.reserveIds }).eq('id', visiteId)
-        .then(({ error }: { error: any }) => {
-          if (error) console.warn('[sync] linkReserveToVisite error:', error.message);
-        });
+      const { error } = await (supabase as any).from('visites').update({ reserve_ids: updated.reserveIds }).eq('id', visiteId);
+      if (error) {
+        console.warn('[sync] linkReserveToVisite error, queuing for retry:', error.message);
+        enqueueOperation({ table: 'visites', op: 'update', filter: { column: 'id', value: visiteId }, data: { reserve_ids: updated.reserveIds } });
+      }
     }
   }, [queryClient, isOnlineRef, enqueueOperation, persist]);
 
