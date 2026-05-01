@@ -395,7 +395,7 @@ async function exportGlobalReport(
 
   // 4. Build one HTML section per building
   const totalPdfPlans = chantierPlans.filter(
-    p => p.fileType === 'pdf' && p.uri && (reservesByPlan.get(p.id) ?? []).length > 0
+    p => isPlanPdf(p) && p.uri && (reservesByPlan.get(p.id) ?? []).length > 0
   ).length;
   let processedPdfPlans = 0;
   const buildingSections: string[] = [];
@@ -435,12 +435,18 @@ async function exportGlobalReport(
 
       let planImgHtml = '';
       if (plan.uri && planReserves.length > 0) {
-        if (plan.fileType === 'image') {
+        // Use isPlanPdf() so plans without an explicit fileType (fileType===undefined,
+        // which happens when the DB column is NULL for older records) are still handled.
+        // Without this, both branches below would be skipped and no image would appear.
+        const planIsPdf = isPlanPdf(plan);
+        const planIsImage = !planIsPdf && plan.fileType !== 'dxf';
+
+        if (planIsImage) {
           try {
             const dataUrl = await loadFileAsDataUrl(plan.uri, 'image');
             if (dataUrl) planImgHtml = buildGlobalPlanImg(dataUrl);
           } catch { /* skip if loading fails */ }
-        } else if (plan.fileType === 'pdf') {
+        } else if (planIsPdf) {
           processedPdfPlans++;
           onProgress?.(processedPdfPlans, totalPdfPlans, plan.name);
           try {
