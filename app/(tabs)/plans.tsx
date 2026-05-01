@@ -342,6 +342,249 @@ ${fallbackCanvasScript ? `<script>${fallbackCanvasScript}<\/script>` : ''}
   }
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Global chantier report — all buildings × all plans for a selected company
+// ─────────────────────────────────────────────────────────────────────────────
+async function exportGlobalReport(
+  chantierName: string,
+  chantierPlans: SitePlan[],
+  allChantierReserves: Reserve[],
+  companyFilter: string | null,
+  companiesForColor: Array<{ name: string; color: string }>,
+  action: 'share' | 'print' = 'share',
+): Promise<void> {
+  const STATUS_FR: Record<string, string> = {
+    open: 'Ouvert', in_progress: 'En cours', waiting: 'En attente',
+    verification: 'Vérification', closed: 'Clôturé',
+  };
+  const STATUS_COLORS: Record<string, string> = {
+    open: '#ef4444', in_progress: '#3b82f6', waiting: '#f59e0b',
+    verification: '#8b5cf6', closed: '#22c55e',
+  };
+  const PRIORITY_FR: Record<string, string> = {
+    critical: 'Critique', high: 'Haute', medium: 'Moyenne', low: 'Basse',
+  };
+  const PRIORITY_COLORS: Record<string, string> = {
+    critical: '#ef4444', high: '#f97316', medium: '#3b82f6', low: '#6b7280',
+  };
+
+  // 1. Filter reserves by company
+  const filteredReserves = companyFilter === null
+    ? allChantierReserves
+    : allChantierReserves.filter(r => (r.company ?? '').trim() === companyFilter);
+
+  // 2. Group reserves by planId
+  const reservesByPlan = new Map<string, Reserve[]>();
+  for (const r of filteredReserves) {
+    if (!r.planId) continue;
+    if (!reservesByPlan.has(r.planId)) reservesByPlan.set(r.planId, []);
+    reservesByPlan.get(r.planId)!.push(r);
+  }
+
+  // 3. Unique building names, sorted alphabetically (empty string = "Sans bâtiment" → at end)
+  const buildingNames = Array.from(
+    new Set(chantierPlans.map(p => p.building ?? ''))
+  ).sort((a, b) => {
+    if (!a && !b) return 0;
+    if (!a) return 1;
+    if (!b) return -1;
+    return a.localeCompare(b, 'fr');
+  });
+
+  // 4. Build one HTML section per building
+  const buildingSections: string[] = [];
+
+  for (const building of buildingNames) {
+    const buildingPlans = chantierPlans.filter(p => (p.building ?? '') === building);
+    const buildingLabel = building || 'Sans bâtiment';
+    let buildingReserveCount = 0;
+    const planBlocks: string[] = [];
+
+    for (const plan of buildingPlans) {
+      const planReserves = reservesByPlan.get(plan.id) ?? [];
+      buildingReserveCount += planReserves.length;
+
+      // Load plan image (image type only; skip PDF to avoid heavy WebView rendering)
+      let planImgHtml = '';
+      if (plan.fileType === 'image' && plan.uri && planReserves.length > 0) {
+        try {
+          const dataUrl = await loadFileAsDataUrl(plan.uri, 'image');
+          if (dataUrl) {
+            const PIN_R = 10;
+            const PIN_FONT = 9;
+            const pinsWithCoords = planReserves.filter(r => r.planX != null && r.planY != null);
+            const circles = pinsWithCoords.map((r, i) => {
+              const color = getCompanyColor(r.company ?? '', companiesForColor);
+              const n = i + 1;
+              return (
+                `<circle cx="${r.planX}%" cy="${r.planY}%" r="${PIN_R}" fill="${color}" stroke="rgba(255,255,255,0.85)" stroke-width="1.5"/>` +
+                `<text x="${r.planX}%" y="${r.planY}%" text-anchor="middle" dominant-baseline="central" fill="#fff" font-size="${PIN_FONT}" font-weight="bold" font-family="Arial,sans-serif">${n}</text>`
+              );
+            }).join('');
+            planImgHtml =
+              `<div class="plan-image-wrap"><div style="position:relative;width:100%">` +
+              `<img src="${dataUrl}" style="width:100%;height:auto;display:block;border-radius:6px;border:1px solid #e2e8f0"/>` +
+              (circles
+                ? `<svg xmlns="http://www.w3.org/2000/svg" style="position:absolute;top:0;left:0;width:100%;height:100%;overflow:visible">${circles}</svg>`
+                : '') +
+              `</div></div>`;
+          }
+        } catch { /* skip image if loading fails */ }
+      } else if (plan.fileType === 'pdf' && planReserves.length > 0) {
+        planImgHtml = `<div class="plan-no-image">📋 Plan PDF — voir annotations dans l'application</div>`;
+      }
+
+      // Build reserve rows (numbered 1..N per plan)
+      const rows = planReserves.map((r, i) => {
+        const n = i + 1;
+        const color = getCompanyColor(r.company ?? '', companiesForColor);
+        const statusColor = STATUS_COLORS[r.status] ?? '#6b7280';
+        const priorityColor = PRIORITY_COLORS[r.priority] ?? '#6b7280';
+        return `<tr>
+          <td style="text-align:center;width:36px;"><span style="display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px;border-radius:50%;background:${color};color:#fff;font-weight:700;font-size:11px;">${n}</span></td>
+          <td style="font-weight:600;">${r.title}</td>
+          <td>${r.company || '—'}</td>
+          <td>${r.level || '—'}</td>
+          <td><span style="color:${statusColor};font-weight:600;">${STATUS_FR[r.status] ?? r.status}</span></td>
+          <td><span style="color:${priorityColor};font-weight:600;">${PRIORITY_FR[r.priority] ?? r.priority}</span></td>
+          <td>${r.deadline || '—'}</td>
+        </tr>`;
+      }).join('');
+
+      const levelBadge = plan.level
+        ? `<span style="font-size:11px;font-weight:600;background:#e2e8f0;color:#64748b;padding:2px 8px;border-radius:10px;margin-left:6px;">${plan.level}</span>`
+        : '';
+      const tableHtml = planReserves.length === 0
+        ? `<div class="no-reserves">Aucune réserve sur ce plan</div>`
+        : `<table><thead><tr><th>#</th><th>Titre</th><th>Entreprise</th><th>Niveau</th><th>Statut</th><th>Priorité</th><th>Échéance</th></tr></thead><tbody>${rows}</tbody></table>`;
+
+      planBlocks.push(`
+        <div class="plan-section">
+          <div class="plan-header">📐 ${plan.name}${levelBadge}<span style="margin-left:auto;font-size:11px;color:#94a3b8;">${planReserves.length} réserve${planReserves.length !== 1 ? 's' : ''}</span></div>
+          ${planImgHtml}
+          ${tableHtml}
+        </div>`);
+    }
+
+    buildingSections.push(`
+      <div class="building-section">
+        <div class="building-header">
+          <span style="font-size:22px;">🏗️</span>
+          ${buildingLabel}
+          <span class="building-reserve-count">${buildingReserveCount} réserve${buildingReserveCount !== 1 ? 's' : ''}</span>
+        </div>
+        ${planBlocks.join('')}
+      </div>`);
+  }
+
+  // 5. Summary table grouped by status
+  const totalReserves = filteredReserves.length;
+  const byStatus = new Map<string, Reserve[]>();
+  for (const r of filteredReserves) {
+    if (!byStatus.has(r.status)) byStatus.set(r.status, []);
+    byStatus.get(r.status)!.push(r);
+  }
+  const statusOrder = ['open', 'in_progress', 'waiting', 'verification', 'closed'];
+  const summaryRows = statusOrder.map(s => {
+    const rs = byStatus.get(s) ?? [];
+    if (rs.length === 0) return '';
+    const color = STATUS_COLORS[s] ?? '#6b7280';
+    const pct = totalReserves > 0 ? Math.round((rs.length / totalReserves) * 100) : 0;
+    return `<tr>
+      <td><span style="color:${color};font-weight:600;">${STATUS_FR[s] ?? s}</span></td>
+      <td style="text-align:right;font-weight:700;">${rs.length}</td>
+      <td style="text-align:right;color:#94a3b8;">${pct}%</td>
+      <td><div style="background:#e2e8f0;border-radius:4px;height:8px;width:100%;overflow:hidden;"><div style="background:${color};height:8px;width:${pct}%;border-radius:4px;"></div></div></td>
+    </tr>`;
+  }).join('');
+
+  const dateStr = new Date().toLocaleDateString('fr-FR', { day: '2-digit', month: 'long', year: 'numeric' });
+  const companyLabel = companyFilter ?? 'Toutes les entreprises';
+  const totalBuildings = buildingNames.length;
+  const totalPlans = chantierPlans.length;
+
+  const html = `<!DOCTYPE html>
+<html lang="fr">
+<head><meta charset="UTF-8"/>
+<title>Rapport des réserves — ${chantierName}</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0;font-family:Arial,Helvetica,sans-serif;}
+body{background:#fff;color:#1a1a2e;}
+.cover-page{display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:90vh;padding:60px 40px;text-align:center;page-break-after:always;break-after:page;}
+.cover-logo{font-size:64px;margin-bottom:32px;}
+.cover-title{font-size:36px;font-weight:800;color:#1E3A5F;margin-bottom:16px;letter-spacing:-0.5px;}
+.cover-chantier{font-size:22px;font-weight:600;color:#334155;margin-bottom:12px;}
+.cover-company{font-size:15px;color:#64748b;background:#f1f5f9;padding:7px 22px;border-radius:20px;display:inline-block;}
+.cover-divider{width:80px;height:4px;background:#1E3A5F;margin:28px auto;border-radius:2px;}
+.cover-stats{display:flex;gap:48px;justify-content:center;margin-top:36px;}
+.stat-block{text-align:center;}
+.stat-num{display:block;font-size:42px;font-weight:800;color:#1E3A5F;line-height:1;}
+.stat-lbl{font-size:11px;color:#64748b;text-transform:uppercase;letter-spacing:1.2px;margin-top:5px;display:block;}
+.cover-date{font-size:12px;color:#94a3b8;margin-top:52px;}
+.building-section{page-break-before:always;break-before:page;padding-bottom:4px;}
+.building-header{background:linear-gradient(135deg,#1E3A5F 0%,#2d5282 100%);color:#fff;padding:18px 24px;font-size:20px;font-weight:700;border-radius:8px 8px 0 0;display:flex;align-items:center;gap:12px;}
+.building-reserve-count{font-size:13px;font-weight:400;opacity:0.65;margin-left:auto;}
+.plan-section{border:1px solid #e2e8f0;border-top:none;background:#fafafa;}
+.plan-section:last-child{border-radius:0 0 8px 8px;}
+.plan-header{background:#f1f5f9;padding:10px 18px;font-size:13px;font-weight:600;color:#475569;border-bottom:1px solid #e2e8f0;display:flex;align-items:center;gap:6px;}
+.plan-image-wrap{padding:12px 16px;background:#fff;border-bottom:1px solid #e2e8f0;}
+.plan-no-image{padding:12px 16px;text-align:center;color:#94a3b8;font-size:12px;background:#fff;border-bottom:1px solid #e2e8f0;}
+.no-reserves{padding:14px 16px;text-align:center;color:#b0b8c8;font-size:12px;}
+table{width:100%;border-collapse:collapse;font-size:12px;}
+thead th{background:#f8fafc;color:#475569;font-weight:600;text-align:left;padding:8px 10px;border-bottom:2px solid #e2e8f0;font-size:11px;text-transform:uppercase;letter-spacing:0.4px;}
+tbody tr{border-bottom:1px solid #f1f5f9;}
+tbody td{padding:7px 10px;vertical-align:middle;}
+.summary-section{page-break-before:always;break-before:page;padding:36px 28px;}
+.summary-title{font-size:22px;font-weight:700;color:#1E3A5F;margin-bottom:24px;padding-bottom:12px;border-bottom:2px solid #e2e8f0;}
+.summary-table thead th{font-size:11px;}
+.summary-table tbody td{font-size:13px;padding:10px;}
+.footer{margin-top:28px;font-size:10px;color:#bbb;text-align:center;border-top:1px solid #eee;padding-top:12px;}
+@media print{body{-webkit-print-color-adjust:exact;print-color-adjust:exact;}@page{margin:14mm;}}
+</style>
+</head>
+<body>
+<div class="cover-page">
+  <div class="cover-logo">📋</div>
+  <div class="cover-title">Rapport des réserves</div>
+  <div class="cover-chantier">${chantierName}</div>
+  <div class="cover-divider"></div>
+  <div class="cover-company">🏢 ${companyLabel}</div>
+  <div class="cover-stats">
+    <div class="stat-block"><span class="stat-num">${totalReserves}</span><span class="stat-lbl">réserves</span></div>
+    <div class="stat-block"><span class="stat-num">${totalBuildings}</span><span class="stat-lbl">bâtiments</span></div>
+    <div class="stat-block"><span class="stat-num">${totalPlans}</span><span class="stat-lbl">plans</span></div>
+  </div>
+  <div class="cover-date">Généré le ${dateStr} · BuildTrack</div>
+</div>
+${buildingSections.join('\n')}
+<div class="summary-section">
+  <div class="summary-title">📊 Tableau de synthèse</div>
+  <table class="summary-table">
+    <thead><tr><th>Statut</th><th style="text-align:right;">Nombre</th><th style="text-align:right;">%</th><th>Répartition</th></tr></thead>
+    <tbody>${summaryRows || '<tr><td colspan="4" style="text-align:center;color:#94a3b8;padding:20px;">Aucune réserve</td></tr>'}</tbody>
+  </table>
+  <div class="footer">BuildTrack — Gestion de chantier numérique — ${dateStr}</div>
+</div>
+</body>
+</html>`;
+
+  if (Platform.OS === 'web') {
+    const win = window.open('', '_blank');
+    if (win) {
+      win.document.open(); win.document.write(html); win.document.close();
+      if (action === 'print') {
+        setTimeout(() => { try { win.print(); } catch {} }, 800);
+      }
+    }
+  } else {
+    if (action === 'print') {
+      await printPDFHelper(html, `Rapport_${chantierName}`);
+    } else {
+      await exportPDFHelper(html, `Rapport_${chantierName}`);
+    }
+  }
+}
+
 export default function PlansScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
@@ -395,11 +638,14 @@ export default function PlansScreen() {
 
   // PDF export modal state
   const [pdfModalVisible, setPdfModalVisible] = useState(false);
+  const [pdfScope, setPdfScope] = useState<'plan' | 'global'>('plan');
   const [pdfMode, setPdfMode] = useState<'all' | 'company_single' | 'company_multi' | 'company_none' | 'manual'>('all');
   const [pdfCompanySingle, setPdfCompanySingle] = useState<string | null>(null);
   const [pdfCompaniesMulti, setPdfCompaniesMulti] = useState<Set<string>>(new Set());
   const [pdfManualSelection, setPdfManualSelection] = useState<Set<string>>(new Set());
   const [pdfLoading, setPdfLoading] = useState(false);
+  // Global report state
+  const [globalReportCompany, setGlobalReportCompany] = useState<string | null>(null);
   const [pinSizes, setPinSizes] = useState<Record<string, number>>({});
   const [focusedPinId, setFocusedPinId] = useState<string | null>(null);
   const [draggingPinId, setDraggingPinId] = useState<string | null>(null);
@@ -848,15 +1094,68 @@ export default function PlansScreen() {
 
   const pdfPreviewCount = pdfFilteredList.length;
 
+  // All reserves for the current chantier (used by the global report)
+  const chantierReserves = useMemo(
+    () => (activeChantierId
+      ? reserves.filter(r => r.chantierId === activeChantierId && !r.archivedAt)
+      : []),
+    [reserves, activeChantierId],
+  );
+
+  // Unique companies across the whole chantier (for the global report company picker)
+  const globalReportCompanies = useMemo(() => {
+    const countMap = new Map<string, number>();
+    for (const r of chantierReserves) {
+      const key = (r.company && r.company.trim()) ? r.company.trim() : null;
+      if (key) countMap.set(key, (countMap.get(key) ?? 0) + 1);
+    }
+    return Array.from(countMap.entries())
+      .map(([key, count]) => ({ key, label: key, count }))
+      .sort((a, b) => a.label.localeCompare(b.label, 'fr'));
+  }, [chantierReserves]);
+
+  // How many reserves will appear in the global report with the current company filter
+  const globalReportPreviewCount = useMemo(() => {
+    if (globalReportCompany === null) return chantierReserves.length;
+    return chantierReserves.filter(r => (r.company ?? '').trim() === globalReportCompany).length;
+  }, [chantierReserves, globalReportCompany]);
+
   const openPdfModal = useCallback(() => {
+    setPdfScope('plan');
     setPdfMode('all');
     setPdfCompanySingle(null);
     setPdfCompaniesMulti(new Set());
     setPdfManualSelection(new Set());
+    setGlobalReportCompany(null);
     setPdfModalVisible(true);
   }, []);
 
   const handleConfirmPdfExport = useCallback(async (action: 'share' | 'print' = 'share') => {
+    // ── Global report mode ──────────────────────────────────────────────────
+    if (pdfScope === 'global') {
+      if (globalReportPreviewCount === 0) {
+        Alert.alert('Aucune réserve', "Aucune réserve ne correspond à votre sélection.");
+        return;
+      }
+      setPdfLoading(true);
+      try {
+        await exportGlobalReport(
+          activeChantier?.name ?? '',
+          chantierPlans,
+          chantierReserves,
+          globalReportCompany,
+          companies,
+          action,
+        );
+        setPdfModalVisible(false);
+      } catch {
+        Alert.alert('Erreur', "Impossible de générer le rapport PDF.");
+      } finally {
+        setPdfLoading(false);
+      }
+      return;
+    }
+    // ── Per-plan mode (existing behaviour) ──────────────────────────────────
     if (pdfFilteredList.length === 0) {
       Alert.alert('Aucune réserve', "Aucune réserve ne correspond à votre sélection.");
       return;
@@ -881,7 +1180,7 @@ export default function PlansScreen() {
     } finally {
       setPdfLoading(false);
     }
-  }, [pdfFilteredList, currentPlan, activeChantier, pinNumberMap, pinSizeScale, companies]);
+  }, [pdfScope, globalReportPreviewCount, activeChantier, chantierPlans, chantierReserves, globalReportCompany, companies, pdfFilteredList, currentPlan, pinNumberMap, pinSizeScale]);
 
   const pinSize = Math.round((isTablet ? 48 : 44) * pinSizeScale);
   const clusterSize = Math.round((isTablet ? 60 : 52) * pinSizeScale);
@@ -2604,56 +2903,128 @@ export default function PlansScreen() {
             <View style={styles.pdfModalHeaderRow}>
               <View style={{ flex: 1 }}>
                 <Text style={styles.modalTitle}>Télécharger en PDF</Text>
-                <Text style={styles.modalMeta}>Plan : {currentPlan?.name ?? '—'}</Text>
+                <Text style={styles.modalMeta}>
+                  {pdfScope === 'plan'
+                    ? `Plan : ${currentPlan?.name ?? '—'}`
+                    : `Chantier : ${activeChantier?.name ?? '—'}`}
+                </Text>
               </View>
               <TouchableOpacity onPress={() => setPdfModalVisible(false)} accessibilityLabel="Fermer">
                 <Ionicons name="close" size={20} color={C.textMuted} />
               </TouchableOpacity>
             </View>
 
-            <View style={styles.pdfOptionGroup}>
+            {/* Scope toggle: Ce plan / Rapport global */}
+            <View style={styles.pdfScopeRow}>
               <TouchableOpacity
-                style={[styles.pdfOption, pdfMode === 'all' && styles.pdfOptionActive]}
-                onPress={() => setPdfMode('all')}
+                style={[styles.pdfScopeBtn, pdfScope === 'plan' && styles.pdfScopeBtnActive]}
+                onPress={() => setPdfScope('plan')}
               >
-                <Ionicons name="albums-outline" size={14} color={pdfMode === 'all' ? '#fff' : C.text} />
-                <Text style={[styles.pdfOptionText, pdfMode === 'all' && styles.pdfOptionTextActive]}>
-                  Toutes les réserves du plan
+                <Ionicons name="map-outline" size={13} color={pdfScope === 'plan' ? '#fff' : C.textMuted} />
+                <Text style={[styles.pdfScopeBtnText, pdfScope === 'plan' && styles.pdfScopeBtnTextActive]}>
+                  Ce plan
                 </Text>
               </TouchableOpacity>
-
               <TouchableOpacity
-                style={[styles.pdfOption, pdfMode === 'company_single' && styles.pdfOptionActive]}
-                onPress={() => setPdfMode('company_single')}
+                style={[styles.pdfScopeBtn, pdfScope === 'global' && styles.pdfScopeBtnActive]}
+                onPress={() => setPdfScope('global')}
               >
-                <Ionicons name="business-outline" size={14} color={pdfMode === 'company_single' ? '#fff' : C.text} />
-                <Text style={[styles.pdfOptionText, pdfMode === 'company_single' && styles.pdfOptionTextActive]}>
-                  Une entreprise
-                </Text>
-              </TouchableOpacity>
-
-              <TouchableOpacity
-                style={[styles.pdfOption, pdfMode === 'company_multi' && styles.pdfOptionActive]}
-                onPress={() => setPdfMode('company_multi')}
-              >
-                <Ionicons name="people-outline" size={14} color={pdfMode === 'company_multi' ? '#fff' : C.text} />
-                <Text style={[styles.pdfOptionText, pdfMode === 'company_multi' && styles.pdfOptionTextActive]}>
-                  Plusieurs entreprises
-                </Text>
-              </TouchableOpacity>
-
-              <TouchableOpacity
-                style={[styles.pdfOption, pdfMode === 'manual' && styles.pdfOptionActive]}
-                onPress={() => setPdfMode('manual')}
-              >
-                <Ionicons name="checkbox-outline" size={14} color={pdfMode === 'manual' ? '#fff' : C.text} />
-                <Text style={[styles.pdfOptionText, pdfMode === 'manual' && styles.pdfOptionTextActive]}>
-                  Sélection manuelle
+                <Ionicons name="layers-outline" size={13} color={pdfScope === 'global' ? '#fff' : C.textMuted} />
+                <Text style={[styles.pdfScopeBtnText, pdfScope === 'global' && styles.pdfScopeBtnTextActive]}>
+                  Rapport global
                 </Text>
               </TouchableOpacity>
             </View>
 
-            {pdfMode === 'company_single' && (
+            {pdfScope === 'plan' && (
+              <View style={styles.pdfOptionGroup}>
+                <TouchableOpacity
+                  style={[styles.pdfOption, pdfMode === 'all' && styles.pdfOptionActive]}
+                  onPress={() => setPdfMode('all')}
+                >
+                  <Ionicons name="albums-outline" size={14} color={pdfMode === 'all' ? '#fff' : C.text} />
+                  <Text style={[styles.pdfOptionText, pdfMode === 'all' && styles.pdfOptionTextActive]}>
+                    Toutes les réserves du plan
+                  </Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={[styles.pdfOption, pdfMode === 'company_single' && styles.pdfOptionActive]}
+                  onPress={() => setPdfMode('company_single')}
+                >
+                  <Ionicons name="business-outline" size={14} color={pdfMode === 'company_single' ? '#fff' : C.text} />
+                  <Text style={[styles.pdfOptionText, pdfMode === 'company_single' && styles.pdfOptionTextActive]}>
+                    Une entreprise
+                  </Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={[styles.pdfOption, pdfMode === 'company_multi' && styles.pdfOptionActive]}
+                  onPress={() => setPdfMode('company_multi')}
+                >
+                  <Ionicons name="people-outline" size={14} color={pdfMode === 'company_multi' ? '#fff' : C.text} />
+                  <Text style={[styles.pdfOptionText, pdfMode === 'company_multi' && styles.pdfOptionTextActive]}>
+                    Plusieurs entreprises
+                  </Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={[styles.pdfOption, pdfMode === 'manual' && styles.pdfOptionActive]}
+                  onPress={() => setPdfMode('manual')}
+                >
+                  <Ionicons name="checkbox-outline" size={14} color={pdfMode === 'manual' ? '#fff' : C.text} />
+                  <Text style={[styles.pdfOptionText, pdfMode === 'manual' && styles.pdfOptionTextActive]}>
+                    Sélection manuelle
+                  </Text>
+                </TouchableOpacity>
+              </View>
+            )}
+
+            {pdfScope === 'global' && (
+              <View>
+                <Text style={styles.globalReportDesc}>
+                  Rapport complet du chantier : tous les bâtiments, tous les plans avec leurs réserves et un tableau de synthèse.
+                </Text>
+                <View style={styles.pdfPickerWrap}>
+                  {/* All companies option */}
+                  <TouchableOpacity
+                    style={[styles.pdfPickRow, globalReportCompany === null && styles.pdfPickRowActive]}
+                    onPress={() => setGlobalReportCompany(null)}
+                  >
+                    <View style={[styles.pdfRadio, globalReportCompany === null && styles.pdfRadioActive]}>
+                      {globalReportCompany === null && <View style={styles.pdfRadioDot} />}
+                    </View>
+                    <Text style={[styles.pdfPickRowText, globalReportCompany === null && styles.pdfPickRowTextActive]}>
+                      Toutes les entreprises
+                    </Text>
+                    <Text style={styles.pdfPickRowCount}>{chantierReserves.length}</Text>
+                  </TouchableOpacity>
+                  {globalReportCompanies.map(c => {
+                    const active = globalReportCompany === c.key;
+                    return (
+                      <TouchableOpacity
+                        key={c.key}
+                        style={[styles.pdfPickRow, active && styles.pdfPickRowActive]}
+                        onPress={() => setGlobalReportCompany(c.key)}
+                      >
+                        <View style={[styles.pdfRadio, active && styles.pdfRadioActive]}>
+                          {active && <View style={styles.pdfRadioDot} />}
+                        </View>
+                        <Text style={[styles.pdfPickRowText, active && styles.pdfPickRowTextActive]} numberOfLines={1}>
+                          {c.label}
+                        </Text>
+                        <Text style={styles.pdfPickRowCount}>{c.count}</Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                  {globalReportCompanies.length === 0 && (
+                    <Text style={styles.pdfEmptyHint}>Aucune réserve sur ce chantier.</Text>
+                  )}
+                </View>
+              </View>
+            )}
+
+            {pdfScope === 'plan' && pdfMode === 'company_single' && (
               <View style={styles.pdfPickerWrap}>
                 <ScrollView>
                   {pdfGroupedByCompany.length === 0 && (
@@ -2681,7 +3052,7 @@ export default function PlansScreen() {
               </View>
             )}
 
-            {pdfMode === 'company_multi' && (
+            {pdfScope === 'plan' && pdfMode === 'company_multi' && (
               <View style={styles.pdfPickerWrap}>
                 <View style={styles.pdfPickActions}>
                   <TouchableOpacity
@@ -2728,7 +3099,7 @@ export default function PlansScreen() {
               </View>
             )}
 
-            {pdfMode === 'manual' && (
+            {pdfScope === 'plan' && pdfMode === 'manual' && (
               <View style={styles.pdfPickerWrap}>
                 <View style={styles.pdfPickActions}>
                   <TouchableOpacity
@@ -2783,29 +3154,47 @@ export default function PlansScreen() {
               </View>
             )}
 
-            <Text style={styles.pdfPreview}>
-              {pdfPreviewCount} réserve{pdfPreviewCount !== 1 ? 's' : ''} sera{pdfPreviewCount !== 1 ? 'ont' : ''} exportée{pdfPreviewCount !== 1 ? 's' : ''}.
-            </Text>
+            {(() => {
+              const count = pdfScope === 'global' ? globalReportPreviewCount : pdfPreviewCount;
+              const suffix = pdfScope === 'global'
+                ? ` · ${chantierPlans.length} plan${chantierPlans.length !== 1 ? 's' : ''}`
+                : '';
+              return (
+                <Text style={styles.pdfPreview}>
+                  {count} réserve{count !== 1 ? 's' : ''} sera{count !== 1 ? 'ont' : ''} exportée{count !== 1 ? 's' : ''}{suffix}.
+                </Text>
+              );
+            })()}
 
             <View style={styles.pdfModalActions}>
-              <TouchableOpacity
-                style={[styles.pdfDownloadBtn, (pdfLoading || pdfPreviewCount === 0) && { opacity: 0.5 }]}
-                onPress={() => { void handleConfirmPdfExport('print'); }}
-                disabled={pdfLoading || pdfPreviewCount === 0}
-              >
-                <Ionicons name="download-outline" size={15} color={C.primary} />
-                <Text style={styles.pdfDownloadBtnText}>Télécharger</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={[styles.pdfConfirmBtn, (pdfLoading || pdfPreviewCount === 0) && { opacity: 0.5 }]}
-                onPress={() => { void handleConfirmPdfExport('share'); }}
-                disabled={pdfLoading || pdfPreviewCount === 0}
-              >
-                {pdfLoading
-                  ? <ActivityIndicator size="small" color="#fff" />
-                  : <Ionicons name="share-social-outline" size={15} color="#fff" />}
-                <Text style={styles.pdfConfirmBtnText}>Partager le PDF</Text>
-              </TouchableOpacity>
+              {(() => {
+                const count = pdfScope === 'global' ? globalReportPreviewCount : pdfPreviewCount;
+                const disabled = pdfLoading || count === 0;
+                return (
+                  <>
+                    <TouchableOpacity
+                      style={[styles.pdfDownloadBtn, disabled && { opacity: 0.5 }]}
+                      onPress={() => { void handleConfirmPdfExport('print'); }}
+                      disabled={disabled}
+                    >
+                      <Ionicons name="download-outline" size={15} color={C.primary} />
+                      <Text style={styles.pdfDownloadBtnText}>Télécharger</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={[styles.pdfConfirmBtn, disabled && { opacity: 0.5 }]}
+                      onPress={() => { void handleConfirmPdfExport('share'); }}
+                      disabled={disabled}
+                    >
+                      {pdfLoading
+                        ? <ActivityIndicator size="small" color="#fff" />
+                        : <Ionicons name="share-social-outline" size={15} color="#fff" />}
+                      <Text style={styles.pdfConfirmBtnText}>
+                        {pdfScope === 'global' ? 'Partager le rapport' : 'Partager le PDF'}
+                      </Text>
+                    </TouchableOpacity>
+                  </>
+                );
+              })()}
             </View>
           </Pressable>
         </Pressable>
@@ -3377,4 +3766,13 @@ const styles = StyleSheet.create({
   pdfDownloadBtnText: { fontSize: 14, fontFamily: 'Inter_600SemiBold', color: C.primary },
   pdfConfirmBtn: { flex: 1, flexDirection: 'row', gap: 6, paddingVertical: 12, borderRadius: 12, backgroundColor: C.primary, alignItems: 'center', justifyContent: 'center' },
   pdfConfirmBtnText: { fontSize: 14, fontFamily: 'Inter_600SemiBold', color: '#fff' },
+
+  // Scope toggle (Ce plan / Rapport global)
+  pdfScopeRow: { flexDirection: 'row', gap: 8, padding: 4, backgroundColor: C.surface2, borderRadius: 12, borderWidth: 1, borderColor: C.border },
+  pdfScopeBtn: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, paddingVertical: 9, borderRadius: 9 },
+  pdfScopeBtnActive: { backgroundColor: C.primary, shadowColor: C.primary, shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.25, shadowRadius: 4, elevation: 3 },
+  pdfScopeBtnText: { fontSize: 13, fontFamily: 'Inter_500Medium', color: C.textMuted },
+  pdfScopeBtnTextActive: { color: '#fff', fontFamily: 'Inter_600SemiBold' },
+  // Global report description text
+  globalReportDesc: { fontSize: 12, fontFamily: 'Inter_400Regular', color: C.textSub, lineHeight: 17, paddingHorizontal: 2, paddingBottom: 6 },
 });
