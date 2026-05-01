@@ -37,6 +37,22 @@ Configurées dans Replit (shared) :
 - `GMAIL_APP_PASSWORD` — Mot de passe d'application Google (16 caractères, secret Replit)
 - `EMAIL_FROM` — Expéditeur affiché : `BuildTrack <buildtrack.admin@gmail.com>`
 
+## Correctif critique — Perte de données hors connexion (mai 2026)
+
+**Fichier** : `hooks/queries/useReserves.ts` — fonction `addReserve`
+
+**Problème** : Lorsque le réseau était instable (WiFi sans internet, signal faible), le ping de détection de connectivité pouvait renvoyer un faux positif (`isOnline = true`). La fonction `addReserve` tentait alors une synchronisation directe avec Supabase. Si le JWT était expiré (token non rafraîchissable hors connexion), Supabase rejetait l'insertion avec une erreur RLS (`42501`). Le gestionnaire d'erreur RLS appelait alors `rollback()`, supprimant la réserve du cache local — **perte totale de la donnée saisie** — et affichait l'alerte "Session expirée".
+
+**Règle corrigée** : `rollback()` ne doit être appelé que si le serveur confirme explicitement que l'utilisateur n'a pas les droits (mauvais rôle, profil sans organisation). Pour toutes les erreurs de connectivité/session, l'opération est enqueued dans la file hors-ligne pour synchronisation ultérieure, sans jamais supprimer la copie locale.
+
+**Changements** :
+- Absence de session (`getSession()` renvoie null) → enqueue, pas de rollback
+- Échec de lecture du profil (timeout réseau) → enqueue, pas de rollback
+- Retry avec org_id corrigé qui échoue aussi → enqueue avec le nouvel org_id, pas de rollback
+- JWT valide mais RLS bloque quand même (claims désynchronisés) → enqueue, pas de rollback
+- Erreur non-RLS (violation contrainte, etc.) → enqueue + log, pas de rollback
+- Seuls rollbacks conservés : rôle insuffisant (confirmé serveur) et profil sans organisation (confirmé serveur)
+
 ## Améliorations PDF (audit sécurité — mai 2025)
 
 - `lib/pdfBase.ts` — Ajout de `escapeHtml` exportée ; tous les helpers (`buildLetterhead`, `buildInfoGrid`, `buildKpiRow`, `buildDocFooter`, `buildPhotoGrid`, `wrapHTML`) échappent désormais toutes les chaînes utilisateur via `escapeHtml` en interne.

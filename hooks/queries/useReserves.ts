@@ -169,25 +169,44 @@ export function useReserves() {
 
     const isRlsError = (error.code === '42501') || /row-level security/i.test(error.message ?? '');
     if (isRlsError) {
-      // Most likely cause: stale local profile (organization_id) vs server profile.
-      // Refetch the profile and retry once with the fresh organization_id.
+      // Most likely causes:
+      //   1. Expired JWT that couldn't be refreshed while offline — the device
+      //      appeared online (false-positive ping) but Supabase rejected the token.
+      //   2. Stale local organization_id in the profile — retry with fresh value.
+      //
+      // Critical rule: NEVER call rollback() for connectivity/session issues.
+      // Rolling back deletes the local optimistic copy → data loss.
+      // Instead, queue the operation so it syncs when connectivity is restored.
       try {
         const { data: { session } } = await (supabase as any).auth.getSession();
         if (!session?.user?.id) {
-          rollback();
-          Alert.alert('Session expirée', 'Votre session a expiré. Reconnectez-vous pour créer une réserve.');
+          // No active session — could be truly signed out, or device is offline
+          // and couldn't reach the auth server. Queue to be safe; the sync engine
+          // will surface the error clearly if the session is genuinely expired.
+          console.warn('[sync] addReserve: no session during RLS diagnosis, queuing for later sync');
+          enqueueOperation({ table: 'reserves', op: 'insert', data: payload });
           return;
         }
-        const { data: freshProfile } = await (supabase as any)
+        const { data: freshProfile, error: profileErr } = await (supabase as any)
           .from('profiles')
           .select('organization_id, role')
           .eq('id', session.user.id)
           .single();
+
+        if (profileErr) {
+          // Profile fetch failed — almost certainly a network error while offline.
+          // Queue the insert; do not discard the local copy.
+          console.warn('[sync] addReserve: profile fetch failed during RLS diagnosis, queuing:', profileErr?.message);
+          enqueueOperation({ table: 'reserves', op: 'insert', data: payload });
+          return;
+        }
+
         const freshOrgId = freshProfile?.organization_id ?? null;
         const freshRole = freshProfile?.role ?? null;
         const allowedRoles = ['admin', 'conducteur', 'chef_equipe', 'super_admin'];
 
         if (!allowedRoles.includes(freshRole)) {
+          // Server confirmed the user's role genuinely forbids creating reserves.
           rollback();
           Alert.alert(
             'Permission refusée',
@@ -196,6 +215,7 @@ export function useReserves() {
           return;
         }
         if (!freshOrgId) {
+          // Server confirmed the profile has no organisation.
           rollback();
           Alert.alert(
             'Profil incomplet',
@@ -209,29 +229,30 @@ export function useReserves() {
           console.warn('[sync] addReserve retry with fresh organization_id:', freshOrgId, '(was:', orgId, ')');
           const { error: retryErr } = await (supabase as any).from('reserves').insert({ ...finalPayload, organization_id: freshOrgId });
           if (!retryErr) return;
-          console.warn('[sync] addReserve retry also failed:', retryErr.code, retryErr.message);
-          rollback();
-          Alert.alert('Synchronisation impossible', `La réserve n'a pas pu être créée (${retryErr.message}). Reconnectez-vous puis réessayez.`);
+          // Retry also failed: queue with the corrected org_id so it syncs later.
+          console.warn('[sync] addReserve retry also failed, queuing:', retryErr.code, retryErr.message);
+          enqueueOperation({ table: 'reserves', op: 'insert', data: { ...payload, organization_id: freshOrgId } });
           return;
         }
-        // Fresh org_id matches what we sent — RLS still rejected. The server-side profile
-        // and the row both have the same org but the policy still blocked. This usually means
-        // the JWT in the request didn't include the right user. Force a session refresh.
-        rollback();
-        Alert.alert(
-          'Synchronisation impossible',
-          "Votre session est désynchronisée avec le serveur. Déconnectez-vous puis reconnectez-vous, puis réessayez."
-        );
+        // Fresh org_id matches what we sent — RLS still rejected. The JWT in the
+        // request didn't carry the right claims (common when the token expired
+        // mid-session and couldn't be refreshed offline). Queue for later sync.
+        console.warn('[sync] addReserve: RLS rejected with correct org_id, queuing for session recovery');
+        enqueueOperation({ table: 'reserves', op: 'insert', data: payload });
       } catch (diagErr: any) {
-        console.warn('[sync] addReserve diagnostic failed:', diagErr?.message);
-        rollback();
-        Alert.alert('Synchronisation incomplète', `La réserve n'a pas pu être synchronisée (${error.message}).`);
+        // Any exception here is a network error (device offline, timeout, etc.).
+        // Queue the insert so it retries when connectivity is restored.
+        console.warn('[sync] addReserve diagnostic failed (likely offline), queuing:', diagErr?.message);
+        enqueueOperation({ table: 'reserves', op: 'insert', data: payload });
       }
       return;
     }
 
-    // Non-RLS error: keep local copy (so user doesn't lose their input) and tell them.
-    Alert.alert('Synchronisation incomplète', `La réserve a été créée localement mais n'a pas pu être synchronisée (${error.message}).`);
+    // Non-RLS server error (constraint violation, DB error, etc.): keep local
+    // copy AND queue the insert so it retries automatically when connectivity
+    // is restored. Do not rollback — user data must never be silently lost.
+    console.warn('[sync] addReserve non-RLS error, queuing for retry:', error.message);
+    enqueueOperation({ table: 'reserves', op: 'insert', data: payload });
   }, [queryClient, user, isOnlineRef, enqueueOperation, persist]);
 
   const updateReserve = useCallback(async (r: Reserve) => {
