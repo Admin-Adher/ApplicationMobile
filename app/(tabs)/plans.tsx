@@ -404,34 +404,47 @@ async function exportGlobalReport(
       const planReserves = reservesByPlan.get(plan.id) ?? [];
       buildingReserveCount += planReserves.length;
 
-      // Load plan image (image type only; skip PDF to avoid heavy WebView rendering)
+      // Build plan image HTML with SVG pin overlay (supports both image and PDF plans)
+      const PIN_R_G = 10;
+      const PIN_FONT_G = 9;
+      const buildGlobalPlanImg = (imgDataUrl: string): string => {
+        const pinsWithCoords = planReserves.filter(r => r.planX != null && r.planY != null);
+        const circles = pinsWithCoords.map((r, i) => {
+          const color = getCompanyColor(r.company ?? '', companiesForColor);
+          const n = i + 1;
+          return (
+            `<circle cx="${r.planX}%" cy="${r.planY}%" r="${PIN_R_G}" fill="${color}" stroke="rgba(255,255,255,0.85)" stroke-width="1.5"/>` +
+            `<text x="${r.planX}%" y="${r.planY}%" text-anchor="middle" dominant-baseline="central" fill="#fff" font-size="${PIN_FONT_G}" font-weight="bold" font-family="Arial,sans-serif">${n}</text>`
+          );
+        }).join('');
+        return (
+          `<div class="plan-image-wrap"><div style="position:relative;width:100%">` +
+          `<img src="${imgDataUrl}" style="width:100%;height:auto;display:block;border-radius:6px;border:1px solid #e2e8f0"/>` +
+          (circles
+            ? `<svg xmlns="http://www.w3.org/2000/svg" style="position:absolute;top:0;left:0;width:100%;height:100%;overflow:visible">${circles}</svg>`
+            : '') +
+          `</div></div>`
+        );
+      };
+
       let planImgHtml = '';
-      if (plan.fileType === 'image' && plan.uri && planReserves.length > 0) {
-        try {
-          const dataUrl = await loadFileAsDataUrl(plan.uri, 'image');
-          if (dataUrl) {
-            const PIN_R = 10;
-            const PIN_FONT = 9;
-            const pinsWithCoords = planReserves.filter(r => r.planX != null && r.planY != null);
-            const circles = pinsWithCoords.map((r, i) => {
-              const color = getCompanyColor(r.company ?? '', companiesForColor);
-              const n = i + 1;
-              return (
-                `<circle cx="${r.planX}%" cy="${r.planY}%" r="${PIN_R}" fill="${color}" stroke="rgba(255,255,255,0.85)" stroke-width="1.5"/>` +
-                `<text x="${r.planX}%" y="${r.planY}%" text-anchor="middle" dominant-baseline="central" fill="#fff" font-size="${PIN_FONT}" font-weight="bold" font-family="Arial,sans-serif">${n}</text>`
-              );
-            }).join('');
-            planImgHtml =
-              `<div class="plan-image-wrap"><div style="position:relative;width:100%">` +
-              `<img src="${dataUrl}" style="width:100%;height:auto;display:block;border-radius:6px;border:1px solid #e2e8f0"/>` +
-              (circles
-                ? `<svg xmlns="http://www.w3.org/2000/svg" style="position:absolute;top:0;left:0;width:100%;height:100%;overflow:visible">${circles}</svg>`
-                : '') +
-              `</div></div>`;
-          }
-        } catch { /* skip image if loading fails */ }
-      } else if (plan.fileType === 'pdf' && planReserves.length > 0) {
-        planImgHtml = `<div class="plan-no-image">📋 Plan PDF — voir annotations dans l'application</div>`;
+      if (plan.uri && planReserves.length > 0) {
+        if (plan.fileType === 'image') {
+          try {
+            const dataUrl = await loadFileAsDataUrl(plan.uri, 'image');
+            if (dataUrl) planImgHtml = buildGlobalPlanImg(dataUrl);
+          } catch { /* skip if loading fails */ }
+        } else if (plan.fileType === 'pdf') {
+          try {
+            const pdfDataUrl = await loadFileAsDataUrl(plan.uri, 'pdf');
+            if (pdfDataUrl) {
+              const preRendered = await preRenderPdfPageToDataUrl(pdfDataUrl, 720);
+              if (preRendered) {
+                planImgHtml = buildGlobalPlanImg(preRendered);
+              }
+            }
+          } catch { /* skip if PDF rendering fails */ }
+        }
       }
 
       // Build reserve rows (numbered 1..N per plan)
