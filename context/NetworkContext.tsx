@@ -651,14 +651,15 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
             ? await q.eq(op.filter.column, op.filter.value)
             : await q;
           if (!result.error && Array.isArray(result.data) && result.data.length === 0) {
-            if (op.table === 'reserves' && op.filter?.column === 'id') {
+            if (op.filter?.column === 'id') {
               try {
                 const { data: exists, error: existsErr } = await (supabase as any)
-                  .from('reserves')
+                  .from(op.table)
                   .select('id')
                   .eq('id', op.filter.value)
                   .maybeSingle();
                 if (!existsErr && !exists) {
+                  // Row is already gone server-side — consider the delete successful
                   continue;
                 }
               } catch {}
