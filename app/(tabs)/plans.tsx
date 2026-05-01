@@ -352,6 +352,7 @@ async function exportGlobalReport(
   companyFilter: string | null,
   companiesForColor: Array<{ name: string; color: string }>,
   action: 'share' | 'print' = 'share',
+  onProgress?: (current: number, total: number, planName: string) => void,
 ): Promise<void> {
   const STATUS_FR: Record<string, string> = {
     open: 'Ouvert', in_progress: 'En cours', waiting: 'En attente',
@@ -392,6 +393,10 @@ async function exportGlobalReport(
   });
 
   // 4. Build one HTML section per building
+  const totalPdfPlans = chantierPlans.filter(
+    p => p.fileType === 'pdf' && p.uri && (reservesByPlan.get(p.id) ?? []).length > 0
+  ).length;
+  let processedPdfPlans = 0;
   const buildingSections: string[] = [];
 
   for (const building of buildingNames) {
@@ -435,6 +440,8 @@ async function exportGlobalReport(
             if (dataUrl) planImgHtml = buildGlobalPlanImg(dataUrl);
           } catch { /* skip if loading fails */ }
         } else if (plan.fileType === 'pdf') {
+          processedPdfPlans++;
+          onProgress?.(processedPdfPlans, totalPdfPlans, plan.name);
           try {
             const pdfDataUrl = await loadFileAsDataUrl(plan.uri, 'pdf');
             if (pdfDataUrl) {
@@ -657,6 +664,7 @@ export default function PlansScreen() {
   const [pdfCompaniesMulti, setPdfCompaniesMulti] = useState<Set<string>>(new Set());
   const [pdfManualSelection, setPdfManualSelection] = useState<Set<string>>(new Set());
   const [pdfLoading, setPdfLoading] = useState(false);
+  const [globalReportProgress, setGlobalReportProgress] = useState<{ current: number; total: number; planName: string } | null>(null);
   // Global report state
   const [globalReportCompany, setGlobalReportCompany] = useState<string | null>(null);
   const [pinSizes, setPinSizes] = useState<Record<string, number>>({});
@@ -1151,6 +1159,7 @@ export default function PlansScreen() {
         return;
       }
       setPdfLoading(true);
+      setGlobalReportProgress(null);
       try {
         await exportGlobalReport(
           activeChantier?.name ?? '',
@@ -1159,12 +1168,14 @@ export default function PlansScreen() {
           globalReportCompany,
           companies,
           action,
+          (current, total, planName) => setGlobalReportProgress({ current, total, planName }),
         );
         setPdfModalVisible(false);
       } catch {
         Alert.alert('Erreur', "Impossible de générer le rapport PDF.");
       } finally {
         setPdfLoading(false);
+        setGlobalReportProgress(null);
       }
       return;
     }
@@ -3209,6 +3220,32 @@ export default function PlansScreen() {
                 );
               })()}
             </View>
+            {pdfLoading && pdfScope === 'global' && (
+              <View style={{ alignItems: 'center', paddingTop: 10, paddingBottom: 2 }}>
+                {globalReportProgress && globalReportProgress.total > 0 ? (
+                  <>
+                    <Text style={{ fontSize: 11, color: C.textSub, fontFamily: 'Inter_500Medium', marginBottom: 6 }}>
+                      Rendu du plan {globalReportProgress.current}/{globalReportProgress.total}
+                    </Text>
+                    <View style={{ width: '100%', height: 4, backgroundColor: '#E8F0FE', borderRadius: 4, overflow: 'hidden' }}>
+                      <View style={{
+                        height: 4,
+                        borderRadius: 4,
+                        backgroundColor: C.primary,
+                        width: `${Math.round((globalReportProgress.current / globalReportProgress.total) * 100)}%`,
+                      }} />
+                    </View>
+                    <Text style={{ fontSize: 10, color: C.textMuted, fontFamily: 'Inter_400Regular', marginTop: 4 }} numberOfLines={1}>
+                      {globalReportProgress.planName}
+                    </Text>
+                  </>
+                ) : (
+                  <Text style={{ fontSize: 11, color: C.textSub, fontFamily: 'Inter_400Regular' }}>
+                    Préparation du rapport...
+                  </Text>
+                )}
+              </View>
+            )}
           </Pressable>
         </Pressable>
       </Modal>
