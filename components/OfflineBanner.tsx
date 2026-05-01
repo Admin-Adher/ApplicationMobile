@@ -12,42 +12,54 @@ export default function OfflineBanner() {
   const translateY = useRef(new Animated.Value(-60)).current;
   const wasOffline = useRef(false);
   const reconnectTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const queueFlashTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [showReconnect, setShowReconnect] = useState(false);
+  const [showQueuedWhileOnline, setShowQueuedWhileOnline] = useState(false);
   const [visible, setVisible] = useState(false);
+  const prevQueueCount = useRef(queueCount);
 
+  const slideIn = () => {
+    Animated.spring(translateY, {
+      toValue: 0,
+      tension: 80,
+      friction: 12,
+      useNativeDriver: true,
+    }).start();
+  };
+
+  const slideOut = (onDone?: () => void) => {
+    Animated.timing(translateY, {
+      toValue: -60,
+      duration: 300,
+      useNativeDriver: true,
+    }).start(() => onDone?.());
+  };
+
+  // ── Connectivity transition effect ────────────────────────────────────────
   useEffect(() => {
     if (!isOnline) {
       wasOffline.current = true;
       setShowReconnect(false);
+      setShowQueuedWhileOnline(false);
       setVisible(true);
       if (reconnectTimer.current) clearTimeout(reconnectTimer.current);
-      Animated.spring(translateY, {
-        toValue: 0,
-        tension: 80,
-        friction: 12,
-        useNativeDriver: true,
-      }).start();
+      if (queueFlashTimer.current) clearTimeout(queueFlashTimer.current);
+      slideIn();
     } else {
       if (wasOffline.current) {
         wasOffline.current = false;
         setShowReconnect(true);
+        setShowQueuedWhileOnline(false);
         setVisible(true);
+        if (queueFlashTimer.current) clearTimeout(queueFlashTimer.current);
         reconnectTimer.current = setTimeout(() => {
-          Animated.timing(translateY, {
-            toValue: -60,
-            duration: 300,
-            useNativeDriver: true,
-          }).start(() => {
+          slideOut(() => {
             setShowReconnect(false);
             setVisible(false);
           });
         }, 3000);
       } else {
-        Animated.timing(translateY, {
-          toValue: -60,
-          duration: 300,
-          useNativeDriver: true,
-        }).start(() => setVisible(false));
+        slideOut(() => setVisible(false));
       }
     }
     return () => {
@@ -55,7 +67,65 @@ export default function OfflineBanner() {
     };
   }, [isOnline]);
 
+  // ── Queue-while-online flash ───────────────────────────────────────────────
+  // When items are enqueued while isOnline is true (false-positive ping scenario),
+  // neither the isOnline effect above nor wasOffline will trigger the banner.
+  // We detect the queue growing from 0 → N and flash a brief "en attente" notice.
+  useEffect(() => {
+    const prev = prevQueueCount.current;
+    prevQueueCount.current = queueCount;
+
+    const newItemsQueued = queueCount > prev && prev === 0;
+    const isInOfflineOrReconnectState = !isOnline || wasOffline.current || showReconnect;
+
+    if (newItemsQueued && !isInOfflineOrReconnectState && !visible) {
+      setShowQueuedWhileOnline(true);
+      setShowReconnect(false);
+      setVisible(true);
+      if (queueFlashTimer.current) clearTimeout(queueFlashTimer.current);
+      slideIn();
+      queueFlashTimer.current = setTimeout(() => {
+        slideOut(() => {
+          setShowQueuedWhileOnline(false);
+          setVisible(false);
+        });
+      }, 3000);
+    }
+
+    return () => {
+      if (queueFlashTimer.current) clearTimeout(queueFlashTimer.current);
+    };
+  }, [queueCount]);
+
   const bottomPad = Platform.OS === 'web' ? 16 : insets.bottom + 8;
+
+  const bannerColor = showReconnect
+    ? '#10B981'
+    : showQueuedWhileOnline
+    ? '#3B82F6'
+    : '#F59E0B';
+
+  const bannerIcon = showReconnect
+    ? 'wifi'
+    : showQueuedWhileOnline
+    ? 'cloud-upload-outline'
+    : 'wifi-outline';
+
+  const bannerText = showReconnect
+    ? queueCount > 0
+      ? `Reconnecté — sync de ${queueCount} opération${queueCount > 1 ? 's' : ''}…`
+      : 'Connexion rétablie'
+    : showQueuedWhileOnline
+    ? `${queueCount} opération${queueCount > 1 ? 's' : ''} sauvegardée${queueCount > 1 ? 's' : ''} — sync en attente`
+    : queueCount > 0
+    ? `Hors connexion — ${queueCount} opération${queueCount > 1 ? 's' : ''} en attente`
+    : 'Hors connexion — données sauvegardées localement';
+
+  const bannerStyle = showReconnect
+    ? styles.bannerOnline
+    : showQueuedWhileOnline
+    ? styles.bannerPending
+    : styles.bannerOffline;
 
   return (
     <>
@@ -71,20 +141,10 @@ export default function OfflineBanner() {
         <Animated.View
           style={[styles.wrapper, { bottom: bottomPad, transform: [{ translateY }], pointerEvents: 'none' as any }]}
         >
-          <View style={[styles.banner, showReconnect ? styles.bannerOnline : styles.bannerOffline]}>
-            <Ionicons
-              name={showReconnect ? 'wifi' : 'wifi-outline'}
-              size={16}
-              color={showReconnect ? '#10B981' : '#F59E0B'}
-            />
-            <Text style={[styles.text, { color: showReconnect ? '#10B981' : '#F59E0B' }]}>
-              {showReconnect
-                ? queueCount > 0
-                  ? `Reconnecté — sync de ${queueCount} opération${queueCount > 1 ? 's' : ''}…`
-                  : 'Connexion rétablie'
-                : queueCount > 0
-                  ? `Hors connexion — ${queueCount} opération${queueCount > 1 ? 's' : ''} en attente`
-                  : 'Hors connexion — données sauvegardées localement'}
+          <View style={[styles.banner, bannerStyle]}>
+            <Ionicons name={bannerIcon as any} size={16} color={bannerColor} />
+            <Text style={[styles.text, { color: bannerColor }]}>
+              {bannerText}
             </Text>
           </View>
         </Animated.View>
@@ -116,6 +176,10 @@ const styles = StyleSheet.create({
   bannerOnline: {
     backgroundColor: '#065F4618',
     borderColor: '#10B98140',
+  },
+  bannerPending: {
+    backgroundColor: '#1E3A5F18',
+    borderColor: '#3B82F640',
   },
   text: {
     flex: 1,
