@@ -30,6 +30,7 @@ Le workflow "Start Frontend" est configuré sur le port 5000.
   - `GET  /api/health` — health check
 - **Architecture conservée** : Supabase conservé comme backend principal (auth, RLS, realtime, stockage). Le PostgreSQL Replit/Neon est disponible pour usage futur.
 - **Client email mis à jour** : `lib/email/client.ts` utilise `EXPO_PUBLIC_API_URL` pour pointer vers le serveur API local sur les domaines Replit.
+- **CI Android (GitHub Actions)** : `.github/workflows/build-apk.yml` — ajout de `yes | sdkmanager --licenses || true` après le setup Android SDK pour accepter toutes les licences (y compris TV/XR) sans interaction. Les packages SDK sont ciblés sur `platform-tools build-tools;34.0.0 platforms;android-34` pour éviter les licences exotiques.
 
 ## Variables d'environnement
 
