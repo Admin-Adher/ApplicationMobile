@@ -382,7 +382,7 @@ async function seedDemoUsers(shouldAbort: () => boolean): Promise<'done' | 'erro
       // via the SQL one-shot migration), skip client-side seeding entirely and
       // persist the flag so future cold starts skip the RPC call too.
       try {
-        const { data: seeded } = await supabase.rpc('demo_profiles_seeded');
+        const { data: seeded } = await (supabase as any).rpc('demo_profiles_seeded');
         if (seeded === true) {
           await AsyncStorage.setItem(SEED_DONE_KEY, 'true').catch(() => {});
           return 'done';
