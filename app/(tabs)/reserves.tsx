@@ -777,7 +777,7 @@ export default function ReservesScreen() {
   };
 
   const renderCard = (item: Reserve) => {
-    const noPin = item.planX == null && item.planY == null && chantiersWithPlans.has(item.chantierId ?? '');
+    const hasPlansAvailable = chantiersWithPlans.has(item.chantierId ?? '');
     return (
       <View style={styles.selectableRow}>
         {isSelectMode && (
@@ -800,30 +800,8 @@ export default function ReservesScreen() {
             onSwipeLeft={permissions.canEdit ? handleSwipeLeft : undefined}
             selected={item.id === selectedReserveId}
             isFlashed={item.id === flashId}
+            hasPlansAvailable={hasPlansAvailable}
           />
-          {noPin && (
-            <TouchableOpacity
-              style={{ flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: 12, paddingVertical: 5, backgroundColor: '#F59E0B12', borderBottomLeftRadius: 12, borderBottomRightRadius: 12, borderWidth: 1, borderTopWidth: 0, borderColor: '#F59E0B30' }}
-              onPress={() => {
-                const planForReserve = activeSitePlans.find(p =>
-                  (item.buildingId && p.buildingId === item.buildingId && item.levelId && p.levelId === item.levelId) ||
-                  (p.building === item.building && p.level === item.level)
-                ) ?? activeSitePlans.find(p =>
-                  (item.buildingId && p.buildingId === item.buildingId) || p.building === item.building
-                ) ?? activeSitePlans[0];
-                if (planForReserve) {
-                  router.push({ pathname: '/(tabs)/plans', params: { focusPlanId: planForReserve.id } } as any);
-                } else {
-                  router.push('/(tabs)/plans' as any);
-                }
-              }}
-              activeOpacity={0.7}
-            >
-              <Ionicons name="location-outline" size={11} color="#B45309" />
-              <Text style={{ fontSize: 11, fontFamily: 'Inter_500Medium', color: '#B45309', flex: 1 }}>Non localisée sur le plan</Text>
-              <Text style={{ fontSize: 10, fontFamily: 'Inter_600SemiBold', color: '#B45309' }}>Épingler →</Text>
-            </TouchableOpacity>
-          )}
         </View>
       </View>
     );

@@ -19,9 +19,10 @@ interface Props {
   onSwipeLeft?: (reserve: Reserve) => void;
   selected?: boolean;
   isFlashed?: boolean;
+  hasPlansAvailable?: boolean;
 }
 
-export default function ReserveCard({ reserve, onPress, onLongPress, onSwipeRight, onSwipeLeft, selected, isFlashed }: Props) {
+export default function ReserveCard({ reserve, onPress, onLongPress, onSwipeRight, onSwipeLeft, selected, isFlashed, hasPlansAvailable }: Props) {
   const isArchived = !!reserve.archivedAt;
   const router = useRouter();
   const { lots } = useApp();
@@ -196,7 +197,7 @@ export default function ReserveCard({ reserve, onPress, onLongPress, onSwipeRigh
           </Text>
         </View>
         <View style={styles.rightRow}>
-          {reserve.planId && reserve.planX != null && (
+          {reserve.planId && reserve.planX != null ? (
             <TouchableOpacity
               style={styles.planPinBtn}
               onPress={() => router.push({ pathname: '/(tabs)/plans', params: { focusPlanId: reserve.planId, focusReserveId: reserve.id } } as any)}
@@ -204,10 +205,25 @@ export default function ReserveCard({ reserve, onPress, onLongPress, onSwipeRigh
               accessibilityRole="button"
               accessibilityLabel="Voir sur le plan"
             >
-              <Ionicons name="location-outline" size={12} color={C.primary} />
+              <Ionicons name="location" size={12} color={C.primary} />
               <Text style={styles.planPinText}>Plan</Text>
+              <View style={styles.planPinnedDot} />
             </TouchableOpacity>
-          )}
+          ) : hasPlansAvailable ? (
+            <TouchableOpacity
+              style={styles.planUnpinnedBtn}
+              onPress={() => router.push('/(tabs)/plans' as any)}
+              hitSlop={8}
+              accessibilityRole="button"
+              accessibilityLabel="Non localisée sur le plan — épingler"
+            >
+              <Ionicons name="location-outline" size={12} color="#B45309" />
+              <Text style={styles.planUnpinnedText}>Plan</Text>
+              <View style={styles.planUnpinnedDot}>
+                <Text style={styles.planUnpinnedDotText}>!</Text>
+              </View>
+            </TouchableOpacity>
+          ) : null}
           {!firstPhotoUri && reserve.photoUri ? (
             <View style={styles.iconBadge}>
               <Ionicons name="camera-outline" size={12} color={C.textMuted} />
@@ -513,6 +529,44 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontFamily: 'Inter_600SemiBold',
     color: C.primary,
+  },
+  planPinnedDot: {
+    width: 5,
+    height: 5,
+    borderRadius: 3,
+    backgroundColor: '#22C55E',
+    marginLeft: 1,
+  },
+  planUnpinnedBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 3,
+    backgroundColor: '#FFFBEB',
+    paddingHorizontal: 7,
+    paddingVertical: 3,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#D97706' + '50',
+  },
+  planUnpinnedText: {
+    fontSize: 11,
+    fontFamily: 'Inter_600SemiBold',
+    color: '#B45309',
+  },
+  planUnpinnedDot: {
+    width: 12,
+    height: 12,
+    borderRadius: 6,
+    backgroundColor: '#F59E0B',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginLeft: 1,
+  },
+  planUnpinnedDotText: {
+    fontSize: 8,
+    fontFamily: 'Inter_700Bold',
+    color: '#fff',
+    lineHeight: 10,
   },
   swipeRightAction: {
     backgroundColor: C.inProgress,
