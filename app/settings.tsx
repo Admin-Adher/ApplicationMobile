@@ -58,6 +58,18 @@ export default function SettingsScreen() {
   const [descInput, setDescInput] = useState(projectDescription);
   const [saving, setSaving] = useState(false);
   const [activeTab, setActiveTab] = useState<'compte' | 'project' | 'attendance' | 'integrations'>('compte');
+
+  const [nameEdit, setNameEdit] = useState(user?.name ?? '');
+  const [savingName, setSavingName] = useState(false);
+  const [nameMsg, setNameMsg] = useState<{ ok: boolean; text: string } | null>(null);
+
+  const [currentPwd, setCurrentPwd] = useState('');
+  const [newPwd, setNewPwd] = useState('');
+  const [confirmPwd, setConfirmPwd] = useState('');
+  const [showCurrentPwd, setShowCurrentPwd] = useState(false);
+  const [showNewPwd, setShowNewPwd] = useState(false);
+  const [savingPwd, setSavingPwd] = useState(false);
+  const [pwdMsg, setPwdMsg] = useState<{ ok: boolean; text: string } | null>(null);
   const isAdmin = user?.role === 'admin' || user?.role === 'super_admin';
   const isSousTraitant = user?.role === 'sous_traitant';
 
@@ -199,6 +211,49 @@ export default function SettingsScreen() {
   }, [attendanceHistory]);
 
   const totalDays = Object.keys(groupByDate(attendanceHistory)).length;
+
+  async function handleSaveName() {
+    const trimmed = nameEdit.trim();
+    if (!trimmed) { setNameMsg({ ok: false, text: 'Le nom ne peut pas être vide.' }); return; }
+    if (trimmed === user?.name) { setNameMsg({ ok: false, text: 'Aucun changement détecté.' }); return; }
+    if (!isSupabaseConfigured) { setNameMsg({ ok: false, text: 'Connexion au serveur requise.' }); return; }
+    setSavingName(true);
+    setNameMsg(null);
+    const { error } = await (supabase as any).from('profiles').update({ name: trimmed }).eq('id', user?.id);
+    setSavingName(false);
+    if (error) {
+      setNameMsg({ ok: false, text: 'Erreur lors de la mise à jour. Réessayez.' });
+    } else {
+      setNameMsg({ ok: true, text: 'Nom mis à jour avec succès.' });
+    }
+  }
+
+  async function handleChangePassword() {
+    setPwdMsg(null);
+    if (!currentPwd) { setPwdMsg({ ok: false, text: 'Saisissez votre mot de passe actuel.' }); return; }
+    if (newPwd.length < 6) { setPwdMsg({ ok: false, text: 'Le nouveau mot de passe doit faire au moins 6 caractères.' }); return; }
+    if (newPwd !== confirmPwd) { setPwdMsg({ ok: false, text: 'Les mots de passe ne correspondent pas.' }); return; }
+    if (!isSupabaseConfigured || !user?.email) { setPwdMsg({ ok: false, text: 'Connexion au serveur requise.' }); return; }
+    setSavingPwd(true);
+    const { error: authError } = await supabase.auth.signInWithPassword({ email: user.email, password: currentPwd });
+    if (authError) {
+      setSavingPwd(false);
+      setPwdMsg({ ok: false, text: 'Mot de passe actuel incorrect.' });
+      return;
+    }
+    const { error: updateError } = await supabase.auth.updateUser({ password: newPwd });
+    setSavingPwd(false);
+    if (updateError) {
+      setPwdMsg({ ok: false, text: 'Erreur lors du changement. Réessayez.' });
+    } else {
+      setCurrentPwd(''); setNewPwd(''); setConfirmPwd('');
+      setPwdMsg({ ok: true, text: 'Mot de passe modifié. Un email de confirmation vous a été envoyé.' });
+      if (user?.email) {
+        const { sendPasswordChangedEmail } = await import('@/lib/email/client');
+        sendPasswordChangedEmail({ email: user.email, name: user.name }).catch(() => {});
+      }
+    }
+  }
 
   async function handleSave() {
     if (!nameInput.trim()) {
@@ -510,6 +565,104 @@ export default function SettingsScreen() {
                 )}
               </View>
             )}
+
+            {/* ── Modifier mon profil ── */}
+            <View style={styles.card}>
+              <View style={styles.cardTitleRow}>
+                <Ionicons name="person-outline" size={16} color={C.primary} />
+                <Text style={styles.cardTitle}>Modifier mon profil</Text>
+              </View>
+
+              {/* Nom */}
+              <Text style={styles.label}>Nom affiché</Text>
+              <TextInput
+                style={styles.input}
+                value={nameEdit}
+                onChangeText={v => { setNameEdit(v); setNameMsg(null); }}
+                placeholder="Votre nom"
+                placeholderTextColor={C.textMuted}
+                autoCapitalize="words"
+                autoCorrect={false}
+              />
+              {nameMsg && (
+                <View style={[styles.profileMsg, nameMsg.ok ? styles.profileMsgOk : styles.profileMsgErr]}>
+                  <Ionicons name={nameMsg.ok ? 'checkmark-circle' : 'alert-circle'} size={14} color={nameMsg.ok ? '#059669' : C.open} />
+                  <Text style={[styles.profileMsgTxt, { color: nameMsg.ok ? '#059669' : C.open }]}>{nameMsg.text}</Text>
+                </View>
+              )}
+              <TouchableOpacity
+                style={[styles.profileBtn, savingName && { opacity: 0.6 }]}
+                onPress={handleSaveName}
+                disabled={savingName}
+              >
+                <Ionicons name={savingName ? 'sync' : 'checkmark-circle-outline'} size={16} color={C.primary} />
+                <Text style={styles.profileBtnTxt}>{savingName ? 'Enregistrement…' : 'Enregistrer le nom'}</Text>
+              </TouchableOpacity>
+
+              <View style={styles.profileDivider} />
+
+              {/* Mot de passe */}
+              <View style={styles.cardTitleRow}>
+                <Ionicons name="lock-closed-outline" size={15} color={C.primary} />
+                <Text style={styles.cardTitle}>Changer le mot de passe</Text>
+              </View>
+
+              <Text style={styles.label}>Mot de passe actuel</Text>
+              <View style={styles.pwdWrap}>
+                <TextInput
+                  style={styles.pwdInput}
+                  value={currentPwd}
+                  onChangeText={v => { setCurrentPwd(v); setPwdMsg(null); }}
+                  placeholder="••••••••"
+                  placeholderTextColor={C.textMuted}
+                  secureTextEntry={!showCurrentPwd}
+                />
+                <TouchableOpacity onPress={() => setShowCurrentPwd(p => !p)} hitSlop={8}>
+                  <Ionicons name={showCurrentPwd ? 'eye-off-outline' : 'eye-outline'} size={18} color={C.textMuted} />
+                </TouchableOpacity>
+              </View>
+
+              <Text style={styles.label}>Nouveau mot de passe</Text>
+              <View style={styles.pwdWrap}>
+                <TextInput
+                  style={styles.pwdInput}
+                  value={newPwd}
+                  onChangeText={v => { setNewPwd(v); setPwdMsg(null); }}
+                  placeholder="••••••••"
+                  placeholderTextColor={C.textMuted}
+                  secureTextEntry={!showNewPwd}
+                />
+                <TouchableOpacity onPress={() => setShowNewPwd(p => !p)} hitSlop={8}>
+                  <Ionicons name={showNewPwd ? 'eye-off-outline' : 'eye-outline'} size={18} color={C.textMuted} />
+                </TouchableOpacity>
+              </View>
+
+              <Text style={styles.label}>Confirmer le nouveau mot de passe</Text>
+              <TextInput
+                style={styles.input}
+                value={confirmPwd}
+                onChangeText={v => { setConfirmPwd(v); setPwdMsg(null); }}
+                placeholder="••••••••"
+                placeholderTextColor={C.textMuted}
+                secureTextEntry
+              />
+
+              {pwdMsg && (
+                <View style={[styles.profileMsg, pwdMsg.ok ? styles.profileMsgOk : styles.profileMsgErr]}>
+                  <Ionicons name={pwdMsg.ok ? 'checkmark-circle' : 'alert-circle'} size={14} color={pwdMsg.ok ? '#059669' : C.open} />
+                  <Text style={[styles.profileMsgTxt, { color: pwdMsg.ok ? '#059669' : C.open }]}>{pwdMsg.text}</Text>
+                </View>
+              )}
+
+              <TouchableOpacity
+                style={[styles.profileBtn, savingPwd && { opacity: 0.6 }]}
+                onPress={handleChangePassword}
+                disabled={savingPwd}
+              >
+                <Ionicons name={savingPwd ? 'sync' : 'shield-checkmark-outline'} size={16} color={C.primary} />
+                <Text style={styles.profileBtnTxt}>{savingPwd ? 'Vérification…' : 'Changer le mot de passe'}</Text>
+              </TouchableOpacity>
+            </View>
 
             <TouchableOpacity style={[styles.navRow, styles.navRowDanger]} onPress={handleLogout}>
               <View style={[styles.navIcon, { backgroundColor: '#FEF2F2' }]}>
@@ -983,4 +1136,27 @@ const styles = StyleSheet.create({
   queueBtnDisabledTxt: { color: '#9CA3AF' },
   queueClearBtn: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, paddingVertical: 8, borderRadius: 8, borderWidth: 1, borderColor: '#FCA5A5', backgroundColor: '#FEF2F2' },
   queueClearTxt: { fontSize: 12, fontFamily: 'Inter_600SemiBold', color: '#EF4444' },
+
+  profileBtn: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6,
+    backgroundColor: C.primaryBg, borderRadius: 10, paddingVertical: 11, marginTop: 10,
+    borderWidth: 1, borderColor: C.primary + '40',
+  },
+  profileBtnTxt: { fontSize: 14, fontFamily: 'Inter_600SemiBold', color: C.primary },
+  profileDivider: { height: 1, backgroundColor: C.border, marginVertical: 16 },
+  profileMsg: {
+    flexDirection: 'row', alignItems: 'center', gap: 6,
+    borderRadius: 8, paddingVertical: 8, paddingHorizontal: 10, marginTop: 8,
+    borderWidth: 1,
+  },
+  profileMsgOk: { backgroundColor: '#ECFDF5', borderColor: '#A7F3D0' },
+  profileMsgErr: { backgroundColor: C.openBg, borderColor: '#FCA5A5' },
+  profileMsgTxt: { fontSize: 12, fontFamily: 'Inter_500Medium', flex: 1, lineHeight: 17 },
+  pwdWrap: {
+    flexDirection: 'row', alignItems: 'center',
+    backgroundColor: C.surface2, borderRadius: 10,
+    paddingHorizontal: 14, paddingVertical: 12,
+    borderWidth: 1, borderColor: C.border, gap: 8,
+  },
+  pwdInput: { flex: 1, fontSize: 14, fontFamily: 'Inter_400Regular', color: C.text },
 });
