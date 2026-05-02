@@ -360,6 +360,17 @@ export default function SettingsScreen() {
 
         {activeTab === 'compte' && (
           <View>
+            {organization && (
+              <View style={styles.card}>
+                <View style={styles.cardTitleRow}>
+                  <Ionicons name="business-outline" size={16} color={C.primary} />
+                  <Text style={styles.cardTitle}>Organisation</Text>
+                </View>
+                <Text style={styles.orgName}>{organization.name}</Text>
+                <Text style={styles.orgSlug}>/{organization.slug}</Text>
+              </View>
+            )}
+
             <View style={styles.profileCard}>
               <View style={[styles.avatar, { backgroundColor: roleColor + '22' }]}>
                 <Text style={[styles.avatarTxt, { color: roleColor }]}>{userInitials}</Text>
@@ -483,17 +494,6 @@ export default function SettingsScreen() {
                 <Text style={styles.profileBtnTxt}>{savingPwd ? 'Vérification…' : 'Changer le mot de passe'}</Text>
               </TouchableOpacity>
             </View>
-
-            {organization && (
-              <View style={styles.card}>
-                <View style={styles.cardTitleRow}>
-                  <Ionicons name="business-outline" size={16} color={C.primary} />
-                  <Text style={styles.cardTitle}>Organisation</Text>
-                </View>
-                <Text style={styles.orgName}>{organization.name}</Text>
-                <Text style={styles.orgSlug}>/{organization.slug}</Text>
-              </View>
-            )}
 
 
             {user?.role === 'super_admin' && (
