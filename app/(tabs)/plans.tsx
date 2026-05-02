@@ -102,7 +102,7 @@ function computeClusters(reserves: Reserve[], scale: number, numberMap: Map<stri
       (STO[cur.status] ?? 9) < (STO[prev.status] ?? 9) ? cur : prev
     );
     const uniqueCompanies = new Set(group.map(g => g.company));
-    const dominantCompany = uniqueCompanies.size === 1 ? group[0].company : '__mixed__';
+    const dominantCompany = uniqueCompanies.size === 1 ? (group[0].company ?? '') : '__mixed__';
     clusters.push({ cx, cy, items: group, dominantStatus: dominant.status, dominantCompany, number: numberMap.get(r.id) ?? clusters.length + 1 });
   }
   return clusters;
@@ -165,7 +165,7 @@ async function exportPlanPDF(
   fileType?: 'pdf' | 'image' | 'dxf' | null,
   pinSizeScale: number = 1.0,
   companiesForColor: Array<{ name: string; color: string }> = [],
-  captureRef?: React.RefObject<PdfPlanViewerHandle> | null,
+  captureRef?: React.RefObject<PdfPlanViewerHandle | null> | null,
   action: 'share' | 'print' = 'share',
 ) {
   const STATUS_FR: Record<string, string> = {
@@ -182,12 +182,12 @@ async function exportPlanPDF(
     pctX: r.planX!,
     pctY: r.planY!,
     n: numberMap.get(r.id) ?? 0,
-    color: getCompanyColor(r.company, companiesForColor),
+    color: getCompanyColor(r.company ?? '', companiesForColor),
   }));
 
   const rows = reserves.map(r => {
     const n = numberMap.get(r.id) ?? '—';
-    const color = getCompanyColor(r.company, companiesForColor);
+    const color = getCompanyColor(r.company ?? '', companiesForColor);
     return `<tr>
       <td style="text-align:center;"><span style="display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px;border-radius:50%;background:${color};color:#fff;font-weight:700;font-size:11px;">${n}</span></td>
       <td style="font-weight:600;">${r.title}</td>
@@ -978,9 +978,7 @@ export default function PlansScreen() {
         p.buildingId === b.id || (!p.buildingId && p.building === b.name)
       ).length;
       const reserveCount = reserves.filter(r =>
-        !r.archivedAt && r.status !== 'closed' && (
-          r.buildingId === b.id || (!r.buildingId && r.building === b.name)
-        )
+        !r.archivedAt && r.status !== 'closed' && r.building === b.name
       ).length;
       return { id: b.id, name: b.name, planCount, reserveCount };
     });
@@ -1047,8 +1045,8 @@ export default function PlansScreen() {
       ).length;
       const reserveCount = reserves.filter(r =>
         !r.archivedAt && r.status !== 'closed' &&
-        (r.buildingId === bldg.id || (!r.buildingId && r.building === bldg.name)) &&
-        (r.levelId === l.id || (!r.levelId && r.level === l.name))
+        r.building === bldg.name &&
+        r.level === l.name
       ).length;
       return { id: l.id, name: l.name, planCount, reserveCount };
     });
@@ -2897,7 +2895,7 @@ export default function PlansScreen() {
               <View style={styles.miniMap}>
                 <View style={styles.miniMapInner}>
                   {allPlanReserves.filter(r => r.planX != null && r.planY != null).map(r => {
-                    const color = getCompanyColor(r.company, companies);
+                    const color = getCompanyColor(r.company ?? '', companies);
                     return (
                       <View key={r.id} style={[styles.miniMapDot, {
                         left: (r.planX! / 100) * 90 - 2,
@@ -2973,7 +2971,7 @@ export default function PlansScreen() {
                   </View>
                   <ScrollView contentContainerStyle={styles.tabletDetailContent} showsVerticalScrollIndicator={false}>
                     <View style={styles.tabletDetailHeaderRow}>
-                      <View style={[styles.pinBadge, { backgroundColor: getCompanyColor(detailReserve.company, companies), width: 40, height: 40, borderRadius: 20, marginRight: 10 }]}>
+                      <View style={[styles.pinBadge, { backgroundColor: getCompanyColor(detailReserve.company ?? '', companies), width: 40, height: 40, borderRadius: 20, marginRight: 10 }]}>
                         <Text style={[styles.pinBadgeText, { fontSize: 16 }]}>{pinNumberMap.get(detailReserve.id) ?? '—'}</Text>
                       </View>
                       <Text style={styles.tabletDetailTitle} numberOfLines={3}>{detailReserve.title}</Text>
@@ -3044,7 +3042,7 @@ export default function PlansScreen() {
                     }
                     renderItem={({ item: r }) => (
                       <TouchableOpacity style={[styles.reserveRow, highlightedReserveId === r.id && styles.tabletReserveRowSelected]} onPress={() => { setHighlightedReserveId(r.id); setPanelView('detail'); }} activeOpacity={0.75} accessibilityLabel={`Réserve ${r.title}`}>
-                        <View style={[styles.pinBadge, { backgroundColor: getCompanyColor(r.company, companies), width: 34, height: 34, borderRadius: 17 }]}>
+                        <View style={[styles.pinBadge, { backgroundColor: getCompanyColor(r.company ?? '', companies), width: 34, height: 34, borderRadius: 17 }]}>
                           <Text style={styles.pinBadgeText}>{pinNumberMap.get(r.id) ?? '—'}</Text>
                         </View>
                         <View style={styles.reserveInfo}>
@@ -3404,7 +3402,7 @@ export default function PlansScreen() {
                         <View style={[styles.pdfCheckbox, checked && styles.pdfCheckboxChecked]}>
                           {checked && <Ionicons name="checkmark" size={12} color="#fff" />}
                         </View>
-                        <View style={[styles.pdfPinBadge, { backgroundColor: getCompanyColor(r.company, companies) }]}>
+                        <View style={[styles.pdfPinBadge, { backgroundColor: getCompanyColor(r.company ?? '', companies) }]}>
                           <Text style={styles.pdfPinBadgeText}>{num ?? '—'}</Text>
                         </View>
                         <View style={{ flex: 1 }}>
@@ -3501,7 +3499,7 @@ export default function PlansScreen() {
           {selected && (
             <TouchableOpacity activeOpacity={1} style={styles.modalCard} onPress={() => {}}>
               <View style={styles.modalHeader}>
-                <View style={[styles.modalPin, { backgroundColor: getCompanyColor(selected.company, companies) }]}>
+                <View style={[styles.modalPin, { backgroundColor: getCompanyColor(selected.company ?? '', companies) }]}>
                   <Text style={styles.modalPinText}>{pinNumberMap.get(selected.id) ?? '#'}</Text>
                 </View>
                 <View style={{ flex: 1 }}>
