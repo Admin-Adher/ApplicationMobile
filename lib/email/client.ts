@@ -157,3 +157,10 @@ export async function sendAccessRevokedEmail(params: {
 }): Promise<void> {
   await callEmailApi({ type: 'access-revoked', ...params });
 }
+
+export async function sendPasswordChangedEmail(params: {
+  email: string;
+  name: string;
+}): Promise<void> {
+  await callEmailApi({ type: 'password-changed', ...params });
+}

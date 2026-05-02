@@ -173,6 +173,34 @@ export function passwordResetEmail(params: {
   };
 }
 
+export function passwordChangedEmail(params: {
+  name: string;
+}) {
+  const { name } = params;
+  const firstName = name.split(' ')[0];
+  const loginUrl = `${APP_URL}/login`;
+  const date = new Date().toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+
+  const content = `
+    <h1>Mot de passe modifié</h1>
+    <p>Bonjour ${firstName},</p>
+    <p>Votre mot de passe BuildTrack a bien été modifié le <strong>${date}</strong>.</p>
+    <div class="info-box">
+      <p>Si vous êtes à l'origine de cette modification, vous n'avez rien à faire. Vous pouvez vous connecter normalement avec votre nouveau mot de passe.</p>
+    </div>
+    <div style="text-align:center;">
+      <a href="${loginUrl}" class="btn">Se connecter →</a>
+    </div>
+    <hr class="separator"/>
+    <p style="font-size:12px;color:#8899BB;margin:0;">Si vous n'avez pas effectué cette modification, contactez immédiatement votre administrateur ou changez votre mot de passe dès que possible.</p>
+  `;
+
+  return {
+    subject: 'Votre mot de passe BuildTrack a été modifié',
+    html: baseLayout(content, 'Votre mot de passe BuildTrack vient d\'être modifié'),
+  };
+}
+
 export function invitationAcceptedEmail(params: {
   adminName: string;
   inviteeName: string;

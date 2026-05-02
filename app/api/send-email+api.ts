@@ -3,6 +3,7 @@ import {
   invitationEmail,
   welcomeEmail,
   passwordResetEmail,
+  passwordChangedEmail,
   invitationAcceptedEmail,
   accessRevokedEmail,
   reserveCreatedEmail,
@@ -134,6 +135,19 @@ export async function POST(request: Request) {
         recipientName, reserveTitle, reserveId, deadline, daysLate,
         priority, companyName, chantierName, reserveCode,
       });
+      const result = await sendEmail({ to: email, ...template });
+      if (!result.success) {
+        return Response.json({ error: result.error ?? "Échec de l'envoi" }, { status: 500 });
+      }
+      return Response.json({ success: true });
+    }
+
+    if (type === 'password-changed') {
+      const { email, name } = body;
+      if (!email || !name) {
+        return Response.json({ error: 'Paramètres manquants pour password-changed' }, { status: 400 });
+      }
+      const template = passwordChangedEmail({ name });
       const result = await sendEmail({ to: email, ...template });
       if (!result.success) {
         return Response.json({ error: result.error ?? "Échec de l'envoi" }, { status: 500 });

@@ -6,6 +6,7 @@ import { useRouter } from 'expo-router';
 import * as Linking from 'expo-linking';
 import { C } from '@/constants/colors';
 import { supabase, isSupabaseConfigured } from '@/lib/supabase';
+import { sendPasswordChangedEmail } from '@/lib/email/client';
 
 type Status = 'loading' | 'ready' | 'saving' | 'success' | 'error_token' | 'error_save';
 type Strength = 0 | 1 | 2 | 3;
@@ -111,10 +112,17 @@ export default function ResetPasswordScreen() {
     setFieldError('');
     Keyboard.dismiss();
     setStatus('saving');
+    const { data: userData } = await supabase.auth.getUser();
     const { error } = await supabase.auth.updateUser({ password: pwd });
     if (error) {
       setStatus('error_save');
       return;
+    }
+    const userEmail = userData?.user?.email ?? '';
+    const userMeta = userData?.user?.user_metadata;
+    const userName: string = userMeta?.name ?? userMeta?.full_name ?? userEmail.split('@')[0];
+    if (userEmail) {
+      sendPasswordChangedEmail({ email: userEmail, name: userName }).catch(() => {});
     }
     await supabase.auth.signOut();
     setStatus('success');
