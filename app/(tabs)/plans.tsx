@@ -679,6 +679,7 @@ ${orphanSectionHtml}
 export default function PlansScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
+  const { focusPlanId: focusPlanIdParam, focusReserveId: focusReserveIdParam } = useLocalSearchParams<{ focusPlanId?: string; focusReserveId?: string }>();
   const {
     reserves, companies, sitePlans, activeChantierId, activeChantier, isLoading,
     addSitePlan, updateSitePlan, deleteSitePlan, addSitePlanVersion, migrateReservesToPlan,
@@ -1415,6 +1416,54 @@ export default function PlansScreen() {
       if (focusedPinTimerRef.current) clearTimeout(focusedPinTimerRef.current);
     };
   }, []);
+
+  // Handle deep-link navigation from the Reserves tab:
+  // When the user taps the "Plan" chip on a reserve card, we receive
+  // focusPlanId (which plan to open) and focusReserveId (which pin to highlight).
+  // We track the last handled pair to avoid re-firing on unrelated re-renders.
+  const handledFocusParamsRef = useRef<string>('');
+  React.useEffect(() => {
+    if (!focusPlanIdParam) return;
+    const key = `${focusPlanIdParam}|${focusReserveIdParam ?? ''}`;
+    if (handledFocusParamsRef.current === key) return;
+
+    // Wait until plans are loaded before trying to resolve building/level
+    const targetPlan = chantierPlans.find(p => p.id === focusPlanIdParam);
+    if (chantierPlans.length === 0) return; // not yet loaded, wait for next render
+
+    handledFocusParamsRef.current = key;
+
+    // Switch to the target plan
+    setActivePlanId(focusPlanIdParam);
+
+    // Resolve and set the building filter
+    if (targetPlan?.buildingId) {
+      setSelectedBuilding(targetPlan.buildingId);
+    } else if (targetPlan?.building) {
+      const bldg = chantierHierarchyBuildingsEarly.find(b => b.name === targetPlan.building);
+      if (bldg) setSelectedBuilding(bldg.id);
+    }
+
+    // Resolve and set the level filter
+    if (targetPlan?.levelId) {
+      setSelectedLevel(targetPlan.levelId);
+    } else if (targetPlan?.level) {
+      for (const b of chantierHierarchyBuildingsEarly) {
+        const lvl = b.levels?.find(l => l.name === targetPlan?.level);
+        if (lvl) { setSelectedLevel(lvl.id); break; }
+      }
+    }
+
+    // Highlight the target pin after a short delay to let the plan render
+    if (focusReserveIdParam) {
+      const pinId = focusReserveIdParam;
+      setTimeout(() => {
+        setFocusedPinIdRef.current(pinId);
+        if (focusedPinTimerRef.current) clearTimeout(focusedPinTimerRef.current);
+        focusedPinTimerRef.current = setTimeout(() => setFocusedPinIdRef.current(null), 5000);
+      }, 400);
+    }
+  }, [focusPlanIdParam, focusReserveIdParam, chantierPlans, chantierHierarchyBuildingsEarly]);
 
   // Auto-load DXF when plan has fileType=dxf and is not yet parsed in memory
   React.useEffect(() => {

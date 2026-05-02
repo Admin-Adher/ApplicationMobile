@@ -804,7 +804,18 @@ export default function ReservesScreen() {
           {noPin && (
             <TouchableOpacity
               style={{ flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: 12, paddingVertical: 5, backgroundColor: '#F59E0B12', borderBottomLeftRadius: 12, borderBottomRightRadius: 12, borderWidth: 1, borderTopWidth: 0, borderColor: '#F59E0B30' }}
-              onPress={() => router.push('/(tabs)/plans' as any)}
+              onPress={() => {
+                const planForReserve = activeSitePlans.find(p =>
+                  p.building === item.building && p.level === item.level
+                ) ?? activeSitePlans.find(p =>
+                  p.building === item.building
+                ) ?? activeSitePlans[0];
+                if (planForReserve) {
+                  router.push({ pathname: '/(tabs)/plans', params: { focusPlanId: planForReserve.id } } as any);
+                } else {
+                  router.push('/(tabs)/plans' as any);
+                }
+              }}
               activeOpacity={0.7}
             >
               <Ionicons name="location-outline" size={11} color="#B45309" />
