@@ -139,6 +139,7 @@ export default function UserEditScreen() {
   }, [localRole, localCompanyId, localOverride, target]);
 
   async function handleSave() {
+    if (!target) return;
     if (!isDirty) { router.back(); return; }
 
     const roleChanged = localRole !== target.role;
@@ -182,6 +183,7 @@ export default function UserEditScreen() {
   }
 
   async function doSave(roleChanged: boolean, companyChanged: boolean, overrideChanged: boolean) {
+    if (!target) return;
     setSaving(true);
     try {
       if (roleChanged) await updateUserRole(target.id, localRole);

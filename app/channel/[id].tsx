@@ -564,7 +564,7 @@ export default function ChannelScreen() {
           <TouchableOpacity
             onPress={() => handleLoadMoreRef.current()}
             disabled={isFetchingOlderRef.current}
-            style={{ flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 16, paddingVertical: 8, borderRadius: 20, backgroundColor: C.card, borderWidth: 1, borderColor: C.border, opacity: isFetchingOlderRef.current ? 0.5 : 1 }}
+            style={{ flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 16, paddingVertical: 8, borderRadius: 20, backgroundColor: C.surface, borderWidth: 1, borderColor: C.border, opacity: isFetchingOlderRef.current ? 0.5 : 1 }}
           >
             <Ionicons name={isFetchingOlderRef.current ? 'hourglass-outline' : 'arrow-up-circle-outline'} size={16} color={C.textMuted} />
             <Text style={{ fontSize: 13, color: C.textMuted }}>

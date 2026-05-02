@@ -31,7 +31,7 @@ export default function InviteLandingScreen() {
       }
 
       try {
-        const { data, error } = await supabase.rpc('get_invitation_by_token', { p_token: token });
+        const { data, error } = await (supabase as any).rpc('get_invitation_by_token', { p_token: token });
         if (cancelled) return;
 
         if (error) {
