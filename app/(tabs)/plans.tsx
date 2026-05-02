@@ -1431,6 +1431,13 @@ export default function PlansScreen() {
     const targetPlan = chantierPlans.find(p => p.id === focusPlanIdParam);
     if (chantierPlans.length === 0) return; // not yet loaded, wait for next render
 
+    // If the target plan has building info, also wait for hierarchy to load so we
+    // can resolve buildingId → building chip.  Marking the key as handled too early
+    // (before hierarchy is ready) caused the restoration effect to override
+    // selectedBuilding with the last-viewed building (e.g. GuestBlock 1).
+    const planNeedsBuilding = targetPlan && (targetPlan.buildingId || targetPlan.building);
+    if (planNeedsBuilding && chantierHierarchyBuildingsEarly.length === 0) return;
+
     handledFocusParamsRef.current = key;
 
     // Switch to the target plan
@@ -1442,6 +1449,9 @@ export default function PlansScreen() {
     } else if (targetPlan?.building) {
       const bldg = chantierHierarchyBuildingsEarly.find(b => b.name === targetPlan.building);
       if (bldg) setSelectedBuilding(bldg.id);
+      else setSelectedBuilding('all'); // name mismatch fallback — show all plans
+    } else {
+      setSelectedBuilding('all'); // plan has no building info — show all plans
     }
 
     // Resolve and set the level filter
