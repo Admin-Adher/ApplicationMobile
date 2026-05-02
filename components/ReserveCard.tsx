@@ -150,7 +150,9 @@ export default function ReserveCard({ reserve, onPress, onLongPress, onSwipeRigh
           <View style={styles.meta}>
             <View style={styles.metaItem}>
               <Ionicons name="business-outline" size={12} color={C.textMuted} />
-              <Text style={styles.metaText}>Bât. {reserve.building} — {reserve.zone} — {reserve.level}</Text>
+              <Text style={styles.metaText}>
+                {[reserve.building ? `Bât. ${reserve.building}` : null, reserve.zone, reserve.level].filter(Boolean).join(' — ')}
+              </Text>
             </View>
             {lot && (
               <View style={styles.metaItem}>

@@ -1305,7 +1305,9 @@ export default function ReservesScreen() {
                 <View style={styles.detailCard}>
                   <View style={styles.detailRow}>
                     <Ionicons name="business-outline" size={14} color={C.textMuted} />
-                    <Text style={styles.detailMeta}>Bât. {selectedReserve.building} — {selectedReserve.zone} — {selectedReserve.level}</Text>
+                    <Text style={styles.detailMeta}>
+                      {[selectedReserve.building ? `Bât. ${selectedReserve.building}` : null, selectedReserve.zone, selectedReserve.level].filter(Boolean).join(' — ')}
+                    </Text>
                   </View>
                   <View style={styles.detailRow}>
                     <Ionicons name="people-outline" size={14} color={C.textMuted} />
