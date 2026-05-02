@@ -186,7 +186,7 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     if (authLoading) return;
-    const PUBLIC_SEGMENTS = ['login', 'register', 'portal', 'opr-session', 'pending-invite', 'invite'];
+    const PUBLIC_SEGMENTS = ['login', 'register', 'portal', 'opr-session', 'pending-invite', 'invite', 'reset-password'];
     const seg0 = segments.length > 0 ? (segments[0] as string) : undefined;
     const inPublic = seg0 ? PUBLIC_SEGMENTS.includes(seg0) : true;
 
@@ -284,6 +284,7 @@ export default function RootLayout() {
                       <AppErrorBoundary>
                       <Stack>
                         <Stack.Screen name="login" options={{ headerShown: false }} />
+                        <Stack.Screen name="reset-password" options={{ headerShown: false }} />
                         <Stack.Screen name="register" options={{ headerShown: false }} />
                         <Stack.Screen name="invite" options={{ headerShown: false }} />
                         <Stack.Screen name="pending-invite" options={{ headerShown: false }} />
