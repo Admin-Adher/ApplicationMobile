@@ -28,6 +28,8 @@ export function toReserve(row: any): Reserve {
     kind: row.kind ?? undefined,
     chantierId: row.chantier_id ?? undefined,
     planId: row.plan_id ?? undefined,
+    buildingId: row.building_id ?? undefined,
+    levelId: row.level_id ?? undefined,
     visiteId: row.visite_id ?? undefined,
     linkedTaskId: row.linked_task_id ?? undefined,
     enterpriseSignature: row.enterprise_signature ?? undefined,

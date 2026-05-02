@@ -978,7 +978,9 @@ export default function PlansScreen() {
         p.buildingId === b.id || (!p.buildingId && p.building === b.name)
       ).length;
       const reserveCount = reserves.filter(r =>
-        !r.archivedAt && r.status !== 'closed' && r.building === b.name
+        !r.archivedAt && r.status !== 'closed' && (
+          (r.buildingId && r.buildingId === b.id) || (!r.buildingId && r.building === b.name)
+        )
       ).length;
       return { id: b.id, name: b.name, planCount, reserveCount };
     });
@@ -1045,8 +1047,8 @@ export default function PlansScreen() {
       ).length;
       const reserveCount = reserves.filter(r =>
         !r.archivedAt && r.status !== 'closed' &&
-        r.building === bldg.name &&
-        r.level === l.name
+        ((r.buildingId && r.buildingId === bldg.id) || (!r.buildingId && r.building === bldg.name)) &&
+        ((r.levelId && r.levelId === l.id) || (!r.levelId && r.level === l.name))
       ).length;
       return { id: l.id, name: l.name, planCount, reserveCount };
     });

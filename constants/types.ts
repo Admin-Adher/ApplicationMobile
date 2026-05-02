@@ -333,6 +333,8 @@ export interface Reserve {
   archivedBy?: string;
   chantierId?: string;
   planId?: string;
+  buildingId?: string;
+  levelId?: string;
   enterpriseSignature?: string;
   enterpriseSignataire?: string;
   enterpriseAcknowledgedAt?: string;
