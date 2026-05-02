@@ -14,7 +14,7 @@ import { KeyboardProvider } from 'react-native-keyboard-controller';
 import { PersistQueryClientProvider } from '@tanstack/react-query-persist-client';
 import { queryClient } from '@/lib/queryClient';
 import { asyncStoragePersister } from '@/lib/queryPersister';
-import { AppProvider } from '@/context/AppContext';
+import { AppProvider, useApp } from '@/context/AppContext';
 import { AuthProvider, useAuth } from '@/context/AuthContext';
 import { SettingsProvider } from '@/context/SettingsContext';
 import { IncidentsProvider } from '@/context/IncidentsContext';
@@ -90,10 +90,21 @@ const eb = StyleSheet.create({
 const LAST_TAB_KEY = 'buildtrack_last_tab';
 
 function AuthGuard({ children }: { children: React.ReactNode }) {
-  const { isAuthenticated, isLoading, user } = useAuth();
+  const { isAuthenticated, isLoading: authLoading, user } = useAuth();
+  const { isLoading: appLoading } = useApp();
   const segments = useSegments();
   const router = useRouter();
   const hasRestoredTab = useRef(false);
+
+  // Safety net: never block the UI indefinitely if queries error / time out
+  const [appLoadTimedOut, setAppLoadTimedOut] = useState(false);
+  useEffect(() => {
+    if (!isAuthenticated || !appLoading) return;
+    const t = setTimeout(() => setAppLoadTimedOut(true), 10_000);
+    return () => clearTimeout(t);
+  }, [isAuthenticated, appLoading]);
+
+  const isLoading = authLoading || (isAuthenticated && appLoading && !appLoadTimedOut);
 
   useEffect(() => {
     if (!isAuthenticated || isLoading) return;
@@ -116,7 +127,7 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
   }, [isLoading, isAuthenticated]);
 
   useEffect(() => {
-    if (isLoading) return;
+    if (authLoading) return;
     const PUBLIC_SEGMENTS = ['login', 'register', 'portal', 'opr-session', 'pending-invite', 'invite'];
     const seg0 = segments.length > 0 ? (segments[0] as string) : undefined;
     const inPublic = seg0 ? PUBLIC_SEGMENTS.includes(seg0) : true;
@@ -136,7 +147,7 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
     } else if (isAuthenticated && seg0 === 'pending-invite' && user?.organizationId) {
       router.replace('/(tabs)');
     }
-  }, [isAuthenticated, isLoading, segments, user?.organizationId, user?.role]);
+  }, [isAuthenticated, authLoading, segments, user?.organizationId, user?.role]);
 
   if (isLoading) {
     return <LoadingScreen />;
