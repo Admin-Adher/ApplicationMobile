@@ -10,44 +10,13 @@ import { isSupabaseConfigured } from '@/lib/supabase';
 import { requestPasswordReset } from '@/lib/email/client';
 
 
-const DEMO_ACCOUNTS = [
-  { email: 'admin@buildtrack.fr', label: 'Admin', color: C.primary },
-  { email: 'j.dupont@buildtrack.fr', label: 'Conducteur', color: C.primary },
-  { email: 'm.martin@buildtrack.fr', label: "Chef d'équipe", color: C.primary },
-  { email: 'p.lambert@buildtrack.fr', label: 'Observateur', color: C.textSub },
-];
-
-const DEMO_EMAILS = new Set([
-  'admin@buildtrack.fr',
-  'superadmin@buildtrack.fr',
-  'j.dupont@buildtrack.fr',
-  'm.martin@buildtrack.fr',
-  'p.lambert@buildtrack.fr',
-  'st.martin@buildtrack.fr',
-]);
-
-const DEMO_USER_NAMES: Record<string, string> = {
-  'admin@buildtrack.fr':     'Admin Système',
-  'j.dupont@buildtrack.fr':  'Jean Dupont',
-  'm.martin@buildtrack.fr':  'Marie Martin',
-  'p.lambert@buildtrack.fr': 'Pierre Lambert',
-};
-
-const DEMO_PASSWORDS: Record<string, string> = {
-  'admin@buildtrack.fr':       'pass123',
-  'superadmin@buildtrack.fr':  'pass123',
-  'j.dupont@buildtrack.fr':    'pass123',
-  'm.martin@buildtrack.fr':    'pass123',
-  'p.lambert@buildtrack.fr':   'pass123',
-  'st.martin@buildtrack.fr':   'pass123',
-};
 
 type ForgotStatus = 'idle' | 'loading' | 'sent' | 'error';
 
 export default function LoginScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
-  const { login, seedStatus, user } = useAuth();
+  const { login, user } = useAuth();
   const { setCurrentUser } = useApp();
 
   const [email, setEmail] = useState('');
@@ -74,18 +43,9 @@ export default function LoginScreen() {
     const trimmedEmail = email.trim();
     const result = await login(trimmedEmail, password);
     setLoading(false);
-    if (result.success) {
-      const name = DEMO_USER_NAMES[trimmedEmail];
-      if (name) setCurrentUser(name);
-    } else {
+    if (!result.success) {
       Alert.alert('Erreur de connexion', result.error ?? 'Une erreur est survenue.');
     }
-  }
-
-  function fillDemo(demoEmail: string) {
-    setEmail(demoEmail);
-    setPassword(DEMO_PASSWORDS[demoEmail] ?? 'pass123');
-    setShowForgot(false);
   }
 
   function openForgot() {
@@ -105,11 +65,6 @@ export default function LoginScreen() {
     const trimmed = forgotEmail.trim().toLowerCase();
     if (!trimmed || !trimmed.includes('@')) {
       setForgotError('Veuillez saisir une adresse email valide.');
-      return;
-    }
-
-    if (DEMO_EMAILS.has(trimmed)) {
-      setForgotError('La réinitialisation n\'est pas disponible pour les comptes de démonstration.');
       return;
     }
 
@@ -296,40 +251,6 @@ export default function LoginScreen() {
             </View>
           )}
 
-          {/* ── Comptes de démonstration ── */}
-          <View style={styles.demoSection}>
-            <Text style={styles.demoTitle}>Comptes de démonstration</Text>
-            {seedStatus === 'seeding' && (
-              <View style={styles.seedBanner}>
-                <Ionicons name="sync-outline" size={14} color={C.primary} />
-                <Text style={styles.seedText}>Initialisation des comptes...</Text>
-              </View>
-            )}
-            {seedStatus === 'error' && (
-              <View style={[styles.seedBanner, { backgroundColor: C.openBg, borderColor: C.open + '40' }]}>
-                <Ionicons name="warning-outline" size={14} color={C.open} />
-                <Text style={[styles.seedText, { color: C.open }]}>
-                  {'Comptes non créés. Si les mots de passe échouent, désactivez « Confirm email » dans Supabase → Authentication → Providers → Email.'}
-                </Text>
-              </View>
-            )}
-            <View style={styles.demoGrid}>
-              {DEMO_ACCOUNTS.map(acc => (
-                <TouchableOpacity
-                  key={acc.email}
-                  style={styles.demoCard}
-                  onPress={() => fillDemo(acc.email)}
-                  activeOpacity={0.7}
-                >
-                  <View style={[styles.demoDot, { backgroundColor: C.primary }]} />
-                  <Text style={styles.demoLabel}>{acc.label}</Text>
-                  <Text style={styles.demoEmail} numberOfLines={1}>{acc.email.split('@')[0]}</Text>
-                </TouchableOpacity>
-              ))}
-            </View>
-            <Text style={styles.demoHint}>Appuyez sur un compte pour le remplir automatiquement</Text>
-          </View>
-
           <TouchableOpacity
             style={styles.registerLink}
             onPress={() => router.push('/register')}
@@ -422,30 +343,6 @@ const styles = StyleSheet.create({
     textAlign: 'center', lineHeight: 18, marginBottom: 24,
   },
 
-  /* Demo section */
-  demoSection: {
-    backgroundColor: C.surface, borderRadius: 18, padding: 20,
-    borderWidth: 1, borderColor: C.border,
-  },
-  demoTitle: {
-    fontSize: 11, fontFamily: 'Inter_600SemiBold', color: C.textSub,
-    textTransform: 'uppercase', letterSpacing: 0.6, marginBottom: 14,
-  },
-  demoGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
-  demoCard: {
-    flex: 1, minWidth: '44%', backgroundColor: C.surface2, borderRadius: 12,
-    padding: 12, alignItems: 'center', borderWidth: 1, borderColor: C.border,
-  },
-  demoDot: { width: 10, height: 10, borderRadius: 5, marginBottom: 6 },
-  demoLabel: { fontSize: 13, fontFamily: 'Inter_600SemiBold', color: C.text },
-  demoEmail: { fontSize: 11, fontFamily: 'Inter_400Regular', color: C.textMuted, marginTop: 2 },
-  demoHint: { fontSize: 11, fontFamily: 'Inter_400Regular', color: C.textMuted, textAlign: 'center', marginTop: 12 },
-  seedBanner: {
-    flexDirection: 'row', alignItems: 'center', gap: 6,
-    backgroundColor: C.primaryBg, borderRadius: 8, paddingVertical: 8,
-    paddingHorizontal: 12, marginBottom: 12, borderWidth: 1, borderColor: C.border,
-  },
-  seedText: { fontSize: 12, fontFamily: 'Inter_400Regular', color: C.primary, flex: 1 },
   registerLink: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
     gap: 6, paddingVertical: 14, marginTop: 4,
