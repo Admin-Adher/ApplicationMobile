@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
-import { View, Text, TouchableOpacity, StyleSheet, Platform, LogBox, ActivityIndicator, Image } from 'react-native';
+import { View, Text, TouchableOpacity, StyleSheet, Platform, LogBox } from 'react-native';
+import LoadingScreen from '@/components/LoadingScreen';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Stack, useRouter, useSegments } from 'expo-router';
 import { ErrorBoundary as AppErrorBoundary } from '@/components/ErrorBoundary';
@@ -138,47 +139,11 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
   }, [isAuthenticated, isLoading, segments, user?.organizationId, user?.role]);
 
   if (isLoading) {
-    return (
-      <View style={authGuardStyles.container}>
-        <Image
-          source={require('../assets/images/icon.png')}
-          style={authGuardStyles.logoMark}
-          resizeMode="contain"
-        />
-        <Text style={authGuardStyles.brand}>BuildTrack</Text>
-        <ActivityIndicator
-          size="small"
-          color="rgba(255,255,255,0.5)"
-          style={{ marginTop: 32 }}
-        />
-      </View>
-    );
+    return <LoadingScreen />;
   }
 
   return <>{children}</>;
 }
-
-const authGuardStyles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#003082',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 8,
-  },
-  logoMark: {
-    width: 72,
-    height: 72,
-    borderRadius: 18,
-    marginBottom: 4,
-  },
-  brand: {
-    color: '#fff',
-    fontSize: 22,
-    fontWeight: '800',
-    letterSpacing: -0.3,
-  },
-});
 
 export default function RootLayout() {
   const [fontsLoaded, fontError] = useFonts({
@@ -209,13 +174,7 @@ export default function RootLayout() {
   }, [fontsReady]);
 
   if (!fontsReady) {
-    return (
-      <View style={{ flex: 1, backgroundColor: '#0F1117', alignItems: 'center', justifyContent: 'center' }}>
-        <Text style={{ color: '#6B7280', fontSize: 12, fontFamily: undefined }}>
-          Chargement…
-        </Text>
-      </View>
-    );
+    return <LoadingScreen />;
   }
 
   return (
