@@ -1,5 +1,5 @@
 import React, { useEffect, useRef } from 'react';
-import { View, Text, Image, Animated, StyleSheet, Platform } from 'react-native';
+import { View, Text, Image, Animated, Easing, StyleSheet, Platform } from 'react-native';
 
 const NAVY   = '#1B2C4A';
 const ORANGE = '#F5A623';
@@ -51,6 +51,9 @@ export default function LoadingScreen() {
   const dot2 = useRef(new Animated.Value(0.2)).current;
   const dot3 = useRef(new Animated.Value(0.2)).current;
 
+  // ── Logo reveal (top → bottom, synced with scan line) ────────────────────
+  const logoRevealH = useRef(new Animated.Value(0)).current;
+
   // ── Bottom pill ───────────────────────────────────────────────────────────
   const pillOpacity    = useRef(new Animated.Value(0)).current;
   const pillTranslateY = useRef(new Animated.Value(8)).current;
@@ -81,7 +84,18 @@ export default function LoadingScreen() {
       ]),
     ]).start();
 
-    // 3. Scan line (delay 550ms, 1250ms sweep)
+    // 3. Logo reveal top→bottom (delay 550ms, 1300ms — same as scan line)
+    Animated.sequence([
+      Animated.delay(550),
+      Animated.timing(logoRevealH, {
+        toValue: 100,
+        duration: 1300,
+        easing: Easing.bezier(0.4, 0, 0.15, 1),
+        useNativeDriver: false,
+      }),
+    ]).start();
+
+    // 4. Scan line (delay 550ms, 1250ms sweep)
     Animated.sequence([
       Animated.delay(550),
       Animated.parallel([
@@ -289,12 +303,16 @@ export default function LoadingScreen() {
             <View style={[styles.bLine, styles.bH, { right: 0, left: undefined, bottom: 0, top: undefined }]} />
           </Animated.View>
 
-          {/* Real app icon */}
-          <Image
-            source={require('../assets/images/icon.png')}
-            style={styles.logoImage}
-            resizeMode="contain"
-          />
+          {/* Real app icon — revealed top→bottom in sync with scan line */}
+          <Animated.View style={styles.logoRevealClip}>
+            <Animated.View style={{ height: logoRevealH, overflow: 'hidden', width: 100 }}>
+              <Image
+                source={require('../assets/images/icon.png')}
+                style={styles.logoImage}
+                resizeMode="contain"
+              />
+            </Animated.View>
+          </Animated.View>
         </View>
       </Animated.View>
 
@@ -443,11 +461,19 @@ const styles = StyleSheet.create({
     pointerEvents: 'none' as any,
   },
 
+  logoRevealClip: {
+    position: 'absolute',
+    width: 100,
+    height: 100,
+    zIndex: 2,
+    alignItems: 'center',
+    justifyContent: 'flex-start',
+  },
+
   logoImage: {
     width: 100,
     height: 100,
     borderRadius: 22,
-    zIndex: 2,
   },
 
   bracket: {
