@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { View, Text, TouchableOpacity, StyleSheet, Platform, LogBox } from 'react-native';
+import { View, Text, TouchableOpacity, StyleSheet, Platform, LogBox, Animated } from 'react-native';
 import LoadingScreen from '@/components/LoadingScreen';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Stack, useRouter, useSegments } from 'expo-router';
@@ -96,7 +96,7 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const hasRestoredTab = useRef(false);
 
-  // Safety net: never block the UI indefinitely if queries error / time out
+  // Safety net: never block indefinitely if queries error / time out
   const [appLoadTimedOut, setAppLoadTimedOut] = useState(false);
   useEffect(() => {
     if (!isAuthenticated || !appLoading) return;
@@ -105,6 +105,30 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
   }, [isAuthenticated, appLoading]);
 
   const isLoading = authLoading || (isAuthenticated && appLoading && !appLoadTimedOut);
+
+  // Fade-out overlay: stays mounted until fade completes, then unmounts
+  const [overlayMounted, setOverlayMounted] = useState(true);
+  const overlayOpacity = useRef(new Animated.Value(1)).current;
+  const overlayFadingRef = useRef(false);
+
+  useEffect(() => {
+    if (!isLoading && overlayMounted && !overlayFadingRef.current) {
+      overlayFadingRef.current = true;
+      Animated.timing(overlayOpacity, {
+        toValue: 0,
+        duration: 480,
+        useNativeDriver: true,
+      }).start(({ finished }) => {
+        if (finished) setOverlayMounted(false);
+      });
+    }
+    // If loading restarts (e.g. user switches account), reset overlay
+    if (isLoading && !overlayMounted) {
+      overlayFadingRef.current = false;
+      overlayOpacity.setValue(1);
+      setOverlayMounted(true);
+    }
+  }, [isLoading, overlayMounted]);
 
   useEffect(() => {
     if (!isAuthenticated || isLoading) return;
@@ -149,12 +173,29 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
     }
   }, [isAuthenticated, authLoading, segments, user?.organizationId, user?.role]);
 
-  if (isLoading) {
-    return <LoadingScreen />;
-  }
-
-  return <>{children}</>;
+  // Render children as soon as auth is resolved (underneath the overlay),
+  // so the UI is fully ready when the overlay finishes fading out.
+  return (
+    <View style={agStyles.root}>
+      {!authLoading && children}
+      {overlayMounted && (
+        <Animated.View
+          style={[
+            agStyles.overlay,
+            { opacity: overlayOpacity, pointerEvents: isLoading ? 'auto' : 'none' },
+          ]}
+        >
+          <LoadingScreen />
+        </Animated.View>
+      )}
+    </View>
+  );
 }
+
+const agStyles = StyleSheet.create({
+  root: { flex: 1 },
+  overlay: { ...StyleSheet.absoluteFillObject, zIndex: 999 },
+});
 
 export default function RootLayout() {
   const [fontsLoaded, fontError] = useFonts({
