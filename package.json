@@ -44,7 +44,7 @@
     "expo-sharing": "~13.1.5",
     "expo-splash-screen": "^0.30.10",
     "expo-status-bar": "~2.2.0",
-    "nodemailer": "^8.0.6",
+    "nodemailer": "^8.0.7",
     "openai": "^6.34.0",
     "p-limit": "^7.3.0",
     "p-retry": "^7.1.1",
@@ -62,13 +62,13 @@
     "resend": "^6.12.2",
     "xlsx": "^0.18.5",
     "zod": "^4.3.6",
+    "express": "^5.2.1",
     "zod-validation-error": "^5.0.0"
   },
   "devDependencies": {
     "@babel/core": "^7.29.0",
     "@types/react": "~19.0.10",
     "eas-cli": "^18.5.0",
-    "express": "^5.2.1",
     "typescript": "~5.8.3"
   }
 }
