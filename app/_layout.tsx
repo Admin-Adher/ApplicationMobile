@@ -106,29 +106,61 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
 
   const isLoading = authLoading || (isAuthenticated && appLoading && !appLoadTimedOut);
 
-  // Fade-out overlay: stays mounted until fade completes, then unmounts
+  // ── Overlay fade logic ───────────────────────────────────────────────────
   const [overlayMounted, setOverlayMounted] = useState(true);
-  const overlayOpacity = useRef(new Animated.Value(1)).current;
-  const overlayFadingRef = useRef(false);
+  const overlayOpacity  = useRef(new Animated.Value(1)).current;
+  const overlayStateRef = useRef<'visible' | 'fading-out' | 'hidden' | 'fading-in'>('visible');
 
+  // Trigger fade-in once the overlay is re-mounted after a login
+  const [fadeInTick, setFadeInTick] = useState(0);
   useEffect(() => {
-    if (!isLoading && overlayMounted && !overlayFadingRef.current) {
-      overlayFadingRef.current = true;
+    if (fadeInTick === 0) return;
+    overlayStateRef.current = 'fading-in';
+    Animated.timing(overlayOpacity, {
+      toValue: 1,
+      duration: 320,
+      useNativeDriver: true,
+    }).start(() => {
+      overlayStateRef.current = 'visible';
+    });
+  }, [fadeInTick]);
+
+  // Main loading → overlay orchestration
+  useEffect(() => {
+    const state = overlayStateRef.current;
+
+    // Data ready → fade out
+    if (!isLoading && overlayMounted && (state === 'visible' || state === 'fading-in')) {
+      overlayStateRef.current = 'fading-out';
       Animated.timing(overlayOpacity, {
         toValue: 0,
         duration: 480,
         useNativeDriver: true,
       }).start(({ finished }) => {
-        if (finished) setOverlayMounted(false);
+        if (finished) {
+          overlayStateRef.current = 'hidden';
+          setOverlayMounted(false);
+        }
       });
     }
-    // If loading restarts (e.g. user switches account), reset overlay
-    if (isLoading && !overlayMounted) {
-      overlayFadingRef.current = false;
-      overlayOpacity.setValue(1);
-      setOverlayMounted(true);
+
+    // Loading restarted (post-login) → re-mount with fade-in
+    if (isLoading && !overlayMounted && state === 'hidden') {
+      overlayOpacity.setValue(0);
+      overlayStateRef.current = 'fading-in';
+      setOverlayMounted(true);          // triggers re-render with overlay visible
+      setFadeInTick(t => t + 1);        // triggers fade-in effect after mount
     }
   }, [isLoading, overlayMounted]);
+
+  // Reset tab-restore flag on each new login so the saved tab is honoured
+  const prevAuthenticated = useRef(isAuthenticated);
+  useEffect(() => {
+    if (!prevAuthenticated.current && isAuthenticated) {
+      hasRestoredTab.current = false;
+    }
+    prevAuthenticated.current = isAuthenticated;
+  }, [isAuthenticated]);
 
   useEffect(() => {
     if (!isAuthenticated || isLoading) return;
