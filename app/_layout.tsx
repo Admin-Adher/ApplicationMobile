@@ -40,7 +40,9 @@ if (Platform.OS === 'web') {
   ]);
 }
 
-SplashScreen.preventAutoHideAsync();
+if (Platform.OS !== 'web') {
+  SplashScreen.preventAutoHideAsync();
+}
 
 function SafeKeyboardProvider({ children }: { children: React.ReactNode }) {
   if (Platform.OS === 'web') {
