@@ -52,7 +52,7 @@ export default function RegisterScreen() {
     // Pré-validation : vérifier qu'une invitation en attente existe
     // avant de créer le compte, via le RPC public (pas d'auth requise).
     try {
-      const { data: hasInvitation, error: rpcErr } = await supabase.rpc(
+      const { data: hasInvitation, error: rpcErr } = await (supabase as any).rpc(
         'check_pending_invitation',
         { p_email: email.trim().toLowerCase() }
       );

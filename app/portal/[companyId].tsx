@@ -71,7 +71,7 @@ export default function PortalScreen() {
       setLoading(true);
       (async () => {
         try {
-          const { data: companyData, error: companyError } = await supabase
+          const { data: companyData, error: companyError } = await (supabase as any)
             .from('companies').select('name').eq('id', companyId).single();
           if (companyError || !companyData?.name) {
             setError("Impossible de charger les données de l'entreprise. Vérifiez votre connexion.");

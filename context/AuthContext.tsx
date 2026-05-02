@@ -949,7 +949,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           // On passe p_name pour que le RPC puisse créer le profil via UPSERT
           // si l'INSERT côté client a été bloqué par RLS (cas où la session
           // n'était pas encore propagée dans les headers du client supabase-js).
-          const { data: rpcData, error: rpcErr } = await supabase.rpc(
+          const { data: rpcData, error: rpcErr } = await (supabase as any).rpc(
             'link_invitation_for_current_user',
             { p_name: name.trim() }
           );
@@ -1199,7 +1199,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         if (!profile) {
           console.warn('[login] profil manquant — tentative de récupération via link_invitation_for_current_user...');
           try {
-            const { data: rpcData, error: rpcErr } = await supabase.rpc(
+            const { data: rpcData, error: rpcErr } = await (supabase as any).rpc(
               'link_invitation_for_current_user',
               { p_name: authUser.email?.split('@')[0] ?? '' }
             );

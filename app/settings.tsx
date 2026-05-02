@@ -107,7 +107,7 @@ export default function SettingsScreen() {
         (supabase as any).auth.getSession(),
         15000,
         'session',
-      );
+      ) as any;
       if (!session?.user?.id) {
         setDiag({ loading: false, sessionUserId: null, sessionExpiresAt: null, serverRole: null, serverOrgId: null, error: 'Aucune session active. Reconnectez-vous.' });
         return;
@@ -120,7 +120,7 @@ export default function SettingsScreen() {
           .single(),
         15000,
         'profil',
-      );
+      ) as any;
       if (profErr) {
         setDiag({ loading: false, sessionUserId: session.user.id, sessionExpiresAt: session.expires_at ?? null, serverRole: null, serverOrgId: null, error: `Profil introuvable côté serveur (${profErr.message}).` });
         return;

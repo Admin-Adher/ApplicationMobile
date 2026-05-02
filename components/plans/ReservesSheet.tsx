@@ -223,7 +223,7 @@ export default function ReservesSheet({
                 accessibilityLabel={`Réserve ${r.title}`}
                 accessibilityRole="button"
               >
-                <View style={[styles.pinBadge, { backgroundColor: getCompanyColor(r.company, companies) }]}>
+                <View style={[styles.pinBadge, { backgroundColor: getCompanyColor(r.company ?? '', companies) }]}>
                   <Text style={styles.pinText}>{pinNumberMap.get(r.id) ?? '—'}</Text>
                 </View>
                 <View style={styles.info}>

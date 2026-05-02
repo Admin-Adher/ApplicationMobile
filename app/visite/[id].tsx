@@ -265,18 +265,20 @@ export default function VisiteDetailScreen() {
   const cfg = STATUS_CFG[visite.status];
 
   function cycleStatus() {
+    if (!visite) return;
     const order: VisiteStatus[] = ['planned', 'in_progress', 'completed'];
     const idx = order.indexOf(visite.status);
     const next = order[(idx + 1) % order.length];
-    updateVisite({ ...visite, status: next });
+    updateVisite({ ...visite, id: visite.id!, status: next });
   }
 
   function handleDelete() {
+    if (!visite) return;
     Alert.alert('Supprimer', `Supprimer la visite "${visite.title}" ?`, [
       { text: 'Annuler', style: 'cancel' },
       {
         text: 'Supprimer', style: 'destructive', onPress: () => {
-          deleteVisite(visite.id);
+          deleteVisite(visite.id!);
           router.back();
         },
       },
@@ -284,6 +286,7 @@ export default function VisiteDetailScreen() {
   }
 
   async function handleSaveSignature() {
+    if (!visite) return;
     if (isSigning) return;
     setIsSigning(true);
     try {
@@ -292,6 +295,7 @@ export default function VisiteDetailScreen() {
       const today = nowTimestampFR();
       updateVisite({
         ...visite,
+        id: visite.id!,
         conducteurSignature: conducteurSig ?? undefined,
         entrepriseSignature: entrepriseSig ?? undefined,
         signedAt: today,
@@ -306,6 +310,7 @@ export default function VisiteDetailScreen() {
   }
 
   function openEditLoc() {
+    if (!visite) return;
     setEditBuilding(visite.building ?? '');
     setEditLevel(visite.level ?? '');
     setEditZone(visite.zone ?? '');
@@ -313,11 +318,13 @@ export default function VisiteDetailScreen() {
   }
 
   function saveEditLoc() {
-    updateVisite({ ...visite, building: editBuilding || undefined, level: editLevel || undefined, zone: editZone || undefined });
+    if (!visite) return;
+    updateVisite({ ...visite, id: visite.id!, building: editBuilding || undefined, level: editLevel || undefined, zone: editZone || undefined });
     setEditLocModal(false);
   }
 
   async function exportPDF() {
+    if (!visite) return;
     try {
       const reservePhotoMap = new Map<string, string[]>();
       await Promise.all(
