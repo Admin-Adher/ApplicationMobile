@@ -203,6 +203,7 @@ export default function ReservesScreen() {
   const [chantierFilter, setChantierFilter] = useState<string>(activeChantierId ?? 'all');
   const [statusFilter, setStatusFilter] = useState<'all' | 'overdue' | ReserveStatus>('all');
   const [kindFilter, setKindFilter] = useState<'all' | ReserveKind>('all');
+  const [pinFilter, setPinFilter] = useState<'all' | 'pinned' | 'unpinned'>('all');
   const [buildingFilter, setBuildingFilter] = useState<string>('all');
   const [priorityFilter, setPriorityFilter] = useState<'all' | ReservePriority>('all');
   const [companyFilter, setCompanyFilter] = useState<string>(companyParam ?? 'all');
@@ -403,7 +404,8 @@ export default function ReservesScreen() {
     + (kindFilter !== 'all' ? 1 : 0)
     + (lotFilter !== 'all' ? 1 : 0)
     + (statusFilter !== 'all' ? 1 : 0)
-    + (nearDeadlineOnly ? 1 : 0);
+    + (nearDeadlineOnly ? 1 : 0)
+    + (pinFilter !== 'all' ? 1 : 0);
 
   const overdueCount = useMemo(
     () => chantierReserves.filter(r => isOverdue(r.deadline, r.status)).length,
@@ -448,7 +450,11 @@ export default function ReservesScreen() {
         if (!dl) return false;
         return dl >= now && dl <= in3Days;
       })();
-      return matchStatus && matchKind && matchBuilding && matchPriority && matchCompany && matchZone && matchLevel && matchLot && matchSearch && matchNearDeadline;
+      const matchPin =
+        pinFilter === 'all' ? true :
+        pinFilter === 'pinned' ? (r.planId != null && r.planX != null) :
+        /* unpinned */ chantiersWithPlans.has(r.chantierId ?? '') && (r.planId == null || r.planX == null);
+      return matchStatus && matchKind && matchBuilding && matchPriority && matchCompany && matchZone && matchLevel && matchLot && matchSearch && matchNearDeadline && matchPin;
     });
 
     list = [...list].sort((a, b) => {
@@ -462,7 +468,7 @@ export default function ReservesScreen() {
       }
     });
     return list;
-  }, [chantierReserves, statusFilter, kindFilter, buildingFilter, priorityFilter, companyFilter, zoneFilter, levelFilter, lotFilter, sortKey, debouncedSearch, nearDeadlineOnly, lots]);
+  }, [chantierReserves, statusFilter, kindFilter, buildingFilter, priorityFilter, companyFilter, zoneFilter, levelFilter, lotFilter, sortKey, debouncedSearch, nearDeadlineOnly, lots, pinFilter, chantiersWithPlans]);
 
   const isSansEntrepriseReserve = useCallback((r: Reserve) => {
     const names = r.companies ?? (r.company ? [r.company] : []);
@@ -643,6 +649,7 @@ export default function ReservesScreen() {
     setLotFilter('all');
     setStatusFilter('all');
     setNearDeadlineOnly(false);
+    setPinFilter('all');
   }
 
   function handleQuickStatusChange(reserve: Reserve) {
@@ -2221,6 +2228,40 @@ export default function ReservesScreen() {
                           </Text>
                         </TouchableOpacity>
                       ))}
+                    </View>
+                  </ScrollView>
+                </View>
+              )}
+
+              {/* LOCALISATION PLAN — épinglage */}
+              {chantiersWithPlans.size > 0 && (
+                <View style={styles.filtSection}>
+                  <View style={styles.filtSectionHeader}>
+                    <Ionicons name="map-outline" size={13} color={C.textSub} />
+                    <Text style={styles.filtSectionTitle}>Localisation plan</Text>
+                  </View>
+                  <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+                    <View style={styles.filtChipRow}>
+                      <TouchableOpacity
+                        style={[styles.filtChip, pinFilter === 'all' && styles.filtChipActive]}
+                        onPress={() => setPinFilter('all')}
+                      >
+                        <Text style={[styles.filtChipText, pinFilter === 'all' && styles.filtChipTextActive]}>Toutes</Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity
+                        style={[styles.filtChip, pinFilter === 'pinned' && { backgroundColor: '#3B82F620', borderColor: '#3B82F6' }]}
+                        onPress={() => setPinFilter(pinFilter === 'pinned' ? 'all' : 'pinned')}
+                      >
+                        <Ionicons name="location" size={12} color={pinFilter === 'pinned' ? '#3B82F6' : C.textSub} />
+                        <Text style={[styles.filtChipText, pinFilter === 'pinned' && { color: '#3B82F6', fontFamily: 'Inter_600SemiBold' }]}>Épinglées</Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity
+                        style={[styles.filtChip, pinFilter === 'unpinned' && { backgroundColor: '#F59E0B20', borderColor: '#F59E0B' }]}
+                        onPress={() => setPinFilter(pinFilter === 'unpinned' ? 'all' : 'unpinned')}
+                      >
+                        <Ionicons name="location-outline" size={12} color={pinFilter === 'unpinned' ? '#F59E0B' : C.textSub} />
+                        <Text style={[styles.filtChipText, pinFilter === 'unpinned' && { color: '#F59E0B', fontFamily: 'Inter_600SemiBold' }]}>Non épinglées</Text>
+                      </TouchableOpacity>
                     </View>
                   </ScrollView>
                 </View>
