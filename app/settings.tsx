@@ -339,15 +339,16 @@ export default function SettingsScreen() {
 
       <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.tabScroll} contentContainerStyle={styles.tabRow}>
         {[
-          { key: 'compte',       icon: 'person-circle-outline', label: 'Compte' },
-          { key: 'project',      icon: 'construct-outline',     label: 'Projet' },
-          ...(!isSousTraitant ? [{ key: 'attendance', icon: 'people-outline', label: `Présences (${totalDays})` }] : []),
-          { key: 'integrations', icon: 'apps-outline',          label: 'Intégrations BTP' },
+          { key: 'compte',       icon: 'person-circle-outline', label: 'Compte',          nav: false },
+          ...((user?.role === 'admin' || user?.role === 'super_admin') ? [{ key: 'abonnement', icon: 'card-outline', label: 'Abonnement', nav: true }] : []),
+          { key: 'project',      icon: 'construct-outline',     label: 'Projet',          nav: false },
+          ...(!isSousTraitant ? [{ key: 'attendance', icon: 'people-outline', label: `Présences (${totalDays})`, nav: false }] : []),
+          { key: 'integrations', icon: 'apps-outline',          label: 'Intégrations BTP', nav: false },
         ].map(tab => (
           <TouchableOpacity
             key={tab.key}
             style={[styles.tabBtn, activeTab === tab.key && styles.tabBtnActive]}
-            onPress={() => setActiveTab(tab.key as any)}
+            onPress={() => tab.nav ? router.push('/subscription') : setActiveTab(tab.key as any)}
           >
             <Ionicons name={tab.icon as any} size={14} color={activeTab === tab.key ? C.primary : C.textMuted} />
             <Text style={[styles.tabText, activeTab === tab.key && styles.tabTextActive]}>{tab.label}</Text>
@@ -372,6 +373,117 @@ export default function SettingsScreen() {
               </View>
             </View>
 
+            {/* ── Modifier mon profil ── */}
+            <View style={styles.card}>
+              <View style={styles.cardTitleRow}>
+                <Ionicons name="person-outline" size={16} color={C.primary} />
+                <Text style={styles.cardTitle}>Modifier mon profil</Text>
+              </View>
+
+              {/* Nom */}
+              <Text style={styles.label}>Nom affiché</Text>
+              <TextInput
+                style={styles.input}
+                value={nameEdit}
+                onChangeText={v => { setNameEdit(v); setNameMsg(null); }}
+                placeholder="Votre nom"
+                placeholderTextColor={C.textMuted}
+                autoCapitalize="words"
+                autoCorrect={false}
+              />
+              {nameMsg && (
+                <View style={[styles.profileMsg, nameMsg.ok ? styles.profileMsgOk : styles.profileMsgErr]}>
+                  <Ionicons name={nameMsg.ok ? 'checkmark-circle' : 'alert-circle'} size={14} color={nameMsg.ok ? '#059669' : C.open} />
+                  <Text style={[styles.profileMsgTxt, { color: nameMsg.ok ? '#059669' : C.open }]}>{nameMsg.text}</Text>
+                </View>
+              )}
+              <TouchableOpacity
+                style={[styles.profileBtn, savingName && { opacity: 0.6 }]}
+                onPress={handleSaveName}
+                disabled={savingName}
+              >
+                <Ionicons name={savingName ? 'sync' : 'checkmark-circle-outline'} size={16} color={C.primary} />
+                <Text style={styles.profileBtnTxt}>{savingName ? 'Enregistrement…' : 'Enregistrer le nom'}</Text>
+              </TouchableOpacity>
+
+              <View style={styles.profileDivider} />
+
+              {/* Mot de passe */}
+              <View style={styles.cardTitleRow}>
+                <Ionicons name="lock-closed-outline" size={15} color={C.primary} />
+                <Text style={styles.cardTitle}>Changer le mot de passe</Text>
+              </View>
+
+              <Text style={styles.label}>Mot de passe actuel</Text>
+              <View style={styles.pwdWrap}>
+                <TextInput
+                  style={styles.pwdInput}
+                  value={currentPwd}
+                  onChangeText={v => { setCurrentPwd(v); setPwdMsg(null); }}
+                  placeholder="••••••••"
+                  placeholderTextColor={C.textMuted}
+                  secureTextEntry={!showCurrentPwd}
+                />
+                <TouchableOpacity onPress={() => setShowCurrentPwd(p => !p)} hitSlop={8}>
+                  <Ionicons name={showCurrentPwd ? 'eye-off-outline' : 'eye-outline'} size={18} color={C.textMuted} />
+                </TouchableOpacity>
+              </View>
+
+              <Text style={styles.label}>Nouveau mot de passe</Text>
+              <View style={styles.pwdWrap}>
+                <TextInput
+                  style={styles.pwdInput}
+                  value={newPwd}
+                  onChangeText={v => { setNewPwd(v); setPwdMsg(null); }}
+                  placeholder="••••••••"
+                  placeholderTextColor={C.textMuted}
+                  secureTextEntry={!showNewPwd}
+                />
+                <TouchableOpacity onPress={() => setShowNewPwd(p => !p)} hitSlop={8}>
+                  <Ionicons name={showNewPwd ? 'eye-off-outline' : 'eye-outline'} size={18} color={C.textMuted} />
+                </TouchableOpacity>
+              </View>
+              {newPwd.length > 0 && (
+                <View style={styles.strengthWrap}>
+                  <View style={styles.strengthBars}>
+                    {([1, 2, 3] as PwdStrength[]).map(lvl => (
+                      <View
+                        key={lvl}
+                        style={[styles.strengthBar, { backgroundColor: pwdStrength >= lvl ? pwdStrengthColor : '#E5E7EB' }]}
+                      />
+                    ))}
+                  </View>
+                  <Text style={[styles.strengthLabel, { color: pwdStrengthColor }]}>{pwdStrengthLabel}</Text>
+                </View>
+              )}
+
+              <Text style={styles.label}>Confirmer le nouveau mot de passe</Text>
+              <TextInput
+                style={styles.input}
+                value={confirmPwd}
+                onChangeText={v => { setConfirmPwd(v); setPwdMsg(null); }}
+                placeholder="••••••••"
+                placeholderTextColor={C.textMuted}
+                secureTextEntry
+              />
+
+              {pwdMsg && (
+                <View style={[styles.profileMsg, pwdMsg.ok ? styles.profileMsgOk : styles.profileMsgErr]}>
+                  <Ionicons name={pwdMsg.ok ? 'checkmark-circle' : 'alert-circle'} size={14} color={pwdMsg.ok ? '#059669' : C.open} />
+                  <Text style={[styles.profileMsgTxt, { color: pwdMsg.ok ? '#059669' : C.open }]}>{pwdMsg.text}</Text>
+                </View>
+              )}
+
+              <TouchableOpacity
+                style={[styles.profileBtn, savingPwd && { opacity: 0.6 }]}
+                onPress={handleChangePassword}
+                disabled={savingPwd}
+              >
+                <Ionicons name={savingPwd ? 'sync' : 'shield-checkmark-outline'} size={16} color={C.primary} />
+                <Text style={styles.profileBtnTxt}>{savingPwd ? 'Vérification…' : 'Changer le mot de passe'}</Text>
+              </TouchableOpacity>
+            </View>
+
             {organization && (
               <View style={styles.card}>
                 <View style={styles.cardTitleRow}>
@@ -383,41 +495,6 @@ export default function SettingsScreen() {
               </View>
             )}
 
-            {(user?.role === 'admin' || user?.role === 'super_admin') && (
-              <TouchableOpacity style={styles.navRow} onPress={() => router.push('/subscription')}>
-                <View style={[styles.navIcon, { backgroundColor: '#EFF6FF' }]}>
-                  <Ionicons name="card-outline" size={18} color="#3B82F6" />
-                </View>
-                <View style={{ flex: 1 }}>
-                  <Text style={styles.navLabel}>Abonnement</Text>
-                  {plan && subscription && (
-                    <View style={styles.navSub}>
-                      <View style={[styles.statusDot, { backgroundColor: statusCfg.color }]} />
-                      <Text style={[styles.navSubTxt, { color: statusCfg.color }]}>
-                        {plan.name} · {statusCfg.label}
-                      </Text>
-                    </View>
-                  )}
-                  {plan && (
-                    <View style={styles.seatMini}>
-                      <View style={styles.seatMiniBar}>
-                        <View style={[
-                          styles.seatMiniBarFill,
-                          {
-                            width: seatMax === -1 ? '30%' : `${Math.min(seatRatio * 100, 100)}%` as any,
-                            backgroundColor: seatBarColor,
-                          }
-                        ]} />
-                      </View>
-                      <Text style={styles.seatMiniTxt}>
-                        {seatUsed}{seatMax === -1 ? ' / ∞' : ` / ${seatMax}`} sièges
-                      </Text>
-                    </View>
-                  )}
-                </View>
-                <Ionicons name="chevron-forward" size={16} color={C.textMuted} />
-              </TouchableOpacity>
-            )}
 
             {user?.role === 'super_admin' && (
               <TouchableOpacity style={[styles.navRow, styles.navRowSpecial]} onPress={() => router.push('/superadmin')}>
@@ -582,117 +659,6 @@ export default function SettingsScreen() {
                 )}
               </View>
             )}
-
-            {/* ── Modifier mon profil ── */}
-            <View style={styles.card}>
-              <View style={styles.cardTitleRow}>
-                <Ionicons name="person-outline" size={16} color={C.primary} />
-                <Text style={styles.cardTitle}>Modifier mon profil</Text>
-              </View>
-
-              {/* Nom */}
-              <Text style={styles.label}>Nom affiché</Text>
-              <TextInput
-                style={styles.input}
-                value={nameEdit}
-                onChangeText={v => { setNameEdit(v); setNameMsg(null); }}
-                placeholder="Votre nom"
-                placeholderTextColor={C.textMuted}
-                autoCapitalize="words"
-                autoCorrect={false}
-              />
-              {nameMsg && (
-                <View style={[styles.profileMsg, nameMsg.ok ? styles.profileMsgOk : styles.profileMsgErr]}>
-                  <Ionicons name={nameMsg.ok ? 'checkmark-circle' : 'alert-circle'} size={14} color={nameMsg.ok ? '#059669' : C.open} />
-                  <Text style={[styles.profileMsgTxt, { color: nameMsg.ok ? '#059669' : C.open }]}>{nameMsg.text}</Text>
-                </View>
-              )}
-              <TouchableOpacity
-                style={[styles.profileBtn, savingName && { opacity: 0.6 }]}
-                onPress={handleSaveName}
-                disabled={savingName}
-              >
-                <Ionicons name={savingName ? 'sync' : 'checkmark-circle-outline'} size={16} color={C.primary} />
-                <Text style={styles.profileBtnTxt}>{savingName ? 'Enregistrement…' : 'Enregistrer le nom'}</Text>
-              </TouchableOpacity>
-
-              <View style={styles.profileDivider} />
-
-              {/* Mot de passe */}
-              <View style={styles.cardTitleRow}>
-                <Ionicons name="lock-closed-outline" size={15} color={C.primary} />
-                <Text style={styles.cardTitle}>Changer le mot de passe</Text>
-              </View>
-
-              <Text style={styles.label}>Mot de passe actuel</Text>
-              <View style={styles.pwdWrap}>
-                <TextInput
-                  style={styles.pwdInput}
-                  value={currentPwd}
-                  onChangeText={v => { setCurrentPwd(v); setPwdMsg(null); }}
-                  placeholder="••••••••"
-                  placeholderTextColor={C.textMuted}
-                  secureTextEntry={!showCurrentPwd}
-                />
-                <TouchableOpacity onPress={() => setShowCurrentPwd(p => !p)} hitSlop={8}>
-                  <Ionicons name={showCurrentPwd ? 'eye-off-outline' : 'eye-outline'} size={18} color={C.textMuted} />
-                </TouchableOpacity>
-              </View>
-
-              <Text style={styles.label}>Nouveau mot de passe</Text>
-              <View style={styles.pwdWrap}>
-                <TextInput
-                  style={styles.pwdInput}
-                  value={newPwd}
-                  onChangeText={v => { setNewPwd(v); setPwdMsg(null); }}
-                  placeholder="••••••••"
-                  placeholderTextColor={C.textMuted}
-                  secureTextEntry={!showNewPwd}
-                />
-                <TouchableOpacity onPress={() => setShowNewPwd(p => !p)} hitSlop={8}>
-                  <Ionicons name={showNewPwd ? 'eye-off-outline' : 'eye-outline'} size={18} color={C.textMuted} />
-                </TouchableOpacity>
-              </View>
-              {newPwd.length > 0 && (
-                <View style={styles.strengthWrap}>
-                  <View style={styles.strengthBars}>
-                    {([1, 2, 3] as PwdStrength[]).map(lvl => (
-                      <View
-                        key={lvl}
-                        style={[styles.strengthBar, { backgroundColor: pwdStrength >= lvl ? pwdStrengthColor : '#E5E7EB' }]}
-                      />
-                    ))}
-                  </View>
-                  <Text style={[styles.strengthLabel, { color: pwdStrengthColor }]}>{pwdStrengthLabel}</Text>
-                </View>
-              )}
-
-              <Text style={styles.label}>Confirmer le nouveau mot de passe</Text>
-              <TextInput
-                style={styles.input}
-                value={confirmPwd}
-                onChangeText={v => { setConfirmPwd(v); setPwdMsg(null); }}
-                placeholder="••••••••"
-                placeholderTextColor={C.textMuted}
-                secureTextEntry
-              />
-
-              {pwdMsg && (
-                <View style={[styles.profileMsg, pwdMsg.ok ? styles.profileMsgOk : styles.profileMsgErr]}>
-                  <Ionicons name={pwdMsg.ok ? 'checkmark-circle' : 'alert-circle'} size={14} color={pwdMsg.ok ? '#059669' : C.open} />
-                  <Text style={[styles.profileMsgTxt, { color: pwdMsg.ok ? '#059669' : C.open }]}>{pwdMsg.text}</Text>
-                </View>
-              )}
-
-              <TouchableOpacity
-                style={[styles.profileBtn, savingPwd && { opacity: 0.6 }]}
-                onPress={handleChangePassword}
-                disabled={savingPwd}
-              >
-                <Ionicons name={savingPwd ? 'sync' : 'shield-checkmark-outline'} size={16} color={C.primary} />
-                <Text style={styles.profileBtnTxt}>{savingPwd ? 'Vérification…' : 'Changer le mot de passe'}</Text>
-              </TouchableOpacity>
-            </View>
 
             <TouchableOpacity style={[styles.navRow, styles.navRowDanger]} onPress={handleLogout}>
               <View style={[styles.navIcon, { backgroundColor: '#FEF2F2' }]}>
