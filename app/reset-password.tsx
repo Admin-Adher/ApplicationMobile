@@ -8,6 +8,30 @@ import { C } from '@/constants/colors';
 import { supabase, isSupabaseConfigured } from '@/lib/supabase';
 
 type Status = 'loading' | 'ready' | 'saving' | 'success' | 'error_token' | 'error_save';
+type Strength = 0 | 1 | 2 | 3;
+
+const STRENGTH_COLORS: Record<Strength, string> = {
+  0: '#E5E7EB',
+  1: '#EF4444',
+  2: '#F59E0B',
+  3: '#22C55E',
+};
+const STRENGTH_LABELS: Record<Strength, string> = {
+  0: '',
+  1: 'Faible',
+  2: 'Moyen',
+  3: 'Fort',
+};
+
+function getStrength(pwd: string): Strength {
+  if (!pwd) return 0;
+  let score = 0;
+  if (pwd.length >= 6) score++;
+  if (pwd.length >= 10) score++;
+  if (/[A-Z]/.test(pwd) && /[0-9]/.test(pwd)) score++;
+  if (/[^A-Za-z0-9]/.test(pwd) && score >= 2) score++;
+  return Math.min(3, score) as Strength;
+}
 
 function parseFragment(fragment: string): Record<string, string> {
   const params: Record<string, string> = {};
@@ -52,6 +76,10 @@ export default function ResetPasswordScreen() {
   const [showPass, setShowPass] = useState(false);
   const [showConfirm, setShowConfirm] = useState(false);
   const [fieldError, setFieldError] = useState('');
+
+  const strength = getStrength(password);
+  const strengthColor = STRENGTH_COLORS[strength];
+  const strengthLabel = STRENGTH_LABELS[strength];
 
   useEffect(() => {
     let cancelled = false;
@@ -178,6 +206,26 @@ export default function ResetPasswordScreen() {
                       <Ionicons name={showPass ? 'eye-off-outline' : 'eye-outline'} size={18} color={C.textMuted} />
                     </TouchableOpacity>
                   </View>
+
+                  {/* ── Indicateur de force ── */}
+                  {password.length > 0 && (
+                    <View style={styles.strengthWrap}>
+                      <View style={styles.strengthBars}>
+                        {([1, 2, 3] as Strength[]).map(lvl => (
+                          <View
+                            key={lvl}
+                            style={[
+                              styles.strengthBar,
+                              { backgroundColor: strength >= lvl ? strengthColor : '#E5E7EB' },
+                            ]}
+                          />
+                        ))}
+                      </View>
+                      <Text style={[styles.strengthLabel, { color: strengthColor }]}>
+                        {strengthLabel}
+                      </Text>
+                    </View>
+                  )}
                 </View>
 
                 <View style={styles.field}>
@@ -329,4 +377,8 @@ const styles = StyleSheet.create({
   },
   btnDisabled: { opacity: 0.6 },
   btnText: { fontSize: 15, fontFamily: 'Inter_700Bold', color: C.primary },
+  strengthWrap: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 8 },
+  strengthBars: { flexDirection: 'row', gap: 4, flex: 1 },
+  strengthBar: { flex: 1, height: 4, borderRadius: 2 },
+  strengthLabel: { fontSize: 11, fontFamily: 'Inter_600SemiBold', minWidth: 36, textAlign: 'right' },
 });
