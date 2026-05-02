@@ -30,6 +30,19 @@ function formatDate(iso: string): string {
   return iso;
 }
 
+type PwdStrength = 0 | 1 | 2 | 3;
+const PWD_STRENGTH_COLORS: Record<PwdStrength, string> = { 0: '#E5E7EB', 1: '#EF4444', 2: '#F59E0B', 3: '#22C55E' };
+const PWD_STRENGTH_LABELS: Record<PwdStrength, string> = { 0: '', 1: 'Faible', 2: 'Moyen', 3: 'Fort' };
+function getPwdStrength(pwd: string): PwdStrength {
+  if (!pwd) return 0;
+  let score = 0;
+  if (pwd.length >= 6) score++;
+  if (pwd.length >= 10) score++;
+  if (/[A-Z]/.test(pwd) && /[0-9]/.test(pwd)) score++;
+  if (/[^A-Za-z0-9]/.test(pwd) && score >= 2) score++;
+  return Math.min(3, score) as PwdStrength;
+}
+
 const ROLE_COLORS: Record<string, string> = {
   super_admin:  '#8B5CF6',
   admin:        '#EF4444',
@@ -309,6 +322,10 @@ export default function SettingsScreen() {
       ]
     );
   }
+
+  const pwdStrength = getPwdStrength(newPwd);
+  const pwdStrengthColor = PWD_STRENGTH_COLORS[pwdStrength];
+  const pwdStrengthLabel = PWD_STRENGTH_LABELS[pwdStrength];
 
   const statusCfg = subscription ? STATUS_COLORS[subscription.status] : STATUS_COLORS.trial;
   const seatRatio = seatMax === -1 ? 0 : seatUsed / seatMax;
@@ -636,6 +653,19 @@ export default function SettingsScreen() {
                   <Ionicons name={showNewPwd ? 'eye-off-outline' : 'eye-outline'} size={18} color={C.textMuted} />
                 </TouchableOpacity>
               </View>
+              {newPwd.length > 0 && (
+                <View style={styles.strengthWrap}>
+                  <View style={styles.strengthBars}>
+                    {([1, 2, 3] as PwdStrength[]).map(lvl => (
+                      <View
+                        key={lvl}
+                        style={[styles.strengthBar, { backgroundColor: pwdStrength >= lvl ? pwdStrengthColor : '#E5E7EB' }]}
+                      />
+                    ))}
+                  </View>
+                  <Text style={[styles.strengthLabel, { color: pwdStrengthColor }]}>{pwdStrengthLabel}</Text>
+                </View>
+              )}
 
               <Text style={styles.label}>Confirmer le nouveau mot de passe</Text>
               <TextInput
@@ -1159,4 +1189,8 @@ const styles = StyleSheet.create({
     borderWidth: 1, borderColor: C.border, gap: 8,
   },
   pwdInput: { flex: 1, fontSize: 14, fontFamily: 'Inter_400Regular', color: C.text },
+  strengthWrap: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 8 },
+  strengthBars: { flexDirection: 'row', gap: 4, flex: 1 },
+  strengthBar: { flex: 1, height: 4, borderRadius: 2 },
+  strengthLabel: { fontSize: 11, fontFamily: 'Inter_600SemiBold', minWidth: 36, textAlign: 'right' },
 });
