@@ -358,6 +358,8 @@ export default function NewReserveScreen() {
         photos: photos.length > 0 ? photos : undefined,
         chantierId: effectiveChantierId,
         planId: selectedPlanId || undefined,
+        buildingId: selectedBuildingObj?.id ?? params.buildingId ?? undefined,
+        levelId: selectedLevelObj?.id ?? params.levelId ?? undefined,
         lotId: lotId || undefined,
         visiteId: visiteId || undefined,
       };
