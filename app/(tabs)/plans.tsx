@@ -21,7 +21,7 @@ import { STATUS_CONFIG } from '@/components/StatusBadge';
 import PriorityBadge from '@/components/PriorityBadge';
 import { uploadDocumentDetailed, isLocalUri } from '@/lib/storage';
 import { genId, formatDateFR } from '@/lib/utils';
-import { loadFileAsDataUrl, preRenderPdfPageToDataUrl, exportPDF as exportPDFHelper, printPDF as printPDFHelper } from '@/lib/pdfBase';
+import { loadFileAsDataUrl, loadPhotoAsDataUrl, preRenderPdfPageToDataUrl, exportPDF as exportPDFHelper, printPDF as printPDFHelper } from '@/lib/pdfBase';
 import { compareLevels } from '@/lib/reserveUtils';
 import { parseDxf, DxfParseResult } from '@/lib/dxfParser';
 import { openChantierSwitcher } from '@/components/ChantierSwitcherSheet';
@@ -480,13 +480,14 @@ async function exportGlobalReport(
         }
       }
 
-      // Build reserve rows (numbered 1..N per plan)
-      const rows = planReserves.map((r, i) => {
+      // Build reserve rows (numbered 1..N per plan) + photo strips per reserve
+      const MAX_PHOTOS_GLOBAL = 3;
+      const rowsAndPhotos = await Promise.all(planReserves.map(async (r, i) => {
         const n = i + 1;
         const color = getCompanyColor(r.company ?? '', companiesForColor);
         const statusColor = STATUS_COLORS[r.status] ?? '#6b7280';
         const priorityColor = PRIORITY_COLORS[r.priority] ?? '#6b7280';
-        return `<tr>
+        const row = `<tr>
           <td style="text-align:center;width:36px;"><span style="display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px;border-radius:50%;background:${color};color:#fff;font-weight:700;font-size:11px;">${n}</span></td>
           <td style="font-weight:600;">${r.title}</td>
           <td>${r.company || '—'}</td>
@@ -495,7 +496,40 @@ async function exportGlobalReport(
           <td><span style="color:${priorityColor};font-weight:600;">${PRIORITY_FR[r.priority] ?? r.priority}</span></td>
           <td>${r.deadline || '—'}</td>
         </tr>`;
-      }).join('');
+        const rawPhotos = (r.photos && r.photos.length > 0)
+          ? r.photos
+          : r.photoUri
+            ? [{ id: 'legacy', uri: r.photoUri, kind: 'defect' as const, takenAt: '', takenBy: '' }]
+            : [];
+        const photosToShow = rawPhotos.slice(0, MAX_PHOTOS_GLOBAL);
+        let photoHtml = '';
+        if (photosToShow.length > 0) {
+          const resolvedSrcs = await Promise.all(photosToShow.map(p => loadPhotoAsDataUrl(p.uri)));
+          photoHtml = `<div style="padding:8px 16px 12px 16px;border-bottom:1px solid #f1f5f9;background:#fff;">
+            <div style="font-size:10px;font-weight:700;color:#64748b;margin-bottom:6px;">
+              <span style="display:inline-flex;align-items:center;justify-content:center;width:18px;height:18px;border-radius:50%;background:${color};color:#fff;font-weight:700;font-size:9px;margin-right:5px;">${n}</span>
+              ${r.title} — Photos (${photosToShow.length}${rawPhotos.length > MAX_PHOTOS_GLOBAL ? ` sur ${rawPhotos.length}` : ''})
+            </div>
+            <div style="display:flex;gap:8px;flex-wrap:nowrap;">
+              ${photosToShow.map((p, idx) => {
+                const src = resolvedSrcs[idx] ?? p.uri;
+                const isDefect = p.kind === 'defect';
+                return `<div style="flex:1;min-width:0;text-align:center;max-width:200px;">
+                  <img src="${src}" onerror="this.style.opacity='0.15'"
+                    style="width:100%;height:auto;max-height:160px;object-fit:contain;background:#F9FAFB;border-radius:6px;border:1.5px solid #DDE4EE;display:block;" />
+                  <span style="display:inline-block;margin-top:3px;padding:1px 7px;border-radius:8px;font-size:9px;font-weight:700;
+                    background:${isDefect ? '#FEF2F2' : '#ECFDF5'};color:${isDefect ? '#DC2626' : '#059669'};">
+                    ${isDefect ? '● Constat' : '● Levée'}
+                  </span>
+                </div>`;
+              }).join('')}
+            </div>
+          </div>`;
+        }
+        return { row, photoHtml };
+      }));
+      const rows = rowsAndPhotos.map(rp => rp.row).join('');
+      const photosSection = rowsAndPhotos.map(rp => rp.photoHtml).filter(Boolean).join('');
 
       const levelBadge = plan.level
         ? `<span style="font-size:11px;font-weight:600;background:#e2e8f0;color:#64748b;padding:2px 8px;border-radius:10px;margin-left:6px;">${plan.level}</span>`
@@ -506,6 +540,7 @@ async function exportGlobalReport(
           <div class="plan-header">📐 ${plan.name}${levelBadge}<span style="margin-left:auto;font-size:11px;color:#94a3b8;">${planReserves.length} réserve${planReserves.length !== 1 ? 's' : ''}</span></div>
           ${planImgHtml}
           <table><thead><tr><th>#</th><th>Titre</th><th>Entreprise</th><th>Niveau</th><th>Statut</th><th>Priorité</th><th>Échéance</th></tr></thead><tbody>${rows}</tbody></table>
+          ${photosSection ? `<div style="padding:8px 16px 4px 16px;background:#f8fafc;border-top:1px solid #e2e8f0;font-size:10px;font-weight:700;color:#475569;text-transform:uppercase;letter-spacing:0.5px;">📷 Photos des réserves</div>${photosSection}` : ''}
         </div>`);
     }
 
@@ -526,12 +561,13 @@ async function exportGlobalReport(
   // 4b. "Réserves hors plan" section — reserves not placed on any plan
   let orphanSectionHtml = '';
   if (orphanReserves.length > 0) {
-    const orphanRows = orphanReserves.map((r, i) => {
+    const MAX_PHOTOS_ORPHAN = 3;
+    const orphanRowsAndPhotos = await Promise.all(orphanReserves.map(async (r, i) => {
       const n = i + 1;
       const color = getCompanyColor(r.company ?? '', companiesForColor);
       const statusColor = STATUS_COLORS[r.status] ?? '#6b7280';
       const priorityColor = PRIORITY_COLORS[r.priority] ?? '#6b7280';
-      return `<tr>
+      const row = `<tr>
         <td style="text-align:center;width:36px;"><span style="display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px;border-radius:50%;background:${color};color:#fff;font-weight:700;font-size:11px;">${n}</span></td>
         <td style="font-weight:600;">${r.title}</td>
         <td>${r.company || '—'}</td>
@@ -541,7 +577,40 @@ async function exportGlobalReport(
         <td><span style="color:${priorityColor};font-weight:600;">${PRIORITY_FR[r.priority] ?? r.priority}</span></td>
         <td>${r.deadline || '—'}</td>
       </tr>`;
-    }).join('');
+      const rawPhotos = (r.photos && r.photos.length > 0)
+        ? r.photos
+        : r.photoUri
+          ? [{ id: 'legacy', uri: r.photoUri, kind: 'defect' as const, takenAt: '', takenBy: '' }]
+          : [];
+      const photosToShow = rawPhotos.slice(0, MAX_PHOTOS_ORPHAN);
+      let photoHtml = '';
+      if (photosToShow.length > 0) {
+        const resolvedSrcs = await Promise.all(photosToShow.map(p => loadPhotoAsDataUrl(p.uri)));
+        photoHtml = `<div style="padding:8px 16px 12px 16px;border-bottom:1px solid #f1f5f9;background:#fff;">
+          <div style="font-size:10px;font-weight:700;color:#64748b;margin-bottom:6px;">
+            <span style="display:inline-flex;align-items:center;justify-content:center;width:18px;height:18px;border-radius:50%;background:${color};color:#fff;font-weight:700;font-size:9px;margin-right:5px;">${n}</span>
+            ${r.title} — Photos (${photosToShow.length}${rawPhotos.length > MAX_PHOTOS_ORPHAN ? ` sur ${rawPhotos.length}` : ''})
+          </div>
+          <div style="display:flex;gap:8px;flex-wrap:nowrap;">
+            ${photosToShow.map((p, idx) => {
+              const src = resolvedSrcs[idx] ?? p.uri;
+              const isDefect = p.kind === 'defect';
+              return `<div style="flex:1;min-width:0;text-align:center;max-width:200px;">
+                <img src="${src}" onerror="this.style.opacity='0.15'"
+                  style="width:100%;height:auto;max-height:160px;object-fit:contain;background:#F9FAFB;border-radius:6px;border:1.5px solid #DDE4EE;display:block;" />
+                <span style="display:inline-block;margin-top:3px;padding:1px 7px;border-radius:8px;font-size:9px;font-weight:700;
+                  background:${isDefect ? '#FEF2F2' : '#ECFDF5'};color:${isDefect ? '#DC2626' : '#059669'};">
+                  ${isDefect ? '● Constat' : '● Levée'}
+                </span>
+              </div>`;
+            }).join('')}
+          </div>
+        </div>`;
+      }
+      return { row, photoHtml };
+    }));
+    const orphanRows = orphanRowsAndPhotos.map(rp => rp.row).join('');
+    const orphanPhotosSection = orphanRowsAndPhotos.map(rp => rp.photoHtml).filter(Boolean).join('');
     orphanSectionHtml = `
       <div class="building-section">
         <div class="building-header" style="background:linear-gradient(135deg,#475569 0%,#64748b 100%);">
@@ -552,6 +621,7 @@ async function exportGlobalReport(
         <div class="plan-section" style="border-radius:0 0 8px 8px;">
           <div class="plan-header" style="color:#64748b;font-style:italic;">Ces réserves ne sont pas positionnées sur un plan</div>
           <table><thead><tr><th>#</th><th>Titre</th><th>Entreprise</th><th>Bâtiment</th><th>Niveau</th><th>Statut</th><th>Priorité</th><th>Échéance</th></tr></thead><tbody>${orphanRows}</tbody></table>
+          ${orphanPhotosSection ? `<div style="padding:8px 16px 4px 16px;background:#f8fafc;border-top:1px solid #e2e8f0;font-size:10px;font-weight:700;color:#475569;text-transform:uppercase;letter-spacing:0.5px;">📷 Photos des réserves</div>${orphanPhotosSection}` : ''}
         </div>
       </div>`;
   }
