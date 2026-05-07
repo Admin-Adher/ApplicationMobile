@@ -385,10 +385,19 @@ async function exportGlobalReport(
     .filter(r => !statusFilter || statusFilter.size === 0 || statusFilter.has(r.status));
 
   // Limit embedded photos to keep the HTML small enough for the PDF renderer.
-  // Each base64-encoded photo is 500 KB–2 MB. With all companies selected,
-  // 50+ reserves × 3 photos = 150+ photos → 75+ MB HTML → blank PDF on Android/iOS.
-  // Cap: include up to 2 photos per reserve only when there are ≤ 15 reserves total.
-  const maxPhotosPerReserve = filteredReserves.length <= 15 ? 2 : 0;
+  // Each base64-encoded photo is ~200 KB–1 MB as base64. With 50+ reserves × 3 photos
+  // that's 150+ photos → 50–150 MB of HTML → the PDF WebView produces a blank page.
+  //
+  // Proportional cap: target at most 40 embedded photos total (≈ 20–40 MB HTML, safe
+  // on both Android and iOS). The per-reserve limit scales down automatically as the
+  // report grows, so small reports keep 2 photos each while very large ones skip photos.
+  //   ≤ 20 reserves → 2 photos each   (total ≤ 40)
+  //   21–40 reserves → 1 photo each   (total ≤ 40)
+  //   41+ reserves → 0 photos         (HTML stays < 5 MB; plan pin images still show)
+  const MAX_TOTAL_PHOTOS = 40;
+  const maxPhotosPerReserve = filteredReserves.length === 0
+    ? 0
+    : Math.min(2, Math.floor(MAX_TOTAL_PHOTOS / filteredReserves.length));
 
   // 2. Group reserves by planId — reserves with no planId are "orphans"
   const reservesByPlan = new Map<string, Reserve[]>();
