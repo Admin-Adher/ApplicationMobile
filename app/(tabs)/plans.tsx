@@ -372,9 +372,23 @@ async function exportGlobalReport(
   };
 
   // 1. Filter reserves by company + status
+  // Match against r.company (single string) OR r.companies (multi-company array).
+  const matchesCompany = (r: Reserve, filter: string | null): boolean => {
+    if (filter === null) return true;
+    if ((r.company ?? '').trim() === filter) return true;
+    const arr = (r as any).companies;
+    if (Array.isArray(arr) && arr.some((c: any) => typeof c === 'string' && c.trim() === filter)) return true;
+    return false;
+  };
   const filteredReserves = allChantierReserves
-    .filter(r => companyFilter === null || (r.company ?? '').trim() === companyFilter)
+    .filter(r => matchesCompany(r, companyFilter))
     .filter(r => !statusFilter || statusFilter.size === 0 || statusFilter.has(r.status));
+
+  // Limit embedded photos to keep the HTML small enough for the PDF renderer.
+  // Each base64-encoded photo is 500 KB–2 MB. With all companies selected,
+  // 50+ reserves × 3 photos = 150+ photos → 75+ MB HTML → blank PDF on Android/iOS.
+  // Cap: include up to 2 photos per reserve only when there are ≤ 15 reserves total.
+  const maxPhotosPerReserve = filteredReserves.length <= 15 ? 2 : 0;
 
   // 2. Group reserves by planId — reserves with no planId are "orphans"
   const reservesByPlan = new Map<string, Reserve[]>();
@@ -481,7 +495,7 @@ async function exportGlobalReport(
       }
 
       // Build reserve rows (numbered 1..N per plan) + photo strips per reserve
-      const MAX_PHOTOS_GLOBAL = 3;
+      const MAX_PHOTOS_GLOBAL = maxPhotosPerReserve;
       const rowsAndPhotos = await Promise.all(planReserves.map(async (r, i) => {
         const n = i + 1;
         const color = getCompanyColor(r.company ?? '', companiesForColor);
@@ -561,7 +575,7 @@ async function exportGlobalReport(
   // 4b. "Réserves hors plan" section — reserves not placed on any plan
   let orphanSectionHtml = '';
   if (orphanReserves.length > 0) {
-    const MAX_PHOTOS_ORPHAN = 3;
+    const MAX_PHOTOS_ORPHAN = maxPhotosPerReserve;
     const orphanRowsAndPhotos = await Promise.all(orphanReserves.map(async (r, i) => {
       const n = i + 1;
       const color = getCompanyColor(r.company ?? '', companiesForColor);
@@ -1302,22 +1316,38 @@ export default function PlansScreen() {
     [reserves, activeChantierId],
   );
 
-  // Unique companies across the whole chantier (for the global report company picker)
+  // Unique companies across the whole chantier (for the global report company picker).
+  // Checks both r.company (single string) and r.companies (multi-company array) so
+  // reserves created via either pathway are counted.
   const globalReportCompanies = useMemo(() => {
     const countMap = new Map<string, number>();
     for (const r of chantierReserves) {
-      const key = (r.company && r.company.trim()) ? r.company.trim() : null;
-      if (key) countMap.set(key, (countMap.get(key) ?? 0) + 1);
+      const names: string[] = [];
+      if (r.company && r.company.trim()) names.push(r.company.trim());
+      const arr = (r as any).companies;
+      if (Array.isArray(arr)) {
+        for (const c of arr) {
+          if (c && typeof c === 'string' && c.trim() && !names.includes(c.trim())) names.push(c.trim());
+        }
+      }
+      for (const key of names) countMap.set(key, (countMap.get(key) ?? 0) + 1);
     }
     return Array.from(countMap.entries())
       .map(([key, count]) => ({ key, label: key, count }))
       .sort((a, b) => a.label.localeCompare(b.label, 'fr'));
   }, [chantierReserves]);
 
-  // How many reserves will appear in the global report with the current company + status filters
+  // How many reserves will appear in the global report with the current company + status filters.
+  // Matches r.company (string) OR r.companies (array) for consistency with exportGlobalReport.
   const globalReportPreviewCount = useMemo(() => {
     let rs = chantierReserves;
-    if (globalReportCompany !== null) rs = rs.filter(r => (r.company ?? '').trim() === globalReportCompany);
+    if (globalReportCompany !== null) {
+      rs = rs.filter(r => {
+        if ((r.company ?? '').trim() === globalReportCompany) return true;
+        const arr = (r as any).companies;
+        return Array.isArray(arr) && arr.some((c: any) => typeof c === 'string' && c.trim() === globalReportCompany);
+      });
+    }
     if (globalReportStatusFilter.size > 0) rs = rs.filter(r => globalReportStatusFilter.has(r.status));
     return rs.length;
   }, [chantierReserves, globalReportCompany, globalReportStatusFilter]);
@@ -1350,7 +1380,12 @@ export default function PlansScreen() {
         const preRenderedImages = new Map<string, string>();
         if (Platform.OS !== 'web') {
           const filteredReserves = chantierReserves
-            .filter(r => globalReportCompany === null || (r.company ?? '').trim() === globalReportCompany)
+            .filter(r => {
+              if (globalReportCompany === null) return true;
+              if ((r.company ?? '').trim() === globalReportCompany) return true;
+              const arr = (r as any).companies;
+              return Array.isArray(arr) && arr.some((c: any) => typeof c === 'string' && c.trim() === globalReportCompany);
+            })
             .filter(r => !globalReportStatusFilter || globalReportStatusFilter.size === 0 || globalReportStatusFilter.has(r.status));
           const reservedPlanIds = new Set(filteredReserves.map(r => r.planId).filter(Boolean) as string[]);
           const pdfPlansWithReserves = chantierPlans.filter(
