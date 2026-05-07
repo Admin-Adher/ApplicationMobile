@@ -33,6 +33,11 @@ async function readFileAsBlob(uri: string): Promise<{ data: Blob; mimeType: stri
 // est dépassé, on renvoie null et l'appelant bascule sur la file de sync.
 const PHOTO_UPLOAD_TIMEOUT_MS = 30_000;
 
+// Module-level upload counter so that filenames are unique even when several
+// photos are uploaded within the same millisecond (e.g. bulk offline sync).
+let _uploadSeq = 0;
+function nextUploadSeq(): number { return ++_uploadSeq; }
+
 function withTimeout<T>(p: Promise<T>, ms: number, label: string): Promise<T> {
   return new Promise<T>((resolve, reject) => {
     const t = setTimeout(
@@ -335,7 +340,7 @@ export async function uploadLocalPhotosInPayload(
   if (table === 'reserves') {
     if (typeof data.photo_uri === 'string' && isLocalUri(data.photo_uri)) {
       hadLocal = true;
-      const { url: remote, error: uploadErr } = await _uploadPhotoWithError(data.photo_uri, `reserve_${Date.now()}.jpg`);
+      const { url: remote, error: uploadErr } = await _uploadPhotoWithError(data.photo_uri, `reserve_${Date.now()}_${nextUploadSeq()}.jpg`);
       if (remote === (MISSING_LOCAL_FILE as any)) data.photo_uri = null;
       else if (remote) data.photo_uri = remote;
       else { allOk = false; if (uploadErr) uploadErrors.push(`photo_uri: ${uploadErr}`); }
@@ -346,7 +351,7 @@ export async function uploadLocalPhotosInPayload(
         const p = data.photos[i];
         if (p && typeof p.uri === 'string' && isLocalUri(p.uri)) {
           hadLocal = true;
-          const { url: remote, error: uploadErr } = await _uploadPhotoWithError(p.uri, `reserve_photo_${Date.now()}_${i}.jpg`);
+          const { url: remote, error: uploadErr } = await _uploadPhotoWithError(p.uri, `reserve_photo_${Date.now()}_${nextUploadSeq()}_${i}.jpg`);
           if (remote === (MISSING_LOCAL_FILE as any)) {
             continue;
           }

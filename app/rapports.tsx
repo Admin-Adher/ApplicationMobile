@@ -641,7 +641,10 @@ export default function RapportsScreen() {
               </View>
             </View>
             {companies.map(company => {
-              const companyReserves = reserves.filter(r => r.company === company.name);
+              const companyReserves = reserves.filter(r =>
+              r.company === company.name ||
+              (Array.isArray((r as any).companies) && (r as any).companies.includes(company.name))
+            );
               const openCount = companyReserves.filter(r => r.status !== 'closed').length;
               const closedCount = companyReserves.filter(r => r.status === 'closed').length;
               const activeChantier = chantiers.find(c => c.id === activeChantierId);

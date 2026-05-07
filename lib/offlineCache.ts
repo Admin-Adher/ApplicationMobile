@@ -175,8 +175,24 @@ export function mergeWithCache<T extends { id: string }>(
     const localOnly = cached.filter(item => !freshIds.has(item.id));
     return [...fresh, ...localOnly];
   }
-  if (!pendingIds || pendingIds.size === 0) return fresh;
   const freshIds = new Set(fresh.map(item => item.id));
+
+  if (!pendingIds || pendingIds.size === 0) {
+    // Server is source of truth — but keep a 5-minute safety window for items
+    // that were just created/synced and might not appear yet in the server
+    // response (RLS propagation delay, token-swap race, transient network blip).
+    // After the window they are genuinely dropped so server deletions propagate.
+    const SAFETY_WINDOW_MS = 5 * 60 * 1000;
+    const cutoff = Date.now() - SAFETY_WINDOW_MS;
+    const veryRecent = cached.filter(item => {
+      if (freshIds.has(item.id)) return false;
+      const r = item as any;
+      if (!r.createdAt) return false;
+      try { return new Date(r.createdAt).getTime() > cutoff; } catch { return false; }
+    });
+    return veryRecent.length > 0 ? [...fresh, ...veryRecent] : fresh;
+  }
+
   const localOnly = cached.filter(
     item => !freshIds.has(item.id) && pendingIds.has(item.id),
   );

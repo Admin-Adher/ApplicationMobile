@@ -37,7 +37,7 @@ if (Platform.OS !== 'web') {
 export const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
-      staleTime: 0,
+      staleTime: 30_000,
       gcTime: 24 * 60 * 60 * 1000,
       retry: 1,
       refetchOnWindowFocus: true,
