@@ -1,9 +1,8 @@
 import {
   View, Text, StyleSheet, SectionList, TouchableOpacity, Modal,
-  TextInput, Platform, Alert, TouchableWithoutFeedback, ScrollView,
+  TextInput, Platform, Alert, TouchableWithoutFeedback, ScrollView, KeyboardAvoidingView,
 } from 'react-native';
 import DateInput from '@/components/DateInput';
-import { KeyboardAvoidingView } from 'react-native-keyboard-controller';
 import { useState, useMemo } from 'react';
 import { Ionicons } from '@expo/vector-icons';
 import { C } from '@/constants/colors';

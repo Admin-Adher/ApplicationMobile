@@ -198,9 +198,9 @@ function TabsNavigator() {
           tabBarIcon: ({ color, focused }) => <TabIcon name={focused ? 'hammer' : 'hammer-outline'} color={color} size={26} badge={openIncidentsCount} />,
         }}
       />
-      <Tabs.Screen name="incidents" options={{ href: null }} />
-      <Tabs.Screen name="equipes"   options={{ href: null }} />
-      <Tabs.Screen name="admin"     options={{ href: null }} />
+      <Tabs.Screen name="incidents" options={{ tabBarItemStyle: { display: 'none' } }} />
+      <Tabs.Screen name="equipes"   options={{ tabBarItemStyle: { display: 'none' } }} />
+      <Tabs.Screen name="admin"     options={{ tabBarItemStyle: { display: 'none' } }} />
     </Tabs>
   );
 }

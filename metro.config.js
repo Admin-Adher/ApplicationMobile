@@ -3,8 +3,6 @@ const path = require('path');
 
 const config = getDefaultConfig(__dirname);
 
-config.resolver.unstable_enablePackageExports = true;
-
 config.resolver.resolveRequest = (context, moduleName, platform) => {
   const isPdfJs =
     moduleName === '@/lib/pdfjs' ||

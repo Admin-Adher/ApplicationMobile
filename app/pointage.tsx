@@ -1,8 +1,7 @@
 import {
   View, Text, StyleSheet, ScrollView, TouchableOpacity, Modal,
-  TextInput, Platform, Alert, TouchableWithoutFeedback,
+  TextInput, Platform, Alert, TouchableWithoutFeedback, KeyboardAvoidingView,
 } from 'react-native';
-import { KeyboardAvoidingView } from 'react-native-keyboard-controller';
 import { useState, useMemo, useRef, useEffect, useCallback } from 'react';
 import * as FileSystem from 'expo-file-system';
 import * as Sharing from 'expo-sharing';

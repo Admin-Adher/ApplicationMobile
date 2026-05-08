@@ -10,7 +10,7 @@ import { useFonts } from 'expo-font';
 import { Inter_400Regular, Inter_500Medium, Inter_600SemiBold, Inter_700Bold } from '@expo-google-fonts/inter';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
-import { KeyboardProvider } from 'react-native-keyboard-controller';
+
 import { PersistQueryClientProvider } from '@tanstack/react-query-persist-client';
 import { queryClient } from '@/lib/queryClient';
 import { asyncStoragePersister } from '@/lib/queryPersister';
@@ -49,6 +49,7 @@ function SafeKeyboardProvider({ children }: { children: React.ReactNode }) {
     return <>{children}</>;
   }
   try {
+    const { KeyboardProvider } = require('react-native-keyboard-controller');
     return <KeyboardProvider>{children}</KeyboardProvider>;
   } catch {
     return <>{children}</>;

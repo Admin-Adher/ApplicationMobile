@@ -1,5 +1,4 @@
-import { View, Text, StyleSheet, FlatList, TouchableOpacity, Alert, Image, Platform, ActivityIndicator, Modal, TextInput, ScrollView, Share } from 'react-native';
-import { KeyboardAvoidingView } from 'react-native-keyboard-controller';
+import { View, Text, StyleSheet, FlatList, TouchableOpacity, Alert, Image, Platform, ActivityIndicator, Modal, TextInput, ScrollView, Share, KeyboardAvoidingView } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useState, useMemo } from 'react';
 import * as ImagePicker from 'expo-image-picker';
