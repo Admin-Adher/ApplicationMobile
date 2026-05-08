@@ -35,6 +35,15 @@ config.transformer = {
       'sentry-expo|' +
       'native-base|' +
       'react-native-svg|' +
+      'react-native-reanimated|' +
+      'react-native-gesture-handler|' +
+      'react-native-screens|' +
+      'react-native-safe-area-context|' +
+      'react-native-keyboard-controller|' +
+      'react-native-webview|' +
+      '@tanstack/.*|' +
+      'p-limit|' +
+      'p-retry|' +
       'pdfjs-dist' +
     '))',
   ],
