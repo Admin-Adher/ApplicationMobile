@@ -1,6 +1,6 @@
 import {
   View, Text, StyleSheet, ScrollView, TouchableOpacity,
-  TextInput, Alert, Image, Modal, ActivityIndicator, Platform, KeyboardAvoidingView,
+  TextInput, Alert, Image, Modal, ActivityIndicator, Platform, KeyboardAvoidingView, Pressable,
 } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
