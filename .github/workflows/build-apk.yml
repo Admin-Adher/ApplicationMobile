@@ -22,8 +22,9 @@ jobs:
   publish-ota:
     name: Publish OTA Update (EAS)
     runs-on: ubuntu-latest
-    # Passe silencieusement si EXPO_TOKEN n'est pas configuré
-    if: ${{ vars.OTA_ENABLED == 'true' || secrets.EXPO_TOKEN != '' }}
+    # Passe silencieusement si OTA_ENABLED n'est pas activé
+    # Pour activer : Settings → Variables → New variable → OTA_ENABLED = true
+    if: vars.OTA_ENABLED == 'true'
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
