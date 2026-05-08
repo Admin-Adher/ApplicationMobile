@@ -3364,6 +3364,7 @@ export default function PlansScreen() {
               </TouchableOpacity>
             </View>
 
+            <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ gap: 12, paddingBottom: 4 }} keyboardShouldPersistTaps="handled">
             {/* Scope toggle: Ce plan / Rapport global */}
             <View style={styles.pdfScopeRow}>
               <TouchableOpacity
@@ -3436,6 +3437,7 @@ export default function PlansScreen() {
                   Rapport complet du chantier : tous les bâtiments, tous les plans avec leurs réserves et un tableau de synthèse.
                 </Text>
                 <View style={styles.pdfPickerWrap}>
+                  <ScrollView showsVerticalScrollIndicator={false} nestedScrollEnabled>
                   {/* All companies option */}
                   <TouchableOpacity
                     style={[styles.pdfPickRow, globalReportCompany === null && styles.pdfPickRowActive]}
@@ -3470,6 +3472,7 @@ export default function PlansScreen() {
                   {globalReportCompanies.length === 0 && (
                     <Text style={styles.pdfEmptyHint}>Aucune réserve sur ce chantier.</Text>
                   )}
+                  </ScrollView>
                 </View>
 
                 {/* Status filter chips */}
@@ -3699,9 +3702,7 @@ export default function PlansScreen() {
                       {pdfLoading
                         ? <ActivityIndicator size="small" color="#fff" />
                         : <Ionicons name="share-social-outline" size={15} color="#fff" />}
-                      <Text style={styles.pdfConfirmBtnText}>
-                        {pdfScope === 'global' ? 'Partager le rapport' : 'Partager le PDF'}
-                      </Text>
+                      <Text style={styles.pdfConfirmBtnText}>Partager</Text>
                     </TouchableOpacity>
                   </>
                 );
@@ -3783,6 +3784,7 @@ export default function PlansScreen() {
                 )}
               </View>
             )}
+            </ScrollView>
           </Pressable>
         </Pressable>
       </Modal>
