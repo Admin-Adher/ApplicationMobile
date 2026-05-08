@@ -7,6 +7,8 @@ import {
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Haptics from 'expo-haptics';
 import * as Print from 'expo-print';
+import * as FileSystem from 'expo-file-system';
+import * as Sharing from 'expo-sharing';
 import { TABLET_RESERVE_PANEL_W } from '@/lib/useTablet';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -1532,9 +1534,36 @@ export default function PlansScreen() {
         return;
       }
 
+      const count = filteredReserves.length;
+      const chantierSlug = (activeChantier?.name ?? 'rapport').replace(/[^a-zA-Z0-9À-ÿ _-]/g, '_');
+      const dateSlug = new Date().toISOString().slice(0, 10);
+      const filename = `Rapport_${chantierSlug}_${dateSlug}.pdf`;
+
+      if (result.pdfBase64) {
+        try {
+          const fileUri = (FileSystem.cacheDirectory ?? '') + filename;
+          await FileSystem.writeAsStringAsync(fileUri, result.pdfBase64, {
+            encoding: FileSystem.EncodingType.Base64,
+          });
+          const canShare = await Sharing.isAvailableAsync();
+          if (canShare) {
+            setGlobalReportEmailTo('');
+            setPdfModalVisible(false);
+            await Sharing.shareAsync(fileUri, {
+              mimeType: 'application/pdf',
+              dialogTitle: `Rapport — ${activeChantier?.name ?? ''}`,
+              UTI: 'com.adobe.pdf',
+            });
+            return;
+          }
+        } catch (saveErr) {
+          console.warn('[Email Report] Erreur sauvegarde locale:', saveErr);
+        }
+      }
+
       Alert.alert(
         '✓ Rapport envoyé',
-        `Le rapport (${filteredReserves.length} réserve${filteredReserves.length !== 1 ? 's' : ''}) a été envoyé à :\n${emails.join('\n')}`
+        `Le rapport (${count} réserve${count !== 1 ? 's' : ''}) a bien été envoyé à :\n${emails.join('\n')}`
       );
       setGlobalReportEmailTo('');
       setPdfModalVisible(false);
