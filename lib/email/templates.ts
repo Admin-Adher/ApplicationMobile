@@ -93,7 +93,7 @@ export function invitationEmail(params: {
     </div>
     <div class="info-box">
       <p><strong>Comment ça marche ?</strong><br/>
-      1. Cliquez sur le bouton ci-dessus ou allez sur <strong>buildtrack.vercel.app</strong><br/>
+      1. Cliquez sur le bouton ci-dessus<br/>
       2. Choisissez <em>« Invitation reçue »</em> et créez votre compte avec l'email <strong>${email}</strong><br/>
       3. Votre accès à <strong>${organizationName}</strong> sera automatiquement activé</p>
     </div>

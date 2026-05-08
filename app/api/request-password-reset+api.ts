@@ -6,7 +6,7 @@ const SUPABASE_URL = process.env.EXPO_PUBLIC_SUPABASE_URL ?? '';
 const SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY ?? '';
 const RESET_REDIRECT = process.env.EXPO_PUBLIC_APP_URL
   ? `${process.env.EXPO_PUBLIC_APP_URL}/reset-password`
-  : 'https://buildtrack-mobile.vercel.app/reset-password';
+  : `https://${process.env.REPLIT_DEV_DOMAIN || 'localhost:5000'}/reset-password`;
 
 export async function POST(request: Request) {
   try {

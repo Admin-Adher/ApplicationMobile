@@ -10,7 +10,7 @@ const app = express();
 app.use(express.json());
 
 const PORT = process.env.API_PORT || 3001;
-const APP_URL = process.env.EXPO_PUBLIC_APP_URL || 'https://buildtrack-mobile.vercel.app';
+const APP_URL = process.env.EXPO_PUBLIC_APP_URL || `https://${process.env.REPLIT_DEV_DOMAIN || 'localhost:5000'}`;
 
 // ── CORS ─────────────────────────────────────────────────────────────────────
 app.use((req, res, next) => {
