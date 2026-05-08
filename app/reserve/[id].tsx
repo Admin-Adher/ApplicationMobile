@@ -11,7 +11,7 @@ import { C } from '@/constants/colors';
 import { useApp } from '@/context/AppContext';
 import { Reserve, ReservePriority, ReserveStatus, ReservePhoto, SitePlan } from '@/constants/types';
 import {
-  loadPhotoAsDataUrl,
+  loadPhotoAsDataUrl, loadPhotoAsDataUrlForPdf,
   loadFileAsDataUrl,
   exportPDF as exportPDFHelper,
   buildPhotoGrid,
@@ -763,7 +763,7 @@ export default function ReserveDetailScreen() {
         : reserve.photoUri
           ? [{ id: 'legacy', uri: reserve.photoUri, kind: 'defect' as const, takenAt: reserve.createdAt, takenBy: '' }]
           : [];
-      const resolvedSrcs = await Promise.all(rawPhotos.slice(0, 3).map(p => loadPhotoAsDataUrl(p.uri)));
+      const resolvedSrcs = await Promise.all(rawPhotos.slice(0, 3).map(p => loadPhotoAsDataUrlForPdf(p.uri)));
 
       let planData: PlanData | undefined;
       if (reserve.planId && reserve.planX !== undefined && reserve.planY !== undefined) {

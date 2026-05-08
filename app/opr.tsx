@@ -17,7 +17,7 @@ import { useState, useMemo, useRef } from 'react';
 import { C } from '@/constants/colors';
 import {
   exportPDF as exportPDFHelper,
-  loadPhotoAsDataUrl,
+  loadPhotoAsDataUrl, loadPhotoAsDataUrlForPdf,
   svgStringToDataUrl,
   buildLetterhead,
   buildInfoGrid,
@@ -205,8 +205,8 @@ async function buildPvLeveePDF(opr: Opr, reserves: Reserve[], projectName: strin
       const defectPhoto = reserve.photos.find(p => p.kind === 'defect');
       const resolutionPhoto = reserve.photos.find(p => p.kind === 'resolution');
       const [dSrc, rSrc] = await Promise.all([
-        defectPhoto ? loadPhotoAsDataUrl(defectPhoto.uri) : Promise.resolve(''),
-        resolutionPhoto ? loadPhotoAsDataUrl(resolutionPhoto.uri) : Promise.resolve(''),
+        defectPhoto ? loadPhotoAsDataUrlForPdf(defectPhoto.uri) : Promise.resolve(''),
+        resolutionPhoto ? loadPhotoAsDataUrlForPdf(resolutionPhoto.uri) : Promise.resolve(''),
       ]);
       photoData[reserve.id] = { defect: dSrc || undefined, resolution: rSrc || undefined };
     })

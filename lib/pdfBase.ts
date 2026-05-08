@@ -2,6 +2,7 @@ import { Platform } from 'react-native';
 import * as Print from 'expo-print';
 import * as Sharing from 'expo-sharing';
 import * as FileSystem from 'expo-file-system';
+import * as ImageManipulator from 'expo-image-manipulator';
 
 /**
  * Escapes user-supplied strings so they are safe to embed in HTML.
@@ -336,6 +337,54 @@ export async function loadPhotoAsDataUrl(uri: string): Promise<string> {
 
   // Web: browser can load HTTPS directly
   return uri;
+}
+
+/**
+ * Compressed variant of loadPhotoAsDataUrl, designed for embedding photos in
+ * generated PDFs that may contain many reserves (global reports, etc.).
+ *
+ * Uses expo-image-manipulator to resize to 800 px wide at JPEG 0.55 quality
+ * before base64-encoding → ~40–80 KB per photo instead of 500 KB–2 MB.
+ * This keeps the full HTML under ~10 MB even for 150-photo reports, well within
+ * the memory budget of Print.printToFileAsync's WebView on Android and iOS.
+ *
+ * On web the browser loads images directly from their URL, so no compression
+ * or base64 encoding is needed — the original URI is returned as-is.
+ *
+ * Returns null on any failure so the caller can skip the photo gracefully.
+ */
+export async function loadPhotoAsDataUrlForPdf(uri: string): Promise<string | null> {
+  if (!uri) return null;
+  if (uri.startsWith('data:')) return uri;
+
+  // Web: browser can fetch HTTPS directly — no need to embed as base64
+  if (Platform.OS === 'web') {
+    const result = await loadPhotoAsDataUrl(uri);
+    return result || null;
+  }
+
+  // Native: compress before embedding so the HTML stays small
+  try {
+    const manipulated = await ImageManipulator.manipulateAsync(
+      uri,
+      [{ resize: { width: 800 } }],
+      {
+        compress: 0.55,
+        format: ImageManipulator.SaveFormat.JPEG,
+        base64: true,
+      },
+    );
+    if (!manipulated.base64) return null;
+    return `data:image/jpeg;base64,${manipulated.base64}`;
+  } catch {
+    // Compression failed (e.g. file deleted, low storage) — try uncompressed fallback
+    try {
+      const result = await loadPhotoAsDataUrl(uri);
+      return result || null;
+    } catch {
+      return null;
+    }
+  }
 }
 
 /**

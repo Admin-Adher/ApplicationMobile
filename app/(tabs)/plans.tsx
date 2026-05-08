@@ -21,7 +21,7 @@ import { STATUS_CONFIG } from '@/components/StatusBadge';
 import PriorityBadge from '@/components/PriorityBadge';
 import { uploadDocumentDetailed, isLocalUri } from '@/lib/storage';
 import { genId, formatDateFR } from '@/lib/utils';
-import { loadFileAsDataUrl, loadPhotoAsDataUrl, preRenderPdfPageToDataUrl, exportPDF as exportPDFHelper, printPDF as printPDFHelper } from '@/lib/pdfBase';
+import { loadFileAsDataUrl, loadPhotoAsDataUrl, loadPhotoAsDataUrlForPdf, preRenderPdfPageToDataUrl, exportPDF as exportPDFHelper, printPDF as printPDFHelper } from '@/lib/pdfBase';
 import { compareLevels } from '@/lib/reserveUtils';
 import { parseDxf, DxfParseResult } from '@/lib/dxfParser';
 import { openChantierSwitcher } from '@/components/ChantierSwitcherSheet';
@@ -384,17 +384,13 @@ async function exportGlobalReport(
     .filter(r => matchesCompany(r, companyFilter))
     .filter(r => !statusFilter || statusFilter.size === 0 || statusFilter.has(r.status));
 
-  // Limit embedded photos to keep the HTML small enough for the PDF renderer.
-  // Each base64-encoded photo is ~200 KB–1 MB as base64. With 50+ reserves × 3 photos
-  // that's 150+ photos → 50–150 MB of HTML → the PDF WebView produces a blank page.
-  //
-  // Proportional cap: target at most 40 embedded photos total (≈ 20–40 MB HTML, safe
-  // on both Android and iOS). The per-reserve limit scales down automatically as the
-  // report grows, so small reports keep 2 photos each while very large ones skip photos.
-  //   ≤ 20 reserves → 2 photos each   (total ≤ 40)
-  //   21–40 reserves → 1 photo each   (total ≤ 40)
-  //   41+ reserves → 0 photos         (HTML stays < 5 MB; plan pin images still show)
-  const MAX_TOTAL_PHOTOS = 40;
+  // Photos are now compressed via loadPhotoAsDataUrlForPdf (800px / JPEG 0.55)
+  // before being embedded → ~40–80 KB each instead of 500 KB–2 MB.
+  // Target at most 150 compressed photos total (≈ 6–12 MB HTML, safe on all devices).
+  //   1–75 reserves  → 2 photos each   (total ≤ 150)
+  //   76–150 reserves → 1 photo each   (total ≤ 150)
+  //   151+ reserves   → 0 photos       (plan pin-overlay images still identify reserves)
+  const MAX_TOTAL_PHOTOS = 150;
   const maxPhotosPerReserve = filteredReserves.length === 0
     ? 0
     : Math.min(2, Math.floor(MAX_TOTAL_PHOTOS / filteredReserves.length));
@@ -527,7 +523,7 @@ async function exportGlobalReport(
         const photosToShow = rawPhotos.slice(0, MAX_PHOTOS_GLOBAL);
         let photoHtml = '';
         if (photosToShow.length > 0) {
-          const resolvedSrcs = await Promise.all(photosToShow.map(p => loadPhotoAsDataUrl(p.uri)));
+          const resolvedSrcs = await Promise.all(photosToShow.map(p => loadPhotoAsDataUrlForPdf(p.uri)));
           photoHtml = `<div style="padding:8px 16px 12px 16px;border-bottom:1px solid #f1f5f9;background:#fff;">
             <div style="font-size:10px;font-weight:700;color:#64748b;margin-bottom:6px;">
               <span style="display:inline-flex;align-items:center;justify-content:center;width:18px;height:18px;border-radius:50%;background:${color};color:#fff;font-weight:700;font-size:9px;margin-right:5px;">${n}</span>
@@ -608,7 +604,7 @@ async function exportGlobalReport(
       const photosToShow = rawPhotos.slice(0, MAX_PHOTOS_ORPHAN);
       let photoHtml = '';
       if (photosToShow.length > 0) {
-        const resolvedSrcs = await Promise.all(photosToShow.map(p => loadPhotoAsDataUrl(p.uri)));
+        const resolvedSrcs = await Promise.all(photosToShow.map(p => loadPhotoAsDataUrlForPdf(p.uri)));
         photoHtml = `<div style="padding:8px 16px 12px 16px;border-bottom:1px solid #f1f5f9;background:#fff;">
           <div style="font-size:10px;font-weight:700;color:#64748b;margin-bottom:6px;">
             <span style="display:inline-flex;align-items:center;justify-content:center;width:18px;height:18px;border-radius:50%;background:${color};color:#fff;font-weight:700;font-size:9px;margin-right:5px;">${n}</span>

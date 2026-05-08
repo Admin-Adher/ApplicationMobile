@@ -11,7 +11,7 @@ import {
   buildDocFooter,
   wrapHTML,
   buildInfoGrid,
-  loadPhotoAsDataUrl,
+  loadPhotoAsDataUrl, loadPhotoAsDataUrlForPdf,
   escapeHtml,
 } from '@/lib/pdfBase';
 import { getISOWeek } from '@/lib/utils';
@@ -316,7 +316,7 @@ async function buildCompanyReserveHTML(company: any, companyReserves: any[], pro
     companyReserves.map(async (r: any) => {
       const firstPhoto = r.photos?.find?.((p: any) => p.kind === 'defect') ?? r.photos?.[0];
       if (firstPhoto?.uri) {
-        const src = await loadPhotoAsDataUrl(firstPhoto.uri);
+        const src = await loadPhotoAsDataUrlForPdf(firstPhoto.uri);
         if (src) photoMap[r.id] = src;
       }
     })

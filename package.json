@@ -35,6 +35,7 @@
     "expo-file-system": "~18.1.11",
     "expo-font": "~13.3.0",
     "expo-haptics": "~14.1.0",
+    "expo-image-manipulator": "~13.1.7",
     "expo-image-picker": "~16.1.4",
     "expo-intent-launcher": "~12.1.5",
     "expo-linking": "~7.1.7",
@@ -44,6 +45,7 @@
     "expo-sharing": "~13.1.5",
     "expo-splash-screen": "^0.30.10",
     "expo-status-bar": "~2.2.0",
+    "express": "^5.2.1",
     "nodemailer": "^8.0.7",
     "openai": "^6.34.0",
     "p-limit": "^7.3.0",
@@ -62,7 +64,6 @@
     "resend": "^6.12.2",
     "xlsx": "^0.18.5",
     "zod": "^4.3.6",
-    "express": "^5.2.1",
     "zod-validation-error": "^5.0.0"
   },
   "devDependencies": {

@@ -1,0 +1,69 @@
+Oui, go. Voici exactement ce qu'il faut faire :
+
+---
+
+### 1. Installation
+
+```bash
+npx expo install expo-image-manipulator
+```
+
+---
+
+### 2. Nouvelle fonction dans `lib/pdfBase.ts`
+
+```ts
+import * as ImageManipulator from 'expo-image-manipulator';
+
+/**
+ * Charge une photo en base64 compressée pour l'embed PDF.
+ * Réduit à 800px max / JPEG 0.55 → ~40-80 KB au lieu de 500 KB-2 MB.
+ * Fallback silencieux : si la compression échoue, retourne null (photo ignorée).
+ */
+export async function loadPhotoAsDataUrlForPdf(uri: string): Promise<string | null> {
+  try {
+    const result = await ImageManipulator.manipulateAsync(
+      uri,
+      [{ resize: { width: 800 } }],
+      {
+        compress: 0.55,
+        format: ImageManipulator.SaveFormat.JPEG,
+        base64: true,
+      }
+    );
+    if (!result.base64) return null;
+    return `data:image/jpeg;base64,${result.base64}`;
+  } catch {
+    return null;
+  }
+}
+```
+
+---
+
+### 3. Remplacement dans `exportGlobalReport`
+
+Partout où tu appelles l'ancienne `loadPhotoAsDataUrl`, tu bascules sur la nouvelle. Et le cap devient :
+
+```ts
+// Avant
+const maxPhotosPerReserve = reserveCount > 40 ? 0 : reserveCount > 20 ? 1 : 2;
+
+// Après — compression active, on peut monter à 150 photos total
+const MAX_PHOTOS_TOTAL = 150;
+const photosPerReserve = reserveCount === 0 ? 0
+  : Math.min(2, Math.floor(MAX_PHOTOS_TOTAL / reserveCount));
+// → 1-75 réserves : 2 photos | 76-150 : 1 photo | 151+ : 0 photo
+```
+
+La formule `Math.floor(150 / reserveCount)` est naturellement progressive et n'a plus de paliers arbitraires — le plafond total reste toujours ≤ 150 photos (~9 MB de HTML max).
+
+---
+
+### 4. Même chose pour les rapports par plan
+
+Dans la fonction qui gère les rapports single-plan, remplace aussi l'appel à `loadPhotoAsDataUrl` par `loadPhotoAsDataUrlForPdf`. Les rapports par plan sont déjà petits, mais ça les rendra significativement plus légers à partager (passage de ~3 MB à ~300 KB pour un plan avec 5 réserves × 2 photos).
+
+---
+
+Le seul point d'attention : `manipulateAsync` sur Android peut être un poil lent sur les très vieilles photos (~200-400ms par photo). Pour un rapport de 100 photos ça fait ~20-40 secondes de preprocessing — acceptable si tu as déjà un spinner/progress bar pendant la génération. Si tu veux l'accélérer, tu peux `Promise.all` les compressions par batches de 10.
