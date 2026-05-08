@@ -1,0 +1,70 @@
+## Solutions "filou" pour contourner la limite mémoire du renderer PDF
+
+Le vrai problème c'est le poids des base64 embarqués dans le HTML. Voici les approches, de la plus simple à la plus robuste :
+
+---
+
+### 🥇 Solution 1 — Compression des photos avant embedding (la plus simple)
+
+Au lieu de charger la photo full-res en base64, on passe par `expo-image-manipulator` pour la redimensionner **avant** de l'embarquer :
+
+```js
+import * as ImageManipulator from 'expo-image-manipulator';
+
+async function loadPhotoAsDataUrlForPdf(uri) {
+  // Redimensionne à 800px max, JPEG 0.55 quality → ~30-60 KB au lieu de 500KB-2MB
+  const compressed = await ImageManipulator.manipulateAsync(
+    uri,
+    [{ resize: { width: 800 } }],
+    { compress: 0.55, format: ImageManipulator.SaveFormat.JPEG, base64: true }
+  );
+  return `data:image/jpeg;base64,${compressed.base64}`;
+}
+```
+
+**Résultat concret :** 200 photos × 50 KB = ~10 MB de HTML au lieu de ~200 MB. Le renderer tient largement. Et à l'impression, une photo 800px large sur une page A4 est parfaitement nette.
+
+C'est la solution à faire en premier — transparent pour l'utilisateur, zéro changement d'architecture.
+
+---
+
+### 🥈 Solution 2 — Génération en chunks + merge PDF (plus robuste)
+
+Découper le rapport en tranches de 20 réserves, générer un PDF par tranche, puis merger :
+
+```js
+import * as Print from 'expo-print';
+import { PDFDocument } from 'pdf-lib'; // ou react-native-pdf-merge
+
+async function exportGlobalReportChunked(reserves) {
+  const CHUNK_SIZE = 20;
+  const chunks = chunkArray(reserves, CHUNK_SIZE);
+  const pdfUris = [];
+
+  for (const chunk of chunks) {
+    const html = await buildReportHtml(chunk); // HTML ~10MB max par chunk
+    const { uri } = await Print.printToFileAsync({ html });
+    pdfUris.push(uri);
+  }
+
+  // Merge tous les PDFs en un seul
+  const mergedUri = await mergePdfs(pdfUris);
+  return mergedUri;
+}
+```
+
+L'écueil : merger des PDFs nativement sur mobile nécessite `pdf-lib` (fonctionne en JS pur, pas de natif) ou une lib native. `pdf-lib` supporte React Native et peut concatener des fichiers PDF fichier par fichier en streamant.
+
+---
+
+### 🥉 Solution 3 — Génération PDF côté serveur (la plus propre long terme)
+
+Envoyer le JSON du rapport à un endpoint (même un Worker Cloudflare + Puppeteer/wkhtmltopdf), récupérer le PDF en retour. Ça supprime définitivement la contrainte mémoire mobile. Pertinent si CVentis a déjà une infra backend.
+
+---
+
+### Recommandation
+
+**Commence par la solution 1** — c'est 10 lignes de code, aucune dépendance nouvelle si `expo-image-manipulator` est déjà dans le projet (c'est souvent le cas avec Expo), et ça résout 90% du problème. Tu pourras ensuite relever le seuil `41+` à une valeur bien plus haute (100+ réserves avec photos sans problème).
+
+`expo-image-manipulator` est dans ton projet ?
