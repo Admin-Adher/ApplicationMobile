@@ -1681,6 +1681,7 @@ export default function ReservesScreen() {
               </TouchableOpacity>
             </View>
 
+            <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ gap: 12, paddingBottom: 4 }} keyboardShouldPersistTaps="handled">
             <View style={styles.pdfOptionGroup}>
               <TouchableOpacity
                 style={[styles.pdfOption, pdfExportMode === 'all' && styles.pdfOptionActive]}
@@ -1848,7 +1849,7 @@ export default function ReservesScreen() {
                     {pdfLoading
                       ? <ActivityIndicator size="small" color="#fff" />
                       : <Ionicons name="share-social-outline" size={16} color="#fff" />}
-                    <Text style={styles.pdfConfirmBtnText}>Partager le PDF</Text>
+                    <Text style={styles.pdfConfirmBtnText}>Partager</Text>
                   </TouchableOpacity>
                 </>
               )}
@@ -1860,9 +1861,10 @@ export default function ReservesScreen() {
                 disabled={pdfLoading || pdfPreviewCount === 0}
               >
                 <Ionicons name="mail-outline" size={15} color={C.primary} />
-                <Text style={styles.emailReportBtnText}>Envoyer par email (Puppeteer)</Text>
+                <Text style={styles.emailReportBtnText}>Envoyer par email</Text>
               </TouchableOpacity>
             )}
+            </ScrollView>
           </Pressable>
         </Pressable>
       </Modal>
@@ -1874,7 +1876,7 @@ export default function ReservesScreen() {
               <View style={styles.pdfModalHeaderRow}>
                 <View style={{ flex: 1 }}>
                   <Text style={styles.modalTitle}>Envoyer par email</Text>
-                  <Text style={styles.modalSubtitle}>Rapport PDF généré par Chromium</Text>
+                  <Text style={styles.modalSubtitle}>PDF haute fidélité</Text>
                 </View>
                 <TouchableOpacity onPress={() => setEmailReportModalVisible(false)}>
                   <Ionicons name="close" size={20} color={C.textMuted} />

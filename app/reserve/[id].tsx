@@ -1684,7 +1684,7 @@ export default function ReserveDetailScreen() {
         {permissions.canExport && (
           <TouchableOpacity style={[styles.exportPdfBtn, { borderColor: '#0EA5E9' + '50', backgroundColor: '#0EA5E9' + '08', marginBottom: 10 }]} onPress={() => setEmailModalVisible(true)}>
             <Ionicons name="mail-outline" size={16} color="#0EA5E9" />
-            <Text style={[styles.exportPdfBtnText, { color: '#0EA5E9' }]}>Envoyer par email (PDF)</Text>
+            <Text style={[styles.exportPdfBtnText, { color: '#0EA5E9' }]}>Envoyer par email</Text>
           </TouchableOpacity>
         )}
 
@@ -1695,7 +1695,7 @@ export default function ReserveDetailScreen() {
                 <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
                   <View style={{ flex: 1 }}>
                     <Text style={styles.emailModalTitle}>Envoyer la fiche par email</Text>
-                    <Text style={styles.emailModalSubtitle}>PDF généré par Chromium (Puppeteer)</Text>
+                    <Text style={styles.emailModalSubtitle}>PDF haute fidélité</Text>
                   </View>
                   <TouchableOpacity onPress={() => setEmailModalVisible(false)}>
                     <Ionicons name="close" size={20} color={C.textMuted} />
