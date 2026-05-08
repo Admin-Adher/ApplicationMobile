@@ -30,6 +30,9 @@ import DateInput from '@/components/DateInput';
 import { useAuth } from '@/context/AuthContext';
 import { useNetwork } from '@/context/NetworkContext';
 import { useSettings } from '@/context/SettingsContext';
+import { generateAndSendIndividualReserve } from '@/lib/email/client';
+import * as FileSystem from 'expo-file-system';
+import * as Sharing from 'expo-sharing';
 import { uploadPhoto, persistLocalPhoto } from '@/lib/storage';
 import { isSupabaseConfigured } from '@/lib/supabase';
 import { genId, formatDateFR, nowTimestampFR } from '@/lib/utils';
@@ -421,6 +424,9 @@ export default function ReserveDetailScreen() {
   const [editingCommentId, setEditingCommentId] = useState<string | null>(null);
   const [editingCommentText, setEditingCommentText] = useState('');
   const [editModalVisible, setEditModalVisible] = useState(false);
+  const [emailModalVisible, setEmailModalVisible] = useState(false);
+  const [emailTo, setEmailTo] = useState('');
+  const [emailLoading, setEmailLoading] = useState(false);
   const [photoFullScreen, setPhotoFullScreen] = useState(false);
   const [selectedPhotoIndex, setSelectedPhotoIndex] = useState(0);
   const [saveSuccess, setSaveSuccess] = useState(false);
@@ -810,6 +816,103 @@ export default function ReserveDetailScreen() {
     } catch (e: any) {
       console.error('[exportPDF] Fiche réserve', e);
       Alert.alert('Erreur', e?.message ?? "Impossible de générer le PDF.");
+    }
+  }
+
+  async function handleSendByEmail() {
+    if (!reserve) return;
+    if (!permissions.canExport) return;
+    const emails = emailTo.split(/[,;\s]+/).map(e => e.trim()).filter(e => e.includes('@'));
+    if (emails.length === 0) {
+      Alert.alert('Email requis', 'Entrez au moins une adresse email valide.');
+      return;
+    }
+    setEmailLoading(true);
+    try {
+      const rawPhotos = Array.isArray(reserve.photos) && reserve.photos.length > 0
+        ? reserve.photos
+        : reserve.photoUri ? [{ uri: reserve.photoUri, kind: 'defect' as const }] : [];
+      const photoUrls = rawPhotos
+        .filter((p: any) => typeof p?.uri === 'string' && p.uri.startsWith('http'))
+        .slice(0, 3)
+        .map((p: any) => ({ uri: p.uri as string, kind: (p.kind as string) ?? 'defect' }));
+
+      let planUri: string | undefined;
+      let planX: number | undefined;
+      let planY: number | undefined;
+      let planName: string | undefined;
+      let pinNum = 1;
+      if (reserve.planId && reserve.planX !== undefined && reserve.planY !== undefined) {
+        const matchedPlan = sitePlans.find(p => p.id === reserve.planId);
+        if (matchedPlan?.uri && typeof matchedPlan.uri === 'string' && matchedPlan.uri.startsWith('http')) {
+          planUri = matchedPlan.uri;
+          planX = reserve.planX;
+          planY = reserve.planY;
+          planName = matchedPlan.name ?? 'Plan';
+          const planReservesForNum = reserves
+            .filter(r => r.planId === reserve.planId && r.planX != null && r.planY != null)
+            .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+          pinNum = (planReservesForNum.findIndex(r => r.id === reserve.id) + 1) || 1;
+        }
+      }
+
+      const result = await generateAndSendIndividualReserve({
+        chantierName: projectName,
+        companyColor: company?.color ?? undefined,
+        planUri,
+        planX,
+        planY,
+        planName,
+        pinNum,
+        reserve: {
+          id: reserve.id,
+          title: reserve.title,
+          company: reserve.company ?? undefined,
+          companies: reserve.companies ?? undefined,
+          building: reserve.building ?? undefined,
+          level: reserve.level ?? undefined,
+          zone: reserve.zone ?? undefined,
+          status: reserve.status,
+          priority: reserve.priority,
+          deadline: reserve.deadline ?? undefined,
+          description: reserve.description ?? undefined,
+          createdAt: reserve.createdAt ?? undefined,
+          closedAt: (reserve as any).closedAt ?? undefined,
+          photos: photoUrls,
+          history: reserve.history ?? [],
+        },
+        recipients: emails,
+        sendByEmail: true,
+      });
+
+      if (!result.success) {
+        Alert.alert('Erreur', result.error ?? "Impossible de générer la fiche.");
+        return;
+      }
+      if (result.pdfBase64) {
+        try {
+          const dateSlug = new Date().toISOString().slice(0, 10);
+          const filename = `Fiche_${reserve.id}_${dateSlug}.pdf`;
+          const fileUri = (FileSystem.cacheDirectory ?? '') + filename;
+          await FileSystem.writeAsStringAsync(fileUri, result.pdfBase64, { encoding: FileSystem.EncodingType.Base64 });
+          const canShare = await Sharing.isAvailableAsync();
+          if (canShare) {
+            setEmailModalVisible(false);
+            setEmailTo('');
+            await Sharing.shareAsync(fileUri, { mimeType: 'application/pdf', dialogTitle: `Fiche ${reserve.id}`, UTI: 'com.adobe.pdf' });
+            return;
+          }
+        } catch (saveErr) {
+          console.warn('[Email Fiche] Erreur sauvegarde locale:', saveErr);
+        }
+      }
+      Alert.alert('✓ Fiche envoyée', `La fiche a bien été envoyée à :\n${emails.join('\n')}`);
+      setEmailModalVisible(false);
+      setEmailTo('');
+    } catch (err: any) {
+      Alert.alert('Erreur', err?.message ?? "Impossible d'envoyer la fiche.");
+    } finally {
+      setEmailLoading(false);
     }
   }
 
@@ -1578,6 +1681,58 @@ export default function ReserveDetailScreen() {
             <Text style={styles.exportPdfBtnText}>Exporter fiche PDF</Text>
           </TouchableOpacity>
         )}
+        {permissions.canExport && (
+          <TouchableOpacity style={[styles.exportPdfBtn, { borderColor: '#0EA5E9' + '50', backgroundColor: '#0EA5E9' + '08', marginBottom: 10 }]} onPress={() => setEmailModalVisible(true)}>
+            <Ionicons name="mail-outline" size={16} color="#0EA5E9" />
+            <Text style={[styles.exportPdfBtnText, { color: '#0EA5E9' }]}>Envoyer par email (PDF)</Text>
+          </TouchableOpacity>
+        )}
+
+        <Modal visible={emailModalVisible} transparent animationType="fade" onRequestClose={() => setEmailModalVisible(false)}>
+          <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
+            <Pressable style={styles.emailModalOverlay} onPress={() => setEmailModalVisible(false)}>
+              <Pressable style={styles.emailModalCard} onPress={() => {}}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.emailModalTitle}>Envoyer la fiche par email</Text>
+                    <Text style={styles.emailModalSubtitle}>PDF généré par Chromium (Puppeteer)</Text>
+                  </View>
+                  <TouchableOpacity onPress={() => setEmailModalVisible(false)}>
+                    <Ionicons name="close" size={20} color={C.textMuted} />
+                  </TouchableOpacity>
+                </View>
+                <Text style={{ fontSize: 12, color: C.textSub, marginBottom: 8 }}>
+                  Destinataires (séparés par virgule)
+                </Text>
+                <TextInput
+                  style={styles.emailInput}
+                  value={emailTo}
+                  onChangeText={setEmailTo}
+                  placeholder="ex: chef@bouygues.fr, contact@entreprise.fr"
+                  placeholderTextColor={C.textMuted}
+                  autoCapitalize="none"
+                  keyboardType="email-address"
+                  autoCorrect={false}
+                />
+                <View style={{ flexDirection: 'row', gap: 10, marginTop: 16 }}>
+                  <TouchableOpacity style={styles.emailCancelBtn} onPress={() => setEmailModalVisible(false)} disabled={emailLoading}>
+                    <Text style={styles.emailCancelBtnText}>Annuler</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[styles.emailSendBtn, (emailLoading || !emailTo.trim()) && { opacity: 0.5 }]}
+                    onPress={() => { void handleSendByEmail(); }}
+                    disabled={emailLoading || !emailTo.trim()}
+                  >
+                    {emailLoading
+                      ? <ActivityIndicator size="small" color="#fff" />
+                      : <Ionicons name="mail-outline" size={16} color="#fff" />}
+                    <Text style={styles.emailSendBtnText}>Envoyer</Text>
+                  </TouchableOpacity>
+                </View>
+              </Pressable>
+            </Pressable>
+          </KeyboardAvoidingView>
+        </Modal>
 
         {permissions.canDelete && (
           <TouchableOpacity style={styles.deleteBtn} onPress={handleDelete}>
@@ -1928,6 +2083,15 @@ const styles = StyleSheet.create({
   contactBtnText: { flex: 1, fontSize: 14, fontFamily: 'Inter_600SemiBold' },
   exportPdfBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, paddingVertical: 14, borderRadius: 12, borderWidth: 1.5, borderColor: C.primary + '50', backgroundColor: C.primary + '08', marginBottom: 10 },
   exportPdfBtnText: { fontSize: 14, fontFamily: 'Inter_600SemiBold', color: C.primary },
+  emailModalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.45)', justifyContent: 'center', alignItems: 'center', padding: 24 },
+  emailModalCard: { backgroundColor: C.surface, borderRadius: 20, padding: 20, width: '100%', maxWidth: 480, shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.15, shadowRadius: 12, elevation: 8 },
+  emailModalTitle: { fontSize: 16, fontFamily: 'Inter_700Bold', color: C.text },
+  emailModalSubtitle: { fontSize: 12, fontFamily: 'Inter_400Regular', color: C.textMuted, marginTop: 2 },
+  emailInput: { borderWidth: 1, borderColor: C.border, borderRadius: 10, paddingHorizontal: 12, paddingVertical: 10, fontSize: 14, fontFamily: 'Inter_400Regular', color: C.text, backgroundColor: C.surface },
+  emailCancelBtn: { flex: 1, paddingVertical: 12, borderRadius: 12, borderWidth: 1, borderColor: C.border, alignItems: 'center', justifyContent: 'center' },
+  emailCancelBtnText: { fontSize: 14, fontFamily: 'Inter_500Medium', color: C.textSub },
+  emailSendBtn: { flex: 1, flexDirection: 'row', gap: 6, paddingVertical: 12, borderRadius: 12, backgroundColor: C.primary, alignItems: 'center', justifyContent: 'center' },
+  emailSendBtnText: { fontSize: 14, fontFamily: 'Inter_600SemiBold', color: '#fff' },
   deleteBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, paddingVertical: 14, borderRadius: 12, borderWidth: 1.5, borderColor: C.open + '50', backgroundColor: C.open + '08' },
   deleteBtnText: { fontSize: 14, fontFamily: 'Inter_600SemiBold', color: C.open },
   taskLink: { flexDirection: 'row', alignItems: 'center', backgroundColor: C.surface2, borderRadius: 12, padding: 14, borderWidth: 1, borderColor: C.border },

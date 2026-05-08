@@ -20,6 +20,9 @@ import ReserveCard from '@/components/ReserveCard';
 import DateInput from '@/components/DateInput';
 import { isOverdue, isDueSoon, formatDate, genReserveId, compareLevels } from '@/lib/reserveUtils';
 import { PDF_BASE_CSS, PDF_BRAND_COLOR, PDF_MUTED, PDF_TEXT, exportPDF as exportPDFHelper, printPDF as printPDFHelper, escapeHtml } from '@/lib/pdfBase';
+import { generateAndSendReservesReport } from '@/lib/email/client';
+import * as FileSystem from 'expo-file-system';
+import * as Sharing from 'expo-sharing';
 
 function buildReservesCSV(reserves: Reserve[]): string {
   const header = 'ID,Titre,Bâtiment,Zone,Niveau,Entreprise,Priorité,Statut,Créé le,Échéance,Description';
@@ -286,6 +289,9 @@ export default function ReservesScreen() {
   const [tabletCommentSending, setTabletCommentSending] = useState(false);
 
   const [pdfLoading, setPdfLoading] = useState(false);
+  const [emailReportModalVisible, setEmailReportModalVisible] = useState(false);
+  const [emailReportTo, setEmailReportTo] = useState('');
+  const [emailReportLoading, setEmailReportLoading] = useState(false);
 
   // Toggle pour afficher les archives. Désactivé par défaut : les réserves
   // archivées sont masquées de la liste principale et apparaissent seulement
@@ -546,6 +552,106 @@ export default function ReservesScreen() {
         return { title: company, key: company, data, color: co?.color ?? C.primary };
       });
   }, [filtered, companies]);
+
+  const getSelectedReservesForEmail = useCallback((): Reserve[] => {
+    if (pdfExportMode === 'all') return filtered;
+    if (pdfExportMode === 'company_none') return filtered.filter(isSansEntrepriseReserve);
+    if (pdfExportMode === 'company_single') {
+      if (!pdfCompanySingle) return [];
+      return pdfCompanySingle === '—'
+        ? filtered.filter(isSansEntrepriseReserve)
+        : filtered.filter(r => (r.companies ?? (r.company ? [r.company] : [])).includes(pdfCompanySingle));
+    }
+    if (pdfExportMode === 'company_multi') {
+      const selected = Array.from(pdfCompaniesMulti);
+      if (selected.length === 0) return [];
+      return filtered.filter(r => {
+        if (selected.includes('—') && isSansEntrepriseReserve(r)) return true;
+        const names = r.companies ?? (r.company ? [r.company] : []);
+        return selected.some(cn => cn !== '—' && names.includes(cn));
+      });
+    }
+    return filtered;
+  }, [filtered, isSansEntrepriseReserve, pdfCompaniesMulti, pdfCompanySingle, pdfExportMode]);
+
+  const handleSendReservesReport = useCallback(async () => {
+    const emails = emailReportTo.split(/[,;\s]+/).map(e => e.trim()).filter(e => e.includes('@'));
+    if (emails.length === 0) {
+      Alert.alert('Email requis', 'Entrez au moins une adresse email valide.');
+      return;
+    }
+    const list = getSelectedReservesForEmail();
+    if (list.length === 0) {
+      Alert.alert('Aucune réserve', 'Aucune réserve à exporter avec cette sélection.');
+      return;
+    }
+    setEmailReportLoading(true);
+    try {
+      const chantierName = chantierFilter !== 'all'
+        ? chantiers.find(c => c.id === chantierFilter)?.name ?? 'Chantier'
+        : 'Tous les chantiers';
+      const companyFilter = pdfExportMode === 'company_single' && pdfCompanySingle
+        ? pdfCompanySingle
+        : null;
+      const reservesPayload = list.map(r => {
+        const rawPhotos = Array.isArray(r.photos) && r.photos.length > 0 ? r.photos : r.photoUri ? [{ uri: r.photoUri, kind: 'defect' as const }] : [];
+        return {
+          id: r.id,
+          title: r.title,
+          company: r.company ?? '',
+          companies: r.companies,
+          building: r.building ?? undefined,
+          level: r.level ?? undefined,
+          zone: r.zone ?? undefined,
+          status: r.status,
+          priority: r.priority,
+          deadline: r.deadline ?? undefined,
+          description: r.description ?? undefined,
+          photos: rawPhotos.filter((p: any) => typeof p?.uri === 'string' && p.uri.startsWith('http')).slice(0, 2).map((p: any) => ({ uri: p.uri as string })),
+        };
+      });
+      const result = await generateAndSendReservesReport({
+        chantierName,
+        companyFilter,
+        generatedAt: new Date().toISOString(),
+        reserves: reservesPayload,
+        recipients: emails,
+        sendByEmail: true,
+      });
+      if (!result.success) {
+        Alert.alert('Erreur', result.error ?? "Impossible de générer le rapport.");
+        return;
+      }
+      if (result.pdfBase64) {
+        try {
+          const chantierSlug = chantierName.replace(/[^a-zA-Z0-9À-ÿ _-]/g, '_');
+          const dateSlug = new Date().toISOString().slice(0, 10);
+          const filename = `Rapport_${chantierSlug}_${dateSlug}.pdf`;
+          const fileUri = (FileSystem.cacheDirectory ?? '') + filename;
+          await FileSystem.writeAsStringAsync(fileUri, result.pdfBase64, { encoding: FileSystem.EncodingType.Base64 });
+          const canShare = await Sharing.isAvailableAsync();
+          if (canShare) {
+            setEmailReportModalVisible(false);
+            setPdfExportModalVisible(false);
+            setEmailReportTo('');
+            await Sharing.shareAsync(fileUri, { mimeType: 'application/pdf', dialogTitle: `Rapport — ${chantierName}`, UTI: 'com.adobe.pdf' });
+            return;
+          }
+        } catch (saveErr) {
+          console.warn('[Email Report] Erreur sauvegarde locale:', saveErr);
+        }
+      }
+      const count = list.length;
+      Alert.alert('✓ Rapport envoyé', `Le rapport (${count} réserve${count !== 1 ? 's' : ''}) a bien été envoyé à :\n${emails.join('\n')}`);
+      setEmailReportModalVisible(false);
+      setPdfExportModalVisible(false);
+      setEmailReportTo('');
+    } catch (err: any) {
+      Alert.alert('Erreur', err?.message ?? "Impossible d'envoyer le rapport.");
+    } finally {
+      setEmailReportLoading(false);
+    }
+  }, [emailReportTo, getSelectedReservesForEmail, chantierFilter, chantiers, pdfExportMode, pdfCompanySingle]);
 
   const pdfPreviewCount = useMemo(() => {
     if (pdfExportMode === 'all') return filtered.length;
@@ -1747,8 +1853,64 @@ export default function ReservesScreen() {
                 </>
               )}
             </View>
+            {pdfExportMode !== 'manual' && (
+              <TouchableOpacity
+                style={[styles.emailReportBtn, (pdfLoading || pdfPreviewCount === 0) && { opacity: 0.5 }]}
+                onPress={() => { setPdfExportModalVisible(false); setEmailReportModalVisible(true); }}
+                disabled={pdfLoading || pdfPreviewCount === 0}
+              >
+                <Ionicons name="mail-outline" size={15} color={C.primary} />
+                <Text style={styles.emailReportBtnText}>Envoyer par email (Puppeteer)</Text>
+              </TouchableOpacity>
+            )}
           </Pressable>
         </Pressable>
+      </Modal>
+
+      <Modal visible={emailReportModalVisible} transparent animationType="fade" onRequestClose={() => setEmailReportModalVisible(false)}>
+        <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
+          <Pressable style={styles.pdfModalOverlay} onPress={() => setEmailReportModalVisible(false)}>
+            <Pressable style={styles.pdfModalCard} onPress={() => {}}>
+              <View style={styles.pdfModalHeaderRow}>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.modalTitle}>Envoyer par email</Text>
+                  <Text style={styles.modalSubtitle}>Rapport PDF généré par Chromium</Text>
+                </View>
+                <TouchableOpacity onPress={() => setEmailReportModalVisible(false)}>
+                  <Ionicons name="close" size={20} color={C.textMuted} />
+                </TouchableOpacity>
+              </View>
+              <Text style={{ fontSize: 12, color: C.textSub, marginBottom: 8 }}>
+                Destinataires (séparés par virgule ou espace)
+              </Text>
+              <TextInput
+                style={[styles.emailInput, { marginBottom: 16 }]}
+                value={emailReportTo}
+                onChangeText={setEmailReportTo}
+                placeholder="ex: conducteur@bouygues.fr, chef@bouygues.fr"
+                placeholderTextColor={C.textMuted}
+                autoCapitalize="none"
+                keyboardType="email-address"
+                autoCorrect={false}
+              />
+              <View style={styles.pdfModalActions}>
+                <TouchableOpacity style={styles.pdfCancelBtn} onPress={() => setEmailReportModalVisible(false)} disabled={emailReportLoading}>
+                  <Text style={styles.pdfCancelBtnText}>Annuler</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[styles.pdfConfirmBtn, (emailReportLoading || !emailReportTo.trim()) && { opacity: 0.5 }]}
+                  onPress={() => { void handleSendReservesReport(); }}
+                  disabled={emailReportLoading || !emailReportTo.trim()}
+                >
+                  {emailReportLoading
+                    ? <ActivityIndicator size="small" color="#fff" />
+                    : <Ionicons name="mail-outline" size={16} color="#fff" />}
+                  <Text style={styles.pdfConfirmBtnText}>Envoyer</Text>
+                </TouchableOpacity>
+              </View>
+            </Pressable>
+          </Pressable>
+        </KeyboardAvoidingView>
       </Modal>
 
       <Modal visible={quickStatusVisible} transparent animationType="slide" onRequestClose={() => setQuickStatusVisible(false)}>
@@ -2524,6 +2686,9 @@ const styles = StyleSheet.create({
   pdfDownloadBtnText: { fontSize: 14, fontFamily: 'Inter_600SemiBold', color: C.primary },
   pdfConfirmBtn: { flex: 1, flexDirection: 'row', gap: 6, paddingVertical: 12, borderRadius: 12, backgroundColor: C.primary, alignItems: 'center', justifyContent: 'center' },
   pdfConfirmBtnText: { fontSize: 14, fontFamily: 'Inter_600SemiBold', color: '#fff' },
+  emailReportBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, marginTop: 10, paddingVertical: 11, borderRadius: 12, borderWidth: 1.5, borderColor: C.primary + '50', backgroundColor: C.primary + '08' },
+  emailReportBtnText: { fontSize: 13, fontFamily: 'Inter_600SemiBold', color: C.primary },
+  emailInput: { borderWidth: 1, borderColor: C.border, borderRadius: 10, paddingHorizontal: 12, paddingVertical: 10, fontSize: 14, fontFamily: 'Inter_400Regular', color: C.text, backgroundColor: C.surface },
   checkboxDisabled: { backgroundColor: C.surface2, borderColor: C.border },
   bottomSheet: {
     backgroundColor: C.surface, borderTopLeftRadius: 20, borderTopRightRadius: 20,

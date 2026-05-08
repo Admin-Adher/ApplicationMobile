@@ -205,7 +205,101 @@ export async function generateAndSendPdfReport(
     const response = await fetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
+      body: JSON.stringify({ ...payload, type: 'plans' }),
+    });
+    if (!response.ok) {
+      const data = await response.json().catch(() => ({}));
+      return { success: false, error: data?.error ?? response.statusText };
+    }
+    const data = await response.json();
+    return { success: true, pdfBase64: data.pdfBase64 };
+  } catch (err: any) {
+    return { success: false, error: err?.message ?? 'Erreur réseau' };
+  }
+}
+
+export interface GlobalReservesPayload {
+  chantierName: string;
+  companyFilter: string | null;
+  generatedAt: string;
+  reserves: Array<{
+    id: string;
+    title: string;
+    company?: string;
+    companies?: string[];
+    building?: string;
+    level?: string;
+    zone?: string;
+    status: string;
+    priority: string;
+    deadline?: string;
+    description?: string;
+    photos: Array<{ uri: string }>;
+  }>;
+  recipients: string[];
+  sendByEmail: boolean;
+}
+
+export async function generateAndSendReservesReport(
+  payload: GlobalReservesPayload
+): Promise<{ success: boolean; pdfBase64?: string; error?: string }> {
+  try {
+    const url = `${getBaseApiUrl()}/api/generate-pdf`;
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ...payload, type: 'global_reserves' }),
+    });
+    if (!response.ok) {
+      const data = await response.json().catch(() => ({}));
+      return { success: false, error: data?.error ?? response.statusText };
+    }
+    const data = await response.json();
+    return { success: true, pdfBase64: data.pdfBase64 };
+  } catch (err: any) {
+    return { success: false, error: err?.message ?? 'Erreur réseau' };
+  }
+}
+
+export interface IndividualReservePayload {
+  chantierName: string;
+  companyColor?: string;
+  planUri?: string;
+  planX?: number;
+  planY?: number;
+  planName?: string;
+  pinNum?: number;
+  reserve: {
+    id: string;
+    title: string;
+    company?: string;
+    companies?: string[];
+    building?: string;
+    level?: string;
+    zone?: string;
+    status: string;
+    priority: string;
+    deadline?: string;
+    description?: string;
+    createdAt?: string;
+    closedAt?: string;
+    photos?: Array<{ uri: string; kind?: string }>;
+    photoUri?: string;
+    history?: Array<{ id: string; action: string; author: string; createdAt: string; oldValue?: string; newValue?: string }>;
+  };
+  recipients: string[];
+  sendByEmail: boolean;
+}
+
+export async function generateAndSendIndividualReserve(
+  payload: IndividualReservePayload
+): Promise<{ success: boolean; pdfBase64?: string; error?: string }> {
+  try {
+    const url = `${getBaseApiUrl()}/api/generate-pdf`;
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ...payload, type: 'individual_reserve' }),
     });
     if (!response.ok) {
       const data = await response.json().catch(() => ({}));
