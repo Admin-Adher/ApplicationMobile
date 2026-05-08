@@ -1,0 +1,248 @@
+## Ce qu'il faut faire concrètement
+
+### Le principe en une phrase
+
+Aujourd'hui l'app mobile construit le HTML (gros), puis essaie de l'envoyer. On inverse : l'app envoie les données (léger), le serveur Vercel construit le HTML et génère le PDF.
+
+---
+
+### Étape 1 — Définir le contrat de données (le JSON envoyé)
+
+C'est la décision la plus importante. Tu définis une interface TypeScript qui représente tout ce dont le serveur a besoin pour reconstruire le rapport :
+
+```ts
+// types/pdfReport.ts  (partagé app + API)
+
+export interface PhotoData {
+  base64: string;        // déjà compressé par loadPhotoAsDataUrlForPdf()
+  caption?: string;
+}
+
+export interface ReserveData {
+  id: string;
+  numero: number;
+  titre: string;
+  description: string;
+  statut: 'ouvert' | 'resolu' | 'en_cours';
+  photos: PhotoData[];   // max 2, déjà compressées
+  planNom: string;
+  localisation?: string;
+  dateCreation: string;
+}
+
+export interface PlanData {
+  id: string;
+  nom: string;
+  imageBase64?: string;  // le plan lui-même, compressé
+  reserves: ReserveData[];
+}
+
+export interface GeneratePdfPayload {
+  reportTitle: string;
+  projectName: string;
+  companyName?: string;
+  date: string;
+  plans: PlanData[];
+  recipients: string[];  // emails destinataires
+  sendByEmail: boolean;
+}
+```
+
+---
+
+### Étape 2 — Modifier l'app mobile
+
+Au lieu de :
+```ts
+// AVANT — app construit le HTML, l'envoie
+const html = await buildGlobalReportHtml(reserves, plans);
+const { uri } = await Print.printToFileAsync({ html }); // ← plante sur gros rapports
+```
+
+Tu fais :
+```ts
+// APRÈS — app compresse les photos, envoie les données brutes
+async function exportViaServer(plans: Plan[], recipients: string[]) {
+  // 1. Compresser les photos (déjà fait via loadPhotoAsDataUrlForPdf)
+  const plansData: PlanData[] = await Promise.all(
+    plans.map(async (plan) => ({
+      id: plan.id,
+      nom: plan.nom,
+      imageBase64: plan.imageUri 
+        ? await loadPhotoAsDataUrlForPdf(plan.imageUri) 
+        : undefined,
+      reserves: await Promise.all(
+        plan.reserves.map(async (r) => ({
+          ...r,
+          photos: (
+            await Promise.all(r.photoUris.slice(0, 2).map(loadPhotoAsDataUrlForPdf))
+          ).filter(Boolean).map(base64 => ({ base64 })),
+        }))
+      ),
+    }))
+  );
+
+  // 2. Envoyer le JSON (~200-500 KB, pas 12 MB)
+  const payload: GeneratePdfPayload = {
+    reportTitle: 'Rapport global',
+    projectName: currentProject.nom,
+    date: new Date().toISOString(),
+    plans: plansData,
+    recipients,
+    sendByEmail: true,
+  };
+
+  const response = await fetch('https://ton-app.vercel.app/api/generate-pdf', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),  // toujours < 4.5 MB
+  });
+
+  const { success, pdfBase64 } = await response.json();
+  
+  // 3. Si on veut aussi afficher le PDF localement
+  if (pdfBase64) {
+    const fileUri = FileSystem.cacheDirectory + 'rapport.pdf';
+    await FileSystem.writeAsStringAsync(fileUri, pdfBase64, {
+      encoding: FileSystem.EncodingType.Base64,
+    });
+    await Sharing.shareAsync(fileUri);
+  }
+}
+```
+
+---
+
+### Étape 3 — La route Vercel
+
+```ts
+// vercel-app/app/api/generate-pdf/route.ts
+
+import { NextRequest, NextResponse } from 'next/server';
+import puppeteer from 'puppeteer-core';
+import chromium from '@sparticuz/chromium-min';
+import { sendEmail } from '@/lib/sender';
+import { buildReportHtml } from '@/lib/reportBuilder'; // ← nouveau fichier
+import type { GeneratePdfPayload } from '@/types/pdfReport';
+
+export const maxDuration = 60; // secondes, Pro plan
+
+export async function POST(req: NextRequest) {
+  const payload: GeneratePdfPayload = await req.json();
+
+  // 1. Construire le HTML (même logique que côté app, portée ici)
+  const html = buildReportHtml(payload);
+
+  // 2. Lancer Chromium headless
+  const browser = await puppeteer.launch({
+    args: chromium.args,
+    defaultViewport: chromium.defaultViewport,
+    executablePath: await chromium.executablePath(
+      'https://github.com/Sparticuz/chromium/releases/download/v123.0.0/chromium-v123.0.0-pack.tar'
+    ),
+    headless: true,
+  });
+
+  const page = await browser.newPage();
+  await page.setContent(html, { waitUntil: 'networkidle0' });
+
+  const pdfBuffer = await page.pdf({
+    format: 'A4',
+    printBackground: true,
+    margin: { top: '15mm', bottom: '15mm', left: '12mm', right: '12mm' },
+  });
+
+  await browser.close();
+
+  // 3. Envoyer par email si demandé
+  if (payload.sendByEmail && payload.recipients.length > 0) {
+    await sendEmail({
+      to: payload.recipients,
+      subject: `${payload.reportTitle} — ${payload.projectName}`,
+      text: 'Veuillez trouver le rapport en pièce jointe.',
+      attachments: [{
+        filename: `rapport-${payload.date}.pdf`,
+        content: pdfBuffer,
+        contentType: 'application/pdf',
+      }],
+    });
+  }
+
+  // 4. Retourner aussi le PDF en base64 pour affichage local si besoin
+  return NextResponse.json({
+    success: true,
+    pdfBase64: pdfBuffer.toString('base64'),
+  });
+}
+```
+
+---
+
+### Étape 4 — `lib/reportBuilder.ts` (nouveau fichier côté serveur)
+
+C'est ici que tu **déplaces** la logique `buildGlobalReportHtml` qui existe déjà dans l'app. C'est du TypeScript pur, pas de React Native — juste une fonction qui prend le payload et retourne une string HTML :
+
+```ts
+// vercel-app/lib/reportBuilder.ts
+
+import type { GeneratePdfPayload } from '@/types/pdfReport';
+
+export function buildReportHtml(payload: GeneratePdfPayload): string {
+  const { reportTitle, projectName, date, plans } = payload;
+
+  const reservesHtml = plans.map(plan => `
+    <div class="plan-section">
+      <h2>${plan.nom}</h2>
+      ${plan.imageBase64 ? `<img src="${plan.imageBase64}" class="plan-img"/>` : ''}
+      ${plan.reserves.map(r => `
+        <div class="reserve">
+          <h3>#${r.numero} — ${r.titre}</h3>
+          <p>${r.description}</p>
+          <div class="photos">
+            ${r.photos.map(p => `<img src="${p.base64}"/>`).join('')}
+          </div>
+        </div>
+      `).join('')}
+    </div>
+  `).join('');
+
+  return `<!DOCTYPE html>
+  <html>
+    <head>
+      <meta charset="utf-8"/>
+      <style>
+        /* ton CSS existant copié ici */
+      </style>
+    </head>
+    <body>
+      <h1>${reportTitle}</h1>
+      <p>${projectName} — ${date}</p>
+      ${reservesHtml}
+    </body>
+  </html>`;
+}
+```
+
+---
+
+### Ce que tu dupliques, et pourquoi c'est normal
+
+La logique `buildReportHtml` existera à deux endroits :
+- **App mobile** — pour les rapports par plan (petits, générés localement, pas besoin du serveur)
+- **Serveur Vercel** — pour les rapports globaux (gros, générés côté serveur)
+
+C'est acceptable. Si ça te dérange, tu extrais le HTML builder dans un **package partagé** (`packages/report-builder/`) et tu l'importes des deux côtés — mais c'est une optimisation future, pas un prérequis.
+
+---
+
+### Résumé des fichiers touchés
+
+```
+types/pdfReport.ts          ← nouveau, partagé
+app/(tabs)/plans.tsx        ← export via fetch au lieu de Print.printToFileAsync
+lib/pdfBase.ts              ← loadPhotoAsDataUrlForPdf déjà là, rien à changer
+vercel-app/app/api/
+  generate-pdf/route.ts     ← nouveau
+vercel-app/lib/
+  reportBuilder.ts          ← nouveau (logique HTML déplacée depuis l'app)
+```

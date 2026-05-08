@@ -164,3 +164,56 @@ export async function sendPasswordChangedEmail(params: {
 }): Promise<void> {
   await callEmailApi({ type: 'password-changed', ...params });
 }
+
+export interface PdfReportPayload {
+  chantierName: string;
+  companyFilter: string | null;
+  generatedAt: string;
+  plans: Array<{
+    id: string;
+    name: string;
+    building?: string;
+    level?: string;
+    uri?: string;
+    fileType?: string;
+  }>;
+  reserves: Array<{
+    id: string;
+    num: number;
+    title: string;
+    company: string;
+    building?: string;
+    level?: string;
+    status: string;
+    priority: string;
+    deadline?: string;
+    description?: string;
+    planId?: string;
+    planX?: number;
+    planY?: number;
+    photos: Array<{ uri: string }>;
+  }>;
+  recipients: string[];
+  sendByEmail: boolean;
+}
+
+export async function generateAndSendPdfReport(
+  payload: PdfReportPayload
+): Promise<{ success: boolean; pdfBase64?: string; error?: string }> {
+  try {
+    const url = `${getBaseApiUrl()}/api/generate-pdf`;
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    if (!response.ok) {
+      const data = await response.json().catch(() => ({}));
+      return { success: false, error: data?.error ?? response.statusText };
+    }
+    const data = await response.json();
+    return { success: true, pdfBase64: data.pdfBase64 };
+  } catch (err: any) {
+    return { success: false, error: err?.message ?? 'Erreur réseau' };
+  }
+}

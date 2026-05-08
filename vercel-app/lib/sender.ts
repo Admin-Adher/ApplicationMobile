@@ -24,18 +24,28 @@ function getTransporter(): Transporter | null {
   return cachedTransporter;
 }
 
+export interface EmailAttachment {
+  filename: string;
+  content: Buffer;
+  contentType: string;
+}
+
 export interface SendEmailParams {
-  to: string;
+  to: string | string[];
   subject: string;
   html: string;
+  attachments?: EmailAttachment[];
 }
 
 export async function sendEmail(
   params: SendEmailParams
 ): Promise<{ success: boolean; error?: string; simulated?: boolean }> {
   const transporter = getTransporter();
+
+  const toList = Array.isArray(params.to) ? params.to : [params.to];
+
   if (!transporter) {
-    console.log('[Email] Mode simulation — email non envoyé à', params.to);
+    console.log('[Email] Mode simulation — email non envoyé à', toList.join(', '));
     return { success: true, simulated: true };
   }
 
@@ -44,12 +54,17 @@ export async function sendEmail(
   try {
     const info = await transporter.sendMail({
       from,
-      to: params.to,
+      to: toList.join(', '),
       subject: params.subject,
       html: params.html,
+      attachments: params.attachments?.map(a => ({
+        filename: a.filename,
+        content: a.content,
+        contentType: a.contentType,
+      })),
     });
 
-    console.log('[Email] Email envoyé à', params.to, '—', params.subject, '(', info.messageId, ')');
+    console.log('[Email] Email envoyé à', toList.join(', '), '—', params.subject, '(', info.messageId, ')');
     return { success: true };
   } catch (err: any) {
     const msg = err?.message ?? 'Erreur inconnue';

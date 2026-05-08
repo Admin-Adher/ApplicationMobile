@@ -22,6 +22,7 @@ import PriorityBadge from '@/components/PriorityBadge';
 import { uploadDocumentDetailed, isLocalUri } from '@/lib/storage';
 import { genId, formatDateFR } from '@/lib/utils';
 import { loadFileAsDataUrl, loadPhotoAsDataUrl, loadPhotoAsDataUrlForPdf, preRenderPdfPageToDataUrl, exportPDF as exportPDFHelper, printPDF as printPDFHelper } from '@/lib/pdfBase';
+import { generateAndSendPdfReport } from '@/lib/email/client';
 import { compareLevels } from '@/lib/reserveUtils';
 import { parseDxf, DxfParseResult } from '@/lib/dxfParser';
 import { openChantierSwitcher } from '@/components/ChantierSwitcherSheet';
@@ -829,6 +830,8 @@ export default function PlansScreen() {
   // Global report state
   const [globalReportCompany, setGlobalReportCompany] = useState<string | null>(null);
   const [globalReportStatusFilter, setGlobalReportStatusFilter] = useState<Set<string>>(new Set());
+  const [globalReportEmailTo, setGlobalReportEmailTo] = useState('');
+  const [globalReportEmailLoading, setGlobalReportEmailLoading] = useState(false);
   const [pinSizes, setPinSizes] = useState<Record<string, number>>({});
   const [focusedPinId, setFocusedPinId] = useState<string | null>(null);
   const [draggingPinId, setDraggingPinId] = useState<string | null>(null);
@@ -1451,6 +1454,96 @@ export default function PlansScreen() {
       setPdfLoading(false);
     }
   }, [pdfScope, globalReportPreviewCount, activeChantier, chantierPlans, chantierReserves, globalReportCompany, globalReportStatusFilter, companies, pdfFilteredList, currentPlan, pinNumberMap, pinSizeScale, capturePreRenderPlan]);
+
+  const handleEmailReport = useCallback(async () => {
+    const emails = globalReportEmailTo
+      .split(/[,;\s]+/)
+      .map(e => e.trim().toLowerCase())
+      .filter(e => e.includes('@') && e.includes('.'));
+
+    if (emails.length === 0) {
+      Alert.alert('Adresse email requise', 'Entrez au moins une adresse email valide (ex: chef@entreprise.fr).');
+      return;
+    }
+    if (globalReportPreviewCount === 0) {
+      Alert.alert('Aucune réserve', 'Aucune réserve ne correspond à votre sélection.');
+      return;
+    }
+
+    setGlobalReportEmailLoading(true);
+    try {
+      const filteredReserves = chantierReserves.filter(r => {
+        if (globalReportCompany !== null) {
+          const mainMatch = (r.company ?? '').trim() === globalReportCompany;
+          const arrMatch = Array.isArray((r as any).companies) &&
+            (r as any).companies.some((c: any) => typeof c === 'string' && c.trim() === globalReportCompany);
+          if (!mainMatch && !arrMatch) return false;
+        }
+        if (globalReportStatusFilter.size > 0 && !globalReportStatusFilter.has(r.status)) return false;
+        return true;
+      });
+
+      const reservesPayload = filteredReserves.map((r, i) => {
+        const rawPhotos = Array.isArray(r.photos) && r.photos.length > 0
+          ? r.photos
+          : r.photoUri ? [{ uri: r.photoUri, kind: 'defect' as const }] : [];
+        return {
+          id: r.id,
+          num: i + 1,
+          title: r.title,
+          company: r.company ?? '',
+          building: r.building ?? undefined,
+          level: r.level ?? undefined,
+          status: r.status,
+          priority: r.priority,
+          deadline: r.deadline ?? undefined,
+          description: r.description ?? undefined,
+          planId: r.planId ?? undefined,
+          planX: r.planX ?? undefined,
+          planY: r.planY ?? undefined,
+          photos: rawPhotos
+            .slice(0, 2)
+            .filter((p: any) => typeof p?.uri === 'string' && p.uri.startsWith('http'))
+            .map((p: any) => ({ uri: p.uri as string })),
+        };
+      });
+
+      const plansPayload = chantierPlans.map(p => ({
+        id: p.id,
+        name: p.name,
+        building: p.building ?? undefined,
+        level: p.level ?? undefined,
+        uri: typeof p.uri === 'string' && p.uri.startsWith('http') ? p.uri : undefined,
+        fileType: (p as any).fileType ?? undefined,
+      }));
+
+      const result = await generateAndSendPdfReport({
+        chantierName: activeChantier?.name ?? '',
+        companyFilter: globalReportCompany,
+        generatedAt: new Date().toISOString(),
+        plans: plansPayload,
+        reserves: reservesPayload,
+        recipients: emails,
+        sendByEmail: true,
+      });
+
+      if (!result.success) {
+        Alert.alert('Erreur envoi', result.error ?? "Impossible d'envoyer le rapport.");
+        return;
+      }
+
+      Alert.alert(
+        '✓ Rapport envoyé',
+        `Le rapport (${filteredReserves.length} réserve${filteredReserves.length !== 1 ? 's' : ''}) a été envoyé à :\n${emails.join('\n')}`
+      );
+      setGlobalReportEmailTo('');
+      setPdfModalVisible(false);
+    } catch (err: any) {
+      Alert.alert('Erreur', err?.message ?? "Impossible d'envoyer le rapport.");
+    } finally {
+      setGlobalReportEmailLoading(false);
+    }
+  }, [globalReportEmailTo, globalReportPreviewCount, chantierReserves, chantierPlans, globalReportCompany, globalReportStatusFilter, activeChantier]);
 
   const pinSize = Math.round((isTablet ? 48 : 44) * pinSizeScale);
   const clusterSize = Math.round((isTablet ? 60 : 52) * pinSizeScale);
@@ -3585,6 +3678,56 @@ export default function PlansScreen() {
                 );
               })()}
             </View>
+
+            {pdfScope === 'global' && (
+              <View style={{ marginTop: 14 }}>
+                <View style={{ height: 1, backgroundColor: C.border, marginBottom: 14 }} />
+                <Text style={{ fontSize: 11, fontFamily: 'Inter_600SemiBold', color: C.textSub, marginBottom: 6 }}>
+                  Envoyer par email
+                </Text>
+                <TextInput
+                  style={{
+                    borderWidth: 1,
+                    borderColor: C.border,
+                    borderRadius: 8,
+                    paddingHorizontal: 12,
+                    paddingVertical: 9,
+                    fontSize: 13,
+                    fontFamily: 'Inter_400Regular',
+                    color: C.text,
+                    backgroundColor: C.surface,
+                    marginBottom: 8,
+                  }}
+                  placeholder="chef@entreprise.fr, direction@chantier.fr"
+                  placeholderTextColor={C.textMuted}
+                  value={globalReportEmailTo}
+                  onChangeText={setGlobalReportEmailTo}
+                  keyboardType="email-address"
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                />
+                <Text style={{ fontSize: 10, color: C.textMuted, fontFamily: 'Inter_400Regular', marginBottom: 10 }}>
+                  Séparez plusieurs adresses par une virgule. Le PDF est généré côté serveur et joint à l'email.
+                </Text>
+                <TouchableOpacity
+                  style={[
+                    styles.pdfConfirmBtn,
+                    { backgroundColor: '#0f766e' },
+                    (globalReportEmailLoading || globalReportPreviewCount === 0 || !globalReportEmailTo.trim()) && { opacity: 0.4 },
+                  ]}
+                  onPress={() => { void handleEmailReport(); }}
+                  disabled={globalReportEmailLoading || globalReportPreviewCount === 0 || !globalReportEmailTo.trim()}
+                >
+                  {globalReportEmailLoading
+                    ? <ActivityIndicator size="small" color="#fff" />
+                    : <Ionicons name="mail-outline" size={15} color="#fff" />}
+                  <Text style={styles.pdfConfirmBtnText}>
+                    {globalReportEmailLoading ? 'Génération en cours…' : 'Envoyer par email'}
+                  </Text>
+                </TouchableOpacity>
+              </View>
+            )}
+
             {pdfLoading && pdfScope === 'global' && (
               <View style={{ alignItems: 'center', paddingTop: 10, paddingBottom: 2 }}>
                 {globalReportProgress && globalReportProgress.total > 0 ? (
