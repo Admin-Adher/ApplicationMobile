@@ -15,6 +15,36 @@ permissions:
   contents: write
 
 jobs:
+  # ─── Job 1 : OTA update (JS bundle uniquement) ───────────────────────────
+  # Publie le bundle JS via EAS Update (expo-updates).
+  # Ne nécessite PAS de build natif → s'exécute en ~2-3 min.
+  # Prérequis : secret EXPO_TOKEN dans les settings GitHub du dépôt.
+  publish-ota:
+    name: Publish OTA Update (EAS)
+    runs-on: ubuntu-latest
+    # Passe silencieusement si EXPO_TOKEN n'est pas configuré
+    if: ${{ vars.OTA_ENABLED == 'true' || secrets.EXPO_TOKEN != '' }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Publish OTA update
+        run: npx eas-cli@latest update --branch production --message "OTA auto — build ${{ github.run_number }} (${{ github.sha }})" --non-interactive
+        env:
+          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+
+  # ─── Job 2 : Build APK natif ─────────────────────────────────────────────
+  # Reconstruit le APK complet (natif + JS). Nécessaire uniquement quand
+  # des modules natifs changent. Les correctifs JS-only passent par OTA.
   build:
     name: Build APK
     runs-on: ubuntu-latest

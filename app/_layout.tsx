@@ -25,6 +25,7 @@ import { NetworkProvider } from '@/context/NetworkContext';
 import { NotificationsProvider } from '@/context/NotificationsContext';
 import NotificationBanner from '@/components/NotificationBanner';
 import OfflineBanner from '@/components/OfflineBanner';
+import OtaUpdateBanner from '@/components/OtaUpdateBanner';
 import ConflictModal from '@/components/ConflictModal';
 import ChantierSwitcherSheet from '@/components/ChantierSwitcherSheet';
 
@@ -332,6 +333,7 @@ export default function RootLayout() {
                     </AuthGuard>
                     <NotificationBanner />
                     <OfflineBanner />
+                    <OtaUpdateBanner />
                     <ConflictModal />
                     <ChantierSwitcherSheet />
                     <StatusBar style="light" />

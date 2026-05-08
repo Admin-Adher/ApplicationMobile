@@ -1,0 +1,102 @@
+import { useEffect, useRef } from 'react';
+import { View, Text, TouchableOpacity, StyleSheet, Animated, Platform } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
+import { useOtaUpdate } from '@/hooks/useOtaUpdate';
+
+export default function OtaUpdateBanner() {
+  const { updateReady, applyUpdate } = useOtaUpdate();
+  const translateY = useRef(new Animated.Value(-80)).current;
+  const visible = useRef(false);
+
+  useEffect(() => {
+    if (updateReady && !visible.current) {
+      visible.current = true;
+      Animated.spring(translateY, {
+        toValue: 0,
+        useNativeDriver: true,
+        tension: 80,
+        friction: 10,
+      }).start();
+    }
+  }, [updateReady, translateY]);
+
+  if (!updateReady || Platform.OS === 'web') return null;
+
+  return (
+    <Animated.View style={[styles.container, { transform: [{ translateY }] }]}>
+      <View style={styles.banner}>
+        <View style={styles.iconWrap}>
+          <Ionicons name="sparkles" size={18} color="#FFFFFF" />
+        </View>
+        <View style={styles.textWrap}>
+          <Text style={styles.title}>Mise à jour prête</Text>
+          <Text style={styles.sub}>Redémarrez l'app pour appliquer les corrections</Text>
+        </View>
+        <TouchableOpacity style={styles.btn} onPress={applyUpdate} activeOpacity={0.85}>
+          <Text style={styles.btnText}>Redémarrer</Text>
+        </TouchableOpacity>
+      </View>
+    </Animated.View>
+  );
+}
+
+const styles = StyleSheet.create({
+  container: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    zIndex: 9999,
+    paddingHorizontal: 16,
+    paddingTop: 52,
+  },
+  banner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    backgroundColor: '#6D28D9',
+    borderRadius: 14,
+    paddingVertical: 10,
+    paddingLeft: 12,
+    paddingRight: 8,
+    shadowColor: '#000',
+    shadowOpacity: 0.18,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 3 },
+    elevation: 6,
+  },
+  iconWrap: {
+    width: 32,
+    height: 32,
+    borderRadius: 9,
+    backgroundColor: '#FFFFFF22',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  textWrap: {
+    flex: 1,
+    minWidth: 0,
+  },
+  title: {
+    color: '#FFFFFF',
+    fontSize: 13,
+    fontFamily: 'Inter_600SemiBold',
+  },
+  sub: {
+    color: '#FFFFFFCC',
+    fontSize: 11,
+    fontFamily: 'Inter_400Regular',
+    marginTop: 1,
+  },
+  btn: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 999,
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+  },
+  btnText: {
+    color: '#6D28D9',
+    fontSize: 12,
+    fontFamily: 'Inter_600SemiBold',
+  },
+});

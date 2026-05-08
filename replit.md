@@ -19,6 +19,25 @@ Lance : `node node_modules/expo/bin/cli start --web --localhost --port 5000`
 
 Le workflow "Start Frontend" est configuré sur le port 5000.
 
+## Mises à jour OTA (expo-updates — mai 2026)
+
+Le système de mise à jour est en deux couches :
+
+**Couche 1 — OTA JS bundle (expo-updates)** : correctifs JS-only poussés sans nouveau APK.
+- `hooks/useOtaUpdate.ts` — vérifie `expo-updates` au démarrage et à chaque retour en premier plan.
+- `components/OtaUpdateBanner.tsx` — bannière violette « Mise à jour prête » avec bouton « Redémarrer ».
+- `app.json` : `updates.url = https://u.expo.dev/e3c73711-...`, `runtimeVersion.policy = appVersion`.
+- CI : job `publish-ota` dans `.github/workflows/build-apk.yml` — `eas update --branch production`.
+- **Prérequis** : ajouter `EXPO_TOKEN` dans les secrets GitHub du dépôt (Settings → Secrets → Actions).
+  Générer le token : https://expo.dev/accounts/[compte]/settings/access-tokens
+
+**Couche 2 — APK complet (GitHub Releases)** : nouvelles dépendances natives, changements de config.
+- `hooks/useAppUpdate.ts` + `components/UpdateBanner.tsx` — bannière orange, téléchargement direct APK.
+
+**Règle d'utilisation** :
+- Corrections de bugs JS → `git push main` → OTA publié automatiquement → app mise à jour sans action utilisateur.
+- Nouveau module natif / upgrade Expo → nouveau APK à distribuer via GitHub Releases.
+
 ## Replit — Notes de migration (complétée mai 2026)
 
 - **Migration réussie** : L'application tourne correctement sur Replit avec deux workflows : "Start Frontend" (Expo Metro, port 5000) et "Start API" (Express, port 3001).

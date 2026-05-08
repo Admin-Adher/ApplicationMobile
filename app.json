@@ -8,6 +8,14 @@
     "scheme": "buildtrack",
     "userInterfaceStyle": "dark",
     "newArchEnabled": false,
+    "updates": {
+      "url": "https://u.expo.dev/e3c73711-1793-4925-a2c2-c787a3ac739a",
+      "fallbackToCacheTimeout": 3000,
+      "checkAutomatically": "ON_LOAD"
+    },
+    "runtimeVersion": {
+      "policy": "appVersion"
+    },
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.buildtrack.app",
@@ -42,6 +50,7 @@
     },
     "plugins": [
       "expo-router",
+      "expo-updates",
       [
         "expo-build-properties",
         {
