@@ -93,6 +93,7 @@ export default function SettingsScreen() {
     serverRole: string | null;
     serverOrgId: string | null;
     error: string | null;
+    sessionTimedOut?: boolean;
   } | null;
   const [diag, setDiag] = useState<DiagState>(null);
   const [diagOpen, setDiagOpen] = useState(false);
@@ -159,7 +160,20 @@ export default function SettingsScreen() {
         error: null,
       });
     } catch (err: any) {
-      setDiag({ loading: false, sessionUserId: null, sessionExpiresAt: null, serverRole: null, serverOrgId: null, error: err?.message ?? 'Erreur inconnue.' });
+      // When getSession() times out, the user may still have a valid local session
+      // (the Supabase client reads from AsyncStorage, then tries a network refresh
+      // which can hang on slow/restricted networks).  Show a nuanced message rather
+      // than "Aucune" so the user knows their local session is intact.
+      const isTimeout = err?.message?.includes('Connexion lente') || err?.message?.includes('lent');
+      setDiag({
+        loading: false,
+        sessionUserId: null,
+        sessionExpiresAt: null,
+        serverRole: null,
+        serverOrgId: null,
+        error: err?.message ?? 'Erreur inconnue.',
+        sessionTimedOut: isTimeout && !!user?.id,
+      });
     }
   }
 
@@ -558,11 +572,16 @@ export default function SettingsScreen() {
                     </View>
                     <View style={styles.diagRow}>
                       <Text style={styles.diagLabel}>Session</Text>
-                      <Text style={styles.diagValue}>
+                      <Text style={[
+                        styles.diagValue,
+                        diag.sessionTimedOut ? { color: '#F59E0B' } : undefined,
+                      ]}>
                         {diag.sessionUserId
                           ? (diag.sessionExpiresAt && diag.sessionExpiresAt * 1000 > Date.now()
                               ? `Active (expire ${new Date(diag.sessionExpiresAt * 1000).toLocaleString('fr-FR')})`
                               : 'Expirée')
+                          : diag.sessionTimedOut
+                          ? 'Vérification impossible (réseau lent)'
                           : 'Aucune'}
                       </Text>
                     </View>

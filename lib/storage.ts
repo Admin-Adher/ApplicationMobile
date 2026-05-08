@@ -33,6 +33,10 @@ async function readFileAsBlob(uri: string): Promise<{ data: Blob; mimeType: stri
 // est dépassé, on renvoie null et l'appelant bascule sur la file de sync.
 const PHOTO_UPLOAD_TIMEOUT_MS = 30_000;
 
+// Documents (PDFs, DXF) peuvent être beaucoup plus lourds que des photos —
+// on alloue 120 s pour couvrir les connexions chantier vraiment lentes.
+const DOCUMENT_UPLOAD_TIMEOUT_MS = 120_000;
+
 // Module-level upload counter so that filenames are unique even when several
 // photos are uploaded within the same millisecond (e.g. bulk offline sync).
 let _uploadSeq = 0;
@@ -201,13 +205,64 @@ export async function uploadDocumentDetailed(
       error:
         'Supabase non configuré (variables EXPO_PUBLIC_SUPABASE_URL / EXPO_PUBLIC_SUPABASE_KEY manquantes).',
     };
+
+  // Drop cleanly if the local file was deleted by the OS (storage pressure, etc.)
+  if (await localFileMissing(uri)) {
+    console.warn('[uploadDocument] local file missing, dropping:', uri);
+    return { url: MISSING_LOCAL_FILE as any, error: null };
+  }
+
   try {
-    const { data: fileData, mimeType: detectedMime } = await readFileAsBlob(uri);
-    const contentType = mimeType || detectedMime || 'application/octet-stream';
+    const contentType = mimeType ?? 'application/octet-stream';
     const path = `${Date.now()}_${filename.replace(/[^a-zA-Z0-9._-]/g, '_')}`;
-    const { data, error } = await supabase.storage
-      .from('documents')
-      .upload(path, fileData, { contentType, upsert: false });
+
+    if (Platform.OS !== 'web' && SUPABASE_URL && SUPABASE_KEY) {
+      // ── Native path: FileSystem.uploadAsync (native HTTP, no Blob) ────────
+      // CRITICAL: supabase.storage.upload() uses fetch() + Blob body which
+      // always fails on Android/Hermes with "Network request failed" — even
+      // when the rest of Supabase (auth, DB) works fine.  FileSystem.uploadAsync
+      // bypasses JS fetch and uses the platform's native HTTP stack, which
+      // handles file:// URIs and binary payloads correctly.
+      const { data: sessionData } = await supabase.auth.getSession();
+      const accessToken = sessionData?.session?.access_token ?? SUPABASE_KEY;
+
+      const uploadUrl = `${SUPABASE_URL}/storage/v1/object/documents/${path}`;
+      const result = await withTimeout(
+        FileSystem.uploadAsync(uploadUrl, uri, {
+          httpMethod: 'POST',
+          uploadType: FileSystem.FileSystemUploadType.BINARY_CONTENT,
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+            apikey: SUPABASE_KEY,
+            'Content-Type': contentType,
+          },
+        }),
+        DOCUMENT_UPLOAD_TIMEOUT_MS,
+        'upload document native',
+      );
+
+      if (result.status < 200 || result.status >= 300) {
+        let detail = result.body ?? '';
+        try { detail = JSON.parse(result.body ?? '')?.message ?? result.body ?? ''; } catch {}
+        const msg = `[HTTP ${result.status}] ${detail}`;
+        console.warn('[uploadDocument] native upload error:', msg);
+        return { url: null, error: msg };
+      }
+
+      const { data: urlData } = supabase.storage.from('documents').getPublicUrl(path);
+      return { url: urlData.publicUrl, error: null };
+    }
+
+    // ── Web path: Blob via Supabase JS SDK ──────────────────────────────────
+    const { data: fileData, mimeType: detectedMime } = await readFileAsBlob(uri);
+    const resolvedContentType = mimeType || detectedMime || 'application/octet-stream';
+    const { data, error } = await withTimeout(
+      supabase.storage
+        .from('documents')
+        .upload(path, fileData, { contentType: resolvedContentType, upsert: false }),
+      DOCUMENT_UPLOAD_TIMEOUT_MS,
+      'upload document web',
+    );
     if (error) {
       console.warn('uploadDocument Supabase error:', error.message);
       return { url: null, error: error.message };
@@ -398,8 +453,15 @@ export async function uploadLocalPhotosInPayload(
           ? 'application/octet-stream'
           : undefined;
       const { url, error: uploadErr } = await uploadDocumentDetailed(data.uri, filename, mime);
-      if (url) data.uri = url;
-      else { allOk = false; if (uploadErr) uploadErrors.push(uploadErr); }
+      // Local file was deleted by the OS — drop the URI but keep the row data
+      if (url === (MISSING_LOCAL_FILE as any)) {
+        data.uri = null;
+      } else if (url) {
+        data.uri = url;
+      } else {
+        allOk = false;
+        if (uploadErr) uploadErrors.push(uploadErr);
+      }
     }
   }
 
