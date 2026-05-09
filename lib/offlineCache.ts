@@ -1,11 +1,53 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { supabase, isSupabaseConfigured } from './supabase';
+import { supabase, isSupabaseConfigured, SUPABASE_URL } from './supabase';
 
-// Maximum time we wait for getSession() before giving up.
-// This is the last-resort safety valve for every query hook: if the auth lock
-// is still stuck despite the fixes in lib/supabase.ts, queries won't block
-// forever — they fall back to the local cache within SESSION_CHECK_TIMEOUT_MS.
-const SESSION_CHECK_TIMEOUT_MS = 4_000;
+// Maximum time we wait for getSession() before trying the AsyncStorage fallback.
+// The Supabase auth lock is capped at 5 000 ms (LOCK_MAX_MS in lib/supabase.ts).
+// We wait slightly longer (6 s) so the lock has time to release and getSession()
+// can complete without hitting the fallback unnecessarily.
+// If it still times out after 6 s the fallback reads the JWT directly from
+// AsyncStorage — this handles devices where the Supabase auth-server network
+// call hangs (e.g. slow DNS, restrictive firewall) even when local WiFi is fine.
+const SESSION_CHECK_TIMEOUT_MS = 6_000;
+
+/**
+ * Derive the AsyncStorage key supabase-js v2 uses for the persisted session.
+ * Format: sb-<projectRef>-auth-token
+ * Example: sb-abcxyzabcxyz-auth-token
+ */
+function supabaseStorageKey(): string | null {
+  try {
+    if (!SUPABASE_URL) return null;
+    const ref = new URL(SUPABASE_URL).hostname.split('.')[0];
+    return `sb-${ref}-auth-token`;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Read the supabase-js session directly from AsyncStorage, bypassing the
+ * auth lock entirely. Returns null when nothing is stored or the data is
+ * malformed. Useful as a fallback when getSession() hangs due to a slow
+ * JWT-refresh network call.
+ */
+export async function getSessionFromStorage(): Promise<{
+  access_token: string;
+  expires_at: number;
+  user: { id: string };
+} | null> {
+  try {
+    const key = supabaseStorageKey();
+    if (!key) return null;
+    const raw = await AsyncStorage.getItem(key);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (!parsed?.access_token || !parsed?.user?.id) return null;
+    return parsed;
+  } catch {
+    return null;
+  }
+}
 
 /**
  * Returns true only when Supabase has a usable session (non-expired JWT).
@@ -17,18 +59,17 @@ const SESSION_CHECK_TIMEOUT_MS = 4_000;
  * and that empty array would otherwise overwrite the local cache — making it
  * look like all of the user's data was deleted server-side.
  *
- * Safety: a strict 4-second timeout ensures that a stuck auth lock (e.g. after
- * the app resumes from a long background sleep) can never block query hooks
- * indefinitely. If the check times out, we return false so the query falls
- * back to the cached data and the UI stays responsive.
+ * Safety:
+ * 1. We first race getSession() against SESSION_CHECK_TIMEOUT_MS (6 s).
+ *    The auth lock is capped at 5 s so getSession() should finish in time.
+ * 2. If it still times out (e.g. the Supabase JWT-refresh HTTP call hangs),
+ *    we fall back to reading the persisted session from AsyncStorage directly.
+ *    If the stored JWT is still valid we return true so queries can proceed
+ *    — the app remains functional even if the auth server is unreachable.
  */
 export async function isSupabaseSessionValid(): Promise<boolean> {
   if (!isSupabaseConfigured) return false;
   try {
-    // Race getSession() against a strict timeout.
-    // If the Supabase auth lock is stuck, getSession() may never resolve.
-    // After SESSION_CHECK_TIMEOUT_MS we treat the session as unavailable so
-    // query functions return cached data instead of blocking forever.
     const timeoutPromise = new Promise<null>((_, reject) =>
       setTimeout(() => reject(new Error('session-check-timeout')), SESSION_CHECK_TIMEOUT_MS)
     );
@@ -43,6 +84,23 @@ export async function isSupabaseSessionValid(): Promise<boolean> {
     }
     return true;
   } catch {
+    // getSession() timed out (auth lock stuck or JWT-refresh network call hanging).
+    // Fallback: read the persisted JWT from AsyncStorage without waiting for the
+    // network. If it hasn't expired the app can still make authenticated requests.
+    console.warn('[offlineCache] getSession() timeout — trying AsyncStorage fallback');
+    try {
+      const cached = await getSessionFromStorage();
+      if (cached?.access_token && typeof cached.expires_at === 'number') {
+        const nowSec = Math.floor(Date.now() / 1000);
+        if (cached.expires_at - 10 > nowSec) {
+          console.warn('[offlineCache] AsyncStorage fallback: JWT still valid, proceeding');
+          return true;
+        }
+        console.warn('[offlineCache] AsyncStorage fallback: JWT expired, falling back to cache');
+      }
+    } catch {
+      // AsyncStorage read failed — truly offline/locked
+    }
     return false;
   }
 }

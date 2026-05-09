@@ -13,6 +13,7 @@ import { useSubscription } from '@/context/SubscriptionContext';
 import { AttendanceRecord } from '@/constants/types';
 import BottomNavBar from '@/components/BottomNavBar';
 import { supabase, isSupabaseConfigured } from '@/lib/supabase';
+import { getSessionFromStorage } from '@/lib/offlineCache';
 import { useNetwork } from '@/context/NetworkContext';
 
 function groupByDate(records: AttendanceRecord[]): Record<string, AttendanceRecord[]> {
@@ -160,19 +161,35 @@ export default function SettingsScreen() {
         error: null,
       });
     } catch (err: any) {
-      // When getSession() times out, the user may still have a valid local session
-      // (the Supabase client reads from AsyncStorage, then tries a network refresh
-      // which can hang on slow/restricted networks).  Show a nuanced message rather
-      // than "Aucune" so the user knows their local session is intact.
-      const isTimeout = err?.message?.includes('Connexion lente') || err?.message?.includes('lent');
+      // getSession() timed out (auth server slow or JWT-refresh call hanging).
+      // The network may be perfectly fine — only the Supabase auth endpoint is slow.
+      // Try to read the cached session from AsyncStorage to still show useful info.
+      const isTimeout = err?.message?.includes('Connexion lente') || err?.message?.includes('lent') || err?.message?.includes('timeout');
+      let cachedUserId: string | null = null;
+      let cachedExpiresAt: number | null = null;
+      let sessionStillValid = false;
+      if (isTimeout || !!user?.id) {
+        try {
+          const cached = await getSessionFromStorage();
+          if (cached?.user?.id) {
+            cachedUserId = cached.user.id;
+            cachedExpiresAt = cached.expires_at ?? null;
+            if (typeof cached.expires_at === 'number') {
+              sessionStillValid = cached.expires_at > Math.floor(Date.now() / 1000);
+            }
+          }
+        } catch {}
+      }
       setDiag({
         loading: false,
-        sessionUserId: null,
-        sessionExpiresAt: null,
+        sessionUserId: cachedUserId,
+        sessionExpiresAt: cachedExpiresAt,
         serverRole: null,
         serverOrgId: null,
-        error: err?.message ?? 'Erreur inconnue.',
-        sessionTimedOut: isTimeout && !!user?.id,
+        error: isTimeout
+          ? `Serveur auth lent (>${(15000 / 1000).toFixed(0)} s). Réseau local OK — seul le serveur Supabase est lent.${sessionStillValid ? ' Session locale encore valide.' : ' JWT expiré, reconnexion recommandée.'}`
+          : (err?.message ?? 'Erreur inconnue.'),
+        sessionTimedOut: isTimeout,
       });
     }
   }
@@ -578,10 +595,10 @@ export default function SettingsScreen() {
                       ]}>
                         {diag.sessionUserId
                           ? (diag.sessionExpiresAt && diag.sessionExpiresAt * 1000 > Date.now()
-                              ? `Active (expire ${new Date(diag.sessionExpiresAt * 1000).toLocaleString('fr-FR')})`
-                              : 'Expirée')
+                              ? `${diag.sessionTimedOut ? '(cache) ' : ''}Active · expire ${new Date(diag.sessionExpiresAt * 1000).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })} ${new Date(diag.sessionExpiresAt * 1000).toLocaleDateString('fr-FR')}`
+                              : `${diag.sessionTimedOut ? '(cache) ' : ''}Expirée — reconnexion recommandée`)
                           : diag.sessionTimedOut
-                          ? 'Vérification impossible (réseau lent)'
+                          ? 'Serveur auth lent (cache vide)'
                           : 'Aucune'}
                       </Text>
                     </View>
