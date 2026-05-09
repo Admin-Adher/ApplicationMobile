@@ -199,63 +199,125 @@ export async function uploadDocumentDetailed(
   filename: string,
   mimeType?: string
 ): Promise<{ url: string | null; error: string | null }> {
-  if (!isSupabaseConfigured)
-    return {
-      url: null,
-      error:
-        'Supabase non configuré (variables EXPO_PUBLIC_SUPABASE_URL / EXPO_PUBLIC_SUPABASE_KEY manquantes).',
-    };
+  const tag = '[DOC_UPLOAD]';
+  const shortUri = uri.length > 80 ? uri.slice(0, 80) + '…' : uri;
+  console.log(`${tag} ── début ──────────────────────────────────`);
+  console.log(`${tag} uri      : ${shortUri}`);
+  console.log(`${tag} filename : ${filename}`);
+  console.log(`${tag} mimeType : ${mimeType ?? '(auto)'}`);
+  console.log(`${tag} platform : ${Platform.OS}`);
+  console.log(`${tag} supabase : ${isSupabaseConfigured ? 'configuré' : 'NON CONFIGURÉ'}`);
 
-  // Drop cleanly if the local file was deleted by the OS (storage pressure, etc.)
-  if (await localFileMissing(uri)) {
-    console.warn('[uploadDocument] local file missing, dropping:', uri);
+  if (!isSupabaseConfigured) {
+    const err = 'Supabase non configuré (EXPO_PUBLIC_SUPABASE_URL / EXPO_PUBLIC_SUPABASE_KEY manquantes).';
+    console.error(`${tag} ECHEC — ${err}`);
+    return { url: null, error: err };
+  }
+
+  // ── 1. Vérifier que le fichier local existe encore ─────────────────────────
+  let missing = false;
+  try {
+    missing = await localFileMissing(uri);
+  } catch (checkErr) {
+    console.warn(`${tag} Erreur vérification existence fichier:`, checkErr);
+  }
+  console.log(`${tag} fichier local présent : ${missing ? 'NON (supprimé par l\'OS)' : 'OUI'}`);
+  if (missing) {
+    console.warn(`${tag} ABANDON — fichier local introuvable sur disque : ${shortUri}`);
     return { url: MISSING_LOCAL_FILE as any, error: null };
   }
 
   try {
     const contentType = mimeType ?? 'application/octet-stream';
     const path = `${Date.now()}_${filename.replace(/[^a-zA-Z0-9._-]/g, '_')}`;
+    console.log(`${tag} contentType : ${contentType}`);
+    console.log(`${tag} storage path: documents/${path}`);
 
     if (Platform.OS !== 'web' && SUPABASE_URL && SUPABASE_KEY) {
       // ── Native path: FileSystem.uploadAsync (native HTTP, no Blob) ────────
       // CRITICAL: supabase.storage.upload() uses fetch() + Blob body which
       // always fails on Android/Hermes with "Network request failed" — even
       // when the rest of Supabase (auth, DB) works fine.  FileSystem.uploadAsync
-      // bypasses JS fetch and uses the platform's native HTTP stack, which
-      // handles file:// URIs and binary payloads correctly.
-      const { data: sessionData } = await supabase.auth.getSession();
-      const accessToken = sessionData?.session?.access_token ?? SUPABASE_KEY;
+      // bypasses JS fetch and uses the platform's native HTTP stack.
+      console.log(`${tag} chemin : NATIF (FileSystem.uploadAsync)`);
 
+      // ── 2. Récupérer le token d'accès ──────────────────────────────────────
+      let accessToken: string = SUPABASE_KEY;
+      let tokenSource = 'anon_key (fallback)';
+      try {
+        const { data: sessionData, error: sessErr } = await supabase.auth.getSession();
+        if (sessErr) {
+          console.warn(`${tag} getSession erreur: ${sessErr.message} — utilisation clé anon`);
+        } else if (sessionData?.session?.access_token) {
+          accessToken = sessionData.session.access_token;
+          tokenSource = `JWT (expire: ${sessionData.session.expires_at
+            ? new Date(sessionData.session.expires_at * 1000).toISOString()
+            : 'inconnu'})`;
+        } else {
+          console.warn(`${tag} getSession: pas de session active — utilisation clé anon`);
+        }
+      } catch (sessEx) {
+        console.warn(`${tag} getSession exception: ${sessEx} — utilisation clé anon`);
+      }
+      console.log(`${tag} token source: ${tokenSource}`);
+
+      // ── 3. Lancer l'upload ─────────────────────────────────────────────────
       const uploadUrl = `${SUPABASE_URL}/storage/v1/object/documents/${path}`;
-      const result = await withTimeout(
-        FileSystem.uploadAsync(uploadUrl, uri, {
-          httpMethod: 'POST',
-          uploadType: FileSystem.FileSystemUploadType.BINARY_CONTENT,
-          headers: {
-            Authorization: `Bearer ${accessToken}`,
-            apikey: SUPABASE_KEY,
-            'Content-Type': contentType,
-          },
-        }),
-        DOCUMENT_UPLOAD_TIMEOUT_MS,
-        'upload document native',
-      );
+      console.log(`${tag} uploadUrl: ${uploadUrl}`);
+      console.log(`${tag} timeout: ${DOCUMENT_UPLOAD_TIMEOUT_MS / 1000}s`);
+      console.log(`${tag} ── lancement FileSystem.uploadAsync…`);
+
+      let result: { status: number; body: string };
+      try {
+        result = await withTimeout(
+          FileSystem.uploadAsync(uploadUrl, uri, {
+            httpMethod: 'POST',
+            uploadType: FileSystem.FileSystemUploadType.BINARY_CONTENT,
+            headers: {
+              Authorization: `Bearer ${accessToken}`,
+              apikey: SUPABASE_KEY,
+              'Content-Type': contentType,
+            },
+          }),
+          DOCUMENT_UPLOAD_TIMEOUT_MS,
+          'upload document native',
+        );
+      } catch (uploadEx: any) {
+        const msg = uploadEx?.message ?? String(uploadEx);
+        console.error(`${tag} ECHEC uploadAsync exception: ${msg}`);
+        return { url: null, error: `uploadAsync exception: ${msg}` };
+      }
+
+      console.log(`${tag} réponse HTTP status: ${result.status}`);
+      console.log(`${tag} réponse HTTP body  : ${(result.body ?? '').slice(0, 300)}`);
 
       if (result.status < 200 || result.status >= 300) {
         let detail = result.body ?? '';
-        try { detail = JSON.parse(result.body ?? '')?.message ?? result.body ?? ''; } catch {}
-        const msg = `[HTTP ${result.status}] ${detail}`;
-        console.warn('[uploadDocument] native upload error:', msg);
+        try {
+          const parsed = JSON.parse(result.body ?? '');
+          detail = parsed?.message ?? parsed?.error ?? result.body ?? '';
+        } catch {}
+        const statusLabel =
+          result.status === 401 ? 'JWT invalide ou expiré (401)' :
+          result.status === 403 ? 'Permission refusée — RLS Storage (403)' :
+          result.status === 413 ? 'Fichier trop volumineux (413)' :
+          result.status === 0   ? 'Aucune réponse réseau (status 0)' :
+          `HTTP ${result.status}`;
+        const msg = `${statusLabel}: ${detail}`.trim();
+        console.error(`${tag} ECHEC upload — ${msg}`);
         return { url: null, error: msg };
       }
 
       const { data: urlData } = supabase.storage.from('documents').getPublicUrl(path);
+      console.log(`${tag} SUCCÈS — url publique: ${urlData.publicUrl}`);
       return { url: urlData.publicUrl, error: null };
     }
 
     // ── Web path: Blob via Supabase JS SDK ──────────────────────────────────
+    console.log(`${tag} chemin : WEB (Blob SDK)`);
     const { data: fileData, mimeType: detectedMime } = await readFileAsBlob(uri);
     const resolvedContentType = mimeType || detectedMime || 'application/octet-stream';
+    console.log(`${tag} blob size: ${fileData?.size ?? 'inconnu'} octets`);
     const { data, error } = await withTimeout(
       supabase.storage
         .from('documents')
@@ -264,15 +326,16 @@ export async function uploadDocumentDetailed(
       'upload document web',
     );
     if (error) {
-      console.warn('uploadDocument Supabase error:', error.message);
+      console.error(`${tag} ECHEC SDK web: ${error.message}`);
       return { url: null, error: error.message };
     }
     const { data: urlData } = supabase.storage.from('documents').getPublicUrl(data.path);
+    console.log(`${tag} SUCCÈS web — url: ${urlData.publicUrl}`);
     return { url: urlData.publicUrl, error: null };
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : String(e);
-    console.warn('uploadDocument failed:', msg);
-    return { url: null, error: msg };
+    console.error(`${tag} ECHEC exception inattendue: ${msg}`);
+    return { url: null, error: `Exception inattendue: ${msg}` };
   }
 }
 

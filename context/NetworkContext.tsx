@@ -632,8 +632,26 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
               data.deadline = null;
             }
           }
+          // ── Logs détaillés pour site_plans ──────────────────────────────
+          if (op.table === 'site_plans') {
+            const hasLocalUri = typeof data.uri === 'string' && data.uri.startsWith('file://');
+            console.log(`[SYNC:site_plans] ── op ${op.id} (tentative #${(op.attemptCount ?? 0) + 1}) ──`);
+            console.log(`[SYNC:site_plans] op     : ${op.op}`);
+            console.log(`[SYNC:site_plans] name   : ${data.name ?? '(sans nom)'}`);
+            console.log(`[SYNC:site_plans] uri    : ${typeof data.uri === 'string' ? (data.uri.slice(0, 100)) : '(absent)'}`);
+            console.log(`[SYNC:site_plans] uri locale : ${hasLocalUri ? 'OUI → upload requis' : 'NON (déjà remote ou null)'}`);
+          }
           try {
             const prep = await uploadLocalPhotosInPayload(op.table, data);
+            if (op.table === 'site_plans') {
+              console.log(`[SYNC:site_plans] upload résultat — allOk:${prep.allOk} hadLocal:${prep.hadLocal}`);
+              if (!prep.allOk) {
+                console.error(`[SYNC:site_plans] ECHEC upload — erreurs: ${(prep.uploadErrors ?? []).join(' | ')}`);
+              }
+              if (prep.data?.uri && prep.data.uri !== op.data?.uri) {
+                console.log(`[SYNC:site_plans] uri transformée → ${String(prep.data.uri).slice(0, 100)}`);
+              }
+            }
             if (prep.data === null && prep.allOk && op.table === 'photos') {
               console.warn(`[queue] dropping photos op ${op.id}: local file missing on disk`);
               processed += 1;
@@ -705,8 +723,22 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
         // ── Generic table/op replay ────────────────────────────────────────
         let result: { error: any; data?: any[] | null };
 
+        if (op.table === 'site_plans') {
+          console.log(`[SYNC:site_plans] ── INSERT Supabase (table site_plans) ──`);
+          console.log(`[SYNC:site_plans] payload uri   : ${typeof data?.uri === 'string' ? data.uri.slice(0, 100) : '(null)'}`);
+          console.log(`[SYNC:site_plans] payload name  : ${data?.name ?? '(absent)'}`);
+          console.log(`[SYNC:site_plans] payload org_id: ${data?.organization_id ?? '(absent)'}`);
+        }
+
         if (op.op === 'insert') {
           result = await (supabase as any).from(op.table).insert(data!);
+          if (op.table === 'site_plans') {
+            if (result.error) {
+              console.error(`[SYNC:site_plans] ECHEC INSERT — code:${result.error.code} msg:${result.error.message} details:${result.error.details ?? ''} hint:${result.error.hint ?? ''}`);
+            } else {
+              console.log(`[SYNC:site_plans] SUCCÈS INSERT ✓`);
+            }
+          }
           if (result.error?.code === '23505') result = { error: null };
         } else if (op.op === 'update') {
           const q = (supabase as any).from(op.table).update(data!).select();
