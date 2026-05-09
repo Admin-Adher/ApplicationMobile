@@ -1,5 +1,5 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { supabase, isSupabaseConfigured, SUPABASE_URL } from './supabase';
+import { supabase, isSupabaseConfigured, SUPABASE_URL, SUPABASE_KEY } from './supabase';
 
 // Maximum time we wait for getSession() before trying the AsyncStorage fallback.
 // The Supabase auth lock is capped at 5 000 ms (LOCK_MAX_MS in lib/supabase.ts).
@@ -33,7 +33,10 @@ function supabaseStorageKey(): string | null {
  */
 export async function getSessionFromStorage(): Promise<{
   access_token: string;
+  refresh_token?: string;
   expires_at: number;
+  expires_in?: number;
+  token_type?: string;
   user: { id: string };
 } | null> {
   try {
@@ -45,6 +48,96 @@ export async function getSessionFromStorage(): Promise<{
     if (!parsed?.access_token || !parsed?.user?.id) return null;
     return parsed;
   } catch {
+    return null;
+  }
+}
+
+/**
+ * Force-refresh the JWT by making a raw HTTP POST to the Supabase auth
+ * endpoint, completely bypassing the supabase-js auth lock.
+ *
+ * Use this when getSession() hangs (the JWT-refresh network call inside
+ * supabase-js hangs, often on certain devices or networks).  This function
+ * makes the same network call but with its own 10-second abort signal so it
+ * can never block forever.
+ *
+ * On success the new session is written back to AsyncStorage so supabase-js
+ * will pick it up on the next read.
+ *
+ * @returns new access_token string, or null if the refresh failed.
+ */
+export async function forceRefreshSession(): Promise<string | null> {
+  const REFRESH_TIMEOUT_MS = 10_000;
+  const tag = '[forceRefresh]';
+  try {
+    if (!SUPABASE_URL || !SUPABASE_KEY) {
+      console.warn(`${tag} Supabase non configuré`);
+      return null;
+    }
+    const cached = await getSessionFromStorage();
+    if (!cached?.refresh_token) {
+      console.warn(`${tag} pas de refresh_token dans AsyncStorage`);
+      return null;
+    }
+
+    console.warn(`${tag} tentative refresh direct (bypass lock)…`);
+    const url = `${SUPABASE_URL}/auth/v1/token?grant_type=refresh_token`;
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), REFRESH_TIMEOUT_MS);
+    let resp: Response;
+    try {
+      resp = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          apikey: SUPABASE_KEY,
+        },
+        body: JSON.stringify({ refresh_token: cached.refresh_token }),
+        signal: controller.signal,
+      });
+    } finally {
+      clearTimeout(timer);
+    }
+
+    if (!resp.ok) {
+      const body = await resp.text().catch(() => '');
+      console.warn(`${tag} HTTP ${resp.status} — ${body.slice(0, 200)}`);
+      return null;
+    }
+
+    const newSession = await resp.json();
+    if (!newSession?.access_token) {
+      console.warn(`${tag} réponse sans access_token`);
+      return null;
+    }
+
+    // Write the refreshed session back into AsyncStorage so supabase-js
+    // picks it up on the next read (after the stuck lock eventually releases).
+    const key = supabaseStorageKey();
+    if (key) {
+      const toStore = {
+        ...cached,
+        access_token: newSession.access_token,
+        refresh_token: newSession.refresh_token ?? cached.refresh_token,
+        expires_at:
+          newSession.expires_at ??
+          Math.floor(Date.now() / 1000) + (newSession.expires_in ?? 3600),
+        expires_in: newSession.expires_in ?? 3600,
+        token_type: newSession.token_type ?? 'bearer',
+        user: newSession.user ?? cached.user,
+      };
+      await AsyncStorage.setItem(key, JSON.stringify(toStore));
+      console.warn(
+        `${tag} JWT renouvelé ✓ — expire ${new Date(toStore.expires_at * 1000).toISOString()}`,
+      );
+    }
+    return newSession.access_token as string;
+  } catch (e: any) {
+    if (e?.name === 'AbortError') {
+      console.warn(`${tag} timeout après ${REFRESH_TIMEOUT_MS / 1000}s — serveur auth injoignable`);
+    } else {
+      console.warn(`${tag} erreur —`, e?.message ?? e);
+    }
     return null;
   }
 }
@@ -96,7 +189,14 @@ export async function isSupabaseSessionValid(): Promise<boolean> {
           console.warn('[offlineCache] AsyncStorage fallback: JWT still valid, proceeding');
           return true;
         }
-        console.warn('[offlineCache] AsyncStorage fallback: JWT expired, falling back to cache');
+        // JWT is expired — attempt a direct HTTP refresh, bypassing the stuck lock.
+        console.warn('[offlineCache] AsyncStorage fallback: JWT expired — forceRefreshSession()');
+        const newToken = await forceRefreshSession();
+        if (newToken) {
+          console.warn('[offlineCache] forceRefresh succeeded — session renouvelée');
+          return true;
+        }
+        console.warn('[offlineCache] forceRefresh échoué — retour au cache local');
       }
     } catch {
       // AsyncStorage read failed — truly offline/locked

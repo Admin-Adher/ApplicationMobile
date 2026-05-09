@@ -242,22 +242,65 @@ export async function uploadDocumentDetailed(
       console.log(`${tag} chemin : NATIF (FileSystem.uploadAsync)`);
 
       // ── 2. Récupérer le token d'accès ──────────────────────────────────────
+      // Strategy (most robust to least):
+      // A) supabase.auth.getSession() with 8s timeout (lock may take up to 5s)
+      // B) getSessionFromStorage() — read cached JWT directly, no lock
+      // C) forceRefreshSession() — raw HTTP refresh bypassing the lock, if B is expired
+      // D) SUPABASE_KEY (anon key) — last resort, will fail RLS-protected buckets
       let accessToken: string = SUPABASE_KEY;
       let tokenSource = 'anon_key (fallback)';
       try {
-        const { data: sessionData, error: sessErr } = await supabase.auth.getSession();
-        if (sessErr) {
-          console.warn(`${tag} getSession erreur: ${sessErr.message} — utilisation clé anon`);
-        } else if (sessionData?.session?.access_token) {
-          accessToken = sessionData.session.access_token;
-          tokenSource = `JWT (expire: ${sessionData.session.expires_at
-            ? new Date(sessionData.session.expires_at * 1000).toISOString()
+        const TOKEN_TIMEOUT_MS = 8_000;
+        const sessionRace = await Promise.race([
+          supabase.auth.getSession(),
+          new Promise<never>((_, rej) =>
+            setTimeout(() => rej(new Error('getSession timeout')), TOKEN_TIMEOUT_MS)
+          ),
+        ]) as Awaited<ReturnType<typeof supabase.auth.getSession>>;
+
+        if (sessionRace.error) {
+          console.warn(`${tag} getSession erreur: ${sessionRace.error.message}`);
+        } else if (sessionRace.data?.session?.access_token) {
+          const s = sessionRace.data.session;
+          const nowSec = Math.floor(Date.now() / 1000);
+          if (typeof s.expires_at === 'number' && s.expires_at < nowSec) {
+            console.warn(`${tag} JWT expiré depuis ${nowSec - s.expires_at}s — forceRefresh`);
+            throw new Error('jwt-expired');
+          }
+          accessToken = s.access_token;
+          tokenSource = `JWT supabase-js (expire: ${s.expires_at
+            ? new Date(s.expires_at * 1000).toISOString()
             : 'inconnu'})`;
         } else {
-          console.warn(`${tag} getSession: pas de session active — utilisation clé anon`);
+          console.warn(`${tag} getSession: pas de session active`);
+          throw new Error('no-session');
         }
-      } catch (sessEx) {
-        console.warn(`${tag} getSession exception: ${sessEx} — utilisation clé anon`);
+      } catch (sessEx: any) {
+        console.warn(`${tag} getSession indisponible (${sessEx?.message ?? sessEx}) — essai AsyncStorage fallback`);
+        // B) Read directly from AsyncStorage (no lock involved)
+        const { getSessionFromStorage, forceRefreshSession } = await import('./offlineCache');
+        const cached = await getSessionFromStorage();
+        if (cached?.access_token && typeof cached.expires_at === 'number') {
+          const nowSec = Math.floor(Date.now() / 1000);
+          if (cached.expires_at - 10 > nowSec) {
+            accessToken = cached.access_token;
+            tokenSource = `JWT AsyncStorage (expire: ${new Date(cached.expires_at * 1000).toISOString()})`;
+            console.log(`${tag} token depuis AsyncStorage OK`);
+          } else {
+            // C) JWT expired — force-refresh via raw HTTP
+            console.warn(`${tag} JWT AsyncStorage expiré — forceRefreshSession()`);
+            const newToken = await forceRefreshSession();
+            if (newToken) {
+              accessToken = newToken;
+              tokenSource = 'JWT forceRefresh (bypass lock)';
+              console.log(`${tag} token renouvelé par forceRefresh ✓`);
+            } else {
+              console.warn(`${tag} forceRefresh échoué — fallback clé anon (RLS bloquera probablement)`);
+            }
+          }
+        } else {
+          console.warn(`${tag} AsyncStorage vide — fallback clé anon`);
+        }
       }
       console.log(`${tag} token source: ${tokenSource}`);
 
