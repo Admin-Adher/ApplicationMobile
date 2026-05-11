@@ -60,6 +60,10 @@ localPort = 5001
 externalPort = 3001
 
 [[ports]]
+localPort = 8081
+externalPort = 8081
+
+[[ports]]
 localPort = 23636
 externalPort = 3002
 
@@ -73,7 +77,7 @@ publicDir = "dist"
 [userenv.shared]
 EXPO_PUBLIC_SUPABASE_URL = "https://jzeojdpgglbxjdasjgta.supabase.co"
 EXPO_PUBLIC_SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imp6ZW9qZHBnZ2xieGpkYXNqZ3RhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQ4Mjg1ODAsImV4cCI6MjA5MDQwNDU4MH0.ZcU5EAYQMEnQHVe0-6Wff_1sBanvjtdZZ0hJNJGLAz0"
-EXPO_PUBLIC_APP_URL = "https://42780f0d-2101-4384-bf36-5ad511987cd3-00-wnz74f46ehqo.kirk.replit.dev"
+EXPO_PUBLIC_APP_URL = "https://9ec95e57-9866-49bf-a95e-793eb61cf199-00-3gubbb77v26m7.spock.replit.dev"
 GMAIL_USER = "buildtrack.admin@gmail.com"
 EMAIL_FROM = "BuildTrack <buildtrack.admin@gmail.com>"
-EXPO_PUBLIC_API_URL = "https://42780f0d-2101-4384-bf36-5ad511987cd3-00-wnz74f46ehqo.kirk.replit.dev"
+EXPO_PUBLIC_API_URL = "https://9ec95e57-9866-49bf-a95e-793eb61cf199-00-3gubbb77v26m7.spock.replit.dev"
