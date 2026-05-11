@@ -188,10 +188,16 @@ async function exportPlanPDF(
     color: getCompanyColor(r.company ?? '', companiesForColor),
   }));
 
-  const rows = reserves.map(r => {
+  // Photos: same limit logic as exportGlobalReport (≤150 total, max 2 per reserve)
+  const MAX_TOTAL_PHOTOS = 150;
+  const maxPhotosPerReserve = reserves.length === 0
+    ? 0
+    : Math.min(2, Math.floor(MAX_TOTAL_PHOTOS / reserves.length));
+
+  const rowsAndPhotos = await Promise.all(reserves.map(async (r) => {
     const n = numberMap.get(r.id) ?? '—';
     const color = getCompanyColor(r.company ?? '', companiesForColor);
-    return `<tr>
+    const row = `<tr>
       <td style="text-align:center;"><span style="display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px;border-radius:50%;background:${color};color:#fff;font-weight:700;font-size:11px;">${n}</span></td>
       <td style="font-weight:600;">${r.title}</td>
       <td>${r.company || '—'}</td>
@@ -200,7 +206,40 @@ async function exportPlanPDF(
       <td>${PRIORITY_FR[r.priority] || r.priority}</td>
       <td>${r.deadline || '—'}</td>
     </tr>`;
-  }).join('');
+    const rawPhotos = (r.photos && r.photos.length > 0)
+      ? r.photos
+      : r.photoUri
+        ? [{ id: 'legacy', uri: r.photoUri, kind: 'defect' as const, takenAt: '', takenBy: '' }]
+        : [];
+    const photosToShow = rawPhotos.slice(0, maxPhotosPerReserve);
+    let photoHtml = '';
+    if (photosToShow.length > 0) {
+      const resolvedSrcs = await Promise.all(photosToShow.map(p => loadPhotoAsDataUrlForPdf(p.uri)));
+      photoHtml = `<div style="padding:8px 16px 12px 16px;border-bottom:1px solid #f1f5f9;background:#fff;">
+        <div style="font-size:10px;font-weight:700;color:#64748b;margin-bottom:6px;">
+          <span style="display:inline-flex;align-items:center;justify-content:center;width:18px;height:18px;border-radius:50%;background:${color};color:#fff;font-weight:700;font-size:9px;margin-right:5px;">${n}</span>
+          ${r.title} — Photos (${photosToShow.length}${rawPhotos.length > maxPhotosPerReserve ? ` sur ${rawPhotos.length}` : ''})
+        </div>
+        <div style="display:flex;gap:8px;flex-wrap:nowrap;">
+          ${photosToShow.map((p, idx) => {
+            const src = resolvedSrcs[idx] ?? p.uri;
+            const isDefect = p.kind === 'defect';
+            return `<div style="flex:1;min-width:0;text-align:center;max-width:200px;">
+              <img src="${src}" onerror="this.style.opacity='0.15'"
+                style="width:100%;height:auto;max-height:160px;object-fit:contain;background:#F9FAFB;border-radius:6px;border:1.5px solid #DDE4EE;display:block;" />
+              <span style="display:inline-block;margin-top:3px;padding:1px 7px;border-radius:8px;font-size:9px;font-weight:700;
+                background:${isDefect ? '#FEF2F2' : '#ECFDF5'};color:${isDefect ? '#DC2626' : '#059669'};">
+                ${isDefect ? '● Constat' : '● Levée'}
+              </span>
+            </div>`;
+          }).join('')}
+        </div>
+      </div>`;
+    }
+    return { row, photoHtml };
+  }));
+  const rows = rowsAndPhotos.map(rp => rp.row).join('');
+  const photosSection = rowsAndPhotos.map(rp => rp.photoHtml).filter(Boolean).join('');
 
   // Convert plan URI to a data URL on all platforms.
   // On mobile, file:// paths are inaccessible from Print.printAsync's sandboxed WebView,
@@ -316,6 +355,7 @@ ${planAnnotatedSection}
 <div class="stitle">Liste des réserves</div>
 <table><thead><tr><th>#</th><th>Titre</th><th>Entreprise</th><th>Niveau</th><th>Statut</th><th>Priorité</th><th>Échéance</th></tr></thead>
 <tbody>${rows || '<tr><td colspan="7" style="text-align:center;color:#999;padding:20px;">Aucune réserve sur ce plan</td></tr>'}</tbody></table>
+${photosSection ? `<div style="padding:8px 16px 4px 16px;background:#f8fafc;border-top:1px solid #e2e8f0;font-size:10px;font-weight:700;color:#475569;text-transform:uppercase;letter-spacing:0.5px;margin-top:4px;">📷 Photos des réserves</div>${photosSection}` : ''}
 <div class="footer">BuildTrack — Gestion de chantier numérique — ${new Date().toLocaleDateString('fr-FR')}</div>
 ${fallbackCanvasScript ? `<script>${fallbackCanvasScript}<\/script>` : ''}
 </body></html>`;
