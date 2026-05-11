@@ -19,7 +19,7 @@ import { Reserve, ReserveStatus, ReservePriority, ReserveKind } from '@/constant
 import ReserveCard from '@/components/ReserveCard';
 import DateInput from '@/components/DateInput';
 import { isOverdue, isDueSoon, formatDate, genReserveId, compareLevels } from '@/lib/reserveUtils';
-import { PDF_BASE_CSS, PDF_BRAND_COLOR, PDF_MUTED, PDF_TEXT, exportPDF as exportPDFHelper, printPDF as printPDFHelper, escapeHtml } from '@/lib/pdfBase';
+import { PDF_BASE_CSS, PDF_BRAND_COLOR, PDF_MUTED, PDF_TEXT, exportPDF as exportPDFHelper, printPDF as printPDFHelper, escapeHtml, loadPhotoAsDataUrlForPdf } from '@/lib/pdfBase';
 import { generateAndSendReservesReport } from '@/lib/email/client';
 import * as FileSystem from 'expo-file-system';
 import * as Sharing from 'expo-sharing';
@@ -117,24 +117,66 @@ async function generateReportPDF(action: 'share' | 'print',
       </tr>`;
     }).join('');
 
-  const reserveRows = reserves
-    .sort((a, b) => STATUS_ORDER_MAP[a.status] - STATUS_ORDER_MAP[b.status] || PRIORITY_ORDER[a.priority] - PRIORITY_ORDER[b.priority])
-    .map(r => {
-      const overdue = isOverdue(r.deadline, r.status);
-      const lot = r.lotId ? lots.find(l => l.id === r.lotId) : null;
-      const lotLabel = lot ? escapeHtml((lot.number ? `Lot ${lot.number} — ` : '') + lot.name) : '—';
-      const coNames = (r.companies && r.companies.length > 0 ? r.companies : r.company ? [r.company] : ['—']);
-      return `<tr style="${overdue ? 'background:#FFF1F2' : ''}">
-        <td style="font-weight:bold;color:${PDF_BRAND_COLOR}">${escapeHtml(r.id)}</td>
-        <td>${escapeHtml(r.title)}</td>
-        <td>${lotLabel}</td>
-        <td>Bât. ${escapeHtml(r.building)} — ${escapeHtml(r.zone)}</td>
-        <td>${coNames.map(c => escapeHtml(c)).join(', ')}</td>
-        <td><span style="background:${STATUS_COLORS[r.status]}20;color:${STATUS_COLORS[r.status]};padding:2px 8px;border-radius:8px;font-size:10px;font-weight:bold">${STATUS_LABELS[r.status]}</span></td>
-        <td><span style="background:${PRIORITY_COLORS[r.priority]}20;color:${PRIORITY_COLORS[r.priority]};padding:2px 8px;border-radius:8px;font-size:10px;font-weight:bold">${PRIORITY_LABELS[r.priority]}</span></td>
-        <td style="${overdue ? 'color:' + C.open + ';font-weight:bold' : ''}">${escapeHtml(r.deadline ?? '—')}</td>
-      </tr>`;
-    }).join('');
+  const MAX_TOTAL_PHOTOS = 150;
+  const sortedReserves = [...reserves].sort(
+    (a, b) => STATUS_ORDER_MAP[a.status] - STATUS_ORDER_MAP[b.status] || PRIORITY_ORDER[a.priority] - PRIORITY_ORDER[b.priority],
+  );
+  const maxPhotosPerReserve = sortedReserves.length === 0
+    ? 0
+    : Math.min(2, Math.floor(MAX_TOTAL_PHOTOS / sortedReserves.length));
+
+  const rowsAndPhotos = await Promise.all(sortedReserves.map(async (r) => {
+    const overdue = isOverdue(r.deadline, r.status);
+    const lot = r.lotId ? lots.find(l => l.id === r.lotId) : null;
+    const lotLabel = lot ? escapeHtml((lot.number ? `Lot ${lot.number} — ` : '') + lot.name) : '—';
+    const coNames = (r.companies && r.companies.length > 0 ? r.companies : r.company ? [r.company] : ['—']);
+    const row = `<tr style="${overdue ? 'background:#FFF1F2' : ''}">
+      <td style="font-weight:bold;color:${PDF_BRAND_COLOR}">${escapeHtml(r.id)}</td>
+      <td>${escapeHtml(r.title)}</td>
+      <td>${lotLabel}</td>
+      <td>Bât. ${escapeHtml(r.building)} — ${escapeHtml(r.zone)}</td>
+      <td>${coNames.map(c => escapeHtml(c)).join(', ')}</td>
+      <td><span style="background:${STATUS_COLORS[r.status]}20;color:${STATUS_COLORS[r.status]};padding:2px 8px;border-radius:8px;font-size:10px;font-weight:bold">${STATUS_LABELS[r.status]}</span></td>
+      <td><span style="background:${PRIORITY_COLORS[r.priority]}20;color:${PRIORITY_COLORS[r.priority]};padding:2px 8px;border-radius:8px;font-size:10px;font-weight:bold">${PRIORITY_LABELS[r.priority]}</span></td>
+      <td style="${overdue ? 'color:' + C.open + ';font-weight:bold' : ''}">${escapeHtml(r.deadline ?? '—')}</td>
+    </tr>`;
+
+    const rawPhotos = (r.photos && r.photos.length > 0)
+      ? r.photos
+      : r.photoUri
+        ? [{ id: 'legacy', uri: r.photoUri, kind: 'defect' as const, takenAt: '', takenBy: '' }]
+        : [];
+    const photosToShow = rawPhotos.slice(0, maxPhotosPerReserve);
+    let photoHtml = '';
+    if (photosToShow.length > 0) {
+      const resolvedSrcs = await Promise.all(photosToShow.map(p => loadPhotoAsDataUrlForPdf(p.uri)));
+      const statusColor = STATUS_COLORS[r.status] ?? PDF_BRAND_COLOR;
+      photoHtml = `<div style="padding:8px 16px 12px 16px;border-bottom:1px solid #f1f5f9;background:#fff;">
+        <div style="font-size:10px;font-weight:700;color:#64748b;margin-bottom:6px;">
+          <span style="display:inline-flex;align-items:center;justify-content:center;width:18px;height:18px;border-radius:50%;background:${statusColor};color:#fff;font-weight:700;font-size:9px;margin-right:5px;">●</span>
+          ${escapeHtml(r.title)} — Photos (${photosToShow.length}${rawPhotos.length > maxPhotosPerReserve ? ` sur ${rawPhotos.length}` : ''})
+        </div>
+        <div style="display:flex;gap:8px;flex-wrap:nowrap;">
+          ${photosToShow.map((p, idx) => {
+            const src = resolvedSrcs[idx] ?? p.uri;
+            const isDefect = p.kind === 'defect';
+            return `<div style="flex:1;min-width:0;text-align:center;max-width:200px;">
+              <img src="${src}" onerror="this.style.opacity='0.15'"
+                style="width:100%;height:auto;max-height:160px;object-fit:contain;background:#F9FAFB;border-radius:6px;border:1.5px solid #DDE4EE;display:block;" />
+              <span style="display:inline-block;margin-top:3px;padding:1px 7px;border-radius:8px;font-size:9px;font-weight:700;
+                background:${isDefect ? '#FEF2F2' : '#ECFDF5'};color:${isDefect ? '#DC2626' : '#059669'};">
+                ${isDefect ? '● Constat' : '● Levée'}
+              </span>
+            </div>`;
+          }).join('')}
+        </div>
+      </div>`;
+    }
+    return { row, photoHtml };
+  }));
+
+  const reserveRows = rowsAndPhotos.map(rp => rp.row).join('');
+  const photosSection = rowsAndPhotos.map(rp => rp.photoHtml).filter(Boolean).join('');
 
   const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>Rapport Réserves</title>
   <style>
@@ -182,6 +224,7 @@ async function generateReportPDF(action: 'share' | 'print',
       <tbody>${reserveRows}</tbody>
     </table>
     ${overdueCount > 0 ? `<p style="color:${C.open};font-size:11px">* Les lignes surlignées en rouge indiquent des réserves en retard.</p>` : ''}
+    ${photosSection ? `<h2>Photos des réserves</h2><div style="border:1px solid #DDE4EE;border-radius:8px;overflow:hidden;">${photosSection}</div>` : ''}
   </div></body></html>`;
 
   if (action === 'print') {
