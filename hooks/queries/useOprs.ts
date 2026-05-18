@@ -83,8 +83,12 @@ export function useOprs() {
       return;
     }
     if (isSupabaseConfigured) {
-      const { error } = await (supabase as any).from('oprs').insert(fromOpr(o, orgId));
-      if (error) console.warn('[sync] addOpr error:', error.message);
+      const payload = fromOpr(o, orgId);
+      const { error } = await (supabase as any).from('oprs').insert(payload);
+      if (error) {
+        console.warn('[sync] addOpr error, queuing for retry:', error.message);
+        enqueueOperation({ table: 'oprs', op: 'insert', data: payload });
+      }
     }
   }, [queryClient, user, isOnlineRef, enqueueOperation, persist]);
 

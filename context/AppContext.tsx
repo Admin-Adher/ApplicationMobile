@@ -392,8 +392,23 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       }
       void (async () => {
         try {
-          await (supabase as any).from('profiles').update({ last_read_by_channel: newLastRead }).eq('id', userId);
-        } catch {}
+          const { error } = await (supabase as any).from('profiles').update({ last_read_by_channel: newLastRead }).eq('id', userId);
+          if (error) {
+            enqueueOperation({
+              table: 'profiles',
+              op: 'update',
+              filter: { column: 'id', value: userId },
+              data: { last_read_by_channel: newLastRead },
+            });
+          }
+        } catch {
+          enqueueOperation({
+            table: 'profiles',
+            op: 'update',
+            filter: { column: 'id', value: userId },
+            data: { last_read_by_channel: newLastRead },
+          });
+        }
       })();
     }
   }, [messagesH, lastReadStorageKey, authH.user?.id, isOnline, enqueueOperation]);

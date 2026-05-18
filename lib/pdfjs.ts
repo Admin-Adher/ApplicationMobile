@@ -1,4 +1,7 @@
 let _promise: Promise<any> | null = null;
+const PDFJS_VERSION = '5.7.284';
+const PDFJS_MODULE_URL = `https://cdn.jsdelivr.net/npm/pdfjs-dist@${PDFJS_VERSION}/legacy/build/pdf.min.mjs`;
+const PDFJS_WORKER_URL = `https://cdn.jsdelivr.net/npm/pdfjs-dist@${PDFJS_VERSION}/legacy/build/pdf.worker.min.mjs`;
 
 function loadPdfjsLib(): Promise<any> {
   if (typeof window === 'undefined') return Promise.resolve(null);
@@ -8,30 +11,35 @@ function loadPdfjsLib(): Promise<any> {
     if (win.pdfjsLib) {
       const lib = win.pdfjsLib;
       if (!lib.GlobalWorkerOptions.workerSrc) {
-        lib.GlobalWorkerOptions.workerSrc =
-          'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+        lib.GlobalWorkerOptions.workerSrc = PDFJS_WORKER_URL;
       }
       resolve(lib);
       return;
     }
-    const script = document.createElement('script');
-    script.src = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js';
-    script.onload = () => {
-      const lib = (window as any).pdfjsLib ?? null;
-      if (lib) {
-        lib.GlobalWorkerOptions.workerSrc =
-          'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
-      }
-      resolve(lib);
+    const onReady = () => {
+      window.removeEventListener('buildtrack:pdfjs-ready', onReady);
+      resolve((window as any).pdfjsLib ?? null);
     };
-    script.onerror = () => resolve(null);
+    window.addEventListener('buildtrack:pdfjs-ready', onReady, { once: true });
+    const script = document.createElement('script');
+    script.type = 'module';
+    script.textContent = `
+      import * as pdfjsLib from '${PDFJS_MODULE_URL}';
+      pdfjsLib.GlobalWorkerOptions.workerSrc = '${PDFJS_WORKER_URL}';
+      window.pdfjsLib = pdfjsLib;
+      window.dispatchEvent(new Event('buildtrack:pdfjs-ready'));
+    `;
+    script.onerror = () => {
+      window.removeEventListener('buildtrack:pdfjs-ready', onReady);
+      resolve(null);
+    };
     document.head.appendChild(script);
   });
   return _promise;
 }
 
 export const GlobalWorkerOptions = {
-  workerSrc: 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js',
+  workerSrc: PDFJS_WORKER_URL,
 };
 
 export function getDocument(args: any): { promise: Promise<any> } {

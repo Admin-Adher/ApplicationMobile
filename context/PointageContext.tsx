@@ -6,7 +6,7 @@ import { supabase, isSupabaseConfigured } from '@/lib/supabase';
 import { useAuth } from '@/context/AuthContext';
 import { useNetwork } from '@/context/NetworkContext';
 import { genId } from '@/lib/utils';
-import { mergeWithCache } from '@/lib/offlineCache';
+import { mergeWithCache, pendingIdsForTable, isSupabaseSessionValid } from '@/lib/offlineCache';
 
 const POINTAGE_PREFIX = 'buildtrack_pointage_v2_';
 
@@ -60,15 +60,17 @@ function fromEntry(e: TimeEntry): Record<string, any> {
 
 export function PointageProvider({ children }: { children: React.ReactNode }) {
   const { user } = useAuth();
-  const { isOnline, enqueueOperation } = useNetwork();
+  const { isOnline, enqueueOperation, queue, queueLoaded } = useNetwork();
   const [entries, setEntries] = useState<TimeEntry[]>([]);
   const pointageKey = POINTAGE_PREFIX + (user?.id ?? 'anon');
   const entriesRef = useRef(entries);
   const orgIdRef = useRef<string | null>(user?.organizationId ?? null);
   const isOnlineRef = useRef(isOnline);
+  const queueRef = useRef(queue);
   useEffect(() => { entriesRef.current = entries; }, [entries]);
   useEffect(() => { orgIdRef.current = user?.organizationId ?? null; }, [user?.organizationId]);
   useEffect(() => { isOnlineRef.current = isOnline; }, [isOnline]);
+  useEffect(() => { queueRef.current = queue; }, [queue]);
 
   useEffect(() => {
     async function load() {
@@ -79,7 +81,7 @@ export function PointageProvider({ children }: { children: React.ReactNode }) {
         if (stored) cached = JSON.parse(stored);
       } catch {}
 
-      if (isSupabaseConfigured && user) {
+      if (isSupabaseConfigured && user && queueLoaded && await isSupabaseSessionValid()) {
         try {
           let q = (supabase as any)
             .from('time_entries')
@@ -91,7 +93,8 @@ export function PointageProvider({ children }: { children: React.ReactNode }) {
           const { data, error } = await q;
           if (!error && data) {
             const fresh = data.map(toEntry);
-            const merged = mergeWithCache<TimeEntry>(fresh, cached);
+            const pendingIds = pendingIdsForTable(queueRef.current ?? [], 'time_entries');
+            const merged = mergeWithCache<TimeEntry>(fresh, cached, pendingIds, { queueLoaded });
             setEntries(merged);
             await AsyncStorage.setItem(pointageKey, JSON.stringify(merged)).catch(() => {});
             return;
@@ -102,7 +105,7 @@ export function PointageProvider({ children }: { children: React.ReactNode }) {
       if (cached) setEntries(cached);
     }
     load();
-  }, [user?.id]);
+  }, [user?.id, queueLoaded]);
 
   useEffect(() => {
     if (!isSupabaseConfigured || !user) return;
@@ -146,14 +149,19 @@ export function PointageProvider({ children }: { children: React.ReactNode }) {
     const newEntry: TimeEntry = { ...entry, id: genId() };
     await persistLocal([...entriesRef.current, newEntry]);
     if (isSupabaseConfigured) {
+      const payload = { ...fromEntry(newEntry), organization_id: orgIdRef.current ?? null };
       if (!isOnlineRef.current) {
-        enqueueOperation({ table: 'time_entries', op: 'insert', data: { ...fromEntry(newEntry), organization_id: orgIdRef.current ?? null } });
+        enqueueOperation({ table: 'time_entries', op: 'insert', data: payload });
         return;
       }
-      (supabase as any).from('time_entries').insert({ ...fromEntry(newEntry), organization_id: orgIdRef.current ?? null }).then(({ error }: { error: any }) => {
-        if (error) console.warn('[sync] addEntry server error (data saved locally):', error.message);
+      (supabase as any).from('time_entries').insert(payload).then(({ error }: { error: any }) => {
+        if (error) {
+          console.warn('[sync] addEntry server error (data saved locally):', error.message);
+          enqueueOperation({ table: 'time_entries', op: 'insert', data: payload });
+        }
       }).catch((err: any) => {
         console.warn('[sync] addEntry network error (data saved locally):', err?.message ?? err);
+        enqueueOperation({ table: 'time_entries', op: 'insert', data: payload });
       });
     }
   }, [enqueueOperation, pointageKey]);
@@ -164,14 +172,19 @@ export function PointageProvider({ children }: { children: React.ReactNode }) {
     if (isSupabaseConfigured) {
       const full = updated.find(e => e.id === id);
       if (full) {
+        const payload = fromEntry(full);
         if (!isOnlineRef.current) {
-          enqueueOperation({ table: 'time_entries', op: 'update', filter: { column: 'id', value: id }, data: fromEntry(full) });
+          enqueueOperation({ table: 'time_entries', op: 'update', filter: { column: 'id', value: id }, data: payload });
           return;
         }
-        (supabase as any).from('time_entries').update(fromEntry(full)).eq('id', id).then(({ error }: { error: any }) => {
-          if (error) console.warn('[sync] updateEntry server error (data saved locally):', error.message);
+        (supabase as any).from('time_entries').update(payload).eq('id', id).then(({ error }: { error: any }) => {
+          if (error) {
+            console.warn('[sync] updateEntry server error (data saved locally):', error.message);
+            enqueueOperation({ table: 'time_entries', op: 'update', filter: { column: 'id', value: id }, data: payload });
+          }
         }).catch((err: any) => {
           console.warn('[sync] updateEntry network error (data saved locally):', err?.message ?? err);
+          enqueueOperation({ table: 'time_entries', op: 'update', filter: { column: 'id', value: id }, data: payload });
         });
       }
     }
@@ -185,9 +198,13 @@ export function PointageProvider({ children }: { children: React.ReactNode }) {
         return;
       }
       (supabase as any).from('time_entries').delete().eq('id', id).then(({ error }: { error: any }) => {
-        if (error) console.warn('[sync] deleteEntry server error (data deleted locally):', error.message);
+        if (error) {
+          console.warn('[sync] deleteEntry server error (data deleted locally):', error.message);
+          enqueueOperation({ table: 'time_entries', op: 'delete', filter: { column: 'id', value: id } });
+        }
       }).catch((err: any) => {
         console.warn('[sync] deleteEntry network error (data deleted locally):', err?.message ?? err);
+        enqueueOperation({ table: 'time_entries', op: 'delete', filter: { column: 'id', value: id } });
       });
     }
   }, [enqueueOperation, pointageKey]);

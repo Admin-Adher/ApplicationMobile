@@ -98,7 +98,10 @@ export function useTasks() {
     }
     if (isSupabaseConfigured) {
       const { error } = await (supabase as any).from('tasks').insert(payload);
-      if (error) console.warn('[sync] addTask error:', error.message);
+      if (error) {
+        console.warn('[sync] addTask error, queuing for retry:', error.message);
+        enqueueOperation({ table: 'tasks', op: 'insert', data: payload });
+      }
     }
   }, [queryClient, user, isOnlineRef, enqueueOperation, persist]);
 

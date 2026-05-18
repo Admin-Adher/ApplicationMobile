@@ -138,64 +138,66 @@ export function useChantiers() {
     onCreated?.(buildingChannel);
 
     const orgId = user?.organizationId ?? null;
+    const chantierPayload = {
+      id: c.id, name: c.name, address: c.address ?? null, description: c.description ?? null,
+      start_date: c.startDate ?? null, end_date: c.endDate ?? null, status: c.status,
+      created_by: c.createdBy ?? null, buildings: c.buildings ? JSON.stringify(c.buildings) : null,
+      organization_id: orgId, company_ids: c.companyIds ?? null,
+    };
+    const channelPayload = {
+      id: buildingChannel.id, name: c.name, description: c.description ?? '',
+      icon: 'business', color: '#3B82F6', type: 'building',
+      members: user?.name ? [user.name] : [],
+      created_by: user?.name || null, organization_id: orgId,
+    };
+    const sitePlanPayloadFor = (p: SitePlan) => ({
+      id: p.id, chantier_id: p.chantierId, name: p.name,
+      building: p.building ?? null, level: p.level ?? null,
+      building_id: p.buildingId ?? null, level_id: p.levelId ?? null,
+      uri: p.uri ?? null, file_type: p.fileType ?? null, dxf_name: p.dxfName ?? null,
+      uploaded_at: p.uploadedAt, size: p.size ?? null,
+      revision_code: p.revisionCode ?? null, revision_number: p.revisionNumber ?? null,
+      parent_plan_id: p.parentPlanId ?? null, is_latest_revision: p.isLatestRevision ?? null,
+      revision_note: p.revisionNote ?? null, annotations: p.annotations ?? null,
+      pdf_page_count: p.pdfPageCount ?? null, organization_id: orgId,
+    });
     if (!isOnlineRef.current && isSupabaseConfigured) {
-      enqueueOperation({ table: 'chantiers', op: 'insert', data: {
-        id: c.id, name: c.name, address: c.address ?? null, description: c.description ?? null,
-        start_date: c.startDate ?? null, end_date: c.endDate ?? null, status: c.status,
-        created_by: c.createdBy ?? null, buildings: c.buildings ? JSON.stringify(c.buildings) : null,
-        organization_id: orgId, company_ids: c.companyIds ?? null,
-      }});
+      enqueueOperation({ table: 'chantiers', op: 'insert', data: chantierPayload });
       // Fix 9: also enqueue the building channel when offline
-      enqueueOperation({ table: 'channels', op: 'insert', data: {
-        id: buildingChannel.id, name: c.name, description: c.description ?? '',
-        icon: 'business', color: '#3B82F6', type: 'building',
-        members: user?.name ? [user.name] : [],
-        created_by: user?.name || null, organization_id: orgId,
-      }});
+      enqueueOperation({ table: 'channels', op: 'upsert', data: channelPayload });
+      plans.forEach(p => enqueueOperation({ table: 'site_plans', op: 'insert', data: sitePlanPayloadFor(p) }));
       return;
     }
     if (isSupabaseConfigured) {
-      const chantierPayload = {
-        id: c.id, name: c.name, address: c.address ?? null, description: c.description ?? null,
-        start_date: c.startDate ?? null, end_date: c.endDate ?? null, status: c.status,
-        created_by: c.createdBy ?? null, buildings: c.buildings ? JSON.stringify(c.buildings) : null,
-        organization_id: orgId, company_ids: c.companyIds ?? null,
-      };
       let { error } = await (supabase as any).from('chantiers').insert(chantierPayload);
       if (error) {
         await supabase.auth.refreshSession().catch(() => {});
         const { error: err2 } = await (supabase as any).from('chantiers').insert(chantierPayload);
         if (err2) {
+          enqueueOperation({ table: 'chantiers', op: 'insert', data: chantierPayload });
           Alert.alert('Synchronisation incomplète', `Le chantier "${c.name}" a été créé localement mais n'a pas pu être synchronisé avec le serveur (${err2.message}).`, [{ text: 'OK' }]);
         }
       }
       // Fix 2: insert plans with full payload matching addSitePlan
       for (const p of plans) {
-        const planPayload = {
-          id: p.id, chantier_id: p.chantierId, name: p.name,
-          building: p.building ?? null, level: p.level ?? null,
-          building_id: p.buildingId ?? null, level_id: p.levelId ?? null,
-          uri: p.uri ?? null, file_type: p.fileType ?? null, dxf_name: p.dxfName ?? null,
-          uploaded_at: p.uploadedAt, size: p.size ?? null,
-          revision_code: p.revisionCode ?? null, revision_number: p.revisionNumber ?? null,
-          parent_plan_id: p.parentPlanId ?? null, is_latest_revision: p.isLatestRevision ?? null,
-          revision_note: p.revisionNote ?? null, annotations: p.annotations ?? null,
-          pdf_page_count: p.pdfPageCount ?? null, organization_id: orgId,
-        };
+        const planPayload = sitePlanPayloadFor(p);
         const prep = await uploadLocalPhotosInPayload('site_plans', planPayload);
         if (!prep.allOk) {
           console.warn('[sync] addChantier: plan file upload failed, queuing for later sync');
           enqueueOperation({ table: 'site_plans', op: 'insert', data: planPayload });
           continue;
         }
-        await (supabase as any).from('site_plans').insert(prep.data!);
+        const { error: planErr } = await (supabase as any).from('site_plans').insert(prep.data!);
+        if (planErr) {
+          console.warn('[sync] addChantier: plan insert failed, queuing for retry:', planErr.message);
+          enqueueOperation({ table: 'site_plans', op: 'insert', data: planPayload });
+        }
       }
-      await (supabase as any).from('channels').insert({
-        id: buildingChannel.id, name: c.name, description: c.description ?? '',
-        icon: 'business', color: '#3B82F6', type: 'building',
-        members: user?.name ? [user.name] : [],
-        created_by: user?.name || null, organization_id: orgId,
-      });
+      const { error: channelErr } = await (supabase as any).from('channels').upsert(channelPayload);
+      if (channelErr) {
+        console.warn('[sync] addChantier: channel upsert failed, queuing for retry:', channelErr.message);
+        enqueueOperation({ table: 'channels', op: 'upsert', data: channelPayload });
+      }
       queryClient.invalidateQueries({ queryKey: queryKeys.sitePlans() });
     }
   }, [queryClient, user, isOnlineRef, enqueueOperation]);
@@ -293,9 +295,7 @@ export function useChantiers() {
         }
       } catch (e: any) {
         console.error('[sync] deleteChantier exception:', e?.message ?? e);
-        // Restore local cache on exception
-        queryClient.setQueryData<Chantier[]>(queryKeys.chantiers(), [prev.find(c => c.id === id)!, ...newChantiers]);
-        writeCache(CHANTIERS_CACHE_KEY, [prev.find(c => c.id === id)!, ...newChantiers], userId);
+        enqueueOperation({ table: 'chantiers', op: 'delete', filter: { column: 'id', value: id } });
       }
     }
   }, [queryClient, isOnlineRef, enqueueOperation]);
@@ -308,27 +308,22 @@ export function useChantiers() {
     });
     const allPlans = queryClient.getQueryData<SitePlan[]>(queryKeys.sitePlans()) ?? [];
     writeCache(SITE_PLANS_CACHE_KEY, allPlans, userId);
+    const insertPayload = {
+      id: p.id, chantier_id: p.chantierId, name: p.name,
+      building: p.building ?? null, level: p.level ?? null,
+      building_id: p.buildingId ?? null, level_id: p.levelId ?? null,
+      uri: p.uri ?? null, file_type: p.fileType ?? null, dxf_name: p.dxfName ?? null,
+      uploaded_at: p.uploadedAt, size: p.size ?? null,
+      revision_code: p.revisionCode ?? null, revision_number: p.revisionNumber ?? null,
+      parent_plan_id: p.parentPlanId ?? null, is_latest_revision: p.isLatestRevision ?? null,
+      revision_note: p.revisionNote ?? null, annotations: p.annotations ?? null,
+      pdf_page_count: p.pdfPageCount ?? null, organization_id: orgId,
+    };
     if (!isOnlineRef.current && isSupabaseConfigured) {
-      enqueueOperation({ table: 'site_plans', op: 'insert', data: {
-        id: p.id, chantier_id: p.chantierId, name: p.name,
-        building: p.building ?? null, level: p.level ?? null,
-        uri: p.uri ?? null, file_type: p.fileType ?? null, uploaded_at: p.uploadedAt, size: p.size ?? null,
-        organization_id: orgId,
-      }});
+      enqueueOperation({ table: 'site_plans', op: 'insert', data: insertPayload });
       return;
     }
     if (isSupabaseConfigured) {
-      const insertPayload = {
-        id: p.id, chantier_id: p.chantierId, name: p.name,
-        building: p.building ?? null, level: p.level ?? null,
-        building_id: p.buildingId ?? null, level_id: p.levelId ?? null,
-        uri: p.uri ?? null, file_type: p.fileType ?? null, dxf_name: p.dxfName ?? null,
-        uploaded_at: p.uploadedAt, size: p.size ?? null,
-        revision_code: p.revisionCode ?? null, revision_number: p.revisionNumber ?? null,
-        parent_plan_id: p.parentPlanId ?? null, is_latest_revision: p.isLatestRevision ?? null,
-        revision_note: p.revisionNote ?? null, annotations: p.annotations ?? null,
-        pdf_page_count: p.pdfPageCount ?? null, organization_id: orgId,
-      };
       // If the plan file is still a local URI (camera cache, picker temp file),
       // upload it to Supabase Storage first; otherwise other devices won't be
       // able to display it. If the upload fails, queue the row for a later sync.
@@ -339,7 +334,10 @@ export function useChantiers() {
         return;
       }
       const { error } = await (supabase as any).from('site_plans').insert(prep.data!);
-      if (error) console.warn('[sync] addSitePlan server error:', error.message);
+      if (error) {
+        console.warn('[sync] addSitePlan server error, queuing for retry:', error.message);
+        enqueueOperation({ table: 'site_plans', op: 'insert', data: insertPayload });
+      }
     }
   }, [queryClient, user, isOnlineRef, enqueueOperation]);
 
@@ -434,20 +432,38 @@ export function useChantiers() {
     const updatedPlans = allPlans.map(p => p.id === parentPlanId ? updatedParent : p).concat([versionedNew]);
     queryClient.setQueryData<SitePlan[]>(queryKeys.sitePlans(), updatedPlans);
     writeCache(SITE_PLANS_CACHE_KEY, updatedPlans, userId);
+    const versionPayload = {
+      id: versionedNew.id, chantier_id: versionedNew.chantierId, name: versionedNew.name,
+      uri: versionedNew.uri ?? null, file_type: versionedNew.fileType ?? null,
+      dxf_name: versionedNew.dxfName ?? null, size: versionedNew.size ?? null,
+      building: versionedNew.building ?? null, level: versionedNew.level ?? null,
+      building_id: versionedNew.buildingId ?? null, level_id: versionedNew.levelId ?? null,
+      revision_code: finalRevCode, revision_number: revNum,
+      parent_plan_id: parentPlanId, is_latest_revision: true,
+      revision_note: versionedNew.revisionNote ?? null, organization_id: orgId,
+    };
+    if (!isOnlineRef.current && isSupabaseConfigured) {
+      enqueueOperation({
+        table: 'site_plans',
+        op: 'update',
+        filter: { column: 'id', value: parentPlanId },
+        data: { is_latest_revision: false, revision_number: parentRevNum },
+      });
+      enqueueOperation({ table: 'site_plans', op: 'insert', data: versionPayload });
+      return;
+    }
     if (isSupabaseConfigured) {
       const { error: updateErr } = await (supabase as any).from('site_plans')
         .update({ is_latest_revision: false, revision_number: parentRevNum }).eq('id', parentPlanId);
-      if (updateErr) console.error('[addSitePlanVersion] update parent error:', updateErr.message);
-      const versionPayload = {
-        id: versionedNew.id, chantier_id: versionedNew.chantierId, name: versionedNew.name,
-        uri: versionedNew.uri ?? null, file_type: versionedNew.fileType ?? null,
-        dxf_name: versionedNew.dxfName ?? null, size: versionedNew.size ?? null,
-        building: versionedNew.building ?? null, level: versionedNew.level ?? null,
-        building_id: versionedNew.buildingId ?? null, level_id: versionedNew.levelId ?? null,
-        revision_code: finalRevCode, revision_number: revNum,
-        parent_plan_id: parentPlanId, is_latest_revision: true,
-        revision_note: versionedNew.revisionNote ?? null, organization_id: orgId,
-      };
+      if (updateErr) {
+        console.error('[addSitePlanVersion] update parent error:', updateErr.message);
+        enqueueOperation({
+          table: 'site_plans',
+          op: 'update',
+          filter: { column: 'id', value: parentPlanId },
+          data: { is_latest_revision: false, revision_number: parentRevNum },
+        });
+      }
       const prep = await uploadLocalPhotosInPayload('site_plans', versionPayload);
       if (!prep.allOk) {
         console.warn('[sync] addSitePlanVersion: file upload failed, queuing for later sync');
@@ -455,7 +471,10 @@ export function useChantiers() {
         return;
       }
       const { error: insertErr } = await (supabase as any).from('site_plans').insert(prep.data!);
-      if (insertErr) console.warn('[sync] addSitePlanVersion insert error:', insertErr.message);
+      if (insertErr) {
+        console.warn('[sync] addSitePlanVersion insert error:', insertErr.message);
+        enqueueOperation({ table: 'site_plans', op: 'insert', data: versionPayload });
+      }
     }
   }, [queryClient, user, isOnlineRef, enqueueOperation]);
 
@@ -467,15 +486,34 @@ export function useChantiers() {
     queryClient.setQueryData<any[]>(queryKeys.reserves(), old =>
       (old ?? []).map(r => { const m = migrated.find(x => x.id === r.id); return m ?? r; })
     );
+    const queueReserveMove = (r: any) => enqueueOperation({
+      table: 'reserves',
+      op: 'update',
+      filter: { column: 'id', value: r.id },
+      data: { plan_id: toPlanId },
+    });
     if (isSupabaseConfigured) {
+      if (!isOnlineRef.current) {
+        migrated.forEach(queueReserveMove);
+        return migrated.length;
+      }
       Promise.all(migrated.map(r =>
         (supabase as any).from('reserves').update({ plan_id: toPlanId }).eq('id', r.id)
       )).then(results => {
-        if (results.some((res: any) => res.error)) console.warn('[sync] migrateReservesToPlan some errors');
+        const failed = results
+          .map((res: any, index: number) => ({ error: res.error, reserve: migrated[index] }))
+          .filter((res: any) => res.error);
+        if (failed.length) {
+          console.warn('[sync] migrateReservesToPlan errors:', failed.map((res: any) => res.error?.message).join('; '));
+          failed.forEach((res: any) => queueReserveMove(res.reserve));
+        }
+      }).catch((error: any) => {
+        console.warn('[sync] migrateReservesToPlan error:', error?.message ?? error);
+        migrated.forEach(queueReserveMove);
       });
     }
     return migrated.length;
-  }, [queryClient]);
+  }, [queryClient, isOnlineRef, enqueueOperation]);
 
   // Synchronisation temps réel : rechargement automatique quand un chantier change
   useEffect(() => {

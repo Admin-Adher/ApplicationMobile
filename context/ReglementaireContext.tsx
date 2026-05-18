@@ -5,7 +5,8 @@ import { genId, formatDateFR } from '@/lib/utils';
 import { supabase, isSupabaseConfigured } from '@/lib/supabase';
 import { useAuth } from '@/context/AuthContext';
 import { useNetwork } from '@/context/NetworkContext';
-import { mergeWithCache } from '@/lib/offlineCache';
+import { mergeWithCache, pendingIdsForTable, isSupabaseSessionValid } from '@/lib/offlineCache';
+import { uploadLocalPhotosInPayload } from '@/lib/storage';
 
 const REG_DOCS_PREFIX = 'buildtrack_reglementaire_v2_';
 
@@ -54,15 +55,17 @@ function fromDoc(doc: RegulatoryDoc): Record<string, any> {
 
 export function ReglementaireProvider({ children }: { children: React.ReactNode }) {
   const { user } = useAuth();
-  const { isOnline, enqueueOperation } = useNetwork();
+  const { isOnline, enqueueOperation, queue, queueLoaded } = useNetwork();
   const [docs, setDocs] = useState<RegulatoryDoc[]>([]);
   const regDocsKey = REG_DOCS_PREFIX + (user?.id ?? 'anon');
   const docsRef = useRef(docs);
   const orgIdRef = useRef<string | null>(user?.organizationId ?? null);
   const isOnlineRef = useRef(isOnline);
+  const queueRef = useRef(queue);
   useEffect(() => { docsRef.current = docs; }, [docs]);
   useEffect(() => { orgIdRef.current = user?.organizationId ?? null; }, [user?.organizationId]);
   useEffect(() => { isOnlineRef.current = isOnline; }, [isOnline]);
+  useEffect(() => { queueRef.current = queue; }, [queue]);
 
   useEffect(() => {
     async function load() {
@@ -73,7 +76,7 @@ export function ReglementaireProvider({ children }: { children: React.ReactNode 
         if (raw) cached = JSON.parse(raw);
       } catch {}
 
-      if (isSupabaseConfigured && user) {
+      if (isSupabaseConfigured && user && queueLoaded && await isSupabaseSessionValid()) {
         try {
           let q = (supabase as any)
             .from('regulatory_docs')
@@ -85,7 +88,8 @@ export function ReglementaireProvider({ children }: { children: React.ReactNode 
           const { data, error } = await q;
           if (!error && data) {
             const fresh = data.map(toDoc);
-            const merged = mergeWithCache<RegulatoryDoc>(fresh, cached);
+            const pendingIds = pendingIdsForTable(queueRef.current ?? [], 'regulatory_docs');
+            const merged = mergeWithCache<RegulatoryDoc>(fresh, cached, pendingIds, { queueLoaded });
             setDocs(merged);
             AsyncStorage.setItem(regDocsKey, JSON.stringify(merged)).catch(() => {});
             return;
@@ -96,7 +100,7 @@ export function ReglementaireProvider({ children }: { children: React.ReactNode 
       if (cached) setDocs(cached);
     }
     load();
-  }, [user?.id]);
+  }, [user?.id, queueLoaded]);
 
   useEffect(() => {
     if (!isSupabaseConfigured || !user) return;
@@ -145,10 +149,20 @@ export function ReglementaireProvider({ children }: { children: React.ReactNode 
         enqueueOperation({ table: 'regulatory_docs', op: 'insert', data: payload });
         return;
       }
-      (supabase as any).from('regulatory_docs').insert(payload).then(({ error }: { error: any }) => {
-        if (error) console.warn('Erreur sauvegarde doc réglementaire:', error.message);
+      const prep = await uploadLocalPhotosInPayload('regulatory_docs', payload);
+      if (!prep.allOk) {
+        console.warn('Erreur upload doc reglementaire, mise en file:', prep.uploadErrors.join('; '));
+        enqueueOperation({ table: 'regulatory_docs', op: 'insert', data: payload });
+        return;
+      }
+      (supabase as any).from('regulatory_docs').insert(prep.data!).then(({ error }: { error: any }) => {
+        if (error) {
+          console.warn('Erreur sauvegarde doc réglementaire:', error.message);
+          enqueueOperation({ table: 'regulatory_docs', op: 'insert', data: payload });
+        }
       }).catch((e: any) => {
         console.warn('Erreur sauvegarde doc réglementaire:', e?.message ?? e);
+        enqueueOperation({ table: 'regulatory_docs', op: 'insert', data: payload });
       });
     }
   }, [enqueueOperation, regDocsKey]);
@@ -159,14 +173,25 @@ export function ReglementaireProvider({ children }: { children: React.ReactNode 
     if (isSupabaseConfigured) {
       const full = updated.find(d => d.id === id);
       if (full) {
+        const payload = fromDoc(full);
         if (!isOnlineRef.current) {
-          enqueueOperation({ table: 'regulatory_docs', op: 'update', filter: { column: 'id', value: id }, data: fromDoc(full) });
+          enqueueOperation({ table: 'regulatory_docs', op: 'update', filter: { column: 'id', value: id }, data: payload });
           return;
         }
-        (supabase as any).from('regulatory_docs').update(fromDoc(full)).eq('id', id).then(({ error }: { error: any }) => {
-          if (error) console.warn('Erreur mise à jour doc réglementaire:', error.message);
+        const prep = await uploadLocalPhotosInPayload('regulatory_docs', payload);
+        if (!prep.allOk) {
+          console.warn('Erreur upload doc reglementaire, mise en file:', prep.uploadErrors.join('; '));
+          enqueueOperation({ table: 'regulatory_docs', op: 'update', filter: { column: 'id', value: id }, data: payload });
+          return;
+        }
+        (supabase as any).from('regulatory_docs').update(prep.data!).eq('id', id).then(({ error }: { error: any }) => {
+          if (error) {
+            console.warn('Erreur mise à jour doc réglementaire:', error.message);
+            enqueueOperation({ table: 'regulatory_docs', op: 'update', filter: { column: 'id', value: id }, data: payload });
+          }
         }).catch((err: any) => {
           console.warn('Erreur réseau mise à jour doc réglementaire (données sauvegardées localement):', err?.message ?? err);
+          enqueueOperation({ table: 'regulatory_docs', op: 'update', filter: { column: 'id', value: id }, data: payload });
         });
       }
     }
@@ -180,9 +205,13 @@ export function ReglementaireProvider({ children }: { children: React.ReactNode 
         return;
       }
       (supabase as any).from('regulatory_docs').delete().eq('id', id).then(({ error }: { error: any }) => {
-        if (error) console.warn('Erreur suppression doc réglementaire:', error.message);
+        if (error) {
+          console.warn('Erreur suppression doc réglementaire:', error.message);
+          enqueueOperation({ table: 'regulatory_docs', op: 'delete', filter: { column: 'id', value: id } });
+        }
       }).catch((err: any) => {
         console.warn('Erreur réseau suppression doc réglementaire (supprimé localement):', err?.message ?? err);
+        enqueueOperation({ table: 'regulatory_docs', op: 'delete', filter: { column: 'id', value: id } });
       });
     }
   }, [enqueueOperation, regDocsKey]);

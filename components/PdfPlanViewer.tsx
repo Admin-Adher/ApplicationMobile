@@ -231,7 +231,6 @@ html,body{width:100%;height:100%;overflow:hidden;background:#0F1117;touch-action
   </div>
 </div>
 <div id="text-overlay"><input id="text-input" type="text" placeholder="Saisir le texte…" maxlength="80"></div>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <script>
 (function(){
 var PLAN_URI=${JSON.stringify(planUri)};
@@ -488,16 +487,15 @@ function setSvgSize(){
 }
 
 
-if(!IS_IMAGE){
-  // Workers can't be loaded cross-origin from a null/about:blank origin in WebView.
-  // Disable the worker so PDF.js falls back to running on the main thread — slower
-  // for huge PDFs but reliable inside the Android/iOS WebView.
-  try{
-    if(window.pdfjsLib){
-      window.pdfjsLib.GlobalWorkerOptions.workerSrc='';
-      if('disableWorker' in window.pdfjsLib){window.pdfjsLib.disableWorker=true;}
-    }
-  }catch(_){}
+function loadPdfjs(){
+  if(window.pdfjsLib){
+    return Promise.resolve(window.pdfjsLib);
+  }
+  return import('https://cdn.jsdelivr.net/npm/pdfjs-dist@5.7.284/legacy/build/pdf.min.mjs').then(function(lib){
+    lib.GlobalWorkerOptions.workerSrc='https://cdn.jsdelivr.net/npm/pdfjs-dist@5.7.284/legacy/build/pdf.worker.min.mjs';
+    window.pdfjsLib=lib;
+    return lib;
+  });
 }
 
 var BASE_FIT_SCALE=1;
@@ -595,8 +593,10 @@ if(IS_IMAGE){
 }else{
   // disableWorker:true is critical when the document origin is null (about:blank
   // in WebView) — cross-origin worker scripts are blocked by the browser.
-  var docArgs={url:PLAN_URI,withCredentials:false,disableWorker:true,isEvalSupported:false};
-  pdfjsLib.getDocument(docArgs).promise.then(function(doc){
+  loadPdfjs().then(function(pdfjsLib){
+    var docArgs={url:PLAN_URI,withCredentials:false,disableWorker:true,isEvalSupported:false};
+    return pdfjsLib.getDocument(docArgs).promise;
+  }).then(function(doc){
     pdfDoc=doc;pageCount=doc.numPages;
     post({type:'pageCount',count:pageCount});
     return renderPage(1);
@@ -1358,7 +1358,7 @@ const WebViewer = forwardRef<PdfPlanViewerHandle, PdfPlanViewerProps>(function W
       (async () => {
         try {
           if (!pdfjsLib.GlobalWorkerOptions.workerSrc) {
-            pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+            pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdn.jsdelivr.net/npm/pdfjs-dist@5.7.284/legacy/build/pdf.worker.min.mjs';
           }
           const doc = await pdfjsLib.getDocument({ url: planUri, withCredentials: false }).promise;
           if (dead) return;

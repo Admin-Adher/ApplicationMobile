@@ -286,7 +286,7 @@ export async function offlineQuery<T>(
 export function pendingIdsForTable(
   queue: Array<{
     table: string;
-    op: 'insert' | 'update' | 'delete';
+    op: 'insert' | 'update' | 'upsert' | 'delete';
     data?: any;
     filter?: { column: string; value: string };
   }>,
@@ -295,7 +295,7 @@ export function pendingIdsForTable(
   const ids = new Set<string>();
   for (const op of queue) {
     if (op.table !== table) continue;
-    if (op.op === 'insert' && op.data?.id) {
+    if ((op.op === 'insert' || op.op === 'upsert') && op.data?.id) {
       ids.add(String(op.data.id));
     } else if (op.op === 'update' && op.filter?.column === 'id' && op.filter.value) {
       ids.add(String(op.filter.value));

@@ -110,6 +110,7 @@ export function useCompanies() {
       const { error } = await (supabase.from('companies') as any).insert(payload);
       if (error) {
         console.warn('[sync] addCompany error:', error.message);
+        enqueueOperation({ table: 'companies', op: 'insert', data: payload });
         Alert.alert(
           'Synchronisation incomplète',
           `L'entreprise a été créée localement mais n'a pas pu être synchronisée (${error.message}).`
@@ -136,7 +137,13 @@ export function useCompanies() {
     }
     if (isSupabaseConfigured) {
       (supabase.from('companies') as any).update(payload).eq('id', c.id).then(({ error }: { error: any }) => {
-        if (error) console.warn('[sync] updateCompanyFull error:', error.message);
+        if (error) {
+          console.warn('[sync] updateCompanyFull error:', error.message);
+          enqueueOperation({ table: 'companies', op: 'update', filter: { column: 'id', value: c.id }, data: payload });
+        }
+      }).catch((error: any) => {
+        console.warn('[sync] updateCompanyFull network error:', error?.message ?? error);
+        enqueueOperation({ table: 'companies', op: 'update', filter: { column: 'id', value: c.id }, data: payload });
       });
     }
   }, [queryClient, isOnlineRef, enqueueOperation, persist]);
@@ -151,15 +158,20 @@ export function useCompanies() {
       return;
     }
     if (isSupabaseConfigured) {
-      const { data: deleted, error } = await (supabase.from('companies') as any).delete().eq('id', id).select();
-      if (error) {
-        console.warn('[sync] deleteCompany erreur serveur:', error.message);
-        if (previous) {
-          queryClient.setQueryData<Company[]>(queryKeys.companies(), old => [...(old ?? []), previous]);
-          Alert.alert('Suppression refusée', 'Vous n\'avez pas les droits pour supprimer cette entreprise, ou elle n\'existe plus sur le serveur.');
+      try {
+        const { data: deleted, error } = await (supabase.from('companies') as any).delete().eq('id', id).select();
+        if (error) {
+          console.warn('[sync] deleteCompany erreur serveur:', error.message);
+          if (previous) {
+            queryClient.setQueryData<Company[]>(queryKeys.companies(), old => [...(old ?? []), previous]);
+            Alert.alert('Suppression refusée', 'Vous n\'avez pas les droits pour supprimer cette entreprise, ou elle n\'existe plus sur le serveur.');
+          }
+        } else if (!deleted?.length) {
+          console.warn('[sync] deleteCompany: aucune ligne supprimée');
         }
-      } else if (!deleted?.length) {
-        console.warn('[sync] deleteCompany: aucune ligne supprimée');
+      } catch (error: any) {
+        console.warn('[sync] deleteCompany network error, queuing for retry:', error?.message ?? error);
+        enqueueOperation({ table: 'companies', op: 'delete', filter: { column: 'id', value: id } });
       }
     }
   }, [queryClient, isOnlineRef, enqueueOperation, persist]);
@@ -180,7 +192,14 @@ export function useCompanies() {
     if (isSupabaseConfigured) {
       (supabase.from('companies') as any).update({ actual_workers: actual }).eq('id', id)
         .then(({ error }: { error: any }) => {
-          if (error) console.warn('[sync] updateCompanyWorkers error:', error.message);
+          if (error) {
+            console.warn('[sync] updateCompanyWorkers error:', error.message);
+            enqueueOperation({ table: 'companies', op: 'update', filter: { column: 'id', value: id }, data: { actual_workers: actual } });
+          }
+        })
+        .catch((error: any) => {
+          console.warn('[sync] updateCompanyWorkers network error:', error?.message ?? error);
+          enqueueOperation({ table: 'companies', op: 'update', filter: { column: 'id', value: id }, data: { actual_workers: actual } });
         });
     }
   }, [queryClient, isOnlineRef, enqueueOperation, persist]);
@@ -197,7 +216,14 @@ export function useCompanies() {
     if (isSupabaseConfigured) {
       (supabase.from('companies') as any).update({ hours_worked: hours }).eq('id', id)
         .then(({ error }: { error: any }) => {
-          if (error) console.warn('[sync] updateCompanyHours error:', error.message);
+          if (error) {
+            console.warn('[sync] updateCompanyHours error:', error.message);
+            enqueueOperation({ table: 'companies', op: 'update', filter: { column: 'id', value: id }, data: { hours_worked: hours } });
+          }
+        })
+        .catch((error: any) => {
+          console.warn('[sync] updateCompanyHours network error:', error?.message ?? error);
+          enqueueOperation({ table: 'companies', op: 'update', filter: { column: 'id', value: id }, data: { hours_worked: hours } });
         });
     }
   }, [queryClient, isOnlineRef, enqueueOperation, persist]);

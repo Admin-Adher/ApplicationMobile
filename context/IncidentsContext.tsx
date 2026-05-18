@@ -6,7 +6,7 @@ import { supabase, isSupabaseConfigured } from '@/lib/supabase';
 import { useAuth } from '@/context/AuthContext';
 import { useNetwork } from '@/context/NetworkContext';
 import { formatDateFR } from '@/lib/utils';
-import { mergeWithCache } from '@/lib/offlineCache';
+import { mergeWithCache, pendingIdsForTable, isSupabaseSessionValid } from '@/lib/offlineCache';
 
 const INCIDENTS_PREFIX = 'buildtrack_incidents_v3_';
 
@@ -44,18 +44,41 @@ function toIncident(row: any): Incident {
   };
 }
 
+function fromIncident(incident: Incident, organizationId: string | null): Record<string, any> {
+  return {
+    id: incident.id,
+    title: incident.title,
+    description: incident.description,
+    severity: incident.severity,
+    location: incident.location,
+    building: incident.building,
+    reported_at: incident.reportedAt,
+    reported_by: incident.reportedBy,
+    status: incident.status,
+    witnesses: incident.witnesses,
+    actions: incident.actions,
+    closed_at: incident.closedAt ?? null,
+    closed_by: incident.closedBy ?? null,
+    photo_uri: incident.photoUri ?? null,
+    organization_id: organizationId,
+    chantier_id: incident.chantierId ?? null,
+  };
+}
+
 export function IncidentsProvider({ children }: { children: React.ReactNode }) {
   const { user } = useAuth();
-  const { isOnline, enqueueOperation } = useNetwork();
+  const { isOnline, enqueueOperation, queue, queueLoaded } = useNetwork();
   const [incidents, setIncidents] = useState<Incident[]>([]);
   const incidentsKey = INCIDENTS_PREFIX + (user?.id ?? 'anon');
   const [isLoading, setIsLoading] = useState(true);
   const incidentsRef = useRef(incidents);
   const orgIdRef = useRef<string | null>(user?.organizationId ?? null);
   const isOnlineRef = useRef(isOnline);
+  const queueRef = useRef(queue);
   useEffect(() => { incidentsRef.current = incidents; }, [incidents]);
   useEffect(() => { orgIdRef.current = user?.organizationId ?? null; }, [user?.organizationId]);
   useEffect(() => { isOnlineRef.current = isOnline; }, [isOnline]);
+  useEffect(() => { queueRef.current = queue; }, [queue]);
 
   useEffect(() => {
     async function load() {
@@ -67,7 +90,7 @@ export function IncidentsProvider({ children }: { children: React.ReactNode }) {
         if (stored) cached = JSON.parse(stored);
       } catch {}
 
-      if (isSupabaseConfigured && user) {
+      if (isSupabaseConfigured && user && queueLoaded && await isSupabaseSessionValid()) {
         try {
           let q = (supabase as any).from('incidents').select('*').order('reported_at', { ascending: false });
           if (user.role !== 'super_admin' && user.organizationId) {
@@ -76,7 +99,8 @@ export function IncidentsProvider({ children }: { children: React.ReactNode }) {
           const { data, error } = await q;
           if (!error && data) {
             const fresh = data.map(toIncident);
-            const merged = mergeWithCache<Incident>(fresh, cached);
+            const pendingIds = pendingIdsForTable(queueRef.current ?? [], 'incidents');
+            const merged = mergeWithCache<Incident>(fresh, cached, pendingIds, { queueLoaded });
             setIncidents(merged);
             try { await AsyncStorage.setItem(incidentsKey, JSON.stringify(merged)); } catch {}
             setIsLoading(false);
@@ -95,7 +119,7 @@ export function IncidentsProvider({ children }: { children: React.ReactNode }) {
       setIsLoading(false);
     }
     load();
-  }, [user?.id]);
+  }, [user?.id, queueLoaded]);
 
   useEffect(() => {
     if (!isSupabaseConfigured || !user) return;
@@ -138,29 +162,17 @@ export function IncidentsProvider({ children }: { children: React.ReactNode }) {
         const { error } = await (supabase as any).from('incidents').delete().eq('id', incident.id);
         if (error) throw error;
       } else {
-        const { error } = await ((supabase as any).from('incidents') as any).upsert({
-          id: incident.id,
-          title: incident.title,
-          description: incident.description,
-          severity: incident.severity,
-          location: incident.location,
-          building: incident.building,
-          reported_at: incident.reportedAt,
-          reported_by: incident.reportedBy,
-          status: incident.status,
-          witnesses: incident.witnesses,
-          actions: incident.actions,
-          closed_at: incident.closedAt ?? null,
-          closed_by: incident.closedBy ?? null,
-          photo_uri: incident.photoUri ?? null,
-          organization_id: orgIdRef.current ?? null,
-          chantier_id: incident.chantierId ?? null,
-        });
+        const { error } = await ((supabase as any).from('incidents') as any).upsert(fromIncident(incident, orgIdRef.current ?? null));
         if (error) throw error;
       }
     } catch (e: any) {
       const msg = e?.message ?? 'Erreur réseau';
       console.warn('Erreur sync incident Supabase:', msg);
+      if (mode === 'delete') {
+        enqueueOperation({ table: 'incidents', op: 'delete', filter: { column: 'id', value: incident.id } });
+      } else {
+        enqueueOperation({ table: 'incidents', op: 'upsert', data: fromIncident(incident, orgIdRef.current ?? null) });
+      }
       onError?.(msg);
     }
   }
@@ -168,15 +180,7 @@ export function IncidentsProvider({ children }: { children: React.ReactNode }) {
   const addIncident = useCallback(async (incident: Incident) => {
     await persist([incident, ...incidentsRef.current]);
     if (!isOnlineRef.current && isSupabaseConfigured) {
-      enqueueOperation({ table: 'incidents', op: 'insert', data: {
-        id: incident.id, title: incident.title, description: incident.description,
-        severity: incident.severity, location: incident.location, building: incident.building,
-        reported_at: incident.reportedAt, reported_by: incident.reportedBy,
-        status: incident.status, witnesses: incident.witnesses, actions: incident.actions,
-        closed_at: incident.closedAt ?? null, closed_by: incident.closedBy ?? null,
-        photo_uri: incident.photoUri ?? null, organization_id: orgIdRef.current ?? null,
-        chantier_id: incident.chantierId ?? null,
-      }});
+      enqueueOperation({ table: 'incidents', op: 'upsert', data: fromIncident(incident, orgIdRef.current ?? null) });
       return;
     }
     await syncToSupabase(incident, 'upsert', (err) => {
@@ -187,14 +191,7 @@ export function IncidentsProvider({ children }: { children: React.ReactNode }) {
   const updateIncident = useCallback(async (incident: Incident) => {
     await persist(incidentsRef.current.map(i => i.id === incident.id ? incident : i));
     if (!isOnlineRef.current && isSupabaseConfigured) {
-      enqueueOperation({ table: 'incidents', op: 'update', filter: { column: 'id', value: incident.id }, data: {
-        title: incident.title, description: incident.description,
-        severity: incident.severity, location: incident.location, building: incident.building,
-        reported_at: incident.reportedAt, reported_by: incident.reportedBy,
-        status: incident.status, witnesses: incident.witnesses, actions: incident.actions,
-        closed_at: incident.closedAt ?? null, closed_by: incident.closedBy ?? null,
-        photo_uri: incident.photoUri ?? null, chantier_id: incident.chantierId ?? null,
-      }});
+      enqueueOperation({ table: 'incidents', op: 'upsert', data: fromIncident(incident, orgIdRef.current ?? null) });
       return;
     }
     await syncToSupabase(incident, 'upsert', (err) => {

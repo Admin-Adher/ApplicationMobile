@@ -74,6 +74,40 @@ async function localFileMissing(uri: string): Promise<boolean> {
   }
 }
 
+async function resolveStorageAccessToken(tag: string): Promise<string> {
+  if (!SUPABASE_KEY) return '';
+  try {
+    const sessionRace = await Promise.race([
+      supabase.auth.getSession(),
+      new Promise<never>((_, reject) => setTimeout(() => reject(new Error('getSession timeout')), 8_000)),
+    ]) as Awaited<ReturnType<typeof supabase.auth.getSession>>;
+
+    const session = sessionRace.data?.session;
+    if (sessionRace.error) throw sessionRace.error;
+    if (!session?.access_token) throw new Error('no-session');
+    const nowSec = Math.floor(Date.now() / 1000);
+    if (typeof session.expires_at === 'number' && session.expires_at - 10 <= nowSec) {
+      throw new Error('jwt-expired');
+    }
+    return session.access_token;
+  } catch (sessionError: any) {
+    console.warn(`${tag} getSession unavailable (${sessionError?.message ?? sessionError}), using cache fallback`);
+    try {
+      const { getSessionFromStorage, forceRefreshSession } = await import('./offlineCache');
+      const cached = await getSessionFromStorage();
+      const nowSec = Math.floor(Date.now() / 1000);
+      if (cached?.access_token && typeof cached.expires_at === 'number' && cached.expires_at - 10 > nowSec) {
+        return cached.access_token;
+      }
+      const refreshed = await forceRefreshSession();
+      return refreshed ?? SUPABASE_KEY;
+    } catch (fallbackError: any) {
+      console.warn(`${tag} cache token fallback failed:`, fallbackError?.message ?? fallbackError);
+      return SUPABASE_KEY;
+    }
+  }
+}
+
 /**
  * Internal helper: upload a photo and return both the URL and the error message.
  * This allows callers to surface the actual failure reason instead of a generic message.
@@ -111,8 +145,7 @@ async function _uploadPhotoWithError(
     if (Platform.OS !== 'web' && SUPABASE_URL && SUPABASE_KEY) {
       // ── Native path: FileSystem.uploadAsync (native HTTP, no Blob) ───────────
       // Avoid the "Network request failed" caused by Blob bodies in RN's fetch.
-      const { data: sessionData } = await supabase.auth.getSession();
-      const accessToken = sessionData?.session?.access_token ?? SUPABASE_KEY;
+      const accessToken = await resolveStorageAccessToken('[uploadPhoto]');
 
       const uploadUrl = `${SUPABASE_URL}/storage/v1/object/photos/${path}`;
       const result = await withTimeout(
@@ -524,6 +557,14 @@ export async function uploadLocalPhotosInPayload(
       }
       data.photos = newPhotos;
     }
+  } else if (table === 'incidents') {
+    if (typeof data.photo_uri === 'string' && isLocalUri(data.photo_uri)) {
+      hadLocal = true;
+      const { url: remote, error: uploadErr } = await _uploadPhotoWithError(data.photo_uri, `incident_${Date.now()}_${nextUploadSeq()}.jpg`);
+      if (remote === (MISSING_LOCAL_FILE as any)) data.photo_uri = null;
+      else if (remote) data.photo_uri = remote;
+      else { allOk = false; if (uploadErr) uploadErrors.push(`photo_uri: ${uploadErr}`); }
+    }
   } else if (table === 'photos') {
     if (typeof data.uri === 'string' && isLocalUri(data.uri)) {
       hadLocal = true;
@@ -560,6 +601,22 @@ export async function uploadLocalPhotosInPayload(
           : undefined;
       const { url, error: uploadErr } = await uploadDocumentDetailed(data.uri, filename, mime);
       // Local file was deleted by the OS — drop the URI but keep the row data
+      if (url === (MISSING_LOCAL_FILE as any)) {
+        data.uri = null;
+      } else if (url) {
+        data.uri = url;
+      } else {
+        allOk = false;
+        if (uploadErr) uploadErrors.push(uploadErr);
+      }
+    }
+  } else if (table === 'documents' || table === 'regulatory_docs') {
+    if (typeof data.uri === 'string' && isLocalUri(data.uri)) {
+      hadLocal = true;
+      const name = typeof data.name === 'string' && data.name.trim() ? data.name.trim() : 'document';
+      const safeName = name.replace(/[^a-zA-Z0-9._-]/g, '_');
+      const filename = `document_${Date.now()}_${nextUploadSeq()}_${safeName}`;
+      const { url, error: uploadErr } = await uploadDocumentDetailed(data.uri, filename);
       if (url === (MISSING_LOCAL_FILE as any)) {
         data.uri = null;
       } else if (url) {

@@ -9,6 +9,7 @@ import { toDocument } from '@/lib/mappers';
 import { Document } from '@/constants/types';
 import { useStartupDelay } from '@/hooks/useStartupDelay';
 import { mergeWithCache, readCache, writeCache, pendingIdsForTable, isSupabaseSessionValid } from '@/lib/offlineCache';
+import { uploadLocalPhotosInPayload } from '@/lib/storage';
 
 const DOCUMENTS_CACHE_KEY = 'buildtrack_documents_cache_v1';
 
@@ -87,8 +88,17 @@ export function useDocuments() {
       return;
     }
     if (isSupabaseConfigured) {
-      const { error } = await (supabase as any).from('documents').insert(payload);
-      if (error) console.warn('[sync] addDocument error:', error.message);
+      const prep = await uploadLocalPhotosInPayload('documents', payload);
+      if (!prep.allOk) {
+        console.warn('[sync] addDocument upload failed, queuing for retry:', prep.uploadErrors.join('; '));
+        enqueueOperation({ table: 'documents', op: 'insert', data: payload });
+        return;
+      }
+      const { error } = await (supabase as any).from('documents').insert(prep.data!);
+      if (error) {
+        console.warn('[sync] addDocument error, queuing for retry:', error.message);
+        enqueueOperation({ table: 'documents', op: 'insert', data: payload });
+      }
     }
   }, [queryClient, user, isOnlineRef, enqueueOperation, persist]);
 

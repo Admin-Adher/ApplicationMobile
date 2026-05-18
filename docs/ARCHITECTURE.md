@@ -17,7 +17,7 @@ BuildTrack est une application mobile de gestion de chantier développée avec *
 | État global | React Context + useReducer |
 | Stockage local | AsyncStorage (cache hors-ligne) |
 | Génération PDF | expo-print + pdfjs-dist |
-| Export Excel | xlsx |
+| Export tableur | CSV natif |
 | IA | OpenAI API (résumés, suggestions) |
 
 ---
@@ -116,7 +116,7 @@ L'application maintient un cache local via **AsyncStorage** pour les chantiers, 
 ## Génération de rapports
 
 - **PDF** : via `expo-print` (rapports de visite, OPR, réserves)
-- **Excel** : via `xlsx` (export des réserves et pointages)
+- **Tableur** : export CSV natif (réserves et pointages)
 - **Signature électronique** : composant `SignaturePad` (SVG)
 
 ---

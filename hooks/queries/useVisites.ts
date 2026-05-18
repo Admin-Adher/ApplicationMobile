@@ -83,8 +83,12 @@ export function useVisites() {
       return;
     }
     if (isSupabaseConfigured) {
-      const { error } = await (supabase as any).from('visites').insert(fromVisite(v, orgId));
-      if (error) console.warn('[sync] addVisite error:', error.message);
+      const payload = fromVisite(v, orgId);
+      const { error } = await (supabase as any).from('visites').insert(payload);
+      if (error) {
+        console.warn('[sync] addVisite error, queuing for retry:', error.message);
+        enqueueOperation({ table: 'visites', op: 'insert', data: payload });
+      }
     }
   }, [queryClient, user, isOnlineRef, enqueueOperation, persist]);
 

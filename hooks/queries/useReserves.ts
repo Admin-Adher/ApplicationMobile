@@ -442,13 +442,30 @@ export function useReserves() {
       (old ?? []).map(r => r.id === reserveId ? updated : r)
     );
     persist(queryClient.getQueryData<Reserve[]>(queryKeys.reserves()) ?? []);
+    const queueComment = () => enqueueOperation({
+      table: 'reserves',
+      op: 'update',
+      filter: { column: 'id', value: reserveId },
+      commentPatch: { action: 'add', comment },
+    });
     if (isSupabaseConfigured) {
+      if (!isOnlineRef.current) {
+        queueComment();
+        return;
+      }
       (supabase as any).from('reserves').update({ comments: updatedComments }).eq('id', reserveId)
         .then(({ error }: { error: any }) => {
-          if (error) console.warn('[sync] addComment error:', error.message);
+          if (error) {
+            console.warn('[sync] addComment error:', error.message);
+            queueComment();
+          }
+        })
+        .catch((error: any) => {
+          console.warn('[sync] addComment error:', error?.message ?? error);
+          queueComment();
         });
     }
-  }, [queryClient, user, persist]);
+  }, [queryClient, user, persist, enqueueOperation]);
 
   const updateComment = useCallback(async (reserveId: string, commentId: string, newContent: string) => {
     const reserves = queryClient.getQueryData<Reserve[]>(queryKeys.reserves()) ?? [];
@@ -459,21 +476,39 @@ export function useReserves() {
     const isOwner = (target.authorId && user?.id && target.authorId === user.id) ||
                     (!target.authorId && target.author === user?.name);
     if (!isOwner) return;
+    const editedAt = nowTimestampFR();
     const updatedComments = reserve.comments.map(c =>
-      c.id === commentId ? { ...c, content: newContent, editedAt: nowTimestampFR() } : c
+      c.id === commentId ? { ...c, content: newContent, editedAt } : c
     );
     const updated: Reserve = { ...reserve, comments: updatedComments };
     queryClient.setQueryData<Reserve[]>(queryKeys.reserves(), old =>
       (old ?? []).map(r => r.id === reserveId ? updated : r)
     );
     persist(queryClient.getQueryData<Reserve[]>(queryKeys.reserves()) ?? []);
+    const queueComment = () => enqueueOperation({
+      table: 'reserves',
+      op: 'update',
+      filter: { column: 'id', value: reserveId },
+      commentPatch: { action: 'edit', commentId, newContent, editedAt },
+    });
     if (isSupabaseConfigured) {
+      if (!isOnlineRef.current) {
+        queueComment();
+        return;
+      }
       (supabase as any).from('reserves').update({ comments: updatedComments }).eq('id', reserveId)
         .then(({ error }: { error: any }) => {
-          if (error) console.warn('[sync] updateComment error:', error.message);
+          if (error) {
+            console.warn('[sync] updateComment error:', error.message);
+            queueComment();
+          }
+        })
+        .catch((error: any) => {
+          console.warn('[sync] updateComment error:', error?.message ?? error);
+          queueComment();
         });
     }
-  }, [queryClient, user, persist]);
+  }, [queryClient, user, persist, enqueueOperation]);
 
   const deleteComment = useCallback(async (reserveId: string, commentId: string) => {
     const reserves = queryClient.getQueryData<Reserve[]>(queryKeys.reserves()) ?? [];
@@ -490,13 +525,30 @@ export function useReserves() {
       (old ?? []).map(r => r.id === reserveId ? updated : r)
     );
     persist(queryClient.getQueryData<Reserve[]>(queryKeys.reserves()) ?? []);
+    const queueComment = () => enqueueOperation({
+      table: 'reserves',
+      op: 'update',
+      filter: { column: 'id', value: reserveId },
+      commentPatch: { action: 'delete', commentId },
+    });
     if (isSupabaseConfigured) {
+      if (!isOnlineRef.current) {
+        queueComment();
+        return;
+      }
       (supabase as any).from('reserves').update({ comments: updatedComments }).eq('id', reserveId)
         .then(({ error }: { error: any }) => {
-          if (error) console.warn('[sync] deleteComment error:', error.message);
+          if (error) {
+            console.warn('[sync] deleteComment error:', error.message);
+            queueComment();
+          }
+        })
+        .catch((error: any) => {
+          console.warn('[sync] deleteComment error:', error?.message ?? error);
+          queueComment();
         });
     }
-  }, [queryClient, user, persist]);
+  }, [queryClient, user, persist, enqueueOperation]);
 
   const batchUpdateReserves = useCallback(async (
     ids: string[],
@@ -544,7 +596,28 @@ export function useReserves() {
     queryClient.setQueryData<Reserve[]>(queryKeys.reserves(), old =>
       (old ?? []).map(r => updatedMap.has(r.id) ? updatedMap.get(r.id)! : r)
     );
+    persist(queryClient.getQueryData<Reserve[]>(queryKeys.reserves()) ?? []);
     if (isSupabaseConfigured) {
+      const payloadFor = (r: Reserve) => ({
+        status: r.status,
+        company: (r.companies ?? (r.company ? [r.company] : []))[0] ?? '',
+        companies: r.companies ?? (r.company ? [r.company] : []),
+        deadline: (!r.deadline || r.deadline === '\u2014') ? null : r.deadline,
+        priority: r.priority,
+        history: r.history,
+        closed_at: r.closedAt ?? null,
+        closed_by: r.closedBy ?? null,
+      });
+      const queueReserve = (r: Reserve) => enqueueOperation({
+        table: 'reserves',
+        op: 'update',
+        filter: { column: 'id', value: r.id },
+        data: payloadFor(r),
+      });
+      if (!isOnlineRef.current) {
+        updated.forEach(queueReserve);
+        return;
+      }
       Promise.all(updated.map(r =>
         (supabase as any).from('reserves').update({
           status: r.status,
@@ -555,10 +628,19 @@ export function useReserves() {
           closed_at: r.closedAt ?? null, closed_by: r.closedBy ?? null,
         }).eq('id', r.id)
       )).then(results => {
-        if (results.some((res: any) => res.error)) console.warn('[sync] batchUpdateReserves some errors');
+        const failed = results
+          .map((res: any, index: number) => ({ error: res.error, reserve: updated[index] }))
+          .filter((res: any) => res.error);
+        if (failed.length) {
+          console.warn('[sync] batchUpdateReserves errors:', failed.map((res: any) => res.error?.message).join('; '));
+          failed.forEach((res: any) => queueReserve(res.reserve));
+        }
+      }).catch((error: any) => {
+        console.warn('[sync] batchUpdateReserves error:', error?.message ?? error);
+        updated.forEach(queueReserve);
       });
     }
-  }, [queryClient, user]);
+  }, [queryClient, user, persist, enqueueOperation]);
 
   return {
     reserves: query.data ?? [],

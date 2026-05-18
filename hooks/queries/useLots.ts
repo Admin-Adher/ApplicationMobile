@@ -106,8 +106,12 @@ export function useLots() {
       return;
     }
     if (isSupabaseConfigured) {
-      const { error } = await (supabase as any).from('lots').insert(fromLot(l, orgId));
-      if (error) console.warn('[sync] addLot error:', error.message);
+      const payload = fromLot(l, orgId);
+      const { error } = await (supabase as any).from('lots').insert(payload);
+      if (error) {
+        console.warn('[sync] addLot error, queuing for retry:', error.message);
+        enqueueOperation({ table: 'lots', op: 'insert', data: payload });
+      }
     }
   }, [queryClient, user, isOnlineRef, enqueueOperation, persist]);
 

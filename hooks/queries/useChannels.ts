@@ -264,7 +264,7 @@ export function useChannels() {
     if (!isSupabaseConfigured) return;
     if (!isOnlineRef.current) {
       for (const ch of channels) {
-        enqueueOperation({ table: 'channels', op: 'upsert' as any, data: {
+        enqueueOperation({ table: 'channels', op: 'upsert', data: {
           id: ch.id, name: ch.name, description: ch.description ?? null,
           icon: ch.icon ?? 'chatbubbles', color: ch.color ?? '#10B981', type: ch.type,
           members: ch.members ?? [], created_by: ch.createdBy ?? null, organization_id: orgIdRef.current ?? null,
@@ -284,11 +284,17 @@ export function useChannels() {
       } catch {}
     }
     for (const ch of channels) {
-      await (supabase as any).from('channels').upsert({
+      const data = {
         id: ch.id, name: ch.name, description: ch.description ?? null,
         icon: ch.icon ?? 'chatbubbles', color: ch.color ?? '#10B981', type: ch.type,
         members: ch.members ?? [], created_by: ch.createdBy ?? null, organization_id: orgId ?? null,
-      }).catch(() => {});
+      };
+      try {
+        const { error } = await (supabase as any).from('channels').upsert(data);
+        if (error) enqueueOperation({ table: 'channels', op: 'upsert', data });
+      } catch {
+        enqueueOperation({ table: 'channels', op: 'upsert', data });
+      }
     }
   }, [enqueueOperation, CUSTOM_CHANNELS_KEY]);
 
@@ -297,7 +303,7 @@ export function useChannels() {
     if (!isSupabaseConfigured) return;
     if (!isOnlineRef.current) {
       for (const ch of channels) {
-        enqueueOperation({ table: 'channels', op: 'upsert' as any, data: {
+        enqueueOperation({ table: 'channels', op: 'upsert', data: {
           id: ch.id, name: ch.name, description: ch.description ?? null,
           icon: ch.icon ?? 'people-circle', color: ch.color ?? '#10B981', type: ch.type,
           members: ch.members ?? [], created_by: ch.createdBy ?? null, organization_id: orgIdRef.current ?? null,
@@ -307,13 +313,17 @@ export function useChannels() {
     }
     const orgId = orgIdRef.current;
     for (const ch of channels) {
+      const data = {
+        id: ch.id, name: ch.name, description: ch.description ?? null,
+        icon: ch.icon ?? 'people-circle', color: ch.color ?? '#10B981', type: ch.type,
+        members: ch.members ?? [], created_by: ch.createdBy ?? null, organization_id: orgId ?? null,
+      };
       try {
-        await (supabase as any).from('channels').upsert({
-          id: ch.id, name: ch.name, description: ch.description ?? null,
-          icon: ch.icon ?? 'people-circle', color: ch.color ?? '#10B981', type: ch.type,
-          members: ch.members ?? [], created_by: ch.createdBy ?? null, organization_id: orgId ?? null,
-        });
-      } catch {}
+        const { error } = await (supabase as any).from('channels').upsert(data);
+        if (error) enqueueOperation({ table: 'channels', op: 'upsert', data });
+      } catch {
+        enqueueOperation({ table: 'channels', op: 'upsert', data });
+      }
     }
   }, [enqueueOperation, GROUP_CHANNELS_KEY]);
 
@@ -328,8 +338,11 @@ export function useChannels() {
     }
     void (async () => {
       try {
-        await (supabase as any).from('profiles').update({ pinned_channels: ids }).eq('id', userId);
-      } catch {}
+        const { error } = await (supabase as any).from('profiles').update({ pinned_channels: ids }).eq('id', userId);
+        if (error) enqueueOperation({ table: 'profiles', op: 'update', filter: { column: 'id', value: userId }, data: { pinned_channels: ids } });
+      } catch {
+        enqueueOperation({ table: 'profiles', op: 'update', filter: { column: 'id', value: userId }, data: { pinned_channels: ids } });
+      }
     })();
   }, [enqueueOperation, PINNED_CHANNELS_KEY]);
 
@@ -360,8 +373,11 @@ export function useChannels() {
       }
       void (async () => {
         try {
-          await (supabase as any).from('channels').delete().eq('id', id);
-        } catch {}
+          const { error } = await (supabase as any).from('channels').delete().eq('id', id);
+          if (error) enqueueOperation({ table: 'channels', op: 'delete', filter: { column: 'id', value: id } });
+        } catch {
+          enqueueOperation({ table: 'channels', op: 'delete', filter: { column: 'id', value: id } });
+        }
       })();
     }
   }, [saveCustomChannels, enqueueOperation]);
@@ -396,8 +412,11 @@ export function useChannels() {
       }
       void (async () => {
         try {
-          await (supabase as any).from('channels').delete().eq('id', id);
-        } catch {}
+          const { error } = await (supabase as any).from('channels').delete().eq('id', id);
+          if (error) enqueueOperation({ table: 'channels', op: 'delete', filter: { column: 'id', value: id } });
+        } catch {
+          enqueueOperation({ table: 'channels', op: 'delete', filter: { column: 'id', value: id } });
+        }
       })();
     }
   }, [saveGroupChannels, enqueueOperation]);
@@ -522,11 +541,17 @@ export function useChannels() {
         members: [myName, otherName], created_by: myName, organization_id: orgId ?? null,
       };
       if (!isOnlineRef.current) {
-        enqueueOperation({ table: 'channels', op: 'upsert' as any, data: channelData });
+        enqueueOperation({ table: 'channels', op: 'upsert', data: channelData });
       } else {
         const upsertPromise: Promise<void> = (supabase as any).from('channels').upsert(channelData)
-          .then(() => { dmUpsertPromisesRef.current.delete(chId); })
-          .catch(() => { dmUpsertPromisesRef.current.delete(chId); });
+          .then(({ error }: { error: any }) => {
+            if (error) enqueueOperation({ table: 'channels', op: 'upsert', data: channelData });
+            dmUpsertPromisesRef.current.delete(chId);
+          })
+          .catch(() => {
+            enqueueOperation({ table: 'channels', op: 'upsert', data: channelData });
+            dmUpsertPromisesRef.current.delete(chId);
+          });
         dmUpsertPromisesRef.current.set(chId, upsertPromise);
       }
     }

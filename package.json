@@ -51,7 +51,7 @@
     "openai": "^6.37.0",
     "p-limit": "^7.3.0",
     "p-retry": "^7.1.1",
-    "pdfjs-dist": "^3.11.174",
+    "pdfjs-dist": "^5.7.284",
     "puppeteer": "^24.43.1",
     "react": "19.0.0",
     "react-dom": "19.0.0",
@@ -64,7 +64,6 @@
     "react-native-web": "^0.20.0",
     "react-native-webview": "13.13.5",
     "resend": "^6.12.3",
-    "xlsx": "^0.18.5",
     "zod": "^4.4.3",
     "zod-validation-error": "^5.0.0"
   },
@@ -73,5 +72,15 @@
     "@types/react": "~19.0.10",
     "eas-cli": "^18.11.0",
     "typescript": "~5.8.3"
+  },
+  "overrides": {
+    "@xmldom/xmldom": "^0.8.13",
+    "ajv": "^8.20.0",
+    "diff": "^8.0.3",
+    "minimatch": "^10.2.5",
+    "node-forge": "^1.4.0",
+    "postcss": "^8.5.14",
+    "tar": "^7.5.15",
+    "yaml": "^2.9.0"
   }
 }

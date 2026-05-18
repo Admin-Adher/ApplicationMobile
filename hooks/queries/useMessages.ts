@@ -247,7 +247,11 @@ export function useMessages() {
         (supabase as any).from('messages').insert(insertData).then(({ error }: { error: any }) => {
           if (error) {
             console.warn('[sync] addMessage error:', error.code, error.message, error.details);
+            enqueueOperation({ table: 'messages', op: 'insert', data: insertData });
           }
+        }).catch((err: any) => {
+          console.warn('[sync] addMessage network error:', err?.message ?? err);
+          enqueueOperation({ table: 'messages', op: 'insert', data: insertData });
         });
       };
       if (pendingUpsert) {
@@ -267,8 +271,15 @@ export function useMessages() {
       }
       void (async () => {
         try {
-          await (supabase as any).from('messages').delete().eq('id', id);
-        } catch {}
+          const { error } = await (supabase as any).from('messages').delete().eq('id', id);
+          if (error) {
+            console.warn('[sync] deleteMessage error:', error.message);
+            enqueueOperation({ table: 'messages', op: 'delete', filter: { column: 'id', value: id } });
+          }
+        } catch (err: any) {
+          console.warn('[sync] deleteMessage network error:', err?.message ?? err);
+          enqueueOperation({ table: 'messages', op: 'delete', filter: { column: 'id', value: id } });
+        }
       })();
     }
   }, [enqueueOperation]);
@@ -282,8 +293,16 @@ export function useMessages() {
       }
       void (async () => {
         try {
-          await (supabase as any).from('messages').update(fromMessage(msg)).eq('id', msg.id);
-        } catch {}
+          const data = fromMessage(msg);
+          const { error } = await (supabase as any).from('messages').update(data).eq('id', msg.id);
+          if (error) {
+            console.warn('[sync] updateMessage error:', error.message);
+            enqueueOperation({ table: 'messages', op: 'update', filter: { column: 'id', value: msg.id }, data });
+          }
+        } catch (err: any) {
+          console.warn('[sync] updateMessage network error:', err?.message ?? err);
+          enqueueOperation({ table: 'messages', op: 'update', filter: { column: 'id', value: msg.id }, data: fromMessage(msg) });
+        }
       })();
     }
   }, [enqueueOperation]);
@@ -335,15 +354,9 @@ export function useMessages() {
     });
     if (isSupabaseConfigured && userName && unreadIds.length > 0) {
       if (!isOnlineRef.current) {
-        // Offline: enqueue per-message read_by updates so they sync when network returns
-        for (const msgId of unreadIds) {
-          enqueueOperation({
-            table: 'messages',
-            op: 'update',
-            filter: { column: 'id', value: msgId },
-            data: { read_by: [userName] },
-          });
-        }
+        // Keep the optimistic local read state. Server-side read markers are
+        // merged through the RPC when online; queuing read_by would overwrite
+        // other users' read state.
         return;
       }
       const BATCH_SIZE = 100;
@@ -373,8 +386,15 @@ export function useMessages() {
       }
       void (async () => {
         try {
-          await (supabase as any).from('messages').insert(insertData);
-        } catch {}
+          const { error } = await (supabase as any).from('messages').insert(insertData);
+          if (error) {
+            console.warn('[sync] addNotificationMessage error:', error.message);
+            enqueueOperation({ table: 'messages', op: 'insert', data: insertData });
+          }
+        } catch (err: any) {
+          console.warn('[sync] addNotificationMessage network error:', err?.message ?? err);
+          enqueueOperation({ table: 'messages', op: 'insert', data: insertData });
+        }
       })();
     }
   }, [enqueueOperation]);

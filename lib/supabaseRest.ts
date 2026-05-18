@@ -178,16 +178,37 @@ export async function supabaseRestSelect<T = any>(
 
 export async function supabaseRestMutation<T = any>(
   table: string,
-  op: 'insert' | 'update' | 'delete',
+  op: 'insert' | 'update' | 'upsert' | 'delete',
   data?: Record<string, any>,
   filter?: TableFilter,
 ): Promise<SupabaseRestResult<T>> {
+  if ((op === 'update' || op === 'delete') && !filter) {
+    return {
+      data: null,
+      error: {
+        code: 'MISSING_FILTER',
+        message: `Refusing ${op.toUpperCase()} on ${table} without a filter`,
+      },
+    };
+  }
+
   if (op === 'insert') {
     return restRequest<T>(
       tableUrl(table),
       {
         method: 'POST',
         headers: { Prefer: 'return=minimal' },
+        body: JSON.stringify(data ?? {}),
+      },
+    );
+  }
+
+  if (op === 'upsert') {
+    return restRequest<T>(
+      tableUrl(table),
+      {
+        method: 'POST',
+        headers: { Prefer: 'resolution=merge-duplicates,return=representation' },
         body: JSON.stringify(data ?? {}),
       },
     );

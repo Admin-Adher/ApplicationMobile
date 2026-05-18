@@ -4,7 +4,7 @@ import React, {
 } from 'react';
 import { Platform, AppState, AppStateStatus } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { supabase, isSupabaseConfigured } from '@/lib/supabase';
+import { supabase, isSupabaseConfigured, SUPABASE_KEY, SUPABASE_URL } from '@/lib/supabase';
 import { isLocalUri, uploadLocalPhotosInPayload, purgeOrphanedPhotoFiles } from '@/lib/storage';
 import { getSupabaseRestAccessToken, supabaseRestMutation, supabaseRestSelect } from '@/lib/supabaseRest';
 import { useAuth } from '@/context/AuthContext';
@@ -63,7 +63,7 @@ export interface QueuedOperation {
   id: string;
   queuedAt: string;
   table: string;
-  op: 'insert' | 'update' | 'delete';
+  op: 'insert' | 'update' | 'upsert' | 'delete';
   filter?: { column: string; value: string };
   data?: Record<string, any>;
   /** Present only for reserve-status mutations. */
@@ -174,6 +174,42 @@ function withTimeoutMs<T>(p: Promise<T>, ms: number): Promise<T> {
       e => { clearTimeout(t); reject(e); },
     );
   });
+}
+
+async function checkInternetReachable(): Promise<boolean> {
+  for (const url of PING_URLS) {
+    try {
+      const res = await withTimeoutMs(fetch(url, { method: 'HEAD', cache: 'no-cache' }), 5000);
+      if (res.ok || res.status === 204) return true;
+    } catch {}
+  }
+  return false;
+}
+
+async function checkSupabaseReachable(): Promise<boolean> {
+  if (!isSupabaseConfigured || !SUPABASE_URL || !SUPABASE_KEY) return true;
+  try {
+    const res = await withTimeoutMs(fetch(`${SUPABASE_URL}/rest/v1/`, {
+      method: 'GET',
+      cache: 'no-cache',
+      headers: {
+        apikey: SUPABASE_KEY,
+        Authorization: `Bearer ${SUPABASE_KEY}`,
+      },
+    }), 6000);
+    return res.ok || res.status === 401 || res.status === 404;
+  } catch {
+    return false;
+  }
+}
+
+async function checkAppOnline(navigatorOnline = true): Promise<boolean> {
+  if (!navigatorOnline) return false;
+  if (Platform.OS !== 'web') {
+    const internet = await checkInternetReachable();
+    if (!internet) return false;
+  }
+  return checkSupabaseReachable();
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -312,26 +348,25 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     if (Platform.OS === 'web') {
-      const current = typeof navigator !== 'undefined' ? navigator.onLine : true;
-      setIsOnline(current);
-      const up = () => setIsOnline(true);
+      const refresh = async () => {
+        const current = typeof navigator !== 'undefined' ? navigator.onLine : true;
+        setIsOnline(await checkAppOnline(current));
+      };
+      const up = () => { refresh(); };
       const dn = () => setIsOnline(false);
+      refresh();
       window.addEventListener('online', up);
       window.addEventListener('offline', dn);
+      const interval = setInterval(refresh, 10_000);
       return () => {
         window.removeEventListener('online', up);
         window.removeEventListener('offline', dn);
+        clearInterval(interval);
       };
     }
 
     const check = async () => {
-      let online = false;
-      for (const url of PING_URLS) {
-        try {
-          const res = await fetch(url, { method: 'HEAD', cache: 'no-cache' });
-          if (res.ok || res.status === 204) { online = true; break; }
-        } catch {}
-      }
+      const online = await checkAppOnline();
       setIsOnline(online);
 
       // Safety-net: if we are online with pending ops and not already syncing,
@@ -447,16 +482,7 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
       // We can't rely on the stale isOnline state: if the network was already
       // active before sleep, isOnline is still true and the change-based effect
       // won't fire. We ping explicitly and act on the result.
-      let online = false;
-      for (const url of PING_URLS) {
-        try {
-          const res = await withTimeoutMs(
-            fetch(url, { method: 'HEAD', cache: 'no-cache' }),
-            5000,
-          );
-          if (res.ok || res.status === 204) { online = true; break; }
-        } catch {}
-      }
+      const online = await checkAppOnline();
       setIsOnline(online);
       isOnlineRef.current = online;
 
@@ -575,14 +601,14 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
         // op carries only the delta (add/edit/delete a single comment). The
         // engine fetches the live server array and merges by ID so concurrent
         // writes from other devices are never silently overwritten.
-        if (op.commentPatch && op.table === 'tasks' && op.filter?.column === 'id') {
-          const taskId = op.filter.value;
+        if (op.commentPatch && (op.table === 'tasks' || op.table === 'reserves') && op.filter?.column === 'id') {
+          const rowId = op.filter.value;
           const patch  = op.commentPatch;
 
           const { data: taskRows, error: fetchErr } = await supabaseRestSelect<any>(
-            'tasks',
+            op.table,
             'comments',
-            { column: 'id', value: taskId },
+            { column: 'id', value: rowId },
           );
           const serverTask = taskRows?.[0] ?? null;
 
@@ -616,10 +642,10 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
           }
 
           const { error: writeErr } = await supabaseRestMutation(
-            'tasks',
+            op.table,
             'update',
             { comments: merged },
-            { column: 'id', value: taskId },
+            { column: 'id', value: rowId },
           );
 
           if (writeErr) fail(op, writeErr);
@@ -742,7 +768,13 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
             }
           }
           if (result.error?.code === '23505') result = { error: null };
+        } else if (op.op === 'upsert') {
+          result = await supabaseRestMutation(op.table, 'upsert', data!);
         } else if (op.op === 'update') {
+          if (!op.filter) {
+            fail(op, `UPDATE ${op.table} refusé: filtre manquant.`);
+            continue;
+          }
           result = await supabaseRestMutation(op.table, 'update', data!, op.filter);
           if (!result.error && Array.isArray(result.data) && result.data.length === 0) {
             if (op.filter?.column === 'id') {
@@ -760,7 +792,11 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
             fail(op, `UPDATE sur ${op.table} a affecté 0 ligne. Probablement bloqué par une policy RLS, ou l'élément ne vous appartient plus.`);
             continue;
           }
-        } else {
+        } else if (op.op === 'delete') {
+          if (!op.filter) {
+            fail(op, `DELETE ${op.table} refusé: filtre manquant.`);
+            continue;
+          }
           result = await supabaseRestMutation(op.table, 'delete', undefined, op.filter);
           if (!result.error && Array.isArray(result.data) && result.data.length === 0) {
             if (op.filter?.column === 'id') {
@@ -779,6 +815,9 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
             fail(op, `DELETE sur ${op.table} bloqué par une policy RLS (0 ligne supprimée).`);
             continue;
           }
+        } else {
+          fail(op, `Opération inconnue: ${(op as any).op}`);
+          continue;
         }
 
         if (result.error) fail(op, result.error);
@@ -892,6 +931,15 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
   // ── Queue management ───────────────────────────────────────────────────────
 
   const enqueueOperation = useCallback((op: Omit<QueuedOperation, 'id' | 'queuedAt'>) => {
+    const allowedOps = new Set(['insert', 'update', 'upsert', 'delete']);
+    if (!allowedOps.has((op as any).op)) {
+      console.warn('[queue] operation ignored: op inconnue', (op as any).op, op.table);
+      return;
+    }
+    if ((op.op === 'update' || op.op === 'delete') && !op.filter) {
+      console.warn(`[queue] ${op.op} ${op.table} ignored: filtre manquant`);
+      return;
+    }
     const newOp: QueuedOperation = {
       ...op,
       id: genQueueId(),

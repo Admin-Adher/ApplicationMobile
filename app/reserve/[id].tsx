@@ -213,10 +213,7 @@ function drawFallback(){
   drawPin(canvas.width,canvas.height);
 }
 if(!planUri){drawFallback();return;}
-var s=document.createElement('script');
-s.src='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js';
-s.onload=function(){
-  pdfjsLib.GlobalWorkerOptions.workerSrc='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+function renderWithPdfjs(pdfjsLib){
   var docSrc=planUri.startsWith('data:')?{data:atob(planUri.split(',')[1])}:{url:planUri,withCredentials:false};
   pdfjsLib.getDocument(docSrc).promise.then(function(doc){
     doc.getPage(1).then(function(page){
@@ -227,7 +224,11 @@ s.onload=function(){
       page.render({canvasContext:ctx,viewport:vp}).promise.then(function(){drawPin(canvas.width,canvas.height);});
     });
   }).catch(drawFallback);
-};
+}
+var s=document.createElement('script');
+s.type='module';
+s.textContent="import * as pdfjsLib from 'https://cdn.jsdelivr.net/npm/pdfjs-dist@5.7.284/legacy/build/pdf.min.mjs'; pdfjsLib.GlobalWorkerOptions.workerSrc='https://cdn.jsdelivr.net/npm/pdfjs-dist@5.7.284/legacy/build/pdf.worker.min.mjs'; window.__btPdfjs=pdfjsLib; window.dispatchEvent(new Event('bt-pdfjs-ready'));";
+window.addEventListener('bt-pdfjs-ready',function(){renderWithPdfjs(window.__btPdfjs);},{once:true});
 s.onerror=drawFallback;
 document.head.appendChild(s);
 })();`
