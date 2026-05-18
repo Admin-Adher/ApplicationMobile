@@ -4,9 +4,10 @@ import React, {
 } from 'react';
 import { Platform, AppState, AppStateStatus } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { supabase, isSupabaseConfigured, SUPABASE_KEY, SUPABASE_URL } from '@/lib/supabase';
+import { supabase, isSupabaseConfigured, resetAuthLock, SUPABASE_KEY, SUPABASE_URL } from '@/lib/supabase';
 import { isLocalUri, uploadLocalPhotosInPayload, purgeOrphanedPhotoFiles } from '@/lib/storage';
 import { getSupabaseRestAccessToken, supabaseRestMutation, supabaseRestSelect } from '@/lib/supabaseRest';
+import { forceRefreshSession, getSessionFromStorage } from '@/lib/offlineCache';
 import { useAuth } from '@/context/AuthContext';
 import { queryClient } from '@/lib/queryClient';
 import type { Comment } from '@/constants/types';
@@ -221,11 +222,63 @@ async function checkSupabaseReachable(): Promise<boolean> {
 
 async function checkAppOnline(navigatorOnline = true): Promise<boolean> {
   if (!navigatorOnline) return false;
-  if (Platform.OS !== 'web') {
-    const internet = await checkInternetReachable();
-    if (!internet) return false;
+  if (isSupabaseConfigured) {
+    return checkSupabaseReachable();
   }
-  return checkSupabaseReachable();
+  if (Platform.OS !== 'web') {
+    return checkInternetReachable();
+  }
+  return true;
+}
+
+async function healSupabaseSessionAfterWake(longSleep: boolean): Promise<boolean> {
+  if (!isSupabaseConfigured) return false;
+
+  try { resetAuthLock(); } catch {}
+  try { (supabase as any).auth?.startAutoRefresh?.(); } catch {}
+
+  const nowSec = Math.floor(Date.now() / 1000);
+  try {
+    const { data } = await withTimeoutMs(
+      (supabase as any).auth.getSession(),
+      longSleep ? 5000 : 3000,
+    ) as any;
+    const session = data?.session;
+    if (session?.access_token && (!session.expires_at || session.expires_at - 30 > nowSec)) {
+      return true;
+    }
+  } catch {}
+
+  try {
+    const { data } = await withTimeoutMs(
+      (supabase as any).auth.refreshSession(),
+      longSleep ? 8000 : 5000,
+    ) as any;
+    const session = data?.session;
+    if (session?.access_token) return true;
+  } catch (err) {
+    console.warn('[wake] refreshSession failed:', (err as any)?.message ?? err);
+  }
+
+  try {
+    const cached = await getSessionFromStorage();
+    if (cached?.access_token && typeof cached.expires_at === 'number' && cached.expires_at - 30 > nowSec) {
+      return true;
+    }
+    const token = await forceRefreshSession();
+    return !!token;
+  } catch {
+    return false;
+  }
+}
+
+async function refetchActiveQueries(reason: string): Promise<void> {
+  try {
+    await queryClient.invalidateQueries();
+    await queryClient.refetchQueries({ type: 'active' });
+  } catch (err) {
+    console.warn(`[query] foreground refetch failed (${reason}):`, (err as any)?.message ?? err);
+  }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -247,6 +300,8 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
   const syncingRef = useRef(false);
   const reloadHandlerRef = useRef<(() => void) | null>(null);
   const lastLoadedKeyRef = useRef<string | null>(null);
+  const wakeInFlightRef = useRef(false);
+  const wakeAgainRef = useRef(false);
 
   // ── Stable refs so any closure (including stale ones in AppState) can always
   // access the CURRENT queue and the CURRENT processSyncQueue implementation.
@@ -351,7 +406,7 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
   // its queryFn so they can finally fetch from the server safely.
   useEffect(() => {
     if (queueLoaded) {
-      try { queryClient.invalidateQueries(); } catch {}
+      void refetchActiveQueries('queue-loaded');
     }
   }, [queueLoaded]);
 
@@ -411,7 +466,7 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
     if (isOnline && !prevOnlineRef.current) {
       if (isSupabaseConfigured) {
         if (queueRef.current.length > 0) processSyncQueueRef.current();
-        queryClient.invalidateQueries();
+        void refetchActiveQueries('online-transition');
       }
     }
     prevOnlineRef.current = isOnline;
@@ -461,7 +516,7 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
     // Track when the app last went to background so we know if a long sleep occurred.
     let backgroundAt = 0;
 
-    const wakeUp = async () => {
+    const runWakeUpPass = async () => {
       const sleptMs = backgroundAt > 0 ? Date.now() - backgroundAt : 0;
       const longSleep = sleptMs > 30_000; // more than 30 s in background
 
@@ -470,28 +525,13 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
       // internal auth lock is frozen. Calling refreshSession() with a short
       // timeout forces a new token AND breaks any stuck lock (our safeLock
       // implementation in lib/supabase.ts will time out and release the lock).
-      // We always refresh after a long sleep; for short returns we only probe.
-      if (longSleep) {
-        try {
-          await withTimeoutMs((supabase as any).auth.refreshSession(), 8000);
-        } catch (err) {
-          console.warn('[wake] refreshSession failed:', (err as any)?.message ?? err);
-          // Fallback: try a plain getSession to unstick the client
-          try { await withTimeoutMs((supabase as any).auth.getSession(), 4000); } catch {}
-        }
-      } else {
-        try {
-          await withTimeoutMs((supabase as any).auth.getSession(), 4000);
-        } catch {
-          try {
-            await withTimeoutMs((supabase as any).auth.refreshSession(), 6000);
-          } catch (err) {
-            console.warn('[wake] refreshSession (short sleep) failed:', (err as any)?.message ?? err);
-          }
-        }
-      }
+      // We heal even after a short return because Android can freeze JS while
+      // Supabase is mid-refresh. The helper uses short timeouts plus an
+      // AsyncStorage/raw-refresh fallback, so this never blocks forever.
+      await healSupabaseSessionAfterWake(longSleep);
 
       // ── 2. Reconnect the Realtime WebSocket ───────────────────────────────
+      try { (supabase as any).realtime?.disconnect?.(); } catch {}
       try { (supabase as any).realtime?.connect?.(); } catch {}
 
       // ── 3. Re-ping to get a fresh connectivity reading ───────────────────
@@ -502,12 +542,43 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
       setIsOnline(online);
       isOnlineRef.current = online;
 
-      // ── 4. Invalidate all cached queries ─────────────────────────────────
-      try { queryClient.invalidateQueries(); } catch {}
+      // ── 4. Refresh active screens immediately ────────────────────────────
+      // invalidateQueries alone can be lazy. Refetch active queries now so
+      // another user's changes appear without needing a full app restart.
+      await refetchActiveQueries('foreground');
+      try { reloadHandlerRef.current?.(); } catch {}
 
       // ── 5. Trigger sync if we have pending operations ─────────────────────
       if (online && queueRef.current.length > 0 && !syncingRef.current) {
-        processSyncQueueRef.current();
+        await processSyncQueueRef.current();
+        await refetchActiveQueries('foreground-after-queue-sync');
+        try { reloadHandlerRef.current?.(); } catch {}
+      }
+
+      // Some devices report `active` before the network stack has fully
+      // resumed. A short follow-up fetch catches the second-wave readiness
+      // without requiring the user to kill and relaunch the app.
+      setTimeout(() => {
+        if (isOnlineRef.current) {
+          void refetchActiveQueries('foreground-follow-up');
+          try { reloadHandlerRef.current?.(); } catch {}
+        }
+      }, 2500);
+    };
+
+    const wakeUp = async () => {
+      if (wakeInFlightRef.current) {
+        wakeAgainRef.current = true;
+        return;
+      }
+      wakeInFlightRef.current = true;
+      try {
+        do {
+          wakeAgainRef.current = false;
+          await runWakeUpPass();
+        } while (wakeAgainRef.current);
+      } finally {
+        wakeInFlightRef.current = false;
       }
     };
 
@@ -942,7 +1013,7 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
     setQueue(remaining);
     await saveQueue(remaining);
 
-    try { queryClient.invalidateQueries(); } catch {}
+    await refetchActiveQueries('queue-processed');
 
     if (pendingConflicts.length > 0) {
       setConflicts(pendingConflicts);

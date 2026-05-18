@@ -1,4 +1,5 @@
 import React, { createContext, useContext, useEffect, useState, useCallback, useRef } from 'react';
+import { AppState, AppStateStatus, Platform } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { RegulatoryDoc } from '@/constants/types';
 import { genId, formatDateFR } from '@/lib/utils';
@@ -58,6 +59,7 @@ export function ReglementaireProvider({ children }: { children: React.ReactNode 
   const { isOnline, enqueueOperation, queue, queueLoaded } = useNetwork();
   const [docs, setDocs] = useState<RegulatoryDoc[]>([]);
   const regDocsKey = REG_DOCS_PREFIX + (user?.id ?? 'anon');
+  const [foregroundReloadSeq, setForegroundReloadSeq] = useState(0);
   const docsRef = useRef(docs);
   const orgIdRef = useRef<string | null>(user?.organizationId ?? null);
   const isOnlineRef = useRef(isOnline);
@@ -100,7 +102,25 @@ export function ReglementaireProvider({ children }: { children: React.ReactNode 
       if (cached) setDocs(cached);
     }
     load();
-  }, [user?.id, queueLoaded]);
+  }, [user?.id, queueLoaded, foregroundReloadSeq]);
+
+  useEffect(() => {
+    if (!isSupabaseConfigured || Platform.OS === 'web' || !user) return;
+    let backgroundAt = 0;
+    let lastReloadAt = 0;
+    const sub = AppState.addEventListener('change', (state: AppStateStatus) => {
+      if (state === 'active') {
+        const sleptMs = backgroundAt > 0 ? Date.now() - backgroundAt : 0;
+        if (sleptMs > 5000 && Date.now() - lastReloadAt > 2000) {
+          lastReloadAt = Date.now();
+          setForegroundReloadSeq(seq => seq + 1);
+        }
+      } else if (state === 'background' || state === 'inactive') {
+        backgroundAt = Date.now();
+      }
+    });
+    return () => sub.remove();
+  }, [user?.id]);
 
   useEffect(() => {
     if (!isSupabaseConfigured || !user) return;
@@ -133,7 +153,7 @@ export function ReglementaireProvider({ children }: { children: React.ReactNode 
       })
       .subscribe();
     return () => { supabase.removeChannel(sub); };
-  }, [user?.id]);
+  }, [user?.id, foregroundReloadSeq]);
 
   async function persistLocal(data: RegulatoryDoc[]) {
     setDocs(data);

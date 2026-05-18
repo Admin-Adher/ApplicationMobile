@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useEffect, useState, useCallback, useRef } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { Alert } from 'react-native';
+import { Alert, AppState, AppStateStatus, Platform } from 'react-native';
 import { TimeEntry } from '@/constants/types';
 import { supabase, isSupabaseConfigured } from '@/lib/supabase';
 import { useAuth } from '@/context/AuthContext';
@@ -63,6 +63,7 @@ export function PointageProvider({ children }: { children: React.ReactNode }) {
   const { isOnline, enqueueOperation, queue, queueLoaded } = useNetwork();
   const [entries, setEntries] = useState<TimeEntry[]>([]);
   const pointageKey = POINTAGE_PREFIX + (user?.id ?? 'anon');
+  const [foregroundReloadSeq, setForegroundReloadSeq] = useState(0);
   const entriesRef = useRef(entries);
   const orgIdRef = useRef<string | null>(user?.organizationId ?? null);
   const isOnlineRef = useRef(isOnline);
@@ -105,7 +106,25 @@ export function PointageProvider({ children }: { children: React.ReactNode }) {
       if (cached) setEntries(cached);
     }
     load();
-  }, [user?.id, queueLoaded]);
+  }, [user?.id, queueLoaded, foregroundReloadSeq]);
+
+  useEffect(() => {
+    if (!isSupabaseConfigured || Platform.OS === 'web' || !user) return;
+    let backgroundAt = 0;
+    let lastReloadAt = 0;
+    const sub = AppState.addEventListener('change', (state: AppStateStatus) => {
+      if (state === 'active') {
+        const sleptMs = backgroundAt > 0 ? Date.now() - backgroundAt : 0;
+        if (sleptMs > 5000 && Date.now() - lastReloadAt > 2000) {
+          lastReloadAt = Date.now();
+          setForegroundReloadSeq(seq => seq + 1);
+        }
+      } else if (state === 'background' || state === 'inactive') {
+        backgroundAt = Date.now();
+      }
+    });
+    return () => sub.remove();
+  }, [user?.id]);
 
   useEffect(() => {
     if (!isSupabaseConfigured || !user) return;
@@ -138,7 +157,7 @@ export function PointageProvider({ children }: { children: React.ReactNode }) {
       })
       .subscribe();
     return () => { supabase.removeChannel(sub); };
-  }, [user?.id]);
+  }, [user?.id, foregroundReloadSeq]);
 
   async function persistLocal(data: TimeEntry[]) {
     setEntries(data);

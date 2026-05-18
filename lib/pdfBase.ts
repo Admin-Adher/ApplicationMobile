@@ -3,6 +3,7 @@ import * as Print from 'expo-print';
 import * as Sharing from 'expo-sharing';
 import * as FileSystem from 'expo-file-system';
 import * as ImageManipulator from 'expo-image-manipulator';
+import { preRenderPdfPageToDataUrlImpl } from '@/lib/pdfPreRender';
 
 /**
  * Escapes user-supplied strings so they are safe to embed in HTML.
@@ -475,26 +476,7 @@ export async function preRenderPdfPageToDataUrl(
   pdfUri: string,
   renderW: number,
 ): Promise<string | null> {
-  if (typeof document === 'undefined') return null;
-  try {
-    const { getDocument } = await import('@/lib/pdfjs.web');
-    const srcArg = pdfUri.startsWith('data:')
-      ? { data: atob(pdfUri.split(',')[1]) }
-      : { url: pdfUri, withCredentials: false };
-    const pdfDoc = await (getDocument(srcArg) as any).promise;
-    const page = await pdfDoc.getPage(1);
-    const vp1 = page.getViewport({ scale: 1 });
-    const scale = renderW / vp1.width;
-    const vp = page.getViewport({ scale });
-    const canvas = document.createElement('canvas');
-    canvas.width = Math.round(vp.width);
-    canvas.height = Math.round(vp.height);
-    const ctx = canvas.getContext('2d')!;
-    await page.render({ canvasContext: ctx, viewport: vp }).promise;
-    return canvas.toDataURL('image/jpeg', 0.88);
-  } catch {
-    return null;
-  }
+  return preRenderPdfPageToDataUrlImpl(pdfUri, renderW);
 }
 
 /**

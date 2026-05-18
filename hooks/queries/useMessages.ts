@@ -17,6 +17,7 @@ export function useMessages() {
   const { isOnline, enqueueOperation, registerReloadHandler } = useNetwork();
   const [messages, setMessages] = useState<Message[]>([]);
   const [realtimeConnected, setRealtimeConnected] = useState(false);
+  const [reconnectSeq, setReconnectSeq] = useState(0);
 
   const userNameRef = useRef<string>(user?.name ?? '');
   useEffect(() => { userNameRef.current = user?.name ?? ''; }, [user?.name]);
@@ -74,7 +75,7 @@ export function useMessages() {
     if (!isSupabaseConfigured) return;
     loadedChannelIdsRef.current.clear();
     loadRecentMessages();
-  }, [user?.id]);
+  }, [user?.id, reconnectSeq]);
 
   async function loadRecentMessages() {
     if (!isSupabaseConfigured) return;
@@ -202,7 +203,7 @@ export function useMessages() {
       });
 
     return () => { supabase.removeChannel(globalSub); };
-  }, [user?.id]);
+  }, [user?.id, reconnectSeq]);
 
   const addMessage = useCallback((
     channelId: string,
@@ -456,9 +457,18 @@ export function useMessages() {
   // Recharger les messages quand l'app revient en premier plan
   useEffect(() => {
     if (!isSupabaseConfigured) return;
+    let backgroundAt = 0;
+    let lastReconnectAt = 0;
     const subscription = AppState.addEventListener('change', (nextState: AppStateStatus) => {
       if (nextState === 'active') {
+        const sleptMs = backgroundAt > 0 ? Date.now() - backgroundAt : 0;
+        if (sleptMs > 5000 && Date.now() - lastReconnectAt > 2000) {
+          lastReconnectAt = Date.now();
+          setReconnectSeq(seq => seq + 1);
+        }
         loadRecentMessagesRef.current();
+      } else if (nextState === 'background' || nextState === 'inactive') {
+        backgroundAt = Date.now();
       }
     });
     return () => subscription.remove();

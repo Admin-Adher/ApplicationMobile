@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { AppState, AppStateStatus, Platform } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { supabase, isSupabaseConfigured } from '@/lib/supabase';
 import { useAuth } from '@/context/AuthContext';
@@ -30,6 +31,7 @@ export function useChannels() {
   const [pinnedChannelIds, setPinnedChannelIds] = useState<string[]>([]);
   const [channelMembersOverride, setChannelMembersOverride] = useState<Record<string, string[]>>({});
   const [pendingDmChannelIds, setPendingDmChannelIds] = useState<Set<string>>(new Set());
+  const [reconnectSeq, setReconnectSeq] = useState(0);
   const dmUpsertPromisesRef = useRef<Map<string, Promise<void>>>(new Map());
 
   const orgIdRef = useRef<string | null>(user?.organizationId ?? null);
@@ -101,6 +103,26 @@ export function useChannels() {
       loadChannelMembersOverride(),
     ]);
   }
+
+  useEffect(() => {
+    if (!isSupabaseConfigured || Platform.OS === 'web' || !user) return;
+    let backgroundAt = 0;
+    let lastReconnectAt = 0;
+    const sub = AppState.addEventListener('change', (state: AppStateStatus) => {
+      if (state === 'active') {
+        const sleptMs = backgroundAt > 0 ? Date.now() - backgroundAt : 0;
+        if (sleptMs > 5000 && Date.now() - lastReconnectAt > 2000) {
+          lastReconnectAt = Date.now();
+          setReconnectSeq(seq => seq + 1);
+          void loadAll();
+        }
+      } else if (state === 'background' || state === 'inactive') {
+        backgroundAt = Date.now();
+      }
+    });
+    return () => sub.remove();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user?.id]);
 
   async function _loadChannelsFromSupabase() {
     const [customCached, groupCached, generalCached, dmCached, pendingDmCached] = await Promise.all([
@@ -627,7 +649,7 @@ export function useChannels() {
       .subscribe();
 
     return () => { supabase.removeChannel(channelSub); };
-  }, [user?.id]);
+  }, [user?.id, reconnectSeq]);
 
   return {
     generalChannels,

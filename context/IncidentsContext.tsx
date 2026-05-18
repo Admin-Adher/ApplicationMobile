@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useEffect, useState, useCallback, useRef } from 'react';
-import { Alert } from 'react-native';
+import { Alert, AppState, AppStateStatus, Platform } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Incident } from '@/constants/types';
 import { supabase, isSupabaseConfigured } from '@/lib/supabase';
@@ -71,6 +71,7 @@ export function IncidentsProvider({ children }: { children: React.ReactNode }) {
   const [incidents, setIncidents] = useState<Incident[]>([]);
   const incidentsKey = INCIDENTS_PREFIX + (user?.id ?? 'anon');
   const [isLoading, setIsLoading] = useState(true);
+  const [foregroundReloadSeq, setForegroundReloadSeq] = useState(0);
   const incidentsRef = useRef(incidents);
   const orgIdRef = useRef<string | null>(user?.organizationId ?? null);
   const isOnlineRef = useRef(isOnline);
@@ -119,7 +120,25 @@ export function IncidentsProvider({ children }: { children: React.ReactNode }) {
       setIsLoading(false);
     }
     load();
-  }, [user?.id, queueLoaded]);
+  }, [user?.id, queueLoaded, foregroundReloadSeq]);
+
+  useEffect(() => {
+    if (!isSupabaseConfigured || Platform.OS === 'web' || !user) return;
+    let backgroundAt = 0;
+    let lastReloadAt = 0;
+    const sub = AppState.addEventListener('change', (state: AppStateStatus) => {
+      if (state === 'active') {
+        const sleptMs = backgroundAt > 0 ? Date.now() - backgroundAt : 0;
+        if (sleptMs > 5000 && Date.now() - lastReloadAt > 2000) {
+          lastReloadAt = Date.now();
+          setForegroundReloadSeq(seq => seq + 1);
+        }
+      } else if (state === 'background' || state === 'inactive') {
+        backgroundAt = Date.now();
+      }
+    });
+    return () => sub.remove();
+  }, [user?.id]);
 
   useEffect(() => {
     if (!isSupabaseConfigured || !user) return;
@@ -142,7 +161,7 @@ export function IncidentsProvider({ children }: { children: React.ReactNode }) {
       })
       .subscribe();
     return () => { supabase.removeChannel(sub); };
-  }, [user?.id]);
+  }, [user?.id, foregroundReloadSeq]);
 
   async function persist(updated: Incident[]) {
     setIncidents(updated);

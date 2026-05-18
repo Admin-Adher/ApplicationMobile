@@ -162,18 +162,40 @@ export async function forceRefreshSession(): Promise<string | null> {
  */
 export async function isSupabaseSessionValid(): Promise<boolean> {
   if (!isSupabaseConfigured) return false;
+  const hasValidCachedSession = async () => {
+    const cached = await getSessionFromStorage();
+    if (cached?.access_token && typeof cached.expires_at === 'number') {
+      const nowSec = Math.floor(Date.now() / 1000);
+      if (cached.expires_at - 10 > nowSec) {
+        console.warn('[offlineCache] AsyncStorage fallback: JWT still valid, proceeding');
+        return true;
+      }
+      console.warn('[offlineCache] AsyncStorage fallback: JWT expired — forceRefreshSession()');
+      const newToken = await forceRefreshSession();
+      if (newToken) {
+        console.warn('[offlineCache] forceRefresh succeeded — session renouvelée');
+        return true;
+      }
+      console.warn('[offlineCache] forceRefresh échoué — retour au cache local');
+    }
+    return false;
+  };
+
   try {
     const timeoutPromise = new Promise<null>((_, reject) =>
       setTimeout(() => reject(new Error('session-check-timeout')), SESSION_CHECK_TIMEOUT_MS)
     );
     const sessionPromise = supabase.auth.getSession().then(r => r.data.session);
     const session = await Promise.race([sessionPromise, timeoutPromise]);
-    if (!session?.user?.id) return false;
+    if (!session?.user?.id) return hasValidCachedSession();
     if (typeof session.expires_at === 'number') {
       const nowSec = Math.floor(Date.now() / 1000);
       // 10-second margin: avoid the race where the token is technically valid
       // but supabase-js is mid-refresh and about to swap it out.
-      if (session.expires_at - 10 < nowSec) return false;
+      if (session.expires_at - 10 < nowSec) {
+        const newToken = await forceRefreshSession();
+        return !!newToken;
+      }
     }
     return true;
   } catch {
@@ -182,22 +204,7 @@ export async function isSupabaseSessionValid(): Promise<boolean> {
     // network. If it hasn't expired the app can still make authenticated requests.
     console.warn('[offlineCache] getSession() timeout — trying AsyncStorage fallback');
     try {
-      const cached = await getSessionFromStorage();
-      if (cached?.access_token && typeof cached.expires_at === 'number') {
-        const nowSec = Math.floor(Date.now() / 1000);
-        if (cached.expires_at - 10 > nowSec) {
-          console.warn('[offlineCache] AsyncStorage fallback: JWT still valid, proceeding');
-          return true;
-        }
-        // JWT is expired — attempt a direct HTTP refresh, bypassing the stuck lock.
-        console.warn('[offlineCache] AsyncStorage fallback: JWT expired — forceRefreshSession()');
-        const newToken = await forceRefreshSession();
-        if (newToken) {
-          console.warn('[offlineCache] forceRefresh succeeded — session renouvelée');
-          return true;
-        }
-        console.warn('[offlineCache] forceRefresh échoué — retour au cache local');
-      }
+      return await hasValidCachedSession();
     } catch {
       // AsyncStorage read failed — truly offline/locked
     }

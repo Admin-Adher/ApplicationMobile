@@ -1,4 +1,5 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
+import { AppState, AppStateStatus, Platform } from 'react-native';
 import { useQueryClient } from '@tanstack/react-query';
 import { supabase, isSupabaseConfigured } from '@/lib/supabase';
 import { queryKeys } from '@/lib/queryKeys';
@@ -18,9 +19,29 @@ const GLOBAL_TABLES = ['profiles'] as const;
 export function useRealtimeSync() {
   const queryClient = useQueryClient();
   const { user } = useAuth();
+  const [reconnectSeq, setReconnectSeq] = useState(0);
+
+  useEffect(() => {
+    if (!isSupabaseConfigured || Platform.OS === 'web') return;
+    let backgroundAt = 0;
+    let lastReconnectAt = 0;
+    const sub = AppState.addEventListener('change', (state: AppStateStatus) => {
+      if (state === 'active') {
+        const sleptMs = backgroundAt > 0 ? Date.now() - backgroundAt : 0;
+        if (sleptMs > 5000 && Date.now() - lastReconnectAt > 2000) {
+          lastReconnectAt = Date.now();
+          setReconnectSeq(seq => seq + 1);
+        }
+      } else if (state === 'background' || state === 'inactive') {
+        backgroundAt = Date.now();
+      }
+    });
+    return () => sub.remove();
+  }, []);
 
   useEffect(() => {
     if (!isSupabaseConfigured) return;
+    if (!user?.id) return;
 
     let cleanupFn: (() => void) | null = null;
 
@@ -136,5 +157,5 @@ export function useRealtimeSync() {
       clearTimeout(timer);
       cleanupFn?.();
     };
-  }, [queryClient, user?.id, user?.organizationId, user?.role]);
+  }, [queryClient, user?.id, user?.organizationId, user?.role, reconnectSeq]);
 }
