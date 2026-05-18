@@ -52,12 +52,22 @@ export interface CommentPatch {
   editedAt?: string;
 }
 
+export interface PhotoPatch {
+  action: 'upsert' | 'delete';
+  /** Photos to merge by ID into the reserve gallery. */
+  photos?: any[];
+  /** Legacy first-photo field kept in sync with the gallery. */
+  photoUri?: string | null;
+  /** Photo IDs to remove when action === 'delete'. */
+  photoIds?: string[];
+}
+
 /**
  * A single queued offline mutation.
  *
  * Generic operations: table + op + filter + data → replayed verbatim against Supabase.
  * Status-change operations also carry a conflictCheck so we can detect concurrent edits.
- * Comment operations carry a commentPatch so each delta is merged server-side by ID.
+ * Comment/photo operations carry patches so each delta is merged server-side by ID.
  */
 export interface QueuedOperation {
   id: string;
@@ -82,6 +92,12 @@ export interface QueuedOperation {
    * and applies the patch by comment ID before writing back.
    */
   commentPatch?: CommentPatch;
+  /**
+   * Present only for reserve photo-only retries. The engine fetches the live
+   * server gallery and merges/removes by photo ID instead of overwriting the
+   * whole `photos` array with a stale offline snapshot.
+   */
+  photoPatch?: PhotoPatch;
   /** Last server error captured during a failed sync attempt (set by processSyncQueue). */
   lastError?: string;
   /** Number of failed sync attempts. */
@@ -555,6 +571,7 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
 
     let processed = 0;
     for (const op of currentQueue) {
+      let retryOpForCatch: QueuedOperation = op;
       try {
         // ── Status-change conflict detection ───────────────────────────────
         if (op.conflictCheck) {
@@ -654,6 +671,8 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
 
         // ── Upload local photos / files before replaying insert/update ───────
         let data = op.data ? { ...op.data } : op.data;
+        let retryData = data;
+        let deferredPhotoPatch: QueuedOperation | null = null;
         if (data) {
           if (op.table === 'reserves') {
             if (data.deadline === '—' || data.deadline === '') {
@@ -686,8 +705,17 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
               setSyncProgress({ done: processed, total: currentQueue.length });
               continue;
             }
-            if (prep.data) data = prep.data;
+            if (prep.data) {
+              data = prep.data;
+              retryData = prep.data;
+            }
             if (!prep.allOk) {
+              const errDetail = prep.uploadErrors?.join(' | ') ?? '';
+              if (op.photoPatch) {
+                fail(op, errDetail || 'Échec upload photo. Nouvelle tentative au prochain passage.');
+                continue;
+              }
+
               if (op.table === 'reserves') {
                 // ── Partial photo failure for a reserve ───────────────────────
                 // The photo upload failed but the reserve's text data (title,
@@ -695,7 +723,7 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
                 // hostage by it. Strategy:
                 //   1. Strip the local photo URIs from the payload.
                 //   2. Proceed with the insert/update so the reserve is saved.
-                //   3. Re-queue a photo-only UPDATE so the photos keep retrying.
+                //   3. Re-queue a photo-only merge after the reserve row succeeds.
                 const safeData = { ...(data ?? {}) };
                 const pendingPhotoData: Record<string, any> = {};
 
@@ -716,28 +744,43 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
                 }
 
                 data = safeData;
+                retryData = { ...safeData };
+                if (Object.prototype.hasOwnProperty.call(pendingPhotoData, 'photo_uri')) {
+                  retryData.photo_uri = pendingPhotoData.photo_uri;
+                }
+                if (Array.isArray(pendingPhotoData.photos)) {
+                  retryData.photos = [
+                    ...(Array.isArray(safeData.photos) ? safeData.photos : []),
+                    ...pendingPhotoData.photos,
+                  ];
+                }
 
-                // Re-queue a photo-only UPDATE (will keep retrying until it succeeds)
+                // Defer the photo-only retry until the generic reserve op succeeds.
+                // Otherwise an INSERT followed by a photo UPDATE can replay in the
+                // wrong order and the photo patch will hit a row that does not exist.
                 const reserveId = safeData.id ?? op.filter?.value;
                 if (Object.keys(pendingPhotoData).length > 0 && reserveId) {
-                  const errDetail = prep.uploadErrors?.join(' | ') ?? '';
                   console.warn(
                     `[queue] reserve ${reserveId}: syncing text data without photos. Upload errors: ${errDetail}`,
                   );
-                  failedOps.push({
+                  deferredPhotoPatch = {
                     id: genQueueId(),
                     queuedAt: new Date().toISOString(),
                     table: 'reserves',
                     op: 'update',
                     filter: { column: 'id', value: reserveId },
                     data: pendingPhotoData,
+                    photoPatch: {
+                      action: 'upsert',
+                      photos: Array.isArray(pendingPhotoData.photos) ? pendingPhotoData.photos : undefined,
+                      photoUri: typeof pendingPhotoData.photo_uri === 'string' ? pendingPhotoData.photo_uri : null,
+                    },
                     lastError: errDetail || 'Échec upload photo. Nouvelle tentative au prochain passage.',
                     attemptCount: (op.attemptCount ?? 0) + 1,
-                  });
+                  };
                 }
                 // Fall through to the generic replay below with safeData
               } else {
-                const errDetail = prep.uploadErrors?.join(' | ') ?? '';
                 fail(op, errDetail || 'Échec upload de fichiers locaux (photos/plans). Nouvelle tentative au prochain passage.');
                 continue;
               }
@@ -746,6 +789,66 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
             fail(op, e);
             continue;
           }
+        }
+        retryOpForCatch = retryData ? { ...op, data: retryData } : op;
+
+        // ── Reserve photo patch (merge by photo ID) ─────────────────────────
+        // A photo-only retry must not write a stale `photos` snapshot. Fetch the
+        // live gallery, merge/delete by photo ID, then write the merged result.
+        if (op.photoPatch && op.table === 'reserves' && op.filter?.column === 'id') {
+          const reserveId = op.filter.value;
+          const { data: reserveRows, error: fetchErr } = await supabaseRestSelect<any>(
+            'reserves',
+            'photos,photo_uri',
+            { column: 'id', value: reserveId },
+          );
+          if (fetchErr) { fail(op, fetchErr); continue; }
+
+          const serverReserve = reserveRows?.[0] ?? null;
+          if (!serverReserve) continue;
+
+          let mergedPhotos: any[] = Array.isArray(serverReserve.photos)
+            ? [...serverReserve.photos]
+            : [];
+
+          if (op.photoPatch.action === 'delete') {
+            const ids = new Set((op.photoPatch.photoIds ?? []).map(String));
+            mergedPhotos = mergedPhotos.filter((p: any) => !ids.has(String(p?.id)));
+          } else {
+            const incomingPhotos = Array.isArray(data?.photos)
+              ? data.photos
+              : (op.photoPatch.photos ?? []);
+            const byId = new Map<string, any>();
+            for (const photo of mergedPhotos) {
+              if (photo?.id) byId.set(String(photo.id), photo);
+            }
+            for (const photo of incomingPhotos) {
+              if (photo?.id) byId.set(String(photo.id), photo);
+            }
+            mergedPhotos = Array.from(byId.values());
+          }
+
+          const incomingPhotoUri =
+            typeof data?.photo_uri === 'string'
+              ? data.photo_uri
+              : typeof op.photoPatch.photoUri === 'string'
+              ? op.photoPatch.photoUri
+              : undefined;
+          const nextPhotoUri = op.photoPatch.action === 'delete' && mergedPhotos.length === 0
+            ? null
+            : incomingPhotoUri ?? mergedPhotos[0]?.uri ?? serverReserve.photo_uri ?? null;
+          const nextPayload = {
+            photos: mergedPhotos.length > 0 ? mergedPhotos : null,
+            photo_uri: nextPhotoUri,
+          };
+          const { error: writeErr } = await supabaseRestMutation(
+            'reserves',
+            'update',
+            nextPayload,
+            { column: 'id', value: reserveId },
+          );
+          if (writeErr) fail({ ...op, data: nextPayload }, writeErr);
+          continue;
         }
 
         // ── Generic table/op replay ────────────────────────────────────────
@@ -789,7 +892,7 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
                 }
               } catch {}
             }
-            fail(op, `UPDATE sur ${op.table} a affecté 0 ligne. Probablement bloqué par une policy RLS, ou l'élément ne vous appartient plus.`);
+            fail(retryOpForCatch, `UPDATE sur ${op.table} a affecté 0 ligne. Probablement bloqué par une policy RLS, ou l'élément ne vous appartient plus.`);
             continue;
           }
         } else if (op.op === 'delete') {
@@ -820,9 +923,10 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
           continue;
         }
 
-        if (result.error) fail(op, result.error);
+        if (result.error) fail(retryOpForCatch, result.error);
+        else if (deferredPhotoPatch) failedOps.push(deferredPhotoPatch);
       } catch (e) {
-        fail(op, e);
+        fail(retryOpForCatch, e);
       } finally {
         processed += 1;
         setSyncProgress({ done: processed, total: currentQueue.length });

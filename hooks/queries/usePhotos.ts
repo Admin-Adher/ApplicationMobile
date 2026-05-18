@@ -104,10 +104,17 @@ export function usePhotos() {
         enqueueOperation({ table: 'photos', op: 'insert', data: payload });
         return;
       }
-      const { error } = await (supabase as any).from('photos').insert(prep.data!);
+      const finalPayload = prep.data!;
+      if (prep.hadLocal && typeof finalPayload.uri === 'string') {
+        queryClient.setQueryData<Photo[]>(queryKeys.photos(), old =>
+          (old ?? []).map(photo => photo.id === p.id ? { ...photo, uri: finalPayload.uri } : photo)
+        );
+        persist(queryClient.getQueryData<Photo[]>(queryKeys.photos()) ?? []);
+      }
+      const { error } = await (supabase as any).from('photos').insert(finalPayload);
       if (error) {
         console.warn('[sync] addPhoto error, queuing for retry:', error.message);
-        enqueueOperation({ table: 'photos', op: 'insert', data: payload });
+        enqueueOperation({ table: 'photos', op: 'insert', data: finalPayload });
       }
     }
   }, [queryClient, user, isOnlineRef, enqueueOperation, persist]);

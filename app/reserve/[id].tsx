@@ -671,12 +671,13 @@ export default function ReserveDetailScreen() {
       setEditPhotos(prev => [...prev, newPhoto]);
     } catch {
       const today = formatDateFR(new Date());
-      const newPhoto: ReservePhoto = { id: genId(), uri, kind: 'defect', takenAt: today, takenBy: user?.name ?? '' };
+      const finalUri = await persistLocalPhoto(uri).catch(() => uri);
+      const newPhoto: ReservePhoto = { id: genId(), uri: finalUri, kind: 'defect', takenAt: today, takenBy: user?.name ?? '' };
       setEditPhotos(prev => [...prev, newPhoto]);
       if (isSupabaseConfigured) {
         Alert.alert(
           'Upload échoué',
-          "La photo a été ajoutée localement mais n'a pas pu être envoyée au serveur. Elle pourrait être perdue si le cache est effacé.",
+          "La photo a été ajoutée localement et sera renvoyée lors de la prochaine synchronisation.",
         );
       }
     } finally {
@@ -744,8 +745,8 @@ export default function ReserveDetailScreen() {
       history: changes.length > 0 ? [...reserve.history, historyEntry] : reserve.history,
     };
     updateReserveFields(updated);
-    const existingPhotoIds = new Set((reserve.photos ?? []).map(p => p.id));
-    editPhotos.filter(p => !existingPhotoIds.has(p.id)).forEach(p => {
+    const existingPhotoIds = new Set(allPhotos.map(p => p.id));
+    editPhotos.filter(p => p.id !== 'legacy' && !existingPhotoIds.has(p.id)).forEach(p => {
       addPhoto({
         id: genId(),
         comment: `Photo réserve ${reserve.id} — ${editTitle.trim()}`,
@@ -754,6 +755,7 @@ export default function ReserveDetailScreen() {
         takenBy: author,
         colorCode: '#EF4444',
         uri: p.uri,
+        reserveId: reserve.id,
       });
     });
     setEditModalVisible(false);
