@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect, useCallback, useImperativeHandle, forwardRef } from 'react';
+import React, { useState, useRef, useEffect, useCallback, useImperativeHandle, forwardRef, useMemo } from 'react';
 import {
   View, Text, TouchableOpacity, StyleSheet, Platform,
   ActivityIndicator, ScrollView,
@@ -28,6 +28,19 @@ const PALETTE = [
 ];
 
 const WIDTHS = [1, 2, 3, 5, 8];
+const PLAN_DATA_URL_CACHE_LIMIT = 3;
+const PLAN_DATA_URL_CACHE_MAX_BYTES = 10 * 1024 * 1024;
+const planDataUrlCache = new Map<string, string>();
+
+function rememberPlanDataUrl(uri: string, dataUrl: string) {
+  planDataUrlCache.delete(uri);
+  planDataUrlCache.set(uri, dataUrl);
+  while (planDataUrlCache.size > PLAN_DATA_URL_CACHE_LIMIT) {
+    const oldest = planDataUrlCache.keys().next().value;
+    if (!oldest) break;
+    planDataUrlCache.delete(oldest);
+  }
+}
 
 const TOOLS: { id: PlanDrawingTool; icon: string; label: string }[] = [
   { id: 'pen',       icon: 'pencil',        label: 'Crayon' },
@@ -557,15 +570,7 @@ function loadPdfjs(){
           fail
         );
       }
-      if(PDFJS_WORKER_SOURCE){
-        injectModule(
-          PDFJS_WORKER_SOURCE+"\\n;window.dispatchEvent(new Event('bt-pdfjs-worker-ready'));",
-          injectPdfModule,
-          injectPdfModule
-        );
-      }else{
-        injectPdfModule();
-      }
+      injectPdfModule();
       setTimeout(function(){finish(window.pdfjsLib||globalThis.pdfjsLib||null);},5000);
     }).catch(function(){
       return import('https://cdn.jsdelivr.net/npm/pdfjs-dist@5.7.284/legacy/build/pdf.min.mjs').then(function(lib){
@@ -581,7 +586,7 @@ function loadPdfjs(){
 }
 
 var BASE_FIT_SCALE=1;
-var RENDER_QUALITY=3;
+var RENDER_QUALITY=2;
 var rerenderTimer=null;
 var isRerendering=false;
 
@@ -602,7 +607,7 @@ function renderPageAtQuality(num,q,resetView){
     pdfCanvas.style.width=cssW+'px';
     pdfCanvas.style.height=cssH+'px';
     if(resetView){cw=cssW;ch=cssH;setSvgSize();}
-    var ctx=pdfCanvas.getContext('2d');
+    var ctx=pdfCanvas.getContext('2d',{alpha:false})||pdfCanvas.getContext('2d');
     ctx.clearRect(0,0,pdfCanvas.width,pdfCanvas.height);
     return page.render({canvasContext:ctx,viewport:vp}).promise.then(function(){
       isRerendering=false;
@@ -642,14 +647,14 @@ if(IS_IMAGE){
   img.onload=function(){
     var W=window.innerWidth||600;
     var aspect=img.naturalHeight/(img.naturalWidth||1);
-    var IQ=3;
+    var IQ=2;
     cw=W;ch=Math.round(W*aspect);
     pdfCanvas.width=Math.round(cw*IQ);
     pdfCanvas.height=Math.round(ch*IQ);
     pdfCanvas.style.width=cw+'px';
     pdfCanvas.style.height=ch+'px';
     setSvgSize();
-    var ctx2d=pdfCanvas.getContext('2d');
+    var ctx2d=pdfCanvas.getContext('2d',{alpha:false})||pdfCanvas.getContext('2d');
     ctx2d.imageSmoothingEnabled=true;
     ctx2d.imageSmoothingQuality='high';
     ctx2d.drawImage(img,0,0,Math.round(cw*IQ),Math.round(ch*IQ));
@@ -673,10 +678,8 @@ if(IS_IMAGE){
   };
   img.src=PLAN_URI;
 }else{
-  // disableWorker:true is critical when the document origin is null (about:blank
-  // in WebView) — cross-origin worker scripts are blocked by the browser.
   loadPdfjs().then(function(pdfjsLib){
-    var docArgs={url:PLAN_URI,withCredentials:false,disableWorker:true,isEvalSupported:false};
+    var docArgs={url:PLAN_URI,withCredentials:false,isEvalSupported:false};
     return pdfjsLib.getDocument(docArgs).promise;
   }).then(function(doc){
     pdfDoc=doc;pageCount=doc.numPages;
@@ -940,8 +943,16 @@ const MobileViewer = forwardRef<PdfPlanViewerHandle, PdfPlanViewerProps>(functio
       const info = await FileSystem.getInfoAsync(localUri);
       const size = info.exists && 'size' in info ? (info.size as number) : 0;
       if (size > MAX_BASE64_SIZE) return null;
+      const cached = planDataUrlCache.get(localUri);
+      if (cached) {
+        planDataUrlCache.delete(localUri);
+        planDataUrlCache.set(localUri, cached);
+        return cached;
+      }
       const b64 = await FileSystem.readAsStringAsync(localUri, { encoding: FileSystem.EncodingType.Base64 });
-      return `data:${mimeFor(localUri)};base64,${b64}`;
+      const dataUrl = `data:${mimeFor(localUri)};base64,${b64}`;
+      if (size <= PLAN_DATA_URL_CACHE_MAX_BYTES) rememberPlanDataUrl(localUri, dataUrl);
+      return dataUrl;
     }
 
     async function loadRemote(): Promise<void> {
@@ -1067,15 +1078,15 @@ const MobileViewer = forwardRef<PdfPlanViewerHandle, PdfPlanViewerProps>(functio
     }),
   }), [inject]);
 
-  useEffect(() => {
+  const injectToolState = useCallback(() => {
     inject(`window.setState(${JSON.stringify({ mode, tool, color, strokeWidth: sw })});`);
-  }, [mode, tool, color, sw]);
+  }, [inject, mode, tool, color, sw]);
 
-  useEffect(() => {
+  const injectAnnotations = useCallback(() => {
     inject(`window.setAnnotations(${JSON.stringify(annotations ?? [])});`);
-  }, [planId, annotations]);
+  }, [inject, planId, annotations]);
 
-  useEffect(() => {
+  const injectPins = useCallback(() => {
     const pinsData = reserves
       .filter(r => r.planX != null && r.planY != null)
       .map(r => ({
@@ -1092,11 +1103,34 @@ const MobileViewer = forwardRef<PdfPlanViewerHandle, PdfPlanViewerProps>(functio
         num: pinNumberMap.get(r.id) ?? '?',
       }));
     inject(`window.updatePins(${JSON.stringify(pinsData)},${JSON.stringify(ghostData)});`);
-  }, [reserves, ghostReserves, pinNumberMap, pinSizes, pinSize, companies]);
+  }, [inject, reserves, ghostReserves, pinNumberMap, pinSizes, pinSize, companies]);
+
+  const injectFocusedPin = useCallback(() => {
+    inject(`window.setFocusedPin && window.setFocusedPin(${focusedPinId ? JSON.stringify(focusedPinId) : 'null'});`);
+  }, [inject, focusedPinId]);
+
+  const injectViewerSnapshot = useCallback(() => {
+    injectToolState();
+    injectAnnotations();
+    injectPins();
+    injectFocusedPin();
+  }, [injectToolState, injectAnnotations, injectPins, injectFocusedPin]);
 
   useEffect(() => {
-    inject(`window.setFocusedPin && window.setFocusedPin(${focusedPinId ? JSON.stringify(focusedPinId) : 'null'});`);
-  }, [focusedPinId]);
+    injectToolState();
+  }, [injectToolState]);
+
+  useEffect(() => {
+    injectAnnotations();
+  }, [injectAnnotations]);
+
+  useEffect(() => {
+    injectPins();
+  }, [injectPins]);
+
+  useEffect(() => {
+    injectFocusedPin();
+  }, [injectFocusedPin]);
 
   const onMessage = useCallback((event: any) => {
     try {
@@ -1116,6 +1150,7 @@ const MobileViewer = forwardRef<PdfPlanViewerHandle, PdfPlanViewerProps>(functio
         setPageCount(msg.count);
         setPage(1);
       } else if (msg.type === 'planReady') {
+        injectViewerSnapshot();
         onReady?.();
       } else if (msg.type === 'canvasCapture') {
         if (captureResolveRef.current) {
@@ -1129,11 +1164,15 @@ const MobileViewer = forwardRef<PdfPlanViewerHandle, PdfPlanViewerProps>(functio
         setLoadError(typeof msg.error === 'string' ? msg.error : 'Erreur de chargement du plan.');
       }
     } catch {}
-  }, [reserves, onPlanTap, onReserveSelect, onAnnotationsChange, onZoomChange, onPinMove, onPinFocus, onReady]);
+  }, [reserves, onPlanTap, onReserveSelect, onAnnotationsChange, onZoomChange, onPinMove, onPinFocus, onReady, injectViewerSnapshot]);
 
-  const html = resolvedUri
-    ? buildMobileHtml(resolvedUri, annotations ?? [], reserves, pinNumberMap, canAnnotate, canCreate, canMovePins, pinSize, isImagePlan, ghostReserves, pinSizes, companies, pdfJsSource, pdfJsWorkerSource)
-    : '';
+  const html = useMemo(
+    () => resolvedUri
+      ? buildMobileHtml(resolvedUri, annotations ?? [], reserves, pinNumberMap, canAnnotate, canCreate, canMovePins, pinSize, isImagePlan, ghostReserves, pinSizes, companies, pdfJsSource, pdfJsWorkerSource)
+      : '',
+    [resolvedUri, canAnnotate, canCreate, canMovePins, pinSize, isImagePlan, pdfJsSource, pdfJsWorkerSource],
+  );
+  const webViewSource = useMemo(() => ({ html, baseUrl: 'https://localhost' }), [html]);
   const viewerLoading = uriLoading || (!isImagePlan && pdfJsLoading);
 
   function changePage(n: number) {
@@ -1158,7 +1197,7 @@ const MobileViewer = forwardRef<PdfPlanViewerHandle, PdfPlanViewerProps>(functio
         key={resolvedUri}
         // baseUrl gives the WebView a real origin so cross-origin requests
         // (PDF.js worker, CDN script) work even when source is HTML string.
-        source={{ html, baseUrl: 'https://localhost' }}
+        source={webViewSource}
         onMessage={onMessage}
         style={mob.webview}
         javaScriptEnabled

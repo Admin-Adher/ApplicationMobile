@@ -107,6 +107,9 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
     const t = setTimeout(() => setAppLoadTimedOut(true), 10_000);
     return () => clearTimeout(t);
   }, [isAuthenticated, appLoading]);
+  useEffect(() => {
+    if (!appLoading && appLoadTimedOut) setAppLoadTimedOut(false);
+  }, [appLoading, appLoadTimedOut]);
 
   const isLoading = authLoading || (isAuthenticated && appLoading && !appLoadTimedOut);
 

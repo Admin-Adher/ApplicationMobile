@@ -1,5 +1,6 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { AppState, AppStateStatus, Platform } from 'react-native';
 import { useQueryClient } from '@tanstack/react-query';
 import {
   Reserve, Company, Task, Document, Photo, Message, Channel, Profile,
@@ -34,6 +35,8 @@ export { STANDARD_LOTS } from '@/hooks/queries/useLots';
 export const STATIC_CHANNELS: Channel[] = [];
 
 const ACTIVE_CHANTIER_PREFIX = 'buildtrack_active_chantier_v3_';
+const SERVER_REFRESH_MAX_WAIT_MS = 8_000;
+const FOREGROUND_REFRESH_MIN_SLEEP_MS = 5_000;
 
 interface AppContextValue {
   reserves: Reserve[];
@@ -160,22 +163,99 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const channelsH = useChannels();
   const messagesH = useMessages();
   const authH = useAuth();
-  const { isOnline, enqueueOperation } = useNetwork();
+  const { isOnline, enqueueOperation, queueLoaded } = useNetwork();
 
   useRealtimeSync();
 
   const [activeChantierId, setActiveChantierIdState] = useState<string | null>(null);
   const [lastReadByChannel, setLastReadByChannel] = useState<Record<string, string>>({});
   const [notification, setNotification] = useState<{ msg: Message; channelName: string; channelColor: string; channelIcon: string } | null>(null);
+  const [serverRefreshToken, setServerRefreshToken] = useState(0);
+  const [serverRefreshInProgress, setServerRefreshInProgress] = useState(false);
 
   const currentUserNameRef = useRef<string>('');
   const [currentUserName, setCurrentUserName] = useState('');
   const activeChannelIdRef = useRef<string | null>(null);
   const chantierInitializedRef = useRef(false);
+  const refreshedServerKeyRef = useRef<string | null>(null);
   // Fix 1: ref to always have latest lastReadByChannel without stale closure
   const lastReadByChannelRef = useRef<Record<string, string>>({});
   // Fix 4: ref to track if we have a cached profile (offline session), avoids async AsyncStorage in event handler
   const hasCachedProfileRef = useRef(false);
+
+  const needsServerFreshness = Boolean(
+    authH.user?.id &&
+      isSupabaseConfigured &&
+      isOnline &&
+      !authH.isOfflineSession
+  );
+  const serverFreshnessKey = needsServerFreshness
+    ? `${authH.user!.id}:${serverRefreshToken}`
+    : null;
+  const serverRefreshBlocking = needsServerFreshness && (
+    !queueLoaded ||
+      serverRefreshInProgress ||
+      refreshedServerKeyRef.current !== serverFreshnessKey
+  );
+
+  useEffect(() => {
+    if (Platform.OS === 'web') return;
+    if (!authH.user?.id) return;
+
+    let backgroundAt = 0;
+    const sub = AppState.addEventListener('change', (state: AppStateStatus) => {
+      if (state === 'active') {
+        const sleptMs = backgroundAt > 0 ? Date.now() - backgroundAt : 0;
+        if (sleptMs > FOREGROUND_REFRESH_MIN_SLEEP_MS) {
+          setServerRefreshToken(token => token + 1);
+        }
+        backgroundAt = 0;
+        return;
+      }
+
+      if (state === 'background' || state === 'inactive') {
+        backgroundAt = Date.now();
+      }
+    });
+
+    return () => sub.remove();
+  }, [authH.user?.id]);
+
+  useEffect(() => {
+    if (!needsServerFreshness) {
+      refreshedServerKeyRef.current = null;
+      setServerRefreshInProgress(false);
+      return;
+    }
+    if (!queueLoaded || !serverFreshnessKey) return;
+    if (refreshedServerKeyRef.current === serverFreshnessKey) return;
+
+    let cancelled = false;
+    let timeout: ReturnType<typeof setTimeout> | null = null;
+
+    setServerRefreshInProgress(true);
+
+    const timeoutPromise = new Promise<void>((resolve) => {
+      timeout = setTimeout(resolve, SERVER_REFRESH_MAX_WAIT_MS);
+    });
+    const refetchPromise = queryClient.refetchQueries({ type: 'active' }).catch((err) => {
+      if (!cancelled) {
+        console.warn('[AppContext] server freshness refresh failed:', (err as any)?.message ?? err);
+      }
+    });
+
+    Promise.race([refetchPromise, timeoutPromise]).finally(() => {
+      if (timeout) clearTimeout(timeout);
+      if (cancelled) return;
+      refreshedServerKeyRef.current = serverFreshnessKey;
+      setServerRefreshInProgress(false);
+    });
+
+    return () => {
+      cancelled = true;
+      if (timeout) clearTimeout(timeout);
+    };
+  }, [needsServerFreshness, queueLoaded, queryClient, serverFreshnessKey]);
 
   // Fix 14: namespace lastReadByChannel by userId so different accounts don't share state
   const lastReadStorageKey = useMemo(() => `lastReadByChannel_${authH.user?.id ?? 'anon'}`, [authH.user?.id]);
@@ -617,8 +697,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     [chantiersH.chantiers, activeChantierId]
   );
 
-  // Fix 10: isLoading aggregates all hooks, not just 2
-  const isLoading = chantiersH.isLoadingChantiers || reservesH.isLoadingReserves
+  // Fix 10: isLoading aggregates all hooks, not just 2.
+  // When online, also wait for the first server refresh so restored cache is
+  // never shown as if it were fresh data after startup or foreground resume.
+  const isLoading = serverRefreshBlocking || chantiersH.isLoadingChantiers || reservesH.isLoadingReserves
     || tasksH.isLoadingTasks || documentsH.isLoadingDocuments
     || photosH.isLoadingPhotos || profilesH.isLoadingProfiles
     || visitesH.isLoadingVisites || lotsH.isLoadingLots
