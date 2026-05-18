@@ -10,6 +10,7 @@ import { genId } from '@/lib/utils';
 import * as FileSystem from 'expo-file-system';
 import * as pdfjsLib from '@/lib/pdfjs';
 import { getPlanUriCacheFirst, getCachedPlanUri } from '@/lib/planCache';
+import { loadBundledPdfJsSource } from '@/lib/pdfjsAsset';
 
 const STATUS_COLORS: Record<string, string> = {
   open: '#EF4444', in_progress: '#F59E0B', waiting: '#6B7280',
@@ -170,6 +171,7 @@ function buildMobileHtml(
   ghostReserves: Reserve[] = [],
   pinSizes: Record<string, number> = {},
   companies: Array<{ name: string; color: string }> = [],
+  pdfJsSource: string | null = null,
 ): string {
   const pinsData = reserves
     .filter(r => r.planX != null && r.planY != null)
@@ -194,6 +196,7 @@ function buildMobileHtml(
   const safeAnns = JSON.stringify(annotations ?? []);
   const safePins = JSON.stringify(pinsData);
   const safeGhostPins = JSON.stringify(ghostPinsData);
+  const safePdfJsSource = JSON.stringify(pdfJsSource ?? '');
 
   return `<!DOCTYPE html>
 <html><head><meta charset="UTF-8">
@@ -242,6 +245,7 @@ var CAN_ANNOTATE=${canAnnotate};
 var CAN_CREATE=${canCreate};
 var CAN_MOVE_PINS=${canMovePins !== false ? 'true' : 'false'};
 var PIN_SIZE=${pinSize};
+var PDFJS_SOURCE=${safePdfJsSource};
 
 var focusedPinId=null;
 var mode='view',tool='pen',color='#EF4444',sw=2;
@@ -490,6 +494,41 @@ function setSvgSize(){
 function loadPdfjs(){
   if(window.pdfjsLib){
     return Promise.resolve(window.pdfjsLib);
+  }
+  if(PDFJS_SOURCE){
+    return new Promise(function(resolve,reject){
+      var done=false;
+      function finish(lib){
+        if(done)return;
+        done=true;
+        window.removeEventListener('bt-pdfjs-inline-ready',onReady);
+        if(lib){
+          window.pdfjsLib=lib;
+          resolve(lib);
+        }else{
+          reject(new Error('PDF.js embarque indisponible'));
+        }
+      }
+      function onReady(){
+        finish(window.pdfjsLib||globalThis.pdfjsLib||null);
+      }
+      window.addEventListener('bt-pdfjs-inline-ready',onReady,{once:true});
+      var s=document.createElement('script');
+      s.type='module';
+      s.textContent=PDFJS_SOURCE+"\\n;window.pdfjsLib=globalThis.pdfjsLib||window.pdfjsLib;window.dispatchEvent(new Event('bt-pdfjs-inline-ready'));";
+      s.onerror=function(e){
+        window.removeEventListener('bt-pdfjs-inline-ready',onReady);
+        reject(e instanceof Error?e:new Error('Chargement PDF.js embarque impossible'));
+      };
+      document.head.appendChild(s);
+      setTimeout(function(){finish(window.pdfjsLib||globalThis.pdfjsLib||null);},5000);
+    }).catch(function(){
+      return import('https://cdn.jsdelivr.net/npm/pdfjs-dist@5.7.284/legacy/build/pdf.min.mjs').then(function(lib){
+        lib.GlobalWorkerOptions.workerSrc='https://cdn.jsdelivr.net/npm/pdfjs-dist@5.7.284/legacy/build/pdf.worker.min.mjs';
+        window.pdfjsLib=lib;
+        return lib;
+      });
+    });
   }
   return import('https://cdn.jsdelivr.net/npm/pdfjs-dist@5.7.284/legacy/build/pdf.min.mjs').then(function(lib){
     lib.GlobalWorkerOptions.workerSrc='https://cdn.jsdelivr.net/npm/pdfjs-dist@5.7.284/legacy/build/pdf.worker.min.mjs';
@@ -815,8 +854,31 @@ const MobileViewer = forwardRef<PdfPlanViewerHandle, PdfPlanViewerProps>(functio
   const [loadError, setLoadError] = useState<string | null>(null);
   const [fromCache, setFromCache] = useState(false);
   const [offlineUnavailable, setOfflineUnavailable] = useState(false);
+  const [pdfJsSource, setPdfJsSource] = useState<string | null>(isImagePlan ? null : '');
+  const [pdfJsLoading, setPdfJsLoading] = useState(!isImagePlan);
 
   const MAX_BASE64_SIZE = 25 * 1024 * 1024;
+
+  useEffect(() => {
+    let cancelled = false;
+
+    if (isImagePlan) {
+      setPdfJsSource(null);
+      setPdfJsLoading(false);
+      return () => { cancelled = true; };
+    }
+
+    setPdfJsLoading(true);
+    loadBundledPdfJsSource()
+      .then(source => {
+        if (!cancelled) setPdfJsSource(source);
+      })
+      .finally(() => {
+        if (!cancelled) setPdfJsLoading(false);
+      });
+
+    return () => { cancelled = true; };
+  }, [isImagePlan]);
 
   useEffect(() => {
     let cancelled = false;
@@ -1022,8 +1084,9 @@ const MobileViewer = forwardRef<PdfPlanViewerHandle, PdfPlanViewerProps>(functio
   }, [reserves, onPlanTap, onReserveSelect, onAnnotationsChange, onZoomChange, onPinMove, onPinFocus, onReady]);
 
   const html = resolvedUri
-    ? buildMobileHtml(resolvedUri, annotations ?? [], reserves, pinNumberMap, canAnnotate, canCreate, canMovePins, pinSize, isImagePlan, ghostReserves, pinSizes, companies)
+    ? buildMobileHtml(resolvedUri, annotations ?? [], reserves, pinNumberMap, canAnnotate, canCreate, canMovePins, pinSize, isImagePlan, ghostReserves, pinSizes, companies, pdfJsSource)
     : '';
+  const viewerLoading = uriLoading || (!isImagePlan && pdfJsLoading);
 
   function changePage(n: number) {
     if (n < 1 || n > pageCount) return;
@@ -1035,13 +1098,13 @@ const MobileViewer = forwardRef<PdfPlanViewerHandle, PdfPlanViewerProps>(functio
 
   return (
     <View style={mob.root}>
-      {uriLoading && (
+      {viewerLoading && (
         <View style={[mob.root, { alignItems: 'center', justifyContent: 'center', gap: 10 }]}>
           <ActivityIndicator size="large" color={C.primary} />
           <Text style={{ color: C.textMuted, fontSize: 12 }}>Préparation du plan…</Text>
         </View>
       )}
-      {!uriLoading && resolvedUri ? (
+      {!viewerLoading && resolvedUri ? (
       <WebView
         ref={webViewRef}
         key={resolvedUri}
@@ -1064,20 +1127,20 @@ const MobileViewer = forwardRef<PdfPlanViewerHandle, PdfPlanViewerProps>(functio
         allowUniversalAccessFromFileURLs
       />
       ) : null}
-      {offlineUnavailable && !uriLoading ? (
+      {offlineUnavailable && !viewerLoading ? (
         <View style={{ position: 'absolute' as any, top: 0, left: 0, right: 0, bottom: 0, backgroundColor: '#0F1117', alignItems: 'center', justifyContent: 'center', padding: 24, gap: 10 }}>
           <Ionicons name="cloud-offline-outline" size={42} color={C.textMuted} />
           <Text style={{ color: C.text, fontSize: 14, fontFamily: 'Inter_600SemiBold', textAlign: 'center' }}>Plan non disponible hors ligne</Text>
           <Text style={{ color: C.textMuted, fontSize: 12, textAlign: 'center', lineHeight: 17 }}>Connectez-vous à Internet pour télécharger ce plan une première fois — il sera ensuite consultable hors ligne.</Text>
         </View>
       ) : null}
-      {loadError && !uriLoading && !offlineUnavailable ? (
+      {loadError && !viewerLoading && !offlineUnavailable ? (
         <View style={{ position: 'absolute' as any, bottom: 90, left: 12, right: 12, backgroundColor: 'rgba(127,29,29,0.92)', borderRadius: 8, padding: 10 }}>
           <Text style={{ color: '#FECACA', fontSize: 11, fontFamily: 'Inter_600SemiBold' }}>Erreur de chargement du plan</Text>
           <Text style={{ color: '#FEE2E2', fontSize: 10, marginTop: 4 }} numberOfLines={3}>{loadError}</Text>
         </View>
       ) : null}
-      {fromCache && !uriLoading && !loadError ? (
+      {fromCache && !viewerLoading && !loadError ? (
         <View style={{ position: 'absolute' as any, top: 8, right: 8, backgroundColor: 'rgba(15,17,23,0.85)', borderRadius: 999, paddingHorizontal: 9, paddingVertical: 4, flexDirection: 'row', alignItems: 'center', gap: 4, borderWidth: 1, borderColor: 'rgba(148,163,184,0.3)' }}>
           <Ionicons name="cloud-done-outline" size={11} color="#94A3B8" />
           <Text style={{ color: '#94A3B8', fontSize: 10, fontFamily: 'Inter_500Medium' }}>Hors ligne</Text>

@@ -3,6 +3,11 @@ const path = require('path');
 
 const config = getDefaultConfig(__dirname);
 
+config.resolver.assetExts = Array.from(new Set([
+  ...config.resolver.assetExts,
+  'txt',
+]));
+
 config.resolver.resolveRequest = (context, moduleName, platform) => {
   const isPdfJs =
     moduleName === '@/lib/pdfjs' ||
