@@ -769,7 +769,8 @@ export default function ReserveDetailScreen() {
         : reserve.photoUri
           ? [{ id: 'legacy', uri: reserve.photoUri, kind: 'defect' as const, takenAt: reserve.createdAt, takenBy: '' }]
           : [];
-      const resolvedSrcs = await Promise.all(rawPhotos.slice(0, 3).map(p => loadPhotoAsDataUrlForPdf(p.uri)));
+      const resolvedSrcs = (await Promise.all(rawPhotos.slice(0, 3).map(p => loadPhotoAsDataUrlForPdf(p.uri))))
+        .filter((src): src is string => typeof src === 'string');
 
       let planData: PlanData | undefined;
       if (reserve.planId && reserve.planX !== undefined && reserve.planY !== undefined) {

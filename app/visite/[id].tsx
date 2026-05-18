@@ -333,7 +333,8 @@ export default function VisiteDetailScreen() {
             ? r.photos
             : r.photoUri ? [{ uri: r.photoUri, kind: 'defect' as const }] : [];
           if (rawPhotos.length > 0) {
-            const srcs = await Promise.all(rawPhotos.slice(0, 4).map(p => loadPhotoAsDataUrlForPdf(p.uri)));
+            const srcs = (await Promise.all(rawPhotos.slice(0, 4).map(p => loadPhotoAsDataUrlForPdf(p.uri))))
+              .filter((src): src is string => typeof src === 'string');
             reservePhotoMap.set(r.id, srcs);
           }
         })

@@ -168,8 +168,9 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     if (!isAuthenticated || isLoading) return;
-    const seg0 = segments[0] as string;
-    const seg1 = segments[1] as string | undefined;
+    const routeSegments = segments as string[];
+    const seg0 = routeSegments[0];
+    const seg1 = routeSegments[1];
     if (seg0 === '(tabs)') {
       const tab = seg1 ? `/(tabs)/${seg1}` : '/(tabs)';
       AsyncStorage.setItem(LAST_TAB_KEY, tab).catch(() => {});
