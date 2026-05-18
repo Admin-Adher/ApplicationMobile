@@ -10,7 +10,7 @@ import { genId } from '@/lib/utils';
 import * as FileSystem from 'expo-file-system';
 import * as pdfjsLib from '@/lib/pdfjs';
 import { getPlanUriCacheFirst, getCachedPlanUri } from '@/lib/planCache';
-import { loadBundledPdfJsSource } from '@/lib/pdfjsAsset';
+import { loadBundledPdfJsSources } from '@/lib/pdfjsAsset';
 
 const STATUS_COLORS: Record<string, string> = {
   open: '#EF4444', in_progress: '#F59E0B', waiting: '#6B7280',
@@ -172,6 +172,7 @@ function buildMobileHtml(
   pinSizes: Record<string, number> = {},
   companies: Array<{ name: string; color: string }> = [],
   pdfJsSource: string | null = null,
+  pdfJsWorkerSource: string | null = null,
 ): string {
   const pinsData = reserves
     .filter(r => r.planX != null && r.planY != null)
@@ -197,6 +198,7 @@ function buildMobileHtml(
   const safePins = JSON.stringify(pinsData);
   const safeGhostPins = JSON.stringify(ghostPinsData);
   const safePdfJsSource = JSON.stringify(pdfJsSource ?? '');
+  const safePdfJsWorkerSource = JSON.stringify(pdfJsWorkerSource ?? '');
 
   return `<!DOCTYPE html>
 <html><head><meta charset="UTF-8">
@@ -246,6 +248,7 @@ var CAN_CREATE=${canCreate};
 var CAN_MOVE_PINS=${canMovePins !== false ? 'true' : 'false'};
 var PIN_SIZE=${pinSize};
 var PDFJS_SOURCE=${safePdfJsSource};
+var PDFJS_WORKER_SOURCE=${safePdfJsWorkerSource};
 
 var focusedPinId=null;
 var mode='view',tool='pen',color='#EF4444',sw=2;
@@ -491,49 +494,89 @@ function setSvgSize(){
 }
 
 
+function configurePdfjs(lib){
+  if(!lib)return lib;
+  if(PDFJS_WORKER_SOURCE&&lib.GlobalWorkerOptions){
+    try{
+      if(!window.__btPdfWorkerBlobUrl&&window.URL&&window.Blob){
+        window.__btPdfWorkerBlobUrl=URL.createObjectURL(new Blob([PDFJS_WORKER_SOURCE],{type:'text/javascript'}));
+      }
+      if(window.__btPdfWorkerBlobUrl&&!lib.GlobalWorkerOptions.workerSrc){
+        lib.GlobalWorkerOptions.workerSrc=window.__btPdfWorkerBlobUrl;
+      }
+    }catch(e){}
+  }
+  window.pdfjsLib=lib;
+  return lib;
+}
+
 function loadPdfjs(){
   if(window.pdfjsLib){
-    return Promise.resolve(window.pdfjsLib);
+    return Promise.resolve(configurePdfjs(window.pdfjsLib));
   }
   if(PDFJS_SOURCE){
     return new Promise(function(resolve,reject){
-      var done=false;
+      var done=false,moduleInjected=false;
+      function cleanup(){
+        window.removeEventListener('bt-pdfjs-inline-ready',onReady);
+      }
       function finish(lib){
         if(done)return;
         done=true;
-        window.removeEventListener('bt-pdfjs-inline-ready',onReady);
+        cleanup();
         if(lib){
-          window.pdfjsLib=lib;
-          resolve(lib);
+          resolve(configurePdfjs(lib));
         }else{
           reject(new Error('PDF.js embarque indisponible'));
         }
       }
+      function fail(e){
+        if(done)return;
+        done=true;
+        cleanup();
+        reject(e instanceof Error?e:new Error('Chargement PDF.js embarque impossible'));
+      }
       function onReady(){
         finish(window.pdfjsLib||globalThis.pdfjsLib||null);
       }
-      window.addEventListener('bt-pdfjs-inline-ready',onReady,{once:true});
-      var s=document.createElement('script');
-      s.type='module';
-      s.textContent=PDFJS_SOURCE+"\\n;window.pdfjsLib=globalThis.pdfjsLib||window.pdfjsLib;window.dispatchEvent(new Event('bt-pdfjs-inline-ready'));";
-      s.onerror=function(e){
-        window.removeEventListener('bt-pdfjs-inline-ready',onReady);
-        reject(e instanceof Error?e:new Error('Chargement PDF.js embarque impossible'));
-      };
-      document.head.appendChild(s);
+      function injectModule(source,onload,onerror){
+        var s=document.createElement('script');
+        s.type='module';
+        s.textContent=source;
+        s.onload=function(){if(onload)onload();};
+        s.onerror=function(e){if(onerror)onerror(e);};
+        document.head.appendChild(s);
+      }
+      function injectPdfModule(){
+        if(moduleInjected)return;
+        moduleInjected=true;
+        window.addEventListener('bt-pdfjs-inline-ready',onReady,{once:true});
+        injectModule(
+          PDFJS_SOURCE+"\\n;window.pdfjsLib=globalThis.pdfjsLib||window.pdfjsLib;window.dispatchEvent(new Event('bt-pdfjs-inline-ready'));",
+          function(){setTimeout(onReady,0);},
+          fail
+        );
+      }
+      if(PDFJS_WORKER_SOURCE){
+        injectModule(
+          PDFJS_WORKER_SOURCE+"\\n;window.dispatchEvent(new Event('bt-pdfjs-worker-ready'));",
+          injectPdfModule,
+          injectPdfModule
+        );
+      }else{
+        injectPdfModule();
+      }
       setTimeout(function(){finish(window.pdfjsLib||globalThis.pdfjsLib||null);},5000);
     }).catch(function(){
       return import('https://cdn.jsdelivr.net/npm/pdfjs-dist@5.7.284/legacy/build/pdf.min.mjs').then(function(lib){
         lib.GlobalWorkerOptions.workerSrc='https://cdn.jsdelivr.net/npm/pdfjs-dist@5.7.284/legacy/build/pdf.worker.min.mjs';
-        window.pdfjsLib=lib;
-        return lib;
+        return configurePdfjs(lib);
       });
     });
   }
   return import('https://cdn.jsdelivr.net/npm/pdfjs-dist@5.7.284/legacy/build/pdf.min.mjs').then(function(lib){
     lib.GlobalWorkerOptions.workerSrc='https://cdn.jsdelivr.net/npm/pdfjs-dist@5.7.284/legacy/build/pdf.worker.min.mjs';
-    window.pdfjsLib=lib;
-    return lib;
+    return configurePdfjs(lib);
   });
 }
 
@@ -855,6 +898,7 @@ const MobileViewer = forwardRef<PdfPlanViewerHandle, PdfPlanViewerProps>(functio
   const [fromCache, setFromCache] = useState(false);
   const [offlineUnavailable, setOfflineUnavailable] = useState(false);
   const [pdfJsSource, setPdfJsSource] = useState<string | null>(isImagePlan ? null : '');
+  const [pdfJsWorkerSource, setPdfJsWorkerSource] = useState<string | null>(isImagePlan ? null : '');
   const [pdfJsLoading, setPdfJsLoading] = useState(!isImagePlan);
 
   const MAX_BASE64_SIZE = 25 * 1024 * 1024;
@@ -864,14 +908,18 @@ const MobileViewer = forwardRef<PdfPlanViewerHandle, PdfPlanViewerProps>(functio
 
     if (isImagePlan) {
       setPdfJsSource(null);
+      setPdfJsWorkerSource(null);
       setPdfJsLoading(false);
       return () => { cancelled = true; };
     }
 
     setPdfJsLoading(true);
-    loadBundledPdfJsSource()
-      .then(source => {
-        if (!cancelled) setPdfJsSource(source);
+    loadBundledPdfJsSources()
+      .then(sources => {
+        if (!cancelled) {
+          setPdfJsSource(sources.moduleSource);
+          setPdfJsWorkerSource(sources.workerSource);
+        }
       })
       .finally(() => {
         if (!cancelled) setPdfJsLoading(false);
@@ -1084,7 +1132,7 @@ const MobileViewer = forwardRef<PdfPlanViewerHandle, PdfPlanViewerProps>(functio
   }, [reserves, onPlanTap, onReserveSelect, onAnnotationsChange, onZoomChange, onPinMove, onPinFocus, onReady]);
 
   const html = resolvedUri
-    ? buildMobileHtml(resolvedUri, annotations ?? [], reserves, pinNumberMap, canAnnotate, canCreate, canMovePins, pinSize, isImagePlan, ghostReserves, pinSizes, companies, pdfJsSource)
+    ? buildMobileHtml(resolvedUri, annotations ?? [], reserves, pinNumberMap, canAnnotate, canCreate, canMovePins, pinSize, isImagePlan, ghostReserves, pinSizes, companies, pdfJsSource, pdfJsWorkerSource)
     : '';
   const viewerLoading = uriLoading || (!isImagePlan && pdfJsLoading);
 
