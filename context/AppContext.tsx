@@ -178,10 +178,14 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const activeChannelIdRef = useRef<string | null>(null);
   const chantierInitializedRef = useRef(false);
   const refreshedServerKeyRef = useRef<string | null>(null);
+  const reloadChannelsRef = useRef<(() => Promise<void>) | undefined>(undefined);
+  const reloadMessagesRef = useRef<(() => Promise<void>) | undefined>(undefined);
   // Fix 1: ref to always have latest lastReadByChannel without stale closure
   const lastReadByChannelRef = useRef<Record<string, string>>({});
   // Fix 4: ref to track if we have a cached profile (offline session), avoids async AsyncStorage in event handler
   const hasCachedProfileRef = useRef(false);
+  reloadChannelsRef.current = channelsH.reloadChannels;
+  reloadMessagesRef.current = messagesH.reloadMessages;
 
   const needsServerFreshness = Boolean(
     authH.user?.id &&
@@ -238,7 +242,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     const timeoutPromise = new Promise<void>((resolve) => {
       timeout = setTimeout(resolve, SERVER_REFRESH_MAX_WAIT_MS);
     });
-    const refetchPromise = queryClient.refetchQueries({ type: 'active' }).catch((err) => {
+    const refetchPromise = Promise.all([
+      queryClient.refetchQueries({ type: 'active' }),
+      reloadChannelsRef.current?.() ?? Promise.resolve(),
+      reloadMessagesRef.current?.() ?? Promise.resolve(),
+    ]).then(() => undefined).catch((err) => {
       if (!cancelled) {
         console.warn('[AppContext] server freshness refresh failed:', (err as any)?.message ?? err);
       }

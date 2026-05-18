@@ -494,6 +494,7 @@ export function useMessages() {
     fetchOlderMessages,
     fetchChannelMessages,
     refreshChannelMessages,
+    reloadMessages: loadRecentMessages,
     clearMessages,
     // Bug 4: expose handler registration so AppContext can receive incoming messages
     registerIncomingMessageHandler: useCallback((handler: ((msg: Message, raw: any) => void) | null) => {
