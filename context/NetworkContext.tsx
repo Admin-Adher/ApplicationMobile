@@ -6,6 +6,7 @@ import { Platform, AppState, AppStateStatus } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { supabase, isSupabaseConfigured } from '@/lib/supabase';
 import { isLocalUri, uploadLocalPhotosInPayload, purgeOrphanedPhotoFiles } from '@/lib/storage';
+import { getSupabaseRestAccessToken, supabaseRestMutation, supabaseRestSelect } from '@/lib/supabaseRest';
 import { useAuth } from '@/context/AuthContext';
 import { queryClient } from '@/lib/queryClient';
 import type { Comment } from '@/constants/types';
@@ -495,11 +496,7 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
     // A stale/expired JWT causes Storage uploads to fail with HTTP 401 under
     // RLS, resulting in the endless "32 échecs" cycle the user sees.
     // We always refresh here (cheap no-op if the token is still valid).
-    try {
-      await withTimeoutMs((supabase as any).auth.refreshSession(), 8000);
-    } catch {
-      try { await withTimeoutMs((supabase as any).auth.getSession(), 4000); } catch {}
-    }
+    try { await getSupabaseRestAccessToken(); } catch {}
 
     const pendingConflicts: StatusConflict[] = [];
     const failedOps: QueuedOperation[] = [];
@@ -537,13 +534,15 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
         if (op.conflictCheck) {
           const { entityId, previousStatus, newStatus, author, history, closedAt, closedBy } = op.conflictCheck;
 
-          const { data: serverData, error: fetchErr } = await (supabase as any)
-            .from('reserves')
-            .select('status, title')
-            .eq('id', entityId)
-            .single();
+          const { data: serverRows, error: fetchErr } = await supabaseRestSelect<any>(
+            'reserves',
+            'status,title',
+            { column: 'id', value: entityId },
+          );
+          const serverData = serverRows?.[0] ?? null;
 
           if (fetchErr) { fail(op, fetchErr); continue; }
+          if (!serverData) continue;
 
           if (serverData && serverData.status !== previousStatus && serverData.status !== newStatus) {
             pendingConflicts.push({
@@ -560,12 +559,12 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
             continue;
           }
 
-          const { error: applyErr } = await (supabase as any).from('reserves').update({
+          const { error: applyErr } = await supabaseRestMutation('reserves', 'update', {
             status: newStatus,
             history,
             closed_at: closedAt ?? null,
             closed_by: closedBy ?? null,
-          }).eq('id', entityId);
+          }, { column: 'id', value: entityId });
 
           if (applyErr) fail(op, applyErr);
           continue;
@@ -580,11 +579,12 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
           const taskId = op.filter.value;
           const patch  = op.commentPatch;
 
-          const { data: serverTask, error: fetchErr } = await (supabase as any)
-            .from('tasks')
-            .select('comments')
-            .eq('id', taskId)
-            .maybeSingle();
+          const { data: taskRows, error: fetchErr } = await supabaseRestSelect<any>(
+            'tasks',
+            'comments',
+            { column: 'id', value: taskId },
+          );
+          const serverTask = taskRows?.[0] ?? null;
 
           if (fetchErr) { fail(op, fetchErr); continue; }
 
@@ -615,10 +615,12 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
             continue;
           }
 
-          const { error: writeErr } = await (supabase as any)
-            .from('tasks')
-            .update({ comments: merged })
-            .eq('id', taskId);
+          const { error: writeErr } = await supabaseRestMutation(
+            'tasks',
+            'update',
+            { comments: merged },
+            { column: 'id', value: taskId },
+          );
 
           if (writeErr) fail(op, writeErr);
           continue;
@@ -731,7 +733,7 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
         }
 
         if (op.op === 'insert') {
-          result = await (supabase as any).from(op.table).insert(data!);
+          result = await supabaseRestMutation(op.table, 'insert', data!);
           if (op.table === 'site_plans') {
             if (result.error) {
               console.error(`[SYNC:site_plans] ECHEC INSERT — code:${result.error.code} msg:${result.error.message} details:${result.error.details ?? ''} hint:${result.error.hint ?? ''}`);
@@ -741,19 +743,16 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
           }
           if (result.error?.code === '23505') result = { error: null };
         } else if (op.op === 'update') {
-          const q = (supabase as any).from(op.table).update(data!).select();
-          result = op.filter
-            ? await q.eq(op.filter.column, op.filter.value)
-            : await q;
+          result = await supabaseRestMutation(op.table, 'update', data!, op.filter);
           if (!result.error && Array.isArray(result.data) && result.data.length === 0) {
             if (op.filter?.column === 'id') {
               try {
-                const { data: exists, error: existsErr } = await (supabase as any)
-                  .from(op.table)
-                  .select('id')
-                  .eq('id', op.filter.value)
-                  .maybeSingle();
-                if (!existsErr && !exists) {
+                const { data: exists, error: existsErr } = await supabaseRestSelect(
+                  op.table,
+                  'id',
+                  { column: 'id', value: op.filter.value },
+                );
+                if (!existsErr && !exists?.[0]) {
                   continue;
                 }
               } catch {}
@@ -762,19 +761,16 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
             continue;
           }
         } else {
-          const q = (supabase as any).from(op.table).delete().select();
-          result = op.filter
-            ? await q.eq(op.filter.column, op.filter.value)
-            : await q;
+          result = await supabaseRestMutation(op.table, 'delete', undefined, op.filter);
           if (!result.error && Array.isArray(result.data) && result.data.length === 0) {
             if (op.filter?.column === 'id') {
               try {
-                const { data: exists, error: existsErr } = await (supabase as any)
-                  .from(op.table)
-                  .select('id')
-                  .eq('id', op.filter.value)
-                  .maybeSingle();
-                if (!existsErr && !exists) {
+                const { data: exists, error: existsErr } = await supabaseRestSelect(
+                  op.table,
+                  'id',
+                  { column: 'id', value: op.filter.value },
+                );
+                if (!existsErr && !exists?.[0]) {
                   // Row is already gone server-side — consider the delete successful
                   continue;
                 }
@@ -865,12 +861,12 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
       },
     ];
 
-    const { error: resolveErr } = await (supabase as any).from('reserves').update({
+    const { error: resolveErr } = await supabaseRestMutation('reserves', 'update', {
       status: chosenStatus,
       history,
       closed_at: chosenStatus === 'closed' ? (conflict.closedAt ?? now) : null,
       closed_by: chosenStatus === 'closed' ? conflict.closedBy ?? null : null,
-    }).eq('id', conflict.reserveId);
+    }, { column: 'id', value: conflict.reserveId });
 
     if (resolveErr) {
       console.warn('[resolveConflict] server error — conflict kept in queue:', resolveErr.message);
