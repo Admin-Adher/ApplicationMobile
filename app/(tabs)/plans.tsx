@@ -1753,6 +1753,56 @@ export default function PlansScreen() {
     };
   }, []);
 
+  function focusReserveOnPlanFromModal(reserve: Reserve) {
+    if (!reserve.planId || reserve.planX == null || reserve.planY == null) {
+      Alert.alert(
+        'Pin absent',
+        "Cette réserve n'a pas encore de position sur un plan."
+      );
+      return;
+    }
+
+    const targetPlan = chantierPlans.find(p => p.id === reserve.planId);
+    setSelected(null);
+    setActivePlanId(reserve.planId);
+    setCompanyFilter('all');
+    setLevelFilter('all');
+    setStatusFilter(reserve.status === 'closed' ? 'closed' : 'all');
+    setHighlightedReserveId(reserve.id);
+
+    if (targetPlan?.buildingId) {
+      setSelectedBuilding(targetPlan.buildingId);
+    } else if (targetPlan?.building) {
+      const bldg = chantierHierarchyBuildingsEarly.find(b => b.name === targetPlan.building);
+      setSelectedBuilding(bldg?.id ?? 'all');
+    } else {
+      setSelectedBuilding('all');
+    }
+
+    if (targetPlan?.levelId) {
+      setSelectedLevel(targetPlan.levelId);
+    } else if (targetPlan?.level) {
+      let resolvedLevelId: string | null = null;
+      for (const b of chantierHierarchyBuildingsEarly) {
+        const lvl = b.levels?.find(l => l.name === targetPlan.level);
+        if (lvl) {
+          resolvedLevelId = lvl.id;
+          break;
+        }
+      }
+      setSelectedLevel(resolvedLevelId ?? 'all');
+    } else {
+      setSelectedLevel('all');
+    }
+
+    if (focusedPinTimerRef.current) clearTimeout(focusedPinTimerRef.current);
+    const delay = reserve.planId === currentPlanId ? 80 : 450;
+    setTimeout(() => {
+      setFocusedPinIdRef.current(reserve.id);
+      focusedPinTimerRef.current = setTimeout(() => setFocusedPinIdRef.current(null), 5000);
+    }, delay);
+  }
+
   // Handle deep-link navigation from the Reserves tab:
   // When the user taps the "Plan" chip on a reserve card, we receive
   // focusPlanId (which plan to open) and focusReserveId (which pin to highlight).
@@ -3990,10 +4040,28 @@ export default function PlansScreen() {
                   );
                 })}
               </View>
-              <TouchableOpacity style={styles.modalOpenBtn} onPress={() => { setSelected(null); router.push(`/reserve/${selected.id}` as any); }} accessibilityLabel="Ouvrir la réserve complète">
-                <Text style={styles.modalOpenText}>Ouvrir la réserve</Text>
-                <Ionicons name="arrow-forward" size={14} color={C.primary} />
-              </TouchableOpacity>
+              <View style={styles.modalActionStack}>
+                {(() => {
+                  const hasPin = !!selected.planId && selected.planX != null && selected.planY != null;
+                  return (
+                    <TouchableOpacity
+                      style={[styles.modalPlanBtn, !hasPin && styles.modalPlanBtnDisabled]}
+                      onPress={() => focusReserveOnPlanFromModal(selected)}
+                      disabled={!hasPin}
+                      accessibilityLabel={hasPin ? 'Voir la réserve sur le plan' : 'Cette réserve n’a pas de pin sur le plan'}
+                    >
+                      <Ionicons name={hasPin ? 'map-outline' : 'location-outline'} size={15} color={hasPin ? '#fff' : C.textMuted} />
+                      <Text style={[styles.modalPlanText, !hasPin && styles.modalPlanTextDisabled]}>
+                        {hasPin ? 'Voir sur le plan' : 'Pas de pin sur le plan'}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })()}
+                <TouchableOpacity style={styles.modalOpenBtn} onPress={() => { setSelected(null); router.push(`/reserve/${selected.id}` as any); }} accessibilityLabel="Ouvrir la réserve complète">
+                  <Text style={styles.modalOpenText}>Ouvrir la réserve</Text>
+                  <Ionicons name="arrow-forward" size={14} color={C.primary} />
+                </TouchableOpacity>
+              </View>
             </TouchableOpacity>
           )}
         </TouchableOpacity>
@@ -4440,6 +4508,11 @@ const styles = StyleSheet.create({
   modalBadges: { flexDirection: 'row', gap: 8, flexWrap: 'wrap' },
   deadlineBadge: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 8, paddingVertical: 4, backgroundColor: C.surface2, borderRadius: 6, borderWidth: 1, borderColor: C.border },
   deadlineText: { fontSize: 11, fontFamily: 'Inter_400Regular', color: C.textMuted },
+  modalActionStack: { gap: 8, marginTop: 2 },
+  modalPlanBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 7, paddingVertical: 12, backgroundColor: C.primary, borderRadius: 12, borderWidth: 1, borderColor: C.primary },
+  modalPlanBtnDisabled: { backgroundColor: C.surface2, borderColor: C.border },
+  modalPlanText: { fontSize: 14, fontFamily: 'Inter_700Bold', color: '#fff' },
+  modalPlanTextDisabled: { color: C.textMuted },
   modalOpenBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, paddingVertical: 12, backgroundColor: C.primaryBg, borderRadius: 12, borderWidth: 1, borderColor: C.primary + '40' },
   modalOpenText: { fontSize: 14, fontFamily: 'Inter_600SemiBold', color: C.primary },
   qrModalCard: { backgroundColor: C.surface, borderRadius: 18, padding: 16, gap: 12, maxHeight: '80%', width: '100%', maxWidth: 400 },
