@@ -530,7 +530,7 @@ export default function ChannelScreen() {
 
   function handleUnpinPinnedMessage(msg: Message) {
     if (!msg.isMe && user?.role !== 'super_admin') {
-      Alert.alert('Action impossible', "Seul l'expediteur du message peut le desepingler.");
+      Alert.alert('Action impossible', "Seul l'expéditeur du message peut le désépingler.");
       return;
     }
     updateMessage({ ...msg, isPinned: false });
