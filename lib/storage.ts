@@ -575,6 +575,17 @@ export async function uploadLocalPhotosInPayload(
       if (remote) data.uri = remote;
       else { allOk = false; if (uploadErr) uploadErrors.push(uploadErr); }
     }
+  } else if (table === 'messages') {
+    if (typeof data.attachment_uri === 'string' && isLocalUri(data.attachment_uri)) {
+      hadLocal = true;
+      const { url: remote, error: uploadErr } = await _uploadPhotoWithError(
+        data.attachment_uri,
+        `message_${Date.now()}_${nextUploadSeq()}.jpg`,
+      );
+      if (remote === (MISSING_LOCAL_FILE as any)) data.attachment_uri = null;
+      else if (remote) data.attachment_uri = remote;
+      else { allOk = false; if (uploadErr) uploadErrors.push(`attachment_uri: ${uploadErr}`); }
+    }
   } else if (table === 'site_plans') {
     if (typeof data.uri === 'string' && isLocalUri(data.uri)) {
       hadLocal = true;

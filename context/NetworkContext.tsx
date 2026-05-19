@@ -8,6 +8,7 @@ import { supabase, isSupabaseConfigured, resetAuthLock, SUPABASE_KEY, SUPABASE_U
 import { isLocalUri, uploadLocalPhotosInPayload, purgeOrphanedPhotoFiles } from '@/lib/storage';
 import { getSupabaseRestAccessToken, supabaseRestMutation, supabaseRestSelect } from '@/lib/supabaseRest';
 import { forceRefreshSession, getSessionFromStorage } from '@/lib/offlineCache';
+import { normalizeVisitePayloadForSupabase } from '@/lib/mappers';
 import { useAuth } from '@/context/AuthContext';
 import { queryClient } from '@/lib/queryClient';
 import type { Comment } from '@/constants/types';
@@ -745,6 +746,10 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
         let retryData = data;
         let deferredPhotoPatch: QueuedOperation | null = null;
         if (data) {
+          if (op.table === 'visites') {
+            data = normalizeVisitePayloadForSupabase(data);
+            retryData = data;
+          }
           if (op.table === 'reserves') {
             if (data.deadline === '—' || data.deadline === '') {
               data.deadline = null;

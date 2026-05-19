@@ -20,6 +20,7 @@ import SuperAdminMessagingHub from '@/components/SuperAdminMessagingHub';
 
 const ALPHA_BUCKET_THRESHOLD = 10; // au-delà, on regroupe les entreprises par initiale
 const STORAGE_KEY_COMPANIES_COLLAPSED = 'messages.tabs.companiesCollapsed.v1';
+type FilterMode = 'all' | 'unread' | 'chantier' | 'company' | 'team';
 
 const AVATAR_COLORS = [C.primary, '#059669', '#D97706', '#7C3AED', '#DB2777', '#EA580C', '#0891B2'];
 function getAvatarColor(name: string) {
@@ -81,13 +82,14 @@ function ChannelAvatar({ channel }: { channel: Channel }) {
   );
 }
 
-function ChannelItem({ channel, lastMsg, unread, isPinned, onPress, onLongPress }: {
+function ChannelItem({ channel, lastMsg, unread, isPinned, onPress, onLongPress, onMenuPress }: {
   channel: Channel;
   lastMsg: Message | null;
   unread: number;
   isPinned: boolean;
   onPress: () => void;
   onLongPress: () => void;
+  onMenuPress: () => void;
 }) {
   const hasUnread = unread > 0;
   const avatarColor = channel.type === 'dm' ? getAvatarColor(channel.name) : channel.color;
@@ -134,11 +136,20 @@ function ChannelItem({ channel, lastMsg, unread, isPinned, onPress, onLongPress 
           <Text style={[styles.channelName, hasUnread && styles.channelNameUnread]} numberOfLines={1}>
             {displayName}
           </Text>
-          {lastMsg && (
-            <Text style={[styles.channelTime, hasUnread && { color: avatarColor }]}>
-              {formatChannelTime(lastMsg.timestamp)}
-            </Text>
-          )}
+          <View style={styles.channelActions}>
+            {lastMsg && (
+              <Text style={[styles.channelTime, hasUnread && { color: avatarColor }]}>
+                {formatChannelTime(lastMsg.timestamp)}
+              </Text>
+            )}
+            <TouchableOpacity
+              style={styles.channelMenuBtn}
+              onPress={onMenuPress}
+              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+            >
+              <Ionicons name="ellipsis-horizontal" size={16} color={C.textMuted} />
+            </TouchableOpacity>
+          </View>
         </View>
         <View style={styles.channelBottom}>
           <Text style={[styles.channelPreview, hasUnread && styles.channelPreviewUnread]} numberOfLines={1}>
@@ -166,6 +177,7 @@ export default function MessagesTabScreen() {
   } = useApp();
   const { user, permissions } = useAuth();
   const [search, setSearch] = useState('');
+  const [filter, setFilter] = useState<FilterMode>('all');
   const [showNewChannel, setShowNewChannel] = useState(false);
   const [showNewDM, setShowNewDM] = useState(false);
   const [showNewGroup, setShowNewGroup] = useState(false);
@@ -194,12 +206,18 @@ export default function MessagesTabScreen() {
     return map;
   }, [channels, messages]);
 
+  const channelById = useMemo(() => {
+    const map = new Map<string, Channel>();
+    channels.forEach(ch => map.set(ch.id, ch));
+    return map;
+  }, [channels]);
+
   const filteredChannels = useMemo(() => {
     if (!search.trim()) return channels;
     const q = search.toLowerCase();
     return channels.filter(ch =>
       ch.name.toLowerCase().includes(q) ||
-      ch.description.toLowerCase().includes(q)
+      (ch.description ?? '').toLowerCase().includes(q)
     );
   }, [channels, search]);
 
@@ -208,13 +226,14 @@ export default function MessagesTabScreen() {
     const q = search.toLowerCase();
     const results: { message: Message; channel: Channel }[] = [];
     for (const msg of messages) {
+      if (!msg.channelId) continue;
       if (msg.type && msg.type !== 'message') continue;
       if (!msg.content.toLowerCase().includes(q) && !msg.sender.toLowerCase().includes(q)) continue;
-      const ch = channels.find(c => c.id === msg.channelId);
+      const ch = channelById.get(msg.channelId);
       if (ch) results.push({ message: msg, channel: ch });
     }
     return results.slice(0, 25);
-  }, [messages, search, channels]);
+  }, [messages, search, channelById]);
 
   const pinnedChannels = useMemo(
     () => pinnedChannelIds.map(id => channels.find(c => c.id === id)).filter(Boolean) as Channel[],
@@ -227,6 +246,16 @@ export default function MessagesTabScreen() {
   const customChannels = filteredChannels.filter(ch => ch.type === 'custom');
   const groupChannels = filteredChannels.filter(ch => ch.type === 'group');
   const dmChannels = filteredChannels.filter(ch => ch.type === 'dm');
+  const unreadChannels = filteredChannels.filter(ch => (unreadByChannel[ch.id] ?? 0) > 0);
+  const activeFilterLabel = filter === 'unread'
+    ? 'Non lus'
+    : filter === 'chantier'
+    ? 'Chantier'
+    : filter === 'company'
+    ? 'Entreprises'
+    : filter === 'team'
+    ? 'Equipe'
+    : 'Tous';
 
   // ── Section "Canaux entreprises" : tri alpha + filtre + repli ──────────
   const [companyFilter, setCompanyFilter] = useState('');
@@ -276,7 +305,7 @@ export default function MessagesTabScreen() {
     return sortedCompanyChannels.filter(ch => ch.name.toLowerCase().includes(q));
   }, [sortedCompanyChannels, companyFilter]);
 
-  function goToChannel(ch: Channel) {
+  function goToChannel(ch: Channel, initialSearchQuery?: string) {
     router.push({
       pathname: '/channel/[id]',
       params: {
@@ -287,6 +316,7 @@ export default function MessagesTabScreen() {
         isDM: ch.type === 'dm' ? '1' : '0',
         isGroup: ch.type === 'group' ? '1' : '0',
         members: ch.members ? ch.members.join(',') : '',
+        searchQuery: initialSearchQuery ?? '',
       },
     } as any);
   }
@@ -384,6 +414,7 @@ export default function MessagesTabScreen() {
                   isPinned={pinnedChannelIds.includes(ch.id)}
                   onPress={() => goToChannel(ch)}
                   onLongPress={() => setActionSheet(ch)}
+                  onMenuPress={() => setActionSheet(ch)}
                 />
               </View>
             ))}
@@ -399,8 +430,22 @@ export default function MessagesTabScreen() {
     );
   }
 
-  const showPinned = pinnedChannels.length > 0 && !search.trim();
+  const showPinned = pinnedChannels.length > 0 && !search.trim() && filter === 'all';
   const isSearching = search.trim().length >= 2;
+  const showGeneral = filter === 'all' || filter === 'chantier';
+  const showBuilding = filter === 'all' || filter === 'chantier';
+  const showCompanies = filter === 'all' || filter === 'company';
+  const showTeam = filter === 'all' || filter === 'team';
+  const activeFilterHasResults =
+    filter === 'unread'
+      ? unreadChannels.length > 0
+      : filter === 'chantier'
+      ? generalChannel.length + buildingChannels.length > 0
+      : filter === 'company'
+      ? companyChannels.length > 0
+      : filter === 'team'
+      ? customChannels.length + groupChannels.length + dmChannels.length > 0
+      : filteredChannels.length > 0;
 
   // ── Rendu de la section Entreprises (collapsible + alpha buckets) ─────
   const companiesAutoCollapsed = sortedCompanyChannels.length >= ALPHA_BUCKET_THRESHOLD;
@@ -417,6 +462,7 @@ export default function MessagesTabScreen() {
           isPinned={pinnedChannelIds.includes(ch.id)}
           onPress={() => goToChannel(ch)}
           onLongPress={() => setActionSheet(ch)}
+          onMenuPress={() => setActionSheet(ch)}
         />
       </View>
     );
@@ -550,6 +596,39 @@ export default function MessagesTabScreen() {
             </TouchableOpacity>
           )}
         </View>
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          style={styles.filterStrip}
+          contentContainerStyle={styles.filterStripContent}
+        >
+          {([
+            { key: 'all' as const, label: 'Tous', count: filteredChannels.length },
+            { key: 'unread' as const, label: 'Non lus', count: unreadChannels.length },
+            { key: 'chantier' as const, label: 'Chantier', count: buildingChannels.length + generalChannel.length },
+            { key: 'company' as const, label: 'Entreprises', count: companyChannels.length },
+            { key: 'team' as const, label: 'Equipe', count: customChannels.length + groupChannels.length + dmChannels.length },
+          ]).map(item => {
+            const active = filter === item.key;
+            return (
+              <TouchableOpacity
+                key={item.key}
+                style={[styles.filterChip, active && styles.filterChipActive]}
+                onPress={() => setFilter(item.key)}
+                activeOpacity={0.75}
+              >
+                <Text style={[styles.filterChipText, active && styles.filterChipTextActive]}>{item.label}</Text>
+                {item.count > 0 && (
+                  <View style={[styles.filterChipCount, active && styles.filterChipCountActive]}>
+                    <Text style={[styles.filterChipCountText, active && styles.filterChipCountTextActive]}>
+                      {item.count > 99 ? '99+' : item.count}
+                    </Text>
+                  </View>
+                )}
+              </TouchableOpacity>
+            );
+          })}
+        </ScrollView>
       </View>
 
       {!isSupabaseConfigured && (
@@ -561,7 +640,7 @@ export default function MessagesTabScreen() {
         </View>
       )}
 
-      <ScrollView showsVerticalScrollIndicator={false}>
+      <ScrollView showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
           <View style={styles.content}>
             {showPinned && (
               <>
@@ -583,6 +662,7 @@ export default function MessagesTabScreen() {
                         isPinned={true}
                         onPress={() => goToChannel(ch)}
                         onLongPress={() => setActionSheet(ch)}
+                        onMenuPress={() => setActionSheet(ch)}
                       />
                     </View>
                   ))}
@@ -590,7 +670,17 @@ export default function MessagesTabScreen() {
               </>
             )}
 
-            {generalChannel.length > 0 && (
+            {filter === 'unread' && (
+              unreadChannels.length > 0
+                ? renderSection('Non lus', unreadChannels)
+                : (
+                  <View style={styles.emptySection}>
+                    <Text style={styles.emptySectionText}>Aucune conversation non lue</Text>
+                  </View>
+                )
+            )}
+
+            {showGeneral && generalChannel.length > 0 && (
               <View style={styles.channelGroup}>
                 {generalChannel.map((ch, i) => (
                   <View key={ch.id}>
@@ -602,16 +692,17 @@ export default function MessagesTabScreen() {
                       isPinned={pinnedChannelIds.includes(ch.id)}
                       onPress={() => goToChannel(ch)}
                       onLongPress={() => setActionSheet(ch)}
+                      onMenuPress={() => setActionSheet(ch)}
                     />
                   </View>
                 ))}
               </View>
             )}
-            {renderSection('Canaux chantier', buildingChannels)}
-            {renderCompanySection()}
-            {renderSection('Canaux personnalisés', customChannels, () => setShowNewChannel(true), 'Nouveau')}
-            {renderSection('Groupes', groupChannels, () => setShowNewGroup(true), 'Nouveau')}
-            {renderSection('Messages directs', dmChannels, () => setShowNewDM(true), 'Nouveau DM')}
+            {showBuilding && renderSection('Canaux chantier', buildingChannels)}
+            {showCompanies && renderCompanySection()}
+            {showTeam && renderSection('Canaux personnalisés', customChannels, () => setShowNewChannel(true), 'Nouveau')}
+            {showTeam && renderSection('Groupes', groupChannels, () => setShowNewGroup(true), 'Nouveau')}
+            {showTeam && renderSection('Messages directs', dmChannels, () => setShowNewDM(true), 'Nouveau DM')}
 
             {isSearching && globalSearchResults.length > 0 && (
               <>
@@ -628,7 +719,7 @@ export default function MessagesTabScreen() {
                       {i > 0 && <View style={styles.divider} />}
                       <TouchableOpacity
                         style={styles.globalResultItem}
-                        onPress={() => goToChannel(r.channel)}
+                        onPress={() => goToChannel(r.channel, search.trim())}
                         activeOpacity={0.75}
                       >
                         <View style={[styles.globalResultIcon, { backgroundColor: r.channel.color + '20' }]}>
@@ -654,14 +745,14 @@ export default function MessagesTabScreen() {
               </>
             )}
 
-            {filteredChannels.length === 0 && !isSearching && (
+            {!activeFilterHasResults && !isSearching && filter !== 'unread' && filter !== 'team' && (
               <View style={styles.empty}>
                 <Ionicons name="search-outline" size={40} color={C.textMuted} />
-                <Text style={styles.emptyText}>Aucun résultat</Text>
+                <Text style={styles.emptyText}>Aucun résultat dans {activeFilterLabel}</Text>
               </View>
             )}
 
-            {!search.trim() && (
+            {!search.trim() && filter === 'all' && (
               <View style={styles.quickActions}>
                 <TouchableOpacity style={styles.quickBtn} onPress={() => setShowNewChannel(true)}>
                   <View style={[styles.quickBtnIcon, { backgroundColor: C.primary + '20' }]}>
@@ -853,6 +944,45 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12, paddingVertical: 10, borderWidth: 1, borderColor: C.border,
   },
   searchInput: { flex: 1, fontSize: 14, fontFamily: 'Inter_400Regular', color: C.text },
+  filterStrip: { marginTop: 10 },
+  filterStripContent: { gap: 8, paddingRight: 8 },
+  filterChip: {
+    minHeight: 34,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 7,
+    paddingHorizontal: 12,
+    borderRadius: 17,
+    backgroundColor: C.surface2,
+    borderWidth: 1,
+    borderColor: C.border,
+  },
+  filterChipActive: {
+    backgroundColor: C.primaryBg,
+    borderColor: C.primary,
+  },
+  filterChipText: {
+    fontSize: 12,
+    fontFamily: 'Inter_600SemiBold',
+    color: C.textSub,
+  },
+  filterChipTextActive: { color: C.primary },
+  filterChipCount: {
+    minWidth: 18,
+    height: 18,
+    borderRadius: 9,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 5,
+    backgroundColor: C.surface,
+  },
+  filterChipCountActive: { backgroundColor: C.primary },
+  filterChipCountText: {
+    fontSize: 10,
+    fontFamily: 'Inter_700Bold',
+    color: C.textMuted,
+  },
+  filterChipCountTextActive: { color: '#fff' },
   content: { padding: 16, paddingBottom: 40 },
   sectionHeader: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
@@ -931,6 +1061,8 @@ const styles = StyleSheet.create({
   },
   channelBody: { flex: 1 },
   channelTop: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 3 },
+  channelActions: { flexDirection: 'row', alignItems: 'center', gap: 4 },
+  channelMenuBtn: { width: 26, height: 24, alignItems: 'center', justifyContent: 'center', borderRadius: 12 },
   channelName: { fontSize: 15, fontFamily: 'Inter_600SemiBold', color: C.text, flex: 1, marginRight: 6 },
   channelNameUnread: { fontFamily: 'Inter_700Bold' },
   channelTime: { fontSize: 11, fontFamily: 'Inter_400Regular', color: C.textMuted },

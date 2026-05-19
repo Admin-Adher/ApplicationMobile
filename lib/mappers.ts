@@ -5,6 +5,43 @@ import {
   VisiteStatus, OprStatus,
 } from '@/constants/types';
 
+function parseFrenchDateTime(value?: string | null): Date | null {
+  if (!value) return null;
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+
+  const frMatch = trimmed.match(
+    /^(\d{2})\/(\d{2})\/(\d{4})(?:[ T](\d{2}):(\d{2})(?::(\d{2}))?)?$/,
+  );
+  if (frMatch) {
+    const [, dd, mm, yyyy, hh = '00', min = '00', sec = '00'] = frMatch;
+    const parsed = new Date(
+      Number(yyyy),
+      Number(mm) - 1,
+      Number(dd),
+      Number(hh),
+      Number(min),
+      Number(sec),
+    );
+    if (!Number.isNaN(parsed.getTime())) return parsed;
+  }
+
+  const parsed = new Date(trimmed);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+}
+
+function toPostgresTimestamp(value?: string | null): string {
+  return parseFrenchDateTime(value)?.toISOString() ?? new Date().toISOString();
+}
+
+export function normalizeVisitePayloadForSupabase(payload: Record<string, any>): Record<string, any> {
+  const data = { ...payload };
+  if (typeof data.created_at === 'string') {
+    data.created_at = toPostgresTimestamp(data.created_at);
+  }
+  return data;
+}
+
 export function toReserve(row: any): Reserve {
   const companies: string[] = Array.isArray(row.companies) && row.companies.length > 0
     ? row.companies
@@ -114,7 +151,7 @@ export function toVisite(row: any): Visite {
 }
 
 export function fromVisite(v: Visite, orgId?: string | null): Record<string, any> {
-  return {
+  return normalizeVisitePayloadForSupabase({
     id: v.id, chantier_id: v.chantierId ?? null,
     title: v.title ?? '',
     date: v.date ?? new Date().toISOString().split('T')[0],
@@ -139,7 +176,7 @@ export function fromVisite(v: Visite, orgId?: string | null): Record<string, any
     entreprise_signataire: v.entrepriseSignataire ?? null,
     participants: v.participants ?? null,
     organization_id: orgId ?? null,
-  };
+  });
 }
 
 export function toLot(row: any): Lot {

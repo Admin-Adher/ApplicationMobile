@@ -12,9 +12,10 @@ import { C } from '@/constants/colors';
 import { useApp } from '@/context/AppContext';
 import { useAuth } from '@/context/AuthContext';
 import { useIncidents } from '@/context/IncidentsContext';
+import { useNetwork } from '@/context/NetworkContext';
 import { Message } from '@/constants/types';
 import { supabase, isSupabaseConfigured } from '@/lib/supabase';
-import { uploadPhoto } from '@/lib/storage';
+import { persistLocalPhoto, uploadPhoto } from '@/lib/storage';
 import MessageBubble, { getAvatarColor } from '@/components/channel/MessageBubble';
 import MembersModal from '@/components/channel/MembersModal';
 import AttachItemModal, { LinkedItem, getLinkedItemIcon, getLinkedItemColor, getLinkedItemLabel } from '@/components/channel/AttachItemModal';
@@ -98,9 +99,10 @@ export default function ChannelScreen() {
     id: channelId, name: channelName, color: channelColor, icon: channelIcon,
     isDM, isGroup, members: membersParam, readOnly,
     linkedReserveId: paramLinkedReserveId, linkedReserveTitle: paramLinkedReserveTitle,
+    searchQuery: paramSearchQuery,
   } = useLocalSearchParams<{
     id: string; name: string; color: string; icon: string; isDM?: string; isGroup?: string; members?: string;
-    readOnly?: string; linkedReserveId?: string; linkedReserveTitle?: string;
+    readOnly?: string; linkedReserveId?: string; linkedReserveTitle?: string; searchQuery?: string;
   }>();
   const isDMChannel = isDM === '1';
   const isGroupChannel = isGroup === '1';
@@ -115,6 +117,7 @@ export default function ChannelScreen() {
   } = useApp();
   const { incidents } = useIncidents();
   const { user } = useAuth();
+  const { isOnline } = useNetwork();
   const flatListRef = useRef<FlatList>(null);
   const inputRef = useRef<TextInput>(null);
 
@@ -241,10 +244,17 @@ export default function ChannelScreen() {
   // soit appelé avec les vrais IDs de messages.
   useEffect(() => {
     if (channelMessages.length > prevChannelMsgCountRef.current) {
-      setChannelRead(channelId!);
+      if (channelId) setChannelRead(channelId);
     }
     prevChannelMsgCountRef.current = channelMessages.length;
-  }, [channelMessages.length]);
+  }, [channelId, channelMessages.length, setChannelRead]);
+
+  useEffect(() => {
+    const q = typeof paramSearchQuery === 'string' ? paramSearchQuery.trim() : '';
+    if (!q) return;
+    setSearchMode(true);
+    setSearchQuery(q);
+  }, [paramSearchQuery]);
 
   const filteredMessages = useMemo(() => {
     if (!searchQuery.trim()) return channelMessages;
@@ -368,6 +378,63 @@ export default function ChannelScreen() {
     inputRef.current?.focus();
   }
 
+  function extractMentions(value: string): string[] {
+    const lowerValue = value.toLowerCase();
+    const mentions = new Set<string>();
+    for (const name of allMentionNames) {
+      const lowerName = name.toLowerCase();
+      const firstName = lowerName.split(/\s+/)[0];
+      if (lowerValue.includes(`@${lowerName}`) || (firstName && lowerValue.includes(`@${firstName}`))) {
+        mentions.add(name);
+      }
+    }
+    (value.match(/@[^\s@]+/g) ?? []).forEach(m => mentions.add(m.slice(1)));
+    return Array.from(mentions);
+  }
+
+  function buildMessageOptions(attachmentUri?: string) {
+    return {
+      attachmentUri,
+      replyToId: replyTo?.id,
+      replyToContent: replyTo?.content,
+      replyToSender: replyTo?.sender,
+      mentions: extractMentions(text),
+      reserveId: linkedItem?.type === 'reserve' ? linkedItem.id : undefined,
+      linkedItemType: linkedItem?.type,
+      linkedItemId: linkedItem?.id,
+      linkedItemTitle: linkedItem?.title,
+    };
+  }
+
+  function resetComposer() {
+    setText('');
+    setReplyTo(null);
+    setMentionQuery('');
+    setLinkedItem(null);
+  }
+
+  async function sendPhotoMessage(uri: string) {
+    const persistentUri = await persistLocalPhoto(uri);
+    if (!isSupabaseConfigured || !isOnline) {
+      addMessage(channelId!, text.trim() || '', buildMessageOptions(persistentUri), user?.name ?? 'Moi');
+      resetComposer();
+      return;
+    }
+
+    setAttachmentUploading(true);
+    try {
+      const url = await uploadPhoto(persistentUri, `msg_${Date.now()}.jpg`);
+      if (!url) {
+        Alert.alert('Erreur d\'envoi', "La photo n'a pas pu etre envoyee sur le serveur. Verifiez votre connexion et que le stockage est configure.");
+        return;
+      }
+      addMessage(channelId!, text.trim() || '', buildMessageOptions(url), user?.name ?? 'Moi');
+      resetComposer();
+    } finally {
+      setAttachmentUploading(false);
+    }
+  }
+
   async function handlePickPhoto() {
     if (Platform.OS !== 'web') {
       const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
@@ -375,19 +442,7 @@ export default function ChannelScreen() {
     }
     const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images'], allowsEditing: true, quality: 0.8 });
     if (!result.canceled && result.assets[0]) {
-      setAttachmentUploading(true);
-      try {
-        const url = await uploadPhoto(result.assets[0].uri, `msg_${Date.now()}.jpg`);
-        if (!url) {
-          Alert.alert('Erreur d\'envoi', "La photo n'a pas pu être envoyée sur le serveur. Vérifiez votre connexion et que le stockage est configuré.");
-          return;
-        }
-        addMessage(channelId!, text.trim() || '', {
-          attachmentUri: url,
-          replyToId: replyTo?.id, replyToContent: replyTo?.content, replyToSender: replyTo?.sender,
-        }, user?.name ?? 'Moi');
-        setText(''); setReplyTo(null);
-      } finally { setAttachmentUploading(false); }
+      await sendPhotoMessage(result.assets[0].uri);
     }
   }
 
@@ -397,35 +452,14 @@ export default function ChannelScreen() {
     if (status !== 'granted') { Alert.alert('Permission refusée', "L'accès à la caméra est nécessaire."); return; }
     const result = await ImagePicker.launchCameraAsync({ allowsEditing: true, quality: 0.8 });
     if (!result.canceled && result.assets[0]) {
-      setAttachmentUploading(true);
-      try {
-        const url = await uploadPhoto(result.assets[0].uri, `msg_${Date.now()}.jpg`);
-        if (!url) {
-          Alert.alert('Erreur d\'envoi', "La photo n'a pas pu être envoyée sur le serveur. Vérifiez votre connexion et que le stockage est configuré.");
-          return;
-        }
-        addMessage(channelId!, text.trim() || '', {
-          attachmentUri: url,
-          replyToId: replyTo?.id, replyToContent: replyTo?.content, replyToSender: replyTo?.sender,
-        }, user?.name ?? 'Moi');
-        setText(''); setReplyTo(null);
-      } finally { setAttachmentUploading(false); }
+      await sendPhotoMessage(result.assets[0].uri);
     }
   }
 
   function handleSend() {
     if (!text.trim() && !linkedItem) return;
-    // P1: utiliser [^\s@]+ pour capturer les noms accentués et composés (ex. @Jean-Paul)
-    const mentions = (text.match(/@[^\s@]+/g) ?? []).map(m => m.slice(1));
-    addMessage(channelId!, text.trim(), {
-      replyToId: replyTo?.id, replyToContent: replyTo?.content,
-      replyToSender: replyTo?.sender, mentions,
-      reserveId: linkedItem?.type === 'reserve' ? linkedItem.id : undefined,
-      linkedItemType: linkedItem?.type,
-      linkedItemId: linkedItem?.id,
-      linkedItemTitle: linkedItem?.title,
-    }, user?.name ?? 'Moi');
-    setText(''); setReplyTo(null); setMentionQuery(''); setLinkedItem(null);
+    addMessage(channelId!, text.trim(), buildMessageOptions(), user?.name ?? 'Moi');
+    resetComposer();
   }
 
   // P13: useCallback avec [] car n'utilise que des setters stables
@@ -457,6 +491,10 @@ export default function ChannelScreen() {
   function handlePin() {
     setActionModalVisible(false);
     if (!selectedMsg) return;
+    if (!selectedMsg.isMe && user?.role !== 'super_admin') {
+      Alert.alert('Action impossible', "Seul l'expediteur du message peut l'epingler.");
+      return;
+    }
     updateMessage({ ...selectedMsg, isPinned: !selectedMsg.isPinned });
   }
 
@@ -505,7 +543,7 @@ export default function ChannelScreen() {
     switch (type) {
       case 'reserve': router.push(`/reserve/${id}` as any); break;
       case 'plan': {
-        router.push({ pathname: '/(tabs)/plans', params: { sitePlanId: id } } as any);
+        router.push({ pathname: '/(tabs)/plans', params: { focusPlanId: id } } as any);
         break;
       }
       case 'task': router.push(`/task/${id}` as any); break;
@@ -841,10 +879,12 @@ export default function ChannelScreen() {
                 </Text>
               </TouchableOpacity>
             )}
-            <TouchableOpacity style={styles.actionItem} onPress={handlePin}>
-              <Ionicons name={selectedMsg?.isPinned ? 'pin' : 'pin-outline'} size={20} color={C.waiting} />
-              <Text style={[styles.actionLabel, { color: C.waiting }]}>{selectedMsg?.isPinned ? 'Désépingler' : 'Épingler'}</Text>
-            </TouchableOpacity>
+            {(selectedMsg?.isMe || user?.role === 'super_admin') && (
+              <TouchableOpacity style={styles.actionItem} onPress={handlePin}>
+                <Ionicons name={selectedMsg?.isPinned ? 'pin' : 'pin-outline'} size={20} color={C.waiting} />
+                <Text style={[styles.actionLabel, { color: C.waiting }]}>{selectedMsg?.isPinned ? 'Désépingler' : 'Épingler'}</Text>
+              </TouchableOpacity>
+            )}
             <TouchableOpacity style={styles.actionItem} onPress={handleCopy}>
               <Ionicons name="copy-outline" size={20} color={C.text} />
               <Text style={styles.actionLabel}>Copier le texte</Text>

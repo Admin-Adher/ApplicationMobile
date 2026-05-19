@@ -88,7 +88,7 @@ export function useMessages() {
         .from('messages')
         .select('*')
         .order('created_at', { ascending: false })
-        .limit(100);
+        .limit(300);
       const orgId = orgIdRef.current;
       if (orgId) query = query.eq('organization_id', orgId);
       const { data, error } = await query;
