@@ -1734,6 +1734,8 @@ export default function PlansScreen() {
   const reservesRef = useRef(reserves);
   const updateReserveFieldsRef = useRef(updateReserveFields);
   const focusedPinTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pendingPlanFocusRef = useRef<{ planId: string; reserveId: string } | null>(null);
+  const readyPlanIdRef = useRef<string | null>(null);
   const setDraggingPinIdRef = useRef(setDraggingPinId);
   const setFocusedPinIdRef = useRef(setFocusedPinId);
   const setPinSizesRef = useRef(setPinSizes);
@@ -1745,6 +1747,9 @@ export default function PlansScreen() {
   React.useEffect(() => { updateReserveFieldsRef.current = updateReserveFields; }, [updateReserveFields]);
   React.useEffect(() => { pinSizesRef.current = pinSizes; }, [pinSizes]);
   React.useEffect(() => { focusedPinIdRef.current = focusedPinId; }, [focusedPinId]);
+  React.useEffect(() => {
+    readyPlanIdRef.current = null;
+  }, [currentPlanId, currentPlan?.uri]);
 
   // Clear the focused-pin auto-dismiss timer on unmount to avoid state updates on unmounted component
   React.useEffect(() => {
@@ -1752,6 +1757,30 @@ export default function PlansScreen() {
       if (focusedPinTimerRef.current) clearTimeout(focusedPinTimerRef.current);
     };
   }, []);
+
+  const startFocusedPinTimer = useCallback((reserveId: string, durationMs = 5000) => {
+    setFocusedPinIdRef.current(reserveId);
+    if (focusedPinTimerRef.current) clearTimeout(focusedPinTimerRef.current);
+    focusedPinTimerRef.current = setTimeout(() => {
+      setFocusedPinIdRef.current(null);
+    }, durationMs);
+  }, []);
+
+  const holdFocusedPinUntilPlanReady = useCallback((planId: string, reserveId: string) => {
+    pendingPlanFocusRef.current = { planId, reserveId };
+    setFocusedPinIdRef.current(reserveId);
+    if (focusedPinTimerRef.current) {
+      clearTimeout(focusedPinTimerRef.current);
+      focusedPinTimerRef.current = null;
+    }
+  }, []);
+
+  const releaseFocusedPinWhenPlanReady = useCallback((planId: string | null) => {
+    const pending = pendingPlanFocusRef.current;
+    if (!pending || !planId || pending.planId !== planId) return;
+    pendingPlanFocusRef.current = null;
+    startFocusedPinTimer(pending.reserveId, 6000);
+  }, [startFocusedPinTimer]);
 
   function focusReserveOnPlanFromModal(reserve: Reserve) {
     if (!reserve.planId || reserve.planX == null || reserve.planY == null) {
@@ -1763,6 +1792,7 @@ export default function PlansScreen() {
     }
 
     const targetPlan = chantierPlans.find(p => p.id === reserve.planId);
+    const targetNeedsViewerReady = !!targetPlan?.uri && targetPlan.fileType !== 'dxf';
     setSelected(null);
     setActivePlanId(reserve.planId);
     setCompanyFilter('all');
@@ -1796,11 +1826,11 @@ export default function PlansScreen() {
     }
 
     if (focusedPinTimerRef.current) clearTimeout(focusedPinTimerRef.current);
-    const delay = reserve.planId === currentPlanId ? 80 : 450;
-    setTimeout(() => {
-      setFocusedPinIdRef.current(reserve.id);
-      focusedPinTimerRef.current = setTimeout(() => setFocusedPinIdRef.current(null), 5000);
-    }, delay);
+    holdFocusedPinUntilPlanReady(reserve.planId, reserve.id);
+    if (!targetNeedsViewerReady || readyPlanIdRef.current === reserve.planId) {
+      const delay = reserve.planId === currentPlanId ? 80 : 450;
+      setTimeout(() => releaseFocusedPinWhenPlanReady(reserve.planId!), delay);
+    }
   }
 
   // Handle deep-link navigation from the Reserves tab:
@@ -1861,13 +1891,14 @@ export default function PlansScreen() {
     // Highlight the target pin after a short delay to let the plan render
     if (focusReserveIdParam) {
       const pinId = focusReserveIdParam;
-      setTimeout(() => {
-        setFocusedPinIdRef.current(pinId);
-        if (focusedPinTimerRef.current) clearTimeout(focusedPinTimerRef.current);
-        focusedPinTimerRef.current = setTimeout(() => setFocusedPinIdRef.current(null), 5000);
-      }, 400);
+      setHighlightedReserveId(pinId);
+      holdFocusedPinUntilPlanReady(focusPlanIdParam, pinId);
+      const targetNeedsViewerReady = !!targetPlan?.uri && targetPlan.fileType !== 'dxf';
+      if (!targetNeedsViewerReady || readyPlanIdRef.current === focusPlanIdParam) {
+        setTimeout(() => releaseFocusedPinWhenPlanReady(focusPlanIdParam), 400);
+      }
     }
-  }, [focusPlanIdParam, focusReserveIdParam, chantierPlans, chantierHierarchyBuildingsEarly, reserves]);
+  }, [focusPlanIdParam, focusReserveIdParam, chantierPlans, chantierHierarchyBuildingsEarly, reserves, holdFocusedPinUntilPlanReady, releaseFocusedPinWhenPlanReady]);
 
   // Auto-load DXF when plan has fileType=dxf and is not yet parsed in memory
   React.useEffect(() => {
@@ -2080,6 +2111,13 @@ export default function PlansScreen() {
   }
 
   function handleSelectPlan(planId: string) {
+    pendingPlanFocusRef.current = null;
+    readyPlanIdRef.current = null;
+    if (focusedPinTimerRef.current) {
+      clearTimeout(focusedPinTimerRef.current);
+      focusedPinTimerRef.current = null;
+    }
+    setFocusedPinId(null);
     setActivePlanId(planId);
     setDisplayScale(1);
     lastScale.current = 1;
@@ -3133,6 +3171,12 @@ export default function PlansScreen() {
                 canMovePins={canMovePins}
                 pinSize={pinSize}
                 onZoomChange={(z) => setPdfZoomPct(Math.round(z * 100))}
+                onReady={() => {
+                  if (currentPlanId) {
+                    readyPlanIdRef.current = currentPlanId;
+                    releaseFocusedPinWhenPlanReady(currentPlanId);
+                  }
+                }}
                 companies={companies}
               />
             ) : (
