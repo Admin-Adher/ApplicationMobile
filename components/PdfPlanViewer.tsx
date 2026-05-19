@@ -49,9 +49,12 @@ const PALETTE = [
 ];
 
 const WIDTHS = [1, 2, 3, 5, 8];
-const PLAN_DATA_URL_CACHE_LIMIT = 3;
-const PLAN_DATA_URL_CACHE_MAX_BYTES = 10 * 1024 * 1024;
+const PLAN_DATA_URL_CACHE_LIMIT = 5;
+const PLAN_DATA_URL_CACHE_MAX_BYTES = 20 * 1024 * 1024;
+const PLAN_RESOLVED_URI_CACHE_MAX_CHARS = Math.ceil(PLAN_DATA_URL_CACHE_MAX_BYTES * 1.4);
 const planDataUrlCache = new Map<string, string>();
+const resolvedPlanUriCache = new Map<string, { resolvedUri: string; fromCache: boolean }>();
+let loadedPdfJsSources: { moduleSource: string | null; workerSource: string | null } | null = null;
 
 function rememberPlanDataUrl(uri: string, dataUrl: string) {
   planDataUrlCache.delete(uri);
@@ -61,6 +64,26 @@ function rememberPlanDataUrl(uri: string, dataUrl: string) {
     if (!oldest) break;
     planDataUrlCache.delete(oldest);
   }
+}
+
+function rememberResolvedPlanUri(planUri: string, resolvedUri: string, fromCache: boolean) {
+  if (!planUri || !resolvedUri.startsWith('data:')) return;
+  if (resolvedUri.length > PLAN_RESOLVED_URI_CACHE_MAX_CHARS) return;
+  resolvedPlanUriCache.delete(planUri);
+  resolvedPlanUriCache.set(planUri, { resolvedUri, fromCache });
+  while (resolvedPlanUriCache.size > PLAN_DATA_URL_CACHE_LIMIT) {
+    const oldest = resolvedPlanUriCache.keys().next().value;
+    if (!oldest) break;
+    resolvedPlanUriCache.delete(oldest);
+  }
+}
+
+function getRememberedResolvedPlanUri(planUri: string) {
+  const cached = resolvedPlanUriCache.get(planUri);
+  if (!cached) return null;
+  resolvedPlanUriCache.delete(planUri);
+  resolvedPlanUriCache.set(planUri, cached);
+  return cached;
 }
 
 const TOOLS: { id: PlanDrawingTool; icon: string; label: string }[] = [
@@ -937,16 +960,18 @@ const MobileViewer = forwardRef<PdfPlanViewerHandle, PdfPlanViewerProps>(functio
 
   const isLocalUri = planUri.startsWith('file://') || planUri.startsWith('content://');
   const isRemoteUri = planUri.startsWith('http://') || planUri.startsWith('https://');
+  const rememberedResolvedUri = (isLocalUri || isRemoteUri) ? getRememberedResolvedPlanUri(planUri) : null;
+  const initialPdfJsSources = isImagePlan ? null : loadedPdfJsSources;
   const [resolvedUri, setResolvedUri] = useState<string>(
-    (isLocalUri || isRemoteUri) ? '' : planUri,
+    rememberedResolvedUri?.resolvedUri ?? ((isLocalUri || isRemoteUri) ? '' : planUri),
   );
-  const [uriLoading, setUriLoading] = useState(isLocalUri || isRemoteUri);
+  const [uriLoading, setUriLoading] = useState((isLocalUri || isRemoteUri) && !rememberedResolvedUri);
   const [loadError, setLoadError] = useState<string | null>(null);
-  const [fromCache, setFromCache] = useState(false);
+  const [fromCache, setFromCache] = useState(rememberedResolvedUri?.fromCache ?? false);
   const [offlineUnavailable, setOfflineUnavailable] = useState(false);
-  const [pdfJsSource, setPdfJsSource] = useState<string | null>(isImagePlan ? null : '');
-  const [pdfJsWorkerSource, setPdfJsWorkerSource] = useState<string | null>(isImagePlan ? null : '');
-  const [pdfJsLoading, setPdfJsLoading] = useState(!isImagePlan);
+  const [pdfJsSource, setPdfJsSource] = useState<string | null>(isImagePlan ? null : (initialPdfJsSources?.moduleSource ?? ''));
+  const [pdfJsWorkerSource, setPdfJsWorkerSource] = useState<string | null>(isImagePlan ? null : (initialPdfJsSources?.workerSource ?? ''));
+  const [pdfJsLoading, setPdfJsLoading] = useState(!isImagePlan && !initialPdfJsSources);
 
   const MAX_BASE64_SIZE = 25 * 1024 * 1024;
 
@@ -960,10 +985,18 @@ const MobileViewer = forwardRef<PdfPlanViewerHandle, PdfPlanViewerProps>(functio
       return () => { cancelled = true; };
     }
 
+    if (loadedPdfJsSources) {
+      setPdfJsSource(loadedPdfJsSources.moduleSource);
+      setPdfJsWorkerSource(loadedPdfJsSources.workerSource);
+      setPdfJsLoading(false);
+      return () => { cancelled = true; };
+    }
+
     setPdfJsLoading(true);
     loadBundledPdfJsSources()
       .then(sources => {
         if (!cancelled) {
+          loadedPdfJsSources = sources;
           setPdfJsSource(sources.moduleSource);
           setPdfJsWorkerSource(sources.workerSource);
         }
@@ -977,6 +1010,16 @@ const MobileViewer = forwardRef<PdfPlanViewerHandle, PdfPlanViewerProps>(functio
 
   useEffect(() => {
     let cancelled = false;
+
+    const remembered = (isLocalUri || isRemoteUri) ? getRememberedResolvedPlanUri(planUri) : null;
+    if (remembered) {
+      setResolvedUri(remembered.resolvedUri);
+      setUriLoading(false);
+      setLoadError(null);
+      setFromCache(remembered.fromCache);
+      setOfflineUnavailable(false);
+      return () => { cancelled = true; };
+    }
 
     function mimeFor(uri: string): string {
       if (!isImagePlan) return 'application/pdf';
@@ -1008,6 +1051,7 @@ const MobileViewer = forwardRef<PdfPlanViewerHandle, PdfPlanViewerProps>(functio
         const dataUrl = await inlineFromLocalFile(localUri);
         if (cancelled) return;
         if (dataUrl) {
+          rememberResolvedPlanUri(planUri, dataUrl, wasCached);
           setResolvedUri(dataUrl);
           setFromCache(wasCached);
           setUriLoading(false);
@@ -1031,6 +1075,7 @@ const MobileViewer = forwardRef<PdfPlanViewerHandle, PdfPlanViewerProps>(functio
             const dataUrl = await inlineFromLocalFile(cached);
             if (cancelled) return;
             if (dataUrl) {
+              rememberResolvedPlanUri(planUri, dataUrl, true);
               setResolvedUri(dataUrl);
               setFromCache(true);
               setUriLoading(false);
@@ -1055,6 +1100,7 @@ const MobileViewer = forwardRef<PdfPlanViewerHandle, PdfPlanViewerProps>(functio
         const dataUrl = await inlineFromLocalFile(planUri);
         if (cancelled) return;
         if (dataUrl) {
+          rememberResolvedPlanUri(planUri, dataUrl, true);
           setResolvedUri(dataUrl);
           setUriLoading(false);
         } else {

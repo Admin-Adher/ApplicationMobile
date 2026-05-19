@@ -3137,6 +3137,7 @@ export default function PlansScreen() {
               </View>
             ) : isPlanFile ? (
               <PdfPlanViewer
+                key={currentPlanId}
                 ref={pdfViewerRef}
                 planUri={currentPlan!.uri!}
                 planId={currentPlanId!}
