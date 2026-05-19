@@ -305,7 +305,7 @@ export default function MessagesTabScreen() {
     return sortedCompanyChannels.filter(ch => ch.name.toLowerCase().includes(q));
   }, [sortedCompanyChannels, companyFilter]);
 
-  function goToChannel(ch: Channel, initialSearchQuery?: string) {
+  function goToChannel(ch: Channel, initialSearchQuery?: string, focusMessageId?: string) {
     router.push({
       pathname: '/channel/[id]',
       params: {
@@ -317,6 +317,7 @@ export default function MessagesTabScreen() {
         isGroup: ch.type === 'group' ? '1' : '0',
         members: ch.members ? ch.members.join(',') : '',
         searchQuery: initialSearchQuery ?? '',
+        focusMessageId: focusMessageId ?? '',
       },
     } as any);
   }
@@ -719,7 +720,7 @@ export default function MessagesTabScreen() {
                       {i > 0 && <View style={styles.divider} />}
                       <TouchableOpacity
                         style={styles.globalResultItem}
-                        onPress={() => goToChannel(r.channel, search.trim())}
+                        onPress={() => goToChannel(r.channel, search.trim(), r.message.id)}
                         activeOpacity={0.75}
                       >
                         <View style={[styles.globalResultIcon, { backgroundColor: r.channel.color + '20' }]}>

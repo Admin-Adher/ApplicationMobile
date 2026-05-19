@@ -99,10 +99,10 @@ export default function ChannelScreen() {
     id: channelId, name: channelName, color: channelColor, icon: channelIcon,
     isDM, isGroup, members: membersParam, readOnly,
     linkedReserveId: paramLinkedReserveId, linkedReserveTitle: paramLinkedReserveTitle,
-    searchQuery: paramSearchQuery,
+    searchQuery: paramSearchQuery, focusMessageId: paramFocusMessageId,
   } = useLocalSearchParams<{
     id: string; name: string; color: string; icon: string; isDM?: string; isGroup?: string; members?: string;
-    readOnly?: string; linkedReserveId?: string; linkedReserveTitle?: string; searchQuery?: string;
+    readOnly?: string; linkedReserveId?: string; linkedReserveTitle?: string; searchQuery?: string; focusMessageId?: string;
   }>();
   const isDMChannel = isDM === '1';
   const isGroupChannel = isGroup === '1';
@@ -120,6 +120,7 @@ export default function ChannelScreen() {
   const { isOnline } = useNetwork();
   const flatListRef = useRef<FlatList>(null);
   const inputRef = useRef<TextInput>(null);
+  const handledFocusMessageRef = useRef<string | null>(null);
 
   const channelObj = channels.find(c => c.id === channelId);
   const color = channelColor ?? channelObj?.color ?? C.primary;
@@ -145,6 +146,7 @@ export default function ChannelScreen() {
   const isEditable = channelObj?.type === 'custom' || channelObj?.type === 'group';
   const canDelete = channelObj?.type === 'custom' || channelObj?.type === 'group';
   const isCreator = !!channelObj?.createdBy && channelObj.createdBy === user?.name;
+  const canManageChannelMembers = isCreator || user?.role === 'admin' || user?.role === 'super_admin';
 
   const [text, setText] = useState('');
   const [replyTo, setReplyTo] = useState<Message | null>(null);
@@ -160,6 +162,7 @@ export default function ChannelScreen() {
   const [pinnedModalVisible, setPinnedModalVisible] = useState(false);
   const [searchMode, setSearchMode] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
+  const [highlightedMessageId, setHighlightedMessageId] = useState<string | null>(null);
   const [membersVisible, setMembersVisible] = useState(false);
   const [addMemberVisible, setAddMemberVisible] = useState(false);
   const [renameVisible, setRenameVisible] = useState(false);
@@ -299,7 +302,7 @@ export default function ChannelScreen() {
   // FlatList est inversée : index 0 = bas (le plus récent), dernier index = haut (le plus ancien)
   // Donc slice(0, visibleCount) = les N plus récents, affiché au bas
   const LOAD_MORE_SENTINEL_KEY = '__load_more__';
-  const SEARCH_RESULT_CAP = 100;
+  const SEARCH_RESULT_CAP = 300;
   const paginatedListItems = useMemo((): (ListItem | { _type: 'load_more'; key: string })[] => {
     if (searchQuery.trim()) return listItems.slice(0, SEARCH_RESULT_CAP); // cap pendant la recherche
     const visible = listItems.slice(0, visibleCount);
@@ -310,6 +313,33 @@ export default function ChannelScreen() {
     }
     return visible;
   }, [listItems, visibleCount, searchQuery, hasMoreOnServer]);
+
+  useEffect(() => {
+    const focusId = typeof paramFocusMessageId === 'string' ? paramFocusMessageId.trim() : '';
+    if (!focusId || handledFocusMessageRef.current === focusId) return;
+    const expectedQuery = typeof paramSearchQuery === 'string' ? paramSearchQuery.trim() : '';
+    if (expectedQuery && searchQuery.trim() !== expectedQuery) return;
+
+    const index = listItems.findIndex(item => !('_type' in item) && item.id === focusId);
+    if (index < 0) return;
+
+    handledFocusMessageRef.current = focusId;
+    setHighlightedMessageId(focusId);
+    setVisibleCount(prev => Math.max(prev, index + 5));
+
+    const scrollTimer = setTimeout(() => {
+      flatListRef.current?.scrollToIndex({
+        index: Math.max(0, index),
+        animated: true,
+        viewPosition: 0.5,
+      });
+    }, 300);
+    const clearTimer = setTimeout(() => setHighlightedMessageId(null), 3500);
+    return () => {
+      clearTimeout(scrollTimer);
+      clearTimeout(clearTimer);
+    };
+  }, [paramFocusMessageId, paramSearchQuery, searchQuery, listItems]);
 
   const knownSenders = useMemo(() => {
     const senders = new Set<string>();
@@ -498,6 +528,14 @@ export default function ChannelScreen() {
     updateMessage({ ...selectedMsg, isPinned: !selectedMsg.isPinned });
   }
 
+  function handleUnpinPinnedMessage(msg: Message) {
+    if (!msg.isMe && user?.role !== 'super_admin') {
+      Alert.alert('Action impossible', "Seul l'expediteur du message peut le desepingler.");
+      return;
+    }
+    updateMessage({ ...msg, isPinned: false });
+  }
+
   function handleCreateReserveFromMsg() {
     setActionModalVisible(false);
     if (!selectedMsg) return;
@@ -618,6 +656,7 @@ export default function ChannelScreen() {
         msg={msg}
         color={color}
         userName={user?.name ?? ''}
+        highlighted={msg.id === highlightedMessageId}
         onLongPress={() => openActions(msg)}
         onNotifPress={handleNotifPress}
         onLinkedItemPress={handleLinkedItemPress}
@@ -627,7 +666,7 @@ export default function ChannelScreen() {
     );
     // P13: openActions, handleNotifPress, handleLinkedItemPress sont stables (useCallback [])
     // applyReact passe par applyReactRef pour éviter les closures stale
-  }, [color, user?.name, channelId, sitePlans, openActions, handleNotifPress, handleLinkedItemPress]);
+  }, [color, user?.name, channelId, sitePlans, highlightedMessageId, openActions, handleNotifPress, handleLinkedItemPress]);
 
   const lastPinned = pinnedMessages[pinnedMessages.length - 1];
 
@@ -736,6 +775,15 @@ export default function ChannelScreen() {
           contentContainerStyle={styles.list}
           showsVerticalScrollIndicator={false}
           inverted
+          onScrollToIndexFailed={({ index }) => {
+            setTimeout(() => {
+              flatListRef.current?.scrollToIndex({
+                index: Math.max(0, Math.min(index, paginatedListItems.length - 1)),
+                animated: true,
+                viewPosition: 0.5,
+              });
+            }, 300);
+          }}
           ListEmptyComponent={() => (
             <View style={[styles.empty, { transform: [{ scaleX: -1 }, { scaleY: -1 }] }]}>
               <View style={[styles.emptyIcon, { backgroundColor: color + '20' }]}>
@@ -945,9 +993,11 @@ export default function ChannelScreen() {
                   </Text>
                   <Text style={styles.pinnedItemTime}>{m.timestamp}</Text>
                 </View>
-                <TouchableOpacity onPress={() => updateMessage({ ...m, isPinned: false })}>
-                  <Ionicons name="close" size={16} color={C.textMuted} />
-                </TouchableOpacity>
+                {(m.isMe || user?.role === 'super_admin') && (
+                  <TouchableOpacity onPress={() => handleUnpinPinnedMessage(m)}>
+                    <Ionicons name="close" size={16} color={C.textMuted} />
+                  </TouchableOpacity>
+                )}
               </View>
             ))}
             {pinnedMessages.length === 0 && <Text style={styles.emptyText}>Aucun message épinglé.</Text>}
@@ -974,14 +1024,14 @@ export default function ChannelScreen() {
         knownSenders={knownSenders}
         profiles={profiles}
         onRenamePress={() => { setRenameText(liveChannelName); setMembersVisible(false); setRenameVisible(true); }}
-        onAddMemberPress={() => { if (!isCompanyChannel) setAddMemberVisible(true); }}
+        onAddMemberPress={() => { if (!isCompanyChannel && canManageChannelMembers) setAddMemberVisible(true); }}
         removeChannelMember={removeChannelMember}
         removeCustomChannel={removeCustomChannel}
         removeGroupChannel={removeGroupChannel}
       />
 
       {/* ── MODAL RENOMMER ── */}
-      <Modal visible={renameVisible} transparent animationType="fade" onRequestClose={() => setRenameVisible(false)}>
+      <Modal visible={renameVisible && canManageChannelMembers} transparent animationType="fade" onRequestClose={() => setRenameVisible(false)}>
         <TouchableOpacity style={styles.modalOverlay} activeOpacity={1} onPress={() => setRenameVisible(false)}>
           <TouchableOpacity activeOpacity={1} style={styles.renameSheet}>
             <Text style={styles.renameTitle}>
@@ -1019,7 +1069,7 @@ export default function ChannelScreen() {
       </Modal>
 
       {/* ── MODAL AJOUTER MEMBRE ── */}
-      <Modal visible={addMemberVisible} transparent animationType="slide" onRequestClose={() => setAddMemberVisible(false)}>
+      <Modal visible={addMemberVisible && canManageChannelMembers && !isCompanyChannel} transparent animationType="slide" onRequestClose={() => setAddMemberVisible(false)}>
         <TouchableOpacity style={styles.modalOverlay} activeOpacity={1} onPress={() => setAddMemberVisible(false)}>
           <TouchableOpacity activeOpacity={1} style={[styles.actionSheet, { maxHeight: '75%', paddingBottom: insets.bottom + 8 }]}>
             <View style={styles.actionSheetHandle} />

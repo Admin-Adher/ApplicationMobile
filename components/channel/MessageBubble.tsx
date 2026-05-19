@@ -18,10 +18,22 @@ function detectMentions(text: string, name: string): boolean {
   return lowerText.includes(`@${lowerName}`) || lowerText.includes(`@${lowerName.split(' ')[0]}`);
 }
 
-function MessageTextRender({ text, isMe }: { text: string; isMe: boolean }) {
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function MessageTextRender({ text, isMe, mentions }: { text: string; isMe: boolean; mentions: string[] }) {
   const parts: React.ReactNode[] = [];
   let lastIndex = 0;
-  const combined = /(https?:\/\/[^\s]+)|(@[^@\s]+)/g;
+  const mentionPattern = mentions
+    .filter(Boolean)
+    .sort((a, b) => b.length - a.length)
+    .map(name => `@${escapeRegExp(name)}`)
+    .join('|');
+  const combined = new RegExp(
+    `(https?:\\/\\/[^\\s]+)|(${mentionPattern ? `${mentionPattern}|` : ''}@[^@\\s]+)`,
+    'gi',
+  );
   let match;
   let idx = 0;
   while ((match = combined.exec(text)) !== null) {
@@ -48,6 +60,7 @@ interface Props {
   msg: Message;
   color: string;
   userName: string;
+  highlighted?: boolean;
   onLongPress: () => void;
   onNotifPress: (msg: Message) => void;
   onLinkedItemPress?: (msg: Message) => void;
@@ -55,7 +68,7 @@ interface Props {
   onOpenReactPicker: (msg: Message) => void;
 }
 
-export default function MessageBubble({ msg, color, userName, onLongPress, onNotifPress, onLinkedItemPress, onReactInline, onOpenReactPicker }: Props) {
+export default function MessageBubble({ msg, color, userName, highlighted = false, onLongPress, onNotifPress, onLinkedItemPress, onReactInline, onOpenReactPicker }: Props) {
   if (msg.type === 'notification' || msg.type === 'system') {
     const hasLink = !!(msg.linkedItemType || msg.reserveId);
     const notifColor = msg.linkedItemType ? getLinkedItemColor(msg.linkedItemType) : C.primary;
@@ -119,6 +132,7 @@ export default function MessageBubble({ msg, color, userName, onLongPress, onNot
           styles.bubble,
           msg.isMe ? [styles.bubbleMe, { backgroundColor: color }] : styles.bubbleThem,
           msg.isPinned && styles.bubblePinned,
+          highlighted && styles.bubbleHighlighted,
         ]}>
           {msg.isPinned && (
             <View style={styles.pinBadge}>
@@ -132,7 +146,7 @@ export default function MessageBubble({ msg, color, userName, onLongPress, onNot
             </View>
           )}
           {msg.content.length > 0 && (
-            <MessageTextRender text={msg.content} isMe={msg.isMe} />
+            <MessageTextRender text={msg.content} isMe={msg.isMe} mentions={msg.mentions ?? []} />
           )}
 
           {hasLinkedItem && (
@@ -252,6 +266,20 @@ export default function MessageBubble({ msg, color, userName, onLongPress, onNot
               {readCount > 0 && <Text style={styles.readText}>Vu par {readCount}</Text>}
             </View>
           )}
+          <TouchableOpacity
+            style={[styles.messageActionBtn, msg.isMe && styles.messageActionBtnMe]}
+            onPress={() => onOpenReactPicker(msg)}
+            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+          >
+            <Ionicons name="happy-outline" size={13} color={msg.isMe ? 'rgba(255,255,255,0.75)' : C.textMuted} />
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[styles.messageActionBtn, msg.isMe && styles.messageActionBtnMe]}
+            onPress={onLongPress}
+            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+          >
+            <Ionicons name="ellipsis-horizontal" size={13} color={msg.isMe ? 'rgba(255,255,255,0.75)' : C.textMuted} />
+          </TouchableOpacity>
         </View>
       </View>
     </TouchableOpacity>
@@ -282,6 +310,7 @@ const styles = StyleSheet.create({
   bubbleMe: { borderBottomRightRadius: 4 },
   bubbleThem: { backgroundColor: C.surface, borderBottomLeftRadius: 4, borderWidth: 1, borderColor: C.border },
   bubblePinned: { borderWidth: 1.5, borderColor: C.waiting + '60' },
+  bubbleHighlighted: { borderWidth: 2, borderColor: C.waiting },
   pinBadge: { flexDirection: 'row', alignItems: 'center', gap: 3, marginBottom: 4 },
   pinBadgeText: { fontSize: 9, fontFamily: 'Inter_600SemiBold', color: C.waiting, textTransform: 'uppercase' },
 
@@ -323,4 +352,13 @@ const styles = StyleSheet.create({
   timeTextMe: { color: 'rgba(255,255,255,0.6)' },
   readRow: { flexDirection: 'row', alignItems: 'center', gap: 2 },
   readText: { fontSize: 9, fontFamily: 'Inter_400Regular', color: C.textMuted },
+  messageActionBtn: {
+    width: 24,
+    height: 20,
+    borderRadius: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: C.surface2,
+  },
+  messageActionBtnMe: { backgroundColor: 'rgba(255,255,255,0.18)' },
 });

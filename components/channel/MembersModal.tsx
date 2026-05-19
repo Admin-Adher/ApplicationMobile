@@ -40,7 +40,20 @@ export default function MembersModal({
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { companies } = useApp();
-  const isCompanyChannel = channelObj?.type === 'company';
+  const isCompanyChannel = channelObj?.type === 'company' || channelId.startsWith('company-');
+  const canManageMembers = isCreator || user?.role === 'admin' || user?.role === 'super_admin';
+  const companyId = isCompanyChannel && channelObj?.id?.startsWith('company-')
+    ? channelObj.id.slice('company-'.length)
+    : null;
+  const companyMemberNames = companyId
+    ? profiles
+        .filter(p => p.companyId === companyId)
+        .map(p => p.name)
+        .filter((v, i, a) => a.indexOf(v) === i)
+    : [];
+  const visibleCompanyMembers = companyMemberNames.length > 0
+    ? companyMemberNames
+    : knownSenders.filter((v, i, a) => a.indexOf(v) === i);
 
   function CompanyPill({ name }: { name: string }) {
     const profile = profiles.find(p => p.name === name);
@@ -73,7 +86,7 @@ export default function MembersModal({
                 {isDMChannel ? 'Message direct' : isGroupChannel ? 'Groupe' : channelObj?.type === 'company' ? 'Canal entreprise' : isEditable ? 'Canal personnalisé' : 'Canal chantier'}
               </Text>
             </View>
-            {isEditable && !isCompanyChannel && (
+            {isEditable && !isCompanyChannel && canManageMembers && (
               <TouchableOpacity style={styles.renameBtn} onPress={onRenamePress}>
                 <Ionicons name="pencil-outline" size={16} color={C.primary} />
                 <Text style={styles.renameBtnText}>Renommer</Text>
@@ -95,7 +108,7 @@ export default function MembersModal({
                     Les membres sont synchronisés automatiquement avec le personnel de l'entreprise.
                   </Text>
                 </View>
-                {knownSenders.filter((v, i, a) => a.indexOf(v) === i).map(name => (
+                {visibleCompanyMembers.length > 0 ? visibleCompanyMembers.map(name => (
                   <View key={name} style={styles.memberItem}>
                     <View style={[styles.memberAvatar, { backgroundColor: getAvatarColor(name) + '25' }]}>
                       <Text style={[styles.memberAvatarText, { color: getAvatarColor(name) }]}>{name.charAt(0)}</Text>
@@ -106,7 +119,11 @@ export default function MembersModal({
                     </View>
                     {name === user?.name && <View style={styles.meBadge}><Text style={styles.meBadgeText}>Vous</Text></View>}
                   </View>
-                ))}
+                )) : (
+                  <View style={{ padding: 16, alignItems: 'center' }}>
+                    <Text style={styles.sub}>Aucun membre synchronise</Text>
+                  </View>
+                )}
               </>
             ) : isEditable || isDMChannel || isGroupChannel ? (
               <>
@@ -114,7 +131,7 @@ export default function MembersModal({
                   <Text style={styles.sectionLabel}>
                     {isEditable ? (isGroupChannel ? 'MEMBRES DU GROUPE' : 'MEMBRES DU CANAL') : isDMChannel ? 'PARTICIPANTS' : 'MEMBRES DU GROUPE'}
                   </Text>
-                  {(isEditable || isGroupChannel) && (
+                  {(isEditable || isGroupChannel) && canManageMembers && (
                     <TouchableOpacity style={styles.addBtn} onPress={() => { onClose(); onAddMemberPress(); }}>
                       <Ionicons name="person-add-outline" size={14} color={C.primary} />
                       <Text style={styles.addBtnText}>Ajouter</Text>
@@ -136,7 +153,7 @@ export default function MembersModal({
                         <Text style={[styles.meBadgeText, { color: C.primary }]}>Créateur</Text>
                       </View>
                     )}
-                    {(isEditable || isGroupChannel) && name !== channelObj?.createdBy && name !== user?.name && (
+                    {(isEditable || isGroupChannel) && canManageMembers && name !== channelObj?.createdBy && name !== user?.name && (
                       <TouchableOpacity
                         style={styles.removeBtn}
                         onPress={() => {
@@ -181,7 +198,7 @@ export default function MembersModal({
             {isEditable && canDelete && (
               <>
                 <View style={styles.divider} />
-                {!isCreator && (
+                {!canManageMembers && (
                   <TouchableOpacity
                     style={styles.dangerBtn}
                     onPress={() => {
@@ -208,7 +225,7 @@ export default function MembersModal({
                     </Text>
                   </TouchableOpacity>
                 )}
-                {isCreator && (
+                {canManageMembers && (
                   <TouchableOpacity
                     style={styles.dangerBtn}
                     onPress={() => {

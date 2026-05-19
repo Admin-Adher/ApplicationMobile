@@ -43,11 +43,16 @@ export default function NewDMModal({ visible, onClose, profiles, currentUserName
     onClose();
   }
 
+  function handleClose() {
+    setSearch('');
+    onClose();
+  }
+
   return (
-    <Modal visible={visible} animationType="slide" presentationStyle="pageSheet" onRequestClose={onClose}>
+    <Modal visible={visible} animationType="slide" presentationStyle="pageSheet" onRequestClose={handleClose}>
       <View style={styles.container}>
         <View style={[styles.header, Platform.OS === 'android' && { paddingTop: insets.top + 14 }]}>
-          <TouchableOpacity onPress={onClose} style={styles.closeBtn}>
+          <TouchableOpacity onPress={handleClose} style={styles.closeBtn}>
             <Ionicons name="close" size={22} color={C.text} />
           </TouchableOpacity>
           <Text style={styles.title}>Message direct</Text>

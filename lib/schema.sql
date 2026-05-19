@@ -906,6 +906,68 @@ create policy "Channels modifiables par membres habilités"
     ))
   );
 
+-- Channel policies v2: align private group/DM persistence with mobile UX.
+drop policy if exists "Channels lisibles par tous" on public.channels;
+drop policy if exists "Channels visibles par membres habilités" on public.channels;
+drop policy if exists "Channels modifiables" on public.channels;
+drop policy if exists "Channels modifiables par membres habilités" on public.channels;
+drop policy if exists "Channels visibles par membres habilites v2" on public.channels;
+create policy "Channels visibles par membres habilites v2"
+  on public.channels for select
+  using (
+    auth_user_role() = 'super_admin'
+    or
+    (type in ('general','building','company','custom') and organization_id = auth_user_org())
+    or
+    (type in ('group','dm') and exists (
+      select 1 from jsonb_array_elements_text(members) as m where m = auth_user_name()
+    ))
+  );
+drop policy if exists "Channels creables par membres habilites v2" on public.channels;
+create policy "Channels creables par membres habilites v2"
+  on public.channels for insert
+  with check (
+    auth_user_role() = 'super_admin'
+    or
+    (type in ('general','building','company') and organization_id = auth_user_org() and auth_user_role() in ('admin','conducteur','chef_equipe','super_admin'))
+    or
+    (type = 'custom' and organization_id = auth_user_org() and created_by = auth_user_name() and auth_user_role() in ('admin','conducteur','chef_equipe','super_admin'))
+    or
+    (type in ('group','dm') and organization_id = auth_user_org() and created_by = auth_user_name() and exists (
+      select 1 from jsonb_array_elements_text(members) as m where m = auth_user_name()
+    ))
+  );
+drop policy if exists "Channels modifiables par membres habilites v2" on public.channels;
+create policy "Channels modifiables par membres habilites v2"
+  on public.channels for update
+  using (
+    auth_user_role() = 'super_admin'
+    or
+    (organization_id = auth_user_org() and (
+      auth_user_role() in ('admin','super_admin')
+      or (type in ('custom','group','dm') and created_by = auth_user_name())
+    ))
+  )
+  with check (
+    auth_user_role() = 'super_admin'
+    or
+    (organization_id = auth_user_org() and (
+      auth_user_role() in ('admin','super_admin')
+      or (type in ('custom','group','dm') and created_by = auth_user_name())
+    ))
+  );
+drop policy if exists "Channels supprimables par membres habilites v2" on public.channels;
+create policy "Channels supprimables par membres habilites v2"
+  on public.channels for delete
+  using (
+    auth_user_role() = 'super_admin'
+    or
+    (organization_id = auth_user_org() and (
+      auth_user_role() in ('admin','super_admin')
+      or (type in ('custom','group','dm') and created_by = auth_user_name())
+    ))
+  );
+
 -- ---- 14. TABLE TIME_ENTRIES (pointage) ----
 create table if not exists public.time_entries (
   id text primary key,

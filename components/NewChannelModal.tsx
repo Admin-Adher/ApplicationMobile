@@ -29,6 +29,18 @@ export default function NewChannelModal({ visible, onClose, onCreate }: Props) {
   const [selectedIcon, setSelectedIcon] = useState('chatbubbles');
   const [selectedColor, setSelectedColor] = useState('#0A84FF');
 
+  function resetForm() {
+    setName('');
+    setDescription('');
+    setSelectedIcon('chatbubbles');
+    setSelectedColor('#0A84FF');
+  }
+
+  function handleClose() {
+    resetForm();
+    onClose();
+  }
+
   function handleCreate() {
     const trimmed = name.trim();
     if (!trimmed) {
@@ -36,18 +48,15 @@ export default function NewChannelModal({ visible, onClose, onCreate }: Props) {
       return;
     }
     onCreate(trimmed, description.trim(), selectedIcon, selectedColor);
-    setName('');
-    setDescription('');
-    setSelectedIcon('chatbubbles');
-    setSelectedColor('#0A84FF');
+    resetForm();
     onClose();
   }
 
   return (
-    <Modal visible={visible} animationType="slide" presentationStyle="pageSheet" onRequestClose={onClose}>
+    <Modal visible={visible} animationType="slide" presentationStyle="pageSheet" onRequestClose={handleClose}>
       <View style={styles.container}>
         <View style={[styles.header, Platform.OS === 'android' && { paddingTop: insets.top + 14 }]}>
-          <TouchableOpacity onPress={onClose} style={styles.cancelBtn}>
+          <TouchableOpacity onPress={handleClose} style={styles.cancelBtn}>
             <Text style={styles.cancelText}>Annuler</Text>
           </TouchableOpacity>
           <Text style={styles.title}>Nouveau canal</Text>
