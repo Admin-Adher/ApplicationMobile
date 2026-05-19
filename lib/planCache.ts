@@ -4,6 +4,7 @@ import * as FileSystem from 'expo-file-system';
 const CACHE_DIR = `${FileSystem.documentDirectory ?? ''}plans_cache/`;
 const MANIFEST_PATH = `${CACHE_DIR}.manifest.json`;
 const MAX_CACHE_SIZE = 500 * 1024 * 1024;
+const inFlightDownloads = new Map<string, Promise<{ localUri: string; fromCache: boolean }>>();
 
 type ManifestEntry = {
   url: string;
@@ -136,31 +137,43 @@ export async function ensurePlanCached(
   const cached = await getCachedPlanUri(remoteUrl);
   if (cached) return { localUri: cached, fromCache: true };
 
-  await ensureCacheDir();
   const key = hashUrl(remoteUrl);
-  const ext = extOf(remoteUrl);
-  const filename = `${key}.${ext}`;
-  const dest = `${CACHE_DIR}${filename}`;
+  const inFlight = inFlightDownloads.get(key);
+  if (inFlight) return inFlight;
 
-  const dl = await FileSystem.downloadAsync(remoteUrl, dest);
-  if (dl.status && dl.status >= 400) {
-    try { await FileSystem.deleteAsync(dest, { idempotent: true }); } catch {}
-    throw new Error(`HTTP ${dl.status}`);
+  const downloadPromise = (async () => {
+    await ensureCacheDir();
+    const ext = extOf(remoteUrl);
+    const filename = `${key}.${ext}`;
+    const dest = `${CACHE_DIR}${filename}`;
+
+    const dl = await FileSystem.downloadAsync(remoteUrl, dest);
+    if (dl.status && dl.status >= 400) {
+      try { await FileSystem.deleteAsync(dest, { idempotent: true }); } catch {}
+      throw new Error(`HTTP ${dl.status}`);
+    }
+    const info = await FileSystem.getInfoAsync(dl.uri);
+    const size = info.exists && 'size' in info ? (info.size as number) : 0;
+
+    let m = await loadManifest();
+    m.entries[key] = {
+      url: remoteUrl,
+      size,
+      lastAccess: Date.now(),
+      filename,
+    };
+    m = await evictIfNeeded(m);
+    await saveManifest(m);
+
+    return { localUri: dl.uri, fromCache: false };
+  })();
+
+  inFlightDownloads.set(key, downloadPromise);
+  try {
+    return await downloadPromise;
+  } finally {
+    inFlightDownloads.delete(key);
   }
-  const info = await FileSystem.getInfoAsync(dl.uri);
-  const size = info.exists && 'size' in info ? (info.size as number) : 0;
-
-  let m = await loadManifest();
-  m.entries[key] = {
-    url: remoteUrl,
-    size,
-    lastAccess: Date.now(),
-    filename,
-  };
-  m = await evictIfNeeded(m);
-  await saveManifest(m);
-
-  return { localUri: dl.uri, fromCache: false };
 }
 
 /**

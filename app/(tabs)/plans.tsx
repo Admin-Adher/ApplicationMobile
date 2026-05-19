@@ -35,6 +35,8 @@ import FiltersSheet from '@/components/plans/FiltersSheet';
 import ReservesSheet from '@/components/plans/ReservesSheet';
 import BuildingPickerSheet, { type BuildingItem } from '@/components/BuildingPickerSheet';
 import LevelPickerSheet, { type LevelItem } from '@/components/LevelPickerSheet';
+import { ensurePlanCached } from '@/lib/planCache';
+import { loadBundledPdfJsSources } from '@/lib/pdfjsAsset';
 
 const HINT_KEY = 'plans_hint_seen';
 const PIN_SIZE_KEY = 'plans_pin_size_scale';
@@ -1399,6 +1401,28 @@ export default function PlansScreen() {
     (selectedBuilding !== 'all' && selectedBuilding !== '__none__' && chantierHierarchyBuildings.length > 0);
   const currentPlanId = activePlanId ?? filteredPlans[0]?.id ?? (hasActiveHierarchyFilter ? null : chantierPlans[0]?.id) ?? null;
   const currentPlan = currentPlanId ? chantierPlanById.get(currentPlanId) ?? null : null;
+
+  useEffect(() => {
+    if (Platform.OS === 'web') return;
+    if (!chantierPlans.some(plan => !!plan.uri && isPlanPdf(plan))) return;
+    loadBundledPdfJsSources().catch(() => {});
+  }, [chantierPlans]);
+
+  useEffect(() => {
+    if (Platform.OS === 'web' || !currentPlan?.uri || !isPlanPdf(currentPlan)) return;
+    const isRemote = (uri: string) => uri.startsWith('http://') || uri.startsWith('https://');
+    if (!isRemote(currentPlan.uri)) return;
+
+    ensurePlanCached(currentPlan.uri).catch(() => {});
+
+    const currentIndex = filteredPlans.findIndex(plan => plan.id === currentPlan.id);
+    const adjacentPlans = [filteredPlans[currentIndex - 1], filteredPlans[currentIndex + 1]];
+    adjacentPlans.forEach(plan => {
+      if (plan?.uri && isPlanPdf(plan) && isRemote(plan.uri)) {
+        ensurePlanCached(plan.uri).catch(() => {});
+      }
+    });
+  }, [currentPlan?.id, currentPlan?.uri, currentPlan?.fileType, filteredPlans]);
 
   const isSousTraitant = user?.role === 'sous_traitant';
   const sousTraitantCompanyName = isSousTraitant && user?.companyId
