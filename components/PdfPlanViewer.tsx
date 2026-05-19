@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect, useCallback, useImperativeHandle, forwardRef, useMemo } from 'react';
 import {
   View, Text, TouchableOpacity, StyleSheet, Platform,
-  ActivityIndicator, ScrollView,
+  ActivityIndicator, ScrollView, Image,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { C } from '@/constants/colors';
@@ -50,9 +50,11 @@ const PALETTE = [
 
 const WIDTHS = [1, 2, 3, 5, 8];
 const PLAN_DATA_URL_CACHE_LIMIT = 5;
+const PLAN_PREVIEW_CACHE_LIMIT = 8;
 const PLAN_DATA_URL_CACHE_MAX_BYTES = 20 * 1024 * 1024;
 const PLAN_RESOLVED_URI_CACHE_MAX_CHARS = Math.ceil(PLAN_DATA_URL_CACHE_MAX_BYTES * 1.4);
 const planDataUrlCache = new Map<string, string>();
+const planPreviewCache = new Map<string, string>();
 const resolvedPlanUriCache = new Map<string, { resolvedUri: string; fromCache: boolean }>();
 let loadedPdfJsSources: { moduleSource: string | null; workerSource: string | null } | null = null;
 
@@ -83,6 +85,25 @@ function getRememberedResolvedPlanUri(planUri: string) {
   if (!cached) return null;
   resolvedPlanUriCache.delete(planUri);
   resolvedPlanUriCache.set(planUri, cached);
+  return cached;
+}
+
+function rememberPlanPreview(planId: string, dataUrl: string | null | undefined) {
+  if (!planId || !dataUrl) return;
+  planPreviewCache.delete(planId);
+  planPreviewCache.set(planId, dataUrl);
+  while (planPreviewCache.size > PLAN_PREVIEW_CACHE_LIMIT) {
+    const oldest = planPreviewCache.keys().next().value;
+    if (!oldest) break;
+    planPreviewCache.delete(oldest);
+  }
+}
+
+function getRememberedPlanPreview(planId: string) {
+  const cached = planPreviewCache.get(planId);
+  if (!cached) return null;
+  planPreviewCache.delete(planId);
+  planPreviewCache.set(planId, cached);
   return cached;
 }
 
@@ -655,8 +676,11 @@ function loadPdfjs(){
 }
 
 var BASE_FIT_SCALE=1;
-var RENDER_QUALITY=2;
+var INITIAL_RENDER_QUALITY=1.35;
+var SHARP_RENDER_QUALITY=2;
+var RENDER_QUALITY=INITIAL_RENDER_QUALITY;
 var rerenderTimer=null;
+var sharpenTimer=null;
 var isRerendering=false;
 
 function renderPageAtQuality(num,q,resetView){
@@ -695,8 +719,21 @@ function renderPageAtQuality(num,q,resetView){
   }).catch(function(){isRerendering=false;});
 }
 
+function sharpenPageSoon(){
+  if(IS_IMAGE||!pdfDoc)return;
+  clearTimeout(sharpenTimer);
+  sharpenTimer=setTimeout(function(){
+    if(!pdfDoc||RENDER_QUALITY>=SHARP_RENDER_QUALITY)return;
+    RENDER_QUALITY=SHARP_RENDER_QUALITY;
+    renderPageAtQuality(pageNum,SHARP_RENDER_QUALITY,false);
+  },140);
+}
+
 function renderPage(num){
-  return renderPageAtQuality(num,RENDER_QUALITY,true);
+  RENDER_QUALITY=INITIAL_RENDER_QUALITY;
+  return renderPageAtQuality(num,RENDER_QUALITY,true).then(function(){
+    sharpenPageSoon();
+  });
 }
 
 function scheduleAdaptiveRerender(){
@@ -951,8 +988,8 @@ window.resetView=function(){
   panY=Math.max(0,(window.innerHeight-ch)/2);
   applyT();post({type:'zoomChange',zoom:zoom});
 };
-window.captureCanvas=function(){
-  try{var d=pdfCanvas.toDataURL('image/jpeg',0.85);post({type:'canvasCapture',dataUrl:d});}
+window.captureCanvas=function(quality){
+  try{var d=pdfCanvas.toDataURL('image/jpeg',quality||0.85);post({type:'canvasCapture',dataUrl:d});}
   catch(e){post({type:'canvasCapture',dataUrl:null});}
 };
 })();
@@ -988,8 +1025,13 @@ const MobileViewer = forwardRef<PdfPlanViewerHandle, PdfPlanViewerProps>(functio
   const [pdfJsSource, setPdfJsSource] = useState<string | null>(isImagePlan ? null : (initialPdfJsSources?.moduleSource ?? ''));
   const [pdfJsWorkerSource, setPdfJsWorkerSource] = useState<string | null>(isImagePlan ? null : (initialPdfJsSources?.workerSource ?? ''));
   const [pdfJsLoading, setPdfJsLoading] = useState(!isImagePlan && !initialPdfJsSources);
+  const [previewDataUrl, setPreviewDataUrl] = useState<string | null>(() => getRememberedPlanPreview(planId));
 
   const MAX_BASE64_SIZE = 25 * 1024 * 1024;
+
+  useEffect(() => {
+    setPreviewDataUrl(getRememberedPlanPreview(planId));
+  }, [planId]);
 
   useEffect(() => {
     let cancelled = false;
@@ -1291,8 +1333,15 @@ const MobileViewer = forwardRef<PdfPlanViewerHandle, PdfPlanViewerProps>(functio
         setPage(1);
       } else if (msg.type === 'planReady') {
         injectViewerSnapshot();
+        setTimeout(() => {
+          inject('window.captureCanvas && window.captureCanvas(0.45);');
+        }, 120);
         onReady?.();
       } else if (msg.type === 'canvasCapture') {
+        if (msg.dataUrl) {
+          rememberPlanPreview(planId, msg.dataUrl);
+          setPreviewDataUrl(msg.dataUrl);
+        }
         if (captureResolveRef.current) {
           captureResolveRef.current(msg.dataUrl ?? null);
           captureResolveRef.current = null;
@@ -1311,7 +1360,7 @@ const MobileViewer = forwardRef<PdfPlanViewerHandle, PdfPlanViewerProps>(functio
         setLoadError(typeof msg.error === 'string' ? msg.error : 'Erreur de chargement du plan.');
       }
     } catch {}
-  }, [reserves, onPlanTap, onReserveSelect, onAnnotationsChange, onZoomChange, onPinMove, onPinFocus, onReady, injectViewerSnapshot, resolvedUri, forcedInlineLocalUri, fallbackKey]);
+  }, [reserves, onPlanTap, onReserveSelect, onAnnotationsChange, onZoomChange, onPinMove, onPinFocus, onReady, injectViewerSnapshot, inject, planId, resolvedUri, forcedInlineLocalUri, fallbackKey]);
 
   const html = useMemo(
     () => resolvedUri
@@ -1334,8 +1383,14 @@ const MobileViewer = forwardRef<PdfPlanViewerHandle, PdfPlanViewerProps>(functio
   return (
     <View style={mob.root}>
       {viewerLoading && (
-        <View style={[mob.root, { alignItems: 'center', justifyContent: 'center', gap: 10 }]}>
-          <ActivityIndicator size="large" color={C.primary} />
+        <View style={mob.previewWrap}>
+          {previewDataUrl ? (
+            <>
+              <Image source={{ uri: previewDataUrl }} style={mob.previewImage} resizeMode="contain" blurRadius={1} />
+              <View style={mob.previewShade} />
+            </>
+          ) : null}
+          <ActivityIndicator size={previewDataUrl ? 'small' : 'large'} color={C.primary} />
           <Text style={{ color: C.textMuted, fontSize: 12 }}>Préparation du plan…</Text>
         </View>
       )}
@@ -1507,6 +1562,9 @@ const MobileViewer = forwardRef<PdfPlanViewerHandle, PdfPlanViewerProps>(functio
 
 const mob = StyleSheet.create({
   root: { flex: 1, backgroundColor: '#0F1117', position: 'relative' as any },
+  previewWrap: { flex: 1, backgroundColor: '#0F1117', alignItems: 'center', justifyContent: 'center', gap: 10, overflow: 'hidden' as any },
+  previewImage: { ...StyleSheet.absoluteFillObject, width: '100%', height: '100%', opacity: 0.92 },
+  previewShade: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(15,17,23,0.28)' },
   webview: { flex: 1 },
   barWrap: { backgroundColor: C.surface, borderTopWidth: 1, borderTopColor: C.border },
   barRow: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 8, paddingVertical: 5 },
