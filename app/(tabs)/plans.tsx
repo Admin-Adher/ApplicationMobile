@@ -890,6 +890,19 @@ export default function PlansScreen() {
     () => sitePlans.filter(p => p.chantierId === activeChantierId),
     [sitePlans, activeChantierId]
   );
+  const chantierPlanById = useMemo(() => {
+    const map = new Map<string, SitePlan>();
+    chantierPlans.forEach(plan => map.set(plan.id, plan));
+    return map;
+  }, [chantierPlans]);
+  const reserveCountByPlanId = useMemo(() => {
+    const map = new Map<string, number>();
+    reserves.forEach(reserve => {
+      if (!reserve.planId) return;
+      map.set(reserve.planId, (map.get(reserve.planId) ?? 0) + 1);
+    });
+    return map;
+  }, [reserves]);
 
   const [activePlanId, setActivePlanId] = useState<string | null>(null);
   const [selectedBuilding, setSelectedBuilding] = useState<string>('all');
@@ -1167,19 +1180,39 @@ export default function PlansScreen() {
   const showBuildingChips = chantierHierarchyBuildings.length > 1 || hasOrphanPlans;
   const useHybridPicker = chantierHierarchyBuildings.length >= HYBRID_PICKER_THRESHOLD;
 
+  const buildingCounters = useMemo(() => {
+    const planById = new Map<string, number>();
+    const planByName = new Map<string, number>();
+    const reserveById = new Map<string, number>();
+    const reserveByName = new Map<string, number>();
+
+    chantierPlans.forEach(plan => {
+      if (plan.buildingId) {
+        planById.set(plan.buildingId, (planById.get(plan.buildingId) ?? 0) + 1);
+      } else if (plan.building) {
+        planByName.set(plan.building, (planByName.get(plan.building) ?? 0) + 1);
+      }
+    });
+
+    reserves.forEach(reserve => {
+      if (reserve.archivedAt || reserve.status === 'closed') return;
+      if (reserve.buildingId) {
+        reserveById.set(reserve.buildingId, (reserveById.get(reserve.buildingId) ?? 0) + 1);
+      } else if (reserve.building) {
+        reserveByName.set(reserve.building, (reserveByName.get(reserve.building) ?? 0) + 1);
+      }
+    });
+
+    return { planById, planByName, reserveById, reserveByName };
+  }, [chantierPlans, reserves]);
+
   const buildingItems = useMemo<BuildingItem[]>(() => {
     return chantierHierarchyBuildings.map(b => {
-      const planCount = chantierPlans.filter(p =>
-        p.buildingId === b.id || (!p.buildingId && p.building === b.name)
-      ).length;
-      const reserveCount = reserves.filter(r =>
-        !r.archivedAt && r.status !== 'closed' && (
-          (r.buildingId && r.buildingId === b.id) || (!r.buildingId && r.building === b.name)
-        )
-      ).length;
+      const planCount = (buildingCounters.planById.get(b.id) ?? 0) + (buildingCounters.planByName.get(b.name) ?? 0);
+      const reserveCount = (buildingCounters.reserveById.get(b.id) ?? 0) + (buildingCounters.reserveByName.get(b.name) ?? 0);
       return { id: b.id, name: b.name, planCount, reserveCount };
     });
-  }, [chantierHierarchyBuildings, chantierPlans, reserves]);
+  }, [chantierHierarchyBuildings, buildingCounters]);
 
   const recentBuildingIds = useMemo(
     () => (activeChantierId ? recentBuildingsByChantier[activeChantierId] ?? [] : []),
@@ -1235,16 +1268,39 @@ export default function PlansScreen() {
   const levelItems = useMemo<LevelItem[]>(() => {
     if (!activeBuildingForLevels) return [];
     const bldg = activeBuildingForLevels;
+    const planByLevelId = new Map<string, number>();
+    const planByLevelName = new Map<string, number>();
+    const reserveByLevelId = new Map<string, number>();
+    const reserveByLevelName = new Map<string, number>();
+
+    chantierPlans.forEach(plan => {
+      const matchesBuilding =
+        plan.buildingId === bldg.id ||
+        (!plan.buildingId && plan.building === bldg.name);
+      if (!matchesBuilding) return;
+      if (plan.levelId) {
+        planByLevelId.set(plan.levelId, (planByLevelId.get(plan.levelId) ?? 0) + 1);
+      } else if (plan.level) {
+        planByLevelName.set(plan.level, (planByLevelName.get(plan.level) ?? 0) + 1);
+      }
+    });
+
+    reserves.forEach(reserve => {
+      if (reserve.archivedAt || reserve.status === 'closed') return;
+      const matchesBuilding =
+        (reserve.buildingId && reserve.buildingId === bldg.id) ||
+        (!reserve.buildingId && reserve.building === bldg.name);
+      if (!matchesBuilding) return;
+      if (reserve.levelId) {
+        reserveByLevelId.set(reserve.levelId, (reserveByLevelId.get(reserve.levelId) ?? 0) + 1);
+      } else if (reserve.level) {
+        reserveByLevelName.set(reserve.level, (reserveByLevelName.get(reserve.level) ?? 0) + 1);
+      }
+    });
+
     return bldg.levels.map(l => {
-      const planCount = chantierPlans.filter(p =>
-        (p.buildingId === bldg.id || (!p.buildingId && p.building === bldg.name)) &&
-        (p.levelId === l.id || (!p.levelId && p.level === l.name))
-      ).length;
-      const reserveCount = reserves.filter(r =>
-        !r.archivedAt && r.status !== 'closed' &&
-        ((r.buildingId && r.buildingId === bldg.id) || (!r.buildingId && r.building === bldg.name)) &&
-        ((r.levelId && r.levelId === l.id) || (!r.levelId && r.level === l.name))
-      ).length;
+      const planCount = (planByLevelId.get(l.id) ?? 0) + (planByLevelName.get(l.name) ?? 0);
+      const reserveCount = (reserveByLevelId.get(l.id) ?? 0) + (reserveByLevelName.get(l.name) ?? 0);
       return { id: l.id, name: l.name, planCount, reserveCount };
     });
   }, [activeBuildingForLevels, chantierPlans, reserves]);
@@ -1342,7 +1398,7 @@ export default function PlansScreen() {
     selectedLevel !== 'all' ||
     (selectedBuilding !== 'all' && selectedBuilding !== '__none__' && chantierHierarchyBuildings.length > 0);
   const currentPlanId = activePlanId ?? filteredPlans[0]?.id ?? (hasActiveHierarchyFilter ? null : chantierPlans[0]?.id) ?? null;
-  const currentPlan = chantierPlans.find(p => p.id === currentPlanId) ?? null;
+  const currentPlan = currentPlanId ? chantierPlanById.get(currentPlanId) ?? null : null;
 
   const isSousTraitant = user?.role === 'sous_traitant';
   const sousTraitantCompanyName = isSousTraitant && user?.companyId
@@ -1694,6 +1750,21 @@ export default function PlansScreen() {
   const ghostClusters = useMemo(
     () => computeClusters(ghostReserves, displayScale, pinNumberMap),
     [ghostReserves, displayScale, pinNumberMap]
+  );
+  const hasPlanPins = useMemo(
+    () => allPlanReserves.some(r => r.planX != null && r.planY != null),
+    [allPlanReserves]
+  );
+  const miniMapPins = useMemo(
+    () => allPlanReserves
+      .filter(r => r.planX != null && r.planY != null)
+      .map(r => ({
+        id: r.id,
+        x: r.planX!,
+        y: r.planY!,
+        color: getReservePinColor(r, companies),
+      })),
+    [allPlanReserves, companies]
   );
 
   const activeFilters = [statusFilter, companyFilter, levelFilter].filter(f => f !== 'all').length
@@ -2902,7 +2973,7 @@ export default function PlansScreen() {
                   </View>
                 ) : filteredPlans.map(plan => {
                   const isActive = currentPlanId === plan.id;
-                  const planReserveCount = reserves.filter(r => r.planId === plan.id).length;
+                  const planReserveCount = reserveCountByPlanId.get(plan.id) ?? 0;
                   const isUnsynced = !!(plan.uri && isLocalUri(plan.uri));
                   return (
                     <TouchableOpacity
@@ -2975,7 +3046,7 @@ export default function PlansScreen() {
                     <Text style={styles.planSubtitle}>Schématique · {currentPlan?.uploadedAt ?? ''}</Text>
                   )}
                 </View>
-                {allPlanReserves.some(r => r.planX != null && r.planY != null) && (
+                {hasPlanPins && (
                 <View style={styles.pinSizeRow}>
                   {focusedPinId && (
                     <Text style={{ fontSize: 10, color: '#FBBF24', fontFamily: 'Inter_600SemiBold', marginRight: 2 }}>
@@ -3381,19 +3452,16 @@ export default function PlansScreen() {
             )}
 
             {/* Mini map overlay */}
-            {allPlanReserves.length > 0 && !isPlanFile && (
+            {miniMapPins.length > 0 && !isPlanFile && (
               <View style={styles.miniMap}>
                 <View style={styles.miniMapInner}>
-                  {allPlanReserves.filter(r => r.planX != null && r.planY != null).map(r => {
-                    const color = getReservePinColor(r, companies);
-                    return (
-                      <View key={r.id} style={[styles.miniMapDot, {
-                        left: (r.planX! / 100) * 90 - 2,
-                        top: (r.planY! / 100) * 68 - 2,
-                        backgroundColor: color,
-                      }]} />
-                    );
-                  })}
+                  {miniMapPins.map(pin => (
+                    <View key={pin.id} style={[styles.miniMapDot, {
+                      left: (pin.x / 100) * 90 - 2,
+                      top: (pin.y / 100) * 68 - 2,
+                      backgroundColor: pin.color,
+                    }]} />
+                  ))}
                 </View>
               </View>
             )}
