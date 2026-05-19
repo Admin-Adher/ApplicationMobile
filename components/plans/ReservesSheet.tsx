@@ -27,8 +27,34 @@ interface Props {
 }
 
 function getCompanyColor(companyName: string, companies: Array<{ name: string; color: string }>): string {
-  if (!companyName) return '#003082';
+  if (!companyName || companyName === '__mixed__') return '#6B7280';
   return companies.find(c => c.name === companyName)?.color ?? '#003082';
+}
+
+function getReserveCompanies(r: Reserve | null | undefined): string[] {
+  if (!r) return [];
+  const names: string[] = [];
+  if (r.company && r.company.trim()) names.push(r.company.trim());
+  const arr = (r as any).companies;
+  if (Array.isArray(arr)) {
+    for (const c of arr) {
+      if (typeof c !== 'string') continue;
+      const name = c.trim();
+      if (name && !names.includes(name)) names.push(name);
+    }
+  }
+  return names;
+}
+
+function getReserveCompanyLabel(r: Reserve | null | undefined): string {
+  const names = getReserveCompanies(r);
+  return names.length > 0 ? names.join(', ') : '—';
+}
+
+function getReservePinColor(r: Reserve | null | undefined, companies: Array<{ name: string; color: string }>): string {
+  const names = getReserveCompanies(r);
+  if (names.length > 1) return '#6B7280';
+  return getCompanyColor(names[0] ?? '', companies);
 }
 
 const PEEK_HEIGHT = 60;
@@ -112,9 +138,10 @@ export default function ReservesSheet({
     ? reserves.filter(r => {
         const q = searchQuery.toLowerCase();
         const num = pinNumberMap.get(r.id);
+        const companiesText = getReserveCompanies(r).join(' ').toLowerCase();
         return (
           r.title.toLowerCase().includes(q) ||
-          (r.company ?? '').toLowerCase().includes(q) ||
+          companiesText.includes(q) ||
           (r.description ?? '').toLowerCase().includes(q) ||
           (num !== undefined && String(num).includes(q))
         );
@@ -204,7 +231,14 @@ export default function ReservesSheet({
                         style={styles.addBtn}
                         onPress={() => router.push({
                           pathname: '/reserve/new',
-                          params: { planId: currentPlan?.id ?? '', chantierId: activeChantierId ?? '' },
+                          params: {
+                            planId: currentPlan?.id ?? '',
+                            chantierId: activeChantierId ?? '',
+                            building: currentPlan?.building ?? '',
+                            level: currentPlan?.level ?? '',
+                            buildingId: currentPlan?.buildingId ?? '',
+                            levelId: currentPlan?.levelId ?? '',
+                          },
                         } as any)}
                       >
                         <Ionicons name="add" size={14} color={C.primary} />
@@ -223,12 +257,12 @@ export default function ReservesSheet({
                 accessibilityLabel={`Réserve ${r.title}`}
                 accessibilityRole="button"
               >
-                <View style={[styles.pinBadge, { backgroundColor: getCompanyColor(r.company ?? '', companies) }]}>
+                <View style={[styles.pinBadge, { backgroundColor: getReservePinColor(r, companies) }]}>
                   <Text style={styles.pinText}>{pinNumberMap.get(r.id) ?? '—'}</Text>
                 </View>
                 <View style={styles.info}>
                   <Text style={styles.title} numberOfLines={1}>{r.title}</Text>
-                  <Text style={styles.meta} numberOfLines={1}>{r.company}{r.level ? ` · ${r.level}` : ''}</Text>
+                  <Text style={styles.meta} numberOfLines={1}>{getReserveCompanyLabel(r)}{r.level ? ` · ${r.level}` : ''}</Text>
                 </View>
                 <View style={styles.badges}>
                   <StatusBadge status={r.status} small />

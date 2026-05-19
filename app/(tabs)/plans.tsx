@@ -23,7 +23,7 @@ import { STATUS_CONFIG } from '@/components/StatusBadge';
 import PriorityBadge from '@/components/PriorityBadge';
 import { uploadDocumentDetailed, isLocalUri } from '@/lib/storage';
 import { genId, formatDateFR } from '@/lib/utils';
-import { loadFileAsDataUrl, loadPhotoAsDataUrl, loadPhotoAsDataUrlForPdf, preRenderPdfPageToDataUrl, exportPDF as exportPDFHelper, printPDF as printPDFHelper } from '@/lib/pdfBase';
+import { loadFileAsDataUrl, loadPhotoAsDataUrl, loadPhotoAsDataUrlForPdf, preRenderPdfPageToDataUrl, exportPDF as exportPDFHelper, printPDF as printPDFHelper, escapeHtml } from '@/lib/pdfBase';
 import { generateAndSendPdfReport } from '@/lib/email/client';
 import { compareLevels } from '@/lib/reserveUtils';
 import { parseDxf, DxfParseResult } from '@/lib/dxfParser';
@@ -107,8 +107,7 @@ function computeClusters(reserves: Reserve[], scale: number, numberMap: Map<stri
       const dominant = group.reduce((prev, cur) =>
         (STO[cur.status] ?? 9) < (STO[prev.status] ?? 9) ? cur : prev
       );
-      const uniqueCompanies = new Set(group.map(g => g.company));
-      const dominantCompany = uniqueCompanies.size === 1 ? (group[0].company ?? '') : '__mixed__';
+      const dominantCompany = getClusterCompanyKey(group);
       clusters.push({ cx, cy, items: group, dominantStatus: dominant.status, dominantCompany, number: numberMap.get(r.id) ?? clusters.length + 1 });
     }
   }
@@ -118,7 +117,7 @@ function computeClusters(reserves: Reserve[], scale: number, numberMap: Map<stri
       cy: focusedPin.planY!,
       items: [focusedPin],
       dominantStatus: focusedPin.status,
-      dominantCompany: focusedPin.company ?? '',
+      dominantCompany: getClusterCompanyKey([focusedPin]),
       number: numberMap.get(focusedPin.id) ?? clusters.length + 1,
     });
   }
@@ -133,6 +132,47 @@ const STATUS_COLORS: Record<string, string> = {
 function getCompanyColor(companyName: string, companies: Array<{ name: string; color: string }>): string {
   if (!companyName || companyName === '__mixed__') return '#6B7280';
   return companies.find(c => c.name === companyName)?.color ?? '#003082';
+}
+
+function getReserveCompanies(r: Reserve | null | undefined): string[] {
+  if (!r) return [];
+  const names: string[] = [];
+  if (r.company && r.company.trim()) names.push(r.company.trim());
+  const arr = (r as any).companies;
+  if (Array.isArray(arr)) {
+    for (const c of arr) {
+      if (typeof c !== 'string') continue;
+      const name = c.trim();
+      if (name && !names.includes(name)) names.push(name);
+    }
+  }
+  return names;
+}
+
+function getReserveCompanyLabel(r: Reserve | null | undefined): string {
+  const names = getReserveCompanies(r);
+  return names.length > 0 ? names.join(', ') : '—';
+}
+
+function reserveMatchesCompany(r: Reserve, filter: string | null | undefined): boolean {
+  if (!filter || filter === 'all') return true;
+  const names = getReserveCompanies(r);
+  if (filter === '—') return names.length === 0;
+  return names.includes(filter);
+}
+
+function getClusterCompanyKey(group: Reserve[]): string {
+  const names = new Set<string>();
+  for (const r of group) getReserveCompanies(r).forEach(name => names.add(name));
+  if (names.size === 0) return '';
+  if (names.size === 1) return Array.from(names)[0];
+  return '__mixed__';
+}
+
+function getReservePinColor(r: Reserve | null | undefined, companies: Array<{ name: string; color: string }>): string {
+  const names = getReserveCompanies(r);
+  if (names.length > 1) return '#6B7280';
+  return getCompanyColor(names[0] ?? '', companies);
 }
 
 function isPdf(uri?: string | null): boolean {
@@ -199,7 +239,7 @@ async function exportPlanPDF(
     pctX: r.planX!,
     pctY: r.planY!,
     n: numberMap.get(r.id) ?? 0,
-    color: getCompanyColor(r.company ?? '', companiesForColor),
+    color: getReservePinColor(r, companiesForColor),
   }));
 
   // Photos: same limit logic as exportGlobalReport (≤150 total, max 2 per reserve)
@@ -210,15 +250,16 @@ async function exportPlanPDF(
 
   const rowsAndPhotos = await Promise.all(reserves.map(async (r) => {
     const n = numberMap.get(r.id) ?? '—';
-    const color = getCompanyColor(r.company ?? '', companiesForColor);
+    const color = getReservePinColor(r, companiesForColor);
+    const companyLabel = getReserveCompanyLabel(r);
     const row = `<tr>
       <td style="text-align:center;"><span style="display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px;border-radius:50%;background:${color};color:#fff;font-weight:700;font-size:11px;">${n}</span></td>
-      <td style="font-weight:600;">${r.title}</td>
-      <td>${r.company || '—'}</td>
-      <td>${r.level || '—'}</td>
-      <td><span style="color:${color};font-weight:600;">${STATUS_FR[r.status] || r.status}</span></td>
-      <td>${PRIORITY_FR[r.priority] || r.priority}</td>
-      <td>${r.deadline || '—'}</td>
+      <td style="font-weight:600;">${escapeHtml(r.title)}</td>
+      <td>${escapeHtml(companyLabel)}</td>
+      <td>${escapeHtml(r.level || '—')}</td>
+      <td><span style="color:${color};font-weight:600;">${escapeHtml(STATUS_FR[r.status] || r.status)}</span></td>
+      <td>${escapeHtml(PRIORITY_FR[r.priority] || r.priority)}</td>
+      <td>${escapeHtml(r.deadline || '—')}</td>
     </tr>`;
     const rawPhotos = (r.photos && r.photos.length > 0)
       ? r.photos
@@ -232,14 +273,14 @@ async function exportPlanPDF(
       photoHtml = `<div style="padding:8px 16px 12px 16px;border-bottom:1px solid #f1f5f9;background:#fff;">
         <div style="font-size:10px;font-weight:700;color:#64748b;margin-bottom:6px;">
           <span style="display:inline-flex;align-items:center;justify-content:center;width:18px;height:18px;border-radius:50%;background:${color};color:#fff;font-weight:700;font-size:9px;margin-right:5px;">${n}</span>
-          ${r.title} — Photos (${photosToShow.length}${rawPhotos.length > maxPhotosPerReserve ? ` sur ${rawPhotos.length}` : ''})
+          ${escapeHtml(r.title)} — Photos (${photosToShow.length}${rawPhotos.length > maxPhotosPerReserve ? ` sur ${rawPhotos.length}` : ''})
         </div>
         <div style="display:flex;gap:8px;flex-wrap:nowrap;">
           ${photosToShow.map((p, idx) => {
             const src = resolvedSrcs[idx] ?? p.uri;
             const isDefect = p.kind === 'defect';
             return `<div style="flex:1;min-width:0;text-align:center;max-width:200px;">
-              <img src="${src}" onerror="this.style.opacity='0.15'"
+              <img src="${escapeHtml(src)}" onerror="this.style.opacity='0.15'"
                 style="width:100%;height:auto;max-height:160px;object-fit:contain;background:#F9FAFB;border-radius:6px;border:1.5px solid #DDE4EE;display:block;" />
               <span style="display:inline-block;margin-top:3px;padding:1px 7px;border-radius:8px;font-size:9px;font-weight:700;
                 background:${isDefect ? '#FEF2F2' : '#ECFDF5'};color:${isDefect ? '#DC2626' : '#059669'};">
@@ -291,13 +332,14 @@ async function exportPlanPDF(
   // For PDF plans that could not be pre-rendered (native), fall back to the
   // canvas + pdfjs script approach.
   const buildSvgPins = (imgDataUrl: string): string => {
-    if (!hasPins) return `<img src="${imgDataUrl}" style="width:100%;height:auto;display:block;border-radius:8px;border:1px solid #e5e7eb" />`;
+    const safeImgDataUrl = escapeHtml(imgDataUrl);
+    if (!hasPins) return `<img src="${safeImgDataUrl}" style="width:100%;height:auto;display:block;border-radius:8px;border:1px solid #e5e7eb" />`;
     const circles = pinData.map(p =>
       `<circle cx="${p.pctX}%" cy="${p.pctY}%" r="${PIN_R}" fill="${p.color}" stroke="rgba(255,255,255,0.85)" stroke-width="${Math.max(1, PIN_R * 0.18)}"/>` +
       `<text x="${p.pctX}%" y="${p.pctY}%" text-anchor="middle" dominant-baseline="central" fill="#fff" font-size="${PIN_FONT}" font-weight="bold" font-family="Arial,sans-serif">${p.n}</text>`
     ).join('');
     return `<div style="position:relative;width:100%">` +
-      `<img src="${imgDataUrl}" style="width:100%;height:auto;display:block;border-radius:8px;border:1px solid #e5e7eb" />` +
+      `<img src="${safeImgDataUrl}" style="width:100%;height:auto;display:block;border-radius:8px;border:1px solid #e5e7eb" />` +
       `<svg xmlns="http://www.w3.org/2000/svg" style="position:absolute;top:0;left:0;width:100%;height:100%;overflow:visible">${circles}</svg>` +
       `</div>`;
   };
@@ -360,11 +402,13 @@ document.head.appendChild(s);
   <div class="leg">Les numéros correspondent aux réserves du tableau ci-dessous.</div>
 </div>` : '';
 
+  const safePlanName = escapeHtml(planName);
+  const safeChantierName = escapeHtml(chantierName);
   const html = `<!DOCTYPE html>
-<html lang="fr"><head><meta charset="UTF-8"><title>Plan : ${planName}</title>
+<html lang="fr"><head><meta charset="UTF-8"><title>Plan : ${safePlanName}</title>
 <style>*{box-sizing:border-box;margin:0;padding:0;}body{font-family:Arial,sans-serif;padding:28px;color:#111;background:#fff;}.hdr{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:20px;}.hdr-l h1{color:#003082;font-size:20px;margin-bottom:4px;}.hdr-l .meta{color:#666;font-size:12px;}.hdr-r{text-align:right;font-size:11px;color:#999;}.sec{margin-bottom:24px;}.leg{font-size:11px;color:#888;margin-top:6px;}table{width:100%;border-collapse:collapse;font-size:12px;}th{background:#003082;color:#fff;padding:8px 10px;text-align:left;font-size:11px;text-transform:uppercase;letter-spacing:0.5px;}td{padding:7px 10px;border-bottom:1px solid #f0f0f0;vertical-align:middle;}tr:nth-child(even) td{background:#f8fafc;}.stitle{font-size:13px;font-weight:700;color:#003082;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:10px;border-bottom:2px solid #003082;padding-bottom:4px;}.footer{margin-top:28px;font-size:10px;color:#bbb;text-align:center;border-top:1px solid #eee;padding-top:12px;}@media print{body{padding:0;}@page{margin:16mm;}}</style>
 </head><body>
-<div class="hdr"><div class="hdr-l"><h1>Plan : ${planName}</h1><div class="meta">Chantier : <strong>${chantierName}</strong> &nbsp;·&nbsp; ${reserves.length} réserve${reserves.length !== 1 ? 's' : ''}</div></div>
+<div class="hdr"><div class="hdr-l"><h1>Plan : ${safePlanName}</h1><div class="meta">Chantier : <strong>${safeChantierName}</strong> &nbsp;·&nbsp; ${reserves.length} réserve${reserves.length !== 1 ? 's' : ''}</div></div>
 <div class="hdr-r">Exporté le ${new Date().toLocaleDateString('fr-FR')}<br>BuildTrack</div></div>
 ${planAnnotatedSection}
 <div class="stitle">Liste des réserves</div>
@@ -505,7 +549,7 @@ async function exportGlobalReport(
       const buildGlobalPlanImg = (imgDataUrl: string): string => {
         const pinsWithCoords = planReserves.filter(r => r.planX != null && r.planY != null);
         const circles = pinsWithCoords.map((r, i) => {
-          const color = getCompanyColor(r.company ?? '', companiesForColor);
+          const color = getReservePinColor(r, companiesForColor);
           const n = i + 1;
           return (
             `<circle cx="${r.planX}%" cy="${r.planY}%" r="${PIN_R_G}" fill="${color}" stroke="rgba(255,255,255,0.85)" stroke-width="1.5"/>` +
@@ -561,13 +605,14 @@ async function exportGlobalReport(
       const MAX_PHOTOS_GLOBAL = maxPhotosPerReserve;
       const rowsAndPhotos = await Promise.all(planReserves.map(async (r, i) => {
         const n = i + 1;
-        const color = getCompanyColor(r.company ?? '', companiesForColor);
+        const color = getReservePinColor(r, companiesForColor);
         const statusColor = STATUS_COLORS[r.status] ?? '#6b7280';
         const priorityColor = PRIORITY_COLORS[r.priority] ?? '#6b7280';
+        const companyLabel = getReserveCompanyLabel(r);
         const row = `<tr>
           <td style="text-align:center;width:36px;"><span style="display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px;border-radius:50%;background:${color};color:#fff;font-weight:700;font-size:11px;">${n}</span></td>
           <td style="font-weight:600;">${r.title}</td>
-          <td>${r.company || '—'}</td>
+          <td>${companyLabel}</td>
           <td>${r.level || '—'}</td>
           <td><span style="color:${statusColor};font-weight:600;">${STATUS_FR[r.status] ?? r.status}</span></td>
           <td><span style="color:${priorityColor};font-weight:600;">${PRIORITY_FR[r.priority] ?? r.priority}</span></td>
@@ -641,13 +686,14 @@ async function exportGlobalReport(
     const MAX_PHOTOS_ORPHAN = maxPhotosPerReserve;
     const orphanRowsAndPhotos = await Promise.all(orphanReserves.map(async (r, i) => {
       const n = i + 1;
-      const color = getCompanyColor(r.company ?? '', companiesForColor);
+      const color = getReservePinColor(r, companiesForColor);
       const statusColor = STATUS_COLORS[r.status] ?? '#6b7280';
       const priorityColor = PRIORITY_COLORS[r.priority] ?? '#6b7280';
+      const companyLabel = getReserveCompanyLabel(r);
       const row = `<tr>
         <td style="text-align:center;width:36px;"><span style="display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px;border-radius:50%;background:${color};color:#fff;font-weight:700;font-size:11px;">${n}</span></td>
         <td style="font-weight:600;">${r.title}</td>
-        <td>${r.company || '—'}</td>
+        <td>${companyLabel}</td>
         <td>${r.building || '—'}</td>
         <td>${r.level || '—'}</td>
         <td><span style="color:${statusColor};font-weight:600;">${STATUS_FR[r.status] ?? r.status}</span></td>
@@ -1317,7 +1363,7 @@ export default function PlansScreen() {
     }
     if (isSousTraitant && sousTraitantCompanyName) {
       list = list.filter(r => {
-        const names = r.companies ?? (r.company ? [r.company] : []);
+        const names = getReserveCompanies(r);
         return names.includes(sousTraitantCompanyName!);
       });
     }
@@ -1333,7 +1379,7 @@ export default function PlansScreen() {
   const planReserves = useMemo(() => {
     let list = allPlanReserves;
     if (statusFilter !== 'all') list = list.filter(r => r.status === statusFilter || r.id === focusedPinId);
-    if (companyFilter !== 'all') list = list.filter(r => r.company === companyFilter || r.id === focusedPinId);
+    if (companyFilter !== 'all') list = list.filter(r => reserveMatchesCompany(r, companyFilter) || r.id === focusedPinId);
     if (levelFilter !== 'all') list = list.filter(r => r.level === levelFilter || r.id === focusedPinId);
     return list;
   }, [allPlanReserves, statusFilter, companyFilter, levelFilter, focusedPinId]);
@@ -1342,27 +1388,30 @@ export default function PlansScreen() {
   const pdfGroupedByCompany = useMemo(() => {
     const groups = new Map<string, { key: string; title: string; data: Reserve[] }>();
     planReserves.forEach(r => {
-      const key = (r.company && r.company.trim()) ? r.company.trim() : '—';
-      const title = key === '—' ? 'Sans entreprise' : key;
-      if (!groups.has(key)) groups.set(key, { key, title, data: [] });
-      groups.get(key)!.data.push(r);
+      const names = getReserveCompanies(r);
+      const keys = names.length > 0 ? names : ['—'];
+      for (const key of keys) {
+        const title = key === '—' ? 'Sans entreprise' : key;
+        if (!groups.has(key)) groups.set(key, { key, title, data: [] });
+        groups.get(key)!.data.push(r);
+      }
     });
     return Array.from(groups.values()).sort((a, b) => a.title.localeCompare(b.title, 'fr'));
   }, [planReserves]);
 
   const pdfFilteredList = useMemo<Reserve[]>(() => {
     if (pdfMode === 'all') return planReserves;
-    if (pdfMode === 'company_none') return planReserves.filter(r => !r.company || !r.company.trim());
+    if (pdfMode === 'company_none') return planReserves.filter(r => getReserveCompanies(r).length === 0);
     if (pdfMode === 'company_single') {
       if (!pdfCompanySingle) return [];
-      if (pdfCompanySingle === '—') return planReserves.filter(r => !r.company || !r.company.trim());
-      return planReserves.filter(r => (r.company || '').trim() === pdfCompanySingle);
+      return planReserves.filter(r => reserveMatchesCompany(r, pdfCompanySingle));
     }
     if (pdfMode === 'company_multi') {
       if (pdfCompaniesMulti.size === 0) return [];
       return planReserves.filter(r => {
-        const key = (r.company && r.company.trim()) ? r.company.trim() : '—';
-        return pdfCompaniesMulti.has(key);
+        const keys = getReserveCompanies(r);
+        if (keys.length === 0) return pdfCompaniesMulti.has('—');
+        return keys.some(key => pdfCompaniesMulti.has(key));
       });
     }
     if (pdfMode === 'manual') {
@@ -2029,6 +2078,11 @@ export default function PlansScreen() {
         }
         const { url: storageUrl, error: uploadError } = await uploadDocumentDetailed(asset.uri, `plan_${currentPlanId}_${docName}`, asset.mimeType ?? undefined);
         const finalUri = storageUrl ?? asset.uri;
+        setDxfData(prev => {
+          const next = { ...prev };
+          delete next[currentPlanId];
+          return next;
+        });
         updateSitePlan({ ...currentPlan, uri: finalUri, fileType: isPdfFile ? 'pdf' : 'image', size: formatSize(asset.size) });
         if (storageUrl) {
           Alert.alert('Plan importé ✓', 'Fichier uploadé sur le serveur. Il sera disponible sur tous vos appareils.');
@@ -2072,16 +2126,21 @@ export default function PlansScreen() {
           Alert.alert('Format non supporté', 'Importez une image, un PDF ou un DXF.');
           return;
         }
-        const { url: storageUrl, error: revUploadError } = await uploadDocumentDetailed(asset.uri, `plan_rev_${genId()}_${asset.name}`, asset.mimeType ?? undefined);
+        const revDocExt = asset.name.split('.').pop()?.toLowerCase() ?? '';
+        const { url: storageUrl, error: revUploadError } = await uploadDocumentDetailed(
+          asset.uri,
+          `plan_rev_${genId()}_${asset.name}`,
+          revDocExt === 'dxf' ? 'application/octet-stream' : asset.mimeType ?? undefined,
+        );
         if (!storageUrl) {
           Alert.alert('Attention — stockage local', `Le fichier de révision n'a pas pu être uploadé sur le serveur.\n\nErreur : ${revUploadError ?? 'inconnue'}\n\nIl sera visible sur cet appareil uniquement.`, [{ text: 'Continuer' }]);
         }
         const finalUri = storageUrl ?? asset.uri;
-        const revDocExt = asset.name.split('.').pop()?.toLowerCase() ?? '';
         const newPlan: SitePlan = {
           id: genId(), chantierId: currentPlan.chantierId,
           name: `${currentPlan.name} — ${revisionModal.code.trim()}`,
           building: currentPlan.building, level: currentPlan.level,
+          buildingId: currentPlan.buildingId, levelId: currentPlan.levelId,
           uri: finalUri, fileType: revDocExt === 'pdf' ? 'pdf' : isImage(asset.name) ? 'image' : 'dxf',
           size: formatSize(asset.size), uploadedAt: formatDateFR(new Date()),
           revisionCode: revisionModal.code.trim(),
@@ -2131,6 +2190,11 @@ export default function PlansScreen() {
           text: 'Retirer',
           style: 'destructive',
           onPress: () => {
+            setDxfData(prev => {
+              const next = { ...prev };
+              delete next[currentPlan!.id];
+              return next;
+            });
             updateSitePlan({
               ...currentPlan!,
               uri: undefined,
@@ -2160,6 +2224,11 @@ export default function PlansScreen() {
             updateReserveFields({ ...r, planId: undefined, planX: undefined, planY: undefined });
           });
           deleteSitePlan(currentPlanId);
+          setDxfData(prev => {
+            const next = { ...prev };
+            delete next[currentPlanId];
+            return next;
+          });
           setActivePlanId(null);
           setSelected(null);
         },
@@ -3187,7 +3256,7 @@ export default function PlansScreen() {
                   {draggingPinId && (() => {
                     const reserve = reserves.find(r => r.id === draggingPinId);
                     const num = pinNumberMap.get(draggingPinId) ?? '?';
-                    const color = getCompanyColor(reserve?.company ?? '', companies);
+                    const color = getReservePinColor(reserve, companies);
                     const sz = getPinDisplaySize(draggingPinId, pinSize);
                     const half = sz / 2;
                     return (
@@ -3221,7 +3290,7 @@ export default function PlansScreen() {
               <View style={styles.miniMap}>
                 <View style={styles.miniMapInner}>
                   {allPlanReserves.filter(r => r.planX != null && r.planY != null).map(r => {
-                    const color = getCompanyColor(r.company ?? '', companies);
+                    const color = getReservePinColor(r, companies);
                     return (
                       <View key={r.id} style={[styles.miniMapDot, {
                         left: (r.planX! / 100) * 90 - 2,
@@ -3297,14 +3366,14 @@ export default function PlansScreen() {
                   </View>
                   <ScrollView contentContainerStyle={styles.tabletDetailContent} showsVerticalScrollIndicator={false}>
                     <View style={styles.tabletDetailHeaderRow}>
-                      <View style={[styles.pinBadge, { backgroundColor: getCompanyColor(detailReserve.company ?? '', companies), width: 40, height: 40, borderRadius: 20, marginRight: 10 }]}>
+                      <View style={[styles.pinBadge, { backgroundColor: getReservePinColor(detailReserve, companies), width: 40, height: 40, borderRadius: 20, marginRight: 10 }]}>
                         <Text style={[styles.pinBadgeText, { fontSize: 16 }]}>{pinNumberMap.get(detailReserve.id) ?? '—'}</Text>
                       </View>
                       <Text style={styles.tabletDetailTitle} numberOfLines={3}>{detailReserve.title}</Text>
                     </View>
                     <View style={styles.tabletDetailMeta}>
                       <Ionicons name="business-outline" size={12} color={C.textMuted} />
-                      <Text style={styles.tabletDetailMetaText}>{detailReserve.company}</Text>
+                      <Text style={styles.tabletDetailMetaText}>{getReserveCompanyLabel(detailReserve)}</Text>
                       {detailReserve.level && (<><Text style={styles.tabletDetailMetaDot}>·</Text><Ionicons name="layers-outline" size={12} color={C.textMuted} /><Text style={styles.tabletDetailMetaText}>{detailReserve.level}</Text></>)}
                     </View>
                     {detailReserve.deadline && detailReserve.deadline !== '—' && (
@@ -3368,12 +3437,12 @@ export default function PlansScreen() {
                     }
                     renderItem={({ item: r }) => (
                       <TouchableOpacity style={[styles.reserveRow, highlightedReserveId === r.id && styles.tabletReserveRowSelected]} onPress={() => { setHighlightedReserveId(r.id); setPanelView('detail'); }} activeOpacity={0.75} accessibilityLabel={`Réserve ${r.title}`}>
-                        <View style={[styles.pinBadge, { backgroundColor: getCompanyColor(r.company ?? '', companies), width: 34, height: 34, borderRadius: 17 }]}>
+                        <View style={[styles.pinBadge, { backgroundColor: getReservePinColor(r, companies), width: 34, height: 34, borderRadius: 17 }]}>
                           <Text style={styles.pinBadgeText}>{pinNumberMap.get(r.id) ?? '—'}</Text>
                         </View>
                         <View style={styles.reserveInfo}>
                           <Text style={styles.reserveTitle} numberOfLines={2}>{r.title}</Text>
-                          <Text style={styles.reserveMeta}>{r.company} · {r.level}</Text>
+                          <Text style={styles.reserveMeta}>{getReserveCompanyLabel(r)} · {r.level || '—'}</Text>
                         </View>
                         <Ionicons name="chevron-forward" size={14} color={C.textMuted} />
                       </TouchableOpacity>
@@ -3731,13 +3800,13 @@ export default function PlansScreen() {
                         <View style={[styles.pdfCheckbox, checked && styles.pdfCheckboxChecked]}>
                           {checked && <Ionicons name="checkmark" size={12} color="#fff" />}
                         </View>
-                        <View style={[styles.pdfPinBadge, { backgroundColor: getCompanyColor(r.company ?? '', companies) }]}>
+                        <View style={[styles.pdfPinBadge, { backgroundColor: getReservePinColor(r, companies) }]}>
                           <Text style={styles.pdfPinBadgeText}>{num ?? '—'}</Text>
                         </View>
                         <View style={{ flex: 1 }}>
                           <Text style={styles.pdfPickRowText} numberOfLines={1}>{r.title}</Text>
                           <Text style={styles.pdfPickRowSub} numberOfLines={1}>
-                            {(r.company || 'Sans entreprise')} · {r.level || '—'}
+                            {getReserveCompanyLabel(r)} · {r.level || '—'}
                           </Text>
                         </View>
                       </TouchableOpacity>
@@ -3877,12 +3946,12 @@ export default function PlansScreen() {
           {selected && (
             <TouchableOpacity activeOpacity={1} style={styles.modalCard} onPress={() => {}}>
               <View style={styles.modalHeader}>
-                <View style={[styles.modalPin, { backgroundColor: getCompanyColor(selected.company ?? '', companies) }]}>
+                <View style={[styles.modalPin, { backgroundColor: getReservePinColor(selected, companies) }]}>
                   <Text style={styles.modalPinText}>{pinNumberMap.get(selected.id) ?? '#'}</Text>
                 </View>
                 <View style={{ flex: 1 }}>
                   <Text style={styles.modalTitle} numberOfLines={2}>{selected.title}</Text>
-                  <Text style={styles.modalMeta}>{selected.company} · {selected.level}</Text>
+                  <Text style={styles.modalMeta}>{getReserveCompanyLabel(selected)} · {selected.level || '—'}</Text>
                 </View>
                 <TouchableOpacity onPress={() => setSelected(null)} accessibilityLabel="Fermer">
                   <Ionicons name="close" size={20} color={C.textMuted} />

@@ -22,6 +22,27 @@ function getCompanyColor(companyName: string | undefined | null, companies: Arra
   return companies.find(c => c.name === companyName)?.color ?? '#003082';
 }
 
+function getReserveCompanies(r: Reserve | null | undefined): string[] {
+  if (!r) return [];
+  const names: string[] = [];
+  if (r.company && r.company.trim()) names.push(r.company.trim());
+  const arr = (r as any).companies;
+  if (Array.isArray(arr)) {
+    for (const c of arr) {
+      if (typeof c !== 'string') continue;
+      const name = c.trim();
+      if (name && !names.includes(name)) names.push(name);
+    }
+  }
+  return names;
+}
+
+function getReservePinColor(r: Reserve | null | undefined, companies: Array<{ name: string; color: string }>): string {
+  const names = getReserveCompanies(r);
+  if (names.length > 1) return '#6B7280';
+  return getCompanyColor(names[0] ?? '', companies);
+}
+
 const PALETTE = [
   '#EF4444', '#F97316', '#EAB308', '#22C55E',
   '#3B82F6', '#8B5CF6', '#EC4899', '#1A2742', '#FFFFFF',
@@ -193,7 +214,7 @@ function buildMobileHtml(
       id: r.id,
       planX: r.planX,
       planY: r.planY,
-      color: getCompanyColor(r.company, companies),
+      color: getReservePinColor(r, companies),
       num: pinMap.get(r.id) ?? '?',
       size: Math.round(pinSize * (pinSizes[r.id] ?? 1.0)),
     }));
@@ -203,7 +224,7 @@ function buildMobileHtml(
     .map(r => ({
       planX: r.planX,
       planY: r.planY,
-      color: getCompanyColor(r.company, companies),
+      color: getReservePinColor(r, companies),
       num: pinMap.get(r.id) ?? '?',
     }));
 
@@ -1114,7 +1135,7 @@ const MobileViewer = forwardRef<PdfPlanViewerHandle, PdfPlanViewerProps>(functio
       .filter(r => r.planX != null && r.planY != null)
       .map(r => ({
         id: r.id, planX: r.planX, planY: r.planY,
-        color: getCompanyColor(r.company, companies),
+        color: getReservePinColor(r, companies),
         num: pinNumberMap.get(r.id) ?? '?',
         size: Math.round(pinSize * (pinSizes[r.id] ?? 1.0)),
       }));
@@ -1122,7 +1143,7 @@ const MobileViewer = forwardRef<PdfPlanViewerHandle, PdfPlanViewerProps>(functio
       .filter(r => r.planX != null && r.planY != null)
       .map(r => ({
         planX: r.planX, planY: r.planY,
-        color: getCompanyColor(r.company, companies),
+        color: getReservePinColor(r, companies),
         num: pinNumberMap.get(r.id) ?? '?',
       }));
     inject(`window.updatePins(${JSON.stringify(pinsData)},${JSON.stringify(ghostData)});`);
@@ -2001,7 +2022,7 @@ const WebViewer = forwardRef<PdfPlanViewerHandle, PdfPlanViewerProps>(function W
               </svg>
             )}
             {cw > 0 && ghostPinsOnPage.map(r => {
-              const col = getCompanyColor(r.company, companies);
+              const col = getReservePinColor(r, companies);
               const num = pinNumberMap.get(r.id) ?? '?';
               return (
                 <div
@@ -2027,7 +2048,7 @@ const WebViewer = forwardRef<PdfPlanViewerHandle, PdfPlanViewerProps>(function W
               );
             })}
             {cw > 0 && pinsOnPage.map(r => {
-              const col = getCompanyColor(r.company, companies);
+              const col = getReservePinColor(r, companies);
               const num = pinNumberMap.get(r.id) ?? '?';
               const sz = Math.round(pinSize * (pinSizes[r.id] ?? 1.0));
               const isFocused = focusedPinId === r.id;
