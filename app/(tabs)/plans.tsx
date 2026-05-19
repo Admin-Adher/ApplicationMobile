@@ -59,10 +59,12 @@ interface PinCluster {
   number: number;
 }
 
-function computeClusters(reserves: Reserve[], scale: number, numberMap: Map<string, number>): PinCluster[] {
+function computeClusters(reserves: Reserve[], scale: number, numberMap: Map<string, number>, focusedId?: string | null): PinCluster[] {
   const threshold = 8.33 / Math.max(scale, 0.3);
-  const pins = reserves.filter(r => r.planX != null && r.planY != null);
-  if (pins.length === 0) return [];
+  const allPins = reserves.filter(r => r.planX != null && r.planY != null);
+  if (allPins.length === 0) return [];
+  const focusedPin = focusedId ? allPins.find(r => r.id === focusedId) : undefined;
+  const pins = focusedPin ? allPins.filter(r => r.id !== focusedPin.id) : allPins;
   const cellSize = threshold;
   const grid = new Map<string, Reserve[]>();
   const cellKey = (gx: number, gy: number) => `${gx},${gy}`;
@@ -76,37 +78,49 @@ function computeClusters(reserves: Reserve[], scale: number, numberMap: Map<stri
   const assigned = new Set<string>();
   const clusters: PinCluster[] = [];
   const STO: Record<string, number> = { open: 0, in_progress: 1, waiting: 2, verification: 3, closed: 4 };
-  for (const r of pins) {
-    if (assigned.has(r.id)) continue;
-    const group: Reserve[] = [];
-    const queue: Reserve[] = [r];
-    while (queue.length > 0) {
-      const cur = queue.pop()!;
-      if (assigned.has(cur.id)) continue;
-      assigned.add(cur.id);
-      group.push(cur);
-      const gx = Math.floor(cur.planX! / cellSize);
-      const gy = Math.floor(cur.planY! / cellSize);
-      for (let dx = -1; dx <= 1; dx++) {
-        for (let dy = -1; dy <= 1; dy++) {
-          const neighbors = grid.get(cellKey(gx + dx, gy + dy));
-          if (!neighbors) continue;
-          for (const n of neighbors) {
-            if (assigned.has(n.id)) continue;
-            const d = Math.sqrt(Math.pow(cur.planX! - n.planX!, 2) + Math.pow(cur.planY! - n.planY!, 2));
-            if (d < threshold) queue.push(n);
+  if (pins.length > 0) {
+    for (const r of pins) {
+      if (assigned.has(r.id)) continue;
+      const group: Reserve[] = [];
+      const queue: Reserve[] = [r];
+      while (queue.length > 0) {
+        const cur = queue.pop()!;
+        if (assigned.has(cur.id)) continue;
+        assigned.add(cur.id);
+        group.push(cur);
+        const gx = Math.floor(cur.planX! / cellSize);
+        const gy = Math.floor(cur.planY! / cellSize);
+        for (let dx = -1; dx <= 1; dx++) {
+          for (let dy = -1; dy <= 1; dy++) {
+            const neighbors = grid.get(cellKey(gx + dx, gy + dy));
+            if (!neighbors) continue;
+            for (const n of neighbors) {
+              if (assigned.has(n.id)) continue;
+              const d = Math.sqrt(Math.pow(cur.planX! - n.planX!, 2) + Math.pow(cur.planY! - n.planY!, 2));
+              if (d < threshold) queue.push(n);
+            }
           }
         }
       }
+      const cx = group.reduce((s, g) => s + g.planX!, 0) / group.length;
+      const cy = group.reduce((s, g) => s + g.planY!, 0) / group.length;
+      const dominant = group.reduce((prev, cur) =>
+        (STO[cur.status] ?? 9) < (STO[prev.status] ?? 9) ? cur : prev
+      );
+      const uniqueCompanies = new Set(group.map(g => g.company));
+      const dominantCompany = uniqueCompanies.size === 1 ? (group[0].company ?? '') : '__mixed__';
+      clusters.push({ cx, cy, items: group, dominantStatus: dominant.status, dominantCompany, number: numberMap.get(r.id) ?? clusters.length + 1 });
     }
-    const cx = group.reduce((s, g) => s + g.planX!, 0) / group.length;
-    const cy = group.reduce((s, g) => s + g.planY!, 0) / group.length;
-    const dominant = group.reduce((prev, cur) =>
-      (STO[cur.status] ?? 9) < (STO[prev.status] ?? 9) ? cur : prev
-    );
-    const uniqueCompanies = new Set(group.map(g => g.company));
-    const dominantCompany = uniqueCompanies.size === 1 ? (group[0].company ?? '') : '__mixed__';
-    clusters.push({ cx, cy, items: group, dominantStatus: dominant.status, dominantCompany, number: numberMap.get(r.id) ?? clusters.length + 1 });
+  }
+  if (focusedPin) {
+    clusters.push({
+      cx: focusedPin.planX!,
+      cy: focusedPin.planY!,
+      items: [focusedPin],
+      dominantStatus: focusedPin.status,
+      dominantCompany: focusedPin.company ?? '',
+      number: numberMap.get(focusedPin.id) ?? clusters.length + 1,
+    });
   }
   return clusters;
 }
@@ -1291,15 +1305,15 @@ export default function PlansScreen() {
 
   const allPlanReserves = useMemo(() => {
     // Filtres systématiques du plan :
-    //  - réserves archivées (archivedAt non null) : toujours masquées,
-    //    quel que soit le filtre utilisateur
+    //  - réserves archivées (archivedAt non null) : masquées,
+    //    sauf lorsqu'une navigation directe demande explicitement leur pin
     //  - réserves clôturées (statut 'closed') : masquées par défaut, mais
     //    affichées si l'utilisateur sélectionne explicitement le filtre
-    //    "Clôturé" (utile pour vérifier l'emplacement d'une réserve résolue)
+    //    "Clôturé" ou lorsqu'un focus direct cible cette réserve
     //  - réserves supprimées : déjà absentes (suppression définitive en BD)
-    let list = reserves.filter(r => r.planId === currentPlanId && !r.archivedAt);
+    let list = reserves.filter(r => r.planId === currentPlanId && (!r.archivedAt || r.id === focusedPinId));
     if (statusFilter !== 'closed') {
-      list = list.filter(r => r.status !== 'closed');
+      list = list.filter(r => r.status !== 'closed' || r.id === focusedPinId);
     }
     if (isSousTraitant && sousTraitantCompanyName) {
       list = list.filter(r => {
@@ -1308,7 +1322,7 @@ export default function PlansScreen() {
       });
     }
     return list;
-  }, [reserves, currentPlanId, isSousTraitant, sousTraitantCompanyName, statusFilter]);
+  }, [reserves, currentPlanId, isSousTraitant, sousTraitantCompanyName, statusFilter, focusedPinId]);
   const pinNumberMap = useMemo(() => {
     const map = new Map<string, number>();
     const sorted = [...allPlanReserves].sort((a, b) => a.createdAt.localeCompare(b.createdAt));
@@ -1318,11 +1332,11 @@ export default function PlansScreen() {
 
   const planReserves = useMemo(() => {
     let list = allPlanReserves;
-    if (statusFilter !== 'all') list = list.filter(r => r.status === statusFilter);
-    if (companyFilter !== 'all') list = list.filter(r => r.company === companyFilter);
-    if (levelFilter !== 'all') list = list.filter(r => r.level === levelFilter);
+    if (statusFilter !== 'all') list = list.filter(r => r.status === statusFilter || r.id === focusedPinId);
+    if (companyFilter !== 'all') list = list.filter(r => r.company === companyFilter || r.id === focusedPinId);
+    if (levelFilter !== 'all') list = list.filter(r => r.level === levelFilter || r.id === focusedPinId);
     return list;
-  }, [allPlanReserves, statusFilter, companyFilter, levelFilter]);
+  }, [allPlanReserves, statusFilter, companyFilter, levelFilter, focusedPinId]);
 
   // PDF export: groupings & filtered list based on chosen mode
   const pdfGroupedByCompany = useMemo(() => {
@@ -1621,8 +1635,8 @@ export default function PlansScreen() {
   const dynH = planDimensions.height;
 
   const pinClusters = useMemo(
-    () => computeClusters(planReserves, displayScale, pinNumberMap),
-    [planReserves, displayScale, pinNumberMap]
+    () => computeClusters(planReserves, displayScale, pinNumberMap, focusedPinId),
+    [planReserves, displayScale, pinNumberMap, focusedPinId]
   );
   const ghostReserves = useMemo(() => {
     const activeIds = new Set(planReserves.map(r => r.id));
@@ -1699,6 +1713,7 @@ export default function PlansScreen() {
     if (!focusPlanIdParam) return;
     const key = `${focusPlanIdParam}|${focusReserveIdParam ?? ''}`;
     if (handledFocusParamsRef.current === key) return;
+    if (focusReserveIdParam && reserves.length === 0) return;
 
     // Wait until plans are loaded before trying to resolve building/level
     const targetPlan = chantierPlans.find(p => p.id === focusPlanIdParam);
@@ -1715,6 +1730,13 @@ export default function PlansScreen() {
 
     // Switch to the target plan
     setActivePlanId(focusPlanIdParam);
+    setCompanyFilter('all');
+    setLevelFilter('all');
+
+    const targetReserve = focusReserveIdParam
+      ? reserves.find(r => r.id === focusReserveIdParam)
+      : null;
+    setStatusFilter(targetReserve?.status === 'closed' ? 'closed' : 'all');
 
     // Resolve and set the building filter
     if (targetPlan?.buildingId) {
@@ -1746,7 +1768,7 @@ export default function PlansScreen() {
         focusedPinTimerRef.current = setTimeout(() => setFocusedPinIdRef.current(null), 5000);
       }, 400);
     }
-  }, [focusPlanIdParam, focusReserveIdParam, chantierPlans, chantierHierarchyBuildingsEarly]);
+  }, [focusPlanIdParam, focusReserveIdParam, chantierPlans, chantierHierarchyBuildingsEarly, reserves]);
 
   // Auto-load DXF when plan has fileType=dxf and is not yet parsed in memory
   React.useEffect(() => {
@@ -2205,6 +2227,24 @@ export default function PlansScreen() {
   const isImagePlan = currentPlan?.fileType === 'image' || (!!currentPlan?.uri && !isPlanPdfPlan && currentPlan?.fileType !== 'dxf' && isImage(currentPlan.uri!));
   const hasDxf = !!(currentPlanId && dxfData[currentPlanId]);
   const currentZoomPct = isPlanFile ? `${pdfZoomPct}%` : `${Math.round(displayScale * 100)}%`;
+
+  useEffect(() => {
+    if (isPlanFile || !focusedPinId) return;
+    const target = planReserves.find(r => r.id === focusedPinId && r.planX != null && r.planY != null);
+    if (!target) return;
+    const nextScale = Math.min(4, Math.max(lastScale.current, 2));
+    const targetTX = dynW * (0.5 - target.planX! / 100) * nextScale;
+    const targetTY = dynH * (0.5 - target.planY! / 100) * nextScale;
+    lastScale.current = nextScale;
+    committedTX.current = targetTX;
+    committedTY.current = targetTY;
+    setDisplayScale(nextScale);
+    Animated.parallel([
+      Animated.spring(scale, { toValue: nextScale, useNativeDriver: true }),
+      Animated.spring(translateX, { toValue: targetTX, useNativeDriver: true }),
+      Animated.spring(translateY, { toValue: targetTY, useNativeDriver: true }),
+    ]).start();
+  }, [dynH, dynW, focusedPinId, isPlanFile, planReserves, scale, translateX, translateY]);
 
   function doZoom(type: 'in' | 'out' | 'reset') {
     if (isPlanFile) {
@@ -3055,10 +3095,11 @@ export default function PlansScreen() {
                   {pinClusters.map((cluster, ci) => {
                     const isCluster = cluster.items.length > 1;
                     const pinId = cluster.items[0]?.id ?? '';
-                    const sz = isCluster ? clusterSize : getPinDisplaySize(pinId, pinSize);
                     const color = getCompanyColor(cluster.dominantCompany, companies);
                     const isHighlighted = !isCluster && highlightedReserveId === pinId;
                     const isFocused = !isCluster && focusedPinId === pinId;
+                    const baseSz = isCluster ? clusterSize : getPinDisplaySize(pinId, pinSize);
+                    const sz = isFocused ? Math.round(baseSz * 1.28) : baseSz;
                     const isDraggingThis = draggingPinId === pinId;
                     return (
                       <TouchableOpacity

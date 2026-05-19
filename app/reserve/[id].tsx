@@ -697,9 +697,9 @@ export default function ReserveDetailScreen() {
   function buildChangeSummary(r: Reserve): { label: string; oldVal: string; newVal: string }[] {
     const changes: { label: string; oldVal: string; newVal: string }[] = [];
     if (editTitle.trim() !== r.title) changes.push({ label: 'Titre', oldVal: r.title, newVal: editTitle.trim() });
-    if (editBuilding !== r.building) changes.push({ label: 'Bâtiment', oldVal: r.building, newVal: editBuilding });
-    if (editZone !== r.zone) changes.push({ label: 'Zone', oldVal: r.zone, newVal: editZone });
-    if (editLevel !== r.level) changes.push({ label: 'Niveau', oldVal: r.level, newVal: editLevel });
+    if (editBuilding.trim() !== r.building) changes.push({ label: 'Bâtiment', oldVal: r.building, newVal: editBuilding.trim() });
+    if (editZone.trim() !== r.zone) changes.push({ label: 'Zone', oldVal: r.zone, newVal: editZone.trim() });
+    if (editLevel.trim() !== r.level) changes.push({ label: 'Niveau', oldVal: r.level, newVal: editLevel.trim() });
     const oldNames = (r.companies ?? (r.company ? [r.company] : [])).join(', ');
     const newNames = editCompanies.join(', ');
     if (oldNames !== newNames) changes.push({ label: 'Entreprises', oldVal: oldNames, newVal: newNames });
@@ -713,6 +713,18 @@ export default function ReserveDetailScreen() {
     if (!reserve) return;
     if (!editTitle.trim()) {
       Alert.alert('Champ obligatoire', 'Le titre est requis.');
+      return;
+    }
+    if (!editBuilding.trim()) {
+      Alert.alert('Champ obligatoire', 'Le bâtiment est requis.');
+      return;
+    }
+    if (!editLevel.trim()) {
+      Alert.alert('Champ obligatoire', 'Le niveau est requis.');
+      return;
+    }
+    if (editCompanies.length === 0) {
+      Alert.alert('Entreprise requise', 'Sélectionnez au moins une entreprise concernée.');
       return;
     }
     if (editDeadline && !validateDeadline(editDeadline)) {
@@ -734,9 +746,9 @@ export default function ReserveDetailScreen() {
       ...reserve,
       title: editTitle.trim(),
       description: editDescription.trim() || reserve.description,
-      building: editBuilding,
-      zone: editZone,
-      level: editLevel,
+      building: editBuilding.trim(),
+      zone: editZone.trim(),
+      level: editLevel.trim(),
       companies: editCompanies,
       company: editCompanies[0] ?? reserve.company,
       priority: editPriority,
@@ -751,7 +763,7 @@ export default function ReserveDetailScreen() {
       addPhoto({
         id: genId(),
         comment: `Photo réserve ${reserve.id} — ${editTitle.trim()}`,
-        location: `Bât. ${editBuilding} - ${editLevel}`,
+        location: `Bât. ${editBuilding.trim()} - ${editLevel.trim()}`,
         takenAt: today,
         takenBy: author,
         colorCode: '#EF4444',

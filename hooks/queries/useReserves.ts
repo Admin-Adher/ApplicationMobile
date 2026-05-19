@@ -398,11 +398,12 @@ export function useReserves() {
       oldValue: statusLabels[reserve.status], newValue: statusLabels[status],
     };
     const isClosing = status === 'closed' && reserve.status !== 'closed';
+    const isReopening = status !== 'closed' && reserve.status === 'closed';
     const updated: Reserve = {
       ...reserve, status,
       history: [...reserve.history, historyEntry],
-      closedAt: isClosing ? now : reserve.closedAt,
-      closedBy: isClosing ? actualAuthor : reserve.closedBy,
+      closedAt: isClosing ? now : isReopening ? undefined : reserve.closedAt,
+      closedBy: isClosing ? actualAuthor : isReopening ? undefined : reserve.closedBy,
     };
     return updateReserve(updated);
   }, [query.data, user, updateReserve]);
@@ -609,13 +610,14 @@ export function useReserves() {
         });
       }
       const isClosing = updates.status === 'closed' && reserve.status !== 'closed';
+      const isReopening = !!updates.status && updates.status !== 'closed' && reserve.status === 'closed';
       const r: Reserve = {
         ...reserve, ...updates,
         companies: newCompanies ?? oldCompanies,
         company: (newCompanies ?? oldCompanies)[0] ?? reserve.company,
         history: [...reserve.history, ...historyEntries],
-        closedAt: isClosing ? now : reserve.closedAt,
-        closedBy: isClosing ? actualAuthor : reserve.closedBy,
+        closedAt: isClosing ? now : isReopening ? undefined : reserve.closedAt,
+        closedBy: isClosing ? actualAuthor : isReopening ? undefined : reserve.closedBy,
       };
       updated.push(r);
     }

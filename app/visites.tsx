@@ -108,7 +108,7 @@ function VisiteCard({
 
 export default function VisitesScreen() {
   const router = useRouter();
-  const { visites, deleteVisite, activeChantierId, reload, isLoading } = useApp();
+  const { visites, reserves, deleteVisite, activeChantierId, reload, isLoading } = useApp();
   const { user, permissions } = useAuth();
   const [refreshing, setRefreshing] = useState(false);
   const [statusFilter, setStatusFilter] = useState<VisitFilter>('all');
@@ -130,6 +130,31 @@ export default function VisitesScreen() {
     inProgress: chantierVisites.filter(v => v.status === 'in_progress').length,
     completed: chantierVisites.filter(v => v.status === 'completed').length,
   }), [chantierVisites]);
+
+  const reserveCountsByVisit = useMemo(() => {
+    const existingReserveIds = new Set(reserves.map(r => r.id));
+    const counts = new Map<string, Set<string>>();
+    const ensure = (visitId: string) => {
+      const current = counts.get(visitId);
+      if (current) return current;
+      const next = new Set<string>();
+      counts.set(visitId, next);
+      return next;
+    };
+
+    chantierVisites.forEach(v => {
+      const linkedIds = ensure(v.id);
+      v.reserveIds.forEach(id => {
+        if (existingReserveIds.has(id)) linkedIds.add(id);
+      });
+    });
+
+    reserves.forEach(r => {
+      if (r.visiteId) ensure(r.visiteId).add(r.id);
+    });
+
+    return new Map(Array.from(counts.entries()).map(([visitId, ids]) => [visitId, ids.size]));
+  }, [chantierVisites, reserves]);
 
   const visibleVisites = useMemo(
     () => statusFilter === 'all'
@@ -259,7 +284,7 @@ export default function VisitesScreen() {
             <VisiteCard
               key={v.id}
               visite={v}
-              reserveCount={v.reserveIds.length}
+              reserveCount={reserveCountsByVisit.get(v.id) ?? 0}
               onPress={() => router.push(`/visite/${v.id}` as any)}
               onDelete={() => handleDelete(v)}
               canDelete={permissions.canDelete}

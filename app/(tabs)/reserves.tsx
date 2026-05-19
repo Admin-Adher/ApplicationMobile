@@ -19,7 +19,8 @@ import { Reserve, ReserveStatus, ReservePriority, ReserveKind } from '@/constant
 import ReserveCard from '@/components/ReserveCard';
 import DateInput from '@/components/DateInput';
 import DictationTextInput from '@/components/DictationTextInput';
-import { isOverdue, isDueSoon, formatDate, genReserveId, compareLevels } from '@/lib/reserveUtils';
+import { isOverdue, isDueSoon, formatDate, genReserveId, compareLevels, validateDeadline } from '@/lib/reserveUtils';
+import { genId, nowTimestampFR } from '@/lib/utils';
 import { PDF_BASE_CSS, PDF_BRAND_COLOR, PDF_MUTED, PDF_TEXT, exportPDF as exportPDFHelper, printPDF as printPDFHelper, escapeHtml, loadPhotoAsDataUrlForPdf } from '@/lib/pdfBase';
 import { generateAndSendReservesReport } from '@/lib/email/client';
 import * as FileSystem from 'expo-file-system';
@@ -502,8 +503,8 @@ export default function ReservesScreen() {
       })();
       const matchPin =
         pinFilter === 'all' ? true :
-        pinFilter === 'pinned' ? (r.planId != null && r.planX != null) :
-        /* unpinned */ chantiersWithPlans.has(r.chantierId ?? '') && (r.planId == null || r.planX == null);
+        pinFilter === 'pinned' ? (r.planId != null && r.planX != null && r.planY != null) :
+        /* unpinned */ chantiersWithPlans.has(r.chantierId ?? '') && (r.planId == null || r.planX == null || r.planY == null);
       return matchStatus && matchKind && matchBuilding && matchPriority && matchCompany && matchZone && matchLevel && matchLot && matchSearch && matchNearDeadline && matchPin;
     });
 
@@ -778,7 +779,13 @@ export default function ReservesScreen() {
       updates.company = batchCompany;
       updates.companies = [batchCompany];
     }
-    if (batchAction === 'deadline' && batchDeadline) updates.deadline = batchDeadline;
+    if (batchAction === 'deadline' && batchDeadline) {
+      if (!validateDeadline(batchDeadline)) {
+        Alert.alert('Date invalide', "Vérifiez que le jour, le mois et l'année sont corrects (ex : 30/04/2026).");
+        return;
+      }
+      updates.deadline = batchDeadline;
+    }
     if (Object.keys(updates).length === 0) return;
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
     batchUpdateReserves(ids, updates, user?.name);
@@ -848,10 +855,28 @@ export default function ReservesScreen() {
       title: `${reserve.title} (copie)`,
       status: 'open',
       createdAt: new Date().toLocaleDateString('fr-FR'),
-      deadline: '',
+      deadline: '—',
       comments: [],
       photos: [],
       photoUri: undefined,
+      history: [{
+        id: genId(),
+        action: 'Réserve dupliquée',
+        author: user?.name ?? 'Système',
+        createdAt: nowTimestampFR(),
+        oldValue: reserve.id,
+        newValue: newId,
+      }],
+      archivedAt: undefined,
+      archivedBy: undefined,
+      closedAt: undefined,
+      closedBy: undefined,
+      enterpriseAcknowledgedAt: undefined,
+      enterpriseSignature: undefined,
+      enterpriseSignataire: undefined,
+      companySignatures: undefined,
+      visiteId: undefined,
+      linkedTaskId: undefined,
     };
     addReserve(newR);
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});

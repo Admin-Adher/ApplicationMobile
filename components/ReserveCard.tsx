@@ -197,10 +197,13 @@ export default function ReserveCard({ reserve, onPress, onLongPress, onSwipeRigh
           </Text>
         </View>
         <View style={styles.rightRow}>
-          {reserve.planId && reserve.planX != null ? (
+          {reserve.planId && reserve.planX != null && reserve.planY != null ? (
             <TouchableOpacity
               style={styles.planPinBtn}
-              onPress={() => router.push({ pathname: '/(tabs)/plans', params: { focusPlanId: reserve.planId, focusReserveId: reserve.id } } as any)}
+              onPress={(event) => {
+                event.stopPropagation();
+                router.push({ pathname: '/(tabs)/plans', params: { focusPlanId: reserve.planId, focusReserveId: reserve.id } } as any);
+              }}
               hitSlop={8}
               accessibilityRole="button"
               accessibilityLabel="Voir sur le plan"
@@ -212,7 +215,10 @@ export default function ReserveCard({ reserve, onPress, onLongPress, onSwipeRigh
           ) : hasPlansAvailable ? (
             <TouchableOpacity
               style={styles.planUnpinnedBtn}
-              onPress={() => router.push('/(tabs)/plans' as any)}
+              onPress={(event) => {
+                event.stopPropagation();
+                router.push('/(tabs)/plans' as any);
+              }}
               hitSlop={8}
               accessibilityRole="button"
               accessibilityLabel="Non localisée sur le plan — épingler"

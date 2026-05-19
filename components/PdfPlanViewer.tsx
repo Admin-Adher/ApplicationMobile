@@ -226,8 +226,10 @@ html,body{width:100%;height:100%;overflow:hidden;background:#0F1117;touch-action
 #cur-svg{position:absolute;top:0;left:0;pointer-events:all;}
 #ghost-layer{position:absolute;top:0;left:0;}
 #pins-layer{position:absolute;top:0;left:0;}
-.pin{position:absolute;border-radius:50%;display:flex;align-items:center;justify-content:center;border:2px solid rgba(255,255,255,0.85);box-shadow:0 2px 8px rgba(0,0,0,0.5);cursor:pointer;transition:box-shadow 0.15s;user-select:none;-webkit-user-select:none;-webkit-touch-callout:none;touch-action:none;}
-.pin span{color:#fff;font-weight:700;font-family:Arial;line-height:1;pointer-events:none;}
+  .pin{position:absolute;border-radius:50%;display:flex;align-items:center;justify-content:center;border:2px solid rgba(255,255,255,0.85);box-shadow:0 2px 8px rgba(0,0,0,0.5);cursor:pointer;transition:box-shadow 0.15s;user-select:none;-webkit-user-select:none;-webkit-touch-callout:none;touch-action:none;}
+  .pin-focused{animation:pinPulse 1.05s ease-in-out infinite;z-index:30;}
+  .pin span{color:#fff;font-weight:700;font-family:Arial;line-height:1;pointer-events:none;}
+  @keyframes pinPulse{0%,100%{transform:scale(1.2)}50%{transform:scale(1.5)}}
 #loading{position:fixed;top:0;left:0;width:100%;height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;background:#0F1117;}
 #loading-spinner{width:36px;height:36px;border:3px solid #1E3A5F;border-top-color:#003082;border-radius:50%;animation:spin 0.8s linear infinite;}
 #loading-text{color:#94A3B8;font-family:Arial;font-size:13px;}
@@ -406,7 +408,7 @@ function renderPins(){
     var half=sz/2;
     var isFocused=(focusedPinId&&pin.id===focusedPinId);
     var div=document.createElement('div');
-    div.className='pin';
+    div.className=isFocused?'pin pin-focused':'pin';
     div.style.width=sz+'px';div.style.height=sz+'px';
     div.style.left=((pin.planX/100)*cw-half)+'px';
     div.style.top=((pin.planY/100)*ch-half)+'px';
@@ -414,7 +416,8 @@ function renderPins(){
     div.style.pointerEvents=(mode==='annotate')?'none':'all';
     if(isFocused){
       div.style.border='3px solid #FBBF24';
-      div.style.boxShadow='0 0 0 2px rgba(251,191,36,0.35), 0 2px 8px rgba(0,0,0,0.5)';
+      div.style.boxShadow='0 0 0 5px rgba(251,191,36,0.38), 0 0 18px rgba(251,191,36,0.85), 0 4px 12px rgba(0,0,0,0.55)';
+      div.style.zIndex='30';
     }
     var span=document.createElement('span');
     span.textContent=String(pin.num);
@@ -495,6 +498,24 @@ function renderPins(){
 
     pinsLayer.appendChild(div);
   });
+}
+
+function focusPin(id,center){
+  focusedPinId=id||null;
+  renderPins();
+  if(!id||!center||!cw||!ch)return;
+  var pin=pinsData.find(function(p){return p.id===id;});
+  if(!pin)return;
+  var vw=container.clientWidth||window.innerWidth||1;
+  var vh=container.clientHeight||window.innerHeight||1;
+  var targetZoom=Math.min(4,Math.max(zoom,1.8));
+  var px=(pin.planX/100)*cw;
+  var py=(pin.planY/100)*ch;
+  zoom=targetZoom;
+  panX=vw/2-px*targetZoom;
+  panY=vh/2-py*targetZoom;
+  applyT();
+  post({type:'zoomChange',zoom:zoom});
 }
 
 function setSvgSize(){
@@ -620,6 +641,7 @@ function renderPageAtQuality(num,q,resetView){
         renderAnns();
         renderGhostPins();
         renderPins();
+        if(focusedPinId)setTimeout(function(){focusPin(focusedPinId,true);},80);
       }
     });
   }).catch(function(){isRerendering=false;});
@@ -666,6 +688,7 @@ if(IS_IMAGE){
     renderAnns();
     renderGhostPins();
     renderPins();
+    if(focusedPinId)setTimeout(function(){focusPin(focusedPinId,true);},80);
     loading.style.display='none';
     container.style.display='block';
     post({type:'planReady'});
@@ -837,8 +860,8 @@ window.setState=function(s){
   if(s.strokeWidth!==undefined)sw=s.strokeWidth;
 };
 window.setAnnotations=function(anns){draws=anns;renderAnns();};
-window.updatePins=function(newPins,newGhosts){pinsData=newPins;if(newGhosts)ghostPinsData=newGhosts;renderGhostPins();renderPins();};
-window.setFocusedPin=function(id){focusedPinId=id;renderPins();};
+window.updatePins=function(newPins,newGhosts){pinsData=newPins;if(newGhosts)ghostPinsData=newGhosts;renderGhostPins();renderPins();if(focusedPinId)focusPin(focusedPinId,false);};
+window.setFocusedPin=function(id){focusPin(id,true);};
 window.undo=function(){
   if(!undos.length)return;
   draws=undos.pop();renderAnns();
@@ -1442,6 +1465,22 @@ const WebViewer = forwardRef<PdfPlanViewerHandle, PdfPlanViewerProps>(function W
     innerRef.current.style.transform = `translate(${panXRef.current}px,${panYRef.current}px) scale(${zoomRef.current})`;
   }, []);
 
+  const focusPinInView = useCallback((reserveId: string) => {
+    const el = containerRef.current;
+    if (!el || cw === 0 || ch === 0) return;
+    const target = reserves.find(r => r.id === reserveId && r.planX != null && r.planY != null);
+    if (!target) return;
+    const rect = el.getBoundingClientRect();
+    const targetZoom = Math.min(4, Math.max(zoomRef.current, 1.8));
+    const pinX = (target.planX! / 100) * cw;
+    const pinY = (target.planY! / 100) * ch;
+    zoomRef.current = targetZoom;
+    panXRef.current = rect.width / 2 - pinX * targetZoom;
+    panYRef.current = rect.height / 2 - pinY * targetZoom;
+    applyT();
+    onZoomChange?.(targetZoom);
+  }, [applyT, cw, ch, onZoomChange, reserves]);
+
   const screenToCanvas = useCallback((screenX: number, screenY: number) => {
     const el = containerRef.current;
     if (!el) return { x: 0, y: 0 };
@@ -1524,6 +1563,11 @@ const WebViewer = forwardRef<PdfPlanViewerHandle, PdfPlanViewerProps>(function W
     }
     return () => { dead = true; };
   }, [planUri, isImagePlan]);
+
+  useEffect(() => {
+    if (!focusedPinId || loading || error) return;
+    requestAnimationFrame(() => focusPinInView(focusedPinId));
+  }, [focusedPinId, focusPinInView, loading, error]);
 
   useEffect(() => {
     if (isImagePlan || loading || !pdfDocRef.current || !canvasRef.current) return;
@@ -2004,15 +2048,16 @@ const WebViewer = forwardRef<PdfPlanViewerHandle, PdfPlanViewerProps>(function W
                     backgroundColor: col,
                     display: 'flex', alignItems: 'center', justifyContent: 'center',
                     cursor: 'pointer',
-                    border: isFocused ? '3px solid #FFD700' : '2px solid rgba(255,255,255,0.85)',
-                    boxShadow: isFocused ? '0 0 0 3px rgba(255,215,0,0.55), 0 2px 8px rgba(0,0,0,0.5)' : '0 2px 8px rgba(0,0,0,0.5)',
-                    zIndex: isFocused ? 15 : 10,
+                    border: isFocused ? '4px solid #FBBF24' : '2px solid rgba(255,255,255,0.85)',
+                    boxShadow: isFocused ? '0 0 0 6px rgba(251,191,36,0.34), 0 0 22px rgba(251,191,36,0.9), 0 4px 12px rgba(0,0,0,0.55)' : '0 2px 8px rgba(0,0,0,0.5)',
+                    zIndex: isFocused ? 30 : 10,
                     pointerEvents: mode === 'annotate' ? 'none' : 'all',
-                    transition: 'transform 0.12s',
+                    transform: isFocused ? 'scale(1.35)' : 'scale(1)',
+                    transition: 'transform 0.12s, box-shadow 0.18s',
                     userSelect: 'none',
                   } as any}
-                  onMouseEnter={(e: any) => { if (!pinDragActiveRef.current) e.currentTarget.style.transform = 'scale(1.25)'; }}
-                  onMouseLeave={(e: any) => { if (!pinDragActiveRef.current) e.currentTarget.style.transform = 'scale(1)'; }}
+                  onMouseEnter={(e: any) => { if (!pinDragActiveRef.current) e.currentTarget.style.transform = isFocused ? 'scale(1.5)' : 'scale(1.25)'; }}
+                  onMouseLeave={(e: any) => { if (!pinDragActiveRef.current) e.currentTarget.style.transform = isFocused ? 'scale(1.35)' : 'scale(1)'; }}
                 >
                   <span style={{ color: '#fff', fontSize: Math.max(8, Math.round(sz * 0.42)), fontWeight: '700', fontFamily: 'Arial' } as any}>
                     {num}
