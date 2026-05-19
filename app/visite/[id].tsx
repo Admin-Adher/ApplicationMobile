@@ -206,6 +206,7 @@ export default function VisiteDetailScreen() {
   const { projectName } = useSettings();
 
   const [signModalVisible, setSignModalVisible] = useState(false);
+  const [statusModalVisible, setStatusModalVisible] = useState(false);
   const [signingTab, setSigningTab] = useState<'conducteur' | 'entreprise'>('conducteur');
   const [entrepriseSignataire, setEntrepriseSignataire] = useState('');
   const [isSigning, setIsSigning] = useState(false);
@@ -264,12 +265,22 @@ export default function VisiteDetailScreen() {
 
   const cfg = STATUS_CFG[visite.status];
 
-  function cycleStatus() {
+  function setVisitStatus(next: VisiteStatus) {
     if (!visite) return;
-    const order: VisiteStatus[] = ['planned', 'in_progress', 'completed'];
-    const idx = order.indexOf(visite.status);
-    const next = order[(idx + 1) % order.length];
     updateVisite({ ...visite, id: visite.id!, status: next });
+    setStatusModalVisible(false);
+  }
+
+  function toggleChecklistItem(itemId: string) {
+    if (!visite || !permissions.canEdit || !visite.checklistItems) return;
+    updateVisite({
+      ...visite,
+      id: visite.id!,
+      status: visite.status === 'planned' ? 'in_progress' : visite.status,
+      checklistItems: visite.checklistItems.map(item =>
+        item.id === itemId ? { ...item, checked: !item.checked } : item
+      ),
+    });
   }
 
   function handleDelete() {
@@ -292,6 +303,16 @@ export default function VisiteDetailScreen() {
     try {
       const conducteurSig = conducteurSigRef.current?.getSVGData() ?? visite.conducteurSignature ?? null;
       const entrepriseSig = entrepriseSigRef.current?.getSVGData() ?? visite.entrepriseSignature ?? null;
+      const signataire = entrepriseSignataire.trim() || visite.entrepriseSignataire;
+      if (!conducteurSig && !entrepriseSig) {
+        Alert.alert('Signature requise', 'Ajoutez au moins une signature avant de valider le PV.');
+        return;
+      }
+      if (entrepriseSig && !signataire) {
+        Alert.alert('Signataire requis', "Renseignez le nom du représentant de l'entreprise.");
+        setSigningTab('entreprise');
+        return;
+      }
       const today = nowTimestampFR();
       updateVisite({
         ...visite,
@@ -299,7 +320,7 @@ export default function VisiteDetailScreen() {
         conducteurSignature: conducteurSig ?? undefined,
         entrepriseSignature: entrepriseSig ?? undefined,
         signedAt: today,
-        entrepriseSignataire: entrepriseSignataire.trim() || visite.entrepriseSignataire,
+        entrepriseSignataire: signataire,
         status: 'completed',
       });
       setSignModalVisible(false);
@@ -369,10 +390,10 @@ export default function VisiteDetailScreen() {
           <View style={styles.cardRow}>
             <TouchableOpacity
               style={[styles.statusPill, { backgroundColor: cfg.color + '20', borderColor: cfg.color }]}
-              onPress={permissions.canEdit ? cycleStatus : undefined}
+              onPress={permissions.canEdit ? () => setStatusModalVisible(true) : undefined}
             >
               <Text style={[styles.statusText, { color: cfg.color }]}>{cfg.label}</Text>
-              {permissions.canEdit && <Ionicons name="chevron-forward" size={12} color={cfg.color} />}
+              {permissions.canEdit && <Ionicons name="chevron-down" size={12} color={cfg.color} />}
             </TouchableOpacity>
             {permissions.canDelete && (
               <TouchableOpacity onPress={handleDelete} style={styles.deleteBtn}>
@@ -498,16 +519,27 @@ export default function VisiteDetailScreen() {
                   <View style={styles.progressBarBg}>
                     <View style={[styles.progressBarFill, { width: `${pct}%` as any }]} />
                   </View>
+                  {permissions.canEdit && (
+                    <Text style={styles.checklistHint}>Touchez un point pour le valider pendant la visite.</Text>
+                  )}
                   <View style={{ marginTop: 10, gap: 6 }}>
                     {visite.checklistItems!.map(item => (
-                      <View key={item.id} style={styles.checklistItem}>
+                      <TouchableOpacity
+                        key={item.id}
+                        style={styles.checklistItem}
+                        onPress={() => toggleChecklistItem(item.id)}
+                        disabled={!permissions.canEdit}
+                        activeOpacity={0.75}
+                        accessibilityRole="checkbox"
+                        accessibilityState={{ checked: item.checked, disabled: !permissions.canEdit }}
+                      >
                         <View style={[styles.checkboxView, item.checked && styles.checkboxViewDone]}>
                           {item.checked && <Ionicons name="checkmark" size={11} color="#fff" />}
                         </View>
                         <Text style={[styles.checklistItemText, item.checked && styles.checklistItemTextDone]}>
                           {item.label}
                         </Text>
-                      </View>
+                      </TouchableOpacity>
                     ))}
                   </View>
                 </>
@@ -598,7 +630,10 @@ export default function VisiteDetailScreen() {
         {permissions.canEdit && (
           <TouchableOpacity
             style={[styles.signBtn, visite.signedAt && styles.signBtnSigned]}
-            onPress={() => setSignModalVisible(true)}
+            onPress={() => {
+              setEntrepriseSignataire(visite.entrepriseSignataire ?? '');
+              setSignModalVisible(true);
+            }}
           >
             <Ionicons
               name={visite.signedAt ? 'checkmark-circle' : 'pencil-outline'}
@@ -618,6 +653,41 @@ export default function VisiteDetailScreen() {
           </TouchableOpacity>
         )}
       </ScrollView>
+
+      <Modal visible={statusModalVisible} transparent animationType="fade" onRequestClose={() => setStatusModalVisible(false)}>
+        <View style={styles.statusModalOverlay}>
+          <View style={styles.statusModal}>
+            <View style={styles.statusModalHeader}>
+              <Text style={styles.statusModalTitle}>Statut de la visite</Text>
+              <TouchableOpacity onPress={() => setStatusModalVisible(false)} hitSlop={8}>
+                <Ionicons name="close" size={20} color={C.text} />
+              </TouchableOpacity>
+            </View>
+            {(['planned', 'in_progress', 'completed'] as VisiteStatus[]).map(nextStatus => {
+              const option = STATUS_CFG[nextStatus];
+              const active = visite.status === nextStatus;
+              return (
+                <TouchableOpacity
+                  key={nextStatus}
+                  style={[styles.statusOption, active && { borderColor: option.color, backgroundColor: option.color + '12' }]}
+                  onPress={() => setVisitStatus(nextStatus)}
+                  activeOpacity={0.8}
+                >
+                  <View style={[styles.statusOptionIcon, { backgroundColor: option.color + '18' }]}>
+                    <Ionicons
+                      name={nextStatus === 'planned' ? 'calendar-outline' : nextStatus === 'in_progress' ? 'walk-outline' : 'checkmark-circle-outline'}
+                      size={17}
+                      color={option.color}
+                    />
+                  </View>
+                  <Text style={[styles.statusOptionText, active && { color: option.color }]}>{option.label}</Text>
+                  {active && <Ionicons name="checkmark" size={16} color={option.color} />}
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+        </View>
+      </Modal>
 
       <Modal visible={signModalVisible} transparent animationType="slide" onRequestClose={() => setSignModalVisible(false)}>
         <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
@@ -784,7 +854,11 @@ const styles = StyleSheet.create({
   checklistCounter: { fontSize: 13, fontFamily: 'Inter_600SemiBold', color: C.textSub },
   progressBarBg: { height: 4, backgroundColor: C.border, borderRadius: 2, marginTop: 8 },
   progressBarFill: { height: 4, backgroundColor: C.closed, borderRadius: 2 },
-  checklistItem: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  checklistHint: { fontSize: 11, fontFamily: 'Inter_400Regular', color: C.textMuted, marginTop: 8 },
+  checklistItem: {
+    flexDirection: 'row', alignItems: 'center', gap: 8,
+    paddingVertical: 8, paddingHorizontal: 2, borderRadius: 8,
+  },
   checkboxView: { width: 18, height: 18, borderRadius: 4, borderWidth: 1.5, borderColor: C.border, alignItems: 'center', justifyContent: 'center' },
   checkboxViewDone: { backgroundColor: C.closed, borderColor: C.closed },
   checklistItemText: { flex: 1, fontSize: 13, fontFamily: 'Inter_400Regular', color: C.text },
@@ -849,6 +923,30 @@ const styles = StyleSheet.create({
   },
   signBtnText: { fontSize: 14, fontFamily: 'Inter_600SemiBold', color: C.primary },
   signBtnTextSigned: { color: C.closed },
+
+  statusModalOverlay: {
+    flex: 1, backgroundColor: 'rgba(15,23,42,0.35)',
+    alignItems: 'center', justifyContent: 'center', padding: 24,
+  },
+  statusModal: {
+    width: '100%', maxWidth: 420, backgroundColor: C.surface,
+    borderRadius: 18, padding: 16, borderWidth: 1, borderColor: C.border,
+  },
+  statusModalHeader: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    marginBottom: 12,
+  },
+  statusModalTitle: { fontSize: 16, fontFamily: 'Inter_700Bold', color: C.text },
+  statusOption: {
+    flexDirection: 'row', alignItems: 'center', gap: 10,
+    padding: 12, borderRadius: 12, borderWidth: 1,
+    borderColor: C.border, backgroundColor: C.surface2, marginTop: 8,
+  },
+  statusOptionIcon: {
+    width: 34, height: 34, borderRadius: 17,
+    alignItems: 'center', justifyContent: 'center',
+  },
+  statusOptionText: { flex: 1, fontSize: 14, fontFamily: 'Inter_600SemiBold', color: C.text },
 
   modalOverlay: {
     flex: 1, backgroundColor: 'rgba(0,0,0,0.55)', justifyContent: 'flex-end',

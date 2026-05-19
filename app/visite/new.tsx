@@ -15,6 +15,7 @@ import DateInput from '@/components/DateInput';
 import { genId, formatDateFR, nowTimestampFR } from '@/lib/utils';
 import LocationPicker from '@/components/LocationPicker';
 import CompanySelector from '@/components/CompanySelector';
+import DictationTextInput from '@/components/DictationTextInput';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -130,6 +131,12 @@ function formatTimeInput(raw: string): string {
   const digits = raw.replace(/\D/g, '').slice(0, 4);
   if (digits.length <= 2) return digits;
   return digits.slice(0, 2) + ':' + digits.slice(2);
+}
+
+function parseTimeToMinutes(value: string): number | null {
+  const match = value.match(/^([01]\d|2[0-3]):([0-5]\d)$/);
+  if (!match) return null;
+  return Number(match[1]) * 60 + Number(match[2]);
 }
 
 function initials(name: string): string {
@@ -349,6 +356,15 @@ export default function NewVisiteScreen() {
   // ── Submit ──────────────────────────────────────────────────────────────────
 
   function handleSubmit() {
+    if (isSubmitting) return;
+    if (!activeChantierId) {
+      Alert.alert('Chantier requis', 'Sélectionnez un chantier avant de créer une visite.');
+      return;
+    }
+    if (!visitType) {
+      Alert.alert('Type de visite requis', 'Choisissez un type de visite pour appliquer le bon modèle de contrôle.');
+      return;
+    }
     if (!title.trim()) {
       Alert.alert('Champ requis', 'Veuillez saisir un titre pour la visite.');
       return;
@@ -357,6 +373,22 @@ export default function NewVisiteScreen() {
       Alert.alert('Champ requis', 'Veuillez saisir une date.');
       return;
     }
+
+    const startMinutes = startTime.trim() ? parseTimeToMinutes(startTime.trim()) : null;
+    const endMinutes = endTime.trim() ? parseTimeToMinutes(endTime.trim()) : null;
+    if (startTime.trim() && startMinutes === null) {
+      Alert.alert('Horaire invalide', 'Saisissez une heure de début au format HH:MM.');
+      return;
+    }
+    if (endTime.trim() && endMinutes === null) {
+      Alert.alert('Horaire invalide', 'Saisissez une heure de fin au format HH:MM.');
+      return;
+    }
+    if (startMinutes !== null && endMinutes !== null && endMinutes <= startMinutes) {
+      Alert.alert('Horaire incohérent', "L'heure de fin doit être après l'heure de début.");
+      return;
+    }
+
     setIsSubmitting(true);
 
     const today          = nowTimestampFR();
@@ -376,7 +408,7 @@ export default function NewVisiteScreen() {
 
       const visite: Visite = {
         id: 'VIS-' + genId().slice(0, 8).toUpperCase(),
-        chantierId: activeChantierId ?? 'chan1',
+        chantierId: activeChantierId,
         title: visitTitle,
         date: visitDate,
         startTime: startTime.trim() || undefined,
@@ -402,12 +434,13 @@ export default function NewVisiteScreen() {
     });
 
     const count = intervals.length;
+    setIsSubmitting(false);
     Alert.alert(
       count > 1 ? `${count} visites créées` : 'Visite créée',
       count > 1
         ? `Série "${title.trim()}" planifiée sur ${count} occurrences.`
         : `"${title.trim()}" a été créée.`,
-      [{ text: 'OK', onPress: () => { setIsSubmitting(false); router.back(); } }]
+      [{ text: 'OK', onPress: () => router.back() }]
     );
   }
 
@@ -437,7 +470,13 @@ export default function NewVisiteScreen() {
       style={styles.container}
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
     >
-      <Header title="Nouvelle visite" subtitle={activeChantier?.name ?? ''} showBack />
+      <Header
+        title="Nouvelle visite"
+        subtitle={activeChantier?.name ?? ''}
+        showBack
+        rightIcon="checkmark-circle-outline"
+        onRightPress={handleSubmit}
+      />
 
       <ScrollView
         contentContainerStyle={styles.content}
@@ -919,8 +958,8 @@ export default function NewVisiteScreen() {
         {/* ── 10. NOTES & OBJECTIFS ── */}
         <View style={styles.card}>
           <Text style={styles.sectionLabel}>NOTES & OBJECTIFS</Text>
-          <TextInput
-            style={[styles.input, styles.textArea]}
+          <DictationTextInput
+            inputStyle={[styles.input, styles.textArea]}
             placeholder="Objectif de la visite, points particuliers à contrôler, consignes de sécurité..."
             placeholderTextColor={C.textMuted}
             value={notes}
@@ -1004,7 +1043,7 @@ export default function NewVisiteScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: C.bg },
-  content: { padding: 16, paddingBottom: 60 },
+  content: { padding: 16, paddingBottom: 96 },
 
   card: {
     backgroundColor: C.surface, borderRadius: 14, padding: 16,

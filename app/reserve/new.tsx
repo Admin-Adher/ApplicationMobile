@@ -4,7 +4,7 @@ import {
 } from 'react-native';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useState, useMemo, useEffect } from 'react';
+import { useState, useMemo, useEffect, useRef } from 'react';
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 import { C } from '@/constants/colors';
@@ -71,46 +71,78 @@ export default function NewReserveScreen() {
     quickPhotoUri?: string;
   }>();
 
-  const effectiveChantierId = params.chantierId ?? activeChantierId ?? undefined;
-  const chantierPlans = sitePlans.filter(p => p.chantierId === effectiveChantierId);
-
-  const activeChantier = chantiers.find(c => c.id === effectiveChantierId);
-
   const visiteId = params.visiteId;
   const sourceVisite = visiteId ? visites.find(v => v.id === visiteId) : null;
+  const effectiveChantierId = params.chantierId ?? sourceVisite?.chantierId ?? activeChantierId ?? undefined;
+  const chantierPlans = sitePlans.filter(p => p.chantierId === effectiveChantierId);
+  const activeChantier = chantiers.find(c => c.id === effectiveChantierId);
+  const visitCompanyNames = sourceVisite?.concernedCompanyIds
+    ?.map(companyId => companies.find(c => c.id === companyId)?.name)
+    .filter((name): name is string => !!name) ?? [];
+  const visitCompanyKey = visitCompanyNames.join('|');
 
   const [kind, setKind] = useState<ReserveKind>('reserve');
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState(params.prefill_description ?? '');
-  const [building, setBuilding] = useState(params.building ?? '');
-  const [zone, setZone] = useState('');
-  const [level, setLevel] = useState(params.level ?? '');
+  const [building, setBuilding] = useState(params.building ?? sourceVisite?.building ?? '');
+  const [zone, setZone] = useState(sourceVisite?.zone ?? '');
+  const [level, setLevel] = useState(params.level ?? sourceVisite?.level ?? '');
 
   useEffect(() => {
-    if (!params.building && !params.level && activeChantier?.buildings?.length) {
+    if (!params.building && !params.level && !sourceVisite?.building && !sourceVisite?.level && activeChantier?.buildings?.length) {
       const firstBuilding = activeChantier.buildings[0];
       setBuilding(firstBuilding.name);
       setLevel(firstBuilding.levels?.[0]?.name ?? '');
     }
-  }, [activeChantier?.id, activeChantier?.buildings]);
+  }, [activeChantier?.id, activeChantier?.buildings, params.building, params.level, sourceVisite?.building, sourceVisite?.level]);
 
   const locationFromPlan = !!(params.planId && params.building && params.level);
   const buildingLocked = locationFromPlan;
   const levelLocked = locationFromPlan;
 
-  const [selectedCompanies, setSelectedCompanies] = useState<string[]>(companies[0] ? [companies[0].name] : []);
+  const [selectedCompanies, setSelectedCompanies] = useState<string[]>(visitCompanyNames.length > 0 ? visitCompanyNames : companies[0] ? [companies[0].name] : []);
   const [priority, setPriority] = useState<ReservePriority>('medium');
-  const [deadline, setDeadline] = useState('');
-  const [deadlineSuggested, setDeadlineSuggested] = useState(false);
+  const [deadline, setDeadline] = useState(sourceVisite?.reserveDeadlineDate ?? '');
+  const [deadlineSuggested, setDeadlineSuggested] = useState(!!sourceVisite?.reserveDeadlineDate);
   const [lotId, setLotId] = useState<string>('');
-  const [selectedPlanId, setSelectedPlanId] = useState<string>(params.planId ?? chantierPlans[0]?.id ?? '');
+  const [selectedPlanId, setSelectedPlanId] = useState<string>(params.planId ?? sourceVisite?.defaultPlanId ?? chantierPlans[0]?.id ?? '');
   const [photos, setPhotos] = useState<ReservePhoto[]>([]);
   const [photoUploading, setPhotoUploading] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [showTemplates, setShowTemplates] = useState(false);
   const [expandedTemplateCat, setExpandedTemplateCat] = useState<string | null>(null);
+  const sourceDefaultsAppliedRef = useRef(false);
 
-  const isDirty = title.trim().length > 0 || description.trim().length > 0 || photos.length > 0 || deadline.length > 0;
+  const inheritedDeadline = sourceVisite?.reserveDeadlineDate ?? '';
+  const isDirty = title.trim().length > 0
+    || description.trim().length > 0
+    || photos.length > 0
+    || (!!deadline && deadline !== inheritedDeadline);
+
+  useEffect(() => {
+    if (!sourceVisite || sourceDefaultsAppliedRef.current) return;
+    if (!params.building && sourceVisite.building) setBuilding(sourceVisite.building);
+    if (!params.level && sourceVisite.level) setLevel(sourceVisite.level);
+    if (sourceVisite.zone) setZone(sourceVisite.zone);
+    if (sourceVisite.reserveDeadlineDate) {
+      setDeadline(sourceVisite.reserveDeadlineDate);
+      setDeadlineSuggested(true);
+    }
+    if (!params.planId && sourceVisite.defaultPlanId) setSelectedPlanId(sourceVisite.defaultPlanId);
+    if (visitCompanyNames.length > 0) setSelectedCompanies(visitCompanyNames);
+    sourceDefaultsAppliedRef.current = true;
+  }, [
+    sourceVisite?.id,
+    sourceVisite?.building,
+    sourceVisite?.level,
+    sourceVisite?.zone,
+    sourceVisite?.reserveDeadlineDate,
+    sourceVisite?.defaultPlanId,
+    visitCompanyKey,
+    params.building,
+    params.level,
+    params.planId,
+  ]);
 
   useEffect(() => {
     if (params.quickPhotoUri && photos.length === 0) {
@@ -421,6 +453,7 @@ export default function NewReserveScreen() {
             <View style={{ flex: 1 }}>
               <Text style={styles.visiteCardLabel}>Créé depuis la visite</Text>
               <Text style={styles.visiteCardTitle}>{sourceVisite.title} — {sourceVisite.date}</Text>
+              <Text style={styles.visiteCardMeta}>Lieu, plan, délai et entreprises repris depuis la visite.</Text>
             </View>
           </View>
         ) : null}
@@ -806,6 +839,7 @@ const styles = StyleSheet.create({
   visiteCard: { flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: '#6366F115', borderRadius: 12, padding: 12, marginBottom: 12, borderWidth: 1, borderColor: '#6366F130' },
   visiteCardLabel: { fontSize: 10, fontFamily: 'Inter_600SemiBold', color: '#6366F1', textTransform: 'uppercase', letterSpacing: 0.4 },
   visiteCardTitle: { fontSize: 13, fontFamily: 'Inter_500Medium', color: '#6366F1', marginTop: 2 },
+  visiteCardMeta: { fontSize: 11, fontFamily: 'Inter_400Regular', color: C.textSub, marginTop: 3, lineHeight: 15 },
 
   kindRow: { flexDirection: 'row', gap: 10 },
   kindChip: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 7, paddingVertical: 11, borderRadius: 12, borderWidth: 1.5, borderColor: C.border, backgroundColor: C.surface2 },

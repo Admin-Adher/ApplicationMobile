@@ -1,4 +1,4 @@
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert, RefreshControl } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert, RefreshControl, ActivityIndicator } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { useMemo, useState, useCallback } from 'react';
@@ -25,6 +25,15 @@ const TYPE_CFG: Record<VisiteType, { label: string; icon: string; color: string 
   autre:     { label: 'Autre',     icon: 'ellipsis-horizontal-outline', color: '#6B7280' },
 };
 
+type VisitFilter = 'all' | VisiteStatus;
+
+const FILTER_OPTIONS: { value: VisitFilter; label: string }[] = [
+  { value: 'all', label: 'Toutes' },
+  { value: 'planned', label: 'Planifiées' },
+  { value: 'in_progress', label: 'En cours' },
+  { value: 'completed', label: 'Terminées' },
+];
+
 function VisiteCard({
   visite, reserveCount, onPress, onDelete, canDelete,
 }: {
@@ -32,6 +41,11 @@ function VisiteCard({
 }) {
   const cfg = STATUS_CFG[visite.status];
   const typeCfg = visite.visitType ? TYPE_CFG[visite.visitType] : null;
+  const locationMeta = [
+    visite.building ? `Bât. ${visite.building}` : '',
+    visite.level,
+    visite.zone,
+  ].filter(Boolean).join(' — ');
   return (
     <TouchableOpacity style={styles.card} onPress={onPress} activeOpacity={0.75}>
       <View style={styles.cardHeader}>
@@ -50,7 +64,14 @@ function VisiteCard({
         <View style={styles.cardActions}>
           <Text style={styles.cardDate}>{visite.date}</Text>
           {canDelete && (
-            <TouchableOpacity onPress={onDelete} hitSlop={8} style={{ marginLeft: 8 }}>
+            <TouchableOpacity
+              onPress={(event) => {
+                event.stopPropagation?.();
+                onDelete();
+              }}
+              hitSlop={8}
+              style={{ marginLeft: 8 }}
+            >
               <Ionicons name="trash-outline" size={15} color={C.textMuted} />
             </TouchableOpacity>
           )}
@@ -62,10 +83,10 @@ function VisiteCard({
       <View style={styles.cardMeta}>
         <Ionicons name="person-outline" size={12} color={C.textMuted} />
         <Text style={styles.cardMetaText}>{visite.conducteur}</Text>
-        {visite.building && (
+        {locationMeta && (
           <>
             <Ionicons name="business-outline" size={12} color={C.textMuted} style={{ marginLeft: 10 }} />
-            <Text style={styles.cardMetaText}>Bât. {visite.building} — {visite.level}</Text>
+            <Text style={styles.cardMetaText}>{locationMeta}</Text>
           </>
         )}
       </View>
@@ -87,9 +108,10 @@ function VisiteCard({
 
 export default function VisitesScreen() {
   const router = useRouter();
-  const { visites, reserves, deleteVisite, activeChantierId, reload } = useApp();
+  const { visites, deleteVisite, activeChantierId, reload, isLoading } = useApp();
   const { user, permissions } = useAuth();
   const [refreshing, setRefreshing] = useState(false);
+  const [statusFilter, setStatusFilter] = useState<VisitFilter>('all');
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
@@ -108,6 +130,17 @@ export default function VisitesScreen() {
     inProgress: chantierVisites.filter(v => v.status === 'in_progress').length,
     completed: chantierVisites.filter(v => v.status === 'completed').length,
   }), [chantierVisites]);
+
+  const visibleVisites = useMemo(
+    () => statusFilter === 'all'
+      ? chantierVisites
+      : chantierVisites.filter(v => v.status === statusFilter),
+    [chantierVisites, statusFilter]
+  );
+
+  const sectionTitle = statusFilter === 'all'
+    ? 'Toutes les visites'
+    : FILTER_OPTIONS.find(opt => opt.value === statusFilter)?.label ?? 'Visites';
 
   if (user?.role === 'sous_traitant') {
     return (
@@ -153,19 +186,44 @@ export default function VisitesScreen() {
       >
         <View style={styles.statsRow}>
           {[
-            { label: 'Planifiées', count: stats.planned, color: '#6366F1' },
-            { label: 'En cours', count: stats.inProgress, color: C.inProgress },
-            { label: 'Terminées', count: stats.completed, color: C.closed },
+            { label: 'Planifiées', count: stats.planned, color: '#6366F1', filter: 'planned' as VisitFilter },
+            { label: 'En cours', count: stats.inProgress, color: C.inProgress, filter: 'in_progress' as VisitFilter },
+            { label: 'Terminées', count: stats.completed, color: C.closed, filter: 'completed' as VisitFilter },
           ].map(s => (
-            <View key={s.label} style={[styles.statCard, { borderTopColor: s.color }]}>
+            <TouchableOpacity
+              key={s.label}
+              style={[
+                styles.statCard,
+                { borderTopColor: s.color },
+                statusFilter === s.filter && { borderColor: s.color, backgroundColor: s.color + '10' },
+              ]}
+              onPress={() => setStatusFilter(statusFilter === s.filter ? 'all' : s.filter)}
+              activeOpacity={0.8}
+            >
               <Text style={[styles.statVal, { color: s.color }]}>{s.count}</Text>
               <Text style={styles.statLabel}>{s.label}</Text>
-            </View>
+            </TouchableOpacity>
           ))}
         </View>
 
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.filterRow}>
+          {FILTER_OPTIONS.map(opt => {
+            const active = statusFilter === opt.value;
+            return (
+              <TouchableOpacity
+                key={opt.value}
+                style={[styles.filterChip, active && styles.filterChipActive]}
+                onPress={() => setStatusFilter(opt.value)}
+                activeOpacity={0.8}
+              >
+                <Text style={[styles.filterChipText, active && styles.filterChipTextActive]}>{opt.label}</Text>
+              </TouchableOpacity>
+            );
+          })}
+        </ScrollView>
+
         <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Toutes les visites</Text>
+          <Text style={styles.sectionTitle}>{sectionTitle}</Text>
           {permissions.canCreate && (
             <TouchableOpacity style={styles.newBtn} onPress={() => router.push('/visite/new' as any)}>
               <Ionicons name="add" size={15} color={C.primary} />
@@ -174,19 +232,30 @@ export default function VisitesScreen() {
           )}
         </View>
 
-        {chantierVisites.length === 0 ? (
+        {isLoading && !refreshing && chantierVisites.length === 0 ? (
+          <View style={styles.loadingState}>
+            <ActivityIndicator size="small" color={C.primary} />
+            <Text style={styles.loadingText}>Chargement des visites…</Text>
+          </View>
+        ) : visibleVisites.length === 0 ? (
           <View style={styles.empty}>
             <Ionicons name="walk-outline" size={40} color={C.textMuted} />
-            <Text style={styles.emptyTitle}>Aucune visite</Text>
-            <Text style={styles.emptyText}>Créez une visite terrain pour grouper vos réserves</Text>
-            {permissions.canCreate && (
+            <Text style={styles.emptyTitle}>
+              {chantierVisites.length === 0 ? 'Aucune visite' : 'Aucune visite dans ce filtre'}
+            </Text>
+            <Text style={styles.emptyText}>
+              {chantierVisites.length === 0
+                ? 'Créez une visite terrain pour grouper vos réserves'
+                : 'Changez de filtre ou revenez sur toutes les visites.'}
+            </Text>
+            {permissions.canCreate && chantierVisites.length === 0 && (
               <TouchableOpacity style={styles.emptyBtn} onPress={() => router.push('/visite/new' as any)}>
                 <Text style={styles.emptyBtnText}>Créer une visite</Text>
               </TouchableOpacity>
             )}
           </View>
         ) : (
-          chantierVisites.map(v => (
+          visibleVisites.map(v => (
             <VisiteCard
               key={v.id}
               visite={v}
@@ -215,6 +284,15 @@ const styles = StyleSheet.create({
   },
   statVal: { fontSize: 22, fontFamily: 'Inter_700Bold' },
   statLabel: { fontSize: 10, fontFamily: 'Inter_400Regular', color: C.textSub, marginTop: 2, textAlign: 'center' },
+
+  filterRow: { gap: 8, paddingBottom: 14 },
+  filterChip: {
+    paddingHorizontal: 12, paddingVertical: 7, borderRadius: 18,
+    borderWidth: 1, borderColor: C.border, backgroundColor: C.surface,
+  },
+  filterChipActive: { borderColor: C.primary, backgroundColor: C.primaryBg },
+  filterChipText: { fontSize: 12, fontFamily: 'Inter_500Medium', color: C.textSub },
+  filterChipTextActive: { color: C.primary, fontFamily: 'Inter_700Bold' },
 
   section: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 },
   sectionTitle: { fontSize: 14, fontFamily: 'Inter_600SemiBold', color: C.text },
@@ -248,4 +326,9 @@ const styles = StyleSheet.create({
   emptyText: { fontSize: 13, fontFamily: 'Inter_400Regular', color: C.textSub, textAlign: 'center' },
   emptyBtn: { backgroundColor: C.primary, paddingHorizontal: 24, paddingVertical: 12, borderRadius: 12, marginTop: 8 },
   emptyBtnText: { fontSize: 14, fontFamily: 'Inter_600SemiBold', color: '#fff' },
+  loadingState: {
+    alignItems: 'center', justifyContent: 'center',
+    paddingVertical: 44, gap: 10,
+  },
+  loadingText: { fontSize: 13, fontFamily: 'Inter_500Medium', color: C.textSub },
 });
