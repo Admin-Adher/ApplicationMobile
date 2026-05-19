@@ -18,6 +18,8 @@ import NewGroupModal from '@/components/NewGroupModal';
 import SuperAdminMessagingHub from '@/components/SuperAdminMessagingHub';
 
 type FilterMode = 'all' | 'unread' | 'pinned' | 'chantier' | 'company' | 'team';
+const COMPANY_PREVIEW_LIMIT = 4;
+const COMPANY_DEFAULT_LIMIT = 10;
 
 const AVATAR_COLORS = [C.primary, '#059669', '#D97706', '#7C3AED', '#DB2777', '#EA580C', '#0891B2'];
 function getAvatarColor(name: string) {
@@ -175,7 +177,8 @@ export default function MessagesTabScreen() {
   const { user, permissions } = useAuth();
   const [search, setSearch] = useState('');
   const [filter, setFilter] = useState<FilterMode>('all');
-  const [selectedCompanyChannelId, setSelectedCompanyChannelId] = useState<string | null>(null);
+  const [companySearch, setCompanySearch] = useState('');
+  const [companyListExpanded, setCompanyListExpanded] = useState(false);
   const [showNewChannel, setShowNewChannel] = useState(false);
   const [showNewDM, setShowNewDM] = useState(false);
   const [showNewGroup, setShowNewGroup] = useState(false);
@@ -270,10 +273,39 @@ export default function MessagesTabScreen() {
     [sortedCompanyChannels, unreadByChannel]
   );
 
+  const prioritizedCompanyChannels = useMemo(
+    () => [...sortedCompanyChannels].sort((a, b) => {
+      const unreadDiff = (unreadByChannel[b.id] ?? 0) - (unreadByChannel[a.id] ?? 0);
+      if (unreadDiff !== 0) return unreadDiff;
+      const bTime = lastMessageByChannel[b.id] ? getMsgSortTime(lastMessageByChannel[b.id]!) : 0;
+      const aTime = lastMessageByChannel[a.id] ? getMsgSortTime(lastMessageByChannel[a.id]!) : 0;
+      if (bTime !== aTime) return bTime - aTime;
+      return a.name.localeCompare(b.name, 'fr', { sensitivity: 'base' });
+    }),
+    [sortedCompanyChannels, unreadByChannel, lastMessageByChannel]
+  );
+
+  const companySearchQuery = companySearch.trim().toLowerCase();
+
+  const companySearchChannels = useMemo(() => {
+    if (!companySearchQuery) return prioritizedCompanyChannels;
+    return prioritizedCompanyChannels.filter(ch =>
+      ch.name.toLowerCase().includes(companySearchQuery) ||
+      (ch.description ?? '').toLowerCase().includes(companySearchQuery)
+    );
+  }, [prioritizedCompanyChannels, companySearchQuery]);
+
   const visibleCompanyChannels = useMemo(() => {
-    if (!selectedCompanyChannelId) return sortedCompanyChannels;
-    return sortedCompanyChannels.filter(ch => ch.id === selectedCompanyChannelId);
-  }, [sortedCompanyChannels, selectedCompanyChannelId]);
+    if (companySearchQuery || companyListExpanded) return companySearchChannels;
+    return companySearchChannels.slice(0, COMPANY_DEFAULT_LIMIT);
+  }, [companySearchChannels, companySearchQuery, companyListExpanded]);
+
+  const companyPreviewChannels = useMemo(() => {
+    const unread = prioritizedCompanyChannels.filter(ch => (unreadByChannel[ch.id] ?? 0) > 0);
+    return (unread.length > 0 ? unread : prioritizedCompanyChannels).slice(0, COMPANY_PREVIEW_LIMIT);
+  }, [prioritizedCompanyChannels, unreadByChannel]);
+
+  const hiddenCompanyCount = Math.max(companySearchChannels.length - visibleCompanyChannels.length, 0);
 
   function goToChannel(ch: Channel, initialSearchQuery?: string, focusMessageId?: string) {
     router.push({
@@ -405,7 +437,8 @@ export default function MessagesTabScreen() {
   const isSearching = search.trim().length >= 2;
   const showGeneral = filter === 'all' || filter === 'chantier';
   const showBuilding = filter === 'all' || filter === 'chantier';
-  const showCompanies = filter === 'all' || filter === 'company';
+  const showCompanySummary = filter === 'all';
+  const showCompanyInbox = filter === 'company';
   const showTeam = filter === 'all' || filter === 'team';
   const activeFilterHasResults =
     filter === 'unread'
@@ -415,12 +448,48 @@ export default function MessagesTabScreen() {
       : filter === 'chantier'
       ? generalChannel.length + buildingChannels.length > 0
       : filter === 'company'
-      ? visibleCompanyChannels.length > 0
+      ? companySearchChannels.length > 0
       : filter === 'team'
       ? customChannels.length + groupChannels.length + dmChannels.length > 0
       : filteredChannels.length > 0;
 
-  // ── Rendu de la section Entreprises (collapsible + alpha buckets) ─────
+  // Section Entreprises: rendu limite sur l'accueil, recherche dediee dans le repertoire.
+  function openCompanyDirectory() {
+    setFilter('company');
+    setCompanySearch('');
+    setCompanyListExpanded(false);
+  }
+
+  function renderCompanyCompactRow(ch: Channel, withDivider: boolean) {
+    const unread = unreadByChannel[ch.id] ?? 0;
+    const lastMsg = lastMessageByChannel[ch.id];
+    return (
+      <TouchableOpacity
+        key={ch.id}
+        style={styles.companyCompactRow}
+        onPress={() => goToChannel(ch)}
+        activeOpacity={0.75}
+      >
+        {withDivider && <View style={styles.companyCompactDivider} />}
+        <View style={[styles.companyCompactIcon, { backgroundColor: ch.color + '18' }]}>
+          <Ionicons name={ch.icon as any} size={16} color={ch.color} />
+        </View>
+        <View style={{ flex: 1 }}>
+          <Text style={styles.companyCompactName} numberOfLines={1}>{ch.name}</Text>
+          <Text style={styles.companyCompactMeta} numberOfLines={1}>
+            {lastMsg ? formatChannelTime(lastMsg.timestamp) : 'Aucun message'}
+          </Text>
+        </View>
+        {unread > 0 && (
+          <View style={[styles.unreadBadge, { backgroundColor: ch.color }]}>
+            <Text style={styles.unreadBadgeText}>{unread > 99 ? '99+' : unread}</Text>
+          </View>
+        )}
+        <Ionicons name="chevron-forward" size={14} color={C.textMuted} />
+      </TouchableOpacity>
+    );
+  }
+
   function renderCompanyChannelRow(ch: Channel, withDivider: boolean) {
     return (
       <View key={ch.id}>
@@ -438,6 +507,54 @@ export default function MessagesTabScreen() {
     );
   }
 
+  function renderCompanySummarySection() {
+    if (sortedCompanyChannels.length === 0) return null;
+    return (
+      <View style={{ marginBottom: 4 }}>
+        <View style={styles.sectionHeader}>
+          <View style={styles.pinnedSectionTitle}>
+            <Ionicons name="business-outline" size={12} color={C.primary} />
+            <Text style={styles.sectionLabel}>Entreprises</Text>
+            <Text style={styles.pinnedCount}>{sortedCompanyChannels.length}</Text>
+          </View>
+          {companyUnreadTotal > 0 && (
+            <View style={styles.sectionUnreadBadge}>
+              <Text style={styles.sectionUnreadBadgeText}>
+                {companyUnreadTotal > 99 ? '99+' : companyUnreadTotal}
+              </Text>
+            </View>
+          )}
+        </View>
+        <View style={styles.companySummaryCard}>
+          <TouchableOpacity
+            style={styles.companySummaryMain}
+            onPress={openCompanyDirectory}
+            activeOpacity={0.75}
+          >
+            <View style={styles.companySummaryIcon}>
+              <Ionicons name="business-outline" size={20} color={C.primary} />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.companySummaryTitle}>Canaux entreprises</Text>
+              <Text style={styles.companySummarySub}>
+                {companyUnreadTotal > 0
+                  ? `${companyUnreadTotal} message${companyUnreadTotal > 1 ? 's' : ''} non lu${companyUnreadTotal > 1 ? 's' : ''}`
+                  : `${sortedCompanyChannels.length} canaux disponibles`}
+              </Text>
+            </View>
+            <Text style={styles.companySummaryActionText}>Parcourir</Text>
+            <Ionicons name="chevron-forward" size={16} color={C.primary} />
+          </TouchableOpacity>
+          {companyPreviewChannels.length > 0 && (
+            <View style={styles.companyPreviewList}>
+              {companyPreviewChannels.map((ch, i) => renderCompanyCompactRow(ch, i > 0))}
+            </View>
+          )}
+        </View>
+      </View>
+    );
+  }
+
   function renderCompanyInboxSection() {
     if (sortedCompanyChannels.length === 0) return null;
     return (
@@ -446,7 +563,7 @@ export default function MessagesTabScreen() {
           <View style={styles.pinnedSectionTitle}>
             <Ionicons name="business-outline" size={12} color={C.primary} />
             <Text style={styles.sectionLabel}>Canaux entreprises</Text>
-            <Text style={styles.pinnedCount}>{visibleCompanyChannels.length}/{sortedCompanyChannels.length}</Text>
+            <Text style={styles.pinnedCount}>{companySearchChannels.length}/{sortedCompanyChannels.length}</Text>
           </View>
           {companyUnreadTotal > 0 && (
             <View style={styles.sectionUnreadBadge}>
@@ -454,6 +571,26 @@ export default function MessagesTabScreen() {
                 {companyUnreadTotal > 99 ? '99+' : companyUnreadTotal}
               </Text>
             </View>
+          )}
+        </View>
+        <View style={styles.companySearchWrap}>
+          <Ionicons name="search-outline" size={15} color={C.textMuted} />
+          <TextInput
+            style={styles.companySearchInput}
+            placeholder="Rechercher une entreprise..."
+            placeholderTextColor={C.textMuted}
+            value={companySearch}
+            onChangeText={value => {
+              setCompanySearch(value);
+              setCompanyListExpanded(false);
+            }}
+            autoCorrect={false}
+            autoCapitalize="none"
+          />
+          {companySearch.length > 0 && (
+            <TouchableOpacity onPress={() => setCompanySearch('')}>
+              <Ionicons name="close-circle" size={16} color={C.textMuted} />
+            </TouchableOpacity>
           )}
         </View>
         {visibleCompanyChannels.length > 0 ? (
@@ -464,6 +601,28 @@ export default function MessagesTabScreen() {
           <View style={styles.emptySection}>
             <Text style={styles.emptySectionText}>Aucune entreprise correspondante</Text>
           </View>
+        )}
+        {!companySearchQuery && hiddenCompanyCount > 0 && (
+          <TouchableOpacity
+            style={styles.companyShowAllBtn}
+            onPress={() => setCompanyListExpanded(true)}
+            activeOpacity={0.75}
+          >
+            <Ionicons name="albums-outline" size={16} color={C.primary} />
+            <Text style={styles.companyShowAllText}>
+              Afficher les {hiddenCompanyCount} autres canaux
+            </Text>
+          </TouchableOpacity>
+        )}
+        {!companySearchQuery && companyListExpanded && sortedCompanyChannels.length > COMPANY_DEFAULT_LIMIT && (
+          <TouchableOpacity
+            style={styles.companyShowLessBtn}
+            onPress={() => setCompanyListExpanded(false)}
+            activeOpacity={0.75}
+          >
+            <Ionicons name="chevron-up" size={16} color={C.textMuted} />
+            <Text style={styles.companyShowLessText}>Réduire la liste</Text>
+          </TouchableOpacity>
         )}
       </View>
     );
@@ -525,7 +684,10 @@ export default function MessagesTabScreen() {
                 style={[styles.filterChip, active && styles.filterChipActive]}
                 onPress={() => {
                   setFilter(item.key);
-                  if (item.key !== 'company') setSelectedCompanyChannelId(null);
+                  if (item.key !== 'company') {
+                    setCompanySearch('');
+                    setCompanyListExpanded(false);
+                  }
                 }}
                 activeOpacity={0.75}
               >
@@ -541,53 +703,6 @@ export default function MessagesTabScreen() {
             );
           })}
         </ScrollView>
-        {filter === 'company' && sortedCompanyChannels.length > 0 && (
-          <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            style={styles.companyStrip}
-            contentContainerStyle={styles.companyStripContent}
-          >
-            <TouchableOpacity
-              style={[styles.companyNavChip, !selectedCompanyChannelId && styles.companyNavChipActive]}
-              onPress={() => setSelectedCompanyChannelId(null)}
-              activeOpacity={0.75}
-            >
-              <Text style={[styles.companyNavText, !selectedCompanyChannelId && styles.companyNavTextActive]}>Toutes</Text>
-              {companyUnreadTotal > 0 && (
-                <View style={[styles.companyNavBadge, !selectedCompanyChannelId && styles.companyNavBadgeActive]}>
-                  <Text style={[styles.companyNavBadgeText, !selectedCompanyChannelId && styles.companyNavBadgeTextActive]}>
-                    {companyUnreadTotal > 99 ? '99+' : companyUnreadTotal}
-                  </Text>
-                </View>
-              )}
-            </TouchableOpacity>
-            {sortedCompanyChannels.map(ch => {
-              const active = selectedCompanyChannelId === ch.id;
-              const unread = unreadByChannel[ch.id] ?? 0;
-              return (
-                <TouchableOpacity
-                  key={ch.id}
-                  style={[styles.companyNavChip, active && styles.companyNavChipActive]}
-                  onPress={() => setSelectedCompanyChannelId(ch.id)}
-                  activeOpacity={0.75}
-                >
-                  <View style={[styles.companyNavDot, { backgroundColor: ch.color }]} />
-                  <Text style={[styles.companyNavText, active && styles.companyNavTextActive]} numberOfLines={1}>
-                    {ch.name}
-                  </Text>
-                  {unread > 0 && (
-                    <View style={[styles.companyNavBadge, active && styles.companyNavBadgeActive]}>
-                      <Text style={[styles.companyNavBadgeText, active && styles.companyNavBadgeTextActive]}>
-                        {unread > 99 ? '99+' : unread}
-                      </Text>
-                    </View>
-                  )}
-                </TouchableOpacity>
-              );
-            })}
-          </ScrollView>
-        )}
       </View>
 
       {!isSupabaseConfigured && (
@@ -658,7 +773,8 @@ export default function MessagesTabScreen() {
               </View>
             )}
             {showBuilding && renderSection('Canaux chantier', buildingChannels)}
-            {showCompanies && renderCompanyInboxSection()}
+            {showCompanySummary && renderCompanySummarySection()}
+            {showCompanyInbox && renderCompanyInboxSection()}
             {showTeam && renderSection('Canaux personnalisés', customChannels, () => setShowNewChannel(true), 'Nouveau')}
             {showTeam && renderSection('Groupes', groupChannels, () => setShowNewGroup(true), 'Nouveau')}
             {showTeam && renderSection('Messages directs', dmChannels, () => setShowNewDM(true), 'Nouveau DM')}
@@ -942,48 +1058,97 @@ const styles = StyleSheet.create({
     color: C.textMuted,
   },
   filterChipCountTextActive: { color: '#fff' },
-  companyStrip: { marginTop: 8 },
-  companyStripContent: { gap: 8, paddingRight: 8 },
-  companyNavChip: {
-    maxWidth: 190,
-    minHeight: 34,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 7,
-    paddingHorizontal: 12,
-    borderRadius: 17,
-    backgroundColor: C.surface2,
+  companySummaryCard: {
+    backgroundColor: C.surface,
+    borderRadius: 14,
     borderWidth: 1,
     borderColor: C.border,
+    overflow: 'hidden',
+    marginBottom: 20,
   },
-  companyNavChipActive: {
-    backgroundColor: C.primary,
-    borderColor: C.primary,
+  companySummaryMain: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    padding: 14,
   },
-  companyNavDot: { width: 8, height: 8, borderRadius: 4, flexShrink: 0 },
-  companyNavText: {
-    fontSize: 12,
-    fontFamily: 'Inter_600SemiBold',
-    color: C.textSub,
-    flexShrink: 1,
-  },
-  companyNavTextActive: { color: '#fff' },
-  companyNavBadge: {
-    minWidth: 18,
-    height: 18,
-    borderRadius: 9,
+  companySummaryIcon: {
+    width: 40,
+    height: 40,
+    borderRadius: 12,
+    backgroundColor: C.primaryBg,
     alignItems: 'center',
     justifyContent: 'center',
-    paddingHorizontal: 5,
+  },
+  companySummaryTitle: { fontSize: 15, fontFamily: 'Inter_700Bold', color: C.text },
+  companySummarySub: { fontSize: 12, fontFamily: 'Inter_400Regular', color: C.textMuted, marginTop: 2 },
+  companySummaryActionText: { fontSize: 12, fontFamily: 'Inter_700Bold', color: C.primary },
+  companyPreviewList: {
+    borderTopWidth: 1,
+    borderTopColor: C.border,
+  },
+  companyCompactRow: {
+    minHeight: 54,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    position: 'relative',
+  },
+  companyCompactDivider: {
+    position: 'absolute',
+    left: 14,
+    right: 14,
+    top: 0,
+    height: 1,
+    backgroundColor: C.border,
+  },
+  companyCompactIcon: {
+    width: 32,
+    height: 32,
+    borderRadius: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  companyCompactName: { fontSize: 13, fontFamily: 'Inter_600SemiBold', color: C.text },
+  companyCompactMeta: { fontSize: 11, fontFamily: 'Inter_400Regular', color: C.textMuted, marginTop: 1 },
+  companySearchWrap: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
     backgroundColor: C.surface,
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderWidth: 1,
+    borderColor: C.border,
+    marginBottom: 10,
   },
-  companyNavBadgeActive: { backgroundColor: 'rgba(255,255,255,0.22)' },
-  companyNavBadgeText: {
-    fontSize: 10,
-    fontFamily: 'Inter_700Bold',
-    color: C.textMuted,
+  companySearchInput: { flex: 1, fontSize: 14, fontFamily: 'Inter_400Regular', color: C.text, paddingVertical: 0 },
+  companyShowAllBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 7,
+    paddingVertical: 12,
+    borderRadius: 12,
+    backgroundColor: C.primaryBg,
+    borderWidth: 1,
+    borderColor: C.primary + '35',
+    marginBottom: 12,
   },
-  companyNavBadgeTextActive: { color: '#fff' },
+  companyShowAllText: { fontSize: 13, fontFamily: 'Inter_700Bold', color: C.primary },
+  companyShowLessBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    paddingVertical: 10,
+    marginTop: -8,
+    marginBottom: 14,
+  },
+  companyShowLessText: { fontSize: 12, fontFamily: 'Inter_600SemiBold', color: C.textMuted },
   content: { padding: 16, paddingBottom: 40 },
   sectionHeader: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
