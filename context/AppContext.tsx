@@ -196,11 +196,17 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const serverFreshnessKey = needsServerFreshness
     ? `${authH.user!.id}:${serverRefreshToken}`
     : null;
-  const serverRefreshBlocking = needsServerFreshness && (
+  const sessionValidationBlocking = Boolean(
+    authH.user?.id &&
+      isSupabaseConfigured &&
+      isOnline &&
+      authH.isSessionValidationPending
+  );
+  const serverRefreshBlocking = sessionValidationBlocking || (needsServerFreshness && (
     !queueLoaded ||
       serverRefreshInProgress ||
       refreshedServerKeyRef.current !== serverFreshnessKey
-  );
+  ));
 
   useEffect(() => {
     if (Platform.OS === 'web') return;

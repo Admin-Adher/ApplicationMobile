@@ -16,6 +16,7 @@ import Header from '@/components/Header';
 import DateInput from '@/components/DateInput';
 import BottomSheetPicker from '@/components/BottomSheetPicker';
 import CompanySelector from '@/components/CompanySelector';
+import DictationTextInput from '@/components/DictationTextInput';
 import { notifyReserveCreated } from '@/lib/email/notifyReserveCreated';
 import { uploadPhoto, persistLocalPhoto } from '@/lib/storage';
 import { genId, nowTimestampFR } from '@/lib/utils';
@@ -567,8 +568,8 @@ export default function NewReserveScreen() {
           </View>
           <View style={[styles.fieldGroup, { marginBottom: 0 }]}>
             <Text style={styles.label}>Description</Text>
-            <TextInput
-              style={[styles.input, styles.textArea]}
+            <DictationTextInput
+              inputStyle={[styles.input, styles.textArea]}
               placeholder="Décrivez le problème en détail..."
               placeholderTextColor={C.textMuted}
               value={description}

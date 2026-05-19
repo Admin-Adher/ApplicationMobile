@@ -8,6 +8,7 @@ import { C } from '@/constants/colors';
 import { useApp } from '@/context/AppContext';
 import { useAuth } from '@/context/AuthContext';
 import Header from '@/components/Header';
+import DictationTextInput from '@/components/DictationTextInput';
 import { Photo, Channel } from '@/constants/types';
 import { uploadPhoto } from '@/lib/storage';
 import { genId, formatDateFR } from '@/lib/utils';
@@ -425,8 +426,8 @@ export default function PhotosScreen() {
 
             <View style={styles.modalField}>
               <Text style={styles.modalLabel}>Légende (optionnel)</Text>
-              <TextInput
-                style={styles.modalInput}
+              <DictationTextInput
+                inputStyle={styles.modalInput}
                 placeholder="Ajoutez un commentaire..."
                 placeholderTextColor={C.textMuted}
                 value={shareCaption}
@@ -501,8 +502,8 @@ export default function PhotosScreen() {
 
             <View style={styles.modalField}>
               <Text style={styles.modalLabel}>Commentaire</Text>
-              <TextInput
-                style={styles.modalInput}
+              <DictationTextInput
+                inputStyle={styles.modalInput}
                 placeholder="Décrivez ce que montre la photo..."
                 placeholderTextColor={C.textMuted}
                 value={commentInput}

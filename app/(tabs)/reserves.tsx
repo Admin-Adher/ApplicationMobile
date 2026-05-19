@@ -18,6 +18,7 @@ import { useAuth } from '@/context/AuthContext';
 import { Reserve, ReserveStatus, ReservePriority, ReserveKind } from '@/constants/types';
 import ReserveCard from '@/components/ReserveCard';
 import DateInput from '@/components/DateInput';
+import DictationTextInput from '@/components/DictationTextInput';
 import { isOverdue, isDueSoon, formatDate, genReserveId, compareLevels } from '@/lib/reserveUtils';
 import { PDF_BASE_CSS, PDF_BRAND_COLOR, PDF_MUTED, PDF_TEXT, exportPDF as exportPDFHelper, printPDF as printPDFHelper, escapeHtml, loadPhotoAsDataUrlForPdf } from '@/lib/pdfBase';
 import { generateAndSendReservesReport } from '@/lib/email/client';
@@ -1469,8 +1470,9 @@ export default function ReservesScreen() {
                   <View style={styles.detailCard}>
                     <Text style={styles.detailLabel}>AJOUTER UN COMMENTAIRE</Text>
                     <View style={styles.tabletCommentRow}>
-                      <TextInput
-                        style={styles.tabletCommentInput}
+                      <DictationTextInput
+                        inputStyle={styles.tabletCommentInput}
+                        containerStyle={{ flex: 1 }}
                         placeholder="Votre commentaire..."
                         placeholderTextColor={C.textMuted}
                         value={tabletComment}

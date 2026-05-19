@@ -76,6 +76,7 @@ interface AuthContextValue {
   user: User | null;
   isAuthenticated: boolean;
   isLoading: boolean;
+  isSessionValidationPending: boolean;
   isOfflineSession: boolean;
   login: (email: string, password: string) => Promise<{ success: boolean; error?: string }>;
   register: (params: {
@@ -419,6 +420,7 @@ async function seedDemoUsers(shouldAbort: () => boolean): Promise<'done' | 'erro
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [isSessionValidationPending, setIsSessionValidationPending] = useState(isSupabaseConfigured);
   const [isOfflineSession, setIsOfflineSession] = useState(false);
   const [seedStatus, setSeedStatus] = useState<'idle' | 'seeding' | 'done' | 'error'>('idle');
   const [users, setUsers] = useState<User[]>([]);
@@ -473,6 +475,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         companyId: u.companyId,
       })));
       setIsLoading(false);
+      setIsSessionValidationPending(false);
       return;
     }
 
@@ -490,6 +493,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     // Safety valve: if auth init hangs for any reason, unblock the UI after 3s
     // (réduit de 10s à 3s grâce au cached profile en fallback immédiat)
     const AUTH_TIMEOUT_MS = 3_000;
+    const SESSION_VALIDATION_MAX_WAIT_MS = 8_000;
     let loadingResolved = false;
     const resolveLoading = () => {
       if (!loadingResolved) {
@@ -498,16 +502,23 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
     };
     const safetyTimer = setTimeout(resolveLoading, AUTH_TIMEOUT_MS);
+    const validationTimer = setTimeout(() => {
+      setIsSessionValidationPending(false);
+      resolveLoading();
+    }, SESSION_VALIDATION_MAX_WAIT_MS);
 
     // Étape 1 — Cached profile en priorité absolue
     debugLog('[AuthContext] readCachedProfile() → instant-restore');
+    // Keep auth loading active after restoring the cached profile. This
+    // prevents screens from briefly rendering stale persisted data before the
+    // first Supabase refresh can show the loading screen.
+    setIsSessionValidationPending(true);
+
     readCachedProfile().then((cached) => {
-      if (cached && !loadingResolved) {
+      if (cached) {
         debugLogOk(`[AuthContext] Profil restauré depuis cache (instant-restore) → ${cached.email}`);
         setUser(cached);
         setIsOfflineSession(true); // sera repassé à false si getSession() valide
-        clearTimeout(safetyTimer);
-        resolveLoading();
       }
     }).catch(() => {});
 
@@ -554,7 +565,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       } catch (err: any) {
         debugLogError(`[AuthContext] getSession().then exception: ${err?.message ?? err}`);
       } finally {
+        setIsSessionValidationPending(false);
         clearTimeout(safetyTimer);
+        clearTimeout(validationTimer);
         resolveLoading();
         debugLog('[AuthContext] isLoading → false (background sync done)');
       }
@@ -562,7 +575,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       debugLogError(`[AuthContext] getSession() rejeté: ${err?.message ?? err}`);
       // getSession() rejeté (réseau) — le cached profile est déjà en place via
       // l'instant-restore, on libère juste isLoading
+      setIsSessionValidationPending(false);
       clearTimeout(safetyTimer);
+      clearTimeout(validationTimer);
       resolveLoading();
     });
 
@@ -628,6 +643,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     return () => {
       subscription.unsubscribe();
       clearTimeout(safetyTimer);
+      clearTimeout(validationTimer);
       if (fetchingProfileTimer) clearTimeout(fetchingProfileTimer);
       loadingResolved = true; // prevent stale setState after unmount
     };
@@ -1356,6 +1372,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       user,
       isAuthenticated: !!user,
       isLoading,
+      isSessionValidationPending,
       isOfflineSession,
       login,
       register,

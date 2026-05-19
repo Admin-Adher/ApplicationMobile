@@ -27,6 +27,7 @@ import StatusBadge, { STATUS_CONFIG } from '@/components/StatusBadge';
 import PriorityBadge from '@/components/PriorityBadge';
 import Header from '@/components/Header';
 import DateInput from '@/components/DateInput';
+import DictationTextInput from '@/components/DictationTextInput';
 import { useAuth } from '@/context/AuthContext';
 import { useNetwork } from '@/context/NetworkContext';
 import { useSettings } from '@/context/SettingsContext';
@@ -1562,8 +1563,9 @@ export default function ReserveDetailScreen() {
 
           {showCommentBox && (
             <View style={styles.commentBox}>
-              <TextInput
-                style={styles.commentInput}
+              <DictationTextInput
+                inputStyle={styles.commentInput}
+                containerStyle={{ flex: 1 }}
                 placeholder="Ajouter un commentaire..."
                 placeholderTextColor={C.textMuted}
                 value={comment}
@@ -1620,8 +1622,8 @@ export default function ReserveDetailScreen() {
                 </View>
                 {isEditing ? (
                   <View style={{ marginTop: 8 }}>
-                    <TextInput
-                      style={styles.commentInput}
+                    <DictationTextInput
+                      inputStyle={styles.commentInput}
                       value={editingCommentText}
                       onChangeText={setEditingCommentText}
                       multiline
@@ -1766,8 +1768,8 @@ export default function ReserveDetailScreen() {
               <TextInput style={mStyles.input} value={editTitle} onChangeText={setEditTitle} placeholder="Titre..." placeholderTextColor={C.textMuted} />
 
               <Text style={mStyles.label}>DESCRIPTION</Text>
-              <TextInput
-                style={[mStyles.input, mStyles.textArea]}
+              <DictationTextInput
+                inputStyle={[mStyles.input, mStyles.textArea]}
                 value={editDescription}
                 onChangeText={setEditDescription}
                 placeholder="Description..."

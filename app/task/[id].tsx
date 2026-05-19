@@ -11,6 +11,7 @@ import { useAuth } from '@/context/AuthContext';
 import Header from '@/components/Header';
 import DateInput from '@/components/DateInput';
 import CompanySelector from '@/components/CompanySelector';
+import DictationTextInput from '@/components/DictationTextInput';
 import { Task, TaskStatus, ReservePriority } from '@/constants/types';
 import { validateDeadline, formatDate } from '@/lib/reserveUtils';
 
@@ -237,8 +238,8 @@ export default function EditTaskScreen() {
           {errors.title ? <Text style={styles.errorText}>{errors.title}</Text> : null}
 
           <Text style={styles.label}>Description</Text>
-          <TextInput
-            style={[styles.input, styles.multiline]}
+          <DictationTextInput
+            inputStyle={[styles.input, styles.multiline]}
             placeholder="Description détaillée..."
             placeholderTextColor={C.textMuted}
             value={description}
@@ -444,8 +445,8 @@ export default function EditTaskScreen() {
                 </View>
                 {isEditing ? (
                   <View style={{ marginTop: 4 }}>
-                    <TextInput
-                      style={styles.commentInput}
+                    <DictationTextInput
+                      inputStyle={styles.commentInput}
                       value={editingCommentText}
                       onChangeText={setEditingCommentText}
                       multiline
@@ -478,8 +479,9 @@ export default function EditTaskScreen() {
             );
           })}
           <View style={styles.commentInputRow}>
-            <TextInput
-              style={styles.commentInput}
+            <DictationTextInput
+              inputStyle={styles.commentInput}
+              containerStyle={{ flex: 1 }}
               placeholder="Ajouter un commentaire..."
               placeholderTextColor={C.textMuted}
               value={newComment}

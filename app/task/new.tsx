@@ -11,6 +11,7 @@ import { useAuth } from '@/context/AuthContext';
 import Header from '@/components/Header';
 import DateInput from '@/components/DateInput';
 import CompanySelector from '@/components/CompanySelector';
+import DictationTextInput from '@/components/DictationTextInput';
 import { Task, TaskStatus, ReservePriority } from '@/constants/types';
 import { validateDeadline } from '@/lib/reserveUtils';
 import { genId, formatDateFR, nowTimestampFR } from '@/lib/utils';
@@ -178,8 +179,8 @@ export default function NewTaskScreen() {
           {errors.title ? <Text style={styles.errorText}>{errors.title}</Text> : null}
 
           <Text style={styles.label}>Description</Text>
-          <TextInput
-            style={[styles.input, styles.multiline]}
+          <DictationTextInput
+            inputStyle={[styles.input, styles.multiline]}
             placeholder="Description détaillée..."
             placeholderTextColor={C.textMuted}
             value={description}

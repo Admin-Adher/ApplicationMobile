@@ -88,6 +88,16 @@
         }
       ],
       [
+        "expo-speech-recognition",
+        {
+          "microphonePermission": "BuildTrack utilise le microphone pour convertir votre dictee vocale en texte.",
+          "speechRecognitionPermission": "BuildTrack utilise la reconnaissance vocale pour remplir les descriptions et commentaires dictes.",
+          "androidSpeechServicePackages": [
+            "com.google.android.googlequicksearchbox"
+          ]
+        }
+      ],
+      [
         "expo-location",
         {
           "locationWhenInUsePermission": "BuildTrack utilise votre localisation pour géolocaliser les entrées du journal de chantier."
