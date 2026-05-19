@@ -1319,7 +1319,8 @@ const MobileViewer = forwardRef<PdfPlanViewerHandle, PdfPlanViewerProps>(functio
       : '',
     [resolvedUri, canAnnotate, canCreate, canMovePins, pinSize, isImagePlan, pdfJsSource, pdfJsWorkerSource],
   );
-  const webViewSource = useMemo(() => ({ html, baseUrl: 'https://localhost' }), [html]);
+  const webViewBaseUrl = resolvedUri.startsWith('file://') ? resolvedUri : 'https://localhost';
+  const webViewSource = useMemo(() => ({ html, baseUrl: webViewBaseUrl }), [html, webViewBaseUrl]);
   const viewerLoading = uriLoading || (!isImagePlan && pdfJsLoading);
 
   function changePage(n: number) {
