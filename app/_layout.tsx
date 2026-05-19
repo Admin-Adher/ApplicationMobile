@@ -116,28 +116,25 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
   // ── Overlay fade logic ───────────────────────────────────────────────────
   const [overlayMounted, setOverlayMounted] = useState(true);
   const overlayOpacity  = useRef(new Animated.Value(1)).current;
-  const overlayStateRef = useRef<'visible' | 'fading-out' | 'hidden' | 'fading-in'>('visible');
-
-  // Trigger fade-in once the overlay is re-mounted after a login
-  const [fadeInTick, setFadeInTick] = useState(0);
-  useEffect(() => {
-    if (fadeInTick === 0) return;
-    overlayStateRef.current = 'fading-in';
-    Animated.timing(overlayOpacity, {
-      toValue: 1,
-      duration: 320,
-      useNativeDriver: true,
-    }).start(() => {
-      overlayStateRef.current = 'visible';
-    });
-  }, [fadeInTick]);
+  const overlayStateRef = useRef<'visible' | 'fading-out' | 'hidden'>('visible');
 
   // Main loading → overlay orchestration
   useEffect(() => {
     const state = overlayStateRef.current;
 
+    // Loading restarted (startup/foreground refresh) -> show the overlay
+    // immediately. No fade-in here: even one transparent frame lets stale
+    // cached data appear underneath.
+    if (isLoading && (state === 'hidden' || state === 'fading-out' || !overlayMounted)) {
+      overlayOpacity.stopAnimation();
+      overlayOpacity.setValue(1);
+      overlayStateRef.current = 'visible';
+      if (!overlayMounted) setOverlayMounted(true);
+      return;
+    }
+
     // Data ready → fade out
-    if (!isLoading && overlayMounted && (state === 'visible' || state === 'fading-in')) {
+    if (!isLoading && overlayMounted && state === 'visible') {
       overlayStateRef.current = 'fading-out';
       Animated.timing(overlayOpacity, {
         toValue: 0,
@@ -151,13 +148,6 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
       });
     }
 
-    // Loading restarted (post-login) → re-mount with fade-in
-    if (isLoading && !overlayMounted && state === 'hidden') {
-      overlayOpacity.setValue(0);
-      overlayStateRef.current = 'fading-in';
-      setOverlayMounted(true);          // triggers re-render with overlay visible
-      setFadeInTick(t => t + 1);        // triggers fade-in effect after mount
-    }
   }, [isLoading, overlayMounted]);
 
   // Reset tab-restore flag on each new login so the saved tab is honoured
@@ -215,14 +205,17 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
 
   // Render children as soon as auth is resolved (underneath the overlay),
   // so the UI is fully ready when the overlay finishes fading out.
+  const shouldRenderOverlay = overlayMounted || isLoading;
+  const immediateOverlayOpacity = isLoading && !overlayMounted ? 1 : overlayOpacity;
+
   return (
     <View style={agStyles.root}>
       {!authLoading && children}
-      {overlayMounted && (
+      {shouldRenderOverlay && (
         <Animated.View
           style={[
             agStyles.overlay,
-            { opacity: overlayOpacity, pointerEvents: isLoading ? 'auto' : 'none' },
+            { opacity: immediateOverlayOpacity, pointerEvents: isLoading ? 'auto' : 'none' },
           ]}
         >
           <LoadingScreen />
