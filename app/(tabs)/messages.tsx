@@ -4,9 +4,8 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
-import { useState, useMemo, useEffect } from 'react';
+import { useState, useMemo } from 'react';
 import { useRouter } from 'expo-router';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import { C } from '@/constants/colors';
 import { useApp } from '@/context/AppContext';
 import { useAuth } from '@/context/AuthContext';
@@ -19,8 +18,7 @@ import NewGroupModal from '@/components/NewGroupModal';
 import SuperAdminMessagingHub from '@/components/SuperAdminMessagingHub';
 
 const ALPHA_BUCKET_THRESHOLD = 10; // au-delà, on regroupe les entreprises par initiale
-const STORAGE_KEY_COMPANIES_COLLAPSED = 'messages.tabs.companiesCollapsed.v1';
-type FilterMode = 'all' | 'unread' | 'chantier' | 'company' | 'team';
+type FilterMode = 'all' | 'unread' | 'pinned' | 'chantier' | 'company' | 'team';
 
 const AVATAR_COLORS = [C.primary, '#059669', '#D97706', '#7C3AED', '#DB2777', '#EA580C', '#0891B2'];
 function getAvatarColor(name: string) {
@@ -178,6 +176,7 @@ export default function MessagesTabScreen() {
   const { user, permissions } = useAuth();
   const [search, setSearch] = useState('');
   const [filter, setFilter] = useState<FilterMode>('all');
+  const [selectedCompanyChannelId, setSelectedCompanyChannelId] = useState<string | null>(null);
   const [showNewChannel, setShowNewChannel] = useState(false);
   const [showNewDM, setShowNewDM] = useState(false);
   const [showNewGroup, setShowNewGroup] = useState(false);
@@ -249,6 +248,8 @@ export default function MessagesTabScreen() {
   const unreadChannels = filteredChannels.filter(ch => (unreadByChannel[ch.id] ?? 0) > 0);
   const activeFilterLabel = filter === 'unread'
     ? 'Non lus'
+    : filter === 'pinned'
+    ? 'Épinglées'
     : filter === 'chantier'
     ? 'Chantier'
     : filter === 'company'
@@ -258,35 +259,6 @@ export default function MessagesTabScreen() {
     : 'Tous';
 
   // ── Section "Canaux entreprises" : tri alpha + filtre + repli ──────────
-  const [companyFilter, setCompanyFilter] = useState('');
-  const [companiesCollapsedOverride, setCompaniesCollapsedOverride] = useState<boolean | null>(null);
-  const [companiesPrefLoaded, setCompaniesPrefLoaded] = useState(false);
-
-  useEffect(() => {
-    let cancelled = false;
-    AsyncStorage.getItem(STORAGE_KEY_COMPANIES_COLLAPSED)
-      .then(raw => {
-        if (cancelled) return;
-        if (raw === 'true') setCompaniesCollapsedOverride(true);
-        else if (raw === 'false') setCompaniesCollapsedOverride(false);
-        setCompaniesPrefLoaded(true);
-      })
-      .catch(() => { if (!cancelled) setCompaniesPrefLoaded(true); });
-    return () => { cancelled = true; };
-  }, []);
-
-  useEffect(() => {
-    if (!companiesPrefLoaded) return;
-    if (companiesCollapsedOverride === null) {
-      AsyncStorage.removeItem(STORAGE_KEY_COMPANIES_COLLAPSED).catch(() => {});
-    } else {
-      AsyncStorage.setItem(
-        STORAGE_KEY_COMPANIES_COLLAPSED,
-        companiesCollapsedOverride ? 'true' : 'false'
-      ).catch(() => {});
-    }
-  }, [companiesCollapsedOverride, companiesPrefLoaded]);
-
   const sortedCompanyChannels = useMemo(
     () => [...companyChannels].sort((a, b) =>
       a.name.localeCompare(b.name, 'fr', { sensitivity: 'base' })
@@ -299,11 +271,10 @@ export default function MessagesTabScreen() {
     [sortedCompanyChannels, unreadByChannel]
   );
 
-  const filteredCompanyChannels = useMemo(() => {
-    const q = companyFilter.trim().toLowerCase();
-    if (!q) return sortedCompanyChannels;
-    return sortedCompanyChannels.filter(ch => ch.name.toLowerCase().includes(q));
-  }, [sortedCompanyChannels, companyFilter]);
+  const visibleCompanyChannels = useMemo(() => {
+    if (!selectedCompanyChannelId) return sortedCompanyChannels;
+    return sortedCompanyChannels.filter(ch => ch.id === selectedCompanyChannelId);
+  }, [sortedCompanyChannels, selectedCompanyChannelId]);
 
   function goToChannel(ch: Channel, initialSearchQuery?: string, focusMessageId?: string) {
     router.push({
@@ -431,7 +402,7 @@ export default function MessagesTabScreen() {
     );
   }
 
-  const showPinned = pinnedChannels.length > 0 && !search.trim() && filter === 'all';
+  const showPinned = pinnedChannels.length > 0 && !search.trim() && (filter === 'all' || filter === 'pinned');
   const isSearching = search.trim().length >= 2;
   const showGeneral = filter === 'all' || filter === 'chantier';
   const showBuilding = filter === 'all' || filter === 'chantier';
@@ -440,18 +411,17 @@ export default function MessagesTabScreen() {
   const activeFilterHasResults =
     filter === 'unread'
       ? unreadChannels.length > 0
+      : filter === 'pinned'
+      ? pinnedChannels.length > 0
       : filter === 'chantier'
       ? generalChannel.length + buildingChannels.length > 0
       : filter === 'company'
-      ? companyChannels.length > 0
+      ? visibleCompanyChannels.length > 0
       : filter === 'team'
       ? customChannels.length + groupChannels.length + dmChannels.length > 0
       : filteredChannels.length > 0;
 
   // ── Rendu de la section Entreprises (collapsible + alpha buckets) ─────
-  const companiesAutoCollapsed = sortedCompanyChannels.length >= ALPHA_BUCKET_THRESHOLD;
-  const isCompaniesCollapsed = !isSearching && (companiesCollapsedOverride ?? companiesAutoCollapsed);
-
   function renderCompanyChannelRow(ch: Channel, withDivider: boolean) {
     return (
       <View key={ch.id}>
