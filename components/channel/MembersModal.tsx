@@ -42,8 +42,9 @@ export default function MembersModal({
   const { companies } = useApp();
   const isCompanyChannel = channelObj?.type === 'company' || channelId.startsWith('company-');
   const canManageMembers = isCreator || user?.role === 'admin' || user?.role === 'super_admin';
-  const companyId = isCompanyChannel && channelObj?.id?.startsWith('company-')
-    ? channelObj.id.slice('company-'.length)
+  const companyChannelId = channelObj?.id ?? channelId;
+  const companyId = isCompanyChannel && companyChannelId.startsWith('company-')
+    ? companyChannelId.slice('company-'.length)
     : null;
   const companyMemberNames = companyId
     ? profiles
