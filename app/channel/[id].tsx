@@ -425,7 +425,7 @@ export default function ChannelScreen() {
     try {
       const url = await uploadPhoto(persistentUri, `msg_${Date.now()}.jpg`);
       if (!url) {
-        Alert.alert('Erreur d\'envoi', "La photo n'a pas pu etre envoyee sur le serveur. Verifiez votre connexion et que le stockage est configure.");
+        Alert.alert('Erreur d\'envoi', "La photo n'a pas pu être envoyée sur le serveur. Vérifiez votre connexion et que le stockage est configuré.");
         return;
       }
       addMessage(channelId!, text.trim() || '', buildMessageOptions(url), user?.name ?? 'Moi');
@@ -492,7 +492,7 @@ export default function ChannelScreen() {
     setActionModalVisible(false);
     if (!selectedMsg) return;
     if (!selectedMsg.isMe && user?.role !== 'super_admin') {
-      Alert.alert('Action impossible', "Seul l'expediteur du message peut l'epingler.");
+      Alert.alert('Action impossible', "Seul l'expéditeur du message peut l'épingler.");
       return;
     }
     updateMessage({ ...selectedMsg, isPinned: !selectedMsg.isPinned });
