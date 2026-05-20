@@ -4,7 +4,7 @@ export function sanitizePdfFilenamePart(value: unknown, maxLength = DEFAULT_MAX_
   const normalized = String(value ?? '')
     .normalize('NFD')
     .replace(/[\u0300-\u036f]/g, '')
-    .replace(/['’`]/g, '')
+    .replace(/['\u2019`]/g, '')
     .replace(/&/g, ' et ')
     .replace(/[^a-zA-Z0-9._-]+/g, '_')
     .replace(/_+/g, '_')
@@ -23,6 +23,6 @@ export function buildPdfFilename(type: string, parts: Array<unknown> = []): stri
 
 export function ensurePdfFilename(filename: string): string {
   const withoutExtension = filename.replace(/\.pdf$/i, '');
-  const parts = withoutExtension.split(/[_\s—-]+/).filter(Boolean);
+  const parts = withoutExtension.split(/[_\s\u2014-]+/).filter(Boolean);
   return buildPdfFilename(parts.shift() ?? 'Document', parts);
 }

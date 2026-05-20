@@ -535,11 +535,13 @@ export async function exportPDF(html: string, filename: string = 'buildtrack-exp
  *   dialog so the user can save it as PDF.
  */
 export async function printPDF(html: string, _filename: string = 'buildtrack-export'): Promise<void> {
+  const pdfFilename = ensurePdfFilename(_filename);
   if (Platform.OS === 'web') {
     const win = window.open('', '_blank');
     if (win) {
       win.document.write(html);
       win.document.close();
+      win.document.title = pdfFilename.replace(/\.pdf$/i, '');
       win.focus();
       setTimeout(() => { try { win.print(); } catch {} }, 500);
     }

@@ -11,6 +11,7 @@ import {
   buildDocFooter,
   escapeHtml,
 } from '@/lib/pdfBase';
+import { buildPdfFilename } from '@/lib/pdfFilename';
 import { getISOWeekKey } from '@/lib/utils';
 import { useApp } from '@/context/AppContext';
 import { useAuth } from '@/context/AuthContext';
@@ -169,7 +170,7 @@ export default function AnalyticsScreen() {
     }
     try {
       const html = buildAnalyticsPDF(weekStats, companyStats, reserves, projectName, userName);
-      await exportPDFHelper(html, 'Tableau de bord analytique');
+      await exportPDFHelper(html, buildPdfFilename('Tableau_Bord_Analytique', [projectName]));
     } catch (e: any) {
       Alert.alert('Erreur', e?.message ?? 'Impossible de générer le PDF');
     }

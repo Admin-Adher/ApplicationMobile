@@ -12,6 +12,7 @@ import {
   buildDocFooter,
   escapeHtml,
 } from '@/lib/pdfBase';
+import { buildPdfFilename } from '@/lib/pdfFilename';
 import { router } from 'expo-router';
 import { C } from '@/constants/colors';
 import { useAuth } from '@/context/AuthContext';
@@ -314,7 +315,7 @@ export default function JournalScreen() {
     }
     try {
       const html = buildJournalHTML(entries, projectName);
-      await exportPDFHelper(html, 'Journal de chantier');
+      await exportPDFHelper(html, buildPdfFilename('Journal_Chantier', [projectName]));
     } catch (e: any) {
       Alert.alert('Erreur', e?.message ?? 'Impossible de générer le PDF');
     }

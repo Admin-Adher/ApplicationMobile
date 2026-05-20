@@ -13,6 +13,7 @@ import {
   buildDocFooter,
   escapeHtml,
 } from '@/lib/pdfBase';
+import { buildPdfFilename } from '@/lib/pdfFilename';
 import { useAuth } from '@/context/AuthContext';
 import { useSettings } from '@/context/SettingsContext';
 import { useApp } from '@/context/AppContext';
@@ -279,7 +280,7 @@ export default function MeetingReportScreen() {
     }
     try {
       const html = buildMeetingHTML(report, projectName);
-      await exportPDFHelper(html, `CR-${report.id}`);
+      await exportPDFHelper(html, buildPdfFilename('CR_Reunion', [report.subject, report.location, projectName]));
     } catch (e: any) {
       Alert.alert('Erreur', e?.message ?? 'Impossible de générer le PDF');
     }

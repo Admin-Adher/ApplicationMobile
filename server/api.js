@@ -12,6 +12,27 @@ app.use(express.json());
 const PORT = process.env.API_PORT || 3001;
 const APP_URL = process.env.EXPO_PUBLIC_APP_URL || `https://${process.env.REPLIT_DEV_DOMAIN || 'localhost:5000'}`;
 
+function safePdfFilePart(value, fallback = 'document') {
+  const cleaned = String(value ?? fallback)
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/['\u2019`]/g, '')
+    .replace(/&/g, ' et ')
+    .replace(/[^a-zA-Z0-9._-]+/g, '_')
+    .replace(/_+/g, '_')
+    .replace(/^_+|_+$/g, '')
+    .slice(0, 48)
+    .replace(/^_+|_+$/g, '');
+  return cleaned || fallback;
+}
+
+function buildPdfFilename(type, parts = []) {
+  const segments = [type, ...parts]
+    .map(part => safePdfFilePart(part, ''))
+    .filter(Boolean);
+  return `${segments.length > 0 ? segments.join('_') : 'Document'}.pdf`;
+}
+
 // ── CORS ─────────────────────────────────────────────────────────────────────
 app.use((req, res, next) => {
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -1644,13 +1665,11 @@ app.post('/api/generate-pdf', async (req, res) => {
     if (payload.sendByEmail && Array.isArray(payload.recipients) && payload.recipients.length > 0) {
       const dateStr = new Date(payload.generatedAt || Date.now()).toLocaleDateString('fr-FR', { day: '2-digit', month: 'long', year: 'numeric' });
       const companyLabel = payload.companyFilter ?? 'Toutes les entreprises';
-      const chantierSlug = (payload.chantierName || 'rapport').replace(/[^a-zA-Z0-9À-ÿ _-]/g, '_');
-      const dateSlug = new Date().toISOString().slice(0, 10);
       let filename, subject, emailHtml;
 
       if (type === 'individual_reserve') {
         const r = payload.reserve;
-        filename = `Fiche_${(r.id || 'reserve').replace(/[^a-zA-Z0-9]/g, '_')}_${dateSlug}.pdf`;
+        filename = buildPdfFilename('Reserve', [r.id || 'reserve', r.title, payload.chantierName]);
         subject = `Fiche réserve — ${r.title || r.id} (${payload.chantierName})`;
         const sLabel = { open: 'Ouverte', in_progress: 'En cours', waiting: 'En attente', verification: 'Vérification', closed: 'Clôturée' }[r.status] ?? r.status;
         emailHtml = `<div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;color:#1e293b">
@@ -1669,19 +1688,22 @@ app.post('/api/generate-pdf', async (req, res) => {
           </div>
         </div>`;
       } else {
-        filename = `Rapport_${chantierSlug}_${dateSlug}.pdf`;
+        const companyPart = companyLabel === 'Toutes les entreprises' ? null : companyLabel;
+        filename = buildPdfFilename(type === 'global_reserves' ? 'Rapport_Reserves' : 'Rapport_Plans', [
+          payload.chantierName,
+          companyPart,
+        ]);
         const count = Array.isArray(payload.reserves) ? payload.reserves.length : 0;
-        subject = type === 'global_reserves'
-          ? `Rapport des réserves — ${payload.chantierName} (${companyLabel})`
-          : `Rapport des réserves — ${payload.chantierName} (${companyLabel})`;
+        const reportKind = type === 'global_reserves' ? 'réserves' : 'plans';
+        subject = `Rapport des ${reportKind} — ${payload.chantierName} (${companyLabel})`;
         emailHtml = `<div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;color:#1e293b">
           <div style="background:#003082;padding:24px 32px;border-radius:8px 8px 0 0">
-            <div style="color:#fff;font-size:20px;font-weight:700">Rapport des réserves</div>
+            <div style="color:#fff;font-size:20px;font-weight:700">Rapport des ${escHtml(reportKind)}</div>
             <div style="color:rgba(255,255,255,0.75);font-size:13px;margin-top:4px">${escHtml(payload.chantierName)} · ${escHtml(companyLabel)}</div>
           </div>
           <div style="background:#f8fafc;padding:24px 32px;border:1px solid #e2e8f0;border-top:none;border-radius:0 0 8px 8px">
             <p style="margin:0 0 16px 0">Bonjour,</p>
-            <p style="margin:0 0 16px 0">Veuillez trouver ci-joint le rapport des réserves pour <strong>${escHtml(payload.chantierName)}</strong> (${escHtml(companyLabel)}), généré le ${dateStr}.</p>
+            <p style="margin:0 0 16px 0">Veuillez trouver ci-joint le rapport des ${escHtml(reportKind)} pour <strong>${escHtml(payload.chantierName)}</strong> (${escHtml(companyLabel)}), généré le ${dateStr}.</p>
             <div style="background:#fff;border:1px solid #e2e8f0;border-radius:8px;padding:16px;margin:16px 0;text-align:center">
               <div style="font-size:32px;font-weight:800;color:#003082">${count}</div>
               <div style="font-size:11px;color:#64748b;text-transform:uppercase;letter-spacing:1px">réserve${count !== 1 ? 's' : ''} exportée${count !== 1 ? 's' : ''}</div>
