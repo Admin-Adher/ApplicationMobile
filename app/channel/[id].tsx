@@ -210,12 +210,12 @@ export default function ChannelScreen() {
 
   useEffect(() => {
     if (!channelId) return;
-    refreshChannelMessages(channelId);
+    fetchChannelMessages(channelId);
     const pollInterval = setInterval(() => {
       refreshChannelMessages(channelId);
-    }, 30000);
+    }, 60000);
     return () => clearInterval(pollInterval);
-  }, [channelId]);
+  }, [channelId, fetchChannelMessages, refreshChannelMessages]);
 
   // Réinitialiser la pagination quand on change de canal
   useEffect(() => {

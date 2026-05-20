@@ -1,6 +1,6 @@
 import {
   View, Text, StyleSheet, ScrollView, TouchableOpacity, TextInput,
-  Platform, Alert, Modal, TouchableWithoutFeedback,
+  Platform, Alert, Modal, TouchableWithoutFeedback, FlatList, InteractionManager,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -182,6 +182,7 @@ export default function MessagesTabScreen() {
   const [filter, setFilter] = useState<FilterMode>('all');
   const [companySearch, setCompanySearch] = useState('');
   const [companyListExpanded, setCompanyListExpanded] = useState(false);
+  const [companyDirectoryVisible, setCompanyDirectoryVisible] = useState(false);
   const [showNewChannel, setShowNewChannel] = useState(false);
   const [showNewDM, setShowNewDM] = useState(false);
   const [showNewGroup, setShowNewGroup] = useState(false);
@@ -325,6 +326,13 @@ export default function MessagesTabScreen() {
         focusMessageId: focusMessageId ?? '',
       },
     } as any);
+  }
+
+  function goToCompanyChannel(ch: Channel) {
+    setCompanyDirectoryVisible(false);
+    InteractionManager.runAfterInteractions(() => {
+      goToChannel(ch);
+    });
   }
 
   function handleCreateChannel(name: string, description: string, icon: string, color: string) {
@@ -477,9 +485,9 @@ export default function MessagesTabScreen() {
 
   // Section Entreprises: rendu limite sur l'accueil, recherche dediee dans le repertoire.
   function openCompanyDirectory() {
-    setFilter('company');
     setCompanySearch('');
     setCompanyListExpanded(false);
+    setCompanyDirectoryVisible(true);
   }
 
   function renderCompanyCompactRow(ch: Channel, withDivider: boolean) {
@@ -489,7 +497,7 @@ export default function MessagesTabScreen() {
       <TouchableOpacity
         key={ch.id}
         style={styles.companyCompactRow}
-        onPress={() => goToChannel(ch)}
+        onPress={() => goToCompanyChannel(ch)}
         activeOpacity={0.75}
       >
         {withDivider && <View style={styles.companyCompactDivider} />}
@@ -522,11 +530,40 @@ export default function MessagesTabScreen() {
           unread={unreadByChannel[ch.id] ?? 0}
           isPinned={pinnedChannelIds.includes(ch.id)}
           currentUserName={user?.name ?? ''}
-          onPress={() => goToChannel(ch)}
+          onPress={() => goToCompanyChannel(ch)}
           onLongPress={() => setActionSheet(ch)}
           onMenuPress={() => setActionSheet(ch)}
         />
       </View>
+    );
+  }
+
+  function renderCompanyDirectoryRow(ch: Channel, withDivider: boolean) {
+    const unread = unreadByChannel[ch.id] ?? 0;
+    const lastMsg = lastMessageByChannel[ch.id];
+    return (
+      <TouchableOpacity
+        style={styles.companyDirectoryRow}
+        onPress={() => goToCompanyChannel(ch)}
+        activeOpacity={0.75}
+      >
+        {withDivider && <View style={styles.companyDirectoryDivider} />}
+        <View style={[styles.companyDirectoryIcon, { backgroundColor: ch.color + '18' }]}>
+          <Ionicons name={ch.icon as any} size={18} color={ch.color} />
+        </View>
+        <View style={{ flex: 1 }}>
+          <Text style={styles.companyDirectoryName} numberOfLines={1}>{ch.name}</Text>
+          <Text style={styles.companyDirectoryMeta} numberOfLines={1}>
+            {lastMsg ? `${formatChannelTime(lastMsg.timestamp)} · ${lastMsg.sender}` : 'Aucun message'}
+          </Text>
+        </View>
+        {unread > 0 && (
+          <View style={[styles.unreadBadge, { backgroundColor: ch.color }]}>
+            <Text style={styles.unreadBadgeText}>{unread > 99 ? '99+' : unread}</Text>
+          </View>
+        )}
+        <Ionicons name="chevron-forward" size={16} color={C.textMuted} />
+      </TouchableOpacity>
     );
   }
 
@@ -706,11 +743,13 @@ export default function MessagesTabScreen() {
                 key={item.key}
                 style={[styles.filterChip, active && styles.filterChipActive]}
                 onPress={() => {
-                  setFilter(item.key);
-                  if (item.key !== 'company') {
-                    setCompanySearch('');
-                    setCompanyListExpanded(false);
+                  if (item.key === 'company') {
+                    openCompanyDirectory();
+                    return;
                   }
+                  setFilter(item.key);
+                  setCompanySearch('');
+                  setCompanyListExpanded(false);
                 }}
                 activeOpacity={0.75}
               >
@@ -881,6 +920,78 @@ export default function MessagesTabScreen() {
             )}
           </View>
       </ScrollView>
+
+      <Modal
+        visible={companyDirectoryVisible}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setCompanyDirectoryVisible(false)}
+      >
+        <View style={styles.companyDirectoryModalRoot}>
+          <TouchableWithoutFeedback onPress={() => setCompanyDirectoryVisible(false)}>
+            <View style={styles.companyDirectoryBackdrop} />
+          </TouchableWithoutFeedback>
+          <View style={[styles.companyDirectorySheet, { paddingBottom: insets.bottom + 12 }]}>
+            <View style={styles.companyDirectoryHandle} />
+            <View style={styles.companyDirectoryHeader}>
+              <View style={styles.pinnedSectionTitle}>
+                <View style={styles.companyDirectoryHeaderIcon}>
+                  <Ionicons name="business-outline" size={18} color={C.primary} />
+                </View>
+                <View>
+                  <Text style={styles.companyDirectoryTitle}>Canaux entreprises</Text>
+                  <Text style={styles.companyDirectorySubtitle}>
+                    {companySearchChannels.length}/{sortedCompanyChannels.length} canaux
+                  </Text>
+                </View>
+              </View>
+              <TouchableOpacity
+                style={styles.companyDirectoryClose}
+                onPress={() => setCompanyDirectoryVisible(false)}
+                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+              >
+                <Ionicons name="close" size={20} color={C.textSub} />
+              </TouchableOpacity>
+            </View>
+            <View style={styles.companySearchWrap}>
+              <Ionicons name="search-outline" size={15} color={C.textMuted} />
+              <TextInput
+                style={styles.companySearchInput}
+                placeholder="Rechercher une entreprise..."
+                placeholderTextColor={C.textMuted}
+                value={companySearch}
+                onChangeText={value => {
+                  setCompanySearch(value);
+                  setCompanyListExpanded(false);
+                }}
+                autoCorrect={false}
+                autoCapitalize="none"
+              />
+              {companySearch.length > 0 && (
+                <TouchableOpacity onPress={() => setCompanySearch('')}>
+                  <Ionicons name="close-circle" size={16} color={C.textMuted} />
+                </TouchableOpacity>
+              )}
+            </View>
+            <FlatList
+              data={companySearchChannels}
+              keyExtractor={item => item.id}
+              renderItem={({ item, index }) => renderCompanyDirectoryRow(item, index > 0)}
+              keyboardShouldPersistTaps="handled"
+              showsVerticalScrollIndicator={false}
+              initialNumToRender={12}
+              maxToRenderPerBatch={8}
+              windowSize={5}
+              removeClippedSubviews={Platform.OS !== 'web'}
+              ListEmptyComponent={() => (
+                <View style={styles.companyDirectoryEmpty}>
+                  <Text style={styles.emptySectionText}>Aucune entreprise correspondante</Text>
+                </View>
+              )}
+            />
+          </View>
+        </View>
+      </Modal>
 
       <NewChannelModal
         visible={showNewChannel}
@@ -1180,6 +1291,89 @@ const styles = StyleSheet.create({
     marginBottom: 14,
   },
   companyShowLessText: { fontSize: 12, fontFamily: 'Inter_600SemiBold', color: C.textMuted },
+  companyDirectoryModalRoot: { flex: 1, justifyContent: 'flex-end' },
+  companyDirectoryBackdrop: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(15, 23, 42, 0.38)',
+  },
+  companyDirectorySheet: {
+    maxHeight: '78%',
+    backgroundColor: C.bg,
+    borderTopLeftRadius: 22,
+    borderTopRightRadius: 22,
+    paddingHorizontal: 16,
+    paddingTop: 10,
+    borderWidth: 1,
+    borderColor: C.border,
+  },
+  companyDirectoryHandle: {
+    alignSelf: 'center',
+    width: 42,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: C.border,
+    marginBottom: 14,
+  },
+  companyDirectoryHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 12,
+  },
+  companyDirectoryHeaderIcon: {
+    width: 36,
+    height: 36,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: C.primaryBg,
+  },
+  companyDirectoryTitle: { fontSize: 17, fontFamily: 'Inter_700Bold', color: C.text },
+  companyDirectorySubtitle: { fontSize: 12, fontFamily: 'Inter_400Regular', color: C.textMuted, marginTop: 1 },
+  companyDirectoryClose: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: C.surface,
+    borderWidth: 1,
+    borderColor: C.border,
+  },
+  companyDirectoryRow: {
+    minHeight: 62,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 11,
+    paddingHorizontal: 2,
+    paddingVertical: 11,
+    position: 'relative',
+  },
+  companyDirectoryDivider: {
+    position: 'absolute',
+    left: 50,
+    right: 0,
+    top: 0,
+    height: 1,
+    backgroundColor: C.border,
+  },
+  companyDirectoryIcon: {
+    width: 40,
+    height: 40,
+    borderRadius: 13,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  companyDirectoryName: { fontSize: 15, fontFamily: 'Inter_700Bold', color: C.text },
+  companyDirectoryMeta: { fontSize: 12, fontFamily: 'Inter_400Regular', color: C.textMuted, marginTop: 2 },
+  companyDirectoryEmpty: {
+    backgroundColor: C.surface,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: C.border,
+    padding: 22,
+    alignItems: 'center',
+  },
   content: { padding: 16, paddingBottom: 40 },
   sectionHeader: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
