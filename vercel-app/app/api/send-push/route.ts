@@ -15,10 +15,12 @@ const STATUS_LABELS_FR: Record<string, string> = {
 function corsHeaders(req: NextRequest) {
   const origin = req.headers.get('origin') ?? '';
   const allowed = [
+    process.env.EXPO_PUBLIC_APP_URL,
+    process.env.NEXT_PUBLIC_APP_URL,
     'https://buildtrack-mobile.vercel.app',
     'http://localhost:5000',
     'http://localhost:3000',
-  ];
+  ].filter(Boolean) as string[];
   const corsOrigin = allowed.includes(origin) ? origin : allowed[0];
   return {
     'Access-Control-Allow-Origin': corsOrigin,
@@ -28,7 +30,7 @@ function corsHeaders(req: NextRequest) {
 }
 
 function serviceClient() {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.EXPO_PUBLIC_SUPABASE_URL;
   const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
   if (!url || !serviceKey) return null;
   return createClient(url, serviceKey, { auth: { autoRefreshToken: false, persistSession: false } });

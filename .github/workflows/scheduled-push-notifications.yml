@@ -13,10 +13,15 @@ jobs:
       - name: Trigger overdue reserve push reminders
         env:
           BUILDTRACK_API_URL: ${{ secrets.BUILDTRACK_API_URL }}
+          EXPO_PUBLIC_APP_URL: ${{ secrets.EXPO_PUBLIC_APP_URL }}
           CRON_SECRET: ${{ secrets.CRON_SECRET }}
         run: |
+          API_URL="${BUILDTRACK_API_URL:-$EXPO_PUBLIC_APP_URL}"
           if [ -z "$BUILDTRACK_API_URL" ]; then
-            echo "BUILDTRACK_API_URL secret is required, for example https://buildtrack-mobile.vercel.app"
+            echo "BUILDTRACK_API_URL is not set, falling back to EXPO_PUBLIC_APP_URL"
+          fi
+          if [ -z "$API_URL" ]; then
+            echo "BUILDTRACK_API_URL or EXPO_PUBLIC_APP_URL secret is required, for example https://buildtrack-mobile.vercel.app"
             exit 1
           fi
           if [ -z "$CRON_SECRET" ]; then
@@ -24,7 +29,7 @@ jobs:
             exit 1
           fi
           curl --fail-with-body \
-            --request POST "$BUILDTRACK_API_URL/api/send-push" \
+            --request POST "$API_URL/api/send-push" \
             --header "Content-Type: application/json" \
             --header "Authorization: Bearer $CRON_SECRET" \
             --data '{"type":"reserve-overdue"}'

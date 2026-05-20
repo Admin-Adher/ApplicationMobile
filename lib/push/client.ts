@@ -5,7 +5,7 @@ function getBaseApiUrl(): string {
   if (Platform.OS === 'web' && typeof window !== 'undefined') {
     return window.location.origin;
   }
-  return process.env.EXPO_PUBLIC_API_URL || '';
+  return process.env.EXPO_PUBLIC_API_URL || process.env.EXPO_PUBLIC_APP_URL || '';
 }
 
 function getPushApiUrl(): string {
