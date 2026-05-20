@@ -378,8 +378,8 @@ export function fromMessage(m: Message): Record<string, any> {
     reply_to_sender: m.replyToSender ?? null, attachment_uri: m.attachmentUri ?? null,
     reactions: m.reactions, is_pinned: m.isPinned, read_by: normalizeMessageReadBy(m.readBy),
     mentions: m.mentions, reserve_id: m.reserveId ?? null,
-    created_at: m.dbCreatedAt ?? null,
   };
+  if (m.dbCreatedAt) row.created_at = m.dbCreatedAt;
   if (m.linkedItemType != null) row.linked_item_type = m.linkedItemType;
   if (m.linkedItemId != null) row.linked_item_id = m.linkedItemId;
   if (m.linkedItemTitle != null) row.linked_item_title = m.linkedItemTitle;

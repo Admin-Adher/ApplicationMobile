@@ -517,6 +517,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const dismissNotification = useCallback(() => setNotification(null), []);
+  const markChannelMessagesRead = messagesH.setChannelRead;
+  const sendMessageToStore = messagesH.addMessage;
+  const addNotificationMessageToStore = messagesH.addNotificationMessage;
+  const unhideDmChannel = channelsH.unhideDmChannel;
+  const getDmUpsertPromise = channelsH.getDmUpsertPromise;
 
   const setChannelRead = useCallback((channelId: string) => {
     const timestamp = new Date().toISOString();
@@ -525,7 +530,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     setLastReadByChannel(newLastRead);
     AsyncStorage.setItem(lastReadStorageKey, JSON.stringify(newLastRead)).catch(() => {});
     const userName = currentUserNameRef.current;
-    messagesH.setChannelRead(channelId, userName);
+    markChannelMessagesRead(channelId, userName);
     if (isSupabaseConfigured && userName) {
       const userId = authH.user?.id;
       if (!userId) return;
@@ -560,7 +565,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         }
       })();
     }
-  }, [messagesH, lastReadStorageKey, authH.user?.id, isOnline, enqueueOperation]);
+  }, [markChannelMessagesRead, lastReadStorageKey, authH.user?.id, isOnline, enqueueOperation]);
 
   const reload = useCallback(() => {
     queryClient.invalidateQueries();
@@ -626,13 +631,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   ) => {
     const actualSender = sender ?? (currentUserNameRef.current || 'Moi');
     if (channelId.startsWith('dm-')) {
-      channelsH.unhideDmChannel(channelId);
+      unhideDmChannel(channelId);
     }
-    messagesH.addMessage(channelId, content, options, actualSender, channelsH.getDmUpsertPromise);
+    sendMessageToStore(channelId, content, options, actualSender, getDmUpsertPromise);
     // Auto-mark channel as read when sending — updates lastReadByChannel timestamp
     // so the channel doesn't appear unread after app restart
     setChannelRead(channelId);
-  }, [messagesH, channelsH, setChannelRead]);
+  }, [sendMessageToStore, unhideDmChannel, getDmUpsertPromise, setChannelRead]);
 
   // Fix 8: updateReserveStatusWithNotif uses reservesH.reserves and companiesH.companies instead of queryClient.getQueryData
   const updateReserveStatusWithNotif = useCallback((id: string, status: ReserveStatus, author?: string) => {
@@ -673,9 +678,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         timestamp: ts, type: 'notification', read: false, isMe: false,
         reactions: {}, isPinned: false, readBy: [], mentions: [], reserveId: reserve.id,
       };
-      messagesH.addNotificationMessage(notifMsg);
+      addNotificationMessageToStore(notifMsg);
     }
-  }, [reservesH, reservesH.reserves, companiesH.companies, messagesH, profilesH.profiles, chantiersH.chantiers]);
+  }, [reservesH, reservesH.reserves, companiesH.companies, addNotificationMessageToStore, profilesH.profiles, chantiersH.chantiers]);
 
   const addChantierWithChannel = useCallback((c: Chantier, plans: SitePlan[]) => {
     chantiersH.addChantier(c, plans, (buildingCh: Channel) => {

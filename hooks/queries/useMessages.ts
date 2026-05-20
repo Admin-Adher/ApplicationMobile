@@ -13,6 +13,50 @@ import { triggerMessagePush } from '@/lib/push/client';
 const MOCK_MESSAGES_KEY = 'buildtrack_mock_messages_v2';
 const MESSAGES_CACHE_PREFIX = 'buildtrack_messages_cache_v1_';
 const READ_RECEIPT_SYNC_LIMIT = 300;
+const MAX_MESSAGES_PER_CHANNEL_CACHE = 220;
+const MAX_TOTAL_MESSAGES_CACHE = 2500;
+
+function sortMessagesAsc(a: Message, b: Message): number {
+  const timeDiff = getMessageTimeMs(a) - getMessageTimeMs(b);
+  return timeDiff !== 0 ? timeDiff : a.id.localeCompare(b.id);
+}
+
+function trimMessagesForClient(input: Message[]): Message[] {
+  const byChannel = new Map<string, Message[]>();
+  const protectedMessages: Message[] = [];
+
+  for (const msg of input) {
+    if (!msg.channelId) {
+      protectedMessages.push(msg);
+      continue;
+    }
+    if (msg.isPinned) {
+      protectedMessages.push(msg);
+    }
+    const arr = byChannel.get(msg.channelId) ?? [];
+    arr.push(msg);
+    byChannel.set(msg.channelId, arr);
+  }
+
+  const keep = new Map<string, Message>();
+  for (const msg of protectedMessages) keep.set(msg.id, msg);
+
+  for (const arr of byChannel.values()) {
+    arr.sort((a, b) => {
+      const timeDiff = getMessageTimeMs(b) - getMessageTimeMs(a);
+      return timeDiff !== 0 ? timeDiff : b.id.localeCompare(a.id);
+    });
+    for (const msg of arr.slice(0, MAX_MESSAGES_PER_CHANNEL_CACHE)) {
+      keep.set(msg.id, msg);
+    }
+  }
+
+  const trimmed = Array.from(keep.values())
+    .sort(sortMessagesAsc)
+    .slice(-MAX_TOTAL_MESSAGES_CACHE);
+  if (trimmed.length === input.length) return input;
+  return trimmed;
+}
 
 export function useMessages() {
   const { user } = useAuth();
@@ -27,14 +71,14 @@ export function useMessages() {
   useEffect(() => {
     const myName = user?.name ?? '';
     if (!myName) return;
-    setMessages(prev => prev.map(m => {
+    setMessages(prev => trimMessagesForClient(prev.map(m => {
       const readBy = normalizeMessageReadBy(m.readBy);
       const isMe = isSameUserName(m.sender, myName);
       const hasRead = isMe || readBy.some((u: string) => isSameUserName(u, myName));
       const readByChanged = JSON.stringify(readBy) !== JSON.stringify(m.readBy ?? []);
       if (m.isMe === isMe && m.read === hasRead && !readByChanged) return m;
       return { ...m, isMe, read: hasRead, readBy };
-    }));
+    })));
   }, [user?.name]);
   // Bug 7: track orgId for filtering messages by organization
   const orgIdRef = useRef<string | null>(user?.organizationId ?? null);
@@ -73,7 +117,7 @@ export function useMessages() {
               ? (isSameUserName(m.sender, currentUserName) || normalizeMessageReadBy(m.readBy).some((u: string) => isSameUserName(u, currentUserName)))
               : m.read,
           }));
-          setMessages(fixed);
+          setMessages(trimMessagesForClient(fixed));
         } catch {}
       }
     }).catch(() => {});
@@ -124,7 +168,7 @@ export function useMessages() {
             const timeDiff = getMessageTimeMs(a) - getMessageTimeMs(b);
             return timeDiff !== 0 ? timeDiff : a.id.localeCompare(b.id);
           });
-          return merged;
+          return trimMessagesForClient(merged);
         });
       } else {
         console.warn('[useMessages] loadRecentMessages returned empty. data:', data);
@@ -141,7 +185,7 @@ export function useMessages() {
       const userId = user?.id;
       if (!userId) return;
       const key = isSupabaseConfigured ? MESSAGES_CACHE_PREFIX + userId : MOCK_MESSAGES_KEY;
-      AsyncStorage.setItem(key, JSON.stringify(messages)).catch(() => {});
+      AsyncStorage.setItem(key, JSON.stringify(trimMessagesForClient(messages))).catch(() => {});
     }, 1500);
     return () => clearTimeout(timer);
   }, [messages, user?.id]);
@@ -166,7 +210,7 @@ export function useMessages() {
         if (orgId && incomingOrgId && incomingOrgId !== orgId) return;
         setMessages(prev => {
           if (prev.find(m => m.id === msg.id)) return prev;
-          return [...prev, msg];
+          return trimMessagesForClient([...prev, msg]);
         });
         // Bug 4: notify AppContext of incoming message (replaces duplicate realtime subscription)
         if (incomingMessageHandlerRef.current) {
@@ -230,20 +274,7 @@ export function useMessages() {
       linkedItemTitle: options.linkedItemTitle,
       dbCreatedAt: new Date().toISOString(),
     };
-    setMessages(prev => [...prev, msg]);
-    // Auto-mark channel as read when sending a message — if I'm the one
-    // writing, there's nothing new for me to read in this channel.
-    setMessages(prev => prev.map(m => {
-      if (m.channelId !== channelId) return m;
-      if (m.isMe || isSameUserName(m.sender, actualSender)) {
-        return m.isMe ? m : { ...m, isMe: true, read: true };
-      }
-      const readBy = normalizeMessageReadBy(m.readBy);
-      if (readBy.some(name => isSameUserName(name, actualSender))) {
-        return JSON.stringify(readBy) === JSON.stringify(m.readBy ?? []) ? m : { ...m, readBy };
-      }
-      return { ...m, readBy: [...readBy, actualSender], read: true };
-    }));
+    setMessages(prev => trimMessagesForClient([...prev, msg]));
     if (isSupabaseConfigured) {
       // Bug 7: include organization_id in insert data
       const insertData = { ...fromMessage(msg), organization_id: orgIdRef.current ?? null };
@@ -407,12 +438,13 @@ export function useMessages() {
   }, [enqueueOperation]);
 
   const addNotificationMessage = useCallback((msg: Message) => {
+    const normalizedMsg = msg.dbCreatedAt ? msg : { ...msg, dbCreatedAt: new Date().toISOString() };
     setMessages(prev => {
-      if (prev.find(m => m.id === msg.id)) return prev;
-      return [...prev, msg];
+      if (prev.find(m => m.id === normalizedMsg.id)) return prev;
+      return trimMessagesForClient([...prev, normalizedMsg]);
     });
     if (isSupabaseConfigured) {
-      const insertData = { ...fromMessage(msg), organization_id: orgIdRef.current ?? null };
+      const insertData = { ...fromMessage(normalizedMsg), organization_id: orgIdRef.current ?? null };
       if (!isOnlineRef.current) {
         enqueueOperation({ table: 'messages', op: 'insert', data: insertData });
         return;
@@ -435,12 +467,15 @@ export function useMessages() {
   const fetchOlderMessages = useCallback(async (channelId: string, beforeCreatedAt: string): Promise<boolean> => {
     if (!isSupabaseConfigured) return false;
     try {
-      const { data, error } = await (supabase as any)
+      let query = (supabase as any)
         .from('messages').select('*')
         .eq('channel_id', channelId)
         .lt('created_at', beforeCreatedAt)
         .order('created_at', { ascending: false })
         .limit(50);
+      const orgId = orgIdRef.current;
+      if (orgId) query = query.eq('organization_id', orgId);
+      const { data, error } = await query;
       if (error || !data?.length) return false;
       const userName = userNameRef.current;
       const older = (data as any[]).map(r => toMessage(r, userName)).reverse();
@@ -448,7 +483,7 @@ export function useMessages() {
         const existingIds = new Set(prev.map(m => m.id));
         const newOnes = older.filter(m => !existingIds.has(m.id));
         if (newOnes.length === 0) return prev;
-        return [...newOnes, ...prev];
+        return trimMessagesForClient([...newOnes, ...prev]);
       });
       return data.length === 50;
     } catch { return false; }
@@ -459,11 +494,14 @@ export function useMessages() {
     if (loadedChannelIdsRef.current.has(channelId)) return;
     loadedChannelIdsRef.current.add(channelId);
     try {
-      const { data, error } = await supabase
+      let query = supabase
         .from('messages').select('*')
         .eq('channel_id', channelId)
         .order('created_at', { ascending: false })
         .limit(50);
+      const orgId = orgIdRef.current;
+      if (orgId) query = query.eq('organization_id', orgId);
+      const { data, error } = await query;
       if (error) { loadedChannelIdsRef.current.delete(channelId); return; }
       const userName = userNameRef.current;
       const msgs = (data ?? []).map((r: any) => toMessage(r, userName)).reverse();
@@ -471,7 +509,7 @@ export function useMessages() {
         const otherChannel = prev.filter(m => m.channelId !== channelId);
         const newIds = new Set(msgs.map(m => m.id));
         const realtimeExtras = prev.filter(m => m.channelId === channelId && !newIds.has(m.id));
-        return [...otherChannel, ...msgs, ...realtimeExtras];
+        return trimMessagesForClient([...otherChannel, ...msgs, ...realtimeExtras]);
       });
     } catch { loadedChannelIdsRef.current.delete(channelId); }
   }, []);
