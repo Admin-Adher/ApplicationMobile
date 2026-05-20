@@ -12,6 +12,7 @@ import { genId, formatDateFR, nowTimestampFR } from '@/lib/utils';
 import { genReserveId } from '@/lib/reserveUtils';
 import { mergeWithCache, readCache, writeCache, pendingIdsForTable, isSupabaseSessionValid } from '@/lib/offlineCache';
 import { uploadLocalPhotosInPayload } from '@/lib/storage';
+import { triggerReserveCreatedPush } from '@/lib/push/client';
 
 const RESERVES_CACHE_KEY = 'buildtrack_reserves_cache_v1';
 
@@ -190,7 +191,10 @@ export function useReserves() {
     };
 
     const { error } = await (supabase as any).from('reserves').insert(finalPayload);
-    if (!error) return;
+    if (!error) {
+      triggerReserveCreatedPush(r.id);
+      return;
+    }
 
     console.warn('[sync] addReserve server error:', error.code, error.message, '(org sent:', orgId, ', role:', user?.role, ')');
 
@@ -255,7 +259,10 @@ export function useReserves() {
           // already-uploaded photo URLs from finalPayload, no need to re-upload).
           console.warn('[sync] addReserve retry with fresh organization_id:', freshOrgId, '(was:', orgId, ')');
           const { error: retryErr } = await (supabase as any).from('reserves').insert({ ...finalPayload, organization_id: freshOrgId });
-          if (!retryErr) return;
+          if (!retryErr) {
+            triggerReserveCreatedPush(r.id);
+            return;
+          }
           // Retry also failed: queue with the corrected org_id so it syncs later.
           console.warn('[sync] addReserve retry also failed, queuing:', retryErr.code, retryErr.message);
           enqueueOperation({ table: 'reserves', op: 'insert', data: { ...finalPayload, organization_id: freshOrgId } });

@@ -9,6 +9,11 @@ import { supabase, isSupabaseConfigured, SUPABASE_URL, SUPABASE_KEY } from './su
 // AsyncStorage — this handles devices where the Supabase auth-server network
 // call hangs (e.g. slow DNS, restrictive firewall) even when local WiFi is fine.
 const SESSION_CHECK_TIMEOUT_MS = 6_000;
+const SESSION_VALIDATION_CACHE_MS = 4_000;
+
+let sessionValidationPromise: Promise<boolean> | null = null;
+let sessionValidationCachedValue: boolean | null = null;
+let sessionValidationCachedUntil = 0;
 
 /**
  * Derive the AsyncStorage key supabase-js v2 uses for the persisted session.
@@ -160,7 +165,7 @@ export async function forceRefreshSession(): Promise<string | null> {
  *    If the stored JWT is still valid we return true so queries can proceed
  *    — the app remains functional even if the auth server is unreachable.
  */
-export async function isSupabaseSessionValid(): Promise<boolean> {
+async function runSupabaseSessionValidation(): Promise<boolean> {
   if (!isSupabaseConfigured) return false;
   const hasValidCachedSession = async () => {
     const cached = await getSessionFromStorage();
@@ -210,6 +215,29 @@ export async function isSupabaseSessionValid(): Promise<boolean> {
     }
     return false;
   }
+}
+
+export async function isSupabaseSessionValid(): Promise<boolean> {
+  const now = Date.now();
+  if (sessionValidationCachedValue !== null && now < sessionValidationCachedUntil) {
+    return sessionValidationCachedValue;
+  }
+
+  if (sessionValidationPromise) {
+    return sessionValidationPromise;
+  }
+
+  sessionValidationPromise = runSupabaseSessionValidation()
+    .then(result => {
+      sessionValidationCachedValue = result;
+      sessionValidationCachedUntil = Date.now() + SESSION_VALIDATION_CACHE_MS;
+      return result;
+    })
+    .finally(() => {
+      sessionValidationPromise = null;
+    });
+
+  return sessionValidationPromise;
 }
 
 /**

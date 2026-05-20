@@ -11,6 +11,7 @@ import { forceRefreshSession, getSessionFromStorage } from '@/lib/offlineCache';
 import { normalizeVisitePayloadForSupabase } from '@/lib/mappers';
 import { useAuth } from '@/context/AuthContext';
 import { queryClient } from '@/lib/queryClient';
+import { triggerMessagePush, triggerReserveCreatedPush } from '@/lib/push/client';
 import type { Comment } from '@/constants/types';
 
 const OFFLINE_QUEUE_PREFIX = 'buildtrack_offline_queue_v3_';
@@ -1000,7 +1001,15 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
         }
 
         if (result.error) fail(retryOpForCatch, result.error);
-        else if (deferredPhotoPatch) failedOps.push(deferredPhotoPatch);
+        else {
+          if (op.op === 'insert' && op.table === 'messages' && data?.id && data?.channel_id) {
+            triggerMessagePush(String(data.id), String(data.channel_id));
+          }
+          if (op.op === 'insert' && op.table === 'reserves' && data?.id) {
+            triggerReserveCreatedPush(String(data.id));
+          }
+          if (deferredPhotoPatch) failedOps.push(deferredPhotoPatch);
+        }
       } catch (e) {
         fail(retryOpForCatch, e);
       } finally {

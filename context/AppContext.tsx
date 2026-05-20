@@ -30,7 +30,9 @@ import { useChannels, getDmDisplayName, getDmParticipants } from '@/hooks/querie
 import { useMessages } from '@/hooks/queries/useMessages';
 import { useRealtimeSync } from '@/hooks/useRealtimeSync';
 import { notifyReserveStatusChanged, notifyReserveOverdue } from '@/lib/email/notifyReserveCreated';
+import { triggerReserveStatusPush } from '@/lib/push/client';
 import { isSameUserName } from '@/lib/mappers';
+import { parseDeadline } from '@/lib/reserveUtils';
 
 export { STANDARD_LOTS } from '@/hooks/queries/useLots';
 export const STATIC_CHANNELS: Channel[] = [];
@@ -38,6 +40,21 @@ export const STATIC_CHANNELS: Channel[] = [];
 const ACTIVE_CHANTIER_PREFIX = 'buildtrack_active_chantier_v3_';
 const SERVER_REFRESH_MAX_WAIT_MS = 8_000;
 const FOREGROUND_REFRESH_MIN_SLEEP_MS = 5_000;
+const STARTUP_BLOCKING_QUERY_KEYS = [
+  queryKeys.chantiers(),
+  queryKeys.sitePlans(),
+  queryKeys.reserves(),
+  queryKeys.companies(),
+  queryKeys.tasks(),
+  queryKeys.profiles(),
+] as const;
+const STARTUP_BLOCKING_QUERY_KEY_IDS = new Set(
+  STARTUP_BLOCKING_QUERY_KEYS.map(key => JSON.stringify(key)),
+);
+
+function isStartupBlockingQueryKey(queryKey: readonly unknown[]): boolean {
+  return STARTUP_BLOCKING_QUERY_KEY_IDS.has(JSON.stringify(queryKey));
+}
 
 function getMessageTimeMs(msg: Message): number {
   if (msg.dbCreatedAt) return new Date(msg.dbCreatedAt).getTime();
@@ -259,21 +276,40 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     const timeoutPromise = new Promise<void>((resolve) => {
       timeout = setTimeout(resolve, SERVER_REFRESH_MAX_WAIT_MS);
     });
-    const refetchPromise = Promise.all([
-      queryClient.refetchQueries({ type: 'active' }),
-      reloadChannelsRef.current?.() ?? Promise.resolve(),
-      reloadMessagesRef.current?.() ?? Promise.resolve(),
-    ]).then(() => undefined).catch((err) => {
+    const blockingRefetchPromise = Promise.all(
+      STARTUP_BLOCKING_QUERY_KEYS.map(queryKey =>
+        queryClient.refetchQueries(
+          { queryKey, exact: true },
+          { cancelRefetch: false },
+        )
+      )
+    ).then(() => undefined).catch((err) => {
       if (!cancelled) {
         console.warn('[AppContext] server freshness refresh failed:', (err as any)?.message ?? err);
       }
     });
 
-    Promise.race([refetchPromise, timeoutPromise]).finally(() => {
+    Promise.race([blockingRefetchPromise, timeoutPromise]).finally(() => {
       if (timeout) clearTimeout(timeout);
       if (cancelled) return;
       refreshedServerKeyRef.current = serverFreshnessKey;
       setServerRefreshInProgress(false);
+
+      void queryClient.refetchQueries(
+        {
+          type: 'active',
+          predicate: query => !isStartupBlockingQueryKey(query.queryKey),
+        },
+        { cancelRefetch: false },
+      ).catch((err) => {
+        console.warn('[AppContext] background refresh failed:', (err as any)?.message ?? err);
+      });
+      void (reloadChannelsRef.current?.() ?? Promise.resolve()).catch((err) => {
+        console.warn('[AppContext] background channels refresh failed:', (err as any)?.message ?? err);
+      });
+      void (reloadMessagesRef.current?.() ?? Promise.resolve()).catch((err) => {
+        console.warn('[AppContext] background messages refresh failed:', (err as any)?.message ?? err);
+      });
     });
 
     return () => {
@@ -428,6 +464,15 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     ...channelsH.customChannels,
     ...channelsH.groupChannels,
     ...channelsH.persistedDmChannels,
+    ...companiesH.companies.map(c => ({
+      id: `company-${c.id}`,
+      name: c.name,
+      description: `Canal entreprise ${c.name}`,
+      icon: 'business',
+      color: c.color ?? '#10B981',
+      type: 'company' as const,
+      members: [],
+    })),
   ];
 
   // Bug 4: Use incomingMessageHandler from useMessages instead of duplicate realtime subscription
@@ -440,7 +485,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       const isDM = (msg.channelId ?? '').startsWith('dm-');
       // Bug 9: for DM notifications, use channel name (interlocutor) not sender name
       const channelName = isDM
-        ? (ch?.name ?? msg.sender)
+        ? getDmDisplayName(
+            { id: msg.channelId ?? '', name: ch?.name ?? msg.sender, members: ch?.members, dmParticipants: ch?.dmParticipants },
+            currentUserNameRef.current,
+          )
         : (ch?.name ?? msg.channelId ?? '');
       setNotification({
         msg,
@@ -472,14 +520,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   const setChannelRead = useCallback((channelId: string) => {
     const timestamp = new Date().toISOString();
-    // Fix 1: use setLastReadByChannel callback to get latest, then update ref for Supabase call
-    let newLastRead: Record<string, string> = {};
-    setLastReadByChannel(prev => {
-      newLastRead = { ...prev, [channelId]: timestamp };
-      lastReadByChannelRef.current = newLastRead;
-      AsyncStorage.setItem(lastReadStorageKey, JSON.stringify(newLastRead)).catch(() => {});
-      return newLastRead;
-    });
+    const newLastRead = { ...lastReadByChannelRef.current, [channelId]: timestamp };
+    lastReadByChannelRef.current = newLastRead;
+    setLastReadByChannel(newLastRead);
+    AsyncStorage.setItem(lastReadStorageKey, JSON.stringify(newLastRead)).catch(() => {});
     const userName = currentUserNameRef.current;
     messagesH.setChannelRead(channelId, userName);
     if (isSupabaseConfigured && userName) {
@@ -550,8 +594,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         for (const r of reservesH.reserves) {
           if (!r.deadline || r.deadline === '—') continue;
           if (r.status === 'closed' || r.status === 'verification') continue;
-          const dl = new Date(r.deadline);
-          if (Number.isNaN(dl.getTime())) continue;
+          const dl = parseDeadline(r.deadline);
+          if (dl === null) continue;
           dl.setHours(0, 0, 0, 0);
           if (dl >= today) continue;
           const daysLate = Math.max(1, Math.round((today.getTime() - dl.getTime()) / 86400000));
@@ -610,10 +654,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         chantiers: chantiersH.chantiers,
         changedByName: actualAuthor,
       });
+      triggerReserveStatusPush(id, status, previousStatus);
     }
     const companiesData = companiesH.companies;
     const reserveCompanyNames = reserve.companies ?? (reserve.company ? [reserve.company] : []);
-    const notifiedCompanies = companiesData.filter(c => reserveCompanyNames.includes(c.name));
+    const notifiedCompanies = companiesData.filter(c =>
+      reserveCompanyNames.some(name => isSameUserName(name, c.name))
+    );
     const statusLabels: Record<string, string> = {
       open: 'Ouvert', in_progress: 'En cours', waiting: 'En attente',
       verification: 'Vérification', closed: 'Clôturé',
@@ -711,8 +758,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     const result: Record<string, number> = {};
     const lastRead = lastReadByChannelRef.current;
     const myName = currentUserNameRef.current;
+    const visibleChannelIds = new Set(allChannels.map(ch => ch.id));
     for (const msg of messagesH.messages) {
       if (!msg.channelId) continue;
+      if (!visibleChannelIds.has(msg.channelId)) continue;
       if (myName && isSameUserName(msg.sender, myName)) continue;
       if (msg.isMe) continue;
       // Check readBy directly (more reliable than msg.read which can be stale)
@@ -727,7 +776,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       }
     }
     return result;
-  }, [messagesH.messages, lastReadByChannel, channelsH.hiddenDmChannelIds]);
+  }, [messagesH.messages, lastReadByChannel, channelsH.hiddenDmChannelIds, allChannels]);
 
   const unreadCount = useMemo(
     () => Object.values(unreadByChannel).reduce((a, b) => a + b, 0),
@@ -754,14 +803,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     [chantiersH.chantiers, activeChantierId]
   );
 
-  // Fix 10: isLoading aggregates all hooks, not just 2.
-  // When online, also wait for the first server refresh so restored cache is
-  // never shown as if it were fresh data after startup or foreground resume.
+  // Startup blocks only on the data needed by the first screens. Heavier
+  // secondary modules refresh in the background or show their own screen-level
+  // loading state, which keeps Supabase sync from holding the whole app.
   const isLoading = serverRefreshBlocking || chantiersH.isLoadingChantiers || reservesH.isLoadingReserves
-    || tasksH.isLoadingTasks || documentsH.isLoadingDocuments
-    || photosH.isLoadingPhotos || profilesH.isLoadingProfiles
-    || visitesH.isLoadingVisites || lotsH.isLoadingLots
-    || oprsH.isLoadingOprs || companiesH.isLoadingCompanies;
+    || tasksH.isLoadingTasks || profilesH.isLoadingProfiles
+    || chantiersH.isLoadingSitePlans || companiesH.isLoadingCompanies;
 
   const migrateReservesToPlan = useCallback((fromPlanId: string, toPlanId: string): number => {
     const result = chantiersH.migrateReservesToPlan(fromPlanId, toPlanId);

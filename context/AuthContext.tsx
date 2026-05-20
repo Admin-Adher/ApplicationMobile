@@ -8,6 +8,7 @@ import { debugLog, debugLogOk, debugLogWarn, debugLogError } from '@/lib/debugLo
 import { sendWelcomeEmail, sendInvitationAcceptedEmail, sendAccessRevokedEmail } from '@/lib/email/client';
 import { markIntentionalLogout } from '@/lib/authIntent';
 import { setPersisterUserId } from '@/lib/queryPersister';
+import { deleteCurrentPushToken } from '@/lib/push/deviceRegistration';
 
 /**
  * Module-level flag shared with AppContext so it can ignore auth events
@@ -1267,7 +1268,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     // supabase-js when a token refresh fails — and it would wipe data the
     // user still wants to see offline.
     markIntentionalLogout();
+    const currentUserId = user?.id;
     try {
+      await deleteCurrentPushToken(currentUserId);
       if (isSupabaseConfigured) await supabase.auth.signOut();
     } catch {
       // ignore

@@ -63,13 +63,20 @@ export default function NotificationBanner() {
   function handlePress() {
     dismissNotification();
     const ch = channels.find(c => c.id === msg.channelId);
+    const channelId = msg.channelId ?? '';
+    const isDM = ch?.type === 'dm' || channelId.startsWith('dm-');
+    const isGroup = ch?.type === 'group';
+    const members = ch?.members?.length ? ch.members : ch?.dmParticipants ?? [];
     router.push({
       pathname: '/channel/[id]',
       params: {
-        id: msg.channelId,
+        id: channelId,
         name: ch?.name ?? channelName,
         color: ch?.color ?? channelColor,
         icon: ch?.icon ?? channelIcon,
+        isDM: isDM ? '1' : '0',
+        isGroup: isGroup ? '1' : '0',
+        members: members.join(','),
       },
     } as any);
   }

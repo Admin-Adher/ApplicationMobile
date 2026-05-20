@@ -224,12 +224,6 @@ export default function ChannelScreen() {
     setHasMoreOnServer(true);
   }, [channelId]);
 
-  // Fix 1: ref déclaré ici, reset quand on change de canal
-  const prevChannelMsgCountRef = useRef(0);
-  useEffect(() => {
-    prevChannelMsgCountRef.current = 0;
-  }, [channelId]);
-
   const channelMessages = useMemo(() => {
     const msgs = messages
       .filter(m => m.channelId === channelId)
@@ -246,16 +240,19 @@ export default function ChannelScreen() {
     });
   }, [messages, channelId, user?.name]);
 
+  const latestChannelMessageKey = useMemo(() => {
+    const latest = channelMessages[channelMessages.length - 1];
+    return latest ? `${channelMessages.length}:${latest.id}:${latest.dbCreatedAt ?? latest.timestamp}` : '';
+  }, [channelMessages]);
+
   // Fix 1: auto-marquer comme lu quand de nouveaux messages arrivent pendant que le canal est ouvert
   // (setChannelRead au mount seul ne couvre pas les messages entrants en temps réel)
   // Aussi déclenché au chargement initial du canal (lazy-load) pour que mark_messages_read_by
   // soit appelé avec les vrais IDs de messages.
   useEffect(() => {
-    if (channelMessages.length > prevChannelMsgCountRef.current) {
-      if (channelId) setChannelRead(channelId);
-    }
-    prevChannelMsgCountRef.current = channelMessages.length;
-  }, [channelId, channelMessages.length, setChannelRead]);
+    if (!channelId || !latestChannelMessageKey) return;
+    setChannelRead(channelId);
+  }, [channelId, latestChannelMessageKey, setChannelRead]);
 
   useEffect(() => {
     const q = typeof paramSearchQuery === 'string' ? paramSearchQuery.trim() : '';

@@ -8,6 +8,7 @@ import { Message } from '@/constants/types';
 import { genId, nowTimestampFR } from '@/lib/utils';
 import { toMessage, fromMessage, isSameUserName, normalizeMessageReadBy, getMessageTimeMs } from '@/lib/mappers';
 import { isSupabaseSessionValid } from '@/lib/offlineCache';
+import { triggerMessagePush } from '@/lib/push/client';
 
 const MOCK_MESSAGES_KEY = 'buildtrack_mock_messages_v2';
 const MESSAGES_CACHE_PREFIX = 'buildtrack_messages_cache_v1_';
@@ -257,6 +258,8 @@ export function useMessages() {
           if (error) {
             console.warn('[sync] addMessage error:', error.code, error.message, error.details);
             enqueueOperation({ table: 'messages', op: 'insert', data: insertData });
+          } else {
+            triggerMessagePush(msg.id, channelId);
           }
         }).catch((err: any) => {
           console.warn('[sync] addMessage network error:', err?.message ?? err);

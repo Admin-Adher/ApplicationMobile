@@ -41,6 +41,7 @@
         "ACCESS_FINE_LOCATION",
         "ACCESS_COARSE_LOCATION",
         "RECORD_AUDIO",
+        "POST_NOTIFICATIONS",
         "REQUEST_INSTALL_PACKAGES"
       ]
     },
@@ -51,6 +52,7 @@
     "plugins": [
       "expo-router",
       "expo-updates",
+      "expo-notifications",
       [
         "expo-build-properties",
         {

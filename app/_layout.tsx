@@ -23,6 +23,7 @@ import { ReglementaireProvider } from '@/context/ReglementaireContext';
 import { SubscriptionProvider } from '@/context/SubscriptionContext';
 import { NetworkProvider } from '@/context/NetworkContext';
 import { NotificationsProvider } from '@/context/NotificationsContext';
+import { PushNotificationsProvider } from '@/context/PushNotificationsContext';
 import NotificationBanner from '@/components/NotificationBanner';
 import OfflineBanner from '@/components/OfflineBanner';
 import OtaUpdateBanner from '@/components/OtaUpdateBanner';
@@ -276,6 +277,7 @@ export default function RootLayout() {
             <PointageProvider>
             <ReglementaireProvider>
             <NotificationsProvider>
+            <PushNotificationsProvider>
               <GestureHandlerRootView style={{ flex: 1 }}>
                 <SafeAreaProvider>
                   <SafeKeyboardProvider>
@@ -337,6 +339,7 @@ export default function RootLayout() {
                   </SafeKeyboardProvider>
                 </SafeAreaProvider>
               </GestureHandlerRootView>
+            </PushNotificationsProvider>
             </NotificationsProvider>
             </ReglementaireProvider>
             </PointageProvider>

@@ -8,6 +8,7 @@ import { useApp } from '@/context/AppContext';
 import { useAuth } from '@/context/AuthContext';
 import { useIncidents } from '@/context/IncidentsContext';
 import { TABLET_SIDEBAR_W } from '@/lib/useTablet';
+import { isSameUserName } from '@/lib/mappers';
 
 function useMessagesUnreadBadge(): number {
   const { unreadCount, channels, unreadByChannel } = useApp();
@@ -17,8 +18,14 @@ function useMessagesUnreadBadge(): number {
     const myName = user.name ?? '';
     return channels
       .filter(c => {
-        if (c.type === 'dm') return c.members?.includes(myName) || c.dmParticipants?.includes(myName);
-        if (c.type === 'group') return c.members?.includes(myName) || c.createdBy === myName;
+        if (c.type === 'dm') {
+          return c.members?.some(name => isSameUserName(name, myName)) ||
+            c.dmParticipants?.some(name => isSameUserName(name, myName));
+        }
+        if (c.type === 'group') {
+          return c.members?.some(name => isSameUserName(name, myName)) ||
+            isSameUserName(c.createdBy, myName);
+        }
         return false;
       })
       .reduce((acc, c) => acc + (unreadByChannel[c.id] ?? 0), 0);

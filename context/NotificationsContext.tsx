@@ -3,6 +3,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useApp } from '@/context/AppContext';
 import { useAuth } from '@/context/AuthContext';
 import { parseDeadline, isOverdue } from '@/lib/reserveUtils';
+import { isSameUserName } from '@/lib/mappers';
 
 const SEEN_PREFIX = 'buildtrack_notif_seen_v2_';
 
@@ -90,7 +91,7 @@ export function NotificationsProvider({ children }: { children: React.ReactNode 
     if (isSousTraitant && sousTraitantCompanyName) {
       visibleReserves = visibleReserves.filter(r => {
         const names = r.companies ?? (r.company ? [r.company] : []);
-        return names.includes(sousTraitantCompanyName!);
+        return names.some(name => isSameUserName(name, sousTraitantCompanyName));
       });
     }
 
@@ -144,9 +145,13 @@ export function NotificationsProvider({ children }: { children: React.ReactNode 
       }
     }
 
-    const activeTasks = activeChantierId
+    let activeTasks = activeChantierId
       ? tasks.filter(t => t.chantierId === activeChantierId)
       : tasks;
+
+    if (isSousTraitant) {
+      activeTasks = [];
+    }
 
     for (const t of activeTasks) {
       if (t.status !== 'done') {
@@ -158,7 +163,8 @@ export function NotificationsProvider({ children }: { children: React.ReactNode 
             type: 'late_task',
             title: 'Tâche en retard',
             body: t.title,
-            route: '/planning',
+            route: '/task/[id]',
+            routeParams: { id: t.id },
             createdAt: t.deadline || t.createdAt || new Date().toISOString(),
             read: seenIds.has(`task_${t.id}`),
           });

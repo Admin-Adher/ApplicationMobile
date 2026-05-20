@@ -1,0 +1,30 @@
+name: Scheduled Push Notifications
+
+on:
+  schedule:
+    - cron: '30 5 * * 1-5'
+  workflow_dispatch:
+
+jobs:
+  overdue-reserve-pushes:
+    name: Overdue reserve push reminders
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger overdue reserve push reminders
+        env:
+          BUILDTRACK_API_URL: ${{ secrets.BUILDTRACK_API_URL }}
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          if [ -z "$BUILDTRACK_API_URL" ]; then
+            echo "BUILDTRACK_API_URL secret is required, for example https://buildtrack-mobile.vercel.app"
+            exit 1
+          fi
+          if [ -z "$CRON_SECRET" ]; then
+            echo "CRON_SECRET secret is required"
+            exit 1
+          fi
+          curl --fail-with-body \
+            --request POST "$BUILDTRACK_API_URL/api/send-push" \
+            --header "Content-Type: application/json" \
+            --header "Authorization: Bearer $CRON_SECRET" \
+            --data '{"type":"reserve-overdue"}'
