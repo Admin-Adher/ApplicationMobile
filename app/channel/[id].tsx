@@ -21,6 +21,7 @@ import { getDmDisplayName } from '@/hooks/queries/useChannels';
 import MessageBubble, { getAvatarColor } from '@/components/channel/MessageBubble';
 import MembersModal from '@/components/channel/MembersModal';
 import AttachItemModal, { LinkedItem, getLinkedItemIcon, getLinkedItemColor, getLinkedItemLabel } from '@/components/channel/AttachItemModal';
+import DictationTextInput from '@/components/DictationTextInput';
 
 const REACTIONS = ['👍', '✅', '⚠️', '🔥', '💯', '❌'];
 
@@ -935,9 +936,10 @@ export default function ChannelScreen() {
             >
               <Ionicons name="link-outline" size={20} color={linkedItem ? itemColor : C.textSub} />
             </TouchableOpacity>
-            <TextInput
+            <DictationTextInput
               ref={inputRef}
-              style={styles.input}
+              inputStyle={styles.input}
+              containerStyle={{ flex: 1 }}
               placeholder={replyTo ? 'Votre réponse...' : 'Message… (@ pour mentionner)'}
               placeholderTextColor={C.textMuted}
               value={text}
@@ -945,6 +947,8 @@ export default function ChannelScreen() {
               multiline
               maxLength={1000}
               onSubmitEditing={Platform.OS === 'web' ? handleSend : undefined}
+              textAssistEnabled
+              textAssistContext="message"
             />
             <TouchableOpacity
               style={[styles.sendBtn, { backgroundColor: (text.trim() || linkedItem) ? color : C.surface2 }]}

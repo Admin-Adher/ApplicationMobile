@@ -187,6 +187,8 @@ export default function NewTaskScreen() {
             onChangeText={setDescription}
             multiline
             numberOfLines={3}
+            textAssistEnabled
+            textAssistContext="description"
           />
         </View>
 

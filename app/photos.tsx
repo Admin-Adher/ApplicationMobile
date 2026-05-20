@@ -432,6 +432,8 @@ export default function PhotosScreen() {
                 placeholderTextColor={C.textMuted}
                 value={shareCaption}
                 onChangeText={setShareCaption}
+                textAssistEnabled
+                textAssistContext="comment"
               />
             </View>
 
@@ -510,6 +512,8 @@ export default function PhotosScreen() {
                 onChangeText={setCommentInput}
                 multiline
                 numberOfLines={3}
+                textAssistEnabled
+                textAssistContext="comment"
               />
             </View>
 

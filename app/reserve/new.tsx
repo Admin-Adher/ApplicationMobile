@@ -609,6 +609,8 @@ export default function NewReserveScreen() {
               onChangeText={setDescription}
               multiline
               numberOfLines={4}
+              textAssistEnabled
+              textAssistContext="description"
             />
           </View>
         </View>

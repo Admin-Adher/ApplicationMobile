@@ -1584,6 +1584,8 @@ export default function ReserveDetailScreen() {
                 onChangeText={setComment}
                 multiline
                 maxLength={500}
+                textAssistEnabled
+                textAssistContext="comment"
                 autoFocus
               />
               <TouchableOpacity style={styles.sendBtn} onPress={handleAddComment}>
@@ -1640,6 +1642,8 @@ export default function ReserveDetailScreen() {
                       onChangeText={setEditingCommentText}
                       multiline
                       maxLength={500}
+                      textAssistEnabled
+                      textAssistContext="comment"
                       autoFocus
                     />
                     <View style={{ flexDirection: 'row', justifyContent: 'flex-end', gap: 8, marginTop: 8 }}>
@@ -1788,6 +1792,8 @@ export default function ReserveDetailScreen() {
                 placeholderTextColor={C.textMuted}
                 multiline
                 numberOfLines={4}
+                textAssistEnabled
+                textAssistContext="description"
               />
 
               <Text style={mStyles.label}>PHOTOS ({editPhotos.length}/6)</Text>

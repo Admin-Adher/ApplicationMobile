@@ -1504,6 +1504,8 @@ export default function ReservesScreen() {
                         onChangeText={setTabletComment}
                         multiline
                         numberOfLines={2}
+                        textAssistEnabled
+                        textAssistContext="comment"
                         accessibilityLabel="Saisir un commentaire"
                       />
                       <TouchableOpacity

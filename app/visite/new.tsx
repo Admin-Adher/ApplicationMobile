@@ -967,6 +967,8 @@ export default function NewVisiteScreen() {
             multiline
             numberOfLines={4}
             textAlignVertical="top"
+            textAssistEnabled
+            textAssistContext="description"
           />
         </View>
 

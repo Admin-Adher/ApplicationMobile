@@ -247,6 +247,8 @@ export default function EditTaskScreen() {
             multiline
             numberOfLines={3}
             editable={permissions.canEdit}
+            textAssistEnabled
+            textAssistContext="description"
           />
         </View>
 
@@ -451,6 +453,8 @@ export default function EditTaskScreen() {
                       onChangeText={setEditingCommentText}
                       multiline
                       maxLength={500}
+                      textAssistEnabled
+                      textAssistContext="comment"
                       autoFocus
                     />
                     <View style={{ flexDirection: 'row', justifyContent: 'flex-end', gap: 8, marginTop: 8 }}>
@@ -487,6 +491,8 @@ export default function EditTaskScreen() {
               value={newComment}
               onChangeText={setNewComment}
               multiline
+              textAssistEnabled
+              textAssistContext="comment"
             />
             <TouchableOpacity
               style={[styles.commentSendBtn, !newComment.trim() && { opacity: 0.4 }]}
