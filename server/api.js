@@ -357,9 +357,9 @@ async function authenticatedProfile(req, supabase) {
 }
 
 const TRANSLATION_LANGS = {
-  fr: { name: 'French', deepl: 'FR', libre: 'fr' },
-  en: { name: 'English', deepl: 'EN-US', libre: 'en' },
-  es: { name: 'Spanish', deepl: 'ES', libre: 'es' },
+  fr: { name: 'French', deepl: 'FR' },
+  en: { name: 'English', deepl: 'EN-US' },
+  es: { name: 'Spanish', deepl: 'ES' },
 };
 
 function sanitizeTranslationText(value) {
@@ -372,9 +372,7 @@ function sanitizeTranslationText(value) {
 }
 
 function translationProviderOrder() {
-  const configured = String(process.env.TRANSLATION_PROVIDER || 'auto').toLowerCase();
-  if (configured === 'azure' || configured === 'libretranslate') return [configured];
-  return ['azure', 'libretranslate'];
+  return ['azure'];
 }
 
 function azureTranslatorUrl() {
@@ -478,32 +476,11 @@ async function translateWithOpenAI({ text, source, target, context }) {
   return typeof translated === 'string' ? sanitizeTranslationText(translated) : null;
 }
 
-async function translateWithLibreTranslate({ text, source, target }) {
-  const baseUrl = process.env.LIBRETRANSLATE_URL;
-  if (!baseUrl) return null;
-  const response = await fetch(`${baseUrl.replace(/\/$/, '')}/translate`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      q: text,
-      source: source || 'auto',
-      target: TRANSLATION_LANGS[target].libre,
-      format: 'text',
-      api_key: process.env.LIBRETRANSLATE_API_KEY || undefined,
-    }),
-  });
-  const payload = await response.json().catch(() => ({}));
-  if (!response.ok) throw new Error(payload?.error || response.statusText);
-  const translated = payload?.translatedText;
-  return typeof translated === 'string' ? sanitizeTranslationText(translated) : null;
-}
-
 async function translateAdvancedOnline(params) {
   const providers = {
     azure: translateWithAzure,
     deepl: translateWithDeepL,
     openai: translateWithOpenAI,
-    libretranslate: translateWithLibreTranslate,
   };
   let lastError = null;
   for (const provider of translationProviderOrder()) {

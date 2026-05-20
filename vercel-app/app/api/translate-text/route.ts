@@ -6,10 +6,10 @@ export const maxDuration = 20;
 
 type Lang = 'fr' | 'en' | 'es';
 
-const TRANSLATION_LANGS: Record<Lang, { name: string; deepl: string; libre: string }> = {
-  fr: { name: 'French', deepl: 'FR', libre: 'fr' },
-  en: { name: 'English', deepl: 'EN-US', libre: 'en' },
-  es: { name: 'Spanish', deepl: 'ES', libre: 'es' },
+const TRANSLATION_LANGS: Record<Lang, { name: string; deepl: string }> = {
+  fr: { name: 'French', deepl: 'FR' },
+  en: { name: 'English', deepl: 'EN-US' },
+  es: { name: 'Spanish', deepl: 'ES' },
 };
 
 function corsHeaders(req: NextRequest) {
@@ -66,9 +66,7 @@ function isLang(value: string): value is Lang {
 }
 
 function providerOrder() {
-  const configured = String(process.env.TRANSLATION_PROVIDER || 'auto').toLowerCase();
-  if (configured === 'azure' || configured === 'libretranslate') return [configured];
-  return ['azure', 'libretranslate'];
+  return ['azure'];
 }
 
 function azureTranslatorUrl() {
@@ -167,31 +165,11 @@ async function translateWithOpenAI(params: { text: string; source: Lang; target:
   return sanitizeTranslationText(payload?.choices?.[0]?.message?.content);
 }
 
-async function translateWithLibreTranslate(params: { text: string; source: Lang; target: Lang }) {
-  const baseUrl = process.env.LIBRETRANSLATE_URL;
-  if (!baseUrl) return null;
-  const response = await fetch(`${baseUrl.replace(/\/$/, '')}/translate`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      q: params.text,
-      source: params.source || 'auto',
-      target: TRANSLATION_LANGS[params.target].libre,
-      format: 'text',
-      api_key: process.env.LIBRETRANSLATE_API_KEY || undefined,
-    }),
-  });
-  const payload = await response.json().catch(() => ({}));
-  if (!response.ok) throw new Error(payload?.error || response.statusText);
-  return sanitizeTranslationText(payload?.translatedText);
-}
-
 async function translateAdvanced(params: { text: string; source: Lang; target: Lang; context: string }) {
   const providers: Record<string, (params: any) => Promise<string | null>> = {
     azure: translateWithAzure,
     deepl: translateWithDeepL,
     openai: translateWithOpenAI,
-    libretranslate: translateWithLibreTranslate,
   };
   let lastError: unknown = null;
   for (const provider of providerOrder()) {

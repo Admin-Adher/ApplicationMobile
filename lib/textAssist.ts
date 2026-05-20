@@ -216,42 +216,14 @@ const FILLER_PATTERNS = [
   /\bje crois que\b/gi,
 ];
 
-const REWRITE_REPLACEMENTS: Array<[RegExp, string]> = [
+const SAFE_REWRITE_REPLACEMENTS: Array<[RegExp, string]> = [
   [/\bpb\b/gi, 'probleme'],
-  [/\bprobleme de\b/gi, 'defaut de'],
-  [/\bil y a\b/gi, 'presence de'],
-  [/\bon a\b/gi, 'presence de'],
-  [/\bc'?est\b/gi, ''],
-  [/\bca\b/gi, 'cela'],
+  [/\brdv\b/gi, 'rendez-vous'],
   [/\bpas ok\b/gi, 'non conforme'],
   [/\bpas bon\b/gi, 'non conforme'],
-  [/\bc'?est pas bon\b/gi, 'non conforme'],
   [/\bpas conforme\b/gi, 'non conforme'],
-  [/\bmal fait\b/gi, 'non conforme'],
-  [/\bmal pose\b/gi, 'pose non conforme'],
-  [/\bmal fixe\b/gi, 'fixation non conforme'],
-  [/\ba refaire\b/gi, 'a reprendre'],
-  [/\ba revoir\b/gi, 'a verifier'],
-  [/\bvoir si\b/gi, 'verifier si'],
-  [/\bil manque\b/gi, 'absence de'],
-  [/\bmanque\b/gi, 'absence de'],
-  [/\bmanquant\b/gi, 'absence de'],
-  [/\bcasse\b/gi, 'endommage'],
-  [/\babime\b/gi, 'endommage'],
-  [/\bdegueulasse\b/gi, 'sale'],
-  [/\bsale a nettoyer\b/gi, 'nettoyage necessaire'],
-  [/\bporte ferme pas\b/gi, 'la porte ne ferme pas'],
-  [/\bfenetre ferme pas\b/gi, 'la fenetre ne ferme pas'],
-  [/\bca fuit\b/gi, 'fuite constatee'],
-  [/\bfuite d eau\b/gi, 'fuite constatee'],
-  [/\bpeinture a refaire\b/gi, 'peinture a reprendre'],
-  [/\bretouche a faire\b/gi, 'retouche a realiser'],
-  [/\bjoint a refaire\b/gi, 'joint a reprendre'],
-  [/\bcarrelage casse\b/gi, 'carrelage endommage'],
-  [/\bcarreau casse\b/gi, 'carreau endommage'],
-  [/\btrou dans\b/gi, 'percement dans'],
-  [/\burgent svp\b/gi, 'intervention prioritaire'],
-  [/\bsvp\b/gi, 'merci'],
+  [/\br\s*\+\s*(\d+)\b/gi, 'R+$1'],
+  [/\brdc\b/gi, 'RDC'],
 ];
 
 const REWRITE_CLEANUPS: Array<[RegExp, string]> = [
@@ -266,56 +238,6 @@ const REWRITE_CLEANUPS: Array<[RegExp, string]> = [
   [/\s+\./g, '.'],
   [/\s{2,}/g, ' '],
 ];
-
-const ACTION_INFERENCES: Array<{ pattern: RegExp; action: string }> = [
-  { pattern: /\b(porte|fenetre).*\b(ne ferme pas|ferme mal|mal ajustee)\b/i, action: 'Regler et verifier le bon fonctionnement.' },
-  { pattern: /\b(fuite|infiltration|humidite|etancheite)\b/i, action: "Identifier l'origine et corriger l'etancheite." },
-  { pattern: /\b(peinture|retouche|enduit|poncage|rebouchage).*\b(a reprendre|a realiser|non conforme|endommage)\b/i, action: 'Realiser les reprises de finition.' },
-  { pattern: /\b(carrelage|carreau|faience).*\b(endommage|fissure|decolle|a reprendre)\b/i, action: "Reprendre ou remplacer l'element concerne." },
-  { pattern: /\b(joint|silicone).*\b(a reprendre|absence de|non conforme|endommage)\b/i, action: 'Reprendre le joint puis verifier la finition.' },
-  { pattern: /\b(absence de|manquant|manquante)\b/i, action: "Completer l'element manquant." },
-  { pattern: /\b(sale|nettoyage|dechet)\b/i, action: 'Nettoyer la zone concernee.' },
-  { pattern: /\b(non conforme|pose non conforme|fixation non conforme)\b/i, action: 'Corriger la non-conformite puis demander verification.' },
-  { pattern: /\b(a verifier|verification necessaire)\b/i, action: 'Verifier sur site et confirmer le statut.' },
-  { pattern: /\b(endommage|abime|casse)\b/i, action: "Reparer ou remplacer l'element concerne." },
-];
-
-const TARGET_CLEANUPS: Record<TextAssistLanguage, Array<[RegExp, string]>> = {
-  fr: [
-    [/\bpas fonctionne\b/gi, 'ne fonctionne pas'],
-    [/\bsvp\b/gi, 'merci'],
-  ],
-  en: [
-    [/\bplease check this punch item\b/gi, 'please check this punch item'],
-    [/\bmissing of\b/gi, 'missing'],
-    [/\bla ([a-z])/gi, 'the $1'],
-    [/\ble ([a-z])/gi, 'the $1'],
-    [/\bles ([a-z])/gi, 'the $1'],
-    [/\bau ground floor\b/gi, 'on the ground floor'],
-    [/\bdans la ([a-z])/gi, 'in the $1'],
-    [/\bdans le ([a-z])/gi, 'in the $1'],
-    [/\bdans les ([a-z])/gi, 'in the $1'],
-    [/\bdans\b/gi, 'in'],
-    [/\bdu ([a-z])/gi, 'of the $1'],
-    [/\bde la ([a-z])/gi, 'of the $1'],
-    [/\bde l ([a-z])/gi, 'of the $1'],
-    [/\bwater ingress at ceiling\b/gi, 'water ingress at the ceiling'],
-    [/\bpaint to be redone\b/gi, 'paintwork to be redone'],
-    [/\bworks completed\b/gi, 'work completed'],
-  ],
-  es: [
-    [/\bpor favor gestionar esta incidencia\b/gi, 'por favor, gestionar esta incidencia'],
-    [/\bpor favor verificar\b/gi, 'por favor, verificar'],
-    [/\bpor favor corregir\b/gi, 'por favor, corregir'],
-    [/\bla la\b/gi, 'la'],
-    [/\bel el\b/gi, 'el'],
-    [/\bau planta baja\b/gi, 'en planta baja'],
-    [/\bdans la ([a-z])/gi, 'en la $1'],
-    [/\bdans el ([a-z])/gi, 'en el $1'],
-    [/\bdans\b/gi, 'en'],
-    [/\bfiltracion en el techo\b/gi, 'filtracion en el techo'],
-  ],
-};
 
 const ALL_TRANSLATION_ENTRIES = [...PHRASEBOOK, ...LEXICON];
 
@@ -372,54 +294,6 @@ function applyRewriteCleanups(value: string): string {
   return normalizeSpaces(next);
 }
 
-function inferConstructionAction(value: string): string | null {
-  for (const item of ACTION_INFERENCES) {
-    if (item.pattern.test(value)) {
-      return item.action;
-    }
-  }
-  return null;
-}
-
-function hasStructuredPrefix(value: string): boolean {
-  return /^(constat|observation|action attendue|commentaire|message|expected action|observacion)\s*:/i.test(value);
-}
-
-function formatQuestion(value: string): string {
-  const normalized = value.replace(/[.?]+$/g, '').trim();
-  return `${normalized} ?`;
-}
-
-function improveMessageTone(value: string): string {
-  let next = value;
-  next = next.replace(/^tu peux\s+(.+)/i, (_, rest) => formatQuestion(`Peux-tu ${String(rest).toLowerCase()}`));
-  next = next.replace(/^vous pouvez\s+(.+)/i, (_, rest) => formatQuestion(`Pouvez-vous ${String(rest).toLowerCase()}`));
-  next = next.replace(/^peux tu\s+(.+)/i, (_, rest) => formatQuestion(`Peux-tu ${String(rest).toLowerCase()}`));
-  next = next.replace(/^pouvez vous\s+(.+)/i, (_, rest) => formatQuestion(`Pouvez-vous ${String(rest).toLowerCase()}`));
-  next = next.replace(/^merci\s+de\s+(.+)/i, (_, rest) => `Merci de ${String(rest).toLowerCase()}`);
-  return normalizeFieldText(next);
-}
-
-function formatRewrittenText(value: string, context: TextAssistContext): string {
-  if (context === 'message') {
-    return improveMessageTone(value);
-  }
-
-  const normalized = normalizeFieldText(value);
-  if (hasStructuredPrefix(normalized)) {
-    return normalized;
-  }
-
-  if (context !== 'description') {
-    return normalized;
-  }
-
-  const action = inferConstructionAction(normalized);
-  return action
-    ? `Constat : ${normalized}\nAction attendue : ${action}`
-    : `Constat : ${normalized}`;
-}
-
 function termPattern(term: string): RegExp {
   return new RegExp(`(^|[^A-Za-z0-9_])(${escapeRegExp(term)})(?=$|[^A-Za-z0-9_])`, 'gi');
 }
@@ -464,85 +338,19 @@ export function detectTextLanguage(value: string): TextAssistLanguage {
   return scores[winner] > 0 ? winner : 'fr';
 }
 
-function replaceEntry(text: string, source: TextAssistLanguage, target: TextAssistLanguage, entry: LexiconEntry): string {
-  const sourceTerms = [...entry[source]]
-    .map(term => normalizeForAssistant(term).toLowerCase())
-    .sort((a, b) => b.length - a.length);
-  const targetTerm = entry[target][0];
-  let next = text;
-
-  for (const term of sourceTerms) {
-    next = next.replace(termPattern(term), (_, prefix) => `${prefix}${targetTerm}`);
-  }
-  return next;
-}
-
-function cleanTranslatedText(value: string, target: TextAssistLanguage): string {
-  let next = normalizeSpaces(value);
-  next = next.replace(/\s+([,.;:!?])/g, '$1');
-  next = next.replace(/([,.;:!?])(?=\S)/g, '$1 ');
-  next = next.replace(/\bground floor\b/gi, 'ground floor');
-  next = next.replace(/\bplanta baja\b/gi, 'planta baja');
-  next = next.replace(/\bRDC\b/g, target === 'fr' ? 'RDC' : target === 'en' ? 'ground floor' : 'planta baja');
-
-  for (const [pattern, replacement] of TARGET_CLEANUPS[target]) {
-    next = next.replace(pattern, replacement);
-  }
-
-  return capitalizeSentences(ensureFinalPunctuation(next));
-}
-
-export function translateTextAssist(value: string, target: TextAssistLanguage, source = detectTextLanguage(value)): string {
-  const normalized = normalizeFieldText(value);
-  if (!normalized || source === target) return normalized;
-
-  let next = normalized.toLowerCase();
-  const entries = [...PHRASEBOOK, ...LEXICON].sort((a, b) => {
-    const maxA = Math.max(...a[source].map(term => term.length));
-    const maxB = Math.max(...b[source].map(term => term.length));
-    return maxB - maxA;
-  });
-
-  for (const entry of entries) {
-    next = replaceEntry(next, source, target, entry);
-  }
-
-  const wrappers: Record<TextAssistLanguage, string> = {
-    fr: 'Traduction assistee :',
-    en: 'Assisted translation:',
-    es: 'Traduccion asistida:',
-  };
-
-  if (next === normalized.toLowerCase()) {
-    return `${wrappers[target]} ${normalized}`;
-  }
-
-  return cleanTranslatedText(next, target);
-}
-
-export function rewriteConstructionText(value: string, context: TextAssistContext = 'generic'): string {
+export function rewriteConstructionText(value: string, _context: TextAssistContext = 'generic'): string {
   let next = normalizeSpaces(normalizeForAssistant(value));
   if (!next) return '';
 
   for (const pattern of FILLER_PATTERNS) {
     next = next.replace(pattern, '');
   }
-  for (const [pattern, replacement] of REWRITE_REPLACEMENTS) {
+  for (const [pattern, replacement] of SAFE_REWRITE_REPLACEMENTS) {
     next = next.replace(pattern, replacement);
   }
 
   next = applyRewriteCleanups(next);
-  return formatRewrittenText(next, context);
-}
-
-export function textAssistCacheKey(value: string, target: TextAssistLanguage, source: TextAssistLanguage): string {
-  let hash = 0;
-  const base = `${source}:${target}:${normalizeForAssistant(value)}`;
-  for (let i = 0; i < base.length; i += 1) {
-    hash = ((hash << 5) - hash) + base.charCodeAt(i);
-    hash |= 0;
-  }
-  return `buildtrack_text_translation_${TEXT_ASSIST_TRANSLATION_CACHE_VERSION}_${source}_${target}_${Math.abs(hash)}`;
+  return normalizeFieldText(next);
 }
 
 export function textAssistAdvancedCacheKey(value: string, target: TextAssistLanguage, source: TextAssistLanguage): string {

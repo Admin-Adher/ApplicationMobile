@@ -31,8 +31,6 @@ import {
   detectTextLanguage,
   rewriteConstructionText,
   textAssistAdvancedCacheKey,
-  textAssistCacheKey,
-  translateTextAssist,
 } from '@/lib/textAssist';
 import { requestAdvancedTranslation } from '@/lib/textAssistOnline';
 
@@ -172,8 +170,10 @@ const DictationTextInput = forwardRef<TextInput, DictationTextInputProps>(functi
   useEffect(() => {
     AsyncStorage.getItem(ADVANCED_TRANSLATION_KEY)
       .then(raw => {
-        if (raw === '0') setAdvancedTranslationEnabled(false);
-        if (raw === '1') setAdvancedTranslationEnabled(true);
+        if (raw === '0') {
+          AsyncStorage.setItem(ADVANCED_TRANSLATION_KEY, '1').catch(() => {});
+        }
+        setAdvancedTranslationEnabled(true);
       })
       .catch(() => {});
   }, []);
@@ -242,11 +242,9 @@ const DictationTextInput = forwardRef<TextInput, DictationTextInputProps>(functi
   };
 
   const toggleAdvancedTranslation = () => {
-    setAdvancedTranslationEnabled(current => {
-      const next = !current;
-      AsyncStorage.setItem(ADVANCED_TRANSLATION_KEY, next ? '1' : '0').catch(() => {});
-      return next;
-    });
+    setAdvancedTranslationEnabled(true);
+    AsyncStorage.setItem(ADVANCED_TRANSLATION_KEY, '1').catch(() => {});
+    setHint('Traduction via Azure uniquement.');
   };
 
   const handleSelectionChange = (event: NativeSyntheticEvent<TextInputSelectionChangeEventData>) => {
@@ -350,14 +348,12 @@ const DictationTextInput = forwardRef<TextInput, DictationTextInputProps>(functi
         }
       }
 
-      const cacheKey = textAssistCacheKey(value, target, source);
-      const cached = await AsyncStorage.getItem(cacheKey);
-      const translated = cached ?? translateTextAssist(value, target, source);
-      if (!cached) {
-        AsyncStorage.setItem(cacheKey, translated).catch(() => {});
-      }
-      setHint(advancedTranslationEnabled ? 'Mode hors ligne: dictionnaire chantier utilise.' : null);
-      setAssistSuggestion({ title: `Traduction ${targetLabel} dictionnaire`, text: limitSuggestion(translated) });
+      setAssistSuggestion(null);
+      setHint(
+        advancedTranslationEnabled
+          ? 'Traduction Azure indisponible. Verifiez la connexion et reessayez.'
+          : 'Traduction locale desactivee: utilisez Azure en ligne.'
+      );
     } finally {
       setAssistBusy(false);
     }
@@ -366,7 +362,7 @@ const DictationTextInput = forwardRef<TextInput, DictationTextInputProps>(functi
   const proposeRewrite = () => {
     if (!showAssist || !value.trim()) return;
     const rewritten = rewriteConstructionText(value, textAssistContext);
-    setAssistSuggestion({ title: 'Reformulation chantier', text: limitSuggestion(rewritten) });
+    setAssistSuggestion({ title: 'Texte nettoye', text: limitSuggestion(rewritten) });
   };
 
   const applySuggestion = () => {
@@ -482,7 +478,7 @@ const DictationTextInput = forwardRef<TextInput, DictationTextInputProps>(functi
                 Traduction avancee en ligne
               </Text>
               <Text style={[styles.assistModeSubtitle, advancedTranslationEnabled && styles.assistModeSubtitleActive]}>
-                {advancedTranslationEnabled ? 'Auto avec fallback dictionnaire' : 'Dictionnaire local uniquement'}
+                {advancedTranslationEnabled ? 'Azure en ligne uniquement' : 'Traduction locale desactivee'}
               </Text>
             </View>
             <Ionicons
@@ -510,10 +506,10 @@ const DictationTextInput = forwardRef<TextInput, DictationTextInputProps>(functi
               onPress={proposeRewrite}
               disabled={assistBusy || !value.trim()}
               accessibilityRole="button"
-              accessibilityLabel="Reformuler le texte"
+              accessibilityLabel="Nettoyer le texte"
             >
               <Ionicons name="create-outline" size={13} color={C.waiting} />
-              <Text style={[styles.assistChipText, { color: C.waiting }]}>Ameliorer</Text>
+              <Text style={[styles.assistChipText, { color: C.waiting }]}>Nettoyer</Text>
             </TouchableOpacity>
           </View>
           {assistSuggestion && (
