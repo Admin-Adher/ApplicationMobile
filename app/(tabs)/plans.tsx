@@ -17,7 +17,7 @@ import * as DocumentPicker from 'expo-document-picker';
 import { C } from '@/constants/colors';
 import { useApp } from '@/context/AppContext';
 import { useAuth } from '@/context/AuthContext';
-import { Photo, Reserve, SitePlan, ReserveStatus } from '@/constants/types';
+import { Reserve, SitePlan, ReserveStatus } from '@/constants/types';
 import StatusBadge from '@/components/StatusBadge';
 import { STATUS_CONFIG } from '@/components/StatusBadge';
 import PriorityBadge from '@/components/PriorityBadge';
@@ -37,6 +37,14 @@ import BuildingPickerSheet, { type BuildingItem } from '@/components/BuildingPic
 import LevelPickerSheet, { type LevelItem } from '@/components/LevelPickerSheet';
 import { ensurePlanCached } from '@/lib/planCache';
 import { loadBundledPdfJsSources } from '@/lib/pdfjsAsset';
+import {
+  countLocalOnlyReservePhotos,
+  enrichReservesForPdf as enrichReserveListForPdf,
+  getRemoteReservePhotosForPdf,
+  getReservePdfPhotos,
+  isRemotePdfAssetUri,
+} from '@/lib/pdfReserveHelpers';
+import { buildPdfFilename } from '@/lib/pdfFilename';
 
 const HINT_KEY = 'plans_hint_seen';
 const PIN_SIZE_KEY = 'plans_pin_size_scale';
@@ -275,11 +283,7 @@ async function exportPlanPDF(
       <td>${escapeHtml(PRIORITY_FR[r.priority] || r.priority)}</td>
       <td>${escapeHtml(r.deadline || '—')}</td>
     </tr>`;
-    const rawPhotos = (r.photos && r.photos.length > 0)
-      ? r.photos
-      : r.photoUri
-        ? [{ id: 'legacy', uri: r.photoUri, kind: 'defect' as const, takenAt: '', takenBy: '' }]
-        : [];
+    const rawPhotos = getReservePdfPhotos(r);
     const photosToShow = rawPhotos.slice(0, maxPhotosPerReserve);
     let photoHtml = '';
     if (photosToShow.length > 0) {
@@ -454,10 +458,10 @@ ${fallbackCanvasScript ? `<script>${fallbackCanvasScript}<\/script>` : ''}
     try {
       if (action === 'print') {
         // Native: open the OS print/save dialog (no share sheet).
-        await printPDFHelper(html, `Plan_${planName}`);
+        await printPDFHelper(html, buildPdfFilename('Plan', [planLevel, planName, planBuilding, chantierName]));
       } else {
         // Native: open the OS share sheet (WhatsApp, Mail, Drive, etc.).
-        await exportPDFHelper(html, `Plan_${planName}`);
+        await exportPDFHelper(html, buildPdfFilename('Plan', [planLevel, planName, planBuilding, chantierName]));
       }
     } catch {
       Alert.alert('Erreur', "Impossible de générer le PDF.");
@@ -639,11 +643,7 @@ async function exportGlobalReport(
           <td><span style="color:${priorityColor};font-weight:600;">${PRIORITY_FR[r.priority] ?? r.priority}</span></td>
           <td>${r.deadline || '—'}</td>
         </tr>`;
-        const rawPhotos = (r.photos && r.photos.length > 0)
-          ? r.photos
-          : r.photoUri
-            ? [{ id: 'legacy', uri: r.photoUri, kind: 'defect' as const, takenAt: '', takenBy: '' }]
-            : [];
+        const rawPhotos = getReservePdfPhotos(r);
         const photosToShow = rawPhotos.slice(0, MAX_PHOTOS_GLOBAL);
         let photoHtml = '';
         if (photosToShow.length > 0) {
@@ -721,11 +721,7 @@ async function exportGlobalReport(
         <td><span style="color:${priorityColor};font-weight:600;">${PRIORITY_FR[r.priority] ?? r.priority}</span></td>
         <td>${r.deadline || '—'}</td>
       </tr>`;
-      const rawPhotos = (r.photos && r.photos.length > 0)
-        ? r.photos
-        : r.photoUri
-          ? [{ id: 'legacy', uri: r.photoUri, kind: 'defect' as const, takenAt: '', takenBy: '' }]
-          : [];
+      const rawPhotos = getReservePdfPhotos(r);
       const photosToShow = rawPhotos.slice(0, MAX_PHOTOS_ORPHAN);
       let photoHtml = '';
       if (photosToShow.length > 0) {
@@ -883,9 +879,9 @@ ${orphanSectionHtml}
     }
   } else {
     if (action === 'print') {
-      await printPDFHelper(html, `Rapport_${chantierName}`);
+      await printPDFHelper(html, buildPdfFilename('Rapport_Plans', [chantierName]));
     } else {
-      await exportPDFHelper(html, `Rapport_${chantierName}`);
+      await exportPDFHelper(html, buildPdfFilename('Rapport_Plans', [chantierName]));
     }
   }
 }
@@ -1529,51 +1525,10 @@ export default function PlansScreen() {
     [reserves, activeChantierId],
   );
 
-  const reservePhotosById = useMemo(() => {
-    const map = new Map<string, NonNullable<Reserve['photos']>>();
-    for (const photo of photos as Photo[]) {
-      if (!photo.reserveId || !photo.uri) continue;
-      const list = map.get(photo.reserveId) ?? [];
-      list.push({
-        id: photo.id,
-        uri: photo.uri,
-        kind: 'defect',
-        takenAt: photo.takenAt,
-        takenBy: photo.takenBy,
-        gpsLat: photo.gpsLat,
-        gpsLon: photo.gpsLon,
-        gpsAccuracy: photo.gpsAccuracy,
-      });
-      map.set(photo.reserveId, list);
-    }
-    return map;
-  }, [photos]);
-
-  const enrichReservesForPdf = useCallback((items: Reserve[]): Reserve[] => (
-    items.map(reserve => {
-      const linkedPhotos = reservePhotosById.get(reserve.id) ?? [];
-      if (linkedPhotos.length === 0) return reserve;
-
-      const existingPhotos: NonNullable<Reserve['photos']> = Array.isArray(reserve.photos) && reserve.photos.length > 0
-        ? [...reserve.photos]
-        : reserve.photoUri
-          ? [{ id: 'legacy', uri: reserve.photoUri, kind: 'defect', takenAt: reserve.createdAt, takenBy: '' }]
-          : [];
-      const seenUris = new Set(existingPhotos.map(p => p.uri).filter(Boolean));
-      const mergedPhotos = [...existingPhotos];
-      for (const photo of linkedPhotos) {
-        if (seenUris.has(photo.uri)) continue;
-        seenUris.add(photo.uri);
-        mergedPhotos.push(photo);
-      }
-      if (mergedPhotos.length === 0) return reserve;
-      return {
-        ...reserve,
-        photos: mergedPhotos,
-        photoUri: reserve.photoUri ?? mergedPhotos[0]?.uri,
-      };
-    })
-  ), [reservePhotosById]);
+  const enrichReservesForPdf = useCallback(
+    (items: Reserve[]): Reserve[] => enrichReserveListForPdf(items, photos),
+    [photos],
+  );
 
   // Unique companies across the whole chantier (for the global report company picker).
   // Checks both r.company (single string) and r.companies (multi-company array) so
@@ -1739,10 +1694,27 @@ export default function PlansScreen() {
         return true;
       });
 
+      const localOnlyPhotoCount = countLocalOnlyReservePhotos(filteredReserves);
+      const localOnlyPlanCount = chantierPlans.filter(p => p.uri && !isRemotePdfAssetUri(p.uri)).length;
+      if (localOnlyPhotoCount > 0 || localOnlyPlanCount > 0) {
+        const shouldContinue = await new Promise<boolean>((resolve) => {
+          Alert.alert(
+            'Éléments non synchronisés',
+            [
+              localOnlyPhotoCount > 0 ? `${localOnlyPhotoCount} photo${localOnlyPhotoCount > 1 ? 's' : ''} locale${localOnlyPhotoCount > 1 ? 's' : ''}` : null,
+              localOnlyPlanCount > 0 ? `${localOnlyPlanCount} plan${localOnlyPlanCount > 1 ? 's' : ''} local${localOnlyPlanCount > 1 ? 'aux' : ''}` : null,
+            ].filter(Boolean).join(' et ') + " ne pourra pas être inclus dans le PDF envoyé par email tant que la synchronisation n'est pas terminée.",
+            [
+              { text: 'Attendre la sync', style: 'cancel', onPress: () => resolve(false) },
+              { text: 'Envoyer quand même', onPress: () => resolve(true) },
+            ],
+          );
+        });
+        if (!shouldContinue) return;
+      }
+
       const reservesPayload = filteredReserves.map((r, i) => {
-        const rawPhotos = Array.isArray(r.photos) && r.photos.length > 0
-          ? r.photos
-          : r.photoUri ? [{ uri: r.photoUri, kind: 'defect' as const }] : [];
+        const remotePhotos = getRemoteReservePhotosForPdf(r, 2);
         return {
           id: r.id,
           num: i + 1,
@@ -1757,10 +1729,7 @@ export default function PlansScreen() {
           planId: r.planId ?? undefined,
           planX: r.planX ?? undefined,
           planY: r.planY ?? undefined,
-          photos: rawPhotos
-            .slice(0, 2)
-            .filter((p: any) => typeof p?.uri === 'string' && p.uri.startsWith('http'))
-            .map((p: any) => ({ uri: p.uri as string })),
+          photos: remotePhotos.photos.map(p => ({ uri: p.uri })),
         };
       });
 
@@ -1769,7 +1738,7 @@ export default function PlansScreen() {
         name: p.name,
         building: p.building ?? undefined,
         level: p.level ?? undefined,
-        uri: typeof p.uri === 'string' && p.uri.startsWith('http') ? p.uri : undefined,
+        uri: isRemotePdfAssetUri(p.uri) ? p.uri : undefined,
         fileType: (p as any).fileType ?? undefined,
       }));
 
@@ -1789,9 +1758,7 @@ export default function PlansScreen() {
       }
 
       const count = filteredReserves.length;
-      const chantierSlug = (activeChantier?.name ?? 'rapport').replace(/[^a-zA-Z0-9À-ÿ _-]/g, '_');
-      const dateSlug = new Date().toISOString().slice(0, 10);
-      const filename = `Rapport_${chantierSlug}_${dateSlug}.pdf`;
+      const filename = buildPdfFilename('Rapport_Plans', [activeChantier?.name ?? 'rapport']);
 
       if (result.pdfBase64) {
         try {

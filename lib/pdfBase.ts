@@ -4,6 +4,7 @@ import * as Sharing from 'expo-sharing';
 import * as FileSystem from 'expo-file-system';
 import * as ImageManipulator from 'expo-image-manipulator';
 import { preRenderPdfPageToDataUrlImpl } from '@/lib/pdfPreRender';
+import { ensurePdfFilename } from '@/lib/pdfFilename';
 
 /**
  * Escapes user-supplied strings so they are safe to embed in HTML.
@@ -495,20 +496,28 @@ export function svgStringToDataUrl(svg: string): string {
  * On web, opens the document in a new browser tab so the user can save/print.
  */
 export async function exportPDF(html: string, filename: string = 'buildtrack-export'): Promise<void> {
+  const pdfFilename = ensurePdfFilename(filename);
   if (Platform.OS === 'web') {
     const win = window.open('', '_blank');
     if (win) {
       win.document.write(html);
       win.document.close();
+      win.document.title = pdfFilename.replace(/\.pdf$/i, '');
       win.focus();
     }
     return;
   }
   try {
     const { uri } = await Print.printToFileAsync({ html, base64: false });
+    const targetDir = FileSystem.cacheDirectory ?? FileSystem.documentDirectory;
+    const shareUri = targetDir ? `${targetDir}${pdfFilename}` : uri;
+    if (targetDir) {
+      await FileSystem.deleteAsync(shareUri, { idempotent: true }).catch(() => {});
+      await FileSystem.copyAsync({ from: uri, to: shareUri });
+    }
     const canShare = await Sharing.isAvailableAsync();
     if (canShare) {
-      await Sharing.shareAsync(uri, { mimeType: 'application/pdf', dialogTitle: filename });
+      await Sharing.shareAsync(shareUri, { mimeType: 'application/pdf', dialogTitle: pdfFilename, UTI: 'com.adobe.pdf' });
     }
   } catch (e: any) {
     throw new Error(e?.message ?? 'PDF generation failed');

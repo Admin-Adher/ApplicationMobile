@@ -41,6 +41,13 @@ import {
   RESERVE_PRIORITIES,
   isOverdue, formatDate, validateDeadline,
 } from '@/lib/reserveUtils';
+import {
+  enrichReserveForPdf,
+  getRemoteReservePhotosForPdf,
+  getReservePdfPhotos,
+  isRemotePdfAssetUri,
+} from '@/lib/pdfReserveHelpers';
+import { buildPdfFilename } from '@/lib/pdfFilename';
 import LocationPicker from '@/components/LocationPicker';
 import SignaturePad, { SignaturePadRef } from '@/components/SignaturePad';
 import { PhotoAnnotationOverlay } from '@/components/PhotoAnnotator';
@@ -125,11 +132,7 @@ function buildReservePDF(
   const pLabel = priorityLabels[reserve.priority] ?? reserve.priority;
   const pinColor = company?.color ?? '#003082';
 
-  const rawPhotos = reserve.photos && reserve.photos.length > 0
-    ? reserve.photos
-    : reserve.photoUri
-      ? [{ id: 'legacy', uri: reserve.photoUri, kind: 'defect' as const, takenAt: reserve.createdAt, takenBy: '' }]
-      : [];
+  const rawPhotos = getReservePdfPhotos(reserve);
 
   const MAX_PHOTOS = 3;
   const photosToShow = rawPhotos.slice(0, MAX_PHOTOS);
@@ -417,7 +420,7 @@ export default function ReserveDetailScreen() {
   const insets = useSafeAreaInsets();
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
-  const { reserves, tasks, updateReserveStatus, updateReserveFields, deleteReserve, addComment, updateComment, deleteComment, companies, channels, addPhoto, sitePlans, activeChantierId, chantiers } = useApp();
+  const { reserves, tasks, updateReserveStatus, updateReserveFields, deleteReserve, addComment, updateComment, deleteComment, companies, channels, addPhoto, sitePlans, activeChantierId, chantiers, photos } = useApp();
   const { user, permissions } = useAuth();
   const { isOnline } = useNetwork();
   const { projectName } = useSettings();
@@ -473,7 +476,11 @@ export default function ReserveDetailScreen() {
     });
   }
 
-  const reserve = reserves.find(r => r.id === id);
+  const storedReserve = reserves.find(r => r.id === id);
+  const reserve = useMemo(
+    () => storedReserve ? enrichReserveForPdf(storedReserve, photos) : undefined,
+    [storedReserve, photos],
+  );
 
   const [editTitle, setEditTitle] = useState('');
   const [editDescription, setEditDescription] = useState('');
@@ -502,11 +509,7 @@ export default function ReserveDetailScreen() {
     );
   }
 
-  const allPhotos: ReservePhoto[] = reserve.photos && reserve.photos.length > 0
-    ? reserve.photos
-    : reserve.photoUri
-      ? [{ id: 'legacy', uri: reserve.photoUri, kind: 'defect', takenAt: reserve.createdAt, takenBy: '' }]
-      : [];
+  const allPhotos: ReservePhoto[] = getReservePdfPhotos(reserve);
 
   const defectCount = allPhotos.filter(p => p.kind === 'defect').length;
   const resolutionCount = allPhotos.filter(p => p.kind === 'resolution').length;
@@ -780,11 +783,7 @@ export default function ReserveDetailScreen() {
     if (!reserve) return;
     if (!permissions.canExport) return;
     try {
-      const rawPhotos = reserve.photos && reserve.photos.length > 0
-        ? reserve.photos
-        : reserve.photoUri
-          ? [{ id: 'legacy', uri: reserve.photoUri, kind: 'defect' as const, takenAt: reserve.createdAt, takenBy: '' }]
-          : [];
+      const rawPhotos = getReservePdfPhotos(reserve);
       const resolvedSrcs = (await Promise.all(rawPhotos.slice(0, 3).map(p => loadPhotoAsDataUrlForPdf(p.uri))))
         .filter((src): src is string => typeof src === 'string');
 
@@ -829,7 +828,7 @@ export default function ReserveDetailScreen() {
       const pinNumInPlan = (planReservesForNum.findIndex(r => r.id === reserve.id) + 1) || 1;
 
       const html = buildReservePDF(reserve, projectName, company, resolvedSrcs, planData, pinNumInPlan);
-      await exportPDFHelper(html, `Fiche ${reserve.id}`);
+      await exportPDFHelper(html, buildPdfFilename('Reserve', [reserve.id, reserve.title, projectName]));
     } catch (e: any) {
       console.error('[exportPDF] Fiche réserve', e);
       Alert.alert('Erreur', e?.message ?? "Impossible de générer le PDF.");
@@ -844,15 +843,33 @@ export default function ReserveDetailScreen() {
       Alert.alert('Email requis', 'Entrez au moins une adresse email valide.');
       return;
     }
+    const localEmailPhotoCount = getReservePdfPhotos(reserve).filter(p => p.uri && !isRemotePdfAssetUri(p.uri)).length;
+    const planIsLocal = Boolean(
+      reserve.planId &&
+      reserve.planX !== undefined &&
+      reserve.planY !== undefined &&
+      sitePlans.find(p => p.id === reserve.planId)?.uri &&
+      !isRemotePdfAssetUri(sitePlans.find(p => p.id === reserve.planId)?.uri),
+    );
+    if (localEmailPhotoCount > 0 || planIsLocal) {
+      const shouldContinue = await new Promise<boolean>((resolve) => {
+        Alert.alert(
+          'Éléments non synchronisés',
+          [
+            localEmailPhotoCount > 0 ? `${localEmailPhotoCount} photo${localEmailPhotoCount > 1 ? 's' : ''} locale${localEmailPhotoCount > 1 ? 's' : ''}` : null,
+            planIsLocal ? 'le plan associé' : null,
+          ].filter(Boolean).join(' et ') + " ne pourra pas être inclus dans le PDF envoyé par email tant que la synchronisation n'est pas terminée.",
+          [
+            { text: 'Attendre la sync', style: 'cancel', onPress: () => resolve(false) },
+            { text: 'Envoyer quand même', onPress: () => resolve(true) },
+          ],
+        );
+      });
+      if (!shouldContinue) return;
+    }
     setEmailLoading(true);
     try {
-      const rawPhotos = Array.isArray(reserve.photos) && reserve.photos.length > 0
-        ? reserve.photos
-        : reserve.photoUri ? [{ uri: reserve.photoUri, kind: 'defect' as const }] : [];
-      const photoUrls = rawPhotos
-        .filter((p: any) => typeof p?.uri === 'string' && p.uri.startsWith('http'))
-        .slice(0, 3)
-        .map((p: any) => ({ uri: p.uri as string, kind: (p.kind as string) ?? 'defect' }));
+      const photoUrls = getRemoteReservePhotosForPdf(reserve, 3).photos;
 
       let planUri: string | undefined;
       let planX: number | undefined;
@@ -908,15 +925,14 @@ export default function ReserveDetailScreen() {
       }
       if (result.pdfBase64) {
         try {
-          const dateSlug = new Date().toISOString().slice(0, 10);
-          const filename = `Fiche_${reserve.id}_${dateSlug}.pdf`;
+          const filename = buildPdfFilename('Reserve', [reserve.id, reserve.title, projectName]);
           const fileUri = (FileSystem.cacheDirectory ?? '') + filename;
           await FileSystem.writeAsStringAsync(fileUri, result.pdfBase64, { encoding: FileSystem.EncodingType.Base64 });
           const canShare = await Sharing.isAvailableAsync();
           if (canShare) {
             setEmailModalVisible(false);
             setEmailTo('');
-            await Sharing.shareAsync(fileUri, { mimeType: 'application/pdf', dialogTitle: `Fiche ${reserve.id}`, UTI: 'com.adobe.pdf' });
+            await Sharing.shareAsync(fileUri, { mimeType: 'application/pdf', dialogTitle: filename, UTI: 'com.adobe.pdf' });
             return;
           }
         } catch (saveErr) {

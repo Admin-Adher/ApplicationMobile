@@ -22,6 +22,14 @@ import DictationTextInput from '@/components/DictationTextInput';
 import { isOverdue, isDueSoon, formatDate, genReserveId, compareLevels, validateDeadline } from '@/lib/reserveUtils';
 import { genId, nowTimestampFR } from '@/lib/utils';
 import { PDF_BASE_CSS, PDF_BRAND_COLOR, PDF_MUTED, PDF_TEXT, exportPDF as exportPDFHelper, printPDF as printPDFHelper, escapeHtml, loadPhotoAsDataUrlForPdf } from '@/lib/pdfBase';
+import {
+  countLocalOnlyReservePhotos,
+  enrichReservesForPdf as enrichReserveListForPdf,
+  formatReserveLocation,
+  getRemoteReservePhotosForPdf,
+  getReservePdfPhotos,
+} from '@/lib/pdfReserveHelpers';
+import { buildPdfFilename } from '@/lib/pdfFilename';
 import { generateAndSendReservesReport } from '@/lib/email/client';
 import * as FileSystem from 'expo-file-system';
 import * as Sharing from 'expo-sharing';
@@ -136,18 +144,14 @@ async function generateReportPDF(action: 'share' | 'print',
       <td style="font-weight:bold;color:${PDF_BRAND_COLOR}">${escapeHtml(r.id)}</td>
       <td>${escapeHtml(r.title)}</td>
       <td>${lotLabel}</td>
-      <td>Bât. ${escapeHtml(r.building)} — ${escapeHtml(r.zone)}</td>
+      <td>${escapeHtml(formatReserveLocation(r))}</td>
       <td>${coNames.map(c => escapeHtml(c)).join(', ')}</td>
       <td><span style="background:${STATUS_COLORS[r.status]}20;color:${STATUS_COLORS[r.status]};padding:2px 8px;border-radius:8px;font-size:10px;font-weight:bold">${STATUS_LABELS[r.status]}</span></td>
       <td><span style="background:${PRIORITY_COLORS[r.priority]}20;color:${PRIORITY_COLORS[r.priority]};padding:2px 8px;border-radius:8px;font-size:10px;font-weight:bold">${PRIORITY_LABELS[r.priority]}</span></td>
       <td style="${overdue ? 'color:' + C.open + ';font-weight:bold' : ''}">${escapeHtml(r.deadline ?? '—')}</td>
     </tr>`;
 
-    const rawPhotos = (r.photos && r.photos.length > 0)
-      ? r.photos
-      : r.photoUri
-        ? [{ id: 'legacy', uri: r.photoUri, kind: 'defect' as const, takenAt: '', takenBy: '' }]
-        : [];
+    const rawPhotos = getReservePdfPhotos(r);
     const photosToShow = rawPhotos.slice(0, maxPhotosPerReserve);
     let photoHtml = '';
     if (photosToShow.length > 0) {
@@ -230,9 +234,9 @@ async function generateReportPDF(action: 'share' | 'print',
   </div></body></html>`;
 
   if (action === 'print') {
-    await printPDFHelper(html, `Rapport_Réserves_${chantierName}`);
+    await printPDFHelper(html, buildPdfFilename('Rapport_Reserves', [chantierName]));
   } else {
-    await exportPDFHelper(html, `Rapport_Réserves_${chantierName}`);
+    await exportPDFHelper(html, buildPdfFilename('Rapport_Reserves', [chantierName]));
   }
 }
 
@@ -240,7 +244,7 @@ export default function ReservesScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const { company: companyParam } = useLocalSearchParams<{ company?: string }>();
-  const { reserves, companies, isLoading, chantiers, activeChantierId, lots, batchUpdateReserves, updateReserveFields, updateReserveStatus, deleteReserve, archiveReserve, unarchiveReserve, addComment, addReserve, reload, sitePlans } = useApp();
+  const { reserves, companies, isLoading, chantiers, activeChantierId, lots, batchUpdateReserves, updateReserveFields, updateReserveStatus, deleteReserve, archiveReserve, unarchiveReserve, addComment, addReserve, reload, sitePlans, photos } = useApp();
   const { permissions, user } = useAuth();
 
   const isSousTraitant = user?.role === 'sous_traitant';
@@ -424,7 +428,7 @@ export default function ReservesScreen() {
       const chantierName = chantierFilter !== 'all'
         ? chantiers.find(c => c.id === chantierFilter)?.name ?? 'Chantier'
         : 'Tous les chantiers';
-      await generateReportPDF(action, list, chantierName, lots);
+      await generateReportPDF(action, enrichReserveListForPdf(list, photos), chantierName, lots);
     } catch (e) {
       Alert.alert('Erreur', 'Impossible de générer le rapport PDF.');
     } finally {
@@ -625,10 +629,24 @@ export default function ReservesScreen() {
       Alert.alert('Email requis', 'Entrez au moins une adresse email valide.');
       return;
     }
-    const list = getSelectedReservesForEmail();
+    const list = enrichReserveListForPdf(getSelectedReservesForEmail(), photos);
     if (list.length === 0) {
       Alert.alert('Aucune réserve', 'Aucune réserve à exporter avec cette sélection.');
       return;
+    }
+    const localOnlyPhotoCount = countLocalOnlyReservePhotos(list);
+    if (localOnlyPhotoCount > 0) {
+      const shouldContinue = await new Promise<boolean>((resolve) => {
+        Alert.alert(
+          'Photos non synchronisées',
+          `${localOnlyPhotoCount} photo${localOnlyPhotoCount > 1 ? 's' : ''} locale${localOnlyPhotoCount > 1 ? 's' : ''} ne sera${localOnlyPhotoCount > 1 ? 'ont' : ''} pas incluse${localOnlyPhotoCount > 1 ? 's' : ''} dans le PDF envoyé par email tant que la synchronisation n'est pas terminée.`,
+          [
+            { text: 'Attendre la sync', style: 'cancel', onPress: () => resolve(false) },
+            { text: 'Envoyer quand même', onPress: () => resolve(true) },
+          ],
+        );
+      });
+      if (!shouldContinue) return;
     }
     setEmailReportLoading(true);
     try {
@@ -639,7 +657,7 @@ export default function ReservesScreen() {
         ? pdfCompanySingle
         : null;
       const reservesPayload = list.map(r => {
-        const rawPhotos = Array.isArray(r.photos) && r.photos.length > 0 ? r.photos : r.photoUri ? [{ uri: r.photoUri, kind: 'defect' as const }] : [];
+        const remotePhotos = getRemoteReservePhotosForPdf(r, 2);
         return {
           id: r.id,
           title: r.title,
@@ -652,7 +670,7 @@ export default function ReservesScreen() {
           priority: r.priority,
           deadline: r.deadline ?? undefined,
           description: r.description ?? undefined,
-          photos: rawPhotos.filter((p: any) => typeof p?.uri === 'string' && p.uri.startsWith('http')).slice(0, 2).map((p: any) => ({ uri: p.uri as string })),
+          photos: remotePhotos.photos.map(p => ({ uri: p.uri })),
         };
       });
       const result = await generateAndSendReservesReport({
@@ -669,9 +687,7 @@ export default function ReservesScreen() {
       }
       if (result.pdfBase64) {
         try {
-          const chantierSlug = chantierName.replace(/[^a-zA-Z0-9À-ÿ _-]/g, '_');
-          const dateSlug = new Date().toISOString().slice(0, 10);
-          const filename = `Rapport_${chantierSlug}_${dateSlug}.pdf`;
+          const filename = buildPdfFilename('Rapport_Reserves', [chantierName]);
           const fileUri = (FileSystem.cacheDirectory ?? '') + filename;
           await FileSystem.writeAsStringAsync(fileUri, result.pdfBase64, { encoding: FileSystem.EncodingType.Base64 });
           const canShare = await Sharing.isAvailableAsync();
@@ -679,7 +695,7 @@ export default function ReservesScreen() {
             setEmailReportModalVisible(false);
             setPdfExportModalVisible(false);
             setEmailReportTo('');
-            await Sharing.shareAsync(fileUri, { mimeType: 'application/pdf', dialogTitle: `Rapport — ${chantierName}`, UTI: 'com.adobe.pdf' });
+            await Sharing.shareAsync(fileUri, { mimeType: 'application/pdf', dialogTitle: filename, UTI: 'com.adobe.pdf' });
             return;
           }
         } catch (saveErr) {
@@ -696,7 +712,7 @@ export default function ReservesScreen() {
     } finally {
       setEmailReportLoading(false);
     }
-  }, [emailReportTo, getSelectedReservesForEmail, chantierFilter, chantiers, pdfExportMode, pdfCompanySingle]);
+  }, [emailReportTo, getSelectedReservesForEmail, photos, chantierFilter, chantiers, pdfExportMode, pdfCompanySingle]);
 
   const pdfPreviewCount = useMemo(() => {
     if (pdfExportMode === 'all') return filtered.length;

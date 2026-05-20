@@ -21,6 +21,12 @@ import { useSettings } from '@/context/SettingsContext';
 import { useIncidents } from '@/context/IncidentsContext';
 import Header from '@/components/Header';
 import BottomNavBar from '@/components/BottomNavBar';
+import {
+  enrichReservesForPdf as enrichReserveListForPdf,
+  formatReserveLocation,
+  getReservePdfPhotos,
+} from '@/lib/pdfReserveHelpers';
+import { buildPdfFilename } from '@/lib/pdfFilename';
 
 function buildLotSummaryRows(reserves: any[], companies: any[]): string {
   const companyNames = [...new Set(reserves.map((r: any) => r.company))];
@@ -88,7 +94,7 @@ function buildDailyHTML(reserves: any[], companies: any[], tasks: any[], inciden
   const reserveRows = activeReserves.map((r: any) =>
     `<tr><td style="${tdS};font-weight:700;font-size:10px">${escapeHtml(r.id)}</td>
       <td style="${tdS}">${escapeHtml(r.title)}</td>
-      <td style="${tdS}">Bât. ${escapeHtml(r.building)} — ${escapeHtml(r.level)}</td>
+      <td style="${tdS}">${escapeHtml(formatReserveLocation(r))}</td>
       <td style="${tdS}">${escapeHtml(r.company)}</td>
       <td style="${tdS}"><span style="color:${pColor[r.priority] || '#000'};font-weight:700">${priorityLabels[r.priority] || escapeHtml(r.priority)}</span></td>
       <td style="${tdS}"><span style="color:${statusColors[r.status] || '#000'}">${statusLabels[r.status] || escapeHtml(r.status)}</span></td>
@@ -217,11 +223,11 @@ function buildWeeklyHTML(reserves: any[], companies: any[], tasks: any[], incide
     <table>
       <thead><tr>
         <th style="${thS}">Réf.</th><th style="${thS}">Titre</th>
-        <th style="${thS}">Bâtiment</th><th style="${thS}">Entreprise</th><th style="${thS}">Échéance</th>
+        <th style="${thS}">Localisation</th><th style="${thS}">Entreprise</th><th style="${thS}">Échéance</th>
       </tr></thead>
       <tbody>${criticalReserves.map((r: any) =>
         `<tr><td style="${tdS};font-weight:700">${escapeHtml(r.id)}</td><td style="${tdS}">${escapeHtml(r.title)}</td>
-         <td style="${tdS}">Bât. ${escapeHtml(r.building)}</td><td style="${tdS}">${escapeHtml(r.company)}</td>
+         <td style="${tdS}">${escapeHtml(formatReserveLocation(r))}</td><td style="${tdS}">${escapeHtml(r.company)}</td>
          <td style="${tdS};color:#DC2626;font-weight:600">${escapeHtml(r.deadline)}</td></tr>`
       ).join('') || `<tr><td style="${tdS};color:#059669" colspan="5">Aucune réserve critique ouverte</td></tr>`}</tbody>
     </table>
@@ -230,12 +236,12 @@ function buildWeeklyHTML(reserves: any[], companies: any[], tasks: any[], incide
     <table>
       <thead><tr>
         <th style="${thS}">Gravité</th><th style="${thS}">Titre</th>
-        <th style="${thS}">Bâtiment</th><th style="${thS}">Statut</th><th style="${thS}">Date</th>
+        <th style="${thS}">Lieu</th><th style="${thS}">Statut</th><th style="${thS}">Date</th>
       </tr></thead>
       <tbody>${openIncidents.map((i: any) =>
         `<tr>
           <td style="${tdS}"><span style="color:${severityColors[i.severity]||'#000'};font-weight:700">${severityLabels[i.severity]||escapeHtml(i.severity)}</span></td>
-          <td style="${tdS}">${escapeHtml(i.title)}</td><td style="${tdS}">Bât. ${escapeHtml(i.building)}</td>
+          <td style="${tdS}">${escapeHtml(i.title)}</td><td style="${tdS}">${escapeHtml([i.building ? `Bât. ${i.building}` : '', i.location].filter(Boolean).join(' · '))}</td>
           <td style="${tdS}">${incStatusLabels[i.status]||escapeHtml(i.status)}</td><td style="${tdS}">${escapeHtml(i.reportedAt)}</td>
         </tr>`
       ).join('') || `<tr><td style="${tdS};color:#059669" colspan="5">Aucun incident ouvert cette semaine</td></tr>`}</tbody>
@@ -314,7 +320,8 @@ async function buildCompanyReserveHTML(company: any, companyReserves: any[], pro
   const photoMap: Record<string, string> = {};
   await Promise.all(
     companyReserves.map(async (r: any) => {
-      const firstPhoto = r.photos?.find?.((p: any) => p.kind === 'defect') ?? r.photos?.[0];
+      const pdfPhotos = getReservePdfPhotos(r);
+      const firstPhoto = pdfPhotos.find((p: any) => p.kind === 'defect') ?? pdfPhotos[0];
       if (firstPhoto?.uri) {
         const src = await loadPhotoAsDataUrlForPdf(firstPhoto.uri);
         if (src) photoMap[r.id] = src;
@@ -331,7 +338,7 @@ async function buildCompanyReserveHTML(company: any, companyReserves: any[], pro
         <span style="font-weight:600">${escapeHtml(r.title)}</span>
         ${r.description && r.description !== r.title ? `<div style="color:#6B7280;font-size:10px;margin-top:2px;clear:both">${escapeHtml(r.description.slice(0, 80))}${r.description.length > 80 ? '…' : ''}</div>` : ''}
       </td>
-      <td style="${tdS};white-space:nowrap">Bât. ${escapeHtml(r.building)}<br><span style="color:#6B7280;font-size:10px">${escapeHtml(r.zone)} — ${escapeHtml(r.level)}</span></td>
+      <td style="${tdS};white-space:nowrap">${escapeHtml(formatReserveLocation(r))}</td>
       <td style="${tdS}"><span style="color:${priorityColors[r.priority]||'#000'};font-weight:700">${priorityLabels[r.priority]||escapeHtml(r.priority)}</span></td>
       <td style="${tdS}"><span style="color:${statusColors[r.status]||'#000'};font-weight:700">${statusLabels[r.status]||escapeHtml(r.status)}</span></td>
       <td style="${tdS};white-space:nowrap${r.deadline && r.deadline !== '—' && !r.closedAt ? ';color:#DC2626;font-weight:600' : ''}">${escapeHtml(r.deadline)||'—'}</td>
@@ -409,7 +416,7 @@ function buildCsvReport(reserves: any[]): string {
 }
 
 export default function RapportsScreen() {
-  const { reserves, companies, tasks, stats, chantiers, activeChantierId } = useApp();
+  const { reserves, companies, tasks, stats, chantiers, activeChantierId, photos } = useApp();
   const { user, permissions } = useAuth();
   const { projectName } = useSettings();
   const { incidents } = useIncidents();
@@ -438,6 +445,7 @@ export default function RapportsScreen() {
 
   const today = new Date().toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
   const weekNum = getISOWeek(new Date());
+  const pdfReserves = enrichReserveListForPdf(reserves, photos);
 
   async function exportPDF(type: 'daily' | 'weekly') {
     if (!permissions.canExport) {
@@ -446,9 +454,14 @@ export default function RapportsScreen() {
     }
     try {
       const html = type === 'daily'
-        ? buildDailyHTML(reserves, companies, tasks, incidents, stats, userName, projectName)
-        : buildWeeklyHTML(reserves, companies, tasks, incidents, stats, userName, weekNum, projectName);
-      await exportPDFHelper(html, type === 'daily' ? 'Rapport journalier' : 'Rapport hebdomadaire');
+        ? buildDailyHTML(pdfReserves, companies, tasks, incidents, stats, userName, projectName)
+        : buildWeeklyHTML(pdfReserves, companies, tasks, incidents, stats, userName, weekNum, projectName);
+      await exportPDFHelper(
+        html,
+        type === 'daily'
+          ? buildPdfFilename('Rapport_Journalier', [projectName])
+          : buildPdfFilename('Rapport_Hebdomadaire', [`Semaine_${weekNum}`, projectName]),
+      );
     } catch (e: any) {
       Alert.alert('Erreur', `Impossible de générer le PDF : ${e?.message ?? e}`);
     }
@@ -610,7 +623,7 @@ export default function RapportsScreen() {
                       onPress={async () => {
                         try {
                           const html = buildIncidentHTML(i, projectName);
-                          await exportPDFHelper(html, `Incident ${i.id}`);
+                          await exportPDFHelper(html, buildPdfFilename('Incident', [i.id, i.title, projectName]));
                         } catch (e: any) {
                           Alert.alert('Erreur', e?.message ?? 'Impossible de générer le PDF');
                         }
@@ -641,7 +654,7 @@ export default function RapportsScreen() {
               </View>
             </View>
             {companies.map(company => {
-              const companyReserves = reserves.filter(r =>
+              const companyReserves = pdfReserves.filter(r =>
               r.company === company.name ||
               (Array.isArray((r as any).companies) && (r as any).companies.includes(company.name))
             );
@@ -666,7 +679,7 @@ export default function RapportsScreen() {
                       onPress={async () => {
                         try {
                           const html = await buildCompanyReserveHTML(company, companyReserves, projectName);
-                          await exportPDFHelper(html, `Bon réserves — ${company.name}`);
+                          await exportPDFHelper(html, buildPdfFilename('Bon_Reserves', [company.name, projectName]));
                         } catch (e: any) {
                           Alert.alert('Erreur', e?.message ?? 'Impossible de générer le PDF');
                         }

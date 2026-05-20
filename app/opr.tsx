@@ -36,6 +36,12 @@ import SignaturePad, { SignaturePadRef } from '@/components/SignaturePad';
 import { genId, formatDateFR, nowTimestampFR } from '@/lib/utils';
 import { formatDate } from '@/lib/reserveUtils';
 import LocationPicker from '@/components/LocationPicker';
+import {
+  enrichReservesForPdf as enrichReserveListForPdf,
+  formatReserveLocation,
+  getReservePdfPhotos,
+} from '@/lib/pdfReserveHelpers';
+import { buildPdfFilename } from '@/lib/pdfFilename';
 
 const ITEM_STATUS_CFG = {
   ok: { label: 'Conforme', color: C.closed, icon: 'checkmark-circle' },
@@ -201,9 +207,10 @@ async function buildPvLeveePDF(opr: Opr, reserves: Reserve[], projectName: strin
   const photoData: Record<string, { defect?: string; resolution?: string }> = {};
   await Promise.all(
     leveed.map(async ({ reserve }) => {
-      if (!reserve?.photos?.length) return;
-      const defectPhoto = reserve.photos.find(p => p.kind === 'defect');
-      const resolutionPhoto = reserve.photos.find(p => p.kind === 'resolution');
+      const reservePhotos = reserve ? getReservePdfPhotos(reserve) : [];
+      if (!reserve || !reservePhotos.length) return;
+      const defectPhoto = reservePhotos.find(p => p.kind === 'defect');
+      const resolutionPhoto = reservePhotos.find(p => p.kind === 'resolution');
       const [dSrc, rSrc] = await Promise.all([
         defectPhoto ? loadPhotoAsDataUrlForPdf(defectPhoto.uri) : Promise.resolve(''),
         resolutionPhoto ? loadPhotoAsDataUrlForPdf(resolutionPhoto.uri) : Promise.resolve(''),
@@ -219,6 +226,7 @@ async function buildPvLeveePDF(opr: Opr, reserves: Reserve[], projectName: strin
       <td style="padding:8px 10px;border-bottom:1px solid #EEF3FA;font-weight:700;font-size:11px">${escapeHtml(item.lotName)}</td>
       <td style="padding:8px 10px;border-bottom:1px solid #EEF3FA;font-size:11px;color:#003082;font-weight:700">${escapeHtml(item.reserveId ?? '—')}</td>
       <td style="padding:8px 10px;border-bottom:1px solid #EEF3FA;font-size:11px">${escapeHtml(item.description !== item.lotName ? item.description : (reserve?.title ?? '—'))}</td>
+      <td style="padding:8px 10px;border-bottom:1px solid #EEF3FA;font-size:11px;color:#6B7280">${reserve ? escapeHtml(formatReserveLocation(reserve)) : '—'}</td>
       <td style="padding:8px 10px;border-bottom:1px solid #EEF3FA;text-align:center">
         ${isLevee
           ? '<span style="background:#ECFDF5;color:#059669;font-weight:700;padding:3px 10px;border-radius:12px;font-size:10px">✓ Levée</span>'
@@ -236,7 +244,7 @@ async function buildPvLeveePDF(opr: Opr, reserves: Reserve[], projectName: strin
       if (!reserve) return '';
       const photos = photoData[reserve.id];
       return `<div style="margin-bottom:20px;page-break-inside:avoid">
-        <div style="font-size:11px;font-weight:700;color:#1A2742;margin-bottom:8px;background:#F4F7FB;padding:6px 10px;border-radius:6px">${escapeHtml(item.lotName)} — ${escapeHtml(reserve.title)}</div>
+        <div style="font-size:11px;font-weight:700;color:#1A2742;margin-bottom:8px;background:#F4F7FB;padding:6px 10px;border-radius:6px">${escapeHtml(item.lotName)} — ${escapeHtml(reserve.title)} <span style="color:#6B7280;font-weight:400">· ${escapeHtml(formatReserveLocation(reserve))}</span></div>
         <div style="display:flex;gap:16px;flex-wrap:wrap">
           ${photos.defect ? `<div style="text-align:center"><img src="${photos.defect}" style="width:200px;height:auto;max-height:240px;object-fit:contain;background:#FFF5F5;border-radius:8px;border:2px solid #FCA5A5;display:block" /><div style="font-size:10px;color:#DC2626;font-weight:700;margin-top:4px">🔴 Constat initial</div></div>` : ''}
           ${photos.resolution ? `<div style="text-align:center"><img src="${photos.resolution}" style="width:200px;height:auto;max-height:240px;object-fit:contain;background:#F0FFF4;border-radius:8px;border:2px solid #6EE7B7;display:block" /><div style="font-size:10px;color:#059669;font-weight:700;margin-top:4px">🟢 Levée constatée</div></div>` : ''}
@@ -302,12 +310,13 @@ async function buildPvLeveePDF(opr: Opr, reserves: Reserve[], projectName: strin
           <th>LOT</th>
           <th>RÉSERVE</th>
           <th>DESCRIPTION</th>
+          <th>LOCALISATION</th>
           <th style="text-align:center">STATUT</th>
           <th>DATE LEVÉE</th>
           <th>LEVÉE PAR</th>
         </tr>
       </thead>
-      <tbody>${rows || '<tr><td colspan="6" style="text-align:center;color:#059669;padding:14px">Aucune réserve — Réception sans réserve</td></tr>'}</tbody>
+      <tbody>${rows || '<tr><td colspan="7" style="text-align:center;color:#059669;padding:14px">Aucune réserve — Réception sans réserve</td></tr>'}</tbody>
     </table>
     ${photoSection}
     ${signatureBlock}
@@ -414,7 +423,7 @@ function buildConvocationPDF(opr: Opr, projectName: string, conducteur: string):
 }
 
 export default function OprScreen() {
-  const { oprs, addOpr, updateOpr, deleteOpr, lots, reserves, activeChantierId, activeChantier, updateReserveStatus } = useApp();
+  const { oprs, addOpr, updateOpr, deleteOpr, lots, reserves, activeChantierId, activeChantier, updateReserveStatus, photos } = useApp();
   const { user, permissions } = useAuth();
   const { projectName } = useSettings();
 
@@ -500,9 +509,14 @@ export default function OprScreen() {
     [oprs, activeChantierId]
   );
 
+  const enrichedReserves = useMemo(
+    () => enrichReserveListForPdf(reserves, photos),
+    [reserves, photos],
+  );
+
   const chantierReserves = useMemo(
-    () => reserves.filter(r => !activeChantierId || r.chantierId === activeChantierId),
-    [reserves, activeChantierId]
+    () => enrichedReserves.filter(r => !activeChantierId || r.chantierId === activeChantierId),
+    [enrichedReserves, activeChantierId]
   );
 
   function setItemStatus(opr: Opr, itemId: string, newStatus: 'ok' | 'reserve' | 'non_applicable') {
@@ -615,7 +629,7 @@ export default function OprScreen() {
   async function exportOprPDF(opr: Opr) {
     try {
       const html = buildOprPDF(opr, projectName);
-      await exportPDFHelper(html, `PV ${opr.id}`);
+      await exportPDFHelper(html, buildPdfFilename('PV_OPR', [opr.id, opr.title, opr.level, projectName]));
     } catch (e: any) {
       Alert.alert('Erreur PDF', e?.message ?? '');
     }
@@ -623,8 +637,8 @@ export default function OprScreen() {
 
   async function exportLeveePDF(opr: Opr) {
     try {
-      const html = await buildPvLeveePDF(opr, reserves, projectName);
-      await exportPDFHelper(html, `PV Levée ${opr.id}`);
+      const html = await buildPvLeveePDF(opr, enrichedReserves, projectName);
+      await exportPDFHelper(html, buildPdfFilename('PV_Levee_OPR', [opr.id, opr.title, opr.level, projectName]));
     } catch (e: any) {
       Alert.alert('Erreur PDF', e?.message ?? '');
     }
@@ -633,7 +647,7 @@ export default function OprScreen() {
   async function exportConvocationPDF(opr: Opr) {
     try {
       const html = buildConvocationPDF(opr, projectName, user?.name ?? 'Conducteur de travaux');
-      await exportPDFHelper(html, `Convocation OPR ${opr.id}`);
+      await exportPDFHelper(html, buildPdfFilename('Convocation_OPR', [opr.id, opr.title, opr.level, projectName]));
     } catch (e: any) {
       Alert.alert('Erreur PDF', e?.message ?? '');
     }

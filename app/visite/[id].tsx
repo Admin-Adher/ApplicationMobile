@@ -25,6 +25,12 @@ import Header from '@/components/Header';
 import BottomNavBar from '@/components/BottomNavBar';
 import SignaturePad, { SignaturePadRef } from '@/components/SignaturePad';
 import LocationPicker from '@/components/LocationPicker';
+import {
+  enrichReservesForPdf as enrichReserveListForPdf,
+  formatReserveLocation,
+  getReservePdfPhotos,
+} from '@/lib/pdfReserveHelpers';
+import { buildPdfFilename } from '@/lib/pdfFilename';
 
 const STATUS_CFG: Record<VisiteStatus, { label: string; color: string }> = {
   planned: { label: 'Planifiée', color: '#6366F1' },
@@ -64,7 +70,7 @@ function buildVisitePDF(visite: Visite, reserves: Reserve[], projectName: string
     `<tr style="background:${idx % 2 === 0 ? '#fff' : '#F9FAFB'}">
       <td style="padding:9px 10px;border-bottom:1px solid #EEF3FA;font-size:11px;font-weight:700;white-space:nowrap">${escapeHtml(r.id)}</td>
       <td style="padding:9px 10px;border-bottom:1px solid #EEF3FA;font-size:12px;font-weight:600">${escapeHtml(r.title)}</td>
-      <td style="padding:9px 10px;border-bottom:1px solid #EEF3FA;font-size:12px;white-space:nowrap">Bât.${escapeHtml(r.building)} — ${escapeHtml(r.level)}</td>
+      <td style="padding:9px 10px;border-bottom:1px solid #EEF3FA;font-size:12px;white-space:nowrap">${escapeHtml(formatReserveLocation(r))}</td>
       <td style="padding:9px 10px;border-bottom:1px solid #EEF3FA;font-size:12px">${escapeHtml(r.company)}</td>
       <td style="padding:9px 10px;border-bottom:1px solid #EEF3FA;text-align:center">
         <span style="background:${priorityBg[r.priority]||'#F9FAFB'};color:${priorityColors[r.priority]||'#6B7280'};font-size:11px;font-weight:700;padding:3px 10px;border-radius:10px">${PRIORITY_LABELS[r.priority]||escapeHtml(r.priority)}</span>
@@ -84,9 +90,9 @@ function buildVisitePDF(visite: Visite, reserves: Reserve[], projectName: string
     ? `<div class="section-header">Galerie photos (${reservesWithPhotos.reduce((acc, r) => acc + (reservePhotoMap?.get(r.id)?.length ?? 0), 0)} photos)</div>
         ${reservesWithPhotos.map(r => {
           const srcs = reservePhotoMap?.get(r.id) ?? [];
-          const rawPhotos = r.photos ?? [];
+          const rawPhotos = getReservePdfPhotos(r);
           return `<div style="margin-bottom:18px;padding:12px 16px;border:1.5px solid #DDE4EE;border-radius:10px;page-break-inside:avoid">
-            <div style="font-size:11px;font-weight:700;color:#1A2742;margin-bottom:6px">${escapeHtml(r.id)} — ${escapeHtml(r.title)} <span style="color:#6B7280;font-weight:400">· ${escapeHtml(r.company)} · Bât.${escapeHtml(r.building)}</span></div>
+            <div style="font-size:11px;font-weight:700;color:#1A2742;margin-bottom:6px">${escapeHtml(r.id)} — ${escapeHtml(r.title)} <span style="color:#6B7280;font-weight:400">· ${escapeHtml(r.company)} · ${escapeHtml(formatReserveLocation(r))}</span></div>
             ${buildPhotoGrid(srcs.slice(0, 4).map((src, i) => ({
               src,
               badge: (rawPhotos[i]?.kind === 'resolution') ? '🟢 Levée' : '🔴 Constat',
@@ -201,7 +207,7 @@ function buildVisitePDF(visite: Visite, reserves: Reserve[], projectName: string
 export default function VisiteDetailScreen() {
   const router = useRouter();
   const { id } = useLocalSearchParams<{ id: string }>();
-  const { visites, reserves, updateVisite, deleteVisite, activeChantier, oprs } = useApp();
+  const { visites, reserves, updateVisite, deleteVisite, activeChantier, oprs, photos } = useApp();
   const { user, permissions } = useAuth();
   const { projectName } = useSettings();
 
@@ -220,8 +226,8 @@ export default function VisiteDetailScreen() {
 
   const visite = visites.find(v => v.id === id);
   const visiteReserves = useMemo(
-    () => reserves.filter(r => visite?.reserveIds.includes(r.id)),
-    [reserves, visite]
+    () => enrichReserveListForPdf(reserves.filter(r => visite?.reserveIds.includes(r.id)), photos),
+    [reserves, visite, photos]
   );
 
   const tunnelData = useMemo(() => {
@@ -350,9 +356,7 @@ export default function VisiteDetailScreen() {
       const reservePhotoMap = new Map<string, string[]>();
       await Promise.all(
         visiteReserves.map(async r => {
-          const rawPhotos = r.photos && r.photos.length > 0
-            ? r.photos
-            : r.photoUri ? [{ uri: r.photoUri, kind: 'defect' as const }] : [];
+          const rawPhotos = getReservePdfPhotos(r);
           if (rawPhotos.length > 0) {
             const srcs = (await Promise.all(rawPhotos.slice(0, 4).map(p => loadPhotoAsDataUrlForPdf(p.uri))))
               .filter((src): src is string => typeof src === 'string');
@@ -361,7 +365,7 @@ export default function VisiteDetailScreen() {
         })
       );
       const html = buildVisitePDF(visite, visiteReserves, projectName, reservePhotoMap);
-      await exportPDFHelper(html, 'CR de visite');
+      await exportPDFHelper(html, buildPdfFilename('CR_Visite', [visite.title, visite.level, projectName]));
     } catch (e: any) {
       Alert.alert('Erreur', e?.message ?? 'Impossible de générer le PDF');
     }
