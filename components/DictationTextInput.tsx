@@ -30,13 +30,16 @@ import {
   TextAssistLanguage,
   detectTextLanguage,
   rewriteConstructionText,
+  textAssistAdvancedCacheKey,
   textAssistCacheKey,
   translateTextAssist,
 } from '@/lib/textAssist';
+import { requestAdvancedTranslation } from '@/lib/textAssistOnline';
 
 type DictationLanguage = 'fr-FR' | 'en-US' | 'es-ES';
 
 const DICTATION_LANGUAGE_KEY = 'buildtrack_dictation_language_v1';
+const ADVANCED_TRANSLATION_KEY = 'buildtrack_advanced_translation_enabled_v1';
 
 const LANGUAGES: Array<{ code: DictationLanguage; label: string; title: string }> = [
   { code: 'fr-FR', label: 'FR', title: 'Francais' },
@@ -135,6 +138,7 @@ const DictationTextInput = forwardRef<TextInput, DictationTextInputProps>(functi
   const [assistBusy, setAssistBusy] = useState(false);
   const [assistSuggestion, setAssistSuggestion] = useState<{ title: string; text: string } | null>(null);
   const [previousText, setPreviousText] = useState<string | null>(null);
+  const [advancedTranslationEnabled, setAdvancedTranslationEnabled] = useState(true);
 
   const activeRef = useRef(false);
   const inputRef = useRef<TextInput>(null);
@@ -161,6 +165,15 @@ const DictationTextInput = forwardRef<TextInput, DictationTextInputProps>(functi
         if (LANGUAGES.some(item => item.code === raw)) {
           setLanguage(raw as DictationLanguage);
         }
+      })
+      .catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    AsyncStorage.getItem(ADVANCED_TRANSLATION_KEY)
+      .then(raw => {
+        if (raw === '0') setAdvancedTranslationEnabled(false);
+        if (raw === '1') setAdvancedTranslationEnabled(true);
       })
       .catch(() => {});
   }, []);
@@ -226,6 +239,14 @@ const DictationTextInput = forwardRef<TextInput, DictationTextInputProps>(functi
   const handleLanguageChange = (code: DictationLanguage) => {
     setLanguage(code);
     AsyncStorage.setItem(DICTATION_LANGUAGE_KEY, code).catch(() => {});
+  };
+
+  const toggleAdvancedTranslation = () => {
+    setAdvancedTranslationEnabled(current => {
+      const next = !current;
+      AsyncStorage.setItem(ADVANCED_TRANSLATION_KEY, next ? '1' : '0').catch(() => {});
+      return next;
+    });
   };
 
   const handleSelectionChange = (event: NativeSyntheticEvent<TextInputSelectionChangeEventData>) => {
@@ -304,14 +325,39 @@ const DictationTextInput = forwardRef<TextInput, DictationTextInputProps>(functi
     setHint(null);
     try {
       const source = detectTextLanguage(value);
+      const targetLabel = TEXT_ASSIST_LANGUAGES.find(l => l.code === target)?.label ?? target.toUpperCase();
+      if (advancedTranslationEnabled) {
+        const advancedCacheKey = textAssistAdvancedCacheKey(value, target, source);
+        const cachedAdvanced = await AsyncStorage.getItem(advancedCacheKey);
+        if (cachedAdvanced) {
+          setHint('Traduction avancee depuis le cache.');
+          setAssistSuggestion({ title: `Traduction ${targetLabel} avancee`, text: limitSuggestion(cachedAdvanced) });
+          return;
+        }
+
+        const advanced = await requestAdvancedTranslation({
+          text: value,
+          target,
+          source,
+          context: textAssistContext,
+        });
+
+        if (advanced?.text) {
+          AsyncStorage.setItem(advancedCacheKey, advanced.text).catch(() => {});
+          setHint(`Traduction en ligne via ${advanced.provider}.`);
+          setAssistSuggestion({ title: `Traduction ${targetLabel} avancee`, text: limitSuggestion(advanced.text) });
+          return;
+        }
+      }
+
       const cacheKey = textAssistCacheKey(value, target, source);
       const cached = await AsyncStorage.getItem(cacheKey);
       const translated = cached ?? translateTextAssist(value, target, source);
       if (!cached) {
         AsyncStorage.setItem(cacheKey, translated).catch(() => {});
       }
-      const targetLabel = TEXT_ASSIST_LANGUAGES.find(l => l.code === target)?.label ?? target.toUpperCase();
-      setAssistSuggestion({ title: `Traduction ${targetLabel}`, text: limitSuggestion(translated) });
+      setHint(advancedTranslationEnabled ? 'Mode hors ligne: dictionnaire chantier utilise.' : null);
+      setAssistSuggestion({ title: `Traduction ${targetLabel} dictionnaire`, text: limitSuggestion(translated) });
     } finally {
       setAssistBusy(false);
     }
@@ -424,6 +470,27 @@ const DictationTextInput = forwardRef<TextInput, DictationTextInputProps>(functi
             <Text style={styles.assistTitle}>Assistant texte</Text>
             <Text style={styles.assistSource}>source {assistSourceLanguage.toUpperCase()}</Text>
           </View>
+          <TouchableOpacity
+            style={[styles.assistModeButton, advancedTranslationEnabled && styles.assistModeButtonActive]}
+            onPress={toggleAdvancedTranslation}
+            accessibilityRole="switch"
+            accessibilityState={{ checked: advancedTranslationEnabled }}
+            accessibilityLabel="Mode traduction avancee en ligne"
+          >
+            <View style={styles.assistModeTextWrap}>
+              <Text style={[styles.assistModeTitle, advancedTranslationEnabled && styles.assistModeTitleActive]}>
+                Traduction avancee en ligne
+              </Text>
+              <Text style={[styles.assistModeSubtitle, advancedTranslationEnabled && styles.assistModeSubtitleActive]}>
+                {advancedTranslationEnabled ? 'Auto avec fallback dictionnaire' : 'Dictionnaire local uniquement'}
+              </Text>
+            </View>
+            <Ionicons
+              name={advancedTranslationEnabled ? 'cloud-done-outline' : 'cloud-offline-outline'}
+              size={17}
+              color={advancedTranslationEnabled ? '#fff' : C.textMuted}
+            />
+          </TouchableOpacity>
           <View style={styles.assistActions}>
             {TEXT_ASSIST_LANGUAGES.map(item => (
               <TouchableOpacity
@@ -575,6 +642,43 @@ const styles = StyleSheet.create({
     fontSize: 10,
     fontFamily: 'Inter_600SemiBold',
     textTransform: 'uppercase',
+  },
+  assistModeButton: {
+    minHeight: 42,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: C.border,
+    backgroundColor: C.surface2,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 10,
+  },
+  assistModeButtonActive: {
+    backgroundColor: C.primary,
+    borderColor: C.primary,
+  },
+  assistModeTextWrap: {
+    flex: 1,
+    gap: 2,
+  },
+  assistModeTitle: {
+    color: C.text,
+    fontSize: 12,
+    fontFamily: 'Inter_700Bold',
+  },
+  assistModeTitleActive: {
+    color: '#fff',
+  },
+  assistModeSubtitle: {
+    color: C.textMuted,
+    fontSize: 10,
+    fontFamily: 'Inter_400Regular',
+  },
+  assistModeSubtitleActive: {
+    color: 'rgba(255,255,255,0.78)',
   },
   assistActions: {
     flexDirection: 'row',

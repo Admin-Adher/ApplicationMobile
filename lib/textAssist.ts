@@ -544,3 +544,13 @@ export function textAssistCacheKey(value: string, target: TextAssistLanguage, so
   }
   return `buildtrack_text_translation_${TEXT_ASSIST_TRANSLATION_CACHE_VERSION}_${source}_${target}_${Math.abs(hash)}`;
 }
+
+export function textAssistAdvancedCacheKey(value: string, target: TextAssistLanguage, source: TextAssistLanguage): string {
+  let hash = 0;
+  const base = `online:${source}:${target}:${normalizeForAssistant(value)}`;
+  for (let i = 0; i < base.length; i += 1) {
+    hash = ((hash << 5) - hash) + base.charCodeAt(i);
+    hash |= 0;
+  }
+  return `buildtrack_text_translation_online_${TEXT_ASSIST_TRANSLATION_CACHE_VERSION}_${source}_${target}_${Math.abs(hash)}`;
+}

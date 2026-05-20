@@ -356,6 +356,204 @@ async function authenticatedProfile(req, supabase) {
   return profile;
 }
 
+const TRANSLATION_LANGS = {
+  fr: { name: 'French', deepl: 'FR', libre: 'fr' },
+  en: { name: 'English', deepl: 'EN-US', libre: 'en' },
+  es: { name: 'Spanish', deepl: 'ES', libre: 'es' },
+};
+
+function sanitizeTranslationText(value) {
+  return String(value || '')
+    .replace(/\u0000/g, '')
+    .replace(/\r\n/g, '\n')
+    .replace(/[ \t]+/g, ' ')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
+
+function translationProviderOrder() {
+  const configured = String(process.env.TRANSLATION_PROVIDER || 'auto').toLowerCase();
+  if (configured === 'azure' || configured === 'libretranslate') return [configured];
+  return ['azure', 'libretranslate'];
+}
+
+function azureTranslatorUrl() {
+  const endpoint = (process.env.AZURE_TRANSLATOR_ENDPOINT || 'https://api.cognitive.microsofttranslator.com')
+    .replace(/\/$/, '');
+  const path = endpoint.includes('cognitiveservices.azure.com')
+    ? '/translator/text/v3.0/translate'
+    : '/translate';
+  return `${endpoint}${path}`;
+}
+
+async function translateWithAzure({ text, source, target }) {
+  const apiKey = process.env.AZURE_TRANSLATOR_KEY;
+  if (!apiKey) return null;
+  const url = new URL(azureTranslatorUrl());
+  url.searchParams.set('api-version', '3.0');
+  if (source && source !== target) url.searchParams.set('from', source);
+  url.searchParams.set('to', target);
+
+  const headers = {
+    'Ocp-Apim-Subscription-Key': apiKey,
+    'Content-Type': 'application/json',
+  };
+  if (process.env.AZURE_TRANSLATOR_REGION) {
+    headers['Ocp-Apim-Subscription-Region'] = process.env.AZURE_TRANSLATOR_REGION;
+  }
+
+  const response = await fetch(url.toString(), {
+    method: 'POST',
+    headers,
+    body: JSON.stringify([{ Text: text }]),
+  });
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    throw new Error(payload?.error?.message || payload?.message || response.statusText);
+  }
+  const translated = payload?.[0]?.translations?.[0]?.text;
+  return typeof translated === 'string' ? sanitizeTranslationText(translated) : null;
+}
+
+async function translateWithDeepL({ text, source, target }) {
+  const apiKey = process.env.DEEPL_API_KEY;
+  if (!apiKey) return null;
+  const apiUrl = process.env.DEEPL_API_URL || (apiKey.endsWith(':fx')
+    ? 'https://api-free.deepl.com/v2/translate'
+    : 'https://api.deepl.com/v2/translate');
+  const body = new URLSearchParams();
+  body.set('text', text);
+  body.set('target_lang', TRANSLATION_LANGS[target].deepl);
+  if (source && source !== target) body.set('source_lang', source.toUpperCase());
+  body.set('preserve_formatting', '1');
+
+  const response = await fetch(apiUrl, {
+    method: 'POST',
+    headers: {
+      Authorization: `DeepL-Auth-Key ${apiKey}`,
+      'Content-Type': 'application/x-www-form-urlencoded',
+    },
+    body,
+  });
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(payload?.message || response.statusText);
+  const translated = payload?.translations?.[0]?.text;
+  return typeof translated === 'string' ? sanitizeTranslationText(translated) : null;
+}
+
+async function translateWithOpenAI({ text, source, target, context }) {
+  const apiKey = process.env.OPENAI_API_KEY;
+  if (!apiKey) return null;
+  const sourceLabel = TRANSLATION_LANGS[source]?.name || 'the source language';
+  const targetLabel = TRANSLATION_LANGS[target].name;
+  const model = process.env.OPENAI_TRANSLATION_MODEL || 'gpt-4o-mini';
+  const response = await fetch('https://api.openai.com/v1/chat/completions', {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      model,
+      temperature: 0,
+      max_tokens: 900,
+      messages: [
+        {
+          role: 'system',
+          content: [
+            `Translate from ${sourceLabel} to ${targetLabel}.`,
+            'Use professional construction-site wording.',
+            'Preserve IDs, names, building labels, levels, dates, line breaks, and bullet structure.',
+            'Do not add explanations, comments, markdown, or quotation marks.',
+            `Text context: ${context || 'generic'}.`,
+          ].join(' '),
+        },
+        { role: 'user', content: text },
+      ],
+    }),
+  });
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(payload?.error?.message || response.statusText);
+  const translated = payload?.choices?.[0]?.message?.content;
+  return typeof translated === 'string' ? sanitizeTranslationText(translated) : null;
+}
+
+async function translateWithLibreTranslate({ text, source, target }) {
+  const baseUrl = process.env.LIBRETRANSLATE_URL;
+  if (!baseUrl) return null;
+  const response = await fetch(`${baseUrl.replace(/\/$/, '')}/translate`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      q: text,
+      source: source || 'auto',
+      target: TRANSLATION_LANGS[target].libre,
+      format: 'text',
+      api_key: process.env.LIBRETRANSLATE_API_KEY || undefined,
+    }),
+  });
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(payload?.error || response.statusText);
+  const translated = payload?.translatedText;
+  return typeof translated === 'string' ? sanitizeTranslationText(translated) : null;
+}
+
+async function translateAdvancedOnline(params) {
+  const providers = {
+    azure: translateWithAzure,
+    deepl: translateWithDeepL,
+    openai: translateWithOpenAI,
+    libretranslate: translateWithLibreTranslate,
+  };
+  let lastError = null;
+  for (const provider of translationProviderOrder()) {
+    const handler = providers[provider];
+    if (!handler) continue;
+    try {
+      const translated = await handler(params);
+      if (translated) return { text: translated, provider };
+    } catch (err) {
+      lastError = err;
+      console.warn(`[translate-text] ${provider} failed:`, err?.message || err);
+    }
+  }
+  if (lastError) throw lastError;
+  return null;
+}
+
+app.post('/api/translate-text', async (req, res) => {
+  try {
+    const requireAuth = process.env.TRANSLATION_REQUIRE_AUTH !== 'false';
+    if (requireAuth) {
+      const supabase = getSupabaseAdmin();
+      if (!supabase) return res.status(503).json({ success: false, error: 'Configuration serveur manquante' });
+      const profile = await authenticatedProfile(req, supabase);
+      if (!profile) return res.status(401).json({ success: false, error: 'Session invalide' });
+    }
+
+    const text = sanitizeTranslationText(req.body?.text);
+    const target = String(req.body?.target || '').toLowerCase();
+    const source = String(req.body?.source || 'fr').toLowerCase();
+    const context = String(req.body?.context || 'generic');
+
+    if (!text) return res.status(400).json({ success: false, error: 'Texte manquant' });
+    if (text.length > 2500) return res.status(413).json({ success: false, error: 'Texte trop long' });
+    if (!TRANSLATION_LANGS[target] || !TRANSLATION_LANGS[source]) {
+      return res.status(400).json({ success: false, error: 'Langue non supportee' });
+    }
+    if (source === target) return res.json({ success: true, text, provider: 'none' });
+
+    const result = await translateAdvancedOnline({ text, source, target, context });
+    if (!result) {
+      return res.status(503).json({ success: false, error: 'Aucun fournisseur de traduction configure' });
+    }
+    return res.json({ success: true, ...result });
+  } catch (err) {
+    console.error('[translate-text] Exception:', err?.message || err);
+    return res.status(502).json({ success: false, error: 'Traduction en ligne indisponible' });
+  }
+});
+
 async function enabledTokensForProfiles(supabase, profileIds) {
   const ids = Array.from(new Set((profileIds || []).filter(Boolean)));
   if (ids.length === 0) return [];
