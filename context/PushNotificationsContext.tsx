@@ -64,6 +64,9 @@ function routeNotification(router: ReturnType<typeof useRouter>, data: Record<st
 }
 
 function friendlyPushError(message: string): string {
+  if (/push_tokens|schema cache|Could not find the table/i.test(message)) {
+    return "Migration Supabase manquante : la table public.push_tokens n'existe pas encore. Appliquez la migration 20260520143000_add_push_notifications.sql puis relancez l'application.";
+  }
   if (/FirebaseApp is not initialized|fcm-credentials|google-services/i.test(message)) {
     return "Configuration Android FCM incomplète : ajoutez le fichier google-services.json dans l'app et la clé FCM V1 dans Expo/EAS, puis rebuild l'APK.";
   }

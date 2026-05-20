@@ -39,6 +39,13 @@ async function writeCache(userId: string | undefined, prefs: NotificationPrefere
   } catch {}
 }
 
+function friendlyPreferencesError(message: string): string {
+  if (/notification_preferences|schema cache|Could not find the table/i.test(message)) {
+    return "Migration Supabase manquante : la table public.notification_preferences n'existe pas encore. Appliquez la migration 20260520183000_add_notification_preferences.sql.";
+  }
+  return message || 'Impossible de charger les préférences de notifications.';
+}
+
 export function NotificationPreferencesProvider({ children }: { children: React.ReactNode }) {
   const { user } = useAuth();
   const userId = user?.id;
@@ -94,7 +101,7 @@ export function NotificationPreferencesProvider({ children }: { children: React.
     } catch (err: any) {
       const message = err?.message ?? 'Impossible de charger les preferences de notifications.';
       console.warn('[notification preferences] load error:', message);
-      setLastError(message);
+      setLastError(friendlyPreferencesError(message));
     } finally {
       setIsLoading(false);
     }
@@ -134,7 +141,7 @@ export function NotificationPreferencesProvider({ children }: { children: React.
     } catch (err: any) {
       const message = err?.message ?? 'Impossible d enregistrer les preferences.';
       console.warn('[notification preferences] save error:', message);
-      setLastError(message);
+      setLastError(friendlyPreferencesError(message));
     }
   }, [organizationId, preferences, userId]);
 

@@ -241,8 +241,10 @@ export default function SettingsScreen() {
     void updatePreferences({ [key]: value } as Partial<NotificationPreferences>);
   }
 
-  const pushStatus = pushError
-    ? 'Configuration push incomplète'
+  const pushStatus = pushError?.includes('Migration Supabase manquante')
+    ? 'Table Supabase manquante'
+    : pushError
+      ? 'Configuration push incomplète'
     : permissionStatus === 'granted'
     ? (expoPushToken ? 'Appareil enregistré' : 'Permission accordée')
     : permissionStatus === 'denied'
