@@ -376,19 +376,19 @@ function translationProviderOrder() {
 }
 
 function azureTranslatorUrl() {
-  const endpoint = (process.env.AZURE_TRANSLATOR_ENDPOINT || 'https://api.cognitive.microsofttranslator.com')
-    .replace(/\/$/, '');
-  const path = endpoint.includes('cognitiveservices.azure.com')
-    ? '/translator/text/v3.0/translate'
-    : '/translate';
-  return `${endpoint}${path}`;
+  const endpoint = String(process.env.AZURE_TRANSLATOR_ENDPOINT || 'https://api.cognitive.microsofttranslator.com').trim();
+  if (/\/translate(\?|$)/i.test(endpoint)) return endpoint;
+  const base = endpoint.replace(/\/+$/, '');
+  if (/\/translator\/text\/v3\.0$/i.test(base)) return `${base}/translate`;
+  if (/cognitiveservices\.azure\.com/i.test(base)) return `${base}/translator/text/v3.0/translate`;
+  return `${base}/translate`;
 }
 
 async function translateWithAzure({ text, source, target }) {
   const apiKey = process.env.AZURE_TRANSLATOR_KEY;
-  if (!apiKey) return null;
+  if (!apiKey) throw new Error('AZURE_TRANSLATOR_KEY manquant cote serveur');
   const url = new URL(azureTranslatorUrl());
-  url.searchParams.set('api-version', '3.0');
+  if (!url.searchParams.has('api-version')) url.searchParams.set('api-version', '3.0');
   if (source && source !== target) url.searchParams.set('from', source);
   url.searchParams.set('to', target);
 
@@ -526,8 +526,9 @@ app.post('/api/translate-text', async (req, res) => {
     }
     return res.json({ success: true, ...result });
   } catch (err) {
-    console.error('[translate-text] Exception:', err?.message || err);
-    return res.status(502).json({ success: false, error: 'Traduction en ligne indisponible' });
+    const detail = err?.message || 'Erreur Azure inconnue';
+    console.error('[translate-text] Exception:', detail);
+    return res.status(502).json({ success: false, error: 'Traduction Azure indisponible', detail });
   }
 });
 

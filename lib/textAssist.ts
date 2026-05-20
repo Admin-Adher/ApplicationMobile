@@ -200,45 +200,6 @@ const LEXICON: LexiconEntry[] = [
   { fr: ['rendez vous', 'rdv'], en: ['meeting'], es: ['cita'] },
 ];
 
-const FILLER_PATTERNS = [
-  /\bdu coup\b/gi,
-  /\ben fait\b/gi,
-  /\bgenre\b/gi,
-  /\bun peu\b/gi,
-  /\bje pense que\b/gi,
-  /\bpeut[- ]etre\b/gi,
-  /\bbah\b/gi,
-  /\bben\b/gi,
-  /\bvoila\b/gi,
-  /\bdu coup la\b/gi,
-  /\bon dirait que\b/gi,
-  /\bil me semble que\b/gi,
-  /\bje crois que\b/gi,
-];
-
-const SAFE_REWRITE_REPLACEMENTS: Array<[RegExp, string]> = [
-  [/\bpb\b/gi, 'probleme'],
-  [/\brdv\b/gi, 'rendez-vous'],
-  [/\bpas ok\b/gi, 'non conforme'],
-  [/\bpas bon\b/gi, 'non conforme'],
-  [/\bpas conforme\b/gi, 'non conforme'],
-  [/\br\s*\+\s*(\d+)\b/gi, 'R+$1'],
-  [/\brdc\b/gi, 'RDC'],
-];
-
-const REWRITE_CLEANUPS: Array<[RegExp, string]> = [
-  [/\bpresence de absence de\b/gi, 'absence de'],
-  [/\bpresence de fuite constatee\b/gi, 'fuite constatee'],
-  [/\babsence de (la|le|les|un|une|l')\b/gi, 'absence de'],
-  [/\bdefaut de fuite\b/gi, 'fuite constatee'],
-  [/\bdefaut de probleme\b/gi, 'probleme'],
-  [/\bmerci merci\b/gi, 'merci'],
-  [/\s+merci$/gi, ''],
-  [/\s+,/g, ','],
-  [/\s+\./g, '.'],
-  [/\s{2,}/g, ' '],
-];
-
 const ALL_TRANSLATION_ENTRIES = [...PHRASEBOOK, ...LEXICON];
 
 function stripDiacritics(value: string): string {
@@ -249,49 +210,11 @@ function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
-function normalizeSpaces(value: string): string {
-  return value
-    .replace(/\u00A0/g, ' ')
-    .replace(/[ \t]+/g, ' ')
-    .replace(/\s+\n/g, '\n')
-    .replace(/\n{3,}/g, '\n\n')
-    .trim();
-}
-
 function normalizeForAssistant(value: string): string {
   return stripDiacritics(value)
     .replace(/[’‘]/g, "'")
     .replace(/[“”]/g, '"')
     .replace(/[–—]/g, '-');
-}
-
-function ensureFinalPunctuation(value: string): string {
-  if (!value) return value;
-  return /[.!?]$/.test(value) ? value : `${value}.`;
-}
-
-function capitalizeSentences(value: string): string {
-  return value.replace(/(^|[.!?]\s+)([a-z])/g, (match, prefix, letter) =>
-    `${prefix}${String(letter).toUpperCase()}`
-  );
-}
-
-function normalizeFieldText(value: string): string {
-  let next = normalizeSpaces(normalizeForAssistant(value));
-  next = next.replace(/\s+([,.;:!?])/g, '$1');
-  next = next.replace(/([,.;:!?])(?=\S)/g, '$1 ');
-  next = next.replace(/\brdc\b/gi, 'RDC');
-  next = next.replace(/\br\s*\+\s*(\d+)\b/gi, 'R+$1');
-  next = ensureFinalPunctuation(next);
-  return capitalizeSentences(next);
-}
-
-function applyRewriteCleanups(value: string): string {
-  let next = value;
-  for (const [pattern, replacement] of REWRITE_CLEANUPS) {
-    next = next.replace(pattern, replacement);
-  }
-  return normalizeSpaces(next);
 }
 
 function termPattern(term: string): RegExp {
@@ -336,21 +259,6 @@ export function detectTextLanguage(value: string): TextAssistLanguage {
     .map(item => item.code)
     .sort((a, b) => scores[b] - scores[a])[0];
   return scores[winner] > 0 ? winner : 'fr';
-}
-
-export function rewriteConstructionText(value: string, _context: TextAssistContext = 'generic'): string {
-  let next = normalizeSpaces(normalizeForAssistant(value));
-  if (!next) return '';
-
-  for (const pattern of FILLER_PATTERNS) {
-    next = next.replace(pattern, '');
-  }
-  for (const [pattern, replacement] of SAFE_REWRITE_REPLACEMENTS) {
-    next = next.replace(pattern, replacement);
-  }
-
-  next = applyRewriteCleanups(next);
-  return normalizeFieldText(next);
 }
 
 export function textAssistAdvancedCacheKey(value: string, target: TextAssistLanguage, source: TextAssistLanguage): string {

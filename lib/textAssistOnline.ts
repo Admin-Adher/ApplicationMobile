@@ -14,11 +14,21 @@ export type AdvancedTranslationResult = {
   provider: string;
 };
 
+export class AdvancedTranslationError extends Error {
+  status?: number;
+
+  constructor(message: string, status?: number) {
+    super(message);
+    this.name = 'AdvancedTranslationError';
+    this.status = status;
+  }
+}
+
 function getBaseApiUrl(): string {
   if (typeof window !== 'undefined' && window.location?.origin) {
     return window.location.origin;
   }
-  return process.env.EXPO_PUBLIC_API_URL || process.env.EXPO_PUBLIC_APP_URL || '';
+  return (process.env.EXPO_PUBLIC_API_URL || process.env.EXPO_PUBLIC_APP_URL || '').replace(/\/$/, '');
 }
 
 async function getAccessToken(): Promise<string | null> {
@@ -39,7 +49,11 @@ export async function requestAdvancedTranslation({
   timeoutMs = 6500,
 }: AdvancedTranslationRequest): Promise<AdvancedTranslationResult | null> {
   const base = getBaseApiUrl();
-  if (!base || !text.trim() || source === target) return null;
+  if (!text.trim()) return null;
+  if (source === target) return { text, provider: 'none' };
+  if (!base) {
+    throw new AdvancedTranslationError('URL API manquante: configure EXPO_PUBLIC_APP_URL ou EXPO_PUBLIC_API_URL dans le build mobile.');
+  }
 
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
@@ -61,16 +75,28 @@ export async function requestAdvancedTranslation({
       }),
     });
 
-    if (!response.ok) return null;
     const payload = await response.json().catch(() => null);
+    if (!response.ok) {
+      const errorMessage =
+        typeof payload?.detail === 'string' ? payload.detail :
+        typeof payload?.error === 'string' ? payload.error :
+        `Erreur API traduction ${response.status}`;
+      throw new AdvancedTranslationError(errorMessage, response.status);
+    }
     const translated = typeof payload?.text === 'string' ? payload.text.trim() : '';
-    if (!translated) return null;
+    if (!translated) {
+      throw new AdvancedTranslationError('Reponse Azure vide.');
+    }
     return {
       text: translated,
       provider: typeof payload?.provider === 'string' ? payload.provider : 'online',
     };
-  } catch {
-    return null;
+  } catch (err: any) {
+    if (err instanceof AdvancedTranslationError) throw err;
+    if (err?.name === 'AbortError') {
+      throw new AdvancedTranslationError('Delai depasse pendant la traduction Azure.');
+    }
+    throw new AdvancedTranslationError('Impossible de joindre l API de traduction.');
   } finally {
     clearTimeout(timer);
   }

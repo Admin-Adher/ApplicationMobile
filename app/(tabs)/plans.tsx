@@ -17,7 +17,7 @@ import * as DocumentPicker from 'expo-document-picker';
 import { C } from '@/constants/colors';
 import { useApp } from '@/context/AppContext';
 import { useAuth } from '@/context/AuthContext';
-import { Reserve, SitePlan, ReserveStatus } from '@/constants/types';
+import { Photo, Reserve, SitePlan, ReserveStatus } from '@/constants/types';
 import StatusBadge from '@/components/StatusBadge';
 import { STATUS_CONFIG } from '@/components/StatusBadge';
 import PriorityBadge from '@/components/PriorityBadge';
@@ -218,6 +218,8 @@ async function fetchAsDataUrl(uri: string): Promise<string> {
 async function exportPlanPDF(
   planName: string,
   chantierName: string,
+  planBuilding: string | null | undefined,
+  planLevel: string | null | undefined,
   reserves: Reserve[],
   numberMap: Map<string, number>,
   planUri?: string | null,
@@ -234,6 +236,15 @@ async function exportPlanPDF(
   const PRIORITY_FR: Record<string, string> = {
     critical: 'Critique', high: 'Haute', medium: 'Moyenne', low: 'Basse',
   };
+  const displayBuilding = planBuilding || reserves.find(r => !!r.building)?.building || '';
+  const displayLevel = planLevel || reserves.find(r => !!r.level)?.level || '';
+  const planLocationParts = [
+    displayBuilding ? `B&acirc;timent : <strong>${escapeHtml(displayBuilding)}</strong>` : '',
+    displayLevel ? `Niveau : <strong>${escapeHtml(displayLevel)}</strong>` : '',
+  ].filter(Boolean);
+  const planLocationHtml = planLocationParts.length > 0
+    ? `<div class="meta plan-location">${planLocationParts.join(' &nbsp;&middot;&nbsp; ')}</div>`
+    : `<div class="meta plan-location">Localisation du plan : <strong>non renseign&eacute;e</strong></div>`;
   const pinsWithCoords = reserves.filter(r => r.planX != null && r.planY != null);
 
   // Pass raw percentages so canvas script can apply them to the actual rendered dimensions
@@ -258,7 +269,8 @@ async function exportPlanPDF(
       <td style="text-align:center;"><span style="display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px;border-radius:50%;background:${color};color:#fff;font-weight:700;font-size:11px;">${n}</span></td>
       <td style="font-weight:600;">${escapeHtml(r.title)}</td>
       <td>${escapeHtml(companyLabel)}</td>
-      <td>${escapeHtml(r.level || '—')}</td>
+      <td>${escapeHtml(r.building || displayBuilding || '—')}</td>
+      <td>${escapeHtml(r.level || displayLevel || '—')}</td>
       <td><span style="color:${color};font-weight:600;">${escapeHtml(STATUS_FR[r.status] || r.status)}</span></td>
       <td>${escapeHtml(PRIORITY_FR[r.priority] || r.priority)}</td>
       <td>${escapeHtml(r.deadline || '—')}</td>
@@ -293,10 +305,17 @@ async function exportPlanPDF(
         </div>
       </div>`;
     }
-    return { row, photoHtml };
+    return { row, photoHtml, rawPhotoCount: rawPhotos.length, shownPhotoCount: photosToShow.length };
   }));
   const rows = rowsAndPhotos.map(rp => rp.row).join('');
   const photosSection = rowsAndPhotos.map(rp => rp.photoHtml).filter(Boolean).join('');
+  const rawPhotoCount = rowsAndPhotos.reduce((sum, rp) => sum + rp.rawPhotoCount, 0);
+  const shownPhotoCount = rowsAndPhotos.reduce((sum, rp) => sum + rp.shownPhotoCount, 0);
+  const photosBlock = photosSection
+    ? `<div style="padding:8px 16px 4px 16px;background:#f8fafc;border-top:1px solid #e2e8f0;font-size:10px;font-weight:700;color:#475569;text-transform:uppercase;letter-spacing:0.5px;margin-top:4px;">📷 Photos des réserves (${shownPhotoCount}${rawPhotoCount > shownPhotoCount ? ` sur ${rawPhotoCount}` : ''})</div>${photosSection}`
+    : rawPhotoCount > 0
+      ? `<div style="margin-top:12px;padding:12px 16px;border:1px dashed #DDE4EE;border-radius:8px;background:#F8FAFC;color:#64748B;font-size:11px;">${rawPhotoCount} photo${rawPhotoCount !== 1 ? 's' : ''} associ&eacute;e${rawPhotoCount !== 1 ? 's' : ''}, non incluse${rawPhotoCount !== 1 ? 's' : ''} dans cet export pour limiter le poids du PDF.</div>`
+    : `<div style="margin-top:12px;padding:12px 16px;border:1px dashed #DDE4EE;border-radius:8px;background:#F8FAFC;color:#64748B;font-size:11px;">Aucune photo associ&eacute;e aux r&eacute;serves de ce plan.</div>`;
 
   // Convert plan URI to a data URL on all platforms.
   // On mobile, file:// paths are inaccessible from Print.printAsync's sandboxed WebView,
@@ -396,7 +415,7 @@ document.head.appendChild(s);
 
   const planAnnotatedSection = (hasPins || hasPlan) ? `
 <div class="sec">
-  <div class="stitle">Plan annoté</div>
+  <div class="stitle">Plan annoté${displayBuilding || displayLevel ? ` — ${escapeHtml([displayBuilding, displayLevel].filter(Boolean).join(' · '))}` : ''}</div>
   ${useStaticImg && staticImgSrc
     ? buildSvgPins(staticImgSrc)
     : `<canvas id="plan-canvas" width="${RENDER_W}" height="${Math.round(RENDER_W * 0.6)}" style="width:100%;height:auto;border-radius:8px;display:block;border:1px solid #e5e7eb;background:#1E3A5F"></canvas>`
@@ -410,13 +429,13 @@ document.head.appendChild(s);
 <html lang="fr"><head><meta charset="UTF-8"><title>Plan : ${safePlanName}</title>
 <style>*{box-sizing:border-box;margin:0;padding:0;}body{font-family:Arial,sans-serif;padding:28px;color:#111;background:#fff;}.hdr{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:20px;}.hdr-l h1{color:#003082;font-size:20px;margin-bottom:4px;}.hdr-l .meta{color:#666;font-size:12px;}.hdr-r{text-align:right;font-size:11px;color:#999;}.sec{margin-bottom:24px;}.leg{font-size:11px;color:#888;margin-top:6px;}table{width:100%;border-collapse:collapse;font-size:12px;}th{background:#003082;color:#fff;padding:8px 10px;text-align:left;font-size:11px;text-transform:uppercase;letter-spacing:0.5px;}td{padding:7px 10px;border-bottom:1px solid #f0f0f0;vertical-align:middle;}tr:nth-child(even) td{background:#f8fafc;}.stitle{font-size:13px;font-weight:700;color:#003082;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:10px;border-bottom:2px solid #003082;padding-bottom:4px;}.footer{margin-top:28px;font-size:10px;color:#bbb;text-align:center;border-top:1px solid #eee;padding-top:12px;}@media print{body{padding:0;}@page{margin:16mm;}}</style>
 </head><body>
-<div class="hdr"><div class="hdr-l"><h1>Plan : ${safePlanName}</h1><div class="meta">Chantier : <strong>${safeChantierName}</strong> &nbsp;·&nbsp; ${reserves.length} réserve${reserves.length !== 1 ? 's' : ''}</div></div>
+<div class="hdr"><div class="hdr-l"><h1>Plan : ${safePlanName}</h1><div class="meta">Chantier : <strong>${safeChantierName}</strong> &nbsp;·&nbsp; ${reserves.length} réserve${reserves.length !== 1 ? 's' : ''}</div>${planLocationHtml}</div>
 <div class="hdr-r">Exporté le ${new Date().toLocaleDateString('fr-FR')}<br>BuildTrack</div></div>
 ${planAnnotatedSection}
 <div class="stitle">Liste des réserves</div>
-<table><thead><tr><th>#</th><th>Titre</th><th>Entreprise</th><th>Niveau</th><th>Statut</th><th>Priorité</th><th>Échéance</th></tr></thead>
-<tbody>${rows || '<tr><td colspan="7" style="text-align:center;color:#999;padding:20px;">Aucune réserve sur ce plan</td></tr>'}</tbody></table>
-${photosSection ? `<div style="padding:8px 16px 4px 16px;background:#f8fafc;border-top:1px solid #e2e8f0;font-size:10px;font-weight:700;color:#475569;text-transform:uppercase;letter-spacing:0.5px;margin-top:4px;">📷 Photos des réserves</div>${photosSection}` : ''}
+<table><thead><tr><th>#</th><th>Titre</th><th>Entreprise</th><th>Bâtiment</th><th>Niveau</th><th>Statut</th><th>Priorité</th><th>Échéance</th></tr></thead>
+<tbody>${rows || '<tr><td colspan="8" style="text-align:center;color:#999;padding:20px;">Aucune réserve sur ce plan</td></tr>'}</tbody></table>
+${photosBlock}
 <div class="footer">BuildTrack — Gestion de chantier numérique — ${new Date().toLocaleDateString('fr-FR')}</div>
 ${fallbackCanvasScript ? `<script>${fallbackCanvasScript}<\/script>` : ''}
 </body></html>`;
@@ -876,7 +895,7 @@ export default function PlansScreen() {
   const router = useRouter();
   const { focusPlanId: focusPlanIdParam, focusReserveId: focusReserveIdParam } = useLocalSearchParams<{ focusPlanId?: string; focusReserveId?: string }>();
   const {
-    reserves, companies, sitePlans, activeChantierId, activeChantier, isLoading,
+    reserves, companies, sitePlans, photos, activeChantierId, activeChantier, isLoading,
     addSitePlan, updateSitePlan, deleteSitePlan, addSitePlanVersion, migrateReservesToPlan,
     updateReserveStatus, updateReserveFields,
   } = useApp();
@@ -1510,6 +1529,52 @@ export default function PlansScreen() {
     [reserves, activeChantierId],
   );
 
+  const reservePhotosById = useMemo(() => {
+    const map = new Map<string, NonNullable<Reserve['photos']>>();
+    for (const photo of photos as Photo[]) {
+      if (!photo.reserveId || !photo.uri) continue;
+      const list = map.get(photo.reserveId) ?? [];
+      list.push({
+        id: photo.id,
+        uri: photo.uri,
+        kind: 'defect',
+        takenAt: photo.takenAt,
+        takenBy: photo.takenBy,
+        gpsLat: photo.gpsLat,
+        gpsLon: photo.gpsLon,
+        gpsAccuracy: photo.gpsAccuracy,
+      });
+      map.set(photo.reserveId, list);
+    }
+    return map;
+  }, [photos]);
+
+  const enrichReservesForPdf = useCallback((items: Reserve[]): Reserve[] => (
+    items.map(reserve => {
+      const linkedPhotos = reservePhotosById.get(reserve.id) ?? [];
+      if (linkedPhotos.length === 0) return reserve;
+
+      const existingPhotos: NonNullable<Reserve['photos']> = Array.isArray(reserve.photos) && reserve.photos.length > 0
+        ? [...reserve.photos]
+        : reserve.photoUri
+          ? [{ id: 'legacy', uri: reserve.photoUri, kind: 'defect', takenAt: reserve.createdAt, takenBy: '' }]
+          : [];
+      const seenUris = new Set(existingPhotos.map(p => p.uri).filter(Boolean));
+      const mergedPhotos = [...existingPhotos];
+      for (const photo of linkedPhotos) {
+        if (seenUris.has(photo.uri)) continue;
+        seenUris.add(photo.uri);
+        mergedPhotos.push(photo);
+      }
+      if (mergedPhotos.length === 0) return reserve;
+      return {
+        ...reserve,
+        photos: mergedPhotos,
+        photoUri: reserve.photoUri ?? mergedPhotos[0]?.uri,
+      };
+    })
+  ), [reservePhotosById]);
+
   // Unique companies across the whole chantier (for the global report company picker).
   // Checks both r.company (single string) and r.companies (multi-company array) so
   // reserves created via either pathway are counted.
@@ -1567,13 +1632,14 @@ export default function PlansScreen() {
       setPdfLoading(true);
       setGlobalReportProgress(null);
       try {
+        const exportChantierReserves = enrichReservesForPdf(chantierReserves);
         // ── Native: pre-render each PDF plan image using the hidden PdfPlanViewer ──
         // On web, PDF.js renders plans directly inside exportGlobalReport.
         // On native, preRenderPdfPageToDataUrl() returns null (no DOM), so we must
         // pre-render each plan in a hidden WebView and capture it as a JPEG.
         const preRenderedImages = new Map<string, string>();
         if (Platform.OS !== 'web') {
-          const filteredReserves = chantierReserves
+          const filteredReserves = exportChantierReserves
             .filter(r => {
               if (globalReportCompany === null) return true;
               if ((r.company ?? '').trim() === globalReportCompany) return true;
@@ -1597,7 +1663,7 @@ export default function PlansScreen() {
         await exportGlobalReport(
           activeChantier?.name ?? '',
           chantierPlans,
-          chantierReserves,
+          exportChantierReserves,
           globalReportCompany,
           companies,
           action,
@@ -1621,10 +1687,13 @@ export default function PlansScreen() {
     }
     setPdfLoading(true);
     try {
+      const exportFilteredList = enrichReservesForPdf(pdfFilteredList);
       await exportPlanPDF(
         currentPlan?.name ?? 'Plan',
         activeChantier?.name ?? '',
-        pdfFilteredList,
+        currentPlan?.building ?? null,
+        currentPlan?.level ?? null,
+        exportFilteredList,
         pinNumberMap,
         currentPlan?.uri ?? null,
         currentPlan?.fileType ?? null,
@@ -1639,7 +1708,7 @@ export default function PlansScreen() {
     } finally {
       setPdfLoading(false);
     }
-  }, [pdfScope, globalReportPreviewCount, activeChantier, chantierPlans, chantierReserves, globalReportCompany, globalReportStatusFilter, companies, pdfFilteredList, currentPlan, pinNumberMap, pinSizeScale, capturePreRenderPlan]);
+  }, [pdfScope, globalReportPreviewCount, activeChantier, chantierPlans, chantierReserves, globalReportCompany, globalReportStatusFilter, companies, pdfFilteredList, currentPlan, pinNumberMap, pinSizeScale, capturePreRenderPlan, enrichReservesForPdf]);
 
   const handleEmailReport = useCallback(async () => {
     const emails = globalReportEmailTo
@@ -1658,7 +1727,8 @@ export default function PlansScreen() {
 
     setGlobalReportEmailLoading(true);
     try {
-      const filteredReserves = chantierReserves.filter(r => {
+      const exportChantierReserves = enrichReservesForPdf(chantierReserves);
+      const filteredReserves = exportChantierReserves.filter(r => {
         if (globalReportCompany !== null) {
           const mainMatch = (r.company ?? '').trim() === globalReportCompany;
           const arrMatch = Array.isArray((r as any).companies) &&
@@ -1756,7 +1826,7 @@ export default function PlansScreen() {
     } finally {
       setGlobalReportEmailLoading(false);
     }
-  }, [globalReportEmailTo, globalReportPreviewCount, chantierReserves, chantierPlans, globalReportCompany, globalReportStatusFilter, activeChantier]);
+  }, [globalReportEmailTo, globalReportPreviewCount, chantierReserves, chantierPlans, globalReportCompany, globalReportStatusFilter, activeChantier, enrichReservesForPdf]);
 
   const pinSize = Math.round((isTablet ? 48 : 44) * pinSizeScale);
   const clusterSize = Math.round((isTablet ? 60 : 52) * pinSizeScale);

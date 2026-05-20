@@ -29,7 +29,6 @@ import {
   TextAssistContext,
   TextAssistLanguage,
   detectTextLanguage,
-  rewriteConstructionText,
   textAssistAdvancedCacheKey,
 } from '@/lib/textAssist';
 import { requestAdvancedTranslation } from '@/lib/textAssistOnline';
@@ -37,7 +36,6 @@ import { requestAdvancedTranslation } from '@/lib/textAssistOnline';
 type DictationLanguage = 'fr-FR' | 'en-US' | 'es-ES';
 
 const DICTATION_LANGUAGE_KEY = 'buildtrack_dictation_language_v1';
-const ADVANCED_TRANSLATION_KEY = 'buildtrack_advanced_translation_enabled_v1';
 
 const LANGUAGES: Array<{ code: DictationLanguage; label: string; title: string }> = [
   { code: 'fr-FR', label: 'FR', title: 'Francais' },
@@ -136,7 +134,6 @@ const DictationTextInput = forwardRef<TextInput, DictationTextInputProps>(functi
   const [assistBusy, setAssistBusy] = useState(false);
   const [assistSuggestion, setAssistSuggestion] = useState<{ title: string; text: string } | null>(null);
   const [previousText, setPreviousText] = useState<string | null>(null);
-  const [advancedTranslationEnabled, setAdvancedTranslationEnabled] = useState(true);
 
   const activeRef = useRef(false);
   const inputRef = useRef<TextInput>(null);
@@ -163,17 +160,6 @@ const DictationTextInput = forwardRef<TextInput, DictationTextInputProps>(functi
         if (LANGUAGES.some(item => item.code === raw)) {
           setLanguage(raw as DictationLanguage);
         }
-      })
-      .catch(() => {});
-  }, []);
-
-  useEffect(() => {
-    AsyncStorage.getItem(ADVANCED_TRANSLATION_KEY)
-      .then(raw => {
-        if (raw === '0') {
-          AsyncStorage.setItem(ADVANCED_TRANSLATION_KEY, '1').catch(() => {});
-        }
-        setAdvancedTranslationEnabled(true);
       })
       .catch(() => {});
   }, []);
@@ -239,12 +225,6 @@ const DictationTextInput = forwardRef<TextInput, DictationTextInputProps>(functi
   const handleLanguageChange = (code: DictationLanguage) => {
     setLanguage(code);
     AsyncStorage.setItem(DICTATION_LANGUAGE_KEY, code).catch(() => {});
-  };
-
-  const toggleAdvancedTranslation = () => {
-    setAdvancedTranslationEnabled(true);
-    AsyncStorage.setItem(ADVANCED_TRANSLATION_KEY, '1').catch(() => {});
-    setHint('Traduction via Azure uniquement.');
   };
 
   const handleSelectionChange = (event: NativeSyntheticEvent<TextInputSelectionChangeEventData>) => {
@@ -324,45 +304,41 @@ const DictationTextInput = forwardRef<TextInput, DictationTextInputProps>(functi
     try {
       const source = detectTextLanguage(value);
       const targetLabel = TEXT_ASSIST_LANGUAGES.find(l => l.code === target)?.label ?? target.toUpperCase();
-      if (advancedTranslationEnabled) {
-        const advancedCacheKey = textAssistAdvancedCacheKey(value, target, source);
-        const cachedAdvanced = await AsyncStorage.getItem(advancedCacheKey);
-        if (cachedAdvanced) {
-          setHint('Traduction avancee depuis le cache.');
-          setAssistSuggestion({ title: `Traduction ${targetLabel} avancee`, text: limitSuggestion(cachedAdvanced) });
-          return;
-        }
-
-        const advanced = await requestAdvancedTranslation({
-          text: value,
-          target,
-          source,
-          context: textAssistContext,
-        });
-
-        if (advanced?.text) {
-          AsyncStorage.setItem(advancedCacheKey, advanced.text).catch(() => {});
-          setHint(`Traduction en ligne via ${advanced.provider}.`);
-          setAssistSuggestion({ title: `Traduction ${targetLabel} avancee`, text: limitSuggestion(advanced.text) });
-          return;
-        }
+      if (source === target) {
+        setAssistSuggestion(null);
+        setHint(`Le texte est deja en ${targetLabel}.`);
+        return;
       }
 
+      const advancedCacheKey = textAssistAdvancedCacheKey(value, target, source);
+      const cachedAdvanced = await AsyncStorage.getItem(advancedCacheKey);
+      if (cachedAdvanced) {
+        setHint('Traduction Azure depuis le cache.');
+        setAssistSuggestion({ title: `Traduction ${targetLabel}`, text: limitSuggestion(cachedAdvanced) });
+        return;
+      }
+
+      const advanced = await requestAdvancedTranslation({
+        text: value,
+        target,
+        source,
+        context: textAssistContext,
+      });
+
+      if (advanced?.text) {
+        AsyncStorage.setItem(advancedCacheKey, advanced.text).catch(() => {});
+        setHint(`Traduction en ligne via ${advanced.provider}.`);
+        setAssistSuggestion({ title: `Traduction ${targetLabel}`, text: limitSuggestion(advanced.text) });
+        return;
+      }
+
+      setHint('Traduction Azure indisponible.');
+    } catch (err: any) {
       setAssistSuggestion(null);
-      setHint(
-        advancedTranslationEnabled
-          ? 'Traduction Azure indisponible. Verifiez la connexion et reessayez.'
-          : 'Traduction locale desactivee: utilisez Azure en ligne.'
-      );
+      setHint(err?.message || 'Traduction Azure indisponible.');
     } finally {
       setAssistBusy(false);
     }
-  };
-
-  const proposeRewrite = () => {
-    if (!showAssist || !value.trim()) return;
-    const rewritten = rewriteConstructionText(value, textAssistContext);
-    setAssistSuggestion({ title: 'Texte nettoye', text: limitSuggestion(rewritten) });
   };
 
   const applySuggestion = () => {
@@ -414,7 +390,7 @@ const DictationTextInput = forwardRef<TextInput, DictationTextInputProps>(functi
               })}
             </View>
           )}
-          {hint ? <Text style={styles.hint} numberOfLines={1}>{hint}</Text> : <View style={{ flex: 1 }} />}
+          {hint ? <Text style={styles.hint} numberOfLines={2}>{hint}</Text> : <View style={{ flex: 1 }} />}
           {previousText != null && (
             <TouchableOpacity
               style={styles.undoButton}
@@ -430,7 +406,7 @@ const DictationTextInput = forwardRef<TextInput, DictationTextInputProps>(functi
               style={[styles.assistButton, assistExpanded && styles.assistButtonActive]}
               onPress={() => setAssistExpanded(v => !v)}
               accessibilityRole="button"
-              accessibilityLabel="Ouvrir l'assistant texte"
+              accessibilityLabel="Ouvrir la traduction"
             >
               {assistBusy ? (
                 <ActivityIndicator size="small" color={assistExpanded ? '#fff' : C.primary} />
@@ -463,30 +439,9 @@ const DictationTextInput = forwardRef<TextInput, DictationTextInputProps>(functi
       {showAssist && assistExpanded && (
         <View style={styles.assistPanel}>
           <View style={styles.assistHeader}>
-            <Text style={styles.assistTitle}>Assistant texte</Text>
+            <Text style={styles.assistTitle}>Traduction</Text>
             <Text style={styles.assistSource}>source {assistSourceLanguage.toUpperCase()}</Text>
           </View>
-          <TouchableOpacity
-            style={[styles.assistModeButton, advancedTranslationEnabled && styles.assistModeButtonActive]}
-            onPress={toggleAdvancedTranslation}
-            accessibilityRole="switch"
-            accessibilityState={{ checked: advancedTranslationEnabled }}
-            accessibilityLabel="Mode traduction avancee en ligne"
-          >
-            <View style={styles.assistModeTextWrap}>
-              <Text style={[styles.assistModeTitle, advancedTranslationEnabled && styles.assistModeTitleActive]}>
-                Traduction avancee en ligne
-              </Text>
-              <Text style={[styles.assistModeSubtitle, advancedTranslationEnabled && styles.assistModeSubtitleActive]}>
-                {advancedTranslationEnabled ? 'Azure en ligne uniquement' : 'Traduction locale desactivee'}
-              </Text>
-            </View>
-            <Ionicons
-              name={advancedTranslationEnabled ? 'cloud-done-outline' : 'cloud-offline-outline'}
-              size={17}
-              color={advancedTranslationEnabled ? '#fff' : C.textMuted}
-            />
-          </TouchableOpacity>
           <View style={styles.assistActions}>
             {TEXT_ASSIST_LANGUAGES.map(item => (
               <TouchableOpacity
@@ -501,16 +456,6 @@ const DictationTextInput = forwardRef<TextInput, DictationTextInputProps>(functi
                 <Text style={styles.assistChipText}>{item.label}</Text>
               </TouchableOpacity>
             ))}
-            <TouchableOpacity
-              style={[styles.assistChip, styles.rewriteChip]}
-              onPress={proposeRewrite}
-              disabled={assistBusy || !value.trim()}
-              accessibilityRole="button"
-              accessibilityLabel="Nettoyer le texte"
-            >
-              <Ionicons name="create-outline" size={13} color={C.waiting} />
-              <Text style={[styles.assistChipText, { color: C.waiting }]}>Nettoyer</Text>
-            </TouchableOpacity>
           </View>
           {assistSuggestion && (
             <View style={styles.suggestionCard}>
@@ -639,43 +584,6 @@ const styles = StyleSheet.create({
     fontFamily: 'Inter_600SemiBold',
     textTransform: 'uppercase',
   },
-  assistModeButton: {
-    minHeight: 42,
-    borderRadius: 10,
-    borderWidth: 1,
-    borderColor: C.border,
-    backgroundColor: C.surface2,
-    paddingHorizontal: 10,
-    paddingVertical: 8,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: 10,
-  },
-  assistModeButtonActive: {
-    backgroundColor: C.primary,
-    borderColor: C.primary,
-  },
-  assistModeTextWrap: {
-    flex: 1,
-    gap: 2,
-  },
-  assistModeTitle: {
-    color: C.text,
-    fontSize: 12,
-    fontFamily: 'Inter_700Bold',
-  },
-  assistModeTitleActive: {
-    color: '#fff',
-  },
-  assistModeSubtitle: {
-    color: C.textMuted,
-    fontSize: 10,
-    fontFamily: 'Inter_400Regular',
-  },
-  assistModeSubtitleActive: {
-    color: 'rgba(255,255,255,0.78)',
-  },
   assistActions: {
     flexDirection: 'row',
     flexWrap: 'wrap',
@@ -691,10 +599,6 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: C.primary + '25',
     backgroundColor: C.primary + '08',
-  },
-  rewriteChip: {
-    borderColor: C.waiting + '30',
-    backgroundColor: C.waiting + '08',
   },
   assistChipText: {
     color: C.primary,

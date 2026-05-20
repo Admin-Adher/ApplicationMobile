@@ -10,6 +10,8 @@ env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
   EXPO_PUBLIC_SUPABASE_URL: ${{ secrets.EXPO_PUBLIC_SUPABASE_URL || 'https://jzeojdpgglbxjdasjgta.supabase.co' }}
   EXPO_PUBLIC_SUPABASE_KEY: ${{ secrets.EXPO_PUBLIC_SUPABASE_KEY || 'sb_publishable_82T9HBSLycSJ2T6OBaDNLA_01V1mXda' }}
+  EXPO_PUBLIC_APP_URL: ${{ secrets.EXPO_PUBLIC_APP_URL || 'https://buildtrack-mobile.vercel.app' }}
+  EXPO_PUBLIC_API_URL: ${{ secrets.BUILDTRACK_API_URL || secrets.EXPO_PUBLIC_APP_URL || 'https://buildtrack-mobile.vercel.app' }}
 
 permissions:
   contents: write

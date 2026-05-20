@@ -6,7 +6,9 @@
     "preview": {
       "env": {
         "EXPO_PUBLIC_SUPABASE_URL": "$EXPO_PUBLIC_SUPABASE_URL",
-        "EXPO_PUBLIC_SUPABASE_KEY": "$EXPO_PUBLIC_SUPABASE_KEY"
+        "EXPO_PUBLIC_SUPABASE_KEY": "$EXPO_PUBLIC_SUPABASE_KEY",
+        "EXPO_PUBLIC_APP_URL": "$EXPO_PUBLIC_APP_URL",
+        "EXPO_PUBLIC_API_URL": "$EXPO_PUBLIC_API_URL"
       },
       "android": {
         "buildType": "apk",
@@ -20,7 +22,9 @@
     "simulator": {
       "env": {
         "EXPO_PUBLIC_SUPABASE_URL": "$EXPO_PUBLIC_SUPABASE_URL",
-        "EXPO_PUBLIC_SUPABASE_KEY": "$EXPO_PUBLIC_SUPABASE_KEY"
+        "EXPO_PUBLIC_SUPABASE_KEY": "$EXPO_PUBLIC_SUPABASE_KEY",
+        "EXPO_PUBLIC_APP_URL": "$EXPO_PUBLIC_APP_URL",
+        "EXPO_PUBLIC_API_URL": "$EXPO_PUBLIC_API_URL"
       },
       "ios": {
         "simulator": true
@@ -29,7 +33,9 @@
     "production": {
       "env": {
         "EXPO_PUBLIC_SUPABASE_URL": "$EXPO_PUBLIC_SUPABASE_URL",
-        "EXPO_PUBLIC_SUPABASE_KEY": "$EXPO_PUBLIC_SUPABASE_KEY"
+        "EXPO_PUBLIC_SUPABASE_KEY": "$EXPO_PUBLIC_SUPABASE_KEY",
+        "EXPO_PUBLIC_APP_URL": "$EXPO_PUBLIC_APP_URL",
+        "EXPO_PUBLIC_API_URL": "$EXPO_PUBLIC_API_URL"
       },
       "android": {
         "buildType": "app-bundle",
