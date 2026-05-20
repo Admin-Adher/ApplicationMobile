@@ -5,6 +5,7 @@ import * as Notifications from 'expo-notifications';
 import { useRouter } from 'expo-router';
 import { supabase, isSupabaseConfigured } from '@/lib/supabase';
 import { useAuth } from '@/context/AuthContext';
+import { useNotificationPreferences } from '@/context/NotificationPreferencesContext';
 
 type PushPermissionStatus = 'unsupported' | 'undetermined' | 'granted' | 'denied';
 
@@ -64,6 +65,7 @@ function routeNotification(router: ReturnType<typeof useRouter>, data: Record<st
 
 export function PushNotificationsProvider({ children }: { children: React.ReactNode }) {
   const { user } = useAuth();
+  const { preferences } = useNotificationPreferences();
   const router = useRouter();
   const [expoPushToken, setExpoPushToken] = useState<string | null>(null);
   const [permissionStatus, setPermissionStatus] = useState<PushPermissionStatus>(
@@ -98,6 +100,11 @@ export function PushNotificationsProvider({ children }: { children: React.ReactN
         return;
       }
       if (!user?.id || !isSupabaseConfigured) return;
+      if (!preferences.pushEnabled) {
+        setExpoPushToken(null);
+        setLastError(null);
+        return;
+      }
 
       try {
         if (Platform.OS === 'android') {
@@ -157,7 +164,7 @@ export function PushNotificationsProvider({ children }: { children: React.ReactN
 
     void register();
     return () => { cancelled = true; };
-  }, [user?.id, user?.organizationId]);
+  }, [user?.id, user?.organizationId, preferences.pushEnabled]);
 
   const value = useMemo<PushNotificationsContextValue>(() => ({
     expoPushToken,

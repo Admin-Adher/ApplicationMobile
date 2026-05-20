@@ -362,6 +362,64 @@ function isExpoPushToken(token) {
   );
 }
 
+function parseMinutes(value, fallback) {
+  const match = String(value || '').match(/^(\d{2}):(\d{2})$/);
+  if (!match) return fallback;
+  return Number(match[1]) * 60 + Number(match[2]);
+}
+
+function minutesInTimezone(timezone) {
+  try {
+    const parts = new Intl.DateTimeFormat('en-GB', {
+      timeZone: timezone || 'Europe/Paris',
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: false,
+    }).formatToParts(new Date());
+    const hour = Number(parts.find(p => p.type === 'hour')?.value || '0');
+    const minute = Number(parts.find(p => p.type === 'minute')?.value || '0');
+    return hour * 60 + minute;
+  } catch {
+    const now = new Date();
+    return now.getHours() * 60 + now.getMinutes();
+  }
+}
+
+function isQuietHour(pref) {
+  if (!pref?.quiet_hours_enabled) return false;
+  const current = minutesInTimezone(pref.quiet_hours_timezone || 'Europe/Paris');
+  const start = parseMinutes(pref.quiet_hours_start, 19 * 60);
+  const end = parseMinutes(pref.quiet_hours_end, 7 * 60);
+  if (start === end) return false;
+  if (start < end) return current >= start && current < end;
+  return current >= start || current < end;
+}
+
+function pushPreferenceAllows(pref, column, critical = false) {
+  if (!pref) return true;
+  if (pref.push_enabled === false) return false;
+  const criticalAllowed = critical && pref.reserve_critical_push !== false;
+  if (pref[column] === false && !criticalAllowed) return false;
+  if (isQuietHour(pref) && !(criticalAllowed && pref.critical_always_push !== false)) return false;
+  return true;
+}
+
+async function preferencesForProfiles(supabase, profileIds) {
+  const ids = Array.from(new Set((profileIds || []).filter(Boolean)));
+  const map = new Map();
+  if (ids.length === 0) return map;
+  const { data, error } = await supabase
+    .from('notification_preferences')
+    .select('user_id, push_enabled, email_enabled, messages_push, reserve_created_push, reserve_created_email, reserve_status_push, reserve_status_email, reserve_critical_push, reserve_critical_email, reserve_overdue_push, reserve_overdue_email, critical_always_push, quiet_hours_enabled, quiet_hours_start, quiet_hours_end, quiet_hours_timezone')
+    .in('user_id', ids);
+  if (error) {
+    console.warn('[push prefs] lecture impossible:', error.message);
+    return map;
+  }
+  for (const row of data || []) map.set(row.user_id, row);
+  return map;
+}
+
 async function authenticatedProfile(req, supabase) {
   const token = bearerToken(req);
   if (!token) return null;
@@ -553,7 +611,7 @@ app.post('/api/translate-text', async (req, res) => {
   }
 });
 
-async function enabledTokensForProfiles(supabase, profileIds) {
+async function enabledTokensForProfiles(supabase, profileIds, column, critical = false) {
   const ids = Array.from(new Set((profileIds || []).filter(Boolean)));
   if (ids.length === 0) return [];
   const { data, error } = await supabase
@@ -562,8 +620,10 @@ async function enabledTokensForProfiles(supabase, profileIds) {
     .eq('enabled', true)
     .in('user_id', ids);
   if (error) throw error;
+  const prefs = await preferencesForProfiles(supabase, ids);
   const seen = new Set();
   return (data || []).filter(row => {
+    if (!pushPreferenceAllows(prefs.get(row.user_id), column, critical)) return false;
     if (!isExpoPushToken(row.token) || seen.has(row.token)) return false;
     seen.add(row.token);
     return true;
@@ -703,7 +763,7 @@ async function pushForMessage(supabase, profile, body) {
   }
 
   const recipientIds = await resolveMessageRecipientProfileIds(supabase, message, profile);
-  const tokens = await enabledTokensForProfiles(supabase, recipientIds);
+  const tokens = await enabledTokensForProfiles(supabase, recipientIds, 'messages_push');
   const pushStats = await sendExpoPushMessages(supabase, tokens.map(row => ({
     to: row.token,
     sound: 'default',
@@ -732,7 +792,13 @@ async function pushForReserve(supabase, profile, body, statusChange = false) {
   }
 
   const recipientIds = await resolveReserveRecipientProfileIds(supabase, reserve);
-  const tokens = await enabledTokensForProfiles(supabase, recipientIds.filter(id => id !== profile.id));
+  const isCritical = reserve.priority === 'critical';
+  const tokens = await enabledTokensForProfiles(
+    supabase,
+    recipientIds.filter(id => id !== profile.id),
+    statusChange ? 'reserve_status_push' : 'reserve_created_push',
+    isCritical,
+  );
   const statusLabel = STATUS_LABELS_FR[newStatus || reserve.status]?.label || newStatus || reserve.status;
   const title = statusChange ? 'Statut de reserve modifie' : 'Nouvelle reserve';
   const fallback = statusChange ? `${reserve.id} - ${statusLabel}` : `${reserve.id} - ${reserve.title}`;
@@ -772,6 +838,7 @@ async function pushOverdueReserves(supabase) {
   const { data: companies } = await supabase.from('companies').select('id, name, organization_id').in('organization_id', orgIds);
   const { data: profiles } = await supabase.from('profiles').select('id, name, company_id, organization_id, role').in('organization_id', orgIds);
   const { data: tokens } = await supabase.from('push_tokens').select('token, user_id').eq('enabled', true).in('organization_id', orgIds);
+  const prefsByUser = await preferencesForProfiles(supabase, (profiles || []).map(p => p.id));
 
   const companiesByOrg = new Map();
   for (const c of companies || []) {
@@ -825,6 +892,7 @@ async function pushOverdueReserves(supabase) {
       const seenUsers = new Set();
       const messages = [];
       for (const profileRow of recipients) {
+        if (!pushPreferenceAllows(prefsByUser.get(profileRow.id), 'reserve_overdue_push', reserve.priority === 'critical')) continue;
         if (seenUsers.has(profileRow.id)) continue;
         seenUsers.add(profileRow.id);
         for (const token of tokensByUser.get(profileRow.id) || []) {
@@ -896,6 +964,44 @@ app.post('/api/send-push', async (req, res) => {
   }
 });
 
+function emailPreferenceAllows(pref, column, critical = false) {
+  if (!pref) return true;
+  if (pref.email_enabled === false) return false;
+  const criticalAllowed = critical && pref.reserve_critical_email !== false;
+  if (pref[column] === false && !criticalAllowed) return false;
+  return true;
+}
+
+async function shouldSendConfigurableEmail(type, email, body) {
+  const columnByType = {
+    'reserve-created': 'reserve_created_email',
+    'reserve-status-changed': 'reserve_status_email',
+    'reserve-overdue': 'reserve_overdue_email',
+  };
+  const column = columnByType[type];
+  if (!column) return true;
+  const supabase = getSupabaseAdmin();
+  if (!supabase) return true;
+  const normalizedEmail = String(email || '').trim().toLowerCase();
+  if (!normalizedEmail) return true;
+  const { data: profile, error: profileError } = await supabase
+    .from('profiles')
+    .select('id')
+    .eq('email', normalizedEmail)
+    .maybeSingle();
+  if (profileError || !profile?.id) return true;
+  const { data: pref, error: prefError } = await supabase
+    .from('notification_preferences')
+    .select('email_enabled, reserve_created_email, reserve_status_email, reserve_critical_email, reserve_overdue_email')
+    .eq('user_id', profile.id)
+    .maybeSingle();
+  if (prefError) {
+    console.warn('[email prefs] lecture impossible:', prefError.message);
+    return true;
+  }
+  return emailPreferenceAllows(pref, column, body?.priority === 'critical');
+}
+
 // Email notifications
 app.post('/api/send-email', async (req, res) => {
   const { type, ...body } = req.body || {};
@@ -945,6 +1051,9 @@ app.post('/api/send-email', async (req, res) => {
     } else {
       return res.status(400).json({ error: `Type inconnu: ${type}` });
     }
+
+    const allowedByPreferences = await shouldSendConfigurableEmail(type, to, body);
+    if (!allowedByPreferences) return res.json({ success: true, suppressed: true });
 
     const result = await sendEmail({ to, subject: template.subject, html: template.html });
     if (!result.success) return res.status(500).json({ error: result.error || "Échec de l'envoi" });
@@ -1035,6 +1144,7 @@ app.get('/api/cron/overdue-reserves', async (req, res) => {
     const { data: companies } = await supabase.from('companies').select('id, name, organization_id').in('organization_id', orgIds.length ? orgIds : ['__none__']);
     const { data: profiles } = await supabase.from('profiles').select('id, name, email, company_id, organization_id, role').in('organization_id', orgIds.length ? orgIds : ['__none__']);
     const { data: chantiers } = chantierIds.length ? await supabase.from('chantiers').select('id, name').in('id', chantierIds) : { data: [] };
+    const emailPrefsByUser = await preferencesForProfiles(supabase, (profiles || []).map(p => p.id));
 
     const companiesByOrg = new Map();
     for (const c of companies || []) { const a = companiesByOrg.get(c.organization_id) || []; a.push(c); companiesByOrg.set(c.organization_id, a); }
@@ -1067,6 +1177,7 @@ app.get('/api/cron/overdue-reserves', async (req, res) => {
         if (!escalate) {
           for (const company of matched) {
             for (const p of (profilesByCompany.get(company.id) || [])) {
+              if (!emailPreferenceAllows(emailPrefsByUser.get(p.id), 'reserve_overdue_email', r.priority === 'critical')) continue;
               const key = `${p.email.toLowerCase()}|${company.id}`;
               if (sentEmails.has(key)) continue; sentEmails.add(key);
               const tpl = reserveOverdueTemplate({ recipientName: p.name || p.email, reserveTitle: r.title, reserveId: r.id, deadline: r.deadline, daysLate, priority: r.priority, companyName: company.name, chantierName: r.chantier_id ? chantierName.get(r.chantier_id) : undefined, reserveCode: r.id, reserveUrl: buildReserveUrl(r.id, p.email) });
@@ -1078,6 +1189,7 @@ app.get('/api/cron/overdue-reserves', async (req, res) => {
           const admins = adminsByOrg.get(r.organization_id) || [];
           const companyNames = matched.map(c => c.name).join(', ');
           for (const a of admins) {
+            if (!emailPreferenceAllows(emailPrefsByUser.get(a.id), 'reserve_overdue_email', r.priority === 'critical')) continue;
             const key = a.email.toLowerCase(); if (sentEmails.has(key)) continue; sentEmails.add(key);
             const tpl = reserveOverdueTemplate({ recipientName: a.name || a.email, reserveTitle: r.title, reserveId: r.id, deadline: r.deadline, daysLate, priority: r.priority, companyName: companyNames, chantierName: r.chantier_id ? chantierName.get(r.chantier_id) : undefined, reserveCode: r.id, reserveUrl: buildReserveUrl(r.id, a.email) });
             const sendRes = await sendEmail({ to: a.email, subject: tpl.subject, html: tpl.html });
@@ -1085,9 +1197,11 @@ app.get('/api/cron/overdue-reserves', async (req, res) => {
           }
         }
 
-        const nextCount = escalate ? reminderCount : reminderCount + 1;
-        const { error: upErr } = await supabase.from('reserves').update({ overdue_last_notified_date: todayISO, overdue_reminder_count: nextCount }).eq('id', r.id);
-        if (upErr) { stats.errors++; } else if (sentForReserve > 0) { stats.notified++; }
+        if (sentForReserve > 0) {
+          const nextCount = escalate ? reminderCount : reminderCount + 1;
+          const { error: upErr } = await supabase.from('reserves').update({ overdue_last_notified_date: todayISO, overdue_reminder_count: nextCount }).eq('id', r.id);
+          if (upErr) { stats.errors++; } else { stats.notified++; }
+        }
       } catch (err) { stats.errors++; console.warn('[cron overdue] reserve', r.id, err.message); }
     }
     return res.json({ ok: true, stats });

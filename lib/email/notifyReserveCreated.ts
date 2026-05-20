@@ -83,6 +83,7 @@ export function notifyReserveStatusChanged(params: {
         reserveId: reserve.id,
         newStatus,
         previousStatus,
+        priority: reserve.priority,
         changedBy: changedByName,
         companyName: company.name,
         chantierName: chantier?.name,

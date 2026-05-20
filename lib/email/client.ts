@@ -4,7 +4,7 @@ function getBaseApiUrl(): string {
   if (Platform.OS === 'web' && typeof window !== 'undefined') {
     return window.location.origin;
   }
-  const apiUrl = process.env.EXPO_PUBLIC_API_URL;
+  const apiUrl = process.env.EXPO_PUBLIC_API_URL || process.env.EXPO_PUBLIC_APP_URL;
   if (apiUrl) return apiUrl;
   return '';
 }
@@ -116,6 +116,7 @@ export async function sendReserveStatusChangedEmail(params: {
   reserveId: string;
   newStatus: string;
   previousStatus?: string;
+  priority?: string;
   changedBy: string;
   companyName: string;
   chantierName?: string;

@@ -19,7 +19,7 @@ export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
 
 function getServiceClient() {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.EXPO_PUBLIC_SUPABASE_URL;
   const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
   if (!url || !serviceKey) return null;
   return createClient(url, serviceKey, { auth: { persistSession: false } });
@@ -35,6 +35,30 @@ function daysBetween(fromISO: string, toISO: string): number {
   const a = new Date(fromISO).getTime();
   const b = new Date(toISO).getTime();
   return Math.max(1, Math.round((b - a) / 86400000));
+}
+
+function overdueEmailAllowed(pref: any, critical = false) {
+  if (!pref) return true;
+  if (pref.email_enabled === false) return false;
+  const criticalAllowed = critical && pref.reserve_critical_email !== false;
+  if (pref.reserve_overdue_email === false && !criticalAllowed) return false;
+  return true;
+}
+
+async function preferencesForProfiles(supabase: any, profileIds: string[]) {
+  const ids = Array.from(new Set((profileIds ?? []).filter(Boolean)));
+  const map = new Map<string, any>();
+  if (ids.length === 0) return map;
+  const { data, error } = await supabase
+    .from('notification_preferences')
+    .select('user_id, email_enabled, reserve_overdue_email, reserve_critical_email')
+    .in('user_id', ids);
+  if (error) {
+    console.warn('[cron overdue] preferences indisponibles:', error.message);
+    return map;
+  }
+  for (const row of data ?? []) map.set(row.user_id, row);
+  return map;
 }
 
 export async function GET(req: NextRequest) {
@@ -77,6 +101,7 @@ export async function GET(req: NextRequest) {
       .from('profiles')
       .select('id, name, email, company_id, organization_id, role')
       .in('organization_id', orgIds.length ? orgIds : ['__none__']);
+    const prefsByUser = await preferencesForProfiles(supabase, (profiles ?? []).map((p: any) => p.id));
 
     const { data: chantiers } = chantierIds.length
       ? await supabase.from('chantiers').select('id, name').in('id', chantierIds)
@@ -145,6 +170,7 @@ export async function GET(req: NextRequest) {
           for (const company of matchedCompanies) {
             const recipients = profilesByCompany.get(company.id) ?? [];
             for (const p of recipients) {
+              if (!overdueEmailAllowed(prefsByUser.get(p.id), r.priority === 'critical')) continue;
               const key = `${p.email.toLowerCase()}|${company.id}`;
               if (sentEmails.has(key)) continue;
               sentEmails.add(key);
@@ -184,6 +210,7 @@ export async function GET(req: NextRequest) {
           }
           const escalationCompanyName = matchedCompanies.map((c: any) => c.name).join(', ');
           for (const a of admins) {
+            if (!overdueEmailAllowed(prefsByUser.get(a.id), r.priority === 'critical')) continue;
             const key = a.email.toLowerCase();
             if (sentEmails.has(key)) continue;
             sentEmails.add(key);
@@ -219,19 +246,21 @@ export async function GET(req: NextRequest) {
 
         // Mise à jour du flag : compteur incrémenté (cap utile pour la phase escalade
         // qui continue à tourner sans dépasser la limite déjà atteinte).
-        const nextCount = escalate ? reminderCount : reminderCount + 1;
-        const { error: upErr } = await supabase
-          .from('reserves')
-          .update({
-            overdue_last_notified_date: today,
-            overdue_reminder_count: nextCount,
-          })
-          .eq('id', r.id);
-        if (upErr) {
-          stats.errors++;
-          console.warn('[cron overdue] update flag échoué', r.id, upErr.message);
-        } else if (sentForReserve > 0) {
-          stats.notified++;
+        if (sentForReserve > 0) {
+          const nextCount = escalate ? reminderCount : reminderCount + 1;
+          const { error: upErr } = await supabase
+            .from('reserves')
+            .update({
+              overdue_last_notified_date: today,
+              overdue_reminder_count: nextCount,
+            })
+            .eq('id', r.id);
+          if (upErr) {
+            stats.errors++;
+            console.warn('[cron overdue] update flag échoué', r.id, upErr.message);
+          } else {
+            stats.notified++;
+          }
         }
       } catch (err: any) {
         stats.errors++;

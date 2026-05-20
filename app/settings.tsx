@@ -1,5 +1,5 @@
 import {
-  View, Text, StyleSheet, ScrollView, TextInput, TouchableOpacity, Alert, Platform, KeyboardAvoidingView,
+  View, Text, StyleSheet, ScrollView, TextInput, TouchableOpacity, Alert, Platform, KeyboardAvoidingView, Switch,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useState, useMemo, useEffect } from 'react';
@@ -10,11 +10,13 @@ import { useSettings } from '@/context/SettingsContext';
 import { useApp } from '@/context/AppContext';
 import { useAuth } from '@/context/AuthContext';
 import { useSubscription } from '@/context/SubscriptionContext';
-import { AttendanceRecord } from '@/constants/types';
+import { AttendanceRecord, NotificationPreferences } from '@/constants/types';
 import BottomNavBar from '@/components/BottomNavBar';
 import { supabase, isSupabaseConfigured } from '@/lib/supabase';
 import { getSessionFromStorage } from '@/lib/offlineCache';
 import { useNetwork } from '@/context/NetworkContext';
+import { useNotificationPreferences } from '@/context/NotificationPreferencesContext';
+import { usePushNotifications } from '@/context/PushNotificationsContext';
 
 function groupByDate(records: AttendanceRecord[]): Record<string, AttendanceRecord[]> {
   const groups: Record<string, AttendanceRecord[]> = {};
@@ -67,11 +69,13 @@ export default function SettingsScreen() {
   const { user, logout, permissions } = useAuth();
   const { organization, plan, subscription, seatUsed, seatMax } = useSubscription();
   const { queue, queueCount, isOnline, syncStatus, syncProgress, clearQueue, retrySync } = useNetwork();
+  const { preferences: notifPrefs, updatePreferences, isLoading: notifLoading, lastError: notifError } = useNotificationPreferences();
+  const { expoPushToken, permissionStatus, lastError: pushError } = usePushNotifications();
 
   const [nameInput, setNameInput] = useState(projectName);
   const [descInput, setDescInput] = useState(projectDescription);
   const [saving, setSaving] = useState(false);
-  const [activeTab, setActiveTab] = useState<'compte' | 'project' | 'attendance' | 'integrations'>('compte');
+  const [activeTab, setActiveTab] = useState<'compte' | 'notifications' | 'project' | 'attendance' | 'integrations'>('compte');
 
   const [nameEdit, setNameEdit] = useState(user?.name ?? '');
   const [savingName, setSavingName] = useState(false);
@@ -229,6 +233,70 @@ export default function SettingsScreen() {
     });
   }
   const diagOk = diag && !diag.loading && !diag.error && diagIssues.length === 0;
+  type NotificationBooleanKey = NonNullable<{
+    [K in keyof NotificationPreferences]: NotificationPreferences[K] extends boolean ? K : never
+  }[keyof NotificationPreferences]>;
+
+  function setNotif<K extends keyof NotificationPreferences>(key: K, value: NotificationPreferences[K]) {
+    void updatePreferences({ [key]: value } as Partial<NotificationPreferences>);
+  }
+
+  const pushStatus = permissionStatus === 'granted'
+    ? (expoPushToken ? 'Appareil enregistré' : 'Permission accordée')
+    : permissionStatus === 'denied'
+      ? 'Permission système refusée'
+      : permissionStatus === 'unsupported'
+        ? 'Non disponible sur web'
+        : 'Permission à demander';
+
+  const pushStatusColor = permissionStatus === 'granted' && notifPrefs.pushEnabled
+    ? '#10B981'
+    : permissionStatus === 'denied'
+      ? '#EF4444'
+      : '#F59E0B';
+
+  function renderSwitchRow(
+    key: NotificationBooleanKey,
+    title: string,
+    subtitle: string,
+    disabled = false,
+  ) {
+    const value = Boolean(notifPrefs[key]);
+    return (
+      <View style={[styles.prefRow, disabled && styles.prefRowDisabled]}>
+        <View style={{ flex: 1 }}>
+          <Text style={styles.prefTitle}>{title}</Text>
+          <Text style={styles.prefSub}>{subtitle}</Text>
+        </View>
+        <Switch
+          value={value}
+          disabled={disabled || notifLoading}
+          onValueChange={next => setNotif(key, next as any)}
+          trackColor={{ false: '#D1D5DB', true: C.primary + '66' }}
+          thumbColor={value ? C.primary : '#F9FAFB'}
+        />
+      </View>
+    );
+  }
+
+  function renderTimeChips(key: 'quietHoursStart' | 'quietHoursEnd', options: string[]) {
+    return (
+      <View style={styles.prefChipRow}>
+        {options.map(option => {
+          const active = notifPrefs[key] === option;
+          return (
+            <TouchableOpacity
+              key={`${key}-${option}`}
+              style={[styles.timeChip, active && styles.timeChipActive]}
+              onPress={() => setNotif(key, option)}
+            >
+              <Text style={[styles.timeChipText, active && styles.timeChipTextActive]}>{option}</Text>
+            </TouchableOpacity>
+          );
+        })}
+      </View>
+    );
+  }
 
   function handleClearQueue() {
     if (queueCount === 0) return;
@@ -371,6 +439,7 @@ export default function SettingsScreen() {
       <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.tabScroll} contentContainerStyle={styles.tabRow}>
         {[
           { key: 'compte',       icon: 'person-circle-outline', label: 'Compte',          nav: false },
+          { key: 'notifications', icon: 'notifications-outline', label: 'Notifications',   nav: false },
           ...((user?.role === 'admin' || user?.role === 'super_admin') ? [{ key: 'abonnement', icon: 'card-outline', label: 'Abonnement', nav: true }] : []),
           { key: 'project',      icon: 'construct-outline',     label: 'Projet',          nav: false },
           ...(!isSousTraitant ? [{ key: 'attendance', icon: 'people-outline', label: `Présences (${totalDays})`, nav: false }] : []),
@@ -703,6 +772,91 @@ export default function SettingsScreen() {
               <Text style={[styles.navLabel, { color: '#EF4444', flex: 1 }]}>Déconnexion</Text>
               <Ionicons name="chevron-forward" size={16} color="#EF4444" />
             </TouchableOpacity>
+          </View>
+        )}
+
+        {activeTab === 'notifications' && (
+          <View>
+            <View style={[styles.card, { marginBottom: 14 }]}>
+              <View style={styles.cardTitleRow}>
+                <Ionicons name="phone-portrait-outline" size={16} color={C.primary} />
+                <Text style={styles.cardTitle}>Etat de l'appareil</Text>
+              </View>
+              <View style={styles.prefStatusRow}>
+                <View style={[styles.statusDot, { backgroundColor: pushStatusColor }]} />
+                <Text style={[styles.prefTitle, { flex: 1 }]}>{pushStatus}</Text>
+              </View>
+              {!!(notifError || pushError) && (
+                <View style={styles.diagAlertWarn}>
+                  <Ionicons name="warning-outline" size={15} color="#92400E" />
+                  <Text style={styles.diagAlertTextWarn}>{notifError || pushError}</Text>
+                </View>
+              )}
+            </View>
+
+            <View style={[styles.card, { marginBottom: 14 }]}>
+              <View style={styles.cardTitleRow}>
+                <Ionicons name="options-outline" size={16} color={C.primary} />
+                <Text style={styles.cardTitle}>Canaux</Text>
+              </View>
+              {renderSwitchRow('inAppEnabled', 'Notifications app', 'Alertes visibles dans le centre de notifications BuildTrack.')}
+              {renderSwitchRow('pushEnabled', 'Notifications push', 'Alertes natives sur tablette ou téléphone.')}
+              {renderSwitchRow('emailEnabled', 'Notifications email', 'Emails automatiques liés aux réserves et rappels chantier.')}
+              {renderSwitchRow('quietHoursEnabled', 'Heures calmes', 'Suspend les push non critiques pendant le créneau choisi.')}
+              {notifPrefs.quietHoursEnabled && (
+                <View style={styles.prefTimeBlock}>
+                  <Text style={styles.label}>Début</Text>
+                  {renderTimeChips('quietHoursStart', ['18:00', '19:00', '20:00', '21:00'])}
+                  <Text style={styles.label}>Fin</Text>
+                  {renderTimeChips('quietHoursEnd', ['06:00', '07:00', '08:00', '09:00'])}
+                </View>
+              )}
+            </View>
+
+            <View style={[styles.card, { marginBottom: 14 }]}>
+              <View style={styles.cardTitleRow}>
+                <Ionicons name="chatbubbles-outline" size={16} color={C.primary} />
+                <Text style={styles.cardTitle}>Messages</Text>
+              </View>
+              {renderSwitchRow('messagesInApp', 'Alertes app messages', 'Prépare le réglage des alertes de conversation dans BuildTrack.', !notifPrefs.inAppEnabled)}
+              {renderSwitchRow('messagesPush', 'Push messages', 'Prévenir lorsqu un message arrive.', !notifPrefs.pushEnabled)}
+            </View>
+
+            <View style={[styles.card, { marginBottom: 14 }]}>
+              <View style={styles.cardTitleRow}>
+                <Ionicons name="warning-outline" size={16} color={C.primary} />
+                <Text style={styles.cardTitle}>Réserves</Text>
+              </View>
+              {renderSwitchRow('reserveCreatedPush', 'Push création', 'Nouvelle réserve affectée à votre entreprise.', !notifPrefs.pushEnabled)}
+              {renderSwitchRow('reserveCreatedEmail', 'Email création', 'Email lors d une nouvelle réserve.', !notifPrefs.emailEnabled)}
+              {renderSwitchRow('reserveStatusPush', 'Push statut', 'Changement de statut sur une réserve suivie.', !notifPrefs.pushEnabled)}
+              {renderSwitchRow('reserveStatusEmail', 'Email statut', 'Email lors d un changement de statut.', !notifPrefs.emailEnabled)}
+              {renderSwitchRow('reserveCriticalInApp', 'Critiques dans l app', 'Réserves critiques visibles dans le centre de notifications.', !notifPrefs.inAppEnabled)}
+              {renderSwitchRow('reserveCriticalPush', 'Push critiques', 'Alerte mobile pour les réserves critiques.', !notifPrefs.pushEnabled)}
+              {renderSwitchRow('reserveCriticalEmail', 'Email critiques', 'Email pour les réserves critiques.', !notifPrefs.emailEnabled)}
+              {renderSwitchRow('criticalAlwaysPush', 'Critiques hors heures calmes', 'Laisse passer les push critiques même pendant les heures calmes.', !notifPrefs.pushEnabled || !notifPrefs.quietHoursEnabled)}
+            </View>
+
+            <View style={[styles.card, { marginBottom: 14 }]}>
+              <View style={styles.cardTitleRow}>
+                <Ionicons name="alarm-outline" size={16} color={C.primary} />
+                <Text style={styles.cardTitle}>Echéances et retards</Text>
+              </View>
+              {renderSwitchRow('dueSoonInApp', 'Echéances proches', 'Alertes app pour les échéances dans les 3 jours.', !notifPrefs.inAppEnabled)}
+              {renderSwitchRow('reserveOverdueInApp', 'Retards dans l app', 'Réserves en retard dans le centre de notifications.', !notifPrefs.inAppEnabled)}
+              {renderSwitchRow('reserveOverduePush', 'Push retards', 'Rappel mobile pour les réserves en retard.', !notifPrefs.pushEnabled)}
+              {renderSwitchRow('reserveOverdueEmail', 'Email retards', 'Rappel email quotidien et escalade admin.', !notifPrefs.emailEnabled)}
+              {renderSwitchRow('taskLateInApp', 'Tâches en retard', 'Tâches chantier en retard dans l app.', !notifPrefs.inAppEnabled)}
+            </View>
+
+            <View style={styles.infoCard}>
+              <View style={styles.infoRow}>
+                <Ionicons name="lock-closed-outline" size={16} color={C.primary} />
+                <Text style={styles.infoText}>
+                  Les emails de sécurité, invitations, accès révoqué et mot de passe restent obligatoires pour protéger les comptes.
+                </Text>
+              </View>
+            </View>
           </View>
         )}
 
@@ -1105,6 +1259,21 @@ const styles = StyleSheet.create({
   coName: { flex: 1, fontSize: 13, fontFamily: 'Inter_400Regular', color: C.text },
   coVal: { fontSize: 13, fontFamily: 'Inter_600SemiBold', minWidth: 60, textAlign: 'right' },
   coHours: { fontSize: 12, fontFamily: 'Inter_400Regular', color: C.textMuted, minWidth: 36, textAlign: 'right' },
+
+  prefStatusRow: {
+    flexDirection: 'row', alignItems: 'center', gap: 8,
+    backgroundColor: C.surface2, borderRadius: 10, paddingHorizontal: 12, paddingVertical: 10,
+    borderWidth: 1, borderColor: C.border,
+  },
+  prefRow: {
+    flexDirection: 'row', alignItems: 'center', gap: 12,
+    paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: C.border,
+  },
+  prefRowDisabled: { opacity: 0.55 },
+  prefTitle: { fontSize: 14, fontFamily: 'Inter_600SemiBold', color: C.text },
+  prefSub: { fontSize: 12, fontFamily: 'Inter_400Regular', color: C.textMuted, marginTop: 2, lineHeight: 17 },
+  prefTimeBlock: { marginTop: 8, backgroundColor: C.surface2, borderRadius: 12, padding: 12, borderWidth: 1, borderColor: C.border },
+  prefChipRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 8 },
 
   snapshotBtn: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8,

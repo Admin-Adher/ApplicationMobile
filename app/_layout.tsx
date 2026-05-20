@@ -23,6 +23,7 @@ import { ReglementaireProvider } from '@/context/ReglementaireContext';
 import { SubscriptionProvider } from '@/context/SubscriptionContext';
 import { NetworkProvider } from '@/context/NetworkContext';
 import { NotificationsProvider } from '@/context/NotificationsContext';
+import { NotificationPreferencesProvider } from '@/context/NotificationPreferencesContext';
 import { PushNotificationsProvider } from '@/context/PushNotificationsContext';
 import NotificationBanner from '@/components/NotificationBanner';
 import OfflineBanner from '@/components/OfflineBanner';
@@ -271,6 +272,7 @@ export default function RootLayout() {
       <AuthProvider>
         <SubscriptionProvider>
         <NetworkProvider>
+        <NotificationPreferencesProvider>
         <AppProvider>
           <SettingsProvider>
             <IncidentsProvider>
@@ -346,6 +348,7 @@ export default function RootLayout() {
             </IncidentsProvider>
           </SettingsProvider>
         </AppProvider>
+        </NotificationPreferencesProvider>
         </NetworkProvider>
         </SubscriptionProvider>
       </AuthProvider>

@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { createClient } from '@supabase/supabase-js';
 import { sendEmail } from '@/lib/sender';
 import {
   invitationEmail,
@@ -22,13 +23,60 @@ function safeReserveUrl(reserveId: string, recipientEmail: string): string {
   }
 }
 
+function serviceClient() {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.EXPO_PUBLIC_SUPABASE_URL;
+  const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  if (!url || !serviceKey) return null;
+  return createClient(url, serviceKey, { auth: { autoRefreshToken: false, persistSession: false } });
+}
+
+function emailPreferenceAllows(pref: any, column: string, critical = false) {
+  if (!pref) return true;
+  if (pref.email_enabled === false) return false;
+  const criticalAllowed = critical && pref.reserve_critical_email !== false;
+  if (pref[column] === false && !criticalAllowed) return false;
+  return true;
+}
+
+async function shouldSendConfigurableEmail(type: string, email: string, body: any) {
+  const columnByType: Record<string, string> = {
+    'reserve-created': 'reserve_created_email',
+    'reserve-status-changed': 'reserve_status_email',
+    'reserve-overdue': 'reserve_overdue_email',
+  };
+  const column = columnByType[type];
+  if (!column) return true;
+  const supabase = serviceClient();
+  if (!supabase) return true;
+  const normalizedEmail = String(email ?? '').trim().toLowerCase();
+  if (!normalizedEmail) return true;
+  const { data: profile, error: profileError } = await supabase
+    .from('profiles')
+    .select('id')
+    .eq('email', normalizedEmail)
+    .maybeSingle();
+  if (profileError || !profile?.id) return true;
+  const { data: pref, error: prefError } = await supabase
+    .from('notification_preferences')
+    .select('email_enabled, reserve_created_email, reserve_status_email, reserve_critical_email, reserve_overdue_email')
+    .eq('user_id', profile.id)
+    .maybeSingle();
+  if (prefError) {
+    console.warn('[email prefs] lecture impossible:', prefError.message);
+    return true;
+  }
+  return emailPreferenceAllows(pref, column, body?.priority === 'critical');
+}
+
 export async function POST(req: NextRequest) {
   const origin = req.headers.get('origin') ?? '';
   const allowed = [
+    process.env.EXPO_PUBLIC_APP_URL,
+    process.env.NEXT_PUBLIC_APP_URL,
     'https://buildtrack-mobile.vercel.app',
     'http://localhost:5000',
     'http://localhost:3000',
-  ];
+  ].filter(Boolean) as string[];
   const corsOrigin = allowed.includes(origin) ? origin : allowed[0];
 
   const headers = {
@@ -129,6 +177,11 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: `Type inconnu: ${type}` }, { status: 400, headers });
     }
 
+    const allowedByPreferences = await shouldSendConfigurableEmail(type, to, body);
+    if (!allowedByPreferences) {
+      return NextResponse.json({ success: true, suppressed: true }, { headers });
+    }
+
     const result = await sendEmail({ to, subject: template.subject, html: template.html });
     if (!result.success) {
       return NextResponse.json({ error: result.error ?? "Échec de l'envoi" }, { status: 500, headers });
@@ -143,10 +196,12 @@ export async function POST(req: NextRequest) {
 export async function OPTIONS(req: NextRequest) {
   const origin = req.headers.get('origin') ?? '';
   const allowed = [
+    process.env.EXPO_PUBLIC_APP_URL,
+    process.env.NEXT_PUBLIC_APP_URL,
     'https://buildtrack-mobile.vercel.app',
     'http://localhost:5000',
     'http://localhost:3000',
-  ];
+  ].filter(Boolean) as string[];
   const corsOrigin = allowed.includes(origin) ? origin : allowed[0];
   return new NextResponse(null, {
     status: 204,

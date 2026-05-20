@@ -62,6 +62,71 @@ function isExpoPushToken(token: unknown) {
   );
 }
 
+type PushPreferenceColumn =
+  | 'messages_push'
+  | 'reserve_created_push'
+  | 'reserve_status_push'
+  | 'reserve_critical_push'
+  | 'reserve_overdue_push';
+
+function parseMinutes(value: unknown, fallback: number) {
+  const match = String(value ?? '').match(/^(\d{2}):(\d{2})$/);
+  if (!match) return fallback;
+  return Number(match[1]) * 60 + Number(match[2]);
+}
+
+function minutesInTimezone(timezone: string) {
+  try {
+    const parts = new Intl.DateTimeFormat('en-GB', {
+      timeZone: timezone || 'Europe/Paris',
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: false,
+    }).formatToParts(new Date());
+    const hour = Number(parts.find(p => p.type === 'hour')?.value ?? '0');
+    const minute = Number(parts.find(p => p.type === 'minute')?.value ?? '0');
+    return hour * 60 + minute;
+  } catch {
+    const now = new Date();
+    return now.getHours() * 60 + now.getMinutes();
+  }
+}
+
+function isQuietHour(pref: any) {
+  if (!pref?.quiet_hours_enabled) return false;
+  const current = minutesInTimezone(pref.quiet_hours_timezone ?? 'Europe/Paris');
+  const start = parseMinutes(pref.quiet_hours_start, 19 * 60);
+  const end = parseMinutes(pref.quiet_hours_end, 7 * 60);
+  if (start === end) return false;
+  if (start < end) return current >= start && current < end;
+  return current >= start || current < end;
+}
+
+function pushPreferenceAllows(pref: any, column: PushPreferenceColumn, critical = false) {
+  if (!pref) return true;
+  if (pref.push_enabled === false) return false;
+  const criticalAllowed = critical && pref.reserve_critical_push !== false;
+  if (pref[column] === false && !criticalAllowed) return false;
+  if (isQuietHour(pref) && !(criticalAllowed && pref.critical_always_push !== false)) return false;
+  return true;
+}
+
+async function preferencesForProfiles(supabase: any, profileIds: string[]) {
+  const ids = Array.from(new Set((profileIds ?? []).filter(Boolean)));
+  const map = new Map<string, any>();
+  if (ids.length === 0) return map;
+  const { data, error } = await supabase
+    .from('notification_preferences')
+    .select('user_id, push_enabled, messages_push, reserve_created_push, reserve_status_push, reserve_critical_push, reserve_overdue_push, critical_always_push, quiet_hours_enabled, quiet_hours_start, quiet_hours_end, quiet_hours_timezone')
+    .in('user_id', ids);
+  if (error) {
+    console.warn('[push prefs] lecture impossible:', error.message);
+    return map;
+  }
+  for (const row of data ?? []) map.set(row.user_id, row);
+  return map;
+}
+
 async function authenticatedProfile(req: NextRequest, supabase: any) {
   const auth = req.headers.get('authorization') ?? '';
   const token = auth.startsWith('Bearer ') ? auth.slice(7).trim() : null;
@@ -78,7 +143,12 @@ async function authenticatedProfile(req: NextRequest, supabase: any) {
   return profile;
 }
 
-async function enabledTokensForProfiles(supabase: any, profileIds: string[]) {
+async function enabledTokensForProfiles(
+  supabase: any,
+  profileIds: string[],
+  column: PushPreferenceColumn,
+  critical = false,
+) {
   const ids = Array.from(new Set((profileIds ?? []).filter(Boolean)));
   if (ids.length === 0) return [];
   const { data, error } = await supabase
@@ -87,8 +157,10 @@ async function enabledTokensForProfiles(supabase: any, profileIds: string[]) {
     .eq('enabled', true)
     .in('user_id', ids);
   if (error) throw error;
+  const prefs = await preferencesForProfiles(supabase, ids);
   const seen = new Set<string>();
   return (data ?? []).filter((row: any) => {
+    if (!pushPreferenceAllows(prefs.get(row.user_id), column, critical)) return false;
     if (!isExpoPushToken(row.token) || seen.has(row.token)) return false;
     seen.add(row.token);
     return true;
@@ -212,7 +284,7 @@ async function pushForMessage(supabase: any, profile: any, body: any) {
     throw Object.assign(new Error('Seul l expediteur peut notifier ce message'), { statusCode: 403 });
   }
   const recipientIds = await resolveMessageRecipientProfileIds(supabase, message, profile);
-  const tokens = await enabledTokensForProfiles(supabase, recipientIds);
+  const tokens = await enabledTokensForProfiles(supabase, recipientIds, 'messages_push');
   const pushStats = await sendExpoPushMessages(supabase, tokens.map((row: any) => ({
     to: row.token,
     sound: 'default',
@@ -238,7 +310,13 @@ async function pushForReserve(supabase: any, profile: any, body: any, statusChan
   }
 
   const recipientIds = await resolveReserveRecipientProfileIds(supabase, reserve);
-  const tokens = await enabledTokensForProfiles(supabase, recipientIds.filter((id: string) => id !== profile.id));
+  const isCritical = reserve.priority === 'critical';
+  const tokens = await enabledTokensForProfiles(
+    supabase,
+    recipientIds.filter((id: string) => id !== profile.id),
+    statusChange ? 'reserve_status_push' : 'reserve_created_push',
+    isCritical,
+  );
   const statusLabel = STATUS_LABELS_FR[body.newStatus || reserve.status] || body.newStatus || reserve.status;
   const title = statusChange ? 'Statut de reserve modifie' : 'Nouvelle reserve';
   const fallback = statusChange ? `${reserve.id} - ${statusLabel}` : `${reserve.id} - ${reserve.title}`;
@@ -279,6 +357,7 @@ async function pushOverdueReserves(supabase: any) {
   const { data: companies } = await supabase.from('companies').select('id, name, organization_id').in('organization_id', orgIds);
   const { data: profiles } = await supabase.from('profiles').select('id, name, company_id, organization_id, role').in('organization_id', orgIds);
   const { data: tokens } = await supabase.from('push_tokens').select('token, user_id').eq('enabled', true).in('organization_id', orgIds);
+  const prefsByUser = await preferencesForProfiles(supabase, (profiles ?? []).map((p: any) => p.id));
 
   const companiesByOrg = new Map<string, any[]>();
   for (const c of companies ?? []) {
@@ -327,6 +406,7 @@ async function pushOverdueReserves(supabase: any) {
       const seenUsers = new Set<string>();
       const messages: any[] = [];
       for (const profileRow of recipients) {
+        if (!pushPreferenceAllows(prefsByUser.get(profileRow.id), 'reserve_overdue_push', reserve.priority === 'critical')) continue;
         if (seenUsers.has(profileRow.id)) continue;
         seenUsers.add(profileRow.id);
         for (const token of tokensByUser.get(profileRow.id) ?? []) {

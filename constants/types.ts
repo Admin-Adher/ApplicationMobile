@@ -57,6 +57,37 @@ export interface User {
   permissionsOverride?: PermissionsOverride;
 }
 
+export interface NotificationPreferences {
+  userId?: string;
+  organizationId?: string | null;
+  inAppEnabled: boolean;
+  pushEnabled: boolean;
+  emailEnabled: boolean;
+  messagesInApp: boolean;
+  messagesPush: boolean;
+  messagesEmail: boolean;
+  reserveCreatedInApp: boolean;
+  reserveCreatedPush: boolean;
+  reserveCreatedEmail: boolean;
+  reserveStatusInApp: boolean;
+  reserveStatusPush: boolean;
+  reserveStatusEmail: boolean;
+  reserveCriticalInApp: boolean;
+  reserveCriticalPush: boolean;
+  reserveCriticalEmail: boolean;
+  reserveOverdueInApp: boolean;
+  reserveOverduePush: boolean;
+  reserveOverdueEmail: boolean;
+  dueSoonInApp: boolean;
+  taskLateInApp: boolean;
+  criticalAlwaysPush: boolean;
+  quietHoursEnabled: boolean;
+  quietHoursStart: string;
+  quietHoursEnd: string;
+  quietHoursTimezone: string;
+  updatedAt?: string;
+}
+
 export interface Organization {
   id: string;
   name: string;

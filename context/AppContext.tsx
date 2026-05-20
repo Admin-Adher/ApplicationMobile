@@ -10,6 +10,7 @@ import { supabase, isSupabaseConfigured } from '@/lib/supabase';
 import { consumeIntentionalLogout } from '@/lib/authIntent';
 import { useAuth, globalSeedingRef, registerInProgressRef, loginInProgressRef } from '@/context/AuthContext';
 import { useNetwork } from '@/context/NetworkContext';
+import { useNotificationPreferences } from '@/context/NotificationPreferencesContext';
 import { initStorageBuckets } from '@/lib/storage';
 import { clearPersistedRqCache } from '@/lib/queryPersister';
 import { C } from '@/constants/colors';
@@ -192,6 +193,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const messagesH = useMessages();
   const authH = useAuth();
   const { isOnline, enqueueOperation, queueLoaded } = useNetwork();
+  const { preferences: notificationPreferences } = useNotificationPreferences();
 
   useRealtimeSync();
 
@@ -479,6 +481,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     if (!isSupabaseConfigured) return;
     messagesH.registerIncomingMessageHandler((msg: Message, raw: any) => {
+      if (!notificationPreferences.inAppEnabled || !notificationPreferences.messagesInApp) return;
       if (msg.isMe) return;
       if (activeChannelIdRef.current === msg.channelId) return;
       const ch = channelsRef.current.find(c => c.id === msg.channelId);
@@ -498,7 +501,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       });
     });
     return () => { messagesH.registerIncomingMessageHandler(null); };
-  }, [messagesH.registerIncomingMessageHandler]);
+  }, [messagesH.registerIncomingMessageHandler, notificationPreferences.inAppEnabled, notificationPreferences.messagesInApp]);
 
   const setActiveChantier = useCallback((id: string) => {
     setActiveChantierIdState(id);

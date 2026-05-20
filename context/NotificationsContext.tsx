@@ -2,6 +2,7 @@ import React, { createContext, useContext, useEffect, useState, useCallback } fr
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useApp } from '@/context/AppContext';
 import { useAuth } from '@/context/AuthContext';
+import { useNotificationPreferences } from '@/context/NotificationPreferencesContext';
 import { parseDeadline, isOverdue } from '@/lib/reserveUtils';
 import { isSameUserName } from '@/lib/mappers';
 
@@ -52,6 +53,7 @@ export function useNotifications() {
 export function NotificationsProvider({ children }: { children: React.ReactNode }) {
   const { reserves, tasks, activeChantierId, companies } = useApp();
   const { user } = useAuth();
+  const { preferences } = useNotificationPreferences();
   const [seenIds, setSeenIds] = useState<Set<string>>(new Set());
   const seenKey = SEEN_PREFIX + (user?.id ?? 'anon');
 
@@ -76,6 +78,7 @@ export function NotificationsProvider({ children }: { children: React.ReactNode 
 
   const notifications: AppNotification[] = React.useMemo(() => {
     const result: AppNotification[] = [];
+    if (!preferences.inAppEnabled) return result;
     const today = new Date();
     today.setHours(0, 0, 0, 0);
 
@@ -101,7 +104,7 @@ export function NotificationsProvider({ children }: { children: React.ReactNode 
       const isCritical = r.priority === 'critical' && r.status !== 'closed';
       const isLate = r.status !== 'closed' && isOverdue(r.deadline, r.status);
 
-      if (isCritical) {
+      if (isCritical && preferences.reserveCriticalInApp) {
         result.push({
           id: `crit_${r.id}`,
           type: 'critical_reserve',
@@ -112,7 +115,7 @@ export function NotificationsProvider({ children }: { children: React.ReactNode 
           createdAt: r.createdAt,
           read: seenIds.has(`crit_${r.id}`),
         });
-      } else if (isLate) {
+      } else if (isLate && preferences.reserveOverdueInApp) {
         result.push({
           id: `late_${r.id}`,
           type: 'overdue_reserve',
@@ -124,7 +127,7 @@ export function NotificationsProvider({ children }: { children: React.ReactNode 
           read: seenIds.has(`late_${r.id}`),
         });
       }
-      if (r.status !== 'closed' && r.deadline && r.deadline !== '—') {
+      if (preferences.dueSoonInApp && r.status !== 'closed' && r.deadline && r.deadline !== '—') {
         const deadlineDate = parseDeadline(r.deadline);
         if (deadlineDate !== null) {
           const daysLeft = Math.floor((deadlineDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
@@ -154,7 +157,7 @@ export function NotificationsProvider({ children }: { children: React.ReactNode 
     }
 
     for (const t of activeTasks) {
-      if (t.status !== 'done') {
+      if (preferences.taskLateInApp && t.status !== 'done') {
         const d = parseDeadline(t.deadline);
         const isLate = t.status === 'delayed' || (d !== null && d < today);
         if (isLate) {
@@ -174,7 +177,7 @@ export function NotificationsProvider({ children }: { children: React.ReactNode 
 
     result.sort((a, b) => parseSortable(b.createdAt) - parseSortable(a.createdAt));
     return result;
-  }, [reserves, tasks, activeChantierId, seenIds, user, companies]);
+  }, [reserves, tasks, activeChantierId, seenIds, user, companies, preferences]);
 
   // Prune seenIds whenever the notification set changes —
   // removes stale IDs for notifications that no longer exist
