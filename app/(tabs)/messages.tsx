@@ -1,6 +1,6 @@
 import {
   View, Text, StyleSheet, ScrollView, TouchableOpacity, TextInput,
-  Platform, Alert, Modal, TouchableWithoutFeedback, FlatList, InteractionManager,
+  Platform, Alert, Modal, TouchableWithoutFeedback, FlatList,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -328,11 +328,23 @@ export default function MessagesTabScreen() {
     } as any);
   }
 
+  function routeParam(value: string | undefined): string {
+    return encodeURIComponent(value ?? '');
+  }
+
   function goToCompanyChannel(ch: Channel) {
-    setCompanyDirectoryVisible(false);
-    InteractionManager.runAfterInteractions(() => {
-      goToChannel(ch);
-    });
+    if (companyDirectoryVisible) setCompanyDirectoryVisible(false);
+    const query = [
+      `name=${routeParam(ch.name)}`,
+      `color=${routeParam(ch.color)}`,
+      `icon=${routeParam(ch.icon)}`,
+      'isDM=0',
+      'isGroup=0',
+      `members=${routeParam(ch.members ? ch.members.join(',') : '')}`,
+      'searchQuery=',
+      'focusMessageId=',
+    ].join('&');
+    router.push(`/channel/${routeParam(ch.id)}?${query}` as any);
   }
 
   function handleCreateChannel(name: string, description: string, icon: string, color: string) {
