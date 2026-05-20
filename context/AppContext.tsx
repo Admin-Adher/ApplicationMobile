@@ -701,20 +701,32 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     }));
   }, [companiesH.companies]);
 
+  const messageStateByChannel = useMemo(() => {
+    const state = new Map<string, { count: number; latestTime: number }>();
+    for (const msg of messagesH.messages) {
+      if (!msg.channelId) continue;
+      const current = state.get(msg.channelId) ?? { count: 0, latestTime: 0 };
+      current.count += 1;
+      current.latestTime = Math.max(current.latestTime, getMessageTimeMs(msg));
+      state.set(msg.channelId, current);
+    }
+    return state;
+  }, [messagesH.messages]);
+
   const allChannels = useMemo(() => {
     // Fix DM names: always show the interlocutor's name, not the current user's name
     const myName = currentUserName;
     const fixedDmChannels = channelsH.persistedDmChannels.flatMap(ch => {
       if (ch.type !== 'dm') return ch;
-      const channelMessages = messagesH.messages.filter(m => m.channelId === ch.id);
+      const channelMessageState = messageStateByChannel.get(ch.id);
       const hasAnyMessage =
-        channelMessages.length > 0 ||
+        (channelMessageState?.count ?? 0) > 0 ||
         channelsH.dmChannelIdsWithMessages.has(ch.id);
       if (!hasAnyMessage) return [];
       const hiddenAt = channelsH.hiddenDmChannelIds[ch.id];
       if (hiddenAt) {
         const hiddenAtMs = new Date(hiddenAt).getTime();
-        const hasMessageAfterHidden = channelMessages.some(m => getMessageTimeMs(m) > hiddenAtMs);
+        const hasMessageAfterHidden = (channelMessageState?.latestTime ?? 0) > hiddenAtMs;
         if (!hasMessageAfterHidden) return [];
       }
       const participants = getDmParticipants(ch.id, ch.members, ch.dmParticipants);
@@ -748,7 +760,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     channelsH.generalChannels, channelsH.customChannels,
     channelsH.groupChannels, channelsH.persistedDmChannels,
     channelsH.dmChannelIdsWithMessages, channelsH.hiddenDmChannelIds,
-    messagesH.messages, companyChannels, currentUserName,
+    messageStateByChannel, companyChannels, currentUserName,
   ]);
 
   // Fix 7: unreadByChannel uses lastReadByChannelRef to avoid stale closure issues

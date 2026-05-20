@@ -12,6 +12,7 @@ import { triggerMessagePush } from '@/lib/push/client';
 
 const MOCK_MESSAGES_KEY = 'buildtrack_mock_messages_v2';
 const MESSAGES_CACHE_PREFIX = 'buildtrack_messages_cache_v1_';
+const READ_RECEIPT_SYNC_LIMIT = 300;
 
 export function useMessages() {
   const { user } = useAuth();
@@ -352,14 +353,23 @@ export function useMessages() {
   }, []);
 
   const setChannelRead = useCallback((channelId: string, userName: string) => {
-    // Bug 8: collect unread IDs from the setMessages callback to avoid stale messagesRef
-    let unreadIds: string[] = [];
+    const idsToMark: string[] = [];
+    for (let i = messagesRef.current.length - 1; i >= 0 && idsToMark.length < READ_RECEIPT_SYNC_LIMIT; i -= 1) {
+      const m = messagesRef.current[i];
+      if (m.channelId !== channelId) continue;
+      if (m.isMe || isSameUserName(m.sender, userName)) continue;
+      const readBy = normalizeMessageReadBy(m.readBy);
+      if (readBy.some(name => isSameUserName(name, userName))) continue;
+      idsToMark.push(m.id);
+    }
+    const idsToMarkSet = new Set(idsToMark);
+    let unreadIds: string[] = idsToMark;
     setMessages(prev => {
       let changed = false;
       const updated = prev.map(m => {
         if (m.channelId !== channelId) return m;
         if (m.isMe || isSameUserName(m.sender, userName)) {
-          if (m.isMe) return m;
+          if (m.isMe && m.read) return m;
           changed = true;
           return { ...m, isMe: true, read: true };
         }
@@ -369,8 +379,7 @@ export function useMessages() {
           changed = true;
           return { ...m, readBy };
         }
-        unreadIds.push(m.id);
-        // Fix: also set read=true so unreadByChannel computation is correct
+        if (!idsToMarkSet.has(m.id)) return m;
         changed = true;
         return { ...m, readBy: [...readBy, userName], read: true };
       });

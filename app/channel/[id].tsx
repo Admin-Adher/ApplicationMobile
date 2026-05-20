@@ -95,6 +95,66 @@ function TypingIndicator({ users }: { users: string[] }) {
 
 type ListItem = Message | { _type: 'date'; label: string; key: string };
 
+const PAGE_SIZE = 50;
+const SEARCH_RESULT_CAP = 300;
+const CHANNEL_MESSAGE_WINDOW_BASE = 250;
+const CHANNEL_MESSAGE_WINDOW_MAX = 1000;
+
+function selectChannelMessagesForRender(
+  allMessages: Message[],
+  channelId: string | undefined,
+  userName: string | undefined,
+  limit: number,
+  focusMessageId?: string,
+): Message[] {
+  if (!channelId) return [];
+
+  const cap = Math.max(PAGE_SIZE, Math.min(limit, CHANNEL_MESSAGE_WINDOW_MAX));
+  const bucket: { msg: Message; time: number }[] = [];
+  let focused: { msg: Message; time: number } | null = null;
+
+  for (const source of allMessages) {
+    if (source.channelId !== channelId) continue;
+
+    const isMe = userName ? isSameUserName(source.sender, userName) : source.isMe;
+    const read = isMe || source.read;
+    const msg = source.isMe === isMe && source.read === read
+      ? source
+      : { ...source, isMe, read };
+    const time = getMessageTimeMs(msg);
+
+    if (focusMessageId && msg.id === focusMessageId) {
+      focused = { msg, time };
+    }
+
+    bucket.push({ msg, time });
+    if (bucket.length > cap * 2) {
+      bucket.sort((a, b) => {
+        const timeDiff = b.time - a.time;
+        return timeDiff !== 0 ? timeDiff : b.msg.id.localeCompare(a.msg.id);
+      });
+      bucket.length = cap;
+    }
+  }
+
+  bucket.sort((a, b) => {
+    const timeDiff = b.time - a.time;
+    return timeDiff !== 0 ? timeDiff : b.msg.id.localeCompare(a.msg.id);
+  });
+  bucket.length = Math.min(bucket.length, cap);
+
+  if (focused && !bucket.some(item => item.msg.id === focused!.msg.id)) {
+    bucket.push(focused);
+  }
+
+  bucket.sort((a, b) => {
+    const timeDiff = a.time - b.time;
+    return timeDiff !== 0 ? timeDiff : a.msg.id.localeCompare(b.msg.id);
+  });
+
+  return bucket.map(item => item.msg);
+}
+
 export default function ChannelScreen() {
   const insets = useSafeAreaInsets();
   const {
@@ -174,7 +234,6 @@ export default function ChannelScreen() {
   const [mentionQuery, setMentionQuery] = useState('');
   // P16: pagination locale — affiche les N messages les plus récents
   // L'utilisateur peut charger les suivants en scrollant vers le haut
-  const PAGE_SIZE = 50;
   const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
   const [isFetchingOlder, setIsFetchingOlder] = useState(false);
   const [hasMoreOnServer, setHasMoreOnServer] = useState(true);
@@ -224,13 +283,14 @@ export default function ChannelScreen() {
     setHasMoreOnServer(true);
   }, [channelId]);
 
+  const normalizedSearchQuery = searchQuery.trim();
+  const focusMessageId = typeof paramFocusMessageId === 'string' ? paramFocusMessageId.trim() : '';
+  const channelWindowLimit = normalizedSearchQuery
+    ? CHANNEL_MESSAGE_WINDOW_MAX
+    : Math.max(CHANNEL_MESSAGE_WINDOW_BASE, visibleCount + PAGE_SIZE);
+
   const channelMessages = useMemo(() => {
-    const msgs = messages
-      .filter(m => m.channelId === channelId)
-      .map(m => {
-        const isMe = user?.name ? isSameUserName(m.sender, user.name) : m.isMe;
-        return m.isMe === isMe ? m : { ...m, isMe, read: isMe || m.read };
-      });
+    const msgs = selectChannelMessagesForRender(messages, channelId, user?.name, channelWindowLimit, focusMessageId);
     // Trier du plus ancien au plus récent (ascendant) pour que listItems.reverse()
     // produise [plus_récent, ..., plus_ancien] → avec FlatList inversée :
     // index 0 (plus récent) = bas, dernier (plus ancien) = haut.
@@ -238,7 +298,7 @@ export default function ChannelScreen() {
       const timeDiff = getMessageTimeMs(a) - getMessageTimeMs(b);
       return timeDiff !== 0 ? timeDiff : a.id.localeCompare(b.id);
     });
-  }, [messages, channelId, user?.name]);
+  }, [messages, channelId, user?.name, channelWindowLimit, focusMessageId]);
 
   const latestChannelMessageKey = useMemo(() => {
     const latest = channelMessages[channelMessages.length - 1];
@@ -262,14 +322,14 @@ export default function ChannelScreen() {
   }, [paramSearchQuery]);
 
   const filteredMessages = useMemo(() => {
-    if (!searchQuery.trim()) return channelMessages;
-    const q = searchQuery.toLowerCase();
+    if (!normalizedSearchQuery) return channelMessages;
+    const q = normalizedSearchQuery.toLowerCase();
     return channelMessages.filter(m =>
       m.content.toLowerCase().includes(q) ||
       m.sender.toLowerCase().includes(q) ||
       (m.linkedItemTitle ?? '').toLowerCase().includes(q)
     );
-  }, [channelMessages, searchQuery]);
+  }, [channelMessages, normalizedSearchQuery]);
 
   const pinnedMessages = useMemo(() =>
     channelMessages.filter(m => m.isPinned),
@@ -304,9 +364,8 @@ export default function ChannelScreen() {
   // FlatList est inversée : index 0 = bas (le plus récent), dernier index = haut (le plus ancien)
   // Donc slice(0, visibleCount) = les N plus récents, affiché au bas
   const LOAD_MORE_SENTINEL_KEY = '__load_more__';
-  const SEARCH_RESULT_CAP = 300;
   const paginatedListItems = useMemo((): (ListItem | { _type: 'load_more'; key: string })[] => {
-    if (searchQuery.trim()) return listItems.slice(0, SEARCH_RESULT_CAP); // cap pendant la recherche
+    if (normalizedSearchQuery) return listItems.slice(0, SEARCH_RESULT_CAP); // cap pendant la recherche
     const visible = listItems.slice(0, visibleCount);
     const hasMoreLocally = listItems.length > visibleCount;
     const showLoadMore = hasMoreLocally || hasMoreOnServer;
@@ -314,7 +373,7 @@ export default function ChannelScreen() {
       return [...visible, { _type: 'load_more' as const, key: LOAD_MORE_SENTINEL_KEY }];
     }
     return visible;
-  }, [listItems, visibleCount, searchQuery, hasMoreOnServer]);
+  }, [listItems, visibleCount, normalizedSearchQuery, hasMoreOnServer]);
 
   useEffect(() => {
     const focusId = typeof paramFocusMessageId === 'string' ? paramFocusMessageId.trim() : '';
@@ -363,31 +422,43 @@ export default function ChannelScreen() {
     return allMentionNames.filter(s => s.toLowerCase().includes(q)).slice(0, 6);
   }, [mentionQuery, allMentionNames]);
 
+  const addMemberCandidates = useMemo(
+    () => profiles.filter(p => p.name !== user?.name && !liveMembers.includes(p.name)),
+    [profiles, user?.name, liveMembers.join(',')]
+  );
+
   // ── Build AttachItemModal data lists ──
-  const reserveItems: LinkedItem[] = useMemo(() =>
-    (reserves ?? []).map(r => ({ type: 'reserve' as const, id: r.id, title: r.title, subtitle: r.building ? `${r.building}${r.level ? ' · ' + r.level : ''}` : undefined })),
-    [reserves]
-  );
-  const planItems: LinkedItem[] = useMemo(() =>
-    (sitePlans ?? []).map(p => ({ type: 'plan' as const, id: p.id, title: p.name, subtitle: p.building ?? undefined })),
-    [sitePlans]
-  );
-  const taskItems: LinkedItem[] = useMemo(() =>
-    (tasks ?? []).map(t => ({ type: 'task' as const, id: t.id, title: t.title, subtitle: t.assignee ?? undefined })),
-    [tasks]
-  );
-  const incidentItems: LinkedItem[] = useMemo(() =>
-    (incidents ?? []).map(i => ({ type: 'incident' as const, id: i.id, title: i.title, subtitle: i.location ?? undefined })),
-    [incidents]
-  );
-  const visiteItems: LinkedItem[] = useMemo(() =>
-    (visites ?? []).map(v => ({ type: 'visite' as const, id: v.id, title: v.title, subtitle: v.date })),
-    [visites]
-  );
-  const oprItems: LinkedItem[] = useMemo(() =>
-    (oprs ?? []).map(o => ({ type: 'opr' as const, id: o.id, title: o.title, subtitle: o.date })),
-    [oprs]
-  );
+  const reserveItems: LinkedItem[] = useMemo(() => (
+    attachItemVisible
+      ?
+      (reserves ?? []).map(r => ({ type: 'reserve' as const, id: r.id, title: r.title, subtitle: r.building ? `${r.building}${r.level ? ' · ' + r.level : ''}` : undefined }))
+      : []
+  ), [attachItemVisible, reserves]);
+  const planItems: LinkedItem[] = useMemo(() => (
+    attachItemVisible
+      ? (sitePlans ?? []).map(p => ({ type: 'plan' as const, id: p.id, title: p.name, subtitle: p.building ?? undefined }))
+      : []
+  ), [attachItemVisible, sitePlans]);
+  const taskItems: LinkedItem[] = useMemo(() => (
+    attachItemVisible
+      ? (tasks ?? []).map(t => ({ type: 'task' as const, id: t.id, title: t.title, subtitle: t.assignee ?? undefined }))
+      : []
+  ), [attachItemVisible, tasks]);
+  const incidentItems: LinkedItem[] = useMemo(() => (
+    attachItemVisible
+      ? (incidents ?? []).map(i => ({ type: 'incident' as const, id: i.id, title: i.title, subtitle: i.location ?? undefined }))
+      : []
+  ), [attachItemVisible, incidents]);
+  const visiteItems: LinkedItem[] = useMemo(() => (
+    attachItemVisible
+      ? (visites ?? []).map(v => ({ type: 'visite' as const, id: v.id, title: v.title, subtitle: v.date }))
+      : []
+  ), [attachItemVisible, visites]);
+  const oprItems: LinkedItem[] = useMemo(() => (
+    attachItemVisible
+      ? (oprs ?? []).map(o => ({ type: 'opr' as const, id: o.id, title: o.title, subtitle: o.date }))
+      : []
+  ), [attachItemVisible, oprs]);
 
   function handleTextChange(val: string) {
     setText(val);
@@ -672,6 +743,11 @@ export default function ChannelScreen() {
 
   const lastPinned = pinnedMessages[pinnedMessages.length - 1];
 
+  const handleBack = useCallback(() => {
+    setActiveChannelId(null);
+    router.back();
+  }, [router, setActiveChannelId]);
+
   const itemColor = linkedItem ? getLinkedItemColor(linkedItem.type) : C.primary;
   const itemIcon = linkedItem ? getLinkedItemIcon(linkedItem.type) : 'link-outline';
   const itemLabel = linkedItem ? getLinkedItemLabel(linkedItem.type) : '';
@@ -680,7 +756,7 @@ export default function ChannelScreen() {
     <View style={styles.container}>
       {/* ── HEADER ── */}
       <View style={[styles.header, { paddingTop: Platform.OS === 'web' ? 16 : insets.top + 8 }]}>
-        <TouchableOpacity onPress={() => router.back()} style={styles.backBtn}>
+        <TouchableOpacity onPress={handleBack} style={styles.backBtn}>
           <Ionicons name="chevron-back" size={22} color={C.text} />
         </TouchableOpacity>
         {isDMChannel ? (
@@ -1076,11 +1152,11 @@ export default function ChannelScreen() {
           <TouchableOpacity activeOpacity={1} style={[styles.actionSheet, { maxHeight: '75%', paddingBottom: insets.bottom + 8 }]}>
             <View style={styles.actionSheetHandle} />
             <Text style={styles.pinnedSheetTitle}>Ajouter un membre</Text>
-            {profiles.filter(p => p.name !== user?.name && !liveMembers.includes(p.name)).length === 0 ? (
+            {addMemberCandidates.length === 0 ? (
               <View style={{ padding: 20, alignItems: 'center' }}>
                 <Text style={styles.emptyText}>Tous les utilisateurs sont déjà membres</Text>
               </View>
-            ) : profiles.filter(p => p.name !== user?.name && !liveMembers.includes(p.name)).map(p => {
+            ) : addMemberCandidates.map(p => {
               const co = p.companyId ? companies.find(c => c.id === p.companyId) : null;
               return (
                 <TouchableOpacity
