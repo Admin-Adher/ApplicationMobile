@@ -4,7 +4,7 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
-import { useState, useMemo } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'expo-router';
 import { C } from '@/constants/colors';
 import { useApp } from '@/context/AppContext';
@@ -183,6 +183,7 @@ export default function MessagesTabScreen() {
   const [companySearch, setCompanySearch] = useState('');
   const [companyListExpanded, setCompanyListExpanded] = useState(false);
   const [companyDirectoryVisible, setCompanyDirectoryVisible] = useState(false);
+  const pendingCompanyNavigationRef = useRef<Channel | null>(null);
   const [showNewChannel, setShowNewChannel] = useState(false);
   const [showNewDM, setShowNewDM] = useState(false);
   const [showNewGroup, setShowNewGroup] = useState(false);
@@ -328,23 +329,24 @@ export default function MessagesTabScreen() {
     } as any);
   }
 
-  function routeParam(value: string | undefined): string {
-    return encodeURIComponent(value ?? '');
-  }
+  useEffect(() => {
+    if (companyDirectoryVisible) return;
+    const pending = pendingCompanyNavigationRef.current;
+    if (!pending) return;
+    pendingCompanyNavigationRef.current = null;
+    const timer = setTimeout(() => {
+      goToChannel(pending);
+    }, 80);
+    return () => clearTimeout(timer);
+  }, [companyDirectoryVisible]);
 
-  function goToCompanyChannel(ch: Channel) {
-    if (companyDirectoryVisible) setCompanyDirectoryVisible(false);
-    const query = [
-      `name=${routeParam(ch.name)}`,
-      `color=${routeParam(ch.color)}`,
-      `icon=${routeParam(ch.icon)}`,
-      'isDM=0',
-      'isGroup=0',
-      `members=${routeParam(ch.members ? ch.members.join(',') : '')}`,
-      'searchQuery=',
-      'focusMessageId=',
-    ].join('&');
-    router.push(`/channel/${routeParam(ch.id)}?${query}` as any);
+  function goToCompanyChannel(ch: Channel, fromDirectory = false) {
+    if (fromDirectory) {
+      pendingCompanyNavigationRef.current = ch;
+      setCompanyDirectoryVisible(false);
+      return;
+    }
+    goToChannel(ch);
   }
 
   function handleCreateChannel(name: string, description: string, icon: string, color: string) {
@@ -556,7 +558,7 @@ export default function MessagesTabScreen() {
     return (
       <TouchableOpacity
         style={styles.companyDirectoryRow}
-        onPress={() => goToCompanyChannel(ch)}
+        onPress={() => goToCompanyChannel(ch, true)}
         activeOpacity={0.75}
       >
         {withDivider && <View style={styles.companyDirectoryDivider} />}

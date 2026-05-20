@@ -355,20 +355,26 @@ export function useMessages() {
     // Bug 8: collect unread IDs from the setMessages callback to avoid stale messagesRef
     let unreadIds: string[] = [];
     setMessages(prev => {
+      let changed = false;
       const updated = prev.map(m => {
         if (m.channelId !== channelId) return m;
         if (m.isMe || isSameUserName(m.sender, userName)) {
-          return m.isMe ? m : { ...m, isMe: true, read: true };
+          if (m.isMe) return m;
+          changed = true;
+          return { ...m, isMe: true, read: true };
         }
         const readBy = normalizeMessageReadBy(m.readBy);
         if (readBy.some(name => isSameUserName(name, userName))) {
-          return JSON.stringify(readBy) === JSON.stringify(m.readBy ?? []) ? m : { ...m, readBy };
+          if (JSON.stringify(readBy) === JSON.stringify(m.readBy ?? [])) return m;
+          changed = true;
+          return { ...m, readBy };
         }
         unreadIds.push(m.id);
         // Fix: also set read=true so unreadByChannel computation is correct
+        changed = true;
         return { ...m, readBy: [...readBy, userName], read: true };
       });
-      return updated;
+      return changed ? updated : prev;
     });
     if (isSupabaseConfigured && userName && unreadIds.length > 0) {
       if (!isOnlineRef.current) {
@@ -456,10 +462,7 @@ export function useMessages() {
         const otherChannel = prev.filter(m => m.channelId !== channelId);
         const newIds = new Set(msgs.map(m => m.id));
         const realtimeExtras = prev.filter(m => m.channelId === channelId && !newIds.has(m.id));
-        return [...otherChannel, ...msgs, ...realtimeExtras].sort((a, b) => {
-          const timeDiff = getMessageTimeMs(a) - getMessageTimeMs(b);
-          return timeDiff !== 0 ? timeDiff : a.id.localeCompare(b.id);
-        });
+        return [...otherChannel, ...msgs, ...realtimeExtras];
       });
     } catch { loadedChannelIdsRef.current.delete(channelId); }
   }, []);
