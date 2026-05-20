@@ -639,7 +639,7 @@ export default function ReservesScreen() {
       const shouldContinue = await new Promise<boolean>((resolve) => {
         Alert.alert(
           'Photos non synchronisées',
-          `${localOnlyPhotoCount} photo${localOnlyPhotoCount > 1 ? 's' : ''} locale${localOnlyPhotoCount > 1 ? 's' : ''} ne sera${localOnlyPhotoCount > 1 ? 'ont' : ''} pas incluse${localOnlyPhotoCount > 1 ? 's' : ''} dans le PDF envoyé par email tant que la synchronisation n'est pas terminée.`,
+          `${localOnlyPhotoCount} photo${localOnlyPhotoCount > 1 ? 's' : ''} locale${localOnlyPhotoCount > 1 ? 's' : ''} ne ${localOnlyPhotoCount > 1 ? 'seront' : 'sera'} pas incluse${localOnlyPhotoCount > 1 ? 's' : ''} dans le PDF envoyé par email tant que la synchronisation n'est pas terminée.`,
           [
             { text: 'Attendre la sync', style: 'cancel', onPress: () => resolve(false) },
             { text: 'Envoyer quand même', onPress: () => resolve(true) },
@@ -1898,7 +1898,7 @@ export default function ReservesScreen() {
             <Text style={styles.pdfPreview}>
               {pdfExportMode === 'manual'
                 ? 'Le modal se fermera et le mode sélection s\'activera.'
-                : `${pdfPreviewCount} réserve${pdfPreviewCount !== 1 ? 's' : ''} sera${pdfPreviewCount !== 1 ? 'ont' : ''} exportée${pdfPreviewCount !== 1 ? 's' : ''}.`
+                : `${pdfPreviewCount} réserve${pdfPreviewCount !== 1 ? 's' : ''} ${pdfPreviewCount !== 1 ? 'seront' : 'sera'} exportée${pdfPreviewCount !== 1 ? 's' : ''}.`
               }
             </Text>
 

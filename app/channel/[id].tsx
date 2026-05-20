@@ -938,8 +938,9 @@ export default function ChannelScreen() {
             </TouchableOpacity>
             <DictationTextInput
               ref={inputRef}
-              inputStyle={styles.input}
-              containerStyle={{ flex: 1 }}
+              inputStyle={[styles.input, styles.messageInput]}
+              containerStyle={styles.messageInputContainer}
+              controlsStyle={styles.messageInputControls}
               placeholder={replyTo ? 'Votre réponse...' : 'Message… (@ pour mentionner)'}
               placeholderTextColor={C.textMuted}
               value={text}
@@ -1239,6 +1240,9 @@ const styles = StyleSheet.create({
   readOnlyText: { fontSize: 13, fontFamily: 'Inter_500Medium', color: C.textMuted, fontStyle: 'italic' },
   attachBtn: { width: 36, height: 36, alignItems: 'center', justifyContent: 'center' },
   input: { flex: 1, maxHeight: 100, backgroundColor: C.surface2, borderRadius: 20, paddingHorizontal: 14, paddingVertical: 8, fontSize: 14, fontFamily: 'Inter_400Regular', color: C.text, borderWidth: 1, borderColor: C.border },
+  messageInputContainer: { flex: 1, minWidth: 0, width: 'auto' },
+  messageInput: { flex: 0, width: '100%', minHeight: 40, textAlignVertical: 'top' },
+  messageInputControls: { minHeight: 38 },
   sendBtn: { width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center' },
   empty: { alignItems: 'center', paddingTop: 80, gap: 12 },
   emptyIcon: { width: 64, height: 64, borderRadius: 32, alignItems: 'center', justifyContent: 'center' },

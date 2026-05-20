@@ -2432,7 +2432,7 @@ export default function PlansScreen() {
     if (!currentPlanId || !currentPlan) return;
     const linkedReserves = reserves.filter(r => r.planId === currentPlanId);
     const msg = linkedReserves.length > 0
-      ? `Le plan "${currentPlan.name}" et son fichier seront supprimés définitivement.\n\n${linkedReserves.length} réserve${linkedReserves.length > 1 ? 's' : ''} associée${linkedReserves.length > 1 ? 's' : ''} sera${linkedReserves.length > 1 ? 'ont' : ''} détachée${linkedReserves.length > 1 ? 's' : ''} du plan (conservées sans localisation).`
+      ? `Le plan "${currentPlan.name}" et son fichier seront supprimés définitivement.\n\n${linkedReserves.length} réserve${linkedReserves.length > 1 ? 's' : ''} associée${linkedReserves.length > 1 ? 's' : ''} ${linkedReserves.length > 1 ? 'seront' : 'sera'} détachée${linkedReserves.length > 1 ? 's' : ''} du plan (conservées sans localisation).`
       : `Le plan "${currentPlan.name}" et son fichier seront supprimés définitivement.`;
     Alert.alert('Supprimer le plan ?', msg, [
       { text: 'Annuler', style: 'cancel' },
@@ -4050,7 +4050,7 @@ export default function PlansScreen() {
                 : '';
               return (
                 <Text style={styles.pdfPreview}>
-                  {count} réserve{count !== 1 ? 's' : ''} sera{count !== 1 ? 'ont' : ''} exportée{count !== 1 ? 's' : ''}{suffix}{statusHint}.
+                  {count} réserve{count !== 1 ? 's' : ''} {count !== 1 ? 'seront' : 'sera'} exportée{count !== 1 ? 's' : ''}{suffix}{statusHint}.
                 </Text>
               );
             })()}
