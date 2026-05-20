@@ -2,6 +2,7 @@ import { View, Text, StyleSheet, TouchableOpacity, Image, Linking } from 'react-
 import { Ionicons } from '@expo/vector-icons';
 import { C } from '@/constants/colors';
 import { Message } from '@/constants/types';
+import { isSameUserName, normalizeMessageReadBy } from '@/lib/mappers';
 import { getLinkedItemIcon, getLinkedItemLabel, getLinkedItemColor } from './AttachItemModal';
 
 const AVATAR_COLORS = [C.primary, '#059669', '#D97706', '#7C3AED', '#DB2777', '#EA580C', '#0891B2', '#65A30D'];
@@ -68,7 +69,13 @@ interface Props {
   onOpenReactPicker: (msg: Message) => void;
 }
 
-export default function MessageBubble({ msg, color, userName, highlighted = false, onLongPress, onNotifPress, onLinkedItemPress, onReactInline, onOpenReactPicker }: Props) {
+export default function MessageBubble({ msg: rawMsg, color, userName, highlighted = false, onLongPress, onNotifPress, onLinkedItemPress, onReactInline, onOpenReactPicker }: Props) {
+  const normalizedReadBy = normalizeMessageReadBy(rawMsg.readBy);
+  const isMine = rawMsg.isMe || isSameUserName(rawMsg.sender, userName);
+  const msg: Message = rawMsg.isMe === isMine && JSON.stringify(normalizedReadBy) === JSON.stringify(rawMsg.readBy ?? [])
+    ? rawMsg
+    : { ...rawMsg, isMe: isMine, read: isMine || rawMsg.read, readBy: normalizedReadBy };
+
   if (msg.type === 'notification' || msg.type === 'system') {
     const hasLink = !!(msg.linkedItemType || msg.reserveId);
     const notifColor = msg.linkedItemType ? getLinkedItemColor(msg.linkedItemType) : C.primary;
@@ -91,7 +98,7 @@ export default function MessageBubble({ msg, color, userName, highlighted = fals
 
   const avatarColor = getAvatarColor(msg.sender);
   const isMentioned = detectMentions(msg.content, userName);
-  const readCount = msg.readBy.filter(n => n !== userName).length;
+  const readCount = msg.readBy.filter(n => !isSameUserName(n, userName)).length;
 
   const linkedType = msg.linkedItemType;
   const linkedId = msg.linkedItemId;

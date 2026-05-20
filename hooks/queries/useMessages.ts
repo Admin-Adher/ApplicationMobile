@@ -6,7 +6,7 @@ import { useAuth } from '@/context/AuthContext';
 import { useNetwork } from '@/context/NetworkContext';
 import { Message } from '@/constants/types';
 import { genId, nowTimestampFR } from '@/lib/utils';
-import { toMessage, fromMessage } from '@/lib/mappers';
+import { toMessage, fromMessage, isSameUserName, normalizeMessageReadBy, getMessageTimeMs } from '@/lib/mappers';
 import { isSupabaseSessionValid } from '@/lib/offlineCache';
 
 const MOCK_MESSAGES_KEY = 'buildtrack_mock_messages_v2';
@@ -26,10 +26,12 @@ export function useMessages() {
     const myName = user?.name ?? '';
     if (!myName) return;
     setMessages(prev => prev.map(m => {
-      const isMe = m.sender === myName;
-      const hasRead = isMe || (m.readBy ?? []).some((u: string) => u === myName);
-      if (m.isMe === isMe && m.read === hasRead) return m;
-      return { ...m, isMe, read: hasRead };
+      const readBy = normalizeMessageReadBy(m.readBy);
+      const isMe = isSameUserName(m.sender, myName);
+      const hasRead = isMe || readBy.some((u: string) => isSameUserName(u, myName));
+      const readByChanged = JSON.stringify(readBy) !== JSON.stringify(m.readBy ?? []);
+      if (m.isMe === isMe && m.read === hasRead && !readByChanged) return m;
+      return { ...m, isMe, read: hasRead, readBy };
     }));
   }, [user?.name]);
   // Bug 7: track orgId for filtering messages by organization
@@ -62,10 +64,11 @@ export function useMessages() {
           const currentUserName = userNameRef.current;
           const fixed = cached.map(m => ({
             ...m,
-            isMe: currentUserName ? m.sender === currentUserName : m.isMe,
+            readBy: normalizeMessageReadBy(m.readBy),
+            isMe: currentUserName ? isSameUserName(m.sender, currentUserName) : m.isMe,
             // Recompute read from readBy + isMe so it's consistent with toMessage
             read: currentUserName
-              ? (m.sender === currentUserName || m.readBy.some((u: string) => u === currentUserName))
+              ? (isSameUserName(m.sender, currentUserName) || normalizeMessageReadBy(m.readBy).some((u: string) => isSameUserName(u, currentUserName)))
               : m.read,
           }));
           setMessages(fixed);
@@ -116,9 +119,8 @@ export function useMessages() {
           if (!changed && newOnes.length === 0) return prev;
           const merged = [...updated, ...newOnes];
           merged.sort((a, b) => {
-            const ta = a.dbCreatedAt ? new Date(a.dbCreatedAt).getTime() : 0;
-            const tb = b.dbCreatedAt ? new Date(b.dbCreatedAt).getTime() : 0;
-            return ta - tb;
+            const timeDiff = getMessageTimeMs(a) - getMessageTimeMs(b);
+            return timeDiff !== 0 ? timeDiff : a.id.localeCompare(b.id);
           });
           return merged;
         });
@@ -230,9 +232,15 @@ export function useMessages() {
     // Auto-mark channel as read when sending a message — if I'm the one
     // writing, there's nothing new for me to read in this channel.
     setMessages(prev => prev.map(m => {
-      if (m.channelId !== channelId || m.isMe) return m;
-      if (m.readBy.includes(actualSender)) return m;
-      return { ...m, readBy: [...m.readBy, actualSender], read: true };
+      if (m.channelId !== channelId) return m;
+      if (m.isMe || isSameUserName(m.sender, actualSender)) {
+        return m.isMe ? m : { ...m, isMe: true, read: true };
+      }
+      const readBy = normalizeMessageReadBy(m.readBy);
+      if (readBy.some(name => isSameUserName(name, actualSender))) {
+        return JSON.stringify(readBy) === JSON.stringify(m.readBy ?? []) ? m : { ...m, readBy };
+      }
+      return { ...m, readBy: [...readBy, actualSender], read: true };
     }));
     if (isSupabaseConfigured) {
       // Bug 7: include organization_id in insert data
@@ -345,11 +353,17 @@ export function useMessages() {
     let unreadIds: string[] = [];
     setMessages(prev => {
       const updated = prev.map(m => {
-        if (m.channelId !== channelId || m.isMe) return m;
-        if (m.readBy.includes(userName)) return m;
+        if (m.channelId !== channelId) return m;
+        if (m.isMe || isSameUserName(m.sender, userName)) {
+          return m.isMe ? m : { ...m, isMe: true, read: true };
+        }
+        const readBy = normalizeMessageReadBy(m.readBy);
+        if (readBy.some(name => isSameUserName(name, userName))) {
+          return JSON.stringify(readBy) === JSON.stringify(m.readBy ?? []) ? m : { ...m, readBy };
+        }
         unreadIds.push(m.id);
         // Fix: also set read=true so unreadByChannel computation is correct
-        return { ...m, readBy: [...m.readBy, userName], read: true };
+        return { ...m, readBy: [...readBy, userName], read: true };
       });
       return updated;
     });
@@ -439,7 +453,10 @@ export function useMessages() {
         const otherChannel = prev.filter(m => m.channelId !== channelId);
         const newIds = new Set(msgs.map(m => m.id));
         const realtimeExtras = prev.filter(m => m.channelId === channelId && !newIds.has(m.id));
-        return [...otherChannel, ...msgs, ...realtimeExtras];
+        return [...otherChannel, ...msgs, ...realtimeExtras].sort((a, b) => {
+          const timeDiff = getMessageTimeMs(a) - getMessageTimeMs(b);
+          return timeDiff !== 0 ? timeDiff : a.id.localeCompare(b.id);
+        });
       });
     } catch { loadedChannelIdsRef.current.delete(channelId); }
   }, []);

@@ -16,6 +16,8 @@ import { useNetwork } from '@/context/NetworkContext';
 import { Message } from '@/constants/types';
 import { supabase, isSupabaseConfigured } from '@/lib/supabase';
 import { persistLocalPhoto, uploadPhoto } from '@/lib/storage';
+import { getMessageTimeMs, isSameUserName } from '@/lib/mappers';
+import { getDmDisplayName } from '@/hooks/queries/useChannels';
 import MessageBubble, { getAvatarColor } from '@/components/channel/MessageBubble';
 import MembersModal from '@/components/channel/MembersModal';
 import AttachItemModal, { LinkedItem, getLinkedItemIcon, getLinkedItemColor, getLinkedItemLabel } from '@/components/channel/AttachItemModal';
@@ -137,11 +139,11 @@ export default function ChannelScreen() {
   }, [baseMembers.join(','), overrideMembers.join(','), channelObj?.createdBy]);
   const displayChannelName = useMemo(() => {
     if (!isDMChannel) return liveChannelName;
-    const myName = user?.name;
-    if (!myName) return liveChannelName;
-    const other = liveMembers.find(n => n !== myName);
-    return other ?? liveChannelName;
-  }, [isDMChannel, liveChannelName, liveMembers.join(','), user?.name]);
+    return getDmDisplayName(
+      { id: channelId ?? '', name: liveChannelName, members: liveMembers, dmParticipants: channelObj?.dmParticipants },
+      user?.name ?? '',
+    );
+  }, [isDMChannel, channelId, liveChannelName, liveMembers.join(','), channelObj?.dmParticipants?.join(','), user?.name]);
   const isCompanyChannel = channelObj?.type === 'company' || (channelId?.startsWith('company-') ?? false);
   const isEditable = channelObj?.type === 'custom' || channelObj?.type === 'group';
   const canDelete = channelObj?.type === 'custom' || channelObj?.type === 'group';
@@ -229,17 +231,20 @@ export default function ChannelScreen() {
   }, [channelId]);
 
   const channelMessages = useMemo(() => {
-    const msgs = messages.filter(m => m.channelId === channelId);
+    const msgs = messages
+      .filter(m => m.channelId === channelId)
+      .map(m => {
+        const isMe = user?.name ? isSameUserName(m.sender, user.name) : m.isMe;
+        return m.isMe === isMe ? m : { ...m, isMe, read: isMe || m.read };
+      });
     // Trier du plus ancien au plus récent (ascendant) pour que listItems.reverse()
     // produise [plus_récent, ..., plus_ancien] → avec FlatList inversée :
     // index 0 (plus récent) = bas, dernier (plus ancien) = haut.
     return msgs.sort((a, b) => {
-      if (a.dbCreatedAt && b.dbCreatedAt) {
-        return a.dbCreatedAt < b.dbCreatedAt ? -1 : a.dbCreatedAt > b.dbCreatedAt ? 1 : 0;
-      }
-      return (a.timestamp ?? '').localeCompare(b.timestamp ?? '');
+      const timeDiff = getMessageTimeMs(a) - getMessageTimeMs(b);
+      return timeDiff !== 0 ? timeDiff : a.id.localeCompare(b.id);
     });
-  }, [messages, channelId]);
+  }, [messages, channelId, user?.name]);
 
   // Fix 1: auto-marquer comme lu quand de nouveaux messages arrivent pendant que le canal est ouvert
   // (setChannelRead au mount seul ne couvre pas les messages entrants en temps réel)

@@ -10,6 +10,7 @@ import { C } from '@/constants/colors';
 import { useApp } from '@/context/AppContext';
 import { useAuth } from '@/context/AuthContext';
 import { isSupabaseConfigured } from '@/lib/supabase';
+import { isSameUserName } from '@/lib/mappers';
 import { Channel, Message } from '@/constants/types';
 import NewChannelModal from '@/components/NewChannelModal';
 import EditChannelModal from '@/components/EditChannelModal';
@@ -81,11 +82,12 @@ function ChannelAvatar({ channel }: { channel: Channel }) {
   );
 }
 
-function ChannelItem({ channel, lastMsg, unread, isPinned, onPress, onLongPress, onMenuPress }: {
+function ChannelItem({ channel, lastMsg, unread, isPinned, currentUserName, onPress, onLongPress, onMenuPress }: {
   channel: Channel;
   lastMsg: Message | null;
   unread: number;
   isPinned: boolean;
+  currentUserName: string;
   onPress: () => void;
   onLongPress: () => void;
   onMenuPress: () => void;
@@ -105,7 +107,8 @@ function ChannelItem({ channel, lastMsg, unread, isPinned, onPress, onLongPress,
       const label = typeLabel[lastMsg.linkedItemType] ?? 'Élément';
       return `🔗 ${label}${lastMsg.linkedItemTitle ? ' : ' + lastMsg.linkedItemTitle : ''}`;
     }
-    const prefix = lastMsg.isMe ? 'Vous : ' : `${lastMsg.sender.split(' ')[0]} : `;
+    const isMine = lastMsg.isMe || isSameUserName(lastMsg.sender, currentUserName);
+    const prefix = isMine ? 'Vous : ' : `${lastMsg.sender.split(' ')[0]} : `;
     return prefix + lastMsg.content;
   };
 
@@ -172,7 +175,7 @@ export default function MessagesTabScreen() {
     channels, messages, unreadByChannel, profiles,
     addCustomChannel, addGroupChannel, getOrCreateDMChannel,
     pinnedChannelIds, pinChannel, unpinChannel, maxPinnedChannels,
-    removeCustomChannel, removeGroupChannel, updateCustomChannel,
+    removeCustomChannel, removeGroupChannel, updateCustomChannel, hideDmChannel,
   } = useApp();
   const { user, permissions } = useAuth();
   const [search, setSearch] = useState('');
@@ -341,6 +344,24 @@ export default function MessagesTabScreen() {
 
   function handleDeleteChannel(ch: Channel) {
     setActionSheet(null);
+    if (ch.type === 'dm') {
+      Alert.alert(
+        'Supprimer la conversation',
+        `Masquer la conversation avec ${ch.name} ? Les messages restent disponibles si un nouveau message arrive ou si vous relancez cet échange.`,
+        [
+          { text: 'Annuler', style: 'cancel' },
+          {
+            text: 'Supprimer',
+            style: 'destructive',
+            onPress: () => {
+              if (pinnedChannelIds.includes(ch.id)) unpinChannel(ch.id);
+              hideDmChannel(ch.id);
+            },
+          },
+        ]
+      );
+      return;
+    }
     Alert.alert(
       'Supprimer le canal',
       `Supprimer définitivement « ${ch.name} » ? Cette action est irréversible.`,
@@ -415,6 +436,7 @@ export default function MessagesTabScreen() {
                   lastMsg={lastMessageByChannel[ch.id]}
                   unread={unreadByChannel[ch.id] ?? 0}
                   isPinned={pinnedChannelIds.includes(ch.id)}
+                  currentUserName={user?.name ?? ''}
                   onPress={() => goToChannel(ch)}
                   onLongPress={() => setActionSheet(ch)}
                   onMenuPress={() => setActionSheet(ch)}
@@ -499,6 +521,7 @@ export default function MessagesTabScreen() {
           lastMsg={lastMessageByChannel[ch.id]}
           unread={unreadByChannel[ch.id] ?? 0}
           isPinned={pinnedChannelIds.includes(ch.id)}
+          currentUserName={user?.name ?? ''}
           onPress={() => goToChannel(ch)}
           onLongPress={() => setActionSheet(ch)}
           onMenuPress={() => setActionSheet(ch)}
@@ -734,6 +757,7 @@ export default function MessagesTabScreen() {
                         lastMsg={lastMessageByChannel[ch.id]}
                         unread={unreadByChannel[ch.id] ?? 0}
                         isPinned={true}
+                        currentUserName={user?.name ?? ''}
                         onPress={() => goToChannel(ch)}
                         onLongPress={() => setActionSheet(ch)}
                         onMenuPress={() => setActionSheet(ch)}
@@ -764,6 +788,7 @@ export default function MessagesTabScreen() {
                       lastMsg={lastMessageByChannel[ch.id]}
                       unread={unreadByChannel[ch.id] ?? 0}
                       isPinned={pinnedChannelIds.includes(ch.id)}
+                      currentUserName={user?.name ?? ''}
                       onPress={() => goToChannel(ch)}
                       onLongPress={() => setActionSheet(ch)}
                       onMenuPress={() => setActionSheet(ch)}
@@ -947,14 +972,15 @@ export default function MessagesTabScreen() {
                         <Text style={styles.sheetBtnSub}>Aller directement aux messages</Text>
                       </View>
                     </TouchableOpacity>
-                    {(actionSheet.type === 'custom' || actionSheet.type === 'group') && (
+                    {(actionSheet.type === 'custom' || actionSheet.type === 'group' || actionSheet.type === 'dm') && (
                       <>
                         <View style={styles.sheetDivider} />
-                        <TouchableOpacity
-                          style={styles.sheetBtn}
-                          onPress={() => handleEditChannel(actionSheet)}
-                          activeOpacity={0.75}
-                        >
+                        {(actionSheet.type === 'custom' || actionSheet.type === 'group') && (
+                          <TouchableOpacity
+                            style={styles.sheetBtn}
+                            onPress={() => handleEditChannel(actionSheet)}
+                            activeOpacity={0.75}
+                          >
                           <View style={[styles.sheetBtnIcon, { backgroundColor: '#0A84FF15' }]}>
                             <Ionicons name="pencil-outline" size={20} color="#0A84FF" />
                           </View>
@@ -962,7 +988,8 @@ export default function MessagesTabScreen() {
                             <Text style={[styles.sheetBtnLabel, { color: '#0A84FF' }]}>Modifier le canal</Text>
                             <Text style={styles.sheetBtnSub}>Changer le nom, l'icône ou la couleur</Text>
                           </View>
-                        </TouchableOpacity>
+                          </TouchableOpacity>
+                        )}
                         <TouchableOpacity
                           style={styles.sheetBtn}
                           onPress={() => handleDeleteChannel(actionSheet)}
@@ -972,8 +999,12 @@ export default function MessagesTabScreen() {
                             <Ionicons name="trash-outline" size={20} color={C.open} />
                           </View>
                           <View style={{ flex: 1 }}>
-                            <Text style={[styles.sheetBtnLabel, { color: C.open }]}>Supprimer le canal</Text>
-                            <Text style={styles.sheetBtnSub}>Action irréversible</Text>
+                            <Text style={[styles.sheetBtnLabel, { color: C.open }]}>
+                              {actionSheet.type === 'dm' ? 'Supprimer la conversation' : 'Supprimer le canal'}
+                            </Text>
+                            <Text style={styles.sheetBtnSub}>
+                              {actionSheet.type === 'dm' ? 'Masquer de votre messagerie' : 'Action irréversible'}
+                            </Text>
                           </View>
                         </TouchableOpacity>
                       </>

@@ -26,10 +26,11 @@ import { useProfiles } from '@/hooks/queries/useProfiles';
 import { useVisites } from '@/hooks/queries/useVisites';
 import { useLots } from '@/hooks/queries/useLots';
 import { useOprs } from '@/hooks/queries/useOprs';
-import { useChannels, dmChannelId } from '@/hooks/queries/useChannels';
+import { useChannels, getDmDisplayName, getDmParticipants } from '@/hooks/queries/useChannels';
 import { useMessages } from '@/hooks/queries/useMessages';
 import { useRealtimeSync } from '@/hooks/useRealtimeSync';
 import { notifyReserveStatusChanged, notifyReserveOverdue } from '@/lib/email/notifyReserveCreated';
+import { isSameUserName } from '@/lib/mappers';
 
 export { STANDARD_LOTS } from '@/hooks/queries/useLots';
 export const STATIC_CHANNELS: Channel[] = [];
@@ -37,6 +38,13 @@ export const STATIC_CHANNELS: Channel[] = [];
 const ACTIVE_CHANTIER_PREFIX = 'buildtrack_active_chantier_v3_';
 const SERVER_REFRESH_MAX_WAIT_MS = 8_000;
 const FOREGROUND_REFRESH_MIN_SLEEP_MS = 5_000;
+
+function getMessageTimeMs(msg: Message): number {
+  if (msg.dbCreatedAt) return new Date(msg.dbCreatedAt).getTime();
+  const m = msg.timestamp?.match(/^(\d{2})\/(\d{2})\/(\d{4}) (\d{2}):(\d{2})$/);
+  if (m) return new Date(+m[3], +m[2] - 1, +m[1], +m[4], +m[5]).getTime();
+  return 0;
+}
 
 interface AppContextValue {
   reserves: Reserve[];
@@ -54,6 +62,7 @@ interface AppContextValue {
   persistedDmChannels: Channel[];
   pinnedChannelIds: string[];
   channelMembersOverride: Record<string, string[]>;
+  hiddenDmChannelIds: Record<string, string>;
   chantiers: Chantier[];
   sitePlans: SitePlan[];
   activeChantierId: string | null;
@@ -117,6 +126,8 @@ interface AppContextValue {
   removeChannelMember: (id: string, memberName: string) => void;
   pinChannel: (id: string) => { success: boolean; reason?: string };
   unpinChannel: (id: string) => void;
+  hideDmChannel: (id: string) => void;
+  unhideDmChannel: (id: string) => void;
   maxPinnedChannels: number;
   getOrCreateDMChannel: (otherName: string) => Channel;
   fetchOlderMessages: (channelId: string, beforeCreatedAt: string) => Promise<boolean>;
@@ -570,6 +581,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     sender?: string
   ) => {
     const actualSender = sender ?? (currentUserNameRef.current || 'Moi');
+    if (channelId.startsWith('dm-')) {
+      channelsH.unhideDmChannel(channelId);
+    }
     messagesH.addMessage(channelId, content, options, actualSender, channelsH.getDmUpsertPromise);
     // Auto-mark channel as read when sending — updates lastReadByChannel timestamp
     // so the channel doesn't appear unread after app restart
@@ -643,12 +657,38 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const allChannels = useMemo(() => {
     // Fix DM names: always show the interlocutor's name, not the current user's name
     const myName = currentUserName;
-    const fixedDmChannels = channelsH.persistedDmChannels.map(ch => {
+    const fixedDmChannels = channelsH.persistedDmChannels.flatMap(ch => {
       if (ch.type !== 'dm') return ch;
-      const participants = ch.dmParticipants ?? ch.members ?? [];
-      const otherName = participants.find(p => p !== myName) ?? ch.name;
-      if (otherName === ch.name) return ch;
-      return { ...ch, name: otherName, description: `Message direct avec ${otherName}` };
+      const channelMessages = messagesH.messages.filter(m => m.channelId === ch.id);
+      const hasAnyMessage =
+        channelMessages.length > 0 ||
+        channelsH.dmChannelIdsWithMessages.has(ch.id);
+      if (!hasAnyMessage) return [];
+      const hiddenAt = channelsH.hiddenDmChannelIds[ch.id];
+      if (hiddenAt) {
+        const hiddenAtMs = new Date(hiddenAt).getTime();
+        const hasMessageAfterHidden = channelMessages.some(m => getMessageTimeMs(m) > hiddenAtMs);
+        if (!hasMessageAfterHidden) return [];
+      }
+      const participants = getDmParticipants(ch.id, ch.members, ch.dmParticipants);
+      const otherName = getDmDisplayName(
+        { id: ch.id, name: ch.name, members: participants, dmParticipants: participants },
+        myName,
+      );
+      if (
+        otherName === ch.name &&
+        JSON.stringify(ch.members ?? []) === JSON.stringify(participants) &&
+        JSON.stringify(ch.dmParticipants ?? []) === JSON.stringify(participants)
+      ) {
+        return [ch];
+      }
+      return [{
+        ...ch,
+        name: otherName,
+        description: `Message direct avec ${otherName}`,
+        members: participants,
+        dmParticipants: participants,
+      }];
     });
     return [
       ...channelsH.generalChannels,
@@ -660,7 +700,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, [
     channelsH.generalChannels, channelsH.customChannels,
     channelsH.groupChannels, channelsH.persistedDmChannels,
-    companyChannels, currentUserName,
+    channelsH.dmChannelIdsWithMessages, channelsH.hiddenDmChannelIds,
+    messagesH.messages, companyChannels, currentUserName,
   ]);
 
   // Fix 7: unreadByChannel uses lastReadByChannelRef to avoid stale closure issues
@@ -672,19 +713,21 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     const myName = currentUserNameRef.current;
     for (const msg of messagesH.messages) {
       if (!msg.channelId) continue;
-      if (myName && msg.sender === myName) continue;
+      if (myName && isSameUserName(msg.sender, myName)) continue;
       if (msg.isMe) continue;
       // Check readBy directly (more reliable than msg.read which can be stale)
-      const iReadIt = myName && msg.readBy.some((u: string) => u === myName);
+      const iReadIt = myName && msg.readBy.some((u: string) => isSameUserName(u, myName));
       if (iReadIt) continue;
-      const msgTime = msg.dbCreatedAt ? new Date(msg.dbCreatedAt).getTime() : 0;
+      const msgTime = getMessageTimeMs(msg);
+      const hiddenAt = channelsH.hiddenDmChannelIds[msg.channelId];
+      if (hiddenAt && msgTime <= new Date(hiddenAt).getTime()) continue;
       const lastReadTime = lastRead[msg.channelId] ? new Date(lastRead[msg.channelId]).getTime() : 0;
       if (msgTime > lastReadTime) {
         result[msg.channelId] = (result[msg.channelId] ?? 0) + 1;
       }
     }
     return result;
-  }, [messagesH.messages, lastReadByChannel]);
+  }, [messagesH.messages, lastReadByChannel, channelsH.hiddenDmChannelIds]);
 
   const unreadCount = useMemo(
     () => Object.values(unreadByChannel).reduce((a, b) => a + b, 0),
@@ -741,6 +784,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     persistedDmChannels: channelsH.persistedDmChannels,
     pinnedChannelIds: channelsH.pinnedChannelIds,
     channelMembersOverride: channelsH.channelMembersOverride,
+    hiddenDmChannelIds: channelsH.hiddenDmChannelIds,
     chantiers: chantiersH.chantiers,
     sitePlans: chantiersH.sitePlans,
     activeChantierId,
@@ -804,6 +848,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     removeChannelMember: channelsH.removeChannelMember,
     pinChannel: channelsH.pinChannel,
     unpinChannel: channelsH.unpinChannel,
+    hideDmChannel: channelsH.hideDmChannel,
+    unhideDmChannel: channelsH.unhideDmChannel,
     maxPinnedChannels: channelsH.maxPinnedChannels,
     getOrCreateDMChannel: channelsH.getOrCreateDMChannel,
     fetchOlderMessages: messagesH.fetchOlderMessages,
@@ -833,6 +879,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     channelsH.generalChannels, channelsH.customChannels,
     channelsH.groupChannels, channelsH.persistedDmChannels,
     channelsH.pinnedChannelIds, channelsH.channelMembersOverride,
+    channelsH.hiddenDmChannelIds,
     chantiersH.chantiers, chantiersH.sitePlans,
     activeChantierId, visitesH.visites, lotsH.lots, oprsH.oprs,
     allChannels, unreadByChannel, notification, activeChantier,
@@ -857,6 +904,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     channelsH.renameChannel, channelsH.updateCustomChannel,
     channelsH.addChannelMember, channelsH.removeChannelMember,
     channelsH.pinChannel, channelsH.unpinChannel,
+    channelsH.hideDmChannel, channelsH.unhideDmChannel,
     channelsH.maxPinnedChannels, channelsH.getOrCreateDMChannel,
     messagesH.fetchOlderMessages, messagesH.fetchChannelMessages,
     messagesH.refreshChannelMessages, unreadCount, stats,

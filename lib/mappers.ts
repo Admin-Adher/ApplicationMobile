@@ -34,6 +34,40 @@ function toPostgresTimestamp(value?: string | null): string {
   return parseFrenchDateTime(value)?.toISOString() ?? new Date().toISOString();
 }
 
+export function normalizeUserNameForCompare(value?: string | null): string {
+  return String(value ?? '').trim().replace(/\s+/g, ' ').toLocaleLowerCase('fr-FR');
+}
+
+export function isSameUserName(a?: string | null, b?: string | null): boolean {
+  const left = normalizeUserNameForCompare(a);
+  const right = normalizeUserNameForCompare(b);
+  return !!left && !!right && left === right;
+}
+
+export function normalizeMessageReadBy(value: unknown): string[] {
+  const raw = Array.isArray(value) ? value : [];
+  const names = raw
+    .map(item => {
+      if (typeof item === 'string') return item;
+      if (item && typeof item === 'object') {
+        const record = item as Record<string, unknown>;
+        return record.userName ?? record.name ?? record.sender;
+      }
+      return '';
+    })
+    .map(name => String(name ?? '').trim())
+    .filter(Boolean);
+  return Array.from(new Set(names));
+}
+
+export function getMessageTimeMs(message: Pick<Message, 'dbCreatedAt' | 'timestamp'>): number {
+  if (message.dbCreatedAt) {
+    const parsed = new Date(message.dbCreatedAt).getTime();
+    if (!Number.isNaN(parsed)) return parsed;
+  }
+  return parseFrenchDateTime(message.timestamp)?.getTime() ?? 0;
+}
+
 export function normalizeVisitePayloadForSupabase(payload: Record<string, any>): Record<string, any> {
   const data = { ...payload };
   if (typeof data.created_at === 'string') {
@@ -301,15 +335,15 @@ export function toSitePlan(row: any): SitePlan {
 }
 
 export function toMessage(row: any, currentUserName?: string): Message {
+  const readBy = normalizeMessageReadBy(row.read_by);
   const isMe = currentUserName
-    ? row.sender === currentUserName
+    ? isSameUserName(row.sender, currentUserName)
     : (row.is_me ?? false);
   // Compute read from readBy: a message is "read" by the current user if
   // their name appears in readBy or if they are the sender (isMe).
   // The DB read column is always true (set by sender) and useless for recipients.
-  const readBy: any[] = row.read_by ?? [];
   const hasRead = currentUserName
-    ? (isMe || readBy.some((r: any) => typeof r === 'string' ? r === currentUserName : r.userName === currentUserName))
+    ? (isMe || readBy.some((name: string) => isSameUserName(name, currentUserName)))
     : (row.read ?? false);
   return {
     id: row.id,
@@ -326,7 +360,7 @@ export function toMessage(row: any, currentUserName?: string): Message {
     attachmentUri: row.attachment_uri ?? undefined,
     reactions: row.reactions ?? {},
     isPinned: row.is_pinned ?? false,
-    readBy: row.read_by ?? [],
+    readBy,
     mentions: row.mentions ?? [],
     reserveId: row.reserve_id ?? undefined,
     linkedItemType: row.linked_item_type ?? undefined,
@@ -342,7 +376,7 @@ export function fromMessage(m: Message): Record<string, any> {
     timestamp: m.timestamp, type: m.type, read: m.read,
     reply_to_id: m.replyToId ?? null, reply_to_content: m.replyToContent ?? null,
     reply_to_sender: m.replyToSender ?? null, attachment_uri: m.attachmentUri ?? null,
-    reactions: m.reactions, is_pinned: m.isPinned, read_by: m.readBy,
+    reactions: m.reactions, is_pinned: m.isPinned, read_by: normalizeMessageReadBy(m.readBy),
     mentions: m.mentions, reserve_id: m.reserveId ?? null,
     created_at: m.dbCreatedAt ?? null,
   };

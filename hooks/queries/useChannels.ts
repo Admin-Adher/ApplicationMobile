@@ -15,10 +15,40 @@ const DM_CHANNELS_PREFIX = 'dmChannels_v2_';
 const PINNED_CHANNELS_PREFIX = 'pinnedChannels_v2_';
 const CHANNEL_MEMBERS_OVERRIDE_PREFIX = 'channelMembersOverride_v2_';
 const PENDING_DM_PREFIX = 'buildtrack_pending_dm_channels_v2_';
+const HIDDEN_DM_PREFIX = 'buildtrack_hidden_dm_channels_v1_';
 const MAX_PINNED = 5;
 
 export function dmChannelId(nameA: string, nameB: string): string {
   return 'dm-' + [nameA, nameB].sort().join('__');
+}
+
+export function getDmParticipants(
+  channelId: string,
+  members?: string[],
+  dmParticipants?: string[],
+): string[] {
+  const fromId = channelId.startsWith('dm-')
+    ? channelId.slice(3).split('__')
+    : [];
+  const all = [...(dmParticipants ?? []), ...(members ?? []), ...fromId]
+    .map(name => String(name).trim())
+    .filter(Boolean);
+  return Array.from(new Set(all));
+}
+
+export function getDmDisplayName(
+  channel: Pick<Channel, 'id' | 'name'> & Partial<Pick<Channel, 'members' | 'dmParticipants'>>,
+  currentUserName: string,
+  preferredOtherName?: string,
+): string {
+  if (preferredOtherName && preferredOtherName !== currentUserName) return preferredOtherName;
+  const participants = getDmParticipants(channel.id, channel.members, channel.dmParticipants);
+  const otherName = currentUserName
+    ? participants.find(name => name !== currentUserName)
+    : undefined;
+  if (otherName) return otherName;
+  if (channel.name && channel.name !== currentUserName) return channel.name;
+  return preferredOtherName || channel.name || 'Message direct';
 }
 
 export function useChannels() {
@@ -28,9 +58,11 @@ export function useChannels() {
   const [customChannels, setCustomChannels] = useState<Channel[]>([]);
   const [groupChannels, setGroupChannels] = useState<Channel[]>([]);
   const [persistedDmChannels, setPersistedDmChannels] = useState<Channel[]>([]);
+  const [dmChannelIdsWithMessages, setDmChannelIdsWithMessages] = useState<Set<string>>(new Set());
   const [pinnedChannelIds, setPinnedChannelIds] = useState<string[]>([]);
   const [channelMembersOverride, setChannelMembersOverride] = useState<Record<string, string[]>>({});
   const [pendingDmChannelIds, setPendingDmChannelIds] = useState<Set<string>>(new Set());
+  const [hiddenDmChannelIds, setHiddenDmChannelIds] = useState<Record<string, string>>({});
   const [reconnectSeq, setReconnectSeq] = useState(0);
   const dmUpsertPromisesRef = useRef<Map<string, Promise<void>>>(new Map());
 
@@ -55,6 +87,7 @@ export function useChannels() {
   const PINNED_CHANNELS_KEY = PINNED_CHANNELS_PREFIX + uid;
   const CHANNEL_MEMBERS_OVERRIDE_KEY = CHANNEL_MEMBERS_OVERRIDE_PREFIX + uid;
   const PENDING_DM_KEY = PENDING_DM_PREFIX + uid;
+  const HIDDEN_DM_KEY = HIDDEN_DM_PREFIX + uid;
 
   useEffect(() => {
     if (!user) return;
@@ -63,9 +96,11 @@ export function useChannels() {
     setCustomChannels([]);
     setGroupChannels([]);
     setPersistedDmChannels([]);
+    setDmChannelIdsWithMessages(new Set());
     setPinnedChannelIds([]);
     setChannelMembersOverride({});
     setPendingDmChannelIds(new Set());
+    setHiddenDmChannelIds({});
     loadAll();
   }, [user?.id]);
 
@@ -125,7 +160,7 @@ export function useChannels() {
   }, [user?.id]);
 
   async function _loadChannelsFromSupabase() {
-    const [customCached, groupCached, generalCached, dmCached, pendingDmCached] = await Promise.all([
+    const [customCached, groupCached, generalCached, dmCached, pendingDmCached, hiddenDmCached] = await Promise.all([
       AsyncStorage.getItem(CUSTOM_CHANNELS_KEY)
         .then(s => s ? JSON.parse(s) as Channel[] : [] as Channel[])
         .catch(() => [] as Channel[]),
@@ -141,10 +176,16 @@ export function useChannels() {
       AsyncStorage.getItem(PENDING_DM_KEY)
         .then(s => s ? (JSON.parse(s) as string[]) : [] as string[])
         .catch(() => [] as string[]),
+      AsyncStorage.getItem(HIDDEN_DM_KEY)
+        .then(s => s ? JSON.parse(s) as Record<string, string> : {} as Record<string, string>)
+        .catch(() => ({} as Record<string, string>)),
     ]);
 
     if (pendingDmCached.length) {
       setPendingDmChannelIds(new Set(pendingDmCached));
+    }
+    if (Object.keys(hiddenDmCached).length) {
+      setHiddenDmChannelIds(hiddenDmCached);
     }
 
     // ── Show cached data IMMEDIATELY so the UI is responsive while we wait
@@ -211,7 +252,10 @@ export function useChannels() {
           });
         } else if (r.type === 'dm') {
           const participants = members;
-          const otherName = participants.find(p => p !== myName) ?? r.name;
+          const otherName = getDmDisplayName(
+            { id: r.id, name: r.name, members: participants, dmParticipants: participants },
+            myName,
+          );
           dm.push({
             id: r.id, name: otherName, description: r.description ?? '',
             icon: r.icon ?? 'person-circle', color: r.color ?? '#EC4899',
@@ -240,6 +284,7 @@ export function useChannels() {
         }
         return mergedDm;
       });
+      void refreshDmMessagePresence(dm.map(c => c.id));
 
       AsyncStorage.setItem(GENERAL_CHANNELS_KEY, JSON.stringify(general)).catch(() => {});
       AsyncStorage.setItem(CUSTOM_CHANNELS_KEY, JSON.stringify(mergedCustom)).catch(() => {});
@@ -250,6 +295,27 @@ export function useChannels() {
       if (groupCached.length) setGroupChannels(groupCached);
       if (dmCached.length) setPersistedDmChannels(dmCached);
     }
+  }
+
+  async function refreshDmMessagePresence(dmIds: string[]) {
+    if (!isSupabaseConfigured || dmIds.length === 0) return;
+    try {
+      let query = (supabase as any)
+        .from('messages')
+        .select('channel_id')
+        .in('channel_id', dmIds)
+        .limit(10000);
+      const orgId = orgIdRef.current;
+      if (orgId) query = query.eq('organization_id', orgId);
+      const { data, error } = await query;
+      if (error || !data) return;
+      const idsWithMessages = new Set<string>(
+        (data as Array<{ channel_id?: string }>)
+          .map(row => row.channel_id)
+          .filter(Boolean) as string[]
+      );
+      setDmChannelIdsWithMessages(idsWithMessages);
+    } catch {}
   }
 
   async function loadPinnedChannels() {
@@ -538,17 +604,63 @@ export function useChannels() {
   useEffect(() => { persistedDmChannelsRef.current = persistedDmChannels; }, [persistedDmChannels]);
   const pendingDmChannelIdsRef = useRef(pendingDmChannelIds);
   useEffect(() => { pendingDmChannelIdsRef.current = pendingDmChannelIds; }, [pendingDmChannelIds]);
+  const hiddenDmChannelIdsRef = useRef(hiddenDmChannelIds);
+  useEffect(() => { hiddenDmChannelIdsRef.current = hiddenDmChannelIds; }, [hiddenDmChannelIds]);
+
+  const saveHiddenDmChannels = useCallback((next: Record<string, string>) => {
+    setHiddenDmChannelIds(next);
+    hiddenDmChannelIdsRef.current = next;
+    AsyncStorage.setItem(HIDDEN_DM_KEY, JSON.stringify(next)).catch(() => {});
+  }, [HIDDEN_DM_KEY]);
+
+  const hideDmChannel = useCallback((id: string) => {
+    saveHiddenDmChannels({ ...hiddenDmChannelIdsRef.current, [id]: new Date().toISOString() });
+  }, [saveHiddenDmChannels]);
+
+  const unhideDmChannel = useCallback((id: string) => {
+    if (!hiddenDmChannelIdsRef.current[id]) return;
+    const next = { ...hiddenDmChannelIdsRef.current };
+    delete next[id];
+    saveHiddenDmChannels(next);
+  }, [saveHiddenDmChannels]);
 
   const getOrCreateDMChannel = useCallback((otherName: string): Channel => {
     const myName = userNameRef.current;
     const chId = dmChannelId(myName, otherName);
     const existing = persistedDmChannelsRef.current.find(c => c.id === chId);
-    if (existing) return existing;
+    if (existing) {
+      const participants = getDmParticipants(chId, existing.members, existing.dmParticipants);
+      const normalizedParticipants = [myName, otherName, ...participants]
+        .map(name => String(name).trim())
+        .filter(Boolean)
+        .filter((name, index, arr) => arr.indexOf(name) === index);
+      const displayName = getDmDisplayName(
+        { ...existing, members: normalizedParticipants, dmParticipants: normalizedParticipants },
+        myName,
+        otherName,
+      );
+      const fixedExisting: Channel = {
+        ...existing,
+        name: displayName,
+        description: `Message direct avec ${displayName}`,
+        members: normalizedParticipants,
+        dmParticipants: normalizedParticipants,
+      };
+      if (
+        existing.name !== fixedExisting.name ||
+        JSON.stringify(existing.members ?? []) !== JSON.stringify(fixedExisting.members ?? []) ||
+        JSON.stringify(existing.dmParticipants ?? []) !== JSON.stringify(fixedExisting.dmParticipants ?? [])
+      ) {
+        setPersistedDmChannels(prev => prev.map(c => c.id === chId ? fixedExisting : c));
+      }
+      return fixedExisting;
+    }
 
-    const participants = [myName, otherName];
+    const participants = [myName, otherName].filter(Boolean);
+    const displayName = getDmDisplayName({ id: chId, name: otherName, members: participants }, myName, otherName);
     const newChannel: Channel = {
-      id: chId, name: otherName,
-      description: `Message direct avec ${otherName}`,
+      id: chId, name: displayName,
+      description: `Message direct avec ${displayName}`,
       icon: 'person-circle', color: '#EC4899', type: 'dm',
       members: participants,
       dmParticipants: participants,
@@ -557,10 +669,10 @@ export function useChannels() {
     if (isSupabaseConfigured) {
       const orgId = orgIdRef.current;
       const channelData = {
-        id: chId, name: otherName,
-        description: `Message direct avec ${otherName}`,
+        id: chId, name: displayName,
+        description: `Message direct avec ${displayName}`,
         icon: 'person-circle', color: '#EC4899', type: 'dm',
-        members: [myName, otherName], created_by: myName, organization_id: orgId ?? null,
+        members: participants, created_by: myName, organization_id: orgId ?? null,
       };
       if (!isOnlineRef.current) {
         enqueueOperation({ table: 'channels', op: 'upsert', data: channelData });
@@ -610,12 +722,15 @@ export function useChannels() {
           setGroupChannels(prev => prev.some(c => c.id === ch.id) ? prev : [...prev, ch]);
         } else if (r.type === 'dm') {
           const myName = userNameRef.current;
-          const participants: string[] = r.members ?? [];
+          const participants = getDmParticipants(r.id, normalizeMembers(r.members));
           if (!myName || participants.includes(myName)) {
-            const otherName = participants.find(p => p !== myName) ?? r.name;
+            const otherName = getDmDisplayName(
+              { id: r.id, name: r.name, members: participants, dmParticipants: participants },
+              myName,
+            );
             setPersistedDmChannels(prev =>
               prev.some(c => c.id === ch.id) ? prev
-                : [...prev, { ...ch, name: otherName, dmParticipants: participants }]
+                : [...prev, { ...ch, name: otherName, members: participants, dmParticipants: participants }]
             );
           }
         } else if (r.type === 'general' || r.type === 'building') {
@@ -624,10 +739,11 @@ export function useChannels() {
       })
       .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'channels' }, (payload: any) => {
         const r = payload.new;
-        const participants: string[] = r.members ?? [];
+        const participants = getDmParticipants(r.id, normalizeMembers(r.members));
         const myName = userNameRef.current;
         const displayName = r.type === 'dm'
-          ? (participants.find((p: string) => p !== myName) ?? r.name) : r.name;
+          ? getDmDisplayName({ id: r.id, name: r.name, members: participants, dmParticipants: participants }, myName)
+          : r.name;
         const ch: Channel = {
           id: r.id, name: displayName, description: r.description ?? '',
           icon: r.icon, color: r.color, type: r.type,
@@ -656,9 +772,11 @@ export function useChannels() {
     customChannels,
     groupChannels,
     persistedDmChannels,
+    dmChannelIdsWithMessages,
     pinnedChannelIds,
     channelMembersOverride,
     pendingDmChannelIds,
+    hiddenDmChannelIds,
     addCustomChannel,
     removeCustomChannel,
     addGroupChannel,
@@ -669,6 +787,8 @@ export function useChannels() {
     removeChannelMember,
     pinChannel,
     unpinChannel,
+    hideDmChannel,
+    unhideDmChannel,
     getOrCreateDMChannel,
     getDmUpsertPromise,
     addGeneralChannel,
