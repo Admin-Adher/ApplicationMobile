@@ -63,6 +63,16 @@ function routeNotification(router: ReturnType<typeof useRouter>, data: Record<st
   if (path?.startsWith('/')) router.push(path as any);
 }
 
+function friendlyPushError(message: string): string {
+  if (/FirebaseApp is not initialized|fcm-credentials|google-services/i.test(message)) {
+    return "Configuration Android FCM incomplète : ajoutez le fichier google-services.json dans l'app et la clé FCM V1 dans Expo/EAS, puis rebuild l'APK.";
+  }
+  if (/Project ID Expo/i.test(message)) {
+    return message;
+  }
+  return message || 'Impossible de configurer les notifications push.';
+}
+
 export function PushNotificationsProvider({ children }: { children: React.ReactNode }) {
   const { user } = useAuth();
   const { preferences } = useNotificationPreferences();
@@ -130,7 +140,7 @@ export function PushNotificationsProvider({ children }: { children: React.ReactN
 
         const projectId = resolveProjectId();
         if (!projectId) {
-          setLastError('Project ID Expo introuvable pour les notifications push.');
+          setLastError(friendlyPushError('Project ID Expo introuvable pour les notifications push.'));
           return;
         }
 
@@ -157,7 +167,7 @@ export function PushNotificationsProvider({ children }: { children: React.ReactN
         if (!cancelled) {
           const message = err?.message ?? 'Impossible de configurer les notifications push.';
           console.warn('[push] registration error:', message);
-          setLastError(message);
+          setLastError(friendlyPushError(message));
         }
       }
     }

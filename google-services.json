@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "112919832172",
+    "project_id": "buildtrack-apk",
+    "storage_bucket": "buildtrack-apk.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:112919832172:android:73c62234817b1cd4051a49",
+        "android_client_info": {
+          "package_name": "com.buildtrack.app"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyD--XE8xbzkFt7OI2tbYXOf5xE0-0zJcs4"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

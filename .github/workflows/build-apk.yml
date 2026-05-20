@@ -79,6 +79,22 @@ jobs:
       - name: Install dependencies
         run: npm install
 
+      - name: Configure Android push services
+        env:
+          GOOGLE_SERVICES_JSON: ${{ secrets.GOOGLE_SERVICES_JSON }}
+        run: |
+          node - <<'NODE'
+          const fs = require('fs');
+          const raw = process.env.GOOGLE_SERVICES_JSON || '';
+          if (!raw.trim()) process.exit(0);
+          let content = raw.trim();
+          if (!content.startsWith('{')) {
+            content = Buffer.from(content, 'base64').toString('utf8').trim();
+          }
+          JSON.parse(content);
+          fs.writeFileSync('google-services.json', `${content}\n`);
+          NODE
+
       - name: Generate native Android project
         run: npx expo prebuild --platform android --clean
 

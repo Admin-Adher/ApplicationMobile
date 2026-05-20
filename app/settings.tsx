@@ -241,7 +241,9 @@ export default function SettingsScreen() {
     void updatePreferences({ [key]: value } as Partial<NotificationPreferences>);
   }
 
-  const pushStatus = permissionStatus === 'granted'
+  const pushStatus = pushError
+    ? 'Configuration push incomplète'
+    : permissionStatus === 'granted'
     ? (expoPushToken ? 'Appareil enregistré' : 'Permission accordée')
     : permissionStatus === 'denied'
       ? 'Permission système refusée'
@@ -249,7 +251,9 @@ export default function SettingsScreen() {
         ? 'Non disponible sur web'
         : 'Permission à demander';
 
-  const pushStatusColor = permissionStatus === 'granted' && notifPrefs.pushEnabled
+  const pushStatusColor = pushError
+    ? '#F59E0B'
+    : permissionStatus === 'granted' && notifPrefs.pushEnabled
     ? '#10B981'
     : permissionStatus === 'denied'
       ? '#EF4444'
