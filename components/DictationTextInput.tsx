@@ -317,7 +317,7 @@ const DictationTextInput = forwardRef<TextInput, DictationTextInputProps>(functi
   const showControls = dictationEnabled && editable !== false;
   const showAssist = textAssistEnabled && editable !== false;
   const controlsDisabled = !showControls;
-  const showDictationPicker = compactControls && showControls && dictationPickerOpen && !recognizing;
+  const showDictationPicker = showControls && dictationPickerOpen && !recognizing;
   const assistSourceLanguage = useMemo(() => detectTextLanguage(value), [value]);
 
   const limitSuggestion = (text: string) => typeof maxLength === 'number' ? text.slice(0, maxLength) : text;
@@ -387,14 +387,14 @@ const DictationTextInput = forwardRef<TextInput, DictationTextInputProps>(functi
   };
 
   const openDictationPicker = () => {
-    if (!compactControls || recognizing || starting) return;
+    if (!showControls || recognizing || starting) return;
     setAssistExpanded(false);
     setDictationPickerOpen(true);
     setHint('Choisissez la langue de dictee.');
   };
 
   const handleMicPress = () => {
-    if (!compactControls || recognizing) {
+    if (recognizing) {
       void startDictation();
       return;
     }
@@ -429,25 +429,6 @@ const DictationTextInput = forwardRef<TextInput, DictationTextInputProps>(functi
       {(showControls || showAssist) && (
         <View style={[styles.controls, controlsStyle, controlsDisabled && styles.controlsDisabled]}>
           {controlsLeading}
-          {showControls && !compactControls && (
-            <View style={styles.languageGroup} accessibilityLabel="Langue de dictee">
-              {LANGUAGES.map(item => {
-                const active = item.code === language;
-                return (
-                  <TouchableOpacity
-                    key={item.code}
-                    style={[styles.languageButton, active && styles.languageButtonActive]}
-                    onPress={() => handleLanguageChange(item.code)}
-                    disabled={controlsDisabled || recognizing || starting}
-                    accessibilityRole="button"
-                    accessibilityLabel={`Dictee ${item.title}`}
-                  >
-                    <Text style={[styles.languageText, active && styles.languageTextActive]}>{item.label}</Text>
-                  </TouchableOpacity>
-                );
-              })}
-            </View>
-          )}
           {!compactControls && (hint ? <Text style={styles.hint} numberOfLines={2}>{hint}</Text> : <View style={{ flex: 1 }} />)}
           {previousText != null && (
             <TouchableOpacity
@@ -492,7 +473,7 @@ const DictationTextInput = forwardRef<TextInput, DictationTextInputProps>(functi
               ) : (
                 <Ionicons name={recognizing ? 'stop' : 'mic'} size={16} color="#fff" />
               )}
-              {compactControls && !starting && !recognizing ? (
+              {!starting && !recognizing ? (
                 <View style={styles.micLanguageBadge}>
                   <Text style={styles.micLanguageBadgeText}>{selectedLanguage.label}</Text>
                 </View>
@@ -593,33 +574,6 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   controlsDisabled: { opacity: 0.55 },
-  languageGroup: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: C.surface2,
-    borderWidth: 1,
-    borderColor: C.border,
-    borderRadius: 8,
-    overflow: 'hidden',
-  },
-  languageButton: {
-    minWidth: 34,
-    height: 28,
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: 8,
-  },
-  languageButtonActive: {
-    backgroundColor: C.primary,
-  },
-  languageText: {
-    color: C.textSub,
-    fontSize: 11,
-    fontFamily: 'Inter_600SemiBold',
-  },
-  languageTextActive: {
-    color: '#fff',
-  },
   hint: {
     flex: 1,
     color: C.textMuted,
