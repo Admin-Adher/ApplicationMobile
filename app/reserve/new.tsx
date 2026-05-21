@@ -30,7 +30,7 @@ import { getCachedPlanUri } from '@/lib/planCache';
 
 type DraftPin = { x: number; y: number };
 const DRAFT_PIN_ID = '__draft_reserve_pin__';
-const PLAN_PIN_PLACEMENT_SIZE = 18;
+const PLAN_PIN_PLACEMENT_SIZE = 12;
 
 function parsePlanCoord(value?: string): number | null {
   if (!value) return null;
