@@ -378,14 +378,14 @@ const DictationTextInput = forwardRef<TextInput, DictationTextInputProps>(functi
       {(showControls || showAssist) && (
         <View style={[styles.controls, controlsStyle, controlsDisabled && styles.controlsDisabled]}>
           {controlsLeading}
-          {showControls && (
-            <View style={[styles.languageGroup, compactControls && styles.languageGroupCompact]} accessibilityLabel="Langue de dictee">
+          {showControls && !compactControls && (
+            <View style={styles.languageGroup} accessibilityLabel="Langue de dictee">
               {LANGUAGES.map(item => {
                 const active = item.code === language;
                 return (
                   <TouchableOpacity
                     key={item.code}
-                    style={[styles.languageButton, compactControls && styles.languageButtonCompact, active && styles.languageButtonActive]}
+                    style={[styles.languageButton, active && styles.languageButtonActive]}
                     onPress={() => handleLanguageChange(item.code)}
                     disabled={controlsDisabled || recognizing || starting}
                     accessibilityRole="button"
@@ -506,20 +506,12 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     overflow: 'hidden',
   },
-  languageGroupCompact: {
-    borderRadius: 16,
-  },
   languageButton: {
     minWidth: 34,
     height: 28,
     alignItems: 'center',
     justifyContent: 'center',
     paddingHorizontal: 8,
-  },
-  languageButtonCompact: {
-    minWidth: 31,
-    height: 30,
-    paddingHorizontal: 6,
   },
   languageButtonActive: {
     backgroundColor: C.primary,
