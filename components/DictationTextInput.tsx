@@ -36,6 +36,7 @@ import { requestAdvancedTranslation } from '@/lib/textAssistOnline';
 type DictationLanguage = 'fr-FR' | 'en-US' | 'es-ES';
 
 const DICTATION_LANGUAGE_KEY = 'buildtrack_dictation_language_v1';
+const DICTATION_LANGUAGE_CONFIRMED_KEY = 'buildtrack_dictation_language_confirmed_v1';
 
 const LANGUAGES: Array<{ code: DictationLanguage; label: string; title: string }> = [
   { code: 'fr-FR', label: 'FR', title: 'Francais' },
@@ -140,6 +141,8 @@ const DictationTextInput = forwardRef<TextInput, DictationTextInputProps>(functi
   const [assistBusy, setAssistBusy] = useState(false);
   const [assistSuggestion, setAssistSuggestion] = useState<{ title: string; text: string } | null>(null);
   const [previousText, setPreviousText] = useState<string | null>(null);
+  const [dictationPickerOpen, setDictationPickerOpen] = useState(false);
+  const [dictationLanguageConfirmed, setDictationLanguageConfirmed] = useState(false);
 
   const activeRef = useRef(false);
   const inputRef = useRef<TextInput>(null);
@@ -161,11 +164,15 @@ const DictationTextInput = forwardRef<TextInput, DictationTextInputProps>(functi
   useEffect(() => { selectionRef.current = selection; }, [selection]);
 
   useEffect(() => {
-    AsyncStorage.getItem(DICTATION_LANGUAGE_KEY)
-      .then(raw => {
-        if (LANGUAGES.some(item => item.code === raw)) {
-          setLanguage(raw as DictationLanguage);
+    AsyncStorage.multiGet([DICTATION_LANGUAGE_KEY, DICTATION_LANGUAGE_CONFIRMED_KEY])
+      .then(entries => {
+        const rawLanguage = entries.find(([key]) => key === DICTATION_LANGUAGE_KEY)?.[1];
+        const rawConfirmed = entries.find(([key]) => key === DICTATION_LANGUAGE_CONFIRMED_KEY)?.[1];
+        const hasSavedLanguage = LANGUAGES.some(item => item.code === rawLanguage);
+        if (hasSavedLanguage) {
+          setLanguage(rawLanguage as DictationLanguage);
         }
+        setDictationLanguageConfirmed(rawConfirmed === '1' || hasSavedLanguage);
       })
       .catch(() => {});
   }, []);
@@ -184,6 +191,7 @@ const DictationTextInput = forwardRef<TextInput, DictationTextInputProps>(functi
 
   useSpeechRecognitionEvent('start', () => {
     if (!activeRef.current) return;
+    setDictationPickerOpen(false);
     setStarting(false);
     setRecognizing(true);
     setHint('Dictee en cours...');
@@ -193,6 +201,7 @@ const DictationTextInput = forwardRef<TextInput, DictationTextInputProps>(functi
     if (!activeRef.current) return;
     activeRef.current = false;
     dictationRangeRef.current = null;
+    setDictationPickerOpen(false);
     setStarting(false);
     setRecognizing(false);
     setHint(null);
@@ -214,6 +223,7 @@ const DictationTextInput = forwardRef<TextInput, DictationTextInputProps>(functi
     if (!activeRef.current) return;
     activeRef.current = false;
     dictationRangeRef.current = null;
+    setDictationPickerOpen(false);
     setStarting(false);
     setRecognizing(false);
     const message = friendlyDictationError(event);
@@ -230,7 +240,11 @@ const DictationTextInput = forwardRef<TextInput, DictationTextInputProps>(functi
 
   const handleLanguageChange = (code: DictationLanguage) => {
     setLanguage(code);
-    AsyncStorage.setItem(DICTATION_LANGUAGE_KEY, code).catch(() => {});
+    setDictationLanguageConfirmed(true);
+    AsyncStorage.multiSet([
+      [DICTATION_LANGUAGE_KEY, code],
+      [DICTATION_LANGUAGE_CONFIRMED_KEY, '1'],
+    ]).catch(() => {});
   };
 
   const handleSelectionChange = (event: NativeSyntheticEvent<TextInputSelectionChangeEventData>) => {
@@ -252,9 +266,10 @@ const DictationTextInput = forwardRef<TextInput, DictationTextInputProps>(functi
     }, 150);
   };
 
-  const startDictation = async () => {
+  const startDictation = async (languageOverride?: DictationLanguage) => {
     if (!dictationEnabled || editable === false || starting) return;
     setHint(null);
+    setDictationPickerOpen(false);
 
     if (recognizing && activeRef.current) {
       ExpoSpeechRecognitionModule.stop();
@@ -274,11 +289,13 @@ const DictationTextInput = forwardRef<TextInput, DictationTextInputProps>(functi
       }
 
       activeRef.current = true;
+      const activeLanguage = languageOverride ?? language;
+      const activeLanguageMeta = LANGUAGES.find(item => item.code === activeLanguage) ?? selectedLanguage;
       dictationRangeRef.current = clampSelection(selectionRef.current, valueRef.current);
       setStarting(true);
-      setHint(`Langue : ${selectedLanguage.title}`);
+      setHint(`Langue : ${activeLanguageMeta.title}`);
       ExpoSpeechRecognitionModule.start({
-        lang: language,
+        lang: activeLanguage,
         interimResults: true,
         continuous: false,
         maxAlternatives: 1,
@@ -288,6 +305,7 @@ const DictationTextInput = forwardRef<TextInput, DictationTextInputProps>(functi
     } catch (err: any) {
       activeRef.current = false;
       dictationRangeRef.current = null;
+      setDictationPickerOpen(false);
       setStarting(false);
       setRecognizing(false);
       const message = err?.message ?? 'Impossible de lancer la dictee vocale.';
@@ -299,6 +317,7 @@ const DictationTextInput = forwardRef<TextInput, DictationTextInputProps>(functi
   const showControls = dictationEnabled && editable !== false;
   const showAssist = textAssistEnabled && editable !== false;
   const controlsDisabled = !showControls;
+  const showDictationPicker = compactControls && showControls && dictationPickerOpen && !recognizing;
   const assistSourceLanguage = useMemo(() => detectTextLanguage(value), [value]);
 
   const limitSuggestion = (text: string) => typeof maxLength === 'number' ? text.slice(0, maxLength) : text;
@@ -362,6 +381,38 @@ const DictationTextInput = forwardRef<TextInput, DictationTextInputProps>(functi
     setHint('Texte precedent restaure.');
   };
 
+  const handleAssistPress = () => {
+    setDictationPickerOpen(false);
+    setAssistExpanded(v => !v);
+  };
+
+  const openDictationPicker = () => {
+    if (!compactControls || recognizing || starting) return;
+    setAssistExpanded(false);
+    setDictationPickerOpen(true);
+    setHint('Choisissez la langue de dictee.');
+  };
+
+  const handleMicPress = () => {
+    if (!compactControls || recognizing) {
+      void startDictation();
+      return;
+    }
+    if (starting) return;
+    if (!dictationLanguageConfirmed) {
+      openDictationPicker();
+      return;
+    }
+    void startDictation();
+  };
+
+  const handleDictationLanguagePick = (code: DictationLanguage) => {
+    handleLanguageChange(code);
+    setAssistExpanded(false);
+    setDictationPickerOpen(false);
+    void startDictation(code);
+  };
+
   return (
     <View style={[styles.container, containerStyle]}>
       <TextInput
@@ -411,7 +462,7 @@ const DictationTextInput = forwardRef<TextInput, DictationTextInputProps>(functi
           {showAssist && (
             <TouchableOpacity
               style={[styles.assistButton, assistExpanded && styles.assistButtonActive]}
-              onPress={() => setAssistExpanded(v => !v)}
+              onPress={handleAssistPress}
               accessibilityRole="button"
               accessibilityLabel="Ouvrir la traduction"
             >
@@ -429,21 +480,66 @@ const DictationTextInput = forwardRef<TextInput, DictationTextInputProps>(functi
                 recognizing && styles.micButtonActive,
                 controlsDisabled && styles.micButtonDisabled,
               ]}
-              onPress={startDictation}
+              onPress={handleMicPress}
+              onLongPress={openDictationPicker}
               disabled={controlsDisabled || starting}
               accessibilityRole="button"
-              accessibilityLabel={recognizing ? 'Arreter la dictee' : 'Demarrer la dictee'}
+              accessibilityLabel={recognizing ? 'Arreter la dictee' : `Dictee en ${selectedLanguage.title}`}
+              accessibilityHint="Appui long pour changer la langue de dictee"
             >
               {starting ? (
                 <ActivityIndicator size="small" color="#fff" />
               ) : (
                 <Ionicons name={recognizing ? 'stop' : 'mic'} size={16} color="#fff" />
               )}
+              {compactControls && !starting && !recognizing ? (
+                <View style={styles.micLanguageBadge}>
+                  <Text style={styles.micLanguageBadgeText}>{selectedLanguage.label}</Text>
+                </View>
+              ) : null}
             </TouchableOpacity>
           )}
           {controlsTrailing}
         </View>
       )}
+      {showDictationPicker ? (
+        <View style={styles.dictationPicker}>
+          <View style={styles.dictationPickerHeader}>
+            <Text style={styles.dictationPickerTitle}>Langue de dictee</Text>
+            <Text style={styles.dictationPickerSubtitle}>
+              La langue choisie est memorisee. Ensuite, le micro demarre directement dans cette langue.
+            </Text>
+          </View>
+          <View style={styles.dictationPickerOptions}>
+            {LANGUAGES.map(item => {
+              const active = item.code === language;
+              return (
+                <TouchableOpacity
+                  key={item.code}
+                  style={[styles.dictationLanguageChip, active && styles.dictationLanguageChipActive]}
+                  onPress={() => handleDictationLanguagePick(item.code)}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Demarrer la dictee en ${item.title}`}
+                >
+                  <View style={styles.dictationLanguageTopRow}>
+                    <Ionicons
+                      name={active ? 'checkmark-circle' : 'mic-outline'}
+                      size={14}
+                      color={active ? C.primary : C.textMuted}
+                    />
+                    <Text style={[styles.dictationLanguageChipLabel, active && styles.dictationLanguageChipLabelActive]}>
+                      {item.label}
+                    </Text>
+                  </View>
+                  <Text style={[styles.dictationLanguageChipTitle, active && styles.dictationLanguageChipTitleActive]}>
+                    {item.title}
+                  </Text>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+        </View>
+      ) : null}
       {compactControls && hint ? <Text style={styles.compactHint} numberOfLines={1}>{hint}</Text> : null}
       {showAssist && assistExpanded && (
         <View style={styles.assistPanel}>
@@ -536,6 +632,76 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontFamily: 'Inter_400Regular',
   },
+  dictationPicker: {
+    marginTop: 8,
+    borderWidth: 1,
+    borderColor: C.primary + '24',
+    borderRadius: 16,
+    backgroundColor: '#fff',
+    padding: 10,
+    gap: 10,
+    shadowColor: '#000',
+    shadowOpacity: 0.08,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 6 },
+    elevation: 3,
+  },
+  dictationPickerHeader: {
+    gap: 2,
+  },
+  dictationPickerTitle: {
+    color: C.text,
+    fontSize: 13,
+    fontFamily: 'Inter_700Bold',
+  },
+  dictationPickerSubtitle: {
+    color: C.textMuted,
+    fontSize: 11,
+    fontFamily: 'Inter_400Regular',
+    lineHeight: 15,
+  },
+  dictationPickerOptions: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  dictationLanguageChip: {
+    flex: 1,
+    minHeight: 50,
+    borderRadius: 13,
+    borderWidth: 1,
+    borderColor: C.border,
+    backgroundColor: C.surface2,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 8,
+    paddingVertical: 7,
+    gap: 3,
+  },
+  dictationLanguageChipActive: {
+    borderColor: C.primary,
+    backgroundColor: C.primary + '12',
+  },
+  dictationLanguageTopRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
+  dictationLanguageChipLabel: {
+    color: C.textSub,
+    fontSize: 12,
+    fontFamily: 'Inter_700Bold',
+  },
+  dictationLanguageChipLabelActive: {
+    color: C.primary,
+  },
+  dictationLanguageChipTitle: {
+    color: C.textMuted,
+    fontSize: 10,
+    fontFamily: 'Inter_600SemiBold',
+  },
+  dictationLanguageChipTitleActive: {
+    color: C.primary,
+  },
   micButton: {
     width: 34,
     height: 34,
@@ -543,12 +709,32 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: C.primary,
+    position: 'relative',
   },
   micButtonActive: {
     backgroundColor: C.open,
   },
   micButtonDisabled: {
     backgroundColor: C.textMuted,
+  },
+  micLanguageBadge: {
+    position: 'absolute',
+    top: -5,
+    right: -6,
+    minWidth: 19,
+    height: 16,
+    borderRadius: 8,
+    paddingHorizontal: 3,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1.5,
+    borderColor: '#fff',
+    backgroundColor: C.surface2,
+  },
+  micLanguageBadgeText: {
+    color: C.primary,
+    fontSize: 8,
+    fontFamily: 'Inter_700Bold',
   },
   undoButton: {
     width: 34,
