@@ -169,12 +169,14 @@ export default function NewTaskScreen() {
           <Text style={styles.sectionTitle}>Informations générales</Text>
 
           <Text style={styles.label}>Titre *</Text>
-          <TextInput
-            style={[styles.input, errors.title && styles.inputError]}
+          <DictationTextInput
+            inputStyle={[styles.input, errors.title && styles.inputError]}
             placeholder="Titre de la tâche"
             placeholderTextColor={C.textMuted}
             value={title}
             onChangeText={t => { setTitle(t); if (errors.title) setErrors(p => ({ ...p, title: '' })); }}
+            textAssistEnabled
+            textAssistContext="description"
           />
           {errors.title ? <Text style={styles.errorText}>{errors.title}</Text> : null}
 

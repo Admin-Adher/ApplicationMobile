@@ -745,7 +745,7 @@ export default function ReserveDetailScreen() {
     const updated: Reserve = {
       ...reserve,
       title: editTitle.trim(),
-      description: getReserveDescriptionText(editDescription, reserve.title, ''),
+      description: getReserveDescriptionText(editDescription, editTitle, ''),
       building: editBuilding.trim(),
       zone: editZone.trim(),
       level: editLevel.trim(),
@@ -1794,7 +1794,15 @@ export default function ReserveDetailScreen() {
 
             <ScrollView contentContainerStyle={[mStyles.content, { paddingBottom: insets.bottom + 24 }]} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
               <Text style={mStyles.label}>TITRE *</Text>
-              <TextInput style={mStyles.input} value={editTitle} onChangeText={setEditTitle} placeholder="Titre..." placeholderTextColor={C.textMuted} />
+              <DictationTextInput
+                inputStyle={mStyles.input}
+                value={editTitle}
+                onChangeText={setEditTitle}
+                placeholder="Titre..."
+                placeholderTextColor={C.textMuted}
+                textAssistEnabled
+                textAssistContext="description"
+              />
 
               <Text style={mStyles.label}>DESCRIPTION</Text>
               <DictationTextInput

@@ -704,13 +704,17 @@ export default function NewVisiteScreen() {
 
           <Text style={styles.label}>Titre de la visite *</Text>
           <View style={styles.titleRow}>
-            <TextInput
-              style={[styles.input, styles.titleInput]}
-              placeholder={visitType ? suggestedTitle : 'Ex: Contrôle — S14'}
-              placeholderTextColor={C.textMuted}
-              value={title}
-              onChangeText={handleTitleChange}
-            />
+            <View style={styles.titleInputWrap}>
+              <DictationTextInput
+                inputStyle={[styles.input, styles.titleInput]}
+                placeholder={visitType ? suggestedTitle : 'Ex: Contrôle — S14'}
+                placeholderTextColor={C.textMuted}
+                value={title}
+                onChangeText={handleTitleChange}
+                textAssistEnabled
+                textAssistContext="description"
+              />
+            </View>
             {showSuggestBtn && (
               <TouchableOpacity style={styles.suggestBtn} onPress={applySuggestedTitle}>
                 <Ionicons name="flash-outline" size={15} color={C.primary} />
@@ -1590,7 +1594,8 @@ const styles = StyleSheet.create({
   defaultPlanMeta: { fontSize: 11, fontFamily: 'Inter_500Medium', color: C.textMuted },
 
   // Title + suggest
-  titleRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  titleRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 8 },
+  titleInputWrap: { flex: 1, minWidth: 0 },
   titleInput: { flex: 1, marginBottom: 0 },
   suggestBtn: {
     width: 38, height: 38, borderRadius: 10, borderWidth: 1,

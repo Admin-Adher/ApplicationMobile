@@ -889,12 +889,14 @@ export default function NewReserveScreen() {
                 <Text style={styles.idPreviewText}>Réf : {previewId}</Text>
               </View>
             </View>
-            <TextInput
-              style={styles.input}
+            <DictationTextInput
+              inputStyle={styles.input}
               placeholder="Ex : Fissure mur porteur..."
               placeholderTextColor={C.textMuted}
               value={title}
               onChangeText={handleTitleChange}
+              textAssistEnabled
+              textAssistContext="description"
             />
           </View>
           <View style={[styles.fieldGroup, { marginBottom: 0 }]}>
