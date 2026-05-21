@@ -1,9 +1,9 @@
 import {
   View, Text, StyleSheet, ScrollView, TextInput, TouchableOpacity,
-  Alert, ActivityIndicator, KeyboardAvoidingView, Platform, Image,
+  Alert, ActivityIndicator, KeyboardAvoidingView, Platform, Image, Animated,
 } from 'react-native';
 import { useRouter } from 'expo-router';
-import { useState, useCallback, useMemo } from 'react';
+import { useState, useCallback, useMemo, useRef } from 'react';
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 import { C } from '@/constants/colors';
@@ -164,6 +164,9 @@ export default function NewVisiteScreen() {
   const router = useRouter();
   const { addVisite, activeChantierId, activeChantier, companies, sitePlans } = useApp();
   const { user, permissions, users } = useAuth();
+  const scrollRef = useRef<ScrollView | null>(null);
+  const typeSectionYRef = useRef(0);
+  const typeHighlightAnim = useRef(new Animated.Value(0)).current;
 
   // General
   const [visitType, setVisitType]   = useState<VisiteType | null>(null);
@@ -304,6 +307,29 @@ export default function NewVisiteScreen() {
       setTitle(autoTitle(visitType, date));
       setTitleEdited(false);
     }
+  }
+
+  function guideToVisitType() {
+    scrollRef.current?.scrollTo({
+      y: Math.max(typeSectionYRef.current - 12, 0),
+      animated: true,
+    });
+    typeHighlightAnim.stopAnimation();
+    typeHighlightAnim.setValue(0);
+    Animated.sequence([
+      Animated.delay(160),
+      Animated.timing(typeHighlightAnim, {
+        toValue: 1,
+        duration: 260,
+        useNativeDriver: false,
+      }),
+      Animated.delay(850),
+      Animated.timing(typeHighlightAnim, {
+        toValue: 0,
+        duration: 420,
+        useNativeDriver: false,
+      }),
+    ]).start();
   }
 
   // ── Cover photo ─────────────────────────────────────────────────────────────
@@ -579,6 +605,14 @@ export default function NewVisiteScreen() {
   const suggestedTitle = visitType ? autoTitle(visitType, date) : '';
   const showSuggestBtn = visitType && title !== suggestedTitle && !!suggestedTitle;
   const checklistDone  = checklistItems.filter(i => i.checked).length;
+  const typeCardBorderColor = typeHighlightAnim.interpolate({
+    inputRange: [0, 1],
+    outputRange: [C.border, C.primary],
+  });
+  const typeCardBackgroundColor = typeHighlightAnim.interpolate({
+    inputRange: [0, 1],
+    outputRange: [C.surface, C.primaryBg],
+  });
 
   // ── Render ──────────────────────────────────────────────────────────────────
 
@@ -596,13 +630,23 @@ export default function NewVisiteScreen() {
       />
 
       <ScrollView
+        ref={scrollRef}
         contentContainerStyle={styles.content}
         showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="handled"
       >
 
         {/* ── 1. TYPE DE VISITE ── */}
-        <View style={styles.card}>
+        <Animated.View
+          style={[
+            styles.card,
+            styles.typeGuideCard,
+            { borderColor: typeCardBorderColor, backgroundColor: typeCardBackgroundColor },
+          ]}
+          onLayout={event => {
+            typeSectionYRef.current = event.nativeEvent.layout.y;
+          }}
+        >
           <Text style={styles.sectionLabel}>TYPE DE VISITE</Text>
           <View style={styles.typeGrid}>
             {VISIT_TYPES.map(t => {
@@ -623,7 +667,7 @@ export default function NewVisiteScreen() {
               );
             })}
           </View>
-        </View>
+        </Animated.View>
 
         {/* ── 2. PHOTO DE COUVERTURE ── */}
         <View style={styles.card}>
@@ -1044,9 +1088,6 @@ export default function NewVisiteScreen() {
                   </Text>
                 )}
               </Text>
-              {!visitType && checklistItems.length === 0 && (
-                <Text style={styles.sublabel}>Sélectionnez un type de visite pour charger un modèle</Text>
-              )}
             </View>
             {visitType && checklistItems.length > 0 && (
               <TouchableOpacity onPress={resetChecklistToTemplate} style={styles.resetBtn}>
@@ -1055,6 +1096,34 @@ export default function NewVisiteScreen() {
               </TouchableOpacity>
             )}
           </View>
+
+          {checklistItems.length === 0 ? (
+            <View style={styles.checklistEmptyBox}>
+              <View style={styles.checklistEmptyIcon}>
+                <Ionicons name="clipboard-outline" size={17} color={C.primary} />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.checklistEmptyTitle}>Aucune checklist chargée</Text>
+                <Text style={styles.checklistEmptyText}>
+                  Choisissez un type de visite pour proposer automatiquement les points de contrôle adaptés. Vous pouvez aussi ajouter vos propres points.
+                </Text>
+                <TouchableOpacity
+                  style={styles.checklistGuideBtn}
+                  onPress={guideToVisitType}
+                  activeOpacity={0.75}
+                >
+                  <Ionicons name="arrow-up-circle-outline" size={15} color={C.primary} />
+                  <Text style={styles.checklistGuideBtnText}>
+                    {visitType ? 'Changer de type' : 'Choisir un type'}
+                  </Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          ) : (
+            <Text style={styles.checklistLoadedHint}>
+              Cochez les points validés pendant la visite. Vous pouvez compléter ou retirer des points selon le chantier.
+            </Text>
+          )}
 
           {checklistItems.map(item => (
             <TouchableOpacity
@@ -1405,6 +1474,7 @@ const styles = StyleSheet.create({
   label: { fontSize: 12, fontFamily: 'Inter_500Medium', color: C.textSub, marginBottom: 6 },
 
   // Type grid
+  typeGuideCard: { borderWidth: 1.5 },
   typeGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   typeChip: {
     flexDirection: 'row', alignItems: 'center', gap: 6,
@@ -1572,6 +1642,28 @@ const styles = StyleSheet.create({
   checklistHeader: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 0 },
   resetBtn: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 8, paddingVertical: 4, borderRadius: 6, borderWidth: 1, borderColor: C.border },
   resetBtnText: { fontSize: 11, fontFamily: 'Inter_400Regular', color: C.textMuted },
+  checklistEmptyBox: {
+    flexDirection: 'row', gap: 10, padding: 12, borderRadius: 12,
+    backgroundColor: C.primaryBg, borderWidth: 1, borderColor: C.primary + '26',
+    marginBottom: 12,
+  },
+  checklistEmptyIcon: {
+    width: 34, height: 34, borderRadius: 12, backgroundColor: '#fff',
+    borderWidth: 1, borderColor: C.primary + '20',
+    alignItems: 'center', justifyContent: 'center',
+  },
+  checklistEmptyTitle: { fontSize: 13, fontFamily: 'Inter_700Bold', color: C.text, marginBottom: 3 },
+  checklistEmptyText: { fontSize: 12, fontFamily: 'Inter_400Regular', color: C.textSub, lineHeight: 17 },
+  checklistGuideBtn: {
+    marginTop: 10, alignSelf: 'flex-start', flexDirection: 'row', alignItems: 'center',
+    gap: 6, paddingHorizontal: 10, paddingVertical: 7, borderRadius: 10,
+    backgroundColor: '#fff', borderWidth: 1, borderColor: C.primary + '35',
+  },
+  checklistGuideBtnText: { fontSize: 12, fontFamily: 'Inter_700Bold', color: C.primary },
+  checklistLoadedHint: {
+    fontSize: 12, fontFamily: 'Inter_400Regular', color: C.textMuted,
+    lineHeight: 16, marginTop: -4, marginBottom: 10,
+  },
   checklistRow: {
     flexDirection: 'row', alignItems: 'center', gap: 10,
     paddingVertical: 9, borderBottomWidth: 1, borderBottomColor: C.border,
