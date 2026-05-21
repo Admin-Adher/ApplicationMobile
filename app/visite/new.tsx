@@ -9,7 +9,15 @@ import * as ImagePicker from 'expo-image-picker';
 import { C } from '@/constants/colors';
 import { useApp } from '@/context/AppContext';
 import { useAuth } from '@/context/AuthContext';
-import { Visite, VisiteParticipant, VisiteStatus, VisiteType, VisiteChecklistItem } from '@/constants/types';
+import {
+  ChantierBuilding,
+  Visite,
+  VisiteLocationScope,
+  VisiteParticipant,
+  VisiteStatus,
+  VisiteType,
+  VisiteChecklistItem,
+} from '@/constants/types';
 import Header from '@/components/Header';
 import DateInput from '@/components/DateInput';
 import { genId, formatDateFR, nowTimestampFR } from '@/lib/utils';
@@ -168,6 +176,7 @@ export default function NewVisiteScreen() {
   const [level, setLevel]           = useState('');
   const [zone, setZone]             = useState('');
   const [defaultPlanId, setDefaultPlanId] = useState<string | null>(null);
+  const [visitedLocations, setVisitedLocations] = useState<VisiteLocationScope[]>([]);
 
   // Concerned companies
   const [concernedCompanyIds, setConcernedCompanyIds] = useState<string[]>([]);
@@ -198,6 +207,33 @@ export default function NewVisiteScreen() {
 
   const hasCompanies = companies.length > 0;
   const chantierPlans = sitePlans.filter(p => p.chantierId === activeChantierId);
+  const chantierBuildings = activeChantier?.buildings ?? [];
+  const hasBuildingHierarchy = chantierBuildings.length > 0;
+  const selectedLocationBuildingIds = useMemo(
+    () => new Set(visitedLocations.map(loc => loc.buildingId).filter((id): id is string => !!id)),
+    [visitedLocations]
+  );
+  const selectedPlanIdsByBuilding = useMemo(() => {
+    const map = new Map<string, string>();
+    visitedLocations.forEach(loc => {
+      if (loc.buildingId && loc.defaultPlanId) map.set(loc.buildingId, loc.defaultPlanId);
+    });
+    return map;
+  }, [visitedLocations]);
+  const selectedLocationSummary = useMemo(() => {
+    if (visitedLocations.length === 0) return 'Aucun bâtiment sélectionné';
+    const levelCount = visitedLocations.reduce((sum, loc) => {
+      const b = chantierBuildings.find(item => item.id === loc.buildingId);
+      return sum + (b?.levels?.length ?? 0);
+    }, 0);
+    const planCount = chantierPlans.filter(plan =>
+      visitedLocations.some(loc =>
+        (plan.buildingId && plan.buildingId === loc.buildingId) ||
+        (!plan.buildingId && loc.buildingName && plan.building === loc.buildingName)
+      )
+    ).length;
+    return `${visitedLocations.length} bâtiment${visitedLocations.length > 1 ? 's' : ''} · ${levelCount} niveau${levelCount > 1 ? 'x' : ''} · ${planCount} plan${planCount > 1 ? 's' : ''}`;
+  }, [visitedLocations, chantierBuildings, chantierPlans]);
 
   // Team members available for quick-add
   const teamMembers = useMemo(() =>
@@ -260,6 +296,36 @@ export default function NewVisiteScreen() {
     }
     const result = await ImagePicker.launchCameraAsync({ allowsEditing: true, aspect: [16, 9], quality: 0.8 });
     if (!result.canceled && result.assets[0]) setCoverPhotoUri(result.assets[0].uri);
+  }
+
+  // ── Visit perimeter ────────────────────────────────────────────────────────
+
+  function plansForBuilding(b: ChantierBuilding) {
+    return chantierPlans.filter(plan =>
+      (!plan.buildingId && !plan.building) ||
+      plan.buildingId === b.id ||
+      (!plan.buildingId && plan.building === b.name)
+    );
+  }
+
+  function toggleVisitedBuilding(b: ChantierBuilding) {
+    setVisitedLocations(prev => {
+      const exists = prev.some(loc => loc.buildingId === b.id);
+      if (exists) return prev.filter(loc => loc.buildingId !== b.id);
+      return [...prev, { buildingId: b.id, buildingName: b.name }];
+    });
+  }
+
+  function selectAllBuildings() {
+    setVisitedLocations(chantierBuildings.map(b => ({ buildingId: b.id, buildingName: b.name })));
+  }
+
+  function updateLocationDefaultPlan(buildingId: string, planId: string | null) {
+    setVisitedLocations(prev => prev.map(loc =>
+      loc.buildingId === buildingId
+        ? { ...loc, defaultPlanId: planId ?? undefined }
+        : loc
+    ));
   }
 
   // ── Companies ───────────────────────────────────────────────────────────────
@@ -373,6 +439,13 @@ export default function NewVisiteScreen() {
       Alert.alert('Champ requis', 'Veuillez saisir une date.');
       return;
     }
+    if (hasBuildingHierarchy && visitedLocations.length === 0) {
+      Alert.alert(
+        'Périmètre requis',
+        'Sélectionnez au moins un bâtiment concerné par cette visite. Vous pourrez choisir le niveau et le plan précis lors de la création de chaque réserve.'
+      );
+      return;
+    }
 
     const startMinutes = startTime.trim() ? parseTimeToMinutes(startTime.trim()) : null;
     const endMinutes = endTime.trim() ? parseTimeToMinutes(endTime.trim()) : null;
@@ -394,6 +467,7 @@ export default function NewVisiteScreen() {
     const today          = nowTimestampFR();
     const conducteurName = conducteur.trim() || (user?.name ?? 'Équipe BuildTrack');
     const baseDate       = parseDateFR(date);
+    const singleVisitedLocation = hasBuildingHierarchy && visitedLocations.length === 1 ? visitedLocations[0] : null;
 
     const intervals: number[] =
       recurrence === 'weekly'    ? [0, 7, 14, 21] :
@@ -417,11 +491,12 @@ export default function NewVisiteScreen() {
         status: idx === 0 ? status : 'planned',
         visitType: visitType ?? undefined,
         concernedCompanyIds: concernedCompanyIds.length > 0 ? concernedCompanyIds : undefined,
-        building: building || undefined,
-        level: level || undefined,
+        visitedLocations: hasBuildingHierarchy && visitedLocations.length > 0 ? visitedLocations : undefined,
+        building: hasBuildingHierarchy ? singleVisitedLocation?.buildingName : building || undefined,
+        level: hasBuildingHierarchy ? undefined : level || undefined,
         zone: zone || undefined,
         coverPhotoUri: coverPhotoUri ?? undefined,
-        defaultPlanId: defaultPlanId ?? undefined,
+        defaultPlanId: hasBuildingHierarchy ? singleVisitedLocation?.defaultPlanId : defaultPlanId ?? undefined,
         checklistItems: checklistItems.length > 0 ? checklistItems.map(i => ({ ...i, checked: false })) : undefined,
         tags: tags.length > 0 ? tags : undefined,
         notes: notes.trim() || undefined,
@@ -619,25 +694,151 @@ export default function NewVisiteScreen() {
           </View>
         </View>
 
-        {/* ── 4. LOCALISATION + PLAN ── */}
+        {/* ── 4. PÉRIMÈTRE + PLAN ── */}
         <View style={styles.card}>
-          <Text style={styles.sectionLabel}>LOCALISATION</Text>
-          <LocationPicker
-            buildings={activeChantier?.buildings ?? []}
-            building={building}
-            level={level}
-            zone={zone}
-            onBuildingChange={setBuilding}
-            onLevelChange={setLevel}
-            onZoneChange={setZone}
-          />
+          <View style={styles.perimeterHeader}>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.sectionLabel}>PÉRIMÈTRE DE VISITE</Text>
+              <Text style={styles.sublabel}>
+                Sélectionnez les bâtiments visités. Les réserves créées depuis cette visite seront limitées à ce périmètre.
+              </Text>
+            </View>
+            {hasBuildingHierarchy && visitedLocations.length > 0 ? (
+              <View style={styles.perimeterCountBadge}>
+                <Text style={styles.perimeterCountText}>{visitedLocations.length}</Text>
+              </View>
+            ) : null}
+          </View>
 
-          {chantierPlans.length > 0 && (
+          {hasBuildingHierarchy ? (
             <>
-              <Text style={[styles.label, { marginTop: 12 }]}>Plan de référence</Text>
-              <Text style={styles.sublabel}>Plan affiché par défaut lors de la création des réserves depuis cette visite</Text>
-              <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-                <View style={styles.chipRow}>
+              <View style={styles.perimeterActions}>
+                <TouchableOpacity
+                  style={styles.perimeterActionBtn}
+                  onPress={selectAllBuildings}
+                  activeOpacity={0.75}
+                >
+                  <Ionicons name="checkmark-done-outline" size={14} color={C.primary} />
+                  <Text style={styles.perimeterActionText}>Tout sélectionner</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[styles.perimeterActionBtn, visitedLocations.length === 0 && { opacity: 0.45 }]}
+                  onPress={() => setVisitedLocations([])}
+                  disabled={visitedLocations.length === 0}
+                  activeOpacity={0.75}
+                >
+                  <Ionicons name="close-outline" size={14} color={C.textSub} />
+                  <Text style={[styles.perimeterActionText, { color: C.textSub }]}>Effacer</Text>
+                </TouchableOpacity>
+              </View>
+
+              <View style={styles.buildingGrid}>
+                {chantierBuildings.map(b => {
+                  const active = selectedLocationBuildingIds.has(b.id);
+                  return (
+                    <TouchableOpacity
+                      key={b.id}
+                      style={[styles.buildingSelectChip, active && styles.buildingSelectChipActive]}
+                      onPress={() => toggleVisitedBuilding(b)}
+                      activeOpacity={0.75}
+                    >
+                      <View style={[styles.buildingSelectIcon, active && styles.buildingSelectIconActive]}>
+                        <Ionicons name={active ? 'checkmark' : 'business-outline'} size={13} color={active ? '#fff' : C.primary} />
+                      </View>
+                      <View style={{ flex: 1 }}>
+                        <Text style={[styles.buildingSelectName, active && styles.buildingSelectNameActive]} numberOfLines={1}>
+                          {b.name}
+                        </Text>
+                        <Text style={styles.buildingSelectMeta}>
+                          {b.levels?.length ?? 0} niveau{(b.levels?.length ?? 0) > 1 ? 'x' : ''}
+                        </Text>
+                      </View>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+
+              <View style={[styles.perimeterSummaryBox, visitedLocations.length > 0 && styles.perimeterSummaryBoxReady]}>
+                <Ionicons
+                  name={visitedLocations.length > 0 ? 'map-outline' : 'information-circle-outline'}
+                  size={16}
+                  color={visitedLocations.length > 0 ? C.primary : C.textMuted}
+                />
+                <Text style={styles.perimeterSummaryText}>{selectedLocationSummary}</Text>
+              </View>
+
+              {visitedLocations.length > 0 && chantierPlans.length > 0 ? (
+                <View style={styles.defaultPlanByBuilding}>
+                  <Text style={styles.label}>Plans suggérés par bâtiment</Text>
+                  <Text style={styles.sublabel}>
+                    Optionnel. Le niveau et le plan exact restent modifiables au moment de créer la réserve.
+                  </Text>
+                  {visitedLocations.map(loc => {
+                    const b = chantierBuildings.find(item => item.id === loc.buildingId);
+                    if (!b || !loc.buildingId) return null;
+                    const plans = plansForBuilding(b);
+                    const selectedPlanId = selectedPlanIdsByBuilding.get(loc.buildingId) ?? null;
+                    return (
+                      <View key={loc.buildingId} style={styles.defaultPlanGroup}>
+                        <View style={styles.defaultPlanTitleRow}>
+                          <Ionicons name="business-outline" size={13} color={C.primary} />
+                          <Text style={styles.defaultPlanTitle}>{loc.buildingName}</Text>
+                          <Text style={styles.defaultPlanMeta}>{plans.length} plan{plans.length > 1 ? 's' : ''}</Text>
+                        </View>
+                        <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+                          <View style={styles.chipRow}>
+                            <TouchableOpacity
+                              style={[styles.chip, selectedPlanId === null && styles.chipActive]}
+                              onPress={() => updateLocationDefaultPlan(loc.buildingId!, null)}
+                            >
+                              <Ionicons name="close-outline" size={13} color={selectedPlanId === null ? C.primary : C.textMuted} />
+                              <Text style={[styles.chipText, selectedPlanId === null && styles.chipTextActive]}>Aucun</Text>
+                            </TouchableOpacity>
+                            {plans.map(plan => {
+                              const selected = selectedPlanId === plan.id;
+                              return (
+                                <TouchableOpacity
+                                  key={plan.id}
+                                  style={[styles.chip, selected && styles.chipActive]}
+                                  onPress={() => updateLocationDefaultPlan(loc.buildingId!, selected ? null : plan.id)}
+                                >
+                                  <Ionicons
+                                    name={plan.fileType === 'pdf' ? 'document-outline' : 'map-outline'}
+                                    size={13}
+                                    color={selected ? C.primary : C.textMuted}
+                                  />
+                                  <Text style={[styles.chipText, selected && styles.chipTextActive]}>
+                                    {plan.name}{plan.revisionCode ? ` (${plan.revisionCode})` : ''}
+                                  </Text>
+                                </TouchableOpacity>
+                              );
+                            })}
+                          </View>
+                        </ScrollView>
+                      </View>
+                    );
+                  })}
+                </View>
+              ) : null}
+            </>
+          ) : (
+            <>
+              <LocationPicker
+                buildings={activeChantier?.buildings ?? []}
+                building={building}
+                level={level}
+                zone={zone}
+                onBuildingChange={setBuilding}
+                onLevelChange={setLevel}
+                onZoneChange={setZone}
+              />
+
+              {chantierPlans.length > 0 && (
+                <>
+                  <Text style={[styles.label, { marginTop: 12 }]}>Plan de référence</Text>
+                  <Text style={styles.sublabel}>Plan affiché par défaut lors de la création des réserves depuis cette visite</Text>
+                  <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+                    <View style={styles.chipRow}>
                   <TouchableOpacity
                     style={[styles.chip, defaultPlanId === null && styles.chipActive]}
                     onPress={() => setDefaultPlanId(null)}
@@ -664,8 +865,10 @@ export default function NewVisiteScreen() {
                       </TouchableOpacity>
                     );
                   })}
-                </View>
-              </ScrollView>
+                    </View>
+                  </ScrollView>
+                </>
+              )}
             </>
           )}
         </View>
@@ -1008,8 +1211,9 @@ export default function NewVisiteScreen() {
             {visitType && <Text style={styles.summaryLine}>Type : {VISIT_TYPES.find(t => t.value === visitType)?.label}</Text>}
             {title.trim() && <Text style={styles.summaryLine}>Titre : {title.trim()}</Text>}
             {(startTime || endTime) && <Text style={styles.summaryLine}>Horaire : {startTime || '—'} → {endTime || '—'}</Text>}
-            {(building || level) && <Text style={styles.summaryLine}>Lieu : {[building, level, zone].filter(Boolean).join(' — ')}</Text>}
-            {defaultPlanId && <Text style={styles.summaryLine}>Plan : {chantierPlans.find(p => p.id === defaultPlanId)?.name}</Text>}
+            {hasBuildingHierarchy && visitedLocations.length > 0 && <Text style={styles.summaryLine}>Périmètre : {selectedLocationSummary}</Text>}
+            {!hasBuildingHierarchy && (building || level) && <Text style={styles.summaryLine}>Lieu : {[building, level, zone].filter(Boolean).join(' — ')}</Text>}
+            {!hasBuildingHierarchy && defaultPlanId && <Text style={styles.summaryLine}>Plan : {chantierPlans.find(p => p.id === defaultPlanId)?.name}</Text>}
             {participants.length > 0 && <Text style={styles.summaryLine}>{participants.length} participant{participants.length > 1 ? 's' : ''} : {participants.map(p => p.name).join(', ')}</Text>}
             {checklistItems.length > 0 && <Text style={styles.summaryLine}>Checklist : {checklistItems.length} point{checklistItems.length > 1 ? 's' : ''} de contrôle</Text>}
             {tags.length > 0 && <Text style={styles.summaryLine}>Tags : {tags.join(', ')}</Text>}
@@ -1074,16 +1278,59 @@ const styles = StyleSheet.create({
   photoActions: { flexDirection: 'row', gap: 10 },
   photoBtn: {
     flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
-    gap: 8, paddingVertical: 14, borderRadius: 12, borderWidth: 1.5,
-    borderColor: C.primary + '50', borderStyle: 'dashed', backgroundColor: C.primaryBg,
+    gap: 8, minHeight: 52, paddingVertical: 12, paddingHorizontal: 12,
+    borderRadius: 12, borderWidth: 1, borderColor: C.border,
+    backgroundColor: C.surface2,
   },
-  photoBtnText: { fontSize: 13, fontFamily: 'Inter_500Medium', color: C.primary },
+  photoBtnText: { fontSize: 13, fontFamily: 'Inter_600SemiBold', color: C.primary },
   coverPhotoWrapper: { position: 'relative', borderRadius: 12, overflow: 'hidden' },
   coverPhoto: { width: '100%', height: 160, borderRadius: 12 },
   coverPhotoRemove: {
     position: 'absolute', top: 8, right: 8,
     backgroundColor: 'rgba(0,0,0,0.5)', borderRadius: 12,
   },
+
+  // Visit perimeter
+  perimeterHeader: { flexDirection: 'row', alignItems: 'flex-start', gap: 10 },
+  perimeterCountBadge: {
+    minWidth: 28, height: 28, borderRadius: 14, paddingHorizontal: 8,
+    backgroundColor: C.primary, alignItems: 'center', justifyContent: 'center',
+  },
+  perimeterCountText: { color: '#fff', fontSize: 12, fontFamily: 'Inter_700Bold' },
+  perimeterActions: { flexDirection: 'row', gap: 8, marginBottom: 12 },
+  perimeterActionBtn: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6,
+    paddingHorizontal: 10, paddingVertical: 8, borderRadius: 10,
+    backgroundColor: C.surface2, borderWidth: 1, borderColor: C.border,
+  },
+  perimeterActionText: { fontSize: 12, fontFamily: 'Inter_700Bold', color: C.primary },
+  buildingGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  buildingSelectChip: {
+    width: '48%', minHeight: 58, flexDirection: 'row', alignItems: 'center', gap: 9,
+    paddingHorizontal: 10, paddingVertical: 9, borderRadius: 12,
+    backgroundColor: C.surface2, borderWidth: 1, borderColor: C.border,
+  },
+  buildingSelectChipActive: { borderColor: C.primary, backgroundColor: C.primaryBg },
+  buildingSelectIcon: {
+    width: 28, height: 28, borderRadius: 9, alignItems: 'center', justifyContent: 'center',
+    backgroundColor: '#fff', borderWidth: 1, borderColor: C.primary + '22',
+  },
+  buildingSelectIconActive: { backgroundColor: C.primary, borderColor: C.primary },
+  buildingSelectName: { fontSize: 13, fontFamily: 'Inter_700Bold', color: C.text },
+  buildingSelectNameActive: { color: C.primary },
+  buildingSelectMeta: { marginTop: 1, fontSize: 11, fontFamily: 'Inter_400Regular', color: C.textMuted },
+  perimeterSummaryBox: {
+    flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 12,
+    padding: 10, borderRadius: 10, backgroundColor: C.surface2,
+    borderWidth: 1, borderColor: C.border,
+  },
+  perimeterSummaryBoxReady: { backgroundColor: C.primaryBg, borderColor: C.primary + '28' },
+  perimeterSummaryText: { flex: 1, fontSize: 12, fontFamily: 'Inter_600SemiBold', color: C.textSub },
+  defaultPlanByBuilding: { marginTop: 14, paddingTop: 14, borderTopWidth: 1, borderTopColor: C.border },
+  defaultPlanGroup: { marginTop: 10, gap: 8 },
+  defaultPlanTitleRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  defaultPlanTitle: { flex: 1, fontSize: 13, fontFamily: 'Inter_700Bold', color: C.text },
+  defaultPlanMeta: { fontSize: 11, fontFamily: 'Inter_500Medium', color: C.textMuted },
 
   // Title + suggest
   titleRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },

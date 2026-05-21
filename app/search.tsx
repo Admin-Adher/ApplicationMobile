@@ -102,7 +102,8 @@ export default function SearchScreen() {
       v.title.toLowerCase().includes(q) ||
       v.conducteur.toLowerCase().includes(q) ||
       (v.notes ?? '').toLowerCase().includes(q) ||
-      (v.building ?? '').toLowerCase().includes(q)
+      (v.building ?? '').toLowerCase().includes(q) ||
+      (v.visitedLocations ?? []).some(loc => loc.buildingName.toLowerCase().includes(q))
     ).slice(0, 6);
   }, [visites, isSousTraitant, q]);
 
@@ -303,6 +304,11 @@ export default function SearchScreen() {
               {filteredVisites.map(v => {
                 const vColor = v.status === 'completed' ? C.closed : v.status === 'in_progress' ? C.inProgress : '#6366F1';
                 const vLabel = v.status === 'completed' ? 'Terminée' : v.status === 'in_progress' ? 'En cours' : 'Planifiée';
+                const locationLabel = v.visitedLocations?.length
+                  ? `${v.visitedLocations.length} bâtiment${v.visitedLocations.length > 1 ? 's' : ''}`
+                  : v.building
+                    ? `Bât. ${v.building}`
+                    : 'Périmètre non défini';
                 return (
                   <TouchableOpacity
                     key={v.id}
@@ -318,7 +324,7 @@ export default function SearchScreen() {
                     </View>
                     <Text style={styles.resultTitle} numberOfLines={1}>{v.title}</Text>
                     <View style={styles.resultMeta}>
-                      <Text style={styles.resultMetaText}>Bât. {v.building} · {v.date} · {v.conducteur}</Text>
+                      <Text style={styles.resultMetaText}>{locationLabel} · {v.date} · {v.conducteur}</Text>
                     </View>
                     <Ionicons name="chevron-forward" size={14} color={C.textMuted} style={styles.chevron} />
                   </TouchableOpacity>

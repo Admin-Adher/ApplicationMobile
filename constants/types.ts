@@ -228,6 +228,13 @@ export interface VisiteChecklistItem {
 
 export type VisiteType = 'controle' | 'opr' | 'securite' | 'reception' | 'synthese' | 'autre';
 
+export interface VisiteLocationScope {
+  buildingId?: string;
+  buildingName: string;
+  levelIds?: string[];
+  defaultPlanId?: string;
+}
+
 export interface Visite {
   id: string;
   chantierId: string;
@@ -239,6 +246,7 @@ export interface Visite {
   status: VisiteStatus;
   visitType?: VisiteType;
   concernedCompanyIds?: string[];
+  visitedLocations?: VisiteLocationScope[];
   building?: string;
   level?: string;
   zone?: string;

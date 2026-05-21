@@ -735,6 +735,7 @@ create table if not exists public.visites (
   status text not null,
   visit_type text,
   concerned_company_ids jsonb,
+  visited_locations jsonb default '[]'::jsonb,
   building text,
   level text,
   zone text,

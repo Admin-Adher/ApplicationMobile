@@ -105,10 +105,13 @@ function buildVisitePDF(visite: Visite, reserves: Reserve[], projectName: string
 
   const statusVisiteLabel = visite.status === 'completed' ? 'Terminée' : visite.status === 'in_progress' ? 'En cours' : 'Planifiée';
   const horaire = [visite.startTime, visite.endTime].filter(Boolean).join(' → ');
+  const visiteLocationValue = visite.visitedLocations?.length
+    ? visite.visitedLocations.map(loc => loc.buildingName).join(' — ')
+    : [visite.building, visite.level, visite.zone].filter(Boolean).join(' — ');
   const infoItems = [
     { label: 'Conducteur de travaux', value: visite.conducteur },
     { label: 'Date de visite', value: visite.date + (horaire ? `  ·  ${horaire}` : '') },
-    ...((visite.building || visite.level || visite.zone) ? [{ label: 'Localisation', value: [visite.building, visite.level, visite.zone].filter(Boolean).join(' — ') }] : []),
+    ...(visiteLocationValue ? [{ label: visite.visitedLocations?.length ? 'Périmètre de visite' : 'Localisation', value: visiteLocationValue }] : []),
     { label: 'Statut de la visite', value: statusVisiteLabel },
     ...(visite.reserveDeadlineDate ? [{ label: 'Délai de levée des réserves', value: visite.reserveDeadlineDate }] : []),
     ...(visite.tags && visite.tags.length > 0 ? [{ label: 'Tags', value: visite.tags.join(', ') }] : []),
@@ -270,6 +273,9 @@ export default function VisiteDetailScreen() {
   }
 
   const cfg = STATUS_CFG[visite.status];
+  const visiteLocationDisplay = visite.visitedLocations?.length
+    ? visite.visitedLocations.map(loc => loc.buildingName).join(' — ')
+    : [visite.building, visite.level, visite.zone].filter(Boolean).join(' — ');
 
   function setVisitStatus(next: VisiteStatus) {
     if (!visite) return;
@@ -430,12 +436,12 @@ export default function VisiteDetailScreen() {
             <View style={styles.infoItem}>
               <Ionicons name="business-outline" size={14} color={C.textMuted} />
               <View style={{ flex: 1 }}>
-                <Text style={styles.infoLabel}>Localisation</Text>
+                <Text style={styles.infoLabel}>{visite.visitedLocations?.length ? 'Périmètre de visite' : 'Localisation'}</Text>
                 <Text style={styles.infoVal}>
-                  {[visite.building, visite.level, visite.zone].filter(Boolean).join(' — ') || '—'}
+                  {visiteLocationDisplay || '—'}
                 </Text>
               </View>
-              {permissions.canEdit && (
+              {permissions.canEdit && !visite.visitedLocations?.length && (
                 <TouchableOpacity onPress={openEditLoc} hitSlop={8} style={{ padding: 4 }}>
                   <Ionicons name="pencil-outline" size={14} color={C.textMuted} />
                 </TouchableOpacity>

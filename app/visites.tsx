@@ -41,11 +41,13 @@ function VisiteCard({
 }) {
   const cfg = STATUS_CFG[visite.status];
   const typeCfg = visite.visitType ? TYPE_CFG[visite.visitType] : null;
-  const locationMeta = [
-    visite.building ? `Bât. ${visite.building}` : '',
-    visite.level,
-    visite.zone,
-  ].filter(Boolean).join(' — ');
+  const locationMeta = visite.visitedLocations?.length
+    ? `${visite.visitedLocations.length} bâtiment${visite.visitedLocations.length > 1 ? 's' : ''}`
+    : [
+      visite.building ? `Bât. ${visite.building}` : '',
+      visite.level,
+      visite.zone,
+    ].filter(Boolean).join(' — ');
   return (
     <TouchableOpacity style={styles.card} onPress={onPress} activeOpacity={0.75}>
       <View style={styles.cardHeader}>

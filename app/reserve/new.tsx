@@ -1,6 +1,6 @@
 import {
   View, Text, StyleSheet, ScrollView, TextInput, TouchableOpacity,
-  Alert, Platform, Image, ActivityIndicator, KeyboardAvoidingView,
+  Alert, Platform, Image, ActivityIndicator, KeyboardAvoidingView, Modal,
 } from 'react-native';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -11,7 +11,7 @@ import { C } from '@/constants/colors';
 import { useApp } from '@/context/AppContext';
 import { useAuth } from '@/context/AuthContext';
 import { useNetwork } from '@/context/NetworkContext';
-import { ReserveKind, ReservePriority, ReserveStatus, ReservePhoto } from '@/constants/types';
+import { ChantierBuilding, Reserve, ReserveKind, ReservePriority, ReserveStatus, ReservePhoto } from '@/constants/types';
 import Header from '@/components/Header';
 import DateInput from '@/components/DateInput';
 import BottomSheetPicker from '@/components/BottomSheetPicker';
@@ -25,6 +25,24 @@ import {
   genReserveId, validateDeadline,
 } from '@/lib/reserveUtils';
 import LocationPicker from '@/components/LocationPicker';
+import PdfPlanViewer from '@/components/PdfPlanViewer';
+import { getCachedPlanUri } from '@/lib/planCache';
+
+type DraftPin = { x: number; y: number };
+const DRAFT_PIN_ID = '__draft_reserve_pin__';
+
+function parsePlanCoord(value?: string): number | null {
+  if (!value) return null;
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return null;
+  return Math.min(100, Math.max(0, Math.round(parsed)));
+}
+
+function isImagePlanUri(uri?: string | null): boolean {
+  if (!uri) return false;
+  const clean = uri.split('?')[0].split('#')[0].toLowerCase();
+  return /\.(jpg|jpeg|png|webp|gif|bmp)$/.test(clean) || uri.startsWith('data:image/');
+}
 
 function SelectRow<T extends string>({
   label, options, value, onChange, colorFn,
@@ -70,12 +88,21 @@ export default function NewReserveScreen() {
     chantierId?: string; planId?: string; visiteId?: string;
     quickPhotoUri?: string;
   }>();
+  const initialDraftPin = useMemo<DraftPin | null>(() => {
+    const x = parsePlanCoord(params.planX);
+    const y = parsePlanCoord(params.planY);
+    return x !== null && y !== null ? { x, y } : null;
+  }, []);
+  const initialDraftPinRef = useRef<DraftPin | null>(initialDraftPin);
 
   const visiteId = params.visiteId;
   const sourceVisite = visiteId ? visites.find(v => v.id === visiteId) : null;
   const effectiveChantierId = params.chantierId ?? sourceVisite?.chantierId ?? activeChantierId ?? undefined;
   const chantierPlans = sitePlans.filter(p => p.chantierId === effectiveChantierId);
   const activeChantier = chantiers.find(c => c.id === effectiveChantierId);
+  const initialVisitLocation = sourceVisite?.visitedLocations?.length === 1
+    ? sourceVisite.visitedLocations[0]
+    : null;
   const visitCompanyNames = sourceVisite?.concernedCompanyIds
     ?.map(companyId => companies.find(c => c.id === companyId)?.name)
     .filter((name): name is string => !!name) ?? [];
@@ -84,17 +111,9 @@ export default function NewReserveScreen() {
   const [kind, setKind] = useState<ReserveKind>('reserve');
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState(params.prefill_description ?? '');
-  const [building, setBuilding] = useState(params.building ?? sourceVisite?.building ?? '');
+  const [building, setBuilding] = useState(params.building ?? initialVisitLocation?.buildingName ?? sourceVisite?.building ?? '');
   const [zone, setZone] = useState(sourceVisite?.zone ?? '');
   const [level, setLevel] = useState(params.level ?? sourceVisite?.level ?? '');
-
-  useEffect(() => {
-    if (!params.building && !params.level && !sourceVisite?.building && !sourceVisite?.level && activeChantier?.buildings?.length) {
-      const firstBuilding = activeChantier.buildings[0];
-      setBuilding(firstBuilding.name);
-      setLevel(firstBuilding.levels?.[0]?.name ?? '');
-    }
-  }, [activeChantier?.id, activeChantier?.buildings, params.building, params.level, sourceVisite?.building, sourceVisite?.level]);
 
   const locationFromPlan = !!(params.planId && params.building && params.level);
   const buildingLocked = locationFromPlan;
@@ -105,36 +124,108 @@ export default function NewReserveScreen() {
   const [deadline, setDeadline] = useState(sourceVisite?.reserveDeadlineDate ?? '');
   const [deadlineSuggested, setDeadlineSuggested] = useState(!!sourceVisite?.reserveDeadlineDate);
   const [lotId, setLotId] = useState<string>('');
-  const [selectedPlanId, setSelectedPlanId] = useState<string>(params.planId ?? sourceVisite?.defaultPlanId ?? chantierPlans[0]?.id ?? '');
+  const [selectedPlanId, setSelectedPlanId] = useState<string>(
+    params.planId
+      ?? initialVisitLocation?.defaultPlanId
+      ?? (sourceVisite?.visitedLocations?.length ? '' : sourceVisite?.defaultPlanId ?? chantierPlans[0]?.id ?? '')
+  );
   const [photos, setPhotos] = useState<ReservePhoto[]>([]);
   const [photoUploading, setPhotoUploading] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [pinModalVisible, setPinModalVisible] = useState(false);
+  const [draftPin, setDraftPin] = useState<DraftPin | null>(initialDraftPin);
   const [showTemplates, setShowTemplates] = useState(false);
   const [expandedTemplateCat, setExpandedTemplateCat] = useState<string | null>(null);
+  const [showLocationDetails, setShowLocationDetails] = useState(
+    !(params.building || params.level || initialVisitLocation || sourceVisite?.building || sourceVisite?.level)
+  );
   const sourceDefaultsAppliedRef = useRef(false);
 
+  const visitScopedBuildings = useMemo(() => {
+    if (!sourceVisite || !activeChantier?.buildings?.length) return [];
+    const scopes = sourceVisite.visitedLocations ?? [];
+    if (scopes.length > 0) {
+      return scopes
+        .map(scope =>
+          activeChantier.buildings?.find(b =>
+            (scope.buildingId && b.id === scope.buildingId) ||
+            b.name === scope.buildingName
+          ) ?? null
+        )
+        .filter((b): b is ChantierBuilding => !!b);
+    }
+    if (sourceVisite.building) {
+      const legacyBuilding = activeChantier.buildings.find(b => b.name === sourceVisite.building);
+      return legacyBuilding ? [legacyBuilding] : [];
+    }
+    return [];
+  }, [sourceVisite, activeChantier?.buildings]);
+
+  const reserveBuildingOptions = visitScopedBuildings.length > 0
+    ? visitScopedBuildings
+    : activeChantier?.buildings ?? [];
+  const visitHasScopedBuildings = !!sourceVisite && visitScopedBuildings.length > 0;
+  const visitScopedBuildingIds = useMemo(
+    () => new Set(visitScopedBuildings.map(b => b.id)),
+    [visitScopedBuildings]
+  );
+  const visitScopedBuildingNames = useMemo(
+    () => new Set(visitScopedBuildings.map(b => b.name)),
+    [visitScopedBuildings]
+  );
+
+  useEffect(() => {
+    if (params.building || params.level || sourceVisite?.building || sourceVisite?.level) return;
+    if (visitScopedBuildings.length > 1) return;
+    const firstBuilding = visitScopedBuildings[0] ?? activeChantier?.buildings?.[0];
+    if (firstBuilding) {
+      setBuilding(firstBuilding.name);
+      setLevel(firstBuilding.levels?.[0]?.name ?? '');
+    }
+  }, [
+    activeChantier?.id,
+    activeChantier?.buildings,
+    params.building,
+    params.level,
+    sourceVisite?.building,
+    sourceVisite?.level,
+    visitScopedBuildings,
+  ]);
+
   const inheritedDeadline = sourceVisite?.reserveDeadlineDate ?? '';
+  const initialPin = initialDraftPinRef.current;
+  const draftPinChanged = (draftPin?.x ?? null) !== (initialPin?.x ?? null) || (draftPin?.y ?? null) !== (initialPin?.y ?? null);
   const isDirty = title.trim().length > 0
     || description.trim().length > 0
     || photos.length > 0
+    || draftPinChanged
     || (!!deadline && deadline !== inheritedDeadline);
 
   useEffect(() => {
     if (!sourceVisite || sourceDefaultsAppliedRef.current) return;
     if (!params.building && sourceVisite.building) setBuilding(sourceVisite.building);
+    if (!params.building && sourceVisite.visitedLocations?.length === 1) {
+      setBuilding(sourceVisite.visitedLocations[0].buildingName);
+    }
     if (!params.level && sourceVisite.level) setLevel(sourceVisite.level);
     if (sourceVisite.zone) setZone(sourceVisite.zone);
     if (sourceVisite.reserveDeadlineDate) {
       setDeadline(sourceVisite.reserveDeadlineDate);
       setDeadlineSuggested(true);
     }
-    if (!params.planId && sourceVisite.defaultPlanId) setSelectedPlanId(sourceVisite.defaultPlanId);
+    if (!params.planId) {
+      const planFromSingleScope = sourceVisite.visitedLocations?.length === 1
+        ? sourceVisite.visitedLocations[0].defaultPlanId
+        : undefined;
+      if (planFromSingleScope || sourceVisite.defaultPlanId) setSelectedPlanId(planFromSingleScope ?? sourceVisite.defaultPlanId!);
+    }
     if (visitCompanyNames.length > 0) setSelectedCompanies(visitCompanyNames);
     sourceDefaultsAppliedRef.current = true;
   }, [
     sourceVisite?.id,
     sourceVisite?.building,
     sourceVisite?.level,
+    sourceVisite?.visitedLocations,
     sourceVisite?.zone,
     sourceVisite?.reserveDeadlineDate,
     sourceVisite?.defaultPlanId,
@@ -162,30 +253,121 @@ export default function NewReserveScreen() {
     );
   }
 
-  const presetX = params.planX ? parseInt(params.planX) : null;
-  const presetY = params.planY ? parseInt(params.planY) : null;
-
   const selectedLot = useMemo(() => lots.find(l => l.id === lotId) ?? null, [lots, lotId]);
   const previewId = useMemo(() => genReserveId(reserves, selectedLot), [reserves, selectedLot]);
 
   // Resolve IDs from selected building/level names
   const selectedBuildingObj = useMemo(
-    () => activeChantier?.buildings?.find(b => b.name === building) ?? null,
-    [activeChantier, building]
+    () => reserveBuildingOptions.find(b => b.name === building) ?? null,
+    [reserveBuildingOptions, building]
   );
   const selectedLevelObj = useMemo(
     () => selectedBuildingObj?.levels?.find(l => l.name === level) ?? null,
     [selectedBuildingObj, level]
   );
+  const locationSummary = useMemo(
+    () => [building, level, zone].filter(Boolean).join(' · '),
+    [building, level, zone]
+  );
+  const selectedPlan = useMemo(
+    () => chantierPlans.find(p => p.id === selectedPlanId) ?? null,
+    [chantierPlans, selectedPlanId]
+  );
+  const selectedPlanSupportsInlinePin = !!selectedPlan?.uri && selectedPlan.fileType !== 'dxf';
+  const selectedPlanIsImage = selectedPlan?.fileType === 'image' || isImagePlanUri(selectedPlan?.uri);
+  const selectedPlanPinnedReserves = useMemo(
+    () => reserves.filter(r => r.planId === selectedPlanId && r.planX != null && r.planY != null),
+    [reserves, selectedPlanId]
+  );
+  const draftPinReserve = useMemo<Reserve | null>(() => {
+    if (!draftPin || !selectedPlanId) return null;
+    const today = new Date().toISOString().split('T')[0];
+    return {
+      id: DRAFT_PIN_ID,
+      kind,
+      title: title.trim() || (kind === 'observation' ? 'Nouvelle observation' : 'Nouvelle réserve'),
+      description: description.trim() || 'Position provisoire',
+      building,
+      zone,
+      level,
+      companies: selectedCompanies,
+      company: selectedCompanies[0] ?? '',
+      priority,
+      status: 'open',
+      createdAt: today,
+      deadline: deadline || '—',
+      comments: [],
+      history: [],
+      planX: draftPin.x,
+      planY: draftPin.y,
+      chantierId: effectiveChantierId,
+      planId: selectedPlanId,
+      buildingId: selectedBuildingObj?.id ?? params.buildingId ?? undefined,
+      levelId: selectedLevelObj?.id ?? params.levelId ?? undefined,
+      lotId: lotId || undefined,
+      visiteId: visiteId || undefined,
+    };
+  }, [
+    draftPin,
+    selectedPlanId,
+    kind,
+    title,
+    description,
+    building,
+    zone,
+    level,
+    selectedCompanies,
+    priority,
+    deadline,
+    effectiveChantierId,
+    selectedBuildingObj?.id,
+    params.buildingId,
+    selectedLevelObj?.id,
+    params.levelId,
+    lotId,
+    visiteId,
+  ]);
+  const pinViewerReserves = useMemo(
+    () => draftPinReserve ? [...selectedPlanPinnedReserves, draftPinReserve] : selectedPlanPinnedReserves,
+    [selectedPlanPinnedReserves, draftPinReserve]
+  );
+  const pinViewerNumberMap = useMemo(() => {
+    const map = new Map<string, number>();
+    selectedPlanPinnedReserves.forEach((r, index) => map.set(r.id, index + 1));
+    map.set(DRAFT_PIN_ID, selectedPlanPinnedReserves.length + 1);
+    return map;
+  }, [selectedPlanPinnedReserves]);
 
   // Filter plans: show plans matching the selected level, plus general plans (no levelId)
   const filteredPlans = useMemo(() => {
-    if (!selectedBuildingObj || !selectedLevelObj) return chantierPlans;
-    return chantierPlans.filter(p => {
-      if (!p.buildingId && !p.levelId) return true; // general plan
-      return p.buildingId === selectedBuildingObj.id && p.levelId === selectedLevelObj.id;
+    const scopedPlans = visitHasScopedBuildings
+      ? chantierPlans.filter(p => {
+        if (!p.buildingId && !p.building) return true;
+        if (p.buildingId) return visitScopedBuildingIds.has(p.buildingId);
+        return !!p.building && visitScopedBuildingNames.has(p.building);
+      })
+      : chantierPlans;
+    if (visitHasScopedBuildings && !selectedBuildingObj) return [];
+    if (!selectedBuildingObj || !selectedLevelObj) return scopedPlans;
+    return scopedPlans.filter(p => {
+      if (!p.buildingId && !p.building && !p.levelId && !p.level) return true; // general plan
+      const matchesBuilding = p.buildingId
+        ? p.buildingId === selectedBuildingObj.id
+        : p.building === selectedBuildingObj.name;
+      if (!matchesBuilding) return false;
+      if (!p.levelId && !p.level) return true;
+      return p.levelId
+        ? p.levelId === selectedLevelObj.id
+        : p.level === selectedLevelObj.name;
     });
-  }, [chantierPlans, selectedBuildingObj, selectedLevelObj]);
+  }, [
+    chantierPlans,
+    selectedBuildingObj,
+    selectedLevelObj,
+    visitHasScopedBuildings,
+    visitScopedBuildingIds,
+    visitScopedBuildingNames,
+  ]);
 
   // When building/level changes: if selected plan no longer in filteredPlans, pick best match or clear
   useEffect(() => {
@@ -195,8 +377,18 @@ export default function NewReserveScreen() {
     if (!stillValid) {
       const best = filteredPlans[0]?.id ?? '';
       setSelectedPlanId(best);
+      setDraftPin(null);
     }
   }, [filteredPlans]);
+
+  useEffect(() => {
+    if (locationFromPlan || selectedPlanId || filteredPlans.length === 0 || !selectedBuildingObj) return;
+    const defaultFromVisit = getVisitDefaultPlanForBuilding(selectedBuildingObj.name);
+    const nextPlanId = defaultFromVisit && filteredPlans.some(p => p.id === defaultFromVisit)
+      ? defaultFromVisit
+      : filteredPlans[0]?.id ?? '';
+    if (nextPlanId) setSelectedPlanId(nextPlanId);
+  }, [filteredPlans, locationFromPlan, selectedPlanId, selectedBuildingObj]);
 
   if (!permissions.canCreate) {
     return (
@@ -259,7 +451,30 @@ export default function NewReserveScreen() {
     }
   }
 
+  function getVisitDefaultPlanForBuilding(nextBuildingName: string): string {
+    if (!sourceVisite?.visitedLocations?.length) return '';
+    const b = reserveBuildingOptions.find(item => item.name === nextBuildingName);
+    const scope = sourceVisite.visitedLocations.find(loc =>
+      (b?.id && loc.buildingId === b.id) ||
+      loc.buildingName === nextBuildingName
+    );
+    return scope?.defaultPlanId ?? '';
+  }
+
+  function handleBuildingChange(nextBuilding: string) {
+    setBuilding(nextBuilding);
+    setDraftPin(null);
+    const nextDefaultPlan = getVisitDefaultPlanForBuilding(nextBuilding);
+    setSelectedPlanId(nextDefaultPlan);
+  }
+
+  function handleLevelChange(nextLevel: string) {
+    setLevel(nextLevel);
+    setDraftPin(null);
+  }
+
   function handlePlanChange(planId: string) {
+    if (planId !== selectedPlanId) setDraftPin(null);
     setSelectedPlanId(planId);
     if (!planId || buildingLocked) return;
     const plan = chantierPlans.find(p => p.id === planId);
@@ -271,6 +486,47 @@ export default function NewReserveScreen() {
       const lvl = bldg.levels?.find(l => l.id === plan.levelId);
       if (lvl) setLevel(lvl.name);
     }
+  }
+
+  async function openPinPlacement() {
+    if (!selectedPlanId) {
+      Alert.alert('Plan requis', 'Sélectionnez un plan avant de positionner une épingle.');
+      return;
+    }
+    const plan = chantierPlans.find(p => p.id === selectedPlanId);
+    if (!plan) {
+      Alert.alert('Plan introuvable', "Le plan sélectionné n'est plus disponible.");
+      return;
+    }
+    if (!plan.uri) {
+      Alert.alert(
+        'Plan non importé',
+        "Ce plan n'a pas encore de fichier associé. Vous pouvez créer la réserve sans épingle, puis importer le plan plus tard."
+      );
+      return;
+    }
+    if (plan.fileType === 'dxf') {
+      Alert.alert(
+        'Positionnement indisponible',
+        "Le positionnement direct depuis ce formulaire n'est pas encore disponible sur les plans DXF. Créez la réserve sans épingle ou positionnez-la depuis l'onglet Plans."
+      );
+      return;
+    }
+    if (!isOnline && Platform.OS !== 'web' && !plan.uri.startsWith('file://') && !plan.uri.startsWith('data:')) {
+      const cached = await getCachedPlanUri(plan.uri);
+      if (!cached) {
+        Alert.alert(
+          'Plan non disponible hors connexion',
+          "Ce plan n'a pas encore été téléchargé sur cet appareil. Reconnectez-vous pour l'ouvrir, ou créez la réserve sans épingle."
+        );
+        return;
+      }
+    }
+    setPinModalVisible(true);
+  }
+
+  function removeDraftPin() {
+    setDraftPin(null);
   }
 
   function toggleCompany(name: string) {
@@ -358,12 +614,34 @@ export default function NewReserveScreen() {
     if (isSubmitting) return;
     if (!title.trim()) { Alert.alert('Champ obligatoire', 'Le titre est requis.'); return; }
     if (selectedCompanies.length === 0) { Alert.alert('Champ obligatoire', "Sélectionnez au moins une entreprise responsable."); return; }
+    if (visitHasScopedBuildings && (!building || !building.trim())) {
+      Alert.alert('Bâtiment requis', 'Choisissez le bâtiment concerné dans le périmètre de la visite.');
+      return;
+    }
     if (!effectiveChantierId && (!building || !building.trim())) { Alert.alert('Champ obligatoire', 'Le bâtiment est requis.'); return; }
     if (!level || !level.trim()) { Alert.alert('Champ obligatoire', 'Le niveau est requis.'); return; }
     if (deadline && !validateDeadline(deadline)) {
       Alert.alert('Date invalide', "Vérifiez que le jour, le mois et l'année sont corrects (ex : 30/04/2026).");
       return;
     }
+    if (selectedPlanId && !draftPin) {
+      const canPositionNow = selectedPlanSupportsInlinePin;
+      Alert.alert(
+        'Créer sans épingle ?',
+        "Un plan est associé, mais aucune épingle n'est positionnée. Vous pouvez créer la réserve comme cela, ou la placer maintenant sur le plan.",
+        [
+          { text: 'Annuler', style: 'cancel' },
+          ...(canPositionNow ? [{ text: 'Positionner', onPress: openPinPlacement }] : []),
+          { text: 'Créer sans épingle', onPress: createReserve },
+        ] as any,
+      );
+      return;
+    }
+    createReserve();
+  }
+
+  function createReserve() {
+    if (isSubmitting) return;
     setIsSubmitting(true);
     try {
       const author = user?.name ?? 'Conducteur de travaux';
@@ -385,8 +663,8 @@ export default function NewReserveScreen() {
         deadline: deadline || '—',
         comments: [],
         history: [{ id: 'h0', action: kind === 'observation' ? 'Observation créée' : 'Réserve créée', author, createdAt: nowTimestampFR() }],
-        planX: presetX ?? undefined,
-        planY: presetY ?? undefined,
+        planX: draftPin?.x ?? undefined,
+        planY: draftPin?.y ?? undefined,
         photoUri: photos[0]?.uri ?? undefined,
         photos: photos.length > 0 ? photos : undefined,
         chantierId: effectiveChantierId,
@@ -420,19 +698,13 @@ export default function NewReserveScreen() {
           reserveId: id,
         });
       });
-      const hasPin = presetX !== null && presetY !== null;
-      const canLocate = !hasPin && chantierPlans.length > 0;
+      const hasPin = !!draftPin;
       Alert.alert(
         kind === 'observation' ? 'Observation créée' : 'Réserve créée',
-        canLocate
-          ? `${id} ajoutée sans épingle sur le plan. Souhaitez-vous la localiser maintenant ?`
-          : `${id} ajoutée avec succès.`,
-        canLocate
-          ? [
-              { text: 'Plus tard', style: 'cancel', onPress: () => { setIsSubmitting(false); router.back(); } },
-              { text: 'Localiser sur le plan →', onPress: () => { setIsSubmitting(false); router.replace('/(tabs)/plans' as any); } },
-            ]
-          : [{ text: 'OK', onPress: () => { setIsSubmitting(false); router.back(); } }],
+        hasPin
+          ? `${id} ajoutée avec une épingle sur le plan.`
+          : `${id} ajoutée sans épingle sur le plan.`,
+        [{ text: 'OK', onPress: () => { setIsSubmitting(false); router.back(); } }],
         { cancelable: false }
       );
     } catch (err) {
@@ -516,13 +788,17 @@ export default function NewReserveScreen() {
 
             {photos.length < 6 && (
               <View style={styles.photoRow}>
-                <TouchableOpacity style={[styles.photoBtn, { flex: 1 }]} onPress={handleCamera} disabled={photoUploading}>
-                  <Ionicons name="camera" size={18} color={C.primary} />
-                  <Text style={styles.photoBtnText}>Prendre une photo</Text>
+                <TouchableOpacity style={[styles.photoBtn, styles.photoBtnPrimary, { flex: 1 }]} onPress={handleCamera} disabled={photoUploading}>
+                  <View style={styles.photoIconBubble}>
+                    <Ionicons name="camera" size={18} color="#fff" />
+                  </View>
+                  <Text style={[styles.photoBtnText, styles.photoBtnPrimaryText]}>Photo</Text>
                 </TouchableOpacity>
-                <TouchableOpacity style={[styles.photoBtn, { flex: 1 }]} onPress={handlePickPhoto} disabled={photoUploading}>
-                  <Ionicons name="images-outline" size={18} color={C.inProgress} />
-                  <Text style={[styles.photoBtnText, { color: C.inProgress }]}>Galerie</Text>
+                <TouchableOpacity style={[styles.photoBtn, styles.photoBtnSecondary, { flex: 1 }]} onPress={handlePickPhoto} disabled={photoUploading}>
+                  <View style={[styles.photoIconBubble, styles.photoIconBubbleSecondary]}>
+                    <Ionicons name="images-outline" size={18} color={C.primary} />
+                  </View>
+                  <Text style={styles.photoBtnText}>Galerie</Text>
                 </TouchableOpacity>
               </View>
             )}
@@ -644,6 +920,54 @@ export default function NewReserveScreen() {
           </View>
         )}
 
+        {/* LOCALISATION */}
+        <View style={styles.card}>
+          <TouchableOpacity
+            style={styles.locationHeader}
+            onPress={() => setShowLocationDetails(prev => !prev)}
+            activeOpacity={0.75}
+            accessibilityRole="button"
+            accessibilityLabel={showLocationDetails ? 'Masquer la localisation' : 'Modifier la localisation'}
+          >
+            <View style={styles.locationIconBox}>
+              <Ionicons name="business-outline" size={18} color={C.primary} />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.locationLabel}>Localisation</Text>
+              <Text style={styles.locationSummary} numberOfLines={2}>
+                {locationSummary || (visitHasScopedBuildings ? 'Choisir le bâtiment de la visite' : 'Aucune localisation définie')}
+              </Text>
+            </View>
+            <View style={styles.locationAction}>
+              <Text style={styles.locationActionText}>{showLocationDetails ? 'Masquer' : 'Modifier'}</Text>
+              <Ionicons name={showLocationDetails ? 'chevron-up' : 'chevron-down'} size={15} color={C.primary} />
+            </View>
+          </TouchableOpacity>
+          {visitHasScopedBuildings && (
+            <View style={styles.visitScopeNotice}>
+              <Ionicons name="map-outline" size={14} color={C.primary} />
+              <Text style={styles.visitScopeNoticeText}>
+                Périmètre de la visite : {visitScopedBuildings.length} bâtiment{visitScopedBuildings.length > 1 ? 's' : ''}. Les autres bâtiments du chantier sont masqués.
+              </Text>
+            </View>
+          )}
+          {showLocationDetails && (
+            <View style={styles.locationPickerWrap}>
+              <LocationPicker
+                buildings={reserveBuildingOptions}
+                building={building}
+                level={level}
+                zone={zone}
+                onBuildingChange={handleBuildingChange}
+                onLevelChange={handleLevelChange}
+                onZoneChange={setZone}
+                lockedBuilding={buildingLocked}
+                lockedLevel={levelLocked}
+              />
+            </View>
+          )}
+        </View>
+
         {/* PLAN */}
         {chantierPlans.length > 0 && (
           <View style={styles.card}>
@@ -676,31 +1000,56 @@ export default function NewReserveScreen() {
                 </TouchableOpacity>
               </View>
             )}
-            {!locationFromPlan && presetX === null && (
+            {selectedPlanId ? (
+              <View style={[styles.pinPlacementBox, draftPin && styles.pinPlacementBoxReady]}>
+                <View style={styles.pinPlacementHeader}>
+                  <View style={[styles.pinPlacementIcon, draftPin && styles.pinPlacementIconReady]}>
+                    <Ionicons name={draftPin ? 'location' : 'location-outline'} size={16} color={draftPin ? '#fff' : C.primary} />
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.pinPlacementTitle}>
+                      {draftPin ? 'Épingle positionnée' : 'Position sur le plan'}
+                    </Text>
+                    <Text style={styles.pinPlacementText}>
+                      {draftPin
+                        ? `Coordonnées : ${draftPin.x}% / ${draftPin.y}%. Vous pouvez la déplacer avant de créer.`
+                        : 'Touchez le plan pour placer la réserve exactement au bon endroit.'}
+                    </Text>
+                  </View>
+                </View>
+                <View style={styles.pinPlacementActions}>
+                  <TouchableOpacity
+                    style={[styles.pinPlacementBtn, styles.pinPlacementPrimary]}
+                    onPress={openPinPlacement}
+                    accessibilityRole="button"
+                    accessibilityLabel={draftPin ? "Modifier l'épingle sur le plan" : "Positionner l'épingle sur le plan"}
+                  >
+                    <Ionicons name={draftPin ? 'move-outline' : 'add-circle-outline'} size={15} color="#fff" />
+                    <Text style={styles.pinPlacementPrimaryText}>{draftPin ? 'Modifier' : "Positionner l'épingle"}</Text>
+                  </TouchableOpacity>
+                  {draftPin ? (
+                    <TouchableOpacity
+                      style={[styles.pinPlacementBtn, styles.pinPlacementSecondary]}
+                      onPress={removeDraftPin}
+                      accessibilityRole="button"
+                      accessibilityLabel="Retirer l'épingle"
+                    >
+                      <Ionicons name="trash-outline" size={15} color={C.open} />
+                      <Text style={styles.pinPlacementSecondaryText}>Retirer</Text>
+                    </TouchableOpacity>
+                  ) : null}
+                </View>
+              </View>
+            ) : (
               <View style={styles.pinNudge}>
-                <Ionicons name="location-outline" size={15} color="#B45309" />
+                <Ionicons name="information-circle-outline" size={15} color="#B45309" />
                 <Text style={styles.pinNudgeText}>
-                  Cette réserve sera créée <Text style={{ fontFamily: 'Inter_600SemiBold' }}>sans épingle sur le plan</Text>. Pour la localiser précisément, créez-la en appuyant directement sur le plan depuis l'onglet Plans.
+                  Sélectionnez un plan pour pouvoir positionner une épingle. La réserve peut aussi être créée sans plan.
                 </Text>
               </View>
             )}
           </View>
         )}
-
-        {/* LOCALISATION */}
-        <View style={styles.card}>
-          <LocationPicker
-            buildings={activeChantier?.buildings ?? []}
-            building={building}
-            level={level}
-            zone={zone}
-            onBuildingChange={setBuilding}
-            onLevelChange={setLevel}
-            onZoneChange={setZone}
-            lockedBuilding={buildingLocked}
-            lockedLevel={levelLocked}
-          />
-        </View>
 
         {/* ENTREPRISES */}
         <View style={styles.card}>
@@ -723,9 +1072,13 @@ export default function NewReserveScreen() {
           )}
         </View>
 
-        {/* PRIORITÉ */}
+        {/* SUIVI */}
         <View style={styles.card}>
-          <View style={[styles.fieldGroup, { marginBottom: 0 }]}>
+          <View style={styles.followUpHeader}>
+            <Text style={styles.label}>Suivi</Text>
+            {deadline ? <Text style={styles.followUpMeta}>Échéance {deadline}</Text> : null}
+          </View>
+          <View style={styles.fieldGroup}>
             <Text style={styles.label}>Priorité</Text>
             <View style={styles.chipRow}>
               {RESERVE_PRIORITIES.map(p => (
@@ -739,11 +1092,7 @@ export default function NewReserveScreen() {
               ))}
             </View>
           </View>
-        </View>
-
-        {/* DATE LIMITE */}
-        <View style={styles.card}>
-          <View style={styles.fieldGroup}>
+          <View style={[styles.fieldGroup, { marginBottom: 0 }]}>
             <DateInput label="Date limite" value={deadline} onChange={v => { setDeadline(v); setDeadlineSuggested(false); }} optional />
           </View>
           {deadlineSuggested && deadline ? (
@@ -767,6 +1116,105 @@ export default function NewReserveScreen() {
           </Text>
         </TouchableOpacity>
       </ScrollView>
+
+      <Modal
+        visible={pinModalVisible}
+        animationType="slide"
+        presentationStyle="fullScreen"
+        onRequestClose={() => setPinModalVisible(false)}
+      >
+        <View style={styles.pinModal}>
+          <View style={[styles.pinModalHeader, { paddingTop: insets.top + 8 }]}>
+            <TouchableOpacity
+              style={styles.pinModalIconBtn}
+              onPress={() => setPinModalVisible(false)}
+              accessibilityRole="button"
+              accessibilityLabel="Fermer le positionnement"
+            >
+              <Ionicons name="close" size={22} color="#fff" />
+            </TouchableOpacity>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.pinModalTitle}>Positionner l'épingle</Text>
+              <Text style={styles.pinModalSubtitle} numberOfLines={1}>{selectedPlan?.name ?? 'Plan associé'}</Text>
+            </View>
+            <TouchableOpacity
+              style={[styles.pinModalValidateBtn, !draftPin && styles.pinModalValidateBtnDisabled]}
+              onPress={() => setPinModalVisible(false)}
+              disabled={!draftPin}
+              accessibilityRole="button"
+              accessibilityLabel="Valider la position de l'épingle"
+            >
+              <Ionicons name="checkmark" size={17} color="#fff" />
+              <Text style={styles.pinModalValidateText}>Valider</Text>
+            </TouchableOpacity>
+          </View>
+
+          <View style={styles.pinModalViewer}>
+            {selectedPlanSupportsInlinePin && selectedPlan?.uri ? (
+              <PdfPlanViewer
+                key={selectedPlan.id}
+                planUri={selectedPlan.uri}
+                planId={selectedPlan.id}
+                isImagePlan={selectedPlanIsImage}
+                annotations={[]}
+                onAnnotationsChange={() => {}}
+                reserves={pinViewerReserves}
+                pinNumberMap={pinViewerNumberMap}
+                onReserveSelect={() => {}}
+                onPlanTap={(x, y) => setDraftPin({ x: Math.round(x), y: Math.round(y) })}
+                onPinMove={(reserveId, x, y) => {
+                  if (reserveId === DRAFT_PIN_ID) setDraftPin({ x: Math.round(x), y: Math.round(y) });
+                }}
+                canAnnotate={false}
+                canCreate
+                canMovePins
+                pinSize={42}
+                companies={companies}
+              />
+            ) : (
+              <View style={styles.pinModalEmpty}>
+                <Ionicons name="map-outline" size={42} color="#93A4BD" />
+                <Text style={styles.pinModalEmptyTitle}>Plan indisponible</Text>
+                <Text style={styles.pinModalEmptyText}>
+                  Ce plan ne peut pas être ouvert ici. Vous pouvez créer la réserve sans épingle, ou la positionner plus tard depuis l'onglet Plans.
+                </Text>
+              </View>
+            )}
+          </View>
+
+          <View style={[styles.pinModalBottom, { paddingBottom: insets.bottom + 12 }]}>
+            <View style={styles.pinModalHint}>
+              <Ionicons name={draftPin ? 'location' : 'finger-print-outline'} size={18} color={draftPin ? '#10B981' : C.primary} />
+              <View style={{ flex: 1 }}>
+                <Text style={styles.pinModalHintTitle}>
+                  {draftPin ? 'Épingle placée' : 'Touchez le plan'}
+                </Text>
+                <Text style={styles.pinModalHintText}>
+                  {draftPin
+                    ? `Position ${draftPin.x}% / ${draftPin.y}%. Touchez ailleurs pour déplacer.`
+                    : 'Touchez une zone du plan pour créer l’épingle de cette réserve.'}
+                </Text>
+              </View>
+            </View>
+            <View style={styles.pinModalActions}>
+              <TouchableOpacity
+                style={styles.pinModalSecondaryBtn}
+                onPress={removeDraftPin}
+                disabled={!draftPin}
+              >
+                <Text style={[styles.pinModalSecondaryText, !draftPin && { color: C.textMuted }]}>Retirer</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.pinModalPrimaryBtn, !draftPin && styles.pinModalPrimaryBtnDisabled]}
+                onPress={() => setPinModalVisible(false)}
+                disabled={!draftPin}
+              >
+                <Text style={styles.pinModalPrimaryText}>Utiliser cette position</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </KeyboardAvoidingView>
   );
 }
@@ -793,8 +1241,13 @@ const styles = StyleSheet.create({
   lotDot: { width: 7, height: 7, borderRadius: 3.5 },
 
   photoRow: { flexDirection: 'row', gap: 10 },
-  photoBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, backgroundColor: C.surface2, borderRadius: 10, paddingVertical: 14, borderWidth: 1.5, borderColor: C.border },
+  photoBtn: { minHeight: 52, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, borderRadius: 12, paddingVertical: 10, paddingHorizontal: 12, borderWidth: 1 },
+  photoBtnPrimary: { backgroundColor: C.primary, borderColor: C.primary },
+  photoBtnSecondary: { backgroundColor: C.surface2, borderColor: C.border },
+  photoIconBubble: { width: 28, height: 28, borderRadius: 14, alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(255,255,255,0.18)' },
+  photoIconBubbleSecondary: { backgroundColor: C.primaryBg },
   photoBtnText: { fontSize: 13, fontFamily: 'Inter_600SemiBold', color: C.primary },
+  photoBtnPrimaryText: { color: '#fff' },
   photoKindHint: { fontSize: 10, fontFamily: 'Inter_400Regular', color: C.textMuted },
   photoThumb: { position: 'relative', width: 80, height: 80, borderRadius: 10, overflow: 'hidden', borderWidth: 1, borderColor: C.border },
   photoThumbImg: { width: '100%', height: '100%' },
@@ -831,6 +1284,17 @@ const styles = StyleSheet.create({
   multiCompanyHintText: { fontSize: 11, fontFamily: 'Inter_400Regular', color: C.primary, flex: 1 },
   warningRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 8, backgroundColor: C.medium + '10', borderRadius: 10, padding: 12, borderWidth: 1, borderColor: C.medium + '30' },
   warningText: { flex: 1, fontSize: 13, fontFamily: 'Inter_400Regular', color: C.medium, lineHeight: 18 },
+  locationHeader: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+  locationIconBox: { width: 38, height: 38, borderRadius: 12, alignItems: 'center', justifyContent: 'center', backgroundColor: C.primaryBg, borderWidth: 1, borderColor: C.primary + '24' },
+  locationLabel: { fontSize: 12, fontFamily: 'Inter_700Bold', color: C.text, textTransform: 'uppercase', letterSpacing: 0.4 },
+  locationSummary: { marginTop: 2, fontSize: 13, fontFamily: 'Inter_500Medium', color: C.textSub, lineHeight: 18 },
+  locationAction: { flexDirection: 'row', alignItems: 'center', gap: 2, paddingHorizontal: 8, paddingVertical: 6, borderRadius: 10, backgroundColor: C.primaryBg },
+  locationActionText: { fontSize: 11, fontFamily: 'Inter_700Bold', color: C.primary },
+  locationPickerWrap: { marginTop: 14, paddingTop: 14, borderTopWidth: 1, borderTopColor: C.border },
+  visitScopeNotice: { flexDirection: 'row', alignItems: 'flex-start', gap: 7, marginTop: 12, padding: 10, borderRadius: 10, backgroundColor: C.primaryBg, borderWidth: 1, borderColor: C.primary + '25' },
+  visitScopeNoticeText: { flex: 1, fontSize: 11, fontFamily: 'Inter_500Medium', color: C.primary, lineHeight: 16 },
+  followUpHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 },
+  followUpMeta: { fontSize: 11, fontFamily: 'Inter_600SemiBold', color: C.textMuted },
 
   submitBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', backgroundColor: C.primary, borderRadius: 14, paddingVertical: 16, gap: 8 },
   submitBtnObservation: { backgroundColor: '#0EA5E9' },
@@ -855,6 +1319,42 @@ const styles = StyleSheet.create({
   planFilterHintText: { flex: 1, fontSize: 11, fontFamily: 'Inter_400Regular', color: C.primary },
   planFilterReset: { fontSize: 11, fontFamily: 'Inter_600SemiBold', color: C.primary, textDecorationLine: 'underline' },
 
+  pinPlacementBox: { marginTop: 12, borderRadius: 12, borderWidth: 1, borderColor: C.primary + '28', backgroundColor: C.primary + '08', padding: 12, gap: 12 },
+  pinPlacementBoxReady: { borderColor: '#10B98155', backgroundColor: '#10B98110' },
+  pinPlacementHeader: { flexDirection: 'row', alignItems: 'flex-start', gap: 10 },
+  pinPlacementIcon: { width: 32, height: 32, borderRadius: 16, alignItems: 'center', justifyContent: 'center', backgroundColor: '#fff', borderWidth: 1, borderColor: C.primary + '30' },
+  pinPlacementIconReady: { backgroundColor: '#10B981', borderColor: '#10B981' },
+  pinPlacementTitle: { fontSize: 13, fontFamily: 'Inter_700Bold', color: C.text },
+  pinPlacementText: { marginTop: 2, fontSize: 11, fontFamily: 'Inter_400Regular', color: C.textSub, lineHeight: 16 },
+  pinPlacementActions: { flexDirection: 'row', gap: 8 },
+  pinPlacementBtn: { minHeight: 38, borderRadius: 10, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, paddingHorizontal: 12 },
+  pinPlacementPrimary: { flex: 1, backgroundColor: C.primary },
+  pinPlacementPrimaryText: { color: '#fff', fontSize: 12, fontFamily: 'Inter_700Bold' },
+  pinPlacementSecondary: { backgroundColor: '#fff', borderWidth: 1, borderColor: '#EF444455' },
+  pinPlacementSecondaryText: { color: C.open, fontSize: 12, fontFamily: 'Inter_700Bold' },
+
   pinNudge: { flexDirection: 'row', alignItems: 'flex-start', gap: 8, backgroundColor: '#F59E0B18', borderRadius: 8, padding: 10, borderWidth: 1, borderColor: '#F59E0B35', marginTop: 10 },
   pinNudgeText: { flex: 1, fontSize: 11, fontFamily: 'Inter_400Regular', color: '#92400E', lineHeight: 16 },
+  pinModal: { flex: 1, backgroundColor: '#0F172A' },
+  pinModalHeader: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 12, paddingBottom: 10, backgroundColor: '#0B1220', borderBottomWidth: 1, borderBottomColor: 'rgba(255,255,255,0.08)' },
+  pinModalIconBtn: { width: 38, height: 38, borderRadius: 19, alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(255,255,255,0.10)' },
+  pinModalTitle: { color: '#fff', fontSize: 16, fontFamily: 'Inter_700Bold' },
+  pinModalSubtitle: { color: '#93A4BD', fontSize: 12, fontFamily: 'Inter_400Regular', marginTop: 2 },
+  pinModalValidateBtn: { minHeight: 38, borderRadius: 19, paddingHorizontal: 12, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 5, backgroundColor: C.primary },
+  pinModalValidateBtnDisabled: { opacity: 0.45 },
+  pinModalValidateText: { color: '#fff', fontSize: 12, fontFamily: 'Inter_700Bold' },
+  pinModalViewer: { flex: 1, backgroundColor: '#0F1117' },
+  pinModalEmpty: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 32, gap: 10 },
+  pinModalEmptyTitle: { color: '#fff', fontSize: 16, fontFamily: 'Inter_700Bold' },
+  pinModalEmptyText: { color: '#93A4BD', fontSize: 13, fontFamily: 'Inter_400Regular', lineHeight: 19, textAlign: 'center' },
+  pinModalBottom: { backgroundColor: '#fff', paddingHorizontal: 14, paddingTop: 12, borderTopLeftRadius: 18, borderTopRightRadius: 18, gap: 12 },
+  pinModalHint: { flexDirection: 'row', alignItems: 'flex-start', gap: 10 },
+  pinModalHintTitle: { color: C.text, fontSize: 13, fontFamily: 'Inter_700Bold' },
+  pinModalHintText: { color: C.textSub, fontSize: 12, fontFamily: 'Inter_400Regular', lineHeight: 17, marginTop: 2 },
+  pinModalActions: { flexDirection: 'row', gap: 10 },
+  pinModalSecondaryBtn: { minHeight: 42, borderRadius: 12, paddingHorizontal: 14, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: C.border, backgroundColor: C.surface2 },
+  pinModalSecondaryText: { color: C.open, fontSize: 13, fontFamily: 'Inter_700Bold' },
+  pinModalPrimaryBtn: { flex: 1, minHeight: 42, borderRadius: 12, alignItems: 'center', justifyContent: 'center', backgroundColor: C.primary },
+  pinModalPrimaryBtnDisabled: { opacity: 0.45 },
+  pinModalPrimaryText: { color: '#fff', fontSize: 13, fontFamily: 'Inter_700Bold' },
 });
