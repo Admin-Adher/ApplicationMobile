@@ -922,25 +922,41 @@ export default function ChannelScreen() {
           </View>
         ) : (
           <View style={[styles.inputRow, { paddingBottom: insets.bottom + 8 }]}>
-            <TouchableOpacity style={styles.attachBtn} onPress={handleCamera} disabled={attachmentUploading}>
-              <Ionicons name="camera-outline" size={20} color={C.textSub} />
-            </TouchableOpacity>
-            <TouchableOpacity style={styles.attachBtn} onPress={handlePickPhoto} disabled={attachmentUploading}>
-              {attachmentUploading
-                ? <ActivityIndicator size="small" color={C.primary} />
-                : <Ionicons name="image-outline" size={20} color={C.textSub} />}
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={[styles.attachBtn, linkedItem && { backgroundColor: itemColor + '18', borderRadius: 18 }]}
-              onPress={() => setAttachItemVisible(true)}
-            >
-              <Ionicons name="link-outline" size={20} color={linkedItem ? itemColor : C.textSub} />
-            </TouchableOpacity>
             <DictationTextInput
               ref={inputRef}
               inputStyle={[styles.input, styles.messageInput]}
               containerStyle={styles.messageInputContainer}
               controlsStyle={styles.messageInputControls}
+              compactControls
+              controlsLeading={(
+                <View style={styles.composerActionGroup}>
+                  <TouchableOpacity style={styles.composerAttachBtn} onPress={handleCamera} disabled={attachmentUploading}>
+                    <Ionicons name="camera-outline" size={20} color={C.textSub} />
+                  </TouchableOpacity>
+                  <TouchableOpacity style={styles.composerAttachBtn} onPress={handlePickPhoto} disabled={attachmentUploading}>
+                    {attachmentUploading
+                      ? <ActivityIndicator size="small" color={C.primary} />
+                      : <Ionicons name="image-outline" size={20} color={C.textSub} />}
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[styles.composerAttachBtn, linkedItem && { backgroundColor: itemColor + '18', borderRadius: 17 }]}
+                    onPress={() => setAttachItemVisible(true)}
+                  >
+                    <Ionicons name="link-outline" size={20} color={linkedItem ? itemColor : C.textSub} />
+                  </TouchableOpacity>
+                </View>
+              )}
+              controlsTrailing={(
+                <TouchableOpacity
+                  style={[styles.sendBtn, { backgroundColor: (text.trim() || linkedItem) ? color : C.surface2 }]}
+                  onPress={handleSend}
+                  disabled={!text.trim() && !linkedItem}
+                  accessibilityRole="button"
+                  accessibilityLabel="Envoyer le message"
+                >
+                  <Ionicons name="send" size={18} color={(text.trim() || linkedItem) ? '#fff' : C.textMuted} />
+                </TouchableOpacity>
+              )}
               placeholder={replyTo ? 'Votre réponse...' : 'Message… (@ pour mentionner)'}
               placeholderTextColor={C.textMuted}
               value={text}
@@ -951,13 +967,6 @@ export default function ChannelScreen() {
               textAssistEnabled
               textAssistContext="message"
             />
-            <TouchableOpacity
-              style={[styles.sendBtn, { backgroundColor: (text.trim() || linkedItem) ? color : C.surface2 }]}
-              onPress={handleSend}
-              disabled={!text.trim() && !linkedItem}
-            >
-              <Ionicons name="send" size={18} color={(text.trim() || linkedItem) ? '#fff' : C.textMuted} />
-            </TouchableOpacity>
           </View>
         )}
       </KeyboardAvoidingView>
@@ -1235,15 +1244,16 @@ const styles = StyleSheet.create({
   mentionAvatar: { width: 28, height: 28, borderRadius: 14, alignItems: 'center', justifyContent: 'center' },
   mentionAvatarText: { fontSize: 12, fontFamily: 'Inter_700Bold' },
   mentionName: { fontSize: 14, fontFamily: 'Inter_500Medium', color: C.text },
-  inputRow: { flexDirection: 'row', alignItems: 'flex-end', gap: 6, paddingHorizontal: 12, paddingVertical: 8, borderTopWidth: 1, borderTopColor: C.border, backgroundColor: C.surface },
+  inputRow: { paddingHorizontal: 12, paddingTop: 10, paddingVertical: 8, borderTopWidth: 1, borderTopColor: C.border, backgroundColor: C.surface },
   readOnlyBar: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, paddingHorizontal: 16, paddingVertical: 14, borderTopWidth: 1, borderTopColor: C.border, backgroundColor: C.surface2 },
   readOnlyText: { fontSize: 13, fontFamily: 'Inter_500Medium', color: C.textMuted, fontStyle: 'italic' },
-  attachBtn: { width: 36, height: 36, alignItems: 'center', justifyContent: 'center' },
   input: { flex: 1, maxHeight: 100, backgroundColor: C.surface2, borderRadius: 20, paddingHorizontal: 14, paddingVertical: 8, fontSize: 14, fontFamily: 'Inter_400Regular', color: C.text, borderWidth: 1, borderColor: C.border },
-  messageInputContainer: { flex: 1, minWidth: 0, width: 'auto' },
-  messageInput: { flex: 0, width: '100%', minHeight: 40, textAlignVertical: 'top' },
-  messageInputControls: { minHeight: 38 },
-  sendBtn: { width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center' },
+  messageInputContainer: { width: '100%', minWidth: 0 },
+  messageInput: { flex: 0, width: '100%', minHeight: 42, textAlignVertical: 'top' },
+  messageInputControls: { marginTop: 8, minHeight: 36, gap: 6, justifyContent: 'space-between' },
+  composerActionGroup: { flexDirection: 'row', alignItems: 'center', gap: 2 },
+  composerAttachBtn: { width: 31, height: 34, borderRadius: 17, alignItems: 'center', justifyContent: 'center' },
+  sendBtn: { width: 34, height: 34, borderRadius: 17, alignItems: 'center', justifyContent: 'center' },
   empty: { alignItems: 'center', paddingTop: 80, gap: 12 },
   emptyIcon: { width: 64, height: 64, borderRadius: 32, alignItems: 'center', justifyContent: 'center' },
   emptyTitle: { fontSize: 18, fontFamily: 'Inter_700Bold', color: C.text },

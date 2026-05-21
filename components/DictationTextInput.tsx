@@ -52,6 +52,9 @@ type DictationTextInputProps = Omit<TextInputProps, 'value' | 'onChangeText' | '
   inputStyle?: StyleProp<TextStyle>;
   containerStyle?: StyleProp<ViewStyle>;
   controlsStyle?: StyleProp<ViewStyle>;
+  controlsLeading?: React.ReactNode;
+  controlsTrailing?: React.ReactNode;
+  compactControls?: boolean;
   dictationEnabled?: boolean;
   textAssistEnabled?: boolean;
   textAssistContext?: TextAssistContext;
@@ -116,6 +119,9 @@ const DictationTextInput = forwardRef<TextInput, DictationTextInputProps>(functi
   inputStyle,
   containerStyle,
   controlsStyle,
+  controlsLeading,
+  controlsTrailing,
+  compactControls = false,
   dictationEnabled = true,
   textAssistEnabled = false,
   textAssistContext = 'generic',
@@ -371,14 +377,15 @@ const DictationTextInput = forwardRef<TextInput, DictationTextInputProps>(functi
       />
       {(showControls || showAssist) && (
         <View style={[styles.controls, controlsStyle, controlsDisabled && styles.controlsDisabled]}>
+          {controlsLeading}
           {showControls && (
-            <View style={styles.languageGroup} accessibilityLabel="Langue de dictee">
+            <View style={[styles.languageGroup, compactControls && styles.languageGroupCompact]} accessibilityLabel="Langue de dictee">
               {LANGUAGES.map(item => {
                 const active = item.code === language;
                 return (
                   <TouchableOpacity
                     key={item.code}
-                    style={[styles.languageButton, active && styles.languageButtonActive]}
+                    style={[styles.languageButton, compactControls && styles.languageButtonCompact, active && styles.languageButtonActive]}
                     onPress={() => handleLanguageChange(item.code)}
                     disabled={controlsDisabled || recognizing || starting}
                     accessibilityRole="button"
@@ -390,7 +397,7 @@ const DictationTextInput = forwardRef<TextInput, DictationTextInputProps>(functi
               })}
             </View>
           )}
-          {hint ? <Text style={styles.hint} numberOfLines={2}>{hint}</Text> : <View style={{ flex: 1 }} />}
+          {!compactControls && (hint ? <Text style={styles.hint} numberOfLines={2}>{hint}</Text> : <View style={{ flex: 1 }} />)}
           {previousText != null && (
             <TouchableOpacity
               style={styles.undoButton}
@@ -434,8 +441,10 @@ const DictationTextInput = forwardRef<TextInput, DictationTextInputProps>(functi
               )}
             </TouchableOpacity>
           )}
+          {controlsTrailing}
         </View>
       )}
+      {compactControls && hint ? <Text style={styles.compactHint} numberOfLines={1}>{hint}</Text> : null}
       {showAssist && assistExpanded && (
         <View style={styles.assistPanel}>
           <View style={styles.assistHeader}>
@@ -497,12 +506,20 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     overflow: 'hidden',
   },
+  languageGroupCompact: {
+    borderRadius: 16,
+  },
   languageButton: {
     minWidth: 34,
     height: 28,
     alignItems: 'center',
     justifyContent: 'center',
     paddingHorizontal: 8,
+  },
+  languageButtonCompact: {
+    minWidth: 31,
+    height: 30,
+    paddingHorizontal: 6,
   },
   languageButtonActive: {
     backgroundColor: C.primary,
@@ -517,6 +534,12 @@ const styles = StyleSheet.create({
   },
   hint: {
     flex: 1,
+    color: C.textMuted,
+    fontSize: 11,
+    fontFamily: 'Inter_400Regular',
+  },
+  compactHint: {
+    marginTop: 5,
     color: C.textMuted,
     fontSize: 11,
     fontFamily: 'Inter_400Regular',
