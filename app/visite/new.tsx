@@ -57,6 +57,9 @@ const DEADLINE_SUGGESTIONS: { label: string; days: number }[] = [
   { label: '60 j', days: 60 },
 ];
 
+const INLINE_BUILDING_LIMIT = 8;
+const SELECTED_BUILDING_PREVIEW_LIMIT = 8;
+
 const CHECKLIST_TEMPLATES: Record<VisiteType, string[]> = {
   controle: [
     "Avancement des travaux conforme au planning",
@@ -151,6 +154,10 @@ function initials(name: string): string {
   return name.split(' ').map(w => w[0] ?? '').join('').toUpperCase().slice(0, 2);
 }
 
+function normalizeSearch(value: string): string {
+  return value.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+}
+
 // ─── Screen ──────────────────────────────────────────────────────────────────
 
 export default function NewVisiteScreen() {
@@ -177,6 +184,9 @@ export default function NewVisiteScreen() {
   const [zone, setZone]             = useState('');
   const [defaultPlanId, setDefaultPlanId] = useState<string | null>(null);
   const [visitedLocations, setVisitedLocations] = useState<VisiteLocationScope[]>([]);
+  const [buildingQuery, setBuildingQuery] = useState('');
+  const [showAllBuildingChoices, setShowAllBuildingChoices] = useState(false);
+  const [showPlanSuggestions, setShowPlanSuggestions] = useState(false);
 
   // Concerned companies
   const [concernedCompanyIds, setConcernedCompanyIds] = useState<string[]>([]);
@@ -234,6 +244,28 @@ export default function NewVisiteScreen() {
     ).length;
     return `${visitedLocations.length} bâtiment${visitedLocations.length > 1 ? 's' : ''} · ${levelCount} niveau${levelCount > 1 ? 'x' : ''} · ${planCount} plan${planCount > 1 ? 's' : ''}`;
   }, [visitedLocations, chantierBuildings, chantierPlans]);
+
+  const filteredPerimeterBuildings = useMemo(() => {
+    const q = normalizeSearch(buildingQuery.trim());
+    if (!q) return chantierBuildings;
+    return chantierBuildings.filter(b =>
+      normalizeSearch(b.name).includes(q) ||
+      (b.levels ?? []).some(lvl => normalizeSearch(lvl.name).includes(q))
+    );
+  }, [chantierBuildings, buildingQuery]);
+
+  const visiblePerimeterBuildings = useMemo(() => {
+    if (buildingQuery.trim() || showAllBuildingChoices) return filteredPerimeterBuildings;
+    return filteredPerimeterBuildings.slice(0, INLINE_BUILDING_LIMIT);
+  }, [filteredPerimeterBuildings, buildingQuery, showAllBuildingChoices]);
+
+  const hiddenBuildingChoiceCount = Math.max(0, filteredPerimeterBuildings.length - visiblePerimeterBuildings.length);
+
+  const selectedLocationPreview = useMemo(
+    () => visitedLocations.slice(0, SELECTED_BUILDING_PREVIEW_LIMIT),
+    [visitedLocations]
+  );
+  const selectedLocationOverflow = Math.max(0, visitedLocations.length - selectedLocationPreview.length);
 
   // Team members available for quick-add
   const teamMembers = useMemo(() =>
@@ -318,6 +350,16 @@ export default function NewVisiteScreen() {
 
   function selectAllBuildings() {
     setVisitedLocations(chantierBuildings.map(b => ({ buildingId: b.id, buildingName: b.name })));
+  }
+
+  function selectFilteredBuildings() {
+    setVisitedLocations(prev => {
+      const byId = new Map(prev.filter(loc => loc.buildingId).map(loc => [loc.buildingId!, loc]));
+      filteredPerimeterBuildings.forEach(b => {
+        if (!byId.has(b.id)) byId.set(b.id, { buildingId: b.id, buildingName: b.name });
+      });
+      return Array.from(byId.values());
+    });
   }
 
   function updateLocationDefaultPlan(buildingId: string, planId: string | null) {
@@ -720,14 +762,62 @@ export default function NewVisiteScreen() {
 
           {hasBuildingHierarchy ? (
             <>
+              <View style={styles.perimeterSearchWrap}>
+                <Ionicons name="search" size={14} color={C.textMuted} />
+                <TextInput
+                  style={styles.perimeterSearchInput}
+                  placeholder="Rechercher un bÃ¢timent ou un niveau..."
+                  placeholderTextColor={C.textMuted}
+                  value={buildingQuery}
+                  onChangeText={setBuildingQuery}
+                />
+                {buildingQuery.length > 0 ? (
+                  <TouchableOpacity onPress={() => setBuildingQuery('')} hitSlop={8}>
+                    <Ionicons name="close-circle" size={16} color={C.textMuted} />
+                  </TouchableOpacity>
+                ) : null}
+              </View>
+
+              {visitedLocations.length > 0 ? (
+                <View style={styles.selectedBuildingRow}>
+                  {selectedLocationPreview.map(loc => (
+                    <TouchableOpacity
+                      key={loc.buildingId ?? loc.buildingName}
+                      style={styles.selectedBuildingPill}
+                      onPress={() => {
+                        const b = chantierBuildings.find(item => item.id === loc.buildingId || item.name === loc.buildingName);
+                        if (b) toggleVisitedBuilding(b);
+                      }}
+                      activeOpacity={0.75}
+                    >
+                      <Text style={styles.selectedBuildingPillText} numberOfLines={1}>{loc.buildingName}</Text>
+                      <Ionicons name="close" size={11} color={C.primary} />
+                    </TouchableOpacity>
+                  ))}
+                  {selectedLocationOverflow > 0 ? (
+                    <View style={styles.selectedBuildingMorePill}>
+                      <Text style={styles.selectedBuildingMoreText}>+{selectedLocationOverflow}</Text>
+                    </View>
+                  ) : null}
+                </View>
+              ) : null}
+
+              <Text style={styles.perimeterCounterText}>
+                {visitedLocations.length}/{chantierBuildings.length} sÃ©lectionnÃ©{visitedLocations.length > 1 ? 's' : ''}
+                {buildingQuery.trim() ? ` Â· ${filteredPerimeterBuildings.length} rÃ©sultat${filteredPerimeterBuildings.length > 1 ? 's' : ''}` : ''}
+              </Text>
+
               <View style={styles.perimeterActions}>
                 <TouchableOpacity
                   style={styles.perimeterActionBtn}
-                  onPress={selectAllBuildings}
+                  onPress={buildingQuery.trim() ? selectFilteredBuildings : selectAllBuildings}
+                  disabled={buildingQuery.trim() ? filteredPerimeterBuildings.length === 0 : chantierBuildings.length === 0}
                   activeOpacity={0.75}
                 >
                   <Ionicons name="checkmark-done-outline" size={14} color={C.primary} />
-                  <Text style={styles.perimeterActionText}>Tout sélectionner</Text>
+                  <Text style={styles.perimeterActionText}>
+                    {buildingQuery.trim() ? 'Sélectionner ces résultats' : 'Tout sélectionner'}
+                  </Text>
                 </TouchableOpacity>
                 <TouchableOpacity
                   style={[styles.perimeterActionBtn, visitedLocations.length === 0 && { opacity: 0.45 }]}
@@ -740,8 +830,20 @@ export default function NewVisiteScreen() {
                 </TouchableOpacity>
               </View>
 
-              <View style={styles.buildingGrid}>
-                {chantierBuildings.map(b => {
+              <ScrollView
+                style={(showAllBuildingChoices || buildingQuery.trim()) ? styles.buildingListScroll : undefined}
+                nestedScrollEnabled
+                keyboardShouldPersistTaps="handled"
+                showsVerticalScrollIndicator={showAllBuildingChoices || !!buildingQuery.trim()}
+              >
+                <View style={styles.buildingGrid}>
+                {visiblePerimeterBuildings.length === 0 ? (
+                  <View style={styles.buildingNoResult}>
+                    <Ionicons name="search-outline" size={16} color={C.textMuted} />
+                    <Text style={styles.buildingNoResultText}>Aucun bâtiment ne correspond à cette recherche.</Text>
+                  </View>
+                ) : null}
+                {visiblePerimeterBuildings.map(b => {
                   const active = selectedLocationBuildingIds.has(b.id);
                   return (
                     <TouchableOpacity
@@ -764,7 +866,23 @@ export default function NewVisiteScreen() {
                     </TouchableOpacity>
                   );
                 })}
-              </View>
+                </View>
+              </ScrollView>
+
+              {!buildingQuery.trim() && filteredPerimeterBuildings.length > INLINE_BUILDING_LIMIT ? (
+                <TouchableOpacity
+                  style={styles.buildingMoreButton}
+                  onPress={() => setShowAllBuildingChoices(v => !v)}
+                  activeOpacity={0.75}
+                >
+                  <Text style={styles.buildingMoreButtonText}>
+                    {showAllBuildingChoices
+                      ? 'Réduire la liste'
+                      : `Voir ${hiddenBuildingChoiceCount} autre${hiddenBuildingChoiceCount > 1 ? 's' : ''} bâtiment${hiddenBuildingChoiceCount > 1 ? 's' : ''}`}
+                  </Text>
+                  <Ionicons name={showAllBuildingChoices ? 'chevron-up' : 'chevron-down'} size={14} color={C.primary} />
+                </TouchableOpacity>
+              ) : null}
 
               <View style={[styles.perimeterSummaryBox, visitedLocations.length > 0 && styles.perimeterSummaryBoxReady]}>
                 <Ionicons
@@ -777,10 +895,21 @@ export default function NewVisiteScreen() {
 
               {visitedLocations.length > 0 && chantierPlans.length > 0 ? (
                 <View style={styles.defaultPlanByBuilding}>
-                  <Text style={styles.label}>Plans suggérés par bâtiment</Text>
-                  <Text style={styles.sublabel}>
-                    Optionnel. Le niveau et le plan exact restent modifiables au moment de créer la réserve.
-                  </Text>
+                  <TouchableOpacity
+                    style={styles.defaultPlanToggle}
+                    onPress={() => setShowPlanSuggestions(v => !v)}
+                    activeOpacity={0.75}
+                  >
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.defaultPlanToggleTitle}>Plans suggérés par bâtiment</Text>
+                      <Text style={styles.defaultPlanToggleSubtitle}>
+                        Optionnel · {visitedLocations.length} bâtiment{visitedLocations.length > 1 ? 's' : ''} sélectionné{visitedLocations.length > 1 ? 's' : ''}
+                      </Text>
+                    </View>
+                    <Ionicons name={showPlanSuggestions ? 'chevron-up' : 'chevron-down'} size={16} color={C.primary} />
+                  </TouchableOpacity>
+                  {showPlanSuggestions ? (
+                    <ScrollView style={styles.defaultPlanScroll} nestedScrollEnabled showsVerticalScrollIndicator>
                   {visitedLocations.map(loc => {
                     const b = chantierBuildings.find(item => item.id === loc.buildingId);
                     if (!b || !loc.buildingId) return null;
@@ -826,6 +955,8 @@ export default function NewVisiteScreen() {
                       </View>
                     );
                   })}
+                    </ScrollView>
+                  ) : null}
                 </View>
               ) : null}
             </>
@@ -1305,16 +1436,44 @@ const styles = StyleSheet.create({
     backgroundColor: C.primary, alignItems: 'center', justifyContent: 'center',
   },
   perimeterCountText: { color: '#fff', fontSize: 12, fontFamily: 'Inter_700Bold' },
-  perimeterActions: { flexDirection: 'row', gap: 8, marginBottom: 12 },
+  perimeterSearchWrap: {
+    flexDirection: 'row', alignItems: 'center', gap: 7,
+    backgroundColor: C.surface2, borderRadius: 10,
+    paddingHorizontal: 10, paddingVertical: 7,
+    borderWidth: 1, borderColor: C.border, marginBottom: 8,
+  },
+  perimeterSearchInput: {
+    flex: 1, fontSize: 13, fontFamily: 'Inter_400Regular',
+    color: C.text, paddingVertical: 3,
+  },
+  selectedBuildingRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginBottom: 8 },
+  selectedBuildingPill: {
+    flexDirection: 'row', alignItems: 'center', gap: 5,
+    maxWidth: '100%', paddingHorizontal: 9, paddingVertical: 5,
+    borderRadius: 14, borderWidth: 1, borderColor: C.primary + '35',
+    backgroundColor: C.primaryBg,
+  },
+  selectedBuildingPillText: { maxWidth: 130, fontSize: 11, fontFamily: 'Inter_700Bold', color: C.primary },
+  selectedBuildingMorePill: {
+    paddingHorizontal: 9, paddingVertical: 5, borderRadius: 14,
+    backgroundColor: C.surface2, borderWidth: 1, borderColor: C.border,
+  },
+  selectedBuildingMoreText: { fontSize: 11, fontFamily: 'Inter_700Bold', color: C.textSub },
+  perimeterCounterText: {
+    fontSize: 11, fontFamily: 'Inter_400Regular', color: C.textMuted,
+    marginBottom: 6,
+  },
+  perimeterActions: { flexDirection: 'row', gap: 8, marginBottom: 10, flexWrap: 'wrap' },
   perimeterActionBtn: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6,
     paddingHorizontal: 10, paddingVertical: 8, borderRadius: 10,
-    backgroundColor: C.surface2, borderWidth: 1, borderColor: C.border,
+    backgroundColor: C.surface2, borderWidth: 1, borderColor: C.border, flexShrink: 1,
   },
-  perimeterActionText: { fontSize: 12, fontFamily: 'Inter_700Bold', color: C.primary },
-  buildingGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  perimeterActionText: { fontSize: 12, fontFamily: 'Inter_700Bold', color: C.primary, textAlign: 'center' },
+  buildingListScroll: { maxHeight: 280 },
+  buildingGrid: { gap: 6 },
   buildingSelectChip: {
-    width: '48%', minHeight: 58, flexDirection: 'row', alignItems: 'center', gap: 9,
+    width: '100%', minHeight: 52, flexDirection: 'row', alignItems: 'center', gap: 9,
     paddingHorizontal: 10, paddingVertical: 9, borderRadius: 12,
     backgroundColor: C.surface2, borderWidth: 1, borderColor: C.border,
   },
@@ -1327,6 +1486,18 @@ const styles = StyleSheet.create({
   buildingSelectName: { fontSize: 13, fontFamily: 'Inter_700Bold', color: C.text },
   buildingSelectNameActive: { color: C.primary },
   buildingSelectMeta: { marginTop: 1, fontSize: 11, fontFamily: 'Inter_400Regular', color: C.textMuted },
+  buildingNoResult: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
+    gap: 6, padding: 14, borderRadius: 10, backgroundColor: C.surface2,
+    borderWidth: 1, borderColor: C.border,
+  },
+  buildingNoResultText: { flex: 1, fontSize: 12, fontFamily: 'Inter_400Regular', color: C.textMuted, textAlign: 'center' },
+  buildingMoreButton: {
+    marginTop: 8, flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
+    gap: 6, paddingVertical: 9, borderRadius: 10,
+    backgroundColor: C.primaryBg, borderWidth: 1, borderColor: C.primary + '28',
+  },
+  buildingMoreButtonText: { fontSize: 12, fontFamily: 'Inter_700Bold', color: C.primary },
   perimeterSummaryBox: {
     flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 12,
     padding: 10, borderRadius: 10, backgroundColor: C.surface2,
@@ -1335,6 +1506,14 @@ const styles = StyleSheet.create({
   perimeterSummaryBoxReady: { backgroundColor: C.primaryBg, borderColor: C.primary + '28' },
   perimeterSummaryText: { flex: 1, fontSize: 12, fontFamily: 'Inter_600SemiBold', color: C.textSub },
   defaultPlanByBuilding: { marginTop: 14, paddingTop: 14, borderTopWidth: 1, borderTopColor: C.border },
+  defaultPlanToggle: {
+    flexDirection: 'row', alignItems: 'center', gap: 10,
+    padding: 10, borderRadius: 10,
+    backgroundColor: C.surface2, borderWidth: 1, borderColor: C.border,
+  },
+  defaultPlanToggleTitle: { fontSize: 13, fontFamily: 'Inter_700Bold', color: C.text },
+  defaultPlanToggleSubtitle: { marginTop: 2, fontSize: 11, fontFamily: 'Inter_400Regular', color: C.textMuted },
+  defaultPlanScroll: { maxHeight: 260, marginTop: 8 },
   defaultPlanGroup: { marginTop: 10, gap: 8 },
   defaultPlanTitleRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   defaultPlanTitle: { flex: 1, fontSize: 13, fontFamily: 'Inter_700Bold', color: C.text },
