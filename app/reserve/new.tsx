@@ -30,6 +30,7 @@ import { getCachedPlanUri } from '@/lib/planCache';
 
 type DraftPin = { x: number; y: number };
 const DRAFT_PIN_ID = '__draft_reserve_pin__';
+const PLAN_PIN_PLACEMENT_SIZE = 18;
 
 function parsePlanCoord(value?: string): number | null {
   if (!value) return null;
@@ -1168,7 +1169,7 @@ export default function NewReserveScreen() {
                 canAnnotate={false}
                 canCreate
                 canMovePins
-                pinSize={42}
+                pinSize={PLAN_PIN_PLACEMENT_SIZE}
                 companies={companies}
               />
             ) : (
