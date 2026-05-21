@@ -289,15 +289,17 @@ function buildMobileHtml(
 *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent;}
 html,body{width:100%;height:100%;overflow:hidden;background:#0F1117;touch-action:none;}
 #container{width:100%;height:100%;position:relative;overflow:hidden;}
-#inner{position:absolute;top:0;left:0;transform-origin:0 0;}
-#pdf-canvas{display:block;box-shadow:0 4px 24px rgba(0,0,0,0.5);}
+#inner{position:absolute;top:0;left:0;transform-origin:0 0;will-change:transform;backface-visibility:hidden;transform:translate3d(0,0,0);}
+#pdf-canvas{display:block;box-shadow:0 4px 24px rgba(0,0,0,0.5);backface-visibility:hidden;}
 #ann-svg{position:absolute;top:0;left:0;pointer-events:none;}
 #cur-svg{position:absolute;top:0;left:0;pointer-events:all;}
 #ghost-layer{position:absolute;top:0;left:0;}
 #pins-layer{position:absolute;top:0;left:0;}
-  .pin{position:absolute;border-radius:50%;display:flex;align-items:center;justify-content:center;border:2px solid rgba(255,255,255,0.85);box-shadow:0 2px 8px rgba(0,0,0,0.5);cursor:pointer;transition:box-shadow 0.15s;user-select:none;-webkit-user-select:none;-webkit-touch-callout:none;touch-action:none;}
+  .pin{position:absolute;border-radius:50%;display:flex;align-items:center;justify-content:center;border:2px solid rgba(255,255,255,0.85);box-shadow:0 2px 8px rgba(0,0,0,0.5);cursor:pointer;transition:box-shadow 0.15s,border-color 0.15s;user-select:none;-webkit-user-select:none;-webkit-touch-callout:none;touch-action:none;}
   .pin-focused{animation:pinPulse 1.05s ease-in-out infinite;z-index:30;}
   .pin span{color:#fff;font-weight:700;font-family:Arial;line-height:1;pointer-events:none;}
+  #container.is-interacting .pin{box-shadow:none;transition:none;border-color:rgba(255,255,255,0.62);}
+  #container.is-interacting .pin-focused{animation:none;}
   @keyframes pinPulse{0%,100%{transform:scale(1.2)}50%{transform:scale(1.5)}}
 #loading{position:fixed;top:0;left:0;width:100%;height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;background:#0F1117;}
 #loading-spinner{width:36px;height:36px;border:3px solid #1E3A5F;border-top-color:#003082;border-radius:50%;animation:spin 0.8s linear infinite;}
@@ -345,6 +347,7 @@ var touchSX=0,touchSY=0,isDragging=false,drawing=false;
 var isPinching=false,lastPinchEndTime=0;
 var pendingTextPos=null;
 var lastTapTime=0,lastTapX=0,lastTapY=0;
+var transformRaf=null,interactionTimer=null,interactionActive=false;
 
 var container=document.getElementById('container');
 var inner=document.getElementById('inner');
@@ -360,7 +363,32 @@ var textInput=document.getElementById('text-input');
 
 function post(obj){if(window.ReactNativeWebView){window.ReactNativeWebView.postMessage(JSON.stringify(obj));}}
 
-function applyT(){inner.style.transform='translate('+panX+'px,'+panY+'px) scale('+zoom+')';}
+function setInteracting(active){
+  interactionActive=active;
+  if(active)container.classList.add('is-interacting');
+  else container.classList.remove('is-interacting');
+}
+
+function markInteracting(){
+  if(!interactionActive)setInteracting(true);
+  clearTimeout(interactionTimer);
+  clearTimeout(rerenderTimer);
+}
+
+function endInteractionSoon(){
+  clearTimeout(interactionTimer);
+  interactionTimer=setTimeout(function(){setInteracting(false);},160);
+}
+
+function applyTNow(){inner.style.transform='translate3d('+panX+'px,'+panY+'px,0) scale('+zoom+')';}
+
+function applyT(){
+  if(transformRaf!==null)return;
+  transformRaf=requestAnimationFrame(function(){
+    transformRaf=null;
+    applyTNow();
+  });
+}
 
 function screenToCanvas(sx,sy){
   var r=container.getBoundingClientRect();
@@ -678,6 +706,7 @@ function loadPdfjs(){
 var BASE_FIT_SCALE=1;
 var INITIAL_RENDER_QUALITY=1.35;
 var SHARP_RENDER_QUALITY=2;
+var MAX_ADAPTIVE_RENDER_QUALITY=4;
 var RENDER_QUALITY=INITIAL_RENDER_QUALITY;
 var rerenderTimer=null;
 var sharpenTimer=null;
@@ -740,12 +769,13 @@ function scheduleAdaptiveRerender(){
   if(!pdfDoc||IS_IMAGE)return;
   clearTimeout(rerenderTimer);
   rerenderTimer=setTimeout(function(){
-    var neededQ=Math.max(RENDER_QUALITY,Math.ceil(zoom*1.5)*2);
-    neededQ=Math.min(neededQ,12);
-    if(zoom>RENDER_QUALITY*0.85&&neededQ>RENDER_QUALITY){
+    if(interactionActive||isPinching||panning){scheduleAdaptiveRerender();return;}
+    var neededQ=Math.min(MAX_ADAPTIVE_RENDER_QUALITY,Math.max(SHARP_RENDER_QUALITY,Math.ceil(zoom*1.1)));
+    if(zoom>1.7&&neededQ>RENDER_QUALITY&&!isRerendering){
+      RENDER_QUALITY=neededQ;
       renderPageAtQuality(pageNum,neededQ,false);
     }
-  },450);
+  },700);
 }
 
 if(IS_IMAGE){
@@ -817,6 +847,7 @@ if(IS_IMAGE){
 
 container.addEventListener('touchstart',function(e){
   e.preventDefault();
+  markInteracting();
   var t=e.touches;
   if(t.length===2){
     var dx=t[0].clientX-t[1].clientX,dy=t[0].clientY-t[1].clientY;
@@ -860,7 +891,7 @@ container.addEventListener('touchmove',function(e){
     var newZ=Math.min(12,Math.max(0.2,pinchZoom0*(dist/pinchDist0)));
     panX=cx-(cx-panX)*newZ/zoom;
     panY=cy-(cy-panY)*newZ/zoom;
-    zoom=newZ;applyT();
+    zoom=newZ;markInteracting();applyT();
   } else if(t.length===1){
     var mx=Math.abs(t[0].clientX-touchSX),my=Math.abs(t[0].clientY-touchSY);
     if(mx>4||my>4)isDragging=true;
@@ -876,7 +907,7 @@ container.addEventListener('touchmove',function(e){
     } else if(panning){
       panX=panSPX+(t[0].clientX-panSX);
       panY=panSPY+(t[0].clientY-panSY);
-      applyT();
+      markInteracting();applyT();
     }
   }
 },{passive:false});
@@ -887,6 +918,8 @@ container.addEventListener('touchend',function(e){
     isPinching=false;
     lastPinchEndTime=Date.now();
     panning=false;isDragging=false;
+    post({type:'zoomChange',zoom:zoom});
+    endInteractionSoon();
     scheduleAdaptiveRerender();
     return;
   }
@@ -914,6 +947,7 @@ container.addEventListener('touchend',function(e){
       panX=cx-(cx-panX)*nz/zoom;panY=cy-(cy-panY)*nz/zoom;
       zoom=nz;applyT();
       post({type:'zoomChange',zoom:zoom});
+      endInteractionSoon();
       scheduleAdaptiveRerender();
       lastTapTime=0;
     } else if(CAN_CREATE){
@@ -924,7 +958,7 @@ container.addEventListener('touchend',function(e){
       }
     }
   }
-  panning=false;isDragging=false;
+  panning=false;isDragging=false;endInteractionSoon();
 },{passive:false});
 
 textInput.addEventListener('keydown',function(e){
@@ -970,23 +1004,29 @@ window.goPage=function(n){
   if(n>=1&&n<=pageCount&&pdfDoc){pageNum=n;renderPage(n);}
 };
 window.zoomIn=function(){
+  markInteracting();
   var cx=window.innerWidth/2,cy=window.innerHeight/2;
   var nz=Math.min(12,zoom*1.4);
   panX=cx-(cx-panX)*nz/zoom;panY=cy-(cy-panY)*nz/zoom;
   zoom=nz;applyT();post({type:'zoomChange',zoom:zoom});
+  endInteractionSoon();
   scheduleAdaptiveRerender();
 };
 window.zoomOut=function(){
+  markInteracting();
   var cx=window.innerWidth/2,cy=window.innerHeight/2;
   var nz=Math.max(0.2,zoom/1.4);
   panX=cx-(cx-panX)*nz/zoom;panY=cy-(cy-panY)*nz/zoom;
   zoom=nz;applyT();post({type:'zoomChange',zoom:zoom});
+  endInteractionSoon();
 };
 window.resetView=function(){
+  markInteracting();
   zoom=1;
   panX=Math.max(0,(window.innerWidth-cw)/2);
   panY=Math.max(0,(window.innerHeight-ch)/2);
   applyT();post({type:'zoomChange',zoom:zoom});
+  endInteractionSoon();
 };
 window.captureCanvas=function(quality){
   try{var d=pdfCanvas.toDataURL('image/jpeg',quality||0.85);post({type:'canvasCapture',dataUrl:d});}

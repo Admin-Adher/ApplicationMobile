@@ -1,7 +1,7 @@
 import React, { useRef, useState } from 'react';
 import {
   View, Text, StyleSheet, TouchableOpacity, Modal,
-  ScrollView, Platform, PanResponder,
+  ScrollView, Platform, PanResponder, useWindowDimensions,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -29,6 +29,7 @@ export default function BottomSheetPicker({
 }: Props) {
   const [open, setOpen] = useState(false);
   const insets = useSafeAreaInsets();
+  const { height } = useWindowDimensions();
   const selected = options.find(o => o.value === value);
 
   const handlePan = useRef(
@@ -46,7 +47,9 @@ export default function BottomSheetPicker({
     setOpen(false);
   }
 
-  const bottomPad = Platform.OS === 'web' ? 24 : Math.max(insets.bottom + 16, 32);
+  const bottomPad = Platform.OS === 'web' ? 24 : Math.max(insets.bottom + 28, 48);
+  const maxSheetHeight = Math.min(Math.round(height * 0.78), 640);
+  const maxListHeight = Math.max(160, maxSheetHeight - 92);
 
   return (
     <View style={styles.wrapper}>
@@ -69,13 +72,14 @@ export default function BottomSheetPicker({
         animationType="slide"
         onRequestClose={() => setOpen(false)}
         statusBarTranslucent
+        navigationBarTranslucent
       >
         <TouchableOpacity
           style={styles.backdrop}
           activeOpacity={1}
           onPress={() => setOpen(false)}
         />
-        <View style={styles.sheet}>
+        <View style={[styles.sheet, { maxHeight: maxSheetHeight }]}>
           <View style={styles.handleHitArea} {...handlePan.panHandlers}>
             <View style={styles.handle} />
           </View>
@@ -83,7 +87,7 @@ export default function BottomSheetPicker({
 
           <ScrollView
             showsVerticalScrollIndicator={false}
-            style={styles.list}
+            style={[styles.list, { maxHeight: maxListHeight }]}
             contentContainerStyle={{ paddingBottom: bottomPad }}
           >
             {allowNone && (
@@ -92,7 +96,7 @@ export default function BottomSheetPicker({
                 onPress={() => pick('')}
                 activeOpacity={0.7}
               >
-                <Text style={[styles.optionText, !value && styles.optionTextSelected]}>
+                <Text style={[styles.optionText, !value && styles.optionTextSelected]} numberOfLines={2}>
                   {noneLabel}
                 </Text>
                 {!value && <Ionicons name="checkmark" size={18} color={C.primary} />}
@@ -111,12 +115,12 @@ export default function BottomSheetPicker({
                     {opt.color && (
                       <View style={[styles.optionDot, { backgroundColor: opt.color }]} />
                     )}
-                    <View style={{ flex: 1 }}>
-                      <Text style={[styles.optionText, isSel && styles.optionTextSelected]}>
+                    <View style={styles.optionCopy}>
+                      <Text style={[styles.optionText, isSel && styles.optionTextSelected]} numberOfLines={2}>
                         {opt.label}
                       </Text>
                       {opt.secondaryLabel ? (
-                        <Text style={styles.optionSub}>{opt.secondaryLabel}</Text>
+                        <Text style={styles.optionSub} numberOfLines={1}>{opt.secondaryLabel}</Text>
                       ) : null}
                     </View>
                   </View>
@@ -153,7 +157,7 @@ const styles = StyleSheet.create({
     borderColor: C.border,
     minHeight: 48,
   },
-  triggerLeft: { flexDirection: 'row', alignItems: 'center', gap: 8, flex: 1 },
+  triggerLeft: { flexDirection: 'row', alignItems: 'center', gap: 8, flex: 1, minWidth: 0 },
   colorDot: { width: 10, height: 10, borderRadius: 5 },
   triggerText: { fontSize: 14, fontFamily: 'Inter_500Medium', color: C.text, flex: 1 },
   triggerPlaceholder: { color: C.textMuted },
@@ -167,7 +171,6 @@ const styles = StyleSheet.create({
     borderTopRightRadius: 20,
     paddingHorizontal: 20,
     paddingTop: 12,
-    maxHeight: '70%',
     ...Platform.select({
       web: { boxShadow: '0 -4px 24px rgba(0,0,0,0.12)' } as any,
       default: {
@@ -197,7 +200,7 @@ const styles = StyleSheet.create({
     color: C.text,
     marginBottom: 12,
   },
-  list: {},
+  list: { flexGrow: 0 },
   option: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -208,7 +211,8 @@ const styles = StyleSheet.create({
     borderBottomColor: C.border,
   },
   optionSelected: { backgroundColor: C.primaryBg, borderRadius: 10, paddingHorizontal: 10, marginHorizontal: -6 },
-  optionLeft: { flexDirection: 'row', alignItems: 'center', gap: 10, flex: 1 },
+  optionLeft: { flexDirection: 'row', alignItems: 'center', gap: 10, flex: 1, minWidth: 0, paddingRight: 10 },
+  optionCopy: { flex: 1, minWidth: 0 },
   optionDot: { width: 12, height: 12, borderRadius: 6 },
   optionText: { fontSize: 15, fontFamily: 'Inter_400Regular', color: C.text },
   optionTextSelected: { fontFamily: 'Inter_600SemiBold', color: C.primary },
