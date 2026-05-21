@@ -5,14 +5,18 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import { C } from '@/constants/colors';
 import { Company } from '@/constants/types';
+import {
+  RESERVE_STATUS_COLORS,
+  RESERVE_STATUS_LABELS,
+} from '@/lib/reserveLabels';
 
 const STATUSES = [
-  { key: 'all',          label: 'Tout',      color: '#003082' },
-  { key: 'open',         label: 'Ouvert',    color: '#EF4444' },
-  { key: 'in_progress',  label: 'En cours',  color: '#F59E0B' },
-  { key: 'waiting',      label: 'Attente',   color: '#6B7280' },
-  { key: 'verification', label: 'Vérif.',    color: '#8B5CF6' },
-  { key: 'closed',       label: 'Clôturé',   color: '#10B981' },
+  { key: 'all',          label: 'Tout',                               color: '#003082' },
+  { key: 'open',         label: RESERVE_STATUS_LABELS.open,           color: RESERVE_STATUS_COLORS.open },
+  { key: 'in_progress',  label: RESERVE_STATUS_LABELS.in_progress,    color: RESERVE_STATUS_COLORS.in_progress },
+  { key: 'waiting',      label: RESERVE_STATUS_LABELS.waiting,        color: RESERVE_STATUS_COLORS.waiting },
+  { key: 'verification', label: RESERVE_STATUS_LABELS.verification,   color: RESERVE_STATUS_COLORS.verification },
+  { key: 'closed',       label: RESERVE_STATUS_LABELS.closed,         color: RESERVE_STATUS_COLORS.closed },
 ] as const;
 
 interface FiltersSheetProps {

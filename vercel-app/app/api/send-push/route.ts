@@ -1,16 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
+import { getReserveStatusLabel } from '@/lib/reserveLabels';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
-
-const STATUS_LABELS_FR: Record<string, string> = {
-  open: 'Ouverte',
-  in_progress: 'En cours',
-  waiting: 'En attente',
-  verification: 'A verifier',
-  closed: 'Levee',
-};
 
 function corsHeaders(req: NextRequest) {
   const origin = req.headers.get('origin') ?? '';
@@ -317,7 +310,7 @@ async function pushForReserve(supabase: any, profile: any, body: any, statusChan
     statusChange ? 'reserve_status_push' : 'reserve_created_push',
     isCritical,
   );
-  const statusLabel = STATUS_LABELS_FR[body.newStatus || reserve.status] || body.newStatus || reserve.status;
+  const statusLabel = getReserveStatusLabel(body.newStatus || reserve.status, true);
   const title = statusChange ? 'Statut de reserve modifie' : 'Nouvelle reserve';
   const fallback = statusChange ? `${reserve.id} - ${statusLabel}` : `${reserve.id} - ${reserve.title}`;
   const pushStats = await sendExpoPushMessages(supabase, tokens.map((row: any) => ({

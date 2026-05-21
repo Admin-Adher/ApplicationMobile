@@ -10,6 +10,7 @@ import { toReserve } from '@/lib/mappers';
 import { Reserve, ReserveStatus, Comment } from '@/constants/types';
 import { genId, formatDateFR, nowTimestampFR } from '@/lib/utils';
 import { genReserveId } from '@/lib/reserveUtils';
+import { getReserveDescriptionText } from '@/lib/reserveDescription';
 import { mergeWithCache, readCache, writeCache, pendingIdsForTable, isSupabaseSessionValid } from '@/lib/offlineCache';
 import { uploadLocalPhotosInPayload } from '@/lib/storage';
 import { triggerReserveCreatedPush } from '@/lib/push/client';
@@ -136,34 +137,39 @@ export function useReserves() {
 
   const addReserve = useCallback(async (r: Reserve) => {
     const orgId = user?.organizationId ?? null;
+    const reserve: Reserve = {
+      ...r,
+      title: r.title.trim(),
+      description: getReserveDescriptionText(r.description, r.title, ''),
+    };
     queryClient.setQueryData<Reserve[]>(queryKeys.reserves(), old => {
-      if ((old ?? []).some(x => x.id === r.id)) return old ?? [];
-      return [r, ...(old ?? [])];
+      if ((old ?? []).some(x => x.id === reserve.id)) return old ?? [];
+      return [reserve, ...(old ?? [])];
     });
     persist(queryClient.getQueryData<Reserve[]>(queryKeys.reserves()) ?? []);
     // Fix 16: derive companies first, then company from companies[0] for consistency
-    const companies = r.companies ?? (r.company ? [r.company] : []);
-    const deadlineValue = !r.deadline || r.deadline === '—' ? null : r.deadline;
+    const companies = reserve.companies ?? (reserve.company ? [reserve.company] : []);
+    const deadlineValue = !reserve.deadline || reserve.deadline === '—' ? null : reserve.deadline;
     const buildPayload = (orgIdValue: string | null) => ({
-      id: r.id, title: r.title,
-      description: r.description ?? '',
-      building: r.building ?? '',
-      zone: r.zone ?? '',
-      level: r.level ?? '',
+      id: reserve.id, title: reserve.title,
+      description: reserve.description ?? '',
+      building: reserve.building ?? '',
+      zone: reserve.zone ?? '',
+      level: reserve.level ?? '',
       company: companies[0] ?? '',
       companies,
-      priority: r.priority, status: r.status, created_at: r.createdAt, deadline: deadlineValue,
-      comments: r.comments ?? [], history: r.history ?? [],
-      plan_x: r.planX ?? null, plan_y: r.planY ?? null,
-      photo_uri: r.photoUri ?? null, lot_id: r.lotId ?? null, kind: r.kind ?? null,
-      chantier_id: r.chantierId ?? null, plan_id: r.planId ?? null,
-      building_id: r.buildingId ?? null, level_id: r.levelId ?? null,
-      visite_id: r.visiteId ?? null, linked_task_id: r.linkedTaskId ?? null,
-      photos: r.photos ?? null, photo_annotations: r.photoAnnotations ?? null,
-      enterprise_signature: r.enterpriseSignature ?? null,
-      enterprise_signataire: r.enterpriseSignataire ?? null,
-      enterprise_acknowledged_at: r.enterpriseAcknowledgedAt ?? null,
-      company_signatures: r.companySignatures ?? null,
+      priority: reserve.priority, status: reserve.status, created_at: reserve.createdAt, deadline: deadlineValue,
+      comments: reserve.comments ?? [], history: reserve.history ?? [],
+      plan_x: reserve.planX ?? null, plan_y: reserve.planY ?? null,
+      photo_uri: reserve.photoUri ?? null, lot_id: reserve.lotId ?? null, kind: reserve.kind ?? null,
+      chantier_id: reserve.chantierId ?? null, plan_id: reserve.planId ?? null,
+      building_id: reserve.buildingId ?? null, level_id: reserve.levelId ?? null,
+      visite_id: reserve.visiteId ?? null, linked_task_id: reserve.linkedTaskId ?? null,
+      photos: reserve.photos ?? null, photo_annotations: reserve.photoAnnotations ?? null,
+      enterprise_signature: reserve.enterpriseSignature ?? null,
+      enterprise_signataire: reserve.enterpriseSignataire ?? null,
+      enterprise_acknowledged_at: reserve.enterpriseAcknowledgedAt ?? null,
+      company_signatures: reserve.companySignatures ?? null,
       organization_id: orgIdValue,
     });
     const payload = buildPayload(orgId);
@@ -183,16 +189,16 @@ export function useReserves() {
       return;
     }
     const finalPayload = prep.data!;
-    if (prep.hadLocal) applyUploadedPhotoPayload(r.id, finalPayload);
+    if (prep.hadLocal) applyUploadedPhotoPayload(reserve.id, finalPayload);
 
     const rollback = () => {
-      queryClient.setQueryData<Reserve[]>(queryKeys.reserves(), old => (old ?? []).filter(x => x.id !== r.id));
+      queryClient.setQueryData<Reserve[]>(queryKeys.reserves(), old => (old ?? []).filter(x => x.id !== reserve.id));
       persist(queryClient.getQueryData<Reserve[]>(queryKeys.reserves()) ?? []);
     };
 
     const { error } = await (supabase as any).from('reserves').insert(finalPayload);
     if (!error) {
-      triggerReserveCreatedPush(r.id);
+      triggerReserveCreatedPush(reserve.id);
       return;
     }
 
@@ -260,7 +266,7 @@ export function useReserves() {
           console.warn('[sync] addReserve retry with fresh organization_id:', freshOrgId, '(was:', orgId, ')');
           const { error: retryErr } = await (supabase as any).from('reserves').insert({ ...finalPayload, organization_id: freshOrgId });
           if (!retryErr) {
-            triggerReserveCreatedPush(r.id);
+            triggerReserveCreatedPush(reserve.id);
             return;
           }
           // Retry also failed: queue with the corrected org_id so it syncs later.
@@ -290,38 +296,43 @@ export function useReserves() {
   }, [queryClient, user, isOnlineRef, enqueueOperation, persist, applyUploadedPhotoPayload]);
 
   const updateReserve = useCallback(async (r: Reserve) => {
+    const reserve: Reserve = {
+      ...r,
+      title: r.title.trim(),
+      description: getReserveDescriptionText(r.description, r.title, ''),
+    };
     queryClient.setQueryData<Reserve[]>(queryKeys.reserves(), old =>
-      (old ?? []).map(x => x.id === r.id ? r : x)
+      (old ?? []).map(x => x.id === reserve.id ? reserve : x)
     );
     persist(queryClient.getQueryData<Reserve[]>(queryKeys.reserves()) ?? []);
     // Fix 16: derive companies first, then company from companies[0] for consistency
-    const companies = r.companies ?? (r.company ? [r.company] : []);
-    const deadlineValue = !r.deadline || r.deadline === '—' ? null : r.deadline;
+    const companies = reserve.companies ?? (reserve.company ? [reserve.company] : []);
+    const deadlineValue = !reserve.deadline || reserve.deadline === '—' ? null : reserve.deadline;
     const payload = {
-      title: r.title,
-      description: r.description ?? '',
-      building: r.building ?? '',
-      zone: r.zone ?? '',
-      level: r.level ?? '',
+      title: reserve.title,
+      description: reserve.description ?? '',
+      building: reserve.building ?? '',
+      zone: reserve.zone ?? '',
+      level: reserve.level ?? '',
       company: companies[0] ?? '',
       companies,
-      priority: r.priority, status: r.status, deadline: deadlineValue,
-      comments: r.comments ?? [], history: r.history ?? [],
-      plan_x: r.planX ?? null, plan_y: r.planY ?? null,
-      photo_uri: r.photoUri ?? null, lot_id: r.lotId ?? null, kind: r.kind ?? null,
-      chantier_id: r.chantierId ?? null, plan_id: r.planId ?? null,
-      building_id: r.buildingId ?? null, level_id: r.levelId ?? null,
-      visite_id: r.visiteId ?? null, linked_task_id: r.linkedTaskId ?? null,
-      photos: r.photos ?? null, photo_annotations: r.photoAnnotations ?? null,
-      enterprise_signature: r.enterpriseSignature ?? null,
-      enterprise_signataire: r.enterpriseSignataire ?? null,
-      enterprise_acknowledged_at: r.enterpriseAcknowledgedAt ?? null,
-      company_signatures: r.companySignatures ?? null,
-      closed_at: r.closedAt ?? null, closed_by: r.closedBy ?? null,
-      archived_at: r.archivedAt ?? null, archived_by: r.archivedBy ?? null,
+      priority: reserve.priority, status: reserve.status, deadline: deadlineValue,
+      comments: reserve.comments ?? [], history: reserve.history ?? [],
+      plan_x: reserve.planX ?? null, plan_y: reserve.planY ?? null,
+      photo_uri: reserve.photoUri ?? null, lot_id: reserve.lotId ?? null, kind: reserve.kind ?? null,
+      chantier_id: reserve.chantierId ?? null, plan_id: reserve.planId ?? null,
+      building_id: reserve.buildingId ?? null, level_id: reserve.levelId ?? null,
+      visite_id: reserve.visiteId ?? null, linked_task_id: reserve.linkedTaskId ?? null,
+      photos: reserve.photos ?? null, photo_annotations: reserve.photoAnnotations ?? null,
+      enterprise_signature: reserve.enterpriseSignature ?? null,
+      enterprise_signataire: reserve.enterpriseSignataire ?? null,
+      enterprise_acknowledged_at: reserve.enterpriseAcknowledgedAt ?? null,
+      company_signatures: reserve.companySignatures ?? null,
+      closed_at: reserve.closedAt ?? null, closed_by: reserve.closedBy ?? null,
+      archived_at: reserve.archivedAt ?? null, archived_by: reserve.archivedBy ?? null,
     };
     if (!isOnlineRef.current && isSupabaseConfigured) {
-      enqueueOperation({ table: 'reserves', op: 'update', filter: { column: 'id', value: r.id }, data: payload });
+      enqueueOperation({ table: 'reserves', op: 'update', filter: { column: 'id', value: reserve.id }, data: payload });
       return;
     }
     if (isSupabaseConfigured) {
@@ -329,17 +340,17 @@ export function useReserves() {
       const prep = await uploadLocalPhotosInPayload('reserves', payload);
       if (!prep.allOk) {
         console.warn('[sync] updateReserve: photo upload failed, queuing for later sync');
-        enqueueOperation({ table: 'reserves', op: 'update', filter: { column: 'id', value: r.id }, data: payload });
+        enqueueOperation({ table: 'reserves', op: 'update', filter: { column: 'id', value: reserve.id }, data: payload });
         return;
       }
-      if (prep.hadLocal && prep.data) applyUploadedPhotoPayload(r.id, prep.data);
+      if (prep.hadLocal && prep.data) applyUploadedPhotoPayload(reserve.id, prep.data);
       // Await the result so we can detect failures and queue a retry.
       // prep.data! already has remote photo URLs (file:// paths were uploaded
       // above), so the sync engine's upload step will be a no-op for those.
-      const { error } = await (supabase as any).from('reserves').update(prep.data!).eq('id', r.id);
+      const { error } = await (supabase as any).from('reserves').update(prep.data!).eq('id', reserve.id);
       if (error) {
         console.warn('[sync] updateReserve error, queuing for retry:', error.message);
-        enqueueOperation({ table: 'reserves', op: 'update', filter: { column: 'id', value: r.id }, data: prep.data! });
+        enqueueOperation({ table: 'reserves', op: 'update', filter: { column: 'id', value: reserve.id }, data: prep.data! });
       }
     }
   }, [queryClient, isOnlineRef, enqueueOperation, persist, applyUploadedPhotoPayload]);

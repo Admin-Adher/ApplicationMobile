@@ -1,25 +1,17 @@
 import { createClient } from '@supabase/supabase-js';
 import { verifyReserveToken } from '@/lib/reserve-token';
+import {
+  getReservePriorityColor,
+  getReservePriorityLabel,
+  getReserveStatusColor,
+  getReserveStatusLabel,
+} from '@/lib/reserveLabels';
+import { getReserveDescriptionText } from '@/lib/reserveDescription';
 
 export const dynamic = 'force-dynamic';
 
 const BRAND = '#1A2742';
 const ACCENT = '#FFCB00';
-
-const PRIORITY_LABELS: Record<string, { label: string; color: string }> = {
-  critical: { label: 'Critique', color: '#DC2626' },
-  high:     { label: 'Haute',    color: '#EA580C' },
-  medium:   { label: 'Moyenne',  color: '#D97706' },
-  low:      { label: 'Faible',   color: '#16A34A' },
-};
-
-const STATUS_LABELS: Record<string, { label: string; color: string }> = {
-  open:         { label: 'Ouverte',    color: '#DC2626' },
-  in_progress:  { label: 'En cours',   color: '#2563EB' },
-  waiting:      { label: 'En attente', color: '#D97706' },
-  verification: { label: 'À vérifier', color: '#7C3AED' },
-  closed:       { label: 'Levée',      color: '#16A34A' },
-};
 
 function getServiceClient() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -128,8 +120,15 @@ export default async function ReservePublicPage({
       .limit(20),
   ]);
 
-  const prio = PRIORITY_LABELS[reserve.priority] ?? PRIORITY_LABELS.medium;
-  const stat = STATUS_LABELS[reserve.status] ?? { label: reserve.status, color: BRAND };
+  const prio = {
+    label: getReservePriorityLabel(reserve.priority),
+    color: getReservePriorityColor(reserve.priority),
+  };
+  const stat = {
+    label: getReserveStatusLabel(reserve.status, true),
+    color: getReserveStatusColor(reserve.status),
+  };
+  const descriptionText = getReserveDescriptionText(reserve.description, reserve.title, '');
   const locParts = [reserve.building, reserve.level, reserve.zone].filter(Boolean);
   const involvedCompanies: string[] = Array.isArray(reserve.companies)
     ? (reserve.companies as string[])
@@ -181,14 +180,14 @@ export default async function ReservePublicPage({
 
           <Section label="Créée le">{fmtDate(reserve.created_at)}</Section>
 
-          {reserve.description && (
+          {descriptionText && (
             <div style={{ margin: '18px 0' }}>
               <div style={S.sectionLabel}>Description</div>
               <div style={{
                 background: '#F4F7FB', padding: 14, borderRadius: 8,
                 color: '#334155', fontSize: 14, lineHeight: 1.5, whiteSpace: 'pre-wrap' as const,
               }}>
-                {reserve.description}
+                {descriptionText}
               </div>
             </div>
           )}

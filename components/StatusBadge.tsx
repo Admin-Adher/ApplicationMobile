@@ -1,14 +1,8 @@
 import { View, Text, StyleSheet } from 'react-native';
 import { ReserveStatus } from '@/constants/types';
-import { C } from '@/constants/colors';
+import { RESERVE_STATUS_CONFIG } from '@/lib/reserveLabels';
 
-const STATUS_CONFIG: Record<ReserveStatus, { label: string; color: string; bg: string }> = {
-  open: { label: 'Ouvert', color: C.open, bg: C.openBg },
-  in_progress: { label: 'En cours', color: C.inProgress, bg: C.inProgressBg },
-  waiting: { label: 'En attente', color: C.waiting, bg: C.waitingBg },
-  verification: { label: 'Vérification', color: C.verification, bg: C.verificationBg },
-  closed: { label: 'Clôturé', color: C.closed, bg: C.closedBg },
-};
+const STATUS_CONFIG = RESERVE_STATUS_CONFIG;
 
 interface Props {
   status: ReserveStatus;

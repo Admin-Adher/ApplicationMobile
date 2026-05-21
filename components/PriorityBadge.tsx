@@ -1,13 +1,8 @@
 import { View, Text, StyleSheet } from 'react-native';
 import { ReservePriority } from '@/constants/types';
-import { C } from '@/constants/colors';
+import { RESERVE_PRIORITY_CONFIG } from '@/lib/reserveLabels';
 
-const PRIORITY_CONFIG: Record<ReservePriority, { label: string; color: string; bg: string; icon: string }> = {
-  critical: { label: 'Critique', color: C.critical, bg: C.criticalBg, icon: '▲' },
-  high: { label: 'Haute', color: C.high, bg: C.highBg, icon: '▲' },
-  medium: { label: 'Moyenne', color: C.medium, bg: C.mediumBg, icon: '●' },
-  low: { label: 'Basse', color: C.low, bg: C.lowBg, icon: '▼' },
-};
+const PRIORITY_CONFIG = RESERVE_PRIORITY_CONFIG;
 
 interface Props {
   priority: ReservePriority;

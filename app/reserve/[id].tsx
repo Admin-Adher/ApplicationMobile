@@ -48,6 +48,13 @@ import {
   isRemotePdfAssetUri,
 } from '@/lib/pdfReserveHelpers';
 import { buildPdfFilename } from '@/lib/pdfFilename';
+import {
+  RESERVE_PRIORITY_COLORS,
+  RESERVE_PRIORITY_LABELS,
+  RESERVE_STATUS_COLORS,
+  RESERVE_STATUS_LABELS_FEMININE,
+} from '@/lib/reserveLabels';
+import { getReserveDescriptionText } from '@/lib/reserveDescription';
 import LocationPicker from '@/components/LocationPicker';
 import SignaturePad, { SignaturePadRef } from '@/components/SignaturePad';
 import { PhotoAnnotationOverlay } from '@/components/PhotoAnnotator';
@@ -111,20 +118,10 @@ function buildReservePDF(
   planData?: PlanData,
   pinNum: number = 1,
 ): string {
-  const statusColors: Record<string, string> = {
-    open: '#DC2626', in_progress: '#F59E0B', waiting: '#3B82F6',
-    verification: '#8B5CF6', closed: '#059669',
-  };
-  const statusLabels: Record<string, string> = {
-    open: 'Ouverte', in_progress: 'En cours', waiting: 'En attente',
-    verification: 'Vérification', closed: 'Clôturée',
-  };
-  const priorityLabels: Record<string, string> = {
-    low: 'Faible', medium: 'Moyenne', high: 'Haute', critical: 'Critique',
-  };
-  const priorityColors: Record<string, string> = {
-    low: '#22C55E', medium: '#F59E0B', high: '#F97316', critical: '#EF4444',
-  };
+  const statusColors = RESERVE_STATUS_COLORS as Record<string, string>;
+  const statusLabels = RESERVE_STATUS_LABELS_FEMININE as Record<string, string>;
+  const priorityLabels = RESERVE_PRIORITY_LABELS as Record<string, string>;
+  const priorityColors = RESERVE_PRIORITY_COLORS as Record<string, string>;
 
   const sColor = statusColors[reserve.status] ?? '#6B7280';
   const sLabel = statusLabels[reserve.status] ?? reserve.status;
@@ -375,7 +372,7 @@ document.head.appendChild(s);
         </div>
         <div class="desc-box">
           <div class="lbl" style="margin-bottom:4px">Description</div>
-          ${reserve.description}
+          ${getReserveDescriptionText(reserve.description, reserve.title)}
         </div>
       </div>
       <div>
@@ -523,7 +520,7 @@ export default function ReserveDetailScreen() {
   function openEdit() {
     if (!reserve) return;
     setEditTitle(reserve.title);
-    setEditDescription(reserve.description);
+    setEditDescription(getReserveDescriptionText(reserve.description, reserve.title, ''));
     setEditBuilding(reserve.building);
     setEditZone(reserve.zone);
     setEditLevel(reserve.level);
@@ -748,7 +745,7 @@ export default function ReserveDetailScreen() {
     const updated: Reserve = {
       ...reserve,
       title: editTitle.trim(),
-      description: editDescription.trim() || reserve.description,
+      description: getReserveDescriptionText(editDescription, reserve.title, ''),
       building: editBuilding.trim(),
       zone: editZone.trim(),
       level: editLevel.trim(),
@@ -909,7 +906,7 @@ export default function ReserveDetailScreen() {
           status: reserve.status,
           priority: reserve.priority,
           deadline: reserve.deadline ?? undefined,
-          description: reserve.description ?? undefined,
+          description: getReserveDescriptionText(reserve.description, reserve.title, ''),
           createdAt: reserve.createdAt ?? undefined,
           closedAt: (reserve as any).closedAt ?? undefined,
           photos: photoUrls,
@@ -1276,7 +1273,7 @@ export default function ReserveDetailScreen() {
 
         <View style={styles.card}>
           <Text style={styles.sectionTitle}>Description</Text>
-          <Text style={styles.description}>{reserve.description}</Text>
+          <Text style={styles.description}>{getReserveDescriptionText(reserve.description, reserve.title)}</Text>
         </View>
 
         {user?.role === 'sous_traitant' && (

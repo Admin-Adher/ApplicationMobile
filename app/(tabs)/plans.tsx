@@ -45,6 +45,13 @@ import {
   isRemotePdfAssetUri,
 } from '@/lib/pdfReserveHelpers';
 import { buildPdfFilename } from '@/lib/pdfFilename';
+import {
+  RESERVE_PRIORITY_COLORS,
+  RESERVE_PRIORITY_LABELS,
+  RESERVE_STATUS_COLORS,
+  RESERVE_STATUS_LABELS,
+} from '@/lib/reserveLabels';
+import { getReserveDescriptionText } from '@/lib/reserveDescription';
 
 const HINT_KEY = 'plans_hint_seen';
 const PIN_SIZE_KEY = 'plans_pin_size_scale';
@@ -237,13 +244,8 @@ async function exportPlanPDF(
   captureRef?: React.RefObject<PdfPlanViewerHandle | null> | null,
   action: 'share' | 'print' = 'share',
 ) {
-  const STATUS_FR: Record<string, string> = {
-    open: 'Ouvert', in_progress: 'En cours', waiting: 'En attente',
-    verification: 'Vérification', closed: 'Clôturé',
-  };
-  const PRIORITY_FR: Record<string, string> = {
-    critical: 'Critique', high: 'Haute', medium: 'Moyenne', low: 'Basse',
-  };
+  const STATUS_FR = RESERVE_STATUS_LABELS as Record<string, string>;
+  const PRIORITY_FR = RESERVE_PRIORITY_LABELS as Record<string, string>;
   const displayBuilding = planBuilding || reserves.find(r => !!r.building)?.building || '';
   const displayLevel = planLevel || reserves.find(r => !!r.level)?.level || '';
   const planLocationParts = [
@@ -483,20 +485,10 @@ async function exportGlobalReport(
   statusFilter?: Set<string>,
   preRenderedImages?: Map<string, string>,
 ): Promise<void> {
-  const STATUS_FR: Record<string, string> = {
-    open: 'Ouvert', in_progress: 'En cours', waiting: 'En attente',
-    verification: 'Vérification', closed: 'Clôturé',
-  };
-  const STATUS_COLORS: Record<string, string> = {
-    open: '#ef4444', in_progress: '#3b82f6', waiting: '#f59e0b',
-    verification: '#8b5cf6', closed: '#22c55e',
-  };
-  const PRIORITY_FR: Record<string, string> = {
-    critical: 'Critique', high: 'Haute', medium: 'Moyenne', low: 'Basse',
-  };
-  const PRIORITY_COLORS: Record<string, string> = {
-    critical: '#ef4444', high: '#f97316', medium: '#3b82f6', low: '#6b7280',
-  };
+  const STATUS_FR = RESERVE_STATUS_LABELS as Record<string, string>;
+  const STATUS_COLORS = RESERVE_STATUS_COLORS as Record<string, string>;
+  const PRIORITY_FR = RESERVE_PRIORITY_LABELS as Record<string, string>;
+  const PRIORITY_COLORS = RESERVE_PRIORITY_COLORS as Record<string, string>;
 
   // 1. Filter reserves by company + status
   // Match against r.company (single string) OR r.companies (multi-company array).
@@ -636,12 +628,12 @@ async function exportGlobalReport(
         const companyLabel = getReserveCompanyLabel(r);
         const row = `<tr>
           <td style="text-align:center;width:36px;"><span style="display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px;border-radius:50%;background:${color};color:#fff;font-weight:700;font-size:11px;">${n}</span></td>
-          <td style="font-weight:600;">${r.title}</td>
-          <td>${companyLabel}</td>
-          <td>${r.level || '—'}</td>
+          <td style="font-weight:600;">${escapeHtml(r.title)}</td>
+          <td>${escapeHtml(companyLabel)}</td>
+          <td>${escapeHtml(r.level || '—')}</td>
           <td><span style="color:${statusColor};font-weight:600;">${STATUS_FR[r.status] ?? r.status}</span></td>
           <td><span style="color:${priorityColor};font-weight:600;">${PRIORITY_FR[r.priority] ?? r.priority}</span></td>
-          <td>${r.deadline || '—'}</td>
+          <td>${escapeHtml(r.deadline || '—')}</td>
         </tr>`;
         const rawPhotos = getReservePdfPhotos(r);
         const photosToShow = rawPhotos.slice(0, MAX_PHOTOS_GLOBAL);
@@ -651,7 +643,7 @@ async function exportGlobalReport(
           photoHtml = `<div style="padding:8px 16px 12px 16px;border-bottom:1px solid #f1f5f9;background:#fff;">
             <div style="font-size:10px;font-weight:700;color:#64748b;margin-bottom:6px;">
               <span style="display:inline-flex;align-items:center;justify-content:center;width:18px;height:18px;border-radius:50%;background:${color};color:#fff;font-weight:700;font-size:9px;margin-right:5px;">${n}</span>
-              ${r.title} — Photos (${photosToShow.length}${rawPhotos.length > MAX_PHOTOS_GLOBAL ? ` sur ${rawPhotos.length}` : ''})
+              ${escapeHtml(r.title)} — Photos (${photosToShow.length}${rawPhotos.length > MAX_PHOTOS_GLOBAL ? ` sur ${rawPhotos.length}` : ''})
             </div>
             <div style="display:flex;gap:8px;flex-wrap:nowrap;">
               ${photosToShow.map((p, idx) => {
@@ -713,13 +705,13 @@ async function exportGlobalReport(
       const companyLabel = getReserveCompanyLabel(r);
       const row = `<tr>
         <td style="text-align:center;width:36px;"><span style="display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px;border-radius:50%;background:${color};color:#fff;font-weight:700;font-size:11px;">${n}</span></td>
-        <td style="font-weight:600;">${r.title}</td>
-        <td>${companyLabel}</td>
-        <td>${r.building || '—'}</td>
-        <td>${r.level || '—'}</td>
+        <td style="font-weight:600;">${escapeHtml(r.title)}</td>
+        <td>${escapeHtml(companyLabel)}</td>
+        <td>${escapeHtml(r.building || '—')}</td>
+        <td>${escapeHtml(r.level || '—')}</td>
         <td><span style="color:${statusColor};font-weight:600;">${STATUS_FR[r.status] ?? r.status}</span></td>
         <td><span style="color:${priorityColor};font-weight:600;">${PRIORITY_FR[r.priority] ?? r.priority}</span></td>
-        <td>${r.deadline || '—'}</td>
+        <td>${escapeHtml(r.deadline || '—')}</td>
       </tr>`;
       const rawPhotos = getReservePdfPhotos(r);
       const photosToShow = rawPhotos.slice(0, MAX_PHOTOS_ORPHAN);
@@ -729,7 +721,7 @@ async function exportGlobalReport(
         photoHtml = `<div style="padding:8px 16px 12px 16px;border-bottom:1px solid #f1f5f9;background:#fff;">
           <div style="font-size:10px;font-weight:700;color:#64748b;margin-bottom:6px;">
             <span style="display:inline-flex;align-items:center;justify-content:center;width:18px;height:18px;border-radius:50%;background:${color};color:#fff;font-weight:700;font-size:9px;margin-right:5px;">${n}</span>
-            ${r.title} — Photos (${photosToShow.length}${rawPhotos.length > MAX_PHOTOS_ORPHAN ? ` sur ${rawPhotos.length}` : ''})
+            ${escapeHtml(r.title)} — Photos (${photosToShow.length}${rawPhotos.length > MAX_PHOTOS_ORPHAN ? ` sur ${rawPhotos.length}` : ''})
           </div>
           <div style="display:flex;gap:8px;flex-wrap:nowrap;">
             ${photosToShow.map((p, idx) => {
@@ -789,9 +781,7 @@ async function exportGlobalReport(
 
   const dateStr = new Date().toLocaleDateString('fr-FR', { day: '2-digit', month: 'long', year: 'numeric' });
   const companyLabel = companyFilter ?? 'Toutes les entreprises';
-  const STATUS_FR_LABELS: Record<string, string> = {
-    open: 'Ouvert', in_progress: 'En cours', waiting: 'En attente', verification: 'Vérification', closed: 'Clôturé',
-  };
+  const STATUS_FR_LABELS = RESERVE_STATUS_LABELS as Record<string, string>;
   const statusLabel = (!statusFilter || statusFilter.size === 0)
     ? null
     : Array.from(statusFilter).map(s => STATUS_FR_LABELS[s] ?? s).join(', ');
@@ -846,7 +836,7 @@ tbody td{padding:7px 10px;vertical-align:middle;}
   <div class="cover-title">Rapport des réserves</div>
   <div class="cover-chantier">${chantierName}</div>
   <div class="cover-divider"></div>
-  <div class="cover-company">🏢 ${companyLabel}</div>
+  <div class="cover-company">🏢 ${escapeHtml(companyLabel)}</div>
   ${statusLabel ? `<div style="font-size:13px;color:#1E3A5F;background:#e8f0fe;padding:5px 18px;border-radius:16px;display:inline-block;margin-top:8px;">📌 Statuts : ${statusLabel}</div>` : ''}
   <div class="cover-stats">
     <div class="stat-block"><span class="stat-num">${totalReserves}</span><span class="stat-lbl">réserves</span></div>
@@ -1725,7 +1715,7 @@ export default function PlansScreen() {
           status: r.status,
           priority: r.priority,
           deadline: r.deadline ?? undefined,
-          description: r.description ?? undefined,
+          description: getReserveDescriptionText(r.description, r.title, ''),
           planId: r.planId ?? undefined,
           planX: r.planX ?? undefined,
           planY: r.planY ?? undefined,
@@ -3603,7 +3593,7 @@ export default function PlansScreen() {
                     {detailReserve.deadline && detailReserve.deadline !== '—' && (
                       <View style={styles.tabletDetailMeta}><Ionicons name="calendar-outline" size={12} color={C.textMuted} /><Text style={styles.tabletDetailMetaText}>Échéance : {detailReserve.deadline}</Text></View>
                     )}
-                    {detailReserve.description ? <Text style={styles.tabletDetailDesc}>{detailReserve.description}</Text> : null}
+                    <Text style={styles.tabletDetailDesc}>{getReserveDescriptionText(detailReserve.description, detailReserve.title)}</Text>
                     <Text style={styles.tabletDetailSectionLabel}>Changer le statut</Text>
                     <View style={styles.tabletStatusGrid}>
                       {STATUS_ORDER.map(s => {
@@ -3853,11 +3843,11 @@ export default function PlansScreen() {
                 {/* Status filter chips */}
                 {(() => {
                   const STATUS_OPTIONS = [
-                    { key: 'open',         label: 'Ouvert',        color: '#ef4444' },
-                    { key: 'in_progress',  label: 'En cours',      color: '#3b82f6' },
-                    { key: 'waiting',      label: 'En attente',    color: '#f59e0b' },
-                    { key: 'verification', label: 'Vérification',  color: '#8b5cf6' },
-                    { key: 'closed',       label: 'Clôturé',       color: '#22c55e' },
+                    { key: 'open',         label: RESERVE_STATUS_LABELS.open,         color: RESERVE_STATUS_COLORS.open },
+                    { key: 'in_progress',  label: RESERVE_STATUS_LABELS.in_progress,  color: RESERVE_STATUS_COLORS.in_progress },
+                    { key: 'waiting',      label: RESERVE_STATUS_LABELS.waiting,      color: RESERVE_STATUS_COLORS.waiting },
+                    { key: 'verification', label: RESERVE_STATUS_LABELS.verification, color: RESERVE_STATUS_COLORS.verification },
+                    { key: 'closed',       label: RESERVE_STATUS_LABELS.closed,       color: RESERVE_STATUS_COLORS.closed },
                   ];
                   const allSelected = globalReportStatusFilter.size === 0;
                   const toggleStatus = (key: string) => {
@@ -4181,7 +4171,7 @@ export default function PlansScreen() {
                   <Ionicons name="close" size={20} color={C.textMuted} />
                 </TouchableOpacity>
               </View>
-              {selected.description ? <Text style={styles.modalDesc} numberOfLines={3}>{selected.description}</Text> : null}
+              <Text style={styles.modalDesc} numberOfLines={3}>{getReserveDescriptionText(selected.description, selected.title)}</Text>
               <View style={styles.modalBadges}>
                 <PriorityBadge priority={selected.priority} small />
                 {selected.deadline && selected.deadline !== '—' && (

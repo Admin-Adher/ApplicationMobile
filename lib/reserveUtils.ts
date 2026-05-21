@@ -1,14 +1,14 @@
 import { ReserveStatus, ReservePriority } from '@/constants/types';
-import { C } from '@/constants/colors';
+import { RESERVE_PRIORITY_COLORS, RESERVE_PRIORITY_LABELS } from '@/lib/reserveLabels';
 
 export const RESERVE_BUILDINGS: string[] = [];
 export const RESERVE_ZONES: string[] = [];
 export const RESERVE_LEVELS: string[] = [];
 export const RESERVE_PRIORITIES: { value: ReservePriority; label: string; color: string }[] = [
-  { value: 'low', label: 'Basse', color: C.low },
-  { value: 'medium', label: 'Moyenne', color: C.medium },
-  { value: 'high', label: 'Haute', color: C.high },
-  { value: 'critical', label: 'Critique', color: C.critical },
+  { value: 'low', label: RESERVE_PRIORITY_LABELS.low, color: RESERVE_PRIORITY_COLORS.low },
+  { value: 'medium', label: RESERVE_PRIORITY_LABELS.medium, color: RESERVE_PRIORITY_COLORS.medium },
+  { value: 'high', label: RESERVE_PRIORITY_LABELS.high, color: RESERVE_PRIORITY_COLORS.high },
+  { value: 'critical', label: RESERVE_PRIORITY_LABELS.critical, color: RESERVE_PRIORITY_COLORS.critical },
 ];
 
 export const RESERVE_TEMPLATES: { category: string; icon: string; items: { title: string; description: string }[] }[] = [

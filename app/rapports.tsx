@@ -27,6 +27,13 @@ import {
   getReservePdfPhotos,
 } from '@/lib/pdfReserveHelpers';
 import { buildPdfFilename } from '@/lib/pdfFilename';
+import {
+  RESERVE_PRIORITY_COLORS,
+  RESERVE_PRIORITY_LABELS,
+  RESERVE_STATUS_COLORS,
+  RESERVE_STATUS_LABELS,
+} from '@/lib/reserveLabels';
+import { getReserveDescriptionText, hasCustomReserveDescription } from '@/lib/reserveDescription';
 
 function buildLotSummaryRows(reserves: any[], companies: any[]): string {
   const companyNames = [...new Set(reserves.map((r: any) => r.company))];
@@ -62,10 +69,10 @@ function buildDailyHTML(reserves: any[], companies: any[], tasks: any[], inciden
   const severityLabels: Record<string, string> = { minor: 'Mineur', moderate: 'Modéré', major: 'Majeur', critical: 'Critique' };
   const severityColors: Record<string, string> = { minor: '#6B7280', moderate: '#F59E0B', major: '#EF4444', critical: '#7F1D1D' };
   const incidentStatusLabels: Record<string, string> = { open: 'Ouvert', investigating: 'En cours', resolved: 'Résolu' };
-  const statusLabels: Record<string, string> = { open: 'Ouvert', in_progress: 'En cours', waiting: 'Attente', verification: 'Vérif.', closed: 'Clôturé' };
-  const statusColors: Record<string, string> = { open: '#DC2626', in_progress: '#D97706', waiting: '#6B7280', verification: '#7C3AED', closed: '#059669' };
-  const priorityLabels: Record<string, string> = { low: 'Basse', medium: 'Moyenne', high: 'Haute', critical: 'Critique' };
-  const pColor: Record<string, string> = { low: '#6B7280', medium: '#F59E0B', high: '#EF4444', critical: '#7C3AED' };
+  const statusLabels = RESERVE_STATUS_LABELS as Record<string, string>;
+  const statusColors = RESERVE_STATUS_COLORS as Record<string, string>;
+  const priorityLabels = RESERVE_PRIORITY_LABELS as Record<string, string>;
+  const pColor = RESERVE_PRIORITY_COLORS as Record<string, string>;
   const openIncidents = incidents.filter((i: any) => i.status !== 'resolved');
   const activeReserves = reserves.filter((r: any) => r.status !== 'closed');
   const totalWorkers = companies.reduce((s: number, c: any) => s + (c.actualWorkers || 0), 0);
@@ -167,11 +174,11 @@ function buildWeeklyHTML(reserves: any[], companies: any[], tasks: any[], incide
   const incStatusLabels: Record<string, string> = { open: 'Ouvert', investigating: 'En cours', resolved: 'Résolu' };
 
   const reserveByStatus = [
-    { label: 'Ouvert', count: stats.open, color: '#DC2626' },
-    { label: 'En cours', count: stats.inProgress, color: '#D97706' },
-    { label: 'En attente', count: stats.waiting, color: '#6366F1' },
-    { label: 'Vérification', count: stats.verification, color: '#3B82F6' },
-    { label: 'Clôturé', count: stats.closed, color: '#059669' },
+    { label: RESERVE_STATUS_LABELS.open, count: stats.open, color: RESERVE_STATUS_COLORS.open },
+    { label: RESERVE_STATUS_LABELS.in_progress, count: stats.inProgress, color: RESERVE_STATUS_COLORS.in_progress },
+    { label: RESERVE_STATUS_LABELS.waiting, count: stats.waiting, color: RESERVE_STATUS_COLORS.waiting },
+    { label: RESERVE_STATUS_LABELS.verification, count: stats.verification, color: RESERVE_STATUS_COLORS.verification },
+    { label: RESERVE_STATUS_LABELS.closed, count: stats.closed, color: RESERVE_STATUS_COLORS.closed },
   ];
   const criticalReserves = reserves.filter((r: any) => r.priority === 'critical' && r.status !== 'closed');
   const thS = 'background:#003082;color:#fff;padding:8px 10px;text-align:left;font-size:10px;text-transform:uppercase;letter-spacing:0.5px';
@@ -307,10 +314,10 @@ async function buildCompanyReserveHTML(company: any, companyReserves: any[], pro
   const now = new Date().toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' });
   const today = new Date().toLocaleDateString('fr-FR');
   const docRef = `BON-${company.name.slice(0, 4).toUpperCase().replace(/\s/g, '')}-${today.replace(/\//g, '')}`;
-  const priorityLabels: Record<string, string> = { low: 'Basse', medium: 'Moyenne', high: 'Haute', critical: 'Critique' };
-  const priorityColors: Record<string, string> = { low: '#6B7280', medium: '#D97706', high: '#DC2626', critical: '#7C3AED' };
-  const statusLabels: Record<string, string> = { open: 'Ouvert', in_progress: 'En cours', waiting: 'En attente', verification: 'Vérification', closed: 'Clôturé' };
-  const statusColors: Record<string, string> = { open: '#DC2626', in_progress: '#D97706', waiting: '#6366F1', verification: '#3B82F6', closed: '#059669' };
+  const priorityLabels = RESERVE_PRIORITY_LABELS as Record<string, string>;
+  const priorityColors = RESERVE_PRIORITY_COLORS as Record<string, string>;
+  const statusLabels = RESERVE_STATUS_LABELS as Record<string, string>;
+  const statusColors = RESERVE_STATUS_COLORS as Record<string, string>;
   const openCount = companyReserves.filter((r: any) => r.status !== 'closed').length;
   const closedCount = companyReserves.filter((r: any) => r.status === 'closed').length;
   const criticalCount = companyReserves.filter((r: any) => r.priority === 'critical' && r.status !== 'closed').length;
@@ -336,7 +343,7 @@ async function buildCompanyReserveHTML(company: any, companyReserves: any[], pro
       <td style="${tdS}">
         ${photo ? `<img src="${photo}" style="width:64px;height:auto;max-height:64px;object-fit:contain;background:#F9FAFB;border-radius:5px;border:1px solid #DDE4EE;float:left;margin-right:8px;margin-bottom:2px;display:block" />` : ''}
         <span style="font-weight:600">${escapeHtml(r.title)}</span>
-        ${r.description && r.description !== r.title ? `<div style="color:#6B7280;font-size:10px;margin-top:2px;clear:both">${escapeHtml(r.description.slice(0, 80))}${r.description.length > 80 ? '…' : ''}</div>` : ''}
+        ${hasCustomReserveDescription(r.description, r.title) ? `<div style="color:#6B7280;font-size:10px;margin-top:2px;clear:both">${escapeHtml(getReserveDescriptionText(r.description, r.title).slice(0, 80))}${getReserveDescriptionText(r.description, r.title).length > 80 ? '…' : ''}</div>` : ''}
       </td>
       <td style="${tdS};white-space:nowrap">${escapeHtml(formatReserveLocation(r))}</td>
       <td style="${tdS}"><span style="color:${priorityColors[r.priority]||'#000'};font-weight:700">${priorityLabels[r.priority]||escapeHtml(r.priority)}</span></td>
@@ -405,8 +412,8 @@ async function buildCompanyReserveHTML(company: any, companyReserves: any[], pro
 
 function buildCsvReport(reserves: any[]): string {
   const header = ['ID', 'Titre', 'Statut', 'Priorité', 'Bâtiment', 'Zone', 'Niveau', 'Entreprise', 'Date création', 'Échéance', 'Date clôture', 'Clôturé par'];
-  const statusMap: Record<string, string> = { open: 'Ouvert', in_progress: 'En cours', waiting: 'En attente', verification: 'Vérification', closed: 'Clôturé' };
-  const priorityMap: Record<string, string> = { low: 'Faible', medium: 'Moyen', high: 'Élevé', critical: 'Critique' };
+  const statusMap = RESERVE_STATUS_LABELS as Record<string, string>;
+  const priorityMap = RESERVE_PRIORITY_LABELS as Record<string, string>;
   const rows = reserves.map(r => [
     r.id, `"${r.title}"`, statusMap[r.status] ?? r.status, priorityMap[r.priority] ?? r.priority,
     r.building, r.zone, r.level, `"${r.company}"`, r.createdAt, r.deadline,
@@ -713,8 +720,8 @@ export default function RapportsScreen() {
           </View>
 
           {(['open', 'in_progress', 'waiting', 'verification', 'closed'] as const).map(s => {
-            const labels: Record<string, string> = { open: 'Ouvert', in_progress: 'En cours', waiting: 'En attente', verification: 'Vérification', closed: 'Clôturé' };
-            const colors: Record<string, string> = { open: C.open, in_progress: C.inProgress, waiting: C.waiting, verification: C.verification, closed: C.closed };
+            const labels = RESERVE_STATUS_LABELS as Record<string, string>;
+            const colors = RESERVE_STATUS_COLORS as Record<string, string>;
             const count = reserves.filter(r => r.status === s).length;
             return (
               <View key={s} style={styles.statusBreakRow}>

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import type { PdfReportPayload } from '@/types/pdfReport';
 import { buildGlobalReportHtml, buildGlobalReservesHtml, buildIndividualReserveHtml } from '@/lib/reportBuilder';
 import { sendEmail } from '@/lib/sender';
+import { getReserveStatusLabel } from '@/lib/reserveLabels';
 
 export const maxDuration = 60;
 
@@ -136,7 +137,7 @@ export async function POST(req: NextRequest) {
         const r = payload.reserve;
         filename = buildPdfFilename('Reserve', [(r.id as string) || 'reserve', r.title, payload.chantierName]);
         subject = `Fiche réserve — ${r.title || r.id} (${payload.chantierName})`;
-        const sLabel = ({ open: 'Ouverte', in_progress: 'En cours', waiting: 'En attente', verification: 'Vérification', closed: 'Clôturée' } as Record<string, string>)[r.status] ?? r.status;
+        const sLabel = getReserveStatusLabel(r.status, true);
         emailHtml = `<div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;color:#1e293b">
           <div style="background:#003082;padding:24px 32px;border-radius:8px 8px 0 0">
             <div style="color:#fff;font-size:20px;font-weight:700">Fiche de réserve</div>

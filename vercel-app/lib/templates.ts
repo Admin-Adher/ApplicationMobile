@@ -1,3 +1,10 @@
+import {
+  getReservePriorityColor,
+  getReservePriorityLabel,
+  getReserveStatusColor,
+  getReserveStatusLabel,
+} from './reserveLabels';
+
 export const APP_URL = 'https://buildtrack-mobile.vercel.app';
 const BRAND_COLOR = '#003082';
 const ACCENT_COLOR = '#FFCB00';
@@ -237,12 +244,19 @@ export function accessRevokedEmail(params: {
   };
 }
 
-const PRIORITY_LABELS_FR: Record<string, { label: string; color: string }> = {
-  low:      { label: 'Faible',   color: '#6B7280' },
-  medium:   { label: 'Moyenne',  color: '#D97706' },
-  high:     { label: 'Haute',    color: '#EA580C' },
-  critical: { label: 'Critique', color: '#DC2626' },
-};
+function reservePriorityBadge(priority?: string | null) {
+  return {
+    label: getReservePriorityLabel(priority ?? 'medium'),
+    color: getReservePriorityColor(priority ?? 'medium'),
+  };
+}
+
+function reserveStatusBadge(status?: string | null) {
+  return {
+    label: getReserveStatusLabel(status, true),
+    color: getReserveStatusColor(status),
+  };
+}
 
 export function reserveCreatedEmail(params: {
   recipientName: string;
@@ -265,7 +279,7 @@ export function reserveCreatedEmail(params: {
     reserveUrl,
   } = params as typeof params & { reserveUrl?: string };
   const firstName = recipientName.split(' ')[0];
-  const prio = PRIORITY_LABELS_FR[priority ?? 'medium'] ?? PRIORITY_LABELS_FR.medium;
+  const prio = reservePriorityBadge(priority);
   const deepLinkUrl = reserveUrl ?? `${APP_URL}/reserve/${encodeURIComponent(reserveId)}`;
   const deadlineDate = deadline
     ? new Date(deadline).toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' })
@@ -304,14 +318,6 @@ export function reserveCreatedEmail(params: {
   };
 }
 
-const STATUS_LABELS_FR: Record<string, { label: string; color: string }> = {
-  open:         { label: 'Ouverte',       color: '#DC2626' },
-  in_progress:  { label: 'En cours',      color: '#2563EB' },
-  waiting:      { label: 'En attente',    color: '#D97706' },
-  verification: { label: 'À vérifier',    color: '#7C3AED' },
-  closed:       { label: 'Levée',         color: '#16A34A' },
-};
-
 export function reserveStatusChangedEmail(params: {
   recipientName: string;
   reserveTitle: string;
@@ -325,8 +331,8 @@ export function reserveStatusChangedEmail(params: {
 }) {
   const { recipientName, reserveTitle, reserveId, newStatus, previousStatus, changedBy, companyName, chantierName, reserveCode, reserveUrl } = params as typeof params & { reserveUrl?: string };
   const firstName = recipientName.split(' ')[0];
-  const next = STATUS_LABELS_FR[newStatus] ?? { label: newStatus, color: '#1A2742' };
-  const prev = previousStatus ? (STATUS_LABELS_FR[previousStatus] ?? { label: previousStatus, color: '#8899BB' }) : null;
+  const next = reserveStatusBadge(newStatus);
+  const prev = previousStatus ? reserveStatusBadge(previousStatus) : null;
   const deepLinkUrl = reserveUrl ?? `${APP_URL}/reserve/${encodeURIComponent(reserveId)}`;
 
   const content = `
@@ -371,7 +377,7 @@ export function reserveOverdueEmail(params: {
 }) {
   const { recipientName, reserveTitle, reserveId, deadline, daysLate, priority, companyName, chantierName, reserveCode, reserveUrl } = params as typeof params & { reserveUrl?: string };
   const firstName = recipientName.split(' ')[0];
-  const prio = PRIORITY_LABELS_FR[priority ?? 'medium'] ?? PRIORITY_LABELS_FR.medium;
+  const prio = reservePriorityBadge(priority);
   const deepLinkUrl = reserveUrl ?? `${APP_URL}/reserve/${encodeURIComponent(reserveId)}`;
   const deadlineDate = new Date(deadline).toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' });
   const dayWord = daysLate <= 1 ? 'jour' : 'jours';
@@ -425,7 +431,7 @@ export function reserveOverdueEscalationEmail(params: {
     priority, companyName, chantierName, reserveCode, reserveUrl,
   } = params;
   const firstName = recipientName.split(' ')[0];
-  const prio = PRIORITY_LABELS_FR[priority ?? 'medium'] ?? PRIORITY_LABELS_FR.medium;
+  const prio = reservePriorityBadge(priority);
   const deepLinkUrl = reserveUrl ?? `${APP_URL}/reserve/${encodeURIComponent(reserveId)}`;
   const deadlineDate = new Date(deadline).toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' });
   const dayWord = daysLate <= 1 ? 'jour' : 'jours';

@@ -1,4 +1,12 @@
 import type { PdfReportPayload, PdfPlanItem, PdfReserveItem } from '../types/pdfReport';
+import {
+  RESERVE_PRIORITY_COLORS,
+  RESERVE_PRIORITY_LABELS,
+  RESERVE_STATUS_COLORS,
+  RESERVE_STATUS_LABELS,
+  RESERVE_STATUS_LABELS_FEMININE,
+} from '@/lib/reserveLabels';
+import { getReserveDescriptionText } from '@/lib/reserveDescription';
 
 // ── Global Reserves HTML (no plans needed) ────────────────────────────────────
 export function buildGlobalReservesHtml(payload: any): string {
@@ -6,10 +14,10 @@ export function buildGlobalReservesHtml(payload: any): string {
   const dateStr = new Date(generatedAt || Date.now()).toLocaleDateString('fr-FR', { day: '2-digit', month: 'long', year: 'numeric' });
   const companyLabel = (companyFilter as string | null) ?? 'Toutes les entreprises';
 
-  const S_FR: Record<string, string> = { open: 'Ouvert', in_progress: 'En cours', waiting: 'En attente', verification: 'Vérification', closed: 'Clôturé' };
-  const S_COL: Record<string, string> = { open: '#ef4444', in_progress: '#3b82f6', waiting: '#f59e0b', verification: '#8b5cf6', closed: '#22c55e' };
-  const P_FR: Record<string, string> = { critical: 'Critique', high: 'Haute', medium: 'Moyenne', low: 'Basse' };
-  const P_COL: Record<string, string> = { critical: '#ef4444', high: '#f97316', medium: '#f59e0b', low: '#22c55e' };
+  const S_FR = RESERVE_STATUS_LABELS as Record<string, string>;
+  const S_COL = RESERVE_STATUS_COLORS as Record<string, string>;
+  const P_FR = RESERVE_PRIORITY_LABELS as Record<string, string>;
+  const P_COL = RESERVE_PRIORITY_COLORS as Record<string, string>;
 
   const byStatus: Record<string, number> = {};
   for (const r of reserves) byStatus[r.status] = (byStatus[r.status] ?? 0) + 1;
@@ -160,10 +168,10 @@ export function buildGlobalReservesHtml(payload: any): string {
 // ── Individual Reserve HTML ───────────────────────────────────────────────────
 export function buildIndividualReserveHtml(payload: any): string {
   const { reserve, chantierName, companyColor, planUri, planX, planY, planName, pinNum } = payload;
-  const sColors: Record<string, string> = { open: '#DC2626', in_progress: '#F59E0B', waiting: '#3B82F6', verification: '#8B5CF6', closed: '#059669' };
-  const sLabels: Record<string, string> = { open: 'Ouverte', in_progress: 'En cours', waiting: 'En attente', verification: 'Vérification', closed: 'Clôturée' };
-  const pColors: Record<string, string> = { low: '#22C55E', medium: '#F59E0B', high: '#F97316', critical: '#EF4444' };
-  const pLabels: Record<string, string> = { low: 'Faible', medium: 'Moyenne', high: 'Haute', critical: 'Critique' };
+  const sColors = RESERVE_STATUS_COLORS as Record<string, string>;
+  const sLabels = RESERVE_STATUS_LABELS_FEMININE as Record<string, string>;
+  const pColors = RESERVE_PRIORITY_COLORS as Record<string, string>;
+  const pLabels = RESERVE_PRIORITY_LABELS as Record<string, string>;
   const pinColor: string = companyColor || '#003082';
   const sColor = sColors[reserve.status] ?? '#6B7280';
   const sLabel = sLabels[reserve.status] ?? reserve.status;
@@ -283,7 +291,7 @@ export function buildIndividualReserveHtml(payload: any): string {
             <div class="val" style="color:${reserve.status !== 'closed' ? '#DC2626' : '#059669'}">${escHtml(reserve.deadline || '—')}</div>
           </div>
         </div>
-        ${reserve.description ? `<div class="desc-box">${escHtml(reserve.description)}</div>` : ''}
+        <div class="desc-box">${escHtml(getReserveDescriptionText(reserve.description, reserve.title))}</div>
         ${photoRowHtml}
       </div>
       <div>${planSection}</div>
@@ -307,35 +315,10 @@ function escHtml(s: string | null | undefined): string {
   return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
 }
 
-const STATUS_FR: Record<string, string> = {
-  open: 'Ouvert',
-  in_progress: 'En cours',
-  waiting: 'En attente',
-  verification: 'Vérification',
-  closed: 'Clôturé',
-};
-
-const STATUS_COLORS: Record<string, string> = {
-  open: '#ef4444',
-  in_progress: '#3b82f6',
-  waiting: '#f59e0b',
-  verification: '#8b5cf6',
-  closed: '#22c55e',
-};
-
-const PRIORITY_FR: Record<string, string> = {
-  critical: 'Critique',
-  high: 'Haute',
-  medium: 'Moyenne',
-  low: 'Basse',
-};
-
-const PRIORITY_COLORS: Record<string, string> = {
-  critical: '#ef4444',
-  high: '#f97316',
-  medium: '#3b82f6',
-  low: '#6b7280',
-};
+const STATUS_FR = RESERVE_STATUS_LABELS as Record<string, string>;
+const STATUS_COLORS = RESERVE_STATUS_COLORS as Record<string, string>;
+const PRIORITY_FR = RESERVE_PRIORITY_LABELS as Record<string, string>;
+const PRIORITY_COLORS = RESERVE_PRIORITY_COLORS as Record<string, string>;
 
 function escapeHtml(s: string | null | undefined): string {
   if (s == null) return '';

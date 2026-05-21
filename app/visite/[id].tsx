@@ -31,6 +31,12 @@ import {
   getReservePdfPhotos,
 } from '@/lib/pdfReserveHelpers';
 import { buildPdfFilename } from '@/lib/pdfFilename';
+import {
+  RESERVE_PRIORITY_COLORS as SHARED_PRIORITY_COLORS,
+  RESERVE_PRIORITY_LABELS as SHARED_PRIORITY_LABELS,
+  RESERVE_STATUS_COLORS as SHARED_STATUS_COLORS,
+  RESERVE_STATUS_LABELS as SHARED_STATUS_LABELS,
+} from '@/lib/reserveLabels';
 
 const STATUS_CFG: Record<VisiteStatus, { label: string; color: string }> = {
   planned: { label: 'Planifiée', color: '#6366F1' },
@@ -38,21 +44,13 @@ const STATUS_CFG: Record<VisiteStatus, { label: string; color: string }> = {
   completed: { label: 'Terminée', color: C.closed },
 };
 
-const RESERVE_STATUS_LABELS: Record<string, string> = {
-  open: 'Ouvert', in_progress: 'En cours', waiting: 'En attente',
-  verification: 'Vérification', closed: 'Clôturé',
-};
-const RESERVE_STATUS_COLORS: Record<string, string> = {
-  open: C.open, in_progress: C.inProgress, waiting: C.waiting,
-  verification: C.verification, closed: C.closed,
-};
-const PRIORITY_LABELS: Record<string, string> = { low: 'Faible', medium: 'Moyen', high: 'Haute', critical: 'Critique' };
-const PRIORITY_COLORS: Record<string, string> = { low: '#22C55E', medium: '#F59E0B', high: '#EF4444', critical: '#7C3AED' };
+const RESERVE_STATUS_LABELS = SHARED_STATUS_LABELS as Record<string, string>;
+const RESERVE_STATUS_COLORS = SHARED_STATUS_COLORS as Record<string, string>;
+const PRIORITY_LABELS = SHARED_PRIORITY_LABELS as Record<string, string>;
+const PRIORITY_COLORS = SHARED_PRIORITY_COLORS as Record<string, string>;
 
 function buildVisitePDF(visite: Visite, reserves: Reserve[], projectName: string, reservePhotoMap?: Map<string, string[]>): string {
-  const priorityColors: Record<string, string> = { low: '#22C55E', medium: '#F59E0B', high: '#EF4444', critical: '#7C3AED' };
   const priorityBg: Record<string, string> = { low: '#F0FDF4', medium: '#FFFBEB', high: '#FEF2F2', critical: '#F5F3FF' };
-  const statusColor: Record<string, string> = { open: '#DC2626', in_progress: '#2563EB', waiting: '#D97706', verification: '#7C3AED', closed: '#059669' };
   const statusBg: Record<string, string> = { open: '#FEF2F2', in_progress: '#EFF6FF', waiting: '#FFFBEB', verification: '#F5F3FF', closed: '#ECFDF5' };
 
   const totalOpen = reserves.filter(r => r.status === 'open').length;
@@ -73,10 +71,10 @@ function buildVisitePDF(visite: Visite, reserves: Reserve[], projectName: string
       <td style="padding:9px 10px;border-bottom:1px solid #EEF3FA;font-size:12px;white-space:nowrap">${escapeHtml(formatReserveLocation(r))}</td>
       <td style="padding:9px 10px;border-bottom:1px solid #EEF3FA;font-size:12px">${escapeHtml(r.company)}</td>
       <td style="padding:9px 10px;border-bottom:1px solid #EEF3FA;text-align:center">
-        <span style="background:${priorityBg[r.priority]||'#F9FAFB'};color:${priorityColors[r.priority]||'#6B7280'};font-size:11px;font-weight:700;padding:3px 10px;border-radius:10px">${PRIORITY_LABELS[r.priority]||escapeHtml(r.priority)}</span>
+        <span style="background:${priorityBg[r.priority]||'#F9FAFB'};color:${PRIORITY_COLORS[r.priority]||'#6B7280'};font-size:11px;font-weight:700;padding:3px 10px;border-radius:10px">${PRIORITY_LABELS[r.priority]||escapeHtml(r.priority)}</span>
       </td>
       <td style="padding:9px 10px;border-bottom:1px solid #EEF3FA;text-align:center">
-        <span style="background:${statusBg[r.status]||'#F9FAFB'};color:${statusColor[r.status]||'#6B7280'};font-size:11px;font-weight:700;padding:3px 10px;border-radius:10px">${RESERVE_STATUS_LABELS[r.status]||escapeHtml(r.status)}</span>
+        <span style="background:${statusBg[r.status]||'#F9FAFB'};color:${RESERVE_STATUS_COLORS[r.status]||'#6B7280'};font-size:11px;font-weight:700;padding:3px 10px;border-radius:10px">${RESERVE_STATUS_LABELS[r.status]||escapeHtml(r.status)}</span>
       </td>
       <td style="padding:9px 10px;border-bottom:1px solid #EEF3FA;font-size:12px;white-space:nowrap">${escapeHtml(r.deadline)}</td>
     </tr>`

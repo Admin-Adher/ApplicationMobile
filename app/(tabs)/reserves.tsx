@@ -33,17 +33,24 @@ import { buildPdfFilename } from '@/lib/pdfFilename';
 import { generateAndSendReservesReport } from '@/lib/email/client';
 import * as FileSystem from 'expo-file-system';
 import * as Sharing from 'expo-sharing';
+import {
+  RESERVE_PRIORITY_COLORS as PRIORITY_COLORS,
+  RESERVE_PRIORITY_LABELS as PRIORITY_LABELS,
+  RESERVE_STATUS_COLORS as STATUS_COLORS,
+  RESERVE_STATUS_LABELS as STATUS_LABELS,
+} from '@/lib/reserveLabels';
+import { getReserveDescriptionText, isReserveDescriptionMissing } from '@/lib/reserveDescription';
+import { detectTextLanguage, TEXT_ASSIST_LANGUAGES, textAssistAdvancedCacheKey, TextAssistContext, TextAssistLanguage } from '@/lib/textAssist';
+import { requestAdvancedTranslation } from '@/lib/textAssistOnline';
 
 function buildReservesCSV(reserves: Reserve[]): string {
   const header = 'ID,Titre,Bâtiment,Zone,Niveau,Entreprise,Priorité,Statut,Créé le,Échéance,Description';
-  const PRIORITY_MAP: Record<string, string> = { low: 'Faible', medium: 'Moyenne', high: 'Haute', critical: 'Critique' };
-  const STATUS_MAP: Record<string, string> = { open: 'Ouvert', in_progress: 'En cours', waiting: 'En attente', verification: 'Vérification', closed: 'Clôturé' };
   const rows = reserves.map(r => {
     const esc = (v: string) => `"${(v ?? '').replace(/"/g, '""')}"`;
     return [
       esc(r.id), esc(r.title), esc(`Bât. ${r.building}`), esc(r.zone), esc(r.level),
-      esc((r.companies ?? (r.company ? [r.company] : [])).join('; ')), esc(PRIORITY_MAP[r.priority] ?? r.priority), esc(STATUS_MAP[r.status] ?? r.status),
-      esc(r.createdAt), esc(r.deadline ?? '—'), esc(r.description),
+      esc((r.companies ?? (r.company ? [r.company] : [])).join('; ')), esc(PRIORITY_LABELS[r.priority] ?? r.priority), esc(STATUS_LABELS[r.status] ?? r.status),
+      esc(r.createdAt), esc(r.deadline ?? '—'), esc(getReserveDescriptionText(r.description, r.title, '')),
     ].join(',');
   });
   return [header, ...rows].join('\n');
@@ -58,11 +65,11 @@ function parseDeadline(s: string): Date | null {
 
 const STATUS_FILTERS: { key: 'all' | 'overdue' | ReserveStatus; label: string; icon?: string }[] = [
   { key: 'all', label: 'Tout' },
-  { key: 'open', label: 'Ouvert' },
-  { key: 'in_progress', label: 'En cours' },
-  { key: 'waiting', label: 'En attente' },
-  { key: 'verification', label: 'Vérification' },
-  { key: 'closed', label: 'Clôturé' },
+  { key: 'open', label: STATUS_LABELS.open },
+  { key: 'in_progress', label: STATUS_LABELS.in_progress },
+  { key: 'waiting', label: STATUS_LABELS.waiting },
+  { key: 'verification', label: STATUS_LABELS.verification },
+  { key: 'closed', label: STATUS_LABELS.closed },
   { key: 'overdue', label: 'En retard', icon: 'warning-outline' },
 ];
 
@@ -76,13 +83,10 @@ const SORT_OPTIONS: { key: SortKey; label: string }[] = [
 ];
 
 type ViewMode = 'list' | 'grouped_status' | 'grouped_company';
+type ReserveAssistantScope = 'filtered' | 'chantier' | 'selected';
 
 const PRIORITY_ORDER: Record<ReservePriority, number> = { critical: 0, high: 1, medium: 2, low: 3 };
 const STATUS_ORDER_MAP: Record<ReserveStatus, number> = { open: 0, in_progress: 1, waiting: 2, verification: 3, closed: 4 };
-const STATUS_LABELS: Record<ReserveStatus, string> = { open: 'Ouvert', in_progress: 'En cours', waiting: 'En attente', verification: 'Vérification', closed: 'Clôturé' };
-const STATUS_COLORS: Record<ReserveStatus, string> = { open: C.open, in_progress: C.inProgress, waiting: C.waiting, verification: C.verification, closed: C.closed };
-const PRIORITY_COLORS: Record<ReservePriority, string> = { critical: '#EF4444', high: '#F97316', medium: '#F59E0B', low: '#22C55E' };
-const PRIORITY_LABELS: Record<ReservePriority, string> = { critical: 'Critique', high: 'Haute', medium: 'Moyenne', low: 'Basse' };
 
 function toSortableDate(s: string): string {
   if (!s || s === '—') return '9999-99-99';
@@ -291,6 +295,11 @@ export default function ReservesScreen() {
   const [batchStatus, setBatchStatus] = useState<ReserveStatus>('in_progress');
   const [batchCompany, setBatchCompany] = useState('');
   const [batchDeadline, setBatchDeadline] = useState('');
+  const [assistantVisible, setAssistantVisible] = useState(false);
+  const [assistantScope, setAssistantScope] = useState<ReserveAssistantScope>('filtered');
+  const [assistantTargetLanguage, setAssistantTargetLanguage] = useState<TextAssistLanguage>('fr');
+  const [assistantBusy, setAssistantBusy] = useState(false);
+  const [assistantProgress, setAssistantProgress] = useState({ done: 0, total: 0, label: '' });
 
   const [quickStatusReserve, setQuickStatusReserve] = useState<Reserve | null>(null);
   const [quickStatusVisible, setQuickStatusVisible] = useState(false);
@@ -525,6 +534,199 @@ export default function ReservesScreen() {
     return list;
   }, [chantierReserves, statusFilter, kindFilter, buildingFilter, priorityFilter, companyFilter, zoneFilter, levelFilter, lotFilter, sortKey, debouncedSearch, nearDeadlineOnly, lots, pinFilter, chantiersWithPlans]);
 
+  const assistantTargetReserves = useMemo(() => {
+    if (assistantScope === 'selected') {
+      return chantierReserves.filter(r => selectedIds.has(r.id));
+    }
+    if (assistantScope === 'chantier') return chantierReserves;
+    return filtered;
+  }, [assistantScope, chantierReserves, filtered, selectedIds]);
+
+  const assistantScopeOptions = useMemo(() => ([
+    { key: 'filtered' as const, label: 'Vue actuelle', count: filtered.length, icon: 'funnel-outline' },
+    { key: 'chantier' as const, label: chantierFilter === 'all' ? 'Tous chantiers' : 'Chantier', count: chantierReserves.length, icon: 'business-outline' },
+    { key: 'selected' as const, label: 'Sélection', count: selectedIds.size, icon: 'checkbox-outline' },
+  ]), [chantierFilter, chantierReserves.length, filtered.length, selectedIds.size]);
+
+  const missingDescriptionReserves = useMemo(
+    () => assistantTargetReserves.filter(r => r.title.trim().length > 0 && isReserveDescriptionMissing(r.description)),
+    [assistantTargetReserves]
+  );
+
+  const currentMissingDescriptionCount = useMemo(
+    () => chantierReserves.filter(r => r.title.trim().length > 0 && isReserveDescriptionMissing(r.description)).length,
+    [chantierReserves]
+  );
+
+  const translationCandidateCount = useMemo(
+    () => assistantTargetReserves.filter(r =>
+      r.title.trim() ||
+      getReserveDescriptionText(r.description, r.title, '').trim() ||
+      (r.comments ?? []).some(c => c.content.trim())
+    ).length,
+    [assistantTargetReserves]
+  );
+
+  const selectedAssistantLanguage = TEXT_ASSIST_LANGUAGES.find(l => l.code === assistantTargetLanguage) ?? TEXT_ASSIST_LANGUAGES[0];
+
+  const translateBulkText = useCallback(async (
+    value: string,
+    target: TextAssistLanguage,
+    context: TextAssistContext,
+  ) => {
+    const clean = value.trim();
+    if (!clean) return value;
+    const source = detectTextLanguage(clean);
+    if (source === target) return value;
+    const cacheKey = textAssistAdvancedCacheKey(clean, target, source);
+    const cached = await AsyncStorage.getItem(cacheKey);
+    if (cached) return cached;
+    const translated = await requestAdvancedTranslation({
+      text: clean,
+      target,
+      source,
+      context,
+      timeoutMs: 9000,
+    });
+    if (!translated?.text) return value;
+    AsyncStorage.setItem(cacheKey, translated.text).catch(() => {});
+    return translated.text;
+  }, []);
+
+  const runFillMissingDescriptions = useCallback(async () => {
+    const targets = missingDescriptionReserves;
+    if (targets.length === 0 || assistantBusy) return;
+    setAssistantBusy(true);
+    setAssistantProgress({ done: 0, total: targets.length, label: 'Descriptions' });
+    try {
+      for (let i = 0; i < targets.length; i += 1) {
+        const reserve = targets[i];
+        const titleText = reserve.title.trim();
+        if (titleText) {
+          const updated: Reserve = {
+            ...reserve,
+            description: titleText,
+            history: [
+              ...reserve.history,
+              {
+                id: genId(),
+                action: 'Description complétée',
+                author: user?.name ?? 'Système',
+                createdAt: nowTimestampFR(),
+                newValue: 'Titre copié dans la description',
+              },
+            ],
+          };
+          await Promise.resolve(updateReserveFields(updated) as any);
+        }
+        setAssistantProgress({ done: i + 1, total: targets.length, label: 'Descriptions' });
+      }
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
+      Alert.alert('Descriptions complétées', `${targets.length} description${targets.length > 1 ? 's' : ''} mise${targets.length > 1 ? 's' : ''} à jour.`);
+    } finally {
+      setAssistantBusy(false);
+    }
+  }, [assistantBusy, missingDescriptionReserves, updateReserveFields, user?.name]);
+
+  const confirmFillMissingDescriptions = useCallback(() => {
+    if (missingDescriptionReserves.length === 0) {
+      Alert.alert('Aucune action nécessaire', 'Aucune réserve sans description dans le périmètre choisi.');
+      return;
+    }
+    Alert.alert(
+      'Compléter les descriptions',
+      `Copier le titre dans la description pour ${missingDescriptionReserves.length} réserve${missingDescriptionReserves.length > 1 ? 's' : ''}. Les descriptions existantes ne seront pas modifiées.`,
+      [
+        { text: 'Annuler', style: 'cancel' },
+        { text: 'Appliquer', onPress: () => void runFillMissingDescriptions() },
+      ],
+    );
+  }, [missingDescriptionReserves.length, runFillMissingDescriptions]);
+
+  const runTranslateReserves = useCallback(async () => {
+    const targets = assistantTargetReserves.filter(r =>
+      r.title.trim() ||
+      getReserveDescriptionText(r.description, r.title, '').trim() ||
+      (r.comments ?? []).some(c => c.content.trim())
+    );
+    if (targets.length === 0 || assistantBusy) return;
+    setAssistantBusy(true);
+    setAssistantProgress({ done: 0, total: targets.length, label: `Traduction ${selectedAssistantLanguage.label}` });
+    let updatedCount = 0;
+    let failedCount = 0;
+    try {
+      for (let i = 0; i < targets.length; i += 1) {
+        const reserve = targets[i];
+        try {
+          const title = await translateBulkText(reserve.title, assistantTargetLanguage, 'description');
+          const descriptionWasMissing = isReserveDescriptionMissing(reserve.description);
+          const description = descriptionWasMissing
+            ? title
+            : await translateBulkText(reserve.description, assistantTargetLanguage, 'description');
+          const comments = await Promise.all((reserve.comments ?? []).map(async comment => ({
+            ...comment,
+            content: await translateBulkText(comment.content, assistantTargetLanguage, 'comment'),
+          })));
+          const changed =
+            title !== reserve.title ||
+            description !== reserve.description ||
+            comments.some((comment, index) => comment.content !== reserve.comments[index]?.content);
+          if (changed) {
+            const updated: Reserve = {
+              ...reserve,
+              title,
+              description,
+              comments,
+              history: [
+                ...reserve.history,
+                {
+                  id: genId(),
+                  action: 'Traduction groupée',
+                  author: user?.name ?? 'Système',
+                  createdAt: nowTimestampFR(),
+                  newValue: selectedAssistantLanguage.title,
+                },
+              ],
+            };
+            await Promise.resolve(updateReserveFields(updated) as any);
+            updatedCount += 1;
+          }
+        } catch (error: any) {
+          console.warn('[reserves-assistant] Translation failed:', error?.message ?? error);
+          failedCount += 1;
+        } finally {
+          setAssistantProgress({ done: i + 1, total: targets.length, label: `Traduction ${selectedAssistantLanguage.label}` });
+        }
+      }
+      if (failedCount > 0) {
+        Alert.alert(
+          'Traduction partielle',
+          `${updatedCount} réserve${updatedCount > 1 ? 's' : ''} traduite${updatedCount > 1 ? 's' : ''}. ${failedCount} échec${failedCount > 1 ? 's' : ''}, vérifiez la configuration Azure ou la connexion.`,
+        );
+      } else {
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
+        Alert.alert('Traduction terminée', `${updatedCount} réserve${updatedCount > 1 ? 's' : ''} mise${updatedCount > 1 ? 's' : ''} à jour en ${selectedAssistantLanguage.title}.`);
+      }
+    } finally {
+      setAssistantBusy(false);
+    }
+  }, [assistantBusy, assistantTargetLanguage, assistantTargetReserves, selectedAssistantLanguage, translateBulkText, updateReserveFields, user?.name]);
+
+  const confirmTranslateReserves = useCallback(() => {
+    if (translationCandidateCount === 0) {
+      Alert.alert('Aucun texte à traduire', 'Aucune réserve avec titre, description ou commentaire dans le périmètre choisi.');
+      return;
+    }
+    Alert.alert(
+      'Traduction groupée',
+      `Cette action remplacera les titres, descriptions et commentaires de ${translationCandidateCount} réserve${translationCandidateCount > 1 ? 's' : ''} par une version ${selectedAssistantLanguage.title}. Les entreprises, statuts, priorités et localisations ne seront pas modifiés.`,
+      [
+        { text: 'Annuler', style: 'cancel' },
+        { text: `Traduire en ${selectedAssistantLanguage.label}`, onPress: () => void runTranslateReserves() },
+      ],
+    );
+  }, [runTranslateReserves, selectedAssistantLanguage, translationCandidateCount]);
+
   const isSansEntrepriseReserve = useCallback((r: Reserve) => {
     const names = r.companies ?? (r.company ? [r.company] : []);
     return names.length === 0;
@@ -669,7 +871,7 @@ export default function ReservesScreen() {
           status: r.status,
           priority: r.priority,
           deadline: r.deadline ?? undefined,
-          description: r.description ?? undefined,
+          description: getReserveDescriptionText(r.description, r.title, ''),
           photos: remotePhotos.photos.map(p => ({ uri: p.uri })),
         };
       });
@@ -1318,6 +1520,34 @@ export default function ReservesScreen() {
           )}
         </View>
 
+        {permissions.canEdit && chantierReserves.length > 0 && (
+          <TouchableOpacity
+            style={styles.assistantEntry}
+            onPress={() => setAssistantVisible(true)}
+            activeOpacity={0.86}
+            accessibilityRole="button"
+            accessibilityLabel="Ouvrir l'assistant réserves"
+          >
+            <View style={styles.assistantEntryIcon}>
+              <Ionicons name="sparkles-outline" size={18} color="#fff" />
+            </View>
+            <View style={{ flex: 1, minWidth: 0 }}>
+              <View style={styles.assistantEntryTitleRow}>
+                <Text style={styles.assistantEntryTitle}>Assistant réserves</Text>
+                {currentMissingDescriptionCount > 0 && (
+                  <View style={styles.assistantEntryBadge}>
+                    <Text style={styles.assistantEntryBadgeText}>{currentMissingDescriptionCount}</Text>
+                  </View>
+                )}
+              </View>
+              <Text style={styles.assistantEntrySubtitle} numberOfLines={1}>
+                Descriptions manquantes · traduction groupée
+              </Text>
+            </View>
+            <Ionicons name="chevron-forward" size={18} color={C.primary} />
+          </TouchableOpacity>
+        )}
+
         {/* Status filter row */}
         <View style={styles.toolRow}>
           <View style={styles.filterScrollContainer}>
@@ -1475,7 +1705,7 @@ export default function ReservesScreen() {
 
                 <View style={styles.detailCard}>
                   <Text style={styles.detailLabel}>DESCRIPTION</Text>
-                  <Text style={styles.detailText}>{selectedReserve.description}</Text>
+                  <Text style={styles.detailText}>{getReserveDescriptionText(selectedReserve.description, selectedReserve.title)}</Text>
                 </View>
 
                 <View style={styles.detailCard}>
@@ -1749,6 +1979,176 @@ export default function ReservesScreen() {
           )}
         </View>
       )}
+
+      <Modal
+        visible={assistantVisible}
+        transparent
+        animationType="slide"
+        onRequestClose={() => !assistantBusy && setAssistantVisible(false)}
+      >
+        <TouchableOpacity
+          style={styles.modalOverlay}
+          activeOpacity={1}
+          onPress={() => { if (!assistantBusy) setAssistantVisible(false); }}
+        >
+          <TouchableOpacity
+            activeOpacity={1}
+            style={[styles.bottomSheet, { paddingBottom: insets.bottom + 16 }]}
+          >
+            <View style={styles.sheetHandle} />
+            <View style={styles.assistantHeader}>
+              <View style={styles.assistantHeaderIcon}>
+                <Ionicons name="sparkles-outline" size={20} color="#fff" />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.sheetTitle}>Assistant réserves</Text>
+                <Text style={styles.modalSubtitle}>Actions groupées avec aperçu avant modification.</Text>
+              </View>
+              <TouchableOpacity
+                style={styles.filtCloseBtn}
+                onPress={() => setAssistantVisible(false)}
+                disabled={assistantBusy}
+                accessibilityLabel="Fermer l'assistant réserves"
+              >
+                <Ionicons name="close" size={20} color={assistantBusy ? C.textMuted : C.text} />
+              </TouchableOpacity>
+            </View>
+
+            <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.assistantContent}>
+              <View style={styles.assistantSection}>
+                <Text style={styles.sheetSectionLabel}>Périmètre</Text>
+                <View style={styles.assistantScopeGrid}>
+                  {assistantScopeOptions.map(option => {
+                    const active = assistantScope === option.key;
+                    const disabled = option.key === 'selected' && option.count === 0;
+                    return (
+                      <TouchableOpacity
+                        key={option.key}
+                        style={[
+                          styles.assistantScopeCard,
+                          active && styles.assistantScopeCardActive,
+                          disabled && styles.assistantScopeCardDisabled,
+                        ]}
+                        onPress={() => !disabled && setAssistantScope(option.key)}
+                        disabled={disabled || assistantBusy}
+                        accessibilityRole="button"
+                        accessibilityState={{ selected: active, disabled }}
+                      >
+                        <Ionicons
+                          name={option.icon as any}
+                          size={16}
+                          color={active ? C.primary : disabled ? C.textMuted : C.textSub}
+                        />
+                        <Text style={[styles.assistantScopeLabel, active && styles.assistantScopeLabelActive]}>{option.label}</Text>
+                        <Text style={styles.assistantScopeCount}>{option.count}</Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
+              </View>
+
+              <View style={styles.assistantActionCard}>
+                <View style={styles.assistantActionTop}>
+                  <View style={[styles.assistantActionIcon, { backgroundColor: C.primaryBg }]}>
+                    <Ionicons name="document-text-outline" size={20} color={C.primary} />
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.assistantActionTitle}>Compléter les descriptions</Text>
+                    <Text style={styles.assistantActionText}>
+                      {missingDescriptionReserves.length} réserve{missingDescriptionReserves.length > 1 ? 's' : ''} sans description dans ce périmètre. Le titre sera copié dans la description.
+                    </Text>
+                  </View>
+                </View>
+                {missingDescriptionReserves.length > 0 && (
+                  <View style={styles.assistantPreviewBox}>
+                    {missingDescriptionReserves.slice(0, 3).map(r => (
+                      <View key={r.id} style={styles.assistantPreviewRow}>
+                        <Text style={styles.assistantPreviewId}>{r.id}</Text>
+                        <Text style={styles.assistantPreviewText} numberOfLines={1}>{r.title}</Text>
+                      </View>
+                    ))}
+                    {missingDescriptionReserves.length > 3 && (
+                      <Text style={styles.assistantMoreText}>+{missingDescriptionReserves.length - 3} autres réserves</Text>
+                    )}
+                  </View>
+                )}
+                <TouchableOpacity
+                  style={[styles.assistantPrimaryBtn, (assistantBusy || missingDescriptionReserves.length === 0) && styles.assistantBtnDisabled]}
+                  onPress={confirmFillMissingDescriptions}
+                  disabled={assistantBusy || missingDescriptionReserves.length === 0}
+                >
+                  <Ionicons name="copy-outline" size={16} color="#fff" />
+                  <Text style={styles.assistantPrimaryBtnText}>Copier les titres</Text>
+                </TouchableOpacity>
+              </View>
+
+              <View style={styles.assistantActionCard}>
+                <View style={styles.assistantActionTop}>
+                  <View style={[styles.assistantActionIcon, { backgroundColor: '#EEF2FF' }]}>
+                    <Ionicons name="language-outline" size={20} color="#4F46E5" />
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.assistantActionTitle}>Traduire les champs textuels</Text>
+                    <Text style={styles.assistantActionText}>
+                      Titres, descriptions et commentaires seront remplacés par une version traduite via Azure.
+                    </Text>
+                  </View>
+                </View>
+                <View style={styles.assistantLangRow}>
+                  {TEXT_ASSIST_LANGUAGES.map(lang => {
+                    const active = assistantTargetLanguage === lang.code;
+                    return (
+                      <TouchableOpacity
+                        key={lang.code}
+                        style={[styles.assistantLangChip, active && styles.assistantLangChipActive]}
+                        onPress={() => setAssistantTargetLanguage(lang.code)}
+                        disabled={assistantBusy}
+                      >
+                        <Text style={[styles.assistantLangText, active && styles.assistantLangTextActive]}>{lang.label}</Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
+                <View style={styles.assistantPreviewBox}>
+                  <Text style={styles.assistantPreviewHint}>
+                    {translationCandidateCount} réserve{translationCandidateCount > 1 ? 's' : ''} analysée{translationCandidateCount > 1 ? 's' : ''}. Les statuts, priorités, entreprises et localisations restent inchangés.
+                  </Text>
+                  {assistantTargetReserves.slice(0, 3).map(r => (
+                    <View key={r.id} style={styles.assistantPreviewRow}>
+                      <Text style={styles.assistantPreviewId}>{r.id}</Text>
+                      <Text style={styles.assistantPreviewText} numberOfLines={1}>{r.title}</Text>
+                    </View>
+                  ))}
+                </View>
+                <TouchableOpacity
+                  style={[styles.assistantPrimaryBtn, { backgroundColor: '#4F46E5' }, (assistantBusy || translationCandidateCount === 0) && styles.assistantBtnDisabled]}
+                  onPress={confirmTranslateReserves}
+                  disabled={assistantBusy || translationCandidateCount === 0}
+                >
+                  <Ionicons name="language-outline" size={16} color="#fff" />
+                  <Text style={styles.assistantPrimaryBtnText}>Traduire en {selectedAssistantLanguage.label}</Text>
+                </TouchableOpacity>
+              </View>
+
+              {assistantBusy && (
+                <View style={styles.assistantProgressBox}>
+                  <ActivityIndicator size="small" color={C.primary} />
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.assistantProgressTitle}>{assistantProgress.label}</Text>
+                    <View style={styles.assistantProgressTrack}>
+                      <View style={[
+                        styles.assistantProgressFill,
+                        { width: `${assistantProgress.total > 0 ? Math.round((assistantProgress.done / assistantProgress.total) * 100) : 0}%` as any },
+                      ]} />
+                    </View>
+                    <Text style={styles.assistantProgressText}>{assistantProgress.done} / {assistantProgress.total}</Text>
+                  </View>
+                </View>
+              )}
+            </ScrollView>
+          </TouchableOpacity>
+        </TouchableOpacity>
+      </Modal>
 
       {/* Quick Status Modal */}
       <Modal
@@ -2529,10 +2929,10 @@ export default function ReservesScreen() {
                   <View style={styles.filtChipRow}>
                     {([
                       { key: 'all', label: 'Toutes', color: C.textSub },
-                      { key: 'critical', label: 'Critique', color: C.critical },
-                      { key: 'high', label: 'Haute', color: C.high },
-                      { key: 'medium', label: 'Moyenne', color: C.medium },
-                      { key: 'low', label: 'Basse', color: C.low },
+                      { key: 'critical', label: PRIORITY_LABELS.critical, color: PRIORITY_COLORS.critical },
+                      { key: 'high', label: PRIORITY_LABELS.high, color: PRIORITY_COLORS.high },
+                      { key: 'medium', label: PRIORITY_LABELS.medium, color: PRIORITY_COLORS.medium },
+                      { key: 'low', label: PRIORITY_LABELS.low, color: PRIORITY_COLORS.low },
                     ] as const).map(p => (
                       <TouchableOpacity
                         key={p.key}
@@ -2609,6 +3009,24 @@ const styles = StyleSheet.create({
     minHeight: 34,
   },
   searchInput: { flex: 1, fontSize: 13, fontFamily: 'Inter_400Regular', color: C.text, paddingVertical: 0 },
+  assistantEntry: {
+    flexDirection: 'row', alignItems: 'center', gap: 10,
+    backgroundColor: '#F8FAFF', borderRadius: 14, borderWidth: 1.5,
+    borderColor: C.primary + '24', padding: 10, marginBottom: 8,
+  },
+  assistantEntryIcon: {
+    width: 36, height: 36, borderRadius: 12,
+    backgroundColor: C.primary, alignItems: 'center', justifyContent: 'center',
+  },
+  assistantEntryTitleRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  assistantEntryTitle: { fontSize: 13, fontFamily: 'Inter_700Bold', color: C.text },
+  assistantEntrySubtitle: { marginTop: 1, fontSize: 11, fontFamily: 'Inter_400Regular', color: C.textSub },
+  assistantEntryBadge: {
+    minWidth: 20, height: 20, borderRadius: 10,
+    alignItems: 'center', justifyContent: 'center',
+    backgroundColor: '#F59E0B', paddingHorizontal: 6,
+  },
+  assistantEntryBadgeText: { fontSize: 11, fontFamily: 'Inter_700Bold', color: '#fff' },
   toolRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 4 },
   kindRow: { flexDirection: 'row', marginBottom: 4, paddingBottom: 2 },
   kindChip: {
@@ -2788,6 +3206,65 @@ const styles = StyleSheet.create({
   sheetHandle: { width: 40, height: 4, borderRadius: 2, backgroundColor: C.border, alignSelf: 'center', marginBottom: 16 },
   sheetTitleRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 },
   sheetTitle: { fontSize: 17, fontFamily: 'Inter_700Bold', color: C.text },
+  assistantHeader: { flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: 12 },
+  assistantHeaderIcon: {
+    width: 40, height: 40, borderRadius: 14,
+    backgroundColor: C.primary, alignItems: 'center', justifyContent: 'center',
+  },
+  assistantContent: { gap: 14, paddingBottom: 8 },
+  assistantSection: { gap: 8 },
+  assistantScopeGrid: { flexDirection: 'row', gap: 8 },
+  assistantScopeCard: {
+    flex: 1, minHeight: 72, borderRadius: 14, borderWidth: 1.5,
+    borderColor: C.border, backgroundColor: C.surface2,
+    padding: 10, justifyContent: 'space-between',
+  },
+  assistantScopeCardActive: { borderColor: C.primary, backgroundColor: C.primaryBg },
+  assistantScopeCardDisabled: { opacity: 0.45 },
+  assistantScopeLabel: { fontSize: 11, fontFamily: 'Inter_600SemiBold', color: C.textSub },
+  assistantScopeLabelActive: { color: C.primary },
+  assistantScopeCount: { fontSize: 18, fontFamily: 'Inter_700Bold', color: C.text },
+  assistantActionCard: {
+    borderWidth: 1, borderColor: C.border, borderRadius: 16,
+    backgroundColor: C.surface, padding: 14, gap: 12,
+  },
+  assistantActionTop: { flexDirection: 'row', alignItems: 'flex-start', gap: 12 },
+  assistantActionIcon: { width: 42, height: 42, borderRadius: 14, alignItems: 'center', justifyContent: 'center' },
+  assistantActionTitle: { fontSize: 15, fontFamily: 'Inter_700Bold', color: C.text },
+  assistantActionText: { marginTop: 3, fontSize: 12, fontFamily: 'Inter_400Regular', color: C.textSub, lineHeight: 17 },
+  assistantPreviewBox: {
+    borderWidth: 1, borderColor: C.border, borderRadius: 12,
+    backgroundColor: C.surface2, padding: 10, gap: 7,
+  },
+  assistantPreviewRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  assistantPreviewId: { fontSize: 11, fontFamily: 'Inter_700Bold', color: C.primary, minWidth: 72 },
+  assistantPreviewText: { flex: 1, fontSize: 12, fontFamily: 'Inter_500Medium', color: C.text },
+  assistantPreviewHint: { fontSize: 12, fontFamily: 'Inter_400Regular', color: C.textSub, lineHeight: 17 },
+  assistantMoreText: { fontSize: 11, fontFamily: 'Inter_600SemiBold', color: C.textMuted },
+  assistantPrimaryBtn: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8,
+    backgroundColor: C.primary, borderRadius: 12, paddingVertical: 12,
+  },
+  assistantPrimaryBtnText: { fontSize: 14, fontFamily: 'Inter_700Bold', color: '#fff' },
+  assistantBtnDisabled: { opacity: 0.45 },
+  assistantLangRow: { flexDirection: 'row', gap: 8 },
+  assistantLangChip: {
+    minWidth: 54, alignItems: 'center', justifyContent: 'center',
+    paddingHorizontal: 14, paddingVertical: 9, borderRadius: 12,
+    backgroundColor: C.surface2, borderWidth: 1.5, borderColor: C.border,
+  },
+  assistantLangChipActive: { backgroundColor: '#4F46E5', borderColor: '#4F46E5' },
+  assistantLangText: { fontSize: 13, fontFamily: 'Inter_700Bold', color: C.textSub },
+  assistantLangTextActive: { color: '#fff' },
+  assistantProgressBox: {
+    flexDirection: 'row', alignItems: 'center', gap: 12,
+    padding: 12, borderRadius: 14, borderWidth: 1,
+    borderColor: C.primary + '30', backgroundColor: C.primaryBg,
+  },
+  assistantProgressTitle: { fontSize: 12, fontFamily: 'Inter_700Bold', color: C.primary, marginBottom: 6 },
+  assistantProgressTrack: { height: 5, borderRadius: 999, backgroundColor: '#DDE4EE', overflow: 'hidden' },
+  assistantProgressFill: { height: '100%', borderRadius: 999, backgroundColor: C.primary },
+  assistantProgressText: { marginTop: 4, fontSize: 11, fontFamily: 'Inter_500Medium', color: C.textSub },
   resetText: { fontSize: 13, fontFamily: 'Inter_500Medium', color: C.open },
   sheetItem: {
     flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',

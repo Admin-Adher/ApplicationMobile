@@ -112,6 +112,7 @@ export default function NewReserveScreen() {
   const [kind, setKind] = useState<ReserveKind>('reserve');
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState(params.prefill_description ?? '');
+  const [descriptionTouched, setDescriptionTouched] = useState(!!params.prefill_description);
   const [building, setBuilding] = useState(params.building ?? initialVisitLocation?.buildingName ?? sourceVisite?.building ?? '');
   const [zone, setZone] = useState(sourceVisite?.zone ?? '');
   const [level, setLevel] = useState(params.level ?? sourceVisite?.level ?? '');
@@ -287,7 +288,7 @@ export default function NewReserveScreen() {
       id: DRAFT_PIN_ID,
       kind,
       title: title.trim() || (kind === 'observation' ? 'Nouvelle observation' : 'Nouvelle réserve'),
-      description: description.trim() || 'Position provisoire',
+      description: description.trim() || title.trim() || 'Position provisoire',
       building,
       zone,
       level,
@@ -437,8 +438,26 @@ export default function NewReserveScreen() {
   function applyTemplate(item: { title: string; description: string }) {
     setTitle(item.title);
     setDescription(item.description);
+    setDescriptionTouched(true);
     setShowTemplates(false);
     setExpandedTemplateCat(null);
+  }
+
+  function handleTitleChange(nextTitle: string) {
+    setTitle(nextTitle);
+    if (!descriptionTouched) {
+      setDescription(nextTitle);
+    }
+  }
+
+  function handleDescriptionChange(nextDescription: string) {
+    setDescriptionTouched(true);
+    setDescription(nextDescription);
+  }
+
+  function reuseTitleAsDescription() {
+    setDescription(title.trim());
+    setDescriptionTouched(false);
   }
 
   function handleLotChange(id: string) {
@@ -648,11 +667,13 @@ export default function NewReserveScreen() {
       const author = user?.name ?? 'Conducteur de travaux';
       const id = genReserveId(reserves, selectedLot);
       const isoToday = new Date().toISOString().split('T')[0];
+      const finalTitle = title.trim();
+      const finalDescription = description.trim() || finalTitle;
       const newReserve = {
         id,
         kind,
-        title: title.trim(),
-        description: description.trim() || 'Aucune description fournie.',
+        title: finalTitle,
+        description: finalDescription,
         building,
         zone,
         level,
@@ -873,17 +894,25 @@ export default function NewReserveScreen() {
               placeholder="Ex : Fissure mur porteur..."
               placeholderTextColor={C.textMuted}
               value={title}
-              onChangeText={setTitle}
+              onChangeText={handleTitleChange}
             />
           </View>
           <View style={[styles.fieldGroup, { marginBottom: 0 }]}>
-            <Text style={styles.label}>Description</Text>
+            <View style={styles.descriptionLabelRow}>
+              <Text style={[styles.label, { marginBottom: 0 }]}>Description</Text>
+              {descriptionTouched && !!title.trim() && description.trim() !== title.trim() ? (
+                <TouchableOpacity style={styles.reuseTitleBtn} onPress={reuseTitleAsDescription} activeOpacity={0.75}>
+                  <Ionicons name="return-down-forward-outline" size={12} color={C.primary} />
+                  <Text style={styles.reuseTitleText}>Reprendre le titre</Text>
+                </TouchableOpacity>
+              ) : null}
+            </View>
             <DictationTextInput
               inputStyle={[styles.input, styles.textArea]}
               placeholder="Décrivez le problème en détail..."
               placeholderTextColor={C.textMuted}
               value={description}
-              onChangeText={setDescription}
+              onChangeText={handleDescriptionChange}
               multiline
               numberOfLines={4}
               textAssistEnabled
@@ -1272,6 +1301,9 @@ const styles = StyleSheet.create({
 
   idPreviewBadge: { flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: C.surface2, borderRadius: 8, paddingHorizontal: 8, paddingVertical: 4, borderWidth: 1, borderColor: C.border },
   idPreviewText: { fontSize: 11, fontFamily: 'Inter_600SemiBold', color: C.textSub },
+  descriptionLabelRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8, gap: 10 },
+  reuseTitleBtn: { flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: C.primaryBg, borderRadius: 999, paddingHorizontal: 9, paddingVertical: 5, borderWidth: 1, borderColor: C.primary + '22' },
+  reuseTitleText: { fontSize: 11, fontFamily: 'Inter_600SemiBold', color: C.primary },
 
   lotAutoFillHint: { flexDirection: 'row', alignItems: 'flex-start', gap: 6, marginTop: 8, backgroundColor: C.primaryBg, borderRadius: 8, padding: 10, borderWidth: 1, borderColor: C.primary + '30' },
   lotAutoFillText: { flex: 1, fontSize: 11, fontFamily: 'Inter_400Regular', color: C.primary, lineHeight: 16 },
