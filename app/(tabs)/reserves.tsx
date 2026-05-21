@@ -252,6 +252,7 @@ export default function ReservesScreen() {
   const { permissions, user } = useAuth();
 
   const isSousTraitant = user?.role === 'sous_traitant';
+  const canUseReserveAssistant = user?.role === 'admin' || user?.role === 'super_admin';
   const sousTraitantCompanyName = isSousTraitant && user?.companyId
     ? companies.find(c => c.id === user.companyId)?.name ?? null
     : null;
@@ -1520,7 +1521,7 @@ export default function ReservesScreen() {
           )}
         </View>
 
-        {permissions.canEdit && chantierReserves.length > 0 && (
+        {canUseReserveAssistant && chantierReserves.length > 0 && (
           <TouchableOpacity
             style={styles.assistantEntry}
             onPress={() => setAssistantVisible(true)}
@@ -1980,6 +1981,7 @@ export default function ReservesScreen() {
         </View>
       )}
 
+      {canUseReserveAssistant && (
       <Modal
         visible={assistantVisible}
         transparent
@@ -2149,6 +2151,7 @@ export default function ReservesScreen() {
           </TouchableOpacity>
         </TouchableOpacity>
       </Modal>
+      )}
 
       {/* Quick Status Modal */}
       <Modal
