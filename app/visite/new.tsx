@@ -647,11 +647,19 @@ export default function NewVisiteScreen() {
             onChangeText={setConducteur}
           />
 
+          <View style={styles.dateBlock}>
+            <Text style={styles.label}>Date</Text>
+            <DateInput
+              value={date}
+              onChange={handleDateChange}
+              containerStyle={styles.visitDateInputContainer}
+              inputWrapStyle={styles.visitDateInputWrap}
+              inputStyle={styles.visitDateInputText}
+              showValidationIcon={false}
+            />
+          </View>
+
           <View style={styles.dateTimeRow}>
-            <View style={{ flex: 2 }}>
-              <Text style={styles.label}>Date</Text>
-              <DateInput value={date} onChange={handleDateChange} />
-            </View>
             <View style={styles.timeBlock}>
               <Text style={styles.label}>Début</Text>
               <TextInput
@@ -1351,9 +1359,13 @@ const styles = StyleSheet.create({
   textArea: { height: 90, paddingTop: 10 },
 
   // Date + time
-  dateTimeRow: { flexDirection: 'row', gap: 8, alignItems: 'flex-start' },
-  timeBlock: { flex: 1 },
-  timeInput: { textAlign: 'center', letterSpacing: 1 },
+  dateBlock: { marginBottom: 0 },
+  dateTimeRow: { flexDirection: 'row', gap: 10, alignItems: 'flex-start' },
+  timeBlock: { flex: 1, minWidth: 0 },
+  visitDateInputContainer: { marginBottom: 12 },
+  visitDateInputWrap: { minHeight: 52, paddingVertical: 0 },
+  visitDateInputText: { fontSize: 14 },
+  timeInput: { height: 52, textAlign: 'center', letterSpacing: 1, paddingVertical: 0 },
 
   // Status
   statusRow: { flexDirection: 'row', gap: 10 },

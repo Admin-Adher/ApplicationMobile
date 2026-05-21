@@ -3,10 +3,13 @@ import {
   View,
   Text,
   TextInput,
+  StyleProp,
   StyleSheet,
   TouchableOpacity,
   Modal,
   Pressable,
+  TextStyle,
+  ViewStyle,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { C } from '@/constants/colors';
@@ -18,6 +21,10 @@ interface DateInputProps {
   placeholder?: string;
   label?: string;
   optional?: boolean;
+  containerStyle?: StyleProp<ViewStyle>;
+  inputWrapStyle?: StyleProp<ViewStyle>;
+  inputStyle?: StyleProp<TextStyle>;
+  showValidationIcon?: boolean;
 }
 
 const DAYS_FR = ['Lu', 'Ma', 'Me', 'Je', 'Ve', 'Sa', 'Di'];
@@ -93,6 +100,10 @@ export default function DateInput({
   placeholder,
   label,
   optional,
+  containerStyle,
+  inputWrapStyle,
+  inputStyle,
+  showValidationIcon = true,
 }: DateInputProps) {
   const [focused, setFocused] = useState(false);
   const [calendarOpen, setCalendarOpen] = useState(false);
@@ -141,7 +152,7 @@ export default function DateInput({
   }
 
   return (
-    <View style={styles.container}>
+    <View style={[styles.container, containerStyle]}>
       {label ? (
         <Text style={styles.label}>
           {label}
@@ -149,7 +160,7 @@ export default function DateInput({
         </Text>
       ) : null}
 
-      <View style={[styles.inputWrap, { borderColor }]}>
+      <View style={[styles.inputWrap, { borderColor }, inputWrapStyle]}>
         <TouchableOpacity
           onPress={openCalendar}
           hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
@@ -162,7 +173,7 @@ export default function DateInput({
           />
         </TouchableOpacity>
         <TextInput
-          style={styles.input}
+          style={[styles.input, inputStyle]}
           value={value}
           onChangeText={raw => onChange(autoFormat(raw, value))}
           placeholder={placeholder ?? 'JJ/MM/AAAA'}
@@ -180,7 +191,7 @@ export default function DateInput({
             <Ionicons name="close-circle" size={16} color={C.textMuted} />
           </TouchableOpacity>
         ) : null}
-        {hasValue && isValid ? (
+        {showValidationIcon && hasValue && isValid ? (
           <Ionicons
             name="checkmark-circle"
             size={16}
