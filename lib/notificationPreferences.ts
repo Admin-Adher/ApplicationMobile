@@ -69,6 +69,9 @@ export function toNotificationPreferences(row: any): NotificationPreferences {
     quietHoursStart: row?.quiet_hours_start,
     quietHoursEnd: row?.quiet_hours_end,
     quietHoursTimezone: row?.quiet_hours_timezone,
+    emailAdminUpdatedAt: row?.email_admin_updated_at ?? row?.emailAdminUpdatedAt ?? null,
+    emailAdminUpdatedBy: row?.email_admin_updated_by ?? row?.emailAdminUpdatedBy ?? null,
+    emailAdminAction: row?.email_admin_action ?? row?.emailAdminAction ?? null,
     updatedAt: row?.updated_at ?? row?.updatedAt,
   });
 }
@@ -76,7 +79,7 @@ export function toNotificationPreferences(row: any): NotificationPreferences {
 export function fromNotificationPreferences(
   preferences: NotificationPreferences,
 ): Record<string, unknown> {
-  return {
+  const row: Record<string, unknown> = {
     user_id: preferences.userId,
     organization_id: preferences.organizationId ?? null,
     in_app_enabled: preferences.inAppEnabled,
@@ -106,4 +109,14 @@ export function fromNotificationPreferences(
     quiet_hours_timezone: preferences.quietHoursTimezone,
     updated_at: new Date().toISOString(),
   };
+  if (preferences.emailAdminUpdatedAt !== undefined) {
+    row.email_admin_updated_at = preferences.emailAdminUpdatedAt;
+  }
+  if (preferences.emailAdminUpdatedBy !== undefined) {
+    row.email_admin_updated_by = preferences.emailAdminUpdatedBy;
+  }
+  if (preferences.emailAdminAction !== undefined) {
+    row.email_admin_action = preferences.emailAdminAction;
+  }
+  return row;
 }

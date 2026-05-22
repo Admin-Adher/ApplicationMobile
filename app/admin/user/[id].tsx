@@ -4,7 +4,7 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
-import { useState, useMemo } from 'react';
+import { useEffect, useState, useMemo } from 'react';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { C } from '@/constants/colors';
 import { useAuth, ROLE_PERMISSIONS } from '@/context/AuthContext';
@@ -12,6 +12,11 @@ import { useApp } from '@/context/AppContext';
 import { useSubscription } from '@/context/SubscriptionContext';
 import { UserRole, PermissionsOverride } from '@/constants/types';
 import { ROLES, AVATAR_COLORS, FREE_ROLES, hashColor, ROLE_INFO } from '@/lib/adminUtils';
+import {
+  fetchUserEmailPreference,
+  setUserEmailEnabled,
+  type AdminEmailPreferenceState,
+} from '@/lib/adminNotificationPreferences';
 
 const PERMISSION_DEFS: { key: keyof PermissionsOverride; label: string; desc: string }[] = [
   { key: 'canCreate',           label: 'Créer des réserves',        desc: 'Ajouter de nouvelles réserves sur les plans' },
@@ -74,7 +79,29 @@ export default function UserEditScreen() {
   const [localRole, setLocalRole] = useState<UserRole>(target?.role ?? 'observateur');
   const [localCompanyId, setLocalCompanyId] = useState<string>(target?.companyId ?? '');
   const [localOverride, setLocalOverride] = useState<PermissionsOverride>(target?.permissionsOverride ?? {});
+  const [emailPref, setEmailPref] = useState<AdminEmailPreferenceState | null>(null);
+  const [emailPrefLoading, setEmailPrefLoading] = useState(false);
+  const [emailPrefSaving, setEmailPrefSaving] = useState(false);
+  const [emailPrefError, setEmailPrefError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    if (!target || !canAccessScreen) return;
+    let cancelled = false;
+    setEmailPrefLoading(true);
+    setEmailPrefError(null);
+    fetchUserEmailPreference(target.id)
+      .then(pref => {
+        if (!cancelled) setEmailPref(pref);
+      })
+      .catch(err => {
+        if (!cancelled) setEmailPrefError(err?.message ?? 'Préférences email indisponibles.');
+      })
+      .finally(() => {
+        if (!cancelled) setEmailPrefLoading(false);
+      });
+    return () => { cancelled = true; };
+  }, [canAccessScreen, target?.id]);
 
   if (!target || !canAccessScreen) {
     return (
@@ -125,6 +152,38 @@ export default function UserEditScreen() {
           onPress: () => setLocalOverride({}),
         },
       ]
+    );
+  }
+
+  function handleToggleEmails() {
+    if (!target || emailPrefSaving) return;
+    const currentlyEnabled = emailPref?.emailEnabled !== false;
+    const nextEnabled = !currentlyEnabled;
+    Alert.alert(
+      nextEnabled ? 'Réactiver les emails' : 'Désactiver les emails',
+      nextEnabled
+        ? `${target.name} pourra de nouveau recevoir les emails automatiques BuildTrack.`
+        : `${target.name} ne recevra plus les emails automatiques BuildTrack. Son onglet Notifications affichera ce réglage désactivé, et il pourra le réactiver lui-même.`,
+      [
+        { text: 'Annuler', style: 'cancel' },
+        {
+          text: nextEnabled ? 'Réactiver' : 'Désactiver',
+          style: nextEnabled ? 'default' : 'destructive',
+          onPress: async () => {
+            setEmailPrefSaving(true);
+            setEmailPrefError(null);
+            try {
+              const pref = await setUserEmailEnabled(target.id, nextEnabled);
+              setEmailPref(pref);
+            } catch (err: any) {
+              setEmailPrefError(err?.message ?? 'Modification impossible.');
+              Alert.alert('Erreur', err?.message ?? 'La préférence email n a pas pu être modifiée.');
+            } finally {
+              setEmailPrefSaving(false);
+            }
+          },
+        },
+      ],
     );
   }
 
@@ -243,6 +302,81 @@ export default function UserEditScreen() {
               })()}
             </View>
           </View>
+        </View>
+
+        <View style={styles.section}>
+          <View style={styles.emailAdminHeader}>
+            <View style={[
+              styles.emailAdminIcon,
+              { backgroundColor: emailPref?.emailEnabled === false ? '#FEF2F2' : '#ECFDF5' },
+            ]}>
+              <Ionicons
+                name={emailPref?.emailEnabled === false ? 'mail-unread-outline' : 'mail-outline'}
+                size={18}
+                color={emailPref?.emailEnabled === false ? '#EF4444' : '#059669'}
+              />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.sectionTitle}>Notifications email</Text>
+              <Text style={styles.sectionHint}>
+                Contrôle admin global des emails automatiques de cet utilisateur.
+              </Text>
+            </View>
+          </View>
+
+          <View style={styles.emailAdminStateRow}>
+            <View style={[
+              styles.emailStateDot,
+              { backgroundColor: emailPref?.emailEnabled === false ? '#EF4444' : '#10B981' },
+            ]} />
+            <Text style={styles.emailAdminStateText}>
+              {emailPrefLoading
+                ? 'Chargement du statut email...'
+                : emailPref?.emailEnabled === false
+                  ? 'Emails désactivés'
+                  : 'Emails autorisés'}
+            </Text>
+          </View>
+
+          <Text style={styles.emailAdminDesc}>
+            Si vous désactivez les emails, le switch "Notifications email" sera coupé dans son onglet Notifications. L'utilisateur pourra le réactiver manuellement.
+          </Text>
+
+          {!!emailPrefError && (
+            <View style={styles.emailAdminError}>
+              <Ionicons name="warning-outline" size={14} color="#991B1B" />
+              <Text style={styles.emailAdminErrorText}>{emailPrefError}</Text>
+            </View>
+          )}
+
+          <TouchableOpacity
+            style={[
+              styles.emailAdminBtn,
+              emailPref?.emailEnabled === false ? styles.emailAdminBtnEnable : styles.emailAdminBtnDisable,
+              (emailPrefLoading || emailPrefSaving) && styles.emailAdminBtnDisabled,
+            ]}
+            onPress={handleToggleEmails}
+            disabled={emailPrefLoading || emailPrefSaving}
+            activeOpacity={0.75}
+          >
+            {emailPrefSaving ? (
+              <ActivityIndicator size="small" color={emailPref?.emailEnabled === false ? C.primary : '#fff'} />
+            ) : (
+              <>
+                <Ionicons
+                  name={emailPref?.emailEnabled === false ? 'mail-outline' : 'mail-unread-outline'}
+                  size={16}
+                  color={emailPref?.emailEnabled === false ? C.primary : '#fff'}
+                />
+                <Text style={[
+                  styles.emailAdminBtnText,
+                  emailPref?.emailEnabled === false && { color: C.primary },
+                ]}>
+                  {emailPref?.emailEnabled === false ? 'Réactiver les emails' : 'Désactiver les emails'}
+                </Text>
+              </>
+            )}
+          </TouchableOpacity>
         </View>
 
         <View style={styles.section}>
@@ -474,6 +608,46 @@ const styles = StyleSheet.create({
   },
   sectionTitle: { fontSize: 14, fontFamily: 'Inter_700Bold', color: C.text },
   sectionHint: { fontSize: 12, fontFamily: 'Inter_400Regular', color: C.textMuted, marginTop: -6 },
+  emailAdminHeader: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  emailAdminIcon: { width: 40, height: 40, borderRadius: 12, alignItems: 'center', justifyContent: 'center' },
+  emailAdminStateRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    backgroundColor: C.surface2,
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderWidth: 1,
+    borderColor: C.border,
+  },
+  emailStateDot: { width: 8, height: 8, borderRadius: 4 },
+  emailAdminStateText: { fontSize: 13, fontFamily: 'Inter_700Bold', color: C.text },
+  emailAdminDesc: { fontSize: 12, fontFamily: 'Inter_400Regular', color: C.textMuted, lineHeight: 17 },
+  emailAdminError: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 8,
+    backgroundColor: '#FEF2F2',
+    borderRadius: 10,
+    padding: 10,
+    borderWidth: 1,
+    borderColor: '#FCA5A5',
+  },
+  emailAdminErrorText: { flex: 1, fontSize: 12, fontFamily: 'Inter_500Medium', color: '#991B1B', lineHeight: 16 },
+  emailAdminBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    borderRadius: 11,
+    paddingVertical: 12,
+    borderWidth: 1,
+  },
+  emailAdminBtnDisable: { backgroundColor: '#EF4444', borderColor: '#EF4444' },
+  emailAdminBtnEnable: { backgroundColor: C.primaryBg, borderColor: C.primary + '40' },
+  emailAdminBtnDisabled: { opacity: 0.6 },
+  emailAdminBtnText: { fontSize: 13, fontFamily: 'Inter_700Bold', color: '#fff' },
 
   roleList: { gap: 8 },
   roleOption: {

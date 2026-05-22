@@ -786,7 +786,7 @@ export default function SettingsScreen() {
             <View style={[styles.card, { marginBottom: 14 }]}>
               <View style={styles.cardTitleRow}>
                 <Ionicons name="phone-portrait-outline" size={16} color={C.primary} />
-                <Text style={styles.cardTitle}>Etat de l'appareil</Text>
+                <Text style={styles.cardTitle}>État de l'appareil</Text>
               </View>
               <View style={styles.prefStatusRow}>
                 <View style={[styles.statusDot, { backgroundColor: pushStatusColor }]} />
@@ -807,7 +807,7 @@ export default function SettingsScreen() {
               </View>
               {renderSwitchRow('inAppEnabled', 'Notifications app', 'Alertes visibles dans le centre de notifications BuildTrack.')}
               {renderSwitchRow('pushEnabled', 'Notifications push', 'Alertes natives sur tablette ou téléphone.')}
-              {renderSwitchRow('emailEnabled', 'Notifications email', 'Emails automatiques liés aux réserves et rappels chantier.')}
+              {renderSwitchRow('emailEnabled', 'Notifications email', 'Emails automatiques liés aux réserves et aux changements importants.')}
               {renderSwitchRow('quietHoursEnabled', 'Heures calmes', 'Suspend les push non critiques pendant le créneau choisi.')}
               {notifPrefs.quietHoursEnabled && (
                 <View style={styles.prefTimeBlock}>
@@ -815,6 +815,14 @@ export default function SettingsScreen() {
                   {renderTimeChips('quietHoursStart', ['18:00', '19:00', '20:00', '21:00'])}
                   <Text style={styles.label}>Fin</Text>
                   {renderTimeChips('quietHoursEnd', ['06:00', '07:00', '08:00', '09:00'])}
+                </View>
+              )}
+              {notifPrefs.emailAdminAction === 'disabled' && notifPrefs.emailEnabled === false && (
+                <View style={styles.prefAdminNotice}>
+                  <Ionicons name="information-circle-outline" size={15} color="#92400E" />
+                  <Text style={styles.prefAdminNoticeText}>
+                    Les emails ont été désactivés par un administrateur. Vous pouvez les réactiver ici si besoin.
+                  </Text>
                 </View>
               )}
             </View>
@@ -846,13 +854,19 @@ export default function SettingsScreen() {
             <View style={[styles.card, { marginBottom: 14 }]}>
               <View style={styles.cardTitleRow}>
                 <Ionicons name="alarm-outline" size={16} color={C.primary} />
-                <Text style={styles.cardTitle}>Echéances et retards</Text>
+                <Text style={styles.cardTitle}>Échéances et retards</Text>
               </View>
-              {renderSwitchRow('dueSoonInApp', 'Echéances proches', 'Alertes app pour les échéances dans les 3 jours.', !notifPrefs.inAppEnabled)}
+              {renderSwitchRow('dueSoonInApp', 'Échéances proches', 'Alertes app pour les échéances dans les 3 jours.', !notifPrefs.inAppEnabled)}
               {renderSwitchRow('reserveOverdueInApp', 'Retards dans l app', 'Réserves en retard dans le centre de notifications.', !notifPrefs.inAppEnabled)}
               {renderSwitchRow('reserveOverduePush', 'Push retards', 'Rappel mobile pour les réserves en retard.', !notifPrefs.pushEnabled)}
-              {renderSwitchRow('reserveOverdueEmail', 'Email retards', 'Rappel email quotidien et escalade admin.', !notifPrefs.emailEnabled)}
+              {renderSwitchRow('reserveOverdueEmail', 'Résumé email retards', 'Autorise le récapitulatif quotidien côté serveur.', !notifPrefs.emailEnabled)}
               {renderSwitchRow('taskLateInApp', 'Tâches en retard', 'Tâches chantier en retard dans l app.', !notifPrefs.inAppEnabled)}
+              <View style={styles.prefInfoBox}>
+                <Ionicons name="shield-checkmark-outline" size={15} color={C.primary} />
+                <Text style={styles.prefInfoText}>
+                  Les emails de retard ne partent plus depuis le mobile. Le serveur les regroupe en un seul résumé quotidien par destinataire, avec anti-doublon.
+                </Text>
+              </View>
             </View>
 
             <View style={styles.infoCard}>
@@ -1278,6 +1292,30 @@ const styles = StyleSheet.create({
   prefRowDisabled: { opacity: 0.55 },
   prefTitle: { fontSize: 14, fontFamily: 'Inter_600SemiBold', color: C.text },
   prefSub: { fontSize: 12, fontFamily: 'Inter_400Regular', color: C.textMuted, marginTop: 2, lineHeight: 17 },
+  prefInfoBox: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 8,
+    backgroundColor: C.primaryBg,
+    borderRadius: 10,
+    padding: 12,
+    marginTop: 8,
+    borderWidth: 1,
+    borderColor: C.primary + '25',
+  },
+  prefInfoText: { flex: 1, fontSize: 12, fontFamily: 'Inter_500Medium', color: C.primary, lineHeight: 17 },
+  prefAdminNotice: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 8,
+    backgroundColor: '#FFFBEB',
+    borderRadius: 10,
+    padding: 12,
+    marginTop: 8,
+    borderWidth: 1,
+    borderColor: '#FCD34D',
+  },
+  prefAdminNoticeText: { flex: 1, fontSize: 12, fontFamily: 'Inter_500Medium', color: '#92400E', lineHeight: 17 },
   prefTimeBlock: { marginTop: 8, backgroundColor: C.surface2, borderRadius: 12, padding: 12, borderWidth: 1, borderColor: C.border },
   prefChipRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 8 },
 

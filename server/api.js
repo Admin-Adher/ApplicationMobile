@@ -512,6 +512,49 @@ async function authenticatedProfile(req, supabase) {
   return profile;
 }
 
+async function adminTargetProfile(req, supabase, targetUserId) {
+  const actor = await authenticatedProfile(req, supabase);
+  if (!actor) return { status: 401, error: 'Session invalide' };
+  if (actor.role !== 'admin' && actor.role !== 'super_admin') {
+    return { status: 403, error: 'Acces admin requis' };
+  }
+
+  const { data: target, error: targetError } = await supabase
+    .from('profiles')
+    .select('id, name, email, role, organization_id')
+    .eq('id', targetUserId)
+    .maybeSingle();
+  if (targetError || !target) return { status: 404, error: 'Utilisateur introuvable' };
+  if (actor.role !== 'super_admin' && target.organization_id !== actor.organization_id) {
+    return { status: 403, error: 'Utilisateur hors organisation' };
+  }
+  if (actor.role === 'admin' && (target.role === 'admin' || target.role === 'super_admin')) {
+    return { status: 403, error: 'Modification reservee au super administrateur' };
+  }
+  return { actor, target };
+}
+
+async function getNotificationPreferencesForUser(supabase, profile) {
+  const { data, error } = await supabase
+    .from('notification_preferences')
+    .select('user_id, organization_id, email_enabled, reserve_created_email, reserve_status_email, reserve_critical_email, reserve_overdue_email, email_admin_updated_at, email_admin_updated_by, email_admin_action')
+    .eq('user_id', profile.id)
+    .maybeSingle();
+  if (error) throw error;
+  if (data) return data;
+
+  const { data: inserted, error: insertError } = await supabase
+    .from('notification_preferences')
+    .insert({
+      user_id: profile.id,
+      organization_id: profile.organization_id ?? null,
+    })
+    .select('user_id, organization_id, email_enabled, reserve_created_email, reserve_status_email, reserve_critical_email, reserve_overdue_email, email_admin_updated_at, email_admin_updated_by, email_admin_action')
+    .single();
+  if (insertError) throw insertError;
+  return inserted;
+}
+
 const TRANSLATION_LANGS = {
   fr: { name: 'French', deepl: 'FR' },
   en: { name: 'English', deepl: 'EN-US' },
@@ -1038,6 +1081,59 @@ app.post('/api/send-push', async (req, res) => {
     const status = err.statusCode || 500;
     console.error('[send-push] Exception:', err.message);
     return res.status(status).json({ ok: false, error: err.message || 'Erreur serveur' });
+  }
+});
+
+app.get('/api/admin-notification-preferences', async (req, res) => {
+  const userId = String(req.query.userId || '').trim();
+  if (!userId) return res.status(400).json({ error: 'userId manquant' });
+  const supabase = getSupabaseAdmin();
+  if (!supabase) return res.status(500).json({ error: 'Configuration Supabase serveur manquante' });
+
+  try {
+    const access = await adminTargetProfile(req, supabase, userId);
+    if (access.error) return res.status(access.status || 500).json({ error: access.error });
+    const preferences = await getNotificationPreferencesForUser(supabase, access.target);
+    return res.json({ ok: true, user: access.target, preferences });
+  } catch (err) {
+    console.error('[admin-notification-preferences] GET:', err.message);
+    return res.status(500).json({ error: err.message || 'Erreur serveur' });
+  }
+});
+
+app.post('/api/admin-notification-preferences', async (req, res) => {
+  const { userId, emailEnabled } = req.body || {};
+  if (!userId || typeof emailEnabled !== 'boolean') {
+    return res.status(400).json({ error: 'Parametres manquants' });
+  }
+  const supabase = getSupabaseAdmin();
+  if (!supabase) return res.status(500).json({ error: 'Configuration Supabase serveur manquante' });
+
+  try {
+    const access = await adminTargetProfile(req, supabase, String(userId));
+    if (access.error) return res.status(access.status || 500).json({ error: access.error });
+
+    const action = emailEnabled ? 'enabled' : 'disabled';
+    const payload = {
+      user_id: access.target.id,
+      organization_id: access.target.organization_id ?? null,
+      email_enabled: emailEnabled,
+      email_admin_updated_at: new Date().toISOString(),
+      email_admin_updated_by: access.actor.id,
+      email_admin_action: action,
+      updated_at: new Date().toISOString(),
+    };
+
+    const { data, error } = await supabase
+      .from('notification_preferences')
+      .upsert(payload, { onConflict: 'user_id' })
+      .select('user_id, organization_id, email_enabled, reserve_created_email, reserve_status_email, reserve_critical_email, reserve_overdue_email, email_admin_updated_at, email_admin_updated_by, email_admin_action')
+      .single();
+    if (error) throw error;
+    return res.json({ ok: true, user: access.target, preferences: data });
+  } catch (err) {
+    console.error('[admin-notification-preferences] POST:', err.message);
+    return res.status(500).json({ error: err.message || 'Erreur serveur' });
   }
 });
 

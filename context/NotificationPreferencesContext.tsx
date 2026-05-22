@@ -113,9 +113,17 @@ export function NotificationPreferencesProvider({ children }: { children: React.
 
   const updatePreferences = useCallback(async (patch: Partial<NotificationPreferences>) => {
     if (!userId) return;
+    const clearsAdminEmailMarker = typeof patch.emailEnabled === 'boolean';
     const next = withDefaultNotificationPreferences({
       ...preferences,
       ...patch,
+      ...(clearsAdminEmailMarker
+        ? {
+            emailAdminUpdatedAt: null,
+            emailAdminUpdatedBy: null,
+            emailAdminAction: null,
+          }
+        : {}),
       userId,
       organizationId,
     });

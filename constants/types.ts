@@ -85,6 +85,9 @@ export interface NotificationPreferences {
   quietHoursStart: string;
   quietHoursEnd: string;
   quietHoursTimezone: string;
+  emailAdminUpdatedAt?: string | null;
+  emailAdminUpdatedBy?: string | null;
+  emailAdminAction?: 'disabled' | 'enabled' | null;
   updatedAt?: string;
 }
 
