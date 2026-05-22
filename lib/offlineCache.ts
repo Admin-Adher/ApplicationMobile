@@ -330,10 +330,11 @@ export function pendingIdsForTable(
 ): Set<string> {
   const ids = new Set<string>();
   for (const op of queue) {
-    if (op.op === 'rpc' && op.rpc?.fn === 'link_reserves_to_visite') {
+    const rpcFn = op.op === 'rpc' ? op.rpc?.fn : undefined;
+    if (rpcFn === 'link_reserves_to_visite' || rpcFn === 'unlink_reserves_from_visite') {
       if (table === 'visites') {
         if (op.data?.visite_id) ids.add(String(op.data.visite_id));
-        if (Array.isArray(op.data?.previous_visite_ids)) {
+        if (rpcFn === 'link_reserves_to_visite' && Array.isArray(op.data?.previous_visite_ids)) {
           op.data.previous_visite_ids.forEach((id: any) => {
             if (id) ids.add(String(id));
           });

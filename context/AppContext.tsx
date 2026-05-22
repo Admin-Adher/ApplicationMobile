@@ -161,6 +161,7 @@ interface AppContextValue {
   updateVisite: (v: Visite) => void;
   deleteVisite: (id: string) => void;
   attachReservesToVisite: (visiteId: string, reserveIds: string[]) => Promise<{ success: boolean; queued?: boolean; movedCount?: number; error?: string }>;
+  unlinkReservesFromVisite: (visiteId: string, reserveIds: string[]) => Promise<{ success: boolean; queued?: boolean; updatedCount?: number; error?: string }>;
   linkReserveToVisite: (reserveId: string, visiteId: string) => void;
   addLot: (l: Lot) => void;
   updateLot: (l: Lot) => void;
@@ -929,6 +930,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     updateVisite: visitesH.updateVisite,
     deleteVisite: visitesH.deleteVisite,
     attachReservesToVisite: visitesH.attachReservesToVisite,
+    unlinkReservesFromVisite: visitesH.unlinkReservesFromVisite,
     linkReserveToVisite: visitesH.linkReserveToVisite,
     addLot: lotsH.addLot,
     updateLot: lotsH.updateLot,
@@ -978,7 +980,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     messagesH.fetchOlderMessages, messagesH.fetchChannelMessages,
     messagesH.refreshChannelMessages, unreadCount, stats,
     visitesH.addVisite, visitesH.updateVisite, visitesH.deleteVisite,
-    visitesH.attachReservesToVisite, visitesH.linkReserveToVisite, lotsH.addLot, lotsH.updateLot,
+    visitesH.attachReservesToVisite, visitesH.unlinkReservesFromVisite, visitesH.linkReserveToVisite, lotsH.addLot, lotsH.updateLot,
     lotsH.deleteLot, oprsH.addOpr, oprsH.updateOpr, oprsH.deleteOpr,
     reservesH.batchUpdateReserves, chantiersH.addSitePlanVersion,
     migrateReservesToPlan, messagesH.realtimeConnected,

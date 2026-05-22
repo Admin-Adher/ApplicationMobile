@@ -479,7 +479,20 @@ function buildVisitePDF(
 export default function VisiteDetailScreen() {
   const router = useRouter();
   const { id } = useLocalSearchParams<{ id: string }>();
-  const { visites, reserves, updateVisite, deleteVisite, attachReservesToVisite, activeChantier, oprs, photos } = useApp();
+  const {
+    visites,
+    reserves,
+    updateVisite,
+    deleteVisite,
+    deleteReserve,
+    archiveReserve,
+    unarchiveReserve,
+    attachReservesToVisite,
+    unlinkReservesFromVisite,
+    activeChantier,
+    oprs,
+    photos,
+  } = useApp();
   const { user, permissions } = useAuth();
   const { projectName } = useSettings();
 
@@ -500,6 +513,7 @@ export default function VisiteDetailScreen() {
   const [attachSelectedIds, setAttachSelectedIds] = useState<string[]>([]);
   const [attachScopeOnly, setAttachScopeOnly] = useState(true);
   const [attachSubmitting, setAttachSubmitting] = useState(false);
+  const [reserveVisitActionLoadingId, setReserveVisitActionLoadingId] = useState<string | null>(null);
 
   const visite = visites.find(v => v.id === id);
   const visiteReserveIds = useMemo(() => new Set(visite?.reserveIds ?? []), [visite?.reserveIds]);
@@ -731,6 +745,87 @@ export default function VisiteDetailScreen() {
     } finally {
       setAttachSubmitting(false);
     }
+  }
+
+  async function removeReserveFromVisit(reserve: Reserve) {
+    if (!visite || reserveVisitActionLoadingId) return;
+    setReserveVisitActionLoadingId(reserve.id);
+    try {
+      const result = await unlinkReservesFromVisite(visite.id, [reserve.id]);
+      if (!result.success) {
+        Alert.alert('Retrait impossible', result.error ?? "La réserve n'a pas pu être retirée de cette visite.");
+        return;
+      }
+      Alert.alert(
+        result.queued ? 'Retrait enregistré' : 'Réserve retirée',
+        result.queued
+          ? 'La réserve restera visible hors ligne puis sera retirée de cette visite à la prochaine synchronisation stable.'
+          : "La réserve existe toujours dans l'onglet Réserves, mais elle n'est plus liée à cette visite."
+      );
+    } finally {
+      setReserveVisitActionLoadingId(null);
+    }
+  }
+
+  function confirmRemoveReserveFromVisit(reserve: Reserve) {
+    Alert.alert(
+      'Retirer de cette visite',
+      `Retirer "${reserve.title}" de cette visite ? La réserve ne sera pas supprimée.`,
+      [
+        { text: 'Annuler', style: 'cancel' },
+        { text: 'Retirer', style: 'destructive', onPress: () => { void removeReserveFromVisit(reserve); } },
+      ],
+    );
+  }
+
+  function toggleArchiveReserveFromVisit(reserve: Reserve) {
+    if (reserve.archivedAt) {
+      Alert.alert(
+        'Désarchiver la réserve',
+        `Remettre "${reserve.title}" dans les réserves actives ?`,
+        [
+          { text: 'Annuler', style: 'cancel' },
+          { text: 'Désarchiver', onPress: () => unarchiveReserve(reserve.id, user?.name ?? 'Conducteur de travaux') },
+        ],
+      );
+      return;
+    }
+
+    Alert.alert(
+      'Archiver la réserve',
+      `Archiver "${reserve.title}" ? Elle sera masquée des listes actives et du plan, mais restera consultable dans les archives.`,
+      [
+        { text: 'Annuler', style: 'cancel' },
+        { text: 'Archiver', style: 'destructive', onPress: () => archiveReserve(reserve.id, user?.name ?? 'Conducteur de travaux') },
+      ],
+    );
+  }
+
+  function confirmDeleteReserveFromVisit(reserve: Reserve) {
+    Alert.alert(
+      'Supprimer définitivement',
+      `Supprimer définitivement "${reserve.title}" ? Cette action retirera la réserve partout, pas seulement de la visite.`,
+      [
+        { text: 'Annuler', style: 'cancel' },
+        { text: 'Supprimer', style: 'destructive', onPress: () => deleteReserve(reserve.id) },
+      ],
+    );
+  }
+
+  function openReserveVisitActions(reserve: Reserve) {
+    const buttons: any[] = [
+      { text: 'Ouvrir la réserve', onPress: () => router.push(`/reserve/${reserve.id}` as any) },
+      { text: 'Retirer de cette visite', style: 'destructive', onPress: () => confirmRemoveReserveFromVisit(reserve) },
+      {
+        text: reserve.archivedAt ? 'Désarchiver la réserve' : 'Archiver la réserve',
+        onPress: () => toggleArchiveReserveFromVisit(reserve),
+      },
+    ];
+    if (permissions.canDelete) {
+      buttons.push({ text: 'Supprimer définitivement', style: 'destructive', onPress: () => confirmDeleteReserveFromVisit(reserve) });
+    }
+    buttons.push({ text: 'Annuler', style: 'cancel' });
+    Alert.alert(reserve.id, reserve.title, buttons);
   }
 
   function renderAttachReserve({ item: reserve }: { item: Reserve }) {
@@ -1067,8 +1162,25 @@ export default function VisiteDetailScreen() {
               >
                 <View style={styles.reserveHeader}>
                   <Text style={styles.reserveId}>{r.id}</Text>
-                  <View style={[styles.statusBadge, { backgroundColor: sColor + '20' }]}>
-                    <Text style={[styles.statusBadgeText, { color: sColor }]}>{RESERVE_STATUS_LABELS[r.status] ?? r.status}</Text>
+                  <View style={styles.reserveHeaderRight}>
+                    {r.archivedAt ? (
+                      <View style={styles.reserveArchiveBadge}>
+                        <Ionicons name="archive-outline" size={11} color={C.textMuted} />
+                        <Text style={styles.reserveArchiveBadgeText}>Archivée</Text>
+                      </View>
+                    ) : null}
+                    <View style={[styles.statusBadge, { backgroundColor: sColor + '20' }]}>
+                      <Text style={[styles.statusBadgeText, { color: sColor }]}>{RESERVE_STATUS_LABELS[r.status] ?? r.status}</Text>
+                    </View>
+                    {permissions.canEdit && (
+                      <TouchableOpacity
+                        style={styles.reserveMenuBtn}
+                        onPress={() => openReserveVisitActions(r)}
+                        hitSlop={8}
+                      >
+                        <Ionicons name="ellipsis-horizontal" size={16} color={C.textSub} />
+                      </TouchableOpacity>
+                    )}
                   </View>
                 </View>
                 <Text style={styles.reserveTitle}>{r.title}</Text>
@@ -1080,6 +1192,29 @@ export default function VisiteDetailScreen() {
                   <Text style={styles.reserveMetaDot}>·</Text>
                   {r.building ? <Text style={styles.reserveMetaText}>{r.building}</Text> : null}
                 </View>
+                {permissions.canEdit && (
+                  <View style={styles.reserveVisitActions}>
+                    <TouchableOpacity
+                      style={[styles.reserveVisitActionBtn, styles.reserveVisitActionDanger]}
+                      onPress={() => confirmRemoveReserveFromVisit(r)}
+                      disabled={reserveVisitActionLoadingId === r.id}
+                    >
+                      {reserveVisitActionLoadingId === r.id ? (
+                        <ActivityIndicator size="small" color={C.open} />
+                      ) : (
+                        <Ionicons name="remove-circle-outline" size={15} color={C.open} />
+                      )}
+                      <Text style={[styles.reserveVisitActionText, { color: C.open }]}>Retirer</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={styles.reserveVisitActionBtn}
+                      onPress={() => toggleArchiveReserveFromVisit(r)}
+                    >
+                      <Ionicons name={r.archivedAt ? 'archive' : 'archive-outline'} size={15} color={C.textSub} />
+                      <Text style={styles.reserveVisitActionText}>{r.archivedAt ? 'Désarchiver' : 'Archiver'}</Text>
+                    </TouchableOpacity>
+                  </View>
+                )}
               </TouchableOpacity>
             );
           })
@@ -1447,7 +1582,19 @@ const styles = StyleSheet.create({
     borderWidth: 1, borderColor: C.border, borderLeftWidth: 4, marginBottom: 10,
   },
   reserveHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 },
+  reserveHeaderRight: { flexDirection: 'row', alignItems: 'center', gap: 6, flexShrink: 0 },
   reserveId: { fontSize: 11, fontFamily: 'Inter_600SemiBold', color: C.textMuted },
+  reserveMenuBtn: {
+    width: 30, height: 30, borderRadius: 15,
+    alignItems: 'center', justifyContent: 'center',
+    backgroundColor: C.surface2, borderWidth: 1, borderColor: C.border,
+  },
+  reserveArchiveBadge: {
+    flexDirection: 'row', alignItems: 'center', gap: 4,
+    paddingHorizontal: 7, paddingVertical: 3, borderRadius: 999,
+    backgroundColor: C.surface2, borderWidth: 1, borderColor: C.border,
+  },
+  reserveArchiveBadgeText: { fontSize: 10, fontFamily: 'Inter_600SemiBold', color: C.textMuted },
   statusBadge: { paddingHorizontal: 8, paddingVertical: 3, borderRadius: 10 },
   statusBadgeText: { fontSize: 11, fontFamily: 'Inter_600SemiBold' },
   reserveTitle: { fontSize: 14, fontFamily: 'Inter_600SemiBold', color: C.text, marginBottom: 6 },
@@ -1455,6 +1602,14 @@ const styles = StyleSheet.create({
   priorityDot: { width: 7, height: 7, borderRadius: 4 },
   reserveMetaText: { fontSize: 12, fontFamily: 'Inter_400Regular', color: C.textSub },
   reserveMetaDot: { fontSize: 12, color: C.textMuted },
+  reserveVisitActions: { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 8, marginTop: 11 },
+  reserveVisitActionBtn: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6,
+    paddingHorizontal: 10, paddingVertical: 8, borderRadius: 999,
+    backgroundColor: C.surface2, borderWidth: 1, borderColor: C.border,
+  },
+  reserveVisitActionDanger: { backgroundColor: C.open + '08', borderColor: C.open + '24' },
+  reserveVisitActionText: { fontSize: 12, fontFamily: 'Inter_700Bold', color: C.textSub },
 
   exportBtn: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8,

@@ -222,6 +222,69 @@ export function useVisites() {
     return { success: true, movedCount: previousVisitIds.length };
   }, [queryClient, isOnlineRef, enqueueOperation, persist, persistReserves]);
 
+  const unlinkReservesFromVisite = useCallback(async (visiteId: string, reserveIds: string[]) => {
+    const selectedIds = Array.from(new Set(
+      reserveIds.map(id => String(id ?? '').trim()).filter(Boolean),
+    ));
+    if (selectedIds.length === 0) {
+      return { success: true, updatedCount: 0 };
+    }
+
+    const visites = queryClient.getQueryData<Visite[]>(queryKeys.visites()) ?? [];
+    const target = visites.find(v => v.id === visiteId);
+    if (!target) {
+      return { success: false, error: 'Visite introuvable.' };
+    }
+
+    const currentReserves = queryClient.getQueryData<Reserve[]>(queryKeys.reserves()) ?? [];
+    const nextVisites = visites.map(v =>
+      v.id === visiteId
+        ? { ...v, reserveIds: (v.reserveIds ?? []).filter(id => !selectedIds.includes(id)) }
+        : v
+    );
+    const nextReserves = currentReserves.map(r =>
+      selectedIds.includes(r.id) && r.visiteId === visiteId
+        ? { ...r, visiteId: undefined }
+        : r
+    );
+
+    queryClient.setQueryData<Visite[]>(queryKeys.visites(), nextVisites);
+    queryClient.setQueryData<Reserve[]>(queryKeys.reserves(), nextReserves);
+    persist(nextVisites);
+    persistReserves(nextReserves);
+
+    const rpcArgs = { p_visite_id: visiteId, p_reserve_ids: selectedIds };
+    const queueRpc = (error?: string) => {
+      enqueueOperation({
+        table: 'visite_reserve_links',
+        op: 'rpc',
+        rpc: { fn: 'unlink_reserves_from_visite', args: rpcArgs },
+        data: {
+          visite_id: visiteId,
+          reserve_ids: selectedIds,
+        },
+        lastError: error,
+      });
+    };
+
+    if (!isOnlineRef.current && isSupabaseConfigured) {
+      queueRpc();
+      return { success: true, queued: true, updatedCount: selectedIds.length };
+    }
+
+    if (isSupabaseConfigured) {
+      const { error } = await supabaseRestRpc('unlink_reserves_from_visite', rpcArgs);
+      if (error) {
+        const message = error.message ?? String(error);
+        console.warn('[sync] unlinkReservesFromVisite RPC error, queuing for retry:', message);
+        queueRpc(message);
+        return { success: true, queued: true, updatedCount: selectedIds.length, error: message };
+      }
+    }
+
+    return { success: true, updatedCount: selectedIds.length };
+  }, [queryClient, isOnlineRef, enqueueOperation, persist, persistReserves]);
+
   const linkReserveToVisite = useCallback(async (reserveId: string, visiteId: string) => {
     await attachReservesToVisite(visiteId, [reserveId]);
   }, [attachReservesToVisite]);
@@ -233,6 +296,7 @@ export function useVisites() {
     updateVisite,
     deleteVisite,
     attachReservesToVisite,
+    unlinkReservesFromVisite,
     linkReserveToVisite,
     invalidateVisites: () => queryClient.invalidateQueries({ queryKey: queryKeys.visites() }),
   };
