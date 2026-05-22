@@ -74,6 +74,8 @@ const STATUS_FILTERS: { key: 'all' | 'overdue' | ReserveStatus; label: string; i
 ];
 
 type SortKey = 'date_desc' | 'date_asc' | 'priority' | 'deadline' | 'status';
+type StatusFilterKey = 'all' | 'overdue' | ReserveStatus;
+type AdvancedStatusFilterKey = StatusFilterKey | 'archived';
 const SORT_OPTIONS: { key: SortKey; label: string }[] = [
   { key: 'date_desc', label: 'Plus récente' },
   { key: 'date_asc', label: 'Plus ancienne' },
@@ -258,7 +260,7 @@ export default function ReservesScreen() {
     : null;
 
   const [chantierFilter, setChantierFilter] = useState<string>(activeChantierId ?? 'all');
-  const [statusFilter, setStatusFilter] = useState<'all' | 'overdue' | ReserveStatus>('all');
+  const [statusFilter, setStatusFilter] = useState<StatusFilterKey>('all');
   const [kindFilter, setKindFilter] = useState<'all' | ReserveKind>('all');
   const [pinFilter, setPinFilter] = useState<'all' | 'pinned' | 'unpinned'>('all');
   const [buildingFilter, setBuildingFilter] = useState<string>('all');
@@ -469,6 +471,7 @@ export default function ReservesScreen() {
     + (kindFilter !== 'all' ? 1 : 0)
     + (lotFilter !== 'all' ? 1 : 0)
     + (statusFilter !== 'all' ? 1 : 0)
+    + (showArchived ? 1 : 0)
     + (nearDeadlineOnly ? 1 : 0)
     + (pinFilter !== 'all' ? 1 : 0);
 
@@ -476,6 +479,18 @@ export default function ReservesScreen() {
     () => chantierReserves.filter(r => isOverdue(r.deadline, r.status)).length,
     [chantierReserves]
   );
+
+  function applyAdvancedStatusFilter(key: AdvancedStatusFilterKey) {
+    if (key === 'archived') {
+      setShowArchived(true);
+      setStatusFilter('all');
+      setNearDeadlineOnly(false);
+      return;
+    }
+    setShowArchived(false);
+    setStatusFilter(key);
+    if (key !== 'overdue') setNearDeadlineOnly(false);
+  }
 
   const filtered = useMemo(() => {
     const now = new Date();
@@ -1024,6 +1039,7 @@ export default function ReservesScreen() {
     setKindFilter('all');
     setLotFilter('all');
     setStatusFilter('all');
+    setShowArchived(false);
     setNearDeadlineOnly(false);
     setPinFilter('all');
   }
@@ -1420,7 +1436,14 @@ export default function ReservesScreen() {
         {(archivedCount > 0 || showArchived) && (
           <TouchableOpacity
             style={[styles.archiveBanner, showArchived && styles.archiveBannerActive]}
-            onPress={() => setShowArchived(v => !v)}
+            onPress={() => {
+              const next = !showArchived;
+              setShowArchived(next);
+              if (next) {
+                setStatusFilter('all');
+                setNearDeadlineOnly(false);
+              }
+            }}
             activeOpacity={0.85}
             accessibilityRole="button"
             accessibilityLabel={
@@ -1554,7 +1577,7 @@ export default function ReservesScreen() {
           <View style={styles.filterScrollContainer}>
             <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ flex: 1 }}>
               {STATUS_FILTERS.map(f => {
-                const isActive = statusFilter === f.key;
+                const isActive = !showArchived && statusFilter === f.key;
                 const isOverdueChip = f.key === 'overdue';
                 return (
                   <TouchableOpacity
@@ -1563,7 +1586,7 @@ export default function ReservesScreen() {
                       styles.filterChip,
                       isActive && (isOverdueChip ? styles.filterChipOverdue : styles.filterChipActive),
                     ]}
-                    onPress={() => setStatusFilter(f.key)}
+                    onPress={() => applyAdvancedStatusFilter(f.key)}
                     accessibilityRole="button"
                     accessibilityLabel={`Filtrer par statut : ${f.label}`}
                     accessibilityState={{ selected: isActive }}
@@ -2714,6 +2737,51 @@ export default function ReservesScreen() {
             </View>
 
             <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.filtContent}>
+
+              {/* STATUT */}
+              <View style={styles.filtSection}>
+                <View style={styles.filtSectionHeader}>
+                  <Ionicons name="flag-outline" size={13} color={C.textSub} />
+                  <Text style={styles.filtSectionTitle}>Statut</Text>
+                </View>
+                <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+                  <View style={styles.filtChipRow}>
+                    {([
+                      ...STATUS_FILTERS,
+                      { key: 'archived', label: `Archivées${archivedCount > 0 ? ` (${archivedCount})` : ''}`, icon: 'archive-outline' },
+                    ] as { key: AdvancedStatusFilterKey; label: string; icon?: string }[]).map(f => {
+                      const isArchivedChip = f.key === 'archived';
+                      const isOverdueChip = f.key === 'overdue';
+                      const isActive = isArchivedChip ? showArchived : !showArchived && statusFilter === f.key;
+                      const chipColor = isArchivedChip ? '#6B7280' : isOverdueChip ? C.open : C.primary;
+                      return (
+                        <TouchableOpacity
+                          key={f.key}
+                          style={[
+                            styles.filtChip,
+                            isActive && { backgroundColor: chipColor + '18', borderColor: chipColor },
+                            isActive && f.key === 'all' && styles.filtChipActive,
+                          ]}
+                          onPress={() => applyAdvancedStatusFilter(f.key)}
+                          accessibilityRole="button"
+                          accessibilityState={{ selected: isActive }}
+                        >
+                          {f.icon ? (
+                            <Ionicons name={f.icon as any} size={12} color={isActive ? chipColor : C.textSub} />
+                          ) : null}
+                          <Text style={[
+                            styles.filtChipText,
+                            isActive && f.key === 'all' && styles.filtChipTextActive,
+                            isActive && f.key !== 'all' && { color: chipColor, fontFamily: 'Inter_600SemiBold' },
+                          ]}>
+                            {f.label}
+                          </Text>
+                        </TouchableOpacity>
+                      );
+                    })}
+                  </View>
+                </ScrollView>
+              </View>
 
               {/* TYPE */}
               <View style={styles.filtSection}>
