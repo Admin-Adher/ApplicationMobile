@@ -1,4 +1,4 @@
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert, Platform, Modal, TextInput, ActivityIndicator, KeyboardAvoidingView, Image } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert, Platform, Modal, TextInput, ActivityIndicator, KeyboardAvoidingView, Image, FlatList } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { useMemo, useRef, useState } from 'react';
@@ -479,7 +479,7 @@ function buildVisitePDF(
 export default function VisiteDetailScreen() {
   const router = useRouter();
   const { id } = useLocalSearchParams<{ id: string }>();
-  const { visites, reserves, updateVisite, deleteVisite, updateReserveFields, activeChantier, oprs, photos } = useApp();
+  const { visites, reserves, updateVisite, deleteVisite, attachReservesToVisite, activeChantier, oprs, photos } = useApp();
   const { user, permissions } = useAuth();
   const { projectName } = useSettings();
 
@@ -499,6 +499,7 @@ export default function VisiteDetailScreen() {
   const [attachSearch, setAttachSearch] = useState('');
   const [attachSelectedIds, setAttachSelectedIds] = useState<string[]>([]);
   const [attachScopeOnly, setAttachScopeOnly] = useState(true);
+  const [attachSubmitting, setAttachSubmitting] = useState(false);
 
   const visite = visites.find(v => v.id === id);
   const visiteReserveIds = useMemo(() => new Set(visite?.reserveIds ?? []), [visite?.reserveIds]);
@@ -687,7 +688,8 @@ export default function VisiteDetailScreen() {
     );
   }
 
-  function applyAttachReserves(forceMove = false) {
+  async function applyAttachReserves(forceMove = false) {
+    if (attachSubmitting) return;
     if (!visite || attachSelectedIds.length === 0) return;
     const selected = reserves.filter(r => attachSelectedIds.includes(r.id));
     if (selected.length === 0) return;
@@ -703,46 +705,79 @@ export default function VisiteDetailScreen() {
         `${reservesAlreadyInOtherVisit.length} réserve${reservesAlreadyInOtherVisit.length > 1 ? 's sont déjà liées' : ' est déjà liée'} à une autre visite. Elles seront retirées de leur ancienne visite et ajoutées ici.`,
         [
           { text: 'Annuler', style: 'cancel' },
-          { text: 'Déplacer', style: 'destructive', onPress: () => applyAttachReserves(true) },
+          { text: 'Déplacer', style: 'destructive', onPress: () => { void applyAttachReserves(true); } },
         ]
       );
       return;
     }
 
-    updateVisite({
-      ...visite,
-      id: visite.id!,
-      reserveIds: Array.from(new Set([...(visite.reserveIds ?? []), ...selectedIds])),
-    });
+    setAttachSubmitting(true);
+    try {
+      const result = await attachReservesToVisite(visite.id, selectedIds);
+      if (!result.success) {
+        Alert.alert('Rattachement impossible', result.error ?? "Les réserves n'ont pas pu être ajoutées à cette visite.");
+        return;
+      }
 
-    const previousVisitIds = Array.from(new Set(
-      [
-        ...selected
-          .map(r => r.visiteId)
-          .filter((visitId): visitId is string => !!visitId && visitId !== visite.id),
-        ...visites
-          .filter(v => v.id !== visite.id && (v.reserveIds ?? []).some(reserveId => selectedIds.includes(reserveId)))
-          .map(v => v.id),
-      ]
-    ));
-    previousVisitIds.forEach(previousVisitId => {
-      const previousVisit = visites.find(v => v.id === previousVisitId);
-      if (!previousVisit) return;
-      updateVisite({
-        ...previousVisit,
-        id: previousVisit.id!,
-        reserveIds: (previousVisit.reserveIds ?? []).filter(reserveId => !selectedIds.includes(reserveId)),
-      });
-    });
+      setAttachSelectedIds([]);
+      setAttachSearch('');
+      setAttachModalVisible(false);
+      Alert.alert(
+        result.queued ? 'Rattachement enregistré' : 'Réserves ajoutées',
+        result.queued
+          ? `${selected.length} réserve${selected.length > 1 ? 's seront synchronisées' : ' sera synchronisée'} dès que la connexion sera stable.`
+          : `${selected.length} réserve${selected.length > 1 ? 's ont été rattachées' : ' a été rattachée'} à cette visite.`
+      );
+    } finally {
+      setAttachSubmitting(false);
+    }
+  }
 
-    selected.forEach(reserve => {
-      updateReserveFields({ ...reserve, visiteId: visite.id });
-    });
+  function renderAttachReserve({ item: reserve }: { item: Reserve }) {
+    if (!visite) return null;
+    const visiteId = visite.id;
+    const selected = attachSelectedIds.includes(reserve.id);
+    const statusColor = RESERVE_STATUS_COLORS[reserve.status] ?? C.textMuted;
+    const priorityColor = PRIORITY_COLORS[reserve.priority] ?? C.textMuted;
+    const alreadyLinked =
+      (!!reserve.visiteId && reserve.visiteId !== visiteId)
+      || visites.some(v => v.id !== visiteId && (v.reserveIds ?? []).includes(reserve.id));
+    const meta = [reserve.building, reserve.level, reserve.zone].filter(Boolean).join(' · ');
 
-    setAttachSelectedIds([]);
-    setAttachSearch('');
-    setAttachModalVisible(false);
-    Alert.alert('Réserves ajoutées', `${selected.length} réserve${selected.length > 1 ? 's ont été rattachées' : ' a été rattachée'} à cette visite.`);
+    return (
+      <TouchableOpacity
+        style={[styles.attachReserveRow, selected && styles.attachReserveRowSelected]}
+        onPress={() => toggleAttachReserve(reserve.id)}
+        activeOpacity={0.8}
+      >
+        <View style={[styles.attachCheckbox, selected && styles.attachCheckboxSelected]}>
+          {selected && <Ionicons name="checkmark" size={14} color="#fff" />}
+        </View>
+        <View style={styles.attachReserveBody}>
+          <View style={styles.attachReserveTopRow}>
+            <Text style={styles.attachReserveId}>{reserve.id}</Text>
+            <View style={[styles.attachStatusBadge, { backgroundColor: statusColor + '18' }]}>
+              <Text style={[styles.attachStatusText, { color: statusColor }]}>
+                {RESERVE_STATUS_LABELS[reserve.status] ?? reserve.status}
+              </Text>
+            </View>
+          </View>
+          <Text style={styles.attachReserveTitle} numberOfLines={2}>{reserve.title}</Text>
+          <View style={styles.attachReserveMetaRow}>
+            <View style={[styles.priorityDot, { backgroundColor: priorityColor }]} />
+            <Text style={styles.attachReserveMeta} numberOfLines={1}>
+              {[PRIORITY_LABELS[reserve.priority] ?? reserve.priority, reserveCompanyLabel(reserve), meta].filter(Boolean).join(' · ')}
+            </Text>
+          </View>
+          {alreadyLinked && (
+            <View style={styles.attachMoveBadge}>
+              <Ionicons name="swap-horizontal-outline" size={12} color={C.waiting} />
+              <Text style={styles.attachMoveBadgeText}>Déjà liée à une autre visite</Text>
+            </View>
+          )}
+        </View>
+      </TouchableOpacity>
+    );
   }
 
   async function exportPDF() {
@@ -1277,8 +1312,19 @@ export default function VisiteDetailScreen() {
                 </TouchableOpacity>
               </View>
 
-              <ScrollView style={styles.attachList} contentContainerStyle={styles.attachListContent} keyboardShouldPersistTaps="handled">
-                {attachableReserves.length === 0 ? (
+              <FlatList
+                style={styles.attachList}
+                contentContainerStyle={styles.attachListContent}
+                data={attachableReserves}
+                keyExtractor={item => item.id}
+                renderItem={renderAttachReserve}
+                extraData={attachSelectedIds}
+                keyboardShouldPersistTaps="handled"
+                initialNumToRender={12}
+                maxToRenderPerBatch={12}
+                windowSize={7}
+                removeClippedSubviews={Platform.OS !== 'web'}
+                ListEmptyComponent={
                   <View style={styles.attachEmpty}>
                     <Ionicons name="file-tray-outline" size={32} color={C.textMuted} />
                     <Text style={styles.attachEmptyTitle}>Aucune réserve disponible</Text>
@@ -1288,63 +1334,18 @@ export default function VisiteDetailScreen() {
                         : 'Aucune réserve ne correspond à votre recherche.'}
                     </Text>
                   </View>
-                ) : (
-                  attachableReserves.map(reserve => {
-                    const selected = attachSelectedIds.includes(reserve.id);
-                    const statusColor = RESERVE_STATUS_COLORS[reserve.status] ?? C.textMuted;
-                    const priorityColor = PRIORITY_COLORS[reserve.priority] ?? C.textMuted;
-                    const alreadyLinked =
-                      (!!reserve.visiteId && reserve.visiteId !== visite.id)
-                      || visites.some(v => v.id !== visite.id && (v.reserveIds ?? []).includes(reserve.id));
-                    const meta = [reserve.building, reserve.level, reserve.zone].filter(Boolean).join(' · ');
-                    return (
-                      <TouchableOpacity
-                        key={reserve.id}
-                        style={[styles.attachReserveRow, selected && styles.attachReserveRowSelected]}
-                        onPress={() => toggleAttachReserve(reserve.id)}
-                        activeOpacity={0.8}
-                      >
-                        <View style={[styles.attachCheckbox, selected && styles.attachCheckboxSelected]}>
-                          {selected && <Ionicons name="checkmark" size={14} color="#fff" />}
-                        </View>
-                        <View style={styles.attachReserveBody}>
-                          <View style={styles.attachReserveTopRow}>
-                            <Text style={styles.attachReserveId}>{reserve.id}</Text>
-                            <View style={[styles.attachStatusBadge, { backgroundColor: statusColor + '18' }]}>
-                              <Text style={[styles.attachStatusText, { color: statusColor }]}>
-                                {RESERVE_STATUS_LABELS[reserve.status] ?? reserve.status}
-                              </Text>
-                            </View>
-                          </View>
-                          <Text style={styles.attachReserveTitle} numberOfLines={2}>{reserve.title}</Text>
-                          <View style={styles.attachReserveMetaRow}>
-                            <View style={[styles.priorityDot, { backgroundColor: priorityColor }]} />
-                            <Text style={styles.attachReserveMeta} numberOfLines={1}>
-                              {[PRIORITY_LABELS[reserve.priority] ?? reserve.priority, reserveCompanyLabel(reserve), meta].filter(Boolean).join(' · ')}
-                            </Text>
-                          </View>
-                          {alreadyLinked && (
-                            <View style={styles.attachMoveBadge}>
-                              <Ionicons name="swap-horizontal-outline" size={12} color={C.waiting} />
-                              <Text style={styles.attachMoveBadgeText}>Déjà liée à une autre visite</Text>
-                            </View>
-                          )}
-                        </View>
-                      </TouchableOpacity>
-                    );
-                  })
-                )}
-              </ScrollView>
+                }
+              />
 
               <View style={styles.attachFooter}>
                 <TouchableOpacity
-                  style={[styles.attachSubmitBtn, attachSelectedIds.length === 0 && styles.attachSubmitBtnDisabled]}
-                  onPress={() => applyAttachReserves(false)}
-                  disabled={attachSelectedIds.length === 0}
+                  style={[styles.attachSubmitBtn, (attachSelectedIds.length === 0 || attachSubmitting) && styles.attachSubmitBtnDisabled]}
+                  onPress={() => { void applyAttachReserves(false); }}
+                  disabled={attachSelectedIds.length === 0 || attachSubmitting}
                 >
-                  <Ionicons name="link-outline" size={18} color="#fff" />
+                  {attachSubmitting ? <ActivityIndicator size="small" color="#fff" /> : <Ionicons name="link-outline" size={18} color="#fff" />}
                   <Text style={styles.attachSubmitText}>
-                    Ajouter {attachSelectedIds.length > 0 ? `(${attachSelectedIds.length})` : ''}
+                    {attachSubmitting ? 'Ajout en cours...' : `Ajouter ${attachSelectedIds.length > 0 ? `(${attachSelectedIds.length})` : ''}`}
                   </Text>
                 </TouchableOpacity>
               </View>

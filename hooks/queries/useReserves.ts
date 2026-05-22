@@ -14,8 +14,7 @@ import { getReserveDescriptionText } from '@/lib/reserveDescription';
 import { mergeWithCache, readCache, writeCache, pendingIdsForTable, isSupabaseSessionValid } from '@/lib/offlineCache';
 import { uploadLocalPhotosInPayload } from '@/lib/storage';
 import { triggerReserveCreatedPush } from '@/lib/push/client';
-
-const RESERVES_CACHE_KEY = 'buildtrack_reserves_cache_v1';
+import { RESERVES_CACHE_KEY } from '@/lib/cacheKeys';
 
 export function useReserves() {
   const { user } = useAuth();

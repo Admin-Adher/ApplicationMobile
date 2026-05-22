@@ -321,14 +321,31 @@ export async function offlineQuery<T>(
 export function pendingIdsForTable(
   queue: Array<{
     table: string;
-    op: 'insert' | 'update' | 'upsert' | 'delete';
+    op: 'insert' | 'update' | 'upsert' | 'delete' | 'rpc';
     data?: any;
+    rpc?: { fn: string; args?: Record<string, any> };
     filter?: { column: string; value: string };
   }>,
   table: string,
 ): Set<string> {
   const ids = new Set<string>();
   for (const op of queue) {
+    if (op.op === 'rpc' && op.rpc?.fn === 'link_reserves_to_visite') {
+      if (table === 'visites') {
+        if (op.data?.visite_id) ids.add(String(op.data.visite_id));
+        if (Array.isArray(op.data?.previous_visite_ids)) {
+          op.data.previous_visite_ids.forEach((id: any) => {
+            if (id) ids.add(String(id));
+          });
+        }
+      }
+      if (table === 'reserves' && Array.isArray(op.data?.reserve_ids)) {
+        op.data.reserve_ids.forEach((id: any) => {
+          if (id) ids.add(String(id));
+        });
+      }
+      continue;
+    }
     if (op.table !== table) continue;
     if ((op.op === 'insert' || op.op === 'upsert') && op.data?.id) {
       ids.add(String(op.data.id));
@@ -389,7 +406,13 @@ export function mergeWithCache<T extends { id: string }>(
   const localOnly = cached.filter(
     item => !freshIds.has(item.id) && pendingIds.has(item.id),
   );
-  return [...fresh, ...localOnly];
+  const cachedById = new Map(cached.map(item => [item.id, item]));
+  const mergedFresh = fresh.map(item =>
+    pendingIds.has(item.id) && cachedById.has(item.id)
+      ? cachedById.get(item.id)!
+      : item
+  );
+  return [...mergedFresh, ...localOnly];
 }
 
 /**

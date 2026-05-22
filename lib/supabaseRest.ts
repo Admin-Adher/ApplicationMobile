@@ -111,6 +111,11 @@ function tableUrl(table: string, params?: Array<[string, string]>): string {
   return url.toString();
 }
 
+function rpcUrl(fn: string): string {
+  if (!SUPABASE_URL) throw new Error('Supabase URL missing');
+  return `${SUPABASE_URL}/rest/v1/rpc/${encodeURIComponent(fn)}`;
+}
+
 function filterParams(filter?: TableFilter): Array<[string, string]> {
   return filter ? [[filter.column, `eq.${String(filter.value)}`]] : [];
 }
@@ -230,6 +235,20 @@ export async function supabaseRestMutation<T = any>(
     {
       method: 'DELETE',
       headers: { Prefer: 'return=representation' },
+    },
+  );
+}
+
+export async function supabaseRestRpc<T = any>(
+  fn: string,
+  args?: Record<string, any>,
+): Promise<SupabaseRestResult<T>> {
+  return restRequest<T>(
+    rpcUrl(fn),
+    {
+      method: 'POST',
+      headers: { Prefer: 'return=representation' },
+      body: JSON.stringify(args ?? {}),
     },
   );
 }

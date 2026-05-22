@@ -6,7 +6,7 @@ import { Platform, AppState, AppStateStatus } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { supabase, isSupabaseConfigured, resetAuthLock, SUPABASE_KEY, SUPABASE_URL } from '@/lib/supabase';
 import { isLocalUri, uploadLocalPhotosInPayload, purgeOrphanedPhotoFiles } from '@/lib/storage';
-import { getSupabaseRestAccessToken, supabaseRestMutation, supabaseRestSelect } from '@/lib/supabaseRest';
+import { getSupabaseRestAccessToken, supabaseRestMutation, supabaseRestRpc, supabaseRestSelect } from '@/lib/supabaseRest';
 import { forceRefreshSession, getSessionFromStorage } from '@/lib/offlineCache';
 import { normalizeVisitePayloadForSupabase } from '@/lib/mappers';
 import { useAuth } from '@/context/AuthContext';
@@ -76,9 +76,11 @@ export interface QueuedOperation {
   id: string;
   queuedAt: string;
   table: string;
-  op: 'insert' | 'update' | 'upsert' | 'delete';
+  op: 'insert' | 'update' | 'upsert' | 'delete' | 'rpc';
   filter?: { column: string; value: string };
   data?: Record<string, any>;
+  /** Present for atomic Postgres functions replayed through PostgREST RPC. */
+  rpc?: { fn: string; args?: Record<string, any> };
   /** Present only for reserve-status mutations. */
   conflictCheck?: {
     entityId: string;
@@ -647,6 +649,16 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
       let retryOpForCatch: QueuedOperation = op;
       try {
         // ── Status-change conflict detection ───────────────────────────────
+        if (op.op === 'rpc') {
+          if (!op.rpc?.fn) {
+            fail(op, 'RPC manquante.');
+            continue;
+          }
+          const { error } = await supabaseRestRpc(op.rpc.fn, op.rpc.args ?? {});
+          if (error) fail(op, error);
+          continue;
+        }
+
         if (op.conflictCheck) {
           const { entityId, previousStatus, newStatus, author, history, closedAt, closedBy } = op.conflictCheck;
 
@@ -1120,7 +1132,7 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
   // ── Queue management ───────────────────────────────────────────────────────
 
   const enqueueOperation = useCallback((op: Omit<QueuedOperation, 'id' | 'queuedAt'>) => {
-    const allowedOps = new Set(['insert', 'update', 'upsert', 'delete']);
+    const allowedOps = new Set(['insert', 'update', 'upsert', 'delete', 'rpc']);
     if (!allowedOps.has((op as any).op)) {
       console.warn('[queue] operation ignored: op inconnue', (op as any).op, op.table);
       return;

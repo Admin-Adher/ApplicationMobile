@@ -7,11 +7,11 @@ import { useAuth } from '@/context/AuthContext';
 import { useNetwork } from '@/context/NetworkContext';
 import { queryKeys } from '@/lib/queryKeys';
 import { toVisite, fromVisite } from '@/lib/mappers';
-import { Visite } from '@/constants/types';
+import { Reserve, Visite } from '@/constants/types';
 import { useStartupDelay } from '@/hooks/useStartupDelay';
 import { mergeWithCache, readCache, writeCache, pendingIdsForTable, isSupabaseSessionValid } from '@/lib/offlineCache';
-
-const VISITES_CACHE_KEY = 'buildtrack_visites_cache_v1';
+import { supabaseRestRpc } from '@/lib/supabaseRest';
+import { RESERVES_CACHE_KEY, VISITES_CACHE_KEY } from '@/lib/cacheKeys';
 
 export function useVisites() {
   const { user } = useAuth();
@@ -69,6 +69,10 @@ export function useVisites() {
 
   const persist = useCallback((visites: Visite[]) => {
     writeCache(VISITES_CACHE_KEY, visites, userId);
+  }, [userId]);
+
+  const persistReserves = useCallback((reserves: Reserve[]) => {
+    writeCache(RESERVES_CACHE_KEY, reserves, userId);
   }, [userId]);
 
   const addVisite = useCallback(async (v: Visite) => {
@@ -140,28 +144,87 @@ export function useVisites() {
     }
   }, [queryClient, isOnlineRef, enqueueOperation, persist]);
 
-  const linkReserveToVisite = useCallback(async (reserveId: string, visiteId: string) => {
-    const visites = queryClient.getQueryData<Visite[]>(queryKeys.visites()) ?? [];
-    const visite = visites.find(v => v.id === visiteId);
-    if (!visite) return;
-    if (visite.reserveIds.includes(reserveId)) return;
-    const updated = { ...visite, reserveIds: [...visite.reserveIds, reserveId] };
-    queryClient.setQueryData<Visite[]>(queryKeys.visites(), old =>
-      (old ?? []).map(v => v.id === visiteId ? updated : v)
-    );
-    persist(queryClient.getQueryData<Visite[]>(queryKeys.visites()) ?? []);
-    if (!isOnlineRef.current && isSupabaseConfigured) {
-      enqueueOperation({ table: 'visites', op: 'update', filter: { column: 'id', value: visiteId }, data: { reserve_ids: updated.reserveIds } });
-      return;
+  const attachReservesToVisite = useCallback(async (visiteId: string, reserveIds: string[]) => {
+    const selectedIds = Array.from(new Set(
+      reserveIds.map(id => String(id ?? '').trim()).filter(Boolean),
+    ));
+    if (selectedIds.length === 0) {
+      return { success: true, movedCount: 0 };
     }
+
+    const visites = queryClient.getQueryData<Visite[]>(queryKeys.visites()) ?? [];
+    const target = visites.find(v => v.id === visiteId);
+    if (!target) {
+      return { success: false, error: 'Visite introuvable.' };
+    }
+
+    const currentReserves = queryClient.getQueryData<Reserve[]>(queryKeys.reserves()) ?? [];
+    const previousVisitIds = Array.from(new Set(
+      [
+        ...currentReserves
+          .filter(r => selectedIds.includes(r.id) && r.visiteId && r.visiteId !== visiteId)
+          .map(r => r.visiteId!),
+        ...visites
+          .filter(v => v.id !== visiteId && (v.reserveIds ?? []).some(id => selectedIds.includes(id)))
+          .map(v => v.id),
+      ],
+    ));
+
+    const nextVisites = visites.map(v => {
+      if (v.id === visiteId) {
+        return { ...v, reserveIds: Array.from(new Set([...(v.reserveIds ?? []), ...selectedIds])) };
+      }
+      if (previousVisitIds.includes(v.id)) {
+        return { ...v, reserveIds: (v.reserveIds ?? []).filter(id => !selectedIds.includes(id)) };
+      }
+      return v;
+    });
+
+    const nextReserves = currentReserves.map(r =>
+      selectedIds.includes(r.id) ? { ...r, visiteId } : r
+    );
+
+    queryClient.setQueryData<Visite[]>(queryKeys.visites(), nextVisites);
+    queryClient.setQueryData<Reserve[]>(queryKeys.reserves(), nextReserves);
+    persist(nextVisites);
+    persistReserves(nextReserves);
+
+    const rpcArgs = { p_visite_id: visiteId, p_reserve_ids: selectedIds };
+    const queueRpc = (error?: string) => {
+      enqueueOperation({
+        table: 'visite_reserve_links',
+        op: 'rpc',
+        rpc: { fn: 'link_reserves_to_visite', args: rpcArgs },
+        data: {
+          visite_id: visiteId,
+          reserve_ids: selectedIds,
+          previous_visite_ids: previousVisitIds,
+        },
+        lastError: error,
+      });
+    };
+
+    if (!isOnlineRef.current && isSupabaseConfigured) {
+      queueRpc();
+      return { success: true, queued: true, movedCount: previousVisitIds.length };
+    }
+
     if (isSupabaseConfigured) {
-      const { error } = await (supabase as any).from('visites').update({ reserve_ids: updated.reserveIds }).eq('id', visiteId);
+      const { error } = await supabaseRestRpc('link_reserves_to_visite', rpcArgs);
       if (error) {
-        console.warn('[sync] linkReserveToVisite error, queuing for retry:', error.message);
-        enqueueOperation({ table: 'visites', op: 'update', filter: { column: 'id', value: visiteId }, data: { reserve_ids: updated.reserveIds } });
+        const message = error.message ?? String(error);
+        console.warn('[sync] attachReservesToVisite RPC error, queuing for retry:', message);
+        queueRpc(message);
+        return { success: true, queued: true, movedCount: previousVisitIds.length, error: message };
       }
     }
-  }, [queryClient, isOnlineRef, enqueueOperation, persist]);
+
+    return { success: true, movedCount: previousVisitIds.length };
+  }, [queryClient, isOnlineRef, enqueueOperation, persist, persistReserves]);
+
+  const linkReserveToVisite = useCallback(async (reserveId: string, visiteId: string) => {
+    await attachReservesToVisite(visiteId, [reserveId]);
+  }, [attachReservesToVisite]);
 
   return {
     visites: query.data ?? [],
@@ -169,6 +232,7 @@ export function useVisites() {
     addVisite,
     updateVisite,
     deleteVisite,
+    attachReservesToVisite,
     linkReserveToVisite,
     invalidateVisites: () => queryClient.invalidateQueries({ queryKey: queryKeys.visites() }),
   };
