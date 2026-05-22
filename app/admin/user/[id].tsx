@@ -249,7 +249,12 @@ export default function UserEditScreen() {
       if (companyChanged) await updateUserCompany(target.id, localCompanyId || null);
       if (overrideChanged) await updateUserPermissions(target.id, localOverride);
       router.back();
-    } catch {
+    } catch (err: any) {
+      console.warn('[UserEditScreen] save failed:', err?.message ?? err);
+      if (err?.message) {
+        Alert.alert('Erreur', err.message);
+        return;
+      }
       Alert.alert('Erreur', 'Les modifications n\'ont pas pu être enregistrées.');
     } finally {
       setSaving(false);

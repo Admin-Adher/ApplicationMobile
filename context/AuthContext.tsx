@@ -1,7 +1,7 @@
 import React, { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
 import { Alert } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { supabase, isSupabaseConfigured } from '@/lib/supabase';
+import { supabase, isSupabaseConfigured, resetAuthLock } from '@/lib/supabase';
 import { User, UserRole, UserPermissions, PermissionsOverride } from '@/constants/types';
 import { ROLE_LABELS } from '@/constants/roles';
 import { debugLog, debugLogOk, debugLogWarn, debugLogError } from '@/lib/debugLog';
@@ -72,6 +72,26 @@ const DEMO_USERS = [
 
 const DEMO_EMAILS = new Set(DEMO_USERS.map(u => u.email));
 const CACHED_PROFILE_KEY = 'buildtrack_cached_profile_v1';
+const PROFILE_MUTATION_TIMEOUT_MS = 12_000;
+
+function withProfileMutationTimeout<T>(promise: Promise<T>, label: string): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(
+      () => reject(new Error(`Modification trop longue (${label}). Vérifiez votre connexion et réessayez.`)),
+      PROFILE_MUTATION_TIMEOUT_MS,
+    );
+    promise.then(
+      value => {
+        clearTimeout(timer);
+        resolve(value);
+      },
+      error => {
+        clearTimeout(timer);
+        reject(error);
+      },
+    );
+  });
+}
 
 interface AuthContextValue {
   user: User | null;
@@ -1320,13 +1340,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   async function updateUserRole(userId: string, newRole: UserRole): Promise<void> {
     const newLabel = ROLE_LABELS[newRole];
     if (isSupabaseConfigured) {
-      const { error } = await (supabase as any).from('profiles').update({
+      resetAuthLock();
+      const { data, error } = await withProfileMutationTimeout<any>((supabase as any).from('profiles').update({
         role: newRole,
         role_label: newLabel,
-      }).eq('id', userId);
-      if (error) {
-        Alert.alert('Erreur', "Le rôle n'a pas pu être modifié. Vérifiez vos permissions.");
-        return;
+      }).eq('id', userId).select('id').maybeSingle(), 'role utilisateur');
+      if (error || !data?.id) {
+        throw new Error(error?.message ?? "Le rôle n'a pas pu être modifié. Vérifiez vos permissions.");
       }
     }
     setUsers(prev => prev.map(u =>
@@ -1336,12 +1356,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   async function updateUserCompany(userId: string, companyId: string | null): Promise<void> {
     if (isSupabaseConfigured) {
-      const { error } = await (supabase as any).from('profiles').update({
+      resetAuthLock();
+      const { data, error } = await withProfileMutationTimeout<any>((supabase as any).from('profiles').update({
         company_id: companyId,
-      }).eq('id', userId);
-      if (error) {
-        Alert.alert('Erreur', "L'entreprise n'a pas pu être mise à jour. Vérifiez vos permissions.");
-        return;
+      }).eq('id', userId).select('id, company_id').maybeSingle(), 'entreprise utilisateur');
+      if (error || !data?.id) {
+        throw new Error(error?.message ?? "L'entreprise n'a pas pu être mise à jour. Vérifiez vos permissions.");
       }
     }
     setUsers(prev => prev.map(u =>
@@ -1392,12 +1412,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   async function updateUserPermissions(userId: string, override: PermissionsOverride): Promise<void> {
     if (isSupabaseConfigured) {
-      const { error } = await (supabase as any).from('profiles').update({
+      resetAuthLock();
+      const { data, error } = await withProfileMutationTimeout<any>((supabase as any).from('profiles').update({
         permissions_override: override,
-      }).eq('id', userId);
-      if (error) {
-        Alert.alert('Erreur', "Les permissions n'ont pas pu être mises à jour. Vérifiez vos accès.");
-        return;
+      }).eq('id', userId).select('id').maybeSingle(), 'permissions utilisateur');
+      if (error || !data?.id) {
+        throw new Error(error?.message ?? "Les permissions n'ont pas pu être mises à jour. Vérifiez vos accès.");
       }
     }
     setUsers(prev => prev.map(u =>
