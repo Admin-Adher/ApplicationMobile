@@ -479,7 +479,7 @@ function buildVisitePDF(
 export default function VisiteDetailScreen() {
   const router = useRouter();
   const { id } = useLocalSearchParams<{ id: string }>();
-  const { visites, reserves, updateVisite, deleteVisite, activeChantier, oprs, photos } = useApp();
+  const { visites, reserves, updateVisite, deleteVisite, updateReserveFields, activeChantier, oprs, photos } = useApp();
   const { user, permissions } = useAuth();
   const { projectName } = useSettings();
 
@@ -495,12 +495,59 @@ export default function VisiteDetailScreen() {
   const [editBuilding, setEditBuilding] = useState('');
   const [editLevel, setEditLevel] = useState('');
   const [editZone, setEditZone] = useState('');
+  const [attachModalVisible, setAttachModalVisible] = useState(false);
+  const [attachSearch, setAttachSearch] = useState('');
+  const [attachSelectedIds, setAttachSelectedIds] = useState<string[]>([]);
+  const [attachScopeOnly, setAttachScopeOnly] = useState(true);
 
   const visite = visites.find(v => v.id === id);
+  const visiteReserveIds = useMemo(() => new Set(visite?.reserveIds ?? []), [visite?.reserveIds]);
+  const visitedBuildingNames = useMemo(() => {
+    const names = new Set<string>();
+    visite?.visitedLocations?.forEach(loc => {
+      if (loc.buildingName) names.add(loc.buildingName);
+    });
+    if (visite?.building) names.add(visite.building);
+    return names;
+  }, [visite?.visitedLocations, visite?.building]);
   const visiteReserves = useMemo(
-    () => enrichReserveListForPdf(reserves.filter(r => visite?.reserveIds.includes(r.id)), photos),
-    [reserves, visite, photos]
+    () => enrichReserveListForPdf(
+      reserves.filter(r => !!visite && (visiteReserveIds.has(r.id) || r.visiteId === visite.id)),
+      photos
+    ),
+    [reserves, visite, visiteReserveIds, photos]
   );
+  const attachableReserves = useMemo(() => {
+    if (!visite) return [];
+    const query = attachSearch.trim().toLowerCase();
+    return reserves
+      .filter(r => {
+        if (visiteReserveIds.has(r.id) || r.visiteId === visite.id) return false;
+        if (visite.chantierId && r.chantierId && r.chantierId !== visite.chantierId) return false;
+        if (attachScopeOnly && visitedBuildingNames.size > 0 && r.building && !visitedBuildingNames.has(r.building)) return false;
+        if (!query) return true;
+        const haystack = [
+          r.id,
+          r.title,
+          r.description,
+          r.company,
+          ...(r.companies ?? []),
+          r.building,
+          r.level,
+          r.zone,
+        ].filter(Boolean).join(' ').toLowerCase();
+        return haystack.includes(query);
+      })
+      .sort((a, b) => {
+        const aMoved = (a.visiteId || visites.some(v => v.id !== visite.id && (v.reserveIds ?? []).includes(a.id))) ? 1 : 0;
+        const bMoved = (b.visiteId || visites.some(v => v.id !== visite.id && (v.reserveIds ?? []).includes(b.id))) ? 1 : 0;
+        if (aMoved !== bMoved) return aMoved - bMoved;
+        const aScope = visitedBuildingNames.has(a.building) ? 0 : 1;
+        const bScope = visitedBuildingNames.has(b.building) ? 0 : 1;
+        if (aScope !== bScope) return aScope - bScope;
+        return a.id.localeCompare(b.id);
+      });
+  }, [reserves, visites, visite, visiteReserveIds, attachSearch, attachScopeOnly, visitedBuildingNames]);
 
   const tunnelData = useMemo(() => {
     if (!visite) return null;
@@ -623,6 +670,79 @@ export default function VisiteDetailScreen() {
     if (!visite) return;
     updateVisite({ ...visite, id: visite.id!, building: editBuilding || undefined, level: editLevel || undefined, zone: editZone || undefined });
     setEditLocModal(false);
+  }
+
+  function openAttachModal() {
+    setAttachSearch('');
+    setAttachSelectedIds([]);
+    setAttachScopeOnly(true);
+    setAttachModalVisible(true);
+  }
+
+  function toggleAttachReserve(reserveId: string) {
+    setAttachSelectedIds(prev =>
+      prev.includes(reserveId)
+        ? prev.filter(id => id !== reserveId)
+        : [...prev, reserveId]
+    );
+  }
+
+  function applyAttachReserves(forceMove = false) {
+    if (!visite || attachSelectedIds.length === 0) return;
+    const selected = reserves.filter(r => attachSelectedIds.includes(r.id));
+    if (selected.length === 0) return;
+    const selectedIds = selected.map(r => r.id);
+
+    const reservesAlreadyInOtherVisit = selected.filter(r =>
+      (r.visiteId && r.visiteId !== visite.id)
+      || visites.some(v => v.id !== visite.id && (v.reserveIds ?? []).includes(r.id))
+    );
+    if (reservesAlreadyInOtherVisit.length > 0 && !forceMove) {
+      Alert.alert(
+        'Déplacer des réserves ?',
+        `${reservesAlreadyInOtherVisit.length} réserve${reservesAlreadyInOtherVisit.length > 1 ? 's sont déjà liées' : ' est déjà liée'} à une autre visite. Elles seront retirées de leur ancienne visite et ajoutées ici.`,
+        [
+          { text: 'Annuler', style: 'cancel' },
+          { text: 'Déplacer', style: 'destructive', onPress: () => applyAttachReserves(true) },
+        ]
+      );
+      return;
+    }
+
+    updateVisite({
+      ...visite,
+      id: visite.id!,
+      reserveIds: Array.from(new Set([...(visite.reserveIds ?? []), ...selectedIds])),
+    });
+
+    const previousVisitIds = Array.from(new Set(
+      [
+        ...selected
+          .map(r => r.visiteId)
+          .filter((visitId): visitId is string => !!visitId && visitId !== visite.id),
+        ...visites
+          .filter(v => v.id !== visite.id && (v.reserveIds ?? []).some(reserveId => selectedIds.includes(reserveId)))
+          .map(v => v.id),
+      ]
+    ));
+    previousVisitIds.forEach(previousVisitId => {
+      const previousVisit = visites.find(v => v.id === previousVisitId);
+      if (!previousVisit) return;
+      updateVisite({
+        ...previousVisit,
+        id: previousVisit.id!,
+        reserveIds: (previousVisit.reserveIds ?? []).filter(reserveId => !selectedIds.includes(reserveId)),
+      });
+    });
+
+    selected.forEach(reserve => {
+      updateReserveFields({ ...reserve, visiteId: visite.id });
+    });
+
+    setAttachSelectedIds([]);
+    setAttachSearch('');
+    setAttachModalVisible(false);
+    Alert.alert('Réserves ajoutées', `${selected.length} réserve${selected.length > 1 ? 's ont été rattachées' : ' a été rattachée'} à cette visite.`);
   }
 
   async function exportPDF() {
@@ -862,13 +982,19 @@ export default function VisiteDetailScreen() {
         <View style={styles.sectionHeader}>
           <Text style={styles.sectionTitle}>Réserves de cette visite ({visiteReserves.length})</Text>
           {permissions.canCreate && (
-            <TouchableOpacity
-              style={styles.addBtn}
-              onPress={() => router.push(`/reserve/new?visiteId=${visite.id}` as any)}
-            >
-              <Ionicons name="add" size={15} color={C.primary} />
-              <Text style={styles.addBtnText}>Ajouter</Text>
-            </TouchableOpacity>
+            <View style={styles.sectionActions}>
+              <TouchableOpacity style={styles.secondaryAddBtn} onPress={openAttachModal}>
+                <Ionicons name="link-outline" size={14} color={C.primary} />
+                <Text style={styles.secondaryAddBtnText}>Existante</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.addBtn}
+                onPress={() => router.push(`/reserve/new?visiteId=${visite.id}` as any)}
+              >
+                <Ionicons name="add" size={15} color={C.primary} />
+                <Text style={styles.addBtnText}>Nouvelle</Text>
+              </TouchableOpacity>
+            </View>
           )}
         </View>
 
@@ -877,6 +1003,21 @@ export default function VisiteDetailScreen() {
             <Ionicons name="warning-outline" size={32} color={C.textMuted} />
             <Text style={styles.emptyText}>Aucune réserve rattachée à cette visite</Text>
             <Text style={styles.emptySubText}>Les réserves créées avec cette visite apparaîtront ici</Text>
+            {permissions.canCreate && (
+              <View style={styles.emptyActions}>
+                <TouchableOpacity style={styles.emptySecondaryBtn} onPress={openAttachModal}>
+                  <Ionicons name="link-outline" size={15} color={C.primary} />
+                  <Text style={styles.emptySecondaryBtnText}>Rattacher une réserve</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={styles.emptyPrimaryBtn}
+                  onPress={() => router.push(`/reserve/new?visiteId=${visite.id}` as any)}
+                >
+                  <Ionicons name="add" size={15} color="#fff" />
+                  <Text style={styles.emptyPrimaryBtnText}>Nouvelle réserve</Text>
+                </TouchableOpacity>
+              </View>
+            )}
           </View>
         ) : (
           visiteReserves.map(r => {
@@ -1086,6 +1227,132 @@ export default function VisiteDetailScreen() {
         </KeyboardAvoidingView>
       </Modal>
 
+      <Modal visible={attachModalVisible} transparent animationType="slide" onRequestClose={() => setAttachModalVisible(false)}>
+        <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
+          <View style={styles.modalOverlay}>
+            <View style={styles.attachModal}>
+              <View style={styles.attachHandle} />
+              <View style={styles.attachModalHeader}>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.attachModalTitle}>Ajouter des réserves existantes</Text>
+                  <Text style={styles.attachModalSubtitle}>
+                    Sélectionnez les réserves du chantier à rattacher à cette visite.
+                  </Text>
+                </View>
+                <TouchableOpacity onPress={() => setAttachModalVisible(false)} style={styles.attachCloseBtn}>
+                  <Ionicons name="close" size={22} color={C.text} />
+                </TouchableOpacity>
+              </View>
+
+              <View style={styles.attachSearchBox}>
+                <Ionicons name="search-outline" size={18} color={C.textMuted} />
+                <TextInput
+                  style={styles.attachSearchInput}
+                  placeholder="Rechercher une réserve, entreprise, zone..."
+                  placeholderTextColor={C.textMuted}
+                  value={attachSearch}
+                  onChangeText={setAttachSearch}
+                />
+                {attachSearch ? (
+                  <TouchableOpacity onPress={() => setAttachSearch('')} hitSlop={8}>
+                    <Ionicons name="close-circle" size={18} color={C.textMuted} />
+                  </TouchableOpacity>
+                ) : null}
+              </View>
+
+              <View style={styles.attachScopeRow}>
+                <TouchableOpacity
+                  style={[styles.attachScopeBtn, attachScopeOnly && styles.attachScopeBtnActive]}
+                  onPress={() => setAttachScopeOnly(true)}
+                >
+                  <Ionicons name="map-outline" size={14} color={attachScopeOnly ? C.primary : C.textSub} />
+                  <Text style={[styles.attachScopeText, attachScopeOnly && styles.attachScopeTextActive]}>Périmètre visite</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[styles.attachScopeBtn, !attachScopeOnly && styles.attachScopeBtnActive]}
+                  onPress={() => setAttachScopeOnly(false)}
+                >
+                  <Ionicons name="business-outline" size={14} color={!attachScopeOnly ? C.primary : C.textSub} />
+                  <Text style={[styles.attachScopeText, !attachScopeOnly && styles.attachScopeTextActive]}>Tout le chantier</Text>
+                </TouchableOpacity>
+              </View>
+
+              <ScrollView style={styles.attachList} contentContainerStyle={styles.attachListContent} keyboardShouldPersistTaps="handled">
+                {attachableReserves.length === 0 ? (
+                  <View style={styles.attachEmpty}>
+                    <Ionicons name="file-tray-outline" size={32} color={C.textMuted} />
+                    <Text style={styles.attachEmptyTitle}>Aucune réserve disponible</Text>
+                    <Text style={styles.attachEmptyText}>
+                      {attachScopeOnly
+                        ? 'Aucune réserve ne correspond au périmètre de cette visite. Essayez avec tout le chantier.'
+                        : 'Aucune réserve ne correspond à votre recherche.'}
+                    </Text>
+                  </View>
+                ) : (
+                  attachableReserves.map(reserve => {
+                    const selected = attachSelectedIds.includes(reserve.id);
+                    const statusColor = RESERVE_STATUS_COLORS[reserve.status] ?? C.textMuted;
+                    const priorityColor = PRIORITY_COLORS[reserve.priority] ?? C.textMuted;
+                    const alreadyLinked =
+                      (!!reserve.visiteId && reserve.visiteId !== visite.id)
+                      || visites.some(v => v.id !== visite.id && (v.reserveIds ?? []).includes(reserve.id));
+                    const meta = [reserve.building, reserve.level, reserve.zone].filter(Boolean).join(' · ');
+                    return (
+                      <TouchableOpacity
+                        key={reserve.id}
+                        style={[styles.attachReserveRow, selected && styles.attachReserveRowSelected]}
+                        onPress={() => toggleAttachReserve(reserve.id)}
+                        activeOpacity={0.8}
+                      >
+                        <View style={[styles.attachCheckbox, selected && styles.attachCheckboxSelected]}>
+                          {selected && <Ionicons name="checkmark" size={14} color="#fff" />}
+                        </View>
+                        <View style={styles.attachReserveBody}>
+                          <View style={styles.attachReserveTopRow}>
+                            <Text style={styles.attachReserveId}>{reserve.id}</Text>
+                            <View style={[styles.attachStatusBadge, { backgroundColor: statusColor + '18' }]}>
+                              <Text style={[styles.attachStatusText, { color: statusColor }]}>
+                                {RESERVE_STATUS_LABELS[reserve.status] ?? reserve.status}
+                              </Text>
+                            </View>
+                          </View>
+                          <Text style={styles.attachReserveTitle} numberOfLines={2}>{reserve.title}</Text>
+                          <View style={styles.attachReserveMetaRow}>
+                            <View style={[styles.priorityDot, { backgroundColor: priorityColor }]} />
+                            <Text style={styles.attachReserveMeta} numberOfLines={1}>
+                              {[PRIORITY_LABELS[reserve.priority] ?? reserve.priority, reserveCompanyLabel(reserve), meta].filter(Boolean).join(' · ')}
+                            </Text>
+                          </View>
+                          {alreadyLinked && (
+                            <View style={styles.attachMoveBadge}>
+                              <Ionicons name="swap-horizontal-outline" size={12} color={C.waiting} />
+                              <Text style={styles.attachMoveBadgeText}>Déjà liée à une autre visite</Text>
+                            </View>
+                          )}
+                        </View>
+                      </TouchableOpacity>
+                    );
+                  })
+                )}
+              </ScrollView>
+
+              <View style={styles.attachFooter}>
+                <TouchableOpacity
+                  style={[styles.attachSubmitBtn, attachSelectedIds.length === 0 && styles.attachSubmitBtnDisabled]}
+                  onPress={() => applyAttachReserves(false)}
+                  disabled={attachSelectedIds.length === 0}
+                >
+                  <Ionicons name="link-outline" size={18} color="#fff" />
+                  <Text style={styles.attachSubmitText}>
+                    Ajouter {attachSelectedIds.length > 0 ? `(${attachSelectedIds.length})` : ''}
+                  </Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          </View>
+        </KeyboardAvoidingView>
+      </Modal>
+
       <BottomNavBar />
     </View>
   );
@@ -1146,14 +1413,33 @@ const styles = StyleSheet.create({
   checklistItemText: { flex: 1, fontSize: 13, fontFamily: 'Inter_400Regular', color: C.text },
   checklistItemTextDone: { color: C.textMuted, textDecorationLine: 'line-through' },
 
-  sectionHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 },
-  sectionTitle: { fontSize: 14, fontFamily: 'Inter_600SemiBold', color: C.text },
+  sectionHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: 10 },
+  sectionTitle: { fontSize: 14, fontFamily: 'Inter_600SemiBold', color: C.text, flexShrink: 1 },
+  sectionActions: { flexDirection: 'row', alignItems: 'center', gap: 12 },
   addBtn: { flexDirection: 'row', alignItems: 'center', gap: 4 },
   addBtnText: { fontSize: 13, fontFamily: 'Inter_500Medium', color: C.primary },
+  secondaryAddBtn: {
+    flexDirection: 'row', alignItems: 'center', gap: 4,
+    backgroundColor: C.primary + '10', borderRadius: 999, paddingHorizontal: 10, paddingVertical: 6,
+    borderWidth: 1, borderColor: C.primary + '25',
+  },
+  secondaryAddBtnText: { fontSize: 12, fontFamily: 'Inter_600SemiBold', color: C.primary },
 
   emptyReserves: { alignItems: 'center', padding: 32, gap: 8, backgroundColor: C.surface, borderRadius: 14, borderWidth: 1, borderColor: C.border, marginBottom: 16 },
   emptyText: { fontSize: 14, fontFamily: 'Inter_500Medium', color: C.text },
   emptySubText: { fontSize: 12, fontFamily: 'Inter_400Regular', color: C.textSub, textAlign: 'center' },
+  emptyActions: { width: '100%', gap: 10, marginTop: 12 },
+  emptySecondaryBtn: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6,
+    borderWidth: 1, borderColor: C.primary + '35', backgroundColor: C.primary + '10',
+    borderRadius: 12, paddingVertical: 12,
+  },
+  emptySecondaryBtnText: { fontSize: 13, fontFamily: 'Inter_700Bold', color: C.primary },
+  emptyPrimaryBtn: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6,
+    backgroundColor: C.primary, borderRadius: 12, paddingVertical: 12,
+  },
+  emptyPrimaryBtnText: { fontSize: 13, fontFamily: 'Inter_700Bold', color: '#fff' },
 
   reserveCard: {
     backgroundColor: C.surface, borderRadius: 12, padding: 14,
@@ -1292,4 +1578,80 @@ const styles = StyleSheet.create({
     paddingVertical: 14,
   },
   locSaveBtnText: { fontSize: 15, fontFamily: 'Inter_700Bold', color: '#fff' },
+
+  attachModal: {
+    backgroundColor: C.surface, borderTopLeftRadius: 22, borderTopRightRadius: 22,
+    maxHeight: '88%', paddingBottom: 28,
+  },
+  attachHandle: {
+    width: 44, height: 5, borderRadius: 999, backgroundColor: C.border,
+    alignSelf: 'center', marginTop: 10, marginBottom: 4,
+  },
+  attachModalHeader: {
+    flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between',
+    paddingHorizontal: 18, paddingTop: 10, paddingBottom: 14,
+  },
+  attachModalTitle: { fontSize: 18, fontFamily: 'Inter_800ExtraBold', color: C.text },
+  attachModalSubtitle: { fontSize: 12, fontFamily: 'Inter_400Regular', color: C.textSub, marginTop: 4, lineHeight: 17 },
+  attachCloseBtn: {
+    width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center',
+    backgroundColor: C.surface2, marginLeft: 12,
+  },
+  attachSearchBox: {
+    flexDirection: 'row', alignItems: 'center', gap: 8,
+    marginHorizontal: 18, backgroundColor: C.bg, borderWidth: 1, borderColor: C.border,
+    borderRadius: 14, paddingHorizontal: 12, paddingVertical: 10,
+  },
+  attachSearchInput: {
+    flex: 1, fontSize: 14, fontFamily: 'Inter_400Regular', color: C.text,
+    paddingVertical: Platform.OS === 'ios' ? 4 : 0,
+  },
+  attachScopeRow: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 18, paddingTop: 12 },
+  attachScopeBtn: {
+    flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6,
+    borderRadius: 12, paddingVertical: 10, borderWidth: 1, borderColor: C.border,
+    backgroundColor: C.surface2,
+  },
+  attachScopeBtnActive: { borderColor: C.primary + '55', backgroundColor: C.primary + '12' },
+  attachScopeText: { fontSize: 12, fontFamily: 'Inter_600SemiBold', color: C.textSub },
+  attachScopeTextActive: { color: C.primary },
+  attachList: { marginTop: 12 },
+  attachListContent: { paddingHorizontal: 18, paddingBottom: 12, gap: 8 },
+  attachReserveRow: {
+    flexDirection: 'row', gap: 12, padding: 12, borderRadius: 14,
+    borderWidth: 1, borderColor: C.border, backgroundColor: C.surface,
+  },
+  attachReserveRowSelected: { borderColor: C.primary + '80', backgroundColor: C.primary + '08' },
+  attachCheckbox: {
+    width: 24, height: 24, borderRadius: 8, borderWidth: 1.5, borderColor: C.border,
+    alignItems: 'center', justifyContent: 'center', marginTop: 2, backgroundColor: C.surface2,
+  },
+  attachCheckboxSelected: { backgroundColor: C.primary, borderColor: C.primary },
+  attachReserveBody: { flex: 1, minWidth: 0 },
+  attachReserveTopRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: 4 },
+  attachReserveId: { fontSize: 11, fontFamily: 'Inter_700Bold', color: C.textMuted },
+  attachStatusBadge: { paddingHorizontal: 8, paddingVertical: 3, borderRadius: 999 },
+  attachStatusText: { fontSize: 10, fontFamily: 'Inter_700Bold' },
+  attachReserveTitle: { fontSize: 14, fontFamily: 'Inter_700Bold', color: C.text, lineHeight: 18 },
+  attachReserveMetaRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 6 },
+  attachReserveMeta: { flex: 1, fontSize: 12, fontFamily: 'Inter_400Regular', color: C.textSub },
+  attachMoveBadge: {
+    flexDirection: 'row', alignItems: 'center', alignSelf: 'flex-start', gap: 5,
+    marginTop: 8, paddingHorizontal: 8, paddingVertical: 4, borderRadius: 999,
+    backgroundColor: C.waiting + '14', borderWidth: 1, borderColor: C.waiting + '30',
+  },
+  attachMoveBadgeText: { fontSize: 11, fontFamily: 'Inter_600SemiBold', color: C.waiting },
+  attachEmpty: {
+    alignItems: 'center', justifyContent: 'center', paddingVertical: 36, paddingHorizontal: 20,
+    borderRadius: 14, borderWidth: 1, borderColor: C.border, backgroundColor: C.surface2,
+  },
+  attachEmptyTitle: { fontSize: 14, fontFamily: 'Inter_700Bold', color: C.text, marginTop: 10 },
+  attachEmptyText: { fontSize: 12, fontFamily: 'Inter_400Regular', color: C.textSub, textAlign: 'center', lineHeight: 17, marginTop: 4 },
+  attachFooter: { paddingHorizontal: 18, paddingTop: 10 },
+  attachSubmitBtn: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8,
+    backgroundColor: C.primary, borderRadius: 14, paddingVertical: 14,
+  },
+  attachSubmitBtnDisabled: { backgroundColor: C.primary + '45' },
+  attachSubmitText: { fontSize: 15, fontFamily: 'Inter_800ExtraBold', color: '#fff' },
 });
