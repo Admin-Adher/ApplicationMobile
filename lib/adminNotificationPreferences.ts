@@ -12,7 +12,7 @@ function getBaseApiUrl(): string {
   if (Platform.OS === 'web' && typeof window !== 'undefined') {
     return window.location.origin;
   }
-  return process.env.EXPO_PUBLIC_API_URL || process.env.EXPO_PUBLIC_APP_URL || '';
+  return (process.env.EXPO_PUBLIC_API_URL || process.env.EXPO_PUBLIC_APP_URL || '').replace(/\/+$/, '');
 }
 
 function getApiUrl(userId?: string): string {
@@ -48,17 +48,35 @@ async function requestAdminPreferences(
 ): Promise<AdminEmailPreferenceState> {
   const accessToken = await getAccessToken();
   if (!accessToken) throw new Error('Session admin introuvable.');
-  const response = await fetch(url, {
-    ...init,
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${accessToken}`,
-      ...(init?.headers ?? {}),
-    },
-  });
-  const payload = await response.json().catch(() => ({}));
+  if (Platform.OS !== 'web' && !/^https?:\/\//i.test(url)) {
+    throw new Error('URL API manquante. Configurez EXPO_PUBLIC_APP_URL ou EXPO_PUBLIC_API_URL.');
+  }
+
+  let response: Response;
+  try {
+    response = await fetch(url, {
+      ...init,
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${accessToken}`,
+        ...(init?.headers ?? {}),
+      },
+    });
+  } catch (err: any) {
+    throw new Error(err?.message || "Impossible de joindre l'API BuildTrack.");
+  }
+
+  const raw = await response.text();
+  let payload: any = {};
+  try {
+    payload = raw ? JSON.parse(raw) : {};
+  } catch {
+    payload = {};
+  }
+
   if (!response.ok) {
-    throw new Error(payload?.error ?? response.statusText);
+    const detail = payload?.error || payload?.message || response.statusText || raw.slice(0, 180);
+    throw new Error(detail || `API BuildTrack indisponible (${response.status}).`);
   }
   return mapPreferences(payload?.preferences);
 }
