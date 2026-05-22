@@ -145,10 +145,11 @@ async function notifyAdminOfAcceptedInvitation(params: {
 
 async function linkPendingInvitation(userId: string, email: string, inviteeName?: string): Promise<string | undefined> {
   try {
+    const emailLower = email.trim().toLowerCase();
     const { data: inv } = await (supabase as any)
       .from('invitations')
       .select('*')
-      .eq('email', email.toLowerCase())
+      .eq('email', emailLower)
       .eq('status', 'pending')
       .gt('expires_at', new Date().toISOString())
       .order('created_at', { ascending: false })
@@ -171,13 +172,37 @@ async function linkPendingInvitation(userId: string, email: string, inviteeName?
       invitedById: inv.invited_by,
       organizationId: inv.organization_id,
       role: inv.role,
-      inviteeEmail: email,
+      inviteeEmail: emailLower,
       inviteeName,
     });
 
     return inv.organization_id;
   } catch {
     return undefined;
+  }
+}
+
+type InvitationLinkResult = {
+  linked?: boolean;
+  organization_id?: string;
+  role?: string;
+  reason?: string;
+};
+
+async function linkInvitationForCurrentUser(inviteeName?: string): Promise<InvitationLinkResult | null> {
+  try {
+    const { data, error } = await (supabase as any).rpc(
+      'link_invitation_for_current_user',
+      { p_name: inviteeName?.trim() || null }
+    );
+    if (error) {
+      console.warn('[linkInvitationForCurrentUser] RPC error:', error.code, error.message);
+      return null;
+    }
+    return (data ?? null) as InvitationLinkResult | null;
+  } catch (err) {
+    console.warn('[linkInvitationForCurrentUser] RPC exception:', err);
+    return null;
   }
 }
 
@@ -244,9 +269,9 @@ async function fetchProfile(userId: string, skipInvitationLink = false): Promise
       if (skipInvitationLink) {
         // Pendant le login, on ne bloque pas pour lier l'invitation —
         // on le fait en arrière-plan après avoir rendu la main à l'utilisateur.
-        const email = profileData.email as string;
         const name = profileData.name as string;
-        linkPendingInvitation(userId, email, name).then(linkedOrgId => {
+        linkInvitationForCurrentUser(name).then(result => {
+          const linkedOrgId = result?.linked ? result.organization_id : undefined;
           if (linkedOrgId) {
             (supabase as any).from('profiles').select('*').eq('id', userId).single().then(({ data: refreshed }: { data: any }) => {
               if (refreshed) {
@@ -258,7 +283,11 @@ async function fetchProfile(userId: string, skipInvitationLink = false): Promise
           }
         }).catch(() => {});
       } else {
-        const linkedOrgId = await linkPendingInvitation(userId, profileData.email as string, profileData.name as string);
+        const rpcLink = await linkInvitationForCurrentUser(profileData.name as string);
+        let linkedOrgId = rpcLink?.linked ? rpcLink.organization_id : undefined;
+        if (!linkedOrgId) {
+          linkedOrgId = await linkPendingInvitation(userId, profileData.email as string, profileData.name as string);
+        }
         if (linkedOrgId) {
           const { data: refreshed } = await (supabase as any).from('profiles').select('*').eq('id', userId).single();
           if (refreshed) {
@@ -1209,6 +1238,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           profile = await fetchProfile(authUser.id, true);
         }
 
+        if (profile && !profile.organizationId && profile.role !== 'super_admin') {
+          console.warn('[login] profil sans organisation - tentative de liaison invitation...');
+          const linked = await linkInvitationForCurrentUser(profile.name || authUser.email?.split('@')[0] || '');
+          if (linked?.linked) {
+            profile = await fetchProfile(authUser.id, true);
+          }
+        }
+
         // Recovery : si le profil est toujours manquant et que l'utilisateur
         // a une invitation en attente (cas d'une inscription précédente où
         // l'INSERT profiles avait échoué silencieusement à cause de la RLS),
@@ -1316,6 +1353,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const targetUser = users.find(u => u.id === userId);
 
     if (isSupabaseConfigured) {
+      if (targetUser?.email && targetUser.organizationId) {
+        await (supabase as any)
+          .from('invitations')
+          .delete()
+          .eq('organization_id', targetUser.organizationId)
+          .eq('email', targetUser.email.trim().toLowerCase());
+      }
       const { error } = await (supabase as any).from('profiles').delete().eq('id', userId);
       if (error) {
         Alert.alert('Erreur', "Le profil n'a pas pu être supprimé. Vérifiez vos permissions.");
