@@ -13,12 +13,14 @@ interface PushNotificationsContextValue {
   expoPushToken: string | null;
   permissionStatus: PushPermissionStatus;
   lastError: string | null;
+  retryRegistration: () => void;
 }
 
 const PushNotificationsContext = createContext<PushNotificationsContextValue>({
   expoPushToken: null,
   permissionStatus: 'undetermined',
   lastError: null,
+  retryRegistration: () => {},
 });
 
 if (Platform.OS !== 'web') {
@@ -85,6 +87,7 @@ export function PushNotificationsProvider({ children }: { children: React.ReactN
     Platform.OS === 'web' ? 'unsupported' : 'undetermined',
   );
   const [lastError, setLastError] = useState<string | null>(null);
+  const [registrationNonce, setRegistrationNonce] = useState(0);
 
   useEffect(() => {
     if (Platform.OS === 'web') return;
@@ -177,12 +180,13 @@ export function PushNotificationsProvider({ children }: { children: React.ReactN
 
     void register();
     return () => { cancelled = true; };
-  }, [user?.id, user?.organizationId, preferences.pushEnabled]);
+  }, [user?.id, user?.organizationId, preferences.pushEnabled, registrationNonce]);
 
   const value = useMemo<PushNotificationsContextValue>(() => ({
     expoPushToken,
     permissionStatus,
     lastError,
+    retryRegistration: () => setRegistrationNonce(n => n + 1),
   }), [expoPushToken, permissionStatus, lastError]);
 
   return (

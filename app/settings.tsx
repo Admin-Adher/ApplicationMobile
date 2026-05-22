@@ -1,9 +1,11 @@
 import {
-  View, Text, StyleSheet, ScrollView, TextInput, TouchableOpacity, Alert, Platform, KeyboardAvoidingView, Switch,
+  View, Text, StyleSheet, ScrollView, TextInput, TouchableOpacity, Alert, Platform, KeyboardAvoidingView, Switch, Linking,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useState, useMemo, useEffect } from 'react';
 import { useRouter } from 'expo-router';
+import * as Application from 'expo-application';
+import * as IntentLauncher from 'expo-intent-launcher';
 import { C } from '@/constants/colors';
 import Header from '@/components/Header';
 import { useSettings } from '@/context/SettingsContext';
@@ -70,7 +72,7 @@ export default function SettingsScreen() {
   const { organization, plan, subscription, seatUsed, seatMax } = useSubscription();
   const { queue, queueCount, isOnline, syncStatus, syncProgress, clearQueue, retrySync } = useNetwork();
   const { preferences: notifPrefs, updatePreferences, isLoading: notifLoading, lastError: notifError } = useNotificationPreferences();
-  const { expoPushToken, permissionStatus, lastError: pushError } = usePushNotifications();
+  const { expoPushToken, permissionStatus, lastError: pushError, retryRegistration: retryPushRegistration } = usePushNotifications();
 
   const [nameInput, setNameInput] = useState(projectName);
   const [descInput, setDescInput] = useState(projectDescription);
@@ -260,6 +262,18 @@ export default function SettingsScreen() {
     : permissionStatus === 'denied'
       ? '#EF4444'
       : '#F59E0B';
+  const showPushPermissionCta = Platform.OS !== 'web'
+    && !pushError
+    && (permissionStatus === 'undetermined' || permissionStatus === 'denied' || !notifPrefs.pushEnabled);
+  const pushPermissionCtaTitle = permissionStatus === 'denied'
+    ? 'Notifications bloquées sur ce téléphone'
+    : 'Recevoir les alertes importantes';
+  const pushPermissionCtaText = permissionStatus === 'denied'
+    ? "BuildTrack ne peut plus demander la permission automatiquement. Activez les notifications dans les réglages de l'appareil."
+    : "Autorisez BuildTrack à envoyer des notifications natives pour les messages, réserves critiques et rappels chantier.";
+  const pushPermissionCtaLabel = permissionStatus === 'denied'
+    ? 'Ouvrir les réglages'
+    : 'Autoriser les notifications';
 
   function renderSwitchRow(
     key: NotificationBooleanKey,
@@ -302,6 +316,50 @@ export default function SettingsScreen() {
         })}
       </View>
     );
+  }
+
+  async function openBuildTrackNotificationSettings() {
+    try {
+      if (Platform.OS === 'android') {
+        const packageName = Application.applicationId;
+        if (packageName) {
+          await IntentLauncher.startActivityAsync(IntentLauncher.ActivityAction.APP_NOTIFICATION_SETTINGS, {
+            extra: {
+              'android.provider.extra.APP_PACKAGE': packageName,
+            },
+          });
+          retryPushRegistration();
+          return;
+        }
+      }
+      await Linking.openSettings();
+      retryPushRegistration();
+    } catch {
+      try {
+        await Linking.openSettings();
+      } catch {
+        Alert.alert('Réglages indisponibles', "Impossible d'ouvrir les réglages de l'application depuis BuildTrack.");
+      } finally {
+        retryPushRegistration();
+      }
+    }
+  }
+
+  async function handlePushPermissionAction() {
+    if (Platform.OS === 'web') return;
+    if (permissionStatus === 'denied') {
+      Alert.alert(
+        'Autoriser les notifications',
+        "Les notifications sont bloquées par le téléphone. Ouvrez les réglages BuildTrack puis activez les notifications.",
+        [
+          { text: 'Annuler', style: 'cancel' },
+          { text: 'Ouvrir les réglages', onPress: openBuildTrackNotificationSettings },
+        ],
+      );
+      return;
+    }
+    await updatePreferences({ pushEnabled: true });
+    retryPushRegistration();
   }
 
   function handleClearQueue() {
@@ -798,6 +856,36 @@ export default function SettingsScreen() {
                   <Text style={styles.diagAlertTextWarn}>{notifError || pushError}</Text>
                 </View>
               )}
+              {showPushPermissionCta && (
+                <View style={styles.pushPermissionBox}>
+                  <View style={styles.pushPermissionIcon}>
+                    <Ionicons
+                      name={permissionStatus === 'denied' ? 'notifications-off-outline' : 'notifications-outline'}
+                      size={18}
+                      color={permissionStatus === 'denied' ? '#EF4444' : C.primary}
+                    />
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.pushPermissionTitle}>{pushPermissionCtaTitle}</Text>
+                    <Text style={styles.pushPermissionText}>{pushPermissionCtaText}</Text>
+                    <TouchableOpacity
+                      style={[
+                        styles.pushPermissionBtn,
+                        permissionStatus === 'denied' && styles.pushPermissionBtnDanger,
+                      ]}
+                      onPress={handlePushPermissionAction}
+                      activeOpacity={0.82}
+                    >
+                      <Ionicons
+                        name={permissionStatus === 'denied' ? 'settings-outline' : 'checkmark-circle-outline'}
+                        size={16}
+                        color="#fff"
+                      />
+                      <Text style={styles.pushPermissionBtnText}>{pushPermissionCtaLabel}</Text>
+                    </TouchableOpacity>
+                  </View>
+                </View>
+              )}
             </View>
 
             <View style={[styles.card, { marginBottom: 14 }]}>
@@ -1285,6 +1373,42 @@ const styles = StyleSheet.create({
     backgroundColor: C.surface2, borderRadius: 10, paddingHorizontal: 12, paddingVertical: 10,
     borderWidth: 1, borderColor: C.border,
   },
+  pushPermissionBox: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 10,
+    marginTop: 12,
+    padding: 12,
+    borderRadius: 12,
+    backgroundColor: C.primaryBg,
+    borderWidth: 1,
+    borderColor: C.primary + '24',
+  },
+  pushPermissionIcon: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#fff',
+    borderWidth: 1,
+    borderColor: C.border,
+  },
+  pushPermissionTitle: { fontSize: 13, fontFamily: 'Inter_700Bold', color: C.text },
+  pushPermissionText: { fontSize: 12, fontFamily: 'Inter_400Regular', color: C.textMuted, lineHeight: 17, marginTop: 3 },
+  pushPermissionBtn: {
+    alignSelf: 'flex-start',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 7,
+    marginTop: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 9,
+    borderRadius: 10,
+    backgroundColor: C.primary,
+  },
+  pushPermissionBtnDanger: { backgroundColor: '#EF4444' },
+  pushPermissionBtnText: { fontSize: 12, fontFamily: 'Inter_700Bold', color: '#fff' },
   prefRow: {
     flexDirection: 'row', alignItems: 'center', gap: 12,
     paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: C.border,
