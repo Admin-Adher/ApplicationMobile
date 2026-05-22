@@ -73,6 +73,33 @@ async function sendEmail({ to, subject, html, attachments }) {
 }
 
 // ── Email templates ───────────────────────────────────────────────────────────
+function reserveOverdueEmailsEnabled() {
+  return process.env.RESERVE_OVERDUE_EMAILS_ENABLED === 'true';
+}
+
+async function reserveEmailLogInsert(supabase, { type, recipientEmail, reserveId = null, eventKey, metadata = {} }) {
+  if (!supabase) {
+    return { inserted: false, error: 'Supabase admin client indisponible' };
+  }
+  const email = String(recipientEmail || '').trim().toLowerCase();
+  if (!type || !email || !eventKey) {
+    return { inserted: false, error: 'Paramètres de déduplication incomplets' };
+  }
+  const { error } = await supabase
+    .from('email_notification_log')
+    .insert({
+      notification_type: type,
+      recipient_email: email,
+      reserve_id: reserveId,
+      event_key: eventKey,
+      metadata,
+    });
+  if (!error) return { inserted: true };
+  if (error.code === '23505') return { inserted: false, duplicate: true };
+  console.warn('[email dedupe] insert failed:', error.code || '', error.message || error);
+  return { inserted: false, error: error.message || String(error) };
+}
+
 const BRAND_COLOR = '#003082';
 const ACCENT_COLOR = '#FFCB00';
 
@@ -303,6 +330,56 @@ function reserveOverdueTemplate(params) {
 }
 
 // ── Reserve token (for reserve deep links) ────────────────────────────────────
+function reserveOverdueDigestTemplate({ recipientName, rows }) {
+  const firstName = String(recipientName || '').split(' ')[0] || 'Bonjour';
+  const sortedRows = [...rows].sort((a, b) => (b.daysLate || 0) - (a.daysLate || 0));
+  const maxDaysLate = sortedRows.reduce((max, row) => Math.max(max, row.daysLate || 0), 0);
+  const listHtml = sortedRows.map(row => {
+    const prio = PRIORITY_LABELS_FR[row.priority || 'medium'] || PRIORITY_LABELS_FR.medium;
+    const deadlineDate = new Date(row.deadline).toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' });
+    return `
+      <tr>
+        <td style="padding:12px;border-bottom:1px solid #EEF3FA;">
+          <p style="font-size:14px;font-weight:700;color:#1A2742;margin:0 0 4px;">${escHtml(row.reserveTitle)}</p>
+          <p style="font-size:11px;color:#8899BB;margin:0;">${escHtml(row.reserveId)}${row.chantierName ? ` — ${escHtml(row.chantierName)}` : ''}</p>
+        </td>
+        <td style="padding:12px;border-bottom:1px solid #EEF3FA;font-size:12px;color:#334155;">${escHtml(row.companyName)}</td>
+        <td style="padding:12px;border-bottom:1px solid #EEF3FA;font-size:12px;color:#DC2626;font-weight:700;">${row.daysLate} j</td>
+        <td style="padding:12px;border-bottom:1px solid #EEF3FA;font-size:12px;color:#5E738A;">${deadlineDate}</td>
+        <td style="padding:12px;border-bottom:1px solid #EEF3FA;">
+          <span style="background:${prio.color}18;color:${prio.color};font-size:10px;font-weight:700;padding:3px 8px;border-radius:12px;">${prio.label.toUpperCase()}</span>
+        </td>
+      </tr>
+    `;
+  }).join('');
+  const firstUrl = sortedRows[0]?.reserveUrl || APP_URL;
+  const content = `
+    <h1 style="color:#DC2626;">${sortedRows.length} réserve${sortedRows.length > 1 ? 's' : ''} en retard</h1>
+    <p>Bonjour ${escHtml(firstName)},</p>
+    <p>Voici le récapitulatif quotidien des réserves en retard qui vous concernent. Un seul email est envoyé par jour pour limiter le bruit.</p>
+    <div class="info-box" style="border-left-color:#DC2626;background:#FEF2F2;">
+      <p><strong>${sortedRows.length}</strong> réserve${sortedRows.length > 1 ? 's' : ''} à traiter${maxDaysLate > 0 ? ` — retard maximal : <strong>${maxDaysLate} jour${maxDaysLate > 1 ? 's' : ''}</strong>` : ''}</p>
+    </div>
+    <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="border-collapse:collapse;border:1px solid #DDE4EE;border-radius:10px;overflow:hidden;margin:18px 0;">
+      <thead>
+        <tr style="background:#F4F7FB;">
+          <th align="left" style="padding:10px 12px;font-size:11px;color:#5E738A;">Réserve</th>
+          <th align="left" style="padding:10px 12px;font-size:11px;color:#5E738A;">Entreprise</th>
+          <th align="left" style="padding:10px 12px;font-size:11px;color:#5E738A;">Retard</th>
+          <th align="left" style="padding:10px 12px;font-size:11px;color:#5E738A;">Échéance</th>
+          <th align="left" style="padding:10px 12px;font-size:11px;color:#5E738A;">Priorité</th>
+        </tr>
+      </thead>
+      <tbody>${listHtml}</tbody>
+    </table>
+    <div style="text-align:center;"><a href="${firstUrl}" class="btn" style="background:#DC2626;color:#fff !important;">Ouvrir BuildTrack →</a></div>
+  `;
+  return {
+    subject: `[Retards] ${sortedRows.length} réserve${sortedRows.length > 1 ? 's' : ''} à traiter`,
+    html: baseLayout(content, `${sortedRows.length} réserves en retard à traiter`),
+  };
+}
+
 function buildReserveUrl(reserveId, recipientEmail) {
   const secret = process.env.RESERVE_TOKEN_SECRET;
   if (!secret || secret.length < 16) {
@@ -1002,6 +1079,57 @@ async function shouldSendConfigurableEmail(type, email, body) {
   return emailPreferenceAllows(pref, column, body?.priority === 'critical');
 }
 
+function reserveEmailDedupe(type, body = {}) {
+  const reserveId = body.reserveId ? String(body.reserveId) : null;
+  if (!reserveId) return null;
+  const today = new Date().toISOString().slice(0, 10);
+  if (type === 'reserve-created') {
+    return { notificationType: type, reserveId, eventKey: `reserve-created:${reserveId}` };
+  }
+  if (type === 'reserve-status-changed') {
+    const status = String(body.newStatus || 'unknown').toLowerCase();
+    return { notificationType: type, reserveId, eventKey: `reserve-status-changed:${reserveId}:${status}:${today}` };
+  }
+  if (type === 'reserve-overdue') {
+    const deadline = String(body.deadline || 'no-deadline').slice(0, 10);
+    return { notificationType: type, reserveId, eventKey: `reserve-overdue:${reserveId}:${deadline}:${today}` };
+  }
+  return null;
+}
+
+async function shouldSendDedupedReserveEmail(type, email, body) {
+  const dedupe = reserveEmailDedupe(type, body);
+  if (!dedupe) return { allowed: true };
+
+  const supabase = getSupabaseAdmin();
+  if (!supabase) {
+    return type === 'reserve-overdue'
+      ? { allowed: false, reason: 'dedupe-admin-unavailable' }
+      : { allowed: true, reason: 'dedupe-admin-unavailable' };
+  }
+
+  const log = await reserveEmailLogInsert(supabase, {
+    type: dedupe.notificationType,
+    recipientEmail: email,
+    reserveId: dedupe.reserveId,
+    eventKey: dedupe.eventKey,
+    metadata: {
+      source: 'send-email',
+      status: body?.newStatus,
+      deadline: body?.deadline,
+      priority: body?.priority,
+    },
+  });
+
+  if (log.duplicate) return { allowed: false, duplicate: true, reason: 'duplicate' };
+  if (!log.inserted) {
+    return type === 'reserve-overdue'
+      ? { allowed: false, reason: 'dedupe-unavailable', error: log.error }
+      : { allowed: true, reason: 'dedupe-unavailable', error: log.error };
+  }
+  return { allowed: true };
+}
+
 // Email notifications
 app.post('/api/send-email', async (req, res) => {
   const { type, ...body } = req.body || {};
@@ -1040,6 +1168,9 @@ app.post('/api/send-email', async (req, res) => {
         return res.status(400).json({ error: 'Paramètres manquants' });
       to = email; template = reserveStatusChangedTemplate({ ...body, reserveUrl: buildReserveUrl(reserveId, email) });
     } else if (type === 'reserve-overdue') {
+      if (!reserveOverdueEmailsEnabled()) {
+        return res.json({ success: true, suppressed: true, reason: 'overdue-emails-disabled' });
+      }
       const { email, recipientName, reserveTitle, reserveId, deadline, daysLate, companyName } = body;
       if (!email || !recipientName || !reserveTitle || !reserveId || !deadline || daysLate == null || !companyName)
         return res.status(400).json({ error: 'Paramètres manquants' });
@@ -1054,6 +1185,11 @@ app.post('/api/send-email', async (req, res) => {
 
     const allowedByPreferences = await shouldSendConfigurableEmail(type, to, body);
     if (!allowedByPreferences) return res.json({ success: true, suppressed: true });
+
+    const dedupeDecision = await shouldSendDedupedReserveEmail(type, to, body);
+    if (!dedupeDecision.allowed) {
+      return res.json({ success: true, suppressed: true, ...dedupeDecision });
+    }
 
     const result = await sendEmail({ to, subject: template.subject, html: template.html });
     if (!result.success) return res.status(500).json({ error: result.error || "Échec de l'envoi" });
@@ -1106,8 +1242,218 @@ app.post('/api/request-password-reset', async (req, res) => {
   }
 });
 
-// ── GET /api/cron/overdue-reserves ───────────────────────────────────────────
 app.get('/api/cron/overdue-reserves', async (req, res) => {
+  const cronSecret = process.env.CRON_SECRET;
+  const auth = req.headers['authorization'] || '';
+  const stats = { scanned: 0, notified: 0, emailsSent: 0, errors: 0 };
+
+  if (!cronSecret || auth !== `Bearer ${cronSecret}`) {
+    return res.status(401).json({ error: 'Non autorise' });
+  }
+
+  if (!reserveOverdueEmailsEnabled()) {
+    return res.json({ ok: true, disabled: true, stats });
+  }
+
+  const supabase = getSupabaseAdmin();
+  if (!supabase) return res.status(500).json({ error: 'SUPABASE_SERVICE_ROLE_KEY manquant' });
+
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const todayISO = today.toISOString().split('T')[0];
+  const yesterday = new Date(today);
+  yesterday.setDate(yesterday.getDate() - 1);
+  const yesterdayISO = yesterday.toISOString().split('T')[0];
+  const LIMIT = 7;
+
+  try {
+    const { data: reserves, error: rErr } = await supabase
+      .from('reserves')
+      .select('id, title, priority, status, deadline, companies, company, chantier_id, organization_id, overdue_last_notified_date, overdue_reminder_count')
+      .not('status', 'in', '(closed,verification)')
+      .not('deadline', 'is', null)
+      .lt('deadline', todayISO);
+    if (rErr) throw rErr;
+
+    const list = reserves || [];
+    stats.scanned = list.length;
+    if (!list.length) return res.json({ ok: true, stats });
+
+    const orgIds = [...new Set(list.map(r => r.organization_id).filter(Boolean))];
+    const chantierIds = [...new Set(list.map(r => r.chantier_id).filter(Boolean))];
+    const { data: companies } = await supabase
+      .from('companies')
+      .select('id, name, organization_id')
+      .in('organization_id', orgIds.length ? orgIds : ['__none__']);
+    const { data: profiles } = await supabase
+      .from('profiles')
+      .select('id, name, email, company_id, organization_id, role')
+      .in('organization_id', orgIds.length ? orgIds : ['__none__']);
+    const { data: chantiers } = chantierIds.length
+      ? await supabase.from('chantiers').select('id, name').in('id', chantierIds)
+      : { data: [] };
+    const emailPrefsByUser = await preferencesForProfiles(supabase, (profiles || []).map(p => p.id));
+
+    const companiesByOrg = new Map();
+    for (const c of companies || []) {
+      const a = companiesByOrg.get(c.organization_id) || [];
+      a.push(c);
+      companiesByOrg.set(c.organization_id, a);
+    }
+
+    const profilesByCompany = new Map();
+    const adminsByOrg = new Map();
+    for (const p of profiles || []) {
+      if (!p.email) continue;
+      if (p.company_id) {
+        const a = profilesByCompany.get(p.company_id) || [];
+        a.push(p);
+        profilesByCompany.set(p.company_id, a);
+      }
+      if (p.role === 'admin' || p.role === 'super_admin') {
+        const a = adminsByOrg.get(p.organization_id) || [];
+        a.push(p);
+        adminsByOrg.set(p.organization_id, a);
+      }
+    }
+
+    const chantierName = new Map();
+    for (const c of chantiers || []) chantierName.set(c.id, c.name);
+
+    const digestsByEmail = new Map();
+    const reserveUpdates = new Map();
+
+    const addDigestRow = (profile, row) => {
+      const email = String(profile?.email || '').trim().toLowerCase();
+      if (!email) return false;
+      let digest = digestsByEmail.get(email);
+      if (!digest) {
+        digest = { profile, rows: [] };
+        digestsByEmail.set(email, digest);
+      }
+      if (!digest.rows.some(existing => existing.reserveId === row.reserveId)) {
+        digest.rows.push(row);
+      }
+      return true;
+    };
+
+    for (const r of list) {
+      try {
+        if (r.overdue_last_notified_date === todayISO) continue;
+        const reserveCompanyNames = r.companies || (r.company ? [r.company] : []);
+        if (!reserveCompanyNames.length) continue;
+        const orgCompanies = companiesByOrg.get(r.organization_id) || [];
+        const matched = orgCompanies.filter(c =>
+          reserveCompanyNames.some(n => sameName(n, c.name))
+        );
+        if (!matched.length) continue;
+
+        const daysLate = Math.max(1, Math.round((today.getTime() - new Date(r.deadline).getTime()) / 86400000));
+        const prevCount = typeof r.overdue_reminder_count === 'number' ? r.overdue_reminder_count : 0;
+        const continuing = r.overdue_last_notified_date === yesterdayISO || r.overdue_last_notified_date === todayISO;
+        const reminderCount = continuing ? prevCount : 0;
+        const escalate = reminderCount >= LIMIT;
+        let targetCount = 0;
+
+        if (!escalate) {
+          for (const company of matched) {
+            for (const p of (profilesByCompany.get(company.id) || [])) {
+              if (!emailPreferenceAllows(emailPrefsByUser.get(p.id), 'reserve_overdue_email', r.priority === 'critical')) continue;
+              if (addDigestRow(p, {
+                reserveId: r.id,
+                reserveTitle: r.title || r.id,
+                deadline: r.deadline,
+                daysLate,
+                priority: r.priority,
+                companyName: company.name,
+                chantierName: r.chantier_id ? chantierName.get(r.chantier_id) : undefined,
+                reserveUrl: buildReserveUrl(r.id, p.email),
+              })) targetCount += 1;
+            }
+          }
+        } else {
+          const admins = adminsByOrg.get(r.organization_id) || [];
+          const companyNames = matched.map(c => c.name).join(', ');
+          for (const a of admins) {
+            if (!emailPreferenceAllows(emailPrefsByUser.get(a.id), 'reserve_overdue_email', r.priority === 'critical')) continue;
+            if (addDigestRow(a, {
+              reserveId: r.id,
+              reserveTitle: r.title || r.id,
+              deadline: r.deadline,
+              daysLate,
+              priority: r.priority,
+              companyName: companyNames,
+              chantierName: r.chantier_id ? chantierName.get(r.chantier_id) : undefined,
+              reserveUrl: buildReserveUrl(r.id, a.email),
+            })) targetCount += 1;
+          }
+        }
+
+        if (targetCount > 0) {
+          reserveUpdates.set(r.id, { nextCount: escalate ? reminderCount : reminderCount + 1 });
+        }
+      } catch (err) {
+        stats.errors += 1;
+        console.warn('[cron overdue digest] reserve', r.id, err.message);
+      }
+    }
+
+    const sentReserveIds = new Set();
+    for (const [email, digest] of digestsByEmail.entries()) {
+      try {
+        const log = await reserveEmailLogInsert(supabase, {
+          type: 'reserve-overdue-digest',
+          recipientEmail: email,
+          eventKey: `overdue-digest:${todayISO}`,
+          metadata: { reserveIds: digest.rows.map(row => row.reserveId) },
+        });
+        if (log.duplicate) continue;
+        if (!log.inserted) {
+          stats.errors += 1;
+          continue;
+        }
+
+        const template = reserveOverdueDigestTemplate({
+          recipientName: digest.profile.name || email,
+          rows: digest.rows,
+        });
+        const sendRes = await sendEmail({ to: email, subject: template.subject, html: template.html });
+        if (!sendRes.success) {
+          stats.errors += 1;
+          continue;
+        }
+
+        stats.emailsSent += 1;
+        digest.rows.forEach(row => sentReserveIds.add(row.reserveId));
+      } catch (err) {
+        stats.errors += 1;
+        console.warn('[cron overdue digest] recipient', email, err.message);
+      }
+    }
+
+    for (const reserveId of sentReserveIds) {
+      const update = reserveUpdates.get(reserveId);
+      if (!update) continue;
+      const { error: upErr } = await supabase
+        .from('reserves')
+        .update({
+          overdue_last_notified_date: todayISO,
+          overdue_reminder_count: update.nextCount,
+        })
+        .eq('id', reserveId);
+      if (upErr) stats.errors += 1;
+      else stats.notified += 1;
+    }
+
+    return res.json({ ok: true, stats });
+  } catch (err) {
+    return res.status(500).json({ ok: false, error: err.message, stats });
+  }
+});
+
+// Legacy implementation kept off the public cron path.
+app.get('/api/cron/overdue-reserves-legacy-disabled', async (req, res) => {
+  return res.status(410).json({ error: 'Route obsolete' });
   const cronSecret = process.env.CRON_SECRET;
   const auth = req.headers['authorization'] || '';
   if (cronSecret && auth !== `Bearer ${cronSecret}`)

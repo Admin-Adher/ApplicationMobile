@@ -30,10 +30,9 @@ import { useOprs } from '@/hooks/queries/useOprs';
 import { useChannels, getDmDisplayName, getDmParticipants } from '@/hooks/queries/useChannels';
 import { useMessages } from '@/hooks/queries/useMessages';
 import { useRealtimeSync } from '@/hooks/useRealtimeSync';
-import { notifyReserveStatusChanged, notifyReserveOverdue } from '@/lib/email/notifyReserveCreated';
+import { notifyReserveStatusChanged } from '@/lib/email/notifyReserveCreated';
 import { triggerReserveStatusPush } from '@/lib/push/client';
 import { isSameUserName } from '@/lib/mappers';
-import { parseDeadline } from '@/lib/reserveUtils';
 
 export { STANDARD_LOTS } from '@/hooks/queries/useLots';
 export const STATIC_CHANNELS: Channel[] = [];
@@ -585,47 +584,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       queryClient.invalidateQueries();
     }
   }, [authH.user?.id, queryClient]);
-
-  const overdueScanRef = useRef(false);
-  useEffect(() => {
-    if (overdueScanRef.current) return;
-    if (!authH.user?.id) return;
-    if (!reservesH.reserves.length || !profilesH.profiles.length) return;
-    overdueScanRef.current = true;
-
-    const OVERDUE_KEY = 'buildtrack_overdue_notified_v1';
-    (async () => {
-      try {
-        const raw = await AsyncStorage.getItem(OVERDUE_KEY);
-        const notified: Record<string, string> = raw ? JSON.parse(raw) : {};
-        const today = new Date();
-        today.setHours(0, 0, 0, 0);
-
-        for (const r of reservesH.reserves) {
-          if (!r.deadline || r.deadline === '—') continue;
-          if (r.status === 'closed' || r.status === 'verification') continue;
-          const dl = parseDeadline(r.deadline);
-          if (dl === null) continue;
-          dl.setHours(0, 0, 0, 0);
-          if (dl >= today) continue;
-          const daysLate = Math.max(1, Math.round((today.getTime() - dl.getTime()) / 86400000));
-          const key = `${r.id}|${r.deadline}`;
-          if (notified[key]) continue;
-          notified[key] = new Date().toISOString();
-          notifyReserveOverdue({
-            reserve: r,
-            daysLate,
-            companies: companiesH.companies,
-            profiles: profilesH.profiles,
-            chantiers: chantiersH.chantiers,
-          });
-        }
-        await AsyncStorage.setItem(OVERDUE_KEY, JSON.stringify(notified));
-      } catch (err: any) {
-        console.warn('[overdue scan] erreur:', err?.message ?? err);
-      }
-    })();
-  }, [authH.user?.id, reservesH.reserves, profilesH.profiles, companiesH.companies, chantiersH.chantiers]);
 
   // Fix 9: addMessage uses currentUserNameRef as default sender instead of hardcoded 'Moi'
   const addMessage = useCallback((
