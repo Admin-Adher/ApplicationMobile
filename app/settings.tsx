@@ -245,6 +245,8 @@ export default function SettingsScreen() {
 
   const pushStatus = pushError?.includes('Migration Supabase manquante')
     ? 'Table Supabase manquante'
+    : pushError?.includes('Service push Android')
+      ? 'Service push indisponible'
     : pushError
       ? 'Configuration push incomplète'
     : permissionStatus === 'granted'
@@ -262,16 +264,24 @@ export default function SettingsScreen() {
     : permissionStatus === 'denied'
       ? '#EF4444'
       : '#F59E0B';
+  const pushErrorIsActionable = Boolean(pushError)
+    && !pushError?.includes('Migration Supabase manquante')
+    && !pushError?.includes('Configuration Android FCM incompl');
   const showPushPermissionCta = Platform.OS !== 'web'
-    && !pushError
-    && (permissionStatus === 'undetermined' || permissionStatus === 'denied' || !notifPrefs.pushEnabled);
-  const pushPermissionCtaTitle = permissionStatus === 'denied'
+    && (pushErrorIsActionable || permissionStatus === 'undetermined' || permissionStatus === 'denied' || !notifPrefs.pushEnabled);
+  const pushPermissionCtaTitle = pushErrorIsActionable
+    ? 'Enregistrement push non termine'
+    : permissionStatus === 'denied'
     ? 'Notifications bloquées sur ce téléphone'
     : 'Recevoir les alertes importantes';
-  const pushPermissionCtaText = permissionStatus === 'denied'
+  const pushPermissionCtaText = pushErrorIsActionable
+    ? "Le service Android n'a pas fourni de token. Cela arrive parfois avec Google Play Services ou une connexion instable."
+    : permissionStatus === 'denied'
     ? "BuildTrack ne peut plus demander la permission automatiquement. Activez les notifications dans les réglages de l'appareil."
     : "Autorisez BuildTrack à envoyer des notifications natives pour les messages, réserves critiques et rappels chantier.";
-  const pushPermissionCtaLabel = permissionStatus === 'denied'
+  const pushPermissionCtaLabel = pushErrorIsActionable
+    ? 'Reessayer'
+    : permissionStatus === 'denied'
     ? 'Ouvrir les réglages'
     : 'Autoriser les notifications';
 
@@ -860,7 +870,7 @@ export default function SettingsScreen() {
                 <View style={styles.pushPermissionBox}>
                   <View style={styles.pushPermissionIcon}>
                     <Ionicons
-                      name={permissionStatus === 'denied' ? 'notifications-off-outline' : 'notifications-outline'}
+                      name={pushErrorIsActionable ? 'sync-outline' : permissionStatus === 'denied' ? 'notifications-off-outline' : 'notifications-outline'}
                       size={18}
                       color={permissionStatus === 'denied' ? '#EF4444' : C.primary}
                     />
@@ -877,7 +887,7 @@ export default function SettingsScreen() {
                       activeOpacity={0.82}
                     >
                       <Ionicons
-                        name={permissionStatus === 'denied' ? 'settings-outline' : 'checkmark-circle-outline'}
+                        name={pushErrorIsActionable ? 'refresh-outline' : permissionStatus === 'denied' ? 'settings-outline' : 'checkmark-circle-outline'}
                         size={16}
                         color="#fff"
                       />

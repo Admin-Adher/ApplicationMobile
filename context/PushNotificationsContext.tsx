@@ -48,6 +48,34 @@ function normalizePermission(status?: Notifications.PermissionStatus | null): Pu
   return 'undetermined';
 }
 
+function delay(ms: number): Promise<void> {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+function isTransientPushTokenError(message: string): boolean {
+  return /SERVICE_NOT_AVAILABLE|java\.io\.IOException|Fetching the token failed|network|timeout/i.test(message);
+}
+
+async function getExpoPushTokenWithRetry(projectId: string, isCancelled: () => boolean): Promise<string> {
+  let lastError: unknown = null;
+  const delays = [0, 1200, 2800];
+
+  for (let attempt = 0; attempt < delays.length; attempt += 1) {
+    if (isCancelled()) throw new Error('Enregistrement push annule.');
+    if (delays[attempt] > 0) await delay(delays[attempt]);
+
+    try {
+      return (await Notifications.getExpoPushTokenAsync({ projectId })).data;
+    } catch (err: any) {
+      lastError = err;
+      const message = err?.message ?? '';
+      if (!isTransientPushTokenError(message) || attempt === delays.length - 1) break;
+    }
+  }
+
+  throw lastError instanceof Error ? lastError : new Error('Impossible de recuperer le token push.');
+}
+
 function routeNotification(router: ReturnType<typeof useRouter>, data: Record<string, unknown> | undefined) {
   if (!data) return;
   const pathname = typeof data.pathname === 'string' ? data.pathname : undefined;
@@ -66,6 +94,9 @@ function routeNotification(router: ReturnType<typeof useRouter>, data: Record<st
 }
 
 function friendlyPushError(message: string): string {
+  if (/SERVICE_NOT_AVAILABLE|Fetching the token failed|java\.io\.IOException/i.test(message)) {
+    return "Service push Android temporairement indisponible. Verifiez la connexion et Google Play Services, puis reessayez l'enregistrement des notifications.";
+  }
   if (/push_tokens|schema cache|Could not find the table/i.test(message)) {
     return "Migration Supabase manquante : la table public.push_tokens n'existe pas encore. Appliquez la migration 20260520143000_add_push_notifications.sql puis relancez l'application.";
   }
@@ -150,7 +181,7 @@ export function PushNotificationsProvider({ children }: { children: React.ReactN
           return;
         }
 
-        const token = (await Notifications.getExpoPushTokenAsync({ projectId })).data;
+        const token = await getExpoPushTokenWithRetry(projectId, () => cancelled);
         if (cancelled) return;
         setExpoPushToken(token);
         setLastError(null);
