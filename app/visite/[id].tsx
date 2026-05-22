@@ -37,6 +37,7 @@ import {
   RESERVE_STATUS_COLORS as SHARED_STATUS_COLORS,
   RESERVE_STATUS_LABELS as SHARED_STATUS_LABELS,
 } from '@/lib/reserveLabels';
+import { getReserveDescriptionText } from '@/lib/reserveDescription';
 
 const STATUS_CFG: Record<VisiteStatus, { label: string; color: string }> = {
   planned: { label: 'Planifiée', color: '#6366F1' },
@@ -49,71 +50,326 @@ const RESERVE_STATUS_COLORS = SHARED_STATUS_COLORS as Record<string, string>;
 const PRIORITY_LABELS = SHARED_PRIORITY_LABELS as Record<string, string>;
 const PRIORITY_COLORS = SHARED_PRIORITY_COLORS as Record<string, string>;
 
-function buildVisitePDF(visite: Visite, reserves: Reserve[], projectName: string, reservePhotoMap?: Map<string, string[]>): string {
-  const priorityBg: Record<string, string> = { low: '#F0FDF4', medium: '#FFFBEB', high: '#FEF2F2', critical: '#F5F3FF' };
-  const statusBg: Record<string, string> = { open: '#FEF2F2', in_progress: '#EFF6FF', waiting: '#FFFBEB', verification: '#F5F3FF', closed: '#ECFDF5' };
+const VISITE_TYPE_LABELS: Record<string, string> = {
+  controle: 'Contrôle',
+  opr: 'OPR',
+  securite: 'Sécurité',
+  reception: 'Réception',
+  synthese: 'Synthèse',
+  autre: 'Autre',
+};
 
+function cleanValue(value?: string | null, fallback = '—') {
+  const text = String(value ?? '').trim();
+  return text || fallback;
+}
+
+function htmlText(value?: string | null, fallback = '—') {
+  return escapeHtml(cleanValue(value, fallback));
+}
+
+function htmlMultiline(value?: string | null, fallback = '—') {
+  return htmlText(value, fallback).replace(/\n/g, '<br/>');
+}
+
+function reserveCompanies(reserve: Reserve) {
+  const names = reserve.companies?.length ? reserve.companies : reserve.company ? [reserve.company] : [];
+  return Array.from(new Set(names.map(name => name.trim()).filter(Boolean)));
+}
+
+function reserveCompanyLabel(reserve: Reserve) {
+  return reserveCompanies(reserve).join(', ') || 'Sans entreprise';
+}
+
+function reserveDeadlineValue(reserve: Reserve) {
+  const deadline = cleanValue(reserve.deadline, '');
+  return deadline && deadline !== '—' ? deadline : 'Non définie';
+}
+
+function parseDateValue(value?: string | null) {
+  const text = String(value ?? '').trim();
+  const fr = text.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})$/);
+  if (fr) {
+    const year = fr[3].length === 2 ? Number(`20${fr[3]}`) : Number(fr[3]);
+    return new Date(year, Number(fr[2]) - 1, Number(fr[1])).getTime();
+  }
+  const iso = Date.parse(text);
+  return Number.isNaN(iso) ? Number.MAX_SAFE_INTEGER : iso;
+}
+
+function isReserveOverdue(reserve: Reserve) {
+  if (reserve.status === 'closed') return false;
+  const deadlineTime = parseDateValue(reserve.deadline);
+  if (deadlineTime === Number.MAX_SAFE_INTEGER) return false;
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  return deadlineTime < today.getTime();
+}
+
+function reserveLocationLabel(reserve: Reserve) {
+  return formatReserveLocation(reserve) || 'Localisation non précisée';
+}
+
+function reservePriorityBadge(priority: string) {
+  const bg: Record<string, string> = { low: '#F0FDF4', medium: '#FFFBEB', high: '#FEF2F2', critical: '#F5F3FF' };
+  return `<span class="badge" style="background:${bg[priority] ?? '#F9FAFB'};color:${PRIORITY_COLORS[priority] ?? '#6B7280'}">${escapeHtml(PRIORITY_LABELS[priority] ?? priority)}</span>`;
+}
+
+function reserveStatusBadge(status: string) {
+  const bg: Record<string, string> = { open: '#FEF2F2', in_progress: '#EFF6FF', waiting: '#FFFBEB', verification: '#F5F3FF', closed: '#ECFDF5' };
+  return `<span class="badge" style="background:${bg[status] ?? '#F9FAFB'};color:${RESERVE_STATUS_COLORS[status] ?? '#6B7280'}">${escapeHtml(RESERVE_STATUS_LABELS[status] ?? status)}</span>`;
+}
+
+function countBy<T>(items: T[], getKey: (item: T) => string) {
+  return items.reduce<Record<string, number>>((acc, item) => {
+    const key = getKey(item);
+    acc[key] = (acc[key] ?? 0) + 1;
+    return acc;
+  }, {});
+}
+
+function buildVisitePDF(
+  visite: Visite,
+  reserves: Reserve[],
+  projectName: string,
+  reservePhotoMap?: Map<string, string[]>,
+  coverPhotoDataUrl?: string | null,
+): string {
   const totalOpen = reserves.filter(r => r.status === 'open').length;
   const totalInProgress = reserves.filter(r => r.status === 'in_progress').length;
+  const totalWaiting = reserves.filter(r => r.status === 'waiting').length;
+  const totalVerification = reserves.filter(r => r.status === 'verification').length;
   const totalClosed = reserves.filter(r => r.status === 'closed').length;
   const totalCritical = reserves.filter(r => r.priority === 'critical' || r.priority === 'high').length;
+  const totalOverdue = reserves.filter(isReserveOverdue).length;
+  const companiesCount = new Set(reserves.flatMap(reserveCompanies)).size;
 
-  const criticalReserves = reserves.filter(r => r.priority === 'critical' || r.priority === 'high');
-  const normalReserves = reserves.filter(r => r.priority !== 'critical' && r.priority !== 'high');
-  const sortedReserves = [...criticalReserves, ...normalReserves];
+  const sortedReserves = [...reserves].sort((a, b) => {
+    const priorityOrder: Record<string, number> = { critical: 0, high: 1, medium: 2, low: 3 };
+    return (priorityOrder[a.priority] ?? 9) - (priorityOrder[b.priority] ?? 9)
+      || parseDateValue(a.deadline) - parseDateValue(b.deadline)
+      || a.id.localeCompare(b.id, 'fr');
+  });
 
   const docRef = `CR-${visite.id}`;
-
-  const rows = sortedReserves.map((r, idx) =>
-    `<tr style="background:${idx % 2 === 0 ? '#fff' : '#F9FAFB'}">
-      <td style="padding:9px 10px;border-bottom:1px solid #EEF3FA;font-size:11px;font-weight:700;white-space:nowrap">${escapeHtml(r.id)}</td>
-      <td style="padding:9px 10px;border-bottom:1px solid #EEF3FA;font-size:12px;font-weight:600">${escapeHtml(r.title)}</td>
-      <td style="padding:9px 10px;border-bottom:1px solid #EEF3FA;font-size:12px;white-space:nowrap">${escapeHtml(formatReserveLocation(r))}</td>
-      <td style="padding:9px 10px;border-bottom:1px solid #EEF3FA;font-size:12px">${escapeHtml(r.company)}</td>
-      <td style="padding:9px 10px;border-bottom:1px solid #EEF3FA;text-align:center">
-        <span style="background:${priorityBg[r.priority]||'#F9FAFB'};color:${PRIORITY_COLORS[r.priority]||'#6B7280'};font-size:11px;font-weight:700;padding:3px 10px;border-radius:10px">${PRIORITY_LABELS[r.priority]||escapeHtml(r.priority)}</span>
-      </td>
-      <td style="padding:9px 10px;border-bottom:1px solid #EEF3FA;text-align:center">
-        <span style="background:${statusBg[r.status]||'#F9FAFB'};color:${RESERVE_STATUS_COLORS[r.status]||'#6B7280'};font-size:11px;font-weight:700;padding:3px 10px;border-radius:10px">${RESERVE_STATUS_LABELS[r.status]||escapeHtml(r.status)}</span>
-      </td>
-      <td style="padding:9px 10px;border-bottom:1px solid #EEF3FA;font-size:12px;white-space:nowrap">${escapeHtml(r.deadline)}</td>
-    </tr>`
-  ).join('');
-
-  const reservesWithPhotos = reservePhotoMap && reservePhotoMap.size > 0
-    ? sortedReserves.filter(r => (reservePhotoMap.get(r.id)?.length ?? 0) > 0)
-    : [];
-
-  const photoGallery = reservesWithPhotos.length > 0
-    ? `<div class="section-header">Galerie photos (${reservesWithPhotos.reduce((acc, r) => acc + (reservePhotoMap?.get(r.id)?.length ?? 0), 0)} photos)</div>
-        ${reservesWithPhotos.map(r => {
-          const srcs = reservePhotoMap?.get(r.id) ?? [];
-          const rawPhotos = getReservePdfPhotos(r);
-          return `<div style="margin-bottom:18px;padding:12px 16px;border:1.5px solid #DDE4EE;border-radius:10px;page-break-inside:avoid">
-            <div style="font-size:11px;font-weight:700;color:#1A2742;margin-bottom:6px">${escapeHtml(r.id)} — ${escapeHtml(r.title)} <span style="color:#6B7280;font-weight:400">· ${escapeHtml(r.company)} · ${escapeHtml(formatReserveLocation(r))}</span></div>
-            ${buildPhotoGrid(srcs.slice(0, 4).map((src, i) => ({
-              src,
-              badge: (rawPhotos[i]?.kind === 'resolution') ? '🟢 Levée' : '🔴 Constat',
-              badgeColor: (rawPhotos[i]?.kind === 'resolution') ? '#ECFDF5' : '#FEF2F2',
-              badgeTextColor: (rawPhotos[i]?.kind === 'resolution') ? '#059669' : '#DC2626',
-            })))}
-          </div>`;
-        }).join('')}`
-    : '';
-
   const statusVisiteLabel = visite.status === 'completed' ? 'Terminée' : visite.status === 'in_progress' ? 'En cours' : 'Planifiée';
   const horaire = [visite.startTime, visite.endTime].filter(Boolean).join(' → ');
   const visiteLocationValue = visite.visitedLocations?.length
     ? visite.visitedLocations.map(loc => loc.buildingName).join(' — ')
     : [visite.building, visite.level, visite.zone].filter(Boolean).join(' — ');
+  const checklistTotal = visite.checklistItems?.length ?? 0;
+  const checklistDone = visite.checklistItems?.filter(item => item.checked).length ?? 0;
+  const checklistPct = checklistTotal > 0 ? Math.round((checklistDone / checklistTotal) * 100) : 0;
+
   const infoItems = [
+    { label: 'Type de visite', value: visite.visitType ? VISITE_TYPE_LABELS[visite.visitType] ?? visite.visitType : 'Visite chantier' },
     { label: 'Conducteur de travaux', value: visite.conducteur },
     { label: 'Date de visite', value: visite.date + (horaire ? `  ·  ${horaire}` : '') },
     ...(visiteLocationValue ? [{ label: visite.visitedLocations?.length ? 'Périmètre de visite' : 'Localisation', value: visiteLocationValue }] : []),
     { label: 'Statut de la visite', value: statusVisiteLabel },
-    ...(visite.reserveDeadlineDate ? [{ label: 'Délai de levée des réserves', value: visite.reserveDeadlineDate }] : []),
+    ...(visite.reserveDeadlineDate ? [{ label: 'Délai cible de levée', value: visite.reserveDeadlineDate }] : []),
     ...(visite.tags && visite.tags.length > 0 ? [{ label: 'Tags', value: visite.tags.join(', ') }] : []),
   ];
+
+  const localStyles = `
+    <style>
+      .visit-cover { width:100%; max-height:260px; object-fit:cover; border-radius:12px; border:1.5px solid #DDE4EE; margin-bottom:18px; }
+      .summary-grid { display:flex; flex-wrap:wrap; gap:12px; margin-bottom:18px; }
+      .summary-card { flex:1; min-width:220px; border:1.5px solid #DDE4EE; border-radius:10px; padding:13px 15px; background:#FAFBFF; page-break-inside:avoid; }
+      .summary-card strong { display:block; font-size:13px; color:#1A2742; margin-bottom:4px; }
+      .summary-card span { display:block; font-size:11px; color:#6B7280; line-height:1.5; }
+      .note-box { background:#F4F7FB; border-left:4px solid #003082; border-radius:0 10px 10px 0; padding:14px 18px; font-size:13px; color:#1A2742; line-height:1.6; margin-bottom:18px; }
+      .building-block { border:1.5px solid #DDE4EE; border-radius:12px; margin-bottom:16px; overflow:hidden; page-break-inside:avoid; }
+      .building-title { background:#F4F7FB; padding:11px 14px; font-size:14px; font-weight:800; color:#003082; display:flex; justify-content:space-between; gap:10px; }
+      .building-count { font-size:11px; color:#6B7280; font-weight:700; }
+      .zone-block { padding:12px 14px; border-top:1px solid #DDE4EE; }
+      .zone-title { font-size:12px; font-weight:800; color:#1A2742; margin-bottom:8px; }
+      .company-title { font-size:10px; text-transform:uppercase; letter-spacing:.6px; color:#6B7280; font-weight:800; margin:10px 0 6px; }
+      .action-list { margin-left:16px; }
+      .action-list li { margin-bottom:8px; padding-left:3px; }
+      .action-title { font-size:12px; font-weight:700; color:#1A2742; }
+      .action-meta { font-size:10px; color:#6B7280; margin-top:2px; }
+      .action-desc { font-size:11px; color:#334155; margin-top:3px; line-height:1.45; }
+      .plan-card { border:1.5px solid #DDE4EE; border-radius:10px; padding:12px 14px; margin-bottom:10px; page-break-inside:avoid; }
+      .plan-title { font-size:12px; font-weight:800; color:#1A2742; margin-bottom:4px; }
+      .plan-meta { font-size:10px; color:#6B7280; }
+      .check-row { display:flex; align-items:flex-start; gap:9px; padding:7px 10px; border-bottom:1px solid #EEF3FA; }
+      .check-box { display:inline-block; width:14px; height:14px; border-radius:3px; text-align:center; line-height:12px; font-size:10px; color:#fff; flex-shrink:0; }
+      .check-label { font-size:12px; color:#1A2742; line-height:1.35; }
+      .muted-empty { padding:18px; text-align:center; color:#6B7280; background:#F9FAFB; border:1px dashed #DDE4EE; border-radius:10px; }
+    </style>
+  `;
+
+  const reservesWithDeadlineCount = sortedReserves.filter(r => reserveDeadlineValue(r) !== 'Non définie').length;
+  const summaryCards = [
+    {
+      title: 'Priorités de sortie de visite',
+      text: totalCritical > 0
+        ? `${totalCritical} réserve${totalCritical > 1 ? 's' : ''} haute${totalCritical > 1 ? 's' : ''} ou critique${totalCritical > 1 ? 's' : ''} à traiter en premier.`
+        : 'Aucune réserve haute ou critique relevée sur cette visite.',
+    },
+    {
+      title: 'Échéances sensibles',
+      text: totalOverdue > 0
+        ? `${totalOverdue} réserve${totalOverdue > 1 ? 's' : ''} déjà en retard.`
+        : `${reservesWithDeadlineCount} réserve${reservesWithDeadlineCount > 1 ? 's' : ''} avec échéance renseignée.`,
+    },
+    {
+      title: 'Entreprises concernées',
+      text: companiesCount > 0
+        ? `${companiesCount} entreprise${companiesCount > 1 ? 's' : ''} concernée${companiesCount > 1 ? 's' : ''} par les actions de ce compte-rendu.`
+        : 'Aucune entreprise responsable renseignée.',
+    },
+    {
+      title: 'Checklist de contrôle',
+      text: checklistTotal > 0
+        ? `${checklistDone}/${checklistTotal} point${checklistTotal > 1 ? 's' : ''} validé${checklistDone > 1 ? 's' : ''} (${checklistPct}%).`
+        : 'Aucune checklist associée à cette visite.',
+    },
+  ];
+
+  const executiveSection = `
+    <div class="section-header">Synthèse exécutive</div>
+    <div class="summary-grid">
+      ${summaryCards.map(card => `
+        <div class="summary-card">
+          <strong>${escapeHtml(card.title)}</strong>
+          <span>${escapeHtml(card.text)}</span>
+        </div>
+      `).join('')}
+    </div>
+  `;
+
+  const deadlineRows = sortedReserves
+    .filter(r => reserveDeadlineValue(r) !== 'Non définie')
+    .sort((a, b) => parseDateValue(a.deadline) - parseDateValue(b.deadline))
+    .map((r, i) => `
+      <tr style="background:${i % 2 === 0 ? '#fff' : '#F9FAFB'}">
+        <td style="white-space:nowrap;font-weight:700">${htmlText(r.deadline)}</td>
+        <td>${escapeHtml(reserveLocationLabel(r))}</td>
+        <td><strong>${escapeHtml(r.id)}</strong> — ${escapeHtml(r.title)}<br/><span style="color:#6B7280">${escapeHtml(getReserveDescriptionText(r.description, r.title, ''))}</span></td>
+        <td>${escapeHtml(reserveCompanyLabel(r))}</td>
+        <td>${reserveStatusBadge(r.status)}</td>
+      </tr>
+    `).join('');
+
+  const deadlinesSection = `
+    <div class="section-header">Synthèse des échéances principales</div>
+    <table>
+      <thead><tr><th>Échéance</th><th>Bâtiment / zone</th><th>Action ou réserve</th><th>Responsable</th><th>Statut</th></tr></thead>
+      <tbody>${deadlineRows || '<tr><td colspan="5" class="muted-empty">Aucune échéance renseignée pour les réserves de cette visite.</td></tr>'}</tbody>
+    </table>
+  `;
+
+  const buildingMap = new Map<string, Map<string, Map<string, Reserve[]>>>();
+  sortedReserves.forEach(reserve => {
+    const building = cleanValue(reserve.building, 'Sans bâtiment');
+    const zone = [reserve.level, reserve.zone].map(v => cleanValue(v, '')).filter(Boolean).join(' · ') || 'Zone non précisée';
+    const company = reserveCompanyLabel(reserve);
+    if (!buildingMap.has(building)) buildingMap.set(building, new Map());
+    const zoneMap = buildingMap.get(building)!;
+    if (!zoneMap.has(zone)) zoneMap.set(zone, new Map());
+    const companyMap = zoneMap.get(zone)!;
+    if (!companyMap.has(company)) companyMap.set(company, []);
+    companyMap.get(company)!.push(reserve);
+  });
+
+  const actionsByBuildingSection = `
+    <div class="section-header">Actions par bâtiment, zone et entreprise</div>
+    ${buildingMap.size === 0 ? '<div class="muted-empty">Aucune action à regrouper pour cette visite.</div>' : Array.from(buildingMap.entries()).map(([building, zoneMap]) => {
+      const buildingCount = Array.from(zoneMap.values()).reduce((acc, companyMap) => (
+        acc + Array.from(companyMap.values()).reduce((sum, list) => sum + list.length, 0)
+      ), 0);
+      return `
+        <div class="building-block">
+          <div class="building-title">
+            <span>${escapeHtml(building)}</span>
+            <span class="building-count">${buildingCount} action${buildingCount > 1 ? 's' : ''}</span>
+          </div>
+          ${Array.from(zoneMap.entries()).map(([zone, companyMap]) => `
+            <div class="zone-block">
+              <div class="zone-title">${escapeHtml(zone)}</div>
+              ${Array.from(companyMap.entries()).map(([company, items]) => `
+                <div class="company-title">${escapeHtml(company)}</div>
+                <ul class="action-list">
+                  ${items.map(r => `
+                    <li>
+                      <div class="action-title">${escapeHtml(r.id)} — ${escapeHtml(r.title)} ${reservePriorityBadge(r.priority)} ${reserveStatusBadge(r.status)}</div>
+                      <div class="action-desc">${escapeHtml(getReserveDescriptionText(r.description, r.title, ''))}</div>
+                      <div class="action-meta">Échéance : ${htmlText(reserveDeadlineValue(r))}${r.planId ? ` · Plan : ${htmlText(r.planId)}` : ''}${r.planX != null && r.planY != null ? ' · Épingle positionnée' : ''}</div>
+                    </li>
+                  `).join('')}
+                </ul>
+              `).join('')}
+            </div>
+          `).join('')}
+        </div>
+      `;
+    }).join('')}
+  `;
+
+  const reserveRows = sortedReserves.map((r, idx) => `
+    <tr style="background:${idx % 2 === 0 ? '#fff' : '#F9FAFB'}">
+      <td style="font-weight:700;white-space:nowrap">${escapeHtml(r.id)}</td>
+      <td><strong>${escapeHtml(r.title)}</strong><br/><span style="color:#6B7280">${escapeHtml(getReserveDescriptionText(r.description, r.title, ''))}</span></td>
+      <td>${escapeHtml(reserveLocationLabel(r))}</td>
+      <td>${escapeHtml(reserveCompanyLabel(r))}</td>
+      <td style="text-align:center">${reservePriorityBadge(r.priority)}</td>
+      <td style="text-align:center">${reserveStatusBadge(r.status)}</td>
+      <td style="white-space:nowrap">${htmlText(reserveDeadlineValue(r))}</td>
+    </tr>
+  `).join('');
+
+  const reservesSection = `
+    <div class="section-header">Réserves relevées pendant la visite (${reserves.length})</div>
+    <table>
+      <thead>
+        <tr>
+          <th>ID</th><th>Titre / description</th><th>Lieu</th><th>Entreprise</th>
+          <th style="text-align:center">Priorité</th><th style="text-align:center">Statut</th><th>Échéance</th>
+        </tr>
+      </thead>
+      <tbody>${reserveRows || '<tr><td colspan="7" class="muted-empty">Aucune réserve rattachée à cette visite.</td></tr>'}</tbody>
+    </table>
+  `;
+
+  const planMap = new Map<string, Reserve[]>();
+  sortedReserves.forEach(reserve => {
+    const planKey = reserve.planId || visite.defaultPlanId || 'Sans plan associé';
+    if (!planMap.has(planKey)) planMap.set(planKey, []);
+    planMap.get(planKey)!.push(reserve);
+  });
+  const plansSection = planMap.size > 0 ? `
+    <div class="section-header">Plans associés et épingles</div>
+    ${Array.from(planMap.entries()).map(([plan, items]) => {
+      const pinnedCount = items.filter(r => r.planX != null && r.planY != null).length;
+      return `
+        <div class="plan-card">
+          <div class="plan-title">${escapeHtml(plan)}</div>
+          <div class="plan-meta">${items.length} réserve${items.length > 1 ? 's' : ''} · ${pinnedCount} épingle${pinnedCount > 1 ? 's' : ''} positionnée${pinnedCount > 1 ? 's' : ''}</div>
+          <div style="font-size:11px;color:#1A2742;margin-top:7px">${items.map(r => `${escapeHtml(r.id)} — ${escapeHtml(r.title)}`).join('<br/>')}</div>
+        </div>
+      `;
+    }).join('')}
+  ` : '';
+
+  const statusCounts = countBy(reserves, r => r.status);
+  const companyCounts = countBy(reserves.flatMap(r => reserveCompanies(r).length ? reserveCompanies(r) : ['Sans entreprise']), name => name);
+  const statusDistribution = Object.entries(statusCounts).map(([status, count]) => `${RESERVE_STATUS_LABELS[status] ?? status} : ${count}`).join(' · ') || 'Aucune réserve';
+  const companyDistribution = Object.entries(companyCounts).map(([company, count]) => `${company} : ${count}`).join(' · ') || 'Aucune entreprise';
+  const pilotageSection = `
+    <div class="section-header">Pilotage et répartition</div>
+    <div class="summary-grid">
+      <div class="summary-card">
+        <strong>Répartition par statut</strong>
+        <span>${escapeHtml(statusDistribution)}</span>
+      </div>
+      <div class="summary-card">
+        <strong>Répartition par entreprise</strong>
+        <span>${escapeHtml(companyDistribution)}</span>
+      </div>
+    </div>
+  `;
 
   const participantsSection = visite.participants && visite.participants.length > 0
     ? `<div class="section-header">Participants (${visite.participants.length})</div>
@@ -121,29 +377,45 @@ function buildVisitePDF(visite: Visite, reserves: Reserve[], projectName: string
          <thead><tr><th>Nom</th><th>Fonction</th><th>Entreprise</th></tr></thead>
          <tbody>${visite.participants.map((p, i) =>
            `<tr style="background:${i % 2 === 0 ? '#fff' : '#F9FAFB'}">
-             <td style="padding:8px 10px;font-size:12px;font-weight:600">${escapeHtml(p.name)}</td>
-             <td style="padding:8px 10px;font-size:12px">${escapeHtml(p.role ?? '—')}</td>
-             <td style="padding:8px 10px;font-size:12px">${escapeHtml(p.company ?? '—')}</td>
+             <td style="font-weight:600">${htmlText(p.name)}</td>
+             <td>${htmlText(p.role)}</td>
+             <td>${htmlText(p.company)}</td>
            </tr>`
          ).join('')}</tbody>
        </table>`
     : '';
 
   const checklistSection = visite.checklistItems && visite.checklistItems.length > 0
-    ? (() => {
-        const total = visite.checklistItems!.length;
-        const done  = visite.checklistItems!.filter(i => i.checked).length;
-        const pct   = Math.round((done / total) * 100);
-        return `<div class="section-header">Checklist de contrôle (${done}/${total} — ${pct}%)</div>
-          <div style="margin-bottom:20px">
-            ${visite.checklistItems!.map(item =>
-              `<div style="display:flex;align-items:center;gap:10px;padding:7px 12px;border-bottom:1px solid #EEF3FA">
-                <span style="display:inline-block;width:14px;height:14px;border-radius:3px;border:1.5px solid ${item.checked ? '#059669' : '#CBD5E1'};background:${item.checked ? '#059669' : 'transparent'};text-align:center;line-height:12px;font-size:10px;color:#fff">${item.checked ? '✓' : ''}</span>
-                <span style="font-size:12px;color:${item.checked ? '#6B7280' : '#1A2742'};${item.checked ? 'text-decoration:line-through' : ''}">${item.label}</span>
-              </div>`
-            ).join('')}
+    ? `<div class="section-header">Checklist de contrôle (${checklistDone}/${checklistTotal} — ${checklistPct}%)</div>
+       <div style="margin-bottom:20px;border:1px solid #DDE4EE;border-radius:10px;overflow:hidden">
+         ${visite.checklistItems.map(item => `
+           <div class="check-row">
+             <span class="check-box" style="border:1.5px solid ${item.checked ? '#059669' : '#CBD5E1'};background:${item.checked ? '#059669' : 'transparent'}">${item.checked ? '✓' : ''}</span>
+             <span class="check-label" style="${item.checked ? 'color:#6B7280;text-decoration:line-through' : ''}">${htmlText(item.label, '')}</span>
+           </div>
+         `).join('')}
+       </div>`
+    : '';
+
+  const reservesWithPhotos = reservePhotoMap && reservePhotoMap.size > 0
+    ? sortedReserves.filter(r => (reservePhotoMap.get(r.id)?.length ?? 0) > 0)
+    : [];
+  const photoGallery = reservesWithPhotos.length > 0
+    ? `<div class="section-header">Photos terrain (${reservesWithPhotos.reduce((acc, r) => acc + (reservePhotoMap?.get(r.id)?.length ?? 0), 0)} photos)</div>
+       ${reservesWithPhotos.map(r => {
+          const srcs = reservePhotoMap?.get(r.id) ?? [];
+          const rawPhotos = getReservePdfPhotos(r);
+          return `<div style="margin-bottom:18px;padding:12px 16px;border:1.5px solid #DDE4EE;border-radius:10px;page-break-inside:avoid">
+            <div style="font-size:11px;font-weight:700;color:#1A2742;margin-bottom:6px">${escapeHtml(r.id)} — ${escapeHtml(r.title)} <span style="color:#6B7280;font-weight:400">· ${escapeHtml(reserveCompanyLabel(r))} · ${escapeHtml(reserveLocationLabel(r))}</span></div>
+            ${buildPhotoGrid(srcs.slice(0, 4).map((src, i) => ({
+              src,
+              badge: (rawPhotos[i]?.kind === 'resolution') ? 'Levée' : 'Constat',
+              badgeColor: (rawPhotos[i]?.kind === 'resolution') ? '#ECFDF5' : '#FEF2F2',
+              badgeTextColor: (rawPhotos[i]?.kind === 'resolution') ? '#059669' : '#DC2626',
+              caption: [rawPhotos[i]?.label, rawPhotos[i]?.takenBy, rawPhotos[i]?.takenAt].filter(Boolean).join(' · '),
+            })))}
           </div>`;
-      })()
+        }).join('')}`
     : '';
 
   const conducteurSigHtml = visite.conducteurSignature
@@ -153,52 +425,51 @@ function buildVisitePDF(visite: Visite, reserves: Reserve[], projectName: string
     ? `<img src="${svgStringToDataUrl(visite.entrepriseSignature)}" style="height:70px;width:100%;object-fit:contain;border-bottom:2px solid #1A2742;margin-bottom:8px;display:block" />`
     : '<div style="height:70px;border-bottom:2px solid #1A2742;margin-bottom:8px"></div>';
 
-  const body = `
-    ${buildLetterhead('Compte-rendu de visite de chantier', visite.title, docRef, visite.date, projectName)}
-    ${buildInfoGrid(infoItems)}
-    ${buildKpiRow([
-      { val: reserves.length, label: 'Relevées', color: '#1A2742' },
-      { val: totalOpen, label: 'Ouvertes', color: '#DC2626' },
-      { val: totalInProgress, label: 'En cours', color: '#2563EB' },
-      { val: totalClosed, label: 'Clôturées', color: '#059669' },
-      ...(totalCritical > 0 ? [{ val: totalCritical, label: 'Priorité haute', color: '#7C3AED' }] : []),
-    ])}
-    ${participantsSection}
-    ${visite.notes ? `
-      <div style="margin-bottom:20px;background:#F4F7FB;border-left:4px solid #003082;border-radius:0 10px 10px 0;padding:14px 18px">
-        <div style="font-size:10px;color:#6B7280;text-transform:uppercase;font-weight:700;letter-spacing:0.6px;margin-bottom:6px">Observations du conducteur</div>
-        <div style="font-size:13px;color:#1A2742;line-height:1.6">${visite.notes}</div>
-      </div>` : ''}
-    ${checklistSection}
-    <div class="section-header">
-      Liste des réserves relevées (${reserves.length})
-      ${totalCritical > 0 ? '<span style="font-size:11px;background:#FEF2F2;color:#DC2626;padding:2px 10px;border-radius:10px;margin-left:8px;font-weight:700">⚠ Triées par priorité</span>' : ''}
-    </div>
-    <table>
-      <thead>
-        <tr>
-          <th>ID</th><th>TITRE</th><th>LIEU</th><th>ENTREPRISE</th>
-          <th style="text-align:center">PRIORITÉ</th><th style="text-align:center">STATUT</th><th>ÉCHÉANCE</th>
-        </tr>
-      </thead>
-      <tbody>${rows || '<tr><td colspan="7" style="padding:20px;text-align:center;color:#6B7280">Aucune réserve rattachée à cette visite</td></tr>'}</tbody>
-    </table>
-    <div class="section-header">Signatures</div>
+  const signaturesSection = `
+    <div class="section-header">Diffusion et signatures</div>
     <div class="sig-row">
       <div class="sig-block">
         <div class="sig-label">Conducteur de travaux</div>
         ${conducteurSigHtml}
-        <div class="sig-name">${escapeHtml(visite.conducteur)}</div>
-        <div class="sig-date">Date : ${escapeHtml(visite.signedAt ? formatDate(visite.signedAt) : visite.date)}</div>
+        <div class="sig-name">${htmlText(visite.conducteur)}</div>
+        <div class="sig-date">Date : ${htmlText(visite.signedAt ? formatDate(visite.signedAt) : visite.date)}</div>
       </div>
       <div class="sig-block">
         <div class="sig-label">Lu et approuvé — Entreprise(s)</div>
         ${entrepriseSigHtml}
-        <div class="sig-name">${escapeHtml(visite.entrepriseSignataire ?? '')}</div>
-        <div class="sig-date">Date : ${escapeHtml(visite.signedAt ? formatDate(visite.signedAt) : '')}</div>
+        <div class="sig-name">${htmlText(visite.entrepriseSignataire, '')}</div>
+        <div class="sig-date">Date : ${htmlText(visite.signedAt ? formatDate(visite.signedAt) : '', '')}</div>
       </div>
     </div>
+  `;
+
+  const body = `
+    ${localStyles}
+    ${buildLetterhead('Compte-rendu de visite de chantier', visite.title, docRef, visite.date, projectName)}
+    ${coverPhotoDataUrl ? `<img class="visit-cover" src="${coverPhotoDataUrl}" />` : ''}
+    ${buildInfoGrid(infoItems)}
+    ${buildKpiRow([
+      { val: reserves.length, label: 'Réserves relevées', color: '#1A2742' },
+      { val: totalOpen, label: 'Ouvertes', color: '#DC2626' },
+      { val: totalInProgress, label: 'En cours', color: '#2563EB' },
+      { val: totalWaiting + totalVerification, label: 'À valider', color: '#7C3AED' },
+      { val: totalClosed, label: 'Clôturées', color: '#059669' },
+      ...(totalOverdue > 0 ? [{ val: totalOverdue, label: 'En retard', color: '#B91C1C' }] : []),
+    ])}
+    ${executiveSection}
+    ${deadlinesSection}
+    ${participantsSection}
+    ${visite.notes ? `
+      <div class="section-header">Décisions, blocages et observations</div>
+      <div class="note-box">${htmlMultiline(visite.notes)}</div>
+    ` : ''}
+    ${actionsByBuildingSection}
+    ${reservesSection}
+    ${plansSection}
+    ${checklistSection}
+    ${pilotageSection}
     ${photoGallery}
+    ${signaturesSection}
     ${buildDocFooter(projectName)}
   `;
 
@@ -368,7 +639,10 @@ export default function VisiteDetailScreen() {
           }
         })
       );
-      const html = buildVisitePDF(visite, visiteReserves, projectName, reservePhotoMap);
+      const coverPhotoDataUrl = visite.coverPhotoUri
+        ? await loadPhotoAsDataUrlForPdf(visite.coverPhotoUri)
+        : null;
+      const html = buildVisitePDF(visite, visiteReserves, projectName, reservePhotoMap, coverPhotoDataUrl);
       await exportPDFHelper(html, buildPdfFilename('CR_Visite', [visite.title, visite.level, projectName]));
     } catch (e: any) {
       Alert.alert('Erreur', e?.message ?? 'Impossible de générer le PDF');
