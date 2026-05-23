@@ -2865,11 +2865,8 @@ export default function ReservesScreen() {
 
       {/* Advanced Filters Modal */}
       <Modal visible={filterModalVisible} transparent animationType="slide" onRequestClose={() => setFilterModalVisible(false)}>
-        <TouchableOpacity style={styles.modalOverlay} activeOpacity={1} onPress={() => setFilterModalVisible(false)}>
-          <TouchableOpacity
-            activeOpacity={1}
-            style={[styles.bottomSheet, styles.filtersBottomSheet, { paddingBottom: Math.max(insets.bottom, 10) }]}
-          >
+        <View style={styles.modalOverlay}>
+          <View style={styles.filtersBottomSheet}>
 
             {/* Handle */}
             <View style={styles.filtHandleArea}>
@@ -3237,11 +3234,13 @@ export default function ReservesScreen() {
 
             </ScrollView>
 
-            <TouchableOpacity style={styles.applyBtn} onPress={() => setFilterModalVisible(false)}>
-              <Text style={styles.applyBtnText}>Appliquer</Text>
-            </TouchableOpacity>
-          </TouchableOpacity>
-        </TouchableOpacity>
+            <View style={[styles.filtFooter, { paddingBottom: Math.max(insets.bottom, 14) }]}>
+              <TouchableOpacity style={[styles.applyBtn, styles.filtApplyBtn]} onPress={() => setFilterModalVisible(false)}>
+                <Text style={styles.applyBtnText}>Appliquer</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
       </Modal>
     </View>
   );
@@ -3480,9 +3479,15 @@ const styles = StyleSheet.create({
     width: '100%', maxWidth: 640, overflow: 'hidden',
   },
   filtersBottomSheet: {
-    height: '88%',
-    maxHeight: '92%',
+    width: '100%',
+    maxWidth: 640,
+    height: '94%',
+    backgroundColor: C.surface,
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    paddingHorizontal: 16,
     paddingTop: 0,
+    overflow: 'hidden',
   },
   sheetHandle: { width: 40, height: 4, borderRadius: 2, backgroundColor: C.border, alignSelf: 'center', marginBottom: 16 },
   sheetTitleRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 },
@@ -3584,7 +3589,16 @@ const styles = StyleSheet.create({
   filtResetText: { fontSize: 12, fontFamily: 'Inter_500Medium', color: C.textSub },
   filtCloseBtn: { padding: 4 },
   filtScroll: { flex: 1, alignSelf: 'stretch' },
-  filtContent: { paddingHorizontal: 0, paddingTop: 16, paddingBottom: 28, gap: 20 },
+  filtContent: { paddingHorizontal: 0, paddingTop: 16, paddingBottom: 18, gap: 20 },
+  filtFooter: {
+    marginHorizontal: -16,
+    paddingHorizontal: 16,
+    paddingTop: 10,
+    backgroundColor: C.surface,
+    borderTopWidth: 1,
+    borderTopColor: C.border,
+  },
+  filtApplyBtn: { marginTop: 0, marginBottom: 0 },
   filtSection: { gap: 10 },
   filtSectionHeader: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   filtSectionTitle: { fontSize: 13, fontFamily: 'Inter_600SemiBold', color: C.text, flex: 1 },
