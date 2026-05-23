@@ -285,6 +285,30 @@ async function refetchActiveQueries(reason: string): Promise<void> {
   }
 }
 
+const QUEUE_ORG_SCOPED_INSERT_TABLES = new Set(['reserves', 'photos']);
+
+function hydrateQueuedOrganizationId(
+  table: string,
+  data: Record<string, any> | null | undefined,
+  organizationId: string | null | undefined,
+  role: string | null | undefined,
+): Record<string, any> | undefined {
+  if (!data || !organizationId || !QUEUE_ORG_SCOPED_INSERT_TABLES.has(table)) return data ?? undefined;
+
+  const currentOrg = data.organization_id;
+  if (!currentOrg || (role !== 'super_admin' && currentOrg !== organizationId)) {
+    return { ...data, organization_id: organizationId };
+  }
+
+  return data;
+}
+
+function queueReplayPriority(op: QueuedOperation): number {
+  if (op.table === 'reserves' && op.op === 'insert') return 10;
+  if (op.table === 'photos' && op.op === 'insert') return 20;
+  return 30;
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Provider
 // ─────────────────────────────────────────────────────────────────────────────
@@ -618,7 +642,11 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
     const pendingConflicts: StatusConflict[] = [];
     const failedOps: QueuedOperation[] = [];
     // Snapshot the queue from the ref (always current, not a stale closure)
-    const currentQueue = [...queueRef.current];
+    const currentQueue = [...queueRef.current].sort((a, b) => {
+      const priorityDiff = queueReplayPriority(a) - queueReplayPriority(b);
+      if (priorityDiff !== 0) return priorityDiff;
+      return a.queuedAt.localeCompare(b.queuedAt);
+    });
     setSyncProgress({ done: 0, total: currentQueue.length });
 
     // Helper: re-queue an op while attaching the latest error message and
@@ -756,6 +784,7 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
 
         // ── Upload local photos / files before replaying insert/update ───────
         let data = op.data ? { ...op.data } : op.data;
+        data = hydrateQueuedOrganizationId(op.table, data, user?.organizationId ?? null, user?.role ?? null);
         let retryData = data;
         let deferredPhotoPatch: QueuedOperation | null = null;
         if (data) {

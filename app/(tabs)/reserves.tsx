@@ -292,8 +292,9 @@ export default function ReservesScreen() {
   const [viewModeModalVisible, setViewModeModalVisible] = useState(false);
 
   const topPad = insets.top;
-  const { width } = useWindowDimensions();
+  const { width, height: windowHeight } = useWindowDimensions();
   const isWideScreen = width >= 768;
+  const filterSheetHeight = Math.min(windowHeight - 8, Math.max(420, windowHeight - topPad - 8));
   const [selectedReserveId, setSelectedReserveId] = useState<string | null>(null);
   const [nearDeadlineOnly, setNearDeadlineOnly] = useState(false);
 
@@ -2866,7 +2867,7 @@ export default function ReservesScreen() {
       {/* Advanced Filters Modal */}
       <Modal visible={filterModalVisible} transparent animationType="slide" onRequestClose={() => setFilterModalVisible(false)}>
         <View style={styles.modalOverlay}>
-          <View style={styles.filtersBottomSheet}>
+          <View style={[styles.filtersBottomSheet, { height: filterSheetHeight }]}>
 
             {/* Handle */}
             <View style={styles.filtHandleArea}>
@@ -3461,7 +3462,6 @@ const styles = StyleSheet.create({
   filtersBottomSheet: {
     width: '100%',
     maxWidth: 640,
-    height: '94%',
     backgroundColor: C.surface,
     borderTopLeftRadius: 20,
     borderTopRightRadius: 20,
