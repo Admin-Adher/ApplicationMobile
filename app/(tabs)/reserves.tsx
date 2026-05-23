@@ -2911,8 +2911,7 @@ export default function ReservesScreen() {
                   <Ionicons name="flag-outline" size={13} color={C.textSub} />
                   <Text style={styles.filtSectionTitle}>Statut</Text>
                 </View>
-                <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-                  <View style={styles.filtChipRow}>
+                <View style={styles.filtChipRow}>
                     {([
                       ...STATUS_FILTERS,
                       { key: 'archived', label: `Archivées${archivedCount > 0 ? ` (${archivedCount})` : ''}`, icon: 'archive-outline' },
@@ -2946,8 +2945,7 @@ export default function ReservesScreen() {
                         </TouchableOpacity>
                       );
                     })}
-                  </View>
-                </ScrollView>
+                </View>
               </View>
 
               {canTrackEnterpriseWorkflow && enterpriseWorkflowReserves.length > 0 && (
@@ -2956,8 +2954,7 @@ export default function ReservesScreen() {
                     <Ionicons name="business-outline" size={13} color={C.textSub} />
                     <Text style={styles.filtSectionTitle}>Suivi entreprise</Text>
                   </View>
-                  <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-                    <View style={styles.filtChipRow}>
+                  <View style={styles.filtChipRow}>
                       {ENTERPRISE_WORKFLOW_FILTERS.map(f => {
                         const isActive = enterpriseFilter === f.key;
                         const count = enterpriseWorkflowStats[f.key];
@@ -2985,8 +2982,7 @@ export default function ReservesScreen() {
                           </TouchableOpacity>
                         );
                       })}
-                    </View>
-                  </ScrollView>
+                  </View>
                 </View>
               )}
 
@@ -2996,8 +2992,7 @@ export default function ReservesScreen() {
                   <Ionicons name="swap-horizontal-outline" size={13} color={C.textSub} />
                   <Text style={styles.filtSectionTitle}>Type</Text>
                 </View>
-                <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-                  <View style={styles.filtChipRow}>
+                <View style={styles.filtChipRow}>
                     <TouchableOpacity
                       style={[styles.filtChip, kindFilter === 'all' && styles.filtChipActive]}
                       onPress={() => setKindFilter('all')}
@@ -3020,8 +3015,7 @@ export default function ReservesScreen() {
                         Observations{obsCount > 0 ? ` (${obsCount})` : ''}
                       </Text>
                     </TouchableOpacity>
-                  </View>
-                </ScrollView>
+                </View>
               </View>
 
               {/* BATIMENT - localisation macro */}
@@ -3031,8 +3025,7 @@ export default function ReservesScreen() {
                     <Ionicons name="business-outline" size={13} color={C.textSub} />
                     <Text style={styles.filtSectionTitle}>Bâtiment</Text>
                   </View>
-                  <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-                    <View style={styles.filtChipRow}>
+                  <View style={styles.filtChipRow}>
                       {['all', ...buildings].map(b => (
                         <TouchableOpacity
                           key={b}
@@ -3046,8 +3039,7 @@ export default function ReservesScreen() {
                           </Text>
                         </TouchableOpacity>
                       ))}
-                    </View>
-                  </ScrollView>
+                  </View>
                 </View>
               )}
 
@@ -3058,8 +3050,7 @@ export default function ReservesScreen() {
                     <Ionicons name="layers-outline" size={13} color={C.textSub} />
                     <Text style={styles.filtSectionTitle}>Niveau</Text>
                   </View>
-                  <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-                    <View style={styles.filtChipRow}>
+                  <View style={styles.filtChipRow}>
                       {['all', ...levels].map(lv => (
                         <TouchableOpacity
                           key={lv}
@@ -3071,8 +3062,7 @@ export default function ReservesScreen() {
                           </Text>
                         </TouchableOpacity>
                       ))}
-                    </View>
-                  </ScrollView>
+                  </View>
                 </View>
               )}
 
@@ -3083,8 +3073,7 @@ export default function ReservesScreen() {
                     <Ionicons name="location-outline" size={13} color={C.textSub} />
                     <Text style={styles.filtSectionTitle}>Zone</Text>
                   </View>
-                  <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-                    <View style={styles.filtChipRow}>
+                  <View style={styles.filtChipRow}>
                       {['all', ...zones].map(z => (
                         <TouchableOpacity
                           key={z}
@@ -3096,8 +3085,7 @@ export default function ReservesScreen() {
                           </Text>
                         </TouchableOpacity>
                       ))}
-                    </View>
-                  </ScrollView>
+                  </View>
                 </View>
               )}
 
@@ -3108,8 +3096,7 @@ export default function ReservesScreen() {
                     <Ionicons name="construct-outline" size={13} color={C.textSub} />
                     <Text style={styles.filtSectionTitle}>Entreprise</Text>
                   </View>
-                  <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-                    <View style={styles.filtChipRow}>
+                  <View style={styles.filtChipRow}>
                       <TouchableOpacity
                         style={[styles.filtChip, companyFilter === 'all' && styles.filtChipActive]}
                         onPress={() => setCompanyFilter('all')}
@@ -3126,8 +3113,7 @@ export default function ReservesScreen() {
                           <Text style={[styles.filtChipText, companyFilter === co.name && { color: co.color, fontFamily: 'Inter_600SemiBold' }]}>{co.shortName}</Text>
                         </TouchableOpacity>
                       ))}
-                    </View>
-                  </ScrollView>
+                  </View>
                 </View>
               )}
 
@@ -3138,8 +3124,7 @@ export default function ReservesScreen() {
                     <Ionicons name="briefcase-outline" size={13} color={C.textSub} />
                     <Text style={styles.filtSectionTitle}>Corps d'état (Lot)</Text>
                   </View>
-                  <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-                    <View style={styles.filtChipRow}>
+                  <View style={styles.filtChipRow}>
                       <TouchableOpacity
                         style={[styles.filtChip, lotFilter === 'all' && styles.filtChipActive]}
                         onPress={() => setLotFilter('all')}
@@ -3158,8 +3143,7 @@ export default function ReservesScreen() {
                           </Text>
                         </TouchableOpacity>
                       ))}
-                    </View>
-                  </ScrollView>
+                  </View>
                 </View>
               )}
 
@@ -3170,8 +3154,7 @@ export default function ReservesScreen() {
                     <Ionicons name="map-outline" size={13} color={C.textSub} />
                     <Text style={styles.filtSectionTitle}>Localisation plan</Text>
                   </View>
-                  <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-                    <View style={styles.filtChipRow}>
+                  <View style={styles.filtChipRow}>
                       <TouchableOpacity
                         style={[styles.filtChip, pinFilter === 'all' && styles.filtChipActive]}
                         onPress={() => setPinFilter('all')}
@@ -3192,8 +3175,7 @@ export default function ReservesScreen() {
                         <Ionicons name="location-outline" size={12} color={pinFilter === 'unpinned' ? '#F59E0B' : C.textSub} />
                         <Text style={[styles.filtChipText, pinFilter === 'unpinned' && { color: '#F59E0B', fontFamily: 'Inter_600SemiBold' }]}>Non épinglées</Text>
                       </TouchableOpacity>
-                    </View>
-                  </ScrollView>
+                  </View>
                 </View>
               )}
 
@@ -3203,8 +3185,7 @@ export default function ReservesScreen() {
                   <Ionicons name="alert-circle-outline" size={13} color={C.textSub} />
                   <Text style={styles.filtSectionTitle}>Priorité</Text>
                 </View>
-                <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-                  <View style={styles.filtChipRow}>
+                <View style={styles.filtChipRow}>
                     {([
                       { key: 'all', label: 'Toutes', color: C.textSub },
                       { key: 'critical', label: PRIORITY_LABELS.critical, color: PRIORITY_COLORS.critical },
@@ -3228,8 +3209,7 @@ export default function ReservesScreen() {
                         ]}>{p.label}</Text>
                       </TouchableOpacity>
                     ))}
-                  </View>
-                </ScrollView>
+                </View>
               </View>
 
             </ScrollView>
@@ -3602,10 +3582,10 @@ const styles = StyleSheet.create({
   filtSection: { gap: 10 },
   filtSectionHeader: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   filtSectionTitle: { fontSize: 13, fontFamily: 'Inter_600SemiBold', color: C.text, flex: 1 },
-  filtChipRow: { flexDirection: 'row', gap: 6 },
-  filtChip: { flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: 12, paddingVertical: 8, borderRadius: 20, backgroundColor: C.surface2, borderWidth: 1.5, borderColor: C.border },
+  filtChipRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, alignItems: 'center' },
+  filtChip: { flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: 12, paddingVertical: 8, borderRadius: 20, backgroundColor: C.surface2, borderWidth: 1.5, borderColor: C.border, maxWidth: '100%' },
   filtChipActive: { backgroundColor: C.primary, borderColor: C.primary },
-  filtChipText: { fontSize: 13, fontFamily: 'Inter_500Medium', color: C.textSub },
+  filtChipText: { fontSize: 13, fontFamily: 'Inter_500Medium', color: C.textSub, flexShrink: 1 },
   filtChipTextActive: { color: '#fff', fontFamily: 'Inter_600SemiBold' },
 
   fabContainer: {
