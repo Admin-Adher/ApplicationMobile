@@ -42,6 +42,13 @@ import {
 import { getReserveDescriptionText, isReserveDescriptionMissing } from '@/lib/reserveDescription';
 import { detectTextLanguage, TEXT_ASSIST_LANGUAGES, textAssistAdvancedCacheKey, TextAssistContext, TextAssistLanguage } from '@/lib/textAssist';
 import { requestAdvancedTranslation } from '@/lib/textAssistOnline';
+import {
+  ENTERPRISE_WORKFLOW_FILTERS,
+  EnterpriseWorkflowFilter,
+  getEnterpriseWorkflowBadges,
+  getEnterpriseWorkflowStats,
+  matchesEnterpriseWorkflowFilter,
+} from '@/lib/reserveEnterpriseWorkflow';
 
 function buildReservesCSV(reserves: Reserve[]): string {
   const header = 'ID,Titre,Bâtiment,Zone,Niveau,Entreprise,Priorité,Statut,Créé le,Échéance,Description';
@@ -255,12 +262,14 @@ export default function ReservesScreen() {
 
   const isSousTraitant = user?.role === 'sous_traitant';
   const canUseReserveAssistant = user?.role === 'admin' || user?.role === 'super_admin';
+  const canTrackEnterpriseWorkflow = permissions.canEdit && !isSousTraitant;
   const sousTraitantCompanyName = isSousTraitant && user?.companyId
     ? companies.find(c => c.id === user.companyId)?.name ?? null
     : null;
 
   const [chantierFilter, setChantierFilter] = useState<string>(activeChantierId ?? 'all');
   const [statusFilter, setStatusFilter] = useState<StatusFilterKey>('all');
+  const [enterpriseFilter, setEnterpriseFilter] = useState<EnterpriseWorkflowFilter>('all');
   const [kindFilter, setKindFilter] = useState<'all' | ReserveKind>('all');
   const [pinFilter, setPinFilter] = useState<'all' | 'pinned' | 'unpinned'>('all');
   const [buildingFilter, setBuildingFilter] = useState<string>('all');
@@ -278,6 +287,7 @@ export default function ReservesScreen() {
   }, [search]);
   const [sortModalVisible, setSortModalVisible] = useState(false);
   const [filterModalVisible, setFilterModalVisible] = useState(false);
+  const [actionsModalVisible, setActionsModalVisible] = useState(false);
   const [viewMode, setViewMode] = useState<ViewMode>('list');
   const [viewModeModalVisible, setViewModeModalVisible] = useState(false);
 
@@ -403,6 +413,17 @@ export default function ReservesScreen() {
     return list.filter(r => !!r.archivedAt).length;
   }, [reserves, chantierFilter, isSousTraitant, sousTraitantCompanyName]);
 
+  const enterpriseWorkflowReserves = useMemo(() => {
+    let list = chantierFilter === 'all' ? reserves : reserves.filter(r => r.chantierId === chantierFilter);
+    if (isSousTraitant && sousTraitantCompanyName) {
+      list = list.filter(r => {
+        const names = r.companies ?? (r.company ? [r.company] : []);
+        return names.includes(sousTraitantCompanyName!);
+      });
+    }
+    return list.filter(r => !r.archivedAt);
+  }, [reserves, chantierFilter, isSousTraitant, sousTraitantCompanyName]);
+
   const chantiersWithPlans = useMemo(
     () => new Set(sitePlans.map(p => p.chantierId).filter(Boolean)),
     [sitePlans]
@@ -471,6 +492,7 @@ export default function ReservesScreen() {
     + (kindFilter !== 'all' ? 1 : 0)
     + (lotFilter !== 'all' ? 1 : 0)
     + (statusFilter !== 'all' ? 1 : 0)
+    + (canTrackEnterpriseWorkflow && enterpriseFilter !== 'all' ? 1 : 0)
     + (showArchived ? 1 : 0)
     + (nearDeadlineOnly ? 1 : 0)
     + (pinFilter !== 'all' ? 1 : 0);
@@ -480,10 +502,28 @@ export default function ReservesScreen() {
     [chantierReserves]
   );
 
+  const enterpriseWorkflowStats = useMemo(
+    () => getEnterpriseWorkflowStats(enterpriseWorkflowReserves),
+    [enterpriseWorkflowReserves]
+  );
+  const activeEnterpriseWorkflowFilter = useMemo(
+    () => ENTERPRISE_WORKFLOW_FILTERS.find(f => f.key === enterpriseFilter) ?? ENTERPRISE_WORKFLOW_FILTERS[0],
+    [enterpriseFilter]
+  );
+  const hasEnterpriseWorkflowAttention = enterpriseWorkflowStats.needs_validation > 0 || enterpriseWorkflowStats.ack_missing > 0;
+  const showEnterpriseWorkflowSummary =
+    canTrackEnterpriseWorkflow &&
+    enterpriseWorkflowReserves.length > 0 &&
+    !isLoading &&
+    !headerCompact &&
+    !showArchived &&
+    (hasEnterpriseWorkflowAttention || enterpriseFilter !== 'all');
+
   function applyAdvancedStatusFilter(key: AdvancedStatusFilterKey) {
     if (key === 'archived') {
       setShowArchived(true);
       setStatusFilter('all');
+      setEnterpriseFilter('all');
       setNearDeadlineOnly(false);
       return;
     }
@@ -534,7 +574,11 @@ export default function ReservesScreen() {
         pinFilter === 'all' ? true :
         pinFilter === 'pinned' ? (r.planId != null && r.planX != null && r.planY != null) :
         /* unpinned */ chantiersWithPlans.has(r.chantierId ?? '') && (r.planId == null || r.planX == null || r.planY == null);
-      return matchStatus && matchKind && matchBuilding && matchPriority && matchCompany && matchZone && matchLevel && matchLot && matchSearch && matchNearDeadline && matchPin;
+      const matchEnterpriseWorkflow =
+        !canTrackEnterpriseWorkflow ||
+        enterpriseFilter === 'all' ||
+        matchesEnterpriseWorkflowFilter(r, enterpriseFilter);
+      return matchStatus && matchKind && matchBuilding && matchPriority && matchCompany && matchZone && matchLevel && matchLot && matchSearch && matchNearDeadline && matchPin && matchEnterpriseWorkflow;
     });
 
     list = [...list].sort((a, b) => {
@@ -548,7 +592,7 @@ export default function ReservesScreen() {
       }
     });
     return list;
-  }, [chantierReserves, statusFilter, kindFilter, buildingFilter, priorityFilter, companyFilter, zoneFilter, levelFilter, lotFilter, sortKey, debouncedSearch, nearDeadlineOnly, lots, pinFilter, chantiersWithPlans]);
+  }, [chantierReserves, statusFilter, kindFilter, buildingFilter, priorityFilter, companyFilter, zoneFilter, levelFilter, lotFilter, sortKey, debouncedSearch, nearDeadlineOnly, lots, pinFilter, chantiersWithPlans, canTrackEnterpriseWorkflow, enterpriseFilter]);
 
   const assistantTargetReserves = useMemo(() => {
     if (assistantScope === 'selected') {
@@ -960,13 +1004,11 @@ export default function ReservesScreen() {
     () => filtered.find(r => r.id === selectedReserveId) ?? null,
     [filtered, selectedReserveId]
   );
-
-  const toggleSelectMode = useCallback(() => {
-    setIsSelectMode(prev => {
-      if (prev) setSelectedIds(new Set());
-      return !prev;
-    });
-  }, []);
+  const hasReserveActions =
+    (permissions.canExport && filtered.length > 0) ||
+    (permissions.canEdit && filtered.length > 0) ||
+    (canUseReserveAssistant && chantierReserves.length > 0) ||
+    chantierReserves.length > 0;
 
   const toggleId = useCallback((id: string) => {
     setSelectedIds(prev => {
@@ -980,6 +1022,18 @@ export default function ReservesScreen() {
   const selectAll = useCallback(() => {
     setSelectedIds(new Set(filtered.map(r => r.id)));
   }, [filtered]);
+
+  const closeFabMenu = useCallback(() => {
+    setFabOpen(false);
+    Animated.spring(fabAnim, { toValue: 0, useNativeDriver: true, tension: 60, friction: 10 }).start();
+  }, [fabAnim]);
+
+  const openPdfExportModal = useCallback(() => {
+    setPdfExportMode('all');
+    setPdfCompanySingle('');
+    setPdfCompaniesMulti(new Set());
+    setPdfExportModalVisible(true);
+  }, []);
 
   const applyBatch = useCallback(() => {
     if (selectedIds.size === 0) return;
@@ -1039,6 +1093,7 @@ export default function ReservesScreen() {
     setKindFilter('all');
     setLotFilter('all');
     setStatusFilter('all');
+    setEnterpriseFilter('all');
     setShowArchived(false);
     setNearDeadlineOnly(false);
     setPinFilter('all');
@@ -1218,6 +1273,7 @@ export default function ReservesScreen() {
             selected={item.id === selectedReserveId}
             isFlashed={item.id === flashId}
             hasPlansAvailable={hasPlansAvailable}
+            showEnterpriseTracking={canTrackEnterpriseWorkflow}
           />
         </View>
       </View>
@@ -1334,58 +1390,19 @@ export default function ReservesScreen() {
             </Text>
           </View>
           <View style={{ flexDirection: 'row', gap: 6, flexShrink: 0, alignItems: 'center' }}>
-            {permissions.canExport && filtered.length > 0 && !isSelectMode && (
-              <>
-                <TouchableOpacity style={styles.selectBtn} onPress={handleExportCSV} accessibilityLabel="Exporter en CSV">
-                  <Ionicons name="download-outline" size={14} color={C.textSub} />
-                  <Text style={styles.selectBtnText}>CSV</Text>
-                </TouchableOpacity>
-                <TouchableOpacity
-                  style={styles.selectBtn}
-                  onPress={() => {
-                    setPdfExportMode('all');
-                    setPdfCompanySingle('');
-                    setPdfCompaniesMulti(new Set());
-                    setPdfExportModalVisible(true);
-                  }}
-                  accessibilityLabel="Exporter rapport PDF"
-                  disabled={pdfLoading}
-                >
-                  {pdfLoading
-                    ? <ActivityIndicator size="small" color={C.primary} />
-                    : <Ionicons name="document-text-outline" size={14} color={C.textSub} />}
-                  <Text style={styles.selectBtnText}>PDF</Text>
-                </TouchableOpacity>
-              </>
-            )}
-            {permissions.canEdit && filtered.length > 0 && (
+            {hasReserveActions && !isLoading && (
               <TouchableOpacity
-                style={[styles.selectBtn, isSelectMode && styles.selectBtnActive]}
-                onPress={toggleSelectMode}
-                accessibilityLabel={isSelectMode ? 'Annuler la sélection' : 'Mode sélection multiple'}
-              >
-                <Ionicons
-                  name={isSelectMode ? 'close-circle' : 'checkmark-circle-outline'}
-                  size={14}
-                  color={isSelectMode ? C.open : C.textSub}
-                />
-                <Text style={[styles.selectBtnText, isSelectMode && styles.selectBtnTextActive]}>
-                  {isSelectMode ? 'Annuler' : 'Sélection'}
-                </Text>
-              </TouchableOpacity>
-            )}
-            {chantierReserves.length > 0 && !isLoading && (
-              <TouchableOpacity
-                style={[styles.headerCompactBtn, headerCompact && styles.headerCompactBtnActive]}
-                onPress={toggleHeaderCompact}
+                style={styles.headerActionsBtn}
+                onPress={() => setActionsModalVisible(true)}
                 accessibilityRole="button"
-                accessibilityLabel={headerCompact ? 'Afficher la barre de progression et les alertes' : 'Masquer la barre de progression et les alertes'}
+                accessibilityLabel="Ouvrir les actions des r\u00e9serves"
               >
-                <Ionicons
-                  name={headerCompact ? 'chevron-down' : 'chevron-up'}
-                  size={16}
-                  color={headerCompact ? C.primary : C.textSub}
-                />
+                <Ionicons name="ellipsis-horizontal" size={17} color={C.primary} />
+                {currentMissingDescriptionCount > 0 && canUseReserveAssistant && (
+                  <View style={styles.headerActionsBadge}>
+                    <Text style={styles.headerActionsBadgeText}>{currentMissingDescriptionCount > 9 ? '9+' : currentMissingDescriptionCount}</Text>
+                  </View>
+                )}
               </TouchableOpacity>
             )}
           </View>
@@ -1400,6 +1417,14 @@ export default function ReservesScreen() {
             <TouchableOpacity style={styles.selectBarBtn} onPress={() => setSelectedIds(new Set())} accessibilityLabel="Désélectionner tout">
               <Ionicons name="close-outline" size={14} color={C.textSub} />
               <Text style={styles.selectBarBtnText}>Désélect.</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.selectBarBtn, styles.selectBarCancelBtn]}
+              onPress={() => { setIsSelectMode(false); setSelectedIds(new Set()); }}
+              accessibilityLabel="Quitter le mode selection"
+            >
+              <Ionicons name="close-circle-outline" size={14} color={C.open} />
+              <Text style={[styles.selectBarBtnText, { color: C.open }]}>Annuler</Text>
             </TouchableOpacity>
           </View>
         )}
@@ -1433,6 +1458,72 @@ export default function ReservesScreen() {
           </View>
         )}
 
+        {showEnterpriseWorkflowSummary && (
+          <View style={styles.workflowSummaryBar}>
+            <View style={styles.workflowSummaryTitle}>
+              <Ionicons name="business-outline" size={13} color={C.primary} />
+              <Text style={styles.workflowSummaryTitleText}>Suivi entreprise</Text>
+            </View>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+              <View style={styles.workflowSummaryChips}>
+                {(enterpriseWorkflowStats.needs_validation > 0 || enterpriseFilter === 'needs_validation') && (
+                  <TouchableOpacity
+                    style={[
+                      styles.workflowSummaryChip,
+                      enterpriseFilter === 'needs_validation' && { borderColor: C.verification, backgroundColor: C.verificationBg },
+                    ]}
+                    onPress={() => setEnterpriseFilter(enterpriseFilter === 'needs_validation' ? 'all' : 'needs_validation')}
+                    accessibilityRole="button"
+                    accessibilityState={{ selected: enterpriseFilter === 'needs_validation' }}
+                  >
+                    <Ionicons name="shield-checkmark-outline" size={11} color={C.verification} />
+                    <Text style={[styles.workflowSummaryChipText, { color: C.verification }]}>
+                      {enterpriseWorkflowStats.needs_validation} Ã  valider
+                    </Text>
+                  </TouchableOpacity>
+                )}
+                {(enterpriseWorkflowStats.ack_missing > 0 || enterpriseFilter === 'ack_missing') && (
+                  <TouchableOpacity
+                    style={[
+                      styles.workflowSummaryChip,
+                      enterpriseFilter === 'ack_missing' && { borderColor: '#B45309', backgroundColor: '#FFFBEB' },
+                    ]}
+                    onPress={() => setEnterpriseFilter(enterpriseFilter === 'ack_missing' ? 'all' : 'ack_missing')}
+                    accessibilityRole="button"
+                    accessibilityState={{ selected: enterpriseFilter === 'ack_missing' }}
+                  >
+                    <Ionicons name="mail-unread-outline" size={11} color="#B45309" />
+                    <Text style={[styles.workflowSummaryChipText, { color: '#B45309' }]}>
+                      {enterpriseWorkflowStats.ack_missing} AR manquant{enterpriseWorkflowStats.ack_missing > 1 ? 's' : ''}
+                    </Text>
+                  </TouchableOpacity>
+                )}
+                {enterpriseFilter !== 'all' && enterpriseFilter !== 'needs_validation' && enterpriseFilter !== 'ack_missing' && (
+                  <TouchableOpacity
+                    style={[styles.workflowSummaryChip, { borderColor: activeEnterpriseWorkflowFilter.color, backgroundColor: activeEnterpriseWorkflowFilter.color + '10' }]}
+                    onPress={() => setEnterpriseFilter('all')}
+                    accessibilityRole="button"
+                    accessibilityState={{ selected: true }}
+                  >
+                    <Ionicons name={activeEnterpriseWorkflowFilter.icon as any} size={11} color={activeEnterpriseWorkflowFilter.color} />
+                    <Text style={[styles.workflowSummaryChipText, { color: activeEnterpriseWorkflowFilter.color }]}>
+                      {activeEnterpriseWorkflowFilter.label}
+                    </Text>
+                  </TouchableOpacity>
+                )}
+                <TouchableOpacity
+                  style={styles.workflowSummaryMore}
+                  onPress={() => setFilterModalVisible(true)}
+                  accessibilityRole="button"
+                  accessibilityLabel="Voir tous les filtres de suivi entreprise"
+                >
+                  <Text style={styles.workflowSummaryMoreText}>Tous</Text>
+                </TouchableOpacity>
+              </View>
+            </ScrollView>
+          </View>
+        )}
+
         {(archivedCount > 0 || showArchived) && (
           <TouchableOpacity
             style={[styles.archiveBanner, showArchived && styles.archiveBannerActive]}
@@ -1441,6 +1532,7 @@ export default function ReservesScreen() {
               setShowArchived(next);
               if (next) {
                 setStatusFilter('all');
+                setEnterpriseFilter('all');
                 setNearDeadlineOnly(false);
               }
             }}
@@ -1543,34 +1635,6 @@ export default function ReservesScreen() {
             </TouchableOpacity>
           )}
         </View>
-
-        {canUseReserveAssistant && chantierReserves.length > 0 && (
-          <TouchableOpacity
-            style={styles.assistantEntry}
-            onPress={() => setAssistantVisible(true)}
-            activeOpacity={0.86}
-            accessibilityRole="button"
-            accessibilityLabel="Ouvrir l'assistant réserves"
-          >
-            <View style={styles.assistantEntryIcon}>
-              <Ionicons name="sparkles-outline" size={18} color="#fff" />
-            </View>
-            <View style={{ flex: 1, minWidth: 0 }}>
-              <View style={styles.assistantEntryTitleRow}>
-                <Text style={styles.assistantEntryTitle}>Assistant réserves</Text>
-                {currentMissingDescriptionCount > 0 && (
-                  <View style={styles.assistantEntryBadge}>
-                    <Text style={styles.assistantEntryBadgeText}>{currentMissingDescriptionCount}</Text>
-                  </View>
-                )}
-              </View>
-              <Text style={styles.assistantEntrySubtitle} numberOfLines={1}>
-                Descriptions manquantes · traduction groupée
-              </Text>
-            </View>
-            <Ionicons name="chevron-forward" size={18} color={C.primary} />
-          </TouchableOpacity>
-        )}
 
         {/* Status filter row */}
         <View style={styles.toolRow}>
@@ -1689,6 +1753,15 @@ export default function ReservesScreen() {
                         </View>
                       );
                     })()}
+                    {canTrackEnterpriseWorkflow && getEnterpriseWorkflowBadges(selectedReserve).map(badge => (
+                      <View
+                        key={badge.key}
+                        style={[styles.detailWorkflowBadge, { backgroundColor: badge.bg, borderColor: badge.border }]}
+                      >
+                        <Ionicons name={badge.icon as any} size={11} color={badge.color} />
+                        <Text style={[styles.detailWorkflowBadgeText, { color: badge.color }]}>{badge.label}</Text>
+                      </View>
+                    ))}
                   </View>
                 </View>
 
@@ -1920,22 +1993,16 @@ export default function ReservesScreen() {
           {fabOpen && (
             <Animated.View style={[styles.fabSubRow, { opacity: fabAnim }]}>
               <TouchableOpacity
-                style={styles.fabSubLabel}
-                onPress={() => { setFabOpen(false); Animated.spring(fabAnim, { toValue: 0, useNativeDriver: true, tension: 60, friction: 10 }).start(); router.push('/reserve/new' as any); }}
+                style={styles.fabAction}
+                onPress={() => { closeFabMenu(); router.push('/reserve/new' as any); }}
                 activeOpacity={0.85}
                 accessibilityRole="button"
                 accessibilityLabel="Formulaire complet"
               >
+                <View style={styles.fabActionIcon}>
+                  <Ionicons name="create-outline" size={18} color="#fff" />
+                </View>
                 <Text style={styles.fabSubLabelText}>Formulaire complet</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={styles.fabSubBtn}
-                onPress={() => { setFabOpen(false); Animated.spring(fabAnim, { toValue: 0, useNativeDriver: true, tension: 60, friction: 10 }).start(); router.push('/reserve/new' as any); }}
-                activeOpacity={0.85}
-                accessibilityRole="button"
-                accessibilityLabel="Formulaire complet"
-              >
-                <Ionicons name="create-outline" size={22} color="#fff" />
               </TouchableOpacity>
             </Animated.View>
           )}
@@ -1943,22 +2010,16 @@ export default function ReservesScreen() {
           {fabOpen && activeSitePlans.length > 0 && (
             <Animated.View style={[styles.fabSubRow, { opacity: fabAnim }]}>
               <TouchableOpacity
-                style={styles.fabSubLabel}
-                onPress={() => { setFabOpen(false); Animated.spring(fabAnim, { toValue: 0, useNativeDriver: true, tension: 60, friction: 10 }).start(); router.push('/(tabs)/plans' as any); }}
+                style={styles.fabAction}
+                onPress={() => { closeFabMenu(); router.push('/(tabs)/plans' as any); }}
                 activeOpacity={0.85}
                 accessibilityRole="button"
                 accessibilityLabel="Depuis le plan"
               >
+                <View style={[styles.fabActionIcon, { backgroundColor: '#16A34A' }]}>
+                  <Ionicons name="map-outline" size={18} color="#fff" />
+                </View>
                 <Text style={styles.fabSubLabelText}>Depuis le plan</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={[styles.fabSubBtn, { backgroundColor: '#16A34A' }]}
-                onPress={() => { setFabOpen(false); Animated.spring(fabAnim, { toValue: 0, useNativeDriver: true, tension: 60, friction: 10 }).start(); router.push('/(tabs)/plans' as any); }}
-                activeOpacity={0.85}
-                accessibilityRole="button"
-                accessibilityLabel="Depuis le plan"
-              >
-                <Ionicons name="map-outline" size={22} color="#fff" />
               </TouchableOpacity>
             </Animated.View>
           )}
@@ -1966,22 +2027,16 @@ export default function ReservesScreen() {
           {fabOpen && (
             <Animated.View style={[styles.fabSubRow, { opacity: fabAnim }]}>
               <TouchableOpacity
-                style={styles.fabSubLabel}
+                style={styles.fabAction}
                 onPress={handleQuickPhoto}
                 activeOpacity={0.85}
                 accessibilityRole="button"
                 accessibilityLabel="Photo rapide"
               >
+                <View style={[styles.fabActionIcon, { backgroundColor: '#0EA5E9' }]}>
+                  <Ionicons name="camera-outline" size={18} color="#fff" />
+                </View>
                 <Text style={styles.fabSubLabelText}>Photo rapide</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={[styles.fabSubBtn, { backgroundColor: '#0EA5E9' }]}
-                onPress={handleQuickPhoto}
-                activeOpacity={0.85}
-                accessibilityRole="button"
-                accessibilityLabel="Photo rapide"
-              >
-                <Ionicons name="camera-outline" size={22} color="#fff" />
               </TouchableOpacity>
             </Animated.View>
           )}
@@ -2003,6 +2058,112 @@ export default function ReservesScreen() {
           )}
         </View>
       )}
+
+      <Modal visible={actionsModalVisible} transparent animationType="slide" onRequestClose={() => setActionsModalVisible(false)}>
+        <TouchableOpacity style={styles.modalOverlay} activeOpacity={1} onPress={() => setActionsModalVisible(false)}>
+          <TouchableOpacity activeOpacity={1} style={[styles.bottomSheet, { paddingBottom: insets.bottom + 24 }]}>
+            <View style={styles.sheetHandle} />
+            <View style={styles.sheetTitleRow}>
+              <Text style={styles.sheetTitle}>{'Actions r\u00e9serves'}</Text>
+              <TouchableOpacity style={styles.filtCloseBtn} onPress={() => setActionsModalVisible(false)}>
+                <Ionicons name="close" size={20} color={C.textMuted} />
+              </TouchableOpacity>
+            </View>
+
+            {chantierReserves.length > 0 && (
+              <TouchableOpacity
+                style={styles.contextItem}
+                onPress={() => {
+                  setActionsModalVisible(false);
+                  toggleHeaderCompact();
+                }}
+              >
+                <View style={styles.contextItemIcon}>
+                  <Ionicons name={headerCompact ? 'eye-outline' : 'eye-off-outline'} size={18} color={C.primary} />
+                </View>
+                <Text style={styles.contextItemText}>{headerCompact ? 'Afficher les indicateurs' : 'Masquer les indicateurs'}</Text>
+                <Ionicons name="chevron-forward" size={16} color={C.textMuted} />
+              </TouchableOpacity>
+            )}
+
+            {permissions.canExport && filtered.length > 0 && (
+              <>
+                <TouchableOpacity
+                  style={styles.contextItem}
+                  onPress={() => {
+                    setActionsModalVisible(false);
+                    openPdfExportModal();
+                  }}
+                  disabled={pdfLoading}
+                >
+                  <View style={styles.contextItemIcon}>
+                    {pdfLoading
+                      ? <ActivityIndicator size="small" color={C.primary} />
+                      : <Ionicons name="document-text-outline" size={18} color={C.primary} />}
+                  </View>
+                  <Text style={styles.contextItemText}>Exporter en PDF</Text>
+                  <Ionicons name="chevron-forward" size={16} color={C.textMuted} />
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={styles.contextItem}
+                  onPress={() => {
+                    setActionsModalVisible(false);
+                    handleExportCSV();
+                  }}
+                >
+                  <View style={styles.contextItemIcon}>
+                    <Ionicons name="download-outline" size={18} color={C.textSub} />
+                  </View>
+                  <Text style={styles.contextItemText}>Exporter en CSV</Text>
+                </TouchableOpacity>
+              </>
+            )}
+
+            {permissions.canEdit && filtered.length > 0 && (
+              <TouchableOpacity
+                style={styles.contextItem}
+                onPress={() => {
+                  setActionsModalVisible(false);
+                  setIsSelectMode(true);
+                }}
+              >
+                <View style={styles.contextItemIcon}>
+                  <Ionicons name="checkmark-circle-outline" size={18} color={C.inProgress} />
+                </View>
+                <Text style={styles.contextItemText}>{'S\u00e9lection multiple'}</Text>
+                <Ionicons name="chevron-forward" size={16} color={C.textMuted} />
+              </TouchableOpacity>
+            )}
+
+            {canUseReserveAssistant && chantierReserves.length > 0 && (
+              <TouchableOpacity
+                style={styles.contextItem}
+                onPress={() => {
+                  setActionsModalVisible(false);
+                  setAssistantVisible(true);
+                }}
+              >
+                <View style={styles.contextItemIcon}>
+                  <Ionicons name="sparkles-outline" size={18} color={C.primary} />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.contextItemText}>{'Assistant r\u00e9serves'}</Text>
+                  {currentMissingDescriptionCount > 0 && (
+                    <Text style={styles.actionItemHint}>
+                      {currentMissingDescriptionCount} description{currentMissingDescriptionCount > 1 ? 's' : ''}{' \u00e0 compl\u00e9ter'}
+                    </Text>
+                  )}
+                </View>
+                <Ionicons name="chevron-forward" size={16} color={C.textMuted} />
+              </TouchableOpacity>
+            )}
+
+            <TouchableOpacity style={styles.cancelBtn} onPress={() => setActionsModalVisible(false)}>
+              <Text style={styles.cancelText}>Fermer</Text>
+            </TouchableOpacity>
+          </TouchableOpacity>
+        </TouchableOpacity>
+      </Modal>
 
       {canUseReserveAssistant && (
       <Modal
@@ -2783,6 +2944,46 @@ export default function ReservesScreen() {
                 </ScrollView>
               </View>
 
+              {canTrackEnterpriseWorkflow && enterpriseWorkflowReserves.length > 0 && (
+                <View style={styles.filtSection}>
+                  <View style={styles.filtSectionHeader}>
+                    <Ionicons name="business-outline" size={13} color={C.textSub} />
+                    <Text style={styles.filtSectionTitle}>Suivi entreprise</Text>
+                  </View>
+                  <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+                    <View style={styles.filtChipRow}>
+                      {ENTERPRISE_WORKFLOW_FILTERS.map(f => {
+                        const isActive = enterpriseFilter === f.key;
+                        const count = enterpriseWorkflowStats[f.key];
+                        return (
+                          <TouchableOpacity
+                            key={f.key}
+                            style={[
+                              styles.filtChip,
+                              isActive && { backgroundColor: f.color + '18', borderColor: f.color },
+                            ]}
+                            onPress={() => {
+                              setEnterpriseFilter(f.key);
+                              if (f.key !== 'all') setShowArchived(false);
+                            }}
+                            accessibilityRole="button"
+                            accessibilityState={{ selected: isActive }}
+                          >
+                            <Ionicons name={f.icon as any} size={12} color={isActive ? f.color : C.textSub} />
+                            <Text style={[
+                              styles.filtChipText,
+                              isActive && { color: f.color, fontFamily: 'Inter_600SemiBold' },
+                            ]}>
+                              {f.label}{f.key !== 'all' ? ` (${count})` : ''}
+                            </Text>
+                          </TouchableOpacity>
+                        );
+                      })}
+                    </View>
+                  </ScrollView>
+                </View>
+              )}
+
               {/* TYPE */}
               <View style={styles.filtSection}>
                 <View style={styles.filtSectionHeader}>
@@ -2817,7 +3018,7 @@ export default function ReservesScreen() {
                 </ScrollView>
               </View>
 
-              {/* BÂTIMENT — localisation macro */}
+              {/* BATIMENT - localisation macro */}
               {buildings.length >= 1 && (
                 <View style={styles.filtSection}>
                   <View style={styles.filtSectionHeader}>
@@ -3050,20 +3251,32 @@ const styles = StyleSheet.create({
   headerRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 6 },
   title: { fontSize: 19, fontFamily: 'Inter_700Bold', color: C.text },
   subtitle: { fontSize: 11, fontFamily: 'Inter_400Regular', color: C.textSub, marginTop: 1 },
-  selectBtn: {
-    flexDirection: 'row', alignItems: 'center', gap: 4,
-    paddingHorizontal: 10, paddingVertical: 7, borderRadius: 20,
-    backgroundColor: C.surface2, borderWidth: 1, borderColor: C.border,
+  headerActionsBtn: {
+    width: 34,
+    height: 34,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: C.primaryBg,
+    borderWidth: 1.5,
+    borderColor: C.primary + '35',
+    position: 'relative',
   },
-  selectBtnActive: { backgroundColor: C.open + '15', borderColor: C.open },
-  selectBtnText: { fontSize: 11, fontFamily: 'Inter_500Medium', color: C.textSub },
-  selectBtnTextActive: { color: C.open },
-  headerCompactBtn: {
-    width: 30, height: 30, borderRadius: 15,
-    alignItems: 'center', justifyContent: 'center',
-    backgroundColor: C.surface2, borderWidth: 1, borderColor: C.border,
+  headerActionsBadge: {
+    position: 'absolute',
+    top: -5,
+    right: -5,
+    minWidth: 17,
+    height: 17,
+    borderRadius: 9,
+    paddingHorizontal: 4,
+    backgroundColor: '#F59E0B',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1.5,
+    borderColor: '#fff',
   },
-  headerCompactBtnActive: { backgroundColor: C.primaryBg, borderColor: C.primary + '40' },
+  headerActionsBadgeText: { fontSize: 9, fontFamily: 'Inter_800ExtraBold', color: '#fff' },
   selectBar: {
     flexDirection: 'row', gap: 10, marginBottom: 8,
   },
@@ -3072,6 +3285,7 @@ const styles = StyleSheet.create({
     backgroundColor: C.primaryBg, paddingHorizontal: 12, paddingVertical: 6,
     borderRadius: 20, borderWidth: 1, borderColor: C.primary + '40',
   },
+  selectBarCancelBtn: { backgroundColor: C.open + '10', borderColor: C.open + '35' },
   selectBarBtnText: { fontSize: 12, fontFamily: 'Inter_500Medium', color: C.primary },
   searchWrap: {
     flexDirection: 'row', alignItems: 'center', gap: 8,
@@ -3080,24 +3294,6 @@ const styles = StyleSheet.create({
     minHeight: 34,
   },
   searchInput: { flex: 1, fontSize: 13, fontFamily: 'Inter_400Regular', color: C.text, paddingVertical: 0 },
-  assistantEntry: {
-    flexDirection: 'row', alignItems: 'center', gap: 10,
-    backgroundColor: '#F8FAFF', borderRadius: 14, borderWidth: 1.5,
-    borderColor: C.primary + '24', padding: 10, marginBottom: 8,
-  },
-  assistantEntryIcon: {
-    width: 36, height: 36, borderRadius: 12,
-    backgroundColor: C.primary, alignItems: 'center', justifyContent: 'center',
-  },
-  assistantEntryTitleRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-  assistantEntryTitle: { fontSize: 13, fontFamily: 'Inter_700Bold', color: C.text },
-  assistantEntrySubtitle: { marginTop: 1, fontSize: 11, fontFamily: 'Inter_400Regular', color: C.textSub },
-  assistantEntryBadge: {
-    minWidth: 20, height: 20, borderRadius: 10,
-    alignItems: 'center', justifyContent: 'center',
-    backgroundColor: '#F59E0B', paddingHorizontal: 6,
-  },
-  assistantEntryBadgeText: { fontSize: 11, fontFamily: 'Inter_700Bold', color: '#fff' },
   toolRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 4 },
   kindRow: { flexDirection: 'row', marginBottom: 4, paddingBottom: 2 },
   kindChip: {
@@ -3408,6 +3604,31 @@ const styles = StyleSheet.create({
     gap: 10,
     marginBottom: 10,
   },
+  fabAction: {
+    minWidth: 190,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'flex-start',
+    gap: 10,
+    backgroundColor: C.surface,
+    borderRadius: 14,
+    paddingHorizontal: 12,
+    paddingVertical: 9,
+    borderWidth: 1,
+    borderColor: C.border,
+    ...Platform.select({
+      web: { boxShadow: '0px 2px 10px rgba(0,0,0,0.12)' } as any,
+      default: { shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.12, shadowRadius: 7, elevation: 5 },
+    }),
+  },
+  fabActionIcon: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: C.primary,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   fabSubBtn: {
     width: 46,
     height: 46,
@@ -3453,6 +3674,16 @@ const styles = StyleSheet.create({
   detailBadgeRow: { flexDirection: 'row', gap: 8, flexWrap: 'wrap' },
   detailPriorityBadge: { paddingHorizontal: 12, paddingVertical: 5, borderRadius: 20, borderWidth: 1.5 },
   detailPriorityText: { fontSize: 12, fontFamily: 'Inter_700Bold' },
+  detailWorkflowBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 20,
+    borderWidth: 1.5,
+  },
+  detailWorkflowBadgeText: { fontSize: 12, fontFamily: 'Inter_700Bold' },
   detailPhoto: { width: '100%', height: 180, borderRadius: 12, marginBottom: 14 },
   detailCard: { backgroundColor: C.surface, borderRadius: 12, padding: 14, marginBottom: 12, borderWidth: 1, borderColor: C.border, gap: 8 },
   detailLabel: { fontSize: 11, fontFamily: 'Inter_600SemiBold', color: C.textMuted, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 4 },
@@ -3530,7 +3761,63 @@ const styles = StyleSheet.create({
   progressFill: {
     height: 4, borderRadius: 2,
   },
-
+  workflowSummaryBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    backgroundColor: '#FFFBEB',
+    borderRadius: 10,
+    paddingHorizontal: 10,
+    paddingVertical: 7,
+    marginBottom: 6,
+    borderWidth: 1,
+    borderColor: '#FDE68A',
+  },
+  workflowSummaryTitle: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    flexShrink: 0,
+  },
+  workflowSummaryTitleText: {
+    fontSize: 11,
+    fontFamily: 'Inter_800ExtraBold',
+    color: C.text,
+  },
+  workflowSummaryChips: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingRight: 2,
+  },
+  workflowSummaryChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 9,
+    paddingVertical: 5,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: '#FDE68A',
+    backgroundColor: C.surface,
+  },
+  workflowSummaryChipText: {
+    fontSize: 11,
+    fontFamily: 'Inter_700Bold',
+  },
+  workflowSummaryMore: {
+    paddingHorizontal: 9,
+    paddingVertical: 5,
+    borderRadius: 999,
+    backgroundColor: C.surface,
+    borderWidth: 1,
+    borderColor: C.border,
+  },
+  workflowSummaryMoreText: {
+    fontSize: 11,
+    fontFamily: 'Inter_700Bold',
+    color: C.primary,
+  },
   contextIdWrap: {
     backgroundColor: C.primaryBg, paddingHorizontal: 8, paddingVertical: 3,
     borderRadius: 6, flexShrink: 0,
@@ -3554,6 +3841,12 @@ const styles = StyleSheet.create({
   },
   contextItemText: {
     flex: 1, fontSize: 15, fontFamily: 'Inter_500Medium', color: C.text,
+  },
+  actionItemHint: {
+    marginTop: 2,
+    fontSize: 11,
+    fontFamily: 'Inter_500Medium',
+    color: C.textMuted,
   },
   contextBackBtn: {
     flexDirection: 'row', alignItems: 'center', gap: 6,

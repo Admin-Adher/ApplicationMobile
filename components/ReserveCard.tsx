@@ -10,6 +10,7 @@ import PriorityBadge from './PriorityBadge';
 import { isOverdue, formatDate, deadlineDaysLeft, formatRelativeDate } from '@/lib/reserveUtils';
 import { useApp } from '@/context/AppContext';
 import { isLocalUri } from '@/lib/storage';
+import { getEnterpriseWorkflowBadges } from '@/lib/reserveEnterpriseWorkflow';
 
 interface Props {
   reserve: Reserve;
@@ -20,9 +21,10 @@ interface Props {
   selected?: boolean;
   isFlashed?: boolean;
   hasPlansAvailable?: boolean;
+  showEnterpriseTracking?: boolean;
 }
 
-export default function ReserveCard({ reserve, onPress, onLongPress, onSwipeRight, onSwipeLeft, selected, isFlashed, hasPlansAvailable }: Props) {
+export default function ReserveCard({ reserve, onPress, onLongPress, onSwipeRight, onSwipeLeft, selected, isFlashed, hasPlansAvailable, showEnterpriseTracking }: Props) {
   const isArchived = !!reserve.archivedAt;
   const router = useRouter();
   const { lots } = useApp();
@@ -50,6 +52,7 @@ export default function ReserveCard({ reserve, onPress, onLongPress, onSwipeRigh
     (typeof reserve.photoUri === 'string' && isLocalUri(reserve.photoUri)) ||
     (Array.isArray(reserve.photos) && reserve.photos.some(p => p?.uri && isLocalUri(p.uri)));
   const relativeDate = formatRelativeDate(reserve.createdAt);
+  const enterpriseBadges = showEnterpriseTracking ? getEnterpriseWorkflowBadges(reserve, { attentionOnly: true }) : [];
 
   const renderRightActions = () => (
     <TouchableOpacity
@@ -147,6 +150,20 @@ export default function ReserveCard({ reserve, onPress, onLongPress, onSwipeRigh
       <View style={styles.mainRow}>
         <View style={{ flex: 1 }}>
           <Text style={styles.title} numberOfLines={2}>{reserve.title}</Text>
+
+          {enterpriseBadges.length > 0 && (
+            <View style={styles.enterpriseBadgeRow}>
+              {enterpriseBadges.map(badge => (
+                <View
+                  key={badge.key}
+                  style={[styles.enterpriseBadge, { backgroundColor: badge.bg, borderColor: badge.border }]}
+                >
+                  <Ionicons name={badge.icon as any} size={10} color={badge.color} />
+                  <Text style={[styles.enterpriseBadgeText, { color: badge.color }]}>{badge.label}</Text>
+                </View>
+              ))}
+            </View>
+          )}
 
           <View style={styles.meta}>
             <View style={styles.metaItem}>
@@ -396,6 +413,25 @@ const styles = StyleSheet.create({
     color: C.text,
     marginBottom: 8,
     lineHeight: 21,
+  },
+  enterpriseBadgeRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 5,
+    marginBottom: 8,
+  },
+  enterpriseBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 3,
+    paddingHorizontal: 7,
+    paddingVertical: 3,
+    borderRadius: 999,
+    borderWidth: 1,
+  },
+  enterpriseBadgeText: {
+    fontSize: 10,
+    fontFamily: 'Inter_700Bold',
   },
   meta: {
     marginBottom: 10,
