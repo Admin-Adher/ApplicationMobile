@@ -187,27 +187,39 @@ export const PDF_BASE_CSS = `
   }
 `;
 
+type PdfLetterheadCopy = {
+  tagline?: string;
+  projectLabel?: string;
+  refLabel?: string;
+  dateLabel?: string;
+};
+
 export function buildLetterhead(
   docType: string,
   docTitle: string,
   docRef: string,
   date: string,
   projectName: string,
+  copy: PdfLetterheadCopy = {},
 ): string {
+  const tagline = copy.tagline ?? 'Gestion de chantier numérique';
+  const projectLabel = copy.projectLabel ?? 'Projet';
+  const refLabel = copy.refLabel ?? 'Réf.';
+  const dateLabel = copy.dateLabel ?? 'Date';
   return `
     <div class="letterhead">
       <div class="letterhead-logo">
         <div class="letterhead-logo-mark">BT</div>
         <div>
           <div class="letterhead-brand">BuildTrack</div>
-          <div class="letterhead-tagline">Gestion de chantier numérique</div>
+          <div class="letterhead-tagline">${escapeHtml(tagline)}</div>
         </div>
       </div>
       <div class="letterhead-right">
         <div class="letterhead-doc-type">${escapeHtml(docType)}</div>
         <div class="letterhead-doc-title">${escapeHtml(docTitle)}</div>
-        <div class="letterhead-ref">Projet : <strong>${escapeHtml(projectName)}</strong></div>
-        <div class="letterhead-ref">Réf. : <strong>${escapeHtml(docRef)}</strong> &nbsp;|&nbsp; Date : <strong>${escapeHtml(date)}</strong></div>
+        <div class="letterhead-ref">${escapeHtml(projectLabel)} : <strong>${escapeHtml(projectName)}</strong></div>
+        <div class="letterhead-ref">${escapeHtml(refLabel)} : <strong>${escapeHtml(docRef)}</strong> &nbsp;|&nbsp; ${escapeHtml(dateLabel)} : <strong>${escapeHtml(date)}</strong></div>
       </div>
     </div>
   `;
@@ -225,12 +237,20 @@ export function buildKpiRow(items: Array<{ val: string | number; label: string; 
   ).join('')}</div>`;
 }
 
-export function buildDocFooter(projectName: string): string {
-  const now = new Date().toLocaleDateString('fr-FR', { day: '2-digit', month: 'long', year: 'numeric' });
+type PdfFooterCopy = {
+  generatedBy?: string;
+  confidential?: string;
+  locale?: string;
+};
+
+export function buildDocFooter(projectName: string, copy: PdfFooterCopy = {}): string {
+  const now = new Date().toLocaleDateString(copy.locale ?? 'fr-FR', { day: '2-digit', month: 'long', year: 'numeric' });
+  const generatedBy = copy.generatedBy ?? 'Généré par BuildTrack';
+  const confidential = copy.confidential ?? 'Document confidentiel';
   return `
     <div class="doc-footer">
-      <span>Généré par BuildTrack — ${escapeHtml(projectName)}</span>
-      <span>Document confidentiel — ${now}</span>
+      <span>${escapeHtml(generatedBy)} — ${escapeHtml(projectName)}</span>
+      <span>${escapeHtml(confidential)} — ${escapeHtml(now)}</span>
     </div>
   `;
 }
@@ -242,11 +262,13 @@ export function buildPhotoGrid(
     badge?: string;
     badgeColor?: string;
     badgeTextColor?: string;
-  }>
+  }>,
+  sectionTitle?: string,
 ): string {
   if (!photos.length) return '';
+  const title = sectionTitle ?? `Photos (${photos.length})`;
   return `
-    <div class="section-header">Photos (${photos.length})</div>
+    <div class="section-header">${escapeHtml(title)}</div>
     <div class="photo-grid">
       ${photos.map(p => `
         <div class="photo-item">

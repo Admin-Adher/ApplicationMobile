@@ -59,6 +59,354 @@ const VISITE_TYPE_LABELS: Record<string, string> = {
   autre: 'Autre',
 };
 
+type VisitReportLanguage = 'fr' | 'en' | 'es';
+
+const VISIT_REPORT_LANGUAGES: Array<{ code: VisitReportLanguage; label: string; title: string }> = [
+  { code: 'fr', label: 'FR', title: 'Français' },
+  { code: 'en', label: 'EN', title: 'English' },
+  { code: 'es', label: 'ES', title: 'Español' },
+];
+
+type VisitReportCopy = {
+  locale: string;
+  uiTitle: string;
+  uiSubtitle: string;
+  uiLanguageLabel: string;
+  uiExportButton: string;
+  letterheadTitle: string;
+  letterheadTagline: string;
+  projectLabel: string;
+  refLabel: string;
+  dateLabel: string;
+  footerGeneratedBy: string;
+  footerConfidential: string;
+  windowTitlePrefix: string;
+  visitDefaultType: string;
+  visitStatus: Record<string, string>;
+  visitTypes: Record<string, string>;
+  reserveStatus: Record<string, string>;
+  reservePriority: Record<string, string>;
+  noCompany: string;
+  noDeadline: string;
+  noLocation: string;
+  noBuilding: string;
+  noZone: string;
+  noPlan: string;
+  pinPositioned: string;
+  infoVisitType: string;
+  infoConductor: string;
+  infoVisitDate: string;
+  infoVisitScope: string;
+  infoLocation: string;
+  infoVisitStatus: string;
+  infoDeadline: string;
+  infoTags: string;
+  executiveTitle: string;
+  priorityCardTitle: string;
+  priorityHighText: (count: number) => string;
+  priorityNoneText: string;
+  deadlineCardTitle: string;
+  overdueText: (count: number) => string;
+  deadlineFilledText: (count: number) => string;
+  companiesCardTitle: string;
+  companiesText: (count: number) => string;
+  companiesNoneText: string;
+  checklistCardTitle: string;
+  checklistText: (done: number, total: number, pct: number) => string;
+  checklistNoneText: string;
+  deadlinesTitle: string;
+  deadlineTableHeaders: string[];
+  noDeadlineRows: string;
+  actionsTitle: string;
+  noActions: string;
+  actionCount: (count: number) => string;
+  deadlineMeta: string;
+  planMeta: string;
+  reservesTitle: (count: number) => string;
+  reserveTableHeaders: string[];
+  noReserves: string;
+  plansTitle: string;
+  planSummary: (reserves: number, pins: number) => string;
+  statusDistributionTitle: string;
+  companyDistributionTitle: string;
+  noReserveDistribution: string;
+  noCompanyDistribution: string;
+  pilotageTitle: string;
+  participantsTitle: (count: number) => string;
+  participantHeaders: string[];
+  checklistSectionTitle: (done: number, total: number, pct: number) => string;
+  photoSectionTitle: (count: number) => string;
+  photoGridTitle: (count: number) => string;
+  photoResolutionBadge: string;
+  photoObservationBadge: string;
+  decisionsTitle: string;
+  signaturesTitle: string;
+  signatureConductor: string;
+  signatureCompany: string;
+  signatureDate: string;
+  kpiReserves: string;
+  kpiOpen: string;
+  kpiInProgress: string;
+  kpiToValidate: string;
+  kpiClosed: string;
+  kpiOverdue: string;
+};
+
+const VISIT_REPORT_COPY: Record<VisitReportLanguage, VisitReportCopy> = {
+  fr: {
+    locale: 'fr-FR',
+    uiTitle: 'Compte-rendu PDF',
+    uiSubtitle: 'Choisissez la langue de la structure du rapport.',
+    uiLanguageLabel: 'Langue du PDF',
+    uiExportButton: 'Exporter le compte-rendu PDF',
+    letterheadTitle: 'Compte-rendu de visite de chantier',
+    letterheadTagline: 'Gestion de chantier numérique',
+    projectLabel: 'Projet',
+    refLabel: 'Réf.',
+    dateLabel: 'Date',
+    footerGeneratedBy: 'Généré par BuildTrack',
+    footerConfidential: 'Document confidentiel',
+    windowTitlePrefix: 'CR Visite',
+    visitDefaultType: 'Visite chantier',
+    visitStatus: { planned: 'Planifiée', in_progress: 'En cours', completed: 'Terminée' },
+    visitTypes: VISITE_TYPE_LABELS,
+    reserveStatus: RESERVE_STATUS_LABELS,
+    reservePriority: PRIORITY_LABELS,
+    noCompany: 'Sans entreprise',
+    noDeadline: 'Non définie',
+    noLocation: 'Localisation non précisée',
+    noBuilding: 'Sans bâtiment',
+    noZone: 'Zone non précisée',
+    noPlan: 'Sans plan associé',
+    pinPositioned: 'Épingle positionnée',
+    infoVisitType: 'Type de visite',
+    infoConductor: 'Conducteur de travaux',
+    infoVisitDate: 'Date de visite',
+    infoVisitScope: 'Périmètre de visite',
+    infoLocation: 'Localisation',
+    infoVisitStatus: 'Statut de la visite',
+    infoDeadline: 'Délai cible de levée',
+    infoTags: 'Tags',
+    executiveTitle: 'Synthèse exécutive',
+    priorityCardTitle: 'Priorités de sortie de visite',
+    priorityHighText: count => `${count} réserve${count > 1 ? 's' : ''} haute${count > 1 ? 's' : ''} ou critique${count > 1 ? 's' : ''} à traiter en premier.`,
+    priorityNoneText: 'Aucune réserve haute ou critique relevée sur cette visite.',
+    deadlineCardTitle: 'Échéances sensibles',
+    overdueText: count => `${count} réserve${count > 1 ? 's' : ''} déjà en retard.`,
+    deadlineFilledText: count => `${count} réserve${count > 1 ? 's' : ''} avec échéance renseignée.`,
+    companiesCardTitle: 'Entreprises concernées',
+    companiesText: count => `${count} entreprise${count > 1 ? 's' : ''} concernée${count > 1 ? 's' : ''} par les actions de ce compte-rendu.`,
+    companiesNoneText: 'Aucune entreprise responsable renseignée.',
+    checklistCardTitle: 'Checklist de contrôle',
+    checklistText: (done, total, pct) => `${done}/${total} point${total > 1 ? 's' : ''} validé${done > 1 ? 's' : ''} (${pct}%).`,
+    checklistNoneText: 'Aucune checklist associée à cette visite.',
+    deadlinesTitle: 'Synthèse des échéances principales',
+    deadlineTableHeaders: ['Échéance', 'Bâtiment / zone', 'Action ou réserve', 'Responsable', 'Statut'],
+    noDeadlineRows: 'Aucune échéance renseignée pour les réserves de cette visite.',
+    actionsTitle: 'Actions par bâtiment, zone et entreprise',
+    noActions: 'Aucune action à regrouper pour cette visite.',
+    actionCount: count => `${count} action${count > 1 ? 's' : ''}`,
+    deadlineMeta: 'Échéance',
+    planMeta: 'Plan',
+    reservesTitle: count => `Réserves relevées pendant la visite (${count})`,
+    reserveTableHeaders: ['ID', 'Titre / description', 'Lieu', 'Entreprise', 'Priorité', 'Statut', 'Échéance'],
+    noReserves: 'Aucune réserve rattachée à cette visite.',
+    plansTitle: 'Plans associés et épingles',
+    planSummary: (reserveCount, pinCount) => `${reserveCount} réserve${reserveCount > 1 ? 's' : ''} · ${pinCount} épingle${pinCount > 1 ? 's' : ''} positionnée${pinCount > 1 ? 's' : ''}`,
+    statusDistributionTitle: 'Répartition par statut',
+    companyDistributionTitle: 'Répartition par entreprise',
+    noReserveDistribution: 'Aucune réserve',
+    noCompanyDistribution: 'Aucune entreprise',
+    pilotageTitle: 'Pilotage et répartition',
+    participantsTitle: count => `Participants (${count})`,
+    participantHeaders: ['Nom', 'Fonction', 'Entreprise'],
+    checklistSectionTitle: (done, total, pct) => `Checklist de contrôle (${done}/${total} — ${pct}%)`,
+    photoSectionTitle: count => `Photos terrain (${count} photo${count > 1 ? 's' : ''})`,
+    photoGridTitle: count => `Photos (${count})`,
+    photoResolutionBadge: 'Levée',
+    photoObservationBadge: 'Constat',
+    decisionsTitle: 'Décisions, blocages et observations',
+    signaturesTitle: 'Diffusion et signatures',
+    signatureConductor: 'Conducteur de travaux',
+    signatureCompany: 'Lu et approuvé — Entreprise(s)',
+    signatureDate: 'Date',
+    kpiReserves: 'Réserves relevées',
+    kpiOpen: 'Ouvertes',
+    kpiInProgress: 'En cours',
+    kpiToValidate: 'À valider',
+    kpiClosed: 'Clôturées',
+    kpiOverdue: 'En retard',
+  },
+  en: {
+    locale: 'en-US',
+    uiTitle: 'PDF report',
+    uiSubtitle: 'Choose the language used for the report structure.',
+    uiLanguageLabel: 'PDF language',
+    uiExportButton: 'Export inspection report PDF',
+    letterheadTitle: 'Site inspection report',
+    letterheadTagline: 'Digital construction site management',
+    projectLabel: 'Project',
+    refLabel: 'Ref.',
+    dateLabel: 'Date',
+    footerGeneratedBy: 'Generated by BuildTrack',
+    footerConfidential: 'Confidential document',
+    windowTitlePrefix: 'Inspection Report',
+    visitDefaultType: 'Site inspection',
+    visitStatus: { planned: 'Planned', in_progress: 'In progress', completed: 'Completed' },
+    visitTypes: { controle: 'Inspection', opr: 'Handover inspection', securite: 'Safety', reception: 'Handover', synthese: 'Summary', autre: 'Other' },
+    reserveStatus: { open: 'Open', in_progress: 'In progress', waiting: 'Pending', verification: 'Verification', closed: 'Closed' },
+    reservePriority: { low: 'Low', medium: 'Medium', high: 'High', critical: 'Critical' },
+    noCompany: 'No company',
+    noDeadline: 'Not defined',
+    noLocation: 'Location not specified',
+    noBuilding: 'No building',
+    noZone: 'Zone not specified',
+    noPlan: 'No linked drawing',
+    pinPositioned: 'Pin positioned',
+    infoVisitType: 'Inspection type',
+    infoConductor: 'Site manager',
+    infoVisitDate: 'Inspection date',
+    infoVisitScope: 'Inspection scope',
+    infoLocation: 'Location',
+    infoVisitStatus: 'Inspection status',
+    infoDeadline: 'Target clearance deadline',
+    infoTags: 'Tags',
+    executiveTitle: 'Executive summary',
+    priorityCardTitle: 'Exit priorities',
+    priorityHighText: count => `${count} high or critical punch item${count > 1 ? 's' : ''} to handle first.`,
+    priorityNoneText: 'No high or critical punch item recorded during this inspection.',
+    deadlineCardTitle: 'Sensitive deadlines',
+    overdueText: count => `${count} punch item${count > 1 ? 's are' : ' is'} already overdue.`,
+    deadlineFilledText: count => `${count} punch item${count > 1 ? 's have' : ' has'} a deadline.`,
+    companiesCardTitle: 'Companies involved',
+    companiesText: count => `${count} compan${count > 1 ? 'ies are' : 'y is'} involved in this report's actions.`,
+    companiesNoneText: 'No responsible company specified.',
+    checklistCardTitle: 'Inspection checklist',
+    checklistText: (done, total, pct) => `${done}/${total} checkpoint${total > 1 ? 's' : ''} completed (${pct}%).`,
+    checklistNoneText: 'No checklist linked to this inspection.',
+    deadlinesTitle: 'Main deadlines summary',
+    deadlineTableHeaders: ['Deadline', 'Building / zone', 'Action or punch item', 'Owner', 'Status'],
+    noDeadlineRows: 'No deadline specified for this inspection’s punch items.',
+    actionsTitle: 'Actions by building, zone and company',
+    noActions: 'No action to group for this inspection.',
+    actionCount: count => `${count} action${count > 1 ? 's' : ''}`,
+    deadlineMeta: 'Deadline',
+    planMeta: 'Drawing',
+    reservesTitle: count => `Punch items recorded during the inspection (${count})`,
+    reserveTableHeaders: ['ID', 'Title / description', 'Location', 'Company', 'Priority', 'Status', 'Deadline'],
+    noReserves: 'No punch item linked to this inspection.',
+    plansTitle: 'Linked drawings and pins',
+    planSummary: (reserveCount, pinCount) => `${reserveCount} punch item${reserveCount > 1 ? 's' : ''} · ${pinCount} pin${pinCount > 1 ? 's' : ''} positioned`,
+    statusDistributionTitle: 'Distribution by status',
+    companyDistributionTitle: 'Distribution by company',
+    noReserveDistribution: 'No punch item',
+    noCompanyDistribution: 'No company',
+    pilotageTitle: 'Management and distribution',
+    participantsTitle: count => `Participants (${count})`,
+    participantHeaders: ['Name', 'Role', 'Company'],
+    checklistSectionTitle: (done, total, pct) => `Inspection checklist (${done}/${total} — ${pct}%)`,
+    photoSectionTitle: count => `Field photos (${count} photo${count > 1 ? 's' : ''})`,
+    photoGridTitle: count => `Photos (${count})`,
+    photoResolutionBadge: 'Cleared',
+    photoObservationBadge: 'Observation',
+    decisionsTitle: 'Decisions, blockers and observations',
+    signaturesTitle: 'Distribution and signatures',
+    signatureConductor: 'Site manager',
+    signatureCompany: 'Read and approved — Company(ies)',
+    signatureDate: 'Date',
+    kpiReserves: 'Punch items',
+    kpiOpen: 'Open',
+    kpiInProgress: 'In progress',
+    kpiToValidate: 'To validate',
+    kpiClosed: 'Closed',
+    kpiOverdue: 'Overdue',
+  },
+  es: {
+    locale: 'es-ES',
+    uiTitle: 'Informe PDF',
+    uiSubtitle: 'Elija el idioma de la estructura del informe.',
+    uiLanguageLabel: 'Idioma del PDF',
+    uiExportButton: 'Exportar informe de visita PDF',
+    letterheadTitle: 'Informe de visita de obra',
+    letterheadTagline: 'Gestión digital de obra',
+    projectLabel: 'Proyecto',
+    refLabel: 'Ref.',
+    dateLabel: 'Fecha',
+    footerGeneratedBy: 'Generado por BuildTrack',
+    footerConfidential: 'Documento confidencial',
+    windowTitlePrefix: 'Informe de visita',
+    visitDefaultType: 'Visita de obra',
+    visitStatus: { planned: 'Planificada', in_progress: 'En curso', completed: 'Terminada' },
+    visitTypes: { controle: 'Control', opr: 'Recepción', securite: 'Seguridad', reception: 'Recepción', synthese: 'Síntesis', autre: 'Otro' },
+    reserveStatus: { open: 'Abierta', in_progress: 'En curso', waiting: 'En espera', verification: 'Verificación', closed: 'Cerrada' },
+    reservePriority: { low: 'Baja', medium: 'Media', high: 'Alta', critical: 'Crítica' },
+    noCompany: 'Sin empresa',
+    noDeadline: 'No definida',
+    noLocation: 'Ubicación no especificada',
+    noBuilding: 'Sin edificio',
+    noZone: 'Zona no especificada',
+    noPlan: 'Sin plano asociado',
+    pinPositioned: 'Pin posicionado',
+    infoVisitType: 'Tipo de visita',
+    infoConductor: 'Jefe de obra',
+    infoVisitDate: 'Fecha de visita',
+    infoVisitScope: 'Perímetro de visita',
+    infoLocation: 'Ubicación',
+    infoVisitStatus: 'Estado de la visita',
+    infoDeadline: 'Fecha objetivo de levantamiento',
+    infoTags: 'Etiquetas',
+    executiveTitle: 'Síntesis ejecutiva',
+    priorityCardTitle: 'Prioridades de salida de visita',
+    priorityHighText: count => `${count} incidencia${count > 1 ? 's' : ''} alta${count > 1 ? 's' : ''} o crítica${count > 1 ? 's' : ''} a tratar primero.`,
+    priorityNoneText: 'No se registró ninguna incidencia alta o crítica durante esta visita.',
+    deadlineCardTitle: 'Plazos sensibles',
+    overdueText: count => `${count} incidencia${count > 1 ? 's ya están' : ' ya está'} en retraso.`,
+    deadlineFilledText: count => `${count} incidencia${count > 1 ? 's tienen' : ' tiene'} fecha límite indicada.`,
+    companiesCardTitle: 'Empresas afectadas',
+    companiesText: count => `${count} empresa${count > 1 ? 's están' : ' está'} afectada${count > 1 ? 's' : ''} por las acciones de este informe.`,
+    companiesNoneText: 'No se indicó ninguna empresa responsable.',
+    checklistCardTitle: 'Checklist de control',
+    checklistText: (done, total, pct) => `${done}/${total} punto${total > 1 ? 's' : ''} validado${done > 1 ? 's' : ''} (${pct}%).`,
+    checklistNoneText: 'No hay checklist asociada a esta visita.',
+    deadlinesTitle: 'Síntesis de los principales plazos',
+    deadlineTableHeaders: ['Plazo', 'Edificio / zona', 'Acción o incidencia', 'Responsable', 'Estado'],
+    noDeadlineRows: 'No se indicó ningún plazo para las incidencias de esta visita.',
+    actionsTitle: 'Acciones por edificio, zona y empresa',
+    noActions: 'No hay acciones que agrupar para esta visita.',
+    actionCount: count => `${count} acción${count > 1 ? 'es' : ''}`,
+    deadlineMeta: 'Plazo',
+    planMeta: 'Plano',
+    reservesTitle: count => `Incidencias registradas durante la visita (${count})`,
+    reserveTableHeaders: ['ID', 'Título / descripción', 'Lugar', 'Empresa', 'Prioridad', 'Estado', 'Plazo'],
+    noReserves: 'No hay incidencia asociada a esta visita.',
+    plansTitle: 'Planos asociados y pins',
+    planSummary: (reserveCount, pinCount) => `${reserveCount} incidencia${reserveCount > 1 ? 's' : ''} · ${pinCount} pin${pinCount > 1 ? 's' : ''} posicionado${pinCount > 1 ? 's' : ''}`,
+    statusDistributionTitle: 'Distribución por estado',
+    companyDistributionTitle: 'Distribución por empresa',
+    noReserveDistribution: 'Ninguna incidencia',
+    noCompanyDistribution: 'Ninguna empresa',
+    pilotageTitle: 'Seguimiento y distribución',
+    participantsTitle: count => `Participantes (${count})`,
+    participantHeaders: ['Nombre', 'Función', 'Empresa'],
+    checklistSectionTitle: (done, total, pct) => `Checklist de control (${done}/${total} — ${pct}%)`,
+    photoSectionTitle: count => `Fotos de campo (${count} foto${count > 1 ? 's' : ''})`,
+    photoGridTitle: count => `Fotos (${count})`,
+    photoResolutionBadge: 'Levantada',
+    photoObservationBadge: 'Constatación',
+    decisionsTitle: 'Decisiones, bloqueos y observaciones',
+    signaturesTitle: 'Difusión y firmas',
+    signatureConductor: 'Jefe de obra',
+    signatureCompany: 'Leído y aprobado — Empresa(s)',
+    signatureDate: 'Fecha',
+    kpiReserves: 'Incidencias',
+    kpiOpen: 'Abiertas',
+    kpiInProgress: 'En curso',
+    kpiToValidate: 'Por validar',
+    kpiClosed: 'Cerradas',
+    kpiOverdue: 'En retraso',
+  },
+};
+
 function cleanValue(value?: string | null, fallback = '—') {
   const text = String(value ?? '').trim();
   return text || fallback;
@@ -77,13 +425,13 @@ function reserveCompanies(reserve: Reserve) {
   return Array.from(new Set(names.map(name => name.trim()).filter(Boolean)));
 }
 
-function reserveCompanyLabel(reserve: Reserve) {
-  return reserveCompanies(reserve).join(', ') || 'Sans entreprise';
+function reserveCompanyLabel(reserve: Reserve, copy: VisitReportCopy = VISIT_REPORT_COPY.fr) {
+  return reserveCompanies(reserve).join(', ') || copy.noCompany;
 }
 
-function reserveDeadlineValue(reserve: Reserve) {
+function reserveDeadlineValue(reserve: Reserve, copy: VisitReportCopy = VISIT_REPORT_COPY.fr) {
   const deadline = cleanValue(reserve.deadline, '');
-  return deadline && deadline !== '—' ? deadline : 'Non définie';
+  return deadline && deadline !== '—' ? deadline : copy.noDeadline;
 }
 
 function parseDateValue(value?: string | null) {
@@ -106,18 +454,18 @@ function isReserveOverdue(reserve: Reserve) {
   return deadlineTime < today.getTime();
 }
 
-function reserveLocationLabel(reserve: Reserve) {
-  return formatReserveLocation(reserve) || 'Localisation non précisée';
+function reserveLocationLabel(reserve: Reserve, copy: VisitReportCopy = VISIT_REPORT_COPY.fr) {
+  return formatReserveLocation(reserve) || copy.noLocation;
 }
 
-function reservePriorityBadge(priority: string) {
+function reservePriorityBadge(priority: string, copy: VisitReportCopy = VISIT_REPORT_COPY.fr) {
   const bg: Record<string, string> = { low: '#F0FDF4', medium: '#FFFBEB', high: '#FEF2F2', critical: '#F5F3FF' };
-  return `<span class="badge" style="background:${bg[priority] ?? '#F9FAFB'};color:${PRIORITY_COLORS[priority] ?? '#6B7280'}">${escapeHtml(PRIORITY_LABELS[priority] ?? priority)}</span>`;
+  return `<span class="badge" style="background:${bg[priority] ?? '#F9FAFB'};color:${PRIORITY_COLORS[priority] ?? '#6B7280'}">${escapeHtml(copy.reservePriority[priority] ?? PRIORITY_LABELS[priority] ?? priority)}</span>`;
 }
 
-function reserveStatusBadge(status: string) {
+function reserveStatusBadge(status: string, copy: VisitReportCopy = VISIT_REPORT_COPY.fr) {
   const bg: Record<string, string> = { open: '#FEF2F2', in_progress: '#EFF6FF', waiting: '#FFFBEB', verification: '#F5F3FF', closed: '#ECFDF5' };
-  return `<span class="badge" style="background:${bg[status] ?? '#F9FAFB'};color:${RESERVE_STATUS_COLORS[status] ?? '#6B7280'}">${escapeHtml(RESERVE_STATUS_LABELS[status] ?? status)}</span>`;
+  return `<span class="badge" style="background:${bg[status] ?? '#F9FAFB'};color:${RESERVE_STATUS_COLORS[status] ?? '#6B7280'}">${escapeHtml(copy.reserveStatus[status] ?? RESERVE_STATUS_LABELS[status] ?? status)}</span>`;
 }
 
 function countBy<T>(items: T[], getKey: (item: T) => string) {
@@ -134,7 +482,9 @@ function buildVisitePDF(
   projectName: string,
   reservePhotoMap?: Map<string, string[]>,
   coverPhotoDataUrl?: string | null,
+  language: VisitReportLanguage = 'fr',
 ): string {
+  const copy = VISIT_REPORT_COPY[language] ?? VISIT_REPORT_COPY.fr;
   const totalOpen = reserves.filter(r => r.status === 'open').length;
   const totalInProgress = reserves.filter(r => r.status === 'in_progress').length;
   const totalWaiting = reserves.filter(r => r.status === 'waiting').length;
@@ -148,11 +498,11 @@ function buildVisitePDF(
     const priorityOrder: Record<string, number> = { critical: 0, high: 1, medium: 2, low: 3 };
     return (priorityOrder[a.priority] ?? 9) - (priorityOrder[b.priority] ?? 9)
       || parseDateValue(a.deadline) - parseDateValue(b.deadline)
-      || a.id.localeCompare(b.id, 'fr');
+      || a.id.localeCompare(b.id, language);
   });
 
   const docRef = `CR-${visite.id}`;
-  const statusVisiteLabel = visite.status === 'completed' ? 'Terminée' : visite.status === 'in_progress' ? 'En cours' : 'Planifiée';
+  const statusVisiteLabel = copy.visitStatus[visite.status] ?? copy.visitStatus.planned;
   const horaire = [visite.startTime, visite.endTime].filter(Boolean).join(' → ');
   const visiteLocationValue = visite.visitedLocations?.length
     ? visite.visitedLocations.map(loc => loc.buildingName).join(' — ')
@@ -162,13 +512,13 @@ function buildVisitePDF(
   const checklistPct = checklistTotal > 0 ? Math.round((checklistDone / checklistTotal) * 100) : 0;
 
   const infoItems = [
-    { label: 'Type de visite', value: visite.visitType ? VISITE_TYPE_LABELS[visite.visitType] ?? visite.visitType : 'Visite chantier' },
-    { label: 'Conducteur de travaux', value: visite.conducteur },
-    { label: 'Date de visite', value: visite.date + (horaire ? `  ·  ${horaire}` : '') },
-    ...(visiteLocationValue ? [{ label: visite.visitedLocations?.length ? 'Périmètre de visite' : 'Localisation', value: visiteLocationValue }] : []),
-    { label: 'Statut de la visite', value: statusVisiteLabel },
-    ...(visite.reserveDeadlineDate ? [{ label: 'Délai cible de levée', value: visite.reserveDeadlineDate }] : []),
-    ...(visite.tags && visite.tags.length > 0 ? [{ label: 'Tags', value: visite.tags.join(', ') }] : []),
+    { label: copy.infoVisitType, value: visite.visitType ? copy.visitTypes[visite.visitType] ?? visite.visitType : copy.visitDefaultType },
+    { label: copy.infoConductor, value: visite.conducteur },
+    { label: copy.infoVisitDate, value: visite.date + (horaire ? `  ·  ${horaire}` : '') },
+    ...(visiteLocationValue ? [{ label: visite.visitedLocations?.length ? copy.infoVisitScope : copy.infoLocation, value: visiteLocationValue }] : []),
+    { label: copy.infoVisitStatus, value: statusVisiteLabel },
+    ...(visite.reserveDeadlineDate ? [{ label: copy.infoDeadline, value: visite.reserveDeadlineDate }] : []),
+    ...(visite.tags && visite.tags.length > 0 ? [{ label: copy.infoTags, value: visite.tags.join(', ') }] : []),
   ];
 
   const localStyles = `
@@ -200,36 +550,28 @@ function buildVisitePDF(
     </style>
   `;
 
-  const reservesWithDeadlineCount = sortedReserves.filter(r => reserveDeadlineValue(r) !== 'Non définie').length;
+  const reservesWithDeadlineCount = sortedReserves.filter(r => reserveDeadlineValue(r, copy) !== copy.noDeadline).length;
   const summaryCards = [
     {
-      title: 'Priorités de sortie de visite',
-      text: totalCritical > 0
-        ? `${totalCritical} réserve${totalCritical > 1 ? 's' : ''} haute${totalCritical > 1 ? 's' : ''} ou critique${totalCritical > 1 ? 's' : ''} à traiter en premier.`
-        : 'Aucune réserve haute ou critique relevée sur cette visite.',
+      title: copy.priorityCardTitle,
+      text: totalCritical > 0 ? copy.priorityHighText(totalCritical) : copy.priorityNoneText,
     },
     {
-      title: 'Échéances sensibles',
-      text: totalOverdue > 0
-        ? `${totalOverdue} réserve${totalOverdue > 1 ? 's' : ''} déjà en retard.`
-        : `${reservesWithDeadlineCount} réserve${reservesWithDeadlineCount > 1 ? 's' : ''} avec échéance renseignée.`,
+      title: copy.deadlineCardTitle,
+      text: totalOverdue > 0 ? copy.overdueText(totalOverdue) : copy.deadlineFilledText(reservesWithDeadlineCount),
     },
     {
-      title: 'Entreprises concernées',
-      text: companiesCount > 0
-        ? `${companiesCount} entreprise${companiesCount > 1 ? 's' : ''} concernée${companiesCount > 1 ? 's' : ''} par les actions de ce compte-rendu.`
-        : 'Aucune entreprise responsable renseignée.',
+      title: copy.companiesCardTitle,
+      text: companiesCount > 0 ? copy.companiesText(companiesCount) : copy.companiesNoneText,
     },
     {
-      title: 'Checklist de contrôle',
-      text: checklistTotal > 0
-        ? `${checklistDone}/${checklistTotal} point${checklistTotal > 1 ? 's' : ''} validé${checklistDone > 1 ? 's' : ''} (${checklistPct}%).`
-        : 'Aucune checklist associée à cette visite.',
+      title: copy.checklistCardTitle,
+      text: checklistTotal > 0 ? copy.checklistText(checklistDone, checklistTotal, checklistPct) : copy.checklistNoneText,
     },
   ];
 
   const executiveSection = `
-    <div class="section-header">Synthèse exécutive</div>
+    <div class="section-header">${escapeHtml(copy.executiveTitle)}</div>
     <div class="summary-grid">
       ${summaryCards.map(card => `
         <div class="summary-card">
@@ -241,31 +583,31 @@ function buildVisitePDF(
   `;
 
   const deadlineRows = sortedReserves
-    .filter(r => reserveDeadlineValue(r) !== 'Non définie')
+    .filter(r => reserveDeadlineValue(r, copy) !== copy.noDeadline)
     .sort((a, b) => parseDateValue(a.deadline) - parseDateValue(b.deadline))
     .map((r, i) => `
       <tr style="background:${i % 2 === 0 ? '#fff' : '#F9FAFB'}">
         <td style="white-space:nowrap;font-weight:700">${htmlText(r.deadline)}</td>
-        <td>${escapeHtml(reserveLocationLabel(r))}</td>
+        <td>${escapeHtml(reserveLocationLabel(r, copy))}</td>
         <td><strong>${escapeHtml(r.id)}</strong> — ${escapeHtml(r.title)}<br/><span style="color:#6B7280">${escapeHtml(getReserveDescriptionText(r.description, r.title, ''))}</span></td>
-        <td>${escapeHtml(reserveCompanyLabel(r))}</td>
-        <td>${reserveStatusBadge(r.status)}</td>
+        <td>${escapeHtml(reserveCompanyLabel(r, copy))}</td>
+        <td>${reserveStatusBadge(r.status, copy)}</td>
       </tr>
     `).join('');
 
   const deadlinesSection = `
-    <div class="section-header">Synthèse des échéances principales</div>
+    <div class="section-header">${escapeHtml(copy.deadlinesTitle)}</div>
     <table>
-      <thead><tr><th>Échéance</th><th>Bâtiment / zone</th><th>Action ou réserve</th><th>Responsable</th><th>Statut</th></tr></thead>
-      <tbody>${deadlineRows || '<tr><td colspan="5" class="muted-empty">Aucune échéance renseignée pour les réserves de cette visite.</td></tr>'}</tbody>
+      <thead><tr>${copy.deadlineTableHeaders.map(label => `<th>${escapeHtml(label)}</th>`).join('')}</tr></thead>
+      <tbody>${deadlineRows || `<tr><td colspan="5" class="muted-empty">${escapeHtml(copy.noDeadlineRows)}</td></tr>`}</tbody>
     </table>
   `;
 
   const buildingMap = new Map<string, Map<string, Map<string, Reserve[]>>>();
   sortedReserves.forEach(reserve => {
-    const building = cleanValue(reserve.building, 'Sans bâtiment');
-    const zone = [reserve.level, reserve.zone].map(v => cleanValue(v, '')).filter(Boolean).join(' · ') || 'Zone non précisée';
-    const company = reserveCompanyLabel(reserve);
+    const building = cleanValue(reserve.building, copy.noBuilding);
+    const zone = [reserve.level, reserve.zone].map(v => cleanValue(v, '')).filter(Boolean).join(' · ') || copy.noZone;
+    const company = reserveCompanyLabel(reserve, copy);
     if (!buildingMap.has(building)) buildingMap.set(building, new Map());
     const zoneMap = buildingMap.get(building)!;
     if (!zoneMap.has(zone)) zoneMap.set(zone, new Map());
@@ -275,8 +617,8 @@ function buildVisitePDF(
   });
 
   const actionsByBuildingSection = `
-    <div class="section-header">Actions par bâtiment, zone et entreprise</div>
-    ${buildingMap.size === 0 ? '<div class="muted-empty">Aucune action à regrouper pour cette visite.</div>' : Array.from(buildingMap.entries()).map(([building, zoneMap]) => {
+    <div class="section-header">${escapeHtml(copy.actionsTitle)}</div>
+    ${buildingMap.size === 0 ? `<div class="muted-empty">${escapeHtml(copy.noActions)}</div>` : Array.from(buildingMap.entries()).map(([building, zoneMap]) => {
       const buildingCount = Array.from(zoneMap.values()).reduce((acc, companyMap) => (
         acc + Array.from(companyMap.values()).reduce((sum, list) => sum + list.length, 0)
       ), 0);
@@ -284,7 +626,7 @@ function buildVisitePDF(
         <div class="building-block">
           <div class="building-title">
             <span>${escapeHtml(building)}</span>
-            <span class="building-count">${buildingCount} action${buildingCount > 1 ? 's' : ''}</span>
+            <span class="building-count">${escapeHtml(copy.actionCount(buildingCount))}</span>
           </div>
           ${Array.from(zoneMap.entries()).map(([zone, companyMap]) => `
             <div class="zone-block">
@@ -294,9 +636,9 @@ function buildVisitePDF(
                 <ul class="action-list">
                   ${items.map(r => `
                     <li>
-                      <div class="action-title">${escapeHtml(r.id)} — ${escapeHtml(r.title)} ${reservePriorityBadge(r.priority)} ${reserveStatusBadge(r.status)}</div>
+                      <div class="action-title">${escapeHtml(r.id)} — ${escapeHtml(r.title)} ${reservePriorityBadge(r.priority, copy)} ${reserveStatusBadge(r.status, copy)}</div>
                       <div class="action-desc">${escapeHtml(getReserveDescriptionText(r.description, r.title, ''))}</div>
-                      <div class="action-meta">Échéance : ${htmlText(reserveDeadlineValue(r))}${r.planId ? ` · Plan : ${htmlText(r.planId)}` : ''}${r.planX != null && r.planY != null ? ' · Épingle positionnée' : ''}</div>
+                      <div class="action-meta">${escapeHtml(copy.deadlineMeta)} : ${htmlText(reserveDeadlineValue(r, copy))}${r.planId ? ` · ${escapeHtml(copy.planMeta)} : ${htmlText(r.planId)}` : ''}${r.planX != null && r.planY != null ? ` · ${escapeHtml(copy.pinPositioned)}` : ''}</div>
                     </li>
                   `).join('')}
                 </ul>
@@ -312,41 +654,40 @@ function buildVisitePDF(
     <tr style="background:${idx % 2 === 0 ? '#fff' : '#F9FAFB'}">
       <td style="font-weight:700;white-space:nowrap">${escapeHtml(r.id)}</td>
       <td><strong>${escapeHtml(r.title)}</strong><br/><span style="color:#6B7280">${escapeHtml(getReserveDescriptionText(r.description, r.title, ''))}</span></td>
-      <td>${escapeHtml(reserveLocationLabel(r))}</td>
-      <td>${escapeHtml(reserveCompanyLabel(r))}</td>
-      <td style="text-align:center">${reservePriorityBadge(r.priority)}</td>
-      <td style="text-align:center">${reserveStatusBadge(r.status)}</td>
-      <td style="white-space:nowrap">${htmlText(reserveDeadlineValue(r))}</td>
+      <td>${escapeHtml(reserveLocationLabel(r, copy))}</td>
+      <td>${escapeHtml(reserveCompanyLabel(r, copy))}</td>
+      <td style="text-align:center">${reservePriorityBadge(r.priority, copy)}</td>
+      <td style="text-align:center">${reserveStatusBadge(r.status, copy)}</td>
+      <td style="white-space:nowrap">${htmlText(reserveDeadlineValue(r, copy))}</td>
     </tr>
   `).join('');
 
   const reservesSection = `
-    <div class="section-header">Réserves relevées pendant la visite (${reserves.length})</div>
+    <div class="section-header">${escapeHtml(copy.reservesTitle(reserves.length))}</div>
     <table>
       <thead>
         <tr>
-          <th>ID</th><th>Titre / description</th><th>Lieu</th><th>Entreprise</th>
-          <th style="text-align:center">Priorité</th><th style="text-align:center">Statut</th><th>Échéance</th>
+          ${copy.reserveTableHeaders.map((label, index) => `<th${index === 4 || index === 5 ? ' style="text-align:center"' : ''}>${escapeHtml(label)}</th>`).join('')}
         </tr>
       </thead>
-      <tbody>${reserveRows || '<tr><td colspan="7" class="muted-empty">Aucune réserve rattachée à cette visite.</td></tr>'}</tbody>
+      <tbody>${reserveRows || `<tr><td colspan="7" class="muted-empty">${escapeHtml(copy.noReserves)}</td></tr>`}</tbody>
     </table>
   `;
 
   const planMap = new Map<string, Reserve[]>();
   sortedReserves.forEach(reserve => {
-    const planKey = reserve.planId || visite.defaultPlanId || 'Sans plan associé';
+    const planKey = reserve.planId || visite.defaultPlanId || copy.noPlan;
     if (!planMap.has(planKey)) planMap.set(planKey, []);
     planMap.get(planKey)!.push(reserve);
   });
   const plansSection = planMap.size > 0 ? `
-    <div class="section-header">Plans associés et épingles</div>
+    <div class="section-header">${escapeHtml(copy.plansTitle)}</div>
     ${Array.from(planMap.entries()).map(([plan, items]) => {
       const pinnedCount = items.filter(r => r.planX != null && r.planY != null).length;
       return `
         <div class="plan-card">
           <div class="plan-title">${escapeHtml(plan)}</div>
-          <div class="plan-meta">${items.length} réserve${items.length > 1 ? 's' : ''} · ${pinnedCount} épingle${pinnedCount > 1 ? 's' : ''} positionnée${pinnedCount > 1 ? 's' : ''}</div>
+          <div class="plan-meta">${escapeHtml(copy.planSummary(items.length, pinnedCount))}</div>
           <div style="font-size:11px;color:#1A2742;margin-top:7px">${items.map(r => `${escapeHtml(r.id)} — ${escapeHtml(r.title)}`).join('<br/>')}</div>
         </div>
       `;
@@ -354,27 +695,27 @@ function buildVisitePDF(
   ` : '';
 
   const statusCounts = countBy(reserves, r => r.status);
-  const companyCounts = countBy(reserves.flatMap(r => reserveCompanies(r).length ? reserveCompanies(r) : ['Sans entreprise']), name => name);
-  const statusDistribution = Object.entries(statusCounts).map(([status, count]) => `${RESERVE_STATUS_LABELS[status] ?? status} : ${count}`).join(' · ') || 'Aucune réserve';
-  const companyDistribution = Object.entries(companyCounts).map(([company, count]) => `${company} : ${count}`).join(' · ') || 'Aucune entreprise';
+  const companyCounts = countBy(reserves.flatMap(r => reserveCompanies(r).length ? reserveCompanies(r) : [copy.noCompany]), name => name);
+  const statusDistribution = Object.entries(statusCounts).map(([status, count]) => `${copy.reserveStatus[status] ?? RESERVE_STATUS_LABELS[status] ?? status} : ${count}`).join(' · ') || copy.noReserveDistribution;
+  const companyDistribution = Object.entries(companyCounts).map(([company, count]) => `${company} : ${count}`).join(' · ') || copy.noCompanyDistribution;
   const pilotageSection = `
-    <div class="section-header">Pilotage et répartition</div>
+    <div class="section-header">${escapeHtml(copy.pilotageTitle)}</div>
     <div class="summary-grid">
       <div class="summary-card">
-        <strong>Répartition par statut</strong>
+        <strong>${escapeHtml(copy.statusDistributionTitle)}</strong>
         <span>${escapeHtml(statusDistribution)}</span>
       </div>
       <div class="summary-card">
-        <strong>Répartition par entreprise</strong>
+        <strong>${escapeHtml(copy.companyDistributionTitle)}</strong>
         <span>${escapeHtml(companyDistribution)}</span>
       </div>
     </div>
   `;
 
   const participantsSection = visite.participants && visite.participants.length > 0
-    ? `<div class="section-header">Participants (${visite.participants.length})</div>
+    ? `<div class="section-header">${escapeHtml(copy.participantsTitle(visite.participants.length))}</div>
        <table>
-         <thead><tr><th>Nom</th><th>Fonction</th><th>Entreprise</th></tr></thead>
+         <thead><tr>${copy.participantHeaders.map(label => `<th>${escapeHtml(label)}</th>`).join('')}</tr></thead>
          <tbody>${visite.participants.map((p, i) =>
            `<tr style="background:${i % 2 === 0 ? '#fff' : '#F9FAFB'}">
              <td style="font-weight:600">${htmlText(p.name)}</td>
@@ -386,7 +727,7 @@ function buildVisitePDF(
     : '';
 
   const checklistSection = visite.checklistItems && visite.checklistItems.length > 0
-    ? `<div class="section-header">Checklist de contrôle (${checklistDone}/${checklistTotal} — ${checklistPct}%)</div>
+    ? `<div class="section-header">${escapeHtml(copy.checklistSectionTitle(checklistDone, checklistTotal, checklistPct))}</div>
        <div style="margin-bottom:20px;border:1px solid #DDE4EE;border-radius:10px;overflow:hidden">
          ${visite.checklistItems.map(item => `
            <div class="check-row">
@@ -400,20 +741,21 @@ function buildVisitePDF(
   const reservesWithPhotos = reservePhotoMap && reservePhotoMap.size > 0
     ? sortedReserves.filter(r => (reservePhotoMap.get(r.id)?.length ?? 0) > 0)
     : [];
+  const photoCount = reservesWithPhotos.reduce((acc, r) => acc + (reservePhotoMap?.get(r.id)?.length ?? 0), 0);
   const photoGallery = reservesWithPhotos.length > 0
-    ? `<div class="section-header">Photos terrain (${reservesWithPhotos.reduce((acc, r) => acc + (reservePhotoMap?.get(r.id)?.length ?? 0), 0)} photos)</div>
+    ? `<div class="section-header">${escapeHtml(copy.photoSectionTitle(photoCount))}</div>
        ${reservesWithPhotos.map(r => {
           const srcs = reservePhotoMap?.get(r.id) ?? [];
           const rawPhotos = getReservePdfPhotos(r);
           return `<div style="margin-bottom:18px;padding:12px 16px;border:1.5px solid #DDE4EE;border-radius:10px;page-break-inside:avoid">
-            <div style="font-size:11px;font-weight:700;color:#1A2742;margin-bottom:6px">${escapeHtml(r.id)} — ${escapeHtml(r.title)} <span style="color:#6B7280;font-weight:400">· ${escapeHtml(reserveCompanyLabel(r))} · ${escapeHtml(reserveLocationLabel(r))}</span></div>
+            <div style="font-size:11px;font-weight:700;color:#1A2742;margin-bottom:6px">${escapeHtml(r.id)} — ${escapeHtml(r.title)} <span style="color:#6B7280;font-weight:400">· ${escapeHtml(reserveCompanyLabel(r, copy))} · ${escapeHtml(reserveLocationLabel(r, copy))}</span></div>
             ${buildPhotoGrid(srcs.slice(0, 4).map((src, i) => ({
               src,
-              badge: (rawPhotos[i]?.kind === 'resolution') ? 'Levée' : 'Constat',
+              badge: (rawPhotos[i]?.kind === 'resolution') ? copy.photoResolutionBadge : copy.photoObservationBadge,
               badgeColor: (rawPhotos[i]?.kind === 'resolution') ? '#ECFDF5' : '#FEF2F2',
               badgeTextColor: (rawPhotos[i]?.kind === 'resolution') ? '#059669' : '#DC2626',
               caption: [rawPhotos[i]?.label, rawPhotos[i]?.takenBy, rawPhotos[i]?.takenAt].filter(Boolean).join(' · '),
-            })))}
+            })), copy.photoGridTitle(Math.min(srcs.length, 4)))}
           </div>`;
         }).join('')}`
     : '';
@@ -426,41 +768,46 @@ function buildVisitePDF(
     : '<div style="height:70px;border-bottom:2px solid #1A2742;margin-bottom:8px"></div>';
 
   const signaturesSection = `
-    <div class="section-header">Diffusion et signatures</div>
+    <div class="section-header">${escapeHtml(copy.signaturesTitle)}</div>
     <div class="sig-row">
       <div class="sig-block">
-        <div class="sig-label">Conducteur de travaux</div>
+        <div class="sig-label">${escapeHtml(copy.signatureConductor)}</div>
         ${conducteurSigHtml}
         <div class="sig-name">${htmlText(visite.conducteur)}</div>
-        <div class="sig-date">Date : ${htmlText(visite.signedAt ? formatDate(visite.signedAt) : visite.date)}</div>
+        <div class="sig-date">${escapeHtml(copy.signatureDate)} : ${htmlText(visite.signedAt ? formatDate(visite.signedAt) : visite.date)}</div>
       </div>
       <div class="sig-block">
-        <div class="sig-label">Lu et approuvé — Entreprise(s)</div>
+        <div class="sig-label">${escapeHtml(copy.signatureCompany)}</div>
         ${entrepriseSigHtml}
         <div class="sig-name">${htmlText(visite.entrepriseSignataire, '')}</div>
-        <div class="sig-date">Date : ${htmlText(visite.signedAt ? formatDate(visite.signedAt) : '', '')}</div>
+        <div class="sig-date">${escapeHtml(copy.signatureDate)} : ${htmlText(visite.signedAt ? formatDate(visite.signedAt) : '', '')}</div>
       </div>
     </div>
   `;
 
   const body = `
     ${localStyles}
-    ${buildLetterhead('Compte-rendu de visite de chantier', visite.title, docRef, visite.date, projectName)}
+    ${buildLetterhead(copy.letterheadTitle, visite.title, docRef, visite.date, projectName, {
+      tagline: copy.letterheadTagline,
+      projectLabel: copy.projectLabel,
+      refLabel: copy.refLabel,
+      dateLabel: copy.dateLabel,
+    })}
     ${coverPhotoDataUrl ? `<img class="visit-cover" src="${coverPhotoDataUrl}" />` : ''}
     ${buildInfoGrid(infoItems)}
     ${buildKpiRow([
-      { val: reserves.length, label: 'Réserves relevées', color: '#1A2742' },
-      { val: totalOpen, label: 'Ouvertes', color: '#DC2626' },
-      { val: totalInProgress, label: 'En cours', color: '#2563EB' },
-      { val: totalWaiting + totalVerification, label: 'À valider', color: '#7C3AED' },
-      { val: totalClosed, label: 'Clôturées', color: '#059669' },
-      ...(totalOverdue > 0 ? [{ val: totalOverdue, label: 'En retard', color: '#B91C1C' }] : []),
+      { val: reserves.length, label: copy.kpiReserves, color: '#1A2742' },
+      { val: totalOpen, label: copy.kpiOpen, color: '#DC2626' },
+      { val: totalInProgress, label: copy.kpiInProgress, color: '#2563EB' },
+      { val: totalWaiting + totalVerification, label: copy.kpiToValidate, color: '#7C3AED' },
+      { val: totalClosed, label: copy.kpiClosed, color: '#059669' },
+      ...(totalOverdue > 0 ? [{ val: totalOverdue, label: copy.kpiOverdue, color: '#B91C1C' }] : []),
     ])}
     ${executiveSection}
     ${deadlinesSection}
     ${participantsSection}
     ${visite.notes ? `
-      <div class="section-header">Décisions, blocages et observations</div>
+      <div class="section-header">${escapeHtml(copy.decisionsTitle)}</div>
       <div class="note-box">${htmlMultiline(visite.notes)}</div>
     ` : ''}
     ${actionsByBuildingSection}
@@ -470,10 +817,14 @@ function buildVisitePDF(
     ${pilotageSection}
     ${photoGallery}
     ${signaturesSection}
-    ${buildDocFooter(projectName)}
+    ${buildDocFooter(projectName, {
+      generatedBy: copy.footerGeneratedBy,
+      confidential: copy.footerConfidential,
+      locale: copy.locale,
+    })}
   `;
 
-  return wrapHTML(body, `CR Visite — ${visite.title}`);
+  return wrapHTML(body, `${copy.windowTitlePrefix} — ${visite.title}`);
 }
 
 export default function VisiteDetailScreen() {
@@ -514,6 +865,7 @@ export default function VisiteDetailScreen() {
   const [attachScopeOnly, setAttachScopeOnly] = useState(true);
   const [attachSubmitting, setAttachSubmitting] = useState(false);
   const [reserveVisitActionLoadingId, setReserveVisitActionLoadingId] = useState<string | null>(null);
+  const [reportLanguage, setReportLanguage] = useState<VisitReportLanguage>('fr');
 
   const visite = visites.find(v => v.id === id);
   const visiteReserveIds = useMemo(() => new Set(visite?.reserveIds ?? []), [visite?.reserveIds]);
@@ -604,6 +956,7 @@ export default function VisiteDetailScreen() {
   }
 
   const cfg = STATUS_CFG[visite.status];
+  const reportCopy = VISIT_REPORT_COPY[reportLanguage];
   const visiteLocationDisplay = visite.visitedLocations?.length
     ? visite.visitedLocations.map(loc => loc.buildingName).join(' — ')
     : [visite.building, visite.level, visite.zone].filter(Boolean).join(' — ');
@@ -875,7 +1228,7 @@ export default function VisiteDetailScreen() {
     );
   }
 
-  async function exportPDF() {
+  async function exportPDF(language: VisitReportLanguage = reportLanguage) {
     if (!visite) return;
     try {
       const reservePhotoMap = new Map<string, string[]>();
@@ -892,8 +1245,8 @@ export default function VisiteDetailScreen() {
       const coverPhotoDataUrl = visite.coverPhotoUri
         ? await loadPhotoAsDataUrlForPdf(visite.coverPhotoUri)
         : null;
-      const html = buildVisitePDF(visite, visiteReserves, projectName, reservePhotoMap, coverPhotoDataUrl);
-      await exportPDFHelper(html, buildPdfFilename('CR_Visite', [visite.title, visite.level, projectName]));
+      const html = buildVisitePDF(visite, visiteReserves, projectName, reservePhotoMap, coverPhotoDataUrl, language);
+      await exportPDFHelper(html, buildPdfFilename(`CR_Visite_${language.toUpperCase()}`, [visite.title, visite.level, projectName]));
     } catch (e: any) {
       Alert.alert('Erreur', e?.message ?? 'Impossible de générer le PDF');
     }
@@ -906,7 +1259,7 @@ export default function VisiteDetailScreen() {
         subtitle={visite.date}
         showBack
         rightIcon={permissions.canExport ? 'download-outline' : undefined}
-        onRightPress={permissions.canExport ? exportPDF : undefined}
+        onRightPress={permissions.canExport ? () => exportPDF(reportLanguage) : undefined}
       />
 
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
@@ -1240,10 +1593,42 @@ export default function VisiteDetailScreen() {
         )}
 
         {permissions.canExport && (
-          <TouchableOpacity style={styles.exportBtn} onPress={exportPDF}>
-            <Ionicons name="document-text-outline" size={16} color={C.verification} />
-            <Text style={styles.exportBtnText}>Exporter le compte-rendu PDF</Text>
-          </TouchableOpacity>
+          <View style={styles.reportExportCard}>
+            <View style={styles.reportExportHeader}>
+              <View style={styles.reportExportIcon}>
+                <Ionicons name="document-text-outline" size={18} color={C.verification} />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.reportExportTitle}>{reportCopy.uiTitle}</Text>
+                <Text style={styles.reportExportSubtitle}>{reportCopy.uiSubtitle}</Text>
+              </View>
+            </View>
+            <Text style={styles.reportLanguageLabel}>{reportCopy.uiLanguageLabel}</Text>
+            <View style={styles.reportLanguageRow}>
+              {VISIT_REPORT_LANGUAGES.map(item => {
+                const active = item.code === reportLanguage;
+                return (
+                  <TouchableOpacity
+                    key={item.code}
+                    style={[styles.reportLanguageChip, active && styles.reportLanguageChipActive]}
+                    onPress={() => setReportLanguage(item.code)}
+                    activeOpacity={0.8}
+                  >
+                    <Text style={[styles.reportLanguageChipCode, active && styles.reportLanguageChipCodeActive]}>
+                      {item.label}
+                    </Text>
+                    <Text style={[styles.reportLanguageChipTitle, active && styles.reportLanguageChipTitleActive]}>
+                      {item.title}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+            <TouchableOpacity style={styles.exportBtn} onPress={() => exportPDF(reportLanguage)}>
+              <Ionicons name="download-outline" size={16} color={C.verification} />
+              <Text style={styles.exportBtnText}>{reportCopy.uiExportButton}</Text>
+            </TouchableOpacity>
+          </View>
         )}
       </ScrollView>
 
@@ -1611,10 +1996,41 @@ const styles = StyleSheet.create({
   reserveVisitActionDanger: { backgroundColor: C.open + '08', borderColor: C.open + '24' },
   reserveVisitActionText: { fontSize: 12, fontFamily: 'Inter_700Bold', color: C.textSub },
 
+  reportExportCard: {
+    backgroundColor: C.surface, borderRadius: 16, padding: 14,
+    borderWidth: 1, borderColor: C.border, marginTop: 0, marginBottom: 18,
+    gap: 12,
+  },
+  reportExportHeader: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+  reportExportIcon: {
+    width: 38, height: 38, borderRadius: 14,
+    alignItems: 'center', justifyContent: 'center',
+    backgroundColor: C.verification + '14', borderWidth: 1, borderColor: C.verification + '25',
+  },
+  reportExportTitle: { fontSize: 14, fontFamily: 'Inter_700Bold', color: C.text },
+  reportExportSubtitle: { fontSize: 12, fontFamily: 'Inter_400Regular', color: C.textSub, marginTop: 2, lineHeight: 17 },
+  reportLanguageLabel: {
+    fontSize: 10, fontFamily: 'Inter_700Bold', color: C.textMuted,
+    textTransform: 'uppercase', letterSpacing: 0.5,
+  },
+  reportLanguageRow: { flexDirection: 'row', gap: 8 },
+  reportLanguageChip: {
+    flex: 1, minHeight: 48, borderRadius: 14,
+    alignItems: 'center', justifyContent: 'center',
+    backgroundColor: C.surface2, borderWidth: 1, borderColor: C.border,
+  },
+  reportLanguageChipActive: {
+    backgroundColor: C.primary, borderColor: C.primary,
+  },
+  reportLanguageChipCode: { fontSize: 13, fontFamily: 'Inter_800ExtraBold', color: C.textSub },
+  reportLanguageChipCodeActive: { color: '#fff' },
+  reportLanguageChipTitle: { fontSize: 10, fontFamily: 'Inter_500Medium', color: C.textMuted, marginTop: 2 },
+  reportLanguageChipTitleActive: { color: 'rgba(255,255,255,0.82)' },
+
   exportBtn: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8,
     backgroundColor: C.verification + '15', borderRadius: 14, paddingVertical: 14,
-    borderWidth: 1, borderColor: C.verification + '30', marginTop: 8,
+    borderWidth: 1, borderColor: C.verification + '30',
   },
   exportBtnText: { fontSize: 14, fontFamily: 'Inter_600SemiBold', color: C.verification },
 
