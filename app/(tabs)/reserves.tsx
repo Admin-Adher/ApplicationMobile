@@ -300,6 +300,12 @@ export default function ReservesScreen() {
     windowHeight - filterSheetBottomGap,
     Math.max(420, windowHeight - topPad - filterSheetBottomGap - 8),
   );
+  const assistantSheetBottomGap = Math.max(insets.bottom, Platform.OS === 'android' ? 56 : 8);
+  const assistantSheetHeight = Math.min(
+    windowHeight - assistantSheetBottomGap,
+    Math.max(420, windowHeight - topPad - assistantSheetBottomGap - 8),
+  );
+  const assistantSheetBottomPadding = Platform.OS === 'android' ? 14 : Math.max(insets.bottom, 16);
   const [selectedReserveId, setSelectedReserveId] = useState<string | null>(null);
   const [nearDeadlineOnly, setNearDeadlineOnly] = useState(false);
 
@@ -2178,14 +2184,16 @@ export default function ReservesScreen() {
         animationType="slide"
         onRequestClose={() => !assistantBusy && setAssistantVisible(false)}
       >
-        <TouchableOpacity
-          style={styles.modalOverlay}
-          activeOpacity={1}
+        <Pressable
+          style={[styles.modalOverlay, { paddingBottom: assistantSheetBottomGap }]}
           onPress={() => { if (!assistantBusy) setAssistantVisible(false); }}
         >
-          <TouchableOpacity
-            activeOpacity={1}
-            style={[styles.bottomSheet, { paddingBottom: insets.bottom + 16 }]}
+          <Pressable
+            style={[
+              styles.assistantBottomSheet,
+              { height: assistantSheetHeight, paddingBottom: assistantSheetBottomPadding },
+            ]}
+            onPress={() => {}}
           >
             <View style={styles.sheetHandle} />
             <View style={styles.assistantHeader}>
@@ -2206,7 +2214,13 @@ export default function ReservesScreen() {
               </TouchableOpacity>
             </View>
 
-            <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.assistantContent}>
+            <ScrollView
+              style={styles.assistantScroll}
+              showsVerticalScrollIndicator
+              contentContainerStyle={styles.assistantContent}
+              keyboardShouldPersistTaps="handled"
+              nestedScrollEnabled
+            >
               <View style={styles.assistantSection}>
                 <Text style={styles.sheetSectionLabel}>Périmètre</Text>
                 <View style={styles.assistantScopeGrid}>
@@ -2338,8 +2352,8 @@ export default function ReservesScreen() {
                 </View>
               )}
             </ScrollView>
-          </TouchableOpacity>
-        </TouchableOpacity>
+          </Pressable>
+        </Pressable>
       </Modal>
       )}
 
@@ -3477,12 +3491,23 @@ const styles = StyleSheet.create({
   sheetHandle: { width: 40, height: 4, borderRadius: 2, backgroundColor: C.border, alignSelf: 'center', marginBottom: 16 },
   sheetTitleRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 },
   sheetTitle: { fontSize: 17, fontFamily: 'Inter_700Bold', color: C.text },
+  assistantBottomSheet: {
+    width: '100%',
+    maxWidth: 640,
+    backgroundColor: C.surface,
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    paddingHorizontal: 16,
+    paddingTop: 12,
+    overflow: 'hidden',
+  },
   assistantHeader: { flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: 12 },
   assistantHeaderIcon: {
     width: 40, height: 40, borderRadius: 14,
     backgroundColor: C.primary, alignItems: 'center', justifyContent: 'center',
   },
-  assistantContent: { gap: 14, paddingBottom: 8 },
+  assistantScroll: { flex: 1, alignSelf: 'stretch' },
+  assistantContent: { gap: 14, paddingBottom: 24 },
   assistantSection: { gap: 8 },
   assistantScopeGrid: { flexDirection: 'row', gap: 8 },
   assistantScopeCard: {
