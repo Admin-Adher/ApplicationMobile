@@ -294,7 +294,12 @@ export default function ReservesScreen() {
   const topPad = insets.top;
   const { width, height: windowHeight } = useWindowDimensions();
   const isWideScreen = width >= 768;
-  const filterSheetHeight = Math.min(windowHeight - 8, Math.max(420, windowHeight - topPad - 8));
+  const filterSheetBottomGap = Math.max(insets.bottom, Platform.OS === 'android' ? 56 : 8);
+  const filterFooterBottomPadding = Platform.OS === 'android' ? 14 : Math.max(insets.bottom, 14);
+  const filterSheetHeight = Math.min(
+    windowHeight - filterSheetBottomGap,
+    Math.max(420, windowHeight - topPad - filterSheetBottomGap - 8),
+  );
   const [selectedReserveId, setSelectedReserveId] = useState<string | null>(null);
   const [nearDeadlineOnly, setNearDeadlineOnly] = useState(false);
 
@@ -2866,7 +2871,7 @@ export default function ReservesScreen() {
 
       {/* Advanced Filters Modal */}
       <Modal visible={filterModalVisible} transparent animationType="slide" onRequestClose={() => setFilterModalVisible(false)}>
-        <View style={styles.modalOverlay}>
+        <View style={[styles.modalOverlay, { paddingBottom: filterSheetBottomGap }]}>
           <View style={[styles.filtersBottomSheet, { height: filterSheetHeight }]}>
 
             {/* Handle */}
@@ -3215,7 +3220,7 @@ export default function ReservesScreen() {
 
             </ScrollView>
 
-            <View style={[styles.filtFooter, { paddingBottom: Math.max(insets.bottom, 14) }]}>
+            <View style={[styles.filtFooter, { paddingBottom: filterFooterBottomPadding }]}>
               <TouchableOpacity style={[styles.applyBtn, styles.filtApplyBtn]} onPress={() => setFilterModalVisible(false)}>
                 <Text style={styles.applyBtnText}>Appliquer</Text>
               </TouchableOpacity>
