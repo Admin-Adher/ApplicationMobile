@@ -2866,7 +2866,10 @@ export default function ReservesScreen() {
       {/* Advanced Filters Modal */}
       <Modal visible={filterModalVisible} transparent animationType="slide" onRequestClose={() => setFilterModalVisible(false)}>
         <TouchableOpacity style={styles.modalOverlay} activeOpacity={1} onPress={() => setFilterModalVisible(false)}>
-          <TouchableOpacity activeOpacity={1} style={[styles.bottomSheet, { paddingBottom: insets.bottom + 16, paddingTop: 0 }]}>
+          <TouchableOpacity
+            activeOpacity={1}
+            style={[styles.bottomSheet, styles.filtersBottomSheet, { paddingBottom: Math.max(insets.bottom, 10) }]}
+          >
 
             {/* Handle */}
             <View style={styles.filtHandleArea}>
@@ -2897,7 +2900,13 @@ export default function ReservesScreen() {
               </View>
             </View>
 
-            <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.filtContent}>
+            <ScrollView
+              style={styles.filtScroll}
+              showsVerticalScrollIndicator
+              contentContainerStyle={styles.filtContent}
+              keyboardShouldPersistTaps="handled"
+              nestedScrollEnabled
+            >
 
               {/* STATUT */}
               <View style={styles.filtSection}>
@@ -3470,6 +3479,11 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16, paddingBottom: 32, paddingTop: 12, maxHeight: '85%',
     width: '100%', maxWidth: 640, overflow: 'hidden',
   },
+  filtersBottomSheet: {
+    height: '88%',
+    maxHeight: '92%',
+    paddingTop: 0,
+  },
   sheetHandle: { width: 40, height: 4, borderRadius: 2, backgroundColor: C.border, alignSelf: 'center', marginBottom: 16 },
   sheetTitleRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 },
   sheetTitle: { fontSize: 17, fontFamily: 'Inter_700Bold', color: C.text },
@@ -3569,7 +3583,8 @@ const styles = StyleSheet.create({
   filtResetBtn: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 10, paddingVertical: 6, borderRadius: 8, backgroundColor: C.surface2, borderWidth: 1, borderColor: C.border },
   filtResetText: { fontSize: 12, fontFamily: 'Inter_500Medium', color: C.textSub },
   filtCloseBtn: { padding: 4 },
-  filtContent: { paddingHorizontal: 0, paddingTop: 16, paddingBottom: 8, gap: 20 },
+  filtScroll: { flex: 1, alignSelf: 'stretch' },
+  filtContent: { paddingHorizontal: 0, paddingTop: 16, paddingBottom: 28, gap: 20 },
   filtSection: { gap: 10 },
   filtSectionHeader: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   filtSectionTitle: { fontSize: 13, fontFamily: 'Inter_600SemiBold', color: C.text, flex: 1 },
