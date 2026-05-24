@@ -6,6 +6,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { C } from '@/constants/colors';
 import { useApp } from '@/context/AppContext';
 import { useAuth } from '@/context/AuthContext';
@@ -15,16 +16,16 @@ import DateInput from '@/components/DateInput';
 import CompanySelector from '@/components/CompanySelector';
 import { Chantier, ChantierBuilding, ChantierStatus } from '@/constants/types';
 
-const STATUS_OPTIONS: { value: ChantierStatus; label: string; color: string; icon: string }[] = [
-  { value: 'active',    label: 'En cours',  color: C.closed,  icon: 'play-circle-outline' },
-  { value: 'paused',    label: 'En pause',  color: C.medium,  icon: 'pause-circle-outline' },
-  { value: 'completed', label: 'Terminé',   color: C.primary, icon: 'checkmark-circle-outline' },
+const STATUS_OPTIONS: { value: ChantierStatus; color: string; icon: string }[] = [
+  { value: 'active',    color: C.closed,  icon: 'play-circle-outline' },
+  { value: 'paused',    color: C.medium,  icon: 'pause-circle-outline' },
+  { value: 'completed', color: C.primary, icon: 'checkmark-circle-outline' },
 ];
 
-const STATUS_LABELS: Record<string, { label: string; color: string; icon: string }> = {
-  active:    { label: 'En cours', color: C.closed,  icon: 'play-circle-outline' },
-  completed: { label: 'Terminé',  color: C.primary, icon: 'checkmark-circle-outline' },
-  paused:    { label: 'En pause', color: C.medium,  icon: 'pause-circle-outline' },
+const STATUS_LABELS: Record<string, { color: string; icon: string }> = {
+  active:    { color: C.closed,  icon: 'play-circle-outline' },
+  completed: { color: C.primary, icon: 'checkmark-circle-outline' },
+  paused:    { color: C.medium,  icon: 'pause-circle-outline' },
 };
 
 interface EditState {
@@ -41,6 +42,7 @@ interface EditState {
 export default function ManageChantiersScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
+  const { t } = useTranslation();
   const { chantiers, sitePlans, reserves, activeChantierId, deleteChantier, updateChantier, companies } = useApp();
   const { permissions } = useAuth();
 
@@ -51,11 +53,11 @@ export default function ManageChantiersScreen() {
     const planCount = sitePlans.filter(p => p.chantierId === id).length;
     const reserveCount = reserves.filter(r => r.chantierId === id).length;
     Alert.alert(
-      'Supprimer le chantier ?',
-      `"${name}" sera supprimé ainsi que ses ${planCount} plan(s). Les ${reserveCount} réserves associées seront conservées.`,
+      t('manageSitesScreen.deleteTitle'),
+      t('manageSitesScreen.deleteMessage', { name, plans: planCount, reserves: reserveCount }),
       [
-        { text: 'Annuler', style: 'cancel' },
-        { text: 'Supprimer', style: 'destructive', onPress: () => deleteChantier(id) },
+        { text: t('common.cancel'), style: 'cancel' },
+        { text: t('common.delete'), style: 'destructive', onPress: () => deleteChantier(id) },
       ]
     );
   }
@@ -86,7 +88,7 @@ export default function ManageChantiersScreen() {
   function saveEdit() {
     if (!editModal) return;
     if (!editModal.name.trim()) {
-      Alert.alert('Champ obligatoire', 'Le nom du chantier est requis.');
+      Alert.alert(t('manageSitesScreen.requiredField'), t('manageSitesScreen.nameRequired'));
       return;
     }
     updateChantier({
@@ -117,21 +119,21 @@ export default function ManageChantiersScreen() {
 
   return (
     <View style={styles.container}>
-      <Header title="Chantiers" showBack />
+      <Header title={t('manageSitesScreen.title')} showBack />
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
 
         {chantiers.length === 0 ? (
           <View style={styles.emptyState}>
             <Ionicons name="business-outline" size={52} color={C.textMuted} />
-            <Text style={styles.emptyTitle}>Aucun chantier</Text>
-            <Text style={styles.emptySubtitle}>Créez votre premier chantier pour démarrer.</Text>
+            <Text style={styles.emptyTitle}>{t('manageSitesScreen.emptyTitle')}</Text>
+            <Text style={styles.emptySubtitle}>{t('manageSitesScreen.emptySubtitle')}</Text>
             {permissions.canCreate && (
               <TouchableOpacity
                 style={styles.emptyBtn}
                 onPress={() => router.push('/chantier/new' as any)}
               >
                 <Ionicons name="add-circle-outline" size={16} color="#fff" />
-                <Text style={styles.emptyBtnText}>Nouveau chantier</Text>
+                <Text style={styles.emptyBtnText}>{t('manageSitesScreen.newSite')}</Text>
               </TouchableOpacity>
             )}
           </View>
@@ -158,25 +160,27 @@ export default function ManageChantiersScreen() {
                     </View>
                     <View style={[styles.statusBadge, { backgroundColor: statusCfg.color + '20' }]}>
                       <Ionicons name={statusCfg.icon as any} size={11} color={statusCfg.color} />
-                      <Text style={[styles.statusBadgeText, { color: statusCfg.color }]}>{statusCfg.label}</Text>
+                      <Text style={[styles.statusBadgeText, { color: statusCfg.color }]}>{t(`manageSitesScreen.status.${chantier.status}`)}</Text>
                     </View>
                   </View>
 
                   <View style={styles.chantierStats}>
                     <View style={styles.statItem}>
                       <Ionicons name="map-outline" size={13} color={C.textMuted} />
-                      <Text style={styles.statText}>{planCount} plan{planCount !== 1 ? 's' : ''}</Text>
+                      <Text style={styles.statText}>{t('manageSitesScreen.plans', { count: planCount })}</Text>
                     </View>
                     <View style={styles.statDivider} />
                     <View style={styles.statItem}>
                       <Ionicons name="warning-outline" size={13} color={C.textMuted} />
-                      <Text style={styles.statText}>{reserveCount} réserve{reserveCount !== 1 ? 's' : ''}</Text>
+                      <Text style={styles.statText}>{t('manageSitesScreen.reserves', { count: reserveCount })}</Text>
                     </View>
                     <View style={styles.statDivider} />
                     <View style={styles.statItem}>
                       <Ionicons name="business-outline" size={13} color={buildingCount > 0 ? C.primary : C.textMuted} />
                       <Text style={[styles.statText, buildingCount > 0 && { color: C.primary }]}>
-                        {buildingCount > 0 ? `${buildingCount} bât.` : 'Aucun bât.'}
+                        {buildingCount > 0
+                          ? t('manageSitesScreen.buildingsShort', { count: buildingCount })
+                          : t('manageSitesScreen.noBuildingShort')}
                       </Text>
                     </View>
                     {chantier.startDate && (
@@ -216,7 +220,7 @@ export default function ManageChantiersScreen() {
                         onPress={() => openEditModal(chantier)}
                       >
                         <Ionicons name="pencil-outline" size={14} color="#6366F1" />
-                        <Text style={[styles.actionBtnText, { color: '#6366F1' }]}>Modifier</Text>
+                        <Text style={[styles.actionBtnText, { color: '#6366F1' }]}>{t('manageSitesScreen.edit')}</Text>
                       </TouchableOpacity>
                     )}
                     {permissions.canCreate && (
@@ -225,7 +229,7 @@ export default function ManageChantiersScreen() {
                         onPress={() => openStructureModal(chantier)}
                       >
                         <Ionicons name="git-network-outline" size={14} color={C.primary} />
-                        <Text style={[styles.actionBtnText, { color: C.primary }]}>Structure</Text>
+                        <Text style={[styles.actionBtnText, { color: C.primary }]}>{t('manageSitesScreen.structure')}</Text>
                       </TouchableOpacity>
                     )}
                     {permissions.canDelete && (
@@ -234,7 +238,7 @@ export default function ManageChantiersScreen() {
                         onPress={() => handleDelete(chantier.id, chantier.name)}
                       >
                         <Ionicons name="trash-outline" size={14} color={C.open} />
-                        <Text style={[styles.actionBtnText, { color: C.open }]}>Supprimer</Text>
+                        <Text style={[styles.actionBtnText, { color: C.open }]}>{t('common.delete')}</Text>
                       </TouchableOpacity>
                     )}
                   </View>
@@ -248,7 +252,7 @@ export default function ManageChantiersScreen() {
                 onPress={() => router.push('/chantier/new' as any)}
               >
                 <Ionicons name="add-circle-outline" size={18} color={C.primary} />
-                <Text style={styles.addBtnText}>Ajouter un chantier</Text>
+                <Text style={styles.addBtnText}>{t('manageSitesScreen.addSite')}</Text>
               </TouchableOpacity>
             )}
           </>
@@ -269,14 +273,14 @@ export default function ManageChantiersScreen() {
                 <Ionicons name="close" size={22} color={C.text} />
               </TouchableOpacity>
               <View style={{ flex: 1 }}>
-                <Text style={styles.modalTitle}>Structure du bâtiment</Text>
+                <Text style={styles.modalTitle}>{t('manageSitesScreen.structureTitle')}</Text>
                 {structureModal && (
                   <Text style={styles.modalSubtitle} numberOfLines={1}>{structureModal.chantier.name}</Text>
                 )}
               </View>
               <TouchableOpacity style={styles.modalSaveBtn} onPress={saveStructure}>
                 <Ionicons name="checkmark" size={16} color="#fff" />
-                <Text style={styles.modalSaveBtnText}>Enregistrer</Text>
+                <Text style={styles.modalSaveBtnText}>{t('manageSitesScreen.save')}</Text>
               </TouchableOpacity>
             </View>
 
@@ -288,7 +292,7 @@ export default function ManageChantiersScreen() {
               <View style={styles.modalHintBox}>
                 <Ionicons name="information-circle-outline" size={14} color={C.primary} />
                 <Text style={styles.modalHintText}>
-                  Définissez ou modifiez la hiérarchie de localisation. Ces bâtiments et niveaux seront disponibles dans tous les formulaires liés à ce chantier.
+                  {t('manageSitesScreen.structureHint')}
                 </Text>
               </View>
 
@@ -316,14 +320,14 @@ export default function ManageChantiersScreen() {
               <Ionicons name="close" size={22} color={C.text} />
             </TouchableOpacity>
             <View style={{ flex: 1 }}>
-              <Text style={styles.modalTitle}>Modifier le chantier</Text>
+              <Text style={styles.modalTitle}>{t('manageSitesScreen.editTitle')}</Text>
               {editModal && (
                 <Text style={styles.modalSubtitle} numberOfLines={1}>{editModal.chantier.name}</Text>
               )}
             </View>
             <TouchableOpacity style={styles.modalSaveBtn} onPress={saveEdit}>
               <Ionicons name="checkmark" size={16} color="#fff" />
-              <Text style={styles.modalSaveBtnText}>Enregistrer</Text>
+              <Text style={styles.modalSaveBtnText}>{t('manageSitesScreen.save')}</Text>
             </TouchableOpacity>
           </View>
 
@@ -338,32 +342,32 @@ export default function ManageChantiersScreen() {
                 {/* Nom */}
                 <View style={styles.editCard}>
                   <View style={styles.editFieldGroup}>
-                    <Text style={styles.editLabel}>Nom du chantier *</Text>
+                    <Text style={styles.editLabel}>{t('manageSitesScreen.nameLabel')} *</Text>
                     <TextInput
                       style={styles.editInput}
                       value={editModal.name}
                       onChangeText={v => setEditModal(prev => prev ? { ...prev, name: v } : null)}
-                      placeholder="Nom du chantier"
+                      placeholder={t('manageSitesScreen.namePlaceholder')}
                       placeholderTextColor={C.textMuted}
                     />
                   </View>
                   <View style={styles.editFieldGroup}>
-                    <Text style={styles.editLabel}>Adresse</Text>
+                    <Text style={styles.editLabel}>{t('manageSitesScreen.addressLabel')}</Text>
                     <TextInput
                       style={styles.editInput}
                       value={editModal.address}
                       onChangeText={v => setEditModal(prev => prev ? { ...prev, address: v } : null)}
-                      placeholder="Ex : 12 rue des Marronniers, 69003 Lyon"
+                      placeholder={t('manageSitesScreen.addressPlaceholder')}
                       placeholderTextColor={C.textMuted}
                     />
                   </View>
                   <View style={[styles.editFieldGroup, { marginBottom: 0 }]}>
-                    <Text style={styles.editLabel}>Description</Text>
+                    <Text style={styles.editLabel}>{t('manageSitesScreen.descriptionLabel')}</Text>
                     <TextInput
                       style={[styles.editInput, styles.editTextArea]}
                       value={editModal.description}
                       onChangeText={v => setEditModal(prev => prev ? { ...prev, description: v } : null)}
-                      placeholder="Description du chantier..."
+                      placeholder={t('manageSitesScreen.descriptionPlaceholder')}
                       placeholderTextColor={C.textMuted}
                       multiline
                       numberOfLines={3}
@@ -373,7 +377,7 @@ export default function ManageChantiersScreen() {
 
                 {/* Statut */}
                 <View style={styles.editCard}>
-                  <Text style={styles.editLabel}>Statut</Text>
+                  <Text style={styles.editLabel}>{t('manageSitesScreen.statusLabel')}</Text>
                   <View style={styles.statusRow}>
                     {STATUS_OPTIONS.map(opt => {
                       const sel = editModal.status === opt.value;
@@ -389,7 +393,7 @@ export default function ManageChantiersScreen() {
                         >
                           <Ionicons name={opt.icon as any} size={14} color={sel ? opt.color : C.textMuted} />
                           <Text style={[styles.statusChipText, sel && { color: opt.color, fontFamily: 'Inter_600SemiBold' }]}>
-                            {opt.label}
+                            {t(`manageSitesScreen.status.${opt.value}`)}
                           </Text>
                         </TouchableOpacity>
                       );
@@ -402,7 +406,7 @@ export default function ManageChantiersScreen() {
                   <View style={styles.editDateRow}>
                     <View style={{ flex: 1 }}>
                       <DateInput
-                        label="Début des travaux"
+                        label={t('manageSitesScreen.startDate')}
                         value={editModal.startDate}
                         onChange={v => setEditModal(prev => prev ? { ...prev, startDate: v } : null)}
                         optional
@@ -410,7 +414,7 @@ export default function ManageChantiersScreen() {
                     </View>
                     <View style={{ flex: 1 }}>
                       <DateInput
-                        label="Fin prévisionnelle"
+                        label={t('manageSitesScreen.endDate')}
                         value={editModal.endDate}
                         onChange={v => setEditModal(prev => prev ? { ...prev, endDate: v } : null)}
                         optional
@@ -422,7 +426,7 @@ export default function ManageChantiersScreen() {
                 {/* Entreprises */}
                 {companies.length > 0 && (
                   <View style={styles.editCard}>
-                    <Text style={styles.editLabel}>Entreprises associées</Text>
+                    <Text style={styles.editLabel}>{t('manageSitesScreen.associatedCompanies')}</Text>
                     <CompanySelector
                       mode="multi"
                       identifier="id"

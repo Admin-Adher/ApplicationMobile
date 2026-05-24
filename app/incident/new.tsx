@@ -5,6 +5,7 @@ import {
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 import * as Haptics from 'expo-haptics';
@@ -18,32 +19,33 @@ import DateInput from '@/components/DateInput';
 import LocationPicker from '@/components/LocationPicker';
 import { genId, formatDateFR } from '@/lib/utils';
 
-const SEVERITY_CONFIG: Record<IncidentSeverity, { label: string; color: string; bg: string; icon: string; hint: string }> = {
-  minor:    { label: 'Mineur',   color: '#6B7280', bg: '#F3F4F6', icon: 'information-circle', hint: 'Aucun impact sur la sécurité' },
-  moderate: { label: 'Modéré',  color: '#F59E0B', bg: '#FFFBEB', icon: 'warning',             hint: 'Incident à surveiller' },
-  major:    { label: 'Majeur',   color: '#EF4444', bg: '#FEF2F2', icon: 'alert-circle',       hint: 'Impact significatif sur le chantier' },
-  critical: { label: 'Critique', color: '#7F1D1D', bg: '#FEE2E2', icon: 'nuclear',            hint: 'Danger immédiat — intervention urgente' },
+const SEVERITY_CONFIG: Record<IncidentSeverity, { color: string; bg: string; icon: string }> = {
+  minor:    { color: '#6B7280', bg: '#F3F4F6', icon: 'information-circle' },
+  moderate: { color: '#F59E0B', bg: '#FFFBEB', icon: 'warning' },
+  major:    { color: '#EF4444', bg: '#FEF2F2', icon: 'alert-circle' },
+  critical: { color: '#7F1D1D', bg: '#FEE2E2', icon: 'nuclear' },
 };
 
-const STATUS_CONFIG: Record<IncidentStatus, { label: string; color: string; bg: string; icon: string }> = {
-  open:          { label: 'Ouvert',   color: C.open,       bg: C.open + '15',       icon: 'radio-button-on' },
-  investigating: { label: 'En cours', color: C.inProgress, bg: C.inProgress + '15', icon: 'sync' },
-  resolved:      { label: 'Résolu',   color: C.closed,     bg: C.closed + '15',     icon: 'checkmark-circle' },
+const STATUS_CONFIG: Record<IncidentStatus, { color: string; bg: string; icon: string }> = {
+  open:          { color: C.open,       bg: C.open + '15',       icon: 'radio-button-on' },
+  investigating: { color: C.inProgress, bg: C.inProgress + '15', icon: 'sync' },
+  resolved:      { color: C.closed,     bg: C.closed + '15',     icon: 'checkmark-circle' },
 };
 
 const SEVERITIES: IncidentSeverity[] = ['minor', 'moderate', 'major', 'critical'];
 const STATUSES: IncidentStatus[] = ['open', 'investigating', 'resolved'];
 
-const STEPS = [
-  { number: 1, title: 'Signalement', subtitle: 'Photo · Titre · Description · Gravité' },
-  { number: 2, title: 'Localisation', subtitle: 'Lieu · Bâtiment · Date · Témoins' },
-  { number: 3, title: 'Traitement', subtitle: 'Statut · Actions · Confirmation' },
+const STEP_KEYS = [
+  { number: 1, titleKey: 'incidentForm.steps.reportTitle', subtitleKey: 'incidentForm.steps.reportSubtitle' },
+  { number: 2, titleKey: 'incidentForm.steps.locationTitle', subtitleKey: 'incidentForm.steps.locationSubtitle' },
+  { number: 3, titleKey: 'incidentForm.steps.treatmentTitle', subtitleKey: 'incidentForm.steps.treatmentSubtitle' },
 ];
 
 function StepIndicator({ current }: { current: number }) {
+  const { t } = useTranslation();
   return (
     <View style={si.wrap}>
-      {STEPS.map((step, idx) => {
+      {STEP_KEYS.map((step, idx) => {
         const done = current > step.number;
         const active = current === step.number;
         return (
@@ -59,13 +61,13 @@ function StepIndicator({ current }: { current: number }) {
                 style={[si.stepTitle, active && si.stepTitleActive, done && si.stepTitleDone]}
                 numberOfLines={1}
               >
-                {step.title}
+                {t(step.titleKey)}
               </Text>
               {active && (
-                <Text style={si.stepSub} numberOfLines={2}>{step.subtitle}</Text>
+                <Text style={si.stepSub} numberOfLines={2}>{t(step.subtitleKey)}</Text>
               )}
             </View>
-            {idx < STEPS.length - 1 && (
+            {idx < STEP_KEYS.length - 1 && (
               <View style={[si.connector, done && si.connectorDone]} />
             )}
           </View>
@@ -78,6 +80,7 @@ function StepIndicator({ current }: { current: number }) {
 export default function NewIncidentScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
+  const { t } = useTranslation();
   const { user, permissions } = useAuth();
   const { addIncident } = useIncidents();
   const { activeChantierId, chantiers } = useApp();
@@ -113,13 +116,13 @@ export default function NewIncidentScreen() {
       <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: C.bg, padding: 32 }}>
         <Ionicons name="lock-closed-outline" size={48} color={C.textMuted} />
         <Text style={{ fontSize: 17, fontFamily: 'Inter_600SemiBold', color: C.text, marginTop: 16, marginBottom: 8 }}>
-          Accès restreint
+          {t('incidentForm.restrictedTitle')}
         </Text>
         <Text style={{ fontSize: 14, fontFamily: 'Inter_400Regular', color: C.textMuted, textAlign: 'center', marginBottom: 24 }}>
-          Les sous-traitants ne peuvent pas créer d'incidents de sécurité.
+          {t('incidentForm.restrictedCreateText')}
         </Text>
         <TouchableOpacity onPress={() => router.back()} style={{ paddingHorizontal: 24, paddingVertical: 12, backgroundColor: C.primaryBg, borderRadius: 10, borderWidth: 1, borderColor: C.primary + '40' }}>
-          <Text style={{ fontSize: 14, fontFamily: 'Inter_600SemiBold', color: C.primary }}>Retour</Text>
+          <Text style={{ fontSize: 14, fontFamily: 'Inter_600SemiBold', color: C.primary }}>{t('incidentForm.back')}</Text>
         </TouchableOpacity>
       </View>
     );
@@ -132,11 +135,11 @@ export default function NewIncidentScreen() {
     }
     if (!isDirty) { router.back(); return; }
     Alert.alert(
-      'Abandonner le formulaire ?',
-      'Vos saisies seront perdues si vous quittez maintenant.',
+      t('incidentForm.abandonTitle'),
+      t('incidentForm.abandonText'),
       [
-        { text: 'Continuer la saisie', style: 'cancel' },
-        { text: 'Abandonner', style: 'destructive', onPress: () => router.back() },
+        { text: t('incidentForm.continueEditing'), style: 'cancel' },
+        { text: t('incidentForm.abandon'), style: 'destructive', onPress: () => router.back() },
       ]
     );
   }
@@ -144,26 +147,26 @@ export default function NewIncidentScreen() {
   async function handlePickPhoto() {
     if (Platform.OS !== 'web') {
       const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
-      if (status !== 'granted') { Alert.alert('Permission refusée', "L'accès à la galerie est nécessaire."); return; }
+      if (status !== 'granted') { Alert.alert(t('incidentForm.permissionDenied'), t('incidentForm.galleryPermissionDenied')); return; }
     }
     const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images'], allowsEditing: true, quality: 0.8 });
     if (!result.canceled && result.assets[0]) setPhotoUri(result.assets[0].uri);
   }
 
   async function handleCamera() {
-    if (Platform.OS === 'web') { Alert.alert('Info', 'La prise de photo directe est disponible sur appareil mobile.'); return; }
+    if (Platform.OS === 'web') { Alert.alert(t('incidentForm.info'), t('incidentForm.directCameraMobileOnly')); return; }
     const { status } = await ImagePicker.requestCameraPermissionsAsync();
-    if (status !== 'granted') { Alert.alert('Permission refusée', "L'accès à l'appareil photo est nécessaire."); return; }
+    if (status !== 'granted') { Alert.alert(t('incidentForm.permissionDenied'), t('incidentForm.cameraPermissionDenied')); return; }
     const result = await ImagePicker.launchCameraAsync({ allowsEditing: true, quality: 0.8 });
     if (!result.canceled && result.assets[0]) setPhotoUri(result.assets[0].uri);
   }
 
   function handleNext() {
     if (step === 1) {
-      if (!title.trim()) { Alert.alert('Champ requis', 'Le titre est obligatoire.'); return; }
+      if (!title.trim()) { Alert.alert(t('incidentForm.requiredField'), t('incidentForm.titleRequired')); return; }
     }
     if (step === 2) {
-      if (!location.trim()) { Alert.alert('Champ requis', 'Le lieu est obligatoire.'); return; }
+      if (!location.trim()) { Alert.alert(t('incidentForm.requiredField'), t('incidentForm.locationRequired')); return; }
     }
     setStep(s => s + 1);
   }
@@ -182,7 +185,7 @@ export default function NewIncidentScreen() {
         level,
         zone,
         reportedAt,
-        reportedBy: user?.name ?? 'Inconnu',
+        reportedBy: user?.name ?? t('incidentForm.unknownUser'),
         status,
         witnesses,
         actions,
@@ -200,9 +203,9 @@ export default function NewIncidentScreen() {
     return (
       <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: C.bg, padding: 32 }}>
         <Ionicons name="lock-closed-outline" size={48} color={C.textMuted} />
-        <Text style={{ fontSize: 17, fontFamily: 'Inter_600SemiBold', color: C.text, marginTop: 16, textAlign: 'center' }}>Accès refusé</Text>
+        <Text style={{ fontSize: 17, fontFamily: 'Inter_600SemiBold', color: C.text, marginTop: 16, textAlign: 'center' }}>{t('incidentForm.accessDenied')}</Text>
         <TouchableOpacity onPress={() => router.back()} style={{ marginTop: 24, paddingHorizontal: 20, paddingVertical: 10, backgroundColor: C.primary, borderRadius: 10 }}>
-          <Text style={{ color: '#fff', fontFamily: 'Inter_600SemiBold', fontSize: 14 }}>Retour</Text>
+          <Text style={{ color: '#fff', fontFamily: 'Inter_600SemiBold', fontSize: 14 }}>{t('incidentForm.back')}</Text>
         </TouchableOpacity>
       </View>
     );
@@ -212,7 +215,7 @@ export default function NewIncidentScreen() {
 
   return (
     <View style={[styles.container, { paddingBottom: insets.bottom }]}>
-      <Header title="Signaler un incident" showBack onBack={handleBack} />
+      <Header title={t('incidentForm.newTitle')} showBack onBack={handleBack} />
       <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
         <ScrollView
           contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + 40 }]}
@@ -229,26 +232,26 @@ export default function NewIncidentScreen() {
               <View style={styles.card}>
                 <View style={styles.cardHeader}>
                   <Ionicons name="camera-outline" size={16} color={C.primary} />
-                  <Text style={styles.cardTitle}>Photo de preuve</Text>
-                  <Text style={styles.cardOptional}>Optionnel</Text>
+                  <Text style={styles.cardTitle}>{t('incidentForm.photoEvidence')}</Text>
+                  <Text style={styles.cardOptional}>{t('incidentForm.optional')}</Text>
                 </View>
                 {photoUri ? (
                   <View>
                     <Image source={{ uri: photoUri }} style={styles.photoPreview} resizeMode="cover" />
                     <TouchableOpacity style={styles.removePhoto} onPress={() => setPhotoUri(undefined)}>
                       <Ionicons name="close-circle" size={16} color={C.open} />
-                      <Text style={styles.removePhotoText}>Retirer la photo</Text>
+                      <Text style={styles.removePhotoText}>{t('incidentForm.removePhoto')}</Text>
                     </TouchableOpacity>
                   </View>
                 ) : (
                   <View style={styles.photoRow}>
                     <TouchableOpacity style={[styles.photoBtn, { flex: 1 }]} onPress={handleCamera}>
                       <Ionicons name="camera" size={18} color={C.primary} />
-                      <Text style={styles.photoBtnText}>Caméra</Text>
+                      <Text style={styles.photoBtnText}>{t('incidentForm.camera')}</Text>
                     </TouchableOpacity>
                     <TouchableOpacity style={[styles.photoBtn, { flex: 1 }]} onPress={handlePickPhoto}>
                       <Ionicons name="images-outline" size={18} color={C.inProgress} />
-                      <Text style={[styles.photoBtnText, { color: C.inProgress }]}>Galerie</Text>
+                      <Text style={[styles.photoBtnText, { color: C.inProgress }]}>{t('incidentForm.gallery')}</Text>
                     </TouchableOpacity>
                   </View>
                 )}
@@ -258,28 +261,28 @@ export default function NewIncidentScreen() {
               <View style={styles.card}>
                 <View style={styles.cardHeader}>
                   <Ionicons name="create-outline" size={16} color={C.primary} />
-                  <Text style={styles.cardTitle}>Informations</Text>
+                  <Text style={styles.cardTitle}>{t('incidentForm.information')}</Text>
                 </View>
 
                 <View style={styles.fieldGroup}>
-                  <Text style={styles.label}>Titre <Text style={styles.required}>*</Text></Text>
+                  <Text style={styles.label}>{t('incidentForm.titleLabel')} <Text style={styles.required}>*</Text></Text>
                   <TextInput
                     style={styles.input}
                     value={title}
                     onChangeText={setTitle}
-                    placeholder="Ex : Chute de matériaux, fuite d'eau..."
+                    placeholder={t('incidentForm.titlePlaceholder')}
                     placeholderTextColor={C.textMuted}
                     autoFocus
                   />
                 </View>
 
                 <View style={[styles.fieldGroup, { marginBottom: 0 }]}>
-                  <Text style={styles.label}>Description</Text>
+                  <Text style={styles.label}>{t('incidentForm.descriptionLabel')}</Text>
                   <TextInput
                     style={[styles.input, styles.textArea]}
                     value={description}
                     onChangeText={setDescription}
-                    placeholder="Décrivez les circonstances de l'incident..."
+                    placeholder={t('incidentForm.descriptionPlaceholder')}
                     placeholderTextColor={C.textMuted}
                     multiline
                     numberOfLines={4}
@@ -291,7 +294,7 @@ export default function NewIncidentScreen() {
               <View style={styles.card}>
                 <View style={styles.cardHeader}>
                   <Ionicons name="warning-outline" size={16} color={C.primary} />
-                  <Text style={styles.cardTitle}>Gravité</Text>
+                  <Text style={styles.cardTitle}>{t('incidentForm.severityLabel')}</Text>
                 </View>
 
                 <View style={styles.severityGrid}>
@@ -308,7 +311,7 @@ export default function NewIncidentScreen() {
                         >
                           <Ionicons name={cfg.icon as any} size={18} color={active ? cfg.color : C.textMuted} />
                           <Text style={[styles.severityLabel, active && { color: cfg.color, fontFamily: 'Inter_700Bold' }]}>
-                            {cfg.label}
+                            {t(`incidentsScreen.severity.${s}`)}
                           </Text>
                         </TouchableOpacity>
                       );
@@ -327,7 +330,7 @@ export default function NewIncidentScreen() {
                         >
                           <Ionicons name={cfg.icon as any} size={18} color={active ? cfg.color : C.textMuted} />
                           <Text style={[styles.severityLabel, active && { color: cfg.color, fontFamily: 'Inter_700Bold' }]}>
-                            {cfg.label}
+                            {t(`incidentsScreen.severity.${s}`)}
                           </Text>
                         </TouchableOpacity>
                       );
@@ -337,7 +340,7 @@ export default function NewIncidentScreen() {
 
                 <View style={[styles.severityHint, { backgroundColor: sevCfg.bg, borderColor: sevCfg.color + '40' }]}>
                   <Ionicons name={sevCfg.icon as any} size={14} color={sevCfg.color} />
-                  <Text style={[styles.severityHintText, { color: sevCfg.color }]}>{sevCfg.hint}</Text>
+                  <Text style={[styles.severityHintText, { color: sevCfg.color }]}>{t(`incidentForm.severityHint.${severity}`)}</Text>
                 </View>
               </View>
             </>
@@ -350,16 +353,16 @@ export default function NewIncidentScreen() {
               <View style={styles.card}>
                 <View style={styles.cardHeader}>
                   <Ionicons name="location-outline" size={16} color={C.primary} />
-                  <Text style={styles.cardTitle}>Lieu de l'incident</Text>
+                  <Text style={styles.cardTitle}>{t('incidentForm.locationCardTitle')}</Text>
                 </View>
 
                 <View style={styles.fieldGroup}>
-                  <Text style={styles.label}>Description du lieu <Text style={styles.required}>*</Text></Text>
+                  <Text style={styles.label}>{t('incidentForm.locationLabel')} <Text style={styles.required}>*</Text></Text>
                   <TextInput
                     style={styles.input}
                     value={location}
                     onChangeText={setLocation}
-                    placeholder="Ex : Échafaudage Est, Niveau R+2, Zone béton..."
+                    placeholder={t('incidentForm.locationPlaceholder')}
                     placeholderTextColor={C.textMuted}
                     autoFocus
                   />
@@ -367,7 +370,7 @@ export default function NewIncidentScreen() {
 
                 {(activeChantier?.buildings?.length ?? 0) > 0 && (
                   <View style={[styles.fieldGroup, { marginBottom: 0 }]}>
-                    <Text style={styles.label}>Bâtiment · Niveau · Zone</Text>
+                    <Text style={styles.label}>{t('incidentForm.locationHierarchy')}</Text>
                     <LocationPicker
                       buildings={activeChantier?.buildings ?? []}
                       building={building}
@@ -387,12 +390,12 @@ export default function NewIncidentScreen() {
               <View style={styles.card}>
                 <View style={styles.cardHeader}>
                   <Ionicons name="calendar-outline" size={16} color={C.primary} />
-                  <Text style={styles.cardTitle}>Date et témoins</Text>
+                  <Text style={styles.cardTitle}>{t('incidentForm.dateWitnesses')}</Text>
                 </View>
 
                 <View style={styles.fieldGroup}>
                   <DateInput
-                    label="Date de l'incident"
+                    label={t('incidentForm.incidentDate')}
                     value={reportedAt}
                     onChange={setReportedAt}
                     optional
@@ -400,15 +403,15 @@ export default function NewIncidentScreen() {
                 </View>
 
                 <View style={[styles.fieldGroup, { marginBottom: 0 }]}>
-                  <Text style={styles.label}>Témoins</Text>
+                  <Text style={styles.label}>{t('incidentForm.witnessesLabel')}</Text>
                   <TextInput
                     style={styles.input}
                     value={witnesses}
                     onChangeText={setWitnesses}
-                    placeholder="Noms des témoins présents (optionnel)"
+                    placeholder={t('incidentForm.witnessesPlaceholder')}
                     placeholderTextColor={C.textMuted}
                   />
-                  <Text style={styles.fieldHint}>Séparez plusieurs noms par une virgule</Text>
+                  <Text style={styles.fieldHint}>{t('incidentForm.witnessesHint')}</Text>
                 </View>
               </View>
 
@@ -416,20 +419,20 @@ export default function NewIncidentScreen() {
               <View style={styles.recapCard}>
                 <View style={styles.cardHeader}>
                   <Ionicons name="checkmark-circle-outline" size={14} color={C.closed} />
-                  <Text style={[styles.cardTitle, { fontSize: 12, color: C.closed }]}>Signalement</Text>
+                  <Text style={[styles.cardTitle, { fontSize: 12, color: C.closed }]}>{t('incidentForm.reportSummary')}</Text>
                 </View>
                 <Text style={styles.recapTitle}>{title}</Text>
                 <View style={styles.recapRow}>
                   <View style={[styles.recapBadge, { backgroundColor: SEVERITY_CONFIG[severity].bg, borderColor: SEVERITY_CONFIG[severity].color + '40' }]}>
                     <Ionicons name={SEVERITY_CONFIG[severity].icon as any} size={11} color={SEVERITY_CONFIG[severity].color} />
                     <Text style={[styles.recapBadgeText, { color: SEVERITY_CONFIG[severity].color }]}>
-                      {SEVERITY_CONFIG[severity].label}
+                      {t(`incidentsScreen.severity.${severity}`)}
                     </Text>
                   </View>
                   {photoUri && (
                     <View style={[styles.recapBadge, { backgroundColor: C.primaryBg, borderColor: C.primary + '30' }]}>
                       <Ionicons name="image-outline" size={11} color={C.primary} />
-                      <Text style={[styles.recapBadgeText, { color: C.primary }]}>Photo</Text>
+                      <Text style={[styles.recapBadgeText, { color: C.primary }]}>{t('incidentForm.photo')}</Text>
                     </View>
                   )}
                 </View>
@@ -444,7 +447,7 @@ export default function NewIncidentScreen() {
               <View style={styles.card}>
                 <View style={styles.cardHeader}>
                   <Ionicons name="flag-outline" size={16} color={C.primary} />
-                  <Text style={styles.cardTitle}>Statut initial</Text>
+                  <Text style={styles.cardTitle}>{t('incidentForm.initialStatus')}</Text>
                 </View>
 
                 <View style={styles.statusGrid}>
@@ -460,7 +463,7 @@ export default function NewIncidentScreen() {
                       >
                         <Ionicons name={cfg.icon as any} size={16} color={active ? cfg.color : C.textMuted} />
                         <Text style={[styles.statusLabel, active && { color: cfg.color, fontFamily: 'Inter_700Bold' }]}>
-                          {cfg.label}
+                          {t(`incidentsScreen.status.${s}`)}
                         </Text>
                       </TouchableOpacity>
                     );
@@ -472,15 +475,15 @@ export default function NewIncidentScreen() {
               <View style={styles.card}>
                 <View style={styles.cardHeader}>
                   <Ionicons name="build-outline" size={16} color={C.primary} />
-                  <Text style={styles.cardTitle}>Actions correctives</Text>
-                  <Text style={styles.cardOptional}>Optionnel</Text>
+                  <Text style={styles.cardTitle}>{t('incidentForm.correctiveActions')}</Text>
+                  <Text style={styles.cardOptional}>{t('incidentForm.optional')}</Text>
                 </View>
 
                 <TextInput
                   style={[styles.input, styles.textArea, { minHeight: 100 }]}
                   value={actions}
                   onChangeText={setActions}
-                  placeholder="Mesures prises ou planifiées pour résoudre l'incident..."
+                  placeholder={t('incidentForm.correctivePlaceholder')}
                   placeholderTextColor={C.textMuted}
                   multiline
                   numberOfLines={5}
@@ -491,7 +494,7 @@ export default function NewIncidentScreen() {
               <View style={styles.recapCard}>
                 <View style={styles.cardHeader}>
                   <Ionicons name="document-text-outline" size={14} color={C.primary} />
-                  <Text style={[styles.cardTitle, { fontSize: 12, color: C.primary }]}>Récapitulatif</Text>
+                  <Text style={[styles.cardTitle, { fontSize: 12, color: C.primary }]}>{t('incidentForm.summary')}</Text>
                 </View>
 
                 <Text style={styles.recapTitle}>{title}</Text>
@@ -502,11 +505,11 @@ export default function NewIncidentScreen() {
                 <View style={styles.recapRow}>
                   <View style={[styles.recapBadge, { backgroundColor: SEVERITY_CONFIG[severity].bg, borderColor: SEVERITY_CONFIG[severity].color + '40' }]}>
                     <Ionicons name={SEVERITY_CONFIG[severity].icon as any} size={11} color={SEVERITY_CONFIG[severity].color} />
-                    <Text style={[styles.recapBadgeText, { color: SEVERITY_CONFIG[severity].color }]}>{SEVERITY_CONFIG[severity].label}</Text>
+                    <Text style={[styles.recapBadgeText, { color: SEVERITY_CONFIG[severity].color }]}>{t(`incidentsScreen.severity.${severity}`)}</Text>
                   </View>
                   <View style={[styles.recapBadge, { backgroundColor: STATUS_CONFIG[status].bg, borderColor: STATUS_CONFIG[status].color + '40' }]}>
                     <Ionicons name={STATUS_CONFIG[status].icon as any} size={11} color={STATUS_CONFIG[status].color} />
-                    <Text style={[styles.recapBadgeText, { color: STATUS_CONFIG[status].color }]}>{STATUS_CONFIG[status].label}</Text>
+                    <Text style={[styles.recapBadgeText, { color: STATUS_CONFIG[status].color }]}>{t(`incidentsScreen.status.${status}`)}</Text>
                   </View>
                 </View>
 
@@ -514,7 +517,7 @@ export default function NewIncidentScreen() {
                   <View style={styles.recapMetaRow}>
                     <Ionicons name="location-outline" size={12} color={C.textMuted} />
                     <Text style={styles.recapMetaText}>
-                      {[location, building, level, zone].filter(Boolean).join(' · ') || '—'}
+                      {[location, building, level, zone].filter(Boolean).join(' · ') || '-'}
                     </Text>
                   </View>
                   <View style={styles.recapMetaRow}>
@@ -530,7 +533,7 @@ export default function NewIncidentScreen() {
                   {photoUri ? (
                     <View style={styles.recapMetaRow}>
                       <Ionicons name="image-outline" size={12} color={C.textMuted} />
-                      <Text style={styles.recapMetaText}>Photo jointe</Text>
+                      <Text style={styles.recapMetaText}>{t('incidentForm.photoAttached')}</Text>
                     </View>
                   ) : null}
                 </View>
@@ -543,7 +546,7 @@ export default function NewIncidentScreen() {
             {step > 1 && (
               <TouchableOpacity style={styles.backBtn} onPress={() => setStep(s => s - 1)}>
                 <Ionicons name="chevron-back" size={16} color={C.textSub} />
-                <Text style={styles.backBtnText}>Précédent</Text>
+                <Text style={styles.backBtnText}>{t('incidentForm.previous')}</Text>
               </TouchableOpacity>
             )}
 
@@ -551,7 +554,7 @@ export default function NewIncidentScreen() {
 
             {step < 3 ? (
               <TouchableOpacity style={styles.nextBtn} onPress={handleNext}>
-                <Text style={styles.nextBtnText}>Suivant</Text>
+                <Text style={styles.nextBtnText}>{t('incidentForm.next')}</Text>
                 <Ionicons name="chevron-forward" size={16} color="#fff" />
               </TouchableOpacity>
             ) : saving ? (
@@ -559,7 +562,7 @@ export default function NewIncidentScreen() {
             ) : (
               <TouchableOpacity style={styles.submitBtn} onPress={handleSave}>
                 <Ionicons name="warning-outline" size={16} color="#fff" />
-                <Text style={styles.submitBtnText}>Signaler l'incident</Text>
+                <Text style={styles.submitBtnText}>{t('incidentForm.submit')}</Text>
               </TouchableOpacity>
             )}
           </View>

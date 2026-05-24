@@ -3,6 +3,7 @@ import {
   View, Text, ScrollView, TouchableOpacity, StyleSheet,
   Platform, Share, Clipboard,
 } from 'react-native';
+import { useTranslation } from 'react-i18next';
 import { DebugLogEntry, subscribeDebugLogs, getDebugLogs, clearDebugLogs } from '@/lib/debugLog';
 
 const LEVEL_COLOR: Record<string, string> = {
@@ -24,6 +25,7 @@ interface Props {
 }
 
 export default function DebugOverlay({ visible = true }: Props) {
+  const { t } = useTranslation();
   const [logs, setLogs] = useState<DebugLogEntry[]>(getDebugLogs());
   const [copied, setCopied] = useState(false);
   const scrollRef = useRef<ScrollView>(null);
@@ -57,19 +59,19 @@ export default function DebugOverlay({ visible = true }: Props) {
     <View style={styles.container} pointerEvents="box-none">
       <View style={styles.panel}>
         <View style={styles.header}>
-          <Text style={styles.title}>🔍 Debug Log</Text>
+          <Text style={styles.title}>🔍 {t('debugOverlay.title')}</Text>
           <View style={styles.headerButtons}>
             <TouchableOpacity style={styles.btn} onPress={clearDebugLogs}>
-              <Text style={styles.btnText}>Effacer</Text>
+              <Text style={styles.btnText}>{t('debugOverlay.clear')}</Text>
             </TouchableOpacity>
             <TouchableOpacity style={[styles.btn, copied && styles.btnCopied]} onPress={handleCopy}>
-              <Text style={styles.btnText}>{copied ? '✓ Copié !' : 'Copier tout'}</Text>
+              <Text style={styles.btnText}>{copied ? `✓ ${t('debugOverlay.copied')}` : t('debugOverlay.copyAll')}</Text>
             </TouchableOpacity>
           </View>
         </View>
         <ScrollView ref={scrollRef} style={styles.scroll} contentContainerStyle={styles.scrollContent}>
           {logs.length === 0 && (
-            <Text style={styles.empty}>En attente de logs…</Text>
+            <Text style={styles.empty}>{t('debugOverlay.empty')}</Text>
           )}
           {logs.map((entry, i) => (
             <View key={i} style={styles.row}>
@@ -83,7 +85,7 @@ export default function DebugOverlay({ visible = true }: Props) {
             </View>
           ))}
         </ScrollView>
-        <Text style={styles.hint}>{logs.length} entrée(s) — Copiez et partagez avec votre développeur</Text>
+        <Text style={styles.hint}>{t('debugOverlay.hint', { count: logs.length })}</Text>
       </View>
     </View>
   );

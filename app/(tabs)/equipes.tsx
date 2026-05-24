@@ -4,6 +4,7 @@ import {
 } from 'react-native';
 import { useState, useMemo, useRef } from 'react';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useTranslation } from 'react-i18next';
 import { Ionicons } from '@expo/vector-icons';
 import { C } from '@/constants/colors';
 import { useApp } from '@/context/AppContext';
@@ -14,29 +15,37 @@ import { useRouter } from 'expo-router';
 
 type SortKey = 'name' | 'presence' | 'reserves';
 
-const SORT_OPTIONS: { key: SortKey; label: string; icon: string }[] = [
-  { key: 'name',     label: 'Nom A–Z',    icon: 'text-outline' },
-  { key: 'presence', label: 'Présence %', icon: 'people-outline' },
-  { key: 'reserves', label: 'Réserves',   icon: 'warning-outline' },
+const SORT_OPTIONS: { key: SortKey; labelKey: string; icon: string }[] = [
+  { key: 'name',     labelKey: 'teamsScreen.sortName',     icon: 'text-outline' },
+  { key: 'presence', labelKey: 'teamsScreen.sortPresence', icon: 'people-outline' },
+  { key: 'reserves', labelKey: 'teamsScreen.sortReserves', icon: 'warning-outline' },
 ];
+
+function dateLocale(language: string) {
+  if (language.startsWith('en')) return 'en-US';
+  if (language.startsWith('es')) return 'es-ES';
+  return 'fr-FR';
+}
 
 function MiniHistoryChart({ records, companyId, color }: {
   records: AttendanceRecord[];
   companyId: string;
   color: string;
 }) {
+  const { i18n } = useTranslation();
+  const locale = dateLocale(i18n.language);
   const last7 = useMemo(() => {
     const days: { label: string; workers: number }[] = [];
     for (let i = 6; i >= 0; i--) {
       const d = new Date();
       d.setDate(d.getDate() - i);
-      const label = d.toLocaleDateString('fr-FR', { weekday: 'short' });
+      const label = d.toLocaleDateString(locale, { weekday: 'short' });
       const dateStr = d.toLocaleDateString('fr-FR');
       const rec = records.find(r => r.companyId === companyId && r.date === dateStr);
       days.push({ label, workers: rec?.workers ?? 0 });
     }
     return days;
-  }, [records, companyId]);
+  }, [records, companyId, locale]);
 
   const maxVal = Math.max(...last7.map(d => d.workers), 1);
 
@@ -71,13 +80,15 @@ function GlobalHistoryChart({ records, companies }: {
   records: AttendanceRecord[];
   companies: Company[];
 }) {
+  const { t, i18n } = useTranslation();
+  const locale = dateLocale(i18n.language);
   const last7 = useMemo(() => {
     const days: { label: string; fullDate: string; total: number; byCompany: Record<string, number> }[] = [];
     for (let i = 6; i >= 0; i--) {
       const d = new Date();
       d.setDate(d.getDate() - i);
       const dateStr = d.toLocaleDateString('fr-FR');
-      const label = d.toLocaleDateString('fr-FR', { weekday: 'short', day: 'numeric' });
+      const label = d.toLocaleDateString(locale, { weekday: 'short', day: 'numeric' });
       const dayRecs = records.filter(r => r.date === dateStr);
       const byCompany: Record<string, number> = {};
       let total = 0;
@@ -88,7 +99,7 @@ function GlobalHistoryChart({ records, companies }: {
       days.push({ label, fullDate: dateStr, total, byCompany });
     }
     return days;
-  }, [records]);
+  }, [records, locale]);
 
   const maxVal = Math.max(...last7.map(d => d.total), 1);
   const hasAnyData = last7.some(d => d.total > 0);
@@ -97,7 +108,7 @@ function GlobalHistoryChart({ records, companies }: {
     return (
       <View style={ghStyles.empty}>
         <Ionicons name="bar-chart-outline" size={28} color={C.textMuted} />
-        <Text style={ghStyles.emptyText}>Aucune donnée — sauvegardez les présences pour alimenter l'historique</Text>
+        <Text style={ghStyles.emptyText}>{t('teamsScreen.noHistoryData')}</Text>
       </View>
     );
   }
@@ -165,6 +176,7 @@ const ghStyles = StyleSheet.create({
 export default function EquipesScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
+  const { t, i18n } = useTranslation();
   const { user, permissions } = useAuth();
   const {
     companies, tasks, reserves, stats, chantiers, activeChantierId,
@@ -183,7 +195,7 @@ export default function EquipesScreen() {
 
   const searchRef = useRef<RNTextInput>(null);
 
-  const today = new Date().toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' });
+  const today = new Date().toLocaleDateString(dateLocale(i18n.language), { weekday: 'long', day: 'numeric', month: 'long' });
 
   const totalHours = useMemo(() => companies.reduce((s, c) => s + c.hoursWorked, 0), [companies]);
 
@@ -247,16 +259,16 @@ export default function EquipesScreen() {
       <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: C.bg, padding: 32 }}>
         <Ionicons name="lock-closed-outline" size={48} color={C.textMuted} />
         <Text style={{ fontSize: 17, fontFamily: 'Inter_600SemiBold', color: C.text, marginTop: 16, textAlign: 'center' }}>
-          Accès restreint
+          {t('teamsScreen.restrictedTitle')}
         </Text>
         <Text style={{ fontSize: 14, fontFamily: 'Inter_400Regular', color: C.textMuted, marginTop: 8, textAlign: 'center' }}>
-          Votre rôle ne donne pas accès à la gestion des équipes.
+          {t('teamsScreen.restrictedText')}
         </Text>
         <TouchableOpacity
           onPress={() => router.canGoBack() ? router.back() : router.navigate('/(tabs)/' as any)}
           style={{ marginTop: 24, paddingHorizontal: 20, paddingVertical: 10, backgroundColor: C.primary, borderRadius: 10 }}
         >
-          <Text style={{ color: '#fff', fontFamily: 'Inter_600SemiBold', fontSize: 14 }}>Retour au tableau de bord</Text>
+          <Text style={{ color: '#fff', fontFamily: 'Inter_600SemiBold', fontSize: 14 }}>{t('teamsScreen.backDashboard')}</Text>
         </TouchableOpacity>
       </View>
     );
@@ -271,7 +283,7 @@ export default function EquipesScreen() {
     if (!workerModal) return;
     const n = parseInt(workerInput, 10);
     if (isNaN(n) || n < 0) {
-      Alert.alert('Valeur invalide', 'Le nombre de personnes présentes doit être un entier positif.');
+      Alert.alert(t('teamsScreen.invalidValueTitle'), t('teamsScreen.invalidValueText'));
       return;
     }
     const estimatedHours = n * standardDayHours;
@@ -296,15 +308,15 @@ export default function EquipesScreen() {
   function handleSaveAttendance() {
     const total = companies.reduce((a, c) => a + c.actualWorkers, 0);
     Alert.alert(
-      'Sauvegarder les présences',
-      `Enregistrer les présences du jour (${total} personnes) dans l'historique ?`,
+      t('teamsScreen.saveAttendanceTitle'),
+      t('teamsScreen.saveAttendanceMessage', { count: total }),
       [
-        { text: 'Annuler', style: 'cancel' },
+        { text: t('common.cancel'), style: 'cancel' },
         {
-          text: 'Sauvegarder',
+          text: t('teamsScreen.save'),
           onPress: async () => {
-            await saveAttendanceSnapshot(companies, user?.name ?? 'Système');
-            Alert.alert('Présences sauvegardées', "L'instantané a été enregistré dans l'historique.");
+            await saveAttendanceSnapshot(companies, user?.name ?? t('teamsScreen.system'));
+            Alert.alert(t('teamsScreen.savedTitle'), t('teamsScreen.savedMessage'));
           },
         },
       ]
@@ -320,7 +332,7 @@ export default function EquipesScreen() {
             <Ionicons name="chevron-back" size={22} color={C.text} />
           </TouchableOpacity>
           <View style={{ flex: 1 }}>
-            <Text style={styles.title}>Équipes</Text>
+            <Text style={styles.title}>{t('teamsScreen.title')}</Text>
             <Text style={styles.subtitle}>{today}</Text>
           </View>
           <View style={styles.headerActions}>
@@ -333,7 +345,7 @@ export default function EquipesScreen() {
                 onPress={() => router.navigate('/(tabs)/admin' as any)}
               >
                 <Ionicons name="settings-outline" size={14} color={C.primary} />
-                <Text style={styles.manageBtnLabel}>Gérer</Text>
+                <Text style={styles.manageBtnLabel}>{t('teamsScreen.manage')}</Text>
               </TouchableOpacity>
             )}
           </View>
@@ -348,7 +360,7 @@ export default function EquipesScreen() {
               style={styles.searchInput}
               value={search}
               onChangeText={setSearch}
-              placeholder="Rechercher une entreprise, lot…"
+              placeholder={t('teamsScreen.searchPlaceholder')}
               placeholderTextColor={C.textMuted}
               returnKeyType="search"
               clearButtonMode="while-editing"
@@ -366,7 +378,7 @@ export default function EquipesScreen() {
                 onPress={() => setSortKey(o.key)}
               >
                 <Ionicons name={o.icon as any} size={11} color={sortKey === o.key ? C.primary : C.textMuted} />
-                <Text style={[styles.sortChipText, sortKey === o.key && styles.sortChipTextActive]}>{o.label}</Text>
+                <Text style={[styles.sortChipText, sortKey === o.key && styles.sortChipTextActive]}>{t(o.labelKey)}</Text>
               </TouchableOpacity>
             ))}
           </View>
@@ -384,17 +396,15 @@ export default function EquipesScreen() {
             <View style={styles.equipeEmptyIconCircle}>
               <Ionicons name="people" size={38} color="#EC4899" />
             </View>
-            <Text style={styles.equipeEmptyTitle}>Aucune entreprise enregistrée</Text>
-            <Text style={styles.equipeEmptySubtitle}>
-              Ajoutez les entreprises intervenantes dans l'Admin pour suivre les présences et les réserves de chantier.
-            </Text>
+            <Text style={styles.equipeEmptyTitle}>{t('teamsScreen.emptyTitle')}</Text>
+            <Text style={styles.equipeEmptySubtitle}>{t('teamsScreen.emptySubtitle')}</Text>
             {permissions.canManageTeams && (
               <TouchableOpacity
                 style={styles.equipeEmptyBtn}
                 onPress={() => router.navigate('/(tabs)/admin' as any)}
               >
                 <Ionicons name="settings-outline" size={18} color="#fff" />
-                <Text style={styles.equipeEmptyBtnText}>Gérer les entreprises dans l'Admin</Text>
+                <Text style={styles.equipeEmptyBtnText}>{t('teamsScreen.manageCompanies')}</Text>
               </TouchableOpacity>
             )}
           </View>
@@ -406,24 +416,24 @@ export default function EquipesScreen() {
             <View style={styles.summaryRow}>
               <View style={styles.summaryItem}>
                 <Text style={styles.summaryValue}>{stats.totalWorkers}</Text>
-                <Text style={styles.summaryLabel}>Présents</Text>
+                <Text style={styles.summaryLabel}>{t('teamsScreen.present')}</Text>
               </View>
               <View style={styles.divider} />
               <View style={styles.summaryItem}>
                 <Text style={[styles.summaryValue, { color: C.textSub }]}>{stats.plannedWorkers}</Text>
-                <Text style={styles.summaryLabel}>Prévus</Text>
+                <Text style={styles.summaryLabel}>{t('teamsScreen.planned')}</Text>
               </View>
               <View style={styles.divider} />
               <View style={styles.summaryItem}>
                 <Text style={[styles.summaryValue, { color: stats.plannedWorkers - stats.totalWorkers > 0 ? C.waiting : C.closed }]}>
                   {stats.plannedWorkers - stats.totalWorkers > 0 ? `-${stats.plannedWorkers - stats.totalWorkers}` : '✓'}
                 </Text>
-                <Text style={styles.summaryLabel}>Écart</Text>
+                <Text style={styles.summaryLabel}>{t('teamsScreen.gap')}</Text>
               </View>
               <View style={styles.divider} />
               <View style={styles.summaryItem}>
                 <Text style={[styles.summaryValue, { color: C.inProgress, fontSize: 22 }]}>{totalHours}h</Text>
-                <Text style={styles.summaryLabel}>Heures tot.</Text>
+                <Text style={styles.summaryLabel}>{t('teamsScreen.hoursTotal')}</Text>
               </View>
             </View>
             <View style={styles.summaryBarRow}>
@@ -435,7 +445,7 @@ export default function EquipesScreen() {
             {permissions.canUpdateAttendance && (
               <TouchableOpacity style={styles.saveSnapshotBtn} onPress={handleSaveAttendance}>
                 <Ionicons name="save-outline" size={13} color={C.primary} />
-                <Text style={styles.saveSnapshotText}>Sauvegarder les présences du jour</Text>
+                <Text style={styles.saveSnapshotText}>{t('teamsScreen.saveDayAttendance')}</Text>
               </TouchableOpacity>
             )}
           </View>
@@ -445,7 +455,9 @@ export default function EquipesScreen() {
         {filteredSortedCompanies.length > 0 && (
           <View style={styles.sectionLabelRow}>
             <Text style={styles.sectionTitle}>
-              Intervenants{search ? ` · ${filteredSortedCompanies.length} résultat${filteredSortedCompanies.length > 1 ? 's' : ''}` : ` (${filteredSortedCompanies.length})`}
+              {search
+                ? t('teamsScreen.intervenantsResults', { count: filteredSortedCompanies.length })
+                : t('teamsScreen.intervenants', { count: filteredSortedCompanies.length })}
             </Text>
           </View>
         )}
@@ -454,7 +466,7 @@ export default function EquipesScreen() {
         {companies.length > 0 && filteredSortedCompanies.length === 0 && (
           <View style={styles.noResults}>
             <Ionicons name="search-outline" size={28} color={C.textMuted} />
-            <Text style={styles.noResultsText}>Aucune entreprise ne correspond à "{search}"</Text>
+            <Text style={styles.noResultsText}>{t('teamsScreen.noResults', { search })}</Text>
           </View>
         )}
 
@@ -485,7 +497,7 @@ export default function EquipesScreen() {
                     onPress={() => openWorkerModal(co)}
                   >
                     <Ionicons name="pencil-outline" size={13} color={co.color} />
-                    <Text style={[styles.pointageBtnText, { color: co.color }]}>Pointage</Text>
+                    <Text style={[styles.pointageBtnText, { color: co.color }]}>{t('teamsScreen.attendance')}</Text>
                   </TouchableOpacity>
                 )}
               </View>
@@ -494,21 +506,21 @@ export default function EquipesScreen() {
               <View style={styles.coStats}>
                 <View style={styles.coStat}>
                   <Text style={[styles.coStatVal, { color: co.color }]}>{co.actualWorkers}</Text>
-                  <Text style={styles.coStatLabel}>Présents</Text>
+                  <Text style={styles.coStatLabel}>{t('teamsScreen.present')}</Text>
                 </View>
                 <View style={styles.coStat}>
                   <Text style={styles.coStatVal}>{co.plannedWorkers}</Text>
-                  <Text style={styles.coStatLabel}>Prévus</Text>
+                  <Text style={styles.coStatLabel}>{t('teamsScreen.planned')}</Text>
                 </View>
                 <View style={styles.coStat}>
                   <Text style={[styles.coStatVal, { color: ecart > 0 ? C.waiting : C.closed }]}>
                     {ecart > 0 ? `-${ecart}` : '✓'}
                   </Text>
-                  <Text style={styles.coStatLabel}>Écart</Text>
+                  <Text style={styles.coStatLabel}>{t('teamsScreen.gap')}</Text>
                 </View>
                 <View style={styles.coStat}>
                   <Text style={styles.coStatVal}>{co.hoursWorked}h</Text>
-                  <Text style={styles.coStatLabel}>Heures</Text>
+                  <Text style={styles.coStatLabel}>{t('teamsScreen.hours')}</Text>
                 </View>
               </View>
 
@@ -537,7 +549,9 @@ export default function EquipesScreen() {
                     color={cs.openReserves > 0 ? C.open : C.textMuted}
                   />
                   <Text style={[styles.qaBtnText, cs.openReserves > 0 && { color: C.open }]}>
-                    {cs.openReserves > 0 ? `${cs.openReserves} réserve${cs.openReserves > 1 ? 's' : ''}` : 'Réserves'}
+                    {cs.openReserves > 0
+                      ? t('teamsScreen.reserves', { count: cs.openReserves })
+                      : t('teamsScreen.reservesLabel')}
                   </Text>
                   <Ionicons name="chevron-forward" size={11} color={cs.openReserves > 0 ? C.open : C.textMuted} />
                 </TouchableOpacity>
@@ -552,7 +566,9 @@ export default function EquipesScreen() {
                     color={cs.activeTasks > 0 ? C.primary : C.textMuted}
                   />
                   <Text style={[styles.qaBtnText, cs.activeTasks > 0 && { color: C.primary }]}>
-                    {cs.activeTasks > 0 ? `${cs.activeTasks} tâche${cs.activeTasks > 1 ? 's' : ''}` : 'Tâches'}
+                    {cs.activeTasks > 0
+                      ? t('teamsScreen.tasks', { count: cs.activeTasks })
+                      : t('teamsScreen.tasksLabel')}
                   </Text>
                   <Ionicons name="chevron-forward" size={11} color={cs.activeTasks > 0 ? C.primary : C.textMuted} />
                 </TouchableOpacity>
@@ -563,7 +579,7 @@ export default function EquipesScreen() {
                     onPress={() => Linking.openURL(`tel:${co.phone}`)}
                   >
                     <Ionicons name="call-outline" size={14} color={C.primary} />
-                    <Text style={[styles.qaBtnText, { color: C.primary }]}>Appeler</Text>
+                    <Text style={[styles.qaBtnText, { color: C.primary }]}>{t('teamsScreen.call')}</Text>
                   </TouchableOpacity>
                 ) : null}
               </View>
@@ -594,7 +610,7 @@ export default function EquipesScreen() {
                 <View style={styles.chantierPillsSection}>
                   <View style={styles.chantierPillsHeader}>
                     <Ionicons name="business-outline" size={11} color={C.textMuted} />
-                    <Text style={styles.chantierPillsLabel}>Chantiers</Text>
+                    <Text style={styles.chantierPillsLabel}>{t('teamsScreen.sites')}</Text>
                   </View>
                   <View style={styles.chantierPillsRow}>
                     {linkedChantiers.map(ch => (
@@ -603,7 +619,7 @@ export default function EquipesScreen() {
                         ch.id === activeChantierId && { borderColor: co.color + '80', backgroundColor: co.color + '12' },
                       ]}>
                         <Text style={[styles.chantierPillText, ch.id === activeChantierId && { color: co.color }]} numberOfLines={1}>
-                          {ch.name}{ch.id === activeChantierId ? ' ●' : ''}
+                          {ch.name}{ch.id === activeChantierId ? ' •' : ''}
                         </Text>
                       </View>
                     ))}
@@ -620,7 +636,7 @@ export default function EquipesScreen() {
             <TouchableOpacity style={styles.historyHeader} onPress={() => setHistoryExpanded(v => !v)}>
               <View style={styles.historyHeaderLeft}>
                 <Ionicons name="bar-chart-outline" size={16} color={C.primary} />
-                <Text style={styles.historyTitle}>Historique des présences</Text>
+                <Text style={styles.historyTitle}>{t('teamsScreen.historyTitle')}</Text>
                 {attendanceHistory.length > 0 && (
                   <View style={styles.historyCountBadge}>
                     <Text style={styles.historyCountText}>{attendanceHistory.length}</Text>
@@ -636,11 +652,11 @@ export default function EquipesScreen() {
 
             {historyExpanded && (
               <View style={styles.historyBody}>
-                <Text style={styles.historySubtitle}>7 derniers jours — total ouvriers par jour</Text>
+                <Text style={styles.historySubtitle}>{t('teamsScreen.historySubtitle')}</Text>
                 <GlobalHistoryChart records={attendanceHistory} companies={companies} />
                 {attendanceHistory.length === 0 && (
                   <Text style={styles.historyEmptyHint}>
-                    Utilisez "Sauvegarder les présences du jour" pour alimenter l'historique.
+                    {t('teamsScreen.historyEmptyHint')}
                   </Text>
                 )}
               </View>
@@ -655,7 +671,7 @@ export default function EquipesScreen() {
             onPress={() => router.navigate('/(tabs)/admin' as any)}
           >
             <Ionicons name="settings-outline" size={15} color={C.textSub} />
-            <Text style={styles.adminLinkBtnText}>Gérer les entreprises dans l'Admin</Text>
+            <Text style={styles.adminLinkBtnText}>{t('teamsScreen.manageCompanies')}</Text>
             <Ionicons name="chevron-forward" size={14} color={C.textMuted} />
           </TouchableOpacity>
         )}
@@ -671,9 +687,9 @@ export default function EquipesScreen() {
                 <Ionicons name="close-circle" size={24} color={C.textMuted} />
               </TouchableOpacity>
             </View>
-            <Text style={styles.workerModalSub}>Combien de personnes sont présentes sur le chantier ?</Text>
+            <Text style={styles.workerModalSub}>{t('teamsScreen.modalQuestion')}</Text>
 
-            <Text style={styles.fieldLabel}>Personnes présentes</Text>
+            <Text style={styles.fieldLabel}>{t('teamsScreen.peoplePresent')}</Text>
             <View style={styles.stepperRow}>
               <TouchableOpacity style={styles.stepperBtn} onPress={() => stepWorker(-1)}>
                 <Ionicons name="remove" size={20} color={C.primary} />
@@ -692,23 +708,23 @@ export default function EquipesScreen() {
             <View style={styles.autoHoursBox}>
               <Ionicons name="time-outline" size={14} color={C.primary} />
               <Text style={styles.autoHoursText}>
-                Heures estimées :{' '}
+                {t('teamsScreen.estimatedHours')}{' '}
                 <Text style={styles.autoHoursValue}>
                   {(parseInt(workerInput, 10) || 0) * standardDayHours}h
                 </Text>
                 {'  '}
                 <Text style={styles.autoHoursMuted}>
-                  ({workerInput || 0} pers. × {standardDayHours}h/jour)
+                  {t('teamsScreen.estimatedHoursDetails', { count: workerInput || 0, hours: standardDayHours })}
                 </Text>
               </Text>
             </View>
 
             <Text style={styles.autoHoursHint}>
-              La durée journée est configurable dans Paramètres → Présences.
+              {t('teamsScreen.dayConfigHint')}
             </Text>
 
             <TouchableOpacity style={[styles.confirmBtn, { marginTop: 16, alignSelf: 'stretch' }]} onPress={handleSaveWorkers}>
-              <Text style={styles.confirmBtnText}>Enregistrer</Text>
+              <Text style={styles.confirmBtnText}>{t('teamsScreen.saveButton')}</Text>
             </TouchableOpacity>
           </View>
         </View>

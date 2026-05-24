@@ -4,6 +4,7 @@ import {
   ActivityIndicator, ScrollView, Image,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { useTranslation } from 'react-i18next';
 import { C } from '@/constants/colors';
 import { PlanDrawing, PlanDrawingTool, Reserve } from '@/constants/types';
 import { genId } from '@/lib/utils';
@@ -111,16 +112,34 @@ function canUseDirectLocalUri(uri: string): boolean {
   return Platform.OS !== 'web' && uri.startsWith('file://');
 }
 
-const TOOLS: { id: PlanDrawingTool; icon: string; label: string }[] = [
-  { id: 'pen',       icon: 'pencil',        label: 'Crayon' },
-  { id: 'line',      icon: 'remove',        label: 'Ligne' },
-  { id: 'arrow',     icon: 'arrow-forward', label: 'Flèche' },
-  { id: 'rect',      icon: 'square-outline',label: 'Rect.' },
-  { id: 'ellipse',   icon: 'ellipse-outline',label: 'Ellipse' },
-  { id: 'text',      icon: 'text',          label: 'Texte' },
-  { id: 'cloud',     icon: 'cloud-outline', label: 'Nuage' },
-  { id: 'highlight', icon: 'brush-outline', label: 'Surligneur' },
+const TOOLS: { id: PlanDrawingTool; icon: string; labelKey: string }[] = [
+  { id: 'pen',       icon: 'pencil',         labelKey: 'pdfPlanViewer.tools.pen' },
+  { id: 'line',      icon: 'remove',         labelKey: 'pdfPlanViewer.tools.line' },
+  { id: 'arrow',     icon: 'arrow-forward',  labelKey: 'pdfPlanViewer.tools.arrow' },
+  { id: 'rect',      icon: 'square-outline', labelKey: 'pdfPlanViewer.tools.rect' },
+  { id: 'ellipse',   icon: 'ellipse-outline',labelKey: 'pdfPlanViewer.tools.ellipse' },
+  { id: 'text',      icon: 'text',           labelKey: 'pdfPlanViewer.tools.text' },
+  { id: 'cloud',     icon: 'cloud-outline',  labelKey: 'pdfPlanViewer.tools.cloud' },
+  { id: 'highlight', icon: 'brush-outline',  labelKey: 'pdfPlanViewer.tools.highlight' },
 ];
+
+type PdfPlanViewerCopy = {
+  loadingPlan: string;
+  loadPdfError: string;
+  loadImageError: string;
+  checkConnection: string;
+  embeddedPdfJsError: string;
+  inputTextPlaceholder: string;
+};
+
+function escapeHtmlText(value: string): string {
+  return value
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
 
 export interface PdfPlanViewerProps {
   planUri: string;
@@ -253,6 +272,7 @@ function buildMobileHtml(
   ghostReserves: Reserve[] = [],
   pinSizes: Record<string, number> = {},
   companies: Array<{ name: string; color: string }> = [],
+  copy: PdfPlanViewerCopy,
   pdfJsSource: string | null = null,
   pdfJsWorkerSource: string | null = null,
 ): string {
@@ -281,6 +301,11 @@ function buildMobileHtml(
   const safeGhostPins = JSON.stringify(ghostPinsData);
   const safePdfJsSource = JSON.stringify(pdfJsSource ?? '');
   const safePdfJsWorkerSource = JSON.stringify(pdfJsWorkerSource ?? '');
+  const safeCopy = JSON.stringify(copy);
+  const loadingPlanHtml = escapeHtmlText(copy.loadingPlan);
+  const loadPdfErrorHtml = escapeHtmlText(copy.loadPdfError);
+  const checkConnectionHtml = escapeHtmlText(copy.checkConnection);
+  const inputTextPlaceholderHtml = escapeHtmlText(copy.inputTextPlaceholder);
 
   return `<!DOCTYPE html>
 <html><head><meta charset="UTF-8">
@@ -310,8 +335,8 @@ html,body{width:100%;height:100%;overflow:hidden;background:#0F1117;touch-action
 #text-input{background:#1E293B;color:#fff;border:2px solid #003082;border-radius:8px;padding:10px 14px;font-size:15px;width:240px;outline:none;font-family:Arial;}
 </style>
 </head><body>
-<div id="loading"><div id="loading-spinner"></div><div id="loading-text">Chargement du plan…</div></div>
-<div id="error-msg">Impossible de charger le plan PDF.<br>Vérifiez votre connexion et réessayez.</div>
+<div id="loading"><div id="loading-spinner"></div><div id="loading-text">${loadingPlanHtml}</div></div>
+<div id="error-msg">${loadPdfErrorHtml}<br>${checkConnectionHtml}</div>
 <div id="container" style="display:none">
   <div id="inner">
     <canvas id="pdf-canvas"></canvas>
@@ -321,7 +346,7 @@ html,body{width:100%;height:100%;overflow:hidden;background:#0F1117;touch-action
     <div id="pins-layer"></div>
   </div>
 </div>
-<div id="text-overlay"><input id="text-input" type="text" placeholder="Saisir le texte…" maxlength="80"></div>
+<div id="text-overlay"><input id="text-input" type="text" placeholder="${inputTextPlaceholderHtml}" maxlength="80"></div>
 <script>
 (function(){
 var PLAN_URI=${JSON.stringify(planUri)};
@@ -335,6 +360,7 @@ var CAN_MOVE_PINS=${canMovePins !== false ? 'true' : 'false'};
 var PIN_SIZE=${pinSize};
 var PDFJS_SOURCE=${safePdfJsSource};
 var PDFJS_WORKER_SOURCE=${safePdfJsWorkerSource};
+var COPY=${safeCopy};
 
 var focusedPinId=null;
 var mode='view',tool='pen',color='#EF4444',sw=2;
@@ -665,7 +691,7 @@ function loadPdfjs(){
         if(done)return;
         done=true;
         cleanup();
-        reject(e instanceof Error?e:new Error('Chargement PDF.js embarque impossible'));
+        reject(e instanceof Error?e:new Error(COPY.embeddedPdfJsError));
       }
       function onReady(){
         finish(window.pdfjsLib||globalThis.pdfjsLib||null);
@@ -810,7 +836,7 @@ if(IS_IMAGE){
   };
   img.onerror=function(){
     loading.style.display='none';
-    errMsg.innerHTML='Impossible de charger l\\'image.<br>Vérifiez votre connexion et réessayez.<br><span style="color:#94A3B8;font-size:11px;margin-top:8px;display:block">URI: '+(PLAN_URI||'').slice(0,80)+'</span>';
+    errMsg.innerHTML=COPY.loadImageError+'<br>'+COPY.checkConnection+'<br><span style="color:#94A3B8;font-size:11px;margin-top:8px;display:block">URI: '+(PLAN_URI||'').slice(0,80)+'</span>';
     errMsg.style.display='flex';
     post({type:'planError',error:'image_load_failed',uri:String(PLAN_URI||'').slice(0,200)});
   };
@@ -839,7 +865,7 @@ if(IS_IMAGE){
   }).catch(function(err){
     loading.style.display='none';
     var msg=(err&&(err.message||err.name))||String(err)||'Erreur inconnue';
-    errMsg.innerHTML='Impossible de charger le plan PDF.<br>Vérifiez votre connexion et réessayez.<br><span style="color:#94A3B8;font-size:11px;margin-top:8px;display:block">'+String(msg).slice(0,200)+'</span>';
+    errMsg.innerHTML=COPY.loadPdfError+'<br>'+COPY.checkConnection+'<br><span style="color:#94A3B8;font-size:11px;margin-top:8px;display:block">'+String(msg).slice(0,200)+'</span>';
     errMsg.style.display='flex';
     post({type:'planError',error:String(msg).slice(0,400)});
   });
@@ -1044,6 +1070,7 @@ const MobileViewer = forwardRef<PdfPlanViewerHandle, PdfPlanViewerProps>(functio
   canAnnotate, canCreate, canMovePins = true, pinSize = 22, onZoomChange, isImagePlan = false, onReady,
   companies = [],
 }, ref) {
+  const { t } = useTranslation();
   const WebView = require('react-native-webview').default;
   const webViewRef = useRef<any>(null);
   const captureResolveRef = useRef<((url: string | null) => void) | null>(null);
@@ -1066,6 +1093,14 @@ const MobileViewer = forwardRef<PdfPlanViewerHandle, PdfPlanViewerProps>(functio
   const [pdfJsWorkerSource, setPdfJsWorkerSource] = useState<string | null>(isImagePlan ? null : (initialPdfJsSources?.workerSource ?? ''));
   const [pdfJsLoading, setPdfJsLoading] = useState(!isImagePlan && !initialPdfJsSources);
   const [previewDataUrl, setPreviewDataUrl] = useState<string | null>(() => getRememberedPlanPreview(planId));
+  const mobileCopy = useMemo<PdfPlanViewerCopy>(() => ({
+    loadingPlan: t('pdfPlanViewer.loadingPlan'),
+    loadPdfError: t('pdfPlanViewer.loadPdfError'),
+    loadImageError: t('pdfPlanViewer.loadImageError'),
+    checkConnection: t('pdfPlanViewer.checkConnection'),
+    embeddedPdfJsError: t('pdfPlanViewer.embeddedPdfJsError'),
+    inputTextPlaceholder: t('pdfPlanViewer.inputTextPlaceholder'),
+  }), [t]);
 
   const MAX_BASE64_SIZE = 25 * 1024 * 1024;
 
@@ -1207,7 +1242,7 @@ const MobileViewer = forwardRef<PdfPlanViewerHandle, PdfPlanViewerProps>(functio
         setFromCache(false);
         setUriLoading(false);
         setOfflineUnavailable(true);
-        setLoadError(`Plan non disponible hors ligne. ${msg}`);
+        setLoadError(`${t('pdfPlanViewer.offlineUnavailableTitle')}. ${msg}`);
       }
     }
 
@@ -1397,16 +1432,16 @@ const MobileViewer = forwardRef<PdfPlanViewerHandle, PdfPlanViewerProps>(functio
           setOfflineUnavailable(false);
           return;
         }
-        setLoadError(typeof msg.error === 'string' ? msg.error : 'Erreur de chargement du plan.');
+        setLoadError(typeof msg.error === 'string' ? msg.error : t('pdfPlanViewer.planLoadError'));
       }
     } catch {}
-  }, [reserves, onPlanTap, onReserveSelect, onAnnotationsChange, onZoomChange, onPinMove, onPinFocus, onReady, injectViewerSnapshot, inject, planId, resolvedUri, forcedInlineLocalUri, fallbackKey]);
+  }, [reserves, onPlanTap, onReserveSelect, onAnnotationsChange, onZoomChange, onPinMove, onPinFocus, onReady, injectViewerSnapshot, inject, planId, resolvedUri, forcedInlineLocalUri, fallbackKey, t]);
 
   const html = useMemo(
     () => resolvedUri
-      ? buildMobileHtml(resolvedUri, annotations ?? [], reserves, pinNumberMap, canAnnotate, canCreate, canMovePins, pinSize, isImagePlan, ghostReserves, pinSizes, companies, pdfJsSource, pdfJsWorkerSource)
+      ? buildMobileHtml(resolvedUri, annotations ?? [], reserves, pinNumberMap, canAnnotate, canCreate, canMovePins, pinSize, isImagePlan, ghostReserves, pinSizes, companies, mobileCopy, pdfJsSource, pdfJsWorkerSource)
       : '',
-    [resolvedUri, canAnnotate, canCreate, canMovePins, pinSize, isImagePlan, pdfJsSource, pdfJsWorkerSource],
+    [resolvedUri, canAnnotate, canCreate, canMovePins, pinSize, isImagePlan, pdfJsSource, pdfJsWorkerSource, mobileCopy],
   );
   const webViewBaseUrl = resolvedUri.startsWith('file://') ? resolvedUri : 'https://localhost';
   const webViewSource = useMemo(() => ({ html, baseUrl: webViewBaseUrl }), [html, webViewBaseUrl]);
@@ -1431,7 +1466,7 @@ const MobileViewer = forwardRef<PdfPlanViewerHandle, PdfPlanViewerProps>(functio
             </>
           ) : null}
           <ActivityIndicator size={previewDataUrl ? 'small' : 'large'} color={C.primary} />
-          <Text style={{ color: C.textMuted, fontSize: 12 }}>Préparation du plan…</Text>
+          <Text style={{ color: C.textMuted, fontSize: 12 }}>{t('pdfPlanViewer.preparingPlan')}</Text>
         </View>
       )}
       {!viewerLoading && resolvedUri ? (
@@ -1460,20 +1495,20 @@ const MobileViewer = forwardRef<PdfPlanViewerHandle, PdfPlanViewerProps>(functio
       {offlineUnavailable && !viewerLoading ? (
         <View style={{ position: 'absolute' as any, top: 0, left: 0, right: 0, bottom: 0, backgroundColor: '#0F1117', alignItems: 'center', justifyContent: 'center', padding: 24, gap: 10 }}>
           <Ionicons name="cloud-offline-outline" size={42} color={C.textMuted} />
-          <Text style={{ color: C.text, fontSize: 14, fontFamily: 'Inter_600SemiBold', textAlign: 'center' }}>Plan non disponible hors ligne</Text>
-          <Text style={{ color: C.textMuted, fontSize: 12, textAlign: 'center', lineHeight: 17 }}>Connectez-vous à Internet pour télécharger ce plan une première fois — il sera ensuite consultable hors ligne.</Text>
+          <Text style={{ color: C.text, fontSize: 14, fontFamily: 'Inter_600SemiBold', textAlign: 'center' }}>{t('pdfPlanViewer.offlineUnavailableTitle')}</Text>
+          <Text style={{ color: C.textMuted, fontSize: 12, textAlign: 'center', lineHeight: 17 }}>{t('pdfPlanViewer.offlineUnavailableBody')}</Text>
         </View>
       ) : null}
       {loadError && !viewerLoading && !offlineUnavailable ? (
         <View style={{ position: 'absolute' as any, bottom: 90, left: 12, right: 12, backgroundColor: 'rgba(127,29,29,0.92)', borderRadius: 8, padding: 10 }}>
-          <Text style={{ color: '#FECACA', fontSize: 11, fontFamily: 'Inter_600SemiBold' }}>Erreur de chargement du plan</Text>
+          <Text style={{ color: '#FECACA', fontSize: 11, fontFamily: 'Inter_600SemiBold' }}>{t('pdfPlanViewer.planLoadError')}</Text>
           <Text style={{ color: '#FEE2E2', fontSize: 10, marginTop: 4 }} numberOfLines={3}>{loadError}</Text>
         </View>
       ) : null}
       {fromCache && !viewerLoading && !loadError ? (
         <View style={{ position: 'absolute' as any, top: 8, right: 8, backgroundColor: 'rgba(15,17,23,0.85)', borderRadius: 999, paddingHorizontal: 9, paddingVertical: 4, flexDirection: 'row', alignItems: 'center', gap: 4, borderWidth: 1, borderColor: 'rgba(148,163,184,0.3)' }}>
           <Ionicons name="cloud-done-outline" size={11} color="#94A3B8" />
-          <Text style={{ color: '#94A3B8', fontSize: 10, fontFamily: 'Inter_500Medium' }}>Hors ligne</Text>
+          <Text style={{ color: '#94A3B8', fontSize: 10, fontFamily: 'Inter_500Medium' }}>{t('pdfPlanViewer.offlineBadge')}</Text>
         </View>
       ) : null}
 
@@ -1519,7 +1554,7 @@ const MobileViewer = forwardRef<PdfPlanViewerHandle, PdfPlanViewerProps>(functio
                 color={mode === 'annotate' ? '#fff' : C.primary}
               />
               <Text style={[mob.modeTxt, mode === 'annotate' && mob.modeTxtOn]}>
-                {mode === 'annotate' ? 'Vue' : 'Annoter'}
+                {mode === 'annotate' ? t('pdfPlanViewer.view') : t('pdfPlanViewer.annotate')}
               </Text>
             </TouchableOpacity>
           )}
@@ -1529,14 +1564,14 @@ const MobileViewer = forwardRef<PdfPlanViewerHandle, PdfPlanViewerProps>(functio
         {mode === 'annotate' && (
           <View style={mob.annBar}>
             <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={mob.toolScroll} style={{ flex: 1 }}>
-              {TOOLS.map(t => (
+              {TOOLS.map(toolDef => (
                 <TouchableOpacity
-                  key={t.id}
-                  style={[mob.toolChip, tool === t.id && mob.toolChipOn]}
-                  onPress={() => { setTool(t.id); setShowPalette(false); setShowWidths(false); }}
+                  key={toolDef.id}
+                  style={[mob.toolChip, tool === toolDef.id && mob.toolChipOn]}
+                  onPress={() => { setTool(toolDef.id); setShowPalette(false); setShowWidths(false); }}
                 >
-                  <Ionicons name={t.icon as any} size={14} color={tool === t.id ? '#fff' : C.textSub} />
-                  <Text style={[mob.toolChipLbl, tool === t.id && mob.toolChipLblOn]}>{t.label}</Text>
+                  <Ionicons name={toolDef.icon as any} size={14} color={tool === toolDef.id ? '#fff' : C.textSub} />
+                  <Text style={[mob.toolChipLbl, tool === toolDef.id && mob.toolChipLblOn]}>{t(toolDef.labelKey)}</Text>
                 </TouchableOpacity>
               ))}
             </ScrollView>
@@ -1639,6 +1674,7 @@ const mob = StyleSheet.create({
 });
 
 const WebViewer = forwardRef<PdfPlanViewerHandle, PdfPlanViewerProps>(function WebViewerInner({ planUri, planId, annotations, onAnnotationsChange, reserves, ghostReserves = [], pinNumberMap, pinSizes = {}, focusedPinId, onReserveSelect, onPlanTap, onPinMove, onPinFocus, canAnnotate, canCreate, canMovePins = true, pinSize = 22, onZoomChange, isImagePlan = false, onReady, companies = [] }, ref) {
+  const { t } = useTranslation();
   const containerRef = useRef<HTMLDivElement | null>(null);
   const innerRef = useRef<HTMLDivElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -1764,7 +1800,7 @@ const WebViewer = forwardRef<PdfPlanViewerHandle, PdfPlanViewerProps>(function W
         setLoading(false);
         onReady?.();
       };
-      img.onerror = () => { if (!dead) { setError("Impossible de charger l'image."); setLoading(false); } };
+      img.onerror = () => { if (!dead) { setError(t('pdfPlanViewer.loadImageError')); setLoading(false); } };
       img.src = planUri;
     } else {
       (async () => {
@@ -1778,14 +1814,14 @@ const WebViewer = forwardRef<PdfPlanViewerHandle, PdfPlanViewerProps>(function W
           setPageCount(doc.numPages);
           setPage(1);
         } catch {
-          if (!dead) setError('Impossible de charger le PDF.');
+          if (!dead) setError(t('pdfPlanViewer.loadPdfError'));
         } finally {
           if (!dead) setLoading(false);
         }
       })();
     }
     return () => { dead = true; };
-  }, [planUri, isImagePlan]);
+  }, [planUri, isImagePlan, t]);
 
   useEffect(() => {
     if (!focusedPinId || loading || error) return;
@@ -1839,11 +1875,11 @@ const WebViewer = forwardRef<PdfPlanViewerHandle, PdfPlanViewerProps>(function W
           });
         }
       } catch (e: any) {
-        if (!dead && e?.name !== 'RenderingCancelledException') setError('Erreur de rendu.');
+        if (!dead && e?.name !== 'RenderingCancelledException') setError(t('pdfPlanViewer.renderError'));
       }
     })();
     return () => { dead = true; };
-  }, [page, planUri, loading, isImagePlan]);
+  }, [page, planUri, loading, isImagePlan, t]);
 
   const onSvgDown = (e: React.PointerEvent<SVGSVGElement>) => {
     if (mode !== 'annotate') return;
@@ -2167,7 +2203,7 @@ const WebViewer = forwardRef<PdfPlanViewerHandle, PdfPlanViewerProps>(function W
       {loading && (
         <View style={s.overlay}>
           <ActivityIndicator size="large" color={C.primary} />
-          <Text style={s.overlayText}>Chargement…</Text>
+          <Text style={s.overlayText}>{t('pdfPlanViewer.loading')}</Text>
         </View>
       )}
       {error && !loading && (
@@ -2296,7 +2332,7 @@ const WebViewer = forwardRef<PdfPlanViewerHandle, PdfPlanViewerProps>(function W
                   onChange={(e: any) => setTextVal(e.target.value)}
                   onKeyDown={(e: any) => { if (e.key === 'Enter') commitText(); if (e.key === 'Escape') setTextPos(null); }}
                   onBlur={commitText}
-                  placeholder="Texte…"
+                  placeholder={t('pdfPlanViewer.textPlaceholder')}
                   style={{
                     background: 'rgba(255,255,255,0.95)', border: `2px solid ${color}`,
                     borderRadius: 4, padding: '2px 8px', fontSize: 14, color: color,
@@ -2335,7 +2371,9 @@ const WebViewer = forwardRef<PdfPlanViewerHandle, PdfPlanViewerProps>(function W
               onPress={() => { setMode(m => m === 'view' ? 'annotate' : 'view'); setShowPalette(false); setShowWidths(false); }}
             >
               <Ionicons name={mode === 'annotate' ? 'eye-outline' : 'pencil-outline'} size={13} color={mode === 'annotate' ? '#fff' : C.primary} />
-              <Text style={[s.modeTxt, mode === 'annotate' && s.modeTxtOn]}>{mode === 'annotate' ? 'Vue' : 'Annoter'}</Text>
+              <Text style={[s.modeTxt, mode === 'annotate' && s.modeTxtOn]}>
+                {mode === 'annotate' ? t('pdfPlanViewer.view') : t('pdfPlanViewer.annotate')}
+              </Text>
             </TouchableOpacity>
           )}
         </View>
@@ -2344,10 +2382,10 @@ const WebViewer = forwardRef<PdfPlanViewerHandle, PdfPlanViewerProps>(function W
         {mode === 'annotate' && (
           <View style={s.annBar}>
             <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={s.toolScroll} style={{ flex: 1 }}>
-              {TOOLS.map(t => (
-                <TouchableOpacity key={t.id} style={[s.toolChip, tool === t.id && s.toolChipOn]} onPress={() => { setTool(t.id); setShowPalette(false); setShowWidths(false); }}>
-                  <Ionicons name={t.icon as any} size={14} color={tool === t.id ? '#fff' : C.textSub} />
-                  <Text style={[s.toolChipLbl, tool === t.id && s.toolChipLblOn]}>{t.label}</Text>
+              {TOOLS.map(toolDef => (
+                <TouchableOpacity key={toolDef.id} style={[s.toolChip, tool === toolDef.id && s.toolChipOn]} onPress={() => { setTool(toolDef.id); setShowPalette(false); setShowWidths(false); }}>
+                  <Ionicons name={toolDef.icon as any} size={14} color={tool === toolDef.id ? '#fff' : C.textSub} />
+                  <Text style={[s.toolChipLbl, tool === toolDef.id && s.toolChipLblOn]}>{t(toolDef.labelKey)}</Text>
                 </TouchableOpacity>
               ))}
             </ScrollView>

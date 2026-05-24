@@ -1,6 +1,7 @@
 import { View, Text, StyleSheet, SectionList, TouchableOpacity, TextInput, Alert, Platform, ActivityIndicator, Linking } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useState, useMemo } from 'react';
+import { useTranslation } from 'react-i18next';
 import * as DocumentPicker from 'expo-document-picker';
 import { C } from '@/constants/colors';
 import { useApp } from '@/context/AppContext';
@@ -37,6 +38,7 @@ function getDocType(mimeType: string | undefined, name: string): DocumentType {
 }
 
 export default function DocumentsScreen() {
+  const { t } = useTranslation();
   const { documents, addDocument, deleteDocument, activeChantierId } = useApp();
   const { permissions } = useAuth();
   const [search, setSearch] = useState('');
@@ -59,7 +61,7 @@ export default function DocumentsScreen() {
 
   async function handlePickDocument() {
     if (!permissions.canCreate) {
-      Alert.alert('Accès refusé', "Votre rôle ne permet pas d'importer des documents.");
+      Alert.alert(t('documentsScreen.accessDenied'), t('documentsScreen.importDenied'));
       return;
     }
     setLoading(true);
@@ -76,10 +78,10 @@ export default function DocumentsScreen() {
         if (docType === 'plan') {
           setLoading(false);
           Alert.alert(
-            'Bâtiment du plan',
-            'Dans quel bâtiment ce plan se situe-t-il ?',
+            t('documentsScreen.planBuildingTitle'),
+            t('documentsScreen.planBuildingMessage'),
             ['A', 'B', 'C'].map(building => ({
-              text: `Bâtiment ${building}`,
+              text: t('documentsScreen.building', { building }),
               onPress: async () => {
                 setLoading(true);
                 try {
@@ -99,13 +101,13 @@ export default function DocumentsScreen() {
                   };
                   addDocument(newDoc);
                   Alert.alert(
-                    'Plan importé',
+                    t('documentsScreen.planImported'),
                     storageUrl
-                      ? `"${asset.name}" uploadé sur Supabase Storage.`
-                      : `"${asset.name}" importé (stockage local).`
+                      ? t('documentsScreen.uploadedStorage', { name: asset.name })
+                      : t('documentsScreen.importedLocal', { name: asset.name })
                   );
                 } catch {
-                  Alert.alert('Erreur', 'Impossible de charger le document.');
+                  Alert.alert(t('common.error'), t('documentsScreen.loadError'));
                 } finally {
                   setLoading(false);
                 }
@@ -123,7 +125,13 @@ export default function DocumentsScreen() {
           id: genId(),
           name: asset.name,
           type: docType,
-          category: docType === 'report' ? 'Rapports' : docType === 'technical' ? 'Fiches techniques' : docType === 'photo' ? 'Photos' : 'Documents',
+          category: docType === 'report'
+            ? t('documentsScreen.categoryReports')
+            : docType === 'technical'
+              ? t('documentsScreen.categoryTechnical')
+              : docType === 'photo'
+                ? t('documentsScreen.categoryPhotos')
+                : t('documentsScreen.categoryDocuments'),
           uploadedAt: formatDateFR(new Date()),
           size: formatSize(asset.size),
           version: existingNonPlanVersions.length > 0 ? Math.max(...existingNonPlanVersions) + 1 : 1,
@@ -132,14 +140,14 @@ export default function DocumentsScreen() {
         };
         addDocument(newDoc);
         Alert.alert(
-          'Document importé',
+          t('documentsScreen.documentImported'),
           storageUrl
-            ? `"${asset.name}" uploadé sur Supabase Storage.`
-            : `"${asset.name}" importé (stockage local).`
+            ? t('documentsScreen.uploadedStorage', { name: asset.name })
+            : t('documentsScreen.importedLocal', { name: asset.name })
         );
       }
     } catch (e) {
-      Alert.alert('Erreur', 'Impossible de charger le document.');
+      Alert.alert(t('common.error'), t('documentsScreen.loadError'));
     } finally {
       setLoading(false);
     }
@@ -147,34 +155,34 @@ export default function DocumentsScreen() {
 
   function handleDownload(doc: Document) {
     if (!doc.uri) {
-      Alert.alert('Info', 'Aucun fichier disponible pour ce document.');
+      Alert.alert(t('documentsScreen.noFileTitle'), t('documentsScreen.noFileMessage'));
       return;
     }
     if (doc.uri.startsWith('http')) {
       Linking.openURL(doc.uri).catch(() =>
-        Alert.alert('Erreur', "Impossible d'ouvrir le lien.")
+        Alert.alert(t('common.error'), t('documentsScreen.openLinkError'))
       );
     } else {
-      Alert.alert('Fichier local', `Fichier disponible localement :\n${doc.uri.slice(0, 80)}...`);
+      Alert.alert(t('documentsScreen.localFileTitle'), t('documentsScreen.localFileMessage', { uri: doc.uri.slice(0, 80) }));
     }
   }
 
   function handleDelete(doc: Document) {
     if (!permissions.canDelete) {
-      Alert.alert('Accès refusé', "Votre rôle ne permet pas de supprimer des documents.");
+      Alert.alert(t('documentsScreen.accessDenied'), t('documentsScreen.deleteDenied'));
       return;
     }
-    Alert.alert('Supprimer', `Supprimer "${doc.name}" ?`, [
-      { text: 'Annuler', style: 'cancel' },
-      { text: 'Supprimer', style: 'destructive', onPress: () => deleteDocument(doc.id) },
+    Alert.alert(t('documentsScreen.deleteTitle'), t('documentsScreen.deleteMessage', { name: doc.name }), [
+      { text: t('common.cancel'), style: 'cancel' },
+      { text: t('common.delete'), style: 'destructive', onPress: () => deleteDocument(doc.id) },
     ]);
   }
 
   return (
     <View style={styles.container}>
       <Header
-        title="Documents"
-        subtitle={`${documents.length} fichiers`}
+        title={t('documentsScreen.title')}
+        subtitle={t('documentsScreen.files', { count: documents.length })}
         showBack
         rightIcon={permissions.canCreate ? (loading ? 'hourglass-outline' : 'add-outline') : undefined}
         onRightPress={permissions.canCreate ? handlePickDocument : undefined}
@@ -184,7 +192,7 @@ export default function DocumentsScreen() {
         <Ionicons name="search-outline" size={16} color={C.textMuted} />
         <TextInput
           style={styles.searchInput}
-          placeholder="Rechercher..."
+          placeholder={t('documentsScreen.searchPlaceholder')}
           placeholderTextColor={C.textMuted}
           value={search}
           onChangeText={setSearch}
@@ -196,12 +204,12 @@ export default function DocumentsScreen() {
           {loading ? (
             <>
               <ActivityIndicator size="small" color={C.primary} />
-              <Text style={styles.uploadText}>Upload en cours...</Text>
+              <Text style={styles.uploadText}>{t('documentsScreen.uploading')}</Text>
             </>
           ) : (
             <>
               <Ionicons name="cloud-upload-outline" size={18} color={C.primary} />
-              <Text style={styles.uploadText}>Importer un document (PDF, Word, Excel, Image…)</Text>
+              <Text style={styles.uploadText}>{t('documentsScreen.importDocument')}</Text>
             </>
           )}
         </TouchableOpacity>
@@ -231,7 +239,7 @@ export default function DocumentsScreen() {
                     color={item.uri.startsWith('http') ? C.closed : C.textMuted}
                   />
                   <Text style={[styles.uriBadgeText, { color: item.uri.startsWith('http') ? C.closed : C.textMuted }]}>
-                    {item.uri.startsWith('http') ? 'Cloud Supabase' : 'Fichier local'}
+                    {item.uri.startsWith('http') ? t('documentsScreen.cloudSupabase') : t('documentsScreen.localFile')}
                   </Text>
                 </View>
               )}
@@ -255,8 +263,8 @@ export default function DocumentsScreen() {
         ListEmptyComponent={() => (
           <View style={styles.empty}>
             <Ionicons name="folder-open-outline" size={48} color={C.textMuted} />
-            <Text style={styles.emptyText}>Aucun document trouvé</Text>
-            {permissions.canCreate && <Text style={styles.emptyHint}>Appuyez sur + pour importer</Text>}
+            <Text style={styles.emptyText}>{t('documentsScreen.empty')}</Text>
+            {permissions.canCreate && <Text style={styles.emptyHint}>{t('documentsScreen.emptyHint')}</Text>}
           </View>
         )}
       />

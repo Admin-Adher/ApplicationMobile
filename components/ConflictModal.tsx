@@ -1,16 +1,9 @@
 import { View, Text, TouchableOpacity, Modal, StyleSheet, ScrollView } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useTranslation } from 'react-i18next';
 import { useNetwork, StatusConflict } from '@/context/NetworkContext';
 import { C } from '@/constants/colors';
-
-const STATUS_LABELS: Record<string, string> = {
-  open: 'Ouvert',
-  in_progress: 'En cours',
-  waiting: 'En attente',
-  verification: 'Vérification',
-  closed: 'Clôturé',
-};
 
 const STATUS_COLORS: Record<string, string> = {
   open: '#EF4444',
@@ -21,8 +14,9 @@ const STATUS_COLORS: Record<string, string> = {
 };
 
 function ConflictCard({ conflict, onResolve }: { conflict: StatusConflict; onResolve: (chosenStatus: string) => void }) {
-  const serverLabel = STATUS_LABELS[conflict.serverStatus] ?? conflict.serverStatus;
-  const localLabel = STATUS_LABELS[conflict.localStatus] ?? conflict.localStatus;
+  const { t } = useTranslation();
+  const serverLabel = t(`reserveLabels.status.${conflict.serverStatus}`, { defaultValue: conflict.serverStatus });
+  const localLabel = t(`reserveLabels.status.${conflict.localStatus}`, { defaultValue: conflict.localStatus });
   const serverColor = STATUS_COLORS[conflict.serverStatus] ?? C.primary;
   const localColor = STATUS_COLORS[conflict.localStatus] ?? C.primary;
 
@@ -34,11 +28,11 @@ function ConflictCard({ conflict, onResolve }: { conflict: StatusConflict; onRes
       </View>
 
       <Text style={styles.cardSubtitle}>
-        Modifié par <Text style={styles.authorText}>{conflict.author}</Text> hors connexion
-        {'\n'}et par quelqu'un d'autre en ligne simultanément.
+        {t('conflictModal.modifiedByOffline', { author: conflict.author })}
+        {'\n'}{t('conflictModal.modifiedOnline')}
       </Text>
 
-      <Text style={styles.choiceLabel}>Quel statut conserver ?</Text>
+      <Text style={styles.choiceLabel}>{t('conflictModal.keepWhichStatus')}</Text>
 
       <View style={styles.choiceRow}>
         <TouchableOpacity
@@ -48,7 +42,7 @@ function ConflictCard({ conflict, onResolve }: { conflict: StatusConflict; onRes
           <View style={[styles.choiceDot, { backgroundColor: serverColor }]} />
           <View style={styles.choiceBtnInner}>
             <Text style={[styles.choiceBtnTitle, { color: serverColor }]}>{serverLabel}</Text>
-            <Text style={styles.choiceBtnSub}>Version serveur</Text>
+            <Text style={styles.choiceBtnSub}>{t('conflictModal.serverVersion')}</Text>
           </View>
         </TouchableOpacity>
 
@@ -59,7 +53,7 @@ function ConflictCard({ conflict, onResolve }: { conflict: StatusConflict; onRes
           <View style={[styles.choiceDot, { backgroundColor: localColor }]} />
           <View style={styles.choiceBtnInner}>
             <Text style={[styles.choiceBtnTitle, { color: localColor }]}>{localLabel}</Text>
-            <Text style={styles.choiceBtnSub}>Ma modification</Text>
+            <Text style={styles.choiceBtnSub}>{t('conflictModal.myChange')}</Text>
           </View>
         </TouchableOpacity>
       </View>
@@ -68,6 +62,7 @@ function ConflictCard({ conflict, onResolve }: { conflict: StatusConflict; onRes
 }
 
 export default function ConflictModal() {
+  const { t } = useTranslation();
   const { conflicts, syncStatus, resolveConflict, dismissConflicts } = useNetwork();
   const insets = useSafeAreaInsets();
 
@@ -89,16 +84,15 @@ export default function ConflictModal() {
               <Ionicons name="git-merge-outline" size={22} color="#F59E0B" />
             </View>
             <View style={styles.headerText}>
-              <Text style={styles.headerTitle}>Conflits de synchronisation</Text>
+              <Text style={styles.headerTitle}>{t('conflictModal.title')}</Text>
               <Text style={styles.headerSub}>
-                {conflicts.length} réserve{conflicts.length > 1 ? 's' : ''} modifiée{conflicts.length > 1 ? 's' : ''} simultanément
+                {t('conflictModal.subtitle', { count: conflicts.length })}
               </Text>
             </View>
           </View>
 
           <Text style={styles.explanation}>
-            Pendant que vous étiez hors connexion, d'autres utilisateurs ont modifié les mêmes réserves.
-            Choisissez le statut à conserver pour chacune.
+            {t('conflictModal.explanation')}
           </Text>
 
           <ScrollView style={styles.list} showsVerticalScrollIndicator={false}>
@@ -112,7 +106,7 @@ export default function ConflictModal() {
           </ScrollView>
 
           <TouchableOpacity style={styles.dismissBtn} onPress={dismissConflicts}>
-            <Text style={styles.dismissText}>Ignorer tous les conflits</Text>
+            <Text style={styles.dismissText}>{t('conflictModal.dismissAll')}</Text>
           </TouchableOpacity>
         </View>
       </View>

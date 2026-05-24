@@ -2,11 +2,13 @@ import { useEffect, useRef, useState } from 'react';
 import { Animated, View, Text, StyleSheet, Platform } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useTranslation } from 'react-i18next';
 import { useNetwork } from '@/context/NetworkContext';
 import { C } from '@/constants/colors';
 import { isSupabaseConfigured } from '@/lib/supabase';
 
 export default function OfflineBanner() {
+  const { t } = useTranslation();
   const { isOnline, queueCount } = useNetwork();
   const insets = useSafeAreaInsets();
   const translateY = useRef(new Animated.Value(-60)).current;
@@ -113,13 +115,13 @@ export default function OfflineBanner() {
 
   const bannerText = showReconnect
     ? queueCount > 0
-      ? `Reconnecté — sync de ${queueCount} opération${queueCount > 1 ? 's' : ''}…`
-      : 'Connexion rétablie'
+      ? t('offlineBanner.reconnectingSync', { count: queueCount })
+      : t('offlineBanner.reconnected')
     : showQueuedWhileOnline
-    ? `${queueCount} opération${queueCount > 1 ? 's' : ''} sauvegardée${queueCount > 1 ? 's' : ''} — sync en attente`
+    ? t('offlineBanner.queuedWhileOnline', { count: queueCount })
     : queueCount > 0
-    ? `Hors connexion — ${queueCount} opération${queueCount > 1 ? 's' : ''} en attente`
-    : 'Hors connexion — données sauvegardées localement';
+    ? t('offlineBanner.offlineQueued', { count: queueCount })
+    : t('offlineBanner.offlineSaved');
 
   const bannerStyle = showReconnect
     ? styles.bannerOnline
@@ -133,7 +135,7 @@ export default function OfflineBanner() {
         <View style={[styles.demoWrapper, { bottom: visible ? bottomPad + 52 : bottomPad, pointerEvents: 'none' } as any]}>
           <View style={styles.demoBanner}>
             <Ionicons name="flask-outline" size={13} color="#7C3AED" />
-            <Text style={styles.demoText}>Mode démo — données locales uniquement</Text>
+            <Text style={styles.demoText}>{t('offlineBanner.demo')}</Text>
           </View>
         </View>
       )}

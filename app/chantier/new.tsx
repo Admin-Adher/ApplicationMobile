@@ -4,6 +4,7 @@ import {
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Ionicons } from '@expo/vector-icons';
 import { C } from '@/constants/colors';
 import { useApp } from '@/context/AppContext';
@@ -17,6 +18,7 @@ import { genId, formatDateFR } from '@/lib/utils';
 
 export default function NewChantierScreen() {
   const router = useRouter();
+  const { t } = useTranslation();
   const { addChantier, chantiers, companies, setActiveChantier } = useApp();
   const { user, permissions } = useAuth();
 
@@ -27,7 +29,7 @@ export default function NewChantierScreen() {
   const [endDate, setEndDate] = useState('');
   const [selectedCompanyIds, setSelectedCompanyIds] = useState<string[]>([]);
   const [buildings, setBuildings] = useState<ChantierBuilding[]>([
-    { id: genId(), name: 'Bâtiment 1', levels: [{ id: genId(), name: 'RDC', zones: [] }] },
+    { id: genId(), name: t('chantierForm.defaultBuilding'), levels: [{ id: genId(), name: 'RDC', zones: [] }] },
   ]);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -36,16 +38,16 @@ export default function NewChantierScreen() {
       <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: '#0F1117', padding: 32 }}>
         <Ionicons name="lock-closed-outline" size={48} color="#6B7280" />
         <Text style={{ fontSize: 17, fontFamily: 'Inter_600SemiBold', color: '#F9FAFB', marginTop: 16, textAlign: 'center' }}>
-          Accès refusé
+          {t('chantierForm.accessDenied')}
         </Text>
         <Text style={{ fontSize: 14, fontFamily: 'Inter_400Regular', color: '#9CA3AF', marginTop: 8, textAlign: 'center' }}>
-          Votre rôle ne permet pas de créer un chantier.
+          {t('chantierForm.createDenied')}
         </Text>
         <TouchableOpacity
           onPress={() => router.back()}
           style={{ marginTop: 24, paddingHorizontal: 20, paddingVertical: 10, backgroundColor: '#1D4ED8', borderRadius: 10 }}
         >
-          <Text style={{ color: '#fff', fontFamily: 'Inter_600SemiBold', fontSize: 14 }}>Retour</Text>
+          <Text style={{ color: '#fff', fontFamily: 'Inter_600SemiBold', fontSize: 14 }}>{t('chantierForm.back')}</Text>
         </TouchableOpacity>
       </View>
     );
@@ -58,23 +60,23 @@ export default function NewChantierScreen() {
   async function handleSubmit() {
     if (isSubmitting) return;
     if (!name.trim()) {
-      Alert.alert('Champ obligatoire', 'Le nom du chantier est requis.');
+      Alert.alert(t('chantierForm.requiredField'), t('chantierForm.nameRequired'));
       return;
     }
     if (buildings.length === 0) {
-      Alert.alert('Structure requise', 'Ajoutez au moins un bâtiment avec un niveau pour activer la localisation.');
+      Alert.alert(t('chantierForm.structureRequired'), t('chantierForm.structureRequiredMessage'));
       return;
     }
     const emptyBuilding = buildings.find(b => !b.name.trim());
     if (emptyBuilding) {
-      Alert.alert('Nom manquant', 'Chaque bâtiment doit avoir un nom.');
+      Alert.alert(t('chantierForm.missingName'), t('chantierForm.missingNameMessage'));
       return;
     }
     const buildingWithoutLevel = buildings.find(b => b.levels.length === 0);
     if (buildingWithoutLevel) {
       Alert.alert(
-        'Niveau manquant',
-        `Le bâtiment "${buildingWithoutLevel.name}" doit avoir au moins un niveau.\n\nAjoutez un niveau (RDC, R+1…) pour continuer.`
+        t('chantierForm.missingLevel'),
+        t('chantierForm.missingLevelMessage', { building: buildingWithoutLevel.name })
       );
       return;
     }
@@ -92,7 +94,7 @@ export default function NewChantierScreen() {
       endDate: endDate || undefined,
       status: 'active',
       createdAt: todayFr,
-      createdBy: user?.name ?? 'Inconnu',
+      createdBy: user?.name ?? t('chantierForm.unknownUser'),
       companyIds: selectedCompanyIds.length > 0 ? selectedCompanyIds : undefined,
       buildings,
     };
@@ -102,8 +104,8 @@ export default function NewChantierScreen() {
       // Fix 14: set the new chantier as active immediately after creation
       setActiveChantier(chantierId);
       Alert.alert(
-        'Chantier créé',
-        `"${name.trim()}" a été créé. Vous pouvez ajouter des plans depuis l'onglet Plans.`,
+        t('chantierForm.createdTitle'),
+        t('chantierForm.createdMessage', { name: name.trim() }),
         [{ text: 'OK', onPress: () => router.back() }]
       );
     } catch {
@@ -114,16 +116,16 @@ export default function NewChantierScreen() {
 
   return (
     <KeyboardAvoidingView style={styles.container} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
-      <Header title="Nouveau chantier" showBack rightLabel="Créer" onRightPress={handleSubmit} />
+      <Header title={t('chantierForm.newTitle')} showBack rightLabel={t('chantierForm.create')} onRightPress={handleSubmit} />
 
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
 
         <View style={styles.card}>
           <View style={styles.fieldGroup}>
-            <Text style={styles.label}>Nom du chantier *</Text>
+            <Text style={styles.label}>{t('chantierForm.nameLabel')} *</Text>
             <TextInput
               style={styles.input}
-              placeholder="Ex : Résidence Les Acacias, Phase 2..."
+              placeholder={t('chantierForm.namePlaceholder')}
               placeholderTextColor={C.textMuted}
               value={name}
               onChangeText={setName}
@@ -131,20 +133,20 @@ export default function NewChantierScreen() {
             />
           </View>
           <View style={styles.fieldGroup}>
-            <Text style={styles.label}>Adresse</Text>
+            <Text style={styles.label}>{t('chantierForm.addressLabel')}</Text>
             <TextInput
               style={styles.input}
-              placeholder="Ex : 12 rue des Marronniers, 69003 Lyon"
+              placeholder={t('chantierForm.addressPlaceholder')}
               placeholderTextColor={C.textMuted}
               value={address}
               onChangeText={setAddress}
             />
           </View>
           <View style={[styles.fieldGroup, { marginBottom: 0 }]}>
-            <Text style={styles.label}>Description</Text>
+            <Text style={styles.label}>{t('chantierForm.descriptionLabel')}</Text>
             <TextInput
               style={[styles.input, styles.textArea]}
-              placeholder="Décrivez le projet (type de construction, nombre de logements...)"
+              placeholder={t('chantierForm.descriptionPlaceholder')}
               placeholderTextColor={C.textMuted}
               value={description}
               onChangeText={setDescription}
@@ -157,18 +159,18 @@ export default function NewChantierScreen() {
         <View style={styles.card}>
           <View style={styles.dateRow}>
             <View style={{ flex: 1 }}>
-              <DateInput label="Début des travaux" value={startDate} onChange={setStartDate} optional />
+              <DateInput label={t('chantierForm.startDate')} value={startDate} onChange={setStartDate} optional />
             </View>
             <View style={{ flex: 1 }}>
-              <DateInput label="Fin prévisionnelle" value={endDate} onChange={setEndDate} optional />
+              <DateInput label={t('chantierForm.endDate')} value={endDate} onChange={setEndDate} optional />
             </View>
           </View>
         </View>
 
         {companies.length > 0 && (
           <View style={styles.card}>
-            <Text style={styles.label}>Entreprises associées</Text>
-            <Text style={styles.hint}>Sélectionnez les entreprises intervenant sur ce chantier (optionnel).</Text>
+            <Text style={styles.label}>{t('chantierForm.associatedCompanies')}</Text>
+            <Text style={styles.hint}>{t('chantierForm.companiesHint')}</Text>
             <CompanySelector
               mode="multi"
               identifier="id"
@@ -188,11 +190,10 @@ export default function NewChantierScreen() {
         <View style={styles.card}>
           <View style={styles.sectionHeader}>
             <Ionicons name="business-outline" size={16} color={C.primary} />
-            <Text style={styles.sectionTitle}>Structure du bâtiment *</Text>
+            <Text style={styles.sectionTitle}>{t('chantierForm.structureTitle')} *</Text>
           </View>
           <Text style={styles.hint}>
-            Définissez les bâtiments et niveaux de votre chantier. Cette structure est utilisée pour la localisation dans toute l'application (plans, réserves, OPRs, visites).
-            Vous pouvez la compléter à tout moment dans les paramètres du chantier.
+            {t('chantierForm.structureHint')}
           </Text>
           <LocationTreeEditor buildings={buildings} onChange={setBuildings} />
         </View>
@@ -204,7 +205,7 @@ export default function NewChantierScreen() {
         >
           <Ionicons name="checkmark-circle" size={20} color="#fff" />
           <Text style={styles.submitBtnText}>
-            {isSubmitting ? 'Création...' : 'Créer le chantier'}
+            {isSubmitting ? t('chantierForm.creating') : t('chantierForm.createSite')}
           </Text>
         </TouchableOpacity>
 
@@ -212,7 +213,7 @@ export default function NewChantierScreen() {
           <View style={styles.existingNote}>
             <Ionicons name="information-circle-outline" size={14} color={C.textMuted} />
             <Text style={styles.existingNoteText}>
-              Ce nouveau chantier deviendra le chantier actif de l'application.
+              {t('chantierForm.activeNote')}
             </Text>
           </View>
         )}

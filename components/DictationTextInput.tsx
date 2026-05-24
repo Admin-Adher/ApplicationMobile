@@ -366,9 +366,9 @@ const DictationTextInput = forwardRef<TextInput, DictationTextInputProps>(functi
       }
 
       setHint(t('dictation.azureUnavailable'));
-    } catch (err: any) {
+    } catch {
       setAssistSuggestion(null);
-      setHint(err?.message || t('dictation.azureUnavailable'));
+      setHint(t('dictation.azureUnavailable'));
     } finally {
       setAssistBusy(false);
     }

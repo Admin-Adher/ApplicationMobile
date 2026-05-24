@@ -61,49 +61,49 @@ const DEADLINE_SUGGESTIONS: { label: string; days: number }[] = [
 const INLINE_BUILDING_LIMIT = 8;
 const SELECTED_BUILDING_PREVIEW_LIMIT = 8;
 
-const CHECKLIST_TEMPLATES: Record<VisiteType, string[]> = {
+const CHECKLIST_TEMPLATE_KEYS: Record<VisiteType, string[]> = {
   controle: [
-    "Avancement des travaux conforme au planning",
-    "Approvisionnements matériaux suffisants",
-    "Coordination inter-entreprises",
-    "Réserves précédentes en cours de levée",
-    "Sécurité et signalisation du chantier",
+    'visits.new.checklistTemplates.controle.progress',
+    'visits.new.checklistTemplates.controle.materials',
+    'visits.new.checklistTemplates.controle.coordination',
+    'visits.new.checklistTemplates.controle.previousReserves',
+    'visits.new.checklistTemplates.controle.safety',
   ],
   opr: [
-    "Nettoyage général des locaux",
-    "Essais des équipements techniques",
-    "Vérification des finitions",
-    "Conformité aux plans d'exécution",
-    "Documents de fin de chantier (DOE) complets",
-    "Levée des réserves de pré-réception précédentes",
+    'visits.new.checklistTemplates.opr.cleaning',
+    'visits.new.checklistTemplates.opr.technicalTests',
+    'visits.new.checklistTemplates.opr.finishes',
+    'visits.new.checklistTemplates.opr.executionPlans',
+    'visits.new.checklistTemplates.opr.closeoutDocs',
+    'visits.new.checklistTemplates.opr.previousReserves',
   ],
   securite: [
-    "Port des EPI (casque, gilet, chaussures)",
-    "Balisage des zones dangereuses",
-    "Propreté et rangement du chantier",
-    "Installations électriques provisoires conformes",
-    "Accès et circulation sécurisés sur site",
-    "Registre de sécurité à jour",
+    'visits.new.checklistTemplates.securite.ppe',
+    'visits.new.checklistTemplates.securite.marking',
+    'visits.new.checklistTemplates.securite.cleanliness',
+    'visits.new.checklistTemplates.securite.temporaryElectrical',
+    'visits.new.checklistTemplates.securite.access',
+    'visits.new.checklistTemplates.securite.register',
   ],
   reception: [
-    "Nettoyage complet des locaux",
-    "Mise en service des équipements",
-    "Tests et essais fonctionnels réalisés",
-    "Conformité aux plans d'exécution",
-    "Remise des notices et manuels (DOE)",
-    "Levée de toutes les réserves de pré-réception",
+    'visits.new.checklistTemplates.reception.cleaning',
+    'visits.new.checklistTemplates.reception.commissioning',
+    'visits.new.checklistTemplates.reception.functionalTests',
+    'visits.new.checklistTemplates.reception.executionPlans',
+    'visits.new.checklistTemplates.reception.manuals',
+    'visits.new.checklistTemplates.reception.allPreviousReserves',
   ],
   synthese: [
-    "Tour de table des entreprises présentes",
-    "Avancement global du chantier",
-    "Points bloquants et actions correctives",
-    "Planification à venir",
-    "Questions diverses",
+    'visits.new.checklistTemplates.synthese.attendees',
+    'visits.new.checklistTemplates.synthese.progress',
+    'visits.new.checklistTemplates.synthese.blockers',
+    'visits.new.checklistTemplates.synthese.planning',
+    'visits.new.checklistTemplates.synthese.otherQuestions',
   ],
   autre: [
-    "Point de situation général",
-    "Actions à mener",
-    "Date de la prochaine visite",
+    'visits.new.checklistTemplates.autre.status',
+    'visits.new.checklistTemplates.autre.actions',
+    'visits.new.checklistTemplates.autre.nextVisit',
   ],
 };
 
@@ -292,8 +292,8 @@ export default function NewVisiteScreen() {
     if (!titleEdited) setTitle(autoTitle(type, date, t));
     // Auto-load checklist template if not yet customised
     if (!checklistLoaded || checklistItems.length === 0) {
-      const template = CHECKLIST_TEMPLATES[type] ?? [];
-      setChecklistItems(template.map(label => ({ id: genId(), label, checked: false })));
+      const templateKeys = CHECKLIST_TEMPLATE_KEYS[type] ?? [];
+      setChecklistItems(templateKeys.map(labelKey => ({ id: genId(), label: t(labelKey), checked: false })));
       setChecklistLoaded(true);
     }
   }, [titleEdited, date, checklistLoaded, checklistItems.length, t]);
@@ -430,8 +430,8 @@ export default function NewVisiteScreen() {
 
   function resetChecklistToTemplate() {
     if (!visitType) return;
-    const template = CHECKLIST_TEMPLATES[visitType] ?? [];
-    setChecklistItems(template.map(label => ({ id: genId(), label, checked: false })));
+    const templateKeys = CHECKLIST_TEMPLATE_KEYS[visitType] ?? [];
+    setChecklistItems(templateKeys.map(labelKey => ({ id: genId(), label: t(labelKey), checked: false })));
   }
 
   // ── Deadline ────────────────────────────────────────────────────────────────
@@ -857,8 +857,8 @@ export default function NewVisiteScreen() {
               ) : null}
 
               <Text style={styles.perimeterCounterText}>
-                {visitedLocations.length}/{chantierBuildings.length} sÃ©lectionnÃ©{visitedLocations.length > 1 ? 's' : ''}
-                {buildingQuery.trim() ? ` Â· ${filteredPerimeterBuildings.length} rÃ©sultat${filteredPerimeterBuildings.length > 1 ? 's' : ''}` : ''}
+                {t('visits.new.selectedCount', { selected: visitedLocations.length, total: chantierBuildings.length })}
+                {buildingQuery.trim() ? ` · ${t('visits.new.resultCount', { count: filteredPerimeterBuildings.length })}` : ''}
               </Text>
 
               <View style={styles.perimeterActions}>
@@ -957,7 +957,7 @@ export default function NewVisiteScreen() {
                     <View style={{ flex: 1 }}>
                       <Text style={styles.defaultPlanToggleTitle}>{t('visits.new.planSuggestions')}</Text>
                       <Text style={styles.defaultPlanToggleSubtitle}>
-                        Optionnel · {visitedLocations.length} bâtiment{visitedLocations.length > 1 ? 's' : ''} sélectionné{visitedLocations.length > 1 ? 's' : ''}
+                        {t('visits.new.planSuggestionSub', { buildings: t('visits.buildings', { count: visitedLocations.length }) })}
                       </Text>
                     </View>
                     <Ionicons name={showPlanSuggestions ? 'chevron-up' : 'chevron-down'} size={16} color={C.primary} />
@@ -1115,7 +1115,7 @@ export default function NewVisiteScreen() {
               <View style={{ flex: 1 }}>
                 <Text style={styles.checklistEmptyTitle}>{t('visits.new.noChecklist')}</Text>
                 <Text style={styles.checklistEmptyText}>
-                  Choisissez un type de visite pour proposer automatiquement les points de contrôle adaptés. Vous pouvez aussi ajouter vos propres points.
+                  {t('visits.new.checklistEmptyHint')}
                 </Text>
                 <TouchableOpacity
                   style={styles.checklistGuideBtn}
@@ -1131,7 +1131,7 @@ export default function NewVisiteScreen() {
             </View>
           ) : (
             <Text style={styles.checklistLoadedHint}>
-              Cochez les points validés pendant la visite. Vous pouvez compléter ou retirer des points selon le chantier.
+              {t('visits.new.checklistLoadedHint')}
             </Text>
           )}
 
@@ -1214,7 +1214,7 @@ export default function NewVisiteScreen() {
             <View style={styles.infoHint}>
               <Ionicons name="time-outline" size={13} color={C.inProgress} />
               <Text style={styles.infoHintText}>
-                Les réserves créées depuis cette visite auront cette deadline par défaut.
+                {t('visits.new.deadlineDefaultHint')}
               </Text>
             </View>
           ) : null}
@@ -1416,7 +1416,7 @@ export default function NewVisiteScreen() {
             <View style={styles.infoHint}>
               <Ionicons name="repeat-outline" size={13} color={C.inProgress} />
               <Text style={styles.infoHintText}>
-                {recurrence === 'weekly' ? '4 visites hebdomadaires' : '4 visites (toutes les 2 semaines)'} seront créées à partir du {date}.
+                {t(recurrence === 'weekly' ? 'visits.new.weeklyCreatedHint' : 'visits.new.bimonthlyCreatedHint', { date })}
               </Text>
             </View>
           )}
@@ -1426,17 +1426,17 @@ export default function NewVisiteScreen() {
         {(title.trim() || visitType || participants.length > 0 || checklistItems.length > 0) && (
           <View style={styles.summaryCard}>
             <Text style={styles.summaryTitle}>{t('visits.new.summary')}</Text>
-            {visitType && <Text style={styles.summaryLine}>Type : {t(VISIT_TYPES.find(type => type.value === visitType)?.labelKey ?? 'visits.new.sectionType')}</Text>}
-            {title.trim() && <Text style={styles.summaryLine}>Titre : {title.trim()}</Text>}
-            {(startTime || endTime) && <Text style={styles.summaryLine}>Horaire : {startTime || '—'} → {endTime || '—'}</Text>}
-            {hasBuildingHierarchy && visitedLocations.length > 0 && <Text style={styles.summaryLine}>Périmètre : {selectedLocationSummary}</Text>}
-            {!hasBuildingHierarchy && (building || level) && <Text style={styles.summaryLine}>Lieu : {[building, level, zone].filter(Boolean).join(' — ')}</Text>}
-            {!hasBuildingHierarchy && defaultPlanId && <Text style={styles.summaryLine}>Plan : {chantierPlans.find(p => p.id === defaultPlanId)?.name}</Text>}
-            {participants.length > 0 && <Text style={styles.summaryLine}>{participants.length} participant{participants.length > 1 ? 's' : ''} : {participants.map(p => p.name).join(', ')}</Text>}
-            {checklistItems.length > 0 && <Text style={styles.summaryLine}>Checklist : {checklistItems.length} point{checklistItems.length > 1 ? 's' : ''} de contrôle</Text>}
-            {tags.length > 0 && <Text style={styles.summaryLine}>Tags : {tags.join(', ')}</Text>}
-            {reserveDeadlineDate && <Text style={styles.summaryLine}>Délai levée : {reserveDeadlineDate}</Text>}
-            {recurrence !== 'none' && <Text style={styles.summaryLine}>Récurrence : {recurrence === 'weekly' ? '4 semaines' : '4 × toutes les 2 semaines'}</Text>}
+            {visitType && <Text style={styles.summaryLine}>{t('visits.new.summaryType', { value: t(VISIT_TYPES.find(type => type.value === visitType)?.labelKey ?? 'visits.new.sectionType') })}</Text>}
+            {title.trim() && <Text style={styles.summaryLine}>{t('visits.new.summaryTitleLine', { value: title.trim() })}</Text>}
+            {(startTime || endTime) && <Text style={styles.summaryLine}>{t('visits.new.summarySchedule', { start: startTime || '—', end: endTime || '—' })}</Text>}
+            {hasBuildingHierarchy && visitedLocations.length > 0 && <Text style={styles.summaryLine}>{t('visits.new.summaryPerimeter', { value: selectedLocationSummary })}</Text>}
+            {!hasBuildingHierarchy && (building || level) && <Text style={styles.summaryLine}>{t('visits.new.summaryLocation', { value: [building, level, zone].filter(Boolean).join(' — ') })}</Text>}
+            {!hasBuildingHierarchy && defaultPlanId && <Text style={styles.summaryLine}>{t('visits.new.summaryPlan', { value: chantierPlans.find(p => p.id === defaultPlanId)?.name })}</Text>}
+            {participants.length > 0 && <Text style={styles.summaryLine}>{t('visits.new.summaryParticipants', { count: participants.length, names: participants.map(p => p.name).join(', ') })}</Text>}
+            {checklistItems.length > 0 && <Text style={styles.summaryLine}>{t('visits.new.summaryChecklist', { count: checklistItems.length })}</Text>}
+            {tags.length > 0 && <Text style={styles.summaryLine}>{t('visits.new.summaryTags', { value: tags.join(', ') })}</Text>}
+            {reserveDeadlineDate && <Text style={styles.summaryLine}>{t('visits.new.summaryDeadline', { date: reserveDeadlineDate })}</Text>}
+            {recurrence !== 'none' && <Text style={styles.summaryLine}>{t('visits.new.summaryRecurrence', { value: t(recurrence === 'weekly' ? 'visits.new.summaryRecurrenceWeekly' : 'visits.new.summaryRecurrenceBimonthly') })}</Text>}
           </View>
         )}
 

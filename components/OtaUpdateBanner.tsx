@@ -1,9 +1,11 @@
 import { useEffect, useRef } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet, Animated, Platform } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { useTranslation } from 'react-i18next';
 import { useOtaUpdate } from '@/hooks/useOtaUpdate';
 
 export default function OtaUpdateBanner() {
+  const { t } = useTranslation();
   const { updateReady, applyUpdate } = useOtaUpdate();
   const translateY = useRef(new Animated.Value(-80)).current;
   const visible = useRef(false);
@@ -29,11 +31,11 @@ export default function OtaUpdateBanner() {
           <Ionicons name="sparkles" size={18} color="#FFFFFF" />
         </View>
         <View style={styles.textWrap}>
-          <Text style={styles.title}>Mise à jour prête</Text>
-          <Text style={styles.sub}>Redémarrez l'app pour appliquer les corrections</Text>
+          <Text style={styles.title}>{t('otaUpdate.title')}</Text>
+          <Text style={styles.sub}>{t('otaUpdate.subtitle')}</Text>
         </View>
         <TouchableOpacity style={styles.btn} onPress={applyUpdate} activeOpacity={0.85}>
-          <Text style={styles.btnText}>Redémarrer</Text>
+          <Text style={styles.btnText}>{t('otaUpdate.restart')}</Text>
         </TouchableOpacity>
       </View>
     </Animated.View>

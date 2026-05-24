@@ -5,6 +5,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useState, useMemo, useCallback } from 'react';
 import { useRouter } from 'expo-router';
+import { useTranslation } from 'react-i18next';
 import { C } from '@/constants/colors';
 import { useAuth } from '@/context/AuthContext';
 import { useIncidents } from '@/context/IncidentsContext';
@@ -13,37 +14,39 @@ import { Incident, IncidentSeverity, IncidentStatus } from '@/constants/types';
 import Header from '@/components/Header';
 import { IncidentSkeletonCard as SkeletonCard } from '@/components/SkeletonCard';
 
-const SEVERITY_CONFIG: Record<IncidentSeverity, { label: string; color: string; bg: string; icon: string }> = {
-  minor:    { label: 'Mineur',   color: '#6B7280', bg: '#F3F4F6', icon: 'information-circle' },
-  moderate: { label: 'Modéré',  color: '#F59E0B', bg: '#FFFBEB', icon: 'warning' },
-  major:    { label: 'Majeur',   color: '#EF4444', bg: '#FEF2F2', icon: 'alert-circle' },
-  critical: { label: 'Critique', color: '#7F1D1D', bg: '#FEE2E2', icon: 'nuclear' },
+const SEVERITY_CONFIG: Record<IncidentSeverity, { color: string; bg: string; icon: string }> = {
+  minor:    { color: '#6B7280', bg: '#F3F4F6', icon: 'information-circle' },
+  moderate: { color: '#F59E0B', bg: '#FFFBEB', icon: 'warning' },
+  major:    { color: '#EF4444', bg: '#FEF2F2', icon: 'alert-circle' },
+  critical: { color: '#7F1D1D', bg: '#FEE2E2', icon: 'nuclear' },
 };
 
-const STATUS_CONFIG: Record<IncidentStatus, { label: string; color: string; bg: string }> = {
-  open:          { label: 'Ouvert',   color: C.open,       bg: C.open + '15'       },
-  investigating: { label: 'En cours', color: C.inProgress, bg: C.inProgress + '15' },
-  resolved:      { label: 'Résolu',   color: C.closed,     bg: C.closed + '15'     },
+const STATUS_CONFIG: Record<IncidentStatus, { color: string; bg: string }> = {
+  open:          { color: C.open,       bg: C.open + '15'       },
+  investigating: { color: C.inProgress, bg: C.inProgress + '15' },
+  resolved:      { color: C.closed,     bg: C.closed + '15'     },
 };
 
 const SEVERITIES: IncidentSeverity[] = ['minor', 'moderate', 'major', 'critical'];
 const STATUSES: IncidentStatus[] = ['open', 'investigating', 'resolved'];
 
 function SeverityBadge({ severity }: { severity: IncidentSeverity }) {
+  const { t } = useTranslation();
   const cfg = SEVERITY_CONFIG[severity];
   return (
     <View style={[styles.badge, { backgroundColor: cfg.bg }]}>
       <Ionicons name={cfg.icon as any} size={11} color={cfg.color} />
-      <Text style={[styles.badgeText, { color: cfg.color }]}>{cfg.label}</Text>
+      <Text style={[styles.badgeText, { color: cfg.color }]}>{t(`incidentsScreen.severity.${severity}`)}</Text>
     </View>
   );
 }
 
 function StatusBadge({ status }: { status: IncidentStatus }) {
+  const { t } = useTranslation();
   const cfg = STATUS_CONFIG[status];
   return (
     <View style={[styles.badge, { backgroundColor: cfg.bg }]}>
-      <Text style={[styles.badgeText, { color: cfg.color }]}>{cfg.label}</Text>
+      <Text style={[styles.badgeText, { color: cfg.color }]}>{t(`incidentsScreen.status.${status}`)}</Text>
     </View>
   );
 }
@@ -54,6 +57,7 @@ type FilterStatus = IncidentStatus | 'all';
 export default function IncidentsScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
+  const { t } = useTranslation();
   const { permissions, user } = useAuth();
   const { incidents, isLoading, deleteIncident } = useIncidents();
   const { reload } = useApp();
@@ -84,12 +88,12 @@ export default function IncidentsScreen() {
   if (user?.role === 'sous_traitant') {
     return (
       <View style={[styles.container, { paddingBottom: insets.bottom }]}>
-        <Header title="Sécurité & Incidents" showBack />
+        <Header title={t('incidentsScreen.title')} showBack />
         <View style={styles.empty}>
           <Ionicons name="lock-closed-outline" size={48} color={C.textMuted} />
-          <Text style={styles.emptyTitle}>Accès restreint</Text>
+          <Text style={styles.emptyTitle}>{t('incidentsScreen.restrictedTitle')}</Text>
           <Text style={styles.emptyText}>
-            Les sous-traitants n'ont pas accès au registre des incidents de sécurité.
+            {t('incidentsScreen.restrictedText')}
           </Text>
         </View>
       </View>
@@ -100,8 +104,16 @@ export default function IncidentsScreen() {
     router.push({
       pathname: '/reserve/new',
       params: {
-        prefill_description: `Issu d'un incident : ${incident.title}. ${incident.description}`,
-        prefill_source: `Incident ${incident.severity === 'critical' ? 'critique' : 'majeur'} — ${incident.reportedAt}`,
+        prefill_description: t('incidentsScreen.prefillDescription', {
+          title: incident.title,
+          description: incident.description,
+        }),
+        prefill_source: t(
+          incident.severity === 'critical'
+            ? 'incidentsScreen.prefillSourceCritical'
+            : 'incidentsScreen.prefillSourceMajor',
+          { date: incident.reportedAt },
+        ),
         building: incident.building,
       },
     } as any);
@@ -110,8 +122,8 @@ export default function IncidentsScreen() {
   return (
     <View style={[styles.container, { paddingBottom: insets.bottom }]}>
       <Header
-        title="Sécurité & Incidents"
-        subtitle={`${openCount} non résolu${openCount !== 1 ? 's' : ''}`}
+        title={t('incidentsScreen.title')}
+        subtitle={t('incidentsScreen.subtitleUnresolved', { count: openCount })}
         showBack
         rightActions={
           permissions.canCreate ? (
@@ -130,7 +142,7 @@ export default function IncidentsScreen() {
         <Ionicons name="search-outline" size={15} color={C.textMuted} />
         <TextInput
           style={styles.searchInput}
-          placeholder="Rechercher un incident..."
+          placeholder={t('incidentsScreen.searchPlaceholder')}
           placeholderTextColor={C.textMuted}
           value={search}
           onChangeText={setSearch}
@@ -144,14 +156,14 @@ export default function IncidentsScreen() {
 
       <View style={styles.filtersWrap}>
         <View style={styles.filterRowLabeled}>
-          <Text style={styles.filterRowLabel}>Statut</Text>
+          <Text style={styles.filterRowLabel}>{t('incidentsScreen.statusFilter')}</Text>
           <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ flex: 1 }}>
             <View style={styles.filterChips}>
               <TouchableOpacity
                 style={[styles.fChip, filterStatus === 'all' && styles.fChipActive]}
                 onPress={() => setFilterStatus('all')}
               >
-                <Text style={[styles.fChipText, filterStatus === 'all' && styles.fChipTextActive]}>Tous</Text>
+                <Text style={[styles.fChipText, filterStatus === 'all' && styles.fChipTextActive]}>{t('incidentsScreen.all')}</Text>
               </TouchableOpacity>
               {STATUSES.map(s => (
                 <TouchableOpacity
@@ -160,7 +172,7 @@ export default function IncidentsScreen() {
                   onPress={() => setFilterStatus(prev => prev === s ? 'all' : s)}
                 >
                   <Text style={[styles.fChipText, filterStatus === s && { color: STATUS_CONFIG[s].color }]}>
-                    {STATUS_CONFIG[s].label}
+                    {t(`incidentsScreen.status.${s}`)}
                   </Text>
                 </TouchableOpacity>
               ))}
@@ -168,14 +180,14 @@ export default function IncidentsScreen() {
           </ScrollView>
         </View>
         <View style={styles.filterRowLabeled}>
-          <Text style={styles.filterRowLabel}>Gravité</Text>
+          <Text style={styles.filterRowLabel}>{t('incidentsScreen.severityFilter')}</Text>
           <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ flex: 1 }}>
             <View style={styles.filterChips}>
               <TouchableOpacity
                 style={[styles.fChip, filterSeverity === 'all' && styles.fChipActive]}
                 onPress={() => setFilterSeverity('all')}
               >
-                <Text style={[styles.fChipText, filterSeverity === 'all' && styles.fChipTextActive]}>Tous</Text>
+                <Text style={[styles.fChipText, filterSeverity === 'all' && styles.fChipTextActive]}>{t('incidentsScreen.all')}</Text>
               </TouchableOpacity>
               {SEVERITIES.map(s => (
                 <TouchableOpacity
@@ -185,7 +197,7 @@ export default function IncidentsScreen() {
                 >
                   <Ionicons name={SEVERITY_CONFIG[s].icon as any} size={12} color={SEVERITY_CONFIG[s].color} />
                   <Text style={[styles.fChipText, filterSeverity === s && { color: SEVERITY_CONFIG[s].color }]}>
-                    {SEVERITY_CONFIG[s].label}
+                    {t(`incidentsScreen.severity.${s}`)}
                   </Text>
                 </TouchableOpacity>
               ))}
@@ -204,11 +216,11 @@ export default function IncidentsScreen() {
         ) : filtered.length === 0 ? (
           <View style={styles.empty}>
             <Ionicons name="shield-checkmark-outline" size={48} color={C.closed} />
-            <Text style={styles.emptyTitle}>Aucun incident</Text>
+            <Text style={styles.emptyTitle}>{t('incidentsScreen.emptyTitle')}</Text>
             <Text style={styles.emptyText}>
               {incidents.length === 0
-                ? 'Aucun incident signalé sur ce chantier.'
-                : 'Aucun incident ne correspond aux filtres sélectionnés.'}
+                ? t('incidentsScreen.emptyNoIncident')
+                : t('incidentsScreen.emptyNoFilter')}
             </Text>
             {permissions.canCreate && incidents.length === 0 && (
               <TouchableOpacity
@@ -216,7 +228,7 @@ export default function IncidentsScreen() {
                 onPress={() => router.push('/incident/new' as any)}
               >
                 <Ionicons name="add-circle-outline" size={18} color={C.primary} />
-                <Text style={styles.emptyBtnText}>Signaler un incident</Text>
+                <Text style={styles.emptyBtnText}>{t('incidentsScreen.reportIncident')}</Text>
               </TouchableOpacity>
             )}
           </View>
@@ -256,7 +268,10 @@ export default function IncidentsScreen() {
                     <View style={styles.incMetaItem}>
                       <Ionicons name="location-outline" size={12} color={C.textMuted} />
                       <Text style={styles.incMetaText}>
-                        {[incident.building && `Bât. ${incident.building}`, incident.location].filter(Boolean).join(' — ')}
+                        {[
+                          incident.building && t('incidentsScreen.buildingShort', { building: incident.building }),
+                          incident.location,
+                        ].filter(Boolean).join(' - ')}
                       </Text>
                     </View>
                   )}
@@ -279,7 +294,9 @@ export default function IncidentsScreen() {
                   <View style={styles.closedBanner}>
                     <Ionicons name="checkmark-circle" size={12} color={C.closed} />
                     <Text style={styles.closedText}>
-                      Résolu le {incident.closedAt}{incident.closedBy ? ` par ${incident.closedBy}` : ''}
+                      {incident.closedBy
+                        ? t('incidentsScreen.resolvedAtBy', { date: incident.closedAt, author: incident.closedBy })
+                        : t('incidentsScreen.resolvedAt', { date: incident.closedAt })}
                     </Text>
                   </View>
                 ) : null}
@@ -290,7 +307,7 @@ export default function IncidentsScreen() {
                     activeOpacity={0.8}
                   >
                     <Ionicons name="alert-circle-outline" size={13} color={C.open} />
-                    <Text style={styles.createReserveBtnText}>Créer une réserve</Text>
+                    <Text style={styles.createReserveBtnText}>{t('incidentsScreen.createReserve')}</Text>
                   </TouchableOpacity>
                 )}
               </TouchableOpacity>

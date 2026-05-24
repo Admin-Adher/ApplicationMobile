@@ -1,10 +1,12 @@
 import { useState } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, ActivityIndicator } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { useTranslation } from 'react-i18next';
 import { C } from '@/constants/colors';
 import { useAppUpdate } from '@/hooks/useAppUpdate';
 
 export default function UpdateCheckRow() {
+  const { t } = useTranslation();
   const { currentLabel, latestLabel, updateAvailable, refresh, loading } = useAppUpdate();
   const [checking, setChecking] = useState(false);
   const [justChecked, setJustChecked] = useState(false);
@@ -18,11 +20,11 @@ export default function UpdateCheckRow() {
     setTimeout(() => setJustChecked(false), 2500);
   };
 
-  let statusText = `Installé : ${currentLabel}`;
+  let statusText = t('updateCheck.installed', { label: currentLabel });
   if (latestLabel && !updateAvailable) {
-    statusText = `${currentLabel} · à jour`;
+    statusText = t('updateCheck.upToDateStatus', { current: currentLabel });
   } else if (latestLabel && updateAvailable) {
-    statusText = `${currentLabel} → ${latestLabel} disponible`;
+    statusText = t('updateCheck.availableStatus', { current: currentLabel, latest: latestLabel });
   }
 
   const isBusy = checking || loading;
@@ -41,12 +43,12 @@ export default function UpdateCheckRow() {
         ) : justChecked && !updateAvailable ? (
           <>
             <Ionicons name="checkmark-circle" size={14} color="#10B981" />
-            <Text style={[styles.btnText, { color: '#10B981' }]}>À jour</Text>
+            <Text style={[styles.btnText, { color: '#10B981' }]}>{t('updateCheck.upToDate')}</Text>
           </>
         ) : (
           <>
             <Ionicons name="refresh" size={14} color={C.primary} />
-            <Text style={styles.btnText}>Vérifier</Text>
+            <Text style={styles.btnText}>{t('updateCheck.check')}</Text>
           </>
         )}
       </TouchableOpacity>

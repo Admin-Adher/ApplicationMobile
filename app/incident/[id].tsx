@@ -5,6 +5,7 @@ import {
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useState, useEffect } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 import * as Haptics from 'expo-haptics';
@@ -18,17 +19,17 @@ import DateInput from '@/components/DateInput';
 import LocationPicker from '@/components/LocationPicker';
 import { formatDateFR } from '@/lib/utils';
 
-const SEVERITY_CONFIG: Record<IncidentSeverity, { label: string; color: string; bg: string; icon: string }> = {
-  minor:    { label: 'Mineur',   color: '#6B7280', bg: '#F3F4F6', icon: 'information-circle' },
-  moderate: { label: 'Modéré',  color: '#F59E0B', bg: '#FFFBEB', icon: 'warning' },
-  major:    { label: 'Majeur',   color: '#EF4444', bg: '#FEF2F2', icon: 'alert-circle' },
-  critical: { label: 'Critique', color: '#7F1D1D', bg: '#FEE2E2', icon: 'nuclear' },
+const SEVERITY_CONFIG: Record<IncidentSeverity, { color: string; bg: string; icon: string }> = {
+  minor:    { color: '#6B7280', bg: '#F3F4F6', icon: 'information-circle' },
+  moderate: { color: '#F59E0B', bg: '#FFFBEB', icon: 'warning' },
+  major:    { color: '#EF4444', bg: '#FEF2F2', icon: 'alert-circle' },
+  critical: { color: '#7F1D1D', bg: '#FEE2E2', icon: 'nuclear' },
 };
 
-const STATUS_CONFIG: Record<IncidentStatus, { label: string; color: string; bg: string }> = {
-  open:          { label: 'Ouvert',   color: C.open,       bg: C.open + '15'       },
-  investigating: { label: 'En cours', color: C.inProgress, bg: C.inProgress + '15' },
-  resolved:      { label: 'Résolu',   color: C.closed,     bg: C.closed + '15'     },
+const STATUS_CONFIG: Record<IncidentStatus, { color: string; bg: string }> = {
+  open:          { color: C.open,       bg: C.open + '15'       },
+  investigating: { color: C.inProgress, bg: C.inProgress + '15' },
+  resolved:      { color: C.closed,     bg: C.closed + '15'     },
 };
 
 const SEVERITIES: IncidentSeverity[] = ['minor', 'moderate', 'major', 'critical'];
@@ -37,6 +38,7 @@ const STATUSES: IncidentStatus[] = ['open', 'investigating', 'resolved'];
 export default function EditIncidentScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
+  const { t } = useTranslation();
   const { id } = useLocalSearchParams<{ id: string }>();
   const { user, permissions } = useAuth();
   const { incidents, updateIncident, deleteIncident } = useIncidents();
@@ -81,13 +83,13 @@ export default function EditIncidentScreen() {
       <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: C.bg, padding: 32 }}>
         <Ionicons name="lock-closed-outline" size={48} color={C.textMuted} />
         <Text style={{ fontSize: 17, fontFamily: 'Inter_600SemiBold', color: C.text, marginTop: 16, marginBottom: 8 }}>
-          Accès restreint
+          {t('incidentForm.restrictedTitle')}
         </Text>
         <Text style={{ fontSize: 14, fontFamily: 'Inter_400Regular', color: C.textMuted, textAlign: 'center', marginBottom: 24 }}>
-          Les sous-traitants n'ont pas accès aux incidents de sécurité.
+          {t('incidentForm.restrictedViewText')}
         </Text>
         <TouchableOpacity onPress={() => router.back()} style={{ paddingHorizontal: 24, paddingVertical: 12, backgroundColor: C.primaryBg, borderRadius: 10, borderWidth: 1, borderColor: C.primary + '40' }}>
-          <Text style={{ fontSize: 14, fontFamily: 'Inter_600SemiBold', color: C.primary }}>Retour</Text>
+          <Text style={{ fontSize: 14, fontFamily: 'Inter_600SemiBold', color: C.primary }}>{t('incidentForm.back')}</Text>
         </TouchableOpacity>
       </View>
     );
@@ -96,9 +98,9 @@ export default function EditIncidentScreen() {
   if (!incident) {
     return (
       <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: C.bg }}>
-        <Text style={{ fontSize: 15, color: C.textMuted, fontFamily: 'Inter_400Regular' }}>Incident introuvable</Text>
+        <Text style={{ fontSize: 15, color: C.textMuted, fontFamily: 'Inter_400Regular' }}>{t('incidentForm.notFound')}</Text>
         <TouchableOpacity onPress={() => router.back()} style={{ marginTop: 16 }}>
-          <Text style={{ color: C.primary, fontFamily: 'Inter_600SemiBold' }}>Retour</Text>
+          <Text style={{ color: C.primary, fontFamily: 'Inter_600SemiBold' }}>{t('incidentForm.back')}</Text>
         </TouchableOpacity>
       </View>
     );
@@ -107,16 +109,16 @@ export default function EditIncidentScreen() {
   async function handlePickPhoto() {
     if (Platform.OS !== 'web') {
       const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
-      if (status !== 'granted') { Alert.alert('Permission refusée', "L'accès à la galerie est nécessaire."); return; }
+      if (status !== 'granted') { Alert.alert(t('incidentForm.permissionDenied'), t('incidentForm.galleryPermissionDenied')); return; }
     }
     const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images'], allowsEditing: true, quality: 0.8 });
     if (!result.canceled && result.assets[0]) setPhotoUri(result.assets[0].uri);
   }
 
   async function handleCamera() {
-    if (Platform.OS === 'web') { Alert.alert('Info', 'La prise de photo directe est disponible sur appareil mobile.'); return; }
+    if (Platform.OS === 'web') { Alert.alert(t('incidentForm.info'), t('incidentForm.directCameraMobileOnly')); return; }
     const { status } = await ImagePicker.requestCameraPermissionsAsync();
-    if (status !== 'granted') { Alert.alert('Permission refusée', "L'accès à l'appareil photo est nécessaire."); return; }
+    if (status !== 'granted') { Alert.alert(t('incidentForm.permissionDenied'), t('incidentForm.cameraPermissionDenied')); return; }
     const result = await ImagePicker.launchCameraAsync({ allowsEditing: true, quality: 0.8 });
     if (!result.canceled && result.assets[0]) setPhotoUri(result.assets[0].uri);
   }
@@ -124,12 +126,12 @@ export default function EditIncidentScreen() {
   function handleDelete() {
     if (!incident) return;
     Alert.alert(
-      'Supprimer l\'incident',
-      `Supprimer "${incident.title}" définitivement ?`,
+      t('incidentForm.deleteTitle'),
+      t('incidentForm.deleteMessage', { title: incident.title }),
       [
-        { text: 'Annuler', style: 'cancel' },
+        { text: t('incidentForm.cancel'), style: 'cancel' },
         {
-          text: 'Supprimer', style: 'destructive', onPress: async () => {
+          text: t('common.delete'), style: 'destructive', onPress: async () => {
             Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
             await deleteIncident(incident.id);
             router.back();
@@ -141,14 +143,14 @@ export default function EditIncidentScreen() {
 
   async function handleSave() {
     if (!incident) return;
-    if (!title.trim()) { Alert.alert('Champ requis', 'Le titre est obligatoire.'); return; }
-    if (!location.trim()) { Alert.alert('Champ requis', 'Le lieu est obligatoire.'); return; }
+    if (!title.trim()) { Alert.alert(t('incidentForm.requiredField'), t('incidentForm.titleRequired')); return; }
+    if (!location.trim()) { Alert.alert(t('incidentForm.requiredField'), t('incidentForm.locationRequired')); return; }
     setSaving(true);
     try {
       const isNowResolved = status === 'resolved';
       const wasResolved = incident.status === 'resolved';
       const closedAt = isNowResolved ? (wasResolved ? incident.closedAt : formatDateFR(new Date())) : undefined;
-      const closedBy = isNowResolved ? (wasResolved ? incident.closedBy : user?.name ?? 'Inconnu') : undefined;
+      const closedBy = isNowResolved ? (wasResolved ? incident.closedBy : user?.name ?? t('incidentForm.unknownUser')) : undefined;
 
       await updateIncident({
         ...incident,
@@ -177,7 +179,7 @@ export default function EditIncidentScreen() {
   return (
     <View style={[styles.container, { paddingBottom: insets.bottom }]}>
       <Header
-        title="Modifier l'incident"
+        title={t('incidentForm.editTitle')}
         showBack
         rightActions={
           permissions.canDelete ? (
@@ -193,36 +195,36 @@ export default function EditIncidentScreen() {
           showsVerticalScrollIndicator={false}
           keyboardShouldPersistTaps="handled"
         >
-          <Text style={styles.label}>Titre *</Text>
+          <Text style={styles.label}>{t('incidentForm.titleLabel')} *</Text>
           <TextInput
             style={styles.input}
             value={title}
             onChangeText={setTitle}
-            placeholder="Ex : Chute de matériaux"
+            placeholder={t('incidentForm.titleEditPlaceholder')}
             placeholderTextColor={C.textMuted}
           />
 
-          <Text style={styles.label}>Description</Text>
+          <Text style={styles.label}>{t('incidentForm.descriptionLabel')}</Text>
           <TextInput
             style={[styles.input, styles.textArea]}
             value={description}
             onChangeText={setDescription}
-            placeholder="Décrivez les circonstances..."
+            placeholder={t('incidentForm.descriptionEditPlaceholder')}
             placeholderTextColor={C.textMuted}
             multiline
             numberOfLines={3}
           />
 
-          <Text style={styles.label}>Lieu *</Text>
+          <Text style={styles.label}>{t('incidentForm.locationLabel')} *</Text>
           <TextInput
             style={styles.input}
             value={location}
             onChangeText={setLocation}
-            placeholder="Ex : Échafaudage Est, Niveau R+2"
+            placeholder={t('incidentForm.locationEditPlaceholder')}
             placeholderTextColor={C.textMuted}
           />
 
-          <Text style={styles.label}>Bâtiment · Niveau · Zone</Text>
+          <Text style={styles.label}>{t('incidentForm.locationHierarchy')}</Text>
           <LocationPicker
             buildings={activeChantier?.buildings ?? []}
             building={building}
@@ -235,7 +237,7 @@ export default function EditIncidentScreen() {
             showZone
           />
 
-          <Text style={styles.label}>Gravité</Text>
+          <Text style={styles.label}>{t('incidentForm.severityLabel')}</Text>
           <View style={styles.chipRow}>
             {SEVERITIES.map(s => {
               const cfg = SEVERITY_CONFIG[s];
@@ -247,13 +249,13 @@ export default function EditIncidentScreen() {
                   onPress={() => setSeverity(s)}
                 >
                   <Ionicons name={cfg.icon as any} size={13} color={active ? cfg.color : C.textMuted} />
-                  <Text style={[styles.chipText, active && { color: cfg.color }]}>{cfg.label}</Text>
+                  <Text style={[styles.chipText, active && { color: cfg.color }]}>{t(`incidentsScreen.severity.${s}`)}</Text>
                 </TouchableOpacity>
               );
             })}
           </View>
 
-          <Text style={styles.label}>Statut</Text>
+          <Text style={styles.label}>{t('incidentForm.statusLabel')}</Text>
           <View style={styles.chipRow}>
             {STATUSES.map(s => {
               const cfg = STATUS_CONFIG[s];
@@ -264,7 +266,7 @@ export default function EditIncidentScreen() {
                   style={[styles.chip, active && { borderColor: cfg.color, backgroundColor: cfg.bg }]}
                   onPress={() => setStatus(s)}
                 >
-                  <Text style={[styles.chipText, active && { color: cfg.color }]}>{cfg.label}</Text>
+                  <Text style={[styles.chipText, active && { color: cfg.color }]}>{t(`incidentsScreen.status.${s}`)}</Text>
                 </TouchableOpacity>
               );
             })}
@@ -272,52 +274,52 @@ export default function EditIncidentScreen() {
 
           <View style={{ marginTop: 4, marginBottom: 4 }}>
             <DateInput
-              label="Date de l'incident"
+              label={t('incidentForm.incidentDate')}
               value={reportedAt}
               onChange={setReportedAt}
               optional
             />
           </View>
 
-          <Text style={styles.label}>Témoins</Text>
+          <Text style={styles.label}>{t('incidentForm.witnessesLabel')}</Text>
           <TextInput
             style={styles.input}
             value={witnesses}
             onChangeText={setWitnesses}
-            placeholder="Noms des témoins (optionnel)"
+            placeholder={t('incidentForm.witnessesEditPlaceholder')}
             placeholderTextColor={C.textMuted}
           />
 
-          <Text style={styles.label}>Actions correctives</Text>
+          <Text style={styles.label}>{t('incidentForm.correctiveActions')}</Text>
           <TextInput
             style={[styles.input, styles.textArea]}
             value={actions}
             onChangeText={setActions}
-            placeholder="Mesures prises ou planifiées..."
+            placeholder={t('incidentForm.correctiveEditPlaceholder')}
             placeholderTextColor={C.textMuted}
             multiline
             numberOfLines={3}
           />
 
-          <Text style={styles.label}>Photo de preuve</Text>
+          <Text style={styles.label}>{t('incidentForm.photoEvidence')}</Text>
           {photoUri ? (
             <View style={styles.photoWrap}>
               <Image source={{ uri: photoUri }} style={styles.photo} resizeMode="cover" />
               <TouchableOpacity style={styles.removePhoto} onPress={() => setPhotoUri(undefined)}>
                 <Ionicons name="close-circle" size={20} color={C.open} />
-                <Text style={styles.removePhotoText}>Retirer</Text>
+                <Text style={styles.removePhotoText}>{t('incidentForm.remove')}</Text>
               </TouchableOpacity>
             </View>
           ) : (
             <View style={styles.photoRow}>
               <TouchableOpacity style={styles.photoBtn} onPress={handlePickPhoto}>
                 <Ionicons name="images-outline" size={18} color={C.primary} />
-                <Text style={styles.photoBtnText}>Galerie</Text>
+                <Text style={styles.photoBtnText}>{t('incidentForm.gallery')}</Text>
               </TouchableOpacity>
               {Platform.OS !== 'web' && (
                 <TouchableOpacity style={styles.photoBtn} onPress={handleCamera}>
                   <Ionicons name="camera-outline" size={18} color={C.primary} />
-                  <Text style={styles.photoBtnText}>Caméra</Text>
+                  <Text style={styles.photoBtnText}>{t('incidentForm.camera')}</Text>
                 </TouchableOpacity>
               )}
             </View>
@@ -329,12 +331,12 @@ export default function EditIncidentScreen() {
             <ActivityIndicator size="large" color={C.primary} style={{ marginVertical: 16 }} />
           ) : (
             <TouchableOpacity style={styles.saveBtn} onPress={handleSave}>
-              <Text style={styles.saveBtnText}>Enregistrer les modifications</Text>
+              <Text style={styles.saveBtnText}>{t('incidentForm.saveChanges')}</Text>
             </TouchableOpacity>
           )}
 
           <TouchableOpacity style={styles.cancelBtn} onPress={() => router.back()}>
-            <Text style={styles.cancelBtnText}>Annuler</Text>
+            <Text style={styles.cancelBtnText}>{t('incidentForm.cancel')}</Text>
           </TouchableOpacity>
 
           <View style={{ height: 32 }} />
