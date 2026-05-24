@@ -3,6 +3,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { useMemo, useState, useCallback } from 'react';
 import * as Haptics from 'expo-haptics';
+import { useTranslation } from 'react-i18next';
 import { C } from '@/constants/colors';
 import { useApp } from '@/context/AppContext';
 import { useAuth } from '@/context/AuthContext';
@@ -10,28 +11,28 @@ import { Visite, VisiteStatus, VisiteType } from '@/constants/types';
 import Header from '@/components/Header';
 import BottomNavBar from '@/components/BottomNavBar';
 
-const STATUS_CFG: Record<VisiteStatus, { label: string; color: string; icon: string }> = {
-  planned: { label: 'Planifiée', color: '#6366F1', icon: 'calendar-outline' },
-  in_progress: { label: 'En cours', color: C.inProgress, icon: 'walk-outline' },
-  completed: { label: 'Terminée', color: C.closed, icon: 'checkmark-circle-outline' },
+const STATUS_CFG: Record<VisiteStatus, { color: string; icon: string }> = {
+  planned: { color: '#6366F1', icon: 'calendar-outline' },
+  in_progress: { color: C.inProgress, icon: 'walk-outline' },
+  completed: { color: C.closed, icon: 'checkmark-circle-outline' },
 };
 
-const TYPE_CFG: Record<VisiteType, { label: string; icon: string; color: string }> = {
-  controle:  { label: 'Contrôle',  icon: 'clipboard-outline',          color: '#6366F1' },
-  opr:       { label: 'OPR',       icon: 'document-text-outline',      color: '#F59E0B' },
-  securite:  { label: 'Sécurité',  icon: 'shield-outline',             color: '#EF4444' },
-  reception: { label: 'Réception', icon: 'ribbon-outline',             color: '#10B981' },
-  synthese:  { label: 'Synthèse',  icon: 'people-outline',             color: '#3B82F6' },
-  autre:     { label: 'Autre',     icon: 'ellipsis-horizontal-outline', color: '#6B7280' },
+const TYPE_CFG: Record<VisiteType, { icon: string; color: string }> = {
+  controle:  { icon: 'clipboard-outline',          color: '#6366F1' },
+  opr:       { icon: 'document-text-outline',      color: '#F59E0B' },
+  securite:  { icon: 'shield-outline',             color: '#EF4444' },
+  reception: { icon: 'ribbon-outline',             color: '#10B981' },
+  synthese:  { icon: 'people-outline',             color: '#3B82F6' },
+  autre:     { icon: 'ellipsis-horizontal-outline', color: '#6B7280' },
 };
 
 type VisitFilter = 'all' | VisiteStatus;
 
-const FILTER_OPTIONS: { value: VisitFilter; label: string }[] = [
-  { value: 'all', label: 'Toutes' },
-  { value: 'planned', label: 'Planifiées' },
-  { value: 'in_progress', label: 'En cours' },
-  { value: 'completed', label: 'Terminées' },
+const FILTER_OPTIONS: { value: VisitFilter; labelKey: string }[] = [
+  { value: 'all', labelKey: 'visits.statusFilter.all' },
+  { value: 'planned', labelKey: 'visits.statusFilter.planned' },
+  { value: 'in_progress', labelKey: 'visits.statusFilter.in_progress' },
+  { value: 'completed', labelKey: 'visits.statusFilter.completed' },
 ];
 
 function VisiteCard({
@@ -39,12 +40,13 @@ function VisiteCard({
 }: {
   visite: Visite; reserveCount: number; onPress: () => void; onDelete: () => void; canDelete: boolean;
 }) {
+  const { t } = useTranslation();
   const cfg = STATUS_CFG[visite.status];
   const typeCfg = visite.visitType ? TYPE_CFG[visite.visitType] : null;
   const locationMeta = visite.visitedLocations?.length
-    ? `${visite.visitedLocations.length} bâtiment${visite.visitedLocations.length > 1 ? 's' : ''}`
+    ? t('visits.buildings', { count: visite.visitedLocations.length })
     : [
-      visite.building ? `Bât. ${visite.building}` : '',
+      visite.building ? t('visits.buildingShort', { building: visite.building }) : '',
       visite.level,
       visite.zone,
     ].filter(Boolean).join(' — ');
@@ -54,12 +56,16 @@ function VisiteCard({
         <View style={styles.cardBadges}>
           <View style={[styles.statusBadge, { backgroundColor: cfg.color + '20' }]}>
             <Ionicons name={cfg.icon as any} size={13} color={cfg.color} />
-            <Text style={[styles.statusText, { color: cfg.color }]}>{cfg.label}</Text>
+            <Text style={[styles.statusText, { color: cfg.color }]}>
+              {t(`visits.status.${visite.status}`)}
+            </Text>
           </View>
           {typeCfg && (
             <View style={[styles.typeBadge, { backgroundColor: typeCfg.color + '15' }]}>
               <Ionicons name={typeCfg.icon as any} size={11} color={typeCfg.color} />
-              <Text style={[styles.typeBadgeText, { color: typeCfg.color }]}>{typeCfg.label}</Text>
+              <Text style={[styles.typeBadgeText, { color: typeCfg.color }]}>
+                {t(`visits.type.${visite.visitType}`)}
+              </Text>
             </View>
           )}
         </View>
@@ -100,7 +106,7 @@ function VisiteCard({
       <View style={styles.cardFooter}>
         <View style={styles.reservesPill}>
           <Ionicons name="warning-outline" size={12} color={C.open} />
-          <Text style={styles.reservesPillText}>{reserveCount} réserve{reserveCount !== 1 ? 's' : ''}</Text>
+          <Text style={styles.reservesPillText}>{t('visits.reserves', { count: reserveCount })}</Text>
         </View>
         <Ionicons name="chevron-forward" size={14} color={C.textMuted} />
       </View>
@@ -110,6 +116,7 @@ function VisiteCard({
 
 export default function VisitesScreen() {
   const router = useRouter();
+  const { t } = useTranslation();
   const { visites, reserves, deleteVisite, activeChantierId, reload, isLoading } = useApp();
   const { user, permissions } = useAuth();
   const [refreshing, setRefreshing] = useState(false);
@@ -166,29 +173,29 @@ export default function VisitesScreen() {
   );
 
   const sectionTitle = statusFilter === 'all'
-    ? 'Toutes les visites'
-    : FILTER_OPTIONS.find(opt => opt.value === statusFilter)?.label ?? 'Visites';
+    ? t('visits.allVisits')
+    : t(FILTER_OPTIONS.find(opt => opt.value === statusFilter)?.labelKey ?? 'visits.visitsFallback');
 
   if (user?.role === 'sous_traitant') {
     return (
       <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: C.bg, padding: 32 }}>
         <Ionicons name="lock-closed-outline" size={48} color={C.textMuted} />
-        <Text style={{ fontSize: 17, fontFamily: 'Inter_600SemiBold', color: C.text, marginTop: 16, marginBottom: 8 }}>Accès restreint</Text>
+        <Text style={{ fontSize: 17, fontFamily: 'Inter_600SemiBold', color: C.text, marginTop: 16, marginBottom: 8 }}>{t('visits.restrictedTitle')}</Text>
         <Text style={{ fontSize: 14, fontFamily: 'Inter_400Regular', color: C.textMuted, textAlign: 'center', marginBottom: 24 }}>
-          Les sous-traitants n'ont pas accès aux visites de chantier.
+          {t('visits.restrictedText')}
         </Text>
         <TouchableOpacity onPress={() => router.back()} style={{ paddingHorizontal: 24, paddingVertical: 12, backgroundColor: C.primaryBg, borderRadius: 10, borderWidth: 1, borderColor: C.primary + '40' }}>
-          <Text style={{ fontSize: 14, fontFamily: 'Inter_600SemiBold', color: C.primary }}>Retour</Text>
+          <Text style={{ fontSize: 14, fontFamily: 'Inter_600SemiBold', color: C.primary }}>{t('visits.back')}</Text>
         </TouchableOpacity>
       </View>
     );
   }
 
   function handleDelete(v: Visite) {
-    Alert.alert('Supprimer la visite', `Supprimer "${v.title}" ?`, [
-      { text: 'Annuler', style: 'cancel' },
+    Alert.alert(t('visits.deleteTitle'), t('visits.deleteText', { title: v.title }), [
+      { text: t('common.cancel'), style: 'cancel' },
       {
-        text: 'Supprimer', style: 'destructive', onPress: () => {
+        text: t('visits.delete'), style: 'destructive', onPress: () => {
           Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
           deleteVisite(v.id);
         },
@@ -199,8 +206,8 @@ export default function VisitesScreen() {
   return (
     <View style={styles.container}>
       <Header
-        title="Visites"
-        subtitle={`${stats.total} visite${stats.total !== 1 ? 's' : ''}`}
+        title={t('visits.title')}
+        subtitle={t('visits.count', { count: stats.total })}
         showBack
         rightIcon={permissions.canCreate ? 'add-circle-outline' : undefined}
         onRightPress={permissions.canCreate ? () => router.push('/visite/new' as any) : undefined}
@@ -213,9 +220,9 @@ export default function VisitesScreen() {
       >
         <View style={styles.statsRow}>
           {[
-            { label: 'Planifiées', count: stats.planned, color: '#6366F1', filter: 'planned' as VisitFilter },
-            { label: 'En cours', count: stats.inProgress, color: C.inProgress, filter: 'in_progress' as VisitFilter },
-            { label: 'Terminées', count: stats.completed, color: C.closed, filter: 'completed' as VisitFilter },
+            { label: t('visits.statusFilter.planned'), count: stats.planned, color: '#6366F1', filter: 'planned' as VisitFilter },
+            { label: t('visits.statusFilter.in_progress'), count: stats.inProgress, color: C.inProgress, filter: 'in_progress' as VisitFilter },
+            { label: t('visits.statusFilter.completed'), count: stats.completed, color: C.closed, filter: 'completed' as VisitFilter },
           ].map(s => (
             <TouchableOpacity
               key={s.label}
@@ -243,7 +250,7 @@ export default function VisitesScreen() {
                 onPress={() => setStatusFilter(opt.value)}
                 activeOpacity={0.8}
               >
-                <Text style={[styles.filterChipText, active && styles.filterChipTextActive]}>{opt.label}</Text>
+                <Text style={[styles.filterChipText, active && styles.filterChipTextActive]}>{t(opt.labelKey)}</Text>
               </TouchableOpacity>
             );
           })}
@@ -254,7 +261,7 @@ export default function VisitesScreen() {
           {permissions.canCreate && (
             <TouchableOpacity style={styles.newBtn} onPress={() => router.push('/visite/new' as any)}>
               <Ionicons name="add" size={15} color={C.primary} />
-              <Text style={styles.newBtnText}>Nouvelle visite</Text>
+              <Text style={styles.newBtnText}>{t('visits.newVisit')}</Text>
             </TouchableOpacity>
           )}
         </View>
@@ -262,22 +269,22 @@ export default function VisitesScreen() {
         {isLoading && !refreshing && chantierVisites.length === 0 ? (
           <View style={styles.loadingState}>
             <ActivityIndicator size="small" color={C.primary} />
-            <Text style={styles.loadingText}>Chargement des visites…</Text>
+            <Text style={styles.loadingText}>{t('visits.loading')}</Text>
           </View>
         ) : visibleVisites.length === 0 ? (
           <View style={styles.empty}>
             <Ionicons name="walk-outline" size={40} color={C.textMuted} />
             <Text style={styles.emptyTitle}>
-              {chantierVisites.length === 0 ? 'Aucune visite' : 'Aucune visite dans ce filtre'}
+              {chantierVisites.length === 0 ? t('visits.noVisit') : t('visits.noVisitInFilter')}
             </Text>
             <Text style={styles.emptyText}>
               {chantierVisites.length === 0
-                ? 'Créez une visite terrain pour grouper vos réserves'
-                : 'Changez de filtre ou revenez sur toutes les visites.'}
+                ? t('visits.createHint')
+                : t('visits.changeFilterHint')}
             </Text>
             {permissions.canCreate && chantierVisites.length === 0 && (
               <TouchableOpacity style={styles.emptyBtn} onPress={() => router.push('/visite/new' as any)}>
-                <Text style={styles.emptyBtnText}>Créer une visite</Text>
+                <Text style={styles.emptyBtnText}>{t('visits.createVisit')}</Text>
               </TouchableOpacity>
             )}
           </View>

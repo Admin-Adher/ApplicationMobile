@@ -5,6 +5,7 @@ import {
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useState, useMemo, useEffect, useRef } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 import { C } from '@/constants/colors';
@@ -77,6 +78,7 @@ function SelectRow<T extends string>({
 }
 
 export default function NewReserveScreen() {
+  const { t } = useTranslation();
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const { companies, addReserve, reserves, addPhoto, activeChantierId, chantiers, sitePlans, lots, linkReserveToVisite, visites, profiles } = useApp();
@@ -722,22 +724,22 @@ export default function NewReserveScreen() {
       });
       const hasPin = !!draftPin;
       Alert.alert(
-        kind === 'observation' ? 'Observation créée' : 'Réserve créée',
+        kind === 'observation' ? t('reserveNew.createdObservation') : t('reserveNew.createdReserve'),
         hasPin
-          ? `${id} ajoutée avec une épingle sur le plan.`
-          : `${id} ajoutée sans épingle sur le plan.`,
+          ? t('reserveNew.createdWithPin', { id })
+          : t('reserveNew.createdWithoutPin', { id }),
         [{ text: 'OK', onPress: () => { setIsSubmitting(false); router.back(); } }],
         { cancelable: false }
       );
     } catch (err) {
       setIsSubmitting(false);
-      Alert.alert('Erreur', "Une erreur est survenue lors de la création. Veuillez réessayer.");
+      Alert.alert(t('common.error'), t('reserveNew.createError'));
     }
   }
 
   return (
     <KeyboardAvoidingView style={styles.container} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
-      <Header title={kind === 'observation' ? 'Nouvelle observation' : 'Nouvelle réserve'} showBack onBack={handleBack} rightLabel="Créer" onRightPress={handleSubmit} />
+      <Header title={kind === 'observation' ? t('reserveNew.titleObservation') : t('reserveNew.titleReserve')} showBack onBack={handleBack} rightLabel={t('reserveNew.create')} onRightPress={handleSubmit} />
 
       <ScrollView contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + 32 }]} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
 
@@ -745,9 +747,9 @@ export default function NewReserveScreen() {
           <View style={styles.visiteCard}>
             <Ionicons name="eye-outline" size={14} color="#6366F1" />
             <View style={{ flex: 1 }}>
-              <Text style={styles.visiteCardLabel}>Créé depuis la visite</Text>
+              <Text style={styles.visiteCardLabel}>{t('reserveNew.createdFromVisit')}</Text>
               <Text style={styles.visiteCardTitle}>{sourceVisite.title} — {sourceVisite.date}</Text>
-              <Text style={styles.visiteCardMeta}>Lieu, plan, délai et entreprises repris depuis la visite.</Text>
+              <Text style={styles.visiteCardMeta}>{t('reserveNew.visitPrefill')}</Text>
             </View>
           </View>
         ) : null}
@@ -755,27 +757,27 @@ export default function NewReserveScreen() {
         {params.prefill_source && !sourceVisite ? (
           <View style={styles.sourceCard}>
             <Ionicons name="chatbubble-outline" size={14} color={C.inProgress} />
-            <Text style={styles.sourceText}>Créé depuis : {params.prefill_source}</Text>
+            <Text style={styles.sourceText}>{t('reserveNew.createdFrom', { source: params.prefill_source })}</Text>
           </View>
         ) : null}
 
         {/* TYPE */}
         <View style={styles.card}>
-          <Text style={styles.label}>TYPE</Text>
+          <Text style={styles.label}>{t('reserveNew.type')}</Text>
           <View style={styles.kindRow}>
             <TouchableOpacity style={[styles.kindChip, kind === 'reserve' && styles.kindChipReserve]} onPress={() => setKind('reserve')}>
               <Ionicons name="warning-outline" size={14} color={kind === 'reserve' ? '#EF4444' : C.textSub} />
-              <Text style={[styles.kindChipText, kind === 'reserve' && { color: '#EF4444', fontFamily: 'Inter_700Bold' }]}>Réserve</Text>
+              <Text style={[styles.kindChipText, kind === 'reserve' && { color: '#EF4444', fontFamily: 'Inter_700Bold' }]}>{t('reserveNew.reserve')}</Text>
             </TouchableOpacity>
             <TouchableOpacity style={[styles.kindChip, kind === 'observation' && styles.kindChipObservation]} onPress={() => setKind('observation')}>
               <Ionicons name="eye-outline" size={14} color={kind === 'observation' ? '#0EA5E9' : C.textSub} />
-              <Text style={[styles.kindChipText, kind === 'observation' && { color: '#0EA5E9', fontFamily: 'Inter_700Bold' }]}>Observation</Text>
+              <Text style={[styles.kindChipText, kind === 'observation' && { color: '#0EA5E9', fontFamily: 'Inter_700Bold' }]}>{t('reserveNew.observation')}</Text>
             </TouchableOpacity>
           </View>
           {kind === 'observation' && (
             <View style={styles.kindHintBox}>
               <Ionicons name="information-circle-outline" size={13} color="#0EA5E9" />
-              <Text style={styles.kindHintText}>Une observation est un constat sans impact bloquant sur la réception.</Text>
+              <Text style={styles.kindHintText}>{t('reserveNew.observationHint')}</Text>
             </View>
           )}
         </View>
@@ -784,8 +786,8 @@ export default function NewReserveScreen() {
         <View style={styles.card}>
           <View style={[styles.fieldGroup, { marginBottom: 0 }]}>
             <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
-              <Text style={styles.label}>Photos ({photos.length}/6)</Text>
-              {photos.length > 0 && <Text style={styles.photoKindHint}>Appuyer sur une photo pour basculer Constat ↔ Levée</Text>}
+              <Text style={styles.label}>{t('reserveNew.photos', { count: photos.length })}</Text>
+              {photos.length > 0 && <Text style={styles.photoKindHint}>{t('reserveNew.photoToggleHint')}</Text>}
             </View>
 
             {photos.length > 0 && (
@@ -796,7 +798,7 @@ export default function NewReserveScreen() {
                       <TouchableOpacity onPress={() => togglePhotoKind(p.id)} activeOpacity={0.85}>
                         <Image source={{ uri: p.uri }} style={styles.photoThumbImg} resizeMode="cover" />
                         <View style={[styles.photoKindBadge, { backgroundColor: p.kind === 'defect' ? '#EF444488' : '#22C55E88' }]}>
-                          <Text style={styles.photoKindBadgeText}>{p.kind === 'defect' ? 'Constat' : 'Levée'}</Text>
+                          <Text style={styles.photoKindBadgeText}>{p.kind === 'defect' ? t('reserveNew.photoDefect') : t('reserveNew.photoResolved')}</Text>
                         </View>
                       </TouchableOpacity>
                       <TouchableOpacity style={styles.photoRemoveBtn} onPress={() => removePhoto(p.id)}>
@@ -814,13 +816,13 @@ export default function NewReserveScreen() {
                   <View style={styles.photoIconBubble}>
                     <Ionicons name="camera" size={18} color="#fff" />
                   </View>
-                  <Text style={[styles.photoBtnText, styles.photoBtnPrimaryText]}>Photo</Text>
+                  <Text style={[styles.photoBtnText, styles.photoBtnPrimaryText]}>{t('reserveNew.photo')}</Text>
                 </TouchableOpacity>
                 <TouchableOpacity style={[styles.photoBtn, styles.photoBtnSecondary, { flex: 1 }]} onPress={handlePickPhoto} disabled={photoUploading}>
                   <View style={[styles.photoIconBubble, styles.photoIconBubbleSecondary]}>
                     <Ionicons name="images-outline" size={18} color={C.primary} />
                   </View>
-                  <Text style={styles.photoBtnText}>Galerie</Text>
+                  <Text style={styles.photoBtnText}>{t('reserveNew.gallery')}</Text>
                 </TouchableOpacity>
               </View>
             )}
@@ -828,7 +830,7 @@ export default function NewReserveScreen() {
             {photoUploading && (
               <View style={styles.uploadRow}>
                 <ActivityIndicator size="small" color={C.primary} />
-                <Text style={styles.uploadText}>Upload en cours...</Text>
+                <Text style={styles.uploadText}>{t('reserveNew.uploading')}</Text>
               </View>
             )}
           </View>
@@ -840,7 +842,7 @@ export default function NewReserveScreen() {
             <TouchableOpacity style={styles.templateHeader} onPress={() => setShowTemplates(!showTemplates)} activeOpacity={0.7}>
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
                 <Ionicons name="bookmark-outline" size={15} color={C.primary} />
-                <Text style={styles.templateHeaderText}>Templates rapides</Text>
+                <Text style={styles.templateHeaderText}>{t('reserveNew.templates')}</Text>
                 <View style={styles.templateBadge}>
                   <Text style={styles.templateBadgeText}>{RESERVE_TEMPLATES.reduce((s, c) => s + c.items.length, 0)}</Text>
                 </View>
@@ -874,7 +876,7 @@ export default function NewReserveScreen() {
               </View>
             )}
             {!showTemplates && (
-              <Text style={styles.templateHint}>Choisissez un modèle pour pré-remplir titre et description</Text>
+              <Text style={styles.templateHint}>{t('reserveNew.templatesHint')}</Text>
             )}
           </View>
         )}
@@ -883,15 +885,15 @@ export default function NewReserveScreen() {
         <View style={styles.card}>
           <View style={styles.fieldGroup}>
             <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
-              <Text style={styles.label}>Titre *</Text>
+              <Text style={styles.label}>{t('reserveNew.title')}</Text>
               <View style={styles.idPreviewBadge}>
                 <Ionicons name="pricetag-outline" size={10} color={C.textMuted} />
-                <Text style={styles.idPreviewText}>Réf : {previewId}</Text>
+                <Text style={styles.idPreviewText}>{t('reserveNew.ref', { id: previewId })}</Text>
               </View>
             </View>
             <DictationTextInput
               inputStyle={styles.input}
-              placeholder="Ex : Fissure mur porteur..."
+              placeholder={t('reserveNew.titlePlaceholder')}
               placeholderTextColor={C.textMuted}
               value={title}
               onChangeText={handleTitleChange}
@@ -901,17 +903,17 @@ export default function NewReserveScreen() {
           </View>
           <View style={[styles.fieldGroup, { marginBottom: 0 }]}>
             <View style={styles.descriptionLabelRow}>
-              <Text style={[styles.label, { marginBottom: 0 }]}>Description</Text>
+              <Text style={[styles.label, { marginBottom: 0 }]}>{t('reserveNew.description')}</Text>
               {descriptionTouched && !!title.trim() && description.trim() !== title.trim() ? (
                 <TouchableOpacity style={styles.reuseTitleBtn} onPress={reuseTitleAsDescription} activeOpacity={0.75}>
                   <Ionicons name="return-down-forward-outline" size={12} color={C.primary} />
-                  <Text style={styles.reuseTitleText}>Reprendre le titre</Text>
+                  <Text style={styles.reuseTitleText}>{t('reserveNew.reuseTitle')}</Text>
                 </TouchableOpacity>
               ) : null}
             </View>
             <DictationTextInput
               inputStyle={[styles.input, styles.textArea]}
-              placeholder="Décrivez le problème en détail..."
+              placeholder={t('reserveNew.descriptionPlaceholder')}
               placeholderTextColor={C.textMuted}
               value={description}
               onChangeText={handleDescriptionChange}
@@ -927,7 +929,7 @@ export default function NewReserveScreen() {
         {lots.length > 0 && (
           <View style={styles.card}>
             <BottomSheetPicker
-              label="Corps d'état (lot)"
+              label={t('reserveNew.lot')}
               options={lots.map(lot => ({
                 label: `${lot.number ? `${lot.number}. ` : ''}${lot.name}`,
                 value: lot.id,
@@ -936,15 +938,15 @@ export default function NewReserveScreen() {
               value={lotId}
               onChange={handleLotChange}
               allowNone
-              noneLabel="Aucun lot"
+              noneLabel={t('reserveNew.noLot')}
             />
             {selectedLot && (
               <View style={styles.lotAutoFillHint}>
                 <Ionicons name="information-circle-outline" size={12} color={C.primary} />
                 <Text style={styles.lotAutoFillText}>
-                  Référence automatique : <Text style={{ fontFamily: 'Inter_700Bold' }}>{previewId}</Text>
+                  {t('reserveNew.autoRef', { id: previewId })}
                   {selectedLot.companyId && companies.find(c => c.id === selectedLot.companyId)
-                    ? ` · Entreprise auto-remplie : ${companies.find(c => c.id === selectedLot.companyId)!.shortName}`
+                    ? t('reserveNew.autoCompany', { company: companies.find(c => c.id === selectedLot.companyId)!.shortName })
                     : ''}
                 </Text>
               </View>
@@ -959,19 +961,19 @@ export default function NewReserveScreen() {
             onPress={() => setShowLocationDetails(prev => !prev)}
             activeOpacity={0.75}
             accessibilityRole="button"
-            accessibilityLabel={showLocationDetails ? 'Masquer la localisation' : 'Modifier la localisation'}
+            accessibilityLabel={showLocationDetails ? t('reserveNew.hideLocation') : t('reserveNew.editLocation')}
           >
             <View style={styles.locationIconBox}>
               <Ionicons name="business-outline" size={18} color={C.primary} />
             </View>
             <View style={{ flex: 1 }}>
-              <Text style={styles.locationLabel}>Localisation</Text>
+              <Text style={styles.locationLabel}>{t('reserveNew.location')}</Text>
               <Text style={styles.locationSummary} numberOfLines={2}>
-                {locationSummary || (visitHasScopedBuildings ? 'Choisir le bâtiment de la visite' : 'Aucune localisation définie')}
+                {locationSummary || (visitHasScopedBuildings ? t('reserveNew.chooseVisitBuilding') : t('reserveNew.noLocation'))}
               </Text>
             </View>
             <View style={styles.locationAction}>
-              <Text style={styles.locationActionText}>{showLocationDetails ? 'Masquer' : 'Modifier'}</Text>
+              <Text style={styles.locationActionText}>{showLocationDetails ? t('reserveNew.hide') : t('reserveNew.edit')}</Text>
               <Ionicons name={showLocationDetails ? 'chevron-up' : 'chevron-down'} size={15} color={C.primary} />
             </View>
           </TouchableOpacity>
@@ -979,7 +981,7 @@ export default function NewReserveScreen() {
             <View style={styles.visitScopeNotice}>
               <Ionicons name="map-outline" size={14} color={C.primary} />
               <Text style={styles.visitScopeNoticeText}>
-                Périmètre de la visite : {visitScopedBuildings.length} bâtiment{visitScopedBuildings.length > 1 ? 's' : ''}. Les autres bâtiments du chantier sont masqués.
+                {t('reserveNew.visitScope', { count: visitScopedBuildings.length })}
               </Text>
             </View>
           )}
@@ -1004,7 +1006,7 @@ export default function NewReserveScreen() {
         {chantierPlans.length > 0 && (
           <View style={styles.card}>
             <BottomSheetPicker
-              label="Plan associé"
+              label={t('reserveNew.plan')}
               options={filteredPlans.map(p => {
                 const bldg = p.buildingId ? activeChantier?.buildings?.find(b => b.id === p.buildingId) : null;
                 const lvl = bldg && p.levelId ? bldg.levels?.find(l => l.id === p.levelId) : null;
@@ -1017,18 +1019,18 @@ export default function NewReserveScreen() {
               value={selectedPlanId}
               onChange={handlePlanChange}
               allowNone
-              noneLabel="Aucun plan"
+              noneLabel={t('reserveNew.noPlan')}
             />
             {selectedLevelObj && filteredPlans.length < chantierPlans.length && (
               <View style={styles.planFilterHint}>
                 <Ionicons name="filter-outline" size={12} color={C.primary} />
                 <Text style={styles.planFilterHintText}>
                   {filteredPlans.length === 0
-                    ? `Aucun plan pour ${level} — affichage des plans généraux`
-                    : `${filteredPlans.length} plan${filteredPlans.length > 1 ? 's' : ''} pour ${building} › ${level}`}
+                    ? t('reserveNew.noPlanForLevel', { level })
+                    : t('reserveNew.plansForLevel', { count: filteredPlans.length, building, level })}
                 </Text>
                 <TouchableOpacity onPress={() => { setBuilding(''); setLevel(''); }}>
-                  <Text style={styles.planFilterReset}>Tout voir</Text>
+                  <Text style={styles.planFilterReset}>{t('reserveNew.showAll')}</Text>
                 </TouchableOpacity>
               </View>
             )}
@@ -1040,12 +1042,12 @@ export default function NewReserveScreen() {
                   </View>
                   <View style={{ flex: 1 }}>
                     <Text style={styles.pinPlacementTitle}>
-                      {draftPin ? 'Épingle positionnée' : 'Position sur le plan'}
+                      {draftPin ? t('reserveNew.pinReady') : t('reserveNew.pinPosition')}
                     </Text>
                     <Text style={styles.pinPlacementText}>
                       {draftPin
-                        ? `Coordonnées : ${draftPin.x}% / ${draftPin.y}%. Vous pouvez la déplacer avant de créer.`
-                        : 'Touchez le plan pour placer la réserve exactement au bon endroit.'}
+                        ? t('reserveNew.pinCoords', { x: draftPin.x, y: draftPin.y })
+                        : t('reserveNew.pinInstruction')}
                     </Text>
                   </View>
                 </View>
@@ -1054,20 +1056,20 @@ export default function NewReserveScreen() {
                     style={[styles.pinPlacementBtn, styles.pinPlacementPrimary]}
                     onPress={openPinPlacement}
                     accessibilityRole="button"
-                    accessibilityLabel={draftPin ? "Modifier l'épingle sur le plan" : "Positionner l'épingle sur le plan"}
+                    accessibilityLabel={draftPin ? t('reserveNew.modify') : t('reserveNew.positionPin')}
                   >
                     <Ionicons name={draftPin ? 'move-outline' : 'add-circle-outline'} size={15} color="#fff" />
-                    <Text style={styles.pinPlacementPrimaryText}>{draftPin ? 'Modifier' : "Positionner l'épingle"}</Text>
+                    <Text style={styles.pinPlacementPrimaryText}>{draftPin ? t('reserveNew.modify') : t('reserveNew.positionPin')}</Text>
                   </TouchableOpacity>
                   {draftPin ? (
                     <TouchableOpacity
                       style={[styles.pinPlacementBtn, styles.pinPlacementSecondary]}
                       onPress={removeDraftPin}
                       accessibilityRole="button"
-                      accessibilityLabel="Retirer l'épingle"
+                      accessibilityLabel={t('reserveNew.remove')}
                     >
                       <Ionicons name="trash-outline" size={15} color={C.open} />
-                      <Text style={styles.pinPlacementSecondaryText}>Retirer</Text>
+                      <Text style={styles.pinPlacementSecondaryText}>{t('reserveNew.remove')}</Text>
                     </TouchableOpacity>
                   ) : null}
                 </View>
@@ -1076,7 +1078,7 @@ export default function NewReserveScreen() {
               <View style={styles.pinNudge}>
                 <Ionicons name="information-circle-outline" size={15} color="#B45309" />
                 <Text style={styles.pinNudgeText}>
-                  Sélectionnez un plan pour pouvoir positionner une épingle. La réserve peut aussi être créée sans plan.
+                  {t('reserveNew.pinNudge')}
                 </Text>
               </View>
             )}
@@ -1085,20 +1087,20 @@ export default function NewReserveScreen() {
 
         {/* ENTREPRISES */}
         <View style={styles.card}>
-          <Text style={styles.label}>Entreprises responsables *</Text>
+          <Text style={styles.label}>{t('reserveNew.companies')}</Text>
           <CompanySelector
             mode="multi"
             identifier="name"
             companies={companies}
             value={selectedCompanies}
             onChange={setSelectedCompanies}
-            emptyText="Aucune entreprise configurée. Ajoutez d'abord une entreprise dans l'onglet Équipes."
+            emptyText={t('reserveNew.noCompanyConfigured')}
           />
           {selectedCompanies.length > 1 && (
             <View style={styles.multiCompanyHint}>
               <Ionicons name="information-circle-outline" size={12} color={C.primary} />
               <Text style={styles.multiCompanyHintText}>
-                {selectedCompanies.length} entreprises sélectionnées — toutes seront notifiées.
+                {t('reserveNew.multiCompanies', { count: selectedCompanies.length })}
               </Text>
             </View>
           )}
@@ -1107,11 +1109,11 @@ export default function NewReserveScreen() {
         {/* SUIVI */}
         <View style={styles.card}>
           <View style={styles.followUpHeader}>
-            <Text style={styles.label}>Suivi</Text>
-            {deadline ? <Text style={styles.followUpMeta}>Échéance {deadline}</Text> : null}
+            <Text style={styles.label}>{t('reserveNew.followUp')}</Text>
+            {deadline ? <Text style={styles.followUpMeta}>{t('reserveNew.deadline', { date: deadline })}</Text> : null}
           </View>
           <View style={styles.fieldGroup}>
-            <Text style={styles.label}>Priorité</Text>
+            <Text style={styles.label}>{t('reserveNew.priority')}</Text>
             <View style={styles.chipRow}>
               {RESERVE_PRIORITIES.map(p => (
                 <TouchableOpacity
@@ -1119,19 +1121,19 @@ export default function NewReserveScreen() {
                   style={[styles.chip, priority === p.value && { backgroundColor: p.color + '20', borderColor: p.color }]}
                   onPress={() => handlePriorityChange(p.value)}
                 >
-                  <Text style={[styles.chipText, priority === p.value && { color: p.color }]}>{p.label}</Text>
+                  <Text style={[styles.chipText, priority === p.value && { color: p.color }]}>{t(`reserveLabels.priority.${p.value}`)}</Text>
                 </TouchableOpacity>
               ))}
             </View>
           </View>
           <View style={[styles.fieldGroup, { marginBottom: 0 }]}>
-            <DateInput label="Date limite" value={deadline} onChange={v => { setDeadline(v); setDeadlineSuggested(false); }} optional />
+            <DateInput label={t('reserveNew.deadlineDate')} value={deadline} onChange={v => { setDeadline(v); setDeadlineSuggested(false); }} optional />
           </View>
           {deadlineSuggested && deadline ? (
             <View style={styles.lotAutoFillHint}>
               <Ionicons name="bulb-outline" size={12} color={C.primary} />
               <Text style={styles.lotAutoFillText}>
-                Délai suggéré automatiquement selon la priorité ({getSuggestedDeadlineDays(priority)}j). Vous pouvez modifier la date.
+                {t('reserveNew.deadlineSuggested', { days: getSuggestedDeadlineDays(priority) })}
               </Text>
             </View>
           ) : null}
@@ -1144,7 +1146,7 @@ export default function NewReserveScreen() {
         >
           <Ionicons name="add-circle" size={20} color="#fff" />
           <Text style={styles.submitBtnText}>
-            {isSubmitting ? 'Création...' : kind === 'observation' ? "Créer l'observation" : 'Créer la réserve'}
+            {isSubmitting ? t('reserveNew.creating') : kind === 'observation' ? t('reserveNew.createObservation') : t('reserveNew.createReserve')}
           </Text>
         </TouchableOpacity>
       </ScrollView>

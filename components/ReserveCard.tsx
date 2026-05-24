@@ -3,6 +3,7 @@ import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { Swipeable } from 'react-native-gesture-handler';
 import { useRef, useEffect } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Reserve } from '@/constants/types';
 import { C } from '@/constants/colors';
 import StatusBadge from './StatusBadge';
@@ -27,6 +28,7 @@ interface Props {
 export default function ReserveCard({ reserve, onPress, onLongPress, onSwipeRight, onSwipeLeft, selected, isFlashed, hasPlansAvailable, showEnterpriseTracking }: Props) {
   const isArchived = !!reserve.archivedAt;
   const router = useRouter();
+  const { t } = useTranslation();
   const { lots } = useApp();
   const swipeRef = useRef<Swipeable>(null);
   const flashAnim = useRef(new Animated.Value(0)).current;
@@ -53,15 +55,29 @@ export default function ReserveCard({ reserve, onPress, onLongPress, onSwipeRigh
     (Array.isArray(reserve.photos) && reserve.photos.some(p => p?.uri && isLocalUri(p.uri)));
   const relativeDate = formatRelativeDate(reserve.createdAt);
   const enterpriseBadges = showEnterpriseTracking ? getEnterpriseWorkflowBadges(reserve, { attentionOnly: true }) : [];
+  const statusLabel = reserve.status === 'open'
+    ? t('reserveLabels.status.open')
+    : reserve.status === 'in_progress'
+      ? t('reserveLabels.status.in_progress')
+      : reserve.status === 'waiting'
+        ? t('reserveLabels.status.waiting')
+        : reserve.status === 'verification'
+          ? t('reserveLabels.status.verification')
+          : t('reserveLabels.status.closed');
+  const translatedRelativeDate = relativeDate === 'Auj.'
+    ? t('reserveCard.todayShort')
+    : relativeDate === 'Demain'
+      ? t('reserveCard.tomorrow')
+      : relativeDate;
 
   const renderRightActions = () => (
     <TouchableOpacity
       style={styles.swipeRightAction}
       onPress={() => { swipeRef.current?.close(); onSwipeRight?.(reserve); }}
-      accessibilityLabel="Changer le statut de cette réserve"
+      accessibilityLabel={t('reserveCard.changeStatusA11y')}
     >
       <Ionicons name="swap-horizontal-outline" size={20} color="#fff" />
-      <Text style={styles.swipeActionText}>Statut</Text>
+      <Text style={styles.swipeActionText}>{t('reservesScreen.sections.status')}</Text>
     </TouchableOpacity>
   );
 
@@ -69,10 +85,10 @@ export default function ReserveCard({ reserve, onPress, onLongPress, onSwipeRigh
     <TouchableOpacity
       style={styles.swipeLeftAction}
       onPress={() => { swipeRef.current?.close(); onSwipeLeft?.(reserve); }}
-      accessibilityLabel={isArchived ? 'Désarchiver cette réserve' : 'Archiver cette réserve'}
+      accessibilityLabel={isArchived ? t('reserveCard.unarchiveA11y') : t('reserveCard.archiveA11y')}
     >
       <Ionicons name={isArchived ? 'archive' : 'archive-outline'} size={20} color="#fff" />
-      <Text style={styles.swipeActionText}>{isArchived ? 'Désarchiver' : 'Archiver'}</Text>
+      <Text style={styles.swipeActionText}>{isArchived ? t('reserveCard.unarchive') : t('reserveCard.archive')}</Text>
     </TouchableOpacity>
   );
 
@@ -84,8 +100,13 @@ export default function ReserveCard({ reserve, onPress, onLongPress, onSwipeRigh
       delayLongPress={400}
       activeOpacity={0.75}
       accessibilityRole="button"
-      accessibilityLabel={`Réserve ${reserve.id} — ${reserve.title} — statut ${reserve.status === 'open' ? 'Ouvert' : reserve.status === 'in_progress' ? 'En cours' : reserve.status === 'waiting' ? 'En attente' : reserve.status === 'verification' ? 'Vérification' : 'Clôturé'} — ${(reserve.companies ?? (reserve.company ? [reserve.company] : [])).join(', ')}`}
-      accessibilityHint={onLongPress ? "Appuyer longuement pour ouvrir le menu rapide" : undefined}
+      accessibilityLabel={t('reserveCard.accessibilityLabel', {
+        id: reserve.id,
+        title: reserve.title,
+        status: statusLabel,
+        companies: (reserve.companies ?? (reserve.company ? [reserve.company] : [])).join(', '),
+      })}
+      accessibilityHint={onLongPress ? t('reserveCard.longPressHint') : undefined}
     >
       <Animated.View
         style={[styles.flashOverlay, { opacity: flashAnim, pointerEvents: 'none' }]}
@@ -98,13 +119,13 @@ export default function ReserveCard({ reserve, onPress, onLongPress, onSwipeRigh
           {isObservation ? (
             <View style={styles.obsBadge}>
               <Ionicons name="eye-outline" size={10} color="#0EA5E9" />
-              <Text style={styles.obsText}>Observation</Text>
+              <Text style={styles.obsText}>{t('reserveCard.observation')}</Text>
             </View>
           ) : null}
           {isArchived ? (
             <View style={styles.archivedBadge}>
               <Ionicons name="archive" size={10} color="#6B7280" />
-              <Text style={styles.archivedText}>Archivée</Text>
+              <Text style={styles.archivedText}>{t('reserveCard.archived')}</Text>
             </View>
           ) : null}
         </View>
@@ -134,9 +155,9 @@ export default function ReserveCard({ reserve, onPress, onLongPress, onSwipeRigh
                 {overdue
                   ? `−${Math.abs(daysLeft ?? 0)}j`
                   : daysLeft === 0
-                    ? "Auj."
+                    ? t('reserveCard.todayShort')
                     : daysLeft === 1
-                      ? 'Demain'
+                      ? t('reserveCard.tomorrow')
                       : daysLeft !== null && daysLeft <= 7
                         ? `J-${daysLeft}`
                         : formatDate(reserve.deadline)}
@@ -169,29 +190,29 @@ export default function ReserveCard({ reserve, onPress, onLongPress, onSwipeRigh
             <View style={styles.metaItem}>
               <Ionicons name="business-outline" size={12} color={C.textMuted} />
               <Text style={styles.metaText}>
-                {[reserve.building ? `Bât. ${reserve.building}` : null, reserve.zone, reserve.level].filter(Boolean).join(' — ')}
+                {[reserve.building ? `${t('reserveCard.buildingShort')} ${reserve.building}` : null, reserve.zone, reserve.level].filter(Boolean).join(' — ')}
               </Text>
             </View>
             {lot && (
               <View style={styles.metaItem}>
                 <View style={[styles.lotDot, { backgroundColor: lot.color ?? C.textMuted }]} />
                 <Text style={[styles.metaText, { color: lot.color ?? C.textSub }]} numberOfLines={1}>
-                  {lot.number ? `Lot ${lot.number} — ` : ''}{lot.name}
+                  {lot.number ? t('reserveCard.lot', { number: lot.number }) : ''}{lot.name}
                 </Text>
               </View>
             )}
             <View style={styles.metaItem}>
               <Ionicons name="time-outline" size={12} color={C.textMuted} />
-              <Text style={styles.metaText}>{relativeDate}</Text>
+              <Text style={styles.metaText}>{translatedRelativeDate}</Text>
             </View>
           </View>
         </View>
 
         {firstPhotoUri ? (
           <View style={styles.photoThumbWrap}>
-            <Image source={{ uri: firstPhotoUri }} style={styles.photoThumb} resizeMode="cover" accessibilityLabel="Photo de la réserve" />
+            <Image source={{ uri: firstPhotoUri }} style={styles.photoThumb} resizeMode="cover" accessibilityLabel={t('reserveCard.reservePhoto')} />
             {hasUnsyncedPhoto && (
-              <View style={styles.syncDot} accessibilityLabel="Photo non envoyée au serveur">
+              <View style={styles.syncDot} accessibilityLabel={t('reserveCard.unsyncedPhoto')}>
                 <Ionicons name="cloud-offline" size={10} color="#fff" />
               </View>
             )}
@@ -199,7 +220,7 @@ export default function ReserveCard({ reserve, onPress, onLongPress, onSwipeRigh
         ) : hasUnsyncedPhoto ? (
           <View style={[styles.photoThumb, styles.photoThumbPlaceholder]}>
             <Ionicons name="image-outline" size={20} color={C.textMuted} />
-            <View style={styles.syncDot} accessibilityLabel="Photo non envoyée au serveur">
+            <View style={styles.syncDot} accessibilityLabel={t('reserveCard.unsyncedPhoto')}>
               <Ionicons name="cloud-offline" size={10} color="#fff" />
             </View>
           </View>
@@ -223,10 +244,10 @@ export default function ReserveCard({ reserve, onPress, onLongPress, onSwipeRigh
               }}
               hitSlop={8}
               accessibilityRole="button"
-              accessibilityLabel="Voir sur le plan"
+              accessibilityLabel={t('reserveCard.viewOnPlan')}
             >
               <Ionicons name="location" size={12} color={C.primary} />
-              <Text style={styles.planPinText}>Plan</Text>
+              <Text style={styles.planPinText}>{t('reserveCard.plan')}</Text>
               <View style={styles.planPinnedDot} />
             </TouchableOpacity>
           ) : hasPlansAvailable ? (
@@ -238,10 +259,10 @@ export default function ReserveCard({ reserve, onPress, onLongPress, onSwipeRigh
               }}
               hitSlop={8}
               accessibilityRole="button"
-              accessibilityLabel="Non localisée sur le plan — épingler"
+              accessibilityLabel={t('reserveCard.notPinnedA11y')}
             >
               <Ionicons name="location-outline" size={12} color="#B45309" />
-              <Text style={styles.planUnpinnedText}>Plan</Text>
+              <Text style={styles.planUnpinnedText}>{t('reserveCard.plan')}</Text>
               <View style={styles.planUnpinnedDot}>
                 <Text style={styles.planUnpinnedDotText}>!</Text>
               </View>

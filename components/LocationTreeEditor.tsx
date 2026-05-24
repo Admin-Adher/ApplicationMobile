@@ -3,6 +3,7 @@ import {
   View, Text, StyleSheet, ScrollView, TextInput, TouchableOpacity, Alert,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { useTranslation } from 'react-i18next';
 import { C } from '@/constants/colors';
 import { ChantierBuilding, ChantierLevel, ChantierZone } from '@/constants/types';
 import { genId } from '@/lib/utils';
@@ -25,6 +26,7 @@ interface Props {
 }
 
 export default function LocationTreeEditor({ buildings, onChange }: Props) {
+  const { t } = useTranslation();
   const [basements, setBasements] = useState(1);
   const [floors, setFloors] = useState(3);
   const [expandedBuildingId, setExpandedBuildingId] = useState<string | null>(null);
@@ -36,7 +38,7 @@ export default function LocationTreeEditor({ buildings, onChange }: Props) {
     const name = newBuildingName.trim();
     if (!name) return;
     const exists = buildings.some(b => b.name.toLowerCase() === name.toLowerCase());
-    if (exists) { Alert.alert('Doublon', 'Ce bâtiment existe déjà.'); return; }
+    if (exists) { Alert.alert(t('locationTreeEditor.duplicateTitle'), t('locationTreeEditor.buildingExists')); return; }
     const newBuilding: ChantierBuilding = {
       id: genId(), name,
       levels: generateLevels(basements, floors),
@@ -47,9 +49,9 @@ export default function LocationTreeEditor({ buildings, onChange }: Props) {
   }
 
   function removeBuilding(id: string) {
-    Alert.alert('Supprimer', 'Supprimer ce bâtiment et tous ses niveaux ?', [
-      { text: 'Annuler', style: 'cancel' },
-      { text: 'Supprimer', style: 'destructive', onPress: () => {
+    Alert.alert(t('locationTreeEditor.deleteTitle'), t('locationTreeEditor.deleteBuildingMessage'), [
+      { text: t('common.cancel'), style: 'cancel' },
+      { text: t('common.delete'), style: 'destructive', onPress: () => {
         onChange(buildings.filter(b => b.id !== id));
         if (expandedBuildingId === id) setExpandedBuildingId(null);
       }},
@@ -71,7 +73,7 @@ export default function LocationTreeEditor({ buildings, onChange }: Props) {
     if (current.name === trimmed) return;
     const exists = buildings.some(b => b.id !== bId && b.name.toLowerCase() === trimmed.toLowerCase());
     if (exists) {
-      Alert.alert('Doublon', 'Un autre bâtiment porte déjà ce nom.');
+      Alert.alert(t('locationTreeEditor.duplicateTitle'), t('locationTreeEditor.otherBuildingExists'));
       return;
     }
     onChange(buildings.map(b => b.id !== bId ? b : { ...b, name: trimmed }));
@@ -90,7 +92,7 @@ export default function LocationTreeEditor({ buildings, onChange }: Props) {
     const building = buildings.find(b => b.id === bId);
     if (!building) return;
     if (building.levels.some(l => l.name.toLowerCase() === name.toLowerCase())) {
-      Alert.alert('Doublon', 'Ce niveau existe déjà.');
+      Alert.alert(t('locationTreeEditor.duplicateTitle'), t('locationTreeEditor.levelExists'));
       return;
     }
     const newLevel: ChantierLevel = { id: genId(), name, zones: [] };
@@ -106,7 +108,7 @@ export default function LocationTreeEditor({ buildings, onChange }: Props) {
     const level = building?.levels.find(l => l.id === lId);
     if (!level) return;
     if (level.zones.some(z => z.name.toLowerCase() === name.toLowerCase())) {
-      Alert.alert('Doublon', 'Cette zone existe déjà.');
+      Alert.alert(t('locationTreeEditor.duplicateTitle'), t('locationTreeEditor.zoneExists'));
       return;
     }
     const newZone: ChantierZone = { id: genId(), name };
@@ -135,7 +137,7 @@ export default function LocationTreeEditor({ buildings, onChange }: Props) {
     const current = level.zones.find(z => z.id === zId);
     if (!current || current.name === trimmed) return;
     if (level.zones.some(z => z.id !== zId && z.name.toLowerCase() === trimmed.toLowerCase())) {
-      Alert.alert('Doublon', 'Une autre zone porte déjà ce nom à ce niveau.');
+      Alert.alert(t('locationTreeEditor.duplicateTitle'), t('locationTreeEditor.otherZoneExists'));
       return;
     }
     onChange(buildings.map(b => b.id !== bId ? b : {
@@ -189,17 +191,27 @@ export default function LocationTreeEditor({ buildings, onChange }: Props) {
     }));
   }
 
+  const previewLevels = [
+    ...(basements > 0 ? Array.from({ length: basements }, (_, i) => `SS${basements - i}`) : []),
+    'RDC',
+    ...(floors > 0
+      ? [
+          ...Array.from({ length: Math.min(floors, 5) }, (_, i) => `R+${i + 1}`),
+          ...(floors > 5 ? [`... R+${floors}`] : []),
+        ]
+      : []),
+  ].join(', ');
+
   return (
     <View>
-      {/* Générateur rapide */}
       <View style={styles.generatorCard}>
         <View style={styles.generatorHeader}>
           <Ionicons name="flash-outline" size={14} color={C.primary} />
-          <Text style={styles.generatorTitle}>Générateur rapide de niveaux</Text>
+          <Text style={styles.generatorTitle}>{t('locationTreeEditor.quickGenerator')}</Text>
         </View>
         <View style={styles.generatorRow}>
           <View style={styles.counterGroup}>
-            <Text style={styles.counterLabel}>Sous-sols</Text>
+            <Text style={styles.counterLabel}>{t('locationTreeEditor.basements')}</Text>
             <View style={styles.counterRow}>
               <TouchableOpacity
                 style={styles.counterBtn}
@@ -218,7 +230,7 @@ export default function LocationTreeEditor({ buildings, onChange }: Props) {
           </View>
           <View style={styles.counterSep} />
           <View style={styles.counterGroup}>
-            <Text style={styles.counterLabel}>Étages</Text>
+            <Text style={styles.counterLabel}>{t('locationTreeEditor.floors')}</Text>
             <View style={styles.counterRow}>
               <TouchableOpacity
                 style={styles.counterBtn}
@@ -237,14 +249,13 @@ export default function LocationTreeEditor({ buildings, onChange }: Props) {
           </View>
         </View>
         <Text style={styles.generatorPreview}>
-          Génère : {basements > 0 ? Array.from({ length: basements }, (_, i) => `SS${basements - i}`).join(', ') + ', ' : ''}RDC{floors > 0 ? ', ' + Array.from({ length: Math.min(floors, 5) }, (_, i) => `R+${i + 1}`).join(', ') + (floors > 5 ? ` ... R+${floors}` : '') : ''}
+          {t('locationTreeEditor.generates', { levels: previewLevels })}
         </Text>
         <Text style={styles.generatorHint}>
-          Appliquer ce gabarit à un bâtiment via le bouton "Réinitialiser les niveaux"
+          {t('locationTreeEditor.generatorHint')}
         </Text>
       </View>
 
-      {/* Liste des bâtiments */}
       {buildings.map((building, bIdx) => (
         <View key={building.id} style={styles.buildingCard}>
           <BuildingHeader
@@ -268,23 +279,22 @@ export default function LocationTreeEditor({ buildings, onChange }: Props) {
                 style={styles.resetLevelsBtn}
                 onPress={() => {
                   Alert.alert(
-                    'Réinitialiser les niveaux',
-                    `Remplacer les niveaux de "${building.name}" par le gabarit (${basements} SS + RDC + ${floors} étages) ?`,
+                    t('locationTreeEditor.resetLevelsTitle'),
+                    t('locationTreeEditor.resetLevelsMessage', { building: building.name, basements, floors }),
                     [
-                      { text: 'Annuler', style: 'cancel' },
-                      { text: 'Appliquer', onPress: () => applyGenerator(building.id) },
+                      { text: t('common.cancel'), style: 'cancel' },
+                      { text: t('locationTreeEditor.apply'), onPress: () => applyGenerator(building.id) },
                     ]
                   );
                 }}
                 activeOpacity={0.7}
               >
                 <Ionicons name="refresh-outline" size={13} color={C.primary} />
-                <Text style={styles.resetLevelsBtnText}>Réinitialiser les niveaux avec le générateur</Text>
+                <Text style={styles.resetLevelsBtnText}>{t('locationTreeEditor.resetWithGenerator')}</Text>
               </TouchableOpacity>
 
-              {/* Niveaux */}
               {building.levels.length === 0 && (
-                <Text style={styles.emptyHint}>Aucun niveau — ajoutez-en ci-dessous</Text>
+                <Text style={styles.emptyHint}>{t('locationTreeEditor.noLevels')}</Text>
               )}
               {building.levels.map((level, idx) => (
                 <LevelRow
@@ -306,11 +316,10 @@ export default function LocationTreeEditor({ buildings, onChange }: Props) {
                 />
               ))}
 
-              {/* Ajouter un niveau */}
               <View style={styles.addRow}>
                 <TextInput
                   style={styles.addInput}
-                  placeholder="Nouveau niveau (ex : Mezzanine, Toiture)"
+                  placeholder={t('locationTreeEditor.newLevelPlaceholder')}
                   placeholderTextColor={C.textMuted}
                   value={newLevelName[building.id] ?? ''}
                   onChangeText={v => setNewLevelName(prev => ({ ...prev, [building.id]: v }))}
@@ -330,11 +339,10 @@ export default function LocationTreeEditor({ buildings, onChange }: Props) {
         </View>
       ))}
 
-      {/* Ajouter un bâtiment */}
       <View style={styles.addBuildingRow}>
         <TextInput
           style={styles.addBuildingInput}
-          placeholder="Nom du bâtiment (ex : Bât A, Tour Nord...)"
+          placeholder={t('locationTreeEditor.buildingPlaceholder')}
           placeholderTextColor={C.textMuted}
           value={newBuildingName}
           onChangeText={setNewBuildingName}
@@ -347,16 +355,14 @@ export default function LocationTreeEditor({ buildings, onChange }: Props) {
           disabled={!newBuildingName.trim()}
         >
           <Ionicons name="add" size={16} color="#fff" />
-          <Text style={styles.addBuildingBtnText}>Ajouter</Text>
+          <Text style={styles.addBuildingBtnText}>{t('locationTreeEditor.add')}</Text>
         </TouchableOpacity>
       </View>
 
       {buildings.length === 0 && (
         <View style={styles.emptyState}>
           <Ionicons name="business-outline" size={32} color={C.textMuted} />
-          <Text style={styles.emptyStateText}>
-            Aucun bâtiment configuré.{'\n'}Ajoutez au moins un bâtiment pour activer la localisation hiérarchique.
-          </Text>
+          <Text style={styles.emptyStateText}>{t('locationTreeEditor.emptyBuildings')}</Text>
         </View>
       )}
     </View>
@@ -384,6 +390,7 @@ function BuildingHeader({
   onRename: (name: string) => void;
   onRemove: () => void;
 }) {
+  const { t } = useTranslation();
   const [editing, setEditing] = useState(false);
   const [editName, setEditName] = useState(building.name);
 
@@ -431,9 +438,12 @@ function BuildingHeader({
         )}
         <TouchableOpacity onPress={onToggle} activeOpacity={0.8}>
           <Text style={styles.buildingMeta}>
-            {building.levels.length} niveau{building.levels.length !== 1 ? 'x' : ''}
+            {t('locationTreeEditor.levelsCount', { count: building.levels.length })}
             {building.levels.length > 0
-              ? ` · ${building.levels[0].name} → ${building.levels[building.levels.length - 1].name}`
+              ? t('locationTreeEditor.levelRange', {
+                  first: building.levels[0].name,
+                  last: building.levels[building.levels.length - 1].name,
+                })
               : ''}
           </Text>
         </TouchableOpacity>
@@ -505,6 +515,7 @@ function LevelRow({
   onRenameZone: (zId: string, name: string) => void;
   onMoveZone: (zId: string, dir: -1 | 1) => void;
 }) {
+  const { t } = useTranslation();
   const [expanded, setExpanded] = useState(false);
   const [editing, setEditing] = useState(false);
   const [editName, setEditName] = useState(level.name);
@@ -585,7 +596,7 @@ function LevelRow({
           <View style={styles.zoneAddRow}>
             <TextInput
               style={styles.zoneInput}
-              placeholder="Ajouter une zone..."
+              placeholder={t('locationTreeEditor.zonePlaceholder')}
               placeholderTextColor={C.textMuted}
               value={newZoneName[key] ?? ''}
               onChangeText={v => setNewZoneName(prev => ({ ...prev, [key]: v }))}

@@ -5,6 +5,7 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useTranslation } from 'react-i18next';
 import { C } from '@/constants/colors';
 
 export interface LevelItem {
@@ -55,6 +56,7 @@ export default function LevelPickerSheet({
   visible, onClose, buildingName, levels, selectedId, recentIds, onSelect,
 }: Props) {
   const insets = useSafeAreaInsets();
+  const { t } = useTranslation();
   const [query, setQuery] = useState('');
 
   // Hauteur de la sheet en PIXELS (cf. BuildingPickerSheet) : `height: '78%'`
@@ -132,9 +134,9 @@ export default function LevelPickerSheet({
 
         <View style={styles.header}>
           <View style={{ flex: 1 }}>
-            <Text style={styles.title}>Choisir un niveau</Text>
+            <Text style={styles.title}>{t('levelPicker.title')}</Text>
             <Text style={styles.subtitle} numberOfLines={1}>
-              {buildingName} · {levels.length} niveau{levels.length > 1 ? 'x' : ''}
+              {t('levelPicker.subtitle', { building: buildingName, count: levels.length })}
             </Text>
           </View>
           <TouchableOpacity onPress={() => { setQuery(''); onClose(); }} style={styles.closeBtn}>
@@ -148,7 +150,7 @@ export default function LevelPickerSheet({
             style={styles.searchInput}
             value={query}
             onChangeText={setQuery}
-            placeholder="Rechercher un niveau (ex. R+5)"
+            placeholder={t('levelPicker.searchPlaceholder')}
             placeholderTextColor={C.textMuted}
             autoCorrect={false}
             autoCapitalize="none"
@@ -183,17 +185,17 @@ export default function LevelPickerSheet({
               </View>
               <View style={{ flex: 1 }}>
                 <Text style={[styles.rowTitle, selectedId === ALL_LEVELS && styles.rowTitleActive]}>
-                  Tous niveaux
+                  {t('levelPicker.allLevels')}
                 </Text>
                 <View style={styles.rowSubRow}>
                   <Text style={styles.rowSub}>
-                    {totalPlans} plan{totalPlans > 1 ? 's' : ''}
+                    {t('levelPicker.plans', { count: totalPlans })}
                   </Text>
                   {totalReserves > 0 && (
                     <>
                       <View style={styles.dotSep} />
                       <Text style={styles.rowSubReserve}>
-                        {totalReserves} réserve{totalReserves > 1 ? 's' : ''}
+                        {t('levelPicker.reserves', { count: totalReserves })}
                       </Text>
                     </>
                   )}
@@ -206,7 +208,7 @@ export default function LevelPickerSheet({
           {/* Récents */}
           {!query && recents.length > 0 && (
             <>
-              <SectionHeader icon="time-outline" label="Récemment consultés" />
+              <SectionHeader icon="time-outline" label={t('levelPicker.recent')} />
               {recents.map(l => (
                 <LevelRow
                   key={`recent-${l.id}`}
@@ -214,6 +216,7 @@ export default function LevelPickerSheet({
                   active={l.id === selectedId}
                   pinned
                   onPress={() => pick(l.id)}
+                  t={t}
                 />
               ))}
             </>
@@ -224,7 +227,7 @@ export default function LevelPickerSheet({
             <>
               <SectionHeader
                 icon="grid-outline"
-                label={`Tous les niveaux · ${sortedLevels.length}`}
+                label={t('levelPicker.allLevelsCount', { count: sortedLevels.length })}
               />
               <View style={styles.gridWrap}>
                 {sortedLevels.map(l => {
@@ -248,13 +251,14 @@ export default function LevelPickerSheet({
                 })}
               </View>
 
-              <SectionHeader icon="list-outline" label="Détails" />
+              <SectionHeader icon="list-outline" label={t('levelPicker.details')} />
               {sortedLevels.map(l => (
                 <LevelRow
                   key={`detail-${l.id}`}
                   l={l}
                   active={l.id === selectedId}
                   onPress={() => pick(l.id)}
+                  t={t}
                 />
               ))}
             </>
@@ -263,12 +267,12 @@ export default function LevelPickerSheet({
           {/* Résultats de recherche */}
           {query && (
             <>
-              <SectionHeader icon="search-outline" label={`Résultats · ${filtered.length}`} />
+              <SectionHeader icon="search-outline" label={t('levelPicker.results', { count: filtered.length })} />
               {filtered.length === 0 ? (
                 <View style={styles.empty}>
                   <Ionicons name="search-outline" size={20} color={C.textMuted} />
                   <Text style={styles.emptyText}>
-                    Aucun niveau ne correspond à « {query} »
+                    {t('levelPicker.noMatch', { query })}
                   </Text>
                 </View>
               ) : (
@@ -278,6 +282,7 @@ export default function LevelPickerSheet({
                     l={l}
                     active={l.id === selectedId}
                     onPress={() => pick(l.id)}
+                    t={t}
                   />
                 ))
               )}
@@ -300,8 +305,8 @@ function SectionHeader({ icon, label }: { icon: any; label: string }) {
 }
 
 function LevelRow({
-  l, active, pinned, onPress,
-}: { l: LevelItem; active?: boolean; pinned?: boolean; onPress: () => void }) {
+  l, active, pinned, onPress, t,
+}: { l: LevelItem; active?: boolean; pinned?: boolean; onPress: () => void; t: ReturnType<typeof useTranslation>['t'] }) {
   return (
     <TouchableOpacity
       style={[styles.row, active && styles.rowActive]}
@@ -327,13 +332,13 @@ function LevelRow({
         </View>
         <View style={styles.rowSubRow}>
           <Text style={styles.rowSub}>
-            {l.planCount} plan{l.planCount > 1 ? 's' : ''}
+            {t('levelPicker.plans', { count: l.planCount })}
           </Text>
           {l.reserveCount > 0 && (
             <>
               <View style={styles.dotSep} />
               <Text style={styles.rowSubReserve}>
-                {l.reserveCount} réserve{l.reserveCount > 1 ? 's' : ''}
+                {t('levelPicker.reserves', { count: l.reserveCount })}
               </Text>
             </>
           )}

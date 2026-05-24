@@ -6,6 +6,7 @@ import { useRouter } from 'expo-router';
 import { useState, useCallback, useMemo, useRef } from 'react';
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
+import { useTranslation } from 'react-i18next';
 import { C } from '@/constants/colors';
 import { useApp } from '@/context/AppContext';
 import { useAuth } from '@/context/AuthContext';
@@ -29,25 +30,25 @@ import DictationTextInput from '@/components/DictationTextInput';
 
 type Recurrence = 'none' | 'weekly' | 'bimonthly';
 
-const VISIT_TYPES: { value: VisiteType; label: string; icon: string; color: string }[] = [
-  { value: 'controle',  label: 'Contrôle',  icon: 'clipboard-outline',           color: '#6366F1' },
-  { value: 'opr',       label: 'Pré-réception', icon: 'document-text-outline',    color: '#F59E0B' },
-  { value: 'securite',  label: 'Sécurité',   icon: 'shield-outline',              color: '#EF4444' },
-  { value: 'reception', label: 'Réception',  icon: 'ribbon-outline',              color: '#10B981' },
-  { value: 'synthese',  label: 'Synthèse',   icon: 'people-outline',              color: '#3B82F6' },
-  { value: 'autre',     label: 'Autre',       icon: 'ellipsis-horizontal-outline', color: '#6B7280' },
+const VISIT_TYPES: { value: VisiteType; labelKey: string; icon: string; color: string }[] = [
+  { value: 'controle',  labelKey: 'visits.type.controle',  icon: 'clipboard-outline',           color: '#6366F1' },
+  { value: 'opr',       labelKey: 'visits.type.opr',       icon: 'document-text-outline',        color: '#F59E0B' },
+  { value: 'securite',  labelKey: 'visits.type.securite',  icon: 'shield-outline',               color: '#EF4444' },
+  { value: 'reception', labelKey: 'visits.type.reception', icon: 'ribbon-outline',               color: '#10B981' },
+  { value: 'synthese',  labelKey: 'visits.type.synthese',  icon: 'people-outline',               color: '#3B82F6' },
+  { value: 'autre',     labelKey: 'visits.type.autre',     icon: 'ellipsis-horizontal-outline',  color: '#6B7280' },
 ];
 
-const RECURRENCE_OPTIONS: { value: Recurrence; label: string; desc: string }[] = [
-  { value: 'none',      label: 'Aucune',       desc: 'Visite unique' },
-  { value: 'weekly',    label: 'Hebdomadaire',  desc: '4 visites (4 semaines)' },
-  { value: 'bimonthly', label: 'Bi-mensuelle',  desc: '4 visites toutes les 2 semaines' },
+const RECURRENCE_OPTIONS: { value: Recurrence; labelKey: string; descKey: string }[] = [
+  { value: 'none',      labelKey: 'visits.new.recurrenceOptions.none.label',      descKey: 'visits.new.recurrenceOptions.none.desc' },
+  { value: 'weekly',    labelKey: 'visits.new.recurrenceOptions.weekly.label',    descKey: 'visits.new.recurrenceOptions.weekly.desc' },
+  { value: 'bimonthly', labelKey: 'visits.new.recurrenceOptions.bimonthly.label', descKey: 'visits.new.recurrenceOptions.bimonthly.desc' },
 ];
 
-const STATUS_OPTIONS: { value: VisiteStatus; label: string; color: string }[] = [
-  { value: 'planned',     label: 'Planifiée', color: '#6366F1' },
-  { value: 'in_progress', label: 'En cours',  color: C.inProgress },
-  { value: 'completed',   label: 'Terminée',  color: C.closed },
+const STATUS_OPTIONS: { value: VisiteStatus; labelKey: string; color: string }[] = [
+  { value: 'planned',     labelKey: 'visits.status.planned', color: '#6366F1' },
+  { value: 'in_progress', labelKey: 'visits.status.in_progress', color: C.inProgress },
+  { value: 'completed',   labelKey: 'visits.status.completed', color: C.closed },
 ];
 
 const DEADLINE_SUGGESTIONS: { label: string; days: number }[] = [
@@ -130,12 +131,12 @@ function addDays(d: Date, days: number): string {
   return formatDateFR(next);
 }
 
-function autoTitle(visitType: VisiteType | null, dateStr: string): string {
+function autoTitle(visitType: VisiteType | null, dateStr: string, t: (key: string) => string): string {
   if (!visitType) return '';
   const typeCfg = VISIT_TYPES.find(t => t.value === visitType);
   if (!typeCfg) return '';
   const week = getISOWeek(parseDateFR(dateStr));
-  return `${typeCfg.label} — S${week}`;
+  return `${t(typeCfg.labelKey)} — S${week}`;
 }
 
 function formatTimeInput(raw: string): string {
@@ -162,6 +163,7 @@ function normalizeSearch(value: string): string {
 
 export default function NewVisiteScreen() {
   const router = useRouter();
+  const { t } = useTranslation();
   const { addVisite, activeChantierId, activeChantier, companies, sitePlans } = useApp();
   const { user, permissions, users } = useAuth();
   const scrollRef = useRef<ScrollView | null>(null);
@@ -234,7 +236,7 @@ export default function NewVisiteScreen() {
     return map;
   }, [visitedLocations]);
   const selectedLocationSummary = useMemo(() => {
-    if (visitedLocations.length === 0) return 'Aucun bâtiment sélectionné';
+    if (visitedLocations.length === 0) return t('visits.new.noBuildingSelected');
     const levelCount = visitedLocations.reduce((sum, loc) => {
       const b = chantierBuildings.find(item => item.id === loc.buildingId);
       return sum + (b?.levels?.length ?? 0);
@@ -245,8 +247,12 @@ export default function NewVisiteScreen() {
         (!plan.buildingId && loc.buildingName && plan.building === loc.buildingName)
       )
     ).length;
-    return `${visitedLocations.length} bâtiment${visitedLocations.length > 1 ? 's' : ''} · ${levelCount} niveau${levelCount > 1 ? 'x' : ''} · ${planCount} plan${planCount > 1 ? 's' : ''}`;
-  }, [visitedLocations, chantierBuildings, chantierPlans]);
+    return t('visits.new.selectedSummary', {
+      buildings: t('visits.buildings', { count: visitedLocations.length }),
+      levels: t('visits.new.levels', { count: levelCount }),
+      plans: t('chantierSwitcher.plans', { count: planCount }),
+    });
+  }, [visitedLocations, chantierBuildings, chantierPlans, t]);
 
   const filteredPerimeterBuildings = useMemo(() => {
     const q = normalizeSearch(buildingQuery.trim());
@@ -281,21 +287,21 @@ export default function NewVisiteScreen() {
 
   // ── Auto-suggest title ──────────────────────────────────────────────────────
 
-  const handleVisitTypeChange = useCallback((t: VisiteType) => {
-    setVisitType(t);
-    if (!titleEdited) setTitle(autoTitle(t, date));
+  const handleVisitTypeChange = useCallback((type: VisiteType) => {
+    setVisitType(type);
+    if (!titleEdited) setTitle(autoTitle(type, date, t));
     // Auto-load checklist template if not yet customised
     if (!checklistLoaded || checklistItems.length === 0) {
-      const template = CHECKLIST_TEMPLATES[t] ?? [];
+      const template = CHECKLIST_TEMPLATES[type] ?? [];
       setChecklistItems(template.map(label => ({ id: genId(), label, checked: false })));
       setChecklistLoaded(true);
     }
-  }, [titleEdited, date, checklistLoaded, checklistItems.length]);
+  }, [titleEdited, date, checklistLoaded, checklistItems.length, t]);
 
   const handleDateChange = useCallback((d: string) => {
     setDate(d);
-    if (!titleEdited && visitType) setTitle(autoTitle(visitType, d));
-  }, [titleEdited, visitType]);
+    if (!titleEdited && visitType) setTitle(autoTitle(visitType, d, t));
+  }, [titleEdited, visitType, t]);
 
   const handleTitleChange = useCallback((t: string) => {
     setTitle(t);
@@ -304,7 +310,7 @@ export default function NewVisiteScreen() {
 
   function applySuggestedTitle() {
     if (visitType) {
-      setTitle(autoTitle(visitType, date));
+      setTitle(autoTitle(visitType, date, t));
       setTitleEdited(false);
     }
   }
@@ -337,7 +343,7 @@ export default function NewVisiteScreen() {
   async function pickCoverPhoto() {
     const { status: ps } = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (ps !== 'granted') {
-      Alert.alert('Permission refusée', "L'accès à la galerie est requis.");
+      Alert.alert(t('visits.new.permissionDenied'), t('visits.new.galleryRequired'));
       return;
     }
     const result = await ImagePicker.launchImageLibraryAsync({
@@ -349,7 +355,7 @@ export default function NewVisiteScreen() {
   async function takeCoverPhoto() {
     const { status: cs } = await ImagePicker.requestCameraPermissionsAsync();
     if (cs !== 'granted') {
-      Alert.alert('Permission refusée', "L'accès à la caméra est requis.");
+      Alert.alert(t('visits.new.permissionDenied'), t('visits.new.cameraRequired'));
       return;
     }
     const result = await ImagePicker.launchCameraAsync({ allowsEditing: true, aspect: [16, 9], quality: 0.8 });
@@ -492,25 +498,25 @@ export default function NewVisiteScreen() {
   function handleSubmit() {
     if (isSubmitting) return;
     if (!activeChantierId) {
-      Alert.alert('Chantier requis', 'Sélectionnez un chantier avant de créer une visite.');
+      Alert.alert(t('visits.new.chantierRequiredTitle'), t('visits.new.chantierRequiredText'));
       return;
     }
     if (!visitType) {
-      Alert.alert('Type de visite requis', 'Choisissez un type de visite pour appliquer le bon modèle de contrôle.');
+      Alert.alert(t('visits.new.typeRequiredTitle'), t('visits.new.typeRequiredText'));
       return;
     }
     if (!title.trim()) {
-      Alert.alert('Champ requis', 'Veuillez saisir un titre pour la visite.');
+      Alert.alert(t('visits.new.requiredTitle'), t('visits.new.titleRequiredText'));
       return;
     }
     if (!date.trim()) {
-      Alert.alert('Champ requis', 'Veuillez saisir une date.');
+      Alert.alert(t('visits.new.requiredTitle'), t('visits.new.dateRequiredText'));
       return;
     }
     if (hasBuildingHierarchy && visitedLocations.length === 0) {
       Alert.alert(
-        'Périmètre requis',
-        'Sélectionnez au moins un bâtiment concerné par cette visite. Vous pourrez choisir le niveau et le plan précis lors de la création de chaque réserve.'
+        t('visits.new.perimeterRequiredTitle'),
+        t('visits.new.perimeterRequiredText')
       );
       return;
     }
@@ -518,15 +524,15 @@ export default function NewVisiteScreen() {
     const startMinutes = startTime.trim() ? parseTimeToMinutes(startTime.trim()) : null;
     const endMinutes = endTime.trim() ? parseTimeToMinutes(endTime.trim()) : null;
     if (startTime.trim() && startMinutes === null) {
-      Alert.alert('Horaire invalide', 'Saisissez une heure de début au format HH:MM.');
+      Alert.alert(t('visits.new.invalidTimeTitle'), t('visits.new.startTimeInvalid'));
       return;
     }
     if (endTime.trim() && endMinutes === null) {
-      Alert.alert('Horaire invalide', 'Saisissez une heure de fin au format HH:MM.');
+      Alert.alert(t('visits.new.invalidTimeTitle'), t('visits.new.endTimeInvalid'));
       return;
     }
     if (startMinutes !== null && endMinutes !== null && endMinutes <= startMinutes) {
-      Alert.alert('Horaire incohérent', "L'heure de fin doit être après l'heure de début.");
+      Alert.alert(t('visits.new.inconsistentTimeTitle'), t('visits.new.inconsistentTimeText'));
       return;
     }
 
@@ -579,10 +585,10 @@ export default function NewVisiteScreen() {
     const count = intervals.length;
     setIsSubmitting(false);
     Alert.alert(
-      count > 1 ? `${count} visites créées` : 'Visite créée',
+      t('visits.new.createdTitle', { count }),
       count > 1
-        ? `Série "${title.trim()}" planifiée sur ${count} occurrences.`
-        : `"${title.trim()}" a été créée.`,
+        ? t('visits.new.createdSeries', { title: title.trim(), count })
+        : t('visits.new.createdSingle', { title: title.trim() }),
       [{ text: 'OK', onPress: () => router.back() }]
     );
   }
@@ -592,17 +598,17 @@ export default function NewVisiteScreen() {
   if (!permissions.canCreate) {
     return (
       <View style={{ flex: 1, backgroundColor: C.bg, alignItems: 'center', justifyContent: 'center', padding: 32 }}>
-        <Header title="Nouvelle visite" showBack />
+        <Header title={t('visits.new.title')} showBack />
         <Ionicons name="lock-closed-outline" size={48} color="#9CA3AF" />
-        <Text style={{ marginTop: 16, fontSize: 16, fontFamily: 'Inter_600SemiBold', color: '#374151', textAlign: 'center' }}>Accès refusé</Text>
+        <Text style={{ marginTop: 16, fontSize: 16, fontFamily: 'Inter_600SemiBold', color: '#374151', textAlign: 'center' }}>{t('visits.new.accessDeniedTitle')}</Text>
         <Text style={{ marginTop: 8, fontSize: 14, fontFamily: 'Inter_400Regular', color: '#6B7280', textAlign: 'center' }}>
-          La création de visites chantier requiert les droits Conducteur ou Chef d'équipe.
+          {t('visits.new.accessDeniedText')}
         </Text>
       </View>
     );
   }
 
-  const suggestedTitle = visitType ? autoTitle(visitType, date) : '';
+  const suggestedTitle = visitType ? autoTitle(visitType, date, t) : '';
   const showSuggestBtn = visitType && title !== suggestedTitle && !!suggestedTitle;
   const checklistDone  = checklistItems.filter(i => i.checked).length;
   const typeCardBorderColor = typeHighlightAnim.interpolate({
@@ -622,7 +628,7 @@ export default function NewVisiteScreen() {
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
     >
       <Header
-        title="Nouvelle visite"
+        title={t('visits.new.title')}
         subtitle={activeChantier?.name ?? ''}
         showBack
         rightIcon="checkmark-circle-outline"
@@ -647,22 +653,22 @@ export default function NewVisiteScreen() {
             typeSectionYRef.current = event.nativeEvent.layout.y;
           }}
         >
-          <Text style={styles.sectionLabel}>TYPE DE VISITE</Text>
+          <Text style={styles.sectionLabel}>{t('visits.new.sectionType')}</Text>
           <View style={styles.typeGrid}>
-            {VISIT_TYPES.map(t => {
-              const active = visitType === t.value;
+            {VISIT_TYPES.map(type => {
+              const active = visitType === type.value;
               return (
                 <TouchableOpacity
-                  key={t.value}
-                  style={[styles.typeChip, active && { borderColor: t.color, backgroundColor: t.color + '15' }]}
-                  onPress={() => handleVisitTypeChange(t.value)}
+                  key={type.value}
+                  style={[styles.typeChip, active && { borderColor: type.color, backgroundColor: type.color + '15' }]}
+                  onPress={() => handleVisitTypeChange(type.value)}
                   activeOpacity={0.75}
                 >
-                  <Ionicons name={t.icon as any} size={16} color={active ? t.color : C.textMuted} />
-                  <Text style={[styles.typeChipText, active && { color: t.color, fontFamily: 'Inter_600SemiBold' }]}>
-                    {t.label}
+                  <Ionicons name={type.icon as any} size={16} color={active ? type.color : C.textMuted} />
+                  <Text style={[styles.typeChipText, active && { color: type.color, fontFamily: 'Inter_600SemiBold' }]}>
+                    {t(type.labelKey)}
                   </Text>
-                  {active && <Ionicons name="checkmark-circle" size={14} color={t.color} />}
+                  {active && <Ionicons name="checkmark-circle" size={14} color={type.color} />}
                 </TouchableOpacity>
               );
             })}
@@ -671,8 +677,8 @@ export default function NewVisiteScreen() {
 
         {/* ── 2. PHOTO DE COUVERTURE ── */}
         <View style={styles.card}>
-          <Text style={styles.sectionLabel}>PHOTO DE COUVERTURE</Text>
-          <Text style={styles.sublabel}>Optionnel — photo représentative du chantier ou de la zone visitée</Text>
+          <Text style={styles.sectionLabel}>{t('visits.new.coverPhoto')}</Text>
+          <Text style={styles.sublabel}>{t('visits.new.coverPhotoHint')}</Text>
 
           {coverPhotoUri ? (
             <View style={styles.coverPhotoWrapper}>
@@ -688,11 +694,11 @@ export default function NewVisiteScreen() {
             <View style={styles.photoActions}>
               <TouchableOpacity style={styles.photoBtn} onPress={pickCoverPhoto}>
                 <Ionicons name="images-outline" size={18} color={C.primary} />
-                <Text style={styles.photoBtnText}>Choisir une photo</Text>
+                <Text style={styles.photoBtnText}>{t('visits.new.choosePhoto')}</Text>
               </TouchableOpacity>
               <TouchableOpacity style={styles.photoBtn} onPress={takeCoverPhoto}>
                 <Ionicons name="camera-outline" size={18} color={C.primary} />
-                <Text style={styles.photoBtnText}>Prendre une photo</Text>
+                <Text style={styles.photoBtnText}>{t('visits.new.takePhoto')}</Text>
               </TouchableOpacity>
             </View>
           )}
@@ -700,14 +706,14 @@ export default function NewVisiteScreen() {
 
         {/* ── 3. INFORMATIONS GÉNÉRALES ── */}
         <View style={styles.card}>
-          <Text style={styles.sectionLabel}>INFORMATIONS GÉNÉRALES</Text>
+          <Text style={styles.sectionLabel}>{t('visits.new.generalInfo')}</Text>
 
-          <Text style={styles.label}>Titre de la visite *</Text>
+          <Text style={styles.label}>{t('visits.new.titleLabel')}</Text>
           <View style={styles.titleRow}>
             <View style={styles.titleInputWrap}>
               <DictationTextInput
                 inputStyle={[styles.input, styles.titleInput]}
-                placeholder={visitType ? suggestedTitle : 'Ex: Contrôle — S14'}
+                placeholder={visitType ? suggestedTitle : t('visits.new.titlePlaceholder')}
                 placeholderTextColor={C.textMuted}
                 value={title}
                 onChangeText={handleTitleChange}
@@ -724,21 +730,21 @@ export default function NewVisiteScreen() {
           {showSuggestBtn && (
             <TouchableOpacity onPress={applySuggestedTitle} style={styles.suggestHint}>
               <Ionicons name="flash-outline" size={11} color={C.primary} />
-              <Text style={styles.suggestHintText}>Utiliser « {suggestedTitle} »</Text>
+              <Text style={styles.suggestHintText}>{t('visits.new.useSuggestion', { title: suggestedTitle })}</Text>
             </TouchableOpacity>
           )}
 
-          <Text style={styles.label}>Conducteur de travaux</Text>
+          <Text style={styles.label}>{t('visits.new.conductor')}</Text>
           <TextInput
             style={styles.input}
-            placeholder="Nom du responsable"
+            placeholder={t('visits.new.conductorPlaceholder')}
             placeholderTextColor={C.textMuted}
             value={conducteur}
             onChangeText={setConducteur}
           />
 
           <View style={styles.dateBlock}>
-            <Text style={styles.label}>Date</Text>
+            <Text style={styles.label}>{t('visits.new.date')}</Text>
             <DateInput
               value={date}
               onChange={handleDateChange}
@@ -751,7 +757,7 @@ export default function NewVisiteScreen() {
 
           <View style={styles.dateTimeRow}>
             <View style={styles.timeBlock}>
-              <Text style={styles.label}>Début</Text>
+              <Text style={styles.label}>{t('visits.new.start')}</Text>
               <TextInput
                 style={[styles.input, styles.timeInput]}
                 placeholder="08:00"
@@ -763,7 +769,7 @@ export default function NewVisiteScreen() {
               />
             </View>
             <View style={styles.timeBlock}>
-              <Text style={styles.label}>Fin</Text>
+              <Text style={styles.label}>{t('visits.new.end')}</Text>
               <TextInput
                 style={[styles.input, styles.timeInput]}
                 placeholder="10:00"
@@ -776,7 +782,7 @@ export default function NewVisiteScreen() {
             </View>
           </View>
 
-          <Text style={[styles.label, { marginTop: 4 }]}>Statut initial</Text>
+          <Text style={[styles.label, { marginTop: 4 }]}>{t('visits.new.initialStatus')}</Text>
           <View style={styles.statusRow}>
             {STATUS_OPTIONS.map(opt => (
               <TouchableOpacity
@@ -785,7 +791,7 @@ export default function NewVisiteScreen() {
                 onPress={() => setStatus(opt.value)}
               >
                 <Text style={[styles.statusChipText, status === opt.value && { color: opt.value === 'planned' ? '#6366F1' : opt.color }]}>
-                  {opt.label}
+                  {t(opt.labelKey)}
                 </Text>
               </TouchableOpacity>
             ))}
@@ -796,9 +802,9 @@ export default function NewVisiteScreen() {
         <View style={styles.card}>
           <View style={styles.perimeterHeader}>
             <View style={{ flex: 1 }}>
-              <Text style={styles.sectionLabel}>PÉRIMÈTRE DE VISITE</Text>
+              <Text style={styles.sectionLabel}>{t('visits.new.perimeterTitle')}</Text>
               <Text style={styles.sublabel}>
-                Sélectionnez les bâtiments visités. Les réserves créées depuis cette visite seront limitées à ce périmètre.
+                {t('visits.new.perimeterText')}
               </Text>
             </View>
             {hasBuildingHierarchy && visitedLocations.length > 0 ? (
@@ -814,7 +820,7 @@ export default function NewVisiteScreen() {
                 <Ionicons name="search" size={14} color={C.textMuted} />
                 <TextInput
                   style={styles.perimeterSearchInput}
-                  placeholder="Rechercher un bÃ¢timent ou un niveau..."
+                  placeholder={t('visits.new.searchBuilding')}
                   placeholderTextColor={C.textMuted}
                   value={buildingQuery}
                   onChangeText={setBuildingQuery}
@@ -864,7 +870,7 @@ export default function NewVisiteScreen() {
                 >
                   <Ionicons name="checkmark-done-outline" size={14} color={C.primary} />
                   <Text style={styles.perimeterActionText}>
-                    {buildingQuery.trim() ? 'Sélectionner ces résultats' : 'Tout sélectionner'}
+                    {buildingQuery.trim() ? t('visits.new.selectResults') : t('visits.new.selectAll')}
                   </Text>
                 </TouchableOpacity>
                 <TouchableOpacity
@@ -874,7 +880,7 @@ export default function NewVisiteScreen() {
                   activeOpacity={0.75}
                 >
                   <Ionicons name="close-outline" size={14} color={C.textSub} />
-                  <Text style={[styles.perimeterActionText, { color: C.textSub }]}>Effacer</Text>
+                  <Text style={[styles.perimeterActionText, { color: C.textSub }]}>{t('visits.new.clear')}</Text>
                 </TouchableOpacity>
               </View>
 
@@ -888,7 +894,7 @@ export default function NewVisiteScreen() {
                 {visiblePerimeterBuildings.length === 0 ? (
                   <View style={styles.buildingNoResult}>
                     <Ionicons name="search-outline" size={16} color={C.textMuted} />
-                    <Text style={styles.buildingNoResultText}>Aucun bâtiment ne correspond à cette recherche.</Text>
+                    <Text style={styles.buildingNoResultText}>{t('visits.new.noBuildingResult')}</Text>
                   </View>
                 ) : null}
                 {visiblePerimeterBuildings.map(b => {
@@ -908,7 +914,7 @@ export default function NewVisiteScreen() {
                           {b.name}
                         </Text>
                         <Text style={styles.buildingSelectMeta}>
-                          {b.levels?.length ?? 0} niveau{(b.levels?.length ?? 0) > 1 ? 'x' : ''}
+                          {t('visits.new.levels', { count: b.levels?.length ?? 0 })}
                         </Text>
                       </View>
                     </TouchableOpacity>
@@ -925,8 +931,8 @@ export default function NewVisiteScreen() {
                 >
                   <Text style={styles.buildingMoreButtonText}>
                     {showAllBuildingChoices
-                      ? 'Réduire la liste'
-                      : `Voir ${hiddenBuildingChoiceCount} autre${hiddenBuildingChoiceCount > 1 ? 's' : ''} bâtiment${hiddenBuildingChoiceCount > 1 ? 's' : ''}`}
+                      ? t('visits.new.reduceList')
+                      : t('visits.new.showOtherBuildings', { label: t('visits.buildings', { count: hiddenBuildingChoiceCount }) })}
                   </Text>
                   <Ionicons name={showAllBuildingChoices ? 'chevron-up' : 'chevron-down'} size={14} color={C.primary} />
                 </TouchableOpacity>
@@ -949,7 +955,7 @@ export default function NewVisiteScreen() {
                     activeOpacity={0.75}
                   >
                     <View style={{ flex: 1 }}>
-                      <Text style={styles.defaultPlanToggleTitle}>Plans suggérés par bâtiment</Text>
+                      <Text style={styles.defaultPlanToggleTitle}>{t('visits.new.planSuggestions')}</Text>
                       <Text style={styles.defaultPlanToggleSubtitle}>
                         Optionnel · {visitedLocations.length} bâtiment{visitedLocations.length > 1 ? 's' : ''} sélectionné{visitedLocations.length > 1 ? 's' : ''}
                       </Text>
@@ -968,7 +974,7 @@ export default function NewVisiteScreen() {
                         <View style={styles.defaultPlanTitleRow}>
                           <Ionicons name="business-outline" size={13} color={C.primary} />
                           <Text style={styles.defaultPlanTitle}>{loc.buildingName}</Text>
-                          <Text style={styles.defaultPlanMeta}>{plans.length} plan{plans.length > 1 ? 's' : ''}</Text>
+                          <Text style={styles.defaultPlanMeta}>{t('chantierSwitcher.plans', { count: plans.length })}</Text>
                         </View>
                         <ScrollView horizontal showsHorizontalScrollIndicator={false}>
                           <View style={styles.chipRow}>
@@ -977,7 +983,7 @@ export default function NewVisiteScreen() {
                               onPress={() => updateLocationDefaultPlan(loc.buildingId!, null)}
                             >
                               <Ionicons name="close-outline" size={13} color={selectedPlanId === null ? C.primary : C.textMuted} />
-                              <Text style={[styles.chipText, selectedPlanId === null && styles.chipTextActive]}>Aucun</Text>
+                              <Text style={[styles.chipText, selectedPlanId === null && styles.chipTextActive]}>{t('visits.new.noPlan')}</Text>
                             </TouchableOpacity>
                             {plans.map(plan => {
                               const selected = selectedPlanId === plan.id;
@@ -1022,8 +1028,8 @@ export default function NewVisiteScreen() {
 
               {chantierPlans.length > 0 && (
                 <>
-                  <Text style={[styles.label, { marginTop: 12 }]}>Plan de référence</Text>
-                  <Text style={styles.sublabel}>Plan affiché par défaut lors de la création des réserves depuis cette visite</Text>
+                  <Text style={[styles.label, { marginTop: 12 }]}>{t('visits.new.referencePlan')}</Text>
+                  <Text style={styles.sublabel}>{t('visits.new.referencePlanHint')}</Text>
                   <ScrollView horizontal showsHorizontalScrollIndicator={false}>
                     <View style={styles.chipRow}>
                   <TouchableOpacity
@@ -1031,7 +1037,7 @@ export default function NewVisiteScreen() {
                     onPress={() => setDefaultPlanId(null)}
                   >
                     <Ionicons name="close-outline" size={13} color={defaultPlanId === null ? C.primary : C.textMuted} />
-                    <Text style={[styles.chipText, defaultPlanId === null && styles.chipTextActive]}>Aucun</Text>
+                    <Text style={[styles.chipText, defaultPlanId === null && styles.chipTextActive]}>{t('visits.new.noPlan')}</Text>
                   </TouchableOpacity>
                   {chantierPlans.map(plan => {
                     const selected = defaultPlanId === plan.id;
@@ -1063,8 +1069,8 @@ export default function NewVisiteScreen() {
         {/* ── 5. ENTREPRISES CONCERNÉES ── */}
         {hasCompanies && (
           <View style={styles.card}>
-            <Text style={styles.sectionLabel}>ENTREPRISES CONCERNÉES</Text>
-            <Text style={styles.sublabel}>Entreprises inspectées lors de cette visite</Text>
+            <Text style={styles.sectionLabel}>{t('visits.new.concernedCompanies')}</Text>
+            <Text style={styles.sublabel}>{t('visits.new.concernedCompaniesHint')}</Text>
             <CompanySelector
               mode="multi"
               identifier="id"
@@ -1085,7 +1091,7 @@ export default function NewVisiteScreen() {
           <View style={styles.checklistHeader}>
             <View>
               <Text style={styles.sectionLabel}>
-                CHECKLIST DE CONTRÔLE
+                {t('visits.new.checklist')}
                 {checklistItems.length > 0 && (
                   <Text style={{ color: C.textMuted, fontFamily: 'Inter_400Regular' }}>
                     {'  '}{checklistDone}/{checklistItems.length}
@@ -1096,7 +1102,7 @@ export default function NewVisiteScreen() {
             {visitType && checklistItems.length > 0 && (
               <TouchableOpacity onPress={resetChecklistToTemplate} style={styles.resetBtn}>
                 <Ionicons name="refresh-outline" size={13} color={C.textMuted} />
-                <Text style={styles.resetBtnText}>Modèle</Text>
+                <Text style={styles.resetBtnText}>{t('visits.new.model')}</Text>
               </TouchableOpacity>
             )}
           </View>
@@ -1107,7 +1113,7 @@ export default function NewVisiteScreen() {
                 <Ionicons name="clipboard-outline" size={17} color={C.primary} />
               </View>
               <View style={{ flex: 1 }}>
-                <Text style={styles.checklistEmptyTitle}>Aucune checklist chargée</Text>
+                <Text style={styles.checklistEmptyTitle}>{t('visits.new.noChecklist')}</Text>
                 <Text style={styles.checklistEmptyText}>
                   Choisissez un type de visite pour proposer automatiquement les points de contrôle adaptés. Vous pouvez aussi ajouter vos propres points.
                 </Text>
@@ -1118,7 +1124,7 @@ export default function NewVisiteScreen() {
                 >
                   <Ionicons name="arrow-up-circle-outline" size={15} color={C.primary} />
                   <Text style={styles.checklistGuideBtnText}>
-                    {visitType ? 'Changer de type' : 'Choisir un type'}
+                    {visitType ? t('visits.new.changeType') : t('visits.new.chooseType')}
                   </Text>
                 </TouchableOpacity>
               </View>
@@ -1155,7 +1161,7 @@ export default function NewVisiteScreen() {
           <View style={styles.checklistAddRow}>
             <TextInput
               style={[styles.input, { flex: 1, marginBottom: 0 }]}
-              placeholder="Ajouter un point de contrôle…"
+              placeholder={t('visits.new.addChecklistItem')}
               placeholderTextColor={C.textMuted}
               value={newChecklistLabel}
               onChangeText={setNewChecklistLabel}
@@ -1174,9 +1180,9 @@ export default function NewVisiteScreen() {
 
         {/* ── 7. DÉLAI DE LEVÉE DES RÉSERVES ── */}
         <View style={styles.card}>
-          <Text style={styles.sectionLabel}>DÉLAI DE LEVÉE DES RÉSERVES</Text>
+          <Text style={styles.sectionLabel}>{t('visits.new.reserveDeadline')}</Text>
           <Text style={styles.sublabel}>
-            Date limite cible pour que les entreprises lèvent les réserves relevées lors de cette visite
+            {t('visits.new.reserveDeadlineHint')}
           </Text>
           <View style={styles.deadlineRow}>
             {DEADLINE_SUGGESTIONS.map(s => {
@@ -1201,7 +1207,7 @@ export default function NewVisiteScreen() {
             ) : null}
           </View>
           <Text style={[styles.label, { marginTop: 8 }]}>
-            {reserveDeadlineDate ? `Échéance : ${reserveDeadlineDate}` : 'Ou saisir une date précise'}
+            {reserveDeadlineDate ? t('visits.new.deadline', { date: reserveDeadlineDate }) : t('visits.new.exactDate')}
           </Text>
           <DateInput value={reserveDeadlineDate} onChange={setReserveDeadlineDate} />
           {reserveDeadlineDate ? (
@@ -1216,7 +1222,7 @@ export default function NewVisiteScreen() {
 
         {/* ── 8. PARTICIPANTS ── */}
         <View style={styles.card}>
-          <Text style={styles.sectionLabel}>PARTICIPANTS ({participants.length})</Text>
+          <Text style={styles.sectionLabel}>{t('visits.new.participants', { count: participants.length })}</Text>
 
           {participants.map(p => (
             <View key={p.id} style={styles.participantRow}>
@@ -1235,7 +1241,7 @@ export default function NewVisiteScreen() {
 
           {teamMembers.length > 0 && (
             <View style={[styles.teamSection, participants.length > 0 && { marginTop: 12 }]}>
-              <Text style={styles.teamLabel}>Ajout rapide depuis l'équipe</Text>
+              <Text style={styles.teamLabel}>{t('visits.new.quickTeamAdd')}</Text>
               <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginTop: 6 }}>
                 <View style={styles.chipRow}>
                   {teamMembers.map(member => (
@@ -1263,19 +1269,19 @@ export default function NewVisiteScreen() {
           <View style={{ marginTop: 8 }}>
             <TextInput
               style={[styles.input, { marginBottom: 8 }]}
-              placeholder="Nom du participant *"
+              placeholder={t('visits.new.participantName')}
               placeholderTextColor={C.textMuted}
               value={newParticipantName}
               onChangeText={setNewParticipantName}
             />
             <TextInput
               style={[styles.input, { marginBottom: 8 }]}
-              placeholder="Fonction / Rôle (ex: Responsable QSE)"
+              placeholder={t('visits.new.participantRole')}
               placeholderTextColor={C.textMuted}
               value={newParticipantRole}
               onChangeText={setNewParticipantRole}
             />
-            <Text style={styles.label}>Entreprise</Text>
+            <Text style={styles.label}>{t('visits.new.company')}</Text>
             {hasCompanies ? (
               <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 8 }}>
                 <View style={styles.chipRow}>
@@ -1304,7 +1310,7 @@ export default function NewVisiteScreen() {
                     style={[styles.chip, newParticipantCompanyFree !== '' && styles.chipActive]}
                     onPress={() => { setNewParticipantCompanyId(null); setNewParticipantCompanyFree(' '); }}
                   >
-                    <Text style={[styles.chipText, newParticipantCompanyFree !== '' && styles.chipTextActive]}>Autre…</Text>
+                    <Text style={[styles.chipText, newParticipantCompanyFree !== '' && styles.chipTextActive]}>{t('visits.new.other')}</Text>
                   </TouchableOpacity>
                 </View>
               </ScrollView>
@@ -1312,7 +1318,7 @@ export default function NewVisiteScreen() {
             {(!hasCompanies || newParticipantCompanyFree !== '') && (
               <TextInput
                 style={[styles.input, { marginBottom: 8 }]}
-                placeholder="Nom de l'entreprise"
+                placeholder={t('visits.new.companyName')}
                 placeholderTextColor={C.textMuted}
                 value={newParticipantCompanyFree.trim() === '' ? '' : newParticipantCompanyFree}
                 onChangeText={setNewParticipantCompanyFree}
@@ -1325,15 +1331,15 @@ export default function NewVisiteScreen() {
               disabled={!newParticipantName.trim()}
             >
               <Ionicons name="person-add-outline" size={14} color="#fff" />
-              <Text style={styles.addParticipantBtnText}>Ajouter manuellement</Text>
+              <Text style={styles.addParticipantBtnText}>{t('visits.new.addManual')}</Text>
             </TouchableOpacity>
           </View>
         </View>
 
         {/* ── 9. TAGS ── */}
         <View style={styles.card}>
-          <Text style={styles.sectionLabel}>MOTS-CLÉS / TAGS</Text>
-          <Text style={styles.sublabel}>Facilitez la recherche et le filtrage de vos visites</Text>
+          <Text style={styles.sectionLabel}>{t('visits.new.tags')}</Text>
+          <Text style={styles.sublabel}>{t('visits.new.tagsHint')}</Text>
 
           {tags.length > 0 && (
             <View style={[styles.chipRow, { flexWrap: 'wrap', marginBottom: 10 }]}>
@@ -1353,7 +1359,7 @@ export default function NewVisiteScreen() {
           <View style={styles.checklistAddRow}>
             <TextInput
               style={[styles.input, { flex: 1, marginBottom: 0 }]}
-              placeholder="Ex: toiture, façade, étanche…"
+              placeholder={t('visits.new.tagPlaceholder')}
               placeholderTextColor={C.textMuted}
               value={newTag}
               onChangeText={setNewTag}
@@ -1372,10 +1378,10 @@ export default function NewVisiteScreen() {
 
         {/* ── 10. NOTES & OBJECTIFS ── */}
         <View style={styles.card}>
-          <Text style={styles.sectionLabel}>NOTES & OBJECTIFS</Text>
+          <Text style={styles.sectionLabel}>{t('visits.new.notesObjectives')}</Text>
           <DictationTextInput
             inputStyle={[styles.input, styles.textArea]}
-            placeholder="Objectif de la visite, points particuliers à contrôler, consignes de sécurité..."
+            placeholder={t('visits.new.notesPlaceholder')}
             placeholderTextColor={C.textMuted}
             value={notes}
             onChangeText={setNotes}
@@ -1389,7 +1395,7 @@ export default function NewVisiteScreen() {
 
         {/* ── 11. RÉCURRENCE ── */}
         <View style={styles.card}>
-          <Text style={styles.sectionLabel}>RÉCURRENCE</Text>
+          <Text style={styles.sectionLabel}>{t('visits.new.recurrence')}</Text>
           <View style={{ gap: 8 }}>
             {RECURRENCE_OPTIONS.map(opt => (
               <TouchableOpacity
@@ -1399,8 +1405,8 @@ export default function NewVisiteScreen() {
                 activeOpacity={0.8}
               >
                 <View style={{ flex: 1 }}>
-                  <Text style={[styles.recurrenceChipLabel, recurrence === opt.value && { color: C.primary }]}>{opt.label}</Text>
-                  <Text style={styles.recurrenceChipDesc}>{opt.desc}</Text>
+                  <Text style={[styles.recurrenceChipLabel, recurrence === opt.value && { color: C.primary }]}>{t(opt.labelKey)}</Text>
+                  <Text style={styles.recurrenceChipDesc}>{t(opt.descKey)}</Text>
                 </View>
                 {recurrence === opt.value && <Ionicons name="checkmark-circle" size={18} color={C.primary} />}
               </TouchableOpacity>
@@ -1419,8 +1425,8 @@ export default function NewVisiteScreen() {
         {/* ── 12. RÉSUMÉ ── */}
         {(title.trim() || visitType || participants.length > 0 || checklistItems.length > 0) && (
           <View style={styles.summaryCard}>
-            <Text style={styles.summaryTitle}>Résumé</Text>
-            {visitType && <Text style={styles.summaryLine}>Type : {VISIT_TYPES.find(t => t.value === visitType)?.label}</Text>}
+            <Text style={styles.summaryTitle}>{t('visits.new.summary')}</Text>
+            {visitType && <Text style={styles.summaryLine}>Type : {t(VISIT_TYPES.find(type => type.value === visitType)?.labelKey ?? 'visits.new.sectionType')}</Text>}
             {title.trim() && <Text style={styles.summaryLine}>Titre : {title.trim()}</Text>}
             {(startTime || endTime) && <Text style={styles.summaryLine}>Horaire : {startTime || '—'} → {endTime || '—'}</Text>}
             {hasBuildingHierarchy && visitedLocations.length > 0 && <Text style={styles.summaryLine}>Périmètre : {selectedLocationSummary}</Text>}
@@ -1446,7 +1452,7 @@ export default function NewVisiteScreen() {
             : <>
                 <Ionicons name="checkmark-circle" size={18} color="#fff" />
                 <Text style={styles.submitBtnText}>
-                  {recurrence !== 'none' ? 'Créer la série de visites' : 'Créer la visite'}
+                  {recurrence !== 'none' ? t('visits.new.submitSeries') : t('visits.new.submit')}
                 </Text>
               </>
           }

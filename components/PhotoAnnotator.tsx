@@ -5,28 +5,29 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
+import { useTranslation } from 'react-i18next';
 import { C } from '@/constants/colors';
 import { PhotoAnnotation } from '@/constants/types';
 import { genId } from '@/lib/utils';
 
 const MARKER_COLORS = [
-  { value: '#EF4444', label: 'Rouge' },
-  { value: '#F59E0B', label: 'Orange' },
-  { value: '#3B82F6', label: 'Bleu' },
-  { value: '#10B981', label: 'Vert' },
-  { value: '#8B5CF6', label: 'Violet' },
-  { value: '#FFFFFF', label: 'Blanc' },
-  { value: '#000000', label: 'Noir' },
+  { value: '#EF4444' },
+  { value: '#F59E0B' },
+  { value: '#3B82F6' },
+  { value: '#10B981' },
+  { value: '#8B5CF6' },
+  { value: '#FFFFFF' },
+  { value: '#000000' },
 ];
 
 type AnnotationTool = 'point' | 'text' | 'arrow' | 'rect' | 'measure';
 
-const TOOLS: { key: AnnotationTool; icon: string; label: string }[] = [
-  { key: 'point', icon: 'ellipse', label: 'Point' },
-  { key: 'text', icon: 'text', label: 'Texte' },
-  { key: 'arrow', icon: 'arrow-forward', label: 'Flèche' },
-  { key: 'rect', icon: 'square-outline', label: 'Zone' },
-  { key: 'measure', icon: 'resize-outline', label: 'Mesure' },
+const TOOLS: { key: AnnotationTool; icon: string }[] = [
+  { key: 'point', icon: 'ellipse' },
+  { key: 'text', icon: 'text' },
+  { key: 'arrow', icon: 'arrow-forward' },
+  { key: 'rect', icon: 'square-outline' },
+  { key: 'measure', icon: 'resize-outline' },
 ];
 
 interface Props {
@@ -47,6 +48,7 @@ export function PhotoAnnotationOverlay({
   visible,
 }: Props) {
   const insets = useSafeAreaInsets();
+  const { t } = useTranslation();
   const [markers, setMarkers] = useState<PhotoAnnotation[]>(annotations);
   const [selectedColor, setSelectedColor] = useState(MARKER_COLORS[0].value);
   const [activeTool, setActiveTool] = useState<AnnotationTool>('point');
@@ -84,7 +86,9 @@ export function PhotoAnnotationOverlay({
       x,
       y,
       color: selectedColor,
-      label: activeTool === 'measure' ? `Mesure ${markers.filter(m => m.tool === 'measure').length + 1}` : String(markers.length + 1),
+      label: activeTool === 'measure'
+        ? t('photoAnnotator.measureLabel', { count: markers.filter(m => m.tool === 'measure').length + 1 })
+        : String(markers.length + 1),
       tool: toolToType[activeTool],
     };
     setMarkers(prev => [...prev, newMarker]);
@@ -109,9 +113,9 @@ export function PhotoAnnotationOverlay({
   }
 
   function handleRemoveMarker(id: string) {
-    Alert.alert('Supprimer l\'annotation ?', '', [
-      { text: 'Annuler', style: 'cancel' },
-      { text: 'Supprimer', style: 'destructive', onPress: () => {
+    Alert.alert(t('photoAnnotator.removeAnnotationTitle'), '', [
+      { text: t('common.cancel'), style: 'cancel' },
+      { text: t('common.delete'), style: 'destructive', onPress: () => {
         setMarkers(prev => prev.filter(m => m.id !== id).map((m, i) => ({ ...m, label: m.tool === 'text' || m.tool === 'measure' ? m.label : String(i + 1) })));
       }},
     ]);
@@ -183,14 +187,14 @@ export function PhotoAnnotationOverlay({
             <Ionicons name="close" size={22} color={C.text} />
           </TouchableOpacity>
           <Text style={styles.title}>
-            {editable ? 'Annoter la photo' : 'Annotations'}
+            {editable ? t('photoAnnotator.titleEdit') : t('photoAnnotator.titleView')}
           </Text>
           {editable ? (
             <TouchableOpacity
               style={styles.saveBtn}
               onPress={() => { onSave?.(markers); onClose?.(); }}
             >
-              <Text style={styles.saveBtnText}>Valider</Text>
+              <Text style={styles.saveBtnText}>{t('photoAnnotator.validate')}</Text>
             </TouchableOpacity>
           ) : <View style={{ width: 64 }} />}
         </View>
@@ -203,21 +207,23 @@ export function PhotoAnnotationOverlay({
               style={styles.toolbarRow}
               contentContainerStyle={styles.toolbarRowContent}
             >
-              <Text style={styles.toolbarLabel}>Outil :</Text>
-              {TOOLS.map(t => (
+              <Text style={styles.toolbarLabel}>{t('photoAnnotator.toolLabel')}</Text>
+              {TOOLS.map(tool => (
                 <TouchableOpacity
-                  key={t.key}
-                  style={[styles.toolBtn, activeTool === t.key && styles.toolBtnActive]}
-                  onPress={() => setActiveTool(t.key)}
+                  key={tool.key}
+                  style={[styles.toolBtn, activeTool === tool.key && styles.toolBtnActive]}
+                  onPress={() => setActiveTool(tool.key)}
                 >
-                  <Ionicons name={t.icon as any} size={16} color={activeTool === t.key ? '#fff' : C.textSub} />
-                  <Text style={[styles.toolBtnLabel, activeTool === t.key && styles.toolBtnLabelActive]}>{t.label}</Text>
+                  <Ionicons name={tool.icon as any} size={16} color={activeTool === tool.key ? '#fff' : C.textSub} />
+                  <Text style={[styles.toolBtnLabel, activeTool === tool.key && styles.toolBtnLabelActive]}>
+                    {t(`photoAnnotator.tools.${tool.key}`)}
+                  </Text>
                 </TouchableOpacity>
               ))}
             </ScrollView>
 
             <View style={styles.colorRow}>
-              <Text style={styles.toolbarLabel}>Couleur :</Text>
+              <Text style={styles.toolbarLabel}>{t('photoAnnotator.colorLabel')}</Text>
               {MARKER_COLORS.map(c => (
                 <TouchableOpacity
                   key={c.value}
@@ -231,9 +237,9 @@ export function PhotoAnnotationOverlay({
               <View style={{ flex: 1 }} />
               {markers.length > 0 && (
                 <TouchableOpacity onPress={() => {
-                  Alert.alert('Effacer tout ?', '', [
-                    { text: 'Annuler', style: 'cancel' },
-                    { text: 'Effacer', style: 'destructive', onPress: () => setMarkers([]) },
+                  Alert.alert(t('photoAnnotator.clearAllTitle'), '', [
+                    { text: t('common.cancel'), style: 'cancel' },
+                    { text: t('photoAnnotator.clear'), style: 'destructive', onPress: () => setMarkers([]) },
                   ]);
                 }} style={styles.clearBtn}>
                   <Ionicons name="trash-outline" size={16} color={C.open} />
@@ -278,7 +284,7 @@ export function PhotoAnnotationOverlay({
           <View style={styles.hint}>
             <Ionicons name="information-circle-outline" size={14} color={C.textMuted} />
             <Text style={styles.hintText}>
-              Appui sur la photo pour annoter · Appui court sur marqueur pour renommer · Appui long pour supprimer
+              {t('photoAnnotator.hint')}
             </Text>
           </View>
         )}
@@ -296,7 +302,13 @@ export function PhotoAnnotationOverlay({
                   <Text style={styles.legendLabelText}>{m.label}</Text>
                   {m.tool && m.tool !== 'dot' && (
                     <Text style={styles.legendToolText}>
-                      {m.tool === 'text' ? 'Annotation texte' : m.tool === 'arrow' ? 'Flèche' : m.tool === 'rect' ? 'Zone délimitée' : 'Mesure'}
+                      {m.tool === 'text'
+                        ? t('photoAnnotator.textAnnotation')
+                        : m.tool === 'arrow'
+                          ? t('photoAnnotator.arrow')
+                          : m.tool === 'rect'
+                            ? t('photoAnnotator.boundedArea')
+                            : t('photoAnnotator.measure')}
                     </Text>
                   )}
                 </View>
@@ -309,20 +321,20 @@ export function PhotoAnnotationOverlay({
           <Modal visible transparent animationType="fade">
             <TouchableOpacity style={styles.editOverlay} activeOpacity={1} onPress={() => setEditingId(null)}>
               <View style={styles.editModal}>
-                <Text style={styles.editTitle}>Modifier l'annotation</Text>
+                <Text style={styles.editTitle}>{t('photoAnnotator.editAnnotation')}</Text>
                 <TextInput
                   style={styles.editInput}
                   value={editLabel}
                   onChangeText={setEditLabel}
                   autoFocus
-                  placeholder="Texte de l'annotation"
+                  placeholder={t('photoAnnotator.annotationTextPlaceholder')}
                   placeholderTextColor={C.textMuted}
                   onSubmitEditing={saveLabel}
                   multiline
                 />
                 <View style={styles.editActions}>
                   <TouchableOpacity style={styles.editCancel} onPress={() => setEditingId(null)}>
-                    <Text style={styles.editCancelText}>Annuler</Text>
+                    <Text style={styles.editCancelText}>{t('common.cancel')}</Text>
                   </TouchableOpacity>
                   <TouchableOpacity style={styles.editConfirm} onPress={saveLabel}>
                     <Text style={styles.editConfirmText}>OK</Text>
@@ -337,23 +349,23 @@ export function PhotoAnnotationOverlay({
           <Modal visible transparent animationType="fade">
             <TouchableOpacity style={styles.editOverlay} activeOpacity={1} onPress={() => setPendingTextPos(null)}>
               <View style={styles.editModal}>
-                <Text style={styles.editTitle}>Ajouter une annotation texte</Text>
+                <Text style={styles.editTitle}>{t('photoAnnotator.addTextAnnotation')}</Text>
                 <TextInput
                   style={styles.editInput}
                   value={pendingText}
                   onChangeText={setPendingText}
                   autoFocus
-                  placeholder="Ex: Fissure horizontale, Défaut peinture..."
+                  placeholder={t('photoAnnotator.addTextPlaceholder')}
                   placeholderTextColor={C.textMuted}
                   multiline
                   onSubmitEditing={confirmTextInput}
                 />
                 <View style={styles.editActions}>
                   <TouchableOpacity style={styles.editCancel} onPress={() => setPendingTextPos(null)}>
-                    <Text style={styles.editCancelText}>Annuler</Text>
+                    <Text style={styles.editCancelText}>{t('common.cancel')}</Text>
                   </TouchableOpacity>
                   <TouchableOpacity style={styles.editConfirm} onPress={confirmTextInput}>
-                    <Text style={styles.editConfirmText}>Ajouter</Text>
+                    <Text style={styles.editConfirmText}>{t('locationTreeEditor.add')}</Text>
                   </TouchableOpacity>
                 </View>
               </View>

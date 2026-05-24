@@ -6,6 +6,7 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useState, useMemo, useRef, useCallback } from 'react';
+import { useTranslation } from 'react-i18next';
 import * as ImagePicker from 'expo-image-picker';
 import { C } from '@/constants/colors';
 import { useApp } from '@/context/AppContext';
@@ -417,6 +418,7 @@ export default function ReserveDetailScreen() {
   const insets = useSafeAreaInsets();
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
+  const { t } = useTranslation();
   const { reserves, tasks, updateReserveStatus, updateReserveFields, deleteReserve, addComment, updateComment, deleteComment, companies, channels, addPhoto, sitePlans, activeChantierId, chantiers, photos } = useApp();
   const { user, permissions } = useAuth();
   const { isOnline } = useNetwork();
@@ -446,6 +448,21 @@ export default function ReserveDetailScreen() {
   const captureResolveRef = useRef<((url: string | null) => void) | null>(null);
   const [captureViewerUri, setCaptureViewerUri] = useState<string | null>(null);
   const [captureViewerIsImage, setCaptureViewerIsImage] = useState(false);
+
+  const statusLabels = useMemo<Record<ReserveStatus, string>>(() => ({
+    open: t('reserveLabels.status.open'),
+    in_progress: t('reserveLabels.status.in_progress'),
+    waiting: t('reserveLabels.status.waiting'),
+    verification: t('reserveLabels.status.verification'),
+    closed: t('reserveLabels.status.closed'),
+  }), [t]);
+
+  const priorityLabels = useMemo<Record<ReservePriority, string>>(() => ({
+    critical: t('reserveLabels.priority.critical'),
+    high: t('reserveLabels.priority.high'),
+    medium: t('reserveLabels.priority.medium'),
+    low: t('reserveLabels.priority.low'),
+  }), [t]);
 
   const onCaptureViewerReady = useCallback(() => {
     const resolve = captureResolveRef.current;
@@ -497,10 +514,10 @@ export default function ReserveDetailScreen() {
   if (!reserve) {
     return (
       <View style={styles.container}>
-        <Header title="Réserve introuvable" showBack />
+        <Header title={t('reserveDetail.notFoundTitle')} showBack />
         <View style={styles.notFound}>
           <Ionicons name="search-outline" size={48} color={C.textMuted} />
-          <Text style={styles.notFoundText}>Réserve non trouvée</Text>
+          <Text style={styles.notFoundText}>{t('reserveDetail.notFoundText')}</Text>
         </View>
       </View>
     );
@@ -534,7 +551,7 @@ export default function ReserveDetailScreen() {
   function handleSignatureSave() {
     if (!reserve) return;
     if (sigPadRef.current?.isEmpty()) {
-      Alert.alert('Signature requise', 'Veuillez apposer votre signature avant de valider.');
+      Alert.alert(t('reserveDetail.alerts.signatureRequiredTitle'), t('reserveDetail.alerts.signatureRequiredText'));
       return;
     }
     const dataUrl = sigPadRef.current?.getSVGData() ?? null;
@@ -584,12 +601,12 @@ export default function ReserveDetailScreen() {
   function handleEnterpriseAck() {
     if (!reserve) return;
     Alert.alert(
-      'Accuser réception',
-      `Confirmer que vous avez bien pris connaissance de la réserve ${reserve.id} ?`,
+      t('reserveDetail.alerts.acknowledgeTitle'),
+      t('reserveDetail.alerts.acknowledgeText', { id: reserve.id }),
       [
-        { text: 'Annuler', style: 'cancel' },
+        { text: t('common.cancel'), style: 'cancel' },
         {
-          text: 'Confirmer',
+          text: t('reserveDetail.alerts.confirm'),
           onPress: () => {
             const today = formatDateFR(new Date());
             const author = user?.name ?? 'Entreprise';
@@ -622,17 +639,17 @@ export default function ReserveDetailScreen() {
   }
 
   async function handleAddEditPhoto(fromCamera = false) {
-    if (editPhotos.length >= 6) { Alert.alert('Limite atteinte', 'Maximum 6 photos par réserve.'); return; }
+    if (editPhotos.length >= 6) { Alert.alert(t('reserveDetail.alerts.photoLimitTitle'), t('reserveDetail.alerts.photoLimitText')); return; }
     if (fromCamera) {
-      if (Platform.OS === 'web') { Alert.alert('Info', 'La prise de photo directe est disponible sur mobile.'); return; }
+      if (Platform.OS === 'web') { Alert.alert(t('reserveDetail.alerts.mobileCameraTitle'), t('reserveDetail.alerts.mobileCameraText')); return; }
       const { status } = await ImagePicker.requestCameraPermissionsAsync();
-      if (status !== 'granted') { Alert.alert('Permission refusée', "L'accès à l'appareil photo est nécessaire."); return; }
+      if (status !== 'granted') { Alert.alert(t('reserveDetail.alerts.permissionDenied'), t('reserveDetail.alerts.cameraPermission')); return; }
       const result = await ImagePicker.launchCameraAsync({ allowsEditing: true, quality: 0.8 });
       if (!result.canceled && result.assets[0]) await saveEditPhoto(result.assets[0].uri);
     } else {
       if (Platform.OS !== 'web') {
         const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
-        if (status !== 'granted') { Alert.alert('Permission refusée', "L'accès à la galerie est nécessaire."); return; }
+        if (status !== 'granted') { Alert.alert(t('reserveDetail.alerts.permissionDenied'), t('reserveDetail.alerts.galleryPermission')); return; }
       }
       const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images'], allowsEditing: true, quality: 0.8 });
       if (!result.canceled && result.assets[0]) await saveEditPhoto(result.assets[0].uri);
@@ -660,10 +677,10 @@ export default function ReserveDetailScreen() {
 
       if (!storageUrl) {
         Alert.alert(
-          isOnline ? 'Synchronisation différée' : 'Mode hors ligne',
+          isOnline ? t('reserveDetail.alerts.deferredSyncTitle') : t('reserveDetail.alerts.offlineTitle'),
           isOnline
-            ? "Le serveur n'a pas répondu à temps. La photo a été sauvegardée localement et sera renvoyée plus tard."
-            : "La photo a été sauvegardée localement. Elle sera synchronisée lorsque la connexion sera rétablie.",
+            ? t('reserveDetail.alerts.deferredSyncText')
+            : t('reserveDetail.alerts.offlinePhotoText'),
         );
       }
 
@@ -677,8 +694,8 @@ export default function ReserveDetailScreen() {
       setEditPhotos(prev => [...prev, newPhoto]);
       if (isSupabaseConfigured) {
         Alert.alert(
-          'Upload échoué',
-          "La photo a été ajoutée localement et sera renvoyée lors de la prochaine synchronisation.",
+          t('reserveDetail.alerts.uploadFailedTitle'),
+          t('reserveDetail.alerts.uploadFailedText'),
         );
       }
     } finally {
@@ -696,39 +713,39 @@ export default function ReserveDetailScreen() {
 
   function buildChangeSummary(r: Reserve): { label: string; oldVal: string; newVal: string }[] {
     const changes: { label: string; oldVal: string; newVal: string }[] = [];
-    if (editTitle.trim() !== r.title) changes.push({ label: 'Titre', oldVal: r.title, newVal: editTitle.trim() });
-    if (editBuilding.trim() !== r.building) changes.push({ label: 'Bâtiment', oldVal: r.building, newVal: editBuilding.trim() });
-    if (editZone.trim() !== r.zone) changes.push({ label: 'Zone', oldVal: r.zone, newVal: editZone.trim() });
-    if (editLevel.trim() !== r.level) changes.push({ label: 'Niveau', oldVal: r.level, newVal: editLevel.trim() });
+    if (editTitle.trim() !== r.title) changes.push({ label: t('reserveDetail.title'), oldVal: r.title, newVal: editTitle.trim() });
+    if (editBuilding.trim() !== r.building) changes.push({ label: t('reserveDetail.building'), oldVal: r.building, newVal: editBuilding.trim() });
+    if (editZone.trim() !== r.zone) changes.push({ label: t('reserveDetail.zone'), oldVal: r.zone, newVal: editZone.trim() });
+    if (editLevel.trim() !== r.level) changes.push({ label: t('reserveDetail.level'), oldVal: r.level, newVal: editLevel.trim() });
     const oldNames = (r.companies ?? (r.company ? [r.company] : [])).join(', ');
     const newNames = editCompanies.join(', ');
-    if (oldNames !== newNames) changes.push({ label: 'Entreprises', oldVal: oldNames, newVal: newNames });
-    if (editPriority !== r.priority) changes.push({ label: 'Priorité', oldVal: PRIORITY_LABEL[r.priority], newVal: PRIORITY_LABEL[editPriority] });
+    if (oldNames !== newNames) changes.push({ label: t('reserveDetail.companies'), oldVal: oldNames, newVal: newNames });
+    if (editPriority !== r.priority) changes.push({ label: t('reserveDetail.priority'), oldVal: priorityLabels[r.priority], newVal: priorityLabels[editPriority] });
     const newDl = editDeadline || '—';
-    if (newDl !== r.deadline) changes.push({ label: 'Échéance', oldVal: r.deadline, newVal: newDl });
+    if (newDl !== r.deadline) changes.push({ label: t('reserveDetail.deadline'), oldVal: r.deadline, newVal: newDl });
     return changes;
   }
 
   function handleSaveEdit() {
     if (!reserve) return;
     if (!editTitle.trim()) {
-      Alert.alert('Champ obligatoire', 'Le titre est requis.');
+      Alert.alert(t('reserveDetail.alerts.requiredTitle'), t('reserveDetail.alerts.requiredTitleText'));
       return;
     }
     if (!editBuilding.trim()) {
-      Alert.alert('Champ obligatoire', 'Le bâtiment est requis.');
+      Alert.alert(t('reserveDetail.alerts.requiredTitle'), t('reserveDetail.alerts.requiredBuildingText'));
       return;
     }
     if (!editLevel.trim()) {
-      Alert.alert('Champ obligatoire', 'Le niveau est requis.');
+      Alert.alert(t('reserveDetail.alerts.requiredTitle'), t('reserveDetail.alerts.requiredLevelText'));
       return;
     }
     if (editCompanies.length === 0) {
-      Alert.alert('Entreprise requise', 'Sélectionnez au moins une entreprise concernée.');
+      Alert.alert(t('reserveDetail.alerts.companyRequiredTitle'), t('reserveDetail.alerts.companyRequiredText'));
       return;
     }
     if (editDeadline && !validateDeadline(editDeadline)) {
-      Alert.alert('Date invalide', "Vérifiez que le jour, le mois et l'année sont corrects (ex : 30/04/2026).");
+      Alert.alert(t('reserveDetail.alerts.invalidDateTitle'), t('reserveDetail.alerts.invalidDateText'));
       return;
     }
     const author = user?.name ?? 'Conducteur de travaux';
@@ -828,7 +845,7 @@ export default function ReserveDetailScreen() {
       await exportPDFHelper(html, buildPdfFilename('Reserve', [reserve.id, reserve.title, projectName]));
     } catch (e: any) {
       console.error('[exportPDF] Fiche réserve', e);
-      Alert.alert('Erreur', e?.message ?? "Impossible de générer le PDF.");
+      Alert.alert(t('common.error'), e?.message ?? t('reserveDetail.alerts.pdfError'));
     }
   }
 
@@ -837,7 +854,7 @@ export default function ReserveDetailScreen() {
     if (!permissions.canExport) return;
     const emails = emailTo.split(/[,;\s]+/).map(e => e.trim()).filter(e => e.includes('@'));
     if (emails.length === 0) {
-      Alert.alert('Email requis', 'Entrez au moins une adresse email valide.');
+      Alert.alert(t('reserveDetail.alerts.emailRequiredTitle'), t('reserveDetail.alerts.emailRequiredText'));
       return;
     }
     const localEmailPhotoCount = getReservePdfPhotos(reserve).filter(p => p.uri && !isRemotePdfAssetUri(p.uri)).length;
@@ -850,15 +867,16 @@ export default function ReserveDetailScreen() {
     );
     if (localEmailPhotoCount > 0 || planIsLocal) {
       const shouldContinue = await new Promise<boolean>((resolve) => {
+        const unsyncedItems = [
+          localEmailPhotoCount > 0 ? t('reserveDetail.alerts.localPhotos', { count: localEmailPhotoCount }) : null,
+          planIsLocal ? t('reserveDetail.alerts.associatedPlan') : null,
+        ].filter(Boolean).join(' et ');
         Alert.alert(
-          'Éléments non synchronisés',
+          t('reserveDetail.alerts.unsyncedTitle'),
+          t('reserveDetail.alerts.unsyncedText', { items: unsyncedItems }),
           [
-            localEmailPhotoCount > 0 ? `${localEmailPhotoCount} photo${localEmailPhotoCount > 1 ? 's' : ''} locale${localEmailPhotoCount > 1 ? 's' : ''}` : null,
-            planIsLocal ? 'le plan associé' : null,
-          ].filter(Boolean).join(' et ') + " ne pourra pas être inclus dans le PDF envoyé par email tant que la synchronisation n'est pas terminée.",
-          [
-            { text: 'Attendre la sync', style: 'cancel', onPress: () => resolve(false) },
-            { text: 'Envoyer quand même', onPress: () => resolve(true) },
+            { text: t('reserveDetail.alerts.waitSync'), style: 'cancel', onPress: () => resolve(false) },
+            { text: t('reserveDetail.alerts.sendAnyway'), onPress: () => resolve(true) },
           ],
         );
       });
@@ -917,7 +935,7 @@ export default function ReserveDetailScreen() {
       });
 
       if (!result.success) {
-        Alert.alert('Erreur', result.error ?? "Impossible de générer la fiche.");
+        Alert.alert(t('common.error'), result.error ?? t('reserveDetail.alerts.sheetError'));
         return;
       }
       if (result.pdfBase64) {
@@ -936,11 +954,11 @@ export default function ReserveDetailScreen() {
           console.warn('[Email Fiche] Erreur sauvegarde locale:', saveErr);
         }
       }
-      Alert.alert('✓ Fiche envoyée', `La fiche a bien été envoyée à :\n${emails.join('\n')}`);
+      Alert.alert(t('reserveDetail.alerts.sentTitle'), t('reserveDetail.alerts.sentText', { emails: emails.join('\n') }));
       setEmailModalVisible(false);
       setEmailTo('');
     } catch (err: any) {
-      Alert.alert('Erreur', err?.message ?? "Impossible d'envoyer la fiche.");
+      Alert.alert(t('common.error'), err?.message ?? t('reserveDetail.alerts.sendError'));
     } finally {
       setEmailLoading(false);
     }
@@ -949,12 +967,12 @@ export default function ReserveDetailScreen() {
   function handleDelete() {
     if (!reserve) return;
     Alert.alert(
-      'Supprimer la réserve',
-      `Supprimer définitivement ${reserve.id} — "${reserve.title}" ?\n\nCette action est irréversible.`,
+      t('reserveDetail.alerts.deleteTitle'),
+      t('reserveDetail.alerts.deleteText', { id: reserve.id, title: reserve.title }),
       [
-        { text: 'Annuler', style: 'cancel' },
+        { text: t('common.cancel'), style: 'cancel' },
         {
-          text: 'Supprimer',
+          text: t('common.delete', { defaultValue: 'Supprimer' }),
           style: 'destructive',
           onPress: () => {
             deleteReserve(reserve.id);
@@ -968,10 +986,10 @@ export default function ReserveDetailScreen() {
   function handleContactCompany(targetCompany?: typeof company) {
     if (!reserve) return;
     const co = targetCompany ?? company;
-    if (!co) { Alert.alert('Aucune entreprise', 'Aucune entreprise associée à cette réserve.'); return; }
+    if (!co) { Alert.alert(t('reserveDetail.alerts.noCompanyTitle'), t('reserveDetail.alerts.noCompanyText')); return; }
     const ch = channels.find(c => c.id === `company-${co.id}`);
     if (!ch) {
-      Alert.alert('Canal indisponible', `Le canal de "${co.name}" n'existe pas encore. Ajoutez d'abord l'entreprise dans l'onglet Équipes.`);
+      Alert.alert(t('reserveDetail.alerts.channelUnavailableTitle'), t('reserveDetail.alerts.channelUnavailableText', { name: co.name }));
       return;
     }
     router.push({
@@ -1000,11 +1018,11 @@ export default function ReserveDetailScreen() {
     };
     if (companyCount > 1) {
       Alert.alert(
-        'Changer le statut',
-        `${companyCount} entreprises seront notifiées de ce changement.\n\nContinuer ?`,
+        t('reserveDetail.alerts.statusTitle'),
+        t('reserveDetail.alerts.statusText', { count: companyCount }),
         [
-          { text: 'Annuler', style: 'cancel' },
-          { text: 'Confirmer', onPress: doUpdate },
+          { text: t('common.cancel'), style: 'cancel' },
+          { text: t('reserveDetail.alerts.confirm'), onPress: doUpdate },
         ]
       );
     } else {
@@ -1016,15 +1034,15 @@ export default function ReserveDetailScreen() {
     if (!reserve) return;
     const companyCount = reserveCompanyNames.length;
     const notifLine = companyCount > 1
-      ? `\n\n${companyCount} entreprises seront notifiées.`
+      ? t('reserveDetail.alerts.notifiedCompanies', { count: companyCount })
       : '';
     Alert.alert(
-      'Approuver la levée',
-      `Confirmer la levée définitive de la réserve ${reserve.id} ?\n\nCette action clôture la réserve.${notifLine}`,
+      t('reserveDetail.alerts.approveTitle'),
+      t('reserveDetail.alerts.approveText', { id: reserve.id, notifLine }),
       [
-        { text: 'Annuler', style: 'cancel' },
+        { text: t('common.cancel'), style: 'cancel' },
         {
-          text: 'Approuver',
+          text: t('reserveDetail.approve'),
           onPress: () => {
             updateReserveStatus(reserve.id, 'closed', user?.name ?? 'Conducteur de travaux');
             setSaveSuccess(true);
@@ -1051,11 +1069,11 @@ export default function ReserveDetailScreen() {
     };
     if (companyCount > 1) {
       Alert.alert(
-        'Rejeter la levée',
-        `${companyCount} entreprises seront notifiées du rejet.\n\nContinuer ?`,
+        t('reserveDetail.alerts.rejectTitle'),
+        t('reserveDetail.alerts.rejectText', { count: companyCount }),
         [
-          { text: 'Annuler', style: 'cancel' },
-          { text: 'Rejeter', style: 'destructive', onPress: doReject },
+          { text: t('common.cancel'), style: 'cancel' },
+          { text: t('reserveDetail.reject'), style: 'destructive', onPress: doReject },
         ]
       );
     } else {
@@ -1094,16 +1112,16 @@ export default function ReserveDetailScreen() {
     if (!reserve) return;
     const doDelete = () => deleteComment(reserve.id, commentId);
     if (Platform.OS === 'web') {
-      if (typeof window !== 'undefined' && window.confirm('Supprimer ce commentaire ?')) {
+      if (typeof window !== 'undefined' && window.confirm(t('reserveDetail.alerts.deleteCommentWeb'))) {
         doDelete();
       }
     } else {
       Alert.alert(
-        'Supprimer le commentaire',
-        'Cette action est irréversible.',
+        t('reserveDetail.alerts.deleteCommentTitle'),
+        t('reserveDetail.alerts.deleteCommentText'),
         [
-          { text: 'Annuler', style: 'cancel' },
-          { text: 'Supprimer', style: 'destructive', onPress: doDelete },
+          { text: t('common.cancel'), style: 'cancel' },
+          { text: t('common.delete', { defaultValue: 'Supprimer' }), style: 'destructive', onPress: doDelete },
         ]
       );
     }
@@ -1145,14 +1163,14 @@ export default function ReserveDetailScreen() {
         title={reserve.id}
         subtitle={reserve.title}
         showBack
-        rightLabel={permissions.canEdit ? 'Modifier' : undefined}
+        rightLabel={permissions.canEdit ? t('reserveDetail.edit') : undefined}
         onRightPress={permissions.canEdit ? openEdit : undefined}
       />
 
       {saveSuccess && (
         <View style={styles.toastBanner}>
           <Ionicons name="checkmark-circle" size={16} color={C.closed} />
-          <Text style={styles.toastText}>Modifications enregistrées</Text>
+          <Text style={styles.toastText}>{t('reserveDetail.saved')}</Text>
         </View>
       )}
 
@@ -1161,7 +1179,7 @@ export default function ReserveDetailScreen() {
           <View style={styles.overdueBanner}>
             <Ionicons name="warning" size={16} color={C.open} />
             <Text style={styles.overdueBannerText}>
-              Délai dépassé — Échéance : {formatDate(reserve.deadline)}
+              {t('reserveDetail.overdue', { date: formatDate(reserve.deadline) })}
             </Text>
           </View>
         )}
@@ -1175,18 +1193,18 @@ export default function ReserveDetailScreen() {
         {allPhotos.length > 0 && (
           <View style={styles.card}>
             <View style={styles.photoGalleryHeader}>
-              <Text style={styles.sectionTitle}>Photos ({allPhotos.length})</Text>
+              <Text style={styles.sectionTitle}>{t('reserveDetail.photos', { count: allPhotos.length })}</Text>
               <View style={{ flexDirection: 'row', gap: 6 }}>
                 {defectCount > 0 && (
                   <View style={styles.photoBadgeDefect}>
                     <View style={[styles.photoBadgeDot, { backgroundColor: '#EF4444' }]} />
-                    <Text style={[styles.photoBadgeText, { color: '#EF4444' }]}>{defectCount} constat{defectCount > 1 ? 's' : ''}</Text>
+                    <Text style={[styles.photoBadgeText, { color: '#EF4444' }]}>{t('reserveDetail.defectCount', { count: defectCount })}</Text>
                   </View>
                 )}
                 {resolutionCount > 0 && (
                   <View style={styles.photoBadgeResolution}>
                     <View style={[styles.photoBadgeDot, { backgroundColor: '#22C55E' }]} />
-                    <Text style={[styles.photoBadgeText, { color: '#22C55E' }]}>{resolutionCount} levée{resolutionCount > 1 ? 's' : ''}</Text>
+                    <Text style={[styles.photoBadgeText, { color: '#22C55E' }]}>{t('reserveDetail.resolvedCount', { count: resolutionCount })}</Text>
                   </View>
                 )}
               </View>
@@ -1201,7 +1219,7 @@ export default function ReserveDetailScreen() {
                     >
                       <Image source={{ uri: photo.uri }} style={styles.photoThumbImg} resizeMode="cover" onError={() => {}} />
                       <View style={[styles.photoKindBadge, { backgroundColor: photo.kind === 'defect' ? '#EF444488' : '#22C55E88' }]}>
-                        <Text style={styles.photoKindBadgeText}>{photo.kind === 'defect' ? 'Constat' : 'Levée'}</Text>
+                        <Text style={styles.photoKindBadgeText}>{photo.kind === 'defect' ? t('reserveNew.photoDefect') : t('reserveNew.photoResolved')}</Text>
                       </View>
                     </TouchableOpacity>
                     {permissions.canEdit && photo.id !== 'legacy' && (
@@ -1218,31 +1236,31 @@ export default function ReserveDetailScreen() {
                 ))}
               </View>
             </ScrollView>
-            <Text style={styles.photoHintSmall}>Appuyer pour agrandir · Crayon pour annoter</Text>
+            <Text style={styles.photoHintSmall}>{t('reserveDetail.photoHint')}</Text>
           </View>
         )}
 
         <View style={styles.card}>
-          <Text style={styles.sectionTitle}>Informations</Text>
-          <InfoRow icon="business-outline" label="Bâtiment" value={`Bâtiment ${reserve.building}`} />
-          <InfoRow icon="location-outline" label="Zone" value={reserve.zone} />
-          <InfoRow icon="layers-outline" label="Niveau" value={reserve.level} />
-          <InfoRow icon="people-outline" label={reserveCompanyNames.length > 1 ? 'Entreprises' : 'Entreprise'} value={reserveCompanyNames.join(', ') || '—'} />
+          <Text style={styles.sectionTitle}>{t('reserveDetail.info')}</Text>
+          <InfoRow icon="business-outline" label={t('reserveDetail.building')} value={`${t('reserveDetail.building')} ${reserve.building}`} />
+          <InfoRow icon="location-outline" label={t('reserveDetail.zone')} value={reserve.zone} />
+          <InfoRow icon="layers-outline" label={t('reserveDetail.level')} value={reserve.level} />
+          <InfoRow icon="people-outline" label={reserveCompanyNames.length > 1 ? t('reserveDetail.companies') : t('reserveDetail.company')} value={reserveCompanyNames.join(', ') || '—'} />
           {reserve.responsableNom ? (
-            <InfoRow icon="person-circle-outline" label="Responsable" value={reserve.responsableNom} />
+            <InfoRow icon="person-circle-outline" label={t('reserveDetail.manager')} value={reserve.responsableNom} />
           ) : null}
-          <InfoRow icon="calendar-outline" label="Créé le" value={formatDate(reserve.createdAt)} />
+          <InfoRow icon="calendar-outline" label={t('reserveDetail.createdAt')} value={formatDate(reserve.createdAt)} />
           <InfoRow
             icon="timer-outline"
-            label="Échéance"
-            value={reserve.deadline === '—' ? 'Aucune échéance' : formatDate(reserve.deadline)}
+            label={t('reserveDetail.deadline')}
+            value={reserve.deadline === '—' ? t('reserveDetail.noDeadline') : formatDate(reserve.deadline)}
             valueColor={overdue ? C.open : undefined}
             last={!reserve.closedAt}
           />
           {reserve.closedAt && (
             <InfoRow
               icon="checkmark-circle-outline"
-              label="Date de levée"
+              label={t('reserveDetail.closedAt')}
               value={formatDate(reserve.closedAt)}
               valueColor={C.closed}
             />
@@ -1250,7 +1268,7 @@ export default function ReserveDetailScreen() {
           {reserve.closedBy && (
             <InfoRow
               icon="person-outline"
-              label="Clôturé par"
+              label={t('reserveDetail.closedBy')}
               value={reserve.closedBy}
               last
             />
@@ -1264,7 +1282,7 @@ export default function ReserveDetailScreen() {
             >
               <Ionicons name="chatbubbles" size={16} color={co.color} />
               <Text style={[styles.contactBtnText, { color: co.color }]}>
-                Contacter {co.name}
+                {t('reserveDetail.contactCompany', { name: co.name })}
               </Text>
               <Ionicons name="chevron-forward" size={14} color={co.color} />
             </TouchableOpacity>
@@ -1272,7 +1290,7 @@ export default function ReserveDetailScreen() {
         </View>
 
         <View style={styles.card}>
-          <Text style={styles.sectionTitle}>Description</Text>
+          <Text style={styles.sectionTitle}>{t('reserveDetail.description')}</Text>
           <Text style={styles.description}>{getReserveDescriptionText(reserve.description, reserve.title)}</Text>
         </View>
 
@@ -1280,37 +1298,37 @@ export default function ReserveDetailScreen() {
           <View style={styles.card}>
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 10 }}>
               <Ionicons name="construct-outline" size={15} color={C.textSub} />
-              <Text style={styles.sectionTitle}>Votre action</Text>
+              <Text style={styles.sectionTitle}>{t('reserveDetail.yourAction')}</Text>
             </View>
             {reserve.status === 'verification' ? (
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: '#F5F3FF', borderRadius: 10, padding: 12, borderWidth: 1, borderColor: '#7C3AED40' }}>
                 <Ionicons name="time-outline" size={16} color="#7C3AED" />
                 <Text style={{ flex: 1, fontSize: 13, fontFamily: 'Inter_500Medium', color: '#7C3AED' }}>
-                  Demande de levée envoyée — en attente de validation
+                  {t('reserveDetail.requestSent')}
                 </Text>
               </View>
             ) : reserve.status === 'closed' ? (
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: '#ECFDF5', borderRadius: 10, padding: 12, borderWidth: 1, borderColor: '#6EE7B7' }}>
                 <Ionicons name="checkmark-circle" size={16} color="#059669" />
                 <Text style={{ flex: 1, fontSize: 13, fontFamily: 'Inter_500Medium', color: '#059669' }}>
-                  Réserve levée et approuvée
+                  {t('reserveDetail.closedApproved')}
                 </Text>
               </View>
             ) : (
               <>
                 <Text style={{ fontSize: 12, fontFamily: 'Inter_400Regular', color: C.textSub, marginBottom: 10 }}>
-                  Statut actuel : <Text style={{ fontFamily: 'Inter_600SemiBold', color: STATUS_CONFIG[reserve.status]?.color }}>{STATUS_CONFIG[reserve.status]?.label}</Text>
-                  {'\n'}Une fois les travaux réalisés, déclarez la levée pour validation par le conducteur.
+                  {t('reserveDetail.currentStatus', { status: '' })}<Text style={{ fontFamily: 'Inter_600SemiBold', color: STATUS_CONFIG[reserve.status]?.color }}>{statusLabels[reserve.status]}</Text>
+                  {'\n'}{t('reserveDetail.subcontractorHint')}
                 </Text>
                 <TouchableOpacity
                   style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, backgroundColor: '#7C3AED', borderRadius: 12, paddingVertical: 13, opacity: reserve.status === 'open' || reserve.status === 'in_progress' || reserve.status === 'waiting' ? 1 : 0.5 }}
                   onPress={() => {
                     Alert.alert(
-                      'Demander la levée',
-                      `Confirmer que les travaux de la réserve ${reserve.id} ont été réalisés ?\n\nLe conducteur de travaux sera notifié pour vérification.`,
+                      t('reserveDetail.alerts.requestLiftTitle'),
+                      t('reserveDetail.alerts.requestLiftText', { id: reserve.id }),
                       [
-                        { text: 'Annuler', style: 'cancel' },
-                        { text: 'Confirmer', onPress: () => handleStatusChange('verification') },
+                        { text: t('common.cancel'), style: 'cancel' },
+                        { text: t('reserveDetail.alerts.confirm'), onPress: () => handleStatusChange('verification') },
                       ]
                     );
                   }}
@@ -1318,7 +1336,7 @@ export default function ReserveDetailScreen() {
                   activeOpacity={0.8}
                 >
                   <Ionicons name="checkmark-done-outline" size={16} color="#fff" />
-                  <Text style={{ fontSize: 14, fontFamily: 'Inter_600SemiBold', color: '#fff' }}>Demander la levée</Text>
+                  <Text style={{ fontSize: 14, fontFamily: 'Inter_600SemiBold', color: '#fff' }}>{t('reserveDetail.requestLift')}</Text>
                 </TouchableOpacity>
               </>
             )}
@@ -1327,7 +1345,7 @@ export default function ReserveDetailScreen() {
 
         {permissions.canEdit && user?.role !== 'sous_traitant' && (
           <View style={styles.card}>
-            <Text style={styles.sectionTitle}>Modifier le statut</Text>
+            <Text style={styles.sectionTitle}>{t('reserveDetail.changeStatus')}</Text>
             <View style={styles.statusGrid}>
               {STATUS_ORDER.map(s => {
                 const cfg = STATUS_CONFIG[s];
@@ -1340,7 +1358,7 @@ export default function ReserveDetailScreen() {
                     disabled={isActive}
                   >
                     <View style={[styles.statusDot, { backgroundColor: cfg.color }]} />
-                    <Text style={[styles.statusBtnText, { color: cfg.color }]}>{cfg.label}</Text>
+                    <Text style={[styles.statusBtnText, { color: cfg.color }]}>{statusLabels[s]}</Text>
                     {isActive && <Ionicons name="checkmark" size={12} color={cfg.color} />}
                   </TouchableOpacity>
                 );
@@ -1356,9 +1374,9 @@ export default function ReserveDetailScreen() {
                 <Ionicons name="shield-checkmark-outline" size={15} color="#7C3AED" />
               </View>
               <View style={{ flex: 1 }}>
-                <Text style={[styles.sectionTitle, { color: '#7C3AED' }]}>Approbation de levée</Text>
+                <Text style={[styles.sectionTitle, { color: '#7C3AED' }]}>{t('reserveDetail.liftApproval')}</Text>
                 <Text style={{ fontSize: 12, fontFamily: 'Inter_400Regular', color: C.textSub, marginTop: 2 }}>
-                  L'entreprise a déclaré cette réserve levée. Votre décision est requise.
+                  {t('reserveDetail.liftApprovalHint')}
                 </Text>
               </View>
             </View>
@@ -1369,7 +1387,7 @@ export default function ReserveDetailScreen() {
                 activeOpacity={0.8}
               >
                 <Ionicons name="checkmark-circle" size={16} color="#059669" />
-                <Text style={{ fontSize: 14, fontFamily: 'Inter_600SemiBold', color: '#059669' }}>Approuver</Text>
+                <Text style={{ fontSize: 14, fontFamily: 'Inter_600SemiBold', color: '#059669' }}>{t('reserveDetail.approve')}</Text>
               </TouchableOpacity>
               <TouchableOpacity
                 style={{ flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, backgroundColor: '#FEF2F2', borderRadius: 12, paddingVertical: 12, borderWidth: 1, borderColor: '#FCA5A5' }}
@@ -1377,7 +1395,7 @@ export default function ReserveDetailScreen() {
                 activeOpacity={0.8}
               >
                 <Ionicons name="close-circle" size={16} color="#DC2626" />
-                <Text style={{ fontSize: 14, fontFamily: 'Inter_600SemiBold', color: '#DC2626' }}>Rejeter</Text>
+                <Text style={{ fontSize: 14, fontFamily: 'Inter_600SemiBold', color: '#DC2626' }}>{t('reserveDetail.reject')}</Text>
               </TouchableOpacity>
             </View>
           </View>
@@ -1385,7 +1403,7 @@ export default function ReserveDetailScreen() {
 
         {/* ENTERPRISE WORKFLOW — Accusé de réception + Signature de levée */}
         <View style={styles.card}>
-          <Text style={styles.sectionTitle}>Workflow entreprise</Text>
+          <Text style={styles.sectionTitle}>{t('reserveDetail.workflow')}</Text>
 
           {/* Étape 1 : Accusé de réception */}
           <View style={styles.workflowStep}>
@@ -1395,16 +1413,16 @@ export default function ReserveDetailScreen() {
                 : <Text style={styles.workflowStepNumText}>1</Text>}
             </View>
             <View style={{ flex: 1 }}>
-              <Text style={styles.workflowStepTitle}>Accusé de réception</Text>
+              <Text style={styles.workflowStepTitle}>{t('reserveDetail.acknowledgement')}</Text>
               {ackDone ? (
-                <Text style={styles.workflowStepDone}>Accusé le {formatDate(reserve.enterpriseAcknowledgedAt!)}</Text>
+                <Text style={styles.workflowStepDone}>{t('reserveDetail.acknowledgedAt', { date: formatDate(reserve.enterpriseAcknowledgedAt!) })}</Text>
               ) : (
                 <>
-                  <Text style={styles.workflowStepDesc}>L'entreprise confirme avoir pris connaissance de cette réserve.</Text>
+                  <Text style={styles.workflowStepDesc}>{t('reserveDetail.acknowledgementHint')}</Text>
                   {permissions.canEdit && (
                     <TouchableOpacity style={styles.workflowBtn} onPress={handleEnterpriseAck} activeOpacity={0.8}>
                       <Ionicons name="mail-open-outline" size={14} color={C.primary} />
-                      <Text style={styles.workflowBtnText}>Accuser réception</Text>
+                      <Text style={styles.workflowBtnText}>{t('reserveDetail.acknowledge')}</Text>
                     </TouchableOpacity>
                   )}
                 </>
@@ -1424,11 +1442,11 @@ export default function ReserveDetailScreen() {
                     : <Text style={styles.workflowStepNumText}>2</Text>}
                 </View>
                 <Text style={[styles.workflowStepTitle, !ackDone && { color: C.textMuted }]}>
-                  Signatures de levée ({multiSignCount}/{reserveCompanyNames.length})
+                  {t('reserveDetail.liftSignatures', { done: multiSignCount, total: reserveCompanyNames.length })}
                 </Text>
               </View>
               {!ackDone ? (
-                <Text style={[styles.workflowStepDesc, { paddingLeft: 36 }]}>Disponible après accusé de réception.</Text>
+                <Text style={[styles.workflowStepDesc, { paddingLeft: 36 }]}>{t('reserveDetail.availableAfterAck')}</Text>
               ) : (
                 <View style={{ gap: 10 }}>
                   {reserveCompanyNames.map(coName => {
@@ -1442,19 +1460,19 @@ export default function ReserveDetailScreen() {
                           {sig ? (
                             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
                               <Ionicons name="checkmark-circle" size={14} color="#059669" />
-                              <Text style={{ fontSize: 11, fontFamily: 'Inter_500Medium', color: '#059669' }}>Signé</Text>
+                              <Text style={{ fontSize: 11, fontFamily: 'Inter_500Medium', color: '#059669' }}>{t('reserveDetail.signed')}</Text>
                             </View>
                           ) : (
                             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
                               <Ionicons name="ellipse-outline" size={13} color={C.textMuted} />
-                              <Text style={{ fontSize: 11, fontFamily: 'Inter_400Regular', color: C.textMuted }}>En attente</Text>
+                              <Text style={{ fontSize: 11, fontFamily: 'Inter_400Regular', color: C.textMuted }}>{t('reserveDetail.pending')}</Text>
                             </View>
                           )}
                         </View>
                         {sig ? (
                           <View>
                             <Text style={{ fontSize: 11, fontFamily: 'Inter_400Regular', color: C.textSub, marginBottom: 4 }}>
-                              Signé par {sig.signataire} le {sig.signedAt}
+                              {t('reserveDetail.signedByAt', { name: sig.signataire, date: sig.signedAt })}
                             </Text>
                             <Image source={{ uri: sig.signature }} style={styles.signaturePreview} resizeMode="contain" />
                           </View>
@@ -1470,7 +1488,7 @@ export default function ReserveDetailScreen() {
                           >
                             <Ionicons name="pencil-outline" size={14} color={co?.color ?? C.primary} />
                             <Text style={[styles.workflowBtnText, { color: co?.color ?? C.primary }]}>
-                              Signer pour {co?.shortName ?? coName}
+                              {t('reserveDetail.signFor', { name: co?.shortName ?? coName })}
                             </Text>
                           </TouchableOpacity>
                         ) : null}
@@ -1488,11 +1506,11 @@ export default function ReserveDetailScreen() {
                   : <Text style={styles.workflowStepNumText}>2</Text>}
               </View>
               <View style={{ flex: 1 }}>
-                <Text style={[styles.workflowStepTitle, !ackDone && { color: C.textMuted }]}>Signature de levée</Text>
+                <Text style={[styles.workflowStepTitle, !ackDone && { color: C.textMuted }]}>{t('reserveDetail.liftSignature')}</Text>
                 {signDone ? (
                   <View>
                     <Text style={styles.workflowStepDone}>
-                      Signé par {reserve.enterpriseSignataire}
+                      {t('reserveDetail.signedBy', { name: reserve.enterpriseSignataire })}
                     </Text>
                     <Image
                       source={{ uri: svgStringToDataUrl(reserve.enterpriseSignature!) }}
@@ -1502,7 +1520,7 @@ export default function ReserveDetailScreen() {
                   </View>
                 ) : ackDone ? (
                   <>
-                    <Text style={styles.workflowStepDesc}>L'entreprise certifie avoir levé la réserve. Signature numérique requise.</Text>
+                    <Text style={styles.workflowStepDesc}>{t('reserveDetail.signatureHint')}</Text>
                     {(permissions.canEdit || user?.role === 'sous_traitant') && (
                       <TouchableOpacity
                         style={styles.workflowBtn}
@@ -1510,12 +1528,12 @@ export default function ReserveDetailScreen() {
                         activeOpacity={0.8}
                       >
                         <Ionicons name="pencil-outline" size={14} color={C.primary} />
-                        <Text style={styles.workflowBtnText}>Signer la levée</Text>
+                        <Text style={styles.workflowBtnText}>{t('reserveDetail.signLift')}</Text>
                       </TouchableOpacity>
                     )}
                   </>
                 ) : (
-                  <Text style={styles.workflowStepDesc}>Disponible après accusé de réception.</Text>
+                  <Text style={styles.workflowStepDesc}>{t('reserveDetail.availableAfterAck')}</Text>
                 )}
               </View>
             </View>
@@ -1528,11 +1546,14 @@ export default function ReserveDetailScreen() {
             todo: C.textMuted, in_progress: C.inProgress, done: C.closed, delayed: C.waiting,
           };
           const TASK_STATUS_LABELS: Record<string, string> = {
-            todo: 'À faire', in_progress: 'En cours', done: 'Terminé', delayed: 'En retard',
+            todo: t('reserveDetail.taskStatus.todo'),
+            in_progress: t('reserveDetail.taskStatus.in_progress'),
+            done: t('reserveDetail.taskStatus.done'),
+            delayed: t('reserveDetail.taskStatus.delayed'),
           };
           return (
             <View style={styles.card}>
-              <Text style={styles.sectionTitle}>Tâche corrective</Text>
+              <Text style={styles.sectionTitle}>{t('reserveDetail.correctiveTask')}</Text>
               {linkedTask ? (
                 <TouchableOpacity
                   style={styles.taskLink}
@@ -1548,7 +1569,7 @@ export default function ReserveDetailScreen() {
                       <Text style={styles.taskProgressText}>{linkedTask.progress}%</Text>
                     </View>
                     <Text style={styles.taskTitle}>{linkedTask.title}</Text>
-                    <Text style={styles.taskMeta}>Responsable : {linkedTask.assignee} · Éch. : {linkedTask.deadline}</Text>
+                    <Text style={styles.taskMeta}>{t('reserveDetail.assigneeDue', { assignee: linkedTask.assignee, deadline: linkedTask.deadline })}</Text>
                     <View style={styles.taskProgressBar}>
                       <View style={[styles.taskProgressFill, { width: `${linkedTask.progress}%` as any, backgroundColor: TASK_STATUS_COLORS[linkedTask.status] }]} />
                     </View>
@@ -1562,10 +1583,10 @@ export default function ReserveDetailScreen() {
                   activeOpacity={0.8}
                 >
                   <Ionicons name="add-circle-outline" size={18} color={C.primary} />
-                  <Text style={styles.createTaskBtnText}>Créer une tâche corrective</Text>
+                  <Text style={styles.createTaskBtnText}>{t('reserveDetail.createTask')}</Text>
                 </TouchableOpacity>
               ) : (
-                <Text style={styles.emptyText}>Aucune tâche corrective associée à cette réserve.</Text>
+                <Text style={styles.emptyText}>{t('reserveDetail.noTask')}</Text>
               )}
             </View>
           );
@@ -1574,7 +1595,7 @@ export default function ReserveDetailScreen() {
         <View style={styles.card}>
           <View style={styles.commentHeader}>
             <Text style={styles.sectionTitle}>
-              Commentaires ({reserve.comments.length})
+              {t('reserveDetail.comments', { count: reserve.comments.length })}
             </Text>
             {permissions.canCreate && (
               <TouchableOpacity
@@ -1591,7 +1612,7 @@ export default function ReserveDetailScreen() {
               <DictationTextInput
                 inputStyle={styles.commentInput}
                 containerStyle={{ flex: 1 }}
-                placeholder="Ajouter un commentaire..."
+                placeholder={t('reserveDetail.addCommentPlaceholder')}
                 placeholderTextColor={C.textMuted}
                 value={comment}
                 onChangeText={setComment}
@@ -1608,7 +1629,7 @@ export default function ReserveDetailScreen() {
           )}
 
           {reserve.comments.length === 0 && !showCommentBox && (
-            <Text style={styles.emptyText}>Aucun commentaire — appuyez sur + pour en ajouter</Text>
+            <Text style={styles.emptyText}>{t('reserveDetail.noComments')}</Text>
           )}
 
           {[...reserve.comments].reverse().map(c => {
@@ -1625,7 +1646,7 @@ export default function ReserveDetailScreen() {
                     <Text style={styles.commentAuthor}>{c.author}</Text>
                     <Text style={styles.commentDate}>
                       {formatDate(c.createdAt)}
-                      {c.editedAt ? ` · modifié le ${formatDate(c.editedAt)}` : ''}
+                      {c.editedAt ? t('reserveDetail.editedAt', { date: formatDate(c.editedAt) }) : ''}
                     </Text>
                   </View>
                   {isOwner && !isEditing && (
@@ -1633,14 +1654,14 @@ export default function ReserveDetailScreen() {
                       <TouchableOpacity
                         onPress={() => handleStartEditComment(c)}
                         style={styles.commentActionBtn}
-                        accessibilityLabel="Modifier le commentaire"
+                        accessibilityLabel={t('reserveDetail.editComment')}
                       >
                         <Ionicons name="create-outline" size={16} color={C.primary} />
                       </TouchableOpacity>
                       <TouchableOpacity
                         onPress={() => handleDeleteComment(c.id)}
                         style={styles.commentActionBtn}
-                        accessibilityLabel="Supprimer le commentaire"
+                        accessibilityLabel={t('reserveDetail.deleteComment')}
                       >
                         <Ionicons name="trash-outline" size={16} color={C.open} />
                       </TouchableOpacity>
@@ -1664,7 +1685,7 @@ export default function ReserveDetailScreen() {
                         onPress={handleCancelEditComment}
                         style={[styles.commentActionBtn, { paddingHorizontal: 12 }]}
                       >
-                        <Text style={{ color: C.textMuted, fontWeight: '600' }}>Annuler</Text>
+                        <Text style={{ color: C.textMuted, fontWeight: '600' }}>{t('common.cancel')}</Text>
                       </TouchableOpacity>
                       <TouchableOpacity
                         onPress={handleSaveEditComment}
@@ -1674,7 +1695,7 @@ export default function ReserveDetailScreen() {
                         ]}
                       >
                         <Ionicons name="checkmark" size={16} color="#fff" />
-                        <Text style={{ color: '#fff', fontWeight: '600' }}>Enregistrer</Text>
+                        <Text style={{ color: '#fff', fontWeight: '600' }}>{t('common.save')}</Text>
                       </TouchableOpacity>
                     </View>
                   </View>
@@ -1687,7 +1708,7 @@ export default function ReserveDetailScreen() {
         </View>
 
         <View style={styles.card}>
-          <Text style={styles.sectionTitle}>Historique ({reserve.history.length})</Text>
+          <Text style={styles.sectionTitle}>{t('reserveDetail.history', { count: reserve.history.length })}</Text>
           <ScrollView
             style={{ maxHeight: 260 }}
             nestedScrollEnabled
@@ -1713,13 +1734,13 @@ export default function ReserveDetailScreen() {
         {permissions.canExport && (
           <TouchableOpacity style={styles.exportPdfBtn} onPress={handleExportPDF}>
             <Ionicons name="document-text-outline" size={16} color={C.primary} />
-            <Text style={styles.exportPdfBtnText}>Exporter fiche PDF</Text>
+            <Text style={styles.exportPdfBtnText}>{t('reserveDetail.exportPdf')}</Text>
           </TouchableOpacity>
         )}
         {permissions.canExport && (
           <TouchableOpacity style={[styles.exportPdfBtn, { borderColor: '#0EA5E9' + '50', backgroundColor: '#0EA5E9' + '08', marginBottom: 10 }]} onPress={() => setEmailModalVisible(true)}>
             <Ionicons name="mail-outline" size={16} color="#0EA5E9" />
-            <Text style={[styles.exportPdfBtnText, { color: '#0EA5E9' }]}>Envoyer par email</Text>
+            <Text style={[styles.exportPdfBtnText, { color: '#0EA5E9' }]}>{t('reserveDetail.sendEmail')}</Text>
           </TouchableOpacity>
         )}
 
@@ -1729,21 +1750,21 @@ export default function ReserveDetailScreen() {
               <Pressable style={styles.emailModalCard} onPress={() => {}}>
                 <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
                   <View style={{ flex: 1 }}>
-                    <Text style={styles.emailModalTitle}>Envoyer la fiche par email</Text>
-                    <Text style={styles.emailModalSubtitle}>PDF haute fidélité</Text>
+                    <Text style={styles.emailModalTitle}>{t('reserveDetail.emailTitle')}</Text>
+                    <Text style={styles.emailModalSubtitle}>{t('reserveDetail.emailSubtitle')}</Text>
                   </View>
                   <TouchableOpacity onPress={() => setEmailModalVisible(false)}>
                     <Ionicons name="close" size={20} color={C.textMuted} />
                   </TouchableOpacity>
                 </View>
                 <Text style={{ fontSize: 12, color: C.textSub, marginBottom: 8 }}>
-                  Destinataires (séparés par virgule)
+                  {t('reserveDetail.recipients')}
                 </Text>
                 <TextInput
                   style={styles.emailInput}
                   value={emailTo}
                   onChangeText={setEmailTo}
-                  placeholder="ex: chef@bouygues.fr, contact@entreprise.fr"
+                  placeholder={t('reserveDetail.emailPlaceholder')}
                   placeholderTextColor={C.textMuted}
                   autoCapitalize="none"
                   keyboardType="email-address"
@@ -1751,7 +1772,7 @@ export default function ReserveDetailScreen() {
                 />
                 <View style={{ flexDirection: 'row', gap: 10, marginTop: 16 }}>
                   <TouchableOpacity style={styles.emailCancelBtn} onPress={() => setEmailModalVisible(false)} disabled={emailLoading}>
-                    <Text style={styles.emailCancelBtnText}>Annuler</Text>
+                    <Text style={styles.emailCancelBtnText}>{t('common.cancel')}</Text>
                   </TouchableOpacity>
                   <TouchableOpacity
                     style={[styles.emailSendBtn, (emailLoading || !emailTo.trim()) && { opacity: 0.5 }]}
@@ -1761,7 +1782,7 @@ export default function ReserveDetailScreen() {
                     {emailLoading
                       ? <ActivityIndicator size="small" color="#fff" />
                       : <Ionicons name="mail-outline" size={16} color="#fff" />}
-                    <Text style={styles.emailSendBtnText}>Envoyer</Text>
+                    <Text style={styles.emailSendBtnText}>{t('reserveDetail.send')}</Text>
                   </TouchableOpacity>
                 </View>
               </Pressable>
@@ -1772,7 +1793,7 @@ export default function ReserveDetailScreen() {
         {permissions.canDelete && (
           <TouchableOpacity style={styles.deleteBtn} onPress={handleDelete}>
             <Ionicons name="trash-outline" size={16} color={C.open} />
-            <Text style={styles.deleteBtnText}>Supprimer cette réserve</Text>
+            <Text style={styles.deleteBtnText}>{t('reserveDetail.deleteReserve')}</Text>
           </TouchableOpacity>
         )}
       </ScrollView>
@@ -1786,30 +1807,30 @@ export default function ReserveDetailScreen() {
               <TouchableOpacity onPress={() => setEditModalVisible(false)} style={mStyles.closeBtn}>
                 <Ionicons name="close" size={20} color={C.textSub} />
               </TouchableOpacity>
-              <Text style={mStyles.sheetTitle}>Modifier la réserve</Text>
+              <Text style={mStyles.sheetTitle}>{t('reserveDetail.editSheetTitle')}</Text>
               <TouchableOpacity onPress={handleSaveEdit} style={mStyles.saveBtn}>
-                <Text style={mStyles.saveBtnText}>Enregistrer</Text>
+                <Text style={mStyles.saveBtnText}>{t('common.save')}</Text>
               </TouchableOpacity>
             </View>
 
             <ScrollView contentContainerStyle={[mStyles.content, { paddingBottom: insets.bottom + 24 }]} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
-              <Text style={mStyles.label}>TITRE *</Text>
+              <Text style={mStyles.label}>{t('reserveDetail.title')}</Text>
               <DictationTextInput
                 inputStyle={mStyles.input}
                 value={editTitle}
                 onChangeText={setEditTitle}
-                placeholder="Titre..."
+                placeholder={t('reserveDetail.titlePlaceholder')}
                 placeholderTextColor={C.textMuted}
                 textAssistEnabled
                 textAssistContext="description"
               />
 
-              <Text style={mStyles.label}>DESCRIPTION</Text>
+              <Text style={mStyles.label}>{t('reserveDetail.description').toUpperCase()}</Text>
               <DictationTextInput
                 inputStyle={[mStyles.input, mStyles.textArea]}
                 value={editDescription}
                 onChangeText={setEditDescription}
-                placeholder="Description..."
+                placeholder={t('reserveNew.descriptionPlaceholder')}
                 placeholderTextColor={C.textMuted}
                 multiline
                 numberOfLines={4}
@@ -1817,7 +1838,7 @@ export default function ReserveDetailScreen() {
                 textAssistContext="description"
               />
 
-              <Text style={mStyles.label}>PHOTOS ({editPhotos.length}/6)</Text>
+              <Text style={mStyles.label}>{t('reserveDetail.photosLabel', { count: editPhotos.length })}</Text>
               {editPhotos.length > 0 && (
                 <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 8 }}>
                   <View style={{ flexDirection: 'row', gap: 8 }}>
@@ -1826,7 +1847,7 @@ export default function ReserveDetailScreen() {
                         <TouchableOpacity onPress={() => toggleEditPhotoKind(p.id)} activeOpacity={0.85}>
                           <Image source={{ uri: p.uri }} style={mStyles.photoThumbImg} resizeMode="cover" onError={() => {}} />
                           <View style={[mStyles.photoKindBadge, { backgroundColor: p.kind === 'defect' ? '#EF444488' : '#22C55E88' }]}>
-                            <Text style={mStyles.photoKindText}>{p.kind === 'defect' ? 'Constat' : 'Levée'}</Text>
+                            <Text style={mStyles.photoKindText}>{p.kind === 'defect' ? t('reserveNew.photoDefect') : t('reserveNew.photoResolved')}</Text>
                           </View>
                         </TouchableOpacity>
                         <TouchableOpacity style={mStyles.photoRemoveBtn} onPress={() => removeEditPhoto(p.id)}>
@@ -1841,22 +1862,22 @@ export default function ReserveDetailScreen() {
                 <View style={mStyles.photoRow}>
                   <TouchableOpacity style={mStyles.photoBtn} onPress={() => handleAddEditPhoto(true)} disabled={editPhotoUploading}>
                     <Ionicons name="camera" size={16} color={C.primary} />
-                    <Text style={mStyles.photoBtnText}>Photo</Text>
+                    <Text style={mStyles.photoBtnText}>{t('reserveNew.photo')}</Text>
                   </TouchableOpacity>
                   <TouchableOpacity style={[mStyles.photoBtn, { flex: 1 }]} onPress={() => handleAddEditPhoto(false)} disabled={editPhotoUploading}>
                     <Ionicons name="images-outline" size={16} color={C.inProgress} />
-                    <Text style={[mStyles.photoBtnText, { color: C.inProgress }]}>Galerie</Text>
+                    <Text style={[mStyles.photoBtnText, { color: C.inProgress }]}>{t('reserveNew.gallery')}</Text>
                   </TouchableOpacity>
                 </View>
               )}
               {editPhotoUploading && (
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 8 }}>
                   <ActivityIndicator size="small" color={C.primary} />
-                  <Text style={{ fontSize: 12, color: C.textMuted, fontFamily: 'Inter_400Regular' }}>Upload en cours...</Text>
+                  <Text style={{ fontSize: 12, color: C.textMuted, fontFamily: 'Inter_400Regular' }}>{t('reserveNew.uploading')}</Text>
                 </View>
               )}
 
-              <Text style={mStyles.label}>LOCALISATION</Text>
+              <Text style={mStyles.label}>{t('reserveDetail.location').toUpperCase()}</Text>
               <LocationPicker
                 buildings={activeChantier?.buildings ?? []}
                 building={editBuilding}
@@ -1867,7 +1888,7 @@ export default function ReserveDetailScreen() {
                 onZoneChange={setEditZone}
               />
 
-              <Text style={mStyles.label}>ENTREPRISES</Text>
+              <Text style={mStyles.label}>{t('reserveDetail.companies').toUpperCase()}</Text>
               <CompanySelector
                 mode="multi"
                 identifier="name"
@@ -1877,11 +1898,11 @@ export default function ReserveDetailScreen() {
               />
               {editCompanies.length > 1 && (
                 <Text style={[mStyles.hint, { color: C.primary, marginTop: 4 }]}>
-                  {editCompanies.length} entreprises sélectionnées — toutes seront notifiées lors d'un changement de statut.
+                  {t('reserveDetail.selectedCompanies', { count: editCompanies.length })}
                 </Text>
               )}
 
-              <Text style={mStyles.label}>PRIORITÉ</Text>
+              <Text style={mStyles.label}>{t('reserveDetail.priority').toUpperCase()}</Text>
               <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 16 }}>
                 {RESERVE_PRIORITIES.map(p => (
                   <TouchableOpacity
@@ -1889,12 +1910,12 @@ export default function ReserveDetailScreen() {
                     style={[mStyles.chip, editPriority === p.value && { borderColor: p.color, backgroundColor: p.color + '20' }]}
                     onPress={() => setEditPriority(p.value)}
                   >
-                    <Text style={[mStyles.chipText, editPriority === p.value && { color: p.color }]}>{p.label}</Text>
+                    <Text style={[mStyles.chipText, editPriority === p.value && { color: p.color }]}>{priorityLabels[p.value]}</Text>
                   </TouchableOpacity>
                 ))}
               </View>
 
-              <Text style={mStyles.label}>DATE LIMITE</Text>
+              <Text style={mStyles.label}>{t('reserveDetail.deadlineDate').toUpperCase()}</Text>
               <DateInput value={editDeadline} onChange={setEditDeadline} optional />
             </ScrollView>
           </View>
@@ -1929,7 +1950,7 @@ export default function ReserveDetailScreen() {
                 </TouchableOpacity>
                 <View style={[styles.photoKindBadge, { backgroundColor: allPhotos[selectedPhotoIndex]?.kind === 'defect' ? '#EF444488' : '#22C55E88', paddingHorizontal: 14, paddingVertical: 5 }]}>
                   <Text style={styles.photoKindBadgeText}>
-                    {allPhotos[selectedPhotoIndex]?.kind === 'defect' ? 'Constat' : 'Levée'} · {selectedPhotoIndex + 1}/{allPhotos.length}
+                    {allPhotos[selectedPhotoIndex]?.kind === 'defect' ? t('reserveNew.photoDefect') : t('reserveNew.photoResolved')} · {selectedPhotoIndex + 1}/{allPhotos.length}
                   </Text>
                 </View>
                 <TouchableOpacity
@@ -1955,28 +1976,28 @@ export default function ReserveDetailScreen() {
                 <Ionicons name="close" size={20} color={C.textSub} />
               </TouchableOpacity>
               <Text style={mStyles.sheetTitle}>
-                {signingForCompany ? `Signature — ${signingForCompany}` : 'Signature de levée'}
+                {signingForCompany ? t('reserveDetail.signatureTitleFor', { company: signingForCompany }) : t('reserveDetail.signatureTitle')}
               </Text>
               <TouchableOpacity onPress={handleSignatureSave} style={mStyles.saveBtn}>
-                <Text style={mStyles.saveBtnText}>Valider</Text>
+                <Text style={mStyles.saveBtnText}>{t('reserveDetail.validate')}</Text>
               </TouchableOpacity>
             </View>
             <ScrollView contentContainerStyle={[mStyles.content, { paddingBottom: insets.bottom + 24 }]} showsVerticalScrollIndicator={false}>
               <View style={styles.sigInfoBox}>
                 <Ionicons name="information-circle-outline" size={16} color={C.primary} />
                 <Text style={styles.sigInfoText}>
-                  En signant, l'entreprise certifie avoir levé la réserve <Text style={{ fontFamily: 'Inter_700Bold' }}>{reserve.id}</Text>.
+                  {t('reserveDetail.signatureLegal', { id: reserve.id })}
                 </Text>
               </View>
-              <Text style={mStyles.label}>NOM DU SIGNATAIRE</Text>
+              <Text style={mStyles.label}>{t('reserveDetail.signerName').toUpperCase()}</Text>
               <TextInput
                 style={mStyles.input}
-                placeholder={user?.name ?? 'Nom du représentant...'}
+                placeholder={user?.name ?? t('reserveDetail.signerPlaceholder')}
                 placeholderTextColor={C.textMuted}
                 value={signataireName}
                 onChangeText={setSignataireName}
               />
-              <Text style={[mStyles.label, { marginTop: 16 }]}>SIGNATURE *</Text>
+              <Text style={[mStyles.label, { marginTop: 16 }]}>{t('reserveDetail.signatureRequiredLabel').toUpperCase()}</Text>
               <View style={styles.sigPadWrap}>
                 <SignaturePad ref={sigPadRef} />
               </View>
@@ -1985,7 +2006,7 @@ export default function ReserveDetailScreen() {
                 style={styles.clearSigBtn}
               >
                 <Ionicons name="refresh-outline" size={14} color={C.textSub} />
-                <Text style={styles.clearSigText}>Effacer la signature</Text>
+                <Text style={styles.clearSigText}>{t('reserveDetail.clearSignature')}</Text>
               </TouchableOpacity>
             </ScrollView>
           </View>

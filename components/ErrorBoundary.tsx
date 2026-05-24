@@ -4,6 +4,7 @@ import {
   ScrollView, Clipboard,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useTranslation } from 'react-i18next';
 
 function reloadApp() {
   if (Platform.OS === 'web') {
@@ -25,9 +26,10 @@ function ErrorFallback({
   componentStack: string | null;
 }) {
   const insets = useSafeAreaInsets();
+  const { t } = useTranslation();
 
   const errorName = error?.name ?? 'Error';
-  const errorMessage = error?.message ?? "L'application a rencontré un problème inattendu.";
+  const errorMessage = error?.message ?? t('errorBoundary.defaultMessage');
   const jsStack = error?.stack ?? '';
 
   const fullLog = [
@@ -52,15 +54,15 @@ function ErrorFallback({
         { paddingTop: Math.max(insets.top, 24), paddingBottom: Math.max(insets.bottom, 24) },
       ]}
     >
-      <Text style={styles.title}>Une erreur est survenue</Text>
+      <Text style={styles.title}>{t('errorBoundary.title')}</Text>
       <Text style={styles.errorName}>{errorName}</Text>
       <Text style={styles.message}>{errorMessage}</Text>
 
       <View style={styles.logBox}>
         <View style={styles.logHeader}>
-          <Text style={styles.logHeaderText}>Logs de débogage</Text>
+          <Text style={styles.logHeaderText}>{t('errorBoundary.debugLogs')}</Text>
           <TouchableOpacity style={styles.copyButton} onPress={handleCopy}>
-            <Text style={styles.copyButtonText}>Copier</Text>
+            <Text style={styles.copyButtonText}>{t('errorBoundary.copy')}</Text>
           </TouchableOpacity>
         </View>
         <ScrollView
@@ -71,24 +73,24 @@ function ErrorFallback({
         >
           {jsStack ? (
             <>
-              <Text style={styles.logSectionLabel}>Stack JS</Text>
+              <Text style={styles.logSectionLabel}>{t('errorBoundary.jsStack')}</Text>
               <Text style={styles.logText} selectable>{jsStack}</Text>
             </>
           ) : null}
           {componentStack ? (
             <>
-              <Text style={[styles.logSectionLabel, { marginTop: 12 }]}>Arbre React</Text>
+              <Text style={[styles.logSectionLabel, { marginTop: 12 }]}>{t('errorBoundary.reactTree')}</Text>
               <Text style={styles.logText} selectable>{componentStack}</Text>
             </>
           ) : null}
           {!jsStack && !componentStack ? (
-            <Text style={styles.logText}>Aucune trace disponible.</Text>
+            <Text style={styles.logText}>{t('errorBoundary.noTrace')}</Text>
           ) : null}
         </ScrollView>
       </View>
 
       <TouchableOpacity style={styles.button} onPress={reloadApp}>
-        <Text style={styles.buttonText}>Redémarrer l'application</Text>
+        <Text style={styles.buttonText}>{t('errorBoundary.restart')}</Text>
       </TouchableOpacity>
     </View>
   );

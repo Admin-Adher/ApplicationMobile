@@ -9,6 +9,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { useState, useMemo, useCallback, useRef, useEffect } from 'react';
+import { useTranslation } from 'react-i18next';
 import { SkeletonList } from '@/components/SkeletonCard';
 import * as ImagePicker from 'expo-image-picker';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -254,6 +255,7 @@ async function generateReportPDF(action: 'share' | 'print',
 }
 
 export default function ReservesScreen() {
+  const { t } = useTranslation();
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const { company: companyParam } = useLocalSearchParams<{ company?: string }>();
@@ -290,6 +292,34 @@ export default function ReservesScreen() {
   const [actionsModalVisible, setActionsModalVisible] = useState(false);
   const [viewMode, setViewMode] = useState<ViewMode>('list');
   const [viewModeModalVisible, setViewModeModalVisible] = useState(false);
+
+  const statusFilters = useMemo(
+    () => ([
+      { key: 'all' as const, label: t('reservesScreen.all') },
+      { key: 'open' as const, label: t('reserveLabels.status.open') },
+      { key: 'in_progress' as const, label: t('reserveLabels.status.in_progress') },
+      { key: 'waiting' as const, label: t('reserveLabels.status.waiting') },
+      { key: 'verification' as const, label: t('reserveLabels.status.verification') },
+      { key: 'closed' as const, label: t('reserveLabels.status.closed') },
+      { key: 'overdue' as const, label: t('reservesScreen.statuses.overdue'), icon: 'warning-outline' },
+    ] satisfies { key: StatusFilterKey; label: string; icon?: string }[]),
+    [t],
+  );
+  const statusLabelEntries = useMemo(
+    () => (['open', 'in_progress', 'waiting', 'verification', 'closed'] as ReserveStatus[])
+      .map(status => [status, t(`reserveLabels.status.${status}`)] as [ReserveStatus, string]),
+    [t],
+  );
+  const sortOptions = useMemo(
+    () => ([
+      { key: 'date_desc' as const, label: t('reservesScreen.sortOptions.dateDesc', { defaultValue: 'Plus récente' }) },
+      { key: 'date_asc' as const, label: t('reservesScreen.sortOptions.dateAsc', { defaultValue: 'Plus ancienne' }) },
+      { key: 'priority' as const, label: t('reservesScreen.sortOptions.priority', { defaultValue: "Priorité (critique d'abord)" }) },
+      { key: 'deadline' as const, label: t('reservesScreen.sortOptions.deadline', { defaultValue: 'Échéance (plus proche)' }) },
+      { key: 'status' as const, label: t('reservesScreen.sortOptions.status', { defaultValue: 'Statut' }) },
+    ] satisfies { key: SortKey; label: string }[]),
+    [t],
+  );
 
   const topPad = insets.top;
   const { width, height: windowHeight } = useWindowDimensions();
@@ -857,9 +887,9 @@ export default function ReservesScreen() {
     const ORDER: ReserveStatus[] = ['open', 'in_progress', 'waiting', 'verification', 'closed'];
     return ORDER.map(s => {
       const data = filtered.filter(r => r.status === s);
-      return { title: STATUS_LABELS[s], key: s, data, color: STATUS_COLORS[s] };
+      return { title: t(`reserveLabels.status.${s}`), key: s, data, color: STATUS_COLORS[s] };
     }).filter(s => s.data.length > 0);
-  }, [filtered]);
+  }, [filtered, t]);
 
   const groupedByCompany = useMemo(() => {
     const coMap: Record<string, Reserve[]> = {};
@@ -1302,12 +1332,12 @@ export default function ReservesScreen() {
           : <Ionicons name="funnel-outline" size={40} color={C.primary} />}
       </View>
       <Text style={styles.emptyText}>
-        {chantierReserves.length === 0 ? 'Aucune réserve' : 'Aucun résultat'}
+        {chantierReserves.length === 0 ? t('reservesScreen.empty.noReserve') : t('reservesScreen.empty.noResult')}
       </Text>
       <Text style={styles.emptyHint}>
         {chantierReserves.length === 0
-          ? 'Commencez par créer votre première réserve'
-          : 'Modifiez vos filtres ou votre recherche'}
+          ? t('reservesScreen.empty.createReserve')
+          : t('reservesScreen.empty.resetFilters')}
       </Text>
       {chantierReserves.length === 0 && permissions.canCreate && (
         <TouchableOpacity
@@ -1315,12 +1345,12 @@ export default function ReservesScreen() {
           onPress={toggleFab}
         >
           <Ionicons name="add-circle-outline" size={16} color="#fff" />
-          <Text style={styles.emptyBtnText}>Créer une réserve</Text>
+          <Text style={styles.emptyBtnText}>{t('reservesScreen.empty.createReserve')}</Text>
         </TouchableOpacity>
       )}
       {chantierReserves.length > 0 && (
         <TouchableOpacity style={styles.emptyBtnSecondary} onPress={resetAllFilters}>
-          <Text style={styles.emptyBtnSecondaryText}>Réinitialiser les filtres</Text>
+          <Text style={styles.emptyBtnSecondaryText}>{t('reservesScreen.empty.resetFilters')}</Text>
         </TouchableOpacity>
       )}
     </View>
@@ -1338,7 +1368,7 @@ export default function ReservesScreen() {
     return (
       <View style={styles.container}>
         <View style={[styles.header, { paddingTop: topPad + 12 }]}>
-          <Text style={styles.title}>Réserves</Text>
+          <Text style={styles.title}>{t('reservesScreen.title')}</Text>
         </View>
         <ScrollView contentContainerStyle={styles.emptyChantierState} showsVerticalScrollIndicator={false}>
 
@@ -1346,9 +1376,9 @@ export default function ReservesScreen() {
             <Ionicons name="clipboard-outline" size={44} color={C.primary} />
           </View>
 
-          <Text style={styles.emptyChantierTitle}>Aucun chantier actif</Text>
+          <Text style={styles.emptyChantierTitle}>{t('reservesScreen.emptyProjectTitle')}</Text>
           <Text style={styles.emptyChantierSubtitle}>
-            Créez votre premier chantier pour commencer à saisir et suivre vos réserves.
+            {t('reservesScreen.emptyProjectHint')}
           </Text>
 
           <View style={styles.emptyChantierFeatures}>
@@ -1357,8 +1387,8 @@ export default function ReservesScreen() {
                 <Ionicons name="alert-circle-outline" size={14} color="#fff" />
               </View>
               <View style={{ flex: 1 }}>
-                <Text style={styles.emptyChantierFeatureTitle}>Suivi des réserves</Text>
-                <Text style={styles.emptyChantierFeatureDesc}>Créez, affectez et suivez l'avancement de chaque réserve par statut et priorité.</Text>
+                <Text style={styles.emptyChantierFeatureTitle}>{t('reservesScreen.features.trackingTitle')}</Text>
+                <Text style={styles.emptyChantierFeatureDesc}>{t('reservesScreen.features.trackingText')}</Text>
               </View>
             </View>
             <View style={styles.emptyChantierFeatureRow}>
@@ -1366,8 +1396,8 @@ export default function ReservesScreen() {
                 <Ionicons name="people-outline" size={14} color="#fff" />
               </View>
               <View style={{ flex: 1 }}>
-                <Text style={styles.emptyChantierFeatureTitle}>Gestion des entreprises</Text>
-                <Text style={styles.emptyChantierFeatureDesc}>Associez chaque réserve à une entreprise et suivez leur taux de clôture.</Text>
+                <Text style={styles.emptyChantierFeatureTitle}>{t('reservesScreen.features.companiesTitle')}</Text>
+                <Text style={styles.emptyChantierFeatureDesc}>{t('reservesScreen.features.companiesText')}</Text>
               </View>
             </View>
             <View style={styles.emptyChantierFeatureRow}>
@@ -1375,15 +1405,15 @@ export default function ReservesScreen() {
                 <Ionicons name="document-text-outline" size={14} color="#fff" />
               </View>
               <View style={{ flex: 1 }}>
-                <Text style={styles.emptyChantierFeatureTitle}>Rapports PDF & CSV</Text>
-                <Text style={styles.emptyChantierFeatureDesc}>Exportez un rapport complet avec statistiques et tableau détaillé des réserves.</Text>
+                <Text style={styles.emptyChantierFeatureTitle}>{t('reservesScreen.features.exportsTitle')}</Text>
+                <Text style={styles.emptyChantierFeatureDesc}>{t('reservesScreen.features.exportsText')}</Text>
               </View>
             </View>
           </View>
 
           <TouchableOpacity style={styles.emptyChantierBtn} onPress={() => router.push('/chantier/new' as any)}>
             <Ionicons name="add-circle-outline" size={16} color="#fff" />
-            <Text style={styles.emptyChantierBtnText}>Créer un chantier</Text>
+            <Text style={styles.emptyChantierBtnText}>{t('reservesScreen.createProject')}</Text>
           </TouchableOpacity>
 
         </ScrollView>
@@ -1396,11 +1426,11 @@ export default function ReservesScreen() {
       <View style={[styles.header, { paddingTop: topPad + 8 }]}>
         <View style={styles.headerRow}>
           <View style={{ flex: 1, minWidth: 0, marginRight: 8 }}>
-            <Text style={styles.title} numberOfLines={1} ellipsizeMode="tail">Réserves</Text>
+            <Text style={styles.title} numberOfLines={1} ellipsizeMode="tail">{t('reservesScreen.title')}</Text>
             <Text style={styles.subtitle} numberOfLines={2} ellipsizeMode="tail">
-              {isLoading ? 'Chargement…' : isSelectMode
-                ? `${selectedIds.size} sélectionnée${selectedIds.size !== 1 ? 's' : ''} sur ${filtered.length}`
-                : `${filtered.length} / ${chantierReserves.length} réserve${chantierReserves.length !== 1 ? 's' : ''}${overdueCount > 0 ? ` · ${overdueCount} en retard` : ''}`}
+              {isLoading ? t('reservesScreen.loading') : isSelectMode
+                ? t('reservesScreen.selectedSummary', { count: selectedIds.size, selected: selectedIds.size, total: filtered.length })
+                : `${t('reservesScreen.countSummary', { count: chantierReserves.length, shown: filtered.length, total: chantierReserves.length })}${overdueCount > 0 ? t('reservesScreen.overdueSuffix', { count: overdueCount }) : ''}`}
             </Text>
           </View>
           <View style={{ flexDirection: 'row', gap: 6, flexShrink: 0, alignItems: 'center' }}>
@@ -1409,7 +1439,7 @@ export default function ReservesScreen() {
                 style={styles.headerActionsBtn}
                 onPress={() => setActionsModalVisible(true)}
                 accessibilityRole="button"
-                accessibilityLabel="Ouvrir les actions des r\u00e9serves"
+                accessibilityLabel={t('reservesScreen.actions')}
               >
                 <Ionicons name="ellipsis-horizontal" size={17} color={C.primary} />
                 {currentMissingDescriptionCount > 0 && canUseReserveAssistant && (
@@ -1424,21 +1454,21 @@ export default function ReservesScreen() {
 
         {isSelectMode && (
           <View style={styles.selectBar}>
-            <TouchableOpacity style={styles.selectBarBtn} onPress={selectAll} accessibilityLabel="Tout sélectionner">
+            <TouchableOpacity style={styles.selectBarBtn} onPress={selectAll} accessibilityLabel={t('reservesScreen.selectAll')}>
               <Ionicons name="checkmark-done-outline" size={14} color={C.primary} />
-              <Text style={styles.selectBarBtnText}>Tout sélect.</Text>
+              <Text style={styles.selectBarBtnText}>{t('reservesScreen.selectAll')}</Text>
             </TouchableOpacity>
-            <TouchableOpacity style={styles.selectBarBtn} onPress={() => setSelectedIds(new Set())} accessibilityLabel="Désélectionner tout">
+            <TouchableOpacity style={styles.selectBarBtn} onPress={() => setSelectedIds(new Set())} accessibilityLabel={t('reservesScreen.deselectAll')}>
               <Ionicons name="close-outline" size={14} color={C.textSub} />
-              <Text style={styles.selectBarBtnText}>Désélect.</Text>
+              <Text style={styles.selectBarBtnText}>{t('reservesScreen.deselectAll')}</Text>
             </TouchableOpacity>
             <TouchableOpacity
               style={[styles.selectBarBtn, styles.selectBarCancelBtn]}
               onPress={() => { setIsSelectMode(false); setSelectedIds(new Set()); }}
-              accessibilityLabel="Quitter le mode selection"
+              accessibilityLabel={t('reservesScreen.cancelSelection')}
             >
               <Ionicons name="close-circle-outline" size={14} color={C.open} />
-              <Text style={[styles.selectBarBtnText, { color: C.open }]}>Annuler</Text>
+              <Text style={[styles.selectBarBtnText, { color: C.open }]}>{t('reservesScreen.cancelSelection')}</Text>
             </TouchableOpacity>
           </View>
         )}
@@ -1450,7 +1480,7 @@ export default function ReservesScreen() {
                 <Ionicons name="checkmark-circle-outline" size={13} color={C.closed} />
                 <Text style={styles.progressLabel}>
                   <Text style={{ fontFamily: 'Inter_700Bold', color: C.closed }}>{closedCount}</Text>
-                  <Text style={{ color: C.textSub }}> / {chantierReserves.length} levées</Text>
+                  <Text style={{ color: C.textSub }}>{t('reservesScreen.progressLifted', { total: chantierReserves.length })}</Text>
                 </Text>
               </View>
               <Text style={[
@@ -1476,7 +1506,7 @@ export default function ReservesScreen() {
           <View style={styles.workflowSummaryBar}>
             <View style={styles.workflowSummaryTitle}>
               <Ionicons name="business-outline" size={13} color={C.primary} />
-              <Text style={styles.workflowSummaryTitleText}>Suivi entreprise</Text>
+              <Text style={styles.workflowSummaryTitleText}>{t('reservesScreen.enterpriseTracking')}</Text>
             </View>
             <ScrollView horizontal showsHorizontalScrollIndicator={false}>
               <View style={styles.workflowSummaryChips}>
@@ -1492,7 +1522,7 @@ export default function ReservesScreen() {
                   >
                     <Ionicons name="shield-checkmark-outline" size={11} color={C.verification} />
                     <Text style={[styles.workflowSummaryChipText, { color: C.verification }]}>
-                      {enterpriseWorkflowStats.needs_validation} Ã  valider
+                      {t('reservesScreen.needsValidation', { count: enterpriseWorkflowStats.needs_validation })}
                     </Text>
                   </TouchableOpacity>
                 )}
@@ -1508,7 +1538,7 @@ export default function ReservesScreen() {
                   >
                     <Ionicons name="mail-unread-outline" size={11} color="#B45309" />
                     <Text style={[styles.workflowSummaryChipText, { color: '#B45309' }]}>
-                      {enterpriseWorkflowStats.ack_missing} AR manquant{enterpriseWorkflowStats.ack_missing > 1 ? 's' : ''}
+                      {t('reservesScreen.ackMissing', { count: enterpriseWorkflowStats.ack_missing })}
                     </Text>
                   </TouchableOpacity>
                 )}
@@ -1531,7 +1561,7 @@ export default function ReservesScreen() {
                   accessibilityRole="button"
                   accessibilityLabel="Voir tous les filtres de suivi entreprise"
                 >
-                  <Text style={styles.workflowSummaryMoreText}>Tous</Text>
+                  <Text style={styles.workflowSummaryMoreText}>{t('reservesScreen.allPlural')}</Text>
                 </TouchableOpacity>
               </View>
             </ScrollView>
@@ -1554,22 +1584,23 @@ export default function ReservesScreen() {
             accessibilityRole="button"
             accessibilityLabel={
               showArchived
-                ? 'Revenir aux réserves actives'
-                : `${archivedCount} réserve${archivedCount > 1 ? 's' : ''} archivée${archivedCount > 1 ? 's' : ''}`
+                ? t('reservesScreen.archivedView')
+                : t('reservesScreen.archivedBanner', { count: archivedCount })
             }
           >
             <Ionicons name={showArchived ? 'archive' : 'archive-outline'} size={14} color="#6B7280" />
             <Text style={styles.archiveBannerText}>
               {showArchived ? (
                 <>
-                  <Text style={{ fontFamily: 'Inter_700Bold', color: '#6B7280' }}>Vue archives</Text>
+                  <Text style={{ fontFamily: 'Inter_700Bold', color: '#6B7280' }}>{t('reservesScreen.archivedView')}</Text>
                   {' — '}
-                  {archivedCount} réserve{archivedCount > 1 ? 's' : ''} archivée{archivedCount > 1 ? 's' : ''} — revenir aux actives
+                  {t('reservesScreen.archivedViewText', { count: archivedCount })}
                 </>
               ) : (
                 <>
                   <Text style={{ fontFamily: 'Inter_700Bold', color: '#6B7280' }}>{archivedCount}</Text>
-                  {' '}réserve{archivedCount > 1 ? 's' : ''} archivée{archivedCount > 1 ? 's' : ''} — voir les archives
+                  {' '}
+                  {t('reservesScreen.archivedBanner', { count: archivedCount }).replace(String(archivedCount), '').trim()}
                 </>
               )}
             </Text>
@@ -1581,7 +1612,7 @@ export default function ReservesScreen() {
           <View style={styles.stBanner}>
             <Ionicons name="shield-checkmark-outline" size={13} color={C.primary} />
             <Text style={styles.stBannerText}>
-              Vue filtrée — uniquement vos réserves : <Text style={{ fontFamily: 'Inter_700Bold' }}>{sousTraitantCompanyName}</Text>
+              {t('reservesScreen.subcontractorScope', { company: sousTraitantCompanyName })}
             </Text>
           </View>
         )}
@@ -1592,12 +1623,12 @@ export default function ReservesScreen() {
             onPress={() => setNearDeadlineOnly(v => !v)}
             activeOpacity={0.85}
             accessibilityRole="button"
-            accessibilityLabel={`${nearDeadlineReserves.length} réserves arrivent à échéance dans moins de 3 jours`}
+            accessibilityLabel={t('reservesScreen.deadlineReminder', { count: nearDeadlineReserves.length })}
           >
             <Ionicons name="alarm-outline" size={14} color="#D97706" />
             <Text style={styles.deadlineReminderText}>
-              <Text style={{ fontFamily: 'Inter_700Bold' }}>{nearDeadlineReserves.length} réserve{nearDeadlineReserves.length > 1 ? 's' : ''}</Text>
-              {' '}arrive{nearDeadlineReserves.length > 1 ? 'nt' : ''} à échéance dans moins de 3 jours{nearDeadlineOnly ? ' — filtre actif' : ' — voir'}
+              <Text style={{ fontFamily: 'Inter_700Bold' }}>{t('reservesScreen.deadlineReminder', { count: nearDeadlineReserves.length })}</Text>
+              {nearDeadlineOnly ? t('reservesScreen.filterActive') : t('reservesScreen.see')}
             </Text>
             <Ionicons name={nearDeadlineOnly ? 'close-circle' : 'chevron-forward'} size={13} color="#D97706" />
           </TouchableOpacity>
@@ -1609,11 +1640,11 @@ export default function ReservesScreen() {
               style={[styles.chantierChip, chantierFilter === 'all' && styles.chantierChipActive]}
               onPress={() => setChantierFilter('all')}
               accessibilityRole="button"
-              accessibilityLabel="Tous les chantiers"
+              accessibilityLabel={t('reservesScreen.allProjects')}
             >
               <Ionicons name="layers-outline" size={11} color={chantierFilter === 'all' ? '#fff' : C.textSub} />
               <Text style={[styles.chantierChipText, chantierFilter === 'all' && styles.chantierChipTextActive]}>
-                Tous les chantiers
+                {t('reservesScreen.allProjects')}
               </Text>
             </TouchableOpacity>
             {chantiers.map(c => (
@@ -1637,14 +1668,14 @@ export default function ReservesScreen() {
           <Ionicons name="search-outline" size={16} color={C.textMuted} />
           <TextInput
             style={styles.searchInput}
-            placeholder="Titre, bâtiment, zone, entreprise, lot..."
+            placeholder={t('reservesScreen.searchPlaceholder')}
             placeholderTextColor={C.textMuted}
             value={search}
             onChangeText={setSearch}
-            accessibilityLabel="Rechercher dans les réserves"
+            accessibilityLabel={t('reservesScreen.searchAccessibility')}
           />
           {search.length > 0 && (
-            <TouchableOpacity onPress={() => setSearch('')} accessibilityLabel="Effacer la recherche">
+            <TouchableOpacity onPress={() => setSearch('')} accessibilityLabel={t('reservesScreen.clearSearch')}>
               <Ionicons name="close-circle" size={16} color={C.textMuted} />
             </TouchableOpacity>
           )}
@@ -1654,7 +1685,7 @@ export default function ReservesScreen() {
         <View style={styles.toolRow}>
           <View style={styles.filterScrollContainer}>
             <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ flex: 1 }}>
-              {STATUS_FILTERS.map(f => {
+              {statusFilters.map(f => {
                 const isActive = !showArchived && statusFilter === f.key;
                 const isOverdueChip = f.key === 'overdue';
                 return (
@@ -1666,7 +1697,7 @@ export default function ReservesScreen() {
                     ]}
                     onPress={() => applyAdvancedStatusFilter(f.key)}
                     accessibilityRole="button"
-                    accessibilityLabel={`Filtrer par statut : ${f.label}`}
+                    accessibilityLabel={t('reservesScreen.filterByStatus', { status: f.label })}
                     accessibilityState={{ selected: isActive }}
                   >
                     {f.icon && <Ionicons name={f.icon as any} size={11} color={isActive ? '#fff' : C.open} />}
@@ -1687,7 +1718,7 @@ export default function ReservesScreen() {
             style={[styles.toolBtn, activeFilterCount > 0 && styles.toolBtnActive]}
             onPress={() => setFilterModalVisible(true)}
             accessibilityRole="button"
-            accessibilityLabel={`Filtres avancés${activeFilterCount > 0 ? `, ${activeFilterCount} actif${activeFilterCount > 1 ? 's' : ''}` : ''}`}
+            accessibilityLabel={t('reservesScreen.filterButtonAccessibility', { count: activeFilterCount })}
           >
             <Ionicons name="options-outline" size={15} color={activeFilterCount > 0 ? C.primary : C.textSub} />
             {activeFilterCount > 0 && (
@@ -1701,7 +1732,7 @@ export default function ReservesScreen() {
             style={[styles.toolBtn, isSortActive && styles.toolBtnActive]}
             onPress={() => setSortModalVisible(true)}
             accessibilityRole="button"
-            accessibilityLabel="Trier"
+            accessibilityLabel={t('reservesScreen.sort')}
           >
             <Ionicons name="swap-vertical-outline" size={15} color={isSortActive ? C.primary : C.textSub} />
           </TouchableOpacity>
@@ -1754,7 +1785,7 @@ export default function ReservesScreen() {
                   <View style={styles.detailIdRow}>
                     <View style={styles.detailIdWrap}><Text style={styles.detailId}>{selectedReserve.id}</Text></View>
                     {selectedReserve.kind === 'observation' && (
-                      <View style={styles.detailObsBadge}><Ionicons name="eye-outline" size={11} color="#0EA5E9" /><Text style={styles.detailObsText}>Observation</Text></View>
+                      <View style={styles.detailObsBadge}><Ionicons name="eye-outline" size={11} color="#0EA5E9" /><Text style={styles.detailObsText}>{t('reservesScreen.detail.observation')}</Text></View>
                     )}
                   </View>
                   <Text style={styles.detailTitle}>{selectedReserve.title}</Text>
@@ -1763,7 +1794,7 @@ export default function ReservesScreen() {
                       const pc = PRIORITY_COLORS[selectedReserve.priority] ?? '#6B7280';
                       return (
                         <View style={[styles.detailPriorityBadge, { backgroundColor: pc + '20', borderColor: pc }]}>
-                          <Text style={[styles.detailPriorityText, { color: pc }]}>{PRIORITY_LABELS[selectedReserve.priority] ?? selectedReserve.priority}</Text>
+                          <Text style={[styles.detailPriorityText, { color: pc }]}>{t(`reserveLabels.priority.${selectedReserve.priority}`)}</Text>
                         </View>
                       );
                     })()}
@@ -1782,9 +1813,9 @@ export default function ReservesScreen() {
                 {/* Quick status buttons */}
                 {permissions.canEdit && (
                   <View style={styles.detailCard}>
-                    <Text style={styles.detailLabel}>CHANGER LE STATUT</Text>
+                    <Text style={styles.detailLabel}>{t('reservesScreen.detail.changeStatus')}</Text>
                     <View style={styles.quickStatusRow}>
-                      {(Object.entries(STATUS_LABELS) as [ReserveStatus, string][]).map(([s, label]) => {
+                      {statusLabelEntries.map(([s, label]) => {
                         const active = selectedReserve.status === s;
                         const color = STATUS_COLORS[s];
                         return (
@@ -1815,7 +1846,7 @@ export default function ReservesScreen() {
                 ) : null}
 
                 <View style={styles.detailCard}>
-                  <Text style={styles.detailLabel}>DESCRIPTION</Text>
+                  <Text style={styles.detailLabel}>{t('reservesScreen.detail.description')}</Text>
                   <Text style={styles.detailText}>{getReserveDescriptionText(selectedReserve.description, selectedReserve.title)}</Text>
                 </View>
 
@@ -1838,24 +1869,24 @@ export default function ReservesScreen() {
                   {selectedReserve.deadline && selectedReserve.deadline !== '—' && (
                     <View style={styles.detailRow}>
                       <Ionicons name="calendar-outline" size={14} color={C.textMuted} />
-                      <Text style={styles.detailMeta}>Échéance : {selectedReserve.deadline}</Text>
+                      <Text style={styles.detailMeta}>{t('reservesScreen.detail.deadline', { date: selectedReserve.deadline })}</Text>
                     </View>
                   )}
                   <View style={styles.detailRow}>
                     <Ionicons name="time-outline" size={14} color={C.textMuted} />
-                    <Text style={styles.detailMeta}>Créée le {formatDate(selectedReserve.createdAt)}</Text>
+                    <Text style={styles.detailMeta}>{t('reservesScreen.detail.createdAt', { date: formatDate(selectedReserve.createdAt) })}</Text>
                   </View>
                 </View>
 
                 {/* Quick comment */}
                 {permissions.canEdit && (
                   <View style={styles.detailCard}>
-                    <Text style={styles.detailLabel}>AJOUTER UN COMMENTAIRE</Text>
+                    <Text style={styles.detailLabel}>{t('reservesScreen.detail.addComment')}</Text>
                     <View style={styles.tabletCommentRow}>
                       <DictationTextInput
                         inputStyle={styles.tabletCommentInput}
                         containerStyle={{ flex: 1 }}
-                        placeholder="Votre commentaire..."
+                        placeholder={t('reservesScreen.detail.commentPlaceholder')}
                         placeholderTextColor={C.textMuted}
                         value={tabletComment}
                         onChangeText={setTabletComment}
@@ -1870,7 +1901,7 @@ export default function ReservesScreen() {
                         onPress={() => handleTabletComment(selectedReserve)}
                         disabled={!tabletComment.trim() || tabletCommentSending}
                         accessibilityRole="button"
-                        accessibilityLabel="Envoyer le commentaire"
+                        accessibilityLabel={t('channel.sendAccessibility')}
                       >
                         {tabletCommentSending
                           ? <ActivityIndicator size="small" color="#fff" />
@@ -1884,15 +1915,15 @@ export default function ReservesScreen() {
                   style={styles.detailOpenBtn}
                   onPress={() => router.push(`/reserve/${selectedReserve.id}` as any)}
                 >
-                  <Text style={styles.detailOpenText}>Ouvrir la fiche complète</Text>
+                  <Text style={styles.detailOpenText}>{t('reservesScreen.detail.openFull')}</Text>
                   <Ionicons name="arrow-forward" size={15} color={C.primary} />
                 </TouchableOpacity>
               </ScrollView>
             ) : (
               <View style={styles.detailEmpty}>
                 <Ionicons name="hand-left-outline" size={36} color={C.textMuted} />
-                <Text style={styles.detailEmptyText}>Sélectionnez une réserve</Text>
-                <Text style={styles.detailEmptyHint}>Cliquez sur une réserve dans la liste pour voir ses détails ici</Text>
+                <Text style={styles.detailEmptyText}>{t('reservesScreen.empty.selectReserve')}</Text>
+                <Text style={styles.detailEmptyHint}>{t('reservesScreen.empty.selectReserveHint')}</Text>
               </View>
             )}
           </View>
@@ -2622,7 +2653,7 @@ export default function ReservesScreen() {
             {quickStatusReserve && (
               <Text style={styles.batchDesc} numberOfLines={2}>{quickStatusReserve.title}</Text>
             )}
-            {(Object.entries(STATUS_LABELS) as [ReserveStatus, string][]).map(([key, label]) => {
+            {statusLabelEntries.map(([key, label]) => {
               const isActive = quickStatusReserve?.status === key;
               const color = STATUS_COLORS[key];
               return (
@@ -2664,7 +2695,7 @@ export default function ReservesScreen() {
 
             {batchAction === 'status' && (
               <ScrollView showsVerticalScrollIndicator={false}>
-                {(Object.entries(STATUS_LABELS) as [ReserveStatus, string][]).map(([key, label]) => (
+                {statusLabelEntries.map(([key, label]) => (
                   <TouchableOpacity
                     key={key}
                     style={[styles.sheetItem, batchStatus === key && styles.sheetItemActive]}
@@ -2732,7 +2763,7 @@ export default function ReservesScreen() {
                 </TouchableOpacity>
               )}
             </View>
-            {SORT_OPTIONS.map(opt => (
+            {sortOptions.map(opt => (
               <TouchableOpacity
                 key={opt.key}
                 style={styles.sheetItem}
@@ -2853,7 +2884,7 @@ export default function ReservesScreen() {
                       <Ionicons name="arrow-back" size={15} color={C.primary} />
                       <Text style={styles.contextBackText}>Retour</Text>
                     </TouchableOpacity>
-                    {(Object.entries(STATUS_LABELS) as [ReserveStatus, string][]).map(([key, label]) => {
+                    {statusLabelEntries.map(([key, label]) => {
                       const isActive = contextMenuReserve.status === key;
                       const color = STATUS_COLORS[key];
                       return (
@@ -2899,7 +2930,7 @@ export default function ReservesScreen() {
             <View style={styles.filtHeader}>
               <View style={styles.filtHeaderLeft}>
                 <Ionicons name="options-outline" size={18} color={C.primary} />
-                <Text style={styles.filtTitle}>Filtres avancés</Text>
+                <Text style={styles.filtTitle}>{t('reservesScreen.filters')}</Text>
                 {activeFilterCount > 0 && (
                   <View style={styles.filtBadge}>
                     <Text style={styles.filtBadgeText}>{activeFilterCount}</Text>
@@ -2910,7 +2941,7 @@ export default function ReservesScreen() {
                 {activeFilterCount > 0 && (
                   <TouchableOpacity style={styles.filtResetBtn} onPress={resetAllFilters}>
                     <Ionicons name="refresh-outline" size={14} color={C.textSub} />
-                    <Text style={styles.filtResetText}>Réinitialiser</Text>
+                    <Text style={styles.filtResetText}>{t('reservesScreen.reset')}</Text>
                   </TouchableOpacity>
                 )}
                 <TouchableOpacity style={styles.filtCloseBtn} onPress={() => setFilterModalVisible(false)}>
@@ -2931,12 +2962,12 @@ export default function ReservesScreen() {
               <View style={styles.filtSection}>
                 <View style={styles.filtSectionHeader}>
                   <Ionicons name="flag-outline" size={13} color={C.textSub} />
-                  <Text style={styles.filtSectionTitle}>Statut</Text>
+                  <Text style={styles.filtSectionTitle}>{t('reservesScreen.sections.status')}</Text>
                 </View>
                 <View style={styles.filtChipRow}>
                     {([
-                      ...STATUS_FILTERS,
-                      { key: 'archived', label: `Archivées${archivedCount > 0 ? ` (${archivedCount})` : ''}`, icon: 'archive-outline' },
+                      ...statusFilters,
+                      { key: 'archived', label: `${t('reservesScreen.statuses.archived')}${archivedCount > 0 ? ` (${archivedCount})` : ''}`, icon: 'archive-outline' },
                     ] as { key: AdvancedStatusFilterKey; label: string; icon?: string }[]).map(f => {
                       const isArchivedChip = f.key === 'archived';
                       const isOverdueChip = f.key === 'overdue';
@@ -2974,7 +3005,7 @@ export default function ReservesScreen() {
                 <View style={styles.filtSection}>
                   <View style={styles.filtSectionHeader}>
                     <Ionicons name="business-outline" size={13} color={C.textSub} />
-                    <Text style={styles.filtSectionTitle}>Suivi entreprise</Text>
+                    <Text style={styles.filtSectionTitle}>{t('reservesScreen.sections.enterprise')}</Text>
                   </View>
                   <View style={styles.filtChipRow}>
                       {ENTERPRISE_WORKFLOW_FILTERS.map(f => {
@@ -3012,21 +3043,21 @@ export default function ReservesScreen() {
               <View style={styles.filtSection}>
                 <View style={styles.filtSectionHeader}>
                   <Ionicons name="swap-horizontal-outline" size={13} color={C.textSub} />
-                  <Text style={styles.filtSectionTitle}>Type</Text>
+                  <Text style={styles.filtSectionTitle}>{t('reservesScreen.sections.type')}</Text>
                 </View>
                 <View style={styles.filtChipRow}>
                     <TouchableOpacity
                       style={[styles.filtChip, kindFilter === 'all' && styles.filtChipActive]}
                       onPress={() => setKindFilter('all')}
                     >
-                      <Text style={[styles.filtChipText, kindFilter === 'all' && styles.filtChipTextActive]}>Tous types</Text>
+                      <Text style={[styles.filtChipText, kindFilter === 'all' && styles.filtChipTextActive]}>{t('reservesScreen.types.all')}</Text>
                     </TouchableOpacity>
                     <TouchableOpacity
                       style={[styles.filtChip, kindFilter === 'reserve' && { backgroundColor: '#EF444420', borderColor: '#EF4444' }]}
                       onPress={() => setKindFilter('reserve')}
                     >
                       <Ionicons name="warning-outline" size={12} color={kindFilter === 'reserve' ? '#EF4444' : C.textSub} />
-                      <Text style={[styles.filtChipText, kindFilter === 'reserve' && { color: '#EF4444', fontFamily: 'Inter_600SemiBold' }]}>Réserves</Text>
+                      <Text style={[styles.filtChipText, kindFilter === 'reserve' && { color: '#EF4444', fontFamily: 'Inter_600SemiBold' }]}>{t('reservesScreen.types.reserves')}</Text>
                     </TouchableOpacity>
                     <TouchableOpacity
                       style={[styles.filtChip, kindFilter === 'observation' && { backgroundColor: '#0EA5E920', borderColor: '#0EA5E9' }]}
@@ -3034,7 +3065,7 @@ export default function ReservesScreen() {
                     >
                       <Ionicons name="eye-outline" size={12} color={kindFilter === 'observation' ? '#0EA5E9' : C.textSub} />
                       <Text style={[styles.filtChipText, kindFilter === 'observation' && { color: '#0EA5E9', fontFamily: 'Inter_600SemiBold' }]}>
-                        Observations{obsCount > 0 ? ` (${obsCount})` : ''}
+                        {t('reservesScreen.types.observations')}{obsCount > 0 ? ` (${obsCount})` : ''}
                       </Text>
                     </TouchableOpacity>
                 </View>
@@ -3045,7 +3076,7 @@ export default function ReservesScreen() {
                 <View style={styles.filtSection}>
                   <View style={styles.filtSectionHeader}>
                     <Ionicons name="business-outline" size={13} color={C.textSub} />
-                    <Text style={styles.filtSectionTitle}>Bâtiment</Text>
+                    <Text style={styles.filtSectionTitle}>{t('reservesScreen.sections.building')}</Text>
                   </View>
                   <View style={styles.filtChipRow}>
                       {['all', ...buildings].map(b => (
@@ -3057,7 +3088,7 @@ export default function ReservesScreen() {
                           {b !== 'all' && <Ionicons name="business-outline" size={12} color={buildingFilter === b ? '#fff' : C.textSub} />}
                           {b === 'all' && <Ionicons name="grid-outline" size={12} color={buildingFilter === b ? '#fff' : C.textSub} />}
                           <Text style={[styles.filtChipText, buildingFilter === b && styles.filtChipTextActive]}>
-                            {b === 'all' ? 'Tous' : b}
+                            {b === 'all' ? t('reservesScreen.allPlural') : b}
                           </Text>
                         </TouchableOpacity>
                       ))}
@@ -3070,7 +3101,7 @@ export default function ReservesScreen() {
                 <View style={styles.filtSection}>
                   <View style={styles.filtSectionHeader}>
                     <Ionicons name="layers-outline" size={13} color={C.textSub} />
-                    <Text style={styles.filtSectionTitle}>Niveau</Text>
+                    <Text style={styles.filtSectionTitle}>{t('reservesScreen.sections.level')}</Text>
                   </View>
                   <View style={styles.filtChipRow}>
                       {['all', ...levels].map(lv => (
@@ -3080,7 +3111,7 @@ export default function ReservesScreen() {
                           onPress={() => setLevelFilter(lv)}
                         >
                           <Text style={[styles.filtChipText, levelFilter === lv && styles.filtChipTextActive]}>
-                            {lv === 'all' ? 'Tous' : lv}
+                            {lv === 'all' ? t('reservesScreen.allPlural') : lv}
                           </Text>
                         </TouchableOpacity>
                       ))}
@@ -3093,7 +3124,7 @@ export default function ReservesScreen() {
                 <View style={styles.filtSection}>
                   <View style={styles.filtSectionHeader}>
                     <Ionicons name="location-outline" size={13} color={C.textSub} />
-                    <Text style={styles.filtSectionTitle}>Zone</Text>
+                    <Text style={styles.filtSectionTitle}>{t('reservesScreen.sections.zone')}</Text>
                   </View>
                   <View style={styles.filtChipRow}>
                       {['all', ...zones].map(z => (
@@ -3103,7 +3134,7 @@ export default function ReservesScreen() {
                           onPress={() => setZoneFilter(z)}
                         >
                           <Text style={[styles.filtChipText, zoneFilter === z && styles.filtChipTextActive]}>
-                            {z === 'all' ? 'Toutes' : z}
+                            {z === 'all' ? t('reservesScreen.allFem') : z}
                           </Text>
                         </TouchableOpacity>
                       ))}
@@ -3116,14 +3147,14 @@ export default function ReservesScreen() {
                 <View style={styles.filtSection}>
                   <View style={styles.filtSectionHeader}>
                     <Ionicons name="construct-outline" size={13} color={C.textSub} />
-                    <Text style={styles.filtSectionTitle}>Entreprise</Text>
+                    <Text style={styles.filtSectionTitle}>{t('reservesScreen.sections.company')}</Text>
                   </View>
                   <View style={styles.filtChipRow}>
                       <TouchableOpacity
                         style={[styles.filtChip, companyFilter === 'all' && styles.filtChipActive]}
                         onPress={() => setCompanyFilter('all')}
                       >
-                        <Text style={[styles.filtChipText, companyFilter === 'all' && styles.filtChipTextActive]}>Toutes</Text>
+                        <Text style={[styles.filtChipText, companyFilter === 'all' && styles.filtChipTextActive]}>{t('reservesScreen.allFem')}</Text>
                       </TouchableOpacity>
                       {companies.map(co => (
                         <TouchableOpacity
@@ -3144,14 +3175,14 @@ export default function ReservesScreen() {
                 <View style={styles.filtSection}>
                   <View style={styles.filtSectionHeader}>
                     <Ionicons name="briefcase-outline" size={13} color={C.textSub} />
-                    <Text style={styles.filtSectionTitle}>Corps d'état (Lot)</Text>
+                    <Text style={styles.filtSectionTitle}>{t('reservesScreen.sections.lot')}</Text>
                   </View>
                   <View style={styles.filtChipRow}>
                       <TouchableOpacity
                         style={[styles.filtChip, lotFilter === 'all' && styles.filtChipActive]}
                         onPress={() => setLotFilter('all')}
                       >
-                        <Text style={[styles.filtChipText, lotFilter === 'all' && styles.filtChipTextActive]}>Tous</Text>
+                        <Text style={[styles.filtChipText, lotFilter === 'all' && styles.filtChipTextActive]}>{t('reservesScreen.allPlural')}</Text>
                       </TouchableOpacity>
                       {lots.map(lot => (
                         <TouchableOpacity
@@ -3174,28 +3205,28 @@ export default function ReservesScreen() {
                 <View style={styles.filtSection}>
                   <View style={styles.filtSectionHeader}>
                     <Ionicons name="map-outline" size={13} color={C.textSub} />
-                    <Text style={styles.filtSectionTitle}>Localisation plan</Text>
+                    <Text style={styles.filtSectionTitle}>{t('reservesScreen.sections.planLocation')}</Text>
                   </View>
                   <View style={styles.filtChipRow}>
                       <TouchableOpacity
                         style={[styles.filtChip, pinFilter === 'all' && styles.filtChipActive]}
                         onPress={() => setPinFilter('all')}
                       >
-                        <Text style={[styles.filtChipText, pinFilter === 'all' && styles.filtChipTextActive]}>Toutes</Text>
+                        <Text style={[styles.filtChipText, pinFilter === 'all' && styles.filtChipTextActive]}>{t('reservesScreen.pin.all')}</Text>
                       </TouchableOpacity>
                       <TouchableOpacity
                         style={[styles.filtChip, pinFilter === 'pinned' && { backgroundColor: '#3B82F620', borderColor: '#3B82F6' }]}
                         onPress={() => setPinFilter(pinFilter === 'pinned' ? 'all' : 'pinned')}
                       >
                         <Ionicons name="location" size={12} color={pinFilter === 'pinned' ? '#3B82F6' : C.textSub} />
-                        <Text style={[styles.filtChipText, pinFilter === 'pinned' && { color: '#3B82F6', fontFamily: 'Inter_600SemiBold' }]}>Épinglées</Text>
+                        <Text style={[styles.filtChipText, pinFilter === 'pinned' && { color: '#3B82F6', fontFamily: 'Inter_600SemiBold' }]}>{t('reservesScreen.pin.pinned')}</Text>
                       </TouchableOpacity>
                       <TouchableOpacity
                         style={[styles.filtChip, pinFilter === 'unpinned' && { backgroundColor: '#F59E0B20', borderColor: '#F59E0B' }]}
                         onPress={() => setPinFilter(pinFilter === 'unpinned' ? 'all' : 'unpinned')}
                       >
                         <Ionicons name="location-outline" size={12} color={pinFilter === 'unpinned' ? '#F59E0B' : C.textSub} />
-                        <Text style={[styles.filtChipText, pinFilter === 'unpinned' && { color: '#F59E0B', fontFamily: 'Inter_600SemiBold' }]}>Non épinglées</Text>
+                        <Text style={[styles.filtChipText, pinFilter === 'unpinned' && { color: '#F59E0B', fontFamily: 'Inter_600SemiBold' }]}>{t('reservesScreen.pin.unpinned')}</Text>
                       </TouchableOpacity>
                   </View>
                 </View>
@@ -3205,15 +3236,15 @@ export default function ReservesScreen() {
               <View style={styles.filtSection}>
                 <View style={styles.filtSectionHeader}>
                   <Ionicons name="alert-circle-outline" size={13} color={C.textSub} />
-                  <Text style={styles.filtSectionTitle}>Priorité</Text>
+                  <Text style={styles.filtSectionTitle}>{t('reservesScreen.sections.priority')}</Text>
                 </View>
                 <View style={styles.filtChipRow}>
                     {([
-                      { key: 'all', label: 'Toutes', color: C.textSub },
-                      { key: 'critical', label: PRIORITY_LABELS.critical, color: PRIORITY_COLORS.critical },
-                      { key: 'high', label: PRIORITY_LABELS.high, color: PRIORITY_COLORS.high },
-                      { key: 'medium', label: PRIORITY_LABELS.medium, color: PRIORITY_COLORS.medium },
-                      { key: 'low', label: PRIORITY_LABELS.low, color: PRIORITY_COLORS.low },
+                      { key: 'all', label: t('reservesScreen.allFem'), color: C.textSub },
+                      { key: 'critical', label: t('reserveLabels.priority.critical'), color: PRIORITY_COLORS.critical },
+                      { key: 'high', label: t('reserveLabels.priority.high'), color: PRIORITY_COLORS.high },
+                      { key: 'medium', label: t('reserveLabels.priority.medium'), color: PRIORITY_COLORS.medium },
+                      { key: 'low', label: t('reserveLabels.priority.low'), color: PRIORITY_COLORS.low },
                     ] as const).map(p => (
                       <TouchableOpacity
                         key={p.key}
@@ -3238,7 +3269,7 @@ export default function ReservesScreen() {
 
             <View style={[styles.filtFooter, { paddingBottom: filterFooterBottomPadding }]}>
               <TouchableOpacity style={[styles.applyBtn, styles.filtApplyBtn]} onPress={() => setFilterModalVisible(false)}>
-                <Text style={styles.applyBtnText}>Appliquer</Text>
+                <Text style={styles.applyBtnText}>{t('reservesScreen.apply')}</Text>
               </TouchableOpacity>
             </View>
           </View>

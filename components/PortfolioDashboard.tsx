@@ -2,6 +2,7 @@ import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Platform, Refresh
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { useMemo, useState, useCallback } from 'react';
+import { useTranslation } from 'react-i18next';
 import { C } from '@/constants/colors';
 import { useApp } from '@/context/AppContext';
 import { useIncidents } from '@/context/IncidentsContext';
@@ -37,31 +38,33 @@ function GlobalKPIStrip({
   globalProgress: number;
   totalChantiers: number;
 }) {
+  const { t } = useTranslation();
+
   return (
     <View style={styles.globalStrip}>
       <View style={styles.globalKPIItem}>
         <Text style={styles.globalKPIValue}>{totalChantiers}</Text>
-        <Text style={styles.globalKPILabel}>Chantiers</Text>
+        <Text style={styles.globalKPILabel}>{t('portfolioDashboard.sites')}</Text>
       </View>
       <View style={styles.stripDivider} />
       <View style={styles.globalKPIItem}>
         <Text style={styles.globalKPIValue}>{totalReserves}</Text>
-        <Text style={styles.globalKPILabel}>Réserves</Text>
+        <Text style={styles.globalKPILabel}>{t('portfolioDashboard.reserves')}</Text>
       </View>
       <View style={styles.stripDivider} />
       <View style={styles.globalKPIItem}>
         <Text style={[styles.globalKPIValue, critical > 0 && { color: C.critical }]}>{critical}</Text>
-        <Text style={styles.globalKPILabel}>Critiques</Text>
+        <Text style={styles.globalKPILabel}>{t('portfolioDashboard.critical')}</Text>
       </View>
       <View style={styles.stripDivider} />
       <View style={styles.globalKPIItem}>
         <Text style={[styles.globalKPIValue, overdue > 0 && { color: C.high }]}>{overdue}</Text>
-        <Text style={styles.globalKPILabel}>En retard</Text>
+        <Text style={styles.globalKPILabel}>{t('portfolioDashboard.overdue')}</Text>
       </View>
       <View style={styles.stripDivider} />
       <View style={styles.globalKPIItem}>
         <Text style={[styles.globalKPIValue, { color: C.closed }]}>{globalProgress}%</Text>
-        <Text style={styles.globalKPILabel}>Avancement</Text>
+        <Text style={styles.globalKPILabel}>{t('portfolioDashboard.progress')}</Text>
       </View>
     </View>
   );
@@ -90,6 +93,7 @@ function CrossAlertRow({
   type: 'critical' | 'overdue';
   onPress: () => void;
 }) {
+  const { t } = useTranslation();
   const color = type === 'critical' ? C.critical : C.high;
   const icon = type === 'critical' ? 'warning' : 'time-outline';
   return (
@@ -105,7 +109,7 @@ function CrossAlertRow({
             <Text style={styles.chantierTagText} numberOfLines={1}>{chantierName}</Text>
           </View>
           {reserve.deadline ? (
-            <Text style={styles.crossAlertDeadline}>Échéance {reserve.deadline}</Text>
+            <Text style={styles.crossAlertDeadline}>{t('portfolioDashboard.deadline', { date: reserve.deadline })}</Text>
           ) : null}
         </View>
       </View>
@@ -125,13 +129,14 @@ function ChantierCard({
   onActivate: () => void;
   onPress: () => void;
 }) {
+  const { t } = useTranslation();
   const { chantier, total, closed, critical, overdue, progress, lateTasksCount } = kpi;
   const progressColor = progress >= 70 ? C.closed : progress >= 40 ? C.inProgress : C.waiting;
 
   const STATUS_CFG: Record<string, { label: string; color: string }> = {
-    active: { label: 'En cours', color: C.closed },
-    completed: { label: 'Terminé', color: C.primary },
-    paused: { label: 'En pause', color: C.medium },
+    active: { label: t('portfolioDashboard.statusActive'), color: C.closed },
+    completed: { label: t('portfolioDashboard.statusCompleted'), color: C.primary },
+    paused: { label: t('portfolioDashboard.statusPaused'), color: C.medium },
   };
   const statusCfg = STATUS_CFG[chantier.status] ?? STATUS_CFG.active;
 
@@ -162,23 +167,23 @@ function ChantierCard({
         </View>
         <Text style={[styles.progressPct, { color: progressColor }]}>{progress}%</Text>
       </View>
-      <Text style={styles.progressHint}>{closed} / {total} réserves clôturées</Text>
+      <Text style={styles.progressHint}>{t('portfolioDashboard.reservesClosed', { closed, total })}</Text>
 
       <View style={styles.chantierKpiRow}>
         <View style={[styles.chantierMiniKpi, critical > 0 && styles.chantierMiniKpiRed]}>
           <Ionicons name="warning" size={12} color={critical > 0 ? C.critical : C.textMuted} />
           <Text style={[styles.chantierMiniKpiVal, critical > 0 && { color: C.critical }]}>{critical}</Text>
-          <Text style={styles.chantierMiniKpiLabel}>Critiques</Text>
+          <Text style={styles.chantierMiniKpiLabel}>{t('portfolioDashboard.critical')}</Text>
         </View>
         <View style={[styles.chantierMiniKpi, overdue > 0 && styles.chantierMiniKpiOrange]}>
           <Ionicons name="time-outline" size={12} color={overdue > 0 ? C.high : C.textMuted} />
           <Text style={[styles.chantierMiniKpiVal, overdue > 0 && { color: C.high }]}>{overdue}</Text>
-          <Text style={styles.chantierMiniKpiLabel}>En retard</Text>
+          <Text style={styles.chantierMiniKpiLabel}>{t('portfolioDashboard.overdue')}</Text>
         </View>
         <View style={[styles.chantierMiniKpi, lateTasksCount > 0 && styles.chantierMiniKpiYellow]}>
           <Ionicons name="calendar-outline" size={12} color={lateTasksCount > 0 ? C.waiting : C.textMuted} />
           <Text style={[styles.chantierMiniKpiVal, lateTasksCount > 0 && { color: C.waiting }]}>{lateTasksCount}</Text>
-          <Text style={styles.chantierMiniKpiLabel}>Tâches retard</Text>
+          <Text style={styles.chantierMiniKpiLabel}>{t('portfolioDashboard.lateTasks')}</Text>
         </View>
       </View>
 
@@ -190,17 +195,17 @@ function ChantierCard({
             activeOpacity={0.8}
           >
             <Ionicons name="radio-button-off-outline" size={13} color={C.primary} />
-            <Text style={styles.activateBtnText}>Activer</Text>
+            <Text style={styles.activateBtnText}>{t('portfolioDashboard.activate')}</Text>
           </TouchableOpacity>
         )}
         {isActive && (
           <View style={styles.activeTag}>
             <Ionicons name="radio-button-on" size={11} color={C.closed} />
-            <Text style={styles.activeTagText}>Chantier actif</Text>
+            <Text style={styles.activeTagText}>{t('portfolioDashboard.activeSite')}</Text>
           </View>
         )}
         <View style={styles.seeBtn}>
-          <Text style={styles.seeBtnText}>Voir le détail</Text>
+          <Text style={styles.seeBtnText}>{t('portfolioDashboard.seeDetail')}</Text>
           <Ionicons name="arrow-forward" size={12} color={C.primary} />
         </View>
       </View>
@@ -214,6 +219,7 @@ interface Props {
 
 export default function PortfolioDashboard({ onSwitchToChantier }: Props) {
   const router = useRouter();
+  const { t } = useTranslation();
   const { chantiers, reserves, tasks, setActiveChantier, activeChantierId, reload } = useApp();
   const { incidents } = useIncidents();
   const [refreshing, setRefreshing] = useState(false);
@@ -248,7 +254,7 @@ export default function PortfolioDashboard({ onSwitchToChantier }: Props) {
   const crossAlerts = useMemo(() => {
     const getChantierName = (r: Reserve) => {
       const c = chantiers.find(ch => ch.id === r.chantierId);
-      return c?.name ?? 'Chantier inconnu';
+      return c?.name ?? t('portfolioDashboard.unknownSite');
     };
 
     const criticals = reserves
@@ -294,11 +300,15 @@ export default function PortfolioDashboard({ onSwitchToChantier }: Props) {
       {globalStats.totalReserves > 0 && (
         <View style={styles.card}>
           <View style={styles.cardHeader}>
-            <Text style={styles.cardTitle}>Avancement global — tous chantiers</Text>
+            <Text style={styles.cardTitle}>{t('portfolioDashboard.globalProgressTitle')}</Text>
           </View>
           <GlobalProgressBar progress={globalStats.globalProgress} />
           <Text style={styles.cardHint}>
-            {globalStats.closed} / {globalStats.totalReserves} réserves clôturées sur {chantiers.length} chantiers
+            {t('portfolioDashboard.globalProgressHint', {
+              closed: globalStats.closed,
+              total: globalStats.totalReserves,
+              sites: chantiers.length,
+            })}
           </Text>
         </View>
       )}
@@ -309,18 +319,22 @@ export default function PortfolioDashboard({ onSwitchToChantier }: Props) {
             <View style={styles.alertIconWrap}>
               <Ionicons name="alert-circle" size={16} color={C.critical} />
             </View>
-            <Text style={styles.alertTitle}>Alertes croisées</Text>
+            <Text style={styles.alertTitle}>{t('portfolioDashboard.crossAlerts')}</Text>
             <View style={styles.alertBadge}>
               <Text style={styles.alertBadgeText}>{crossAlerts.length}</Text>
             </View>
             <View style={{ flex: 1 }} />
             <View style={[styles.alertTypeTag, { backgroundColor: C.criticalBg }]}>
               <View style={[styles.alertTypeDot, { backgroundColor: C.critical }]} />
-              <Text style={[styles.alertTypeText, { color: C.critical }]}>{crossAlerts.filter(a => a.type === 'critical').length} crit.</Text>
+              <Text style={[styles.alertTypeText, { color: C.critical }]}>
+                {t('portfolioDashboard.criticalShort', { count: crossAlerts.filter(a => a.type === 'critical').length })}
+              </Text>
             </View>
             <View style={[styles.alertTypeTag, { backgroundColor: C.highBg }]}>
               <View style={[styles.alertTypeDot, { backgroundColor: C.high }]} />
-              <Text style={[styles.alertTypeText, { color: C.high }]}>{crossAlerts.filter(a => a.type === 'overdue').length} retard</Text>
+              <Text style={[styles.alertTypeText, { color: C.high }]}>
+                {t('portfolioDashboard.overdueShort', { count: crossAlerts.filter(a => a.type === 'overdue').length })}
+              </Text>
             </View>
           </View>
           {crossAlerts.map(({ reserve, chantierName, type }) => (
@@ -346,22 +360,22 @@ export default function PortfolioDashboard({ onSwitchToChantier }: Props) {
           </View>
           <View style={{ flex: 1 }}>
             <Text style={styles.incidentTitle}>
-              {openIncidentsCount} incident{openIncidentsCount > 1 ? 's' : ''} non résolu{openIncidentsCount > 1 ? 's' : ''}
+              {t('portfolioDashboard.unresolvedIncidents', { count: openIncidentsCount })}
             </Text>
-            <Text style={styles.incidentSub}>Tous chantiers confondus</Text>
+            <Text style={styles.incidentSub}>{t('portfolioDashboard.allSites')}</Text>
           </View>
           <Ionicons name="chevron-forward" size={16} color="#EF4444" />
         </TouchableOpacity>
       )}
 
       <View style={styles.sectionHeader}>
-        <Text style={styles.sectionTitle}>Mes chantiers</Text>
+        <Text style={styles.sectionTitle}>{t('portfolioDashboard.mySites')}</Text>
         <TouchableOpacity
           style={styles.newChantierBtn}
           onPress={() => router.push('/chantier/new' as any)}
         >
           <Ionicons name="add" size={14} color={C.primary} />
-          <Text style={styles.newChantierBtnText}>Nouveau</Text>
+          <Text style={styles.newChantierBtnText}>{t('portfolioDashboard.newSite')}</Text>
         </TouchableOpacity>
       </View>
 
