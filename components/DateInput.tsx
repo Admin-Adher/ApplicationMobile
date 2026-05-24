@@ -28,12 +28,6 @@ interface DateInputProps {
   showValidationIcon?: boolean;
 }
 
-const DAYS_FR = ['Lu', 'Ma', 'Me', 'Je', 'Ve', 'Sa', 'Di'];
-const MONTHS_FR = [
-  'Janvier', 'Février', 'Mars', 'Avril', 'Mai', 'Juin',
-  'Juillet', 'Août', 'Septembre', 'Octobre', 'Novembre', 'Décembre',
-];
-
 function parseFR(s: string): Date | null {
   if (!s || s === '—') return null;
   const parts = s.split('/');
@@ -106,7 +100,7 @@ export default function DateInput({
   inputStyle,
   showValidationIcon = true,
 }: DateInputProps) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const [focused, setFocused] = useState(false);
   const [calendarOpen, setCalendarOpen] = useState(false);
 
@@ -121,6 +115,22 @@ export default function DateInput({
   );
 
   const weeks = useMemo(() => buildCalendar(viewYear, viewMonth), [viewYear, viewMonth]);
+  const locale = i18n.language?.startsWith('es') ? 'es-ES' : i18n.language?.startsWith('en') ? 'en-GB' : 'fr-FR';
+  const dayLabels = useMemo(() => {
+    const monday = new Date(2021, 10, 1);
+    return Array.from({ length: 7 }, (_, index) => {
+      const day = new Date(monday);
+      day.setDate(monday.getDate() + index);
+      return new Intl.DateTimeFormat(locale, { weekday: 'short' })
+        .format(day)
+        .replace(/\.$/, '')
+        .slice(0, 2);
+    });
+  }, [locale]);
+  const monthTitle = useMemo(() => {
+    const label = new Intl.DateTimeFormat(locale, { month: 'long', year: 'numeric' }).format(new Date(viewYear, viewMonth, 1));
+    return label.charAt(0).toUpperCase() + label.slice(1);
+  }, [locale, viewMonth, viewYear]);
 
   const hasValue = Boolean(value && value !== '—' && value.length > 0);
   const isValid = !value || value === '—' || isValidDateFR(value);
@@ -158,7 +168,7 @@ export default function DateInput({
       {label ? (
         <Text style={styles.label}>
           {label}
-          {optional ? <Text style={styles.optional}> (optionnel)</Text> : null}
+          {optional ? <Text style={styles.optional}> ({t('dateInput.optional')})</Text> : null}
         </Text>
       ) : null}
 
@@ -221,7 +231,7 @@ export default function DateInput({
 
             <View style={styles.modalHandle} />
 
-            <Text style={styles.modalTitle}>Choisir une date</Text>
+            <Text style={styles.modalTitle}>{t('dateInput.chooseDate')}</Text>
 
             <View style={styles.modalHeader}>
               <TouchableOpacity
@@ -232,7 +242,7 @@ export default function DateInput({
                 <Ionicons name="chevron-back" size={20} color={C.primary} />
               </TouchableOpacity>
               <Text style={styles.monthTitle}>
-                {MONTHS_FR[viewMonth]} {viewYear}
+                {monthTitle}
               </Text>
               <TouchableOpacity
                 onPress={nextMonth}
@@ -244,7 +254,7 @@ export default function DateInput({
             </View>
 
             <View style={styles.dowRow}>
-              {DAYS_FR.map(d => (
+              {dayLabels.map(d => (
                 <Text key={d} style={styles.dowLabel}>{d}</Text>
               ))}
             </View>

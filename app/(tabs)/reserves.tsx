@@ -51,13 +51,23 @@ import {
   matchesEnterpriseWorkflowFilter,
 } from '@/lib/reserveEnterpriseWorkflow';
 
-function buildReservesCSV(reserves: Reserve[]): string {
-  const header = 'ID,Titre,Bâtiment,Zone,Niveau,Entreprise,Priorité,Statut,Créé le,Échéance,Description';
+type TranslateFn = (key: string, options?: Record<string, any>) => string;
+
+function reserveStatusLabel(t: TranslateFn, status: ReserveStatus) {
+  return t(`reserveLabels.status.${status}`, { defaultValue: STATUS_LABELS[status] ?? status });
+}
+
+function reservePriorityLabel(t: TranslateFn, priority: ReservePriority) {
+  return t(`reserveLabels.priority.${priority}`, { defaultValue: PRIORITY_LABELS[priority] ?? priority });
+}
+
+function buildReservesCSV(reserves: Reserve[], t: TranslateFn): string {
+  const header = t('reservesScreen.report.csvHeader');
   const rows = reserves.map(r => {
     const esc = (v: string) => `"${(v ?? '').replace(/"/g, '""')}"`;
     return [
-      esc(r.id), esc(r.title), esc(`Bât. ${r.building}`), esc(r.zone), esc(r.level),
-      esc((r.companies ?? (r.company ? [r.company] : [])).join('; ')), esc(PRIORITY_LABELS[r.priority] ?? r.priority), esc(STATUS_LABELS[r.status] ?? r.status),
+      esc(r.id), esc(r.title), esc(t('reservesScreen.report.buildingPrefix', { building: r.building })), esc(r.zone), esc(r.level),
+      esc((r.companies ?? (r.company ? [r.company] : [])).join('; ')), esc(reservePriorityLabel(t, r.priority)), esc(reserveStatusLabel(t, r.status)),
       esc(r.createdAt), esc(r.deadline ?? '—'), esc(getReserveDescriptionText(r.description, r.title, '')),
     ].join(',');
   });
@@ -71,26 +81,9 @@ function parseDeadline(s: string): Date | null {
   return null;
 }
 
-const STATUS_FILTERS: { key: 'all' | 'overdue' | ReserveStatus; label: string; icon?: string }[] = [
-  { key: 'all', label: 'Tout' },
-  { key: 'open', label: STATUS_LABELS.open },
-  { key: 'in_progress', label: STATUS_LABELS.in_progress },
-  { key: 'waiting', label: STATUS_LABELS.waiting },
-  { key: 'verification', label: STATUS_LABELS.verification },
-  { key: 'closed', label: STATUS_LABELS.closed },
-  { key: 'overdue', label: 'En retard', icon: 'warning-outline' },
-];
-
 type SortKey = 'date_desc' | 'date_asc' | 'priority' | 'deadline' | 'status';
 type StatusFilterKey = 'all' | 'overdue' | ReserveStatus;
 type AdvancedStatusFilterKey = StatusFilterKey | 'archived';
-const SORT_OPTIONS: { key: SortKey; label: string }[] = [
-  { key: 'date_desc', label: 'Plus récente' },
-  { key: 'date_asc', label: 'Plus ancienne' },
-  { key: 'priority', label: 'Priorité (critique d\'abord)' },
-  { key: 'deadline', label: 'Échéance (plus proche)' },
-  { key: 'status', label: 'Statut' },
-];
 
 type ViewMode = 'list' | 'grouped_status' | 'grouped_company';
 type ReserveAssistantScope = 'filtered' | 'chantier' | 'selected';
@@ -108,9 +101,11 @@ async function generateReportPDF(action: 'share' | 'print',
   reserves: Reserve[],
   chantierName: string,
   lots: { id: string; name: string; color: string; number?: string }[],
+  t: TranslateFn,
+  locale: string,
 ) {
   const now = new Date();
-  const dateStr = now.toLocaleDateString('fr-FR');
+  const dateStr = now.toLocaleDateString(locale);
   const totalCount = reserves.length;
   const overdueCount = reserves.filter(r => isOverdue(r.deadline, r.status)).length;
 
@@ -152,7 +147,7 @@ async function generateReportPDF(action: 'share' | 'print',
   const rowsAndPhotos = await Promise.all(sortedReserves.map(async (r) => {
     const overdue = isOverdue(r.deadline, r.status);
     const lot = r.lotId ? lots.find(l => l.id === r.lotId) : null;
-    const lotLabel = lot ? escapeHtml((lot.number ? `Lot ${lot.number} — ` : '') + lot.name) : '—';
+    const lotLabel = lot ? escapeHtml(lot.number ? t('reservesScreen.report.lotPrefix', { number: lot.number, name: lot.name }) : lot.name) : '—';
     const coNames = (r.companies && r.companies.length > 0 ? r.companies : r.company ? [r.company] : ['—']);
     const row = `<tr style="${overdue ? 'background:#FFF1F2' : ''}">
       <td style="font-weight:bold;color:${PDF_BRAND_COLOR}">${escapeHtml(r.id)}</td>
@@ -160,8 +155,8 @@ async function generateReportPDF(action: 'share' | 'print',
       <td>${lotLabel}</td>
       <td>${escapeHtml(formatReserveLocation(r))}</td>
       <td>${coNames.map(c => escapeHtml(c)).join(', ')}</td>
-      <td><span style="background:${STATUS_COLORS[r.status]}20;color:${STATUS_COLORS[r.status]};padding:2px 8px;border-radius:8px;font-size:10px;font-weight:bold">${STATUS_LABELS[r.status]}</span></td>
-      <td><span style="background:${PRIORITY_COLORS[r.priority]}20;color:${PRIORITY_COLORS[r.priority]};padding:2px 8px;border-radius:8px;font-size:10px;font-weight:bold">${PRIORITY_LABELS[r.priority]}</span></td>
+      <td><span style="background:${STATUS_COLORS[r.status]}20;color:${STATUS_COLORS[r.status]};padding:2px 8px;border-radius:8px;font-size:10px;font-weight:bold">${escapeHtml(reserveStatusLabel(t, r.status))}</span></td>
+      <td><span style="background:${PRIORITY_COLORS[r.priority]}20;color:${PRIORITY_COLORS[r.priority]};padding:2px 8px;border-radius:8px;font-size:10px;font-weight:bold">${escapeHtml(reservePriorityLabel(t, r.priority))}</span></td>
       <td style="${overdue ? 'color:' + C.open + ';font-weight:bold' : ''}">${escapeHtml(r.deadline ?? '—')}</td>
     </tr>`;
 
@@ -174,7 +169,10 @@ async function generateReportPDF(action: 'share' | 'print',
       photoHtml = `<div style="padding:8px 16px 12px 16px;border-bottom:1px solid #f1f5f9;background:#fff;">
         <div style="font-size:10px;font-weight:700;color:#64748b;margin-bottom:6px;">
           <span style="display:inline-flex;align-items:center;justify-content:center;width:18px;height:18px;border-radius:50%;background:${statusColor};color:#fff;font-weight:700;font-size:9px;margin-right:5px;">●</span>
-          ${escapeHtml(r.title)} — Photos (${photosToShow.length}${rawPhotos.length > maxPhotosPerReserve ? ` sur ${rawPhotos.length}` : ''})
+          ${escapeHtml(r.title)} — ${escapeHtml(t('reservesScreen.report.photosCount', {
+            shown: photosToShow.length,
+            total: rawPhotos.length > maxPhotosPerReserve ? t('reservesScreen.report.photosTotal', { count: rawPhotos.length }) : '',
+          }))}
         </div>
         <div style="display:flex;gap:8px;flex-wrap:nowrap;">
           ${photosToShow.map((p, idx) => {
@@ -185,7 +183,7 @@ async function generateReportPDF(action: 'share' | 'print',
                 style="width:100%;height:auto;max-height:160px;object-fit:contain;background:#F9FAFB;border-radius:6px;border:1.5px solid #DDE4EE;display:block;" />
               <span style="display:inline-block;margin-top:3px;padding:1px 7px;border-radius:8px;font-size:9px;font-weight:700;
                 background:${isDefect ? '#FEF2F2' : '#ECFDF5'};color:${isDefect ? '#DC2626' : '#059669'};">
-                ${isDefect ? '● Constat' : '● Levée'}
+                ${escapeHtml(isDefect ? t('reservesScreen.report.defect') : t('reservesScreen.report.resolved'))}
               </span>
             </div>`;
           }).join('')}
@@ -198,7 +196,7 @@ async function generateReportPDF(action: 'share' | 'print',
   const reserveRows = rowsAndPhotos.map(rp => rp.row).join('');
   const photosSection = rowsAndPhotos.map(rp => rp.photoHtml).filter(Boolean).join('');
 
-  const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>Rapport Réserves</title>
+  const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>${escapeHtml(t('reservesScreen.report.title'))}</title>
   <style>
     ${PDF_BASE_CSS}
     table { width: 100%; border-collapse: collapse; margin-bottom: 20px; }
@@ -215,47 +213,48 @@ async function generateReportPDF(action: 'share' | 'print',
     <div class="letterhead">
       <div class="letterhead-logo">
         <div class="letterhead-logo-mark" style="background:${PDF_BRAND_COLOR};color:#fff;width:42px;height:42px;border-radius:10px;display:flex;align-items:center;justify-content:center;font-weight:bold;font-size:18px">B</div>
-        <div><div class="letterhead-brand">BuildTrack</div><div class="letterhead-sub">Rapport de réserves</div></div>
+        <div><div class="letterhead-brand">BuildTrack</div><div class="letterhead-sub">${escapeHtml(t('reservesScreen.report.subtitle'))}</div></div>
       </div>
       <div style="text-align:right;font-size:11px;color:${PDF_MUTED}">
         <div style="font-weight:bold;color:${PDF_TEXT}">${chantierName}</div>
-        <div>Généré le ${dateStr}</div>
+        <div>${escapeHtml(t('reservesScreen.report.generatedOn', { date: dateStr }))}</div>
       </div>
     </div>
 
     <div class="stat-grid">
-      <div class="stat-card"><div class="stat-val">${totalCount}</div><div class="stat-lbl">Total réserves</div></div>
-      <div class="stat-card"><div class="stat-val" style="color:${C.open}">${byStatus.open}</div><div class="stat-lbl">Ouvertes</div></div>
-      <div class="stat-card"><div class="stat-val" style="color:${C.inProgress}">${byStatus.in_progress}</div><div class="stat-lbl">En cours</div></div>
-      <div class="stat-card"><div class="stat-val" style="color:${C.verification}">${byStatus.verification}</div><div class="stat-lbl">Vérification</div></div>
-      <div class="stat-card"><div class="stat-val" style="color:${C.closed}">${byStatus.closed}</div><div class="stat-lbl">Clôturées</div></div>
-      <div class="stat-card"><div class="stat-val" style="color:${C.open}">${overdueCount}</div><div class="stat-lbl">En retard</div></div>
+      <div class="stat-card"><div class="stat-val">${totalCount}</div><div class="stat-lbl">${escapeHtml(t('reservesScreen.report.totalReserves'))}</div></div>
+      <div class="stat-card"><div class="stat-val" style="color:${C.open}">${byStatus.open}</div><div class="stat-lbl">${escapeHtml(t('reservesScreen.report.open'))}</div></div>
+      <div class="stat-card"><div class="stat-val" style="color:${C.inProgress}">${byStatus.in_progress}</div><div class="stat-lbl">${escapeHtml(t('reservesScreen.report.inProgress'))}</div></div>
+      <div class="stat-card"><div class="stat-val" style="color:${C.verification}">${byStatus.verification}</div><div class="stat-lbl">${escapeHtml(t('reservesScreen.report.verification'))}</div></div>
+      <div class="stat-card"><div class="stat-val" style="color:${C.closed}">${byStatus.closed}</div><div class="stat-lbl">${escapeHtml(t('reservesScreen.report.closed'))}</div></div>
+      <div class="stat-card"><div class="stat-val" style="color:${C.open}">${overdueCount}</div><div class="stat-lbl">${escapeHtml(t('reservesScreen.report.overdue'))}</div></div>
     </div>
 
-    <h2>Récapitulatif par entreprise</h2>
+    <h2>${escapeHtml(t('reservesScreen.report.companySummary'))}</h2>
     <table>
-      <thead><tr><th>Entreprise</th><th>Total</th><th>Clôturées</th><th>En retard</th><th>Taux clôture</th></tr></thead>
+      <thead><tr><th>${escapeHtml(t('reservesScreen.report.company'))}</th><th>${escapeHtml(t('reservesScreen.report.total'))}</th><th>${escapeHtml(t('reservesScreen.report.closed'))}</th><th>${escapeHtml(t('reservesScreen.report.overdue'))}</th><th>${escapeHtml(t('reservesScreen.report.closureRate'))}</th></tr></thead>
       <tbody>${companyRows}</tbody>
     </table>
 
-    <h2>Liste détaillée (${totalCount} réserves)</h2>
+    <h2>${escapeHtml(t('reservesScreen.report.detailedList', { count: totalCount }))}</h2>
     <table>
-      <thead><tr><th>ID</th><th>Titre</th><th>Lot</th><th>Localisation</th><th>Entreprise</th><th>Statut</th><th>Priorité</th><th>Échéance</th></tr></thead>
+      <thead><tr><th>${escapeHtml(t('reservesScreen.report.id'))}</th><th>${escapeHtml(t('reservesScreen.report.itemTitle'))}</th><th>${escapeHtml(t('reservesScreen.report.lot'))}</th><th>${escapeHtml(t('reservesScreen.report.location'))}</th><th>${escapeHtml(t('reservesScreen.report.company'))}</th><th>${escapeHtml(t('reservesScreen.report.status'))}</th><th>${escapeHtml(t('reservesScreen.report.priority'))}</th><th>${escapeHtml(t('reservesScreen.report.deadline'))}</th></tr></thead>
       <tbody>${reserveRows}</tbody>
     </table>
-    ${overdueCount > 0 ? `<p style="color:${C.open};font-size:11px">* Les lignes surlignées en rouge indiquent des réserves en retard.</p>` : ''}
-    ${photosSection ? `<h2>Photos des réserves</h2><div style="border:1px solid #DDE4EE;border-radius:8px;overflow:hidden;">${photosSection}</div>` : ''}
+    ${overdueCount > 0 ? `<p style="color:${C.open};font-size:11px">${escapeHtml(t('reservesScreen.report.overdueNote'))}</p>` : ''}
+    ${photosSection ? `<h2>${escapeHtml(t('reservesScreen.report.photosTitle'))}</h2><div style="border:1px solid #DDE4EE;border-radius:8px;overflow:hidden;">${photosSection}</div>` : ''}
   </div></body></html>`;
 
+  const fileBase = t('reservesScreen.report.fileName');
   if (action === 'print') {
-    await printPDFHelper(html, buildPdfFilename('Rapport_Reserves', [chantierName]));
+    await printPDFHelper(html, buildPdfFilename(fileBase, [chantierName]));
   } else {
-    await exportPDFHelper(html, buildPdfFilename('Rapport_Reserves', [chantierName]));
+    await exportPDFHelper(html, buildPdfFilename(fileBase, [chantierName]));
   }
 }
 
 export default function ReservesScreen() {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const { company: companyParam } = useLocalSearchParams<{ company?: string }>();
@@ -312,11 +311,11 @@ export default function ReservesScreen() {
   );
   const sortOptions = useMemo(
     () => ([
-      { key: 'date_desc' as const, label: t('reservesScreen.sortOptions.dateDesc', { defaultValue: 'Plus récente' }) },
-      { key: 'date_asc' as const, label: t('reservesScreen.sortOptions.dateAsc', { defaultValue: 'Plus ancienne' }) },
-      { key: 'priority' as const, label: t('reservesScreen.sortOptions.priority', { defaultValue: "Priorité (critique d'abord)" }) },
-      { key: 'deadline' as const, label: t('reservesScreen.sortOptions.deadline', { defaultValue: 'Échéance (plus proche)' }) },
-      { key: 'status' as const, label: t('reservesScreen.sortOptions.status', { defaultValue: 'Statut' }) },
+      { key: 'date_desc' as const, label: t('reservesScreen.sortOptions.dateDesc') },
+      { key: 'date_asc' as const, label: t('reservesScreen.sortOptions.dateAsc') },
+      { key: 'priority' as const, label: t('reservesScreen.sortOptions.priority') },
+      { key: 'deadline' as const, label: t('reservesScreen.sortOptions.deadline') },
+      { key: 'status' as const, label: t('reservesScreen.sortOptions.status') },
     ] satisfies { key: SortKey; label: string }[]),
     [t],
   );
@@ -391,7 +390,7 @@ export default function ReservesScreen() {
     }
     const { status } = await ImagePicker.requestCameraPermissionsAsync();
     if (status !== 'granted') {
-      Alert.alert('Permission refusée', "L'accès à l'appareil photo est nécessaire.");
+      Alert.alert(t('reservesScreen.alerts.cameraPermissionTitle'), t('reservesScreen.alerts.cameraPermissionMessage'));
       return;
     }
     const result = await ImagePicker.launchCameraAsync({ allowsEditing: true, quality: 0.8 });
@@ -484,7 +483,7 @@ export default function ReservesScreen() {
   );
 
   function handleExportCSV() {
-    const csv = buildReservesCSV(filtered);
+    const csv = buildReservesCSV(filtered, t);
     if (Platform.OS === 'web') {
       const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8;' });
       const url = URL.createObjectURL(blob);
@@ -494,7 +493,7 @@ export default function ReservesScreen() {
       a.click();
       URL.revokeObjectURL(url);
     } else {
-      Share.share({ title: 'Export réserves CSV', message: buildReservesCSV(filtered) }).catch(() => {});
+      Share.share({ title: t('reservesScreen.exports.csvTitle'), message: buildReservesCSV(filtered, t) }).catch(() => {});
     }
   }
 
@@ -503,11 +502,12 @@ export default function ReservesScreen() {
     setPdfLoading(true);
     try {
       const chantierName = chantierFilter !== 'all'
-        ? chantiers.find(c => c.id === chantierFilter)?.name ?? 'Chantier'
-        : 'Tous les chantiers';
-      await generateReportPDF(action, enrichReserveListForPdf(list, photos), chantierName, lots);
+        ? chantiers.find(c => c.id === chantierFilter)?.name ?? t('reservesScreen.projectFallback')
+        : t('reservesScreen.allProjects');
+      const pdfLocale = i18n.language?.startsWith('es') ? 'es-ES' : i18n.language?.startsWith('en') ? 'en-US' : 'fr-FR';
+      await generateReportPDF(action, enrichReserveListForPdf(list, photos), chantierName, lots, t, pdfLocale);
     } catch (e) {
-      Alert.alert('Erreur', 'Impossible de générer le rapport PDF.');
+      Alert.alert(t('common.error'), t('reservesScreen.alerts.pdfFailed'));
     } finally {
       setPdfLoading(false);
     }
@@ -647,10 +647,10 @@ export default function ReservesScreen() {
   }, [assistantScope, chantierReserves, filtered, selectedIds]);
 
   const assistantScopeOptions = useMemo(() => ([
-    { key: 'filtered' as const, label: 'Vue actuelle', count: filtered.length, icon: 'funnel-outline' },
-    { key: 'chantier' as const, label: chantierFilter === 'all' ? 'Tous chantiers' : 'Chantier', count: chantierReserves.length, icon: 'business-outline' },
-    { key: 'selected' as const, label: 'Sélection', count: selectedIds.size, icon: 'checkbox-outline' },
-  ]), [chantierFilter, chantierReserves.length, filtered.length, selectedIds.size]);
+    { key: 'filtered' as const, label: t('reservesScreen.assistant.scopeCurrent'), count: filtered.length, icon: 'funnel-outline' },
+    { key: 'chantier' as const, label: chantierFilter === 'all' ? t('reservesScreen.assistant.scopeAllProjects') : t('reservesScreen.assistant.scopeProject'), count: chantierReserves.length, icon: 'business-outline' },
+    { key: 'selected' as const, label: t('reservesScreen.assistant.scopeSelected'), count: selectedIds.size, icon: 'checkbox-outline' },
+  ]), [chantierFilter, chantierReserves.length, filtered.length, selectedIds.size, t]);
 
   const missingDescriptionReserves = useMemo(
     () => assistantTargetReserves.filter(r => r.title.trim().length > 0 && isReserveDescriptionMissing(r.description)),
@@ -701,7 +701,7 @@ export default function ReservesScreen() {
     const targets = missingDescriptionReserves;
     if (targets.length === 0 || assistantBusy) return;
     setAssistantBusy(true);
-    setAssistantProgress({ done: 0, total: targets.length, label: 'Descriptions' });
+    setAssistantProgress({ done: 0, total: targets.length, label: t('reservesScreen.assistant.descriptions') });
     try {
       for (let i = 0; i < targets.length; i += 1) {
         const reserve = targets[i];
@@ -714,38 +714,38 @@ export default function ReservesScreen() {
               ...reserve.history,
               {
                 id: genId(),
-                action: 'Description complétée',
-                author: user?.name ?? 'Système',
+                action: t('reservesScreen.assistant.historyDescriptionFilled'),
+                author: user?.name ?? t('common.system'),
                 createdAt: nowTimestampFR(),
-                newValue: 'Titre copié dans la description',
+                newValue: t('reservesScreen.assistant.historyTitleCopied'),
               },
             ],
           };
           await Promise.resolve(updateReserveFields(updated) as any);
         }
-        setAssistantProgress({ done: i + 1, total: targets.length, label: 'Descriptions' });
+        setAssistantProgress({ done: i + 1, total: targets.length, label: t('reservesScreen.assistant.descriptions') });
       }
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
-      Alert.alert('Descriptions complétées', `${targets.length} description${targets.length > 1 ? 's' : ''} mise${targets.length > 1 ? 's' : ''} à jour.`);
+      Alert.alert(t('reservesScreen.assistant.descriptionsCompletedTitle'), t('reservesScreen.assistant.descriptionsCompletedMessage', { count: targets.length }));
     } finally {
       setAssistantBusy(false);
     }
-  }, [assistantBusy, missingDescriptionReserves, updateReserveFields, user?.name]);
+  }, [assistantBusy, missingDescriptionReserves, t, updateReserveFields, user?.name]);
 
   const confirmFillMissingDescriptions = useCallback(() => {
     if (missingDescriptionReserves.length === 0) {
-      Alert.alert('Aucune action nécessaire', 'Aucune réserve sans description dans le périmètre choisi.');
+      Alert.alert(t('reservesScreen.assistant.noActionTitle'), t('reservesScreen.assistant.noMissingDescriptions'));
       return;
     }
     Alert.alert(
-      'Compléter les descriptions',
-      `Copier le titre dans la description pour ${missingDescriptionReserves.length} réserve${missingDescriptionReserves.length > 1 ? 's' : ''}. Les descriptions existantes ne seront pas modifiées.`,
+      t('reservesScreen.assistant.fillDescriptionsTitle'),
+      t('reservesScreen.assistant.fillDescriptionsMessage', { count: missingDescriptionReserves.length }),
       [
-        { text: 'Annuler', style: 'cancel' },
-        { text: 'Appliquer', onPress: () => void runFillMissingDescriptions() },
+        { text: t('common.cancel'), style: 'cancel' },
+        { text: t('reservesScreen.apply'), onPress: () => void runFillMissingDescriptions() },
       ],
     );
-  }, [missingDescriptionReserves.length, runFillMissingDescriptions]);
+  }, [missingDescriptionReserves.length, runFillMissingDescriptions, t]);
 
   const runTranslateReserves = useCallback(async () => {
     const targets = assistantTargetReserves.filter(r =>
@@ -755,7 +755,7 @@ export default function ReservesScreen() {
     );
     if (targets.length === 0 || assistantBusy) return;
     setAssistantBusy(true);
-    setAssistantProgress({ done: 0, total: targets.length, label: `Traduction ${selectedAssistantLanguage.label}` });
+    setAssistantProgress({ done: 0, total: targets.length, label: t('reservesScreen.assistant.translationProgress', { language: selectedAssistantLanguage.label }) });
     let updatedCount = 0;
     let failedCount = 0;
     try {
@@ -785,8 +785,8 @@ export default function ReservesScreen() {
                 ...reserve.history,
                 {
                   id: genId(),
-                  action: 'Traduction groupée',
-                  author: user?.name ?? 'Système',
+                  action: t('reservesScreen.assistant.historyBulkTranslation'),
+                  author: user?.name ?? t('common.system'),
                   createdAt: nowTimestampFR(),
                   newValue: selectedAssistantLanguage.title,
                 },
@@ -799,37 +799,37 @@ export default function ReservesScreen() {
           console.warn('[reserves-assistant] Translation failed:', error?.message ?? error);
           failedCount += 1;
         } finally {
-          setAssistantProgress({ done: i + 1, total: targets.length, label: `Traduction ${selectedAssistantLanguage.label}` });
+          setAssistantProgress({ done: i + 1, total: targets.length, label: t('reservesScreen.assistant.translationProgress', { language: selectedAssistantLanguage.label }) });
         }
       }
       if (failedCount > 0) {
         Alert.alert(
-          'Traduction partielle',
-          `${updatedCount} réserve${updatedCount > 1 ? 's' : ''} traduite${updatedCount > 1 ? 's' : ''}. ${failedCount} échec${failedCount > 1 ? 's' : ''}, vérifiez la configuration Azure ou la connexion.`,
+          t('reservesScreen.assistant.partialTranslationTitle'),
+          t('reservesScreen.assistant.partialTranslationMessage', { updated: updatedCount, failed: failedCount }),
         );
       } else {
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
-        Alert.alert('Traduction terminée', `${updatedCount} réserve${updatedCount > 1 ? 's' : ''} mise${updatedCount > 1 ? 's' : ''} à jour en ${selectedAssistantLanguage.title}.`);
+        Alert.alert(t('reservesScreen.assistant.translationDoneTitle'), t('reservesScreen.assistant.translationDoneMessage', { count: updatedCount, language: selectedAssistantLanguage.title }));
       }
     } finally {
       setAssistantBusy(false);
     }
-  }, [assistantBusy, assistantTargetLanguage, assistantTargetReserves, selectedAssistantLanguage, translateBulkText, updateReserveFields, user?.name]);
+  }, [assistantBusy, assistantTargetLanguage, assistantTargetReserves, selectedAssistantLanguage, t, translateBulkText, updateReserveFields, user?.name]);
 
   const confirmTranslateReserves = useCallback(() => {
     if (translationCandidateCount === 0) {
-      Alert.alert('Aucun texte à traduire', 'Aucune réserve avec titre, description ou commentaire dans le périmètre choisi.');
+      Alert.alert(t('reservesScreen.assistant.noTextTitle'), t('reservesScreen.assistant.noTextMessage'));
       return;
     }
     Alert.alert(
-      'Traduction groupée',
-      `Cette action remplacera les titres, descriptions et commentaires de ${translationCandidateCount} réserve${translationCandidateCount > 1 ? 's' : ''} par une version ${selectedAssistantLanguage.title}. Les entreprises, statuts, priorités et localisations ne seront pas modifiés.`,
+      t('reservesScreen.assistant.bulkTranslationTitle'),
+      t('reservesScreen.assistant.bulkTranslationMessage', { count: translationCandidateCount, language: selectedAssistantLanguage.title }),
       [
-        { text: 'Annuler', style: 'cancel' },
-        { text: `Traduire en ${selectedAssistantLanguage.label}`, onPress: () => void runTranslateReserves() },
+        { text: t('common.cancel'), style: 'cancel' },
+        { text: t('reservesScreen.assistant.translateIn', { language: selectedAssistantLanguage.label }), onPress: () => void runTranslateReserves() },
       ],
     );
-  }, [runTranslateReserves, selectedAssistantLanguage, translationCandidateCount]);
+  }, [runTranslateReserves, selectedAssistantLanguage, t, translationCandidateCount]);
 
   const isSansEntrepriseReserve = useCallback((r: Reserve) => {
     const names = r.companies ?? (r.company ? [r.company] : []);
@@ -932,23 +932,23 @@ export default function ReservesScreen() {
   const handleSendReservesReport = useCallback(async () => {
     const emails = emailReportTo.split(/[,;\s]+/).map(e => e.trim()).filter(e => e.includes('@'));
     if (emails.length === 0) {
-      Alert.alert('Email requis', 'Entrez au moins une adresse email valide.');
+      Alert.alert(t('reservesScreen.email.emailRequiredTitle'), t('reservesScreen.email.emailRequiredMessage'));
       return;
     }
     const list = enrichReserveListForPdf(getSelectedReservesForEmail(), photos);
     if (list.length === 0) {
-      Alert.alert('Aucune réserve', 'Aucune réserve à exporter avec cette sélection.');
+      Alert.alert(t('reservesScreen.email.noReserveTitle'), t('reservesScreen.email.noReserveMessage'));
       return;
     }
     const localOnlyPhotoCount = countLocalOnlyReservePhotos(list);
     if (localOnlyPhotoCount > 0) {
       const shouldContinue = await new Promise<boolean>((resolve) => {
         Alert.alert(
-          'Photos non synchronisées',
-          `${localOnlyPhotoCount} photo${localOnlyPhotoCount > 1 ? 's' : ''} locale${localOnlyPhotoCount > 1 ? 's' : ''} ne ${localOnlyPhotoCount > 1 ? 'seront' : 'sera'} pas incluse${localOnlyPhotoCount > 1 ? 's' : ''} dans le PDF envoyé par email tant que la synchronisation n'est pas terminée.`,
+          t('reservesScreen.email.localPhotosTitle'),
+          t('reservesScreen.email.localPhotosMessage', { count: localOnlyPhotoCount }),
           [
-            { text: 'Attendre la sync', style: 'cancel', onPress: () => resolve(false) },
-            { text: 'Envoyer quand même', onPress: () => resolve(true) },
+            { text: t('reservesScreen.email.waitSync'), style: 'cancel', onPress: () => resolve(false) },
+            { text: t('reservesScreen.email.sendAnyway'), onPress: () => resolve(true) },
           ],
         );
       });
@@ -957,8 +957,8 @@ export default function ReservesScreen() {
     setEmailReportLoading(true);
     try {
       const chantierName = chantierFilter !== 'all'
-        ? chantiers.find(c => c.id === chantierFilter)?.name ?? 'Chantier'
-        : 'Tous les chantiers';
+        ? chantiers.find(c => c.id === chantierFilter)?.name ?? t('reservesScreen.projectFallback')
+        : t('reservesScreen.allProjects');
       const companyFilter = pdfExportMode === 'company_single' && pdfCompanySingle
         ? pdfCompanySingle
         : null;
@@ -988,7 +988,7 @@ export default function ReservesScreen() {
         sendByEmail: true,
       });
       if (!result.success) {
-        Alert.alert('Erreur', result.error ?? "Impossible de générer le rapport.");
+        Alert.alert(t('common.error'), result.error ?? t('reservesScreen.email.reportFailed'));
         return;
       }
       if (result.pdfBase64) {
@@ -1009,16 +1009,16 @@ export default function ReservesScreen() {
         }
       }
       const count = list.length;
-      Alert.alert('✓ Rapport envoyé', `Le rapport (${count} réserve${count !== 1 ? 's' : ''}) a bien été envoyé à :\n${emails.join('\n')}`);
+      Alert.alert(t('reservesScreen.email.sentTitle'), t('reservesScreen.email.sentMessage', { count, recipients: emails.join('\n') }));
       setEmailReportModalVisible(false);
       setPdfExportModalVisible(false);
       setEmailReportTo('');
     } catch (err: any) {
-      Alert.alert('Erreur', err?.message ?? "Impossible d'envoyer le rapport.");
+      Alert.alert(t('common.error'), err?.message ?? t('reservesScreen.email.sendFailed'));
     } finally {
       setEmailReportLoading(false);
     }
-  }, [emailReportTo, getSelectedReservesForEmail, photos, chantierFilter, chantiers, pdfExportMode, pdfCompanySingle]);
+  }, [emailReportTo, getSelectedReservesForEmail, photos, chantierFilter, chantiers, pdfExportMode, pdfCompanySingle, t]);
 
   const pdfPreviewCount = useMemo(() => {
     if (pdfExportMode === 'all') return filtered.length;
@@ -1085,19 +1085,19 @@ export default function ReservesScreen() {
 
     if (batchAction === 'delete') {
       Alert.alert(
-        'Confirmer la suppression',
-        `Supprimer ${ids.length} réserve${ids.length > 1 ? 's' : ''} ? Cette action est irréversible.`,
+        t('reservesScreen.batch.confirmDeleteTitle'),
+        t('reservesScreen.batch.confirmDeleteMessage', { count: ids.length }),
         [
-          { text: 'Annuler', style: 'cancel' },
+          { text: t('common.cancel'), style: 'cancel' },
           {
-            text: 'Supprimer', style: 'destructive',
+            text: t('common.delete'), style: 'destructive',
             onPress: () => {
               ids.forEach(id => deleteReserve(id));
               setBatchModalVisible(false);
               setBatchAction(null);
               setIsSelectMode(false);
               setSelectedIds(new Set());
-              Alert.alert('Supprimé', `${ids.length} réserve${ids.length > 1 ? 's' : ''} supprimée${ids.length > 1 ? 's' : ''}.`);
+              Alert.alert(t('reservesScreen.batch.deletedTitle'), t('reservesScreen.batch.deletedMessage', { count: ids.length }));
             },
           },
         ]
@@ -1113,7 +1113,7 @@ export default function ReservesScreen() {
     }
     if (batchAction === 'deadline' && batchDeadline) {
       if (!validateDeadline(batchDeadline)) {
-        Alert.alert('Date invalide', "Vérifiez que le jour, le mois et l'année sont corrects (ex : 30/04/2026).");
+        Alert.alert(t('reservesScreen.batch.invalidDateTitle'), t('reservesScreen.batch.invalidDateMessage'));
         return;
       }
       updates.deadline = batchDeadline;
@@ -1125,8 +1125,8 @@ export default function ReservesScreen() {
     setBatchAction(null);
     setIsSelectMode(false);
     setSelectedIds(new Set());
-    Alert.alert('Mise à jour effectuée', `${ids.length} réserve${ids.length > 1 ? 's' : ''} mise${ids.length > 1 ? 's' : ''} à jour.`);
-  }, [selectedIds, batchAction, batchStatus, batchCompany, batchDeadline, batchUpdateReserves, deleteReserve, user]);
+    Alert.alert(t('reservesScreen.batch.updatedTitle'), t('reservesScreen.batch.updatedMessage', { count: ids.length }));
+  }, [selectedIds, batchAction, batchStatus, batchCompany, batchDeadline, batchUpdateReserves, deleteReserve, t, user]);
 
   function resetAllFilters() {
     setBuildingFilter('all');
@@ -1152,7 +1152,7 @@ export default function ReservesScreen() {
     if (!quickStatusReserve) return;
     const id = quickStatusReserve.id;
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
-    updateReserveStatus(id, newStatus, user?.name ?? 'Conducteur de travaux');
+    updateReserveStatus(id, newStatus, user?.name ?? t('roles.conducteur'));
     setQuickStatusVisible(false);
     setQuickStatusReserve(null);
     setFlashId(id);
@@ -1170,7 +1170,7 @@ export default function ReservesScreen() {
     if (!contextMenuReserve) return;
     const id = contextMenuReserve.id;
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
-    updateReserveStatus(id, newStatus, user?.name ?? 'Conducteur de travaux');
+    updateReserveStatus(id, newStatus, user?.name ?? t('roles.conducteur'));
     setContextMenuVisible(false);
     setContextMenuReserve(null);
     setContextStatusSubVisible(false);
@@ -1186,7 +1186,7 @@ export default function ReservesScreen() {
     const newR: Reserve = {
       ...reserve,
       id: newId,
-      title: `${reserve.title} (copie)`,
+      title: t('reservesScreen.context.copyTitle', { title: reserve.title }),
       status: 'open',
       createdAt: new Date().toLocaleDateString('fr-FR'),
       deadline: '—',
@@ -1195,8 +1195,8 @@ export default function ReservesScreen() {
       photoUri: undefined,
       history: [{
         id: genId(),
-        action: 'Réserve dupliquée',
-        author: user?.name ?? 'Système',
+        action: t('reservesScreen.context.duplicatedHistory'),
+        author: user?.name ?? t('common.system'),
         createdAt: nowTimestampFR(),
         oldValue: reserve.id,
         newValue: newId,
@@ -1220,12 +1220,12 @@ export default function ReservesScreen() {
     setContextMenuVisible(false);
     setContextMenuReserve(null);
     Alert.alert(
-      'Supprimer cette réserve',
-      `Supprimer "${reserve.title}" ? Cette action est irréversible.`,
+      t('reservesScreen.context.deleteTitle'),
+      t('reservesScreen.context.deleteMessage', { title: reserve.title }),
       [
-        { text: 'Annuler', style: 'cancel' },
+        { text: t('common.cancel'), style: 'cancel' },
         {
-          text: 'Supprimer', style: 'destructive',
+          text: t('common.delete'), style: 'destructive',
           onPress: () => {
             Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
             deleteReserve(reserve.id);
@@ -1239,28 +1239,28 @@ export default function ReservesScreen() {
     const isArchived = !!reserve.archivedAt;
     if (isArchived) {
       Alert.alert(
-        'Désarchiver cette réserve',
-        `Remettre "${reserve.title}" dans les réserves actives ?`,
+        t('reservesScreen.context.unarchiveTitle'),
+        t('reservesScreen.context.unarchiveMessage', { title: reserve.title }),
         [
-          { text: 'Annuler', style: 'cancel' },
+          { text: t('common.cancel'), style: 'cancel' },
           {
-            text: 'Désarchiver', onPress: () => {
+            text: t('reservesScreen.context.unarchive'), onPress: () => {
               Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
-              unarchiveReserve(reserve.id, user?.name ?? 'Conducteur de travaux');
+              unarchiveReserve(reserve.id, user?.name ?? t('roles.conducteur'));
             },
           },
         ]
       );
     } else {
       Alert.alert(
-        'Archiver cette réserve',
-        `Mettre "${reserve.title}" de côté ? La réserve sera masquée du plan et de la liste, mais restera consultable depuis les archives. Son statut (${reserve.status === 'closed' ? 'Clôturé' : reserve.status === 'open' ? 'Ouvert' : reserve.status === 'in_progress' ? 'En cours' : reserve.status === 'waiting' ? 'En attente' : 'Vérification'}) ne change pas.`,
+        t('reservesScreen.context.archiveTitle'),
+        t('reservesScreen.context.archiveMessage', { title: reserve.title, status: t(`reserveLabels.status.${reserve.status}`) }),
         [
-          { text: 'Annuler', style: 'cancel' },
+          { text: t('common.cancel'), style: 'cancel' },
           {
-            text: 'Archiver', onPress: () => {
+            text: t('reservesScreen.context.archive'), onPress: () => {
               Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
-              archiveReserve(reserve.id, user?.name ?? 'Conducteur de travaux');
+              archiveReserve(reserve.id, user?.name ?? t('roles.conducteur'));
             },
           },
         ]
@@ -1272,19 +1272,19 @@ export default function ReservesScreen() {
     if (!tabletComment.trim()) return;
     setTabletCommentSending(true);
     try {
-      await addComment(reserve.id, tabletComment.trim(), user?.name ?? 'Conducteur');
+      await addComment(reserve.id, tabletComment.trim(), user?.name ?? t('roles.conducteur'));
       setTabletComment('');
     } catch {
-      Alert.alert('Erreur', 'Impossible d\'envoyer le commentaire.');
+      Alert.alert(t('common.error'), t('reservesScreen.context.commentFailed'));
     } finally {
       setTabletCommentSending(false);
     }
   }
 
   const VIEW_MODE_LABELS: Record<ViewMode, string> = {
-    list: 'Liste',
-    grouped_status: 'Par statut',
-    grouped_company: 'Par entreprise',
+    list: t('reservesScreen.viewModes.list'),
+    grouped_status: t('reservesScreen.viewModes.groupedStatus'),
+    grouped_company: t('reservesScreen.viewModes.groupedCompany'),
   };
   const VIEW_MODE_ICONS: Record<ViewMode, string> = {
     list: 'list-outline',
@@ -1301,7 +1301,7 @@ export default function ReservesScreen() {
             onPress={() => toggleId(item.id)}
             style={[styles.checkbox, selectedIds.has(item.id) && styles.checkboxChecked]}
             accessibilityRole="checkbox"
-            accessibilityLabel={`Sélectionner réserve ${item.id}`}
+            accessibilityLabel={t('reservesScreen.accessibility.selectReserve', { id: item.id })}
             accessibilityState={{ checked: selectedIds.has(item.id) }}
           >
             {selectedIds.has(item.id) && <Ionicons name="checkmark" size={14} color="#fff" />}
@@ -1559,7 +1559,7 @@ export default function ReservesScreen() {
                   style={styles.workflowSummaryMore}
                   onPress={() => setFilterModalVisible(true)}
                   accessibilityRole="button"
-                  accessibilityLabel="Voir tous les filtres de suivi entreprise"
+                  accessibilityLabel={t('reservesScreen.accessibility.allEnterpriseFilters')}
                 >
                   <Text style={styles.workflowSummaryMoreText}>{t('reservesScreen.allPlural')}</Text>
                 </TouchableOpacity>
@@ -1653,7 +1653,7 @@ export default function ReservesScreen() {
                 style={[styles.chantierChip, chantierFilter === c.id && styles.chantierChipActive]}
                 onPress={() => setChantierFilter(c.id)}
                 accessibilityRole="button"
-                accessibilityLabel={`Filtrer chantier ${c.name}`}
+                accessibilityLabel={t('reservesScreen.accessibility.filterProject', { name: c.name })}
               >
                 <View style={styles.chantierDot} />
                 <Text style={[styles.chantierChipText, chantierFilter === c.id && styles.chantierChipTextActive]} numberOfLines={1}>
@@ -1741,7 +1741,7 @@ export default function ReservesScreen() {
             style={[styles.toolBtn, viewMode !== 'list' && styles.toolBtnActive]}
             onPress={() => setViewModeModalVisible(true)}
             accessibilityRole="button"
-            accessibilityLabel={`Mode d'affichage : ${VIEW_MODE_LABELS[viewMode]}`}
+            accessibilityLabel={t('reservesScreen.accessibility.displayMode', { mode: VIEW_MODE_LABELS[viewMode] })}
           >
             <Ionicons name={VIEW_MODE_ICONS[viewMode] as any} size={15} color={viewMode !== 'list' ? C.primary : C.textSub} />
           </TouchableOpacity>
@@ -1824,13 +1824,13 @@ export default function ReservesScreen() {
                             style={[styles.quickStatusBtn, { borderColor: color }, active && { backgroundColor: color }]}
                             onPress={() => {
                               if (!active) {
-                                updateReserveStatus(selectedReserve.id, s, user?.name ?? 'Conducteur de travaux');
+                                updateReserveStatus(selectedReserve.id, s, user?.name ?? t('reservesScreen.defaultAuthor'));
                                 setSelectedReserveId(null);
                                 setTimeout(() => setSelectedReserveId(selectedReserve.id), 50);
                               }
                             }}
                             accessibilityRole="button"
-                            accessibilityLabel={`Changer statut en ${label}`}
+                            accessibilityLabel={t('reservesScreen.accessibility.changeStatus', { status: label })}
                             accessibilityState={{ selected: active }}
                           >
                             <Text style={[styles.quickStatusBtnText, { color: active ? '#fff' : color }]}>{label}</Text>
@@ -1854,7 +1854,7 @@ export default function ReservesScreen() {
                   <View style={styles.detailRow}>
                     <Ionicons name="business-outline" size={14} color={C.textMuted} />
                     <Text style={styles.detailMeta}>
-                      {[selectedReserve.building ? `Bât. ${selectedReserve.building}` : null, selectedReserve.zone, selectedReserve.level].filter(Boolean).join(' — ')}
+                      {[selectedReserve.building ? t('reservesScreen.report.buildingPrefix', { building: selectedReserve.building }) : null, selectedReserve.zone, selectedReserve.level].filter(Boolean).join(' — ')}
                     </Text>
                   </View>
                   <View style={styles.detailRow}>
@@ -1894,7 +1894,7 @@ export default function ReservesScreen() {
                         numberOfLines={2}
                         textAssistEnabled
                         textAssistContext="comment"
-                        accessibilityLabel="Saisir un commentaire"
+                        accessibilityLabel={t('reservesScreen.accessibility.commentInput')}
                       />
                       <TouchableOpacity
                         style={[styles.tabletCommentBtn, (!tabletComment.trim() || tabletCommentSending) && styles.tabletCommentBtnDisabled]}
@@ -1983,21 +1983,21 @@ export default function ReservesScreen() {
               onPress={() => { setBatchAction('status'); setBatchModalVisible(true); }}
             >
               <Ionicons name="swap-horizontal-outline" size={14} color="#fff" />
-              <Text style={styles.batchBarBtnText}>Statut</Text>
+              <Text style={styles.batchBarBtnText}>{t('reservesScreen.sections.status')}</Text>
             </TouchableOpacity>
             <TouchableOpacity
               style={styles.batchBarBtn}
               onPress={() => { setBatchAction('company'); setBatchModalVisible(true); }}
             >
               <Ionicons name="people-outline" size={14} color="#fff" />
-              <Text style={styles.batchBarBtnText}>Entreprise</Text>
+              <Text style={styles.batchBarBtnText}>{t('reservesScreen.sections.company')}</Text>
             </TouchableOpacity>
             <TouchableOpacity
               style={styles.batchBarBtn}
               onPress={() => { setBatchAction('deadline'); setBatchModalVisible(true); }}
             >
               <Ionicons name="calendar-outline" size={14} color="#fff" />
-              <Text style={styles.batchBarBtnText}>Échéance</Text>
+              <Text style={styles.batchBarBtnText}>{t('reservesScreen.batch.deadline')}</Text>
             </TouchableOpacity>
             {permissions.canDelete && (
               <TouchableOpacity
@@ -2006,27 +2006,27 @@ export default function ReservesScreen() {
                   if (selectedIds.size === 0) return;
                   const ids = Array.from(selectedIds);
                   Alert.alert(
-                    'Confirmer la suppression',
-                    `Supprimer ${ids.length} réserve${ids.length > 1 ? 's' : ''} ? Cette action est irréversible.`,
+                    t('reservesScreen.batch.confirmDeleteTitle'),
+                    t('reservesScreen.batch.confirmDeleteMessage', { count: ids.length }),
                     [
-                      { text: 'Annuler', style: 'cancel' },
+                      { text: t('common.cancel'), style: 'cancel' },
                       {
-                        text: 'Supprimer', style: 'destructive',
+                        text: t('common.delete'), style: 'destructive',
                         onPress: () => {
                           ids.forEach(id => deleteReserve(id));
                           setBatchModalVisible(false);
                           setBatchAction(null);
                           setIsSelectMode(false);
                           setSelectedIds(new Set());
-                          Alert.alert('Supprimé', `${ids.length} réserve${ids.length > 1 ? 's' : ''} supprimée${ids.length > 1 ? 's' : ''}.`);
+                          Alert.alert(t('reservesScreen.batch.deletedTitle'), t('reservesScreen.batch.deletedMessage', { count: ids.length }));
                         },
                       },
                     ]
                   );
                 }}
               >
-                <Ionicons name="trash-outline" size={14} color="#fff" />
-                <Text style={styles.batchBarBtnText}>Supprimer</Text>
+              <Ionicons name="trash-outline" size={14} color="#fff" />
+                <Text style={styles.batchBarBtnText}>{t('common.delete')}</Text>
               </TouchableOpacity>
             )}
           </ScrollView>
@@ -2042,12 +2042,12 @@ export default function ReservesScreen() {
                 onPress={() => { closeFabMenu(); router.push('/reserve/new' as any); }}
                 activeOpacity={0.85}
                 accessibilityRole="button"
-                accessibilityLabel="Formulaire complet"
+                accessibilityLabel={t('reservesScreen.fab.fullForm')}
               >
                 <View style={styles.fabActionIcon}>
                   <Ionicons name="create-outline" size={18} color="#fff" />
                 </View>
-                <Text style={styles.fabSubLabelText}>Formulaire complet</Text>
+                <Text style={styles.fabSubLabelText}>{t('reservesScreen.fab.fullForm')}</Text>
               </TouchableOpacity>
             </Animated.View>
           )}
@@ -2059,12 +2059,12 @@ export default function ReservesScreen() {
                 onPress={() => { closeFabMenu(); router.push('/(tabs)/plans' as any); }}
                 activeOpacity={0.85}
                 accessibilityRole="button"
-                accessibilityLabel="Depuis le plan"
+                accessibilityLabel={t('reservesScreen.fab.fromPlan')}
               >
                 <View style={[styles.fabActionIcon, { backgroundColor: '#16A34A' }]}>
                   <Ionicons name="map-outline" size={18} color="#fff" />
                 </View>
-                <Text style={styles.fabSubLabelText}>Depuis le plan</Text>
+                <Text style={styles.fabSubLabelText}>{t('reservesScreen.fab.fromPlan')}</Text>
               </TouchableOpacity>
             </Animated.View>
           )}
@@ -2076,12 +2076,12 @@ export default function ReservesScreen() {
                 onPress={handleQuickPhoto}
                 activeOpacity={0.85}
                 accessibilityRole="button"
-                accessibilityLabel="Photo rapide"
+                accessibilityLabel={t('reservesScreen.fab.quickPhoto')}
               >
                 <View style={[styles.fabActionIcon, { backgroundColor: '#0EA5E9' }]}>
                   <Ionicons name="camera-outline" size={18} color="#fff" />
                 </View>
-                <Text style={styles.fabSubLabelText}>Photo rapide</Text>
+                <Text style={styles.fabSubLabelText}>{t('reservesScreen.fab.quickPhoto')}</Text>
               </TouchableOpacity>
             </Animated.View>
           )}
@@ -2095,7 +2095,7 @@ export default function ReservesScreen() {
                 onPress={toggleFab}
                 activeOpacity={0.85}
                 accessibilityRole="button"
-                accessibilityLabel={fabOpen ? 'Fermer le menu' : 'Créer une nouvelle réserve'}
+                accessibilityLabel={fabOpen ? t('reservesScreen.fab.closeMenu') : t('reservesScreen.fab.createNew')}
               >
                 <Ionicons name="add" size={26} color="#fff" />
               </TouchableOpacity>
@@ -2109,7 +2109,7 @@ export default function ReservesScreen() {
           <TouchableOpacity activeOpacity={1} style={[styles.bottomSheet, { paddingBottom: insets.bottom + 24 }]}>
             <View style={styles.sheetHandle} />
             <View style={styles.sheetTitleRow}>
-              <Text style={styles.sheetTitle}>{'Actions r\u00e9serves'}</Text>
+              <Text style={styles.sheetTitle}>{t('reservesScreen.actions')}</Text>
               <TouchableOpacity style={styles.filtCloseBtn} onPress={() => setActionsModalVisible(false)}>
                 <Ionicons name="close" size={20} color={C.textMuted} />
               </TouchableOpacity>
@@ -2175,7 +2175,7 @@ export default function ReservesScreen() {
                 <View style={styles.contextItemIcon}>
                   <Ionicons name="checkmark-circle-outline" size={18} color={C.inProgress} />
                 </View>
-                <Text style={styles.contextItemText}>{'S\u00e9lection multiple'}</Text>
+                <Text style={styles.contextItemText}>{t('reservesScreen.assistant.multipleSelection')}</Text>
                 <Ionicons name="chevron-forward" size={16} color={C.textMuted} />
               </TouchableOpacity>
             )}
@@ -2192,10 +2192,10 @@ export default function ReservesScreen() {
                   <Ionicons name="sparkles-outline" size={18} color={C.primary} />
                 </View>
                 <View style={{ flex: 1 }}>
-                  <Text style={styles.contextItemText}>{'Assistant r\u00e9serves'}</Text>
+                  <Text style={styles.contextItemText}>{t('reservesScreen.assistant.title')}</Text>
                   {currentMissingDescriptionCount > 0 && (
                     <Text style={styles.actionItemHint}>
-                      {currentMissingDescriptionCount} description{currentMissingDescriptionCount > 1 ? 's' : ''}{' \u00e0 compl\u00e9ter'}
+                      {t('reservesScreen.assistant.descriptionsToComplete', { count: currentMissingDescriptionCount })}
                     </Text>
                   )}
                 </View>
@@ -2204,7 +2204,7 @@ export default function ReservesScreen() {
             )}
 
             <TouchableOpacity style={styles.cancelBtn} onPress={() => setActionsModalVisible(false)}>
-              <Text style={styles.cancelText}>Fermer</Text>
+              <Text style={styles.cancelText}>{t('common.close')}</Text>
             </TouchableOpacity>
           </TouchableOpacity>
         </TouchableOpacity>
@@ -2234,14 +2234,14 @@ export default function ReservesScreen() {
                 <Ionicons name="sparkles-outline" size={20} color="#fff" />
               </View>
               <View style={{ flex: 1 }}>
-                <Text style={styles.sheetTitle}>Assistant réserves</Text>
-                <Text style={styles.modalSubtitle}>Actions groupées avec aperçu avant modification.</Text>
+                <Text style={styles.sheetTitle}>{t('reservesScreen.assistant.title')}</Text>
+                <Text style={styles.modalSubtitle}>{t('reservesScreen.assistant.subtitle')}</Text>
               </View>
               <TouchableOpacity
                 style={styles.filtCloseBtn}
                 onPress={() => setAssistantVisible(false)}
                 disabled={assistantBusy}
-                accessibilityLabel="Fermer l'assistant réserves"
+                accessibilityLabel={t('reservesScreen.assistant.closeAssistant')}
               >
                 <Ionicons name="close" size={20} color={assistantBusy ? C.textMuted : C.text} />
               </TouchableOpacity>
@@ -2255,7 +2255,7 @@ export default function ReservesScreen() {
               nestedScrollEnabled
             >
               <View style={styles.assistantSection}>
-                <Text style={styles.sheetSectionLabel}>Périmètre</Text>
+                <Text style={styles.sheetSectionLabel}>{t('reservesScreen.assistant.perimeter')}</Text>
                 <View style={styles.assistantScopeGrid}>
                   {assistantScopeOptions.map(option => {
                     const active = assistantScope === option.key;
@@ -2292,9 +2292,9 @@ export default function ReservesScreen() {
                     <Ionicons name="document-text-outline" size={20} color={C.primary} />
                   </View>
                   <View style={{ flex: 1 }}>
-                    <Text style={styles.assistantActionTitle}>Compléter les descriptions</Text>
+                    <Text style={styles.assistantActionTitle}>{t('reservesScreen.assistant.completeDescriptions')}</Text>
                     <Text style={styles.assistantActionText}>
-                      {missingDescriptionReserves.length} réserve{missingDescriptionReserves.length > 1 ? 's' : ''} sans description dans ce périmètre. Le titre sera copié dans la description.
+                      {t('reservesScreen.assistant.missingDescriptions', { count: missingDescriptionReserves.length })}
                     </Text>
                   </View>
                 </View>
@@ -2307,7 +2307,7 @@ export default function ReservesScreen() {
                       </View>
                     ))}
                     {missingDescriptionReserves.length > 3 && (
-                      <Text style={styles.assistantMoreText}>+{missingDescriptionReserves.length - 3} autres réserves</Text>
+                      <Text style={styles.assistantMoreText}>{t('reservesScreen.assistant.moreReserves', { count: missingDescriptionReserves.length - 3 })}</Text>
                     )}
                   </View>
                 )}
@@ -2317,7 +2317,7 @@ export default function ReservesScreen() {
                   disabled={assistantBusy || missingDescriptionReserves.length === 0}
                 >
                   <Ionicons name="copy-outline" size={16} color="#fff" />
-                  <Text style={styles.assistantPrimaryBtnText}>Copier les titres</Text>
+                  <Text style={styles.assistantPrimaryBtnText}>{t('reservesScreen.assistant.copyTitles')}</Text>
                 </TouchableOpacity>
               </View>
 
@@ -2327,9 +2327,9 @@ export default function ReservesScreen() {
                     <Ionicons name="language-outline" size={20} color="#4F46E5" />
                   </View>
                   <View style={{ flex: 1 }}>
-                    <Text style={styles.assistantActionTitle}>Traduire les champs textuels</Text>
+                    <Text style={styles.assistantActionTitle}>{t('reservesScreen.assistant.translateTextFields')}</Text>
                     <Text style={styles.assistantActionText}>
-                      Titres, descriptions et commentaires seront remplacés par une version traduite via Azure.
+                      {t('reservesScreen.assistant.translateTextFieldsHint')}
                     </Text>
                   </View>
                 </View>
@@ -2350,7 +2350,7 @@ export default function ReservesScreen() {
                 </View>
                 <View style={styles.assistantPreviewBox}>
                   <Text style={styles.assistantPreviewHint}>
-                    {translationCandidateCount} réserve{translationCandidateCount > 1 ? 's' : ''} analysée{translationCandidateCount > 1 ? 's' : ''}. Les statuts, priorités, entreprises et localisations restent inchangés.
+                    {t('reservesScreen.assistant.translationPreview', { count: translationCandidateCount })}
                   </Text>
                   {assistantTargetReserves.slice(0, 3).map(r => (
                     <View key={r.id} style={styles.assistantPreviewRow}>
@@ -2365,7 +2365,7 @@ export default function ReservesScreen() {
                   disabled={assistantBusy || translationCandidateCount === 0}
                 >
                   <Ionicons name="language-outline" size={16} color="#fff" />
-                  <Text style={styles.assistantPrimaryBtnText}>Traduire en {selectedAssistantLanguage.label}</Text>
+                  <Text style={styles.assistantPrimaryBtnText}>{t('reservesScreen.assistant.translateIn', { language: selectedAssistantLanguage.label })}</Text>
                 </TouchableOpacity>
               </View>
 
@@ -2401,10 +2401,10 @@ export default function ReservesScreen() {
           <Pressable style={styles.pdfModalCard} onPress={() => {}}>
             <View style={styles.pdfModalHeaderRow}>
               <View style={{ flex: 1 }}>
-                <Text style={styles.modalTitle}>Télécharger en PDF</Text>
-                <Text style={styles.modalSubtitle}>Choisis ce que tu veux exporter</Text>
+                <Text style={styles.modalTitle}>{t('reservesScreen.pdf.title')}</Text>
+                <Text style={styles.modalSubtitle}>{t('reservesScreen.pdf.subtitle')}</Text>
               </View>
-              <TouchableOpacity onPress={() => setPdfExportModalVisible(false)} accessibilityLabel="Fermer">
+              <TouchableOpacity onPress={() => setPdfExportModalVisible(false)} accessibilityLabel={t('common.close')}>
                 <Ionicons name="close" size={20} color={C.textMuted} />
               </TouchableOpacity>
             </View>
@@ -2416,7 +2416,7 @@ export default function ReservesScreen() {
                 onPress={() => setPdfExportMode('all')}
               >
                 <Ionicons name="albums-outline" size={14} color={pdfExportMode === 'all' ? '#fff' : C.text} />
-                <Text style={[styles.pdfOptionText, pdfExportMode === 'all' && styles.pdfOptionTextActive]}>Toutes les réserves (filtre actuel)</Text>
+                <Text style={[styles.pdfOptionText, pdfExportMode === 'all' && styles.pdfOptionTextActive]}>{t('reservesScreen.pdf.allFiltered')}</Text>
               </TouchableOpacity>
 
               <TouchableOpacity
@@ -2424,7 +2424,7 @@ export default function ReservesScreen() {
                 onPress={() => setPdfExportMode('company_single')}
               >
                 <Ionicons name="business-outline" size={14} color={pdfExportMode === 'company_single' ? '#fff' : C.text} />
-                <Text style={[styles.pdfOptionText, pdfExportMode === 'company_single' && styles.pdfOptionTextActive]}>Une entreprise</Text>
+                <Text style={[styles.pdfOptionText, pdfExportMode === 'company_single' && styles.pdfOptionTextActive]}>{t('reservesScreen.pdf.oneCompany')}</Text>
               </TouchableOpacity>
 
               <TouchableOpacity
@@ -2432,7 +2432,7 @@ export default function ReservesScreen() {
                 onPress={() => setPdfExportMode('company_multi')}
               >
                 <Ionicons name="people-outline" size={14} color={pdfExportMode === 'company_multi' ? '#fff' : C.text} />
-                <Text style={[styles.pdfOptionText, pdfExportMode === 'company_multi' && styles.pdfOptionTextActive]}>Plusieurs entreprises</Text>
+                <Text style={[styles.pdfOptionText, pdfExportMode === 'company_multi' && styles.pdfOptionTextActive]}>{t('reservesScreen.pdf.multipleCompanies')}</Text>
               </TouchableOpacity>
 
               <TouchableOpacity
@@ -2440,7 +2440,7 @@ export default function ReservesScreen() {
                 onPress={() => setPdfExportMode('company_none')}
               >
                 <Ionicons name="ban-outline" size={14} color={pdfExportMode === 'company_none' ? '#fff' : C.text} />
-                <Text style={[styles.pdfOptionText, pdfExportMode === 'company_none' && styles.pdfOptionTextActive]}>Réserves sans entreprise</Text>
+                <Text style={[styles.pdfOptionText, pdfExportMode === 'company_none' && styles.pdfOptionTextActive]}>{t('reservesScreen.pdf.noCompanyReserves')}</Text>
               </TouchableOpacity>
 
               <TouchableOpacity
@@ -2448,7 +2448,7 @@ export default function ReservesScreen() {
                 onPress={() => setPdfExportMode('manual')}
               >
                 <Ionicons name="checkbox-outline" size={14} color={pdfExportMode === 'manual' ? '#fff' : C.text} />
-                <Text style={[styles.pdfOptionText, pdfExportMode === 'manual' && styles.pdfOptionTextActive]}>Sélection manuelle</Text>
+                <Text style={[styles.pdfOptionText, pdfExportMode === 'manual' && styles.pdfOptionTextActive]}>{t('reservesScreen.pdf.manualSelection')}</Text>
               </TouchableOpacity>
             </View>
 
@@ -2456,7 +2456,7 @@ export default function ReservesScreen() {
               <View style={styles.pdfPickerWrap}>
                 <ScrollView>
                   {groupedByCompany.length === 0 && (
-                    <Text style={styles.pdfEmptyHint}>Aucune réserve avec cette sélection.</Text>
+                    <Text style={styles.pdfEmptyHint}>{t('reservesScreen.pdf.emptySelection')}</Text>
                   )}
                   {groupedByCompany.map(g => {
                     const active = pdfCompanySingle === g.key;
@@ -2470,7 +2470,7 @@ export default function ReservesScreen() {
                           {active && <View style={styles.pdfRadioDot} />}
                         </View>
                         <Text style={[styles.pdfPickRowText, active && styles.pdfPickRowTextActive]} numberOfLines={1}>
-                          {g.key === '—' ? 'Sans entreprise' : g.title}
+                          {g.key === '—' ? t('reservesScreen.pdf.noCompany') : g.title}
                         </Text>
                         <Text style={styles.pdfPickRowCount}>{g.data.length}</Text>
                       </TouchableOpacity>
@@ -2487,18 +2487,18 @@ export default function ReservesScreen() {
                     style={styles.pdfPickActionBtn}
                     onPress={() => setPdfCompaniesMulti(new Set(groupedByCompany.map(g => g.key)))}
                   >
-                    <Text style={styles.pdfPickActionBtnText}>Tout</Text>
+                    <Text style={styles.pdfPickActionBtnText}>{t('reservesScreen.all')}</Text>
                   </TouchableOpacity>
                   <TouchableOpacity
                     style={styles.pdfPickActionBtn}
                     onPress={() => setPdfCompaniesMulti(new Set())}
                   >
-                    <Text style={styles.pdfPickActionBtnText}>Aucun</Text>
+                    <Text style={styles.pdfPickActionBtnText}>{t('reservesScreen.pdf.none')}</Text>
                   </TouchableOpacity>
                 </View>
                 <ScrollView>
                   {groupedByCompany.length === 0 && (
-                    <Text style={styles.pdfEmptyHint}>Aucune réserve avec cette sélection.</Text>
+                    <Text style={styles.pdfEmptyHint}>{t('reservesScreen.pdf.emptySelection')}</Text>
                   )}
                   {groupedByCompany.map(g => {
                     const checked = pdfCompaniesMulti.has(g.key);
@@ -2519,7 +2519,7 @@ export default function ReservesScreen() {
                           {checked && <Ionicons name="checkmark" size={12} color="#fff" />}
                         </View>
                         <Text style={styles.pdfPickRowText} numberOfLines={1}>
-                          {g.key === '—' ? 'Sans entreprise' : g.title}
+                          {g.key === '—' ? t('reservesScreen.pdf.noCompany') : g.title}
                         </Text>
                         <Text style={styles.pdfPickRowCount}>{g.data.length}</Text>
                       </TouchableOpacity>
@@ -2531,14 +2531,14 @@ export default function ReservesScreen() {
 
             {pdfExportMode === 'manual' && (
               <Text style={styles.pdfEmptyHint}>
-                Coche les réserves souhaitées dans la liste, puis génère le PDF depuis la barre d'actions en bas.
+                {t('reservesScreen.pdf.manualHint')}
               </Text>
             )}
 
             <Text style={styles.pdfPreview}>
               {pdfExportMode === 'manual'
-                ? 'Le modal se fermera et le mode sélection s\'activera.'
-                : `${pdfPreviewCount} réserve${pdfPreviewCount !== 1 ? 's' : ''} ${pdfPreviewCount !== 1 ? 'seront' : 'sera'} exportée${pdfPreviewCount !== 1 ? 's' : ''}.`
+                ? t('reservesScreen.pdf.manualPreview')
+                : t('reservesScreen.pdf.preview', { count: pdfPreviewCount })
               }
             </Text>
 
@@ -2546,7 +2546,7 @@ export default function ReservesScreen() {
               {pdfExportMode === 'manual' ? (
                 <>
                   <TouchableOpacity style={styles.pdfCancelBtn} onPress={() => setPdfExportModalVisible(false)} disabled={pdfLoading}>
-                    <Text style={styles.pdfCancelBtnText}>Annuler</Text>
+                    <Text style={styles.pdfCancelBtnText}>{t('common.cancel')}</Text>
                   </TouchableOpacity>
                   <TouchableOpacity
                     style={[styles.pdfConfirmBtn, pdfLoading && { opacity: 0.5 }]}
@@ -2556,7 +2556,7 @@ export default function ReservesScreen() {
                     {pdfLoading
                       ? <ActivityIndicator size="small" color="#fff" />
                       : <Ionicons name="arrow-forward-circle-outline" size={16} color="#fff" />}
-                    <Text style={styles.pdfConfirmBtnText}>Commencer</Text>
+                    <Text style={styles.pdfConfirmBtnText}>{t('reservesScreen.pdf.start')}</Text>
                   </TouchableOpacity>
                 </>
               ) : (
@@ -2567,7 +2567,7 @@ export default function ReservesScreen() {
                     disabled={pdfLoading || pdfPreviewCount === 0}
                   >
                     <Ionicons name="download-outline" size={16} color={C.primary} />
-                    <Text style={styles.pdfDownloadBtnText}>Télécharger</Text>
+                    <Text style={styles.pdfDownloadBtnText}>{t('reservesScreen.pdf.download')}</Text>
                   </TouchableOpacity>
                   <TouchableOpacity
                     style={[styles.pdfConfirmBtn, (pdfLoading || pdfPreviewCount === 0) && { opacity: 0.5 }]}
@@ -2577,7 +2577,7 @@ export default function ReservesScreen() {
                     {pdfLoading
                       ? <ActivityIndicator size="small" color="#fff" />
                       : <Ionicons name="share-social-outline" size={16} color="#fff" />}
-                    <Text style={styles.pdfConfirmBtnText}>Partager</Text>
+                    <Text style={styles.pdfConfirmBtnText}>{t('reservesScreen.pdf.share')}</Text>
                   </TouchableOpacity>
                 </>
               )}
@@ -2589,7 +2589,7 @@ export default function ReservesScreen() {
                 disabled={pdfLoading || pdfPreviewCount === 0}
               >
                 <Ionicons name="mail-outline" size={15} color={C.primary} />
-                <Text style={styles.emailReportBtnText}>Envoyer par email</Text>
+                <Text style={styles.emailReportBtnText}>{t('reservesScreen.email.sendByEmail')}</Text>
               </TouchableOpacity>
             )}
             </ScrollView>
@@ -2603,21 +2603,21 @@ export default function ReservesScreen() {
             <Pressable style={styles.pdfModalCard} onPress={() => {}}>
               <View style={styles.pdfModalHeaderRow}>
                 <View style={{ flex: 1 }}>
-                  <Text style={styles.modalTitle}>Envoyer par email</Text>
-                  <Text style={styles.modalSubtitle}>PDF haute fidélité</Text>
+                  <Text style={styles.modalTitle}>{t('reservesScreen.email.title')}</Text>
+                  <Text style={styles.modalSubtitle}>{t('reservesScreen.email.subtitle')}</Text>
                 </View>
                 <TouchableOpacity onPress={() => setEmailReportModalVisible(false)}>
                   <Ionicons name="close" size={20} color={C.textMuted} />
                 </TouchableOpacity>
               </View>
               <Text style={{ fontSize: 12, color: C.textSub, marginBottom: 8 }}>
-                Destinataires (séparés par virgule ou espace)
+                {t('reservesScreen.email.recipientsLabel')}
               </Text>
               <TextInput
                 style={[styles.emailInput, { marginBottom: 16 }]}
                 value={emailReportTo}
                 onChangeText={setEmailReportTo}
-                placeholder="ex: conducteur@bouygues.fr, chef@bouygues.fr"
+                placeholder={t('reservesScreen.email.placeholder')}
                 placeholderTextColor={C.textMuted}
                 autoCapitalize="none"
                 keyboardType="email-address"
@@ -2625,7 +2625,7 @@ export default function ReservesScreen() {
               />
               <View style={styles.pdfModalActions}>
                 <TouchableOpacity style={styles.pdfCancelBtn} onPress={() => setEmailReportModalVisible(false)} disabled={emailReportLoading}>
-                  <Text style={styles.pdfCancelBtnText}>Annuler</Text>
+                  <Text style={styles.pdfCancelBtnText}>{t('common.cancel')}</Text>
                 </TouchableOpacity>
                 <TouchableOpacity
                   style={[styles.pdfConfirmBtn, (emailReportLoading || !emailReportTo.trim()) && { opacity: 0.5 }]}
@@ -2635,7 +2635,7 @@ export default function ReservesScreen() {
                   {emailReportLoading
                     ? <ActivityIndicator size="small" color="#fff" />
                     : <Ionicons name="mail-outline" size={16} color="#fff" />}
-                  <Text style={styles.pdfConfirmBtnText}>Envoyer</Text>
+                  <Text style={styles.pdfConfirmBtnText}>{t('reservesScreen.email.send')}</Text>
                 </TouchableOpacity>
               </View>
             </Pressable>
@@ -2648,7 +2648,7 @@ export default function ReservesScreen() {
           <TouchableOpacity activeOpacity={1} style={[styles.bottomSheet, { paddingBottom: insets.bottom + 32 }]}>
             <View style={styles.sheetHandle} />
             <View style={styles.sheetTitleRow}>
-              <Text style={styles.sheetTitle}>Changer le statut</Text>
+              <Text style={styles.sheetTitle}>{t('reservesScreen.batch.changeStatus')}</Text>
             </View>
             {quickStatusReserve && (
               <Text style={styles.batchDesc} numberOfLines={2}>{quickStatusReserve.title}</Text>
@@ -2662,7 +2662,7 @@ export default function ReservesScreen() {
                   style={[styles.sheetItem, isActive && styles.sheetItemActive]}
                   onPress={() => applyQuickStatus(key)}
                   accessibilityRole="button"
-                  accessibilityLabel={`Changer statut en ${label}`}
+                  accessibilityLabel={t('reservesScreen.batch.changeStatusTo', { status: label })}
                 >
                   <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
                     <View style={[styles.statusDot, { backgroundColor: color }]} />
@@ -2673,7 +2673,7 @@ export default function ReservesScreen() {
               );
             })}
             <TouchableOpacity style={styles.cancelBtn} onPress={() => setQuickStatusVisible(false)}>
-              <Text style={styles.cancelText}>Annuler</Text>
+              <Text style={styles.cancelText}>{t('common.cancel')}</Text>
             </TouchableOpacity>
           </TouchableOpacity>
         </TouchableOpacity>
@@ -2686,11 +2686,11 @@ export default function ReservesScreen() {
             <View style={styles.sheetHandle} />
             <View style={styles.sheetTitleRow}>
               <Text style={styles.sheetTitle}>
-                {batchAction === 'status' ? 'Changer le statut' : batchAction === 'company' ? 'Assigner une entreprise' : 'Modifier l\'échéance'}
+                {batchAction === 'status' ? t('reservesScreen.batch.changeStatus') : batchAction === 'company' ? t('reservesScreen.batch.assignCompany') : t('reservesScreen.batch.editDeadline')}
               </Text>
             </View>
             <Text style={styles.batchDesc}>
-              Modification de {selectedIds.size} réserve{selectedIds.size > 1 ? 's' : ''} sélectionnée{selectedIds.size > 1 ? 's' : ''}
+              {t('reservesScreen.batch.editSelected', { count: selectedIds.size })}
             </Text>
 
             {batchAction === 'status' && (
@@ -2732,7 +2732,7 @@ export default function ReservesScreen() {
             {batchAction === 'deadline' && (
               <View style={{ paddingVertical: 12 }}>
                 <DateInput
-                  label="Nouvelle date d'échéance"
+                  label={t('reservesScreen.batch.newDeadline')}
                   value={batchDeadline}
                   onChange={setBatchDeadline}
                   optional
@@ -2741,10 +2741,10 @@ export default function ReservesScreen() {
             )}
 
             <TouchableOpacity style={styles.applyBtn} onPress={applyBatch}>
-              <Text style={styles.applyBtnText}>Appliquer à {selectedIds.size} réserve{selectedIds.size > 1 ? 's' : ''}</Text>
+              <Text style={styles.applyBtnText}>{t('reservesScreen.batch.applyTo', { count: selectedIds.size })}</Text>
             </TouchableOpacity>
             <TouchableOpacity style={styles.cancelBtn} onPress={() => setBatchModalVisible(false)}>
-              <Text style={styles.cancelText}>Annuler</Text>
+              <Text style={styles.cancelText}>{t('common.cancel')}</Text>
             </TouchableOpacity>
           </TouchableOpacity>
         </TouchableOpacity>
@@ -2756,10 +2756,10 @@ export default function ReservesScreen() {
           <TouchableOpacity activeOpacity={1} style={[styles.bottomSheet, { paddingBottom: insets.bottom + 32 }]}>
             <View style={styles.sheetHandle} />
             <View style={styles.sheetTitleRow}>
-              <Text style={styles.sheetTitle}>Trier par</Text>
+              <Text style={styles.sheetTitle}>{t('reservesScreen.sort')}</Text>
               {isSortActive && (
                 <TouchableOpacity onPress={() => { setSortKey('date_desc'); setSortModalVisible(false); }}>
-                  <Text style={styles.resetText}>Réinitialiser</Text>
+                  <Text style={styles.resetText}>{t('reservesScreen.reset')}</Text>
                 </TouchableOpacity>
               )}
             </View>
@@ -2776,7 +2776,7 @@ export default function ReservesScreen() {
               </TouchableOpacity>
             ))}
             <TouchableOpacity style={styles.cancelBtn} onPress={() => setSortModalVisible(false)}>
-              <Text style={styles.cancelText}>Fermer</Text>
+              <Text style={styles.cancelText}>{t('common.close')}</Text>
             </TouchableOpacity>
           </TouchableOpacity>
         </TouchableOpacity>
@@ -2788,7 +2788,7 @@ export default function ReservesScreen() {
           <TouchableOpacity activeOpacity={1} style={[styles.bottomSheet, { paddingBottom: insets.bottom + 32 }]}>
             <View style={styles.sheetHandle} />
             <View style={styles.sheetTitleRow}>
-              <Text style={styles.sheetTitle}>Mode d'affichage</Text>
+              <Text style={styles.sheetTitle}>{t('reservesScreen.displayMode')}</Text>
             </View>
             {(Object.entries(VIEW_MODE_LABELS) as [ViewMode, string][]).map(([mode, label]) => (
               <TouchableOpacity
@@ -2804,7 +2804,7 @@ export default function ReservesScreen() {
               </TouchableOpacity>
             ))}
             <TouchableOpacity style={styles.cancelBtn} onPress={() => setViewModeModalVisible(false)}>
-              <Text style={styles.cancelText}>Fermer</Text>
+              <Text style={styles.cancelText}>{t('common.close')}</Text>
             </TouchableOpacity>
           </TouchableOpacity>
         </TouchableOpacity>
@@ -2837,7 +2837,7 @@ export default function ReservesScreen() {
                       <View style={styles.contextItemIcon}>
                         <Ionicons name="open-outline" size={18} color={C.primary} />
                       </View>
-                      <Text style={styles.contextItemText}>Ouvrir la fiche</Text>
+                      <Text style={styles.contextItemText}>{t('reservesScreen.context.openDetail')}</Text>
                       <Ionicons name="chevron-forward" size={16} color={C.textMuted} />
                     </TouchableOpacity>
 
@@ -2849,7 +2849,7 @@ export default function ReservesScreen() {
                         <View style={styles.contextItemIcon}>
                           <Ionicons name="swap-horizontal-outline" size={18} color={C.inProgress} />
                         </View>
-                        <Text style={styles.contextItemText}>Changer le statut</Text>
+                        <Text style={styles.contextItemText}>{t('reservesScreen.batch.changeStatus')}</Text>
                         <Ionicons name="chevron-forward" size={16} color={C.textMuted} />
                       </TouchableOpacity>
                     )}
@@ -2862,7 +2862,7 @@ export default function ReservesScreen() {
                         <View style={styles.contextItemIcon}>
                           <Ionicons name="copy-outline" size={18} color={C.textSub} />
                         </View>
-                        <Text style={styles.contextItemText}>Dupliquer</Text>
+                        <Text style={styles.contextItemText}>{t('reservesScreen.context.duplicate')}</Text>
                       </TouchableOpacity>
                     )}
 
@@ -2874,7 +2874,7 @@ export default function ReservesScreen() {
                         <View style={[styles.contextItemIcon, { backgroundColor: C.open + '18' }]}>
                           <Ionicons name="trash-outline" size={18} color={C.open} />
                         </View>
-                        <Text style={[styles.contextItemText, { color: C.open }]}>Supprimer</Text>
+                        <Text style={[styles.contextItemText, { color: C.open }]}>{t('common.delete')}</Text>
                       </TouchableOpacity>
                     )}
                   </>
@@ -2882,7 +2882,7 @@ export default function ReservesScreen() {
                   <>
                     <TouchableOpacity style={styles.contextBackBtn} onPress={() => setContextStatusSubVisible(false)}>
                       <Ionicons name="arrow-back" size={15} color={C.primary} />
-                      <Text style={styles.contextBackText}>Retour</Text>
+                      <Text style={styles.contextBackText}>{t('common.back')}</Text>
                     </TouchableOpacity>
                     {statusLabelEntries.map(([key, label]) => {
                       const isActive = contextMenuReserve.status === key;
@@ -2908,7 +2908,7 @@ export default function ReservesScreen() {
                   style={styles.cancelBtn}
                   onPress={() => { setContextMenuVisible(false); setContextStatusSubVisible(false); }}
                 >
-                  <Text style={styles.cancelText}>Fermer</Text>
+                  <Text style={styles.cancelText}>{t('common.close')}</Text>
                 </TouchableOpacity>
               </>
             )}

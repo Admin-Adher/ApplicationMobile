@@ -6,6 +6,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useState, useEffect, useMemo, useCallback } from 'react';
 import { useRouter } from 'expo-router';
+import { useTranslation } from 'react-i18next';
 import { C } from '@/constants/colors';
 import { useApp } from '@/context/AppContext';
 import { useAuth } from '@/context/AuthContext';
@@ -52,13 +53,13 @@ function formatChannelTime(timestamp: string): string {
   return timestamp.slice(-5);
 }
 
-const TYPE_ICONS: Record<string, { icon: string; color: string; label: string }> = {
-  general:  { icon: 'megaphone',        color: '#003082', label: 'Général' },
-  building: { icon: 'business',         color: '#059669', label: 'Bâtiment' },
-  company:  { icon: 'briefcase',        color: '#D97706', label: 'Entreprise' },
-  custom:   { icon: 'bookmark',         color: '#7C3AED', label: 'Personnalisé' },
-  group:    { icon: 'people',           color: '#0891B2', label: 'Groupe' },
-  dm:       { icon: 'person-circle',    color: '#DB2777', label: 'DM' },
+const TYPE_ICONS: Record<string, { icon: string; color: string; labelKey: string }> = {
+  general:  { icon: 'megaphone',        color: '#003082', labelKey: 'general' },
+  building: { icon: 'business',         color: '#059669', labelKey: 'building' },
+  company:  { icon: 'briefcase',        color: '#D97706', labelKey: 'company' },
+  custom:   { icon: 'bookmark',         color: '#7C3AED', labelKey: 'custom' },
+  group:    { icon: 'people',           color: '#0891B2', labelKey: 'group' },
+  dm:       { icon: 'person-circle',    color: '#DB2777', labelKey: 'dm' },
 };
 
 // ─── Mini composants ─────────────────────────────────────────────────────────
@@ -111,15 +112,16 @@ function ChannelRow({
   readOnly?: boolean;
   onPress: () => void;
 }) {
+  const { t } = useTranslation();
   const hasUnread = (unread ?? 0) > 0;
   const color = channel.color ?? C.primary;
   const displayName = channel.type === 'custom' ? `# ${channel.name}` : channel.name;
 
   const previewText = () => {
-    if (!lastMsg) return readOnly ? 'Canal organisationnel — lecture seule' : 'Aucun message';
+    if (!lastMsg) return readOnly ? t('superAdminHub.orgReadOnly') : t('messages.noMessage');
     if (lastMsg.type === 'notification' || lastMsg.type === 'system') return `📢 ${lastMsg.content}`;
-    if (lastMsg.attachmentUri) return `📷 ${lastMsg.content || 'Photo'}`;
-    const prefix = lastMsg.isMe ? 'Vous : ' : `${lastMsg.sender.split(' ')[0]} : `;
+    if (lastMsg.attachmentUri) return `📷 ${lastMsg.content || t('messages.photo')}`;
+    const prefix = lastMsg.isMe ? t('superAdminHub.youPrefix') : `${lastMsg.sender.split(' ')[0]} : `;
     return prefix + lastMsg.content;
   };
 
@@ -170,6 +172,7 @@ function ChannelRow({
 // ─── Composant principal ──────────────────────────────────────────────────────
 
 export default function SuperAdminMessagingHub() {
+  const { t } = useTranslation();
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const {
@@ -342,7 +345,7 @@ export default function SuperAdminMessagingHub() {
 
   async function sendAnnouncement() {
     if (!announceChannelId || !announceText.trim()) {
-      Alert.alert('Champs manquants', 'Sélectionnez un canal et rédigez votre annonce.');
+      Alert.alert(t('superAdminHub.missingFieldsTitle'), t('superAdminHub.missingFieldsText'));
       return;
     }
     setSending(true);
@@ -352,11 +355,11 @@ export default function SuperAdminMessagingHub() {
         p_content: announceText.trim(),
       });
       if (error) throw error;
-      Alert.alert('Annonce envoyée', 'Votre message a été diffusé avec succès.');
+      Alert.alert(t('superAdminHub.announcementSentTitle'), t('superAdminHub.announcementSentText'));
       setAnnounceText('');
       setAnnounceChannelId(null);
     } catch (e: any) {
-      Alert.alert('Erreur', e?.message ?? "Impossible d'envoyer l'annonce.");
+      Alert.alert(t('common.error'), e?.message ?? t('superAdminHub.announcementError'));
     } finally {
       setSending(false);
     }
@@ -364,7 +367,7 @@ export default function SuperAdminMessagingHub() {
 
   // ── Section helpers ──────────────────────────────────────────────────────
 
-  function renderMineSection(title: string, items: Channel[], onAdd?: () => void, addLabel?: string) {
+  function renderMineSection(title: string, items: Channel[], emptyText: string, onAdd?: () => void, addLabel?: string) {
     if (items.length === 0 && !onAdd) return null;
     return (
       <View style={{ marginBottom: 20 }}>
@@ -394,13 +397,7 @@ export default function SuperAdminMessagingHub() {
           </View>
         ) : (
           <View style={styles.emptySection}>
-            <Text style={styles.emptySectionText}>
-              {title === 'Messages directs'
-                ? 'Aucun DM — commencez une conversation !'
-                : title === 'Groupes'
-                ? 'Aucun groupe — créez-en un !'
-                : 'Aucun canal personnalisé'}
-            </Text>
+            <Text style={styles.emptySectionText}>{emptyText}</Text>
           </View>
         )}
       </View>
@@ -419,8 +416,8 @@ export default function SuperAdminMessagingHub() {
             <Ionicons name="chevron-back" size={22} color={C.text} />
           </TouchableOpacity>
           <View style={{ flex: 1 }}>
-            <Text style={styles.title}>Messages</Text>
-            <Text style={styles.subtitle}>Vue Super Administrateur</Text>
+            <Text style={styles.title}>{t('messages.title')}</Text>
+            <Text style={styles.subtitle}>{t('superAdminHub.subtitle')}</Text>
           </View>
           {activeTab === 'mine' && (
             <>
@@ -445,7 +442,7 @@ export default function SuperAdminMessagingHub() {
             <Ionicons name="search" size={16} color={C.textMuted} />
             <TextInput
               style={styles.searchInput}
-              placeholder={activeTab === 'mine' ? 'Rechercher mes échanges…' : 'Rechercher une org ou un canal…'}
+              placeholder={activeTab === 'mine' ? t('superAdminHub.searchMine') : t('superAdminHub.searchOrgs')}
               placeholderTextColor={C.textMuted}
               value={search}
               onChangeText={setSearch}
@@ -463,12 +460,14 @@ export default function SuperAdminMessagingHub() {
           {totalUnread > 0 && (
             <View style={styles.statBadge}>
               <Ionicons name="mail-unread" size={12} color={C.primary} />
-              <Text style={styles.statBadgeText}>{totalUnread} non lu{totalUnread > 1 ? 's' : ''}</Text>
+              <Text style={styles.statBadgeText}>{t('messages.unread', { count: totalUnread })}</Text>
             </View>
           )}
           <View style={styles.statBadge}>
             <Ionicons name="business-outline" size={12} color={C.textMuted} />
-            <Text style={[styles.statBadgeText, { color: C.textMuted }]}>{orgs.length > 0 ? `${orgs.length} org${orgs.length > 1 ? 's' : ''}` : 'Chargement…'}</Text>
+            <Text style={[styles.statBadgeText, { color: C.textMuted }]}>
+              {orgs.length > 0 ? t('superAdminHub.orgCount', { count: orgs.length }) : t('common.loading')}
+            </Text>
           </View>
         </View>
       </View>
@@ -476,9 +475,9 @@ export default function SuperAdminMessagingHub() {
       {/* ── Onglets ── */}
       <View style={styles.tabBar}>
         {([
-          { key: 'mine',    label: 'Mes échanges', icon: 'chatbubbles' },
-          { key: 'orgs',    label: 'Organisations', icon: 'layers' },
-          { key: 'announce', label: 'Annonce',      icon: 'megaphone' },
+          { key: 'mine',    label: t('superAdminHub.tabs.mine'), icon: 'chatbubbles' },
+          { key: 'orgs',    label: t('superAdminHub.tabs.orgs'), icon: 'layers' },
+          { key: 'announce', label: t('superAdminHub.tabs.announce'), icon: 'megaphone' },
         ] as { key: Tab; label: string; icon: string }[]).map(tab => (
           <TouchableOpacity
             key={tab.key}
@@ -506,18 +505,18 @@ export default function SuperAdminMessagingHub() {
           {(filteredMine.dms.length + filteredMine.groups.length + filteredMine.custom.length) === 0 && search.trim() ? (
             <View style={styles.emptyFull}>
               <Ionicons name="search-outline" size={40} color={C.textMuted} />
-              <Text style={styles.emptyFullText}>Aucun résultat pour "{search}"</Text>
+              <Text style={styles.emptyFullText}>{t('superAdminHub.noSearchResult', { query: search })}</Text>
             </View>
           ) : (
             <>
-              {renderMineSection('Messages directs', filteredMine.dms, () => setShowNewDM(true), 'Nouveau DM')}
-              {renderMineSection('Groupes', filteredMine.groups, () => setShowNewGroup(true), 'Nouveau groupe')}
-              {renderMineSection('Canaux personnalisés', filteredMine.custom)}
+              {renderMineSection(t('superAdminHub.sections.dm'), filteredMine.dms, t('superAdminHub.empty.dm'), () => setShowNewDM(true), t('superAdminHub.newDm'))}
+              {renderMineSection(t('superAdminHub.sections.groups'), filteredMine.groups, t('superAdminHub.empty.group'), () => setShowNewGroup(true), t('superAdminHub.newGroup'))}
+              {renderMineSection(t('superAdminHub.sections.custom'), filteredMine.custom, t('superAdminHub.empty.custom'))}
               {(filteredMine.dms.length + filteredMine.groups.length + filteredMine.custom.length) === 0 && (
                 <View style={styles.emptyFull}>
                   <Ionicons name="chatbubbles-outline" size={48} color={C.textMuted} />
-                  <Text style={styles.emptyFullText}>Aucun échange personnel</Text>
-                  <Text style={styles.emptyFullSub}>Commencez un DM ou rejoignez un groupe</Text>
+                  <Text style={styles.emptyFullText}>{t('superAdminHub.empty.personalTitle')}</Text>
+                  <Text style={styles.emptyFullSub}>{t('superAdminHub.empty.personalSub')}</Text>
                 </View>
               )}
             </>
@@ -531,13 +530,13 @@ export default function SuperAdminMessagingHub() {
           {loadingOrgs ? (
             <View style={styles.emptyFull}>
               <ActivityIndicator size="large" color={C.primary} />
-              <Text style={styles.emptyFullSub}>Chargement des organisations…</Text>
+              <Text style={styles.emptyFullSub}>{t('superAdminHub.loadingOrgs')}</Text>
             </View>
           ) : orgs.length === 0 ? (
             <View style={styles.emptyFull}>
               <Ionicons name="business-outline" size={48} color={C.textMuted} />
-              <Text style={styles.emptyFullText}>Aucune organisation trouvée</Text>
-              <Text style={styles.emptyFullSub}>Vérifiez la connexion Supabase</Text>
+              <Text style={styles.emptyFullText}>{t('superAdminHub.noOrgTitle')}</Text>
+              <Text style={styles.emptyFullSub}>{t('superAdminHub.noOrgSub')}</Text>
             </View>
           ) : (
             orgs
@@ -572,7 +571,7 @@ export default function SuperAdminMessagingHub() {
                       </View>
                       <View style={{ flex: 1 }}>
                         <Text style={styles.orgName}>{org.name}</Text>
-                        <Text style={styles.orgSub}>{chans.length} canal{chans.length !== 1 ? 'ux' : ''}</Text>
+                        <Text style={styles.orgSub}>{t('superAdminHub.channelCount', { count: chans.length })}</Text>
                       </View>
                       <Ionicons
                         name={isExpanded ? 'chevron-up' : 'chevron-down'}
@@ -586,7 +585,7 @@ export default function SuperAdminMessagingHub() {
                         {chans.length === 0 ? (
                           <View style={{ paddingHorizontal: 16, paddingVertical: 12 }}>
                             <Text style={[styles.emptySectionText, { textAlign: 'left' }]}>
-                              Aucun canal pour cette organisation
+                              {t('superAdminHub.noChannelForOrg')}
                             </Text>
                           </View>
                         ) : (
@@ -625,11 +624,8 @@ export default function SuperAdminMessagingHub() {
               <View style={styles.announceIconWrap}>
                 <Ionicons name="megaphone" size={28} color={C.primary} />
               </View>
-              <Text style={styles.announceTitle}>Annonce globale</Text>
-              <Text style={styles.announceSub}>
-                Envoyez un message officiel dans n'importe quel canal organisationnel.
-                Il apparaîtra comme une notification système.
-              </Text>
+              <Text style={styles.announceTitle}>{t('superAdminHub.announceTitle')}</Text>
+              <Text style={styles.announceSub}>{t('superAdminHub.announceSub')}</Text>
             </View>
 
             {loadingOrgs ? (
@@ -637,7 +633,7 @@ export default function SuperAdminMessagingHub() {
             ) : (
               <>
                 {/* Sélection organisation */}
-                <Text style={styles.fieldLabel}>Organisation cible</Text>
+                <Text style={styles.fieldLabel}>{t('superAdminHub.targetOrg')}</Text>
                 <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 12 }}>
                   <View style={styles.chipRow}>
                     {orgs.map(org => (
@@ -663,9 +659,9 @@ export default function SuperAdminMessagingHub() {
                 {/* Sélection canal */}
                 {announceOrgId && (
                   <>
-                    <Text style={styles.fieldLabel}>Canal de diffusion</Text>
+                    <Text style={styles.fieldLabel}>{t('superAdminHub.broadcastChannel')}</Text>
                     {announceChannels.length === 0 ? (
-                      <Text style={styles.emptySectionText}>Aucun canal disponible pour cette org.</Text>
+                      <Text style={styles.emptySectionText}>{t('superAdminHub.noBroadcastChannel')}</Text>
                     ) : (
                       <View style={[styles.channelGroup, { marginBottom: 16 }]}>
                         {announceChannels.map((ch, i) => {
@@ -684,7 +680,7 @@ export default function SuperAdminMessagingHub() {
                                 </View>
                                 <View style={styles.channelBody}>
                                   <Text style={[styles.channelName, selected && { color: C.primary }]}>{ch.name}</Text>
-                                  <Text style={styles.channelPreview}>{meta.label}</Text>
+                                  <Text style={styles.channelPreview}>{t(`superAdminHub.channelTypes.${meta.labelKey}`)}</Text>
                                 </View>
                                 {selected && (
                                   <Ionicons name="checkmark-circle" size={20} color={C.primary} />
@@ -699,11 +695,11 @@ export default function SuperAdminMessagingHub() {
                 )}
 
                 {/* Rédaction */}
-                <Text style={styles.fieldLabel}>Message d'annonce</Text>
+                <Text style={styles.fieldLabel}>{t('superAdminHub.announcementMessage')}</Text>
                 <View style={styles.announceTextArea}>
                   <TextInput
                     style={styles.announceInput}
-                    placeholder="Rédigez votre annonce officielle…"
+                    placeholder={t('superAdminHub.announcementPlaceholder')}
                     placeholderTextColor={C.textMuted}
                     value={announceText}
                     onChangeText={setAnnounceText}
@@ -712,9 +708,7 @@ export default function SuperAdminMessagingHub() {
                     textAlignVertical="top"
                   />
                 </View>
-                <Text style={styles.announceHint}>
-                  Ce message sera affiché comme une notification système dans le canal sélectionné.
-                </Text>
+                <Text style={styles.announceHint}>{t('superAdminHub.announcementHint')}</Text>
 
                 {/* Bouton envoi */}
                 <TouchableOpacity
@@ -731,7 +725,7 @@ export default function SuperAdminMessagingHub() {
                   ) : (
                     <>
                       <Ionicons name="send" size={18} color="#fff" />
-                      <Text style={styles.sendBtnText}>Diffuser l'annonce</Text>
+                      <Text style={styles.sendBtnText}>{t('superAdminHub.sendAnnouncement')}</Text>
                     </>
                   )}
                 </TouchableOpacity>

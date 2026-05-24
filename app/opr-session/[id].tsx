@@ -4,6 +4,7 @@ import {
   TouchableOpacity, Platform, Alert, TextInput, KeyboardAvoidingView,
 } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
+import { useTranslation } from 'react-i18next';
 import { Ionicons } from '@expo/vector-icons';
 import { C } from '@/constants/colors';
 import { useAuth } from '@/context/AuthContext';
@@ -14,12 +15,13 @@ import { formatDateFR, nowTimestampFR } from '@/lib/utils';
 import { formatDate } from '@/lib/reserveUtils';
 
 const ITEM_STATUS_CFG = {
-  ok: { label: 'Conforme', color: C.closed, icon: 'checkmark-circle' },
-  reserve: { label: 'Réserve', color: C.open, icon: 'warning' },
-  non_applicable: { label: 'N/A', color: C.textMuted, icon: 'remove-circle-outline' },
+  ok: { labelKey: 'ok', color: C.closed, icon: 'checkmark-circle' },
+  reserve: { labelKey: 'reserve', color: C.open, icon: 'warning' },
+  non_applicable: { labelKey: 'nonApplicable', color: C.textMuted, icon: 'remove-circle-outline' },
 };
 
 export default function OprSessionScreen() {
+  const { t } = useTranslation();
   const { id } = useLocalSearchParams<{ id: string }>();
   const { isAuthenticated } = useAuth();
   const { oprs, updateOpr } = useApp();
@@ -43,13 +45,13 @@ export default function OprSessionScreen() {
 
   async function handleSign() {
     if (!signerName.trim()) {
-      Alert.alert('Nom requis', 'Veuillez saisir votre nom complet avant de signer.');
+      Alert.alert(t('oprSession.nameRequiredTitle'), t('oprSession.nameRequiredText'));
       return;
     }
     if (!opr) return;
     const sigData = sigPadRef.current?.isEmpty() ? undefined : sigPadRef.current?.getSVGData() ?? undefined;
     if (!sigData) {
-      Alert.alert('Signature requise', 'Veuillez apposer votre signature dans le cadre prévu.');
+      Alert.alert(t('oprSession.signatureRequiredTitle'), t('oprSession.signatureRequiredText'));
       return;
     }
     const signatories = opr.signatories ?? [];
@@ -57,8 +59,8 @@ export default function OprSessionScreen() {
       const matchFound = signatories.some(s => s.name.trim().toLowerCase() === signerName.trim().toLowerCase());
       if (!matchFound) {
         Alert.alert(
-          'Nom non reconnu',
-          `Le nom "${signerName.trim()}" ne correspond à aucun signataire attendu pour cet OPR. Vérifiez l'orthographe ou contactez le conducteur de travaux.`
+          t('oprSession.unknownNameTitle'),
+          t('oprSession.unknownNameText', { name: signerName.trim() })
         );
         return;
       }
@@ -88,7 +90,7 @@ export default function OprSessionScreen() {
     return (
       <View style={styles.centerContainer}>
         <ActivityIndicator size="large" color={C.primary} />
-        <Text style={styles.loadingText}>Chargement de la session OPR...</Text>
+        <Text style={styles.loadingText}>{t('oprSession.loading')}</Text>
       </View>
     );
   }
@@ -97,19 +99,19 @@ export default function OprSessionScreen() {
     return (
       <View style={styles.centerContainer}>
         <Ionicons name="search-outline" size={48} color={C.textMuted} />
-        <Text style={styles.notFoundTitle}>Session introuvable</Text>
+        <Text style={styles.notFoundTitle}>{t('oprSession.notFoundTitle')}</Text>
         <Text style={styles.notFoundSub}>
           {isAuthenticated
-            ? `Aucun OPR avec l'identifiant "${id}" n'a été trouvé.`
-            : 'Connectez-vous pour accéder à cette session OPR.'}
+            ? t('oprSession.notFoundWithId', { id })
+            : t('oprSession.signInRequired')}
         </Text>
         <TouchableOpacity
           style={styles.loginBtn}
           onPress={() => router.replace('/login')}
-          accessibilityLabel={isAuthenticated ? 'Retour à l\'accueil' : 'Se connecter'}
+          accessibilityLabel={isAuthenticated ? t('oprSession.backHome') : t('auth.signIn')}
           accessibilityRole="button"
         >
-          <Text style={styles.loginBtnText}>{isAuthenticated ? 'Retour' : 'Se connecter'}</Text>
+          <Text style={styles.loginBtnText}>{isAuthenticated ? t('common.back') : t('auth.signIn')}</Text>
         </TouchableOpacity>
       </View>
     );
@@ -121,16 +123,16 @@ export default function OprSessionScreen() {
         <View style={styles.successIcon}>
           <Ionicons name="checkmark-circle" size={56} color={C.closed} />
         </View>
-        <Text style={styles.successTitle}>Signature enregistrée</Text>
-        <Text style={styles.successSub}>Merci, votre signature a bien été prise en compte pour l'OPR "{opr.title}".</Text>
+        <Text style={styles.successTitle}>{t('oprSession.signatureSavedTitle')}</Text>
+        <Text style={styles.successSub}>{t('oprSession.signatureSavedText', { title: opr.title })}</Text>
         {isAuthenticated && (
           <TouchableOpacity
             style={[styles.loginBtn, { backgroundColor: C.primary }]}
             onPress={() => router.back()}
-            accessibilityLabel="Retour à la liste des OPR"
+            accessibilityLabel={t('oprSession.backToList')}
             accessibilityRole="button"
           >
-            <Text style={styles.loginBtnText}>Retour à la liste</Text>
+            <Text style={styles.loginBtnText}>{t('oprSession.backToListShort')}</Text>
           </TouchableOpacity>
         )}
       </View>
@@ -147,13 +149,13 @@ export default function OprSessionScreen() {
         <TouchableOpacity
           onPress={() => router.canGoBack() ? router.back() : router.replace('/login')}
           style={styles.backBtn}
-          accessibilityLabel="Retour"
+          accessibilityLabel={t('common.back')}
           accessibilityRole="button"
         >
           <Ionicons name="arrow-back" size={20} color={C.text} />
         </TouchableOpacity>
         <View style={{ flex: 1 }}>
-          <Text style={styles.headerTitle}>Session OPR</Text>
+          <Text style={styles.headerTitle}>{t('oprSession.headerTitle')}</Text>
           <Text style={styles.headerSub} numberOfLines={1}>{opr.title}</Text>
         </View>
       </View>
@@ -170,33 +172,33 @@ export default function OprSessionScreen() {
           {opr.conducteur && (
             <View style={styles.metaRow}>
               <Ionicons name="person-outline" size={13} color={C.textMuted} />
-              <Text style={styles.metaText}>Conducteur : {opr.conducteur}</Text>
+              <Text style={styles.metaText}>{t('oprSession.conductor', { name: opr.conducteur })}</Text>
             </View>
           )}
           {opr.date && (
             <View style={styles.metaRow}>
               <Ionicons name="calendar-outline" size={13} color={C.textMuted} />
-              <Text style={styles.metaText}>Date OPR : {opr.date}</Text>
+              <Text style={styles.metaText}>{t('oprSession.oprDate', { date: opr.date })}</Text>
             </View>
           )}
           <View style={styles.statRow}>
             <View style={styles.statItem}>
               <Text style={[styles.statVal, { color: C.closed }]}>{conformes}</Text>
-              <Text style={styles.statLabel}>Conformes</Text>
+              <Text style={styles.statLabel}>{t('oprSession.compliant')}</Text>
             </View>
             <View style={styles.statItem}>
               <Text style={[styles.statVal, { color: C.open }]}>{reserves}</Text>
-              <Text style={styles.statLabel}>Réserves</Text>
+              <Text style={styles.statLabel}>{t('reservesScreen.title')}</Text>
             </View>
             <View style={styles.statItem}>
               <Text style={[styles.statVal, { color: C.primary }]}>{totalItems}</Text>
-              <Text style={styles.statLabel}>Total</Text>
+              <Text style={styles.statLabel}>{t('oprSession.total')}</Text>
             </View>
           </View>
         </View>
 
         <View style={styles.sectionCard}>
-          <Text style={styles.sectionTitle}>Points de contrôle</Text>
+          <Text style={styles.sectionTitle}>{t('oprSession.checkpoints')}</Text>
           {(opr.items ?? []).map(item => {
             const cfg = ITEM_STATUS_CFG[item.status] ?? ITEM_STATUS_CFG.ok;
             return (
@@ -204,7 +206,7 @@ export default function OprSessionScreen() {
                 <Ionicons name={cfg.icon as any} size={16} color={cfg.color} />
                 <Text style={styles.itemText}>{item.lotName}</Text>
                 <View style={[styles.itemBadge, { backgroundColor: cfg.color + '15' }]}>
-                  <Text style={[styles.itemBadgeText, { color: cfg.color }]}>{cfg.label}</Text>
+                  <Text style={[styles.itemBadgeText, { color: cfg.color }]}>{t(`oprSession.itemStatus.${cfg.labelKey}`)}</Text>
                 </View>
               </View>
             );
@@ -213,26 +215,26 @@ export default function OprSessionScreen() {
 
         {opr.status !== 'signed' && (
           <View style={styles.sectionCard}>
-            <Text style={styles.sectionTitle}>Apposer votre signature</Text>
-            <Text style={styles.sectionSub}>Saisissez votre nom puis dessinez votre signature dans le cadre ci-dessous.</Text>
+            <Text style={styles.sectionTitle}>{t('oprSession.signSectionTitle')}</Text>
+            <Text style={styles.sectionSub}>{t('oprSession.signSectionSub')}</Text>
 
             <View style={styles.nameField}>
-              <Text style={styles.nameLabel}>Nom complet *</Text>
+              <Text style={styles.nameLabel}>{t('oprSession.fullName')}</Text>
               <TextInput
                 style={styles.nameInput}
-                placeholder="Prénom Nom"
+                placeholder={t('oprSession.fullNamePlaceholder')}
                 placeholderTextColor={C.textMuted}
                 value={signerName}
                 onChangeText={setSignerName}
                 autoCapitalize="words"
                 returnKeyType="done"
-                accessibilityLabel="Votre nom complet pour signer le PV"
+                accessibilityLabel={t('oprSession.fullNameAccessibility')}
               />
             </View>
 
             {(opr.signatories ?? []).length > 0 && (
               <View style={styles.signatoryList}>
-                <Text style={styles.nameLabel}>Signataires attendus</Text>
+                <Text style={styles.nameLabel}>{t('oprSession.expectedSignatories')}</Text>
                 {(opr.signatories ?? []).map(s => (
                   <View key={s.id} style={styles.signatoryRow}>
                     <Ionicons
@@ -241,7 +243,7 @@ export default function OprSessionScreen() {
                       color={s.signed ? C.closed : C.textMuted}
                     />
                     <Text style={[styles.signatoryName, s.signed && { color: C.closed }]}>{s.name}</Text>
-                    {s.signed && s.signedAt && <Text style={styles.signatoryDate}>le {formatDate(s.signedAt)}</Text>}
+                    {s.signed && s.signedAt && <Text style={styles.signatoryDate}>{t('oprSession.signedOn', { date: formatDate(s.signedAt) })}</Text>}
                   </View>
                 ))}
               </View>
@@ -255,12 +257,12 @@ export default function OprSessionScreen() {
               style={[styles.signBtn, (!signerName.trim() || signing) && { opacity: 0.5 }]}
               onPress={handleSign}
               disabled={!signerName.trim() || signing}
-              accessibilityLabel={signing ? 'Enregistrement de la signature en cours' : 'Signer électroniquement le procès-verbal'}
+              accessibilityLabel={signing ? t('oprSession.savingSignature') : t('oprSession.signAccessibility')}
               accessibilityRole="button"
               accessibilityState={{ disabled: !signerName.trim() || signing }}
             >
               {signing ? <ActivityIndicator color="#fff" size="small" /> : <Ionicons name="create-outline" size={18} color="#fff" />}
-              <Text style={styles.signBtnText}>{signing ? 'Enregistrement...' : 'Signer le PV'}</Text>
+              <Text style={styles.signBtnText}>{signing ? t('oprSession.saving') : t('oprSession.signPv')}</Text>
             </TouchableOpacity>
           </View>
         )}
@@ -269,7 +271,7 @@ export default function OprSessionScreen() {
           <View style={[styles.sectionCard, { backgroundColor: C.closedBg, borderColor: C.closed + '60' }]}>
             <View style={styles.signedRow}>
               <Ionicons name="checkmark-circle" size={20} color={C.closed} />
-              <Text style={styles.signedText}>PV signé le {formatDate(opr.signedAt ?? '')}</Text>
+              <Text style={styles.signedText}>{t('oprSession.pvSignedOn', { date: formatDate(opr.signedAt ?? '') })}</Text>
             </View>
           </View>
         )}

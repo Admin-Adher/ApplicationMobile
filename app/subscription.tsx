@@ -7,6 +7,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { C } from '@/constants/colors';
 import { useSubscription } from '@/context/SubscriptionContext';
 import { useAuth } from '@/context/AuthContext';
@@ -15,30 +16,38 @@ import { hashColor, ROLE_INFO } from '@/lib/adminUtils';
 const ORG_COLORS = ['#3B82F6','#10B981','#8B5CF6','#F59E0B','#EF4444','#06B6D4','#EC4899'];
 
 const MODULES = [
-  { icon: 'flag', label: 'Réserves & levées', desc: 'Gestion complète des réserves avec historique, photos et suivi.' },
-  { icon: 'clipboard', label: 'OPR & procès-verbaux', desc: 'Opérations préalables à la réception, lots, signatures.' },
-  { icon: 'walk', label: 'Visites de chantier', desc: 'Compte-rendus de visite, observations et diffusion.' },
-  { icon: 'map', label: 'Plans annotés', desc: 'Import PDF/DXF, annotation à la réserve, versions.' },
-  { icon: 'people', label: 'Pointage & présences', desc: 'Suivi du personnel, heures, entrées/sorties par chantier.' },
-  { icon: 'chatbubbles', label: 'Messagerie interne', desc: 'Canaux par chantier, mentions, pièces jointes.' },
-  { icon: 'warning', label: 'Incidents & sécurité', desc: 'Déclaration, suivi et clôture des incidents sur site.' },
-  { icon: 'document-text', label: 'Gestion documentaire', desc: 'Stockage centralisé des documents par organisation.' },
-  { icon: 'business', label: 'Gestion des entreprises', desc: 'Sous-traitants, effectifs prévus vs réels, heures.' },
-  { icon: 'shield-checkmark', label: 'Docs réglementaires', desc: 'Suivi des habilitations, certifications et dates d\'expiration.' },
-  { icon: 'stats-chart', label: 'Tableaux de bord', desc: 'Vue globale par chantier, KPIs et alertes.' },
-  { icon: 'lock-closed', label: 'Rôles & permissions', desc: 'Super admin, admin, conducteur, chef d\'équipe, observateur.' },
+  { icon: 'flag', key: 'reserves' },
+  { icon: 'clipboard', key: 'opr' },
+  { icon: 'walk', key: 'visits' },
+  { icon: 'map', key: 'plans' },
+  { icon: 'people', key: 'attendance' },
+  { icon: 'chatbubbles', key: 'messages' },
+  { icon: 'warning', key: 'incidents' },
+  { icon: 'document-text', key: 'documents' },
+  { icon: 'business', key: 'companies' },
+  { icon: 'shield-checkmark', key: 'regulatory' },
+  { icon: 'stats-chart', key: 'dashboards' },
+  { icon: 'lock-closed', key: 'roles' },
 ];
 
 const DELIVERABLES = [
-  { icon: 'code-slash', label: 'Code source complet', desc: 'React Native / Expo — iOS, Android, Web.' },
-  { icon: 'server', label: 'Schéma base de données', desc: 'PostgreSQL avec RLS par organisation, migrations SQL.' },
-  { icon: 'git-branch', label: 'Architecture multi-organisations', desc: 'Chaque filiale = 1 organisation isolée, données étanches.' },
-  { icon: 'key', label: 'Système d\'authentification', desc: 'Supabase Auth, invitations par email, rôles hiérarchiques.' },
-  { icon: 'document', label: 'Documentation technique', desc: 'Structure du projet, variables d\'environnement, déploiement.' },
-  { icon: 'headset', label: 'Accompagnement au déploiement', desc: 'Onboarding filiales, formation administrateurs.' },
+  { icon: 'code-slash', key: 'source' },
+  { icon: 'server', key: 'database' },
+  { icon: 'git-branch', key: 'multiOrg' },
+  { icon: 'key', key: 'auth' },
+  { icon: 'document', key: 'docs' },
+  { icon: 'headset', key: 'deployment' },
+];
+
+const SECURITY_ITEMS = [
+  { icon: 'shield', key: 'rls' },
+  { icon: 'earth', key: 'eu' },
+  { icon: 'lock-closed', key: 'auth' },
+  { icon: 'eye-off', key: 'sealed' },
 ];
 
 export default function SubscriptionScreen() {
+  const { t } = useTranslation();
   const insets = useSafeAreaInsets();
   const topPad = Platform.OS === 'web' ? 67 : insets.top;
   const bottomPad = Platform.OS === 'web' ? 34 : insets.bottom;
@@ -59,9 +68,9 @@ export default function SubscriptionScreen() {
     return (
       <View style={[styles.container, styles.center]}>
         <Ionicons name="lock-closed-outline" size={48} color={C.textMuted} />
-        <Text style={styles.lockedTitle}>Accès réservé aux administrateurs</Text>
+        <Text style={styles.lockedTitle}>{t('subscriptionScreen.adminOnly')}</Text>
         <TouchableOpacity onPress={() => router.back()} style={styles.backPill}>
-          <Text style={styles.backPillTxt}>Retour</Text>
+          <Text style={styles.backPillTxt}>{t('common.back')}</Text>
         </TouchableOpacity>
       </View>
     );
@@ -85,11 +94,11 @@ export default function SubscriptionScreen() {
   async function handleCreateOrg() {
     const name = newOrgName.trim();
     if (!name) {
-      Alert.alert('Nom requis', 'Veuillez saisir le nom de la filiale.');
+      Alert.alert(t('subscriptionScreen.orgNameRequiredTitle'), t('subscriptionScreen.orgNameRequiredText'));
       return;
     }
     if (newAdminEmail && !newAdminEmail.includes('@')) {
-      Alert.alert('Email invalide', 'Veuillez saisir une adresse email valide.');
+      Alert.alert(t('subscriptionScreen.invalidEmailTitle'), t('subscriptionScreen.invalidEmailText'));
       return;
     }
     setCreating(true);
@@ -100,14 +109,14 @@ export default function SubscriptionScreen() {
       setNewOrgName('');
       setNewAdminEmail('');
       Alert.alert(
-        'Organisation créée',
+        t('subscriptionScreen.orgCreatedTitle'),
         newAdminEmail.trim()
-          ? `"${name}" a été créée et une invitation admin a été envoyée à ${newAdminEmail.trim()}.`
-          : `"${name}" a été créée. Vous pouvez inviter un administrateur depuis la page de gestion.`,
-        [{ text: 'OK' }]
+          ? t('subscriptionScreen.orgCreatedWithInvite', { name, email: newAdminEmail.trim() })
+          : t('subscriptionScreen.orgCreatedWithoutInvite', { name }),
+        [{ text: t('common.ok') }]
       );
     } else {
-      Alert.alert('Erreur', result.error ?? "Impossible de créer l'organisation.");
+      Alert.alert(t('common.error'), result.error ?? t('subscriptionScreen.createOrgError'));
     }
   }
 
@@ -118,13 +127,13 @@ export default function SubscriptionScreen() {
           onPress={() => router.back()}
           style={styles.backBtn}
           hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-          accessibilityLabel="Retour"
+          accessibilityLabel={t('common.back')}
         >
           <Ionicons name="arrow-back" size={22} color="#fff" />
         </TouchableOpacity>
         <View style={{ flex: 1 }}>
-          <Text style={styles.headerTitle}>Licence Groupe</Text>
-          <Text style={styles.headerSub}>BuildTrack BTP — Cession complète</Text>
+          <Text style={styles.headerTitle}>{t('subscriptionScreen.headerTitle')}</Text>
+          <Text style={styles.headerSub}>{t('subscriptionScreen.headerSub')}</Text>
         </View>
       </View>
 
@@ -137,37 +146,35 @@ export default function SubscriptionScreen() {
         <View style={styles.hero}>
           <View style={styles.heroBadge}>
             <Ionicons name="shield-checkmark" size={14} color="#60A5FA" />
-            <Text style={styles.heroBadgeTxt}>LICENCE ENTREPRISE</Text>
+            <Text style={styles.heroBadgeTxt}>{t('subscriptionScreen.enterpriseLicense')}</Text>
           </View>
-          <Text style={styles.heroTitle}>Une plateforme pour{'\n'}tout le Groupe</Text>
-          <Text style={styles.heroSub}>
-            Architecture multi-organisations — chaque filiale dispose de son espace isolé, ses chantiers, ses équipes et ses données.
-          </Text>
+          <Text style={styles.heroTitle}>{t('subscriptionScreen.heroTitle')}</Text>
+          <Text style={styles.heroSub}>{t('subscriptionScreen.heroSub')}</Text>
 
           {/* Architecture visuelle */}
           <View style={styles.archRow}>
             <View style={styles.archNode}>
               <Ionicons name="business" size={20} color="#60A5FA" />
-              <Text style={styles.archNodeLabel}>Groupe</Text>
+              <Text style={styles.archNodeLabel}>{t('subscriptionScreen.group')}</Text>
             </View>
             <View style={styles.archLine} />
             <View style={styles.archCol}>
-              <View style={styles.archNodeSm}><Text style={styles.archNodeSmTxt}>Filiale A</Text></View>
-              <View style={styles.archNodeSm}><Text style={styles.archNodeSmTxt}>Filiale B</Text></View>
-              <View style={styles.archNodeSm}><Text style={styles.archNodeSmTxt}>Filiale C</Text></View>
+              <View style={styles.archNodeSm}><Text style={styles.archNodeSmTxt}>{t('subscriptionScreen.branchA')}</Text></View>
+              <View style={styles.archNodeSm}><Text style={styles.archNodeSmTxt}>{t('subscriptionScreen.branchB')}</Text></View>
+              <View style={styles.archNodeSm}><Text style={styles.archNodeSmTxt}>{t('subscriptionScreen.branchC')}</Text></View>
             </View>
             <View style={styles.archLine} />
             <View style={styles.archCol}>
-              <View style={[styles.archNodeSm, styles.archNodeXs]}><Text style={styles.archNodeSmTxt}>Chantier</Text></View>
-              <View style={[styles.archNodeSm, styles.archNodeXs]}><Text style={styles.archNodeSmTxt}>Chantier</Text></View>
-              <View style={[styles.archNodeSm, styles.archNodeXs]}><Text style={styles.archNodeSmTxt}>Chantier</Text></View>
+              <View style={[styles.archNodeSm, styles.archNodeXs]}><Text style={styles.archNodeSmTxt}>{t('subscriptionScreen.project')}</Text></View>
+              <View style={[styles.archNodeSm, styles.archNodeXs]}><Text style={styles.archNodeSmTxt}>{t('subscriptionScreen.project')}</Text></View>
+              <View style={[styles.archNodeSm, styles.archNodeXs]}><Text style={styles.archNodeSmTxt}>{t('subscriptionScreen.project')}</Text></View>
             </View>
           </View>
 
           <View style={styles.heroPills}>
-            <View style={styles.heroPill}><Text style={styles.heroPillTxt}>Données étanches entre filiales</Text></View>
-            <View style={styles.heroPill}><Text style={styles.heroPillTxt}>Rôles hiérarchiques</Text></View>
-            <View style={styles.heroPill}><Text style={styles.heroPillTxt}>Hébergement EU</Text></View>
+            <View style={styles.heroPill}><Text style={styles.heroPillTxt}>{t('subscriptionScreen.pillIsolated')}</Text></View>
+            <View style={styles.heroPill}><Text style={styles.heroPillTxt}>{t('subscriptionScreen.pillRoles')}</Text></View>
+            <View style={styles.heroPill}><Text style={styles.heroPillTxt}>{t('subscriptionScreen.pillEu')}</Text></View>
           </View>
         </View>
 
@@ -176,29 +183,29 @@ export default function SubscriptionScreen() {
           <>
             <View style={styles.groupHeader}>
               <Text style={styles.sectionTitle}>
-                Filiales du Groupe <Text style={styles.sectionCount}>({orgSummaries.length})</Text>
+                {t('subscriptionScreen.groupBranches')} <Text style={styles.sectionCount}>({orgSummaries.length})</Text>
               </Text>
               <TouchableOpacity style={styles.createBtn} onPress={() => setCreateModal(true)}>
                 <Ionicons name="add" size={16} color="#fff" />
-                <Text style={styles.createBtnTxt}>Nouvelle filiale</Text>
+                <Text style={styles.createBtnTxt}>{t('subscriptionScreen.newBranch')}</Text>
               </TouchableOpacity>
             </View>
 
             {orgSummaries.length === 0 ? (
               <View style={styles.emptyOrgs}>
                 <Ionicons name="business-outline" size={36} color={C.textMuted} />
-                <Text style={styles.emptyOrgsTitle}>Aucune organisation</Text>
-                <Text style={styles.emptyOrgsHint}>Créez la première filiale du groupe ci-dessus.</Text>
+                <Text style={styles.emptyOrgsTitle}>{t('subscriptionScreen.noOrganization')}</Text>
+                <Text style={styles.emptyOrgsHint}>{t('subscriptionScreen.noOrganizationHint')}</Text>
               </View>
             ) : (
               orgSummaries.map((s, i) => {
                 const col = ORG_COLORS[i % ORG_COLORS.length];
                 const initials = s.org.name.split(' ').map(w => w[0]).slice(0, 2).join('').toUpperCase();
                 const statusColors: Record<string, { label: string; color: string; bg: string }> = {
-                  active:    { label: 'Actif',     color: '#10B981', bg: '#ECFDF5' },
-                  trial:     { label: 'Essai',     color: '#F59E0B', bg: '#FFFBEB' },
-                  suspended: { label: 'Suspendu',  color: '#EF4444', bg: '#FEF2F2' },
-                  expired:   { label: 'Expiré',    color: '#6B7280', bg: '#F3F4F6' },
+                  active:    { label: t('subscriptionScreen.status.active'), color: '#10B981', bg: '#ECFDF5' },
+                  trial:     { label: t('subscriptionScreen.status.trial'), color: '#F59E0B', bg: '#FFFBEB' },
+                  suspended: { label: t('subscriptionScreen.status.suspended'), color: '#EF4444', bg: '#FEF2F2' },
+                  expired:   { label: t('subscriptionScreen.status.expired'), color: '#6B7280', bg: '#F3F4F6' },
                 };
                 const sc = statusColors[s.status] ?? statusColors.expired;
                 return (
@@ -226,7 +233,7 @@ export default function SubscriptionScreen() {
                       <View style={styles.filialMeta}>
                         <Ionicons name="people-outline" size={12} color={C.textMuted} />
                         <Text style={styles.filialMetaTxt}>
-                          {s.seatMax === -1 ? 'Illimité' : `${s.seatMax} sièges`}
+                          {s.seatMax === -1 ? t('subscriptionScreen.unlimited') : t('subscriptionScreen.seats', { count: s.seatMax })}
                         </Text>
                       </View>
                       <View style={[styles.filialPlanBadge, { backgroundColor: C.primary + '14' }]}>
@@ -243,7 +250,7 @@ export default function SubscriptionScreen() {
         {/* ── Organisation active ── */}
         {organization && (
           <>
-            <Text style={styles.sectionTitle}>Votre organisation</Text>
+            <Text style={styles.sectionTitle}>{t('subscriptionScreen.yourOrganization')}</Text>
             <View style={styles.orgCard}>
               <View style={styles.orgIconRow}>
                 <View style={styles.orgIcon}>
@@ -256,7 +263,7 @@ export default function SubscriptionScreen() {
                     <TouchableOpacity
                       onPress={handleCopySlug}
                       hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
-                      accessibilityLabel="Copier l'identifiant"
+                      accessibilityLabel={t('subscriptionScreen.copyIdentifier')}
                     >
                       <Ionicons
                         name={slugCopied ? 'checkmark-circle' : 'copy-outline'}
@@ -268,7 +275,7 @@ export default function SubscriptionScreen() {
                 </View>
                 <View style={[styles.activeBadge, subscription?.status === 'active' ? styles.activeBadgeGreen : styles.activeBadgeGray]}>
                   <Text style={[styles.activeBadgeTxt, subscription?.status === 'active' ? { color: '#10B981' } : { color: C.textMuted }]}>
-                    {subscription?.status === 'active' ? 'Active' : subscription?.status === 'trial' ? 'Essai' : 'Inactive'}
+                    {subscription?.status === 'active' ? t('subscriptionScreen.status.activeFem') : subscription?.status === 'trial' ? t('subscriptionScreen.status.trial') : t('subscriptionScreen.status.inactiveFem')}
                   </Text>
                 </View>
               </View>
@@ -276,17 +283,17 @@ export default function SubscriptionScreen() {
               <View style={styles.orgStatsRow}>
                 <View style={styles.orgStat}>
                   <Text style={styles.orgStatValue}>{activeOrgUsers.length}</Text>
-                  <Text style={styles.orgStatLabel}>Membres actifs</Text>
+                  <Text style={styles.orgStatLabel}>{t('subscriptionScreen.activeMembers')}</Text>
                 </View>
                 <View style={styles.orgStatDivider} />
                 <View style={styles.orgStat}>
                   <Text style={styles.orgStatValue}>{freeOrgUsers.length}</Text>
-                  <Text style={styles.orgStatLabel}>Observateurs</Text>
+                  <Text style={styles.orgStatLabel}>{t('subscriptionScreen.observers')}</Text>
                 </View>
                 <View style={styles.orgStatDivider} />
                 <View style={styles.orgStat}>
                   <Text style={styles.orgStatValue}>∞</Text>
-                  <Text style={styles.orgStatLabel}>Chantiers</Text>
+                  <Text style={styles.orgStatLabel}>{t('subscriptionScreen.projects')}</Text>
                 </View>
               </View>
             </View>
@@ -297,7 +304,7 @@ export default function SubscriptionScreen() {
         {orgUsers.length > 0 && (
           <>
             <Text style={styles.sectionTitle}>
-              Membres <Text style={styles.sectionCount}>({orgUsers.length})</Text>
+              {t('subscriptionScreen.members')} <Text style={styles.sectionCount}>({orgUsers.length})</Text>
             </Text>
             {orgUsers.slice(0, 5).map(u => {
               const col = hashColor(u.id);
@@ -319,27 +326,27 @@ export default function SubscriptionScreen() {
               );
             })}
             {orgUsers.length > 5 && (
-              <Text style={styles.moreMembers}>+{orgUsers.length - 5} membres supplémentaires</Text>
+              <Text style={styles.moreMembers}>{t('subscriptionScreen.moreMembers', { count: orgUsers.length - 5 })}</Text>
             )}
           </>
         )}
 
         {/* ── Ce qui est livré ── */}
-        <Text style={styles.sectionTitle}>Ce que le groupe reçoit</Text>
+        <Text style={styles.sectionTitle}>{t('subscriptionScreen.deliverablesTitle')}</Text>
         <View style={styles.deliverablesGrid}>
           {DELIVERABLES.map((d, i) => (
             <View key={i} style={styles.deliverableCard}>
               <View style={styles.deliverableIcon}>
                 <Ionicons name={d.icon as any} size={20} color={C.primary} />
               </View>
-              <Text style={styles.deliverableLabel}>{d.label}</Text>
-              <Text style={styles.deliverableDesc}>{d.desc}</Text>
+              <Text style={styles.deliverableLabel}>{t(`subscriptionScreen.deliverables.${d.key}.label`)}</Text>
+              <Text style={styles.deliverableDesc}>{t(`subscriptionScreen.deliverables.${d.key}.desc`)}</Text>
             </View>
           ))}
         </View>
 
         {/* ── Modules inclus ── */}
-        <Text style={styles.sectionTitle}>12 modules inclus</Text>
+        <Text style={styles.sectionTitle}>{t('subscriptionScreen.modulesTitle')}</Text>
         <View style={styles.modulesList}>
           {MODULES.map((m, i) => (
             <View key={i} style={styles.moduleRow}>
@@ -347,8 +354,8 @@ export default function SubscriptionScreen() {
                 <Ionicons name={m.icon as any} size={18} color={C.primary} />
               </View>
               <View style={{ flex: 1 }}>
-                <Text style={styles.moduleLabel}>{m.label}</Text>
-                <Text style={styles.moduleDesc}>{m.desc}</Text>
+                <Text style={styles.moduleLabel}>{t(`subscriptionScreen.modules.${m.key}.label`)}</Text>
+                <Text style={styles.moduleDesc}>{t(`subscriptionScreen.modules.${m.key}.desc`)}</Text>
               </View>
               <Ionicons name="checkmark-circle" size={18} color="#10B981" />
             </View>
@@ -356,18 +363,13 @@ export default function SubscriptionScreen() {
         </View>
 
         {/* ── Sécurité & conformité ── */}
-        <Text style={styles.sectionTitle}>Sécurité & conformité</Text>
+        <Text style={styles.sectionTitle}>{t('subscriptionScreen.securityTitle')}</Text>
         <View style={styles.securityGrid}>
-          {[
-            { icon: 'shield', label: 'RLS PostgreSQL', sub: 'Isolation totale des données par organisation' },
-            { icon: 'earth', label: 'Hébergement EU', sub: 'Données hébergées en Europe (RGPD)' },
-            { icon: 'lock-closed', label: 'Auth sécurisée', sub: 'JWT, sessions Supabase, refresh automatique' },
-            { icon: 'eye-off', label: 'Données étanches', sub: 'Aucun accès croisé entre filiales' },
-          ].map((s, i) => (
+          {SECURITY_ITEMS.map((s, i) => (
             <View key={i} style={styles.securityCard}>
               <Ionicons name={s.icon as any} size={22} color="#3B82F6" />
-              <Text style={styles.securityLabel}>{s.label}</Text>
-              <Text style={styles.securitySub}>{s.sub}</Text>
+              <Text style={styles.securityLabel}>{t(`subscriptionScreen.security.${s.key}.label`)}</Text>
+              <Text style={styles.securitySub}>{t(`subscriptionScreen.security.${s.key}.desc`)}</Text>
             </View>
           ))}
         </View>
@@ -376,11 +378,9 @@ export default function SubscriptionScreen() {
         <View style={styles.contactCard}>
           <View style={styles.contactHeader}>
             <Ionicons name="mail" size={20} color="#fff" />
-            <Text style={styles.contactTitle}>Contact & accompagnement</Text>
+            <Text style={styles.contactTitle}>{t('subscriptionScreen.contactTitle')}</Text>
           </View>
-          <Text style={styles.contactBody}>
-            Pour toute question sur la licence, le déploiement par filiale ou la formation des administrateurs, contactez votre responsable de compte BuildTrack.
-          </Text>
+          <Text style={styles.contactBody}>{t('subscriptionScreen.contactBody')}</Text>
           <TouchableOpacity
             style={styles.contactBtn}
             onPress={() => Linking.openURL('mailto:contact@buildtrack.fr')}
@@ -411,8 +411,8 @@ export default function SubscriptionScreen() {
                     <Ionicons name="business" size={18} color={C.primary} />
                   </View>
                   <View style={{ flex: 1 }}>
-                    <Text style={styles.modalTitle}>Nouvelle filiale</Text>
-                    <Text style={styles.modalSub}>Créer une organisation dans le groupe</Text>
+                    <Text style={styles.modalTitle}>{t('subscriptionScreen.newBranch')}</Text>
+                    <Text style={styles.modalSub}>{t('subscriptionScreen.createOrgInGroup')}</Text>
                   </View>
                   <TouchableOpacity
                     onPress={() => { if (!creating) { setCreateModal(false); setNewOrgName(''); setNewAdminEmail(''); } }}
@@ -425,10 +425,10 @@ export default function SubscriptionScreen() {
               </View>
 
               <View style={styles.inputGroup}>
-                <Text style={styles.inputLabel}>Nom de la filiale *</Text>
+                <Text style={styles.inputLabel}>{t('subscriptionScreen.branchName')}</Text>
                 <TextInput
                   style={styles.textInput}
-                  placeholder="ex. Bouygues Île-de-France"
+                  placeholder={t('subscriptionScreen.branchNamePlaceholder')}
                   placeholderTextColor={C.textMuted}
                   value={newOrgName}
                   onChangeText={setNewOrgName}
@@ -438,10 +438,10 @@ export default function SubscriptionScreen() {
               </View>
 
               <View style={styles.inputGroup}>
-                <Text style={styles.inputLabel}>Email de l'administrateur <Text style={styles.inputOptional}>(optionnel)</Text></Text>
+                <Text style={styles.inputLabel}>{t('subscriptionScreen.adminEmail')} <Text style={styles.inputOptional}>{t('subscriptionScreen.optional')}</Text></Text>
                 <TextInput
                   style={styles.textInput}
-                  placeholder="admin@filiale.fr"
+                  placeholder={t('subscriptionScreen.adminEmailPlaceholder')}
                   placeholderTextColor={C.textMuted}
                   value={newAdminEmail}
                   onChangeText={setNewAdminEmail}
@@ -450,7 +450,7 @@ export default function SubscriptionScreen() {
                   editable={!creating}
                 />
                 <Text style={styles.inputHint}>
-                  Une invitation de rôle Admin sera envoyée à cet email.
+                  {t('subscriptionScreen.adminInviteHint')}
                 </Text>
               </View>
 
@@ -464,7 +464,7 @@ export default function SubscriptionScreen() {
                 ) : (
                   <>
                     <Ionicons name="add-circle-outline" size={18} color="#fff" />
-                    <Text style={styles.createConfirmBtnTxt}>Créer la filiale</Text>
+                    <Text style={styles.createConfirmBtnTxt}>{t('subscriptionScreen.createBranch')}</Text>
                   </>
                 )}
               </TouchableOpacity>

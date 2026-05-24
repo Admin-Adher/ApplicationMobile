@@ -248,11 +248,11 @@ export default function NewReserveScreen() {
   function handleBack() {
     if (!isDirty) { router.back(); return; }
     Alert.alert(
-      'Abandonner le formulaire ?',
-      'Vos saisies seront perdues si vous quittez maintenant.',
+      t('reserveNew.abandonTitle'),
+      t('reserveNew.abandonMessage'),
       [
-        { text: 'Continuer la saisie', style: 'cancel' },
-        { text: 'Abandonner', style: 'destructive', onPress: () => router.back() },
+        { text: t('reserveNew.continueEditing'), style: 'cancel' },
+        { text: t('reserveNew.abandon'), style: 'destructive', onPress: () => router.back() },
       ]
     );
   }
@@ -289,8 +289,8 @@ export default function NewReserveScreen() {
     return {
       id: DRAFT_PIN_ID,
       kind,
-      title: title.trim() || (kind === 'observation' ? 'Nouvelle observation' : 'Nouvelle réserve'),
-      description: description.trim() || title.trim() || 'Position provisoire',
+      title: title.trim() || (kind === 'observation' ? t('reserveNew.draftObservationTitle') : t('reserveNew.draftReserveTitle')),
+      description: description.trim() || title.trim() || t('reserveNew.temporaryPosition'),
       building,
       zone,
       level,
@@ -330,6 +330,7 @@ export default function NewReserveScreen() {
     params.levelId,
     lotId,
     visiteId,
+    t,
   ]);
   const pinViewerReserves = useMemo(
     () => draftPinReserve ? [...selectedPlanPinnedReserves, draftPinReserve] : selectedPlanPinnedReserves,
@@ -399,16 +400,16 @@ export default function NewReserveScreen() {
       <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: C.bg, padding: 32 }}>
         <Ionicons name="lock-closed-outline" size={48} color={C.textMuted} />
         <Text style={{ fontSize: 17, fontFamily: 'Inter_600SemiBold', color: C.text, marginTop: 16, textAlign: 'center' }}>
-          Accès refusé
+          {t('reserveNew.accessDenied')}
         </Text>
         <Text style={{ fontSize: 14, fontFamily: 'Inter_400Regular', color: C.textMuted, marginTop: 8, textAlign: 'center' }}>
-          Votre rôle ne permet pas de créer des réserves.
+          {t('reserveNew.accessDeniedCreate')}
         </Text>
         <TouchableOpacity
           onPress={() => router.back()}
           style={{ marginTop: 24, paddingHorizontal: 20, paddingVertical: 10, backgroundColor: C.primary, borderRadius: 10 }}
         >
-          <Text style={{ color: '#fff', fontFamily: 'Inter_600SemiBold', fontSize: 14 }}>Retour</Text>
+          <Text style={{ color: '#fff', fontFamily: 'Inter_600SemiBold', fontSize: 14 }}>{t('reserveNew.back')}</Text>
         </TouchableOpacity>
       </View>
     );
@@ -512,25 +513,25 @@ export default function NewReserveScreen() {
 
   async function openPinPlacement() {
     if (!selectedPlanId) {
-      Alert.alert('Plan requis', 'Sélectionnez un plan avant de positionner une épingle.');
+      Alert.alert(t('reserveNew.planRequiredTitle'), t('reserveNew.planRequiredMessage'));
       return;
     }
     const plan = chantierPlans.find(p => p.id === selectedPlanId);
     if (!plan) {
-      Alert.alert('Plan introuvable', "Le plan sélectionné n'est plus disponible.");
+      Alert.alert(t('reserveNew.planNotFoundTitle'), t('reserveNew.planNotFoundMessage'));
       return;
     }
     if (!plan.uri) {
       Alert.alert(
-        'Plan non importé',
-        "Ce plan n'a pas encore de fichier associé. Vous pouvez créer la réserve sans épingle, puis importer le plan plus tard."
+        t('reserveNew.planNoFileTitle'),
+        t('reserveNew.planNoFileMessage')
       );
       return;
     }
     if (plan.fileType === 'dxf') {
       Alert.alert(
-        'Positionnement indisponible',
-        "Le positionnement direct depuis ce formulaire n'est pas encore disponible sur les plans DXF. Créez la réserve sans épingle ou positionnez-la depuis l'onglet Plans."
+        t('reserveNew.pinUnavailableTitle'),
+        t('reserveNew.pinUnavailableMessage')
       );
       return;
     }
@@ -538,8 +539,8 @@ export default function NewReserveScreen() {
       const cached = await getCachedPlanUri(plan.uri);
       if (!cached) {
         Alert.alert(
-          'Plan non disponible hors connexion',
-          "Ce plan n'a pas encore été téléchargé sur cet appareil. Reconnectez-vous pour l'ouvrir, ou créez la réserve sans épingle."
+          t('reserveNew.planOfflineTitle'),
+          t('reserveNew.planOfflineMessage')
         );
         return;
       }
@@ -558,20 +559,20 @@ export default function NewReserveScreen() {
   }
 
   async function handlePickPhoto() {
-    if (photos.length >= 6) { Alert.alert('Limite atteinte', 'Maximum 6 photos par réserve.'); return; }
+    if (photos.length >= 6) { Alert.alert(t('reserveNew.photoLimitTitle'), t('reserveNew.photoLimitMessage')); return; }
     if (Platform.OS !== 'web') {
       const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
-      if (status !== 'granted') { Alert.alert('Permission refusée', "L'accès à la galerie est nécessaire."); return; }
+      if (status !== 'granted') { Alert.alert(t('reserveNew.galleryPermissionTitle'), t('reserveNew.galleryPermissionMessage')); return; }
     }
     const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images'], allowsEditing: true, quality: 0.8 });
     if (!result.canceled && result.assets[0]) await savePhoto(result.assets[0].uri);
   }
 
   async function handleCamera() {
-    if (photos.length >= 6) { Alert.alert('Limite atteinte', 'Maximum 6 photos par réserve.'); return; }
-    if (Platform.OS === 'web') { Alert.alert('Info', 'La prise de photo directe est disponible sur appareil mobile.'); return; }
+    if (photos.length >= 6) { Alert.alert(t('reserveNew.photoLimitTitle'), t('reserveNew.photoLimitMessage')); return; }
+    if (Platform.OS === 'web') { Alert.alert(t('reserveNew.cameraInfoTitle'), t('reserveNew.cameraInfoMessage')); return; }
     const { status } = await ImagePicker.requestCameraPermissionsAsync();
-    if (status !== 'granted') { Alert.alert('Permission refusée', "L'accès à l'appareil photo est nécessaire."); return; }
+    if (status !== 'granted') { Alert.alert(t('reserveNew.cameraPermissionTitle'), t('reserveNew.cameraPermissionMessage')); return; }
     const result = await ImagePicker.launchCameraAsync({ allowsEditing: true, quality: 0.8 });
     if (!result.canceled && result.assets[0]) await savePhoto(result.assets[0].uri);
   }
@@ -602,10 +603,10 @@ export default function NewReserveScreen() {
 
       if (!storageUrl) {
         Alert.alert(
-          isOnline ? 'Synchronisation différée' : 'Mode hors ligne',
+          isOnline ? t('reserveNew.syncDeferredTitle') : t('reserveNew.offlinePhotoTitle'),
           isOnline
-            ? "Le serveur n'a pas répondu à temps. La photo a été sauvegardée localement et sera renvoyée plus tard."
-            : "La photo a été sauvegardée localement. Elle sera synchronisée lorsque la connexion sera rétablie.",
+            ? t('reserveNew.syncDeferredMessage')
+            : t('reserveNew.offlinePhotoMessage'),
         );
       }
 
@@ -618,7 +619,7 @@ export default function NewReserveScreen() {
       };
       setPhotos(prev => [...prev, newPhoto]);
     } catch (e: any) {
-      Alert.alert('Erreur photo', `Impossible de traiter cette photo. ${e?.message ?? ''}`);
+      Alert.alert(t('reserveNew.photoErrorTitle'), t('reserveNew.photoErrorMessage', { message: e?.message ?? '' }));
     } finally {
       setPhotoUploading(false);
     }
@@ -634,27 +635,27 @@ export default function NewReserveScreen() {
 
   function handleSubmit() {
     if (isSubmitting) return;
-    if (!title.trim()) { Alert.alert('Champ obligatoire', 'Le titre est requis.'); return; }
-    if (selectedCompanies.length === 0) { Alert.alert('Champ obligatoire', "Sélectionnez au moins une entreprise responsable."); return; }
+    if (!title.trim()) { Alert.alert(t('reserveNew.requiredTitle'), t('reserveNew.titleRequired')); return; }
+    if (selectedCompanies.length === 0) { Alert.alert(t('reserveNew.requiredTitle'), t('reserveNew.companyRequired')); return; }
     if (visitHasScopedBuildings && (!building || !building.trim())) {
-      Alert.alert('Bâtiment requis', 'Choisissez le bâtiment concerné dans le périmètre de la visite.');
+      Alert.alert(t('reserveNew.visitBuildingRequiredTitle'), t('reserveNew.visitBuildingRequiredMessage'));
       return;
     }
-    if (!effectiveChantierId && (!building || !building.trim())) { Alert.alert('Champ obligatoire', 'Le bâtiment est requis.'); return; }
-    if (!level || !level.trim()) { Alert.alert('Champ obligatoire', 'Le niveau est requis.'); return; }
+    if (!effectiveChantierId && (!building || !building.trim())) { Alert.alert(t('reserveNew.requiredTitle'), t('reserveNew.buildingRequired')); return; }
+    if (!level || !level.trim()) { Alert.alert(t('reserveNew.requiredTitle'), t('reserveNew.levelRequired')); return; }
     if (deadline && !validateDeadline(deadline)) {
-      Alert.alert('Date invalide', "Vérifiez que le jour, le mois et l'année sont corrects (ex : 30/04/2026).");
+      Alert.alert(t('reserveNew.invalidDateTitle'), t('reserveNew.invalidDateMessage'));
       return;
     }
     if (selectedPlanId && !draftPin) {
       const canPositionNow = selectedPlanSupportsInlinePin;
       Alert.alert(
-        'Créer sans épingle ?',
-        "Un plan est associé, mais aucune épingle n'est positionnée. Vous pouvez créer la réserve comme cela, ou la placer maintenant sur le plan.",
+        t('reserveNew.createWithoutPinTitle'),
+        t('reserveNew.createWithoutPinMessage'),
         [
-          { text: 'Annuler', style: 'cancel' },
-          ...(canPositionNow ? [{ text: 'Positionner', onPress: openPinPlacement }] : []),
-          { text: 'Créer sans épingle', onPress: createReserve },
+          { text: t('common.cancel'), style: 'cancel' },
+          ...(canPositionNow ? [{ text: t('reserveNew.positionPin'), onPress: openPinPlacement }] : []),
+          { text: t('reserveNew.createWithoutPin'), onPress: createReserve },
         ] as any,
       );
       return;
@@ -686,7 +687,12 @@ export default function NewReserveScreen() {
         createdAt: isoToday,
         deadline: deadline || '—',
         comments: [],
-        history: [{ id: 'h0', action: kind === 'observation' ? 'Observation créée' : 'Réserve créée', author, createdAt: nowTimestampFR() }],
+        history: [{
+          id: 'h0',
+          action: kind === 'observation' ? t('reserveNew.historyObservationCreated') : t('reserveNew.historyReserveCreated'),
+          author,
+          createdAt: nowTimestampFR(),
+        }],
         planX: draftPin?.x ?? undefined,
         planY: draftPin?.y ?? undefined,
         photoUri: photos[0]?.uri ?? undefined,
@@ -713,8 +719,10 @@ export default function NewReserveScreen() {
       photos.forEach(p => {
         addPhoto({
           id: genId(),
-          comment: `Photo ${kind === 'observation' ? 'observation' : 'réserve'} ${id} — ${title.trim()}`,
-          location: `Bât. ${building} - ${level}`,
+          comment: kind === 'observation'
+            ? t('reserveNew.photoCommentObservation', { id, title: title.trim() })
+            : t('reserveNew.photoCommentReserve', { id, title: title.trim() }),
+          location: t('reserveNew.photoLocation', { building, level }),
           takenAt: isoToday,
           takenBy: author,
           colorCode: kind === 'observation' ? '#0EA5E9' : '#EF4444',
@@ -1163,23 +1171,23 @@ export default function NewReserveScreen() {
               style={styles.pinModalIconBtn}
               onPress={() => setPinModalVisible(false)}
               accessibilityRole="button"
-              accessibilityLabel="Fermer le positionnement"
+              accessibilityLabel={t('reserveNew.closePinPlacement')}
             >
               <Ionicons name="close" size={22} color="#fff" />
             </TouchableOpacity>
             <View style={{ flex: 1 }}>
-              <Text style={styles.pinModalTitle}>Positionner l'épingle</Text>
-              <Text style={styles.pinModalSubtitle} numberOfLines={1}>{selectedPlan?.name ?? 'Plan associé'}</Text>
+              <Text style={styles.pinModalTitle}>{t('reserveNew.positionPin')}</Text>
+              <Text style={styles.pinModalSubtitle} numberOfLines={1}>{selectedPlan?.name ?? t('reserveNew.plan')}</Text>
             </View>
             <TouchableOpacity
               style={[styles.pinModalValidateBtn, !draftPin && styles.pinModalValidateBtnDisabled]}
               onPress={() => setPinModalVisible(false)}
               disabled={!draftPin}
               accessibilityRole="button"
-              accessibilityLabel="Valider la position de l'épingle"
+              accessibilityLabel={t('reserveNew.validatePinPosition')}
             >
               <Ionicons name="checkmark" size={17} color="#fff" />
-              <Text style={styles.pinModalValidateText}>Valider</Text>
+              <Text style={styles.pinModalValidateText}>{t('reserveNew.validate')}</Text>
             </TouchableOpacity>
           </View>
 
@@ -1208,9 +1216,9 @@ export default function NewReserveScreen() {
             ) : (
               <View style={styles.pinModalEmpty}>
                 <Ionicons name="map-outline" size={42} color="#93A4BD" />
-                <Text style={styles.pinModalEmptyTitle}>Plan indisponible</Text>
+                <Text style={styles.pinModalEmptyTitle}>{t('reserveNew.planUnavailableTitle')}</Text>
                 <Text style={styles.pinModalEmptyText}>
-                  Ce plan ne peut pas être ouvert ici. Vous pouvez créer la réserve sans épingle, ou la positionner plus tard depuis l'onglet Plans.
+                  {t('reserveNew.planUnavailableText')}
                 </Text>
               </View>
             )}
@@ -1221,12 +1229,12 @@ export default function NewReserveScreen() {
               <Ionicons name={draftPin ? 'location' : 'finger-print-outline'} size={18} color={draftPin ? '#10B981' : C.primary} />
               <View style={{ flex: 1 }}>
                 <Text style={styles.pinModalHintTitle}>
-                  {draftPin ? 'Épingle placée' : 'Touchez le plan'}
+                  {draftPin ? t('reserveNew.pinPlaced') : t('reserveNew.tapPlan')}
                 </Text>
                 <Text style={styles.pinModalHintText}>
                   {draftPin
-                    ? `Position ${draftPin.x}% / ${draftPin.y}%. Touchez ailleurs pour déplacer.`
-                    : 'Touchez une zone du plan pour créer l’épingle de cette réserve.'}
+                    ? t('reserveNew.pinPositionPercent', { x: draftPin.x, y: draftPin.y })
+                    : t('reserveNew.tapPlanToCreatePin')}
                 </Text>
               </View>
             </View>
@@ -1236,14 +1244,14 @@ export default function NewReserveScreen() {
                 onPress={removeDraftPin}
                 disabled={!draftPin}
               >
-                <Text style={[styles.pinModalSecondaryText, !draftPin && { color: C.textMuted }]}>Retirer</Text>
+                <Text style={[styles.pinModalSecondaryText, !draftPin && { color: C.textMuted }]}>{t('reserveNew.remove')}</Text>
               </TouchableOpacity>
               <TouchableOpacity
                 style={[styles.pinModalPrimaryBtn, !draftPin && styles.pinModalPrimaryBtnDisabled]}
                 onPress={() => setPinModalVisible(false)}
                 disabled={!draftPin}
               >
-                <Text style={styles.pinModalPrimaryText}>Utiliser cette position</Text>
+                <Text style={styles.pinModalPrimaryText}>{t('reserveNew.useThisPosition')}</Text>
               </TouchableOpacity>
             </View>
           </View>

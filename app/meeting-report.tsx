@@ -1,9 +1,10 @@
 import { View, Text, StyleSheet, ScrollView, TextInput, TouchableOpacity, Alert, Platform, Modal, KeyboardAvoidingView } from 'react-native';
 import DateInput from '@/components/DateInput';
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback, useEffect, useMemo } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
+import { useTranslation } from 'react-i18next';
 import { C } from '@/constants/colors';
 import {
   exportPDF as exportPDFHelper,
@@ -23,44 +24,28 @@ import BottomNavBar from '@/components/BottomNavBar';
 import { genId, formatDateFR, nowTimestampFR } from '@/lib/utils';
 import { formatDate } from '@/lib/reserveUtils';
 
-const CRR_TEMPLATES = [
+const CRR_TEMPLATE_DEFS = [
   {
     id: 'hebdo',
-    label: 'Réunion hebdomadaire',
     icon: 'calendar-outline' as const,
-    subject: 'Réunion de chantier hebdomadaire',
-    agenda: '1. Point avancement travaux\n2. Planning semaine suivante\n3. Levée des réserves\n4. Problèmes et blocages\n5. Questions diverses',
-    agendaNote: 'Point avancement travaux réalisé.\nPlanning semaine suivante défini.\nÉtat des réserves en cours de traitement.',
   },
   {
     id: 'reception',
-    label: 'OPR / Réception',
     icon: 'ribbon-outline' as const,
-    subject: 'Opérations Préalables à la Réception (OPR)',
-    agenda: '1. Visite contradictoire des ouvrages\n2. Levée des réserves précédentes\n3. Constatation des nouvelles réserves\n4. Signatures du PV',
-    agendaNote: 'Visite contradictoire effectuée.\nListe des réserves établie.\nDélais de levée fixés contractuellement.',
   },
   {
     id: 'coordination',
-    label: 'Coordination de chantier',
     icon: 'people-outline' as const,
-    subject: 'Réunion de coordination interentreprises',
-    agenda: '1. Point sécurité / PPSPS\n2. Coordination des interventions\n3. Gestion des interfaces\n4. Planning co-activités\n5. Divers',
-    agendaNote: 'Point sécurité réalisé.\nCoordination des zones de travail validée.\nPlanning co-activités transmis.',
   },
   {
     id: 'synthese',
-    label: 'Réunion de synthèse BET',
     icon: 'construct-outline' as const,
-    subject: 'Réunion de synthèse bureaux d\'études',
-    agenda: '1. Cohérence des plans d\'exécution\n2. Points de blocage techniques\n3. Commandes et approvisionnements\n4. Validation des fiches techniques\n5. Planning études',
-    agendaNote: 'Points de blocage identifiés et traités.\nFiches techniques en attente de validation.',
   },
 ];
 
 const MEETING_KEY = 'buildtrack_meetings_v1';
 
-function buildMeetingHTML(report: MeetingReport, projectName: string): string {
+function buildMeetingHTML(report: MeetingReport, projectName: string, t: (key: string, options?: any) => string): string {
   const exportDate = nowTimestampFR();
   const docRef = `CRR-${report.date.replace(/\//g, '')}-${report.id.slice(0, 6).toUpperCase()}`;
   const doneCount = report.actions.filter(a => a.status === 'done').length;
@@ -73,7 +58,7 @@ function buildMeetingHTML(report: MeetingReport, projectName: string): string {
           <div style="font-size:12px;color:#1A2742;line-height:1.5">${escapeHtml(d)}</div>
         </div>`
       ).join('')
-    : `<div style="font-size:12px;color:#6B7280;font-style:italic">Aucune décision formalisée lors de cette réunion.</div>`;
+    : `<div style="font-size:12px;color:#6B7280;font-style:italic">${escapeHtml(t('meetingReport.pdf.noDecision'))}</div>`;
 
   const actionsHtml = report.actions.map(a =>
     `<tr>
@@ -82,7 +67,7 @@ function buildMeetingHTML(report: MeetingReport, projectName: string): string {
       <td style="padding:8px 10px;border-bottom:1px solid #EEF3FA;font-size:11px">${escapeHtml(a.deadline)}</td>
       <td style="padding:8px 10px;border-bottom:1px solid #EEF3FA;text-align:center">
         <span style="background:${a.status === 'done' ? '#ECFDF5' : '#FFFBEB'};color:${a.status === 'done' ? '#059669' : '#D97706'};font-size:10px;font-weight:700;padding:2px 10px;border-radius:10px">
-          ${a.status === 'done' ? '✓ Fait' : '⏳ En attente'}
+          ${escapeHtml(a.status === 'done' ? t('meetingReport.pdf.done') : t('meetingReport.pdf.pending'))}
         </span>
       </td>
     </tr>`
@@ -102,38 +87,38 @@ function buildMeetingHTML(report: MeetingReport, projectName: string): string {
   ).join('');
 
   const body = `
-    ${buildLetterhead('Compte-rendu de réunion', report.subject, docRef, exportDate, projectName)}
+    ${buildLetterhead(t('meetingReport.pdf.title'), report.subject, docRef, exportDate, projectName)}
     ${buildInfoGrid([
-      { label: 'Date de réunion', value: report.date },
-      { label: 'Lieu', value: report.location || 'Non précisé' },
-      { label: 'Rédigé par', value: report.redactedBy },
-      { label: 'Actions total', value: `${doneCount}/${report.actions.length} faites` },
+      { label: t('meetingReport.pdf.meetingDate'), value: report.date },
+      { label: t('meetingReport.pdf.location'), value: report.location || t('meetingReport.notSpecified') },
+      { label: t('meetingReport.pdf.redactedBy'), value: report.redactedBy },
+      { label: t('meetingReport.pdf.actionsTotal'), value: t('meetingReport.pdf.actionsDone', { done: doneCount, total: report.actions.length }) },
     ])}
     ${pendingCount > 0 ? `
-      <div class="alert alert-warning">⏳ <strong>${pendingCount} action${pendingCount > 1 ? 's' : ''} en attente</strong> depuis cette réunion</div>` : ''}
-    ${sH('Ordre du jour')}
-    <div style="background:#F4F7FB;border-radius:10px;padding:12px 16px;margin-bottom:4px">${agendaItems || '<div style="color:#6B7280;font-style:italic">Ordre du jour non précisé</div>'}</div>
-    ${sH('Participants')}
-    <div style="padding:10px 0">${participantsList || '<span style="color:#6B7280;font-style:italic">Non précisé</span>'}</div>
-    ${sH('Compte-rendu des discussions')}
-    <div style="background:#F9FAFB;border-radius:10px;padding:14px 16px;border:1px solid #DDE4EE;font-size:12px;line-height:1.7;white-space:pre-wrap">${escapeHtml(report.notes) || 'Aucun compte-rendu saisi.'}</div>
-    ${sH('Décisions prises')}
+      <div class="alert alert-warning">⏳ <strong>${escapeHtml(t('meetingReport.pdf.pendingActions', { count: pendingCount }))}</strong> ${escapeHtml(t('meetingReport.pdf.sinceMeeting'))}</div>` : ''}
+    ${sH(t('meetingReport.agenda'))}
+    <div style="background:#F4F7FB;border-radius:10px;padding:12px 16px;margin-bottom:4px">${agendaItems || `<div style="color:#6B7280;font-style:italic">${escapeHtml(t('meetingReport.pdf.agendaEmpty'))}</div>`}</div>
+    ${sH(t('meetingReport.participants'))}
+    <div style="padding:10px 0">${participantsList || `<span style="color:#6B7280;font-style:italic">${escapeHtml(t('meetingReport.notSpecified'))}</span>`}</div>
+    ${sH(t('meetingReport.pdf.discussions'))}
+    <div style="background:#F9FAFB;border-radius:10px;padding:14px 16px;border:1px solid #DDE4EE;font-size:12px;line-height:1.7;white-space:pre-wrap">${escapeHtml(report.notes) || escapeHtml(t('meetingReport.pdf.notesEmpty'))}</div>
+    ${sH(t('meetingReport.decisions'))}
     ${decisionsHtml}
     ${report.actions.length > 0 ? `
-      ${sH(`Plan d'actions (${report.actions.length})`)}
+      ${sH(t('meetingReport.pdf.actionPlan', { count: report.actions.length }))}
       <table>
         <thead><tr>
-          <th>Action</th><th>Responsable</th><th>Échéance</th><th style="text-align:center">Statut</th>
+          <th>${escapeHtml(t('meetingReport.pdf.action'))}</th><th>${escapeHtml(t('meetingReport.pdf.responsible'))}</th><th>${escapeHtml(t('meetingReport.pdf.deadline'))}</th><th style="text-align:center">${escapeHtml(t('meetingReport.pdf.status'))}</th>
         </tr></thead>
         <tbody>${actionsHtml}</tbody>
       </table>` : ''}
     <div class="sig-row" style="margin-top:32px;padding-top:20px;border-top:2px solid #EEF3FA">
       <div class="sig-block">
-        <div class="sig-label">Prochaine réunion</div>
-        <div style="font-size:13px;font-weight:700;color:#1A2742">${escapeHtml(report.nextMeeting) || 'À définir'}</div>
+        <div class="sig-label">${escapeHtml(t('meetingReport.nextMeeting'))}</div>
+        <div style="font-size:13px;font-weight:700;color:#1A2742">${escapeHtml(report.nextMeeting) || escapeHtml(t('meetingReport.toDefine'))}</div>
       </div>
       <div class="sig-block">
-        <div class="sig-label">Signature du rédacteur</div>
+        <div class="sig-label">${escapeHtml(t('meetingReport.pdf.writerSignature'))}</div>
         <div class="sig-line"></div>
         <div class="sig-name">${escapeHtml(report.redactedBy)}</div>
       </div>
@@ -141,10 +126,11 @@ function buildMeetingHTML(report: MeetingReport, projectName: string): string {
     ${buildDocFooter(projectName)}
   `;
 
-  return wrapHTML(body, `CR de réunion — ${report.subject}`);
+  return wrapHTML(body, t('meetingReport.pdf.documentTitle', { subject: report.subject }));
 }
 
 export default function MeetingReportScreen() {
+  const { t } = useTranslation();
   const router = useRouter();
   const { user, permissions } = useAuth();
   const { projectName } = useSettings();
@@ -174,6 +160,13 @@ export default function MeetingReportScreen() {
   const [actionDeadline, setActionDeadline] = useState('');
   const [actionReserveId, setActionReserveId] = useState('');
   const [showReservePicker, setShowReservePicker] = useState(false);
+  const crrTemplates = useMemo(() => CRR_TEMPLATE_DEFS.map(def => ({
+    ...def,
+    label: t(`meetingReport.templates.${def.id}.label`),
+    subject: t(`meetingReport.templates.${def.id}.subject`),
+    agenda: t(`meetingReport.templates.${def.id}.agenda`),
+    agendaNote: t(`meetingReport.templates.${def.id}.agendaNote`),
+  })), [t]);
 
   function updateReportData(reportId: string, updater: (r: MeetingReport) => MeetingReport) {
     setReports(prev => {
@@ -185,7 +178,7 @@ export default function MeetingReportScreen() {
 
   function addActionToReport(reportId: string) {
     if (!actionDesc.trim() || !actionResp.trim() || !actionDeadline.trim()) {
-      Alert.alert('Champs requis', 'Description, responsable et échéance sont obligatoires.');
+      Alert.alert(t('meetingReport.requiredFieldsTitle'), t('meetingReport.actionRequiredText'));
       return;
     }
     const action: MeetingReportAction = {
@@ -211,9 +204,9 @@ export default function MeetingReportScreen() {
   }
 
   function removeAction(reportId: string, actionId: string) {
-    Alert.alert('Supprimer cette action ?', 'Cette opération est irréversible.', [
-      { text: 'Annuler', style: 'cancel' },
-      { text: 'Supprimer', style: 'destructive', onPress: () =>
+    Alert.alert(t('meetingReport.deleteActionTitle'), t('meetingReport.deleteActionText'), [
+      { text: t('common.cancel'), style: 'cancel' },
+      { text: t('common.delete'), style: 'destructive', onPress: () =>
         updateReportData(reportId, r => ({ ...r, actions: r.actions.filter(a => a.id !== actionId) }))
       },
     ]);
@@ -228,7 +221,7 @@ export default function MeetingReportScreen() {
     setParticipants(''); setAgenda(''); setNotes(''); setDecisions(''); setNextMeeting('');
   };
 
-  function applyTemplate(tpl: typeof CRR_TEMPLATES[0]) {
+  function applyTemplate(tpl: typeof crrTemplates[number]) {
     const openReserves = reserves.filter(r => r.status !== 'closed' && (!activeChantierId || r.chantierId === activeChantierId));
     const companyNames = companies.map(c => c.name).join(', ');
     setSubject(tpl.subject + ' — ' + projectName);
@@ -236,8 +229,8 @@ export default function MeetingReportScreen() {
     setNotes(tpl.agendaNote);
     if (tpl.id === 'hebdo') {
       setDecisions([
-        `${openReserves.length} réserve${openReserves.length !== 1 ? 's' : ''} en cours de traitement`,
-        'Planning semaine suivante validé',
+        t('meetingReport.templateDecisions.openReserves', { count: openReserves.length }),
+        t('meetingReport.templateDecisions.nextWeekPlanning'),
       ].join('\n'));
     }
     if (companyNames) setParticipants(companyNames + (user?.name ? '\n' + user.name : ''));
@@ -247,21 +240,21 @@ export default function MeetingReportScreen() {
 
   const handleCreate = useCallback(() => {
     if (!subject.trim()) {
-      Alert.alert('Champ requis', "L'objet de la réunion est obligatoire.");
+      Alert.alert(t('meetingReport.requiredFieldTitle'), t('meetingReport.subjectRequired'));
       return;
     }
     const report: MeetingReport = {
       id: genId(),
       subject: subject.trim(),
       date,
-      location: location.trim() || 'Non précisé',
-      participants: participants.trim() || 'Non précisé',
+      location: location.trim() || t('meetingReport.notSpecified'),
+      participants: participants.trim() || t('meetingReport.notSpecified'),
       agenda: agenda.trim(),
       notes: notes.trim(),
       decisions: decisions.split('\n').map(s => s.trim()).filter(Boolean),
       actions: [],
       nextMeeting: nextMeeting.trim(),
-      redactedBy: user?.name ?? 'Équipe',
+      redactedBy: user?.name ?? t('common.system'),
       createdAt: nowTimestampFR(),
     };
     setReports(prev => {
@@ -271,18 +264,18 @@ export default function MeetingReportScreen() {
     });
     resetForm();
     setShowNew(false);
-  }, [subject, date, location, participants, agenda, notes, decisions, nextMeeting, user]);
+  }, [subject, date, location, participants, agenda, notes, decisions, nextMeeting, user, t]);
 
   async function handleExportPDF(report: MeetingReport) {
     if (!permissions.canExport) {
-      Alert.alert('Accès refusé', "Votre rôle ne permet pas d'exporter.");
+      Alert.alert(t('documentsScreen.accessDenied'), t('meetingReport.exportDenied'));
       return;
     }
     try {
-      const html = buildMeetingHTML(report, projectName);
+      const html = buildMeetingHTML(report, projectName, t);
       await exportPDFHelper(html, buildPdfFilename('CR_Reunion', [report.subject, report.location, projectName]));
     } catch (e: any) {
-      Alert.alert('Erreur', e?.message ?? 'Impossible de générer le PDF');
+      Alert.alert(t('common.error'), e?.message ?? t('meetingReport.pdfError'));
     }
   }
 
@@ -290,15 +283,15 @@ export default function MeetingReportScreen() {
     return (
       <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: '#F8FAFC', padding: 32 }}>
         <Ionicons name="lock-closed-outline" size={48} color="#94A3B8" />
-        <Text style={{ fontSize: 17, fontFamily: 'Inter_600SemiBold', color: '#1E293B', marginTop: 16, textAlign: 'center' }}>Accès restreint</Text>
+        <Text style={{ fontSize: 17, fontFamily: 'Inter_600SemiBold', color: '#1E293B', marginTop: 16, textAlign: 'center' }}>{t('common.restrictedAccess')}</Text>
         <Text style={{ fontSize: 14, fontFamily: 'Inter_400Regular', color: '#94A3B8', marginTop: 8, textAlign: 'center' }}>
-          Les comptes-rendus de réunion ne sont pas accessibles aux sous-traitants.
+          {t('meetingReport.subcontractorDenied')}
         </Text>
         <TouchableOpacity
           onPress={() => router.canGoBack() ? router.back() : router.navigate('/(tabs)/' as any)}
           style={{ marginTop: 24, paddingHorizontal: 20, paddingVertical: 10, backgroundColor: '#2563EB', borderRadius: 10 }}
         >
-          <Text style={{ color: '#fff', fontFamily: 'Inter_600SemiBold', fontSize: 14 }}>Retour au tableau de bord</Text>
+          <Text style={{ color: '#fff', fontFamily: 'Inter_600SemiBold', fontSize: 14 }}>{t('pointage.backToDashboard')}</Text>
         </TouchableOpacity>
       </View>
     );
@@ -307,10 +300,10 @@ export default function MeetingReportScreen() {
   return (
     <KeyboardAvoidingView style={styles.container} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
       <Header
-        title="CR de réunion"
-        subtitle="Comptes-rendus chantier"
+        title={t('meetingReport.title')}
+        subtitle={t('meetingReport.subtitle')}
         showBack
-        rightLabel={permissions.canCreate ? (showNew ? 'Annuler' : 'Nouveau') : undefined}
+        rightLabel={permissions.canCreate ? (showNew ? t('common.cancel') : t('messages.new')) : undefined}
         onRightPress={permissions.canCreate ? () => { if (showNew) { setShowNew(false); resetForm(); } else setShowNew(true); } : undefined}
       />
 
@@ -320,8 +313,8 @@ export default function MeetingReportScreen() {
           <TouchableOpacity style={styles.templateBanner} onPress={() => setShowTemplateModal(true)}>
             <Ionicons name="flash" size={18} color={C.primary} />
             <View style={{ flex: 1 }}>
-              <Text style={styles.templateBannerTitle}>Générer depuis un modèle CRR</Text>
-              <Text style={styles.templateBannerSub}>Pré-remplissez automatiquement l'ordre du jour selon le type de réunion</Text>
+              <Text style={styles.templateBannerTitle}>{t('meetingReport.templateBannerTitle')}</Text>
+              <Text style={styles.templateBannerSub}>{t('meetingReport.templateBannerSub')}</Text>
             </View>
             <Ionicons name="chevron-forward" size={16} color={C.textMuted} />
           </TouchableOpacity>
@@ -330,31 +323,31 @@ export default function MeetingReportScreen() {
         {showNew && (
           <View style={styles.card}>
             <View style={styles.formTopRow}>
-              <Text style={styles.sectionTitle}>Nouveau compte-rendu</Text>
+              <Text style={styles.sectionTitle}>{t('meetingReport.newReport')}</Text>
               <TouchableOpacity style={styles.tplBtn} onPress={() => setShowTemplateModal(true)}>
                 <Ionicons name="flash-outline" size={13} color={C.primary} />
-                <Text style={styles.tplBtnText}>Modèle</Text>
+                <Text style={styles.tplBtnText}>{t('meetingReport.template')}</Text>
               </TouchableOpacity>
             </View>
-            <Text style={styles.label}>Objet *</Text>
-            <TextInput style={styles.input} placeholder="Ex: Réunion de chantier hebdomadaire" placeholderTextColor={C.textMuted} value={subject} onChangeText={setSubject} />
-            <Text style={styles.label}>Date</Text>
+            <Text style={styles.label}>{t('meetingReport.subject')}</Text>
+            <TextInput style={styles.input} placeholder={t('meetingReport.subjectPlaceholder')} placeholderTextColor={C.textMuted} value={subject} onChangeText={setSubject} />
+            <Text style={styles.label}>{t('meetingReport.date')}</Text>
             <DateInput value={date} onChange={setDate} />
-            <Text style={styles.label}>Lieu</Text>
-            <TextInput style={styles.input} placeholder="Ex: Salle de réunion, Bâtiment A" placeholderTextColor={C.textMuted} value={location} onChangeText={setLocation} />
-            <Text style={styles.label}>Participants</Text>
-            <TextInput style={[styles.input, styles.multiline]} placeholder="Noms et entreprises des participants..." placeholderTextColor={C.textMuted} value={participants} onChangeText={setParticipants} multiline numberOfLines={3} />
-            <Text style={styles.label}>Ordre du jour</Text>
-            <TextInput style={[styles.input, styles.multiline]} placeholder="Points à traiter..." placeholderTextColor={C.textMuted} value={agenda} onChangeText={setAgenda} multiline numberOfLines={3} />
-            <Text style={styles.label}>Notes / Points discutés</Text>
-            <TextInput style={[styles.input, styles.multiline]} placeholder="Résumé des échanges, problèmes soulevés..." placeholderTextColor={C.textMuted} value={notes} onChangeText={setNotes} multiline numberOfLines={4} />
-            <Text style={styles.label}>Décisions prises (une par ligne)</Text>
-            <TextInput style={[styles.input, styles.multiline]} placeholder="Décision 1&#10;Décision 2..." placeholderTextColor={C.textMuted} value={decisions} onChangeText={setDecisions} multiline numberOfLines={3} />
-            <Text style={styles.label}>Prochaine réunion</Text>
-            <TextInput style={styles.input} placeholder="Ex: Lundi 06/04/2026 à 9h" placeholderTextColor={C.textMuted} value={nextMeeting} onChangeText={setNextMeeting} />
+            <Text style={styles.label}>{t('meetingReport.location')}</Text>
+            <TextInput style={styles.input} placeholder={t('meetingReport.locationPlaceholder')} placeholderTextColor={C.textMuted} value={location} onChangeText={setLocation} />
+            <Text style={styles.label}>{t('meetingReport.participants')}</Text>
+            <TextInput style={[styles.input, styles.multiline]} placeholder={t('meetingReport.participantsPlaceholder')} placeholderTextColor={C.textMuted} value={participants} onChangeText={setParticipants} multiline numberOfLines={3} />
+            <Text style={styles.label}>{t('meetingReport.agenda')}</Text>
+            <TextInput style={[styles.input, styles.multiline]} placeholder={t('meetingReport.agendaPlaceholder')} placeholderTextColor={C.textMuted} value={agenda} onChangeText={setAgenda} multiline numberOfLines={3} />
+            <Text style={styles.label}>{t('meetingReport.notes')}</Text>
+            <TextInput style={[styles.input, styles.multiline]} placeholder={t('meetingReport.notesPlaceholder')} placeholderTextColor={C.textMuted} value={notes} onChangeText={setNotes} multiline numberOfLines={4} />
+            <Text style={styles.label}>{t('meetingReport.decisionsLabel')}</Text>
+            <TextInput style={[styles.input, styles.multiline]} placeholder={t('meetingReport.decisionsPlaceholder')} placeholderTextColor={C.textMuted} value={decisions} onChangeText={setDecisions} multiline numberOfLines={3} />
+            <Text style={styles.label}>{t('meetingReport.nextMeeting')}</Text>
+            <TextInput style={styles.input} placeholder={t('meetingReport.nextMeetingPlaceholder')} placeholderTextColor={C.textMuted} value={nextMeeting} onChangeText={setNextMeeting} />
             <TouchableOpacity style={styles.createBtn} onPress={handleCreate}>
               <Ionicons name="document-text" size={18} color="#fff" />
-              <Text style={styles.createBtnText}>Créer le compte-rendu</Text>
+              <Text style={styles.createBtnText}>{t('meetingReport.createReport')}</Text>
             </TouchableOpacity>
           </View>
         )}
@@ -362,12 +355,12 @@ export default function MeetingReportScreen() {
         {reports.length === 0 && !showNew && (
           <View style={styles.emptyBox}>
             <Ionicons name="document-text-outline" size={52} color={C.border} />
-            <Text style={styles.emptyTitle}>Aucun compte-rendu</Text>
-            <Text style={styles.emptyText}>Créez votre premier compte-rendu de réunion chantier.</Text>
+            <Text style={styles.emptyTitle}>{t('meetingReport.emptyTitle')}</Text>
+            <Text style={styles.emptyText}>{t('meetingReport.emptyText')}</Text>
             {permissions.canCreate && (
               <TouchableOpacity style={styles.emptyBtn} onPress={() => setShowNew(true)}>
                 <Ionicons name="add-circle" size={18} color={C.primary} />
-                <Text style={styles.emptyBtnText}>Nouveau CR</Text>
+                <Text style={styles.emptyBtnText}>{t('meetingReport.newShort')}</Text>
               </TouchableOpacity>
             )}
           </View>
@@ -383,8 +376,8 @@ export default function MeetingReportScreen() {
                   <Text style={styles.reportTitle}>{report.subject}</Text>
                   <Text style={styles.reportMeta}>{report.date} — {report.location}</Text>
                   <Text style={styles.reportMeta}>
-                    Rédigé par {report.redactedBy}
-                    {report.createdAt ? ` · le ${formatDate(report.createdAt)}` : ''}
+                    {t('meetingReport.redactedBy', { name: report.redactedBy })}
+                    {report.createdAt ? t('meetingReport.createdOn', { date: formatDate(report.createdAt) }) : ''}
                   </Text>
                 </View>
                 {permissions.canExport && (
@@ -397,7 +390,7 @@ export default function MeetingReportScreen() {
 
               {report.decisions.length > 0 && (
                 <View style={styles.decisionsBox}>
-                  <Text style={styles.decisionsTitle}>Décisions ({report.decisions.length})</Text>
+                  <Text style={styles.decisionsTitle}>{t('meetingReport.decisionsCount', { count: report.decisions.length })}</Text>
                   {report.decisions.map((d, i) => (
                     <View key={i} style={styles.decisionRow}>
                       <Ionicons name="checkmark-circle" size={14} color={C.closed} />
@@ -425,7 +418,7 @@ export default function MeetingReportScreen() {
               >
                 <Ionicons name="checkmark-done-outline" size={14} color={C.primary} />
                 <Text style={styles.actionsToggleText}>
-                  Actions ({doneCount}/{report.actions.length} faites)
+                  {t('meetingReport.actionsProgress', { done: doneCount, total: report.actions.length })}
                 </Text>
                 <Ionicons name={isExpanded ? 'chevron-up' : 'chevron-down'} size={13} color={C.textMuted} />
               </TouchableOpacity>
@@ -433,7 +426,7 @@ export default function MeetingReportScreen() {
               {isExpanded && (
                 <View style={styles.actionsPanel}>
                   {report.actions.length === 0 && !showAddAction && (
-                    <Text style={styles.actionsEmpty}>Aucune action — appuyez sur + pour en ajouter</Text>
+                    <Text style={styles.actionsEmpty}>{t('meetingReport.noActionHint')}</Text>
                   )}
                   {report.actions.map(action => {
                     const linkedReserve = action.reserveId
@@ -461,7 +454,7 @@ export default function MeetingReportScreen() {
                             {action.description}
                           </Text>
                           <Text style={styles.actionMeta}>
-                            {action.responsible} · Éch. {action.deadline}
+                            {t('meetingReport.actionMeta', { responsible: action.responsible, deadline: action.deadline })}
                           </Text>
                           {linkedReserve && (
                             <View style={styles.actionReserveBadge}>
@@ -490,7 +483,7 @@ export default function MeetingReportScreen() {
                       onPress={() => setShowAddAction(true)}
                     >
                       <Ionicons name="add-circle-outline" size={16} color={C.primary} />
-                      <Text style={styles.addActionBtnText}>Ajouter une action</Text>
+                      <Text style={styles.addActionBtnText}>{t('meetingReport.addAction')}</Text>
                     </TouchableOpacity>
                   )}
 
@@ -498,7 +491,7 @@ export default function MeetingReportScreen() {
                     <View style={styles.addActionForm}>
                       <TextInput
                         style={styles.actionInput}
-                        placeholder="Description de l'action *"
+                        placeholder={t('meetingReport.actionDescriptionPlaceholder')}
                         placeholderTextColor={C.textMuted}
                         value={actionDesc}
                         onChangeText={setActionDesc}
@@ -507,14 +500,14 @@ export default function MeetingReportScreen() {
                       <View style={styles.actionFormRow}>
                         <TextInput
                           style={[styles.actionInput, { flex: 1 }]}
-                          placeholder="Responsable *"
+                          placeholder={t('meetingReport.actionResponsiblePlaceholder')}
                           placeholderTextColor={C.textMuted}
                           value={actionResp}
                           onChangeText={setActionResp}
                         />
                         <TextInput
                           style={[styles.actionInput, { flex: 1 }]}
-                          placeholder="Échéance *"
+                          placeholder={t('meetingReport.actionDeadlinePlaceholder')}
                           placeholderTextColor={C.textMuted}
                           value={actionDeadline}
                           onChangeText={setActionDeadline}
@@ -528,7 +521,7 @@ export default function MeetingReportScreen() {
                         <Text style={styles.actionReservePickerText}>
                           {actionReserveId
                             ? reserves.find(r => r.id === actionReserveId)?.title ?? actionReserveId
-                            : 'Lier une réserve (optionnel)'}
+                            : t('meetingReport.linkReserveOptional')}
                         </Text>
                         {actionReserveId && (
                           <TouchableOpacity onPress={() => setActionReserveId('')} hitSlop={8}>
@@ -544,13 +537,13 @@ export default function MeetingReportScreen() {
                             setActionDesc(''); setActionResp(''); setActionDeadline(''); setActionReserveId('');
                           }}
                         >
-                          <Text style={styles.actionCancelBtnText}>Annuler</Text>
+                          <Text style={styles.actionCancelBtnText}>{t('common.cancel')}</Text>
                         </TouchableOpacity>
                         <TouchableOpacity
                           style={styles.actionSaveBtn}
                           onPress={() => addActionToReport(report.id)}
                         >
-                          <Text style={styles.actionSaveBtnText}>Enregistrer</Text>
+                          <Text style={styles.actionSaveBtnText}>{t('common.save')}</Text>
                         </TouchableOpacity>
                       </View>
                     </View>
@@ -566,12 +559,12 @@ export default function MeetingReportScreen() {
         <View style={styles.tplOverlay}>
           <View style={[styles.tplSheet, { maxHeight: '70%' }]}>
             <View style={styles.tplHandle} />
-            <Text style={styles.tplSheetTitle}>Lier une réserve</Text>
-            <Text style={styles.tplSheetSub}>Associez cette action à une réserve ouverte du chantier</Text>
+            <Text style={styles.tplSheetTitle}>{t('meetingReport.linkReserveTitle')}</Text>
+            <Text style={styles.tplSheetSub}>{t('meetingReport.linkReserveSub')}</Text>
             <ScrollView showsVerticalScrollIndicator={false}>
               {chantierReserves.length === 0 ? (
                 <Text style={{ fontSize: 13, color: C.textMuted, textAlign: 'center', paddingVertical: 20, fontFamily: 'Inter_400Regular' }}>
-                  Aucune réserve ouverte dans ce chantier
+                  {t('meetingReport.noOpenReserve')}
                 </Text>
               ) : (
                 chantierReserves.map(r => (
@@ -593,7 +586,7 @@ export default function MeetingReportScreen() {
               )}
             </ScrollView>
             <TouchableOpacity style={styles.tplCancelBtn} onPress={() => setShowReservePicker(false)}>
-              <Text style={styles.tplCancelText}>Fermer</Text>
+              <Text style={styles.tplCancelText}>{t('common.close')}</Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -603,9 +596,9 @@ export default function MeetingReportScreen() {
         <View style={styles.tplOverlay}>
           <View style={styles.tplSheet}>
             <View style={styles.tplHandle} />
-            <Text style={styles.tplSheetTitle}>Choisir un modèle CRR</Text>
-            <Text style={styles.tplSheetSub}>Le formulaire sera pré-rempli selon le type de réunion</Text>
-            {CRR_TEMPLATES.map(tpl => (
+            <Text style={styles.tplSheetTitle}>{t('meetingReport.chooseTemplateTitle')}</Text>
+            <Text style={styles.tplSheetSub}>{t('meetingReport.chooseTemplateSub')}</Text>
+            {crrTemplates.map(tpl => (
               <TouchableOpacity key={tpl.id} style={styles.tplRow} onPress={() => applyTemplate(tpl)}>
                 <View style={styles.tplRowIcon}>
                   <Ionicons name={tpl.icon} size={18} color={C.primary} />
@@ -618,7 +611,7 @@ export default function MeetingReportScreen() {
               </TouchableOpacity>
             ))}
             <TouchableOpacity style={styles.tplCancelBtn} onPress={() => setShowTemplateModal(false)}>
-              <Text style={styles.tplCancelText}>Annuler</Text>
+              <Text style={styles.tplCancelText}>{t('common.cancel')}</Text>
             </TouchableOpacity>
           </View>
         </View>

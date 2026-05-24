@@ -14,6 +14,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import * as DocumentPicker from 'expo-document-picker';
+import { useTranslation } from 'react-i18next';
 import { C } from '@/constants/colors';
 import { useApp } from '@/context/AppContext';
 import { useAuth } from '@/context/AuthContext';
@@ -67,6 +68,7 @@ const VISIBLE_RECENT_CHIPS = 3;
 const VISIBLE_RECENT_LEVEL_CHIPS = 3;
 
 const STATUS_ORDER: ReserveStatus[] = ['open', 'in_progress', 'waiting', 'verification', 'closed'];
+type TFunc = (key: string, options?: Record<string, any>) => string;
 
 interface PinCluster {
   cx: number; cy: number;
@@ -243,6 +245,7 @@ async function exportPlanPDF(
   companiesForColor: Array<{ name: string; color: string }> = [],
   captureRef?: React.RefObject<PdfPlanViewerHandle | null> | null,
   action: 'share' | 'print' = 'share',
+  t?: TFunc,
 ) {
   const STATUS_FR = RESERVE_STATUS_LABELS as Record<string, string>;
   const PRIORITY_FR = RESERVE_PRIORITY_LABELS as Record<string, string>;
@@ -466,7 +469,7 @@ ${fallbackCanvasScript ? `<script>${fallbackCanvasScript}<\/script>` : ''}
         await exportPDFHelper(html, buildPdfFilename('Plan', [planLevel, planName, planBuilding, chantierName]));
       }
     } catch {
-      Alert.alert('Erreur', "Impossible de générer le PDF.");
+      Alert.alert(t?.('common.error') ?? 'Erreur', t?.('plansScreen.alerts.pdfFailed') ?? "Impossible de générer le PDF.");
     }
   }
 }
@@ -877,6 +880,7 @@ ${orphanSectionHtml}
 }
 
 export default function PlansScreen() {
+  const { t } = useTranslation();
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const { focusPlanId: focusPlanIdParam, focusReserveId: focusReserveIdParam } = useLocalSearchParams<{ focusPlanId?: string; focusReserveId?: string }>();
@@ -892,6 +896,18 @@ export default function PlansScreen() {
   const { width: screenWidth, height: screenHeight } = useWindowDimensions();
   const isTablet = screenWidth >= 768;
   const topPad = insets.top;
+  const commonPlanText = useCallback(
+    (count: number) => t(count === 1 ? 'plansUi.plan_one' : 'plansUi.plan_other', { count }),
+    [t]
+  );
+  const commonReserveText = useCallback(
+    (count: number) => t(count === 1 ? 'plansUi.reserves_one' : 'plansUi.reserves_other', { count }),
+    [t]
+  );
+  const getStatusLabel = useCallback(
+    (status: string) => t(`reserveLabels.status.${status}`, { defaultValue: RESERVE_STATUS_LABELS[status as ReserveStatus] ?? status }),
+    [t]
+  );
 
   const chantierPlans = useMemo(
     () => sitePlans.filter(p => p.chantierId === activeChantierId),
@@ -1571,7 +1587,7 @@ export default function PlansScreen() {
     // ── Global report mode ──────────────────────────────────────────────────
     if (pdfScope === 'global') {
       if (globalReportPreviewCount === 0) {
-        Alert.alert('Aucune réserve', "Aucune réserve ne correspond à votre sélection.");
+        Alert.alert(t('plansScreen.alerts.noReserveTitle'), t('plansScreen.alerts.noReserveSelection'));
         return;
       }
       setPdfLoading(true);
@@ -1618,7 +1634,7 @@ export default function PlansScreen() {
         );
         setPdfModalVisible(false);
       } catch {
-        Alert.alert('Erreur', "Impossible de générer le rapport PDF.");
+        Alert.alert(t('common.error'), t('plansScreen.alerts.globalPdfFailed'));
       } finally {
         setPdfLoading(false);
         setGlobalReportProgress(null);
@@ -1627,7 +1643,7 @@ export default function PlansScreen() {
     }
     // ── Per-plan mode (existing behaviour) ──────────────────────────────────
     if (pdfFilteredList.length === 0) {
-      Alert.alert('Aucune réserve', "Aucune réserve ne correspond à votre sélection.");
+      Alert.alert(t('plansScreen.alerts.noReserveTitle'), t('plansScreen.alerts.noReserveSelection'));
       return;
     }
     setPdfLoading(true);
@@ -1646,14 +1662,15 @@ export default function PlansScreen() {
         companies,
         pdfViewerRef,
         action,
+        t,
       );
       setPdfModalVisible(false);
     } catch {
-      Alert.alert('Erreur', "Impossible de générer le PDF.");
+      Alert.alert(t('common.error'), t('plansScreen.alerts.pdfFailed'));
     } finally {
       setPdfLoading(false);
     }
-  }, [pdfScope, globalReportPreviewCount, activeChantier, chantierPlans, chantierReserves, globalReportCompany, globalReportStatusFilter, companies, pdfFilteredList, currentPlan, pinNumberMap, pinSizeScale, capturePreRenderPlan, enrichReservesForPdf]);
+  }, [pdfScope, globalReportPreviewCount, activeChantier, chantierPlans, chantierReserves, globalReportCompany, globalReportStatusFilter, companies, pdfFilteredList, currentPlan, pinNumberMap, pinSizeScale, capturePreRenderPlan, enrichReservesForPdf, t]);
 
   const handleEmailReport = useCallback(async () => {
     const emails = globalReportEmailTo
@@ -1662,11 +1679,11 @@ export default function PlansScreen() {
       .filter(e => e.includes('@') && e.includes('.'));
 
     if (emails.length === 0) {
-      Alert.alert('Adresse email requise', 'Entrez au moins une adresse email valide (ex: chef@entreprise.fr).');
+      Alert.alert(t('plansScreen.alerts.emailRequiredTitle'), t('plansScreen.alerts.emailRequired'));
       return;
     }
     if (globalReportPreviewCount === 0) {
-      Alert.alert('Aucune réserve', 'Aucune réserve ne correspond à votre sélection.');
+      Alert.alert(t('plansScreen.alerts.noReserveTitle'), t('plansScreen.alerts.noReserveSelection'));
       return;
     }
 
@@ -1689,14 +1706,14 @@ export default function PlansScreen() {
       if (localOnlyPhotoCount > 0 || localOnlyPlanCount > 0) {
         const shouldContinue = await new Promise<boolean>((resolve) => {
           Alert.alert(
-            'Éléments non synchronisés',
+            t('plansScreen.alerts.unsyncedItemsTitle'),
             [
-              localOnlyPhotoCount > 0 ? `${localOnlyPhotoCount} photo${localOnlyPhotoCount > 1 ? 's' : ''} locale${localOnlyPhotoCount > 1 ? 's' : ''}` : null,
-              localOnlyPlanCount > 0 ? `${localOnlyPlanCount} plan${localOnlyPlanCount > 1 ? 's' : ''} local${localOnlyPlanCount > 1 ? 'aux' : ''}` : null,
-            ].filter(Boolean).join(' et ') + " ne pourra pas être inclus dans le PDF envoyé par email tant que la synchronisation n'est pas terminée.",
+              localOnlyPhotoCount > 0 ? t(localOnlyPhotoCount === 1 ? 'plansScreen.alerts.localPhoto_one' : 'plansScreen.alerts.localPhoto_other', { count: localOnlyPhotoCount }) : null,
+              localOnlyPlanCount > 0 ? t(localOnlyPlanCount === 1 ? 'plansScreen.alerts.localPlan_one' : 'plansScreen.alerts.localPlan_other', { count: localOnlyPlanCount }) : null,
+            ].filter(Boolean).join(` ${t('common.and')} `) + t('plansScreen.alerts.unsyncedEmailSuffix'),
             [
-              { text: 'Attendre la sync', style: 'cancel', onPress: () => resolve(false) },
-              { text: 'Envoyer quand même', onPress: () => resolve(true) },
+              { text: t('plansScreen.alerts.waitSync'), style: 'cancel', onPress: () => resolve(false) },
+              { text: t('plansScreen.alerts.sendAnyway'), onPress: () => resolve(true) },
             ],
           );
         });
@@ -1743,7 +1760,7 @@ export default function PlansScreen() {
       });
 
       if (!result.success) {
-        Alert.alert('Erreur envoi', result.error ?? "Impossible d'envoyer le rapport.");
+        Alert.alert(t('plansScreen.alerts.sendErrorTitle'), result.error ?? t('plansScreen.alerts.sendReportFailed'));
         return;
       }
 
@@ -1762,7 +1779,7 @@ export default function PlansScreen() {
             setPdfModalVisible(false);
             await Sharing.shareAsync(fileUri, {
               mimeType: 'application/pdf',
-              dialogTitle: `Rapport — ${activeChantier?.name ?? ''}`,
+              dialogTitle: t('plansScreen.pdf.shareDialogTitle', { chantier: activeChantier?.name ?? '' }),
               UTI: 'com.adobe.pdf',
             });
             return;
@@ -1773,17 +1790,17 @@ export default function PlansScreen() {
       }
 
       Alert.alert(
-        '✓ Rapport envoyé',
-        `Le rapport (${count} réserve${count !== 1 ? 's' : ''}) a bien été envoyé à :\n${emails.join('\n')}`
+        t('plansScreen.alerts.reportSentTitle'),
+        t('plansScreen.alerts.reportSentMessage', { count, reserveText: commonReserveText(count), emails: emails.join('\n') })
       );
       setGlobalReportEmailTo('');
       setPdfModalVisible(false);
     } catch (err: any) {
-      Alert.alert('Erreur', err?.message ?? "Impossible d'envoyer le rapport.");
+      Alert.alert(t('common.error'), err?.message ?? t('plansScreen.alerts.sendReportFailed'));
     } finally {
       setGlobalReportEmailLoading(false);
     }
-  }, [globalReportEmailTo, globalReportPreviewCount, chantierReserves, chantierPlans, globalReportCompany, globalReportStatusFilter, activeChantier, enrichReservesForPdf]);
+  }, [globalReportEmailTo, globalReportPreviewCount, chantierReserves, chantierPlans, globalReportCompany, globalReportStatusFilter, activeChantier, enrichReservesForPdf, t, commonReserveText]);
 
   const pinSize = Math.round((isTablet ? 48 : 44) * pinSizeScale);
   const clusterSize = Math.round((isTablet ? 60 : 52) * pinSizeScale);
@@ -1907,8 +1924,8 @@ export default function PlansScreen() {
   function focusReserveOnPlanFromModal(reserve: Reserve) {
     if (!reserve.planId || reserve.planX == null || reserve.planY == null) {
       Alert.alert(
-        'Pin absent',
-        "Cette réserve n'a pas encore de position sur un plan."
+        t('plansScreen.alerts.missingPinTitle'),
+        t('plansScreen.alerts.missingPin')
       );
       return;
     }
@@ -2264,7 +2281,7 @@ export default function PlansScreen() {
         const isPdfFile = docExt === 'pdf';
         const isDxf = docExt === 'dxf';
         if (!isImg && !isPdfFile && !isDxf) {
-          Alert.alert('Format non supporté', 'Importez une image (JPG, PNG), un PDF ou un fichier AutoCAD (.dxf).');
+          Alert.alert(t('plansScreen.alerts.unsupportedFormatTitle'), t('plansScreen.alerts.unsupportedImportFormat'));
           return;
         }
         if (isDxf) {
@@ -2272,7 +2289,7 @@ export default function PlansScreen() {
           const dxfText = await dxfResp.text();
           const parsed = parseDxf(dxfText);
           if (parsed.entities.length === 0) {
-            Alert.alert('DXF vide', "Le fichier DXF ne contient aucune entité reconnue.");
+            Alert.alert(t('plansScreen.alerts.emptyDxfTitle'), t('plansScreen.alerts.emptyDxf'));
             return;
           }
           const { url: dxfStorageUrl, error: dxfUploadError } = await uploadDocumentDetailed(asset.uri, `plan_dxf_${currentPlanId}_${docName}`, 'application/octet-stream');
@@ -2280,9 +2297,13 @@ export default function PlansScreen() {
           setDxfData(prev => ({ ...prev, [currentPlanId]: parsed }));
           updateSitePlan({ ...currentPlan, uri: dxfUri, fileType: 'dxf', dxfName: docName, size: formatSize(asset.size) });
           if (dxfStorageUrl) {
-            Alert.alert('Plan DXF importé ✓', `${parsed.entities.length} entités chargées depuis "${docName}".`);
+            Alert.alert(t('plansScreen.alerts.dxfImportedTitle'), t('plansScreen.alerts.dxfImported', { count: parsed.entities.length, name: docName }));
           } else {
-            Alert.alert('Plan DXF importé (local uniquement)', `${parsed.entities.length} entités chargées depuis "${docName}".\n\nErreur upload : ${dxfUploadError ?? 'inconnue'}\n\nLe plan sera visible sur cet appareil uniquement.`, [{ text: 'OK' }]);
+            Alert.alert(
+              t('plansScreen.alerts.dxfImportedLocalTitle'),
+              t('plansScreen.alerts.dxfImportedLocal', { count: parsed.entities.length, name: docName, error: dxfUploadError ?? t('common.unknown') }),
+              [{ text: t('common.ok') }]
+            );
           }
           return;
         }
@@ -2295,13 +2316,17 @@ export default function PlansScreen() {
         });
         updateSitePlan({ ...currentPlan, uri: finalUri, fileType: isPdfFile ? 'pdf' : 'image', size: formatSize(asset.size) });
         if (storageUrl) {
-          Alert.alert('Plan importé ✓', 'Fichier uploadé sur le serveur. Il sera disponible sur tous vos appareils.');
+          Alert.alert(t('plansScreen.alerts.planImportedTitle'), t('plansScreen.alerts.planImported'));
         } else {
-          Alert.alert('Plan importé (local uniquement)', `Le fichier n'a pas pu être uploadé sur le serveur.\n\nErreur : ${uploadError ?? 'inconnue'}\n\nLe plan sera visible sur cet appareil uniquement.`, [{ text: 'OK' }]);
+          Alert.alert(
+            t('plansScreen.alerts.planImportedLocalTitle'),
+            t('plansScreen.alerts.planImportedLocal', { error: uploadError ?? t('common.unknown') }),
+            [{ text: t('common.ok') }]
+          );
         }
       }
     } catch {
-      Alert.alert('Erreur', "Impossible d'importer le plan.");
+      Alert.alert(t('common.error'), t('plansScreen.alerts.importPlanFailed'));
     } finally {
       setImporting(false);
     }
@@ -2309,9 +2334,9 @@ export default function PlansScreen() {
 
   function handleRemovePlan() {
     if (!currentPlan?.uri) return;
-    Alert.alert('Remplacer le plan importé ?', 'Le plan actuel sera remplacé.', [
-      { text: 'Annuler', style: 'cancel' },
-      { text: 'Remplacer', style: 'destructive', onPress: handleImportPlan },
+    Alert.alert(t('plansScreen.alerts.replacePlanTitle'), t('plansScreen.alerts.replacePlanMessage'), [
+      { text: t('common.cancel'), style: 'cancel' },
+      { text: t('plansScreen.actions.replace'), style: 'destructive', onPress: handleImportPlan },
     ]);
   }
 
@@ -2333,7 +2358,7 @@ export default function PlansScreen() {
         const asset = result.assets[0];
         const docExt = asset.name.split('.').pop()?.toLowerCase() ?? '';
         if (!isImage(asset.name) && docExt !== 'pdf' && docExt !== 'dxf') {
-          Alert.alert('Format non supporté', 'Importez une image, un PDF ou un DXF.');
+          Alert.alert(t('plansScreen.alerts.unsupportedFormatTitle'), t('plansScreen.alerts.unsupportedRevisionFormat'));
           return;
         }
         const revDocExt = asset.name.split('.').pop()?.toLowerCase() ?? '';
@@ -2343,7 +2368,11 @@ export default function PlansScreen() {
           revDocExt === 'dxf' ? 'application/octet-stream' : asset.mimeType ?? undefined,
         );
         if (!storageUrl) {
-          Alert.alert('Attention — stockage local', `Le fichier de révision n'a pas pu être uploadé sur le serveur.\n\nErreur : ${revUploadError ?? 'inconnue'}\n\nIl sera visible sur cet appareil uniquement.`, [{ text: 'Continuer' }]);
+          Alert.alert(
+            t('plansScreen.alerts.localStorageTitle'),
+            t('plansScreen.alerts.revisionLocalOnly', { error: revUploadError ?? t('common.unknown') }),
+            [{ text: t('common.continue') }]
+          );
         }
         const finalUri = storageUrl ?? asset.uri;
         const newPlan: SitePlan = {
@@ -2361,18 +2390,18 @@ export default function PlansScreen() {
         setActivePlanId(newPlan.id);
         const openMarkersCount = reserves.filter(r => r.planId === currentPlan.id && r.status !== 'closed').length;
         if (openMarkersCount > 0) {
-          Alert.alert('Révision créée ✓', `Révision ${revisionModal.code.trim()} créée.\n\n${openMarkersCount} marqueur${openMarkersCount > 1 ? 's' : ''} ouvert${openMarkersCount > 1 ? 's' : ''} détecté${openMarkersCount > 1 ? 's' : ''}.\n\nMigrer vers la nouvelle révision ?`, [
-            { text: 'Ignorer', style: 'cancel' },
-            { text: `Migrer (${openMarkersCount})`, onPress: () => {
+          Alert.alert(t('plansScreen.alerts.revisionCreatedTitle'), t('plansScreen.alerts.revisionCreatedWithMarkers', { code: revisionModal.code.trim(), count: openMarkersCount }), [
+            { text: t('plansScreen.actions.ignore'), style: 'cancel' },
+            { text: t('plansScreen.actions.migrateCount', { count: openMarkersCount }), onPress: () => {
               const count = migrateReservesToPlan(currentPlan.id, newPlan.id);
-              Alert.alert('Migration terminée ✓', `${count} marqueur${count > 1 ? 's' : ''} migré${count > 1 ? 's' : ''}.`);
+              Alert.alert(t('plansScreen.alerts.migrationDoneTitle'), t('plansScreen.alerts.migrationDone', { count }));
             }},
           ]);
         } else {
-          Alert.alert('Révision créée ✓', `Révision ${revisionModal.code.trim()} créée.`);
+          Alert.alert(t('plansScreen.alerts.revisionCreatedTitle'), t('plansScreen.alerts.revisionCreated', { code: revisionModal.code.trim() }));
         }
       }
-    } catch { Alert.alert('Erreur', "Impossible de créer la révision."); }
+    } catch { Alert.alert(t('common.error'), t('plansScreen.alerts.createRevisionFailed')); }
     finally { setImporting(false); }
   }
 
@@ -2392,12 +2421,12 @@ export default function PlansScreen() {
   function handleDeletePlanFile() {
     if (!currentPlan?.uri) return;
     Alert.alert(
-      'Retirer le fichier ?',
-      'Le PDF / image / DXF sera retiré. Le plan (nom, niveau, réserves) sera conservé — il deviendra schématique.',
+      t('plansScreen.alerts.removeFileTitle'),
+      t('plansScreen.alerts.removeFileMessage'),
       [
-        { text: 'Annuler', style: 'cancel' },
+        { text: t('common.cancel'), style: 'cancel' },
         {
-          text: 'Retirer',
+          text: t('plansScreen.actions.remove'),
           style: 'destructive',
           onPress: () => {
             setDxfData(prev => {
@@ -2422,12 +2451,12 @@ export default function PlansScreen() {
     if (!currentPlanId || !currentPlan) return;
     const linkedReserves = reserves.filter(r => r.planId === currentPlanId);
     const msg = linkedReserves.length > 0
-      ? `Le plan "${currentPlan.name}" et son fichier seront supprimés définitivement.\n\n${linkedReserves.length} réserve${linkedReserves.length > 1 ? 's' : ''} associée${linkedReserves.length > 1 ? 's' : ''} ${linkedReserves.length > 1 ? 'seront' : 'sera'} détachée${linkedReserves.length > 1 ? 's' : ''} du plan (conservées sans localisation).`
-      : `Le plan "${currentPlan.name}" et son fichier seront supprimés définitivement.`;
-    Alert.alert('Supprimer le plan ?', msg, [
-      { text: 'Annuler', style: 'cancel' },
+      ? t('plansScreen.alerts.deletePlanWithReserves', { name: currentPlan.name, count: linkedReserves.length })
+      : t('plansScreen.alerts.deletePlanMessage', { name: currentPlan.name });
+    Alert.alert(t('plansScreen.alerts.deletePlanTitle'), msg, [
+      { text: t('common.cancel'), style: 'cancel' },
       {
-        text: 'Supprimer',
+        text: t('common.delete'),
         style: 'destructive',
         onPress: () => {
           linkedReserves.forEach(r => {
@@ -2474,7 +2503,7 @@ export default function PlansScreen() {
       }
     } catch {
       setNewPlanModal(p => ({ ...p, uploading: false }));
-      Alert.alert('Erreur', "Impossible d'importer le fichier.");
+      Alert.alert(t('common.error'), t('plansScreen.alerts.importFileFailed'));
     }
   }
 
@@ -2583,7 +2612,7 @@ export default function PlansScreen() {
           <TouchableOpacity activeOpacity={1} style={[styles.modalCard, { marginBottom: kbHeight }]} onPress={() => {}}>
             <View style={styles.modalHeader}>
               <View style={[styles.modalPin, { backgroundColor: C.primary }]}><Ionicons name="map-outline" size={14} color="#fff" /></View>
-              <View style={{ flex: 1 }}><Text style={styles.modalTitle}>Nouveau plan</Text><Text style={styles.modalMeta}>Ajoutez un plan à ce chantier</Text></View>
+              <View style={{ flex: 1 }}><Text style={styles.modalTitle}>{t('plansScreen.newPlan.title')}</Text><Text style={styles.modalMeta}>{t('plansScreen.newPlan.subtitle')}</Text></View>
               <TouchableOpacity onPress={() => setNewPlanModal({ visible: false, name: '', building: '', level: '' })}><Ionicons name="close" size={20} color={C.textMuted} /></TouchableOpacity>
             </View>
 
@@ -2598,9 +2627,9 @@ export default function PlansScreen() {
                 </View>
                 <View style={{ flex: 1 }}>
                   <Text style={styles.newPlanFileChipName}>
-                    {newPlanModal.fileType === 'pdf' ? 'PDF' : newPlanModal.fileType === 'dxf' ? 'DXF' : 'Image'} importé{newPlanModal.size ? ` · ${newPlanModal.size}` : ''}
+                    {newPlanModal.fileType === 'pdf' ? 'PDF' : newPlanModal.fileType === 'dxf' ? 'DXF' : t('plansScreen.fileTypes.image')} {t('plansScreen.newPlan.imported')}{newPlanModal.size ? ` · ${newPlanModal.size}` : ''}
                   </Text>
-                  <Text style={styles.newPlanFileChipSub}>Appuyez pour changer</Text>
+                  <Text style={styles.newPlanFileChipSub}>{t('plansScreen.newPlan.tapToChange')}</Text>
                 </View>
                 <TouchableOpacity onPress={importFileForNewPlan}>
                   <Ionicons name="swap-horizontal-outline" size={18} color={C.textMuted} />
@@ -2614,24 +2643,24 @@ export default function PlansScreen() {
                   <>
                     <Ionicons name="cloud-upload-outline" size={22} color={C.primary} />
                     <View style={{ flex: 1 }}>
-                      <Text style={styles.newPlanImportBtnText}>Importer PDF / image / DXF</Text>
-                      <Text style={styles.newPlanImportBtnSub}>Obligatoire pour créer le plan</Text>
+                      <Text style={styles.newPlanImportBtnText}>{t('plansScreen.newPlan.importTypes')}</Text>
+                      <Text style={styles.newPlanImportBtnSub}>{t('plansScreen.newPlan.importRequiredHint')}</Text>
                     </View>
-                    <View style={styles.newPlanImportRequired}><Text style={styles.newPlanImportRequiredText}>Requis</Text></View>
+                    <View style={styles.newPlanImportRequired}><Text style={styles.newPlanImportRequiredText}>{t('plansScreen.newPlan.required')}</Text></View>
                   </>
                 )}
               </TouchableOpacity>
             )}
 
             <View style={styles.newPlanField}>
-              <Text style={styles.newPlanLabel}>Nom du plan *</Text>
-              <TextInput style={styles.newPlanInput} placeholder="ex : Plan électrique" placeholderTextColor={C.textMuted} value={newPlanModal.name} onChangeText={v => setNewPlanModal(p => ({ ...p, name: v }))} />
+              <Text style={styles.newPlanLabel}>{t('plansScreen.newPlan.nameLabel')}</Text>
+              <TextInput style={styles.newPlanInput} placeholder={t('plansScreen.newPlan.namePlaceholder')} placeholderTextColor={C.textMuted} value={newPlanModal.name} onChangeText={v => setNewPlanModal(p => ({ ...p, name: v }))} />
             </View>
 
             {chantierHierarchyBuildings.length > 0 ? (
               <>
                 <View style={styles.newPlanField}>
-                  <Text style={styles.newPlanLabel}>Bâtiment</Text>
+                  <Text style={styles.newPlanLabel}>{t('plansUi.building')}</Text>
                   <ScrollView horizontal showsHorizontalScrollIndicator={false}>
                     <View style={{ flexDirection: 'row', gap: 8, paddingVertical: 4 }}>
                       {chantierHierarchyBuildings.map(b => (
@@ -2648,7 +2677,7 @@ export default function PlansScreen() {
                 </View>
                 {levelsForNewPlanBuilding.length > 0 && (
                   <View style={styles.newPlanField}>
-                    <Text style={styles.newPlanLabel}>Niveau</Text>
+                    <Text style={styles.newPlanLabel}>{t('plansUi.planLevel')}</Text>
                     <ScrollView horizontal showsHorizontalScrollIndicator={false}>
                       <View style={{ flexDirection: 'row', gap: 8, paddingVertical: 4 }}>
                         {levelsForNewPlanBuilding.map(l => (
@@ -2668,12 +2697,12 @@ export default function PlansScreen() {
             ) : (
               <View style={styles.newPlanRow}>
                 <View style={[styles.newPlanField, { flex: 1 }]}>
-                  <Text style={styles.newPlanLabel}>Bâtiment</Text>
-                  <TextInput style={styles.newPlanInput} placeholder="ex : Bât A" placeholderTextColor={C.textMuted} value={newPlanModal.building} onChangeText={v => setNewPlanModal(p => ({ ...p, building: v }))} />
+                  <Text style={styles.newPlanLabel}>{t('plansUi.building')}</Text>
+                  <TextInput style={styles.newPlanInput} placeholder={t('plansScreen.newPlan.buildingPlaceholder')} placeholderTextColor={C.textMuted} value={newPlanModal.building} onChangeText={v => setNewPlanModal(p => ({ ...p, building: v }))} />
                 </View>
                 <View style={[styles.newPlanField, { flex: 1 }]}>
-                  <Text style={styles.newPlanLabel}>Niveau</Text>
-                  <TextInput style={styles.newPlanInput} placeholder="ex : RDC, R+1" placeholderTextColor={C.textMuted} value={newPlanModal.level} onChangeText={v => setNewPlanModal(p => ({ ...p, level: v }))} />
+                  <Text style={styles.newPlanLabel}>{t('plansUi.planLevel')}</Text>
+                  <TextInput style={styles.newPlanInput} placeholder={t('plansScreen.newPlan.levelPlaceholder')} placeholderTextColor={C.textMuted} value={newPlanModal.level} onChangeText={v => setNewPlanModal(p => ({ ...p, level: v }))} />
                 </View>
               </View>
             )}
@@ -2684,7 +2713,7 @@ export default function PlansScreen() {
               disabled={!newPlanModal.name.trim() || !newPlanModal.uri || !!newPlanModal.uploading}
             >
               <Ionicons name="add-circle-outline" size={16} color={C.primary} />
-              <Text style={styles.modalOpenText}>Créer le plan</Text>
+              <Text style={styles.modalOpenText}>{t('plansScreen.actions.createPlan')}</Text>
             </TouchableOpacity>
           </TouchableOpacity>
         </TouchableOpacity>
@@ -2696,40 +2725,40 @@ export default function PlansScreen() {
       return (
         <View style={styles.container}>
           <View style={[styles.header, { paddingTop: topPad + 12, paddingLeft: 24, paddingRight: 16, paddingBottom: 6 }]}>
-            <Text style={styles.title}>Plans</Text>
+            <Text style={styles.title}>{t('tabs.plans')}</Text>
           </View>
           <ScrollView contentContainerStyle={styles.emptyState} showsVerticalScrollIndicator={false}>
             <View style={styles.emptyIconWrap}>
               <Ionicons name="business-outline" size={44} color={C.primary} />
             </View>
-            <Text style={styles.emptyTitle}>Aucun chantier actif</Text>
-            <Text style={styles.emptySubtitle}>Créez votre premier chantier pour commencer à gérer vos plans et réserves.</Text>
+            <Text style={styles.emptyTitle}>{t('plansScreen.empty.noChantierTitle')}</Text>
+            <Text style={styles.emptySubtitle}>{t('plansScreen.empty.noChantierSubtitle')}</Text>
             <View style={styles.emptyFeatures}>
               <View style={styles.emptyFeatureRow}>
                 <View style={[styles.emptyFeatureDot, { backgroundColor: '#003082' }]}><Ionicons name="map-outline" size={14} color="#fff" /></View>
                 <View style={{ flex: 1 }}>
-                  <Text style={styles.emptyFeatureTitle}>Visualisez sur plan</Text>
-                  <Text style={styles.emptyFeatureDesc}>Placez chaque réserve directement sur votre plan de chantier.</Text>
+                  <Text style={styles.emptyFeatureTitle}>{t('plansScreen.empty.visualizeTitle')}</Text>
+                  <Text style={styles.emptyFeatureDesc}>{t('plansScreen.empty.visualizeDesc')}</Text>
                 </View>
               </View>
               <View style={styles.emptyFeatureRow}>
                 <View style={[styles.emptyFeatureDot, { backgroundColor: '#059669' }]}><Ionicons name="layers-outline" size={14} color="#fff" /></View>
                 <View style={{ flex: 1 }}>
-                  <Text style={styles.emptyFeatureTitle}>Hiérarchie Bâtiment › Niveau</Text>
-                  <Text style={styles.emptyFeatureDesc}>Organisez vos plans par bâtiment et niveau pour une navigation précise.</Text>
+                  <Text style={styles.emptyFeatureTitle}>{t('plansScreen.empty.hierarchyTitle')}</Text>
+                  <Text style={styles.emptyFeatureDesc}>{t('plansScreen.empty.hierarchyDesc')}</Text>
                 </View>
               </View>
               <View style={styles.emptyFeatureRow}>
                 <View style={[styles.emptyFeatureDot, { backgroundColor: '#7C3AED' }]}><Ionicons name="print-outline" size={14} color="#fff" /></View>
                 <View style={{ flex: 1 }}>
-                  <Text style={styles.emptyFeatureTitle}>Export PDF annoté</Text>
-                  <Text style={styles.emptyFeatureDesc}>Exportez vos plans avec les épingles numérotées et la liste des réserves.</Text>
+                  <Text style={styles.emptyFeatureTitle}>{t('plansScreen.empty.exportTitle')}</Text>
+                  <Text style={styles.emptyFeatureDesc}>{t('plansScreen.empty.exportDesc')}</Text>
                 </View>
               </View>
             </View>
             <TouchableOpacity style={styles.emptyBtn} onPress={() => router.push('/chantier/new' as any)}>
               <Ionicons name="add-circle-outline" size={16} color="#fff" />
-              <Text style={styles.emptyBtnText}>Créer un chantier</Text>
+              <Text style={styles.emptyBtnText}>{t('plansScreen.actions.createChantier')}</Text>
             </TouchableOpacity>
           </ScrollView>
         </View>
@@ -2743,7 +2772,7 @@ export default function PlansScreen() {
           <View style={[styles.header, { paddingTop: topPad + 8 }]}>
             <View style={styles.headerTop}>
               <View style={{ flex: 1 }}>
-                <Text style={styles.title}>Plans</Text>
+                <Text style={styles.title}>{t('tabs.plans')}</Text>
                 {activeChantier && (
                   <TouchableOpacity style={styles.chantierLabelRow} onPress={openChantierSwitcher} activeOpacity={0.7}>
                     <Text style={styles.chantierLabel} numberOfLines={1}>{activeChantier.name}</Text>
@@ -2754,14 +2783,14 @@ export default function PlansScreen() {
               {permissions.canCreate && (
                 <TouchableOpacity style={styles.structureHeaderAddBtn} onPress={handleAddPlan}>
                   <Ionicons name="add" size={15} color={C.primary} />
-                  <Text style={styles.structureHeaderAddText}>Ajouter un plan</Text>
+                  <Text style={styles.structureHeaderAddText}>{t('plansScreen.actions.addPlan')}</Text>
                 </TouchableOpacity>
               )}
             </View>
           </View>
           <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: 40 }} showsVerticalScrollIndicator={false}>
             <Text style={styles.structureHint}>
-              Votre chantier est configuré. Ajoutez des plans pour chaque niveau en appuyant sur le bouton&nbsp;«&nbsp;+&nbsp;».
+              {t('plansScreen.empty.structureHint')}
             </Text>
             {chantierHierarchyBuildings.map(b => (
               <View key={b.id} style={styles.structureBuilding}>
@@ -2779,7 +2808,7 @@ export default function PlansScreen() {
                         onPress={() => setNewPlanModal({ visible: true, name: '', building: b.name, buildingId: b.id, level: l.name, levelId: l.id })}
                       >
                         <Ionicons name="add" size={14} color={C.primary} />
-                        <Text style={styles.structureLevelAddText}>Ajouter un plan ici</Text>
+                        <Text style={styles.structureLevelAddText}>{t('plansScreen.actions.addPlanHere')}</Text>
                       </TouchableOpacity>
                     )}
                   </View>
@@ -2796,7 +2825,7 @@ export default function PlansScreen() {
     return (
       <View style={styles.container}>
         <View style={[styles.header, { paddingTop: topPad + 12, paddingLeft: 24, paddingRight: 16, paddingBottom: 6 }]}>
-          <Text style={styles.title}>Plans</Text>
+          <Text style={styles.title}>{t('tabs.plans')}</Text>
           {activeChantier && (
             <TouchableOpacity style={styles.chantierLabelRow} onPress={openChantierSwitcher} activeOpacity={0.7}>
               <Text style={styles.chantierLabel} numberOfLines={1}>{activeChantier.name}</Text>
@@ -2808,29 +2837,29 @@ export default function PlansScreen() {
           <View style={styles.emptyIconWrap}>
             <Ionicons name="business-outline" size={44} color={C.primary} />
           </View>
-          <Text style={styles.emptyTitle}>Configurez la structure</Text>
+          <Text style={styles.emptyTitle}>{t('plansScreen.empty.configureStructureTitle')}</Text>
           <Text style={styles.emptySubtitle}>
-            Définissez les bâtiments et niveaux de ce chantier pour pouvoir ajouter et localiser vos plans.
+            {t('plansScreen.empty.configureStructureSubtitle')}
           </Text>
           <View style={styles.emptyFeatures}>
             <View style={styles.emptyFeatureRow}>
               <View style={[styles.emptyFeatureDot, { backgroundColor: '#003082' }]}><Ionicons name="git-branch-outline" size={14} color="#fff" /></View>
               <View style={{ flex: 1 }}>
-                <Text style={styles.emptyFeatureTitle}>Structure hiérarchique</Text>
-                <Text style={styles.emptyFeatureDesc}>Bâtiments, niveaux et zones — utilisés pour les plans, réserves, visites et OPRs.</Text>
+                <Text style={styles.emptyFeatureTitle}>{t('plansScreen.empty.structureFeatureTitle')}</Text>
+                <Text style={styles.emptyFeatureDesc}>{t('plansScreen.empty.structureFeatureDesc')}</Text>
               </View>
             </View>
             <View style={styles.emptyFeatureRow}>
               <View style={[styles.emptyFeatureDot, { backgroundColor: '#059669' }]}><Ionicons name="map-outline" size={14} color="#fff" /></View>
               <View style={{ flex: 1 }}>
-                <Text style={styles.emptyFeatureTitle}>Localisation précise</Text>
-                <Text style={styles.emptyFeatureDesc}>Chaque plan sera associé à un bâtiment et un niveau pour une navigation rapide.</Text>
+                <Text style={styles.emptyFeatureTitle}>{t('plansScreen.empty.locationTitle')}</Text>
+                <Text style={styles.emptyFeatureDesc}>{t('plansScreen.empty.locationDesc')}</Text>
               </View>
             </View>
           </View>
           <TouchableOpacity style={styles.emptyBtn} onPress={() => router.push('/settings' as any)}>
             <Ionicons name="settings-outline" size={16} color="#fff" />
-            <Text style={styles.emptyBtnText}>Configurer dans les paramètres</Text>
+            <Text style={styles.emptyBtnText}>{t('plansScreen.actions.configureSettings')}</Text>
           </TouchableOpacity>
         </ScrollView>
         {newPlanModalJSX}
@@ -2847,9 +2876,9 @@ export default function PlansScreen() {
           {/* Row 1: Title + filter button */}
           <View style={styles.headerTop}>
             <View style={{ flex: 1 }}>
-              <Text style={styles.title} accessibilityRole="header">Plans</Text>
+              <Text style={styles.title} accessibilityRole="header">{t('tabs.plans')}</Text>
               {activeChantier && (
-                <TouchableOpacity style={styles.chantierLabelRow} onPress={openChantierSwitcher} activeOpacity={0.7} accessibilityLabel={`Chantier actif: ${activeChantier.name}`}>
+                <TouchableOpacity style={styles.chantierLabelRow} onPress={openChantierSwitcher} activeOpacity={0.7} accessibilityLabel={t('plansScreen.a11y.activeChantier', { name: activeChantier.name })}>
                   <Text style={styles.chantierLabel} numberOfLines={1}>{activeChantier.name}</Text>
                   <Ionicons name="chevron-down" size={11} color={C.textMuted} />
                 </TouchableOpacity>
@@ -2858,10 +2887,10 @@ export default function PlansScreen() {
             <TouchableOpacity
               style={[styles.filterBtn, showFilters && styles.filterBtnActive]}
               onPress={() => setShowFilters(v => !v)}
-              accessibilityLabel={`Filtres${activeFilters > 0 ? ` (${activeFilters} actifs)` : ''}`}
+              accessibilityLabel={t('plansScreen.a11y.filters', { count: activeFilters })}
             >
               <Ionicons name="options-outline" size={15} color={showFilters || activeFilters > 0 ? C.primary : C.text} />
-              <Text style={[styles.filterBtnText, (showFilters || activeFilters > 0) && { color: C.primary }]}>Filtres</Text>
+              <Text style={[styles.filterBtnText, (showFilters || activeFilters > 0) && { color: C.primary }]}>{t('plansUi.filters')}</Text>
               {activeFilters > 0 && (
                 <View style={styles.filterBadge}><Text style={styles.filterBadgeText}>{activeFilters}</Text></View>
               )}
@@ -2888,7 +2917,7 @@ export default function PlansScreen() {
                     onPress={() => { setSelectedBuilding('__none__'); setSelectedLevel('all'); setActivePlanId(null); }}
                   >
                     <Ionicons name="layers-outline" size={11} color={selectedBuilding === '__none__' ? C.primary : C.textSub} />
-                    <Text style={[styles.hierarchyChipText, selectedBuilding === '__none__' && styles.hierarchyChipTextActive]}>Général</Text>
+                    <Text style={[styles.hierarchyChipText, selectedBuilding === '__none__' && styles.hierarchyChipTextActive]}>{t('plansScreen.general')}</Text>
                   </TouchableOpacity>
                 )}
               </ScrollView>
@@ -2928,16 +2957,16 @@ export default function PlansScreen() {
                     onPress={() => { setSelectedBuilding('__none__'); setSelectedLevel('all'); setActivePlanId(null); }}
                   >
                     <Ionicons name="layers-outline" size={11} color={selectedBuilding === '__none__' ? C.primary : C.textSub} />
-                    <Text style={[styles.hierarchyChipText, selectedBuilding === '__none__' && styles.hierarchyChipTextActive]}>Général</Text>
+                    <Text style={[styles.hierarchyChipText, selectedBuilding === '__none__' && styles.hierarchyChipTextActive]}>{t('plansScreen.general')}</Text>
                   </TouchableOpacity>
                 )}
                 <TouchableOpacity
                   style={styles.hierarchyChipAll}
                   onPress={() => setBuildingPickerOpen(true)}
-                  accessibilityLabel={`Voir tous les bâtiments (${chantierHierarchyBuildings.length})`}
+                  accessibilityLabel={t('plansScreen.a11y.viewAllBuildings', { count: chantierHierarchyBuildings.length })}
                 >
                   <Text style={styles.hierarchyChipAllText}>
-                    Tous · {chantierHierarchyBuildings.length}
+                    {t('plansScreen.allCount', { count: chantierHierarchyBuildings.length })}
                   </Text>
                   <Ionicons name="chevron-down" size={12} color="#fff" />
                 </TouchableOpacity>
@@ -2952,7 +2981,7 @@ export default function PlansScreen() {
                   style={[styles.hierarchyChipLevel, selectedLevel === 'all' && styles.hierarchyChipLevelActive]}
                   onPress={() => { setSelectedLevel('all'); setActivePlanId(null); }}
                 >
-                  <Text style={[styles.hierarchyChipLevelText, selectedLevel === 'all' && { color: C.primary, fontFamily: 'Inter_600SemiBold' }]}>Tous niveaux</Text>
+                  <Text style={[styles.hierarchyChipLevelText, selectedLevel === 'all' && { color: C.primary, fontFamily: 'Inter_600SemiBold' }]}>{t('plansUi.allLevels', { defaultValue: t('levelPicker.allLevels') })}</Text>
                 </TouchableOpacity>
                 {activeBuildingForLevels.levels.map(l => (
                   <TouchableOpacity
@@ -2975,7 +3004,7 @@ export default function PlansScreen() {
                   style={[styles.hierarchyChipLevel, selectedLevel === 'all' && styles.hierarchyChipLevelActive]}
                   onPress={() => { setSelectedLevel('all'); setActivePlanId(null); }}
                 >
-                  <Text style={[styles.hierarchyChipLevelText, selectedLevel === 'all' && { color: C.primary, fontFamily: 'Inter_600SemiBold' }]}>Tous niveaux</Text>
+                  <Text style={[styles.hierarchyChipLevelText, selectedLevel === 'all' && { color: C.primary, fontFamily: 'Inter_600SemiBold' }]}>{t('plansUi.allLevels', { defaultValue: t('levelPicker.allLevels') })}</Text>
                 </TouchableOpacity>
                 {visibleRecentLevelChips.map(l => {
                   const isActive = selectedLevel === l.id;
@@ -3002,10 +3031,10 @@ export default function PlansScreen() {
                 <TouchableOpacity
                   style={styles.hierarchyChipAll}
                   onPress={() => setLevelPickerOpen(true)}
-                  accessibilityLabel={`Voir tous les niveaux (${activeBuildingForLevels.levels.length})`}
+                  accessibilityLabel={t('plansScreen.a11y.viewAllLevels', { count: activeBuildingForLevels.levels.length })}
                 >
                   <Text style={styles.hierarchyChipAllText}>
-                    Tous · {activeBuildingForLevels.levels.length}
+                    {t('plansScreen.allCount', { count: activeBuildingForLevels.levels.length })}
                   </Text>
                   <Ionicons name="chevron-down" size={12} color="#fff" />
                 </TouchableOpacity>
@@ -3020,7 +3049,7 @@ export default function PlansScreen() {
                 {filteredPlans.length === 0 ? (
                   <View style={styles.planTabsEmpty}>
                     <Ionicons name="map-outline" size={13} color={C.textMuted} />
-                    <Text style={styles.planTabsEmptyText}>Aucun plan pour ce niveau</Text>
+                    <Text style={styles.planTabsEmptyText}>{t('plansScreen.empty.noPlanForLevel')}</Text>
                   </View>
                 ) : filteredPlans.map(plan => {
                   const isActive = currentPlanId === plan.id;
@@ -3031,7 +3060,7 @@ export default function PlansScreen() {
                       key={plan.id}
                       style={[styles.planTab, isActive && styles.planTabActive, { position: 'relative' }]}
                       onPress={() => handleSelectPlan(plan.id)}
-                      accessibilityLabel={`Plan ${plan.name}${planReserveCount > 0 ? `, ${planReserveCount} réserves` : ''}${isUnsynced ? ', non synchronisé avec le serveur' : ''}`}
+                      accessibilityLabel={t('plansScreen.a11y.planTab', { name: plan.name, reserves: planReserveCount > 0 ? commonReserveText(planReserveCount) : '', unsynced: isUnsynced ? t('plansScreen.a11y.unsynced') : '' })}
                       accessibilityState={{ selected: isActive }}
                     >
                       <View style={styles.planTabThumb}>
@@ -3046,7 +3075,7 @@ export default function PlansScreen() {
                         )}
                       </View>
                       {isUnsynced && (
-                        <View style={styles.planTabSyncDot} accessibilityLabel="Fichier non envoyé au serveur">
+                        <View style={styles.planTabSyncDot} accessibilityLabel={t('plansScreen.a11y.fileNotSynced')}>
                           <Ionicons name="cloud-offline" size={9} color="#fff" />
                         </View>
                       )}
@@ -3069,9 +3098,9 @@ export default function PlansScreen() {
 
             <View style={styles.planActions}>
               {permissions.canCreate && !currentPlan?.uri && (
-                <TouchableOpacity style={[styles.importBtn, importing && { opacity: 0.5 }]} onPress={handleImportPlan} disabled={importing || !currentPlanId} accessibilityLabel="Importer un plan">
+                <TouchableOpacity style={[styles.importBtn, importing && { opacity: 0.5 }]} onPress={handleImportPlan} disabled={importing || !currentPlanId} accessibilityLabel={t('plansScreen.actions.importPlan')}>
                   {importing ? <ActivityIndicator size="small" color={C.primary} /> : (
-                    <><Ionicons name="cloud-upload-outline" size={14} color={C.primary} /><Text style={styles.importBtnText}>Importer</Text></>
+                    <><Ionicons name="cloud-upload-outline" size={14} color={C.primary} /><Text style={styles.importBtnText}>{t('plansScreen.actions.import')}</Text></>
                   )}
                 </TouchableOpacity>
               )}
@@ -3089,12 +3118,12 @@ export default function PlansScreen() {
               <View style={styles.planTitleTopRow}>
                 <View style={{ flex: 1, minWidth: 0, overflow: 'hidden' as any }}>
                   <Text style={styles.planTitle} numberOfLines={1} ellipsizeMode="tail">
-                    {currentPlan?.name ?? 'Plan'}
+                    {currentPlan?.name ?? t('plansScreen.plan')}
                   </Text>
                   {currentPlan?.uri ? (
-                    <Text style={styles.planSubtitle}>{currentPlan.fileType === 'pdf' ? 'PDF' : isImagePlan ? 'Image' : 'DXF'} · {currentPlan.uploadedAt}</Text>
+                    <Text style={styles.planSubtitle}>{currentPlan.fileType === 'pdf' ? 'PDF' : isImagePlan ? t('plansScreen.fileTypes.image') : 'DXF'} · {currentPlan.uploadedAt}</Text>
                   ) : (
-                    <Text style={styles.planSubtitle}>Schématique · {currentPlan?.uploadedAt ?? ''}</Text>
+                    <Text style={styles.planSubtitle}>{t('plansScreen.fileTypes.schematic')} · {currentPlan?.uploadedAt ?? ''}</Text>
                   )}
                 </View>
                 {hasPlanPins && (
@@ -3114,7 +3143,7 @@ export default function PlansScreen() {
                           style={[styles.pinSizeBtn, minusDisabled && { opacity: 0.35 }]}
                           onPress={() => changePinSize(-0.25)}
                           disabled={minusDisabled}
-                          accessibilityLabel={focusedPinId ? 'Réduire cette pastille' : 'Réduire les pastilles'}
+                          accessibilityLabel={focusedPinId ? t('plansScreen.a11y.decreasePin') : t('plansScreen.a11y.decreasePins')}
                         >
                           <Ionicons name="remove-circle-outline" size={18} color={focusedPinId ? '#FBBF24' : C.textSub} />
                         </TouchableOpacity>
@@ -3123,7 +3152,7 @@ export default function PlansScreen() {
                           style={[styles.pinSizeBtn, plusDisabled && { opacity: 0.35 }]}
                           onPress={() => changePinSize(0.25)}
                           disabled={plusDisabled}
-                          accessibilityLabel={focusedPinId ? 'Agrandir cette pastille' : 'Agrandir les pastilles'}
+                          accessibilityLabel={focusedPinId ? t('plansScreen.a11y.increasePin') : t('plansScreen.a11y.increasePins')}
                         >
                           <Ionicons name="add-circle-outline" size={18} color={focusedPinId ? '#FBBF24' : C.textSub} />
                         </TouchableOpacity>
@@ -3139,7 +3168,7 @@ export default function PlansScreen() {
                     <TouchableOpacity
                       style={[styles.versionBtn, showVersionHistory && styles.versionBtnActive]}
                       onPress={() => setShowVersionHistory(v => !v)}
-                      accessibilityLabel={`Historique des révisions – ${currentPlan?.revisionCode ?? 'R01'}`}
+                      accessibilityLabel={t('plansScreen.a11y.revisionHistory', { code: currentPlan?.revisionCode ?? 'R01' })}
                       accessibilityRole="button"
                     >
                       <Ionicons name="time-outline" size={13} color={showVersionHistory ? C.primary : C.textSub} />
@@ -3149,10 +3178,10 @@ export default function PlansScreen() {
                     </TouchableOpacity>
                   )}
                   {currentPlan?.uri && permissions.canCreate && (
-                    <TouchableOpacity style={[styles.removePlanBtn, importing && { opacity: 0.5 }]} onPress={handleRemovePlan} disabled={importing} accessibilityLabel="Remplacer le plan">
+                    <TouchableOpacity style={[styles.removePlanBtn, importing && { opacity: 0.5 }]} onPress={handleRemovePlan} disabled={importing} accessibilityLabel={t('plansScreen.actions.replacePlan')}>
                       {importing
                         ? <ActivityIndicator size="small" color={C.primary} />
-                        : <><Ionicons name="swap-horizontal-outline" size={13} color={C.textSub} /><Text style={styles.removePlanText}>Remplacer</Text></>
+                        : <><Ionicons name="swap-horizontal-outline" size={13} color={C.textSub} /><Text style={styles.removePlanText}>{t('plansScreen.actions.replace')}</Text></>
                       }
                     </TouchableOpacity>
                   )}
@@ -3162,17 +3191,17 @@ export default function PlansScreen() {
                         <TouchableOpacity
                           style={styles.removePlanBtn}
                           onPress={handleDeletePlanFile}
-                          accessibilityLabel="Retirer le fichier du plan"
+                          accessibilityLabel={t('plansScreen.actions.removePlanFile')}
                         >
                           <Ionicons name="document-outline" size={13} color="#F59E0B" />
-                          <Text style={[styles.removePlanText, { color: '#F59E0B' }]}>Retirer</Text>
+                          <Text style={[styles.removePlanText, { color: '#F59E0B' }]}>{t('plansScreen.actions.remove')}</Text>
                         </TouchableOpacity>
                       )}
                       {currentPlanId && (
                         <TouchableOpacity
                           style={styles.removePlanBtn}
                           onPress={handleDeletePlan}
-                          accessibilityLabel="Supprimer le plan"
+                          accessibilityLabel={t('plansScreen.actions.deletePlan')}
                         >
                           <Ionicons name="trash-outline" size={13} color="#EF4444" />
                           <Text style={[styles.removePlanText, { color: '#EF4444' }]}>Plan</Text>
@@ -3188,13 +3217,13 @@ export default function PlansScreen() {
               <View style={styles.versionPanel}>
                 <View style={styles.versionPanelHeader}>
                   <Ionicons name="time-outline" size={13} color={C.textSub} />
-                  <Text style={styles.versionPanelTitle} numberOfLines={1} ellipsizeMode="tail">Révisions — {currentPlan.name}</Text>
+                  <Text style={styles.versionPanelTitle} numberOfLines={1} ellipsizeMode="tail">{t('plansScreen.revisions.title', { name: currentPlan.name })}</Text>
                   <TouchableOpacity onPress={() => setShowVersionHistory(false)} hitSlop={8}>
                     <Ionicons name="close" size={16} color={C.textMuted} />
                   </TouchableOpacity>
                 </View>
                 {allVersions.length === 0 ? (
-                  <Text style={styles.versionEmpty}>Aucune révision{permissions.canCreate ? ' · Créez-en une ci-dessous' : ''}</Text>
+                  <Text style={styles.versionEmpty}>{permissions.canCreate ? t('plansScreen.revisions.emptyCanCreate') : t('plansScreen.revisions.empty')}</Text>
                 ) : allVersions.map(ver => (
                   <TouchableOpacity key={ver.id} style={[styles.versionRow, ver.id === currentPlanId && styles.versionRowActive]} onPress={() => { handleSelectPlan(ver.id); setShowVersionHistory(false); }}>
                     <View style={[styles.versionBadge, ver.isLatestRevision && styles.versionBadgeLatest]}>
@@ -3204,13 +3233,13 @@ export default function PlansScreen() {
                       <Text style={styles.versionName}>{ver.name}</Text>
                       <Text style={styles.versionDate}>{ver.uploadedAt}{ver.revisionNote ? ' · ' + ver.revisionNote : ''}</Text>
                     </View>
-                    {ver.isLatestRevision && <View style={styles.latestChip}><Text style={styles.latestChipText}>Actuelle</Text></View>}
+                    {ver.isLatestRevision && <View style={styles.latestChip}><Text style={styles.latestChipText}>{t('plansScreen.revisions.current')}</Text></View>}
                   </TouchableOpacity>
                 ))}
                 {permissions.canCreate && (
                   <TouchableOpacity style={styles.newVersionBtn} onPress={openRevisionModal}>
                     <Ionicons name="cloud-upload-outline" size={13} color={C.primary} />
-                    <Text style={styles.newVersionBtnText}>Créer une révision</Text>
+                    <Text style={styles.newVersionBtnText}>{t('plansScreen.actions.createRevision')}</Text>
                   </TouchableOpacity>
                 )}
               </View>
@@ -3237,23 +3266,23 @@ export default function PlansScreen() {
                 </View>
                 <View style={{ alignItems: 'center', gap: 6 }}>
                   <Text style={{ color: '#94A3B8', fontFamily: 'Inter_600SemiBold', fontSize: 15 }}>
-                    {selectedLevel === 'all' ? 'Aucun plan pour ce bâtiment' : 'Aucun plan pour ce niveau'}
+                    {selectedLevel === 'all' ? t('plansScreen.empty.noPlanForBuilding') : t('plansScreen.empty.noPlanForLevel')}
                   </Text>
                   <Text style={{ color: '#475569', fontFamily: 'Inter_400Regular', fontSize: 12, textAlign: 'center', lineHeight: 18 }}>
                     {selectedLevel === 'all' && chantierHierarchyBuildings.length > 0
-                      ? 'Sélectionnez un niveau ci-dessus pour ajouter un plan à ce niveau précis.'
-                      : 'Ce niveau n\'a pas encore de plan associé. Créez un plan et assignez-le à ce niveau.'}
+                      ? t('plansScreen.empty.selectLevelToAdd')
+                      : t('plansScreen.empty.levelNoPlan')}
                   </Text>
                 </View>
                 {permissions.canCreate && selectedLevel !== 'all' && (
                   <TouchableOpacity
                     style={{ flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: '#003082', borderRadius: 12, paddingVertical: 12, paddingHorizontal: 20 }}
                     onPress={handleAddPlan}
-                    accessibilityLabel="Ajouter un plan pour ce niveau"
+                    accessibilityLabel={t('plansScreen.actions.addPlanForLevel')}
                     accessibilityRole="button"
                   >
                     <Ionicons name="add-circle-outline" size={16} color="#fff" />
-                    <Text style={{ color: '#fff', fontFamily: 'Inter_600SemiBold', fontSize: 14 }}>Ajouter un plan</Text>
+                    <Text style={{ color: '#fff', fontFamily: 'Inter_600SemiBold', fontSize: 14 }}>{t('plansScreen.actions.addPlan')}</Text>
                   </TouchableOpacity>
                 )}
               </View>
@@ -3325,9 +3354,9 @@ export default function PlansScreen() {
                         <Ionicons name="map-outline" size={36} color="#3B6FCC" />
                       </View>
                       <View style={{ alignItems: 'center', gap: 6 }}>
-                        <Text style={{ color: '#94A3B8', fontFamily: 'Inter_600SemiBold', fontSize: 15 }}>Aucun plan importé</Text>
+                        <Text style={{ color: '#94A3B8', fontFamily: 'Inter_600SemiBold', fontSize: 15 }}>{t('plansScreen.empty.noImportedPlan')}</Text>
                         <Text style={{ color: '#475569', fontFamily: 'Inter_400Regular', fontSize: 12, textAlign: 'center', lineHeight: 18 }}>
-                          Importez une image, un PDF ou un fichier DXF pour afficher votre plan et placer des réserves
+                          {t('plansScreen.empty.importPlanHelp')}
                         </Text>
                       </View>
                       {permissions.canCreate && (
@@ -3335,11 +3364,11 @@ export default function PlansScreen() {
                           style={{ flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: '#003082', borderRadius: 12, paddingVertical: 12, paddingHorizontal: 20 }}
                           onPress={handleImportPlan}
                           disabled={importing}
-                          accessibilityLabel="Importer un plan"
+                          accessibilityLabel={t('plansScreen.actions.importPlan')}
                           accessibilityRole="button"
                         >
                           <Ionicons name="cloud-upload-outline" size={16} color="#fff" />
-                          <Text style={{ color: '#fff', fontFamily: 'Inter_600SemiBold', fontSize: 14 }}>Importer un plan</Text>
+                          <Text style={{ color: '#fff', fontFamily: 'Inter_600SemiBold', fontSize: 14 }}>{t('plansScreen.actions.importPlan')}</Text>
                         </TouchableOpacity>
                       )}
                     </View>
@@ -3356,7 +3385,7 @@ export default function PlansScreen() {
                   {dxfLoading && (
                     <View style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(15,17,23,0.75)' }}>
                       <ActivityIndicator size="large" color={C.primary} />
-                      <Text style={{ color: C.textMuted, fontFamily: 'Inter_400Regular', fontSize: 13, marginTop: 12 }}>Chargement du plan DXF…</Text>
+                      <Text style={{ color: C.textMuted, fontFamily: 'Inter_400Regular', fontSize: 13, marginTop: 12 }}>{t('plansScreen.loadingDxf')}</Text>
                     </View>
                   )}
 
@@ -3461,7 +3490,7 @@ export default function PlansScreen() {
                           }
                         }}
                         delayLongPress={400}
-                        accessibilityLabel={isCluster ? `Groupe de ${cluster.items.length} réserves` : `Réserve ${cluster.number}`}
+                        accessibilityLabel={isCluster ? t('plansScreen.a11y.reserveGroup', { count: cluster.items.length }) : t('plansScreen.a11y.reservePin', { number: cluster.number })}
                       >
                         <Text style={{ fontSize: Math.round((isTablet ? 14 : 11) * pinSizeScale * (isCluster ? 1.0 : (pinSizes[pinId] ?? 1.0))), fontFamily: 'Inter_700Bold', color: '#fff' }}>
                           {isCluster ? cluster.items.length : cluster.number}
@@ -3522,8 +3551,8 @@ export default function PlansScreen() {
               <View style={styles.hintOverlay}>
                 <View style={styles.hintBanner}>
                   <Ionicons name="finger-print-outline" size={14} color={C.textMuted} />
-                  <Text style={styles.hintText}>Tapez sur le plan pour créer une réserve</Text>
-                  <TouchableOpacity onPress={dismissHint} hitSlop={8} accessibilityLabel="Fermer ce conseil">
+                  <Text style={styles.hintText}>{t('plansScreen.hint.tapToCreateReserve')}</Text>
+                  <TouchableOpacity onPress={dismissHint} hitSlop={8} accessibilityLabel={t('plansScreen.hint.closeA11y')}>
                     <Ionicons name="close" size={14} color={C.textMuted} />
                   </TouchableOpacity>
                 </View>
@@ -3534,14 +3563,14 @@ export default function PlansScreen() {
             {!isPlanFile && !!currentPlanId && (
               <View style={styles.zoomOverlay}>
                 <View style={styles.zoomOverlayGroup}>
-                  <TouchableOpacity style={styles.zoomOverlayBtn} onPress={() => doZoom('out')} accessibilityLabel="Dézoomer">
+                  <TouchableOpacity style={styles.zoomOverlayBtn} onPress={() => doZoom('out')} accessibilityLabel={t('plansScreen.a11y.zoomOut')}>
                     <Ionicons name="remove" size={14} color={C.text} />
                   </TouchableOpacity>
-                  <TouchableOpacity style={styles.zoomOverlayBtn} onPress={() => doZoom('reset')} accessibilityLabel="Réinitialiser le zoom">
+                  <TouchableOpacity style={styles.zoomOverlayBtn} onPress={() => doZoom('reset')} accessibilityLabel={t('plansScreen.a11y.resetZoom')}>
                     <Ionicons name="scan-outline" size={12} color={C.text} />
                   </TouchableOpacity>
                   <Text style={styles.zoomOverlayPct}>{currentZoomPct}</Text>
-                  <TouchableOpacity style={styles.zoomOverlayBtn} onPress={() => doZoom('in')} accessibilityLabel="Zoomer">
+                  <TouchableOpacity style={styles.zoomOverlayBtn} onPress={() => doZoom('in')} accessibilityLabel={t('plansScreen.a11y.zoomIn')}>
                     <Ionicons name="add" size={14} color={C.text} />
                   </TouchableOpacity>
                 </View>
@@ -3553,7 +3582,7 @@ export default function PlansScreen() {
               <TouchableOpacity
                 style={[styles.fullscreenBtn, fullscreen && { top: insets.top + 10 }]}
                 onPress={() => setFullscreen(v => !v)}
-                accessibilityLabel={fullscreen ? 'Quitter le mode plein écran' : 'Mode plein écran'}
+                accessibilityLabel={fullscreen ? t('plansScreen.a11y.exitFullscreen') : t('plansScreen.a11y.fullscreen')}
               >
                 <Ionicons name={fullscreen ? 'contract-outline' : 'expand-outline'} size={17} color="#fff" />
               </TouchableOpacity>
@@ -3572,7 +3601,7 @@ export default function PlansScreen() {
                   <View style={styles.tabletPanelHdr}>
                     <TouchableOpacity style={styles.tabletBackBtn} onPress={() => { setHighlightedReserveId(null); setPanelView('list'); }} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
                       <Ionicons name="chevron-back" size={18} color={C.primary} />
-                      <Text style={styles.tabletBackBtnText}>Réserves</Text>
+                      <Text style={styles.tabletBackBtnText}>{t('plansUi.reserves')}</Text>
                     </TouchableOpacity>
                     <TouchableOpacity onPress={() => router.push(`/reserve/${detailReserve.id}` as any)} style={styles.tabletDetailEditBtn} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
                       <Ionicons name="open-outline" size={15} color={C.primary} />
@@ -3591,10 +3620,10 @@ export default function PlansScreen() {
                       {detailReserve.level && (<><Text style={styles.tabletDetailMetaDot}>·</Text><Ionicons name="layers-outline" size={12} color={C.textMuted} /><Text style={styles.tabletDetailMetaText}>{detailReserve.level}</Text></>)}
                     </View>
                     {detailReserve.deadline && detailReserve.deadline !== '—' && (
-                      <View style={styles.tabletDetailMeta}><Ionicons name="calendar-outline" size={12} color={C.textMuted} /><Text style={styles.tabletDetailMetaText}>Échéance : {detailReserve.deadline}</Text></View>
+                      <View style={styles.tabletDetailMeta}><Ionicons name="calendar-outline" size={12} color={C.textMuted} /><Text style={styles.tabletDetailMetaText}>{t('plansScreen.deadline', { date: detailReserve.deadline })}</Text></View>
                     )}
                     <Text style={styles.tabletDetailDesc}>{getReserveDescriptionText(detailReserve.description, detailReserve.title)}</Text>
-                    <Text style={styles.tabletDetailSectionLabel}>Changer le statut</Text>
+                    <Text style={styles.tabletDetailSectionLabel}>{t('plansScreen.changeStatus')}</Text>
                     <View style={styles.tabletStatusGrid}>
                       {STATUS_ORDER.map(s => {
                         const cfg = STATUS_CONFIG[s];
@@ -3602,9 +3631,9 @@ export default function PlansScreen() {
                         return (
                           <TouchableOpacity key={s} style={[styles.tabletStatusBtn, { backgroundColor: isActive ? cfg.color : cfg.bg, borderColor: cfg.color }]}
                             onPress={() => { if (!isActive) updateReserveStatus(detailReserve.id, s, user?.name ?? 'Chef de chantier'); }}
-                            accessibilityLabel={`Statut ${cfg.label}`}>
+                            accessibilityLabel={t('plansScreen.a11y.status', { status: getStatusLabel(s) })}>
                             {isActive && <Ionicons name="checkmark" size={11} color="#fff" />}
-                            <Text style={[styles.tabletStatusBtnText, { color: isActive ? '#fff' : cfg.color }]}>{cfg.label}</Text>
+                            <Text style={[styles.tabletStatusBtnText, { color: isActive ? '#fff' : cfg.color }]}>{getStatusLabel(s)}</Text>
                           </TouchableOpacity>
                         );
                       })}
@@ -3614,7 +3643,7 @@ export default function PlansScreen() {
                       {permissions.canCreate && (
                         <TouchableOpacity style={styles.tabletDetailOpenBtn} onPress={() => router.push(`/reserve/${detailReserve.id}` as any)}>
                           <Ionicons name="create-outline" size={14} color="#fff" />
-                          <Text style={styles.tabletDetailOpenBtnText}>Modifier</Text>
+                          <Text style={styles.tabletDetailOpenBtnText}>{t('common.edit')}</Text>
                         </TouchableOpacity>
                       )}
                     </View>
@@ -3624,8 +3653,8 @@ export default function PlansScreen() {
                 <>
                   <View style={styles.tabletPanelHdr}>
                     <Ionicons name="list-outline" size={14} color={C.primary} />
-                    <Text style={styles.tabletPanelTitle}>{planReserves.length > 0 ? `${planReserves.length} réserve${planReserves.length > 1 ? 's' : ''}` : 'Réserves'}</Text>
-                    <TouchableOpacity style={styles.exportBtn} onPress={openPdfModal} accessibilityLabel="Exporter en PDF">
+                    <Text style={styles.tabletPanelTitle}>{planReserves.length > 0 ? commonReserveText(planReserves.length) : t('plansUi.reserves')}</Text>
+                    <TouchableOpacity style={styles.exportBtn} onPress={openPdfModal} accessibilityLabel={t('plansUi.exportPdf')}>
                       <Ionicons name="document-text-outline" size={13} color={C.primary} />
                       <Text style={styles.exportBtnText}>PDF</Text>
                     </TouchableOpacity>
@@ -3640,17 +3669,17 @@ export default function PlansScreen() {
                     ListEmptyComponent={
                       <View style={[styles.noReservesCard, { marginTop: 16 }]}>
                         <Ionicons name="checkmark-circle-outline" size={28} color={C.closed} />
-                        <Text style={styles.noReservesText}>Aucune réserve</Text>
+                        <Text style={styles.noReservesText}>{t('plansUi.noReserveOnPlan')}</Text>
                         {permissions.canCreate && (
                           <TouchableOpacity style={styles.addReserveFromPlanBtn} onPress={() => router.push({ pathname: '/reserve/new', params: { planId: currentPlanId ?? '', chantierId: activeChantierId ?? '', building: currentPlan?.building ?? '', level: currentPlan?.level ?? '', buildingId: currentPlan?.buildingId ?? '', levelId: currentPlan?.levelId ?? '' } } as any)}>
                             <Ionicons name="add" size={14} color={C.primary} />
-                            <Text style={styles.addReserveFromPlanText}>Ajouter</Text>
+                            <Text style={styles.addReserveFromPlanText}>{t('common.add')}</Text>
                           </TouchableOpacity>
                         )}
                       </View>
                     }
                     renderItem={({ item: r }) => (
-                      <TouchableOpacity style={[styles.reserveRow, highlightedReserveId === r.id && styles.tabletReserveRowSelected]} onPress={() => { setHighlightedReserveId(r.id); setPanelView('detail'); }} activeOpacity={0.75} accessibilityLabel={`Réserve ${r.title}`}>
+                      <TouchableOpacity style={[styles.reserveRow, highlightedReserveId === r.id && styles.tabletReserveRowSelected]} onPress={() => { setHighlightedReserveId(r.id); setPanelView('detail'); }} activeOpacity={0.75} accessibilityLabel={t('plansUi.reserveAccessibility', { title: r.title })}>
                         <View style={[styles.pinBadge, { backgroundColor: getReservePinColor(r, companies), width: 34, height: 34, borderRadius: 17 }]}>
                           <Text style={styles.pinBadgeText}>{pinNumberMap.get(r.id) ?? '—'}</Text>
                         </View>
@@ -3665,7 +3694,7 @@ export default function PlansScreen() {
                   {permissions.canCreate && (
                     <TouchableOpacity style={styles.tabletAddBtn} onPress={() => router.push({ pathname: '/reserve/new', params: { planId: currentPlanId ?? '', chantierId: activeChantierId ?? '', building: currentPlan?.building ?? '', level: currentPlan?.level ?? '', buildingId: currentPlan?.buildingId ?? '', levelId: currentPlan?.levelId ?? '' } } as any)}>
                       <Ionicons name="add" size={18} color="#fff" />
-                      <Text style={styles.tabletAddBtnText}>Nouvelle réserve</Text>
+                      <Text style={styles.tabletAddBtnText}>{t('plansScreen.actions.newReserve')}</Text>
                     </TouchableOpacity>
                   )}
                 </>
@@ -3700,7 +3729,7 @@ export default function PlansScreen() {
           style={[styles.fab, { bottom: Platform.OS === 'web' ? 100 : insets.bottom + (isPlanFile ? 150 : 80) }]}
           onPress={() => router.push({ pathname: '/reserve/new', params: { planId: currentPlanId ?? '', chantierId: activeChantierId ?? '', building: currentPlan?.building ?? '', level: currentPlan?.level ?? '', buildingId: currentPlan?.buildingId ?? '', levelId: currentPlan?.levelId ?? '' } } as any)}
           activeOpacity={0.85}
-          accessibilityLabel="Créer une nouvelle réserve"
+          accessibilityLabel={t('plansScreen.actions.createNewReserve')}
         >
           <Ionicons name="add" size={26} color="#fff" />
         </TouchableOpacity>
@@ -3717,14 +3746,14 @@ export default function PlansScreen() {
           <Pressable style={styles.pdfModalCard} onPress={() => {}}>
             <View style={styles.pdfModalHeaderRow}>
               <View style={{ flex: 1 }}>
-                <Text style={styles.modalTitle}>Télécharger en PDF</Text>
+                <Text style={styles.modalTitle}>{t('plansScreen.pdf.title')}</Text>
                 <Text style={styles.modalMeta}>
                   {pdfScope === 'plan'
-                    ? `Plan : ${currentPlan?.name ?? '—'}`
-                    : `Chantier : ${activeChantier?.name ?? '—'}`}
+                    ? t('plansScreen.pdf.planMeta', { name: currentPlan?.name ?? '—' })
+                    : t('plansScreen.pdf.chantierMeta', { name: activeChantier?.name ?? '—' })}
                 </Text>
               </View>
-              <TouchableOpacity onPress={() => setPdfModalVisible(false)} accessibilityLabel="Fermer">
+              <TouchableOpacity onPress={() => setPdfModalVisible(false)} accessibilityLabel={t('common.close')}>
                 <Ionicons name="close" size={20} color={C.textMuted} />
               </TouchableOpacity>
             </View>
@@ -3738,7 +3767,7 @@ export default function PlansScreen() {
               >
                 <Ionicons name="map-outline" size={13} color={pdfScope === 'plan' ? '#fff' : C.textMuted} />
                 <Text style={[styles.pdfScopeBtnText, pdfScope === 'plan' && styles.pdfScopeBtnTextActive]}>
-                  Ce plan
+                  {t('plansScreen.pdf.thisPlan')}
                 </Text>
               </TouchableOpacity>
               <TouchableOpacity
@@ -3747,7 +3776,7 @@ export default function PlansScreen() {
               >
                 <Ionicons name="layers-outline" size={13} color={pdfScope === 'global' ? '#fff' : C.textMuted} />
                 <Text style={[styles.pdfScopeBtnText, pdfScope === 'global' && styles.pdfScopeBtnTextActive]}>
-                  Rapport global
+                  {t('plansScreen.pdf.globalReport')}
                 </Text>
               </TouchableOpacity>
             </View>
@@ -3760,7 +3789,7 @@ export default function PlansScreen() {
                 >
                   <Ionicons name="albums-outline" size={14} color={pdfMode === 'all' ? '#fff' : C.text} />
                   <Text style={[styles.pdfOptionText, pdfMode === 'all' && styles.pdfOptionTextActive]}>
-                    Toutes les réserves du plan
+                    {t('plansScreen.pdf.allPlanReserves')}
                   </Text>
                 </TouchableOpacity>
 
@@ -3770,7 +3799,7 @@ export default function PlansScreen() {
                 >
                   <Ionicons name="business-outline" size={14} color={pdfMode === 'company_single' ? '#fff' : C.text} />
                   <Text style={[styles.pdfOptionText, pdfMode === 'company_single' && styles.pdfOptionTextActive]}>
-                    Une entreprise
+                    {t('plansScreen.pdf.oneCompany')}
                   </Text>
                 </TouchableOpacity>
 
@@ -3780,7 +3809,7 @@ export default function PlansScreen() {
                 >
                   <Ionicons name="people-outline" size={14} color={pdfMode === 'company_multi' ? '#fff' : C.text} />
                   <Text style={[styles.pdfOptionText, pdfMode === 'company_multi' && styles.pdfOptionTextActive]}>
-                    Plusieurs entreprises
+                    {t('plansScreen.pdf.multipleCompanies')}
                   </Text>
                 </TouchableOpacity>
 
@@ -3790,7 +3819,7 @@ export default function PlansScreen() {
                 >
                   <Ionicons name="checkbox-outline" size={14} color={pdfMode === 'manual' ? '#fff' : C.text} />
                   <Text style={[styles.pdfOptionText, pdfMode === 'manual' && styles.pdfOptionTextActive]}>
-                    Sélection manuelle
+                    {t('plansScreen.pdf.manualSelection')}
                   </Text>
                 </TouchableOpacity>
               </View>
@@ -3799,7 +3828,7 @@ export default function PlansScreen() {
             {pdfScope === 'global' && (
               <View>
                 <Text style={styles.globalReportDesc}>
-                  Rapport complet du chantier : tous les bâtiments, tous les plans avec leurs réserves et un tableau de synthèse.
+                  {t('plansScreen.pdf.globalReportDesc')}
                 </Text>
                 <View style={styles.pdfPickerWrap}>
                   <ScrollView showsVerticalScrollIndicator={false} nestedScrollEnabled>
@@ -3812,7 +3841,7 @@ export default function PlansScreen() {
                       {globalReportCompany === null && <View style={styles.pdfRadioDot} />}
                     </View>
                     <Text style={[styles.pdfPickRowText, globalReportCompany === null && styles.pdfPickRowTextActive]}>
-                      Toutes les entreprises
+                      {t('plansScreen.pdf.allCompanies')}
                     </Text>
                     <Text style={styles.pdfPickRowCount}>{chantierReserves.length}</Text>
                   </TouchableOpacity>
@@ -3835,7 +3864,7 @@ export default function PlansScreen() {
                     );
                   })}
                   {globalReportCompanies.length === 0 && (
-                    <Text style={styles.pdfEmptyHint}>Aucune réserve sur ce chantier.</Text>
+                    <Text style={styles.pdfEmptyHint}>{t('plansScreen.pdf.noReserveOnChantier')}</Text>
                   )}
                   </ScrollView>
                 </View>
@@ -3843,11 +3872,11 @@ export default function PlansScreen() {
                 {/* Status filter chips */}
                 {(() => {
                   const STATUS_OPTIONS = [
-                    { key: 'open',         label: RESERVE_STATUS_LABELS.open,         color: RESERVE_STATUS_COLORS.open },
-                    { key: 'in_progress',  label: RESERVE_STATUS_LABELS.in_progress,  color: RESERVE_STATUS_COLORS.in_progress },
-                    { key: 'waiting',      label: RESERVE_STATUS_LABELS.waiting,      color: RESERVE_STATUS_COLORS.waiting },
-                    { key: 'verification', label: RESERVE_STATUS_LABELS.verification, color: RESERVE_STATUS_COLORS.verification },
-                    { key: 'closed',       label: RESERVE_STATUS_LABELS.closed,       color: RESERVE_STATUS_COLORS.closed },
+                    { key: 'open',         label: getStatusLabel('open'),         color: RESERVE_STATUS_COLORS.open },
+                    { key: 'in_progress',  label: getStatusLabel('in_progress'),  color: RESERVE_STATUS_COLORS.in_progress },
+                    { key: 'waiting',      label: getStatusLabel('waiting'),      color: RESERVE_STATUS_COLORS.waiting },
+                    { key: 'verification', label: getStatusLabel('verification'), color: RESERVE_STATUS_COLORS.verification },
+                    { key: 'closed',       label: getStatusLabel('closed'),       color: RESERVE_STATUS_COLORS.closed },
                   ];
                   const allSelected = globalReportStatusFilter.size === 0;
                   const toggleStatus = (key: string) => {
@@ -3860,7 +3889,7 @@ export default function PlansScreen() {
                   return (
                     <View style={{ marginTop: 12 }}>
                       <Text style={{ fontSize: 11, fontFamily: 'Inter_600SemiBold', color: C.textSub, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 7 }}>
-                        Filtrer par statut
+                        {t('plansScreen.pdf.filterByStatus')}
                       </Text>
                       <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
                         <TouchableOpacity
@@ -3872,7 +3901,7 @@ export default function PlansScreen() {
                           }}
                         >
                           <Text style={{ fontSize: 11, fontFamily: 'Inter_600SemiBold', color: allSelected ? '#fff' : C.textSub }}>
-                            Tous
+                            {t('plansUi.all')}
                           </Text>
                         </TouchableOpacity>
                         {STATUS_OPTIONS.map(s => {
@@ -3904,7 +3933,7 @@ export default function PlansScreen() {
               <View style={styles.pdfPickerWrap}>
                 <ScrollView>
                   {pdfGroupedByCompany.length === 0 && (
-                    <Text style={styles.pdfEmptyHint}>Aucune réserve sur ce plan.</Text>
+                    <Text style={styles.pdfEmptyHint}>{t('plansUi.noReserveOnPlan')}</Text>
                   )}
                   {pdfGroupedByCompany.map(g => {
                     const active = pdfCompanySingle === g.key;
@@ -3935,18 +3964,18 @@ export default function PlansScreen() {
                     style={styles.pdfPickActionBtn}
                     onPress={() => setPdfCompaniesMulti(new Set(pdfGroupedByCompany.map(g => g.key)))}
                   >
-                    <Text style={styles.pdfPickActionBtnText}>Tout</Text>
+                    <Text style={styles.pdfPickActionBtnText}>{t('plansScreen.pdf.all')}</Text>
                   </TouchableOpacity>
                   <TouchableOpacity
                     style={styles.pdfPickActionBtn}
                     onPress={() => setPdfCompaniesMulti(new Set())}
                   >
-                    <Text style={styles.pdfPickActionBtnText}>Aucun</Text>
+                    <Text style={styles.pdfPickActionBtnText}>{t('sharedPicker.none')}</Text>
                   </TouchableOpacity>
                 </View>
                 <ScrollView>
                   {pdfGroupedByCompany.length === 0 && (
-                    <Text style={styles.pdfEmptyHint}>Aucune réserve sur ce plan.</Text>
+                    <Text style={styles.pdfEmptyHint}>{t('plansUi.noReserveOnPlan')}</Text>
                   )}
                   {pdfGroupedByCompany.map(g => {
                     const checked = pdfCompaniesMulti.has(g.key);
@@ -3982,18 +4011,18 @@ export default function PlansScreen() {
                     style={styles.pdfPickActionBtn}
                     onPress={() => setPdfManualSelection(new Set(planReserves.map(r => r.id)))}
                   >
-                    <Text style={styles.pdfPickActionBtnText}>Tout</Text>
+                    <Text style={styles.pdfPickActionBtnText}>{t('plansScreen.pdf.all')}</Text>
                   </TouchableOpacity>
                   <TouchableOpacity
                     style={styles.pdfPickActionBtn}
                     onPress={() => setPdfManualSelection(new Set())}
                   >
-                    <Text style={styles.pdfPickActionBtnText}>Aucun</Text>
+                    <Text style={styles.pdfPickActionBtnText}>{t('sharedPicker.none')}</Text>
                   </TouchableOpacity>
                 </View>
                 <ScrollView>
                   {planReserves.length === 0 && (
-                    <Text style={styles.pdfEmptyHint}>Aucune réserve sur ce plan.</Text>
+                    <Text style={styles.pdfEmptyHint}>{t('plansUi.noReserveOnPlan')}</Text>
                   )}
                   {planReserves.map(r => {
                     const checked = pdfManualSelection.has(r.id);
@@ -4033,14 +4062,14 @@ export default function PlansScreen() {
             {(() => {
               const count = pdfScope === 'global' ? globalReportPreviewCount : pdfPreviewCount;
               const suffix = pdfScope === 'global'
-                ? ` · ${chantierPlans.length} plan${chantierPlans.length !== 1 ? 's' : ''}`
+                ? ` · ${commonPlanText(chantierPlans.length)}`
                 : '';
               const statusHint = pdfScope === 'global' && globalReportStatusFilter.size > 0
-                ? ` (${globalReportStatusFilter.size} statut${globalReportStatusFilter.size > 1 ? 's' : ''} sélectionné${globalReportStatusFilter.size > 1 ? 's' : ''})`
+                ? ` (${t(globalReportStatusFilter.size === 1 ? 'plansScreen.pdf.statusSelected_one' : 'plansScreen.pdf.statusSelected_other', { count: globalReportStatusFilter.size })})`
                 : '';
               return (
                 <Text style={styles.pdfPreview}>
-                  {count} réserve{count !== 1 ? 's' : ''} {count !== 1 ? 'seront' : 'sera'} exportée{count !== 1 ? 's' : ''}{suffix}{statusHint}.
+                  {t(count === 1 ? 'plansScreen.pdf.preview_one' : 'plansScreen.pdf.preview_other', { count })}{suffix}{statusHint}.
                 </Text>
               );
             })()}
@@ -4057,7 +4086,7 @@ export default function PlansScreen() {
                       disabled={disabled}
                     >
                       <Ionicons name="download-outline" size={15} color={C.primary} />
-                      <Text style={styles.pdfDownloadBtnText}>Télécharger</Text>
+                      <Text style={styles.pdfDownloadBtnText}>{t('plansScreen.pdf.download')}</Text>
                     </TouchableOpacity>
                     <TouchableOpacity
                       style={[styles.pdfConfirmBtn, disabled && { opacity: 0.5 }]}
@@ -4067,7 +4096,7 @@ export default function PlansScreen() {
                       {pdfLoading
                         ? <ActivityIndicator size="small" color="#fff" />
                         : <Ionicons name="share-social-outline" size={15} color="#fff" />}
-                      <Text style={styles.pdfConfirmBtnText}>Partager</Text>
+                      <Text style={styles.pdfConfirmBtnText}>{t('plansScreen.pdf.share')}</Text>
                     </TouchableOpacity>
                   </>
                 );
@@ -4078,7 +4107,7 @@ export default function PlansScreen() {
               <View style={{ marginTop: 14 }}>
                 <View style={{ height: 1, backgroundColor: C.border, marginBottom: 14 }} />
                 <Text style={{ fontSize: 11, fontFamily: 'Inter_600SemiBold', color: C.textSub, marginBottom: 6 }}>
-                  Envoyer par email
+                  {t('plansScreen.pdf.sendByEmail')}
                 </Text>
                 <TextInput
                   style={{
@@ -4102,7 +4131,7 @@ export default function PlansScreen() {
                   autoCorrect={false}
                 />
                 <Text style={{ fontSize: 10, color: C.textMuted, fontFamily: 'Inter_400Regular', marginBottom: 10 }}>
-                  Séparez plusieurs adresses par une virgule. Le PDF est généré côté serveur et joint à l'email.
+                  {t('plansScreen.pdf.emailHint')}
                 </Text>
                 <TouchableOpacity
                   style={[
@@ -4117,7 +4146,7 @@ export default function PlansScreen() {
                     ? <ActivityIndicator size="small" color="#fff" />
                     : <Ionicons name="mail-outline" size={15} color="#fff" />}
                   <Text style={styles.pdfConfirmBtnText}>
-                    {globalReportEmailLoading ? 'Génération en cours…' : 'Envoyer par email'}
+                    {globalReportEmailLoading ? t('plansScreen.pdf.generating') : t('plansScreen.pdf.sendByEmail')}
                   </Text>
                 </TouchableOpacity>
               </View>
@@ -4128,7 +4157,7 @@ export default function PlansScreen() {
                 {globalReportProgress && globalReportProgress.total > 0 ? (
                   <>
                     <Text style={{ fontSize: 11, color: C.textSub, fontFamily: 'Inter_500Medium', marginBottom: 6 }}>
-                      Rendu du plan {globalReportProgress.current}/{globalReportProgress.total}
+                      {t('plansScreen.pdf.renderingPlan', { current: globalReportProgress.current, total: globalReportProgress.total })}
                     </Text>
                     <View style={{ width: '100%', height: 4, backgroundColor: '#E8F0FE', borderRadius: 4, overflow: 'hidden' }}>
                       <View style={{
@@ -4144,7 +4173,7 @@ export default function PlansScreen() {
                   </>
                 ) : (
                   <Text style={{ fontSize: 11, color: C.textSub, fontFamily: 'Inter_400Regular' }}>
-                    Préparation du rapport...
+                    {t('plansScreen.pdf.preparingReport')}
                   </Text>
                 )}
               </View>
@@ -4167,7 +4196,7 @@ export default function PlansScreen() {
                   <Text style={styles.modalTitle} numberOfLines={2}>{selected.title}</Text>
                   <Text style={styles.modalMeta}>{getReserveCompanyLabel(selected)} · {selected.level || '—'}</Text>
                 </View>
-                <TouchableOpacity onPress={() => setSelected(null)} accessibilityLabel="Fermer">
+                <TouchableOpacity onPress={() => setSelected(null)} accessibilityLabel={t('common.close')}>
                   <Ionicons name="close" size={20} color={C.textMuted} />
                 </TouchableOpacity>
               </View>
@@ -4181,7 +4210,7 @@ export default function PlansScreen() {
                   </View>
                 )}
               </View>
-              <Text style={styles.tabletDetailSectionLabel}>Changer le statut</Text>
+              <Text style={styles.tabletDetailSectionLabel}>{t('plansScreen.changeStatus')}</Text>
               <View style={styles.tabletStatusGrid}>
                 {STATUS_ORDER.map(s => {
                   const cfg = STATUS_CONFIG[s];
@@ -4196,10 +4225,10 @@ export default function PlansScreen() {
                           setSelected(prev => prev ? { ...prev, status: s } : null);
                         }
                       }}
-                      accessibilityLabel={`Passer au statut ${cfg.label}`}
+                      accessibilityLabel={t('plansScreen.a11y.changeToStatus', { status: getStatusLabel(s) })}
                     >
                       {isActive && <Ionicons name="checkmark" size={11} color="#fff" />}
-                      <Text style={[styles.tabletStatusBtnText, { color: isActive ? '#fff' : cfg.color }]}>{cfg.label}</Text>
+                      <Text style={[styles.tabletStatusBtnText, { color: isActive ? '#fff' : cfg.color }]}>{getStatusLabel(s)}</Text>
                     </TouchableOpacity>
                   );
                 })}
@@ -4212,17 +4241,17 @@ export default function PlansScreen() {
                       style={[styles.modalPlanBtn, !hasPin && styles.modalPlanBtnDisabled]}
                       onPress={() => focusReserveOnPlanFromModal(selected)}
                       disabled={!hasPin}
-                      accessibilityLabel={hasPin ? 'Voir la réserve sur le plan' : 'Cette réserve n’a pas de pin sur le plan'}
+                      accessibilityLabel={hasPin ? t('plansScreen.reserveModal.viewOnPlanA11y') : t('plansScreen.reserveModal.noPinA11y')}
                     >
                       <Ionicons name={hasPin ? 'map-outline' : 'location-outline'} size={15} color={hasPin ? '#fff' : C.textMuted} />
                       <Text style={[styles.modalPlanText, !hasPin && styles.modalPlanTextDisabled]}>
-                        {hasPin ? 'Voir sur le plan' : 'Pas de pin sur le plan'}
+                        {hasPin ? t('plansScreen.reserveModal.viewOnPlan') : t('plansScreen.reserveModal.noPin')}
                       </Text>
                     </TouchableOpacity>
                   );
                 })()}
-                <TouchableOpacity style={styles.modalOpenBtn} onPress={() => { setSelected(null); router.push(`/reserve/${selected.id}` as any); }} accessibilityLabel="Ouvrir la réserve complète">
-                  <Text style={styles.modalOpenText}>Ouvrir la réserve</Text>
+                <TouchableOpacity style={styles.modalOpenBtn} onPress={() => { setSelected(null); router.push(`/reserve/${selected.id}` as any); }} accessibilityLabel={t('plansScreen.reserveModal.openA11y')}>
+                  <Text style={styles.modalOpenText}>{t('plansScreen.reserveModal.open')}</Text>
                   <Ionicons name="arrow-forward" size={14} color={C.primary} />
                 </TouchableOpacity>
               </View>
@@ -4239,7 +4268,7 @@ export default function PlansScreen() {
               <View style={styles.modalHeader}>
                 <View style={styles.qrModalIconWrap}><Ionicons name="qr-code" size={16} color={C.primary} /></View>
                 <View style={{ flex: 1 }}>
-                  <Text style={styles.modalTitle}>Code QR de position</Text>
+                  <Text style={styles.modalTitle}>{t('plansScreen.qr.title')}</Text>
                   <Text style={styles.modalMeta}>{currentPlan.name}</Text>
                 </View>
                 <TouchableOpacity onPress={() => setShowQRModal(null)}><Ionicons name="close" size={20} color={C.textMuted} /></TouchableOpacity>
@@ -4247,7 +4276,7 @@ export default function PlansScreen() {
               <View style={styles.qrModalBody}>
                 <QRCodeDisplay data={{ planId: currentPlan.id, planName: currentPlan.name, building: activeChantier?.name, x: showQRModal.x, y: showQRModal.y }} size={180} />
               </View>
-              <Text style={styles.qrModalHint}>Scannez ce QR sur le chantier pour pré-remplir la création d'une réserve à cette position.</Text>
+              <Text style={styles.qrModalHint}>{t('plansScreen.qr.hint')}</Text>
             </TouchableOpacity>
           )}
         </TouchableOpacity>
@@ -4259,25 +4288,25 @@ export default function PlansScreen() {
           <TouchableOpacity activeOpacity={1} style={styles.modalCard} onPress={() => {}}>
             <View style={styles.modalHeader}>
               <View style={[styles.modalPin, { backgroundColor: '#7C3AED' }]}><Ionicons name="git-branch-outline" size={14} color="#fff" /></View>
-              <View style={{ flex: 1 }}><Text style={styles.modalTitle}>Nouvelle révision</Text><Text style={styles.modalMeta}>Plan : {currentPlan?.name}</Text></View>
+              <View style={{ flex: 1 }}><Text style={styles.modalTitle}>{t('plansScreen.revisionModal.title')}</Text><Text style={styles.modalMeta}>{t('plansScreen.pdf.planMeta', { name: currentPlan?.name })}</Text></View>
               <TouchableOpacity onPress={() => setRevisionModal(p => ({ ...p, visible: false }))}><Ionicons name="close" size={20} color={C.textMuted} /></TouchableOpacity>
             </View>
             <View style={styles.newPlanField}>
-              <Text style={styles.newPlanLabel}>Code révision *</Text>
-              <TextInput style={styles.newPlanInput} placeholder="Ex : R02, IND-B, V3..." placeholderTextColor={C.textMuted} value={revisionModal.code} onChangeText={v => setRevisionModal(p => ({ ...p, code: v }))} autoCapitalize="characters" />
+              <Text style={styles.newPlanLabel}>{t('plansScreen.revisionModal.codeLabel')}</Text>
+              <TextInput style={styles.newPlanInput} placeholder={t('plansScreen.revisionModal.codePlaceholder')} placeholderTextColor={C.textMuted} value={revisionModal.code} onChangeText={v => setRevisionModal(p => ({ ...p, code: v }))} autoCapitalize="characters" />
             </View>
             <View style={styles.newPlanField}>
-              <Text style={styles.newPlanLabel}>Note de révision (optionnel)</Text>
-              <TextInput style={[styles.newPlanInput, { height: 72, textAlignVertical: 'top' }]} placeholder="Ex : Mise à jour suite à dérogation lot 03..." placeholderTextColor={C.textMuted} value={revisionModal.note} onChangeText={v => setRevisionModal(p => ({ ...p, note: v }))} multiline numberOfLines={3} />
+              <Text style={styles.newPlanLabel}>{t('plansScreen.revisionModal.noteLabel')}</Text>
+              <TextInput style={[styles.newPlanInput, { height: 72, textAlignVertical: 'top' }]} placeholder={t('plansScreen.revisionModal.notePlaceholder')} placeholderTextColor={C.textMuted} value={revisionModal.note} onChangeText={v => setRevisionModal(p => ({ ...p, note: v }))} multiline numberOfLines={3} />
             </View>
             <View style={[styles.newPlanField, { backgroundColor: '#F5F3FF', borderRadius: 10, padding: 10, borderWidth: 1, borderColor: '#DDD6FE' }]}>
-              <Text style={{ fontSize: 12, fontFamily: 'Inter_400Regular', color: '#5B21B6' }}>Les réserves épinglées sur le plan actuel restent accessibles dans l'historique des révisions.</Text>
+              <Text style={{ fontSize: 12, fontFamily: 'Inter_400Regular', color: '#5B21B6' }}>{t('plansScreen.revisionModal.pinnedHint')}</Text>
             </View>
             <View style={styles.newPlanBtns}>
-              <TouchableOpacity style={styles.cancelBtn} onPress={() => setRevisionModal(p => ({ ...p, visible: false }))}><Text style={styles.cancelBtnText}>Annuler</Text></TouchableOpacity>
+              <TouchableOpacity style={styles.cancelBtn} onPress={() => setRevisionModal(p => ({ ...p, visible: false }))}><Text style={styles.cancelBtnText}>{t('common.cancel')}</Text></TouchableOpacity>
               <TouchableOpacity style={[styles.confirmBtn, !revisionModal.code.trim() && { opacity: 0.5 }]} onPress={handleCreateRevision} disabled={!revisionModal.code.trim()}>
                 <Ionicons name="cloud-upload-outline" size={15} color="#fff" />
-                <Text style={styles.confirmBtnText}>Importer fichier</Text>
+                <Text style={styles.confirmBtnText}>{t('plansScreen.actions.importFile')}</Text>
               </TouchableOpacity>
             </View>
           </TouchableOpacity>
@@ -4290,7 +4319,7 @@ export default function PlansScreen() {
           <TouchableOpacity activeOpacity={1} style={[styles.modalCard, { marginBottom: kbHeight }]} onPress={() => {}}>
             <View style={styles.modalHeader}>
               <View style={[styles.modalPin, { backgroundColor: C.primary }]}><Ionicons name="map-outline" size={14} color="#fff" /></View>
-              <View style={{ flex: 1 }}><Text style={styles.modalTitle}>Nouveau plan</Text><Text style={styles.modalMeta}>Ajoutez un plan à ce chantier</Text></View>
+              <View style={{ flex: 1 }}><Text style={styles.modalTitle}>{t('plansScreen.newPlan.title')}</Text><Text style={styles.modalMeta}>{t('plansScreen.newPlan.subtitle')}</Text></View>
               <TouchableOpacity onPress={() => setNewPlanModal({ visible: false, name: '', building: '', level: '' })}><Ionicons name="close" size={20} color={C.textMuted} /></TouchableOpacity>
             </View>
 
@@ -4305,9 +4334,9 @@ export default function PlansScreen() {
                 </View>
                 <View style={{ flex: 1 }}>
                   <Text style={styles.newPlanFileChipName}>
-                    {newPlanModal.fileType === 'pdf' ? 'PDF' : newPlanModal.fileType === 'dxf' ? 'DXF' : 'Image'} importé{newPlanModal.size ? ` · ${newPlanModal.size}` : ''}
+                    {newPlanModal.fileType === 'pdf' ? 'PDF' : newPlanModal.fileType === 'dxf' ? 'DXF' : t('plansScreen.fileTypes.image')} {t('plansScreen.newPlan.imported')}{newPlanModal.size ? ` · ${newPlanModal.size}` : ''}
                   </Text>
-                  <Text style={styles.newPlanFileChipSub}>Appuyez pour changer</Text>
+                  <Text style={styles.newPlanFileChipSub}>{t('plansScreen.newPlan.tapToChange')}</Text>
                 </View>
                 <TouchableOpacity onPress={importFileForNewPlan}>
                   <Ionicons name="swap-horizontal-outline" size={18} color={C.textMuted} />
@@ -4321,24 +4350,24 @@ export default function PlansScreen() {
                   <>
                     <Ionicons name="cloud-upload-outline" size={22} color={C.primary} />
                     <View style={{ flex: 1 }}>
-                      <Text style={styles.newPlanImportBtnText}>Importer PDF / image / DXF</Text>
-                      <Text style={styles.newPlanImportBtnSub}>Obligatoire pour créer le plan</Text>
+                      <Text style={styles.newPlanImportBtnText}>{t('plansScreen.newPlan.importTypes')}</Text>
+                      <Text style={styles.newPlanImportBtnSub}>{t('plansScreen.newPlan.importRequiredHint')}</Text>
                     </View>
-                    <View style={styles.newPlanImportRequired}><Text style={styles.newPlanImportRequiredText}>Requis</Text></View>
+                    <View style={styles.newPlanImportRequired}><Text style={styles.newPlanImportRequiredText}>{t('plansScreen.newPlan.required')}</Text></View>
                   </>
                 )}
               </TouchableOpacity>
             )}
 
             <View style={styles.newPlanField}>
-              <Text style={styles.newPlanLabel}>Nom du plan *</Text>
-              <TextInput style={styles.newPlanInput} placeholder="ex : Plan électrique" placeholderTextColor={C.textMuted} value={newPlanModal.name} onChangeText={v => setNewPlanModal(p => ({ ...p, name: v }))} />
+              <Text style={styles.newPlanLabel}>{t('plansScreen.newPlan.nameLabel')}</Text>
+              <TextInput style={styles.newPlanInput} placeholder={t('plansScreen.newPlan.namePlaceholder')} placeholderTextColor={C.textMuted} value={newPlanModal.name} onChangeText={v => setNewPlanModal(p => ({ ...p, name: v }))} />
             </View>
 
             {chantierHierarchyBuildings.length > 0 ? (
               <>
                 <View style={styles.newPlanField}>
-                  <Text style={styles.newPlanLabel}>Bâtiment</Text>
+                  <Text style={styles.newPlanLabel}>{t('plansUi.building')}</Text>
                   <ScrollView horizontal showsHorizontalScrollIndicator={false}>
                     <View style={{ flexDirection: 'row', gap: 8, paddingVertical: 4 }}>
                       {chantierHierarchyBuildings.map(b => (
@@ -4355,7 +4384,7 @@ export default function PlansScreen() {
                 </View>
                 {levelsForNewPlanBuilding.length > 0 && (
                   <View style={styles.newPlanField}>
-                    <Text style={styles.newPlanLabel}>Niveau</Text>
+                    <Text style={styles.newPlanLabel}>{t('plansUi.planLevel')}</Text>
                     <ScrollView horizontal showsHorizontalScrollIndicator={false}>
                       <View style={{ flexDirection: 'row', gap: 8, paddingVertical: 4 }}>
                         {levelsForNewPlanBuilding.map(l => (
@@ -4375,12 +4404,12 @@ export default function PlansScreen() {
             ) : (
               <View style={styles.newPlanRow}>
                 <View style={[styles.newPlanField, { flex: 1 }]}>
-                  <Text style={styles.newPlanLabel}>Bâtiment</Text>
-                  <TextInput style={styles.newPlanInput} placeholder="ex : Bât A" placeholderTextColor={C.textMuted} value={newPlanModal.building} onChangeText={v => setNewPlanModal(p => ({ ...p, building: v }))} />
+                  <Text style={styles.newPlanLabel}>{t('plansUi.building')}</Text>
+                  <TextInput style={styles.newPlanInput} placeholder={t('plansScreen.newPlan.buildingPlaceholder')} placeholderTextColor={C.textMuted} value={newPlanModal.building} onChangeText={v => setNewPlanModal(p => ({ ...p, building: v }))} />
                 </View>
                 <View style={[styles.newPlanField, { flex: 1 }]}>
-                  <Text style={styles.newPlanLabel}>Niveau</Text>
-                  <TextInput style={styles.newPlanInput} placeholder="ex : RDC, R+1" placeholderTextColor={C.textMuted} value={newPlanModal.level} onChangeText={v => setNewPlanModal(p => ({ ...p, level: v }))} />
+                  <Text style={styles.newPlanLabel}>{t('plansUi.planLevel')}</Text>
+                  <TextInput style={styles.newPlanInput} placeholder={t('plansScreen.newPlan.levelPlaceholder')} placeholderTextColor={C.textMuted} value={newPlanModal.level} onChangeText={v => setNewPlanModal(p => ({ ...p, level: v }))} />
                 </View>
               </View>
             )}
@@ -4391,7 +4420,7 @@ export default function PlansScreen() {
               disabled={!newPlanModal.name.trim() || !newPlanModal.uri || !!newPlanModal.uploading}
             >
               <Ionicons name="add-circle-outline" size={16} color={C.primary} />
-              <Text style={styles.modalOpenText}>Créer le plan</Text>
+              <Text style={styles.modalOpenText}>{t('plansScreen.actions.createPlan')}</Text>
             </TouchableOpacity>
           </TouchableOpacity>
         </TouchableOpacity>

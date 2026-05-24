@@ -5,21 +5,23 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
+import { useTranslation } from 'react-i18next';
 import { useState, useMemo } from 'react';
 import { C } from '@/constants/colors';
 import { useSubscription, OrgSummary, generateOrgSlug } from '@/context/SubscriptionContext';
 import { useAuth } from '@/context/AuthContext';
 
 const STATUS_CONFIG = {
-  trial:     { label: 'Essai',     color: '#F59E0B', bg: '#FFFBEB' },
-  active:    { label: 'Actif',     color: '#10B981', bg: '#ECFDF5' },
-  suspended: { label: 'Suspendu',  color: '#EF4444', bg: '#FEF2F2' },
-  expired:   { label: 'Expiré',    color: '#6B7280', bg: '#F3F4F6' },
+  trial:     { labelKey: 'trial', color: '#F59E0B', bg: '#FFFBEB' },
+  active:    { labelKey: 'active', color: '#10B981', bg: '#ECFDF5' },
+  suspended: { labelKey: 'suspended', color: '#EF4444', bg: '#FEF2F2' },
+  expired:   { labelKey: 'expired', color: '#6B7280', bg: '#F3F4F6' },
 } as const;
 
 const ORG_COLORS = ['#3B82F6','#10B981','#8B5CF6','#F59E0B','#EF4444','#06B6D4','#EC4899'];
 
 export default function SuperAdminScreen() {
+  const { t } = useTranslation();
   const insets = useSafeAreaInsets();
   const topPad = insets.top;
   const bottomPad = Platform.OS === 'web' ? 34 : insets.bottom;
@@ -55,9 +57,9 @@ export default function SuperAdminScreen() {
     return (
       <View style={[styles.container, styles.center]}>
         <Ionicons name="lock-closed-outline" size={48} color={C.textMuted} />
-        <Text style={styles.accessDenied}>Accès réservé au super administrateur</Text>
+        <Text style={styles.accessDenied}>{t('superAdminScreen.accessDenied')}</Text>
         <TouchableOpacity style={styles.backLink} onPress={() => router.back()}>
-          <Text style={styles.backLinkTxt}>Retour</Text>
+          <Text style={styles.backLinkTxt}>{t('common.back')}</Text>
         </TouchableOpacity>
       </View>
     );
@@ -79,7 +81,7 @@ export default function SuperAdminScreen() {
     if (!editModal) return;
     const trimmed = editOrgName.trim();
     if (!trimmed) {
-      Alert.alert('Nom requis', 'Le nom de l\'organisation ne peut pas être vide.');
+      Alert.alert(t('superAdminScreen.nameRequiredTitle'), t('superAdminScreen.nameRequiredEdit'));
       return;
     }
     if (trimmed === editModal.org.name) {
@@ -93,7 +95,7 @@ export default function SuperAdminScreen() {
     if (result.success) {
       setEditModal(null);
     } else {
-      Alert.alert('Erreur', result.error ?? 'Impossible de modifier l\'organisation.');
+      Alert.alert(t('common.error'), result.error ?? t('superAdminScreen.updateOrgError'));
     }
   }
 
@@ -105,18 +107,18 @@ export default function SuperAdminScreen() {
     if (result.success) {
       setStatusModal(null);
     } else {
-      Alert.alert('Erreur', result.error ?? 'Impossible de modifier le statut.');
+      Alert.alert(t('common.error'), result.error ?? t('superAdminScreen.updateStatusError'));
     }
   }
 
   async function handleCreateOrg() {
     const name = newOrgName.trim();
     if (!name) {
-      Alert.alert('Nom requis', 'Veuillez saisir le nom de l\'organisation.');
+      Alert.alert(t('superAdminScreen.nameRequiredTitle'), t('superAdminScreen.nameRequiredCreate'));
       return;
     }
     if (newAdminEmail && !newAdminEmail.includes('@')) {
-      Alert.alert('Email invalide', 'Veuillez saisir une adresse email valide.');
+      Alert.alert(t('superAdminScreen.invalidEmailTitle'), t('superAdminScreen.invalidEmailText'));
       return;
     }
     setCreating(true);
@@ -127,21 +129,21 @@ export default function SuperAdminScreen() {
       setNewOrgName('');
       setNewAdminEmail('');
       Alert.alert(
-        'Organisation créée',
+        t('superAdminScreen.orgCreatedTitle'),
         newAdminEmail.trim()
-          ? `"${name}" a été créée et une invitation admin a été envoyée à ${newAdminEmail.trim()}.`
-          : `"${name}" a été créée avec succès.`,
-        [{ text: 'OK' }]
+          ? t('superAdminScreen.orgCreatedWithInvite', { name, email: newAdminEmail.trim() })
+          : t('superAdminScreen.orgCreated', { name }),
+        [{ text: t('common.close') }]
       );
     } else {
-      Alert.alert('Erreur', result.error ?? 'Impossible de créer l\'organisation.');
+      Alert.alert(t('common.error'), result.error ?? t('superAdminScreen.createOrgError'));
     }
   }
 
   async function handleDeleteOrg() {
     if (!deleteModal) return;
     if (deleteConfirmName.trim() !== deleteModal.org.name) {
-      Alert.alert('Nom incorrect', 'Veuillez saisir le nom exact de l\'organisation pour confirmer la suppression.');
+      Alert.alert(t('superAdminScreen.wrongNameTitle'), t('superAdminScreen.wrongNameText'));
       return;
     }
     setDeleting(true);
@@ -150,9 +152,9 @@ export default function SuperAdminScreen() {
     if (result.success) {
       setDeleteModal(null);
       setDeleteConfirmName('');
-      Alert.alert('Organisation supprimée', `"${deleteModal.org.name}" et toutes ses données ont été définitivement supprimées.`);
+      Alert.alert(t('superAdminScreen.orgDeletedTitle'), t('superAdminScreen.orgDeletedText', { name: deleteModal.org.name }));
     } else {
-      Alert.alert('Erreur', result.error ?? 'Impossible de supprimer l\'organisation.');
+      Alert.alert(t('common.error'), result.error ?? t('superAdminScreen.deleteOrgError'));
     }
   }
 
@@ -163,12 +165,12 @@ export default function SuperAdminScreen() {
           <Ionicons name="arrow-back" size={22} color={C.text} />
         </TouchableOpacity>
         <View style={{ flex: 1 }}>
-          <Text style={styles.title}>Super Admin</Text>
-          <Text style={styles.subtitle}>Tableau de bord BuildTrack</Text>
+          <Text style={styles.title}>{t('superAdminScreen.title')}</Text>
+          <Text style={styles.subtitle}>{t('superAdminScreen.subtitle')}</Text>
         </View>
         <TouchableOpacity style={styles.newOrgBtn} onPress={() => setCreateModal(true)}>
           <Ionicons name="add" size={16} color="#fff" />
-          <Text style={styles.newOrgBtnTxt}>Nouvelle org.</Text>
+          <Text style={styles.newOrgBtnTxt}>{t('superAdminScreen.newOrgShort')}</Text>
         </TouchableOpacity>
       </View>
 
@@ -185,7 +187,7 @@ export default function SuperAdminScreen() {
               color={activeTab === tab ? C.primary : C.textMuted}
             />
             <Text style={[styles.tabBtnTxt, activeTab === tab && styles.tabBtnTxtActive]}>
-              {tab === 'orgs' ? 'Organisations' : 'Tableau de bord'}
+              {tab === 'orgs' ? t('superAdminScreen.tabs.orgs') : t('superAdminScreen.tabs.dashboard')}
             </Text>
             {tab === 'orgs' && (
               <View style={[styles.tabCount, activeTab === tab && styles.tabCountActive]}>
@@ -206,9 +208,9 @@ export default function SuperAdminScreen() {
         >
           <View style={styles.statsRow}>
             {[
-              { label: 'Organisations', value: totalOrgs,  icon: 'business-outline',        color: C.primary },
-              { label: 'En essai',       value: trialOrgs,  icon: 'time-outline',             color: '#F59E0B' },
-              { label: 'Actifs',         value: activeOrgs, icon: 'checkmark-circle-outline', color: '#10B981' },
+              { label: t('superAdminScreen.stats.organizations'), value: totalOrgs,  icon: 'business-outline',        color: C.primary },
+              { label: t('superAdminScreen.stats.trial'),         value: trialOrgs,  icon: 'time-outline',             color: '#F59E0B' },
+              { label: t('superAdminScreen.stats.active'),        value: activeOrgs, icon: 'checkmark-circle-outline', color: '#10B981' },
             ].map((s, i) => (
               <View key={i} style={styles.statCard}>
                 <Ionicons name={s.icon as any} size={20} color={s.color} />
@@ -223,8 +225,8 @@ export default function SuperAdminScreen() {
           ) : orgSummaries.length === 0 ? (
             <View style={styles.empty}>
               <Ionicons name="business-outline" size={40} color={C.textMuted} />
-              <Text style={styles.emptyTxt}>Aucune organisation</Text>
-              <Text style={styles.emptyHint}>Les organisations apparaissent ici lorsque des clients s'inscrivent.</Text>
+              <Text style={styles.emptyTxt}>{t('superAdminScreen.emptyOrgsTitle')}</Text>
+              <Text style={styles.emptyHint}>{t('superAdminScreen.emptyOrgsHint')}</Text>
             </View>
           ) : (
             orgSummaries.map((summary, i) => {
@@ -250,7 +252,7 @@ export default function SuperAdminScreen() {
                         onPress={() => setStatusModal(summary)}
                         hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
                       >
-                        <Text style={[styles.statusBadgeTxt, { color: statusCfg.color }]}>{statusCfg.label}</Text>
+                        <Text style={[styles.statusBadgeTxt, { color: statusCfg.color }]}>{t(`superAdminScreen.status.${statusCfg.labelKey}`)}</Text>
                         <Ionicons name="chevron-down" size={10} color={statusCfg.color} />
                       </TouchableOpacity>
                     </View>
@@ -266,7 +268,7 @@ export default function SuperAdminScreen() {
                       <View style={styles.orgMetaItem}>
                         <Ionicons name="people-outline" size={12} color={C.textMuted} />
                         <Text style={styles.orgMetaTxt}>
-                          {users.filter(u => u.organizationId === org.id).length} membre{users.filter(u => u.organizationId === org.id).length !== 1 ? 's' : ''}
+                          {t('superAdminScreen.membersCount', { count: users.filter(u => u.organizationId === org.id).length })}
                         </Text>
                       </View>
                     </View>
@@ -275,7 +277,7 @@ export default function SuperAdminScreen() {
                     <View style={styles.orgFooter}>
                       <View style={styles.enterpriseTag}>
                         <Ionicons name="infinite-outline" size={12} color="#8B5CF6" />
-                        <Text style={styles.enterpriseTagTxt}>Entreprise — Illimité</Text>
+                        <Text style={styles.enterpriseTagTxt}>{t('superAdminScreen.enterpriseUnlimited')}</Text>
                       </View>
                       <View style={styles.orgActions}>
                         <TouchableOpacity
@@ -283,14 +285,14 @@ export default function SuperAdminScreen() {
                           onPress={() => openEditModal(summary)}
                         >
                           <Ionicons name="pencil-outline" size={13} color={C.primary} />
-                          <Text style={styles.editOrgBtnTxt}>Éditer</Text>
+                          <Text style={styles.editOrgBtnTxt}>{t('common.edit')}</Text>
                         </TouchableOpacity>
                         <TouchableOpacity
                           style={styles.deleteOrgBtn}
                           onPress={() => { setDeleteModal(summary); setDeleteConfirmName(''); }}
                         >
                           <Ionicons name="trash-outline" size={13} color="#EF4444" />
-                          <Text style={styles.deleteOrgBtnTxt}>Supprimer</Text>
+                          <Text style={styles.deleteOrgBtnTxt}>{t('common.delete')}</Text>
                         </TouchableOpacity>
                       </View>
                     </View>
@@ -310,10 +312,10 @@ export default function SuperAdminScreen() {
         >
           <View style={styles.dashGrid}>
             {[
-              { label: 'Filiales',    value: totalOrgs,    icon: 'business-outline',        color: C.primary },
-              { label: 'Actives',     value: activeOrgs,   icon: 'checkmark-circle-outline', color: '#10B981' },
-              { label: 'En essai',    value: trialOrgs,    icon: 'time-outline',             color: '#F59E0B' },
-              { label: 'Suspendues',  value: suspendedOrgs, icon: 'warning-outline',          color: '#EF4444' },
+              { label: t('superAdminScreen.stats.subsidiaries'), value: totalOrgs,     icon: 'business-outline',        color: C.primary },
+              { label: t('superAdminScreen.stats.activeFem'),    value: activeOrgs,    icon: 'checkmark-circle-outline', color: '#10B981' },
+              { label: t('superAdminScreen.stats.trial'),        value: trialOrgs,     icon: 'time-outline',             color: '#F59E0B' },
+              { label: t('superAdminScreen.stats.suspendedFem'), value: suspendedOrgs, icon: 'warning-outline',          color: '#EF4444' },
             ].map((s, i) => (
               <View key={i} style={styles.dashTile}>
                 <Ionicons name={s.icon as any} size={20} color={s.color} />
@@ -330,18 +332,18 @@ export default function SuperAdminScreen() {
               </View>
               <View style={{ flex: 1 }}>
                 <Text style={styles.dashUserVal}>{totalUsers}</Text>
-                <Text style={styles.dashUserLbl}>utilisateurs dans le groupe</Text>
+                <Text style={styles.dashUserLbl}>{t('superAdminScreen.usersInGroup')}</Text>
               </View>
               <View style={styles.dashUserSub}>
                 <Text style={styles.dashUserSubVal}>{totalActiveUsers}</Text>
-                <Text style={styles.dashUserSubLbl}>actifs</Text>
+                <Text style={styles.dashUserSubLbl}>{t('superAdminScreen.activeUsersShort')}</Text>
               </View>
             </View>
           </View>
 
           {orgSummaries.length > 0 && (
             <>
-              <Text style={styles.dashSectionTitle}>Utilisateurs par filiale</Text>
+              <Text style={styles.dashSectionTitle}>{t('superAdminScreen.usersByOrg')}</Text>
               {orgSummaries.map((summary, i) => {
                 const col = ORG_COLORS[i % ORG_COLORS.length];
                 const initials = summary.org.name.split(' ').map(w => w[0]).slice(0, 2).join('').toUpperCase();
@@ -355,12 +357,12 @@ export default function SuperAdminScreen() {
                     <View style={{ flex: 1 }}>
                       <Text style={styles.dashOrgName} numberOfLines={1}>{summary.org.name}</Text>
                       <View style={[styles.dashStatusBadge, { backgroundColor: statusCfg.bg }]}>
-                        <Text style={[styles.dashStatusTxt, { color: statusCfg.color }]}>{statusCfg.label}</Text>
+                        <Text style={[styles.dashStatusTxt, { color: statusCfg.color }]}>{t(`superAdminScreen.status.${statusCfg.labelKey}`)}</Text>
                       </View>
                     </View>
                     <View style={styles.dashOrgCount}>
                       <Text style={[styles.dashOrgCountVal, { color: col }]}>{orgUserCount}</Text>
-                      <Text style={styles.dashOrgCountLbl}>membres</Text>
+                      <Text style={styles.dashOrgCountLbl}>{t('superAdminScreen.membersShort')}</Text>
                     </View>
                   </View>
                 );
@@ -371,8 +373,8 @@ export default function SuperAdminScreen() {
           {orgSummaries.length === 0 && !isLoading && (
             <View style={styles.empty}>
               <Ionicons name="bar-chart-outline" size={40} color={C.textMuted} />
-              <Text style={styles.emptyTxt}>Aucune donnée</Text>
-              <Text style={styles.emptyHint}>Les statistiques apparaîtront dès qu'une organisation sera créée.</Text>
+              <Text style={styles.emptyTxt}>{t('superAdminScreen.noDataTitle')}</Text>
+              <Text style={styles.emptyHint}>{t('superAdminScreen.noDataHint')}</Text>
             </View>
           )}
         </ScrollView>
@@ -393,8 +395,8 @@ export default function SuperAdminScreen() {
                   <Ionicons name="business" size={18} color={C.primary} />
                 </View>
                 <View style={{ flex: 1 }}>
-                  <Text style={styles.modalTitle}>Nouvelle organisation</Text>
-                  <Text style={styles.modalSub}>Créer une filiale du groupe</Text>
+                  <Text style={styles.modalTitle}>{t('superAdminScreen.createModalTitle')}</Text>
+                  <Text style={styles.modalSub}>{t('superAdminScreen.createModalSub')}</Text>
                 </View>
                 <TouchableOpacity
                   onPress={() => { if (!creating) { setCreateModal(false); setNewOrgName(''); setNewAdminEmail(''); } }}
@@ -405,10 +407,10 @@ export default function SuperAdminScreen() {
               </View>
 
               <View style={styles.inputGroup}>
-                <Text style={styles.inputLabel}>Nom de l'organisation *</Text>
+                <Text style={styles.inputLabel}>{t('superAdminScreen.orgNameRequired')}</Text>
                 <TextInput
                   style={styles.textInput}
-                  placeholder="ex. Bouygues Grand-Ouest"
+                  placeholder={t('superAdminScreen.orgNamePlaceholder')}
                   placeholderTextColor={C.textMuted}
                   value={newOrgName}
                   onChangeText={setNewOrgName}
@@ -418,7 +420,7 @@ export default function SuperAdminScreen() {
               </View>
 
               <View style={styles.inputGroup}>
-                <Text style={styles.inputLabel}>Email admin <Text style={{ fontFamily: 'Inter_400Regular', color: C.textMuted }}>(optionnel)</Text></Text>
+                <Text style={styles.inputLabel}>{t('superAdminScreen.adminEmail')} <Text style={{ fontFamily: 'Inter_400Regular', color: C.textMuted }}>{t('superAdminScreen.optional')}</Text></Text>
                 <TextInput
                   style={styles.textInput}
                   placeholder="admin@filiale.fr"
@@ -429,7 +431,7 @@ export default function SuperAdminScreen() {
                   autoCapitalize="none"
                   editable={!creating}
                 />
-                <Text style={styles.inputHint}>Une invitation de rôle Admin sera envoyée à cet email.</Text>
+                <Text style={styles.inputHint}>{t('superAdminScreen.adminInviteHint')}</Text>
               </View>
 
               <TouchableOpacity
@@ -442,7 +444,7 @@ export default function SuperAdminScreen() {
                 ) : (
                   <>
                     <Ionicons name="add-circle-outline" size={18} color="#fff" />
-                    <Text style={styles.submitBtnTxt}>Créer l'organisation</Text>
+                    <Text style={styles.submitBtnTxt}>{t('superAdminScreen.createOrg')}</Text>
                   </>
                 )}
               </TouchableOpacity>
@@ -466,7 +468,7 @@ export default function SuperAdminScreen() {
                   <Ionicons name="pencil" size={18} color="#8B5CF6" />
                 </View>
                 <View style={{ flex: 1 }}>
-                  <Text style={styles.modalTitle}>Éditer l'organisation</Text>
+                  <Text style={styles.modalTitle}>{t('superAdminScreen.editModalTitle')}</Text>
                   <Text style={styles.modalSub} numberOfLines={1}>{editModal?.org.slug}</Text>
                 </View>
                 <TouchableOpacity
@@ -478,10 +480,10 @@ export default function SuperAdminScreen() {
               </View>
 
               <View style={styles.inputGroup}>
-                <Text style={styles.inputLabel}>Nom de l'organisation</Text>
+                <Text style={styles.inputLabel}>{t('superAdminScreen.orgName')}</Text>
                 <TextInput
                   style={styles.textInput}
-                  placeholder="Nom de la filiale"
+                  placeholder={t('superAdminScreen.orgNameEditPlaceholder')}
                   placeholderTextColor={C.textMuted}
                   value={editOrgName}
                   onChangeText={setEditOrgName}
@@ -495,7 +497,7 @@ export default function SuperAdminScreen() {
                 <View style={styles.slugRow}>
                   <Ionicons name="link-outline" size={13} color={C.textMuted} />
                   <Text style={styles.slugTxt}>
-                    {'Identifiant actuel : '}
+                    {t('superAdminScreen.currentSlugPrefix')}
                     <Text style={editSlugPreview ? styles.slugOld : styles.slugCurrent}>
                       {editModal?.org.slug ?? ''}
                     </Text>
@@ -511,8 +513,8 @@ export default function SuperAdminScreen() {
                     : { color: C.textMuted, fontStyle: 'italic' }
                   ]}>
                     {editSlugPreview
-                      ? `Nouvel identifiant : ${editSlugPreview}`
-                      : 'Sera mis à jour automatiquement avec le nom'}
+                      ? t('superAdminScreen.newSlug', { slug: editSlugPreview })
+                      : t('superAdminScreen.slugAutoHint')}
                   </Text>
                 </View>
               </View>
@@ -523,7 +525,7 @@ export default function SuperAdminScreen() {
                   onPress={() => setEditModal(null)}
                   disabled={editSaving}
                 >
-                  <Text style={styles.cancelBtnTxt}>Annuler</Text>
+                  <Text style={styles.cancelBtnTxt}>{t('common.cancel')}</Text>
                 </TouchableOpacity>
                 <TouchableOpacity
                   style={[styles.submitBtn, { flex: 1 }, (!editOrgName.trim() || editSaving) && styles.submitBtnDisabled]}
@@ -535,7 +537,7 @@ export default function SuperAdminScreen() {
                   ) : (
                     <>
                       <Ionicons name="checkmark" size={18} color="#fff" />
-                      <Text style={styles.submitBtnTxt}>Enregistrer</Text>
+                      <Text style={styles.submitBtnTxt}>{t('common.save')}</Text>
                     </>
                   )}
                 </TouchableOpacity>
@@ -560,7 +562,7 @@ export default function SuperAdminScreen() {
                   <Ionicons name="trash" size={18} color="#EF4444" />
                 </View>
                 <View style={{ flex: 1 }}>
-                  <Text style={styles.modalTitle}>Supprimer l'organisation</Text>
+                  <Text style={styles.modalTitle}>{t('superAdminScreen.deleteModalTitle')}</Text>
                   <Text style={styles.modalSub} numberOfLines={1}>{deleteModal?.org.name}</Text>
                 </View>
                 <TouchableOpacity
@@ -574,17 +576,17 @@ export default function SuperAdminScreen() {
               <View style={styles.deleteWarningBox}>
                 <Ionicons name="warning-outline" size={18} color="#EF4444" />
                 <Text style={styles.deleteWarningTxt}>
-                  {'Cette action est '}
-                  <Text style={{ fontFamily: 'Inter_700Bold' }}>irréversible</Text>
-                  {'. Tous les chantiers, réserves, incidents, messages, documents et membres de cette organisation seront définitivement supprimés.'}
+                  {t('superAdminScreen.deleteWarningBefore')}
+                  <Text style={{ fontFamily: 'Inter_700Bold' }}>{t('superAdminScreen.irreversible')}</Text>
+                  {t('superAdminScreen.deleteWarningAfter')}
                 </Text>
               </View>
 
               <View style={styles.inputGroup}>
                 <Text style={styles.inputLabel}>
-                  {'Tapez '}
+                  {t('superAdminScreen.typePrefix')}
                   <Text style={{ fontFamily: 'Inter_700Bold', color: C.text }}>{deleteModal?.org.name}</Text>
-                  {' pour confirmer'}
+                  {t('superAdminScreen.typeSuffix')}
                 </Text>
                 <TextInput
                   style={[styles.textInput, { borderColor: deleteConfirmName && deleteConfirmName !== deleteModal?.org.name ? '#EF4444' : C.border }]}
@@ -603,7 +605,7 @@ export default function SuperAdminScreen() {
                   onPress={() => { setDeleteModal(null); setDeleteConfirmName(''); }}
                   disabled={deleting}
                 >
-                  <Text style={styles.cancelBtnTxt}>Annuler</Text>
+                  <Text style={styles.cancelBtnTxt}>{t('common.cancel')}</Text>
                 </TouchableOpacity>
                 <TouchableOpacity
                   style={[
@@ -618,7 +620,7 @@ export default function SuperAdminScreen() {
                   ) : (
                     <>
                       <Ionicons name="trash-outline" size={18} color="#fff" />
-                      <Text style={styles.submitBtnTxt}>Supprimer définitivement</Text>
+                      <Text style={styles.submitBtnTxt}>{t('superAdminScreen.deleteForever')}</Text>
                     </>
                   )}
                 </TouchableOpacity>
@@ -634,7 +636,7 @@ export default function SuperAdminScreen() {
           <View style={styles.modalSheet}>
             <View style={styles.modalHeaderRow}>
               <View style={{ flex: 1 }}>
-                <Text style={styles.modalTitle}>Changer le statut</Text>
+                <Text style={styles.modalTitle}>{t('superAdminScreen.changeStatus')}</Text>
                 <Text style={styles.modalSub} numberOfLines={1}>{statusModal?.org.name}</Text>
               </View>
               <TouchableOpacity onPress={() => !statusSaving && setStatusModal(null)} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
@@ -653,7 +655,7 @@ export default function SuperAdminScreen() {
                 >
                   <View style={[styles.statusDot, { backgroundColor: cfg.color }]} />
                   <Text style={[styles.statusOptionTxt, { color: isCurrent ? cfg.color : C.text }]}>
-                    {cfg.label}
+                    {t(`superAdminScreen.status.${cfg.labelKey}`)}
                   </Text>
                   {isCurrent && <Ionicons name="checkmark-circle" size={18} color={cfg.color} />}
                   {!isCurrent && statusSaving && <ActivityIndicator size="small" color={C.primary} />}

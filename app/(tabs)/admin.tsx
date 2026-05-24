@@ -1,4 +1,4 @@
-import {
+﻿import {
   View, Text, StyleSheet, ScrollView, TouchableOpacity, TextInput,
   Alert, Modal, Platform, ActivityIndicator, Linking, KeyboardAvoidingView,
   Dimensions,
@@ -7,6 +7,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useState, useMemo, useEffect, useRef, useCallback } from 'react';
 import { useRouter } from 'expo-router';
+import { useTranslation } from 'react-i18next';
 import * as Clipboard from 'expo-clipboard';
 import { C } from '@/constants/colors';
 import { useApp } from '@/context/AppContext';
@@ -58,11 +59,12 @@ function isValidEmail(email: string): boolean {
 }
 
 function RoleBadge({ role }: { role: string }) {
+  const { t } = useTranslation();
   const r = ROLES.find(x => x.value === role) ?? ROLE_INFO[role];
   if (!r) return null;
   return (
     <View style={[styles.roleBadge, { backgroundColor: r.bg }]}>
-      <Text style={[styles.roleBadgeText, { color: r.color }]}>{r.label}</Text>
+      <Text style={[styles.roleBadgeText, { color: r.color }]}>{t(`roles.${role}`, { defaultValue: r.label })}</Text>
     </View>
   );
 }
@@ -77,6 +79,7 @@ function InitialAvatar({ name, color }: { name: string; color: string }) {
 }
 
 export default function AdminScreen() {
+  const { t } = useTranslation();
   const insets = useSafeAreaInsets();
   const topPad = Platform.OS === 'web' ? 67 : insets.top;
   const bottomPad = Platform.OS === 'web' ? 34 : insets.bottom;
@@ -243,7 +246,15 @@ export default function AdminScreen() {
     return Math.max(0, Math.ceil((new Date(subscription.trialEndsAt).getTime() - Date.now()) / (1000 * 60 * 60 * 24)));
   }, [subscription]);
 
-  const statusCfg = subscription ? (STATUS_CONFIG[subscription.status] ?? STATUS_CONFIG.trial) : null;
+  const statusCfg = useMemo(() => {
+    if (!subscription) return null;
+    const cfg = STATUS_CONFIG[subscription.status] ?? STATUS_CONFIG.trial;
+    return {
+      ...cfg,
+      label: t(`adminScreen.subscriptionStatus.${subscription.status}.label`, { defaultValue: cfg.label }),
+      hint: t(`adminScreen.subscriptionStatus.${subscription.status}.hint`, { defaultValue: cfg.hint ?? '' }),
+    };
+  }, [subscription, t]);
 
   const superAdminCount = useMemo(() => viewUsers.filter(u => u.role === 'super_admin').length, [viewUsers]);
   const rolesTotal = useMemo(() => Object.values(roleCounts).reduce((s, n) => s + n, 0) + superAdminCount, [roleCounts, superAdminCount]);
@@ -253,6 +264,20 @@ export default function AdminScreen() {
   const isSeatFull = !canInvite;
   const isSelectedRoleFree = FREE_ROLES.includes(inviteRole);
   const sendDisabled = isSeatFull && !isSelectedRoleFree;
+
+  const translatedRoles = useMemo(
+    () => ROLES.map(r => ({
+      ...r,
+      label: t(`roles.${r.value}`, { defaultValue: r.label }),
+      description: t(`roleDescriptions.${r.value}`, { defaultValue: r.description }),
+    })),
+    [t]
+  );
+
+  const getRoleLabel = useCallback(
+    (role: string) => t(`roles.${role}`, { defaultValue: ROLE_INFO[role]?.label ?? role }),
+    [t]
+  );
 
   const companyUserCounts = useMemo(() => {
     const counts: Record<string, number> = {};
@@ -281,7 +306,7 @@ export default function AdminScreen() {
     const emailTrimmed = inviteEmail.trim();
     if (!emailTrimmed) return;
     if (!isValidEmail(emailTrimmed)) {
-      setInviteEmailError('Adresse email invalide (ex : prenom.nom@exemple.fr).');
+      setInviteEmailError(t('adminScreen.inviteModal.invalidEmail'));
       return;
     }
     setInviteEmailError('');
@@ -289,8 +314,8 @@ export default function AdminScreen() {
     // optionnel pour les autres rôles (sauf admin qui n'est jamais lié à une seule entreprise).
     if (inviteRole === 'sous_traitant' && !inviteCompanyId) {
       Alert.alert(
-        'Entreprise requise',
-        "Un sous-traitant doit être rattaché à une entreprise. Sélectionnez-en une dans la liste."
+        t('adminScreen.alerts.companyRequiredTitle'),
+        t('adminScreen.alerts.companyRequiredMessage')
       );
       return;
     }
@@ -302,7 +327,7 @@ export default function AdminScreen() {
     if (result.success) {
       setInviteToken(result.token ?? null);
     } else {
-      Alert.alert('Invitation impossible', result.error ?? 'Erreur inconnue.');
+      Alert.alert(t('adminScreen.alerts.inviteFailedTitle'), result.error ?? t('common.unknown'));
     }
   }
 
@@ -324,11 +349,11 @@ export default function AdminScreen() {
     };
     if (Platform.OS === 'web' && typeof navigator !== 'undefined' && navigator.clipboard) {
       navigator.clipboard.writeText(inviteToken).then(flagCopied).catch(() => {
-        Alert.alert('Token', inviteToken);
+        Alert.alert(t('adminScreen.inviteModal.token'), inviteToken);
       });
     } else {
       Clipboard.setStringAsync(inviteToken).then(flagCopied).catch(() => {
-        Alert.alert('Token d\'invitation', inviteToken);
+        Alert.alert(t('adminScreen.inviteModal.inviteToken'), inviteToken);
       });
     }
   }
@@ -340,11 +365,11 @@ export default function AdminScreen() {
     };
     if (Platform.OS === 'web' && typeof navigator !== 'undefined' && navigator.clipboard) {
       navigator.clipboard.writeText(APK_DOWNLOAD_URL).then(flagCopied).catch(() => {
-        Alert.alert('Lien APK', APK_DOWNLOAD_URL);
+        Alert.alert(t('adminScreen.apkLink'), APK_DOWNLOAD_URL);
       });
     } else {
       Clipboard.setStringAsync(APK_DOWNLOAD_URL).then(flagCopied).catch(() => {
-        Alert.alert('Lien APK', APK_DOWNLOAD_URL);
+        Alert.alert(t('adminScreen.apkLink'), APK_DOWNLOAD_URL);
       });
     }
   }
@@ -354,10 +379,10 @@ export default function AdminScreen() {
     try {
       const result = await resendInvitation(inv.id);
       if (!result.success) {
-        Alert.alert('Envoi impossible', result.error ?? "L'email n'a pas pu être renvoyé.");
+        Alert.alert(t('adminScreen.alerts.resendFailedTitle'), result.error ?? t('adminScreen.alerts.resendFailedMessage'));
       } else {
         const total = (inv.resendCount ?? 0) + 1;
-        showToast(`Email renvoyé à ${inv.email} (${total}× au total)`);
+        showToast(t('adminScreen.toasts.emailResent', { email: inv.email, count: total }));
       }
     } finally {
       setResendingInvId(null);
@@ -372,18 +397,18 @@ export default function AdminScreen() {
       const since = Date.now() - new Date(inv.lastResentAt).getTime();
       if (since < 2 * 60 * 1000) {
         const seconds = Math.ceil((2 * 60 * 1000 - since) / 1000);
-        Alert.alert('Trop tôt', `Veuillez patienter ${seconds}s avant un nouveau renvoi.`);
+        Alert.alert(t('adminScreen.alerts.tooSoonTitle'), t('adminScreen.alerts.tooSoonMessage', { seconds }));
         return;
       }
     }
     // Spam guard: ask confirmation past 3 resends
     if (count >= 3) {
       Alert.alert(
-        'Risque de spam',
-        `Vous avez déjà renvoyé cet email ${count} fois à ${inv.email}. Continuer ?`,
+        t('adminScreen.alerts.spamRiskTitle'),
+        t('adminScreen.alerts.spamRiskMessage', { count, email: inv.email }),
         [
-          { text: 'Non', style: 'cancel' },
-          { text: 'Renvoyer quand même', onPress: () => doResend(inv) },
+          { text: t('common.no'), style: 'cancel' },
+          { text: t('adminScreen.alerts.resendAnyway'), onPress: () => doResend(inv) },
         ]
       );
       return;
@@ -393,15 +418,15 @@ export default function AdminScreen() {
 
   function handleCancelInvitation(id: string, emailAddr: string) {
     Alert.alert(
-      'Annuler l\'invitation',
-      `Annuler l'invitation envoyée à ${emailAddr} ?`,
+      t('adminScreen.alerts.cancelInviteTitle'),
+      t('adminScreen.alerts.cancelInviteMessage', { email: emailAddr }),
       [
-        { text: 'Non', style: 'cancel' },
+        { text: t('common.no'), style: 'cancel' },
         {
-          text: 'Annuler l\'invitation', style: 'destructive',
+          text: t('adminScreen.alerts.cancelInviteAction'), style: 'destructive',
           onPress: async () => {
             await cancelInvitation(id);
-            showToast('Invitation annulée');
+            showToast(t('adminScreen.toasts.inviteCancelled'));
           },
         },
       ]
@@ -410,21 +435,21 @@ export default function AdminScreen() {
 
   function handleDeleteUser(u: { id: string; name: string; role: string }) {
     if (u.id === user?.id) {
-      Alert.alert('Action impossible', 'Vous ne pouvez pas supprimer votre propre compte.');
+      Alert.alert(t('adminScreen.alerts.actionImpossibleTitle'), t('adminScreen.alerts.cannotDeleteSelf'));
       return;
     }
     const isPaidSeat = !FREE_ROLES.includes(u.role as UserRole);
-    const seatNote = isPaidSeat ? '\n\nCela libèrera 1 siège dans votre quota.' : '';
+    const seatNote = isPaidSeat ? `\n\n${t('adminScreen.alerts.seatWillBeFreed')}` : '';
     Alert.alert(
-      'Retirer l\'utilisateur',
-      `Retirer "${u.name}" de l'organisation ?${seatNote}\n\nIl ne pourra plus accéder à BuildTrack.`,
+      t('adminScreen.alerts.removeUserTitle'),
+      t('adminScreen.alerts.removeUserMessage', { name: u.name, seatNote }),
       [
-        { text: 'Annuler', style: 'cancel' },
+        { text: t('common.cancel'), style: 'cancel' },
         {
-          text: 'Retirer', style: 'destructive',
+          text: t('adminScreen.remove'), style: 'destructive',
           onPress: async () => {
             await deleteUserProfile(u.id);
-            showToast(`${u.name} retiré(e) de l'organisation`);
+            showToast(t('adminScreen.toasts.userRemoved', { name: u.name }));
           },
         },
       ]
@@ -453,11 +478,11 @@ export default function AdminScreen() {
     const isDirty = (companyModal?.mode === 'add' && isCompanyFormDirty) || isEditDirty;
     if (isDirty) {
       Alert.alert(
-        'Abandonner les modifications ?',
-        companyModal?.mode === 'edit' ? 'Les modifications non enregistrées seront perdues.' : 'Les données saisies seront perdues.',
+        t('adminScreen.alerts.discardChangesTitle'),
+        companyModal?.mode === 'edit' ? t('adminScreen.alerts.unsavedChangesLost') : t('adminScreen.alerts.enteredDataLost'),
         [
-          { text: 'Continuer l\'édition', style: 'cancel' },
-          { text: 'Abandonner', style: 'destructive', onPress: () => setCompanyModal(null) },
+          { text: t('adminScreen.alerts.continueEditing'), style: 'cancel' },
+          { text: t('adminScreen.alerts.discard'), style: 'destructive', onPress: () => setCompanyModal(null) },
         ]
       );
     } else {
@@ -467,17 +492,17 @@ export default function AdminScreen() {
 
   function handleSaveCompany() {
     if (!nom.trim() || !nomCourt.trim() || !effectif.trim()) {
-      Alert.alert('Champs requis', 'Le nom, le sigle et l\'effectif prévu sont obligatoires.');
+      Alert.alert(t('adminScreen.alerts.requiredFieldsTitle'), t('adminScreen.alerts.companyRequiredFields'));
       return;
     }
     const planned = parseInt(effectif, 10);
     if (isNaN(planned) || planned < 0) {
-      Alert.alert('Valeur invalide', 'L\'effectif doit être un entier positif.');
+      Alert.alert(t('adminScreen.alerts.invalidValueTitle'), t('adminScreen.alerts.invalidWorkerCount'));
       return;
     }
     const heuresToFloat = parseFloat(String(heures).replace(',', '.'));
     if (heures.trim() && (isNaN(heuresToFloat) || heuresToFloat < 0)) {
-      Alert.alert('Valeur invalide', 'Les heures travaillées doivent être un nombre positif.');
+      Alert.alert(t('adminScreen.alerts.invalidValueTitle'), t('adminScreen.alerts.invalidHours'));
       return;
     }
     const hrs = isNaN(heuresToFloat) ? 0 : Math.max(0, heuresToFloat);
@@ -486,15 +511,15 @@ export default function AdminScreen() {
       (companyModal?.mode === 'add' || c.id !== companyModal?.company?.id)
     );
     if (duplicate) {
-      Alert.alert('Doublon', `Une entreprise nommée "${nom.trim()}" existe déjà.`);
+      Alert.alert(t('adminScreen.alerts.duplicateTitle'), t('adminScreen.alerts.duplicateCompany', { name: nom.trim() }));
       return;
     }
     if (email.trim() && !/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(email.trim())) {
-      Alert.alert('Email invalide', 'Vérifiez l\'adresse email de contact.');
+      Alert.alert(t('adminScreen.alerts.invalidEmailTitle'), t('adminScreen.alerts.invalidContactEmail'));
       return;
     }
     if (siret.trim() && !/^\d{14}$/.test(siret.trim().replace(/\s/g, ''))) {
-      Alert.alert('SIRET invalide', 'Le numéro SIRET doit contenir exactement 14 chiffres.');
+      Alert.alert(t('adminScreen.alerts.invalidSiretTitle'), t('adminScreen.alerts.invalidSiret'));
       return;
     }
     if (companyModal?.mode === 'edit' && companyModal.company) {
@@ -512,7 +537,7 @@ export default function AdminScreen() {
         insurance: insurance.trim() || undefined,
         color: selectedColor,
       });
-      showToast('Entreprise mise à jour');
+      showToast(t('adminScreen.toasts.companyUpdated'));
     } else {
       addCompany({
         id: genId(),
@@ -530,7 +555,7 @@ export default function AdminScreen() {
         insurance: insurance.trim() || undefined,
         organizationId: isSuperAdmin ? (selectedOrgId ?? user?.organizationId) : user?.organizationId,
       });
-      showToast('Entreprise ajoutée');
+      showToast(t('adminScreen.toasts.companyAdded'));
     }
     setCompanyModal(null);
   }
@@ -538,16 +563,16 @@ export default function AdminScreen() {
   function handleDeleteCompany(co: Company) {
     const linkedCount = companyUserCounts[co.id] ?? 0;
     const linkedNote = linkedCount > 0
-      ? `\n\n⚠️ ${linkedCount} sous-traitant${linkedCount > 1 ? 's' : ''} lié${linkedCount > 1 ? 's' : ''} perdr${linkedCount > 1 ? 'ont' : 'a'} l'accès à cette entreprise.`
+      ? `\n\n${t('adminScreen.alerts.companyLinkedUsersWarning', { count: linkedCount })}`
       : '';
     Alert.alert(
-      'Supprimer l\'entreprise',
-      `Supprimer "${co.name}" définitivement ?\n\nLes réserves associées resteront sans entreprise assignée.${linkedNote}`,
+      t('adminScreen.alerts.deleteCompanyTitle'),
+      t('adminScreen.alerts.deleteCompanyMessage', { name: co.name, linkedNote }),
       [
-        { text: 'Annuler', style: 'cancel' },
+        { text: t('common.cancel'), style: 'cancel' },
         {
-          text: 'Supprimer', style: 'destructive',
-          onPress: () => { deleteCompany(co.id); showToast(`"${co.name}" supprimée`); },
+          text: t('common.delete'), style: 'destructive',
+          onPress: () => { deleteCompany(co.id); showToast(t('adminScreen.toasts.companyDeleted', { name: co.name })); },
         },
       ]
     );
@@ -597,14 +622,14 @@ export default function AdminScreen() {
             <Ionicons name="chevron-back" size={22} color={C.text} />
           </TouchableOpacity>
           <View style={{ flex: 1 }}>
-            <Text style={styles.title}>Administration</Text>
-            <Text style={styles.subtitle}>Gestion des accès et des équipes</Text>
+            <Text style={styles.title}>{t('adminScreen.headerTitle')}</Text>
+            <Text style={styles.subtitle}>{t('adminScreen.headerSubtitle')}</Text>
           </View>
           {(() => {
             const roleInfo = ROLE_INFO[user?.role ?? 'admin'];
             const badgeColor = roleInfo?.color ?? '#EF4444';
             const badgeBg = roleInfo?.bg ?? '#FEF2F2';
-            const badgeLabel = roleInfo?.label ?? 'Admin';
+            const badgeLabel = getRoleLabel(user?.role ?? 'admin');
             return (
               <View style={[styles.adminBadge, { backgroundColor: badgeBg, borderColor: badgeColor + '44' }]}>
                 <Ionicons name="shield-checkmark" size={14} color={badgeColor} />
@@ -622,7 +647,7 @@ export default function AdminScreen() {
           >
             <View style={styles.orgSelectorLeft}>
               <Ionicons name="business-outline" size={14} color={C.primary} />
-              <Text style={styles.orgSelectorLabel}>Organisation</Text>
+              <Text style={styles.orgSelectorLabel}>{t('adminScreen.organization')}</Text>
             </View>
             <View style={styles.orgSelectorRight}>
               <Text style={styles.orgSelectorName} numberOfLines={1}>{selectedOrg?.name ?? '—'}</Text>
@@ -637,7 +662,7 @@ export default function AdminScreen() {
             onPress={() => setActiveTab('users')}
           >
             <Ionicons name="people" size={14} color={activeTab === 'users' ? C.primary : C.textMuted} />
-            <Text style={[styles.tabBtnText, activeTab === 'users' && styles.tabBtnTextActive]}>Utilisateurs</Text>
+            <Text style={[styles.tabBtnText, activeTab === 'users' && styles.tabBtnTextActive]}>{t('adminScreen.users')}</Text>
             <View style={[styles.tabCount, activeTab === 'users' && styles.tabCountActive]}>
               <Text style={[styles.tabCountText, activeTab === 'users' && styles.tabCountTextActive]}>{rolesTotal}</Text>
             </View>
@@ -652,7 +677,7 @@ export default function AdminScreen() {
             onPress={() => setActiveTab('companies')}
           >
             <Ionicons name="business" size={14} color={activeTab === 'companies' ? C.primary : C.textMuted} />
-            <Text style={[styles.tabBtnText, activeTab === 'companies' && styles.tabBtnTextActive]}>Entreprises</Text>
+            <Text style={[styles.tabBtnText, activeTab === 'companies' && styles.tabBtnTextActive]}>{t('adminScreen.companies')}</Text>
             <View style={[styles.tabCount, activeTab === 'companies' && styles.tabCountActive]}>
               <Text style={[styles.tabCountText, activeTab === 'companies' && styles.tabCountTextActive]}>{viewCompanies.length}</Text>
             </View>
@@ -661,10 +686,10 @@ export default function AdminScreen() {
             style={[styles.tabBtn, activeTab === 'abonnement' && styles.tabBtnActive]}
             onPress={() => setActiveTab('abonnement')}
             accessibilityRole="tab"
-            accessibilityLabel="Onglet Licence"
+            accessibilityLabel={t('adminScreen.license')}
           >
             <Ionicons name="shield-checkmark-outline" size={14} color={activeTab === 'abonnement' ? C.primary : C.textMuted} />
-            <Text style={[styles.tabBtnText, activeTab === 'abonnement' && styles.tabBtnTextActive]}>Licence</Text>
+            <Text style={[styles.tabBtnText, activeTab === 'abonnement' && styles.tabBtnTextActive]}>{t('adminScreen.license')}</Text>
             {(subscription?.status === 'suspended' || subscription?.status === 'expired') && (
               <View style={styles.tabAlertDot} />
             )}
@@ -682,18 +707,18 @@ export default function AdminScreen() {
             <View style={{ alignItems: 'center', paddingVertical: 32 }}>
               <ActivityIndicator size="large" color={C.primary} />
               <Text style={{ marginTop: 10, fontSize: 13, color: C.textMuted, fontFamily: 'Inter_400Regular' }}>
-                Chargement des membres…
+                {t('adminScreen.loadingMembers')}
               </Text>
             </View>
           )}
           <View style={styles.statsGrid}>
-            {ROLES.map(r => (
+            {translatedRoles.map(r => (
               <TouchableOpacity
                 key={r.value}
                 style={[styles.statCard, { borderTopColor: r.color }, roleFilter === r.value && { borderColor: r.color, backgroundColor: r.bg }]}
                 onPress={() => setRoleFilter(roleFilter === r.value ? 'all' : r.value)}
                 accessibilityRole="button"
-                accessibilityLabel={`Filtrer par ${r.label} — ${roleCounts[r.value] ?? 0}`}
+                accessibilityLabel={t('adminScreen.filterByRoleA11y', { role: r.label, count: roleCounts[r.value] ?? 0 })}
               >
                 <Text style={[styles.statNum, { color: r.color }]}>{roleCounts[r.value] ?? 0}</Text>
                 <Text style={styles.statLabel} numberOfLines={2}>{r.label}</Text>
@@ -716,7 +741,7 @@ export default function AdminScreen() {
             <TouchableOpacity style={styles.filterActiveBanner} onPress={() => setRoleFilter('all')}>
               <Ionicons name="funnel" size={13} color={C.primary} />
               <Text style={styles.filterActiveTxt}>
-                Filtre : {(ROLES.find(r => r.value === roleFilter) ?? ROLE_INFO[roleFilter])?.label ?? roleFilter}
+                {t('adminScreen.filter', { label: getRoleLabel(roleFilter) })}
               </Text>
               <Ionicons name="close-circle" size={15} color={C.primary} />
             </TouchableOpacity>
@@ -725,15 +750,15 @@ export default function AdminScreen() {
           <View style={styles.sectionHeaderRow}>
             <Text style={styles.sectionTitle}>
               {userSearch.trim() || roleFilter !== 'all'
-                ? `${filteredUsers.length} / ${rolesTotal} utilisateur${rolesTotal !== 1 ? 's' : ''}`
-                : `${rolesTotal} utilisateur${rolesTotal !== 1 ? 's' : ''}`}
+                ? t('adminScreen.userFilteredCount', { filtered: filteredUsers.length, total: rolesTotal, count: rolesTotal })
+                : t('adminScreen.userCount', { count: rolesTotal })}
             </Text>
             <View style={styles.headerActionsRow}>
               <TouchableOpacity
                 style={[styles.apkLinkBtn, apkLinkCopied && styles.apkLinkBtnDone]}
                 onPress={handleCopyApkLink}
                 accessibilityRole="button"
-                accessibilityLabel="Copier le lien de téléchargement de l'application Android"
+                accessibilityLabel={t('adminScreen.copyApkA11y')}
               >
                 <Ionicons
                   name={apkLinkCopied ? 'checkmark-circle' : 'logo-android'}
@@ -741,17 +766,17 @@ export default function AdminScreen() {
                   color={apkLinkCopied ? '#10B981' : C.primary}
                 />
                 <Text style={[styles.apkLinkBtnText, apkLinkCopied && styles.apkLinkBtnTextDone]}>
-                  {apkLinkCopied ? 'Copié !' : 'Lien APK'}
+                  {apkLinkCopied ? t('adminScreen.copied') : t('adminScreen.apkLink')}
                 </Text>
               </TouchableOpacity>
               <TouchableOpacity
                 style={styles.addBtn}
                 onPress={() => setInviteModal(true)}
                 accessibilityRole="button"
-                accessibilityLabel="Inviter un nouveau membre"
+                accessibilityLabel={t('adminScreen.inviteMemberA11y')}
               >
                 <Ionicons name="person-add-outline" size={17} color="#fff" />
-                <Text style={styles.addBtnText}>Inviter</Text>
+                <Text style={styles.addBtnText}>{t('adminScreen.invite')}</Text>
               </TouchableOpacity>
             </View>
           </View>
@@ -760,7 +785,7 @@ export default function AdminScreen() {
             <Ionicons name="search-outline" size={15} color={C.textMuted} />
             <TextInput
               style={styles.searchInput}
-              placeholder="Nom, email ou entreprise..."
+              placeholder={t('adminScreen.searchUsers')}
               placeholderTextColor={C.textMuted}
               value={userSearch}
               onChangeText={setUserSearch}
@@ -775,7 +800,7 @@ export default function AdminScreen() {
           {!isSupabaseConfigured && (
             <View style={styles.infoBanner}>
               <Ionicons name="information-circle-outline" size={15} color={C.inProgress} />
-              <Text style={styles.infoBannerText}>Mode hors-ligne — modifications non persistantes</Text>
+              <Text style={styles.infoBannerText}>{t('adminScreen.offlineMode')}</Text>
             </View>
           )}
 
@@ -783,14 +808,14 @@ export default function AdminScreen() {
             <View style={styles.empty}>
               <Ionicons name={orgUsers.length === 0 ? 'people-outline' : 'search-outline'} size={36} color={C.textMuted} />
               <Text style={styles.emptyText}>
-                {orgUsers.length === 0 ? 'Aucun utilisateur dans l\'organisation' : 'Aucun résultat'}
+                {orgUsers.length === 0 ? t('adminScreen.noUsers') : t('adminScreen.noResults')}
               </Text>
               {orgUsers.length === 0 && (
-                <Text style={styles.emptyHint}>Utilisez le bouton "Inviter" pour ajouter des membres</Text>
+                <Text style={styles.emptyHint}>{t('adminScreen.noUserHint')}</Text>
               )}
               {orgUsers.length > 0 && roleFilter !== 'all' && userSearch.trim() && (
                 <Text style={styles.emptyHint}>
-                  Filtre rôle + recherche "{userSearch}" actifs — aucune correspondance
+                  {t('adminScreen.combinedFilterEmpty', { query: userSearch })}
                 </Text>
               )}
             </View>
@@ -806,7 +831,7 @@ export default function AdminScreen() {
                       <Text style={styles.userName}>{u.name}</Text>
                       {isCurrentUser && (
                         <View style={styles.selfBadge}>
-                          <Text style={styles.selfBadgeText}>Vous</Text>
+                          <Text style={styles.selfBadgeText}>{t('adminScreen.you')}</Text>
                         </View>
                       )}
                     </View>
@@ -831,10 +856,10 @@ export default function AdminScreen() {
                         style={styles.iconBtnLabelled}
                         onPress={() => router.push({ pathname: '/admin/user/[id]', params: { id: u.id } } as any)}
                         accessibilityRole="button"
-                        accessibilityLabel={`Modifier ${u.name}`}
+                        accessibilityLabel={t('adminScreen.editUserA11y', { name: u.name })}
                       >
                         <Ionicons name="create-outline" size={15} color={C.primary} />
-                        <Text style={styles.iconBtnLabelText}>Éditer</Text>
+                        <Text style={styles.iconBtnLabelText}>{t('adminScreen.edit')}</Text>
                       </TouchableOpacity>
                     )}
                     {!isCurrentUser && <View style={styles.coActionSep} />}
@@ -843,10 +868,10 @@ export default function AdminScreen() {
                         style={[styles.iconBtnLabelled, styles.iconBtnLabelledDanger]}
                         onPress={() => handleDeleteUser(u)}
                         accessibilityRole="button"
-                        accessibilityLabel={`Retirer ${u.name} de l'organisation`}
+                        accessibilityLabel={t('adminScreen.removeUserA11y', { name: u.name })}
                       >
                         <Ionicons name="trash-outline" size={15} color={C.open} />
-                        <Text style={[styles.iconBtnLabelText, { color: C.open }]}>Retirer</Text>
+                        <Text style={[styles.iconBtnLabelText, { color: C.open }]}>{t('adminScreen.remove')}</Text>
                       </TouchableOpacity>
                     )}
                   </View>
@@ -858,9 +883,9 @@ export default function AdminScreen() {
           {pendingInvitations.length > 0 && (
             <>
               <View style={styles.sectionSep} />
-              <Text style={styles.subSectionTitle}>Invitations en attente ({pendingInvitations.length})</Text>
+              <Text style={styles.subSectionTitle}>{t('adminScreen.pendingInvitations', { count: pendingInvitations.length })}</Text>
               {pendingInvitations.map(inv => {
-                const roleInfo = ROLES.find(r => r.value === inv.role) ?? ROLES[3];
+                const roleInfo = translatedRoles.find(r => r.value === inv.role) ?? translatedRoles[3];
                 const expiresIn = Math.ceil((new Date(inv.expiresAt).getTime() - Date.now()) / (1000 * 60 * 60 * 24));
                 const inviterName = getInviterName(inv.invitedBy);
                 const isExpired = expiresIn <= 0;
@@ -889,12 +914,12 @@ export default function AdminScreen() {
                       </View>
                       <Text style={[styles.inviteExpiry, isExpired && { color: '#EF4444' }]}>
                         {isExpired
-                          ? 'Invitation expirée'
-                          : `Invité par ${inviterName} · expire dans ${expiresIn}j`}
+                          ? t('adminScreen.invitationExpired')
+                          : t('adminScreen.invitedByExpires', { name: inviterName, days: expiresIn })}
                       </Text>
                       {!isExpired && (inv.resendCount ?? 0) > 0 && (
                         <Text style={[styles.inviteExpiry, { color: (inv.resendCount ?? 0) >= 3 ? '#EF4444' : C.textMuted, marginTop: 2 }]}>
-                          Renvoyé {inv.resendCount}× {inv.lastResentAt ? `· dernier envoi ${formatDate(inv.lastResentAt)}` : ''}
+                          {t('adminScreen.resentCount', { count: inv.resendCount })} {inv.lastResentAt ? `· ${t('adminScreen.lastSent', { date: formatDate(inv.lastResentAt) })}` : ''}
                         </Text>
                       )}
                     </View>
@@ -904,23 +929,23 @@ export default function AdminScreen() {
                           style={styles.iconBtnLabelled}
                           onPress={() => handleResendInvitation(inv)}
                           disabled={resendingInvId === inv.id}
-                          accessibilityLabel="Renvoyer l'email d'invitation"
+                          accessibilityLabel={t('adminScreen.resendInviteA11y')}
                         >
                           {resendingInvId === inv.id ? (
                             <ActivityIndicator size="small" color={C.primary} />
                           ) : (
                             <Ionicons name="paper-plane-outline" size={14} color={C.primary} />
                           )}
-                          <Text style={styles.iconBtnLabelText}>Renvoyer</Text>
+                          <Text style={styles.iconBtnLabelText}>{t('adminScreen.resend')}</Text>
                         </TouchableOpacity>
                       )}
                       <TouchableOpacity
                         style={[styles.iconBtnLabelled, styles.iconBtnLabelledDanger]}
                         onPress={() => handleCancelInvitation(inv.id, inv.email)}
-                        accessibilityLabel={isExpired ? 'Supprimer cette invitation expirée' : 'Annuler cette invitation'}
+                        accessibilityLabel={isExpired ? t('adminScreen.deleteExpiredInviteA11y') : t('adminScreen.cancelInviteA11y')}
                       >
                         <Ionicons name="close" size={14} color={C.open} />
-                        <Text style={[styles.iconBtnLabelText, { color: C.open }]}>{isExpired ? 'Supprimer' : 'Annuler'}</Text>
+                        <Text style={[styles.iconBtnLabelText, { color: C.open }]}>{isExpired ? t('adminScreen.deleteExpired') : t('common.cancel')}</Text>
                       </TouchableOpacity>
                     </View>
                   </View>
@@ -949,12 +974,12 @@ export default function AdminScreen() {
           <View style={styles.sectionHeaderRow}>
             <Text style={styles.sectionTitle}>
               {companySearch.trim()
-                ? `${filteredCompanies.length} / ${viewCompanies.length} entreprise${viewCompanies.length !== 1 ? 's' : ''}`
-                : `${viewCompanies.length} entreprise${viewCompanies.length !== 1 ? 's' : ''} sur chantier`}
+                ? t('adminScreen.companyFilteredCount', { filtered: filteredCompanies.length, total: viewCompanies.length, count: viewCompanies.length })
+                : t('adminScreen.companyCount', { count: viewCompanies.length })}
             </Text>
             <TouchableOpacity style={styles.addBtn} onPress={openAddCompany}>
               <Ionicons name="add" size={17} color="#fff" />
-              <Text style={styles.addBtnText}>Ajouter</Text>
+              <Text style={styles.addBtnText}>{t('adminScreen.add')}</Text>
             </TouchableOpacity>
           </View>
 
@@ -962,7 +987,7 @@ export default function AdminScreen() {
             <Ionicons name="search-outline" size={15} color={C.textMuted} />
             <TextInput
               style={styles.searchInput}
-              placeholder="Nom, sigle, SIRET, lot ou contact..."
+              placeholder={t('adminScreen.searchCompanies')}
               placeholderTextColor={C.textMuted}
               value={companySearch}
               onChangeText={setCompanySearch}
@@ -977,17 +1002,17 @@ export default function AdminScreen() {
           {viewCompanies.length === 0 ? (
             <View style={styles.empty}>
               <Ionicons name="business-outline" size={36} color={C.textMuted} />
-              <Text style={styles.emptyText}>Aucune entreprise</Text>
-              <Text style={styles.emptyHint}>Ajoutez les entreprises intervenant sur ce chantier</Text>
+              <Text style={styles.emptyText}>{t('adminScreen.noCompany')}</Text>
+              <Text style={styles.emptyHint}>{t('adminScreen.noCompanyHint')}</Text>
             </View>
           ) : filteredCompanies.length === 0 ? (
             <View style={styles.empty}>
               <Ionicons name="search-outline" size={36} color={C.textMuted} />
-              <Text style={styles.emptyText}>Aucun résultat</Text>
-              <Text style={styles.emptyHint}>Aucune entreprise ne correspond à "{companySearch}"</Text>
+              <Text style={styles.emptyText}>{t('adminScreen.noResults')}</Text>
+              <Text style={styles.emptyHint}>{t('adminScreen.noCompanyMatch', { query: companySearch })}</Text>
               <TouchableOpacity style={styles.clearFilterBtn} onPress={() => setCompanySearch('')}>
                 <Ionicons name="close-circle-outline" size={15} color={C.primary} />
-                <Text style={styles.clearFilterTxt}>Effacer le filtre</Text>
+                <Text style={styles.clearFilterTxt}>{t('adminScreen.clearFilter')}</Text>
               </TouchableOpacity>
             </View>
           ) : (
@@ -1020,7 +1045,7 @@ export default function AdminScreen() {
                       {linkedCount > 0 && (
                         <View style={styles.coLinkedUsers}>
                           <Ionicons name="people-outline" size={11} color={C.textMuted} />
-                          <Text style={styles.coLinkedUsersTxt}>{linkedCount} membre{linkedCount > 1 ? 's' : ''} lié{linkedCount > 1 ? 's' : ''}</Text>
+                          <Text style={styles.coLinkedUsersTxt}>{t('adminScreen.linkedMember', { count: linkedCount })}</Text>
                         </View>
                       )}
                     </View>
@@ -1029,12 +1054,12 @@ export default function AdminScreen() {
                       <View style={styles.coStatsRow}>
                         <View style={[styles.coStat, { flex: 1 }]}>
                           <View style={[styles.coStatDot, { backgroundColor: co.color }]} />
-                          <Text style={styles.coStatLabel} numberOfLines={1}>Prévu</Text>
+                          <Text style={styles.coStatLabel} numberOfLines={1}>{t('adminScreen.planned')}</Text>
                           <Text style={[styles.coStatVal, { color: co.color }]} numberOfLines={1}>{co.plannedWorkers}</Text>
                         </View>
                         <View style={[styles.coStat, { flex: 2 }]}>
                           <View style={[styles.coStatDot, { backgroundColor: workers > co.plannedWorkers ? '#EF4444' : C.inProgress }]} />
-                          <Text style={styles.coStatLabel} numberOfLines={1}>Présents</Text>
+                          <Text style={styles.coStatLabel} numberOfLines={1}>{t('adminScreen.presentWorkers')}</Text>
                           <TouchableOpacity
                             onPress={() => handleWorkerCount(co, -1)}
                             hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
@@ -1057,7 +1082,7 @@ export default function AdminScreen() {
                       <View style={styles.coStatsRow}>
                         <View style={[styles.coStat, { flex: 1 }]}>
                           <View style={[styles.coStatDot, { backgroundColor: C.textMuted }]} />
-                          <Text style={styles.coStatLabel} numberOfLines={1}>Heures travaillées</Text>
+                          <Text style={styles.coStatLabel} numberOfLines={1}>{t('adminScreen.workedHours')}</Text>
                           {hoursEditId === co.id ? (
                             <>
                               <TextInput
@@ -1073,7 +1098,7 @@ export default function AdminScreen() {
                                 onPress={() => commitHoursEdit(co)}
                                 hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
                                 style={[styles.workerBtn, { backgroundColor: C.primary + '22' }]}
-                                accessibilityLabel="Valider les heures"
+                                accessibilityLabel={t('adminScreen.validateHours')}
                               >
                                 <Ionicons name="checkmark" size={13} color={C.primary} />
                               </TouchableOpacity>
@@ -1081,7 +1106,7 @@ export default function AdminScreen() {
                                 onPress={() => { setHoursEditId(null); setHoursInputVal(''); }}
                                 hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
                                 style={[styles.workerBtn, { backgroundColor: '#FEF2F2' }]}
-                                accessibilityLabel="Annuler la saisie des heures"
+                                accessibilityLabel={t('adminScreen.cancelHours')}
                               >
                                 <Ionicons name="close" size={13} color="#EF4444" />
                               </TouchableOpacity>
@@ -1148,19 +1173,19 @@ export default function AdminScreen() {
                         style={styles.iconBtnLabelled}
                         onPress={() => openEditCompany(co)}
                         accessibilityRole="button"
-                        accessibilityLabel={`Modifier ${co.name}`}
+                        accessibilityLabel={t('adminScreen.editCompanyA11y', { name: co.name })}
                       >
                         <Ionicons name="pencil-outline" size={15} color={C.primary} />
-                        <Text style={styles.iconBtnLabelText}>Éditer</Text>
+                        <Text style={styles.iconBtnLabelText}>{t('adminScreen.edit')}</Text>
                       </TouchableOpacity>
                       <TouchableOpacity
                         style={[styles.iconBtnLabelled, styles.iconBtnLabelledDanger]}
                         onPress={() => handleDeleteCompany(co)}
                         accessibilityRole="button"
-                        accessibilityLabel={`Supprimer ${co.name}`}
+                        accessibilityLabel={t('adminScreen.deleteCompanyA11y', { name: co.name })}
                       >
                         <Ionicons name="trash-outline" size={15} color={C.open} />
-                        <Text style={[styles.iconBtnLabelText, { color: C.open }]}>Supprimer</Text>
+                        <Text style={[styles.iconBtnLabelText, { color: C.open }]}>{t('common.delete')}</Text>
                       </TouchableOpacity>
                     </View>
                   </View>
@@ -1186,12 +1211,12 @@ export default function AdminScreen() {
                 {subscription?.status === 'trial' && trialDaysLeft !== null && (
                   <Text style={[styles.statusSub, { color: statusCfg.color }]}>
                     {trialDaysLeft > 0
-                      ? `${trialDaysLeft} jour${trialDaysLeft > 1 ? 's' : ''} restant${trialDaysLeft > 1 ? 's' : ''}`
-                      : 'Essai terminé'}
+                      ? t('adminScreen.licenseDetails.daysLeft', { count: trialDaysLeft })
+                      : t('adminScreen.licenseDetails.trialEnded')}
                   </Text>
                 )}
                 {subscription?.status === 'active' && (
-                  <Text style={[styles.statusSub, { color: statusCfg.color }]}>Utilisateurs illimités</Text>
+                  <Text style={[styles.statusSub, { color: statusCfg.color }]}>{t('adminScreen.licenseDetails.unlimitedUsers')}</Text>
                 )}
               </View>
             </View>
@@ -1202,22 +1227,15 @@ export default function AdminScreen() {
             <View style={styles.planTopRow}>
               <View style={{ flex: 1 }}>
                 <View style={[styles.planBadge, { backgroundColor: '#F5F3FF', alignSelf: 'flex-start' }]}>
-                  <Text style={[styles.planBadgeTxt, { color: '#8B5CF6' }]}>Entreprise</Text>
+                  <Text style={[styles.planBadgeTxt, { color: '#8B5CF6' }]}>{t('adminScreen.licenseDetails.enterprisePlan')}</Text>
                 </View>
                 {subscription?.startedAt && (
-                  <Text style={styles.planStartDate}>Actif depuis le {formatDate(subscription.startedAt)}</Text>
+                  <Text style={styles.planStartDate}>{t('adminScreen.licenseDetails.activeSince', { date: formatDate(subscription.startedAt) })}</Text>
                 )}
               </View>
-              <Text style={styles.planPrice}>Illimité</Text>
+              <Text style={styles.planPrice}>{t('adminScreen.licenseDetails.unlimited')}</Text>
             </View>
-            {[
-              'Utilisateurs illimités',
-              'Sous-traitants & observateurs inclus',
-              'Réserves, plans, OPR, visites',
-              'Rapports PDF/Excel',
-              'Pointage & présences',
-              'Support dédié',
-            ].map((f, i) => (
+            {(t('adminScreen.licenseDetails.features', { returnObjects: true }) as string[]).map((f, i) => (
               <View key={i} style={styles.featureRow}>
                 <Ionicons name="checkmark-circle" size={14} color="#8B5CF6" />
                 <Text style={styles.featureTxt}>{f}</Text>
@@ -1231,8 +1249,8 @@ export default function AdminScreen() {
               <View style={styles.seatLeft}>
                 <Ionicons name="people" size={16} color={C.primary} />
                 <View>
-                  <Text style={styles.seatTitle}>Membres actifs</Text>
-                  <Text style={styles.seatSubLabel}>Admin · Conducteur · Chef d'équipe</Text>
+                  <Text style={styles.seatTitle}>{t('adminScreen.licenseDetails.activeMembers')}</Text>
+                  <Text style={styles.seatSubLabel}>{t('adminScreen.licenseDetails.seatRoles')}</Text>
                 </View>
               </View>
               <Text style={styles.seatCount}>
@@ -1244,8 +1262,8 @@ export default function AdminScreen() {
               <View style={styles.freeBanner}>
                 <Ionicons name="gift-outline" size={13} color="#10B981" />
                 <Text style={styles.freeBannerTxt}>
-                  {freeOrgUsers.length} sous-traitant{freeOrgUsers.length > 1 ? 's' : ''} / observateur{freeOrgUsers.length > 1 ? 's' : ''} —{' '}
-                  <Text style={{ fontFamily: 'Inter_600SemiBold' }}>gratuit{freeOrgUsers.length > 1 ? 's' : ''}</Text>, hors quota
+                  {t('adminScreen.licenseDetails.freeUsers', { count: freeOrgUsers.length })}{' '}
+                  <Text style={{ fontFamily: 'Inter_600SemiBold' }}>{t('adminScreen.licenseDetails.free')}</Text>, {t('adminScreen.licenseDetails.outOfQuota')}
                 </Text>
               </View>
             )}
@@ -1254,11 +1272,11 @@ export default function AdminScreen() {
           {/* Si suspendu ou expiré */}
           {(subscription?.status === 'suspended' || subscription?.status === 'expired') && (
             <View style={styles.actionCard}>
-              <Ionicons name="mail-outline" size={20} color="#3B82F6" />
-              <View style={{ flex: 1 }}>
-                <Text style={styles.actionCardTitle}>Contacter le support</Text>
+                <Ionicons name="mail-outline" size={20} color="#3B82F6" />
+                <View style={{ flex: 1 }}>
+                <Text style={styles.actionCardTitle}>{t('adminScreen.licenseDetails.contactSupport')}</Text>
                 <Text style={styles.actionCardSub}>
-                  Contactez{' '}
+                  {t('adminScreen.licenseDetails.contactPrefix')}{' '}
                   <Text
                     style={{ textDecorationLine: 'underline' }}
                     onPress={() => Linking.openURL('mailto:support@buildtrack.fr')}
@@ -1266,7 +1284,7 @@ export default function AdminScreen() {
                   >
                     support@buildtrack.fr
                   </Text>
-                  {' '}ou votre administrateur groupe pour réactiver l'accès.
+                  {' '}{t('adminScreen.licenseDetails.contactSuffix')}
                 </Text>
               </View>
             </View>
@@ -1276,7 +1294,7 @@ export default function AdminScreen() {
           <View style={styles.hintCard}>
             <Ionicons name="shield-checkmark-outline" size={15} color={C.primary} />
             <Text style={styles.hintText}>
-              Votre licence est gérée par BuildTrack Groupe. Pour toute modification (suspension, renouvellement), contactez votre administrateur groupe.
+              {t('adminScreen.licenseDetails.managedByGroup')}
             </Text>
           </View>
         </ScrollView>
@@ -1288,8 +1306,8 @@ export default function AdminScreen() {
         <TouchableOpacity style={styles.overlay} activeOpacity={1} onPress={() => setOrgPickerVisible(false)}>
           <TouchableOpacity activeOpacity={1} style={[styles.sheet, { paddingBottom: bottomPad + 16 }]}>
             <View style={styles.sheetHandle} />
-            <Text style={styles.sheetTitle}>Sélectionner une organisation</Text>
-            <Text style={[styles.sheetSubtitle, { marginBottom: 12 }]}>{allOrganizations.length} organisation{allOrganizations.length > 1 ? 's' : ''} disponible{allOrganizations.length > 1 ? 's' : ''}</Text>
+            <Text style={styles.sheetTitle}>{t('adminScreen.orgPicker.title')}</Text>
+            <Text style={[styles.sheetSubtitle, { marginBottom: 12 }]}>{t('adminScreen.orgPicker.available', { count: allOrganizations.length })}</Text>
             <ScrollView style={{ maxHeight: MODAL_SCROLL_MAX_H }} showsVerticalScrollIndicator={false}>
               {allOrganizations.map((org) => {
                 const isSelected = org.id === selectedOrgId;
@@ -1314,7 +1332,7 @@ export default function AdminScreen() {
                         {org.name}
                       </Text>
                       <Text style={styles.roleOptionDesc}>
-                        {orgUserCount} utilisateur{orgUserCount !== 1 ? 's' : ''} · {orgCompanyCount} entreprise{orgCompanyCount !== 1 ? 's' : ''}
+                        {t('adminScreen.orgPicker.summary', { users: orgUserCount, companies: orgCompanyCount })}
                       </Text>
                     </View>
                     {isSelected && <Ionicons name="checkmark-circle" size={18} color={C.primary} />}
@@ -1333,7 +1351,7 @@ export default function AdminScreen() {
             <TouchableOpacity activeOpacity={1} style={styles.sheet}>
               <View style={styles.sheetHandle} />
               <Text style={styles.sheetTitle}>
-                {companyModal?.mode === 'edit' ? 'Modifier l\'entreprise' : 'Ajouter une entreprise'}
+                {companyModal?.mode === 'edit' ? t('adminScreen.companyModal.editTitle') : t('adminScreen.companyModal.addTitle')}
               </Text>
               <ScrollView
                 style={{ maxHeight: MODAL_SCROLL_MAX_H }}
@@ -1343,29 +1361,29 @@ export default function AdminScreen() {
                 contentContainerStyle={{ gap: 10, paddingBottom: 16 }}
               >
                 <View style={styles.field}>
-                  <Text style={styles.fieldLabel}>Nom complet *</Text>
+                  <Text style={styles.fieldLabel}>{t('adminScreen.companyModal.fullName')}</Text>
                   <TextInput style={styles.fieldInput} value={nom} onChangeText={setNom}
-                    placeholder="Ex : Maçonnerie Dupont" placeholderTextColor={C.textMuted} />
+                    placeholder={t('adminScreen.companyModal.fullNamePlaceholder')} placeholderTextColor={C.textMuted} />
                 </View>
                 <View style={styles.field}>
-                  <Text style={styles.fieldLabel}>Sigle *</Text>
+                  <Text style={styles.fieldLabel}>{t('adminScreen.companyModal.shortName')}</Text>
                   <TextInput style={styles.fieldInput} value={nomCourt} onChangeText={setNomCourt}
-                    placeholder="Ex : MD" placeholderTextColor={C.textMuted}
+                    placeholder={t('adminScreen.companyModal.shortNamePlaceholder')} placeholderTextColor={C.textMuted}
                     autoCapitalize="characters" maxLength={6} />
                 </View>
                 <View style={styles.field}>
-                  <Text style={styles.fieldLabel}>Effectif prévu *</Text>
+                  <Text style={styles.fieldLabel}>{t('adminScreen.companyModal.plannedWorkers')}</Text>
                   <TextInput style={styles.fieldInput} value={effectif} onChangeText={setEffectif}
-                    placeholder="Ex : 8" placeholderTextColor={C.textMuted} keyboardType="numeric" />
+                    placeholder={t('adminScreen.companyModal.plannedWorkersPlaceholder')} placeholderTextColor={C.textMuted} keyboardType="numeric" />
                 </View>
                 <View style={styles.field}>
-                  <Text style={styles.fieldLabel}>Heures travaillées</Text>
+                  <Text style={styles.fieldLabel}>{t('adminScreen.workedHours')}</Text>
                   <TextInput style={styles.fieldInput} value={heures} onChangeText={setHeures}
-                    placeholder="Ex : 240" placeholderTextColor={C.textMuted} keyboardType="numeric" />
+                    placeholder={t('adminScreen.companyModal.hoursPlaceholder')} placeholderTextColor={C.textMuted} keyboardType="numeric" />
                 </View>
                 <View style={styles.field}>
-                  <Text style={styles.fieldLabel}>Lots de travaux</Text>
-                  <Text style={styles.fieldHint}>Sélectionnez les lots dont cette entreprise est responsable</Text>
+                  <Text style={styles.fieldLabel}>{t('adminScreen.companyModal.lots')}</Text>
+                  <Text style={styles.fieldHint}>{t('adminScreen.companyModal.lotsHint')}</Text>
                   <View style={styles.lotSelectorGrid}>
                     {lots.map(l => {
                       const isOn = selectedLots.includes(l.id);
@@ -1388,39 +1406,39 @@ export default function AdminScreen() {
                     })}
                   </View>
                   {selectedLots.length === 0 && (
-                    <Text style={styles.lotSelectorEmpty}>Aucun lot sélectionné — les réserves ne seront pas auto-assignées</Text>
+                    <Text style={styles.lotSelectorEmpty}>{t('adminScreen.companyModal.noLotSelected')}</Text>
                   )}
                 </View>
                 <View style={styles.fieldSeparator}>
-                  <Text style={styles.fieldSeparatorTxt}>Informations légales</Text>
+                  <Text style={styles.fieldSeparatorTxt}>{t('adminScreen.companyModal.legalInfo')}</Text>
                 </View>
                 <View style={styles.field}>
-                  <Text style={styles.fieldLabel}>N° SIRET</Text>
+                  <Text style={styles.fieldLabel}>{t('adminScreen.companyModal.siret')}</Text>
                   <TextInput style={styles.fieldInput} value={siret} onChangeText={setSiret}
-                    placeholder="Ex : 12345678900012 (14 chiffres)" placeholderTextColor={C.textMuted}
+                    placeholder={t('adminScreen.companyModal.siretPlaceholder')} placeholderTextColor={C.textMuted}
                     keyboardType="numbers-and-punctuation" />
                 </View>
                 <View style={styles.field}>
-                  <Text style={styles.fieldLabel}>Assurance décennale</Text>
+                  <Text style={styles.fieldLabel}>{t('adminScreen.companyModal.insurance')}</Text>
                   <TextInput style={styles.fieldInput} value={insurance} onChangeText={setInsurance}
-                    placeholder="Ex : AXA — Police n° 1234567" placeholderTextColor={C.textMuted} />
+                    placeholder={t('adminScreen.companyModal.insurancePlaceholder')} placeholderTextColor={C.textMuted} />
                 </View>
                 <View style={styles.fieldSeparator}>
-                  <Text style={styles.fieldSeparatorTxt}>Contact</Text>
+                  <Text style={styles.fieldSeparatorTxt}>{t('adminScreen.companyModal.contact')}</Text>
                 </View>
                 <View style={styles.field}>
-                  <Text style={styles.fieldLabel}>Téléphone</Text>
+                  <Text style={styles.fieldLabel}>{t('adminScreen.companyModal.phone')}</Text>
                   <TextInput style={styles.fieldInput} value={phone} onChangeText={setPhone}
-                    placeholder="Ex : 06 12 34 56 78" placeholderTextColor={C.textMuted} keyboardType="phone-pad" />
+                    placeholder={t('adminScreen.companyModal.phonePlaceholder')} placeholderTextColor={C.textMuted} keyboardType="phone-pad" />
                 </View>
                 <View style={styles.field}>
-                  <Text style={styles.fieldLabel}>Email</Text>
+                  <Text style={styles.fieldLabel}>{t('adminScreen.companyModal.email')}</Text>
                   <TextInput style={styles.fieldInput} value={email} onChangeText={setEmail}
-                    placeholder="Ex : contact@entreprise.fr" placeholderTextColor={C.textMuted}
+                    placeholder={t('adminScreen.companyModal.emailPlaceholder')} placeholderTextColor={C.textMuted}
                     keyboardType="email-address" autoCapitalize="none" />
                 </View>
                 <View style={styles.field}>
-                  <Text style={styles.fieldLabel}>Couleur</Text>
+                  <Text style={styles.fieldLabel}>{t('adminScreen.companyModal.color')}</Text>
                   <View style={styles.colorRow}>
                     {COMPANY_COLORS.map(c => (
                       <TouchableOpacity
@@ -1435,11 +1453,11 @@ export default function AdminScreen() {
                 </View>
                 <TouchableOpacity style={styles.saveBtn} onPress={handleSaveCompany}>
                   <Text style={styles.saveBtnText}>
-                    {companyModal?.mode === 'edit' ? 'Enregistrer les modifications' : 'Ajouter l\'entreprise'}
+                    {companyModal?.mode === 'edit' ? t('adminScreen.companyModal.saveChanges') : t('adminScreen.companyModal.addCompany')}
                   </Text>
                 </TouchableOpacity>
                 <TouchableOpacity style={styles.cancelBtn} onPress={tryCloseCompanyModal}>
-                  <Text style={styles.cancelBtnText}>Annuler</Text>
+                  <Text style={styles.cancelBtnText}>{t('common.cancel')}</Text>
                 </TouchableOpacity>
               </ScrollView>
             </TouchableOpacity>
@@ -1459,9 +1477,9 @@ export default function AdminScreen() {
                     <View style={styles.inviteSuccessIcon}>
                       <Ionicons name="checkmark-circle" size={48} color="#10B981" />
                     </View>
-                    <Text style={styles.sheetTitle}>Invitation créée !</Text>
+                    <Text style={styles.sheetTitle}>{t('adminScreen.inviteModal.createdTitle')}</Text>
                     <Text style={styles.inviteSuccessMsg}>
-                      Partagez ce code avec {inviteEmail} pour rejoindre votre organisation.
+                      {t('adminScreen.inviteModal.shareCodeWith', { email: inviteEmail })}
                     </Text>
                     <View style={styles.tokenBox}>
                       <Text style={styles.tokenTxt} selectable>{inviteToken}</Text>
@@ -1476,20 +1494,20 @@ export default function AdminScreen() {
                         color={tokenCopied ? '#10B981' : C.primary}
                       />
                       <Text style={[styles.copyBtnTxt, tokenCopied && styles.copyBtnTxtDone]}>
-                        {tokenCopied ? 'Copié !' : 'Copier le code'}
+                        {tokenCopied ? t('adminScreen.copied') : t('adminScreen.inviteModal.copyCode')}
                       </Text>
                     </TouchableOpacity>
                     <Text style={styles.inviteHint}>
-                      Ce code est valable 7 jours. L'accès est lié à l'adresse {inviteEmail} — l'utilisateur doit créer son compte avec cette adresse.
+                      {t('adminScreen.inviteModal.codeValidity', { email: inviteEmail })}
                     </Text>
 
                     <View style={styles.apkShareBox}>
                       <View style={styles.apkShareHeader}>
                         <Ionicons name="logo-android" size={18} color={C.primary} />
-                        <Text style={styles.apkShareTitle}>Application Android</Text>
+                        <Text style={styles.apkShareTitle}>{t('adminScreen.inviteModal.androidApp')}</Text>
                       </View>
                       <Text style={styles.apkShareText}>
-                        BuildTrack n'est pas encore publié sur Google Play. Partagez ce lien à {inviteEmail} pour qu'il/elle installe l'application Android :
+                        {t('adminScreen.inviteModal.androidInstallHelp', { email: inviteEmail })}
                       </Text>
                       <View style={styles.apkLinkBox}>
                         <Text style={styles.apkLinkTxt} numberOfLines={1} selectable>{APK_DOWNLOAD_URL}</Text>
@@ -1504,34 +1522,34 @@ export default function AdminScreen() {
                           color={apkLinkCopied ? '#10B981' : C.primary}
                         />
                         <Text style={[styles.copyBtnTxt, apkLinkCopied && styles.copyBtnTxtDone]}>
-                          {apkLinkCopied ? 'Lien copié !' : 'Copier le lien de téléchargement'}
+                          {apkLinkCopied ? t('adminScreen.inviteModal.linkCopied') : t('adminScreen.inviteModal.copyDownloadLink')}
                         </Text>
                       </TouchableOpacity>
                     </View>
 
                     <TouchableOpacity style={styles.saveBtn} onPress={handleCloseInviteModal}>
-                      <Text style={styles.saveBtnText}>Fermer</Text>
+                      <Text style={styles.saveBtnText}>{t('common.close')}</Text>
                     </TouchableOpacity>
                   </>
                 ) : (
                   <>
-                    <Text style={styles.sheetTitle}>Inviter un collaborateur</Text>
+                    <Text style={styles.sheetTitle}>{t('adminScreen.inviteModal.title')}</Text>
                     <Text style={styles.sheetSubtitle}>
-                      {seatMax === -1 ? 'Sièges : illimité' : `Sièges : ${seatUsed} / ${seatMax} utilisés`}
+                      {seatMax === -1 ? t('adminScreen.inviteModal.unlimitedSeats') : t('adminScreen.inviteModal.seatsUsed', { used: seatUsed, max: seatMax })}
                     </Text>
 
                     {isSeatFull && (
                       <View style={styles.seatFullBanner}>
                         <Ionicons name="information-circle-outline" size={15} color="#3B82F6" />
                         <Text style={styles.seatFullBannerTxt}>
-                          Limite de {seatMax} sièges atteinte. Vous pouvez encore inviter des <Text style={{ fontFamily: 'Inter_600SemiBold' }}>Observateurs</Text> et <Text style={{ fontFamily: 'Inter_600SemiBold' }}>Sous-traitants</Text> (gratuits, hors quota).
+                          {t('adminScreen.inviteModal.seatLimitReachedPrefix', { max: seatMax })} <Text style={{ fontFamily: 'Inter_600SemiBold' }}>{t('roles.observateur')}</Text> {t('common.and')} <Text style={{ fontFamily: 'Inter_600SemiBold' }}>{t('roles.sous_traitant')}</Text> {t('adminScreen.inviteModal.seatLimitReachedSuffix')}
                         </Text>
                       </View>
                     )}
 
                     <View style={styles.field}>
-                      <Text style={styles.fieldLabel}>Rôle</Text>
-                      {ROLES.map(r => {
+                      <Text style={styles.fieldLabel}>{t('adminUserEdit.role')}</Text>
+                      {translatedRoles.map(r => {
                         const isFree = FREE_ROLES.includes(r.value);
                         const isBlocked = isSeatFull && !isFree;
                         return (
@@ -1556,7 +1574,7 @@ export default function AdminScreen() {
                                 </Text>
                                 {isFree && (
                                   <View style={styles.freeTag}>
-                                    <Text style={styles.freeTagTxt}>gratuit</Text>
+                                    <Text style={styles.freeTagTxt}>{t('adminScreen.inviteModal.free')}</Text>
                                   </View>
                                 )}
                               </View>
@@ -1571,17 +1589,17 @@ export default function AdminScreen() {
                     {inviteRole !== 'admin' && viewCompanies.length > 0 && (
                       <View style={styles.field}>
                         <Text style={styles.fieldLabel}>
-                          Entreprise rattachée{' '}
+                          {t('adminScreen.inviteModal.linkedCompany')}{' '}
                           {inviteRole === 'sous_traitant' ? (
                             <Text style={{ color: '#EF4444', fontFamily: 'Inter_600SemiBold' }}>*</Text>
                           ) : (
-                            <Text style={{ color: C.textMuted, fontFamily: 'Inter_400Regular' }}>(optionnel)</Text>
+                            <Text style={{ color: C.textMuted, fontFamily: 'Inter_400Regular' }}>{t('adminScreen.inviteModal.optional')}</Text>
                           )}
                         </Text>
                         <Text style={[styles.roleOptionDesc, { marginBottom: 8 }]}>
                           {inviteRole === 'sous_traitant'
-                            ? "Le collaborateur sera rattaché à cette entreprise et n'aura accès qu'à ses canaux et ses réserves."
-                            : 'Le collaborateur sera rattaché à cette entreprise par défaut. Vous pourrez le modifier plus tard.'}
+                            ? t('adminScreen.inviteModal.subcontractorCompanyHint')
+                            : t('adminScreen.inviteModal.defaultCompanyHint')}
                         </Text>
                         {/* Option "Aucune" — uniquement pour les rôles non sous-traitant */}
                         {inviteRole !== 'sous_traitant' && (
@@ -1595,9 +1613,9 @@ export default function AdminScreen() {
                             <View style={[styles.roleOptionDot, { backgroundColor: C.textMuted }]} />
                             <View style={{ flex: 1 }}>
                               <Text style={[styles.roleOptionText, inviteCompanyId === '' && { fontFamily: 'Inter_600SemiBold' }]}>
-                                Aucune entreprise
+                                {t('adminScreen.inviteModal.noCompany')}
                               </Text>
-                              <Text style={styles.roleOptionDesc}>Accès général sans rattachement</Text>
+                              <Text style={styles.roleOptionDesc}>{t('adminScreen.inviteModal.generalAccess')}</Text>
                             </View>
                             {inviteCompanyId === '' && <Ionicons name="checkmark-circle" size={18} color={C.textSub} />}
                           </TouchableOpacity>
@@ -1616,7 +1634,7 @@ export default function AdminScreen() {
                               <Text style={[styles.roleOptionText, inviteCompanyId === co.id && { color: co.color, fontFamily: 'Inter_600SemiBold' }]}>
                                 {co.name}
                               </Text>
-                              <Text style={styles.roleOptionDesc}>{co.shortName} · {co.plannedWorkers} pers. prévues</Text>
+                              <Text style={styles.roleOptionDesc}>{t('adminScreen.inviteModal.companyWorkers', { shortName: co.shortName, count: co.plannedWorkers })}</Text>
                             </View>
                             {inviteCompanyId === co.id && <Ionicons name="checkmark-circle" size={18} color={co.color} />}
                           </TouchableOpacity>
@@ -1625,7 +1643,7 @@ export default function AdminScreen() {
                     )}
 
                     <View style={styles.field}>
-                      <Text style={styles.fieldLabel}>Adresse email *</Text>
+                      <Text style={styles.fieldLabel}>{t('adminScreen.inviteModal.emailLabel')}</Text>
                       <TextInput
                         style={[styles.fieldInput, inviteEmailError ? { borderColor: '#EF4444' } : {}]}
                         value={inviteEmail}
@@ -1647,11 +1665,11 @@ export default function AdminScreen() {
                         onPress={handleSendInvite}
                         disabled={!inviteEmail.trim() || sendDisabled}
                       >
-                        <Text style={styles.saveBtnText}>Envoyer l'invitation</Text>
+                        <Text style={styles.saveBtnText}>{t('adminScreen.inviteModal.sendInvitation')}</Text>
                       </TouchableOpacity>
                     )}
                     <TouchableOpacity style={styles.cancelBtn} onPress={handleCloseInviteModal}>
-                      <Text style={styles.cancelBtnText}>Annuler</Text>
+                      <Text style={styles.cancelBtnText}>{t('common.cancel')}</Text>
                     </TouchableOpacity>
                   </>
                 )}
