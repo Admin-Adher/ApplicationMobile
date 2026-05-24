@@ -4,7 +4,9 @@ language sql
 immutable
 as $$
   select coalesce(array_agg(item order by ordinality), '{}'::text[])
-  from jsonb_array_elements_text(coalesce(value, '[]'::jsonb)) with ordinality as items(item, ordinality);
+  from jsonb_array_elements_text(
+    case when jsonb_typeof(value) = 'array' then value else '[]'::jsonb end
+  ) with ordinality as items(item, ordinality);
 $$;
 
 do $$
