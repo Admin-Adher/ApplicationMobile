@@ -79,7 +79,8 @@
 .formGrid input,
 .formGrid select,
 .formGrid textarea,
-.companyStats input {
+.companyStats input,
+.tableRow select {
   width: 100%;
   border: 1px solid #d8e0ec;
   background: #fff;
@@ -100,7 +101,8 @@
 .formGrid input:focus,
 .formGrid select:focus,
 .formGrid textarea:focus,
-.companyStats input:focus {
+.companyStats input:focus,
+.tableRow select:focus {
   border-color: #003082;
   box-shadow: 0 0 0 3px rgba(0, 48, 130, 0.08);
 }
@@ -673,6 +675,11 @@
 .visitTableRow {
   grid-template-columns: 1.5fr 0.8fr 1.1fr 0.6fr 1.2fr auto;
   min-width: 980px;
+}
+
+.adminTableHead,
+.adminTableRow {
+  grid-template-columns: 1.2fr 1fr 1fr 1.4fr;
 }
 
 .tableActionBtn {
