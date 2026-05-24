@@ -122,6 +122,15 @@ const PRIORITY_LABELS: Record<string, string> = {
 
 const STATUS_OPTIONS = Object.entries(STATUS_LABELS);
 
+const ROLE_LABELS: Record<string, string> = {
+  super_admin: 'Super admin',
+  admin: 'Admin',
+  conducteur: 'Conducteur de travaux',
+  chef_equipe: "Chef d'équipe",
+  sous_traitant: 'Sous-traitant',
+  observateur: 'Observateur',
+};
+
 const VISIT_TYPE_LABELS: Record<VisitDraft['visitType'], string> = {
   controle: 'Contrôle',
   opr: 'OPR',
@@ -776,6 +785,36 @@ export default function BuildTrackWebPage() {
     if (companyError) setError(companyError.message);
   }
 
+  async function updateTaskQuick(task: any, patch: Record<string, any>) {
+    if (!canEdit(profile)) return;
+    const payload = {
+      ...patch,
+      progress: patch.progress ?? task.progress ?? 0,
+    };
+    setData(prev => ({
+      ...prev,
+      tasks: prev.tasks.map(item => item.id === task.id ? { ...item, ...payload } : item),
+    }));
+    const { error: taskError } = await supabaseBrowser
+      .from('tasks')
+      .update(payload)
+      .eq('id', task.id);
+    if (taskError) setError(taskError.message);
+  }
+
+  async function updateProfileField(userId: string, patch: Partial<Profile>) {
+    if (!isAdmin(profile)) return;
+    setData(prev => ({
+      ...prev,
+      profiles: prev.profiles.map(user => user.id === userId ? { ...user, ...patch } : user),
+    }));
+    const { error: profileError } = await supabaseBrowser
+      .from('profiles')
+      .update(patch)
+      .eq('id', userId);
+    if (profileError) setError(profileError.message);
+  }
+
   async function updateNotificationField(field: string, value: boolean | string) {
     if (!authUser || !profile) return;
     const existing = data.notificationPreferences.find(row => row.user_id === authUser.id);
@@ -1064,6 +1103,16 @@ export default function BuildTrackWebPage() {
                 onCreateReserveFromVisit={(visit: any) => openReserveCreate({ visit })}
               />
             )}
+            {activeTab === 'planning' && (
+              <PlanningView
+                tasks={projectScoped.tasks}
+                visites={projectScoped.visites}
+                reserves={projectScoped.reserves}
+                companies={data.companies}
+                editable={canEdit(profile)}
+                onUpdateTask={updateTaskQuick}
+              />
+            )}
             {activeTab === 'messages' && (
               <MessagesView
                 channels={data.channels}
@@ -1079,6 +1128,24 @@ export default function BuildTrackWebPage() {
             )}
             {activeTab === 'terrain' && (
               <TerrainView scoped={projectScoped} data={data} />
+            )}
+            {activeTab === 'media' && (
+              <MediaView photos={projectScoped.photos} documents={projectScoped.documents} />
+            )}
+            {activeTab === 'rapports' && (
+              <RapportsView
+                stats={stats}
+                reserves={filteredReserves}
+                plans={projectScoped.plans}
+                visites={projectScoped.visites}
+                incidents={projectScoped.incidents}
+                tasks={projectScoped.tasks}
+                selectedReserve={selectedReserve}
+                language={reportLanguage}
+                setLanguage={setReportLanguage}
+                generatingReport={generatingReport}
+                onGenerate={generateWebReport}
+              />
             )}
             {activeTab === 'equipes' && (
               <EquipesView
@@ -1098,7 +1165,7 @@ export default function BuildTrackWebPage() {
               />
             )}
             {activeTab === 'admin' && (
-              <AdminView data={data} profile={profile} />
+              <AdminView data={data} profile={profile} onUpdateProfile={updateProfileField} />
             )}
           </>
         )}
@@ -1448,6 +1515,239 @@ function VisitesView({ visites, reserves, companies, onCreateVisit, onCreateRese
       </div>
       {!visites.length && <p className={styles.empty}>Aucune visite dans ce périmètre.</p>}
     </section>
+  );
+}
+
+function PlanningView({ tasks, visites, reserves, companies, editable, onUpdateTask }: any) {
+  const [mode, setMode] = useState<'week' | 'company' | 'late'>('week');
+  const now = new Date();
+  const sortedTasks = [...tasks].sort((a: any, b: any) => new Date(a.deadline ?? a.created_at ?? 0).getTime() - new Date(b.deadline ?? b.created_at ?? 0).getTime());
+  const visibleTasks = sortedTasks.filter((task: any) => {
+    if (mode === 'late') return task.deadline && new Date(task.deadline) < now && task.status !== 'done';
+    return true;
+  });
+  const upcomingVisits = [...visites]
+    .sort((a: any, b: any) => new Date(a.date ?? 0).getTime() - new Date(b.date ?? 0).getTime())
+    .slice(0, 8);
+  const reserveDeadlines = [...reserves]
+    .filter((reserve: any) => reserve.deadline && reserve.status !== 'closed')
+    .sort((a: any, b: any) => new Date(a.deadline).getTime() - new Date(b.deadline).getTime())
+    .slice(0, 10);
+
+  return (
+    <div className={styles.stack}>
+      <div className={styles.kpiGrid}>
+        <Kpi title="Tâches" value={tasks.length} hint="Actions planifiées" />
+        <Kpi title="En retard" value={tasks.filter((task: any) => task.deadline && new Date(task.deadline) < now && task.status !== 'done').length} hint="À reprendre vite" tone="red" />
+        <Kpi title="Visites à venir" value={upcomingVisits.length} hint="Planning chantier" tone="green" />
+        <Kpi title="Échéances réserves" value={reserveDeadlines.length} hint="Réserves actives" tone="amber" />
+      </div>
+      <section className={styles.panel}>
+        <div className={styles.panelHeaderCompact}>
+          <div>
+            <h2>Planning opérationnel</h2>
+            <p>Vue web des tâches, visites et échéances de réserves.</p>
+          </div>
+          <div className={styles.segmented}>
+            <button type="button" className={mode === 'week' ? styles.segmentedActive : ''} onClick={() => setMode('week')}>Semaine</button>
+            <button type="button" className={mode === 'company' ? styles.segmentedActive : ''} onClick={() => setMode('company')}>Entreprise</button>
+            <button type="button" className={mode === 'late' ? styles.segmentedActive : ''} onClick={() => setMode('late')}>Retard</button>
+          </div>
+        </div>
+        <div className={styles.timelineGrid}>
+          <div>
+            <h3>Tâches</h3>
+            <div className={styles.timelineList}>
+              {visibleTasks.slice(0, 18).map((task: any) => {
+                const company = companies.find((item: any) => item.id === task.company || item.name === task.company);
+                return (
+                  <article key={task.id} className={styles.timelineCard}>
+                    <span className={`${styles.statusDot} ${task.status === 'done' ? styles.dotDone : task.status === 'delayed' ? styles.dotLate : ''}`} />
+                    <div>
+                      <strong>{task.title ?? 'Tâche'}</strong>
+                    <small>{company?.name ?? task.company ?? 'Sans entreprise'} · {prettyDate(task.deadline)}</small>
+                    <div className={styles.progressMini}><span style={{ width: `${Math.max(0, Math.min(100, Number(task.progress ?? 0)))}%` }} /></div>
+                    {editable && (
+                      <div className={styles.quickTaskActions}>
+                        <button type="button" disabled={task.status === 'todo'} onClick={() => onUpdateTask(task, { status: 'todo', progress: Math.min(Number(task.progress ?? 0), 10) })}>À faire</button>
+                        <button type="button" disabled={task.status === 'in_progress'} onClick={() => onUpdateTask(task, { status: 'in_progress', progress: Math.max(Number(task.progress ?? 0), 25) })}>En cours</button>
+                        <button type="button" disabled={task.status === 'done'} onClick={() => onUpdateTask(task, { status: 'done', progress: 100 })}>Terminée</button>
+                      </div>
+                    )}
+                  </div>
+                    <em>{task.progress ?? 0}%</em>
+                  </article>
+                );
+              })}
+              {!visibleTasks.length && <p className={styles.empty}>Aucune tâche dans cette vue.</p>}
+            </div>
+          </div>
+          <div>
+            <h3>Visites et échéances</h3>
+            <div className={styles.timelineList}>
+              {upcomingVisits.map((visit: any) => (
+                <article key={visit.id} className={styles.timelineCard}>
+                  <span className={styles.statusDot} />
+                  <div>
+                    <strong>{visit.title}</strong>
+                    <small>{prettyDate(visit.date)} · {[visit.building, visit.level].filter(Boolean).join(' · ') || 'Périmètre chantier'}</small>
+                  </div>
+                  <em>{VISIT_STATUS_LABELS[visit.status as VisitDraft['status']] ?? visit.status}</em>
+                </article>
+              ))}
+              {reserveDeadlines.map((reserve: any) => (
+                <article key={reserve.id} className={styles.timelineCard}>
+                  <span className={`${styles.statusDot} ${styles.dotLate}`} />
+                  <div>
+                    <strong>{reserve.title}</strong>
+                    <small>Échéance réserve · {prettyDate(reserve.deadline)}</small>
+                  </div>
+                  <em>{STATUS_LABELS[reserve.status] ?? reserve.status}</em>
+                </article>
+              ))}
+              {!upcomingVisits.length && !reserveDeadlines.length && <p className={styles.empty}>Aucune échéance proche.</p>}
+            </div>
+          </div>
+        </div>
+      </section>
+    </div>
+  );
+}
+
+function MediaView({ photos, documents }: { photos: any[]; documents: any[] }) {
+  const [query, setQuery] = useState('');
+  const q = query.trim().toLowerCase();
+  const filteredPhotos = photos.filter(photo => !q || [photo.title, photo.name, photo.comment, photo.location, photo.taken_by, photo.takenBy].join(' ').toLowerCase().includes(q));
+  const filteredDocuments = documents.filter(document => !q || [document.title, document.name, document.file_name, document.category].join(' ').toLowerCase().includes(q));
+  return (
+    <div className={styles.stack}>
+      <section className={styles.panel}>
+        <div className={styles.panelHeaderCompact}>
+          <div>
+            <h2>Médias chantier</h2>
+            <p>Photos, documents et pièces jointes synchronisés depuis le terrain.</p>
+          </div>
+          <input className={styles.compactSearch} value={query} onChange={event => setQuery(event.target.value)} placeholder="Rechercher média, zone, auteur..." />
+        </div>
+      </section>
+      <section className={styles.panel}>
+        <h2>Photos</h2>
+        <div className={styles.mediaGrid}>
+          {filteredPhotos.map((photo: any) => {
+            const url = assetUrl(photo);
+            return (
+              <a key={photo.id ?? url} className={styles.mediaCard} href={url || undefined} target={url ? '_blank' : undefined} aria-disabled={!url}>
+                {url ? <img src={url} alt={photo.comment ?? photo.title ?? 'Photo chantier'} /> : <span>Photo</span>}
+                <strong>{photo.comment ?? photo.title ?? photo.name ?? 'Photo chantier'}</strong>
+                <small>{photo.location ?? photo.building ?? 'Sans localisation'} · {prettyDate(photo.taken_at ?? photo.takenAt ?? photo.created_at, true)}</small>
+              </a>
+            );
+          })}
+          {!filteredPhotos.length && <p className={styles.empty}>Aucune photo trouvée.</p>}
+        </div>
+      </section>
+      <section className={styles.panel}>
+        <h2>Documents</h2>
+        <div className={styles.documentList}>
+          {filteredDocuments.map((document: any) => {
+            const url = assetUrl(document);
+            return (
+              <a key={document.id ?? url} className={styles.documentRow} href={url || undefined} target={url ? '_blank' : undefined} aria-disabled={!url}>
+                <span>{String(document.file_type ?? document.type ?? 'DOC').slice(0, 4).toUpperCase()}</span>
+                <div>
+                  <strong>{document.title ?? document.name ?? document.file_name ?? 'Document'}</strong>
+                  <small>{document.category ?? 'GED'} · {prettyDate(document.uploaded_at ?? document.created_at, true)}</small>
+                </div>
+              </a>
+            );
+          })}
+          {!filteredDocuments.length && <p className={styles.empty}>Aucun document trouvé.</p>}
+        </div>
+      </section>
+    </div>
+  );
+}
+
+function RapportsView({
+  stats,
+  reserves,
+  plans,
+  visites,
+  incidents,
+  tasks,
+  selectedReserve,
+  language,
+  setLanguage,
+  generatingReport,
+  onGenerate,
+}: any) {
+  const disabled = Boolean(generatingReport);
+  return (
+    <div className={styles.stack}>
+      <div className={styles.kpiGrid}>
+        <Kpi title="Réserves exportables" value={reserves.length} hint={`${stats.closed} clôturées`} />
+        <Kpi title="Plans" value={plans.length} hint="Avec réserves et épingles" tone="green" />
+        <Kpi title="Visites" value={visites.length} hint="Comptes rendus" tone="amber" />
+        <Kpi title="Incidents" value={incidents.length} hint="Suivi sécurité" tone="red" />
+      </div>
+      <section className={styles.panel}>
+        <div className={styles.panelHeaderCompact}>
+          <div>
+            <h2>Exports et rapports</h2>
+            <p>Générez les PDF depuis le web avec les mêmes données Supabase que l’application mobile.</p>
+          </div>
+          <div className={styles.segmented}>
+            {(['fr', 'en', 'es'] as const).map(lang => (
+              <button key={lang} type="button" className={language === lang ? styles.segmentedActive : ''} onClick={() => setLanguage(lang)}>
+                {lang.toUpperCase()}
+              </button>
+            ))}
+          </div>
+        </div>
+        <div className={styles.reportGrid}>
+          <ReportCard
+            title="Rapport réserves"
+            text="Liste détaillée, synthèse par statut et par entreprise."
+            meta={`${reserves.length} réserves`}
+            disabled={disabled}
+            loading={generatingReport === `global_reserves-${language}`}
+            onClick={() => onGenerate('global_reserves')}
+          />
+          <ReportCard
+            title="Rapport plans"
+            text="Plans, épingles et réserves associées."
+            meta={`${plans.length} plans`}
+            disabled={disabled}
+            loading={generatingReport === `plans-${language}`}
+            onClick={() => onGenerate('plans')}
+          />
+          <ReportCard
+            title="Fiche réserve"
+            text="Export individuel de la réserve sélectionnée."
+            meta={selectedReserve ? selectedReserve.id : 'Aucune réserve sélectionnée'}
+            disabled={disabled || !selectedReserve}
+            loading={generatingReport === `individual_reserve-${language}`}
+            onClick={() => onGenerate('individual_reserve')}
+          />
+          <article className={styles.reportCard}>
+            <strong>À venir côté web</strong>
+            <p>Compte rendu de visite complet, journal quotidien et rapport hebdomadaire structurés comme l’app mobile.</p>
+            <small>{tasks.length} tâches · {incidents.length} incidents disponibles</small>
+          </article>
+        </div>
+      </section>
+    </div>
+  );
+}
+
+function ReportCard({ title, text, meta, disabled, loading, onClick }: any) {
+  return (
+    <article className={styles.reportCard}>
+      <strong>{title}</strong>
+      <p>{text}</p>
+      <small>{meta}</small>
+      <button type="button" disabled={disabled} onClick={onClick}>{loading ? 'Génération...' : 'Télécharger PDF'}</button>
+    </article>
   );
 }
 
@@ -1935,10 +2235,13 @@ function VisitModal({ draft, setDraft, data, selectedProjectId, saving, onClose,
   );
 }
 
-function AdminView({ data, profile }: { data: WebState; profile: Profile | null }) {
+function AdminView({ data, profile, onUpdateProfile }: { data: WebState; profile: Profile | null; onUpdateProfile: (userId: string, patch: Partial<Profile>) => void }) {
+  const [query, setQuery] = useState('');
   if (!isAdmin(profile)) {
     return <section className={styles.panel}><p className={styles.empty}>Accès réservé aux admins et super admins.</p></section>;
   }
+  const q = query.trim().toLowerCase();
+  const users = data.profiles.filter(user => !q || [user.name, user.email, user.role, user.role_label].join(' ').toLowerCase().includes(q));
   return (
     <div className={styles.stack}>
       <div className={styles.kpiGrid}>
@@ -1948,19 +2251,31 @@ function AdminView({ data, profile }: { data: WebState; profile: Profile | null 
         <Kpi title="Chantiers" value={data.chantiers.length} hint="Périmètre org." />
       </div>
       <section className={styles.panel}>
+        <div className={styles.panelHeaderCompact}>
+          <div>
+            <h2>Utilisateurs</h2>
+            <p>Gestion web des rôles et entreprises rattachées.</p>
+          </div>
+          <input className={styles.compactSearch} value={query} onChange={event => setQuery(event.target.value)} placeholder="Rechercher utilisateur..." />
+        </div>
         <div className={styles.dataTable}>
-          <div className={styles.tableHead}><span>Utilisateur</span><span>Rôle</span><span>Entreprise</span><span>Email</span></div>
-          {data.profiles.map(user => {
-            const company = data.companies.find(c => c.id === user.company_id);
+          <div className={`${styles.tableHead} ${styles.adminTableHead}`}><span>Utilisateur</span><span>Rôle</span><span>Entreprise</span><span>Email</span></div>
+          {users.map(user => {
             return (
-              <div key={user.id} className={styles.tableRow}>
+              <div key={user.id} className={`${styles.tableRow} ${styles.adminTableRow}`}>
                 <strong>{user.name}</strong>
-                <span>{user.role_label ?? user.role}</span>
-                <span>{company?.name ?? '—'}</span>
+                <select value={user.role ?? ''} onChange={event => onUpdateProfile(user.id, { role: event.target.value })}>
+                  {Object.entries(ROLE_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+                </select>
+                <select value={user.company_id ?? ''} onChange={event => onUpdateProfile(user.id, { company_id: event.target.value || null })}>
+                  <option value="">Aucune</option>
+                  {data.companies.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}
+                </select>
                 <span>{user.email}</span>
               </div>
             );
           })}
+          {!users.length && <p className={styles.empty}>Aucun utilisateur trouvé.</p>}
         </div>
       </section>
     </div>
