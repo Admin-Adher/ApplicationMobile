@@ -65,7 +65,7 @@ function priorityLabel(priority: string | undefined, language: ReportLanguage): 
   return PRIORITY_LABELS_I18N[language][priority ?? ''] ?? priority ?? REPORT_COPY[language].noValue;
 }
 
-// â”€â”€ Global Reserves HTML (no plans needed) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Global Reserves HTML (no plans needed) ────────────────────────────────────
 export function buildGlobalReservesHtml(payload: any): string {
   const { chantierName, companyFilter, generatedAt, reserves } = payload;
   const lang = reportLanguage(payload.language);
@@ -136,7 +136,7 @@ export function buildGlobalReservesHtml(payload: any): string {
         <td style="padding:6px 8px;font-size:11px">${copy.buildingShort} ${escHtml(r.building || '?')} · ${escHtml(r.level || copy.noValue)}</td>
         <td style="padding:6px 8px"><span style="color:${sc};font-weight:600;font-size:10px">${S_FR[r.status] ?? r.status}</span></td>
         <td style="padding:6px 8px"><span style="color:${pc};font-weight:600;font-size:10px">${P_FR[r.priority] ?? r.priority}</span></td>
-        <td style="padding:6px 8px;font-size:11px">${escHtml(r.deadline) || 'â€”'}</td>
+        <td style="padding:6px 8px;font-size:11px">${escHtml(r.deadline) || '—'}</td>
       </tr>`;
     }).join('');
 
@@ -224,7 +224,7 @@ export function buildGlobalReservesHtml(payload: any): string {
 </html>`;
 }
 
-// â”€â”€ Individual Reserve HTML â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Individual Reserve HTML ───────────────────────────────────────────────────
 export function buildIndividualReserveHtml(payload: any): string {
   const { reserve, chantierName, companyColor, planUri, planX, planY, planName, pinNum } = payload;
   const lang = reportLanguage(payload.language);
@@ -285,7 +285,7 @@ export function buildIndividualReserveHtml(payload: any): string {
       <td style="padding:4px 8px;font-size:10px;border-bottom:1px solid #EEF3FA;white-space:nowrap">${escHtml(h.createdAt)}</td>
       <td style="padding:4px 8px;font-size:10px;border-bottom:1px solid #EEF3FA;font-weight:600">${escHtml(h.action)}</td>
       <td style="padding:4px 8px;font-size:10px;border-bottom:1px solid #EEF3FA;color:#6B7280">${escHtml(h.author)}</td>
-      ${h.oldValue && h.newValue ? `<td style="padding:4px 8px;font-size:9px;color:#6B7280;border-bottom:1px solid #EEF3FA">${escHtml(h.oldValue)} â†’ ${escHtml(h.newValue)}</td>` : '<td></td>'}
+      ${h.oldValue && h.newValue ? `<td style="padding:4px 8px;font-size:9px;color:#6B7280;border-bottom:1px solid #EEF3FA">${escHtml(h.oldValue)} → ${escHtml(h.newValue)}</td>` : '<td></td>'}
     </tr>`
   ).join('');
 
@@ -683,7 +683,7 @@ function buildPlanBlock(plan: PdfPlanItem, planReserves: PdfReserveItem[], lang:
   return `
     <div style="background:#fff;border-radius:8px;border:1px solid #e2e8f0;margin-bottom:14px;overflow:hidden">
       <div style="background:#f8fafc;padding:10px 16px;font-size:12px;font-weight:700;color:#1e293b;border-bottom:1px solid #e2e8f0;display:flex;align-items:center;gap:6px">
-        ðŸ“ ${escapeHtml(plan.name)}${levelBadge}
+        📐 ${escapeHtml(plan.name)}${levelBadge}
         <span style="margin-left:auto;font-size:11px;color:#94a3b8;font-weight:400">
           ${copy.reserveCount(planReserves.length)}
         </span>
@@ -750,7 +750,7 @@ export function buildGlobalReportHtml(payload: PdfReportPayload): string {
     buildingSections.push(`
       <div style="margin-bottom:24px;page-break-inside:avoid">
         <div style="background:linear-gradient(135deg,#003082 0%,#1A6FD8 100%);color:#fff;padding:12px 20px;border-radius:8px 8px 0 0;font-size:14px;font-weight:700;display:flex;align-items:center;gap:10px">
-          ðŸ—ï¸ ${escapeHtml(buildingLabel)}
+          🏗️ ${escapeHtml(buildingLabel)}
           <span style="margin-left:auto;font-size:12px;opacity:0.8;font-weight:400">
             ${copy.reserveCount(buildingReserveCount)}
           </span>
@@ -861,7 +861,7 @@ export function buildGlobalReportHtml(payload: PdfReportPayload): string {
 </head>
 <body>
   <div class="cover">
-    <div style="font-size:48px;margin-bottom:20px">ðŸ“‹</div>
+    <div style="font-size:48px;margin-bottom:20px">📋</div>
     <div style="font-size:11px;letter-spacing:2px;text-transform:uppercase;color:#003082;font-weight:700;margin-bottom:12px">
       BuildTrack
     </div>

@@ -268,7 +268,7 @@ export default function BuildingPickerSheet({
   // stable + réactive aux rotations d'écran, indépendante de toute cascade
   // flex/percent.
   const { height: windowHeight } = useWindowDimensions();
-  const sheetHeight = Math.round(windowHeight * 0.78);
+  const sheetHeight = Math.round(Math.min(windowHeight * 0.88, windowHeight - Math.max(insets.top + 18, 56)));
 
   const handlePan = useRef(
     PanResponder.create({
@@ -329,6 +329,19 @@ export default function BuildingPickerSheet({
     if (activeFamily === ALL_FAMILY) return null;
     return families.find(f => f.key === activeFamily) ?? null;
   }, [useGrouping, query, activeFamily, families]);
+
+  const totalPlans = useMemo(
+    () => buildings.reduce((sum, b) => sum + b.planCount, 0),
+    [buildings]
+  );
+  const totalReserves = useMemo(
+    () => buildings.reduce((sum, b) => sum + b.reserveCount, 0),
+    [buildings]
+  );
+  const selectedBuilding = useMemo(
+    () => buildings.find(b => b.id === selectedId) ?? null,
+    [buildings, selectedId]
+  );
 
   function pick(id: string) {
     onSelect(id);
@@ -426,6 +439,35 @@ export default function BuildingPickerSheet({
               />
             ))}
           </ScrollView>
+        )}
+
+        {!query && (
+          <View style={styles.scopeCard}>
+            <View style={styles.scopeIcon}>
+              <Ionicons
+                name={selectedId === 'all' ? 'grid-outline' : selectedId === '__none__' ? 'layers-outline' : 'business-outline'}
+                size={16}
+                color={C.primary}
+              />
+            </View>
+            <View style={{ flex: 1, minWidth: 0 }}>
+              <Text style={styles.scopeTitle} numberOfLines={1}>
+                {selectedId === 'all'
+                  ? t('buildingPicker.allBuildings', { count: buildings.length })
+                  : selectedBuilding?.name ?? orphansLabel}
+              </Text>
+              <View style={styles.scopeStats}>
+                <Text style={styles.scopeStat}>
+                  {t('buildingPicker.plans', { count: selectedBuilding?.planCount ?? totalPlans })}
+                </Text>
+                <View style={styles.dotSep} />
+                <Text style={[styles.scopeStat, { color: C.open }]}>
+                  {t('buildingPicker.reserves', { count: selectedBuilding?.reserveCount ?? totalReserves })}
+                </Text>
+              </View>
+            </View>
+            <Ionicons name="checkmark-circle" size={18} color={C.primary} />
+          </View>
         )}
 
         <ScrollView
@@ -559,14 +601,25 @@ export default function BuildingPickerSheet({
                   </Text>
                 </View>
               ) : (
-                filteredFlat.map(b => (
-                  <BuildingRow
-                    key={b.id}
-                    b={b}
-                    active={b.id === selectedId}
-                    onPress={() => pick(b.id)}
-                  />
-                ))
+                <>
+                  {!query && (
+                    <AllBuildingsRow
+                      active={selectedId === 'all'}
+                      label={t('buildingPicker.allBuildings', { count: buildings.length })}
+                      planCount={totalPlans}
+                      reserveCount={totalReserves}
+                      onPress={() => pick('all')}
+                    />
+                  )}
+                  {filteredFlat.map(b => (
+                    <BuildingRow
+                      key={b.id}
+                      b={b}
+                      active={b.id === selectedId}
+                      onPress={() => pick(b.id)}
+                    />
+                  ))}
+                </>
               )}
             </>
           )}
@@ -622,6 +675,50 @@ function SectionHeader({ icon, label }: { icon: any; label: string }) {
   );
 }
 
+function AllBuildingsRow({
+  active, label, planCount, reserveCount, onPress,
+}: {
+  active: boolean;
+  label: string;
+  planCount: number;
+  reserveCount: number;
+  onPress: () => void;
+}) {
+  const { t } = useTranslation();
+  return (
+    <TouchableOpacity
+      style={[styles.row, styles.allRow, active && styles.rowActive]}
+      onPress={onPress}
+      activeOpacity={0.7}
+    >
+      <View style={[styles.icon, active && styles.iconActive]}>
+        <Ionicons name="grid-outline" size={16} color={active ? '#fff' : C.primary} />
+      </View>
+      <View style={{ flex: 1, minWidth: 0 }}>
+        <Text style={[styles.rowTitle, active && styles.rowTitleActive]} numberOfLines={1}>
+          {label}
+        </Text>
+        <View style={styles.badgeRow}>
+          <InfoBadge icon="map-outline" text={t('buildingPicker.plans', { count: planCount })} />
+          <InfoBadge icon="alert-circle-outline" text={t('buildingPicker.reserves', { count: reserveCount })} accent />
+        </View>
+      </View>
+      {active && <Ionicons name="checkmark-circle" size={18} color={C.primary} />}
+    </TouchableOpacity>
+  );
+}
+
+function InfoBadge({ icon, text, accent }: { icon: any; text: string; accent?: boolean }) {
+  return (
+    <View style={[styles.infoBadge, accent && styles.infoBadgeAccent]}>
+      <Ionicons name={icon} size={10} color={accent ? C.open : C.textMuted} />
+      <Text style={[styles.infoBadgeText, accent && styles.infoBadgeTextAccent]} numberOfLines={1}>
+        {text}
+      </Text>
+    </View>
+  );
+}
+
 function BuildingRow({
   b, active, pinned, onPress,
 }: {
@@ -647,7 +744,7 @@ function BuildingRow({
           color={active ? '#fff' : C.textSub}
         />
       </View>
-      <View style={{ flex: 1 }}>
+      <View style={{ flex: 1, minWidth: 0 }}>
         <View style={styles.rowTitleRow}>
           <Text
             style={[styles.rowTitle, active && styles.rowTitleActive]}
@@ -673,21 +770,14 @@ function BuildingRow({
             </View>
           )}
         </View>
-        <View style={styles.rowSubRow}>
-          <Text style={styles.rowSub}>
-            {t('buildingPicker.plans', { count: b.planCount })}
-          </Text>
+        <View style={styles.badgeRow}>
+          <InfoBadge icon="map-outline" text={t('buildingPicker.plans', { count: b.planCount })} />
           {b.reserveCount > 0 && (
-            <>
-              <View style={styles.dotSep} />
-              <Text style={styles.rowSubReserve}>
-                {t('buildingPicker.reserves', { count: b.reserveCount })}
-              </Text>
-            </>
+            <InfoBadge icon="alert-circle-outline" text={t('buildingPicker.reserves', { count: b.reserveCount })} accent />
           )}
         </View>
       </View>
-      {active && <View style={styles.activeDot} />}
+      {active && <Ionicons name="checkmark-circle" size={18} color={C.primary} />}
     </TouchableOpacity>
   );
 }
@@ -751,6 +841,34 @@ const styles = StyleSheet.create({
     color: C.text,
     paddingVertical: 0,
   },
+  scopeCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    marginTop: 8,
+    marginBottom: 4,
+    paddingHorizontal: 10,
+    paddingVertical: 9,
+    borderRadius: 14,
+    backgroundColor: C.primaryBg,
+    borderWidth: 1,
+    borderColor: '#C7D2FE',
+  },
+  scopeIcon: {
+    width: 34,
+    height: 34,
+    borderRadius: 10,
+    backgroundColor: C.surface,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  scopeTitle: {
+    fontSize: 13,
+    fontFamily: 'Inter_700Bold',
+    color: C.primary,
+  },
+  scopeStats: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 2 },
+  scopeStat: { fontSize: 11, fontFamily: 'Inter_500Medium', color: C.textMuted },
   // Hauteur explicite pour empêcher la ScrollView horizontale de se
   // collapser à 0px dans le flex column du sheet (sinon la liste passe
   // par-dessus les chips). flexGrow:0/flexShrink:0 verrouille la hauteur.
@@ -845,6 +963,7 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
     borderRadius: 12,
   },
+  allRow: { marginBottom: 4, backgroundColor: C.surface2, borderWidth: 1, borderColor: C.border },
   rowActive: { backgroundColor: C.primaryBg },
   icon: {
     width: 36, height: 36, borderRadius: 10,
@@ -878,6 +997,25 @@ const styles = StyleSheet.create({
   rowSubRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 2 },
   rowSub: { fontSize: 11, fontFamily: 'Inter_400Regular', color: C.textMuted },
   rowSubReserve: { fontSize: 11, fontFamily: 'Inter_500Medium', color: C.open },
+  badgeRow: { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 5, marginTop: 5 },
+  infoBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 7,
+    paddingVertical: 3,
+    borderRadius: 8,
+    backgroundColor: C.surface2,
+    borderWidth: 1,
+    borderColor: C.border,
+    maxWidth: 136,
+  },
+  infoBadgeAccent: {
+    backgroundColor: '#ECFDF5',
+    borderColor: '#BBF7D0',
+  },
+  infoBadgeText: { fontSize: 10, fontFamily: 'Inter_600SemiBold', color: C.textMuted },
+  infoBadgeTextAccent: { color: C.open },
   dotSep: { width: 2, height: 2, borderRadius: 1, backgroundColor: C.textMuted },
   activeDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: C.primary },
   empty: {

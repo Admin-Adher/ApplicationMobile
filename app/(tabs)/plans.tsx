@@ -1196,7 +1196,11 @@ export default function PlansScreen() {
 
   function getPinDisplaySize(id: string, base: number): number {
     const individualScale = pinSizes[id] ?? 1.0;
-    return Math.round(base * individualScale);
+    return Math.max(10, Math.round(base * individualScale));
+  }
+
+  function getPinLabelSize(size: number): number {
+    return Math.max(7, Math.min(12, Math.round(size * 0.42)));
   }
 
   const buildings = useMemo(() => {
@@ -1833,8 +1837,8 @@ export default function PlansScreen() {
     }
   }, [globalReportEmailTo, globalReportPreviewCount, chantierReserves, chantierPlans, globalReportCompany, globalReportStatusFilter, activeChantier, enrichReservesForPdf, t, commonReserveText]);
 
-  const pinSize = Math.round((isTablet ? 48 : 44) * pinSizeScale);
-  const clusterSize = Math.round((isTablet ? 60 : 52) * pinSizeScale);
+  const pinSize = Math.max(10, Math.round((isTablet ? 18 : 14) * pinSizeScale));
+  const clusterSize = Math.max(18, Math.round((isTablet ? 28 : 22) * pinSizeScale));
   const dynW = planDimensions.width;
   const dynH = planDimensions.height;
 
@@ -2992,7 +2996,7 @@ export default function PlansScreen() {
                   </TouchableOpacity>
                 )}
                 <TouchableOpacity
-                  style={styles.hierarchyChipAll}
+                  style={[styles.hierarchyChipAll, selectedBuilding === 'all' && styles.hierarchyChipAllActive]}
                   onPress={() => setBuildingPickerOpen(true)}
                   accessibilityLabel={t('plansScreen.a11y.viewAllBuildings', { count: chantierHierarchyBuildings.length })}
                 >
@@ -3433,7 +3437,7 @@ export default function PlansScreen() {
                         opacity: 0.2, pointerEvents: 'none' as any, alignItems: 'center', justifyContent: 'center',
                         borderWidth: 2, borderColor: 'rgba(255,255,255,0.35)',
                       }}>
-                        <Text style={{ fontSize: Math.round((isTablet ? 14 : 11) * pinSizeScale * (pinSizes[baseId] ?? 1.0)), fontFamily: 'Inter_700Bold', color: '#fff' }}>{isCluster ? cluster.items.length : cluster.number}</Text>
+                        <Text style={{ fontSize: getPinLabelSize(sz), fontFamily: 'Inter_700Bold', color: '#fff' }}>{isCluster ? cluster.items.length : cluster.number}</Text>
                       </View>
                     );
                   })}
@@ -3445,21 +3449,21 @@ export default function PlansScreen() {
                     const isHighlighted = !isCluster && highlightedReserveId === pinId;
                     const isFocused = !isCluster && focusedPinId === pinId;
                     const baseSz = isCluster ? clusterSize : getPinDisplaySize(pinId, pinSize);
-                    const sz = isFocused ? Math.round(baseSz * 1.28) : baseSz;
+                    const sz = isFocused ? Math.round(baseSz * 1.1) : baseSz;
                     const isDraggingThis = draggingPinId === pinId;
                     return (
                       <TouchableOpacity
                         key={`cl-${ci}`}
-                        hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
+                        hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
                         style={{
                           position: 'absolute', left: `${cluster.cx}%` as any, top: `${cluster.cy}%` as any,
                           backgroundColor: color, width: sz, height: sz, borderRadius: sz / 2,
                           transform: [{ translateX: -(sz / 2) }, { translateY: -(sz / 2) }],
-                          borderWidth: isFocused ? 3 : isHighlighted ? 3 : 2,
+                          borderWidth: isFocused ? 2 : isHighlighted ? 2 : 1.5,
                           borderColor: isFocused ? '#FBBF24' : isHighlighted ? '#fff' : 'rgba(255,255,255,0.35)',
                           shadowColor: isFocused ? '#FBBF24' : '#000',
                           shadowOpacity: isFocused ? 0.9 : isHighlighted ? 0.7 : 0.4,
-                          shadowRadius: isFocused ? 6 : 3,
+                          shadowRadius: isFocused ? 7 : 3,
                           elevation: isFocused ? 12 : isHighlighted ? 8 : 4,
                           alignItems: 'center', justifyContent: 'center',
                           opacity: isDraggingThis ? 0.35 : 1,
@@ -3523,7 +3527,7 @@ export default function PlansScreen() {
                         delayLongPress={400}
                         accessibilityLabel={isCluster ? t('plansScreen.a11y.reserveGroup', { count: cluster.items.length }) : t('plansScreen.a11y.reservePin', { number: cluster.number })}
                       >
-                        <Text style={{ fontSize: Math.round((isTablet ? 14 : 11) * pinSizeScale * (isCluster ? 1.0 : (pinSizes[pinId] ?? 1.0))), fontFamily: 'Inter_700Bold', color: '#fff' }}>
+                        <Text style={{ fontSize: getPinLabelSize(sz), fontFamily: 'Inter_700Bold', color: '#fff' }}>
                           {isCluster ? cluster.items.length : cluster.number}
                         </Text>
                       </TouchableOpacity>
@@ -3547,14 +3551,14 @@ export default function PlansScreen() {
                             { translateX: Animated.subtract(draggingAnimX, half) as any },
                             { translateY: Animated.subtract(draggingAnimY, half) as any },
                           ],
-                          borderWidth: 3, borderColor: '#fff',
+                          borderWidth: 2, borderColor: '#fff',
                           shadowColor: '#000', shadowOpacity: 0.8, shadowRadius: 8, elevation: 20,
                           alignItems: 'center', justifyContent: 'center',
                           opacity: 0.95,
                           pointerEvents: 'none' as any,
                         }}
                       >
-                        <Text style={{ fontSize: Math.round((isTablet ? 14 : 11) * pinSizeScale * (pinSizes[draggingPinId] ?? 1.0)), fontFamily: 'Inter_700Bold', color: '#fff' }}>{num}</Text>
+                        <Text style={{ fontSize: getPinLabelSize(sz), fontFamily: 'Inter_700Bold', color: '#fff' }}>{num}</Text>
                       </Animated.View>
                     );
                   })()}
@@ -4599,6 +4603,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12, paddingVertical: 5, borderRadius: 16,
     backgroundColor: C.primary,
   },
+  hierarchyChipAllActive: { backgroundColor: C.primaryDark ?? C.primary },
   hierarchyChipAllText: { fontSize: 12, fontFamily: 'Inter_700Bold', color: '#fff' },
   hierarchyChipLevel: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 12, backgroundColor: C.surface, borderWidth: 1, borderColor: C.border },
   hierarchyChipLevelActive: { backgroundColor: C.primaryBg, borderColor: C.primary },

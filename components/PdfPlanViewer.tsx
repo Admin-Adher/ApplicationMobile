@@ -284,16 +284,18 @@ function buildMobileHtml(
       planY: r.planY,
       color: getReservePinColor(r, companies),
       num: pinMap.get(r.id) ?? '?',
-      size: Math.round(pinSize * (pinSizes[r.id] ?? 1.0)),
+      size: Math.max(10, Math.round(pinSize * (pinSizes[r.id] ?? 1.0))),
     }));
 
   const ghostPinsData = ghostReserves
     .filter(r => r.planX != null && r.planY != null)
     .map(r => ({
+      id: r.id,
       planX: r.planX,
       planY: r.planY,
       color: getReservePinColor(r, companies),
       num: pinMap.get(r.id) ?? '?',
+      size: Math.max(10, Math.round(pinSize * (pinSizes[r.id] ?? 1.0))),
     }));
 
   const safeAnns = JSON.stringify(annotations ?? []);
@@ -320,12 +322,12 @@ html,body{width:100%;height:100%;overflow:hidden;background:#0F1117;touch-action
 #cur-svg{position:absolute;top:0;left:0;pointer-events:all;}
 #ghost-layer{position:absolute;top:0;left:0;}
 #pins-layer{position:absolute;top:0;left:0;}
-  .pin{position:absolute;border-radius:50%;display:flex;align-items:center;justify-content:center;border:2px solid rgba(255,255,255,0.85);box-shadow:0 2px 8px rgba(0,0,0,0.5);cursor:pointer;transition:box-shadow 0.15s,border-color 0.15s;user-select:none;-webkit-user-select:none;-webkit-touch-callout:none;touch-action:none;}
+  .pin{position:absolute;border-radius:50%;display:flex;align-items:center;justify-content:center;border:1.5px solid rgba(255,255,255,0.85);box-shadow:0 2px 8px rgba(0,0,0,0.42);cursor:pointer;transition:box-shadow 0.15s,border-color 0.15s;user-select:none;-webkit-user-select:none;-webkit-touch-callout:none;touch-action:none;}
   .pin-focused{animation:pinPulse 1.05s ease-in-out infinite;z-index:30;}
   .pin span{color:#fff;font-weight:700;font-family:Arial;line-height:1;pointer-events:none;}
   #container.is-interacting .pin{box-shadow:none;transition:none;border-color:rgba(255,255,255,0.62);}
   #container.is-interacting .pin-focused{animation:none;}
-  @keyframes pinPulse{0%,100%{transform:scale(1.2)}50%{transform:scale(1.5)}}
+  @keyframes pinPulse{0%,100%{box-shadow:0 0 0 3px rgba(251,191,36,0.32),0 2px 8px rgba(0,0,0,0.42)}50%{box-shadow:0 0 0 7px rgba(251,191,36,0.18),0 0 14px rgba(251,191,36,0.55),0 2px 8px rgba(0,0,0,0.42)}}
 #loading{position:fixed;top:0;left:0;width:100%;height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;background:#0F1117;}
 #loading-spinner{width:36px;height:36px;border:3px solid #1E3A5F;border-top-color:#003082;border-radius:50%;animation:spin 0.8s linear infinite;}
 #loading-text{color:#94A3B8;font-family:Arial;font-size:13px;}
@@ -504,21 +506,22 @@ function renderLive(){
 
 function renderGhostPins(){
   ghostLayer.innerHTML='';
-  var half=PIN_SIZE/2;
   ghostPinsData.forEach(function(pin){
+    var sz=pin.size||PIN_SIZE;
+    var half=sz/2;
     var div=document.createElement('div');
     div.className='pin';
-    div.style.width=PIN_SIZE+'px';div.style.height=PIN_SIZE+'px';
+    div.style.width=sz+'px';div.style.height=sz+'px';
     div.style.left=((pin.planX/100)*cw-half)+'px';
     div.style.top=((pin.planY/100)*ch-half)+'px';
     div.style.backgroundColor=pin.color;
     div.style.opacity='0.2';
     div.style.pointerEvents='none';
-    div.style.border='2px solid rgba(255,255,255,0.35)';
+    div.style.border='1.5px solid rgba(255,255,255,0.35)';
     div.style.boxShadow='none';
     var span=document.createElement('span');
     span.textContent=String(pin.num);
-    span.style.fontSize=Math.max(8,Math.round(PIN_SIZE*0.42))+'px';
+    span.style.fontSize=Math.max(7,Math.round(sz*0.42))+'px';
     div.appendChild(span);
     ghostLayer.appendChild(div);
   });
@@ -538,13 +541,13 @@ function renderPins(){
     div.style.backgroundColor=pin.color;
     div.style.pointerEvents=(mode==='annotate')?'none':'all';
     if(isFocused){
-      div.style.border='3px solid #FBBF24';
-      div.style.boxShadow='0 0 0 5px rgba(251,191,36,0.38), 0 0 18px rgba(251,191,36,0.85), 0 4px 12px rgba(0,0,0,0.55)';
+      div.style.border='2px solid #FBBF24';
+      div.style.boxShadow='0 0 0 4px rgba(251,191,36,0.32), 0 0 14px rgba(251,191,36,0.72), 0 4px 12px rgba(0,0,0,0.5)';
       div.style.zIndex='30';
     }
     var span=document.createElement('span');
     span.textContent=String(pin.num);
-    span.style.fontSize=Math.max(8,Math.round(sz*0.42))+'px';
+    span.style.fontSize=Math.max(7,Math.round(sz*0.42))+'px';
     div.appendChild(span);
 
     var lpTimer=null,pinDrag=false,pinMoved=false,psx=0,psy=0;
@@ -563,7 +566,7 @@ function renderPins(){
           pinDrag=true;
           div.style.transition='none';
           div.style.willChange='transform';
-          div.style.transform='scale(1.35)';
+          div.style.transform='scale(1.12)';
           div.style.boxShadow='0 8px 28px rgba(0,0,0,0.75)';
           div.style.zIndex='999';
         }
@@ -1093,6 +1096,7 @@ const MobileViewer = forwardRef<PdfPlanViewerHandle, PdfPlanViewerProps>(functio
   const [pdfJsWorkerSource, setPdfJsWorkerSource] = useState<string | null>(isImagePlan ? null : (initialPdfJsSources?.workerSource ?? ''));
   const [pdfJsLoading, setPdfJsLoading] = useState(!isImagePlan && !initialPdfJsSources);
   const [previewDataUrl, setPreviewDataUrl] = useState<string | null>(() => getRememberedPlanPreview(planId));
+  const [zoomPct, setZoomPct] = useState(100);
   const mobileCopy = useMemo<PdfPlanViewerCopy>(() => ({
     loadingPlan: t('pdfPlanViewer.loadingPlan'),
     loadPdfError: t('pdfPlanViewer.loadPdfError'),
@@ -1106,6 +1110,7 @@ const MobileViewer = forwardRef<PdfPlanViewerHandle, PdfPlanViewerProps>(functio
 
   useEffect(() => {
     setPreviewDataUrl(getRememberedPlanPreview(planId));
+    setZoomPct(100);
   }, [planId]);
 
   useEffect(() => {
@@ -1350,14 +1355,16 @@ const MobileViewer = forwardRef<PdfPlanViewerHandle, PdfPlanViewerProps>(functio
         id: r.id, planX: r.planX, planY: r.planY,
         color: getReservePinColor(r, companies),
         num: pinNumberMap.get(r.id) ?? '?',
-        size: Math.round(pinSize * (pinSizes[r.id] ?? 1.0)),
+        size: Math.max(10, Math.round(pinSize * (pinSizes[r.id] ?? 1.0))),
       }));
     const ghostData = ghostReserves
       .filter(r => r.planX != null && r.planY != null)
       .map(r => ({
+        id: r.id,
         planX: r.planX, planY: r.planY,
         color: getReservePinColor(r, companies),
         num: pinNumberMap.get(r.id) ?? '?',
+        size: Math.max(10, Math.round(pinSize * (pinSizes[r.id] ?? 1.0))),
       }));
     inject(`window.updatePins(${JSON.stringify(pinsData)},${JSON.stringify(ghostData)});`);
   }, [inject, reserves, ghostReserves, pinNumberMap, pinSizes, pinSize, companies]);
@@ -1422,6 +1429,7 @@ const MobileViewer = forwardRef<PdfPlanViewerHandle, PdfPlanViewerProps>(functio
           captureResolveRef.current = null;
         }
       } else if (msg.type === 'zoomChange') {
+        if (typeof msg.zoom === 'number') setZoomPct(Math.round(msg.zoom * 100));
         onZoomChange?.(msg.zoom);
       } else if (msg.type === 'planError') {
         console.warn('[PdfPlanViewer] WebView plan load error:', msg.error, msg.uri ?? '');
@@ -1490,6 +1498,7 @@ const MobileViewer = forwardRef<PdfPlanViewerHandle, PdfPlanViewerProps>(functio
         allowFileAccess
         allowFileAccessFromFileURLs
         allowUniversalAccessFromFileURLs
+        androidLayerType="hardware"
       />
       ) : null}
       {offlineUnavailable && !viewerLoading ? (
@@ -1533,6 +1542,9 @@ const MobileViewer = forwardRef<PdfPlanViewerHandle, PdfPlanViewerProps>(functio
             <TouchableOpacity style={mob.ib} onPress={() => inject('window.resetView();')}>
               <Ionicons name="scan-outline" size={13} color={C.text} />
             </TouchableOpacity>
+            <View style={mob.zoomBadge}>
+              <Text style={mob.zoomBadgeText}>{zoomPct}%</Text>
+            </View>
             <TouchableOpacity style={mob.ib} onPress={() => inject('window.zoomIn();')}>
               <Ionicons name="add" size={15} color={C.text} />
             </TouchableOpacity>
@@ -1653,6 +1665,8 @@ const mob = StyleSheet.create({
   pageNav: { flexDirection: 'row', alignItems: 'center', gap: 2 },
   pageLabel: { fontSize: 11, fontFamily: 'Inter_500Medium', color: C.textSub, paddingHorizontal: 3 },
   zoomRow: { flexDirection: 'row', alignItems: 'center', gap: 2 },
+  zoomBadge: { height: 27, minWidth: 42, borderRadius: 7, paddingHorizontal: 7, alignItems: 'center', justifyContent: 'center', backgroundColor: C.primaryBg, borderWidth: 1, borderColor: '#C7D2FE' },
+  zoomBadgeText: { fontSize: 10, fontFamily: 'Inter_700Bold', color: C.primary },
   ib: { width: 27, height: 27, borderRadius: 6, alignItems: 'center', justifyContent: 'center', backgroundColor: C.surface2 },
   ibOff: { opacity: 0.35 },
   modeBtn: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 9, paddingVertical: 5, borderRadius: 8, borderWidth: 1.5, borderColor: C.primary },
@@ -2001,7 +2015,7 @@ const WebViewer = forwardRef<PdfPlanViewerHandle, PdfPlanViewerProps>(function W
   const onPinMouseDown = (e: React.MouseEvent<HTMLDivElement>, r: Reserve) => {
     e.stopPropagation();
     if (mode === 'annotate') return;
-    const sz = Math.round(pinSize * (pinSizes[r.id] ?? 1.0));
+    const sz = Math.max(10, Math.round(pinSize * (pinSizes[r.id] ?? 1.0)));
     const el = e.currentTarget as HTMLElement;
     const startX = e.clientX;
     const startY = e.clientY;
@@ -2262,24 +2276,25 @@ const WebViewer = forwardRef<PdfPlanViewerHandle, PdfPlanViewerProps>(function W
             {cw > 0 && ghostPinsOnPage.map(r => {
               const col = getReservePinColor(r, companies);
               const num = pinNumberMap.get(r.id) ?? '?';
+              const sz = Math.max(10, Math.round(pinSize * (pinSizes[r.id] ?? 1.0)));
               return (
                 <div
                   key={`ghost-${r.id}`}
                   style={{
                     position: 'absolute',
-                    left: (r.planX! / 100) * cw - pinSize / 2,
-                    top: (r.planY! / 100) * ch - pinSize / 2,
-                    width: pinSize, height: pinSize, borderRadius: pinSize / 2,
+                    left: (r.planX! / 100) * cw - sz / 2,
+                    top: (r.planY! / 100) * ch - sz / 2,
+                    width: sz, height: sz, borderRadius: sz / 2,
                     backgroundColor: col,
                     display: 'flex', alignItems: 'center', justifyContent: 'center',
-                    border: '2px solid rgba(255,255,255,0.35)',
+                    border: '1.5px solid rgba(255,255,255,0.35)',
                     zIndex: 8,
                     pointerEvents: 'none',
                     opacity: 0.2,
                     userSelect: 'none',
                   } as any}
                 >
-                  <span style={{ color: '#fff', fontSize: Math.max(8, Math.round(pinSize * 0.42)), fontWeight: '700', fontFamily: 'Arial' } as any}>
+                  <span style={{ color: '#fff', fontSize: Math.max(7, Math.round(sz * 0.42)), fontWeight: '700', fontFamily: 'Arial' } as any}>
                     {num}
                   </span>
                 </div>
@@ -2288,7 +2303,7 @@ const WebViewer = forwardRef<PdfPlanViewerHandle, PdfPlanViewerProps>(function W
             {cw > 0 && pinsOnPage.map(r => {
               const col = getReservePinColor(r, companies);
               const num = pinNumberMap.get(r.id) ?? '?';
-              const sz = Math.round(pinSize * (pinSizes[r.id] ?? 1.0));
+              const sz = Math.max(10, Math.round(pinSize * (pinSizes[r.id] ?? 1.0)));
               const isFocused = focusedPinId === r.id;
               return (
                 <div
@@ -2307,16 +2322,16 @@ const WebViewer = forwardRef<PdfPlanViewerHandle, PdfPlanViewerProps>(function W
                     backgroundColor: col,
                     display: 'flex', alignItems: 'center', justifyContent: 'center',
                     cursor: 'pointer',
-                    border: isFocused ? '4px solid #FBBF24' : '2px solid rgba(255,255,255,0.85)',
-                    boxShadow: isFocused ? '0 0 0 6px rgba(251,191,36,0.34), 0 0 22px rgba(251,191,36,0.9), 0 4px 12px rgba(0,0,0,0.55)' : '0 2px 8px rgba(0,0,0,0.5)',
+                    border: isFocused ? '2px solid #FBBF24' : '1.5px solid rgba(255,255,255,0.85)',
+                    boxShadow: isFocused ? '0 0 0 5px rgba(251,191,36,0.28), 0 0 16px rgba(251,191,36,0.72), 0 4px 12px rgba(0,0,0,0.5)' : '0 2px 8px rgba(0,0,0,0.42)',
                     zIndex: isFocused ? 30 : 10,
                     pointerEvents: mode === 'annotate' ? 'none' : 'all',
-                    transform: isFocused ? 'scale(1.35)' : 'scale(1)',
+                    transform: isFocused ? 'scale(1.08)' : 'scale(1)',
                     transition: 'transform 0.12s, box-shadow 0.18s',
                     userSelect: 'none',
                   } as any}
-                  onMouseEnter={(e: any) => { if (!pinDragActiveRef.current) e.currentTarget.style.transform = isFocused ? 'scale(1.5)' : 'scale(1.25)'; }}
-                  onMouseLeave={(e: any) => { if (!pinDragActiveRef.current) e.currentTarget.style.transform = isFocused ? 'scale(1.35)' : 'scale(1)'; }}
+                  onMouseEnter={(e: any) => { if (!pinDragActiveRef.current) e.currentTarget.style.transform = isFocused ? 'scale(1.12)' : 'scale(1.16)'; }}
+                  onMouseLeave={(e: any) => { if (!pinDragActiveRef.current) e.currentTarget.style.transform = isFocused ? 'scale(1.08)' : 'scale(1)'; }}
                 >
                   <span style={{ color: '#fff', fontSize: Math.max(8, Math.round(sz * 0.42)), fontWeight: '700', fontFamily: 'Arial' } as any}>
                     {num}
