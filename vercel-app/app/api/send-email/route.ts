@@ -5,6 +5,7 @@ import {
   invitationEmail,
   welcomeEmail,
   passwordResetEmail,
+  passwordChangedEmail,
   invitationAcceptedEmail,
   accessRevokedEmail,
   reserveCreatedEmail,
@@ -189,6 +190,14 @@ export async function POST(req: NextRequest) {
         priority, companyName, chantierName, reserveCode, language,
         reserveUrl: safeReserveUrl(reserveId, email),
       } as any);
+    } else if (type === 'password-changed') {
+      const { email, name } = body;
+      if (!email || !name) {
+        return NextResponse.json({ error: 'Paramètres manquants' }, { status: 400, headers });
+      }
+      to = email;
+      const language = await resolveRecipientLanguage(email, body.language);
+      template = passwordChangedEmail({ name, language });
     } else if (type === 'access-revoked') {
       const { email, name, organizationName } = body;
       if (!email || !name || !organizationName) {

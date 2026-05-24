@@ -96,7 +96,7 @@ export async function POST(request: Request) {
       }
       const template = reserveCreatedEmail({
         recipientName, reserveTitle, reserveId, priority, deadline,
-        building, level, zone, description, chantierName, companyName, createdBy, reserveCode,
+        building, level, zone, description, chantierName, companyName, createdBy, reserveCode, language,
       });
       const result = await sendEmail({ to: email, ...template });
       if (!result.success) {
@@ -115,7 +115,7 @@ export async function POST(request: Request) {
       }
       const template = reserveStatusChangedEmail({
         recipientName, reserveTitle, reserveId, newStatus, previousStatus,
-        changedBy, companyName, chantierName, reserveCode,
+        changedBy, companyName, chantierName, reserveCode, language,
       });
       const result = await sendEmail({ to: email, ...template });
       if (!result.success) {
@@ -134,7 +134,7 @@ export async function POST(request: Request) {
       }
       const template = reserveOverdueEmail({
         recipientName, reserveTitle, reserveId, deadline, daysLate,
-        priority, companyName, chantierName, reserveCode,
+        priority, companyName, chantierName, reserveCode, language,
       });
       const result = await sendEmail({ to: email, ...template });
       if (!result.success) {

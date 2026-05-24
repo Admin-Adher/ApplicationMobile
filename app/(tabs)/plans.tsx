@@ -216,6 +216,34 @@ function formatSize(bytes: number | undefined): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)} Mo`;
 }
 
+function localeFromLanguage(language?: string): string {
+  if (language?.startsWith('es')) return 'es-ES';
+  if (language?.startsWith('en')) return 'en-US';
+  return 'fr-FR';
+}
+
+function tOr(t: TFunc | undefined, key: string, fallback: string, options?: Record<string, any>): string {
+  const applyFallback = () => Object.entries(options ?? {}).reduce(
+    (text, [name, value]) => text.replace(new RegExp(`{{\\s*${name}\\s*}}`, 'g'), String(value)),
+    fallback,
+  );
+  if (!t) return applyFallback();
+  const translated = t(key, options);
+  return translated && translated !== key ? translated : applyFallback();
+}
+
+function reserveStatusLabelForPdf(status: string, t?: TFunc): string {
+  return tOr(t, `reserveLabels.status.${status}`, RESERVE_STATUS_LABELS[status as keyof typeof RESERVE_STATUS_LABELS] ?? status);
+}
+
+function reservePriorityLabelForPdf(priority: string, t?: TFunc): string {
+  return tOr(t, `reserveLabels.priority.${priority}`, RESERVE_PRIORITY_LABELS[priority as keyof typeof RESERVE_PRIORITY_LABELS] ?? priority);
+}
+
+function countLabel(t: TFunc | undefined, key: string, count: number, fallbackSingular: string, fallbackPlural: string): string {
+  return tOr(t, key, `${count} ${count === 1 ? fallbackSingular : fallbackPlural}`, { count });
+}
+
 async function fetchAsDataUrl(uri: string): Promise<string> {
   try {
     const resp = await fetch(uri);
@@ -246,18 +274,17 @@ async function exportPlanPDF(
   captureRef?: React.RefObject<PdfPlanViewerHandle | null> | null,
   action: 'share' | 'print' = 'share',
   t?: TFunc,
+  locale: string = 'fr-FR',
 ) {
-  const STATUS_FR = RESERVE_STATUS_LABELS as Record<string, string>;
-  const PRIORITY_FR = RESERVE_PRIORITY_LABELS as Record<string, string>;
   const displayBuilding = planBuilding || reserves.find(r => !!r.building)?.building || '';
   const displayLevel = planLevel || reserves.find(r => !!r.level)?.level || '';
   const planLocationParts = [
-    displayBuilding ? `B&acirc;timent : <strong>${escapeHtml(displayBuilding)}</strong>` : '',
-    displayLevel ? `Niveau : <strong>${escapeHtml(displayLevel)}</strong>` : '',
+    displayBuilding ? `${escapeHtml(tOr(t, 'plansScreen.pdfReport.building', 'Building'))}: <strong>${escapeHtml(displayBuilding)}</strong>` : '',
+    displayLevel ? `${escapeHtml(tOr(t, 'plansScreen.pdfReport.level', 'Level'))}: <strong>${escapeHtml(displayLevel)}</strong>` : '',
   ].filter(Boolean);
   const planLocationHtml = planLocationParts.length > 0
     ? `<div class="meta plan-location">${planLocationParts.join(' &nbsp;&middot;&nbsp; ')}</div>`
-    : `<div class="meta plan-location">Localisation du plan : <strong>non renseign&eacute;e</strong></div>`;
+    : `<div class="meta plan-location">${escapeHtml(tOr(t, 'plansScreen.pdfReport.planLocation', 'Plan location'))}: <strong>${escapeHtml(tOr(t, 'plansScreen.pdfReport.notProvided', 'Not provided'))}</strong></div>`;
   const pinsWithCoords = reserves.filter(r => r.planX != null && r.planY != null);
 
   // Pass raw percentages so canvas script can apply them to the actual rendered dimensions
@@ -275,18 +302,18 @@ async function exportPlanPDF(
     : Math.min(2, Math.floor(MAX_TOTAL_PHOTOS / reserves.length));
 
   const rowsAndPhotos = await Promise.all(reserves.map(async (r) => {
-    const n = numberMap.get(r.id) ?? '—';
+    const n = numberMap.get(r.id) ?? '-';
     const color = getReservePinColor(r, companiesForColor);
     const companyLabel = getReserveCompanyLabel(r);
     const row = `<tr>
       <td style="text-align:center;"><span style="display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px;border-radius:50%;background:${color};color:#fff;font-weight:700;font-size:11px;">${n}</span></td>
       <td style="font-weight:600;">${escapeHtml(r.title)}</td>
       <td>${escapeHtml(companyLabel)}</td>
-      <td>${escapeHtml(r.building || displayBuilding || '—')}</td>
-      <td>${escapeHtml(r.level || displayLevel || '—')}</td>
-      <td><span style="color:${color};font-weight:600;">${escapeHtml(STATUS_FR[r.status] || r.status)}</span></td>
-      <td>${escapeHtml(PRIORITY_FR[r.priority] || r.priority)}</td>
-      <td>${escapeHtml(r.deadline || '—')}</td>
+      <td>${escapeHtml(r.building || displayBuilding || '-')}</td>
+      <td>${escapeHtml(r.level || displayLevel || '-')}</td>
+      <td><span style="color:${color};font-weight:600;">${escapeHtml(reserveStatusLabelForPdf(r.status, t))}</span></td>
+      <td>${escapeHtml(reservePriorityLabelForPdf(r.priority, t))}</td>
+      <td>${escapeHtml(r.deadline || '-')}</td>
     </tr>`;
     const rawPhotos = getReservePdfPhotos(r);
     const photosToShow = rawPhotos.slice(0, maxPhotosPerReserve);
@@ -296,7 +323,7 @@ async function exportPlanPDF(
       photoHtml = `<div style="padding:8px 16px 12px 16px;border-bottom:1px solid #f1f5f9;background:#fff;">
         <div style="font-size:10px;font-weight:700;color:#64748b;margin-bottom:6px;">
           <span style="display:inline-flex;align-items:center;justify-content:center;width:18px;height:18px;border-radius:50%;background:${color};color:#fff;font-weight:700;font-size:9px;margin-right:5px;">${n}</span>
-          ${escapeHtml(r.title)} — Photos (${photosToShow.length}${rawPhotos.length > maxPhotosPerReserve ? ` sur ${rawPhotos.length}` : ''})
+          ${escapeHtml(r.title)} - ${escapeHtml(tOr(t, 'plansScreen.pdfReport.photos', 'Photos'))} (${photosToShow.length}${rawPhotos.length > maxPhotosPerReserve ? ` ${escapeHtml(tOr(t, 'plansScreen.pdfReport.of', 'of'))} ${rawPhotos.length}` : ''})
         </div>
         <div style="display:flex;gap:8px;flex-wrap:nowrap;">
           ${photosToShow.map((p, idx) => {
@@ -307,7 +334,7 @@ async function exportPlanPDF(
                 style="width:100%;height:auto;max-height:160px;object-fit:contain;background:#F9FAFB;border-radius:6px;border:1.5px solid #DDE4EE;display:block;" />
               <span style="display:inline-block;margin-top:3px;padding:1px 7px;border-radius:8px;font-size:9px;font-weight:700;
                 background:${isDefect ? '#FEF2F2' : '#ECFDF5'};color:${isDefect ? '#DC2626' : '#059669'};">
-                ${isDefect ? '● Constat' : '● Levée'}
+                ${isDefect ? tOr(t, 'plansScreen.pdfReport.defectPhoto', 'Defect') : tOr(t, 'plansScreen.pdfReport.resolvedPhoto', 'Resolved')}
               </span>
             </div>`;
           }).join('')}
@@ -321,10 +348,10 @@ async function exportPlanPDF(
   const rawPhotoCount = rowsAndPhotos.reduce((sum, rp) => sum + rp.rawPhotoCount, 0);
   const shownPhotoCount = rowsAndPhotos.reduce((sum, rp) => sum + rp.shownPhotoCount, 0);
   const photosBlock = photosSection
-    ? `<div style="padding:8px 16px 4px 16px;background:#f8fafc;border-top:1px solid #e2e8f0;font-size:10px;font-weight:700;color:#475569;text-transform:uppercase;letter-spacing:0.5px;margin-top:4px;">📷 Photos des réserves (${shownPhotoCount}${rawPhotoCount > shownPhotoCount ? ` sur ${rawPhotoCount}` : ''})</div>${photosSection}`
+    ? `<div style="padding:8px 16px 4px 16px;background:#f8fafc;border-top:1px solid #e2e8f0;font-size:10px;font-weight:700;color:#475569;text-transform:uppercase;letter-spacing:0.5px;margin-top:4px;">${escapeHtml(tOr(t, 'plansScreen.pdfReport.reservePhotos', 'Issue photos'))} (${shownPhotoCount}${rawPhotoCount > shownPhotoCount ? ` ${escapeHtml(tOr(t, 'plansScreen.pdfReport.of', 'of'))} ${rawPhotoCount}` : ''})</div>${photosSection}`
     : rawPhotoCount > 0
-      ? `<div style="margin-top:12px;padding:12px 16px;border:1px dashed #DDE4EE;border-radius:8px;background:#F8FAFC;color:#64748B;font-size:11px;">${rawPhotoCount} photo${rawPhotoCount !== 1 ? 's' : ''} associ&eacute;e${rawPhotoCount !== 1 ? 's' : ''}, non incluse${rawPhotoCount !== 1 ? 's' : ''} dans cet export pour limiter le poids du PDF.</div>`
-    : `<div style="margin-top:12px;padding:12px 16px;border:1px dashed #DDE4EE;border-radius:8px;background:#F8FAFC;color:#64748B;font-size:11px;">Aucune photo associ&eacute;e aux r&eacute;serves de ce plan.</div>`;
+      ? `<div style="margin-top:12px;padding:12px 16px;border:1px dashed #DDE4EE;border-radius:8px;background:#F8FAFC;color:#64748B;font-size:11px;">${escapeHtml(tOr(t, 'plansScreen.pdfReport.photosOmitted', '{{count}} linked photo(s) were not included in this export to keep the PDF lightweight.', { count: rawPhotoCount }))}</div>`
+    : `<div style="margin-top:12px;padding:12px 16px;border:1px dashed #DDE4EE;border-radius:8px;background:#F8FAFC;color:#64748B;font-size:11px;">${escapeHtml(tOr(t, 'plansScreen.pdfReport.noPhotos', 'No photo linked to the issues on this plan.'))}</div>`;
 
   // Convert plan URI to a data URL on all platforms.
   // On mobile, file:// paths are inaccessible from Print.printAsync's sandboxed WebView,
@@ -424,28 +451,28 @@ document.head.appendChild(s);
 
   const planAnnotatedSection = (hasPins || hasPlan) ? `
 <div class="sec">
-  <div class="stitle">Plan annoté${displayBuilding || displayLevel ? ` — ${escapeHtml([displayBuilding, displayLevel].filter(Boolean).join(' · '))}` : ''}</div>
+  <div class="stitle">${escapeHtml(tOr(t, 'plansScreen.pdfReport.annotatedPlan', 'Annotated plan'))}${displayBuilding || displayLevel ? ` - ${escapeHtml([displayBuilding, displayLevel].filter(Boolean).join(' - '))}` : ''}</div>
   ${useStaticImg && staticImgSrc
     ? buildSvgPins(staticImgSrc)
     : `<canvas id="plan-canvas" width="${RENDER_W}" height="${Math.round(RENDER_W * 0.6)}" style="width:100%;height:auto;border-radius:8px;display:block;border:1px solid #e5e7eb;background:#1E3A5F"></canvas>`
   }
-  <div class="leg">Les numéros correspondent aux réserves du tableau ci-dessous.</div>
+  <div class="leg">${escapeHtml(tOr(t, 'plansScreen.pdfReport.legend', 'Numbers match the issues in the table below.'))}</div>
 </div>` : '';
 
   const safePlanName = escapeHtml(planName);
   const safeChantierName = escapeHtml(chantierName);
   const html = `<!DOCTYPE html>
-<html lang="fr"><head><meta charset="UTF-8"><title>Plan : ${safePlanName}</title>
+<html lang="${locale.split('-')[0]}"><head><meta charset="UTF-8"><title>${escapeHtml(tOr(t, 'plansScreen.pdfReport.planTitle', 'Plan'))}: ${safePlanName}</title>
 <style>*{box-sizing:border-box;margin:0;padding:0;}body{font-family:Arial,sans-serif;padding:28px;color:#111;background:#fff;}.hdr{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:20px;}.hdr-l h1{color:#003082;font-size:20px;margin-bottom:4px;}.hdr-l .meta{color:#666;font-size:12px;}.hdr-r{text-align:right;font-size:11px;color:#999;}.sec{margin-bottom:24px;}.leg{font-size:11px;color:#888;margin-top:6px;}table{width:100%;border-collapse:collapse;font-size:12px;}th{background:#003082;color:#fff;padding:8px 10px;text-align:left;font-size:11px;text-transform:uppercase;letter-spacing:0.5px;}td{padding:7px 10px;border-bottom:1px solid #f0f0f0;vertical-align:middle;}tr:nth-child(even) td{background:#f8fafc;}.stitle{font-size:13px;font-weight:700;color:#003082;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:10px;border-bottom:2px solid #003082;padding-bottom:4px;}.footer{margin-top:28px;font-size:10px;color:#bbb;text-align:center;border-top:1px solid #eee;padding-top:12px;}@media print{body{padding:0;}@page{margin:16mm;}}</style>
 </head><body>
-<div class="hdr"><div class="hdr-l"><h1>Plan : ${safePlanName}</h1><div class="meta">Chantier : <strong>${safeChantierName}</strong> &nbsp;·&nbsp; ${reserves.length} réserve${reserves.length !== 1 ? 's' : ''}</div>${planLocationHtml}</div>
-<div class="hdr-r">Exporté le ${new Date().toLocaleDateString('fr-FR')}<br>BuildTrack</div></div>
+<div class="hdr"><div class="hdr-l"><h1>${escapeHtml(tOr(t, 'plansScreen.pdfReport.planTitle', 'Plan'))}: ${safePlanName}</h1><div class="meta">${escapeHtml(tOr(t, 'plansScreen.pdfReport.project', 'Project'))}: <strong>${safeChantierName}</strong> &nbsp;&middot;&nbsp; ${escapeHtml(countLabel(t, 'plansScreen.pdfReport.reserveCount', reserves.length, 'issue', 'issues'))}</div>${planLocationHtml}</div>
+<div class="hdr-r">${escapeHtml(tOr(t, 'plansScreen.pdfReport.exportedOn', 'Exported on {{date}}', { date: new Date().toLocaleDateString(locale) }))}<br>BuildTrack</div></div>
 ${planAnnotatedSection}
-<div class="stitle">Liste des réserves</div>
-<table><thead><tr><th>#</th><th>Titre</th><th>Entreprise</th><th>Bâtiment</th><th>Niveau</th><th>Statut</th><th>Priorité</th><th>Échéance</th></tr></thead>
-<tbody>${rows || '<tr><td colspan="8" style="text-align:center;color:#999;padding:20px;">Aucune réserve sur ce plan</td></tr>'}</tbody></table>
+<div class="stitle">${escapeHtml(tOr(t, 'plansScreen.pdfReport.reserveList', 'Issue list'))}</div>
+<table><thead><tr><th>#</th><th>${escapeHtml(tOr(t, 'reservesScreen.report.itemTitle', 'Title'))}</th><th>${escapeHtml(tOr(t, 'reservesScreen.report.company', 'Company'))}</th><th>${escapeHtml(tOr(t, 'reservesScreen.report.building', 'Building'))}</th><th>${escapeHtml(tOr(t, 'reservesScreen.report.level', 'Level'))}</th><th>${escapeHtml(tOr(t, 'reservesScreen.report.status', 'Status'))}</th><th>${escapeHtml(tOr(t, 'reservesScreen.report.priority', 'Priority'))}</th><th>${escapeHtml(tOr(t, 'reservesScreen.report.deadline', 'Due date'))}</th></tr></thead>
+<tbody>${rows || `<tr><td colspan="8" style="text-align:center;color:#999;padding:20px;">${escapeHtml(tOr(t, 'plansScreen.pdfReport.noReserveOnPlan', 'No issue on this plan'))}</td></tr>`}</tbody></table>
 ${photosBlock}
-<div class="footer">BuildTrack — Gestion de chantier numérique — ${new Date().toLocaleDateString('fr-FR')}</div>
+<div class="footer">BuildTrack - ${escapeHtml(tOr(t, 'plansScreen.pdfReport.tagline', 'Digital construction management'))} - ${new Date().toLocaleDateString(locale)}</div>
 ${fallbackCanvasScript ? `<script>${fallbackCanvasScript}<\/script>` : ''}
 </body></html>`;
 
@@ -487,10 +514,10 @@ async function exportGlobalReport(
   onProgress?: (current: number, total: number, planName: string) => void,
   statusFilter?: Set<string>,
   preRenderedImages?: Map<string, string>,
+  t?: TFunc,
+  locale: string = 'fr-FR',
 ): Promise<void> {
-  const STATUS_FR = RESERVE_STATUS_LABELS as Record<string, string>;
   const STATUS_COLORS = RESERVE_STATUS_COLORS as Record<string, string>;
-  const PRIORITY_FR = RESERVE_PRIORITY_LABELS as Record<string, string>;
   const PRIORITY_COLORS = RESERVE_PRIORITY_COLORS as Record<string, string>;
 
   // 1. Filter reserves by company + status
@@ -633,10 +660,10 @@ async function exportGlobalReport(
           <td style="text-align:center;width:36px;"><span style="display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px;border-radius:50%;background:${color};color:#fff;font-weight:700;font-size:11px;">${n}</span></td>
           <td style="font-weight:600;">${escapeHtml(r.title)}</td>
           <td>${escapeHtml(companyLabel)}</td>
-          <td>${escapeHtml(r.level || '—')}</td>
-          <td><span style="color:${statusColor};font-weight:600;">${STATUS_FR[r.status] ?? r.status}</span></td>
-          <td><span style="color:${priorityColor};font-weight:600;">${PRIORITY_FR[r.priority] ?? r.priority}</span></td>
-          <td>${escapeHtml(r.deadline || '—')}</td>
+          <td>${escapeHtml(r.level || '-')}</td>
+          <td><span style="color:${statusColor};font-weight:600;">${escapeHtml(reserveStatusLabelForPdf(r.status, t))}</span></td>
+          <td><span style="color:${priorityColor};font-weight:600;">${escapeHtml(reservePriorityLabelForPdf(r.priority, t))}</span></td>
+          <td>${escapeHtml(r.deadline || '-')}</td>
         </tr>`;
         const rawPhotos = getReservePdfPhotos(r);
         const photosToShow = rawPhotos.slice(0, MAX_PHOTOS_GLOBAL);
@@ -646,7 +673,7 @@ async function exportGlobalReport(
           photoHtml = `<div style="padding:8px 16px 12px 16px;border-bottom:1px solid #f1f5f9;background:#fff;">
             <div style="font-size:10px;font-weight:700;color:#64748b;margin-bottom:6px;">
               <span style="display:inline-flex;align-items:center;justify-content:center;width:18px;height:18px;border-radius:50%;background:${color};color:#fff;font-weight:700;font-size:9px;margin-right:5px;">${n}</span>
-              ${escapeHtml(r.title)} — Photos (${photosToShow.length}${rawPhotos.length > MAX_PHOTOS_GLOBAL ? ` sur ${rawPhotos.length}` : ''})
+              ${escapeHtml(r.title)} - ${escapeHtml(tOr(t, 'plansScreen.pdfReport.photos', 'Photos'))} (${photosToShow.length}${rawPhotos.length > MAX_PHOTOS_GLOBAL ? ` ${escapeHtml(tOr(t, 'plansScreen.pdfReport.of', 'of'))} ${rawPhotos.length}` : ''})
             </div>
             <div style="display:flex;gap:8px;flex-wrap:nowrap;">
               ${photosToShow.map((p, idx) => {
@@ -657,7 +684,7 @@ async function exportGlobalReport(
                     style="width:100%;height:auto;max-height:160px;object-fit:contain;background:#F9FAFB;border-radius:6px;border:1.5px solid #DDE4EE;display:block;" />
                   <span style="display:inline-block;margin-top:3px;padding:1px 7px;border-radius:8px;font-size:9px;font-weight:700;
                     background:${isDefect ? '#FEF2F2' : '#ECFDF5'};color:${isDefect ? '#DC2626' : '#059669'};">
-                    ${isDefect ? '● Constat' : '● Levée'}
+                    ${isDefect ? tOr(t, 'plansScreen.pdfReport.defectPhoto', 'Defect') : tOr(t, 'plansScreen.pdfReport.resolvedPhoto', 'Resolved')}
                   </span>
                 </div>`;
               }).join('')}
@@ -675,10 +702,10 @@ async function exportGlobalReport(
 
       planBlocks.push(`
         <div class="plan-section">
-          <div class="plan-header">📐 ${plan.name}${levelBadge}<span style="margin-left:auto;font-size:11px;color:#94a3b8;">${planReserves.length} réserve${planReserves.length !== 1 ? 's' : ''}</span></div>
+          <div class="plan-header">${escapeHtml(plan.name)}${levelBadge}<span style="margin-left:auto;font-size:11px;color:#94a3b8;">${escapeHtml(countLabel(t, 'plansScreen.pdfReport.reserveCount', planReserves.length, 'issue', 'issues'))}</span></div>
           ${planImgHtml}
-          <table><thead><tr><th>#</th><th>Titre</th><th>Entreprise</th><th>Niveau</th><th>Statut</th><th>Priorité</th><th>Échéance</th></tr></thead><tbody>${rows}</tbody></table>
-          ${photosSection ? `<div style="padding:8px 16px 4px 16px;background:#f8fafc;border-top:1px solid #e2e8f0;font-size:10px;font-weight:700;color:#475569;text-transform:uppercase;letter-spacing:0.5px;">📷 Photos des réserves</div>${photosSection}` : ''}
+          <table><thead><tr><th>#</th><th>${escapeHtml(tOr(t, 'reservesScreen.report.itemTitle', 'Title'))}</th><th>${escapeHtml(tOr(t, 'reservesScreen.report.company', 'Company'))}</th><th>${escapeHtml(tOr(t, 'reservesScreen.report.level', 'Level'))}</th><th>${escapeHtml(tOr(t, 'reservesScreen.report.status', 'Status'))}</th><th>${escapeHtml(tOr(t, 'reservesScreen.report.priority', 'Priority'))}</th><th>${escapeHtml(tOr(t, 'reservesScreen.report.deadline', 'Due date'))}</th></tr></thead><tbody>${rows}</tbody></table>
+          ${photosSection ? `<div style="padding:8px 16px 4px 16px;background:#f8fafc;border-top:1px solid #e2e8f0;font-size:10px;font-weight:700;color:#475569;text-transform:uppercase;letter-spacing:0.5px;">${escapeHtml(tOr(t, 'plansScreen.pdfReport.reservePhotos', 'Issue photos'))}</div>${photosSection}` : ''}
         </div>`);
     }
 
@@ -710,11 +737,11 @@ async function exportGlobalReport(
         <td style="text-align:center;width:36px;"><span style="display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px;border-radius:50%;background:${color};color:#fff;font-weight:700;font-size:11px;">${n}</span></td>
         <td style="font-weight:600;">${escapeHtml(r.title)}</td>
         <td>${escapeHtml(companyLabel)}</td>
-        <td>${escapeHtml(r.building || '—')}</td>
-        <td>${escapeHtml(r.level || '—')}</td>
-        <td><span style="color:${statusColor};font-weight:600;">${STATUS_FR[r.status] ?? r.status}</span></td>
-        <td><span style="color:${priorityColor};font-weight:600;">${PRIORITY_FR[r.priority] ?? r.priority}</span></td>
-        <td>${escapeHtml(r.deadline || '—')}</td>
+        <td>${escapeHtml(r.building || '-')}</td>
+        <td>${escapeHtml(r.level || '-')}</td>
+        <td><span style="color:${statusColor};font-weight:600;">${escapeHtml(reserveStatusLabelForPdf(r.status, t))}</span></td>
+        <td><span style="color:${priorityColor};font-weight:600;">${escapeHtml(reservePriorityLabelForPdf(r.priority, t))}</span></td>
+        <td>${escapeHtml(r.deadline || '-')}</td>
       </tr>`;
       const rawPhotos = getReservePdfPhotos(r);
       const photosToShow = rawPhotos.slice(0, MAX_PHOTOS_ORPHAN);
@@ -724,7 +751,7 @@ async function exportGlobalReport(
         photoHtml = `<div style="padding:8px 16px 12px 16px;border-bottom:1px solid #f1f5f9;background:#fff;">
           <div style="font-size:10px;font-weight:700;color:#64748b;margin-bottom:6px;">
             <span style="display:inline-flex;align-items:center;justify-content:center;width:18px;height:18px;border-radius:50%;background:${color};color:#fff;font-weight:700;font-size:9px;margin-right:5px;">${n}</span>
-            ${escapeHtml(r.title)} — Photos (${photosToShow.length}${rawPhotos.length > MAX_PHOTOS_ORPHAN ? ` sur ${rawPhotos.length}` : ''})
+            ${escapeHtml(r.title)} - ${escapeHtml(tOr(t, 'plansScreen.pdfReport.photos', 'Photos'))} (${photosToShow.length}${rawPhotos.length > MAX_PHOTOS_ORPHAN ? ` ${escapeHtml(tOr(t, 'plansScreen.pdfReport.of', 'of'))} ${rawPhotos.length}` : ''})
           </div>
           <div style="display:flex;gap:8px;flex-wrap:nowrap;">
             ${photosToShow.map((p, idx) => {
@@ -735,7 +762,7 @@ async function exportGlobalReport(
                   style="width:100%;height:auto;max-height:160px;object-fit:contain;background:#F9FAFB;border-radius:6px;border:1.5px solid #DDE4EE;display:block;" />
                 <span style="display:inline-block;margin-top:3px;padding:1px 7px;border-radius:8px;font-size:9px;font-weight:700;
                   background:${isDefect ? '#FEF2F2' : '#ECFDF5'};color:${isDefect ? '#DC2626' : '#059669'};">
-                  ${isDefect ? '● Constat' : '● Levée'}
+                  ${isDefect ? tOr(t, 'plansScreen.pdfReport.defectPhoto', 'Defect') : tOr(t, 'plansScreen.pdfReport.resolvedPhoto', 'Resolved')}
                 </span>
               </div>`;
             }).join('')}
@@ -750,13 +777,13 @@ async function exportGlobalReport(
       <div class="building-section">
         <div class="building-header" style="background:linear-gradient(135deg,#475569 0%,#64748b 100%);">
           <span style="font-size:22px;">📍</span>
-          Réserves hors plan
-          <span class="building-reserve-count">${orphanReserves.length} réserve${orphanReserves.length !== 1 ? 's' : ''} non géolocalisée${orphanReserves.length !== 1 ? 's' : ''}</span>
+          ${escapeHtml(tOr(t, 'plansScreen.pdfReport.orphanTitle', 'Issues without plan'))}
+          <span class="building-reserve-count">${escapeHtml(countLabel(t, 'plansScreen.pdfReport.orphanCount', orphanReserves.length, 'issue without location', 'issues without location'))}</span>
         </div>
         <div class="plan-section" style="border-radius:0 0 8px 8px;">
-          <div class="plan-header" style="color:#64748b;font-style:italic;">Ces réserves ne sont pas positionnées sur un plan</div>
-          <table><thead><tr><th>#</th><th>Titre</th><th>Entreprise</th><th>Bâtiment</th><th>Niveau</th><th>Statut</th><th>Priorité</th><th>Échéance</th></tr></thead><tbody>${orphanRows}</tbody></table>
-          ${orphanPhotosSection ? `<div style="padding:8px 16px 4px 16px;background:#f8fafc;border-top:1px solid #e2e8f0;font-size:10px;font-weight:700;color:#475569;text-transform:uppercase;letter-spacing:0.5px;">📷 Photos des réserves</div>${orphanPhotosSection}` : ''}
+          <div class="plan-header" style="color:#64748b;font-style:italic;">${escapeHtml(tOr(t, 'plansScreen.pdfReport.orphanHint', 'These issues are not positioned on a plan'))}</div>
+          <table><thead><tr><th>#</th><th>${escapeHtml(tOr(t, 'reservesScreen.report.itemTitle', 'Title'))}</th><th>${escapeHtml(tOr(t, 'reservesScreen.report.company', 'Company'))}</th><th>${escapeHtml(tOr(t, 'reservesScreen.report.building', 'Building'))}</th><th>${escapeHtml(tOr(t, 'reservesScreen.report.level', 'Level'))}</th><th>${escapeHtml(tOr(t, 'reservesScreen.report.status', 'Status'))}</th><th>${escapeHtml(tOr(t, 'reservesScreen.report.priority', 'Priority'))}</th><th>${escapeHtml(tOr(t, 'reservesScreen.report.deadline', 'Due date'))}</th></tr></thead><tbody>${orphanRows}</tbody></table>
+          ${orphanPhotosSection ? `<div style="padding:8px 16px 4px 16px;background:#f8fafc;border-top:1px solid #e2e8f0;font-size:10px;font-weight:700;color:#475569;text-transform:uppercase;letter-spacing:0.5px;">${escapeHtml(tOr(t, 'plansScreen.pdfReport.reservePhotos', 'Issue photos'))}</div>${orphanPhotosSection}` : ''}
         </div>
       </div>`;
   }
@@ -775,19 +802,18 @@ async function exportGlobalReport(
     const color = STATUS_COLORS[s] ?? '#6b7280';
     const pct = totalReserves > 0 ? Math.round((rs.length / totalReserves) * 100) : 0;
     return `<tr>
-      <td><span style="color:${color};font-weight:600;">${STATUS_FR[s] ?? s}</span></td>
+      <td><span style="color:${color};font-weight:600;">${escapeHtml(reserveStatusLabelForPdf(s, t))}</span></td>
       <td style="text-align:right;font-weight:700;">${rs.length}</td>
       <td style="text-align:right;color:#94a3b8;">${pct}%</td>
       <td><div style="background:#e2e8f0;border-radius:4px;height:8px;width:100%;overflow:hidden;"><div style="background:${color};height:8px;width:${pct}%;border-radius:4px;"></div></div></td>
     </tr>`;
   }).join('');
 
-  const dateStr = new Date().toLocaleDateString('fr-FR', { day: '2-digit', month: 'long', year: 'numeric' });
-  const companyLabel = companyFilter ?? 'Toutes les entreprises';
-  const STATUS_FR_LABELS = RESERVE_STATUS_LABELS as Record<string, string>;
+  const dateStr = new Date().toLocaleDateString(locale, { day: '2-digit', month: 'long', year: 'numeric' });
+  const companyLabel = companyFilter ?? tOr(t, 'plansScreen.pdf.allCompanies', 'All companies');
   const statusLabel = (!statusFilter || statusFilter.size === 0)
     ? null
-    : Array.from(statusFilter).map(s => STATUS_FR_LABELS[s] ?? s).join(', ');
+    : Array.from(statusFilter).map(s => reserveStatusLabelForPdf(s, t)).join(', ');
   // Cover stats: only count buildings/plans that actually contain reserves
   // buildingSections is already populated (only sections with reserves were pushed)
   const totalBuildings = buildingSections.length;
@@ -795,9 +821,9 @@ async function exportGlobalReport(
   const totalOrphans = orphanReserves.length;
 
   const html = `<!DOCTYPE html>
-<html lang="fr">
+<html lang="${locale.split('-')[0]}">
 <head><meta charset="UTF-8"/>
-<title>Rapport des réserves — ${chantierName}</title>
+<title>${escapeHtml(tOr(t, 'plansScreen.pdfReport.globalTitle', 'Issues report'))} - ${escapeHtml(chantierName)}</title>
 <style>
 *{box-sizing:border-box;margin:0;padding:0;font-family:Arial,Helvetica,sans-serif;}
 body{background:#fff;color:#1a1a2e;}
@@ -836,28 +862,28 @@ tbody td{padding:7px 10px;vertical-align:middle;}
 <body>
 <div class="cover-page">
   <div class="cover-logo">📋</div>
-  <div class="cover-title">Rapport des réserves</div>
-  <div class="cover-chantier">${chantierName}</div>
+  <div class="cover-title">${escapeHtml(tOr(t, 'plansScreen.pdfReport.globalTitle', 'Issues report'))}</div>
+  <div class="cover-chantier">${escapeHtml(chantierName)}</div>
   <div class="cover-divider"></div>
   <div class="cover-company">🏢 ${escapeHtml(companyLabel)}</div>
-  ${statusLabel ? `<div style="font-size:13px;color:#1E3A5F;background:#e8f0fe;padding:5px 18px;border-radius:16px;display:inline-block;margin-top:8px;">📌 Statuts : ${statusLabel}</div>` : ''}
+  ${statusLabel ? `<div style="font-size:13px;color:#1E3A5F;background:#e8f0fe;padding:5px 18px;border-radius:16px;display:inline-block;margin-top:8px;">${escapeHtml(tOr(t, 'plansScreen.pdfReport.statuses', 'Statuses'))}: ${escapeHtml(statusLabel)}</div>` : ''}
   <div class="cover-stats">
-    <div class="stat-block"><span class="stat-num">${totalReserves}</span><span class="stat-lbl">réserves</span></div>
-    <div class="stat-block"><span class="stat-num">${totalBuildings}</span><span class="stat-lbl">bâtiment${totalBuildings !== 1 ? 's' : ''}</span></div>
-    <div class="stat-block"><span class="stat-num">${totalPlans}</span><span class="stat-lbl">plan${totalPlans !== 1 ? 's' : ''}</span></div>
-    ${totalOrphans > 0 ? `<div class="stat-block"><span class="stat-num" style="color:#64748b;">${totalOrphans}</span><span class="stat-lbl">hors plan</span></div>` : ''}
+    <div class="stat-block"><span class="stat-num">${totalReserves}</span><span class="stat-lbl">${escapeHtml(tOr(t, 'plansScreen.pdfReport.reservesStat', 'issues'))}</span></div>
+    <div class="stat-block"><span class="stat-num">${totalBuildings}</span><span class="stat-lbl">${escapeHtml(tOr(t, 'plansScreen.pdfReport.buildingsStat', 'buildings'))}</span></div>
+    <div class="stat-block"><span class="stat-num">${totalPlans}</span><span class="stat-lbl">${escapeHtml(tOr(t, 'plansScreen.pdfReport.plansStat', 'plans'))}</span></div>
+    ${totalOrphans > 0 ? `<div class="stat-block"><span class="stat-num" style="color:#64748b;">${totalOrphans}</span><span class="stat-lbl">${escapeHtml(tOr(t, 'plansScreen.pdfReport.offPlanStat', 'off plan'))}</span></div>` : ''}
   </div>
-  <div class="cover-date">Généré le ${dateStr} · BuildTrack</div>
+  <div class="cover-date">${escapeHtml(tOr(t, 'reservesScreen.report.generatedOn', 'Generated on {{date}}', { date: dateStr }))} - BuildTrack</div>
 </div>
 ${buildingSections.join('\n')}
 ${orphanSectionHtml}
 <div class="summary-section">
-  <div class="summary-title">📊 Tableau de synthèse</div>
+  <div class="summary-title">${escapeHtml(tOr(t, 'plansScreen.pdfReport.summaryTitle', 'Summary table'))}</div>
   <table class="summary-table">
-    <thead><tr><th>Statut</th><th style="text-align:right;">Nombre</th><th style="text-align:right;">%</th><th>Répartition</th></tr></thead>
-    <tbody>${summaryRows || '<tr><td colspan="4" style="text-align:center;color:#94a3b8;padding:20px;">Aucune réserve</td></tr>'}</tbody>
+    <thead><tr><th>${escapeHtml(tOr(t, 'reservesScreen.report.status', 'Status'))}</th><th style="text-align:right;">${escapeHtml(tOr(t, 'plansScreen.pdfReport.count', 'Count'))}</th><th style="text-align:right;">%</th><th>${escapeHtml(tOr(t, 'plansScreen.pdfReport.distribution', 'Distribution'))}</th></tr></thead>
+    <tbody>${summaryRows || `<tr><td colspan="4" style="text-align:center;color:#94a3b8;padding:20px;">${escapeHtml(tOr(t, 'reservesScreen.empty.noReserve', 'No issue'))}</td></tr>`}</tbody>
   </table>
-  <div class="footer">BuildTrack — Gestion de chantier numérique — ${dateStr}</div>
+  <div class="footer">BuildTrack - ${escapeHtml(tOr(t, 'plansScreen.pdfReport.tagline', 'Digital construction management'))} - ${dateStr}</div>
 </div>
 </body>
 </html>`;
@@ -880,7 +906,8 @@ ${orphanSectionHtml}
 }
 
 export default function PlansScreen() {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
+  const pdfLocale = useMemo(() => localeFromLanguage(i18n.language), [i18n.language]);
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const { focusPlanId: focusPlanIdParam, focusReserveId: focusReserveIdParam } = useLocalSearchParams<{ focusPlanId?: string; focusReserveId?: string }>();
@@ -1631,6 +1658,8 @@ export default function PlansScreen() {
           (current, total, planName) => setGlobalReportProgress({ current, total, planName }),
           globalReportStatusFilter,
           preRenderedImages,
+          t,
+          pdfLocale,
         );
         setPdfModalVisible(false);
       } catch {
@@ -1663,6 +1692,7 @@ export default function PlansScreen() {
         pdfViewerRef,
         action,
         t,
+        pdfLocale,
       );
       setPdfModalVisible(false);
     } catch {
@@ -1753,6 +1783,7 @@ export default function PlansScreen() {
         chantierName: activeChantier?.name ?? '',
         companyFilter: globalReportCompany,
         generatedAt: new Date().toISOString(),
+        language: i18n.resolvedLanguage ?? i18n.language,
         plans: plansPayload,
         reserves: reservesPayload,
         recipients: emails,

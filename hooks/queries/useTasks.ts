@@ -11,6 +11,7 @@ import { toTask } from '@/lib/mappers';
 import { Task, Comment } from '@/constants/types';
 import { genId, nowTimestampFR } from '@/lib/utils';
 import { mergeWithCache, readCache, writeCache, pendingIdsForTable, isSupabaseSessionValid } from '@/lib/offlineCache';
+import i18n from '@/lib/i18n';
 
 const TASKS_CACHE_KEY = 'buildtrack_tasks_cache_v1';
 
@@ -153,7 +154,7 @@ export function useTasks() {
         if (isPermissionDenied && previous) {
           queryClient.setQueryData<Task[]>(queryKeys.tasks(), old => [previous, ...(old ?? [])]);
           persist(queryClient.getQueryData<Task[]>(queryKeys.tasks()) ?? []);
-          Alert.alert('Suppression refusée', "Vous n'avez pas les droits pour supprimer cette tâche, ou elle n'existe plus sur le serveur.");
+          Alert.alert(i18n.t('syncAlerts.deleteDeniedTitle'), i18n.t('syncAlerts.deleteTaskDenied'));
         } else {
           console.warn('[sync] deleteTask: erreur réseau/session, opération enqueued pour retry');
           enqueueOperation({ table: 'tasks', op: 'delete', filter: { column: 'id', value: id } });

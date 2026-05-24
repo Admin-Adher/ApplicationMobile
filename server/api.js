@@ -5,6 +5,7 @@ const express = require('express');
 const nodemailer = require('nodemailer');
 const crypto = require('crypto');
 const http = require('http');
+const emailTemplates = require('./email-templates');
 
 const app = express();
 app.use(express.json());
@@ -103,9 +104,33 @@ async function reserveEmailLogInsert(supabase, { type, recipientEmail, reserveId
 const BRAND_COLOR = '#003082';
 const ACCENT_COLOR = '#FFCB00';
 
-function baseLayout(content, preheader = '') {
+const EMAIL_LAYOUT_COPY = {
+  fr: {
+    footerTagline: 'BuildTrack — Gestion de chantier numérique',
+    footerAuto: 'Cet email a été envoyé automatiquement, merci de ne pas y répondre.',
+    footerRights: 'Tous droits réservés.',
+  },
+  en: {
+    footerTagline: 'BuildTrack — Digital construction management',
+    footerAuto: 'This email was sent automatically. Please do not reply.',
+    footerRights: 'All rights reserved.',
+  },
+  es: {
+    footerTagline: 'BuildTrack — Gestión digital de obra',
+    footerAuto: 'Este correo se ha enviado automáticamente. Por favor, no respondas.',
+    footerRights: 'Todos los derechos reservados.',
+  },
+};
+
+function emailLanguage(language) {
+  return emailTemplates.normalizeEmailLanguage(language);
+}
+
+function baseLayout(content, preheader = '', language = 'fr') {
+  const lang = emailLanguage(language);
+  const layoutCopy = EMAIL_LAYOUT_COPY[lang] || EMAIL_LAYOUT_COPY.fr;
   return `<!DOCTYPE html>
-<html lang="fr">
+<html lang="${lang}">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
@@ -148,9 +173,9 @@ function baseLayout(content, preheader = '') {
     </div>
     <div class="body">${content}</div>
     <div class="footer">
-      <p>BuildTrack — Gestion de chantier numérique<br/>
-      Cet email a été envoyé automatiquement, merci de ne pas y répondre.<br/>
-      &copy; ${new Date().getFullYear()} Bouygues Construction. Tous droits réservés.</p>
+      <p>${layoutCopy.footerTagline}<br/>
+      ${layoutCopy.footerAuto}<br/>
+      &copy; ${new Date().getFullYear()} Bouygues Construction. ${layoutCopy.footerRights}</p>
     </div>
   </div>
 </body>
@@ -366,7 +391,7 @@ function reserveOverdueDigestTemplate({ recipientName, rows }) {
           <th align="left" style="padding:10px 12px;font-size:11px;color:#5E738A;">Réserve</th>
           <th align="left" style="padding:10px 12px;font-size:11px;color:#5E738A;">Entreprise</th>
           <th align="left" style="padding:10px 12px;font-size:11px;color:#5E738A;">Retard</th>
-          <th align="left" style="padding:10px 12px;font-size:11px;color:#5E738A;">Échéance</th>
+          <th align="left" style="padding:10px 12px;font-size:11px;color:#5E738A;">${copy.deadline}</th>
           <th align="left" style="padding:10px 12px;font-size:11px;color:#5E738A;">Priorité</th>
         </tr>
       </thead>
@@ -379,6 +404,117 @@ function reserveOverdueDigestTemplate({ recipientName, rows }) {
     html: baseLayout(content, `${sortedRows.length} réserves en retard à traiter`),
   };
 }
+
+const DIGEST_LOCALES = { fr: 'fr-FR', en: 'en-GB', es: 'es-ES' };
+const DIGEST_PRIORITY = {
+  fr: { low: 'Faible', medium: 'Moyenne', high: 'Haute', critical: 'Critique' },
+  en: { low: 'Low', medium: 'Medium', high: 'High', critical: 'Critical' },
+  es: { low: 'Baja', medium: 'Media', high: 'Alta', critical: 'Crítica' },
+};
+const DIGEST_COPY = {
+  fr: {
+    title: count => `${count} réserve${count > 1 ? 's' : ''} en retard`,
+    hello: name => `Bonjour${name ? ` ${name}` : ''},`,
+    intro: 'Voici le récapitulatif quotidien des réserves en retard qui vous concernent. Un seul email est envoyé par jour pour limiter le bruit.',
+    summary: (count, maxDaysLate) => `<strong>${count}</strong> réserve${count > 1 ? 's' : ''} à traiter${maxDaysLate > 0 ? ` — retard maximal : <strong>${maxDaysLate} jour${maxDaysLate > 1 ? 's' : ''}</strong>` : ''}`,
+    reserve: 'Réserve',
+    company: 'Entreprise',
+    late: 'Retard',
+    deadline: 'Échéance',
+    priority: 'Priorité',
+    days: days => `${days} j`,
+    open: 'Ouvrir BuildTrack →',
+    subject: count => `[Retards] ${count} réserve${count > 1 ? 's' : ''} à traiter`,
+    preheader: count => `${count} réserves en retard à traiter`,
+  },
+  en: {
+    title: count => `${count} overdue issue${count > 1 ? 's' : ''}`,
+    hello: name => `Hello${name ? ` ${name}` : ''},`,
+    intro: 'Here is your daily summary of overdue issues that concern you. Only one email is sent per day to reduce noise.',
+    summary: (count, maxDaysLate) => `<strong>${count}</strong> issue${count > 1 ? 's' : ''} to handle${maxDaysLate > 0 ? ` — maximum delay: <strong>${maxDaysLate} day${maxDaysLate > 1 ? 's' : ''}</strong>` : ''}`,
+    reserve: 'Issue',
+    company: 'Company',
+    late: 'Overdue',
+    deadline: 'Deadline',
+    priority: 'Priority',
+    days: days => `${days}d`,
+    open: 'Open BuildTrack →',
+    subject: count => `[Overdue] ${count} issue${count > 1 ? 's' : ''} to handle`,
+    preheader: count => `${count} overdue issues to handle`,
+  },
+  es: {
+    title: count => `${count} reserva${count > 1 ? 's' : ''} atrasada${count > 1 ? 's' : ''}`,
+    hello: name => `Hola${name ? ` ${name}` : ''},`,
+    intro: 'Este es el resumen diario de las reservas atrasadas que te conciernen. Solo se envía un correo al día para reducir el ruido.',
+    summary: (count, maxDaysLate) => `<strong>${count}</strong> reserva${count > 1 ? 's' : ''} por tratar${maxDaysLate > 0 ? ` — retraso máximo: <strong>${maxDaysLate} día${maxDaysLate > 1 ? 's' : ''}</strong>` : ''}`,
+    reserve: 'Reserva',
+    company: 'Empresa',
+    late: 'Retraso',
+    deadline: 'Fecha límite',
+    priority: 'Prioridad',
+    days: days => `${days} d`,
+    open: 'Abrir BuildTrack →',
+    subject: count => `[Retrasos] ${count} reserva${count > 1 ? 's' : ''} por tratar`,
+    preheader: count => `${count} reservas atrasadas por tratar`,
+  },
+};
+
+reserveOverdueDigestTemplate = function reserveOverdueDigestTemplateI18n({ recipientName, rows, language }) {
+  const lang = emailLanguage(language);
+  const copy = DIGEST_COPY[lang] || DIGEST_COPY.fr;
+  const locale = DIGEST_LOCALES[lang] || DIGEST_LOCALES.fr;
+  const firstName = String(recipientName || '').trim().split(' ')[0] || '';
+  const sortedRows = [...rows].sort((a, b) => (b.daysLate || 0) - (a.daysLate || 0));
+  const maxDaysLate = sortedRows.reduce((max, row) => Math.max(max, row.daysLate || 0), 0);
+  const listHtml = sortedRows.map(row => {
+    const priorityKey = row.priority || 'medium';
+    const prio = {
+      label: DIGEST_PRIORITY[lang]?.[priorityKey] || DIGEST_PRIORITY.fr[priorityKey] || priorityKey,
+      color: PRIORITY_LABELS_FR[priorityKey]?.color || PRIORITY_LABELS_FR.medium.color,
+    };
+    const deadlineDate = new Date(row.deadline).toLocaleDateString(locale, { day: 'numeric', month: 'long', year: 'numeric' });
+    return `
+      <tr>
+        <td style="padding:12px;border-bottom:1px solid #EEF3FA;">
+          <p style="font-size:14px;font-weight:700;color:#1A2742;margin:0 0 4px;">${escHtml(row.reserveTitle)}</p>
+          <p style="font-size:11px;color:#8899BB;margin:0;">${escHtml(row.reserveId)}${row.chantierName ? ` &mdash; ${escHtml(row.chantierName)}` : ''}</p>
+        </td>
+        <td style="padding:12px;border-bottom:1px solid #EEF3FA;font-size:12px;color:#334155;">${escHtml(row.companyName)}</td>
+        <td style="padding:12px;border-bottom:1px solid #EEF3FA;font-size:12px;color:#DC2626;font-weight:700;">${copy.days(row.daysLate)}</td>
+        <td style="padding:12px;border-bottom:1px solid #EEF3FA;font-size:12px;color:#5E738A;">${deadlineDate}</td>
+        <td style="padding:12px;border-bottom:1px solid #EEF3FA;">
+          <span style="background:${prio.color}18;color:${prio.color};font-size:10px;font-weight:700;padding:3px 8px;border-radius:12px;">${prio.label.toUpperCase()}</span>
+        </td>
+      </tr>
+    `;
+  }).join('');
+  const firstUrl = sortedRows[0]?.reserveUrl || APP_URL;
+  const content = `
+    <h1 style="color:#DC2626;">${copy.title(sortedRows.length)}</h1>
+    <p>${copy.hello(escHtml(firstName))}</p>
+    <p>${copy.intro}</p>
+    <div class="info-box" style="border-left-color:#DC2626;background:#FEF2F2;">
+      <p>${copy.summary(sortedRows.length, maxDaysLate)}</p>
+    </div>
+    <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="border-collapse:collapse;border:1px solid #DDE4EE;border-radius:10px;overflow:hidden;margin:18px 0;">
+      <thead>
+        <tr style="background:#F4F7FB;">
+          <th align="left" style="padding:10px 12px;font-size:11px;color:#5E738A;">${copy.reserve}</th>
+          <th align="left" style="padding:10px 12px;font-size:11px;color:#5E738A;">${copy.company}</th>
+          <th align="left" style="padding:10px 12px;font-size:11px;color:#5E738A;">${copy.late}</th>
+          <th align="left" style="padding:10px 12px;font-size:11px;color:#5E738A;">${copy.deadline}</th>
+          <th align="left" style="padding:10px 12px;font-size:11px;color:#5E738A;">${copy.priority}</th>
+        </tr>
+      </thead>
+      <tbody>${listHtml}</tbody>
+    </table>
+    <div style="text-align:center;"><a href="${firstUrl}" class="btn" style="background:#DC2626;color:#fff !important;">${copy.open}</a></div>
+  `;
+  return {
+    subject: copy.subject(sortedRows.length),
+    html: baseLayout(content, copy.preheader(sortedRows.length), lang),
+  };
+};
 
 function buildReserveUrl(reserveId, recipientEmail) {
   const secret = process.env.RESERVE_TOKEN_SECRET;
@@ -1175,6 +1311,22 @@ async function shouldSendConfigurableEmail(type, email, body) {
   return emailPreferenceAllows(pref, column, body?.priority === 'critical');
 }
 
+async function resolveEmailLanguage(recipientEmail, fallback = null) {
+  const supabase = getSupabaseAdmin();
+  const email = String(recipientEmail || '').trim().toLowerCase();
+  if (!supabase || !email) return fallback;
+  const { data, error } = await supabase
+    .from('profiles')
+    .select('preferred_language')
+    .eq('email', email)
+    .maybeSingle();
+  if (error) {
+    console.warn('[email language] lookup failed:', error.message);
+    return fallback;
+  }
+  return data?.preferred_language ?? fallback;
+}
+
 function reserveEmailDedupe(type, body = {}) {
   const reserveId = body.reserveId ? String(body.reserveId) : null;
   if (!reserveId) return null;
@@ -1230,6 +1382,7 @@ async function shouldSendDedupedReserveEmail(type, email, body) {
 app.post('/api/send-email', async (req, res) => {
   const { type, ...body } = req.body || {};
   if (!type) return res.status(400).json({ error: 'Type manquant' });
+  const language = body.language ?? body.preferredLanguage ?? null;
 
   let template = null;
   let to = '';
@@ -1239,30 +1392,30 @@ app.post('/api/send-email', async (req, res) => {
       const { email, invitedByName, organizationName, role, token, expiresAt, companyName } = body;
       if (!email || !invitedByName || !organizationName || !role || !token || !expiresAt)
         return res.status(400).json({ error: 'Paramètres manquants' });
-      to = email; template = invitationTemplate({ email, invitedByName, organizationName, role, token, expiresAt, companyName });
+      to = email; template = emailTemplates.invitationEmail({ email, invitedByName, organizationName, role, token, expiresAt, companyName, language: await resolveEmailLanguage(email, language) });
     } else if (type === 'welcome') {
       const { email, name, organizationName } = body;
       if (!email || !name) return res.status(400).json({ error: 'Paramètres manquants' });
-      to = email; template = welcomeTemplate({ name, email, organizationName });
+      to = email; template = emailTemplates.welcomeEmail({ name, email, organizationName, language: await resolveEmailLanguage(email, language) });
     } else if (type === 'password-reset') {
       const { email, name, resetUrl } = body;
       if (!email || !name || !resetUrl) return res.status(400).json({ error: 'Paramètres manquants' });
-      to = email; template = passwordResetTemplate({ name, resetUrl });
+      to = email; template = emailTemplates.passwordResetEmail({ name, resetUrl, language: await resolveEmailLanguage(email, language) });
     } else if (type === 'invitation-accepted') {
       const { adminEmail, adminName, inviteeName, inviteeEmail, organizationName, role } = body;
       if (!adminEmail || !adminName || !inviteeName || !inviteeEmail || !organizationName || !role)
         return res.status(400).json({ error: 'Paramètres manquants' });
-      to = adminEmail; template = invitationAcceptedTemplate({ adminName, inviteeName, inviteeEmail, organizationName, role });
+      to = adminEmail; template = emailTemplates.invitationAcceptedEmail({ adminName, inviteeName, inviteeEmail, organizationName, role, language: await resolveEmailLanguage(adminEmail, language) });
     } else if (type === 'reserve-created') {
       const { email, recipientName, reserveTitle, reserveId, companyName, createdBy } = body;
       if (!email || !recipientName || !reserveTitle || !reserveId || !companyName || !createdBy)
         return res.status(400).json({ error: 'Paramètres manquants' });
-      to = email; template = reserveCreatedTemplate({ ...body, reserveUrl: buildReserveUrl(reserveId, email) });
+      to = email; template = emailTemplates.reserveCreatedEmail({ ...body, language: await resolveEmailLanguage(email, language), reserveUrl: buildReserveUrl(reserveId, email) });
     } else if (type === 'reserve-status-changed') {
       const { email, recipientName, reserveTitle, reserveId, newStatus, changedBy, companyName } = body;
       if (!email || !recipientName || !reserveTitle || !reserveId || !newStatus || !changedBy || !companyName)
         return res.status(400).json({ error: 'Paramètres manquants' });
-      to = email; template = reserveStatusChangedTemplate({ ...body, reserveUrl: buildReserveUrl(reserveId, email) });
+      to = email; template = emailTemplates.reserveStatusChangedEmail({ ...body, language: await resolveEmailLanguage(email, language), reserveUrl: buildReserveUrl(reserveId, email) });
     } else if (type === 'reserve-overdue') {
       if (!reserveOverdueEmailsEnabled()) {
         return res.json({ success: true, suppressed: true, reason: 'overdue-emails-disabled' });
@@ -1270,11 +1423,15 @@ app.post('/api/send-email', async (req, res) => {
       const { email, recipientName, reserveTitle, reserveId, deadline, daysLate, companyName } = body;
       if (!email || !recipientName || !reserveTitle || !reserveId || !deadline || daysLate == null || !companyName)
         return res.status(400).json({ error: 'Paramètres manquants' });
-      to = email; template = reserveOverdueTemplate({ ...body, reserveUrl: buildReserveUrl(reserveId, email) });
+      to = email; template = emailTemplates.reserveOverdueEmail({ ...body, language: await resolveEmailLanguage(email, language), reserveUrl: buildReserveUrl(reserveId, email) });
+    } else if (type === 'password-changed') {
+      const { email, name } = body;
+      if (!email || !name) return res.status(400).json({ error: 'Param?tres manquants' });
+      to = email; template = emailTemplates.passwordChangedEmail({ name, language: await resolveEmailLanguage(email, language) });
     } else if (type === 'access-revoked') {
       const { email, name, organizationName } = body;
       if (!email || !name || !organizationName) return res.status(400).json({ error: 'Paramètres manquants' });
-      to = email; template = accessRevokedTemplate({ name, organizationName });
+      to = email; template = emailTemplates.accessRevokedEmail({ name, organizationName, language: await resolveEmailLanguage(email, language) });
     } else {
       return res.status(400).json({ error: `Type inconnu: ${type}` });
     }
@@ -1315,8 +1472,9 @@ app.post('/api/request-password-reset', async (req, res) => {
     const supabaseAdmin = createClient(supabaseUrl, serviceKey, { auth: { autoRefreshToken: false, persistSession: false } });
 
     const { data: profileRows } = await supabaseAdmin
-      .from('profiles').select('name').eq('email', email.toLowerCase().trim()).limit(1);
+      .from('profiles').select('name, preferred_language').eq('email', email.toLowerCase().trim()).limit(1);
     const name = profileRows?.[0]?.name ?? email.split('@')[0];
+    const language = profileRows?.[0]?.preferred_language ?? null;
 
     const resetRedirect = `${APP_URL}/reset-password`;
     const { data: linkData, error: linkError } = await supabaseAdmin.auth.admin.generateLink({
@@ -1328,7 +1486,7 @@ app.post('/api/request-password-reset', async (req, res) => {
       return res.status(500).json({ error: linkError?.message || 'Impossible de générer le lien' });
     }
 
-    const template = passwordResetTemplate({ name, resetUrl: linkData.properties.action_link });
+    const template = emailTemplates.passwordResetEmail({ name, resetUrl: linkData.properties.action_link, language });
     const result = await sendEmail({ to: email.toLowerCase().trim(), subject: template.subject, html: template.html });
     if (!result.success) return res.status(500).json({ error: result.error || "Échec de l'envoi" });
     return res.json({ success: true, simulated: result.simulated || false });
@@ -1383,7 +1541,7 @@ app.get('/api/cron/overdue-reserves', async (req, res) => {
       .in('organization_id', orgIds.length ? orgIds : ['__none__']);
     const { data: profiles } = await supabase
       .from('profiles')
-      .select('id, name, email, company_id, organization_id, role')
+      .select('id, name, email, company_id, organization_id, role, preferred_language')
       .in('organization_id', orgIds.length ? orgIds : ['__none__']);
     const { data: chantiers } = chantierIds.length
       ? await supabase.from('chantiers').select('id, name').in('id', chantierIds)
@@ -1512,6 +1670,7 @@ app.get('/api/cron/overdue-reserves', async (req, res) => {
         const template = reserveOverdueDigestTemplate({
           recipientName: digest.profile.name || email,
           rows: digest.rows,
+          language: digest.profile.preferred_language,
         });
         const sendRes = await sendEmail({ to: email, subject: template.subject, html: template.html });
         if (!sendRes.success) {
@@ -1584,7 +1743,7 @@ app.get('/api/cron/overdue-reserves-legacy-disabled', async (req, res) => {
     const orgIds = [...new Set(list.map(r => r.organization_id).filter(Boolean))];
     const chantierIds = [...new Set(list.map(r => r.chantier_id).filter(Boolean))];
     const { data: companies } = await supabase.from('companies').select('id, name, organization_id').in('organization_id', orgIds.length ? orgIds : ['__none__']);
-    const { data: profiles } = await supabase.from('profiles').select('id, name, email, company_id, organization_id, role').in('organization_id', orgIds.length ? orgIds : ['__none__']);
+    const { data: profiles } = await supabase.from('profiles').select('id, name, email, company_id, organization_id, role, preferred_language').in('organization_id', orgIds.length ? orgIds : ['__none__']);
     const { data: chantiers } = chantierIds.length ? await supabase.from('chantiers').select('id, name').in('id', chantierIds) : { data: [] };
     const emailPrefsByUser = await preferencesForProfiles(supabase, (profiles || []).map(p => p.id));
 
@@ -1668,21 +1827,213 @@ const STATUS_COLORS_PDF = { open: '#ef4444', in_progress: '#3b82f6', waiting: '#
 const PRIORITY_FR = { critical: 'Critique', high: 'Haute', medium: 'Moyenne', low: 'Basse' };
 const PRIORITY_COLORS_PDF = { critical: '#ef4444', high: '#f97316', medium: '#f59e0b', low: '#22c55e' };
 
-function buildReserveRowSmall(r, idx) {
+const PDF_LOCALES = { fr: 'fr-FR', en: 'en-GB', es: 'es-ES' };
+const PDF_STATUS = {
+  fr: STATUS_FR,
+  en: { open: 'Open', in_progress: 'In progress', waiting: 'Pending', verification: 'Verification', closed: 'Closed' },
+  es: { open: 'Abierta', in_progress: 'En curso', waiting: 'En espera', verification: 'Verificacion', closed: 'Cerrada' },
+};
+const PDF_STATUS_FEMININE = {
+  fr: { open: 'Ouverte', in_progress: 'En cours', waiting: 'En attente', verification: 'Verification', closed: 'Cloturee' },
+  en: PDF_STATUS.en,
+  es: PDF_STATUS.es,
+};
+const PDF_PRIORITY = {
+  fr: PRIORITY_FR,
+  en: { critical: 'Critical', high: 'High', medium: 'Medium', low: 'Low' },
+  es: { critical: 'Critica', high: 'Alta', medium: 'Media', low: 'Baja' },
+};
+const PDF_COPY = {
+  fr: {
+    allCompanies: 'Toutes les entreprises',
+    noValue: '—',
+    noBuilding: 'Sans batiment',
+    noPlan: 'Aucun plan associe',
+    reportReserves: 'Rapport des reserves',
+    reportPlans: 'Rapport des plans',
+    reserveSheet: 'Fiche de reserve',
+    generatedOn: 'Genere le',
+    generatedBy: 'Genere par BuildTrack',
+    confidential: 'Document confidentiel',
+    totalReserves: 'Total reserves',
+    companySummary: 'Recapitulatif par entreprise',
+    detailedList: count => `Liste detaillee (${count} reserve${count !== 1 ? 's' : ''})`,
+    reserveCount: count => `${count} reserve${count !== 1 ? 's' : ''}`,
+    exportedCount: count => `${count} reserve${count !== 1 ? 's' : ''} exportee${count !== 1 ? 's' : ''}`,
+    title: 'Titre',
+    company: 'Entreprise',
+    total: 'Total',
+    closed: 'Cloturees',
+    closureRate: 'Taux cloture',
+    location: 'Localisation',
+    building: 'Batiment',
+    buildingShort: 'Bat.',
+    level: 'Niveau',
+    zone: 'Zone',
+    status: 'Statut',
+    priority: 'Priorite',
+    deadline: 'Echeance',
+    photos: 'Photos',
+    history: 'Historique',
+    date: 'Date',
+    action: 'Action',
+    author: 'Auteur',
+    detail: 'Detail',
+    createdOn: 'Cree le',
+    closedOn: 'Cloture le',
+    locationPlan: 'Plan de localisation',
+    defect: 'Constat',
+    resolved: 'Levee',
+    manager: 'Conducteur de travaux',
+    offPlan: 'Reserves hors plan',
+    statusSummary: 'Synthese par statut',
+    hello: 'Bonjour,',
+    attachedReserve: title => `Veuillez trouver ci-joint la fiche de reserve <strong>${title}</strong>.`,
+    attachedReport: (kind, chantier, company, date) => `Veuillez trouver ci-joint le rapport des ${kind} pour <strong>${chantier}</strong> (${company}), genere le ${date}.`,
+    reservesKind: 'reserves',
+    plansKind: 'plans',
+  },
+  en: {
+    allCompanies: 'All companies',
+    noValue: '—',
+    noBuilding: 'No building',
+    noPlan: 'No linked plan',
+    reportReserves: 'Issues report',
+    reportPlans: 'Plans report',
+    reserveSheet: 'Issue sheet',
+    generatedOn: 'Generated on',
+    generatedBy: 'Generated by BuildTrack',
+    confidential: 'Confidential document',
+    totalReserves: 'Total issues',
+    companySummary: 'Summary by company',
+    detailedList: count => `Detailed list (${count} issue${count !== 1 ? 's' : ''})`,
+    reserveCount: count => `${count} issue${count !== 1 ? 's' : ''}`,
+    exportedCount: count => `${count} issue${count !== 1 ? 's' : ''} exported`,
+    title: 'Title',
+    company: 'Company',
+    total: 'Total',
+    closed: 'Closed',
+    closureRate: 'Closure rate',
+    location: 'Location',
+    building: 'Building',
+    buildingShort: 'Bldg.',
+    level: 'Level',
+    zone: 'Zone',
+    status: 'Status',
+    priority: 'Priority',
+    deadline: 'Deadline',
+    photos: 'Photos',
+    history: 'History',
+    date: 'Date',
+    action: 'Action',
+    author: 'Author',
+    detail: 'Detail',
+    createdOn: 'Created on',
+    closedOn: 'Closed on',
+    locationPlan: 'Location plan',
+    defect: 'Issue',
+    resolved: 'Resolved',
+    manager: 'Construction manager',
+    offPlan: 'Issues without plan',
+    statusSummary: 'Status summary',
+    hello: 'Hello,',
+    attachedReserve: title => `Please find attached the issue sheet for <strong>${title}</strong>.`,
+    attachedReport: (kind, chantier, company, date) => `Please find attached the ${kind} report for <strong>${chantier}</strong> (${company}), generated on ${date}.`,
+    reservesKind: 'issues',
+    plansKind: 'plans',
+  },
+  es: {
+    allCompanies: 'Todas las empresas',
+    noValue: '—',
+    noBuilding: 'Sin edificio',
+    noPlan: 'Sin plano asociado',
+    reportReserves: 'Informe de reservas',
+    reportPlans: 'Informe de planos',
+    reserveSheet: 'Ficha de reserva',
+    generatedOn: 'Generado el',
+    generatedBy: 'Generado por BuildTrack',
+    confidential: 'Documento confidencial',
+    totalReserves: 'Total reservas',
+    companySummary: 'Resumen por empresa',
+    detailedList: count => `Lista detallada (${count} reserva${count !== 1 ? 's' : ''})`,
+    reserveCount: count => `${count} reserva${count !== 1 ? 's' : ''}`,
+    exportedCount: count => `${count} reserva${count !== 1 ? 's' : ''} exportada${count !== 1 ? 's' : ''}`,
+    title: 'Titulo',
+    company: 'Empresa',
+    total: 'Total',
+    closed: 'Cerradas',
+    closureRate: 'Tasa de cierre',
+    location: 'Localizacion',
+    building: 'Edificio',
+    buildingShort: 'Edif.',
+    level: 'Nivel',
+    zone: 'Zona',
+    status: 'Estado',
+    priority: 'Prioridad',
+    deadline: 'Fecha limite',
+    photos: 'Fotos',
+    history: 'Historial',
+    date: 'Fecha',
+    action: 'Accion',
+    author: 'Autor',
+    detail: 'Detalle',
+    createdOn: 'Creada el',
+    closedOn: 'Cerrada el',
+    locationPlan: 'Plano de localizacion',
+    defect: 'Constatacion',
+    resolved: 'Levantada',
+    manager: 'Jefe de obra',
+    offPlan: 'Reservas sin plano',
+    statusSummary: 'Resumen por estado',
+    hello: 'Hola,',
+    attachedReserve: title => `Adjuntamos la ficha de reserva <strong>${title}</strong>.`,
+    attachedReport: (kind, chantier, company, date) => `Adjuntamos el informe de ${kind} para <strong>${chantier}</strong> (${company}), generado el ${date}.`,
+    reservesKind: 'reservas',
+    plansKind: 'planos',
+  },
+};
+
+function pdfLanguage(language) {
+  const normalized = String(language ?? '').trim().toLowerCase();
+  if (normalized.startsWith('en')) return 'en';
+  if (normalized.startsWith('es')) return 'es';
+  return 'fr';
+}
+
+function pdfCopy(language) {
+  return PDF_COPY[pdfLanguage(language)];
+}
+
+function pdfDate(value, language, options = { day: '2-digit', month: 'long', year: 'numeric' }) {
+  return new Date(value || Date.now()).toLocaleDateString(PDF_LOCALES[pdfLanguage(language)], options);
+}
+
+function pdfStatusLabel(status, language, feminine = false) {
+  const lang = pdfLanguage(language);
+  return (feminine ? PDF_STATUS_FEMININE[lang] : PDF_STATUS[lang])[status] ?? status ?? PDF_COPY[lang].noValue;
+}
+
+function pdfPriorityLabel(priority, language) {
+  const lang = pdfLanguage(language);
+  return PDF_PRIORITY[lang][priority] ?? priority ?? PDF_COPY[lang].noValue;
+}
+
+function buildReserveRowSmall(r, idx, language = 'fr') {
+  const copy = pdfCopy(language);
   const sc = STATUS_COLORS_PDF[r.status] ?? '#6b7280';
   const pc = PRIORITY_COLORS_PDF[r.priority] ?? '#6b7280';
   const bg = idx % 2 === 0 ? '#ffffff' : '#f9fafb';
-  const companies = Array.isArray(r.companies) && r.companies.length > 0 ? r.companies : r.company ? [r.company] : ['—'];
+  const companies = Array.isArray(r.companies) && r.companies.length > 0 ? r.companies : r.company ? [r.company] : [copy.noValue];
   return `<tr style="background:${bg}">
     <td style="text-align:center;width:36px;padding:6px 8px">
       <span style="display:inline-flex;align-items:center;justify-content:center;width:20px;height:20px;border-radius:50%;background:#003082;color:#fff;font-weight:700;font-size:10px">${idx + 1}</span>
     </td>
     <td style="padding:6px 8px;font-weight:600;font-size:11px">${escHtml(r.title)}</td>
     <td style="padding:6px 8px;font-size:11px">${companies.map(c => escHtml(c)).join(', ')}</td>
-    <td style="padding:6px 8px;font-size:11px">Bât. ${escHtml(r.building || '?')} · ${escHtml(r.level || '—')}</td>
-    <td style="padding:6px 8px"><span style="color:${sc};font-weight:600;font-size:10px">${STATUS_FR[r.status] ?? r.status}</span></td>
-    <td style="padding:6px 8px"><span style="color:${pc};font-weight:600;font-size:10px">${PRIORITY_FR[r.priority] ?? r.priority}</span></td>
-    <td style="padding:6px 8px;font-size:11px">${escHtml(r.deadline) || '—'}</td>
+    <td style="padding:6px 8px;font-size:11px">${copy.buildingShort} ${escHtml(r.building || copy.noValue)} - ${escHtml(r.level || copy.noValue)}</td>
+    <td style="padding:6px 8px"><span style="color:${sc};font-weight:600;font-size:10px">${pdfStatusLabel(r.status, language)}</span></td>
+    <td style="padding:6px 8px"><span style="color:${pc};font-weight:600;font-size:10px">${pdfPriorityLabel(r.priority, language)}</span></td>
+    <td style="padding:6px 8px;font-size:11px">${escHtml(r.deadline || copy.noValue)}</td>
   </tr>`;
 }
 
@@ -1696,8 +2047,10 @@ function buildPhotoRow(photos) {
 
 function buildGlobalReservesHtml(payload) {
   const { chantierName, companyFilter, generatedAt, reserves } = payload;
-  const dateStr = new Date(generatedAt || Date.now()).toLocaleDateString('fr-FR', { day: '2-digit', month: 'long', year: 'numeric' });
-  const companyLabel = companyFilter ?? 'Toutes les entreprises';
+  const language = pdfLanguage(payload.language);
+  const copy = pdfCopy(language);
+  const dateStr = pdfDate(generatedAt, language);
+  const companyLabel = companyFilter ?? copy.allCompanies;
 
   const byStatus = {};
   for (const r of reserves) byStatus[r.status] = (byStatus[r.status] ?? 0) + 1;
@@ -1733,7 +2086,7 @@ function buildGlobalReservesHtml(payload) {
     const col = STATUS_COLORS_PDF[s];
     return `<div style="text-align:center;background:#f8fafc;border-radius:8px;padding:10px 16px;border:1px solid #e2e8f0;min-width:80px">
       <div style="font-size:22px;font-weight:800;color:${col}">${cnt}</div>
-      <div style="font-size:9px;color:#94a3b8;text-transform:uppercase;letter-spacing:0.6px;margin-top:2px">${STATUS_FR[s]}</div>
+      <div style="font-size:9px;color:#94a3b8;text-transform:uppercase;letter-spacing:0.6px;margin-top:2px">${pdfStatusLabel(s, language)}</div>
     </div>`;
   }).join('');
 
@@ -1742,7 +2095,7 @@ function buildGlobalReservesHtml(payload) {
       const ORDER = { open: 0, in_progress: 1, waiting: 2, verification: 3, closed: 4 };
       return (ORDER[a.status] ?? 9) - (ORDER[b.status] ?? 9);
     })
-    .map((r, i) => buildReserveRowSmall(r, i)).join('');
+    .map((r, i) => buildReserveRowSmall(r, i, language)).join('');
 
   const photoSection = reserves.filter(r => r.photos && r.photos.length > 0).slice(0, 20).map((r, i) => {
     const companies = Array.isArray(r.companies) && r.companies.length > 0 ? r.companies : r.company ? [r.company] : [];
@@ -1756,10 +2109,10 @@ function buildGlobalReservesHtml(payload) {
   }).join('');
 
   return `<!DOCTYPE html>
-<html lang="fr">
+<html lang="${language}">
 <head>
   <meta charset="UTF-8">
-  <title>Rapport Réserves — ${escHtml(chantierName)}</title>
+  <title>${copy.reportReserves} - ${escHtml(chantierName)}</title>
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
     body { background: #fff; color: #1e293b; font-size: 12px; line-height: 1.5; font-family: Arial, Helvetica, sans-serif; }
@@ -1770,27 +2123,27 @@ function buildGlobalReservesHtml(payload) {
 </head>
 <body>
   <div style="background:linear-gradient(135deg,#003082 0%,#1A6FD8 100%);color:#fff;padding:24px 28px;border-radius:8px;margin-bottom:20px">
-    <div style="font-size:11px;letter-spacing:2px;text-transform:uppercase;opacity:0.75;margin-bottom:4px">BuildTrack · Rapport des réserves</div>
+    <div style="font-size:11px;letter-spacing:2px;text-transform:uppercase;opacity:0.75;margin-bottom:4px">BuildTrack · ${copy.reportReserves}</div>
     <div style="font-size:22px;font-weight:800;margin-bottom:2px">${escHtml(chantierName)}</div>
-    <div style="font-size:13px;opacity:0.8">${escHtml(companyLabel)} · Généré le ${dateStr}</div>
+    <div style="font-size:13px;opacity:0.8">${escHtml(companyLabel)} - ${copy.generatedOn} ${dateStr}</div>
   </div>
 
   <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:20px">
     <div style="text-align:center;background:#f8fafc;border-radius:8px;padding:10px 20px;border:1px solid #e2e8f0">
       <div style="font-size:28px;font-weight:800;color:#003082">${total}</div>
-      <div style="font-size:9px;color:#94a3b8;text-transform:uppercase;letter-spacing:0.6px;margin-top:2px">Total réserves</div>
+      <div style="font-size:9px;color:#94a3b8;text-transform:uppercase;letter-spacing:0.6px;margin-top:2px">${copy.totalReserves}</div>
     </div>
     ${summaryStats}
   </div>
 
   <div style="margin-bottom:20px">
-    <div style="font-size:11px;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:0.7px;border-bottom:1.5px solid #e2e8f0;padding-bottom:6px;margin-bottom:10px">Récapitulatif par entreprise</div>
+    <div style="font-size:11px;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:0.7px;border-bottom:1.5px solid #e2e8f0;padding-bottom:6px;margin-bottom:10px">${copy.companySummary}</div>
     <table style="border:1px solid #e2e8f0;border-radius:8px;overflow:hidden">
       <thead><tr style="background:#003082">
-        <th style="color:#fff;padding:8px 12px;text-align:left;font-size:10px">Entreprise</th>
-        <th style="color:#fff;padding:8px 12px;text-align:center;font-size:10px">Total</th>
-        <th style="color:#fff;padding:8px 12px;text-align:center;font-size:10px">Clôturées</th>
-        <th style="color:#fff;padding:8px 12px;text-align:center;font-size:10px">Taux clôture</th>
+        <th style="color:#fff;padding:8px 12px;text-align:left;font-size:10px">${copy.company}</th>
+        <th style="color:#fff;padding:8px 12px;text-align:center;font-size:10px">${copy.total}</th>
+        <th style="color:#fff;padding:8px 12px;text-align:center;font-size:10px">${copy.closed}</th>
+        <th style="color:#fff;padding:8px 12px;text-align:center;font-size:10px">${copy.closureRate}</th>
       </tr></thead>
       <tbody>${companyRows}</tbody>
     </table>
@@ -1798,30 +2151,30 @@ function buildGlobalReservesHtml(payload) {
 
   <div style="margin-bottom:20px">
     <div style="font-size:11px;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:0.7px;border-bottom:1.5px solid #e2e8f0;padding-bottom:6px;margin-bottom:10px">
-      Liste détaillée (${total} réserve${total !== 1 ? 's' : ''})
+      ${copy.detailedList(total)}
     </div>
     <table style="border:1px solid #e2e8f0;border-radius:8px;overflow:hidden">
       <thead><tr style="background:#003082">
         <th style="color:#fff;padding:8px 10px;text-align:left;font-size:10px">#</th>
-        <th style="color:#fff;padding:8px 10px;text-align:left;font-size:10px">Titre</th>
-        <th style="color:#fff;padding:8px 10px;text-align:left;font-size:10px">Entreprise</th>
-        <th style="color:#fff;padding:8px 10px;text-align:left;font-size:10px">Localisation</th>
-        <th style="color:#fff;padding:8px 10px;text-align:left;font-size:10px">Statut</th>
-        <th style="color:#fff;padding:8px 10px;text-align:left;font-size:10px">Priorité</th>
-        <th style="color:#fff;padding:8px 10px;text-align:left;font-size:10px">Échéance</th>
+        <th style="color:#fff;padding:8px 10px;text-align:left;font-size:10px">${copy.title}</th>
+        <th style="color:#fff;padding:8px 10px;text-align:left;font-size:10px">${copy.company}</th>
+        <th style="color:#fff;padding:8px 10px;text-align:left;font-size:10px">${copy.location}</th>
+        <th style="color:#fff;padding:8px 10px;text-align:left;font-size:10px">${copy.status}</th>
+        <th style="color:#fff;padding:8px 10px;text-align:left;font-size:10px">${copy.priority}</th>
+        <th style="color:#fff;padding:8px 10px;text-align:left;font-size:10px">${copy.deadline}</th>
       </tr></thead>
       <tbody>${reserveRows}</tbody>
     </table>
   </div>
 
   ${photoSection ? `<div style="margin-bottom:20px">
-    <div style="font-size:11px;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:0.7px;border-bottom:1.5px solid #e2e8f0;padding-bottom:6px;margin-bottom:10px">Photos</div>
+    <div style="font-size:11px;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:0.7px;border-bottom:1.5px solid #e2e8f0;padding-bottom:6px;margin-bottom:10px">${copy.photos}</div>
     ${photoSection}
   </div>` : ''}
 
   <div style="margin-top:24px;padding-top:12px;border-top:1.5px solid #e2e8f0;display:flex;justify-content:space-between;font-size:9px;color:#94a3b8">
-    <span>Généré par BuildTrack</span>
-    <span>${escHtml(chantierName)} · ${dateStr}</span>
+    <span>${copy.generatedBy}</span>
+    <span>${escHtml(chantierName)} - ${dateStr}</span>
   </div>
 </body>
 </html>`;
@@ -1829,17 +2182,19 @@ function buildGlobalReservesHtml(payload) {
 
 function buildIndividualReserveHtml(payload) {
   const { reserve, chantierName, companyColor, planUri, planX, planY, planName, pinNum } = payload;
+  const language = pdfLanguage(payload.language);
+  const copy = pdfCopy(language);
   const sColors = { open: '#DC2626', in_progress: '#F59E0B', waiting: '#3B82F6', verification: '#8B5CF6', closed: '#059669' };
   const sLabels = { open: 'Ouverte', in_progress: 'En cours', waiting: 'En attente', verification: 'Vérification', closed: 'Clôturée' };
   const pColors = { low: '#22C55E', medium: '#F59E0B', high: '#F97316', critical: '#EF4444' };
   const pLabels = { low: 'Faible', medium: 'Moyenne', high: 'Haute', critical: 'Critique' };
   const pinColor = companyColor || '#003082';
   const sColor = sColors[reserve.status] ?? '#6B7280';
-  const sLabel = sLabels[reserve.status] ?? reserve.status;
+  const sLabel = pdfStatusLabel(reserve.status, language, true);
   const pColor = pColors[reserve.priority] ?? '#6B7280';
-  const pLabel = pLabels[reserve.priority] ?? reserve.priority;
+  const pLabel = pdfPriorityLabel(reserve.priority, language);
   const companies = Array.isArray(reserve.companies) && reserve.companies.length > 0 ? reserve.companies : reserve.company ? [reserve.company] : [];
-  const dateStr = new Date().toLocaleDateString('fr-FR');
+  const dateStr = pdfDate(Date.now(), language);
 
   let planSection = '';
   if (planUri && planX != null && planY != null) {
@@ -1850,14 +2205,14 @@ function buildIndividualReserveHtml(payload) {
       <text x="${planX}" y="${planY}" text-anchor="middle" dominant-baseline="central" fill="#fff" font-size="${PIN_FONT}" font-weight="bold" font-family="Arial,sans-serif">${pinNum || 1}</text>`;
     planSection = `
       <div style="margin-bottom:10px">
-        <div style="font-size:9px;font-weight:700;color:#6B7280;text-transform:uppercase;letter-spacing:0.7px;margin-bottom:6px;padding-bottom:4px;border-bottom:1px solid #DDE4EE">Plan de localisation — ${escHtml(planName || 'Plan')}</div>
+        <div style="font-size:9px;font-weight:700;color:#6B7280;text-transform:uppercase;letter-spacing:0.7px;margin-bottom:6px;padding-bottom:4px;border-bottom:1px solid #DDE4EE">${copy.locationPlan} - ${escHtml(planName || 'Plan')}</div>
         <div style="position:relative;border-radius:8px;overflow:hidden;border:1.5px solid #DDE4EE">
           <img src="${escHtml(planUri)}" style="width:100%;height:auto;display:block" onerror="this.style.display='none'"/>
           <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" preserveAspectRatio="none" style="position:absolute;top:0;left:0;width:100%;height:100%">${svgPin}</svg>
         </div>
       </div>`;
   } else {
-    planSection = `<div style="width:100%;height:100px;border-radius:8px;border:1.5px dashed #DDE4EE;background:#F9FAFB;display:flex;align-items:center;justify-content:center;margin-bottom:10px;font-size:11px;color:#9CA3AF">Aucun plan associé</div>`;
+    planSection = `<div style="width:100%;height:100px;border-radius:8px;border:1.5px dashed #DDE4EE;background:#F9FAFB;display:flex;align-items:center;justify-content:center;margin-bottom:10px;font-size:11px;color:#9CA3AF">${copy.noPlan}</div>`;
   }
 
   const rawPhotos = Array.isArray(reserve.photos) && reserve.photos.length > 0
@@ -1867,7 +2222,7 @@ function buildIndividualReserveHtml(payload) {
 
   const photoRowHtml = photosToShow.length > 0 ? `
     <div style="margin-top:10px">
-      <div style="font-size:9px;font-weight:700;color:#6B7280;text-transform:uppercase;letter-spacing:0.7px;margin-bottom:6px;padding-bottom:4px;border-bottom:1px solid #DDE4EE">Photos (${photosToShow.length})</div>
+      <div style="font-size:9px;font-weight:700;color:#6B7280;text-transform:uppercase;letter-spacing:0.7px;margin-bottom:6px;padding-bottom:4px;border-bottom:1px solid #DDE4EE">${copy.photos} (${photosToShow.length})</div>
       <div style="display:flex;gap:8px">
         ${photosToShow.map(p => {
           const isDefect = p.kind === 'defect';
@@ -1875,7 +2230,7 @@ function buildIndividualReserveHtml(payload) {
             <img src="${escHtml(p.uri)}" onerror="this.style.opacity='0.15'"
               style="width:100%;height:auto;max-height:240px;object-fit:contain;background:#F9FAFB;border-radius:6px;border:1.5px solid #DDE4EE;display:block"/>
             <span style="display:inline-block;margin-top:4px;padding:1px 7px;border-radius:8px;font-size:9px;font-weight:700;background:${isDefect ? '#FEF2F2' : '#ECFDF5'};color:${isDefect ? '#DC2626' : '#059669'}">
-              ${isDefect ? '● Constat' : '● Levée'}
+              ${isDefect ? copy.defect : copy.resolved}
             </span>
           </div>`;
         }).join('')}
@@ -1891,8 +2246,8 @@ function buildIndividualReserveHtml(payload) {
     </tr>`
   ).join('');
 
-  return `<!DOCTYPE html><html lang="fr"><head><meta charset="UTF-8">
-  <title>Fiche réserve ${escHtml(reserve.id)}</title>
+  return `<!DOCTYPE html><html lang="${language}"><head><meta charset="UTF-8">
+  <title>${copy.reserveSheet} ${escHtml(reserve.id)}</title>
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body { font-family: Arial, Helvetica, sans-serif; background: #fff; color: #1A2742; font-size: 11px; line-height: 1.4; }
@@ -1916,7 +2271,7 @@ function buildIndividualReserveHtml(payload) {
   <body><div class="container">
     <div class="top-bar">
       <div>
-        <div style="font-size:8px;color:#6B7280;text-transform:uppercase;letter-spacing:1px;margin-bottom:2px">Fiche de réserve · BuildTrack</div>
+        <div style="font-size:8px;color:#6B7280;text-transform:uppercase;letter-spacing:1px;margin-bottom:2px">${copy.reserveSheet} · BuildTrack</div>
         <div style="font-size:22px;font-weight:900;color:#003082;line-height:1">${escHtml(reserve.id)}</div>
         <div style="font-size:14px;font-weight:700;color:#1A2742;margin-top:2px">${escHtml(reserve.title)}</div>
         <div style="font-size:10px;color:#6B7280">${escHtml(chantierName)}</div>
@@ -1926,9 +2281,9 @@ function buildIndividualReserveHtml(payload) {
         </div>
       </div>
       <div style="text-align:right;font-size:10px;color:#6B7280;flex-shrink:0;margin-left:16px">
-        <div>Créé le <strong style="color:#1A2742">${escHtml(reserve.createdAt)}</strong></div>
-        ${reserve.closedAt ? `<div style="color:#059669;margin-top:2px;font-weight:700">✓ Clôturé le ${escHtml(reserve.closedAt)}</div>` : ''}
-        <div style="margin-top:4px">Échéance : <strong>${escHtml(reserve.deadline || '—')}</strong></div>
+        <div>${copy.createdOn} <strong style="color:#1A2742">${escHtml(reserve.createdAt || copy.noValue)}</strong></div>
+        ${reserve.closedAt ? `<div style="color:#059669;margin-top:2px;font-weight:700">${copy.closedOn} ${escHtml(reserve.closedAt)}</div>` : ''}
+        <div style="margin-top:4px">${copy.deadline} : <strong>${escHtml(reserve.deadline || copy.noValue)}</strong></div>
         <div style="font-size:9px;color:#9CA3AF;margin-top:4px">${dateStr}</div>
       </div>
     </div>
@@ -1937,22 +2292,22 @@ function buildIndividualReserveHtml(payload) {
       <div>
         <div class="col2" style="margin-bottom:8px">
           <div class="info-cell">
-            <div class="lbl">Entreprise${companies.length > 1 ? 's' : ''}</div>
-            <div class="val" style="color:${pinColor}">${companies.map(c => escHtml(c)).join(', ') || '—'}</div>
+            <div class="lbl">${copy.company}${companies.length > 1 && language === 'fr' ? 's' : ''}</div>
+            <div class="val" style="color:${pinColor}">${companies.map(c => escHtml(c)).join(', ') || copy.noValue}</div>
           </div>
           <div class="info-cell">
-            <div class="lbl">Localisation</div>
-            <div class="val">Bât. ${escHtml(reserve.building)} · ${escHtml(reserve.level)}</div>
+            <div class="lbl">${copy.location}</div>
+            <div class="val">${copy.buildingShort} ${escHtml(reserve.building || copy.noValue)} - ${escHtml(reserve.level || copy.noValue)}</div>
           </div>
         </div>
         <div class="col2" style="margin-bottom:8px">
           <div class="info-cell">
-            <div class="lbl">Zone</div>
-            <div class="val">${escHtml(reserve.zone || '—')}</div>
+            <div class="lbl">${copy.zone}</div>
+            <div class="val">${escHtml(reserve.zone || copy.noValue)}</div>
           </div>
           <div class="info-cell">
-            <div class="lbl">Échéance</div>
-            <div class="val" style="color:${reserve.status !== 'closed' ? '#DC2626' : '#059669'}">${escHtml(reserve.deadline || '—')}</div>
+            <div class="lbl">${copy.deadline}</div>
+            <div class="val" style="color:${reserve.status !== 'closed' ? '#DC2626' : '#059669'}">${escHtml(reserve.deadline || copy.noValue)}</div>
           </div>
         </div>
         ${reserve.description ? `<div class="desc-box">${escHtml(reserve.description)}</div>` : ''}
@@ -1961,17 +2316,17 @@ function buildIndividualReserveHtml(payload) {
       <div>${planSection}</div>
     </div>
 
-    ${historyRows ? `<div class="sh">Historique</div>
-    <table><thead><tr><th>Date</th><th>Action</th><th>Auteur</th><th>Détail</th></tr></thead>
+    ${historyRows ? `<div class="sh">${copy.history}</div>
+    <table><thead><tr><th>${copy.date}</th><th>${copy.action}</th><th>${copy.author}</th><th>${copy.detail}</th></tr></thead>
     <tbody>${historyRows}</tbody></table>` : ''}
 
     <div style="margin-top:16px;display:flex;gap:20px">
-      <div style="flex:1;text-align:center"><div style="height:50px;border-bottom:2px solid #1A2742;margin-bottom:5px"></div><div style="font-size:10px;color:#5E738A">Conducteur de travaux</div></div>
-      <div style="flex:1;text-align:center"><div style="height:50px;border-bottom:2px solid #1A2742;margin-bottom:5px"></div><div style="font-size:10px;color:#5E738A">${companies.map(c => escHtml(c)).join(', ') || 'Entreprise'}</div></div>
+      <div style="flex:1;text-align:center"><div style="height:50px;border-bottom:2px solid #1A2742;margin-bottom:5px"></div><div style="font-size:10px;color:#5E738A">${copy.manager}</div></div>
+      <div style="flex:1;text-align:center"><div style="height:50px;border-bottom:2px solid #1A2742;margin-bottom:5px"></div><div style="font-size:10px;color:#5E738A">${companies.map(c => escHtml(c)).join(', ') || copy.company}</div></div>
     </div>
 
     <div class="doc-footer">
-      <span>Fiche réserve · BuildTrack</span>
+      <span>${copy.reserveSheet} - BuildTrack</span>
       <span>${escHtml(chantierName)} · ${dateStr}</span>
     </div>
   </div></body></html>`;
@@ -1979,8 +2334,10 @@ function buildIndividualReserveHtml(payload) {
 
 function buildGlobalPlansReportHtml(payload) {
   const { chantierName, companyFilter, generatedAt, plans, reserves } = payload;
-  const dateStr = new Date(generatedAt || Date.now()).toLocaleDateString('fr-FR', { day: '2-digit', month: 'long', year: 'numeric' });
-  const companyLabel = companyFilter ?? 'Toutes les entreprises';
+  const language = pdfLanguage(payload.language);
+  const copy = pdfCopy(language);
+  const dateStr = pdfDate(generatedAt, language);
+  const companyLabel = companyFilter ?? copy.allCompanies;
 
   const reservesByPlan = new Map();
   const orphanReserves = [];
@@ -1998,13 +2355,13 @@ function buildGlobalPlansReportHtml(payload) {
   for (const p of plansWithReserves) buildingSet.add(p.building ?? '');
   const buildingNames = Array.from(buildingSet).sort((a, b) => {
     if (!a && !b) return 0; if (!a) return 1; if (!b) return -1;
-    return a.localeCompare(b, 'fr');
+    return a.localeCompare(b, language);
   });
 
   const buildingSections = [];
   for (const building of buildingNames) {
     const buildingPlans = plansWithReserves.filter(p => (p.building ?? '') === building);
-    const buildingLabel = building || 'Sans bâtiment';
+    const buildingLabel = building || copy.noBuilding;
     const planBlocks = [];
     let buildingReserveCount = 0;
     for (const plan of buildingPlans) {
@@ -2033,8 +2390,8 @@ function buildGlobalPlansReportHtml(payload) {
           <td style="padding:7px 10px;font-weight:600">${escHtml(r.title)}</td>
           <td style="padding:7px 10px">${escHtml(r.company) || '—'}</td>
           <td style="padding:7px 10px">${escHtml(r.level) || '—'}</td>
-          <td style="padding:7px 10px"><span style="color:${sc};font-weight:600">${STATUS_FR[r.status] ?? r.status}</span></td>
-          <td style="padding:7px 10px"><span style="color:${pc};font-weight:600">${PRIORITY_FR[r.priority] ?? r.priority}</span></td>
+          <td style="padding:7px 10px"><span style="color:${sc};font-weight:600">${pdfStatusLabel(r.status, language)}</span></td>
+          <td style="padding:7px 10px"><span style="color:${pc};font-weight:600">${pdfPriorityLabel(r.priority, language)}</span></td>
           <td style="padding:7px 10px">${escHtml(r.deadline) || '—'}</td>
         </tr>`;
       }).join('');
@@ -2045,29 +2402,29 @@ function buildGlobalPlansReportHtml(payload) {
       planBlocks.push(`<div style="background:#fff;border-radius:8px;border:1px solid #e2e8f0;margin-bottom:14px;overflow:hidden">
         <div style="background:#f8fafc;padding:10px 16px;font-size:12px;font-weight:700;color:#1e293b;border-bottom:1px solid #e2e8f0;display:flex;align-items:center;gap:6px">
           📐 ${escHtml(plan.name)}${levelBadge}
-          <span style="margin-left:auto;font-size:11px;color:#94a3b8;font-weight:400">${planReserves.length} réserve${planReserves.length !== 1 ? 's' : ''}</span>
+          <span style="margin-left:auto;font-size:11px;color:#94a3b8;font-weight:400">${copy.reserveCount(planReserves.length)}</span>
         </div>
         ${planImgHtml ? `<div style="padding:12px 16px">${planImgHtml}</div>` : ''}
         <table style="width:100%;border-collapse:collapse;font-size:11px">
           <thead><tr style="background:#003082">
             <th style="color:#fff;padding:8px 10px;text-align:left;font-size:10px">#</th>
-            <th style="color:#fff;padding:8px 10px;text-align:left;font-size:10px">Titre</th>
-            <th style="color:#fff;padding:8px 10px;text-align:left;font-size:10px">Entreprise</th>
-            <th style="color:#fff;padding:8px 10px;text-align:left;font-size:10px">Niveau</th>
-            <th style="color:#fff;padding:8px 10px;text-align:left;font-size:10px">Statut</th>
-            <th style="color:#fff;padding:8px 10px;text-align:left;font-size:10px">Priorité</th>
-            <th style="color:#fff;padding:8px 10px;text-align:left;font-size:10px">Échéance</th>
+            <th style="color:#fff;padding:8px 10px;text-align:left;font-size:10px">${copy.title}</th>
+            <th style="color:#fff;padding:8px 10px;text-align:left;font-size:10px">${copy.company}</th>
+            <th style="color:#fff;padding:8px 10px;text-align:left;font-size:10px">${copy.level}</th>
+            <th style="color:#fff;padding:8px 10px;text-align:left;font-size:10px">${copy.status}</th>
+            <th style="color:#fff;padding:8px 10px;text-align:left;font-size:10px">${copy.priority}</th>
+        <th style="color:#fff;padding:8px 10px;text-align:left;font-size:10px">${copy.deadline}</th>
           </tr></thead>
           <tbody>${rows}</tbody>
         </table>
-        ${photoBlocks ? `<div style="background:#f8fafc;padding:8px 12px;font-size:10px;font-weight:700;color:#475569;border-top:1px solid #e2e8f0">📷 Photos</div>${photoBlocks}` : ''}
+        ${photoBlocks ? `<div style="background:#f8fafc;padding:8px 12px;font-size:10px;font-weight:700;color:#475569;border-top:1px solid #e2e8f0">${copy.photos}</div>${photoBlocks}` : ''}
       </div>`);
     }
     if (buildingReserveCount === 0) continue;
     buildingSections.push(`<div style="margin-bottom:24px;page-break-inside:avoid">
       <div style="background:linear-gradient(135deg,#003082 0%,#1A6FD8 100%);color:#fff;padding:12px 20px;border-radius:8px 8px 0 0;font-size:14px;font-weight:700;display:flex;align-items:center;gap:10px">
         🏗️ ${escHtml(buildingLabel)}
-        <span style="margin-left:auto;font-size:12px;opacity:0.8;font-weight:400">${buildingReserveCount} réserve${buildingReserveCount !== 1 ? 's' : ''}</span>
+        <span style="margin-left:auto;font-size:12px;opacity:0.8;font-weight:400">${copy.reserveCount(buildingReserveCount)}</span>
       </div>
       ${planBlocks.join('')}
     </div>`);
@@ -2085,27 +2442,27 @@ function buildGlobalPlansReportHtml(payload) {
         <td style="padding:7px 10px">${escHtml(r.company) || '—'}</td>
         <td style="padding:7px 10px">${escHtml(r.building) || '—'}</td>
         <td style="padding:7px 10px">${escHtml(r.level) || '—'}</td>
-        <td style="padding:7px 10px"><span style="color:${sc};font-weight:600">${STATUS_FR[r.status] ?? r.status}</span></td>
-        <td style="padding:7px 10px"><span style="color:${pc};font-weight:600">${PRIORITY_FR[r.priority] ?? r.priority}</span></td>
+        <td style="padding:7px 10px"><span style="color:${sc};font-weight:600">${pdfStatusLabel(r.status, language)}</span></td>
+        <td style="padding:7px 10px"><span style="color:${pc};font-weight:600">${pdfPriorityLabel(r.priority, language)}</span></td>
         <td style="padding:7px 10px">${escHtml(r.deadline) || '—'}</td>
       </tr>`;
     }).join('');
     orphanHtml = `<div style="margin-bottom:24px">
       <div style="background:linear-gradient(135deg,#475569 0%,#64748b 100%);color:#fff;padding:12px 20px;border-radius:8px 8px 0 0;font-size:14px;font-weight:700;display:flex;align-items:center;gap:10px">
-        📍 Réserves hors plan
-        <span style="margin-left:auto;font-size:12px;opacity:0.8;font-weight:400">${orphanReserves.length} réserve${orphanReserves.length !== 1 ? 's' : ''}</span>
+        ${copy.offPlan}
+        <span style="margin-left:auto;font-size:12px;opacity:0.8;font-weight:400">${copy.reserveCount(orphanReserves.length)}</span>
       </div>
       <div style="background:#fff;border-radius:0 0 8px 8px;border:1px solid #e2e8f0;border-top:none;overflow:hidden">
         <table style="width:100%;border-collapse:collapse;font-size:11px">
           <thead><tr style="background:#475569">
             <th style="color:#fff;padding:8px 10px;text-align:left;font-size:10px">#</th>
-            <th style="color:#fff;padding:8px 10px;text-align:left;font-size:10px">Titre</th>
-            <th style="color:#fff;padding:8px 10px;text-align:left;font-size:10px">Entreprise</th>
-            <th style="color:#fff;padding:8px 10px;text-align:left;font-size:10px">Bâtiment</th>
-            <th style="color:#fff;padding:8px 10px;text-align:left;font-size:10px">Niveau</th>
-            <th style="color:#fff;padding:8px 10px;text-align:left;font-size:10px">Statut</th>
-            <th style="color:#fff;padding:8px 10px;text-align:left;font-size:10px">Priorité</th>
-            <th style="color:#fff;padding:8px 10px;text-align:left;font-size:10px">Échéance</th>
+            <th style="color:#fff;padding:8px 10px;text-align:left;font-size:10px">${copy.title}</th>
+            <th style="color:#fff;padding:8px 10px;text-align:left;font-size:10px">${copy.company}</th>
+            <th style="color:#fff;padding:8px 10px;text-align:left;font-size:10px">${copy.building}</th>
+            <th style="color:#fff;padding:8px 10px;text-align:left;font-size:10px">${copy.level}</th>
+            <th style="color:#fff;padding:8px 10px;text-align:left;font-size:10px">${copy.status}</th>
+            <th style="color:#fff;padding:8px 10px;text-align:left;font-size:10px">${copy.priority}</th>
+        <th style="color:#fff;padding:8px 10px;text-align:left;font-size:10px">${copy.deadline}</th>
           </tr></thead>
           <tbody>${orphanRows}</tbody>
         </table>
@@ -2122,7 +2479,7 @@ function buildGlobalPlansReportHtml(payload) {
     const color = STATUS_COLORS_PDF[s];
     const pct = totalReserves > 0 ? Math.round((count / totalReserves) * 100) : 0;
     return `<tr>
-      <td style="padding:8px 12px"><span style="color:${color};font-weight:600">${STATUS_FR[s] ?? s}</span></td>
+      <td style="padding:8px 12px"><span style="color:${color};font-weight:600">${pdfStatusLabel(s, language)}</span></td>
       <td style="padding:8px 12px;text-align:right;font-weight:700">${count}</td>
       <td style="padding:8px 12px;text-align:right;color:#94a3b8">${pct}%</td>
       <td style="padding:8px 12px;width:40%"><div style="background:#e2e8f0;border-radius:4px;height:8px;overflow:hidden"><div style="background:${color};height:8px;width:${pct}%"></div></div></td>
@@ -2130,10 +2487,10 @@ function buildGlobalPlansReportHtml(payload) {
   }).join('');
 
   return `<!DOCTYPE html>
-<html lang="fr">
+  <html lang="${language}">
 <head>
   <meta charset="UTF-8">
-  <title>Rapport des réserves — ${escHtml(chantierName)}</title>
+  <title>${copy.reportPlans} - ${escHtml(chantierName)}</title>
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
     body { background: #fff; color: #1e293b; font-size: 12px; line-height: 1.5; font-family: Arial, Helvetica, sans-serif; }
@@ -2147,24 +2504,24 @@ function buildGlobalPlansReportHtml(payload) {
   <div class="cover">
     <div style="font-size:48px;margin-bottom:20px">📋</div>
     <div style="font-size:11px;letter-spacing:2px;text-transform:uppercase;color:#003082;font-weight:700;margin-bottom:12px">BuildTrack</div>
-    <div style="font-size:28px;font-weight:800;color:#1e293b;margin-bottom:8px">Rapport des réserves</div>
+    <div style="font-size:28px;font-weight:800;color:#1e293b;margin-bottom:8px">${copy.reportPlans}</div>
     <div style="font-size:18px;color:#64748b;margin-bottom:6px">${escHtml(chantierName)}</div>
     <div style="font-size:14px;color:#94a3b8;margin-bottom:32px">${escHtml(companyLabel)}</div>
     <div style="display:flex;gap:40px;margin:16px 0">
-      <div style="text-align:center"><div style="font-size:40px;font-weight:800;color:#003082">${totalReserves}</div><div style="font-size:10px;color:#64748b;text-transform:uppercase;letter-spacing:1px;margin-top:4px">réserves</div></div>
+      <div style="text-align:center"><div style="font-size:40px;font-weight:800;color:#003082">${totalReserves}</div><div style="font-size:10px;color:#64748b;text-transform:uppercase;letter-spacing:1px;margin-top:4px">${copy.totalReserves}</div></div>
     </div>
-    <div style="margin-top:20px;padding:12px 24px;background:#f0f4ff;border-radius:8px;border:1px solid #c7d2fe;font-size:11px;color:#475569">Généré le ${dateStr}</div>
+    <div style="margin-top:20px;padding:12px 24px;background:#f0f4ff;border-radius:8px;border:1px solid #c7d2fe;font-size:11px;color:#475569">${copy.generatedOn} ${dateStr}</div>
   </div>
   <div style="padding:20px 24px">
     ${buildingSections.join('\n')}
     ${orphanHtml}
     ${summaryRows ? `<div style="margin-top:32px;page-break-before:auto">
-      <div style="font-size:11px;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:0.7px;border-bottom:1.5px solid #e2e8f0;padding-bottom:6px;margin-bottom:12px">Synthèse par statut</div>
+      <div style="font-size:11px;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:0.7px;border-bottom:1.5px solid #e2e8f0;padding-bottom:6px;margin-bottom:12px">${copy.statusSummary}</div>
       <table style="border:1px solid #e2e8f0;border-radius:8px;overflow:hidden"><tbody>${summaryRows}</tbody></table>
     </div>` : ''}
     <div style="margin-top:32px;padding-top:14px;border-top:1.5px solid #e2e8f0;display:flex;justify-content:space-between;font-size:9px;color:#94a3b8">
-      <span>Généré par BuildTrack — ${escHtml(chantierName)}</span>
-      <span>Document confidentiel · ${dateStr}</span>
+      <span>${copy.generatedBy} - ${escHtml(chantierName)}</span>
+      <span>${copy.confidential} - ${dateStr}</span>
     </div>
   </div>
 </body>
@@ -2219,52 +2576,55 @@ app.post('/api/generate-pdf', async (req, res) => {
     browser = null;
 
     if (payload.sendByEmail && Array.isArray(payload.recipients) && payload.recipients.length > 0) {
-      const dateStr = new Date(payload.generatedAt || Date.now()).toLocaleDateString('fr-FR', { day: '2-digit', month: 'long', year: 'numeric' });
-      const companyLabel = payload.companyFilter ?? 'Toutes les entreprises';
+      const language = pdfLanguage(payload.language);
+      const copy = pdfCopy(language);
+      const dateStr = pdfDate(payload.generatedAt || Date.now(), language);
+      const companyLabel = payload.companyFilter ?? copy.allCompanies;
       let filename, subject, emailHtml;
 
       if (type === 'individual_reserve') {
         const r = payload.reserve;
         filename = buildPdfFilename('Reserve', [r.id || 'reserve', r.title, payload.chantierName]);
-        subject = `Fiche réserve — ${r.title || r.id} (${payload.chantierName})`;
-        const sLabel = { open: 'Ouverte', in_progress: 'En cours', waiting: 'En attente', verification: 'Vérification', closed: 'Clôturée' }[r.status] ?? r.status;
+        subject = `${copy.reserveSheet} - ${r.title || r.id} (${payload.chantierName})`;
+        const sLabel = pdfStatusLabel(r.status, language, true);
         emailHtml = `<div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;color:#1e293b">
           <div style="background:#003082;padding:24px 32px;border-radius:8px 8px 0 0">
-            <div style="color:#fff;font-size:20px;font-weight:700">Fiche de réserve</div>
+            <div style="color:#fff;font-size:20px;font-weight:700">${copy.reserveSheet}</div>
             <div style="color:rgba(255,255,255,0.75);font-size:13px;margin-top:4px">${escHtml(payload.chantierName)}</div>
           </div>
           <div style="background:#f8fafc;padding:24px 32px;border:1px solid #e2e8f0;border-top:none;border-radius:0 0 8px 8px">
-            <p style="margin:0 0 16px 0">Bonjour,</p>
-            <p style="margin:0 0 16px 0">Veuillez trouver ci-joint la fiche de réserve <strong>${escHtml(r.title || r.id)}</strong>.</p>
+            <p style="margin:0 0 16px 0">${copy.hello}</p>
+            <p style="margin:0 0 16px 0">${copy.attachedReserve(escHtml(r.title || r.id))}</p>
             <div style="background:#fff;border:1px solid #e2e8f0;border-radius:8px;padding:16px;margin:16px 0">
-              <div style="font-size:13px;color:#64748b">Statut : <strong>${escHtml(sLabel)}</strong></div>
-              <div style="font-size:13px;color:#64748b;margin-top:4px">Bâtiment : <strong>${escHtml(r.building || '—')}</strong> · Niveau : <strong>${escHtml(r.level || '—')}</strong></div>
+              <div style="font-size:13px;color:#64748b">${copy.status} : <strong>${escHtml(sLabel)}</strong></div>
+              <div style="font-size:13px;color:#64748b;margin-top:4px">${copy.building} : <strong>${escHtml(r.building || copy.noValue)}</strong> - ${copy.level} : <strong>${escHtml(r.level || copy.noValue)}</strong></div>
             </div>
-            <p style="margin:16px 0 0 0;color:#64748b;font-size:12px">— BuildTrack</p>
+            <p style="margin:16px 0 0 0;color:#64748b;font-size:12px">BuildTrack</p>
           </div>
         </div>`;
       } else {
-        const companyPart = companyLabel === 'Toutes les entreprises' ? null : companyLabel;
+        const companyPart = companyLabel === copy.allCompanies ? null : companyLabel;
         filename = buildPdfFilename(type === 'global_reserves' ? 'Rapport_Reserves' : 'Rapport_Plans', [
           payload.chantierName,
           companyPart,
         ]);
         const count = Array.isArray(payload.reserves) ? payload.reserves.length : 0;
-        const reportKind = type === 'global_reserves' ? 'réserves' : 'plans';
-        subject = `Rapport des ${reportKind} — ${payload.chantierName} (${companyLabel})`;
+        const reportKind = type === 'global_reserves' ? copy.reservesKind : copy.plansKind;
+        const reportTitle = type === 'global_reserves' ? copy.reportReserves : copy.reportPlans;
+        subject = `${reportTitle} - ${payload.chantierName} (${companyLabel})`;
         emailHtml = `<div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;color:#1e293b">
           <div style="background:#003082;padding:24px 32px;border-radius:8px 8px 0 0">
-            <div style="color:#fff;font-size:20px;font-weight:700">Rapport des ${escHtml(reportKind)}</div>
-            <div style="color:rgba(255,255,255,0.75);font-size:13px;margin-top:4px">${escHtml(payload.chantierName)} · ${escHtml(companyLabel)}</div>
+            <div style="color:#fff;font-size:20px;font-weight:700">${reportTitle}</div>
+            <div style="color:rgba(255,255,255,0.75);font-size:13px;margin-top:4px">${escHtml(payload.chantierName)} - ${escHtml(companyLabel)}</div>
           </div>
           <div style="background:#f8fafc;padding:24px 32px;border:1px solid #e2e8f0;border-top:none;border-radius:0 0 8px 8px">
-            <p style="margin:0 0 16px 0">Bonjour,</p>
-            <p style="margin:0 0 16px 0">Veuillez trouver ci-joint le rapport des ${escHtml(reportKind)} pour <strong>${escHtml(payload.chantierName)}</strong> (${escHtml(companyLabel)}), généré le ${dateStr}.</p>
+            <p style="margin:0 0 16px 0">${copy.hello}</p>
+            <p style="margin:0 0 16px 0">${copy.attachedReport(escHtml(reportKind), escHtml(payload.chantierName), escHtml(companyLabel), dateStr)}</p>
             <div style="background:#fff;border:1px solid #e2e8f0;border-radius:8px;padding:16px;margin:16px 0;text-align:center">
               <div style="font-size:32px;font-weight:800;color:#003082">${count}</div>
-              <div style="font-size:11px;color:#64748b;text-transform:uppercase;letter-spacing:1px">réserve${count !== 1 ? 's' : ''} exportée${count !== 1 ? 's' : ''}</div>
+              <div style="font-size:11px;color:#64748b;text-transform:uppercase;letter-spacing:1px">${copy.exportedCount(count)}</div>
             </div>
-            <p style="margin:16px 0 0 0;color:#64748b;font-size:12px">— BuildTrack</p>
+            <p style="margin:16px 0 0 0;color:#64748b;font-size:12px">BuildTrack</p>
           </div>
         </div>`;
       }

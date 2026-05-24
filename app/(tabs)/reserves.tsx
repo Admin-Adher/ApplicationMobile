@@ -983,6 +983,7 @@ export default function ReservesScreen() {
         chantierName,
         companyFilter,
         generatedAt: new Date().toISOString(),
+        language: i18n.resolvedLanguage ?? i18n.language,
         reserves: reservesPayload,
         recipients: emails,
         sendByEmail: true,

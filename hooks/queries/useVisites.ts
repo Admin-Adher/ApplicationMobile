@@ -12,6 +12,7 @@ import { useStartupDelay } from '@/hooks/useStartupDelay';
 import { mergeWithCache, readCache, writeCache, pendingIdsForTable, isSupabaseSessionValid } from '@/lib/offlineCache';
 import { supabaseRestRpc } from '@/lib/supabaseRest';
 import { RESERVES_CACHE_KEY, VISITES_CACHE_KEY } from '@/lib/cacheKeys';
+import i18n from '@/lib/i18n';
 
 export function useVisites() {
   const { user } = useAuth();
@@ -133,7 +134,7 @@ export function useVisites() {
         if (isPermissionDenied && previous) {
           queryClient.setQueryData<Visite[]>(queryKeys.visites(), old => [previous, ...(old ?? [])]);
           persist(queryClient.getQueryData<Visite[]>(queryKeys.visites()) ?? []);
-          Alert.alert('Suppression refusée', "Vous n'avez pas les droits pour supprimer cette visite, ou elle n'existe plus sur le serveur.");
+          Alert.alert(i18n.t('syncAlerts.deleteDeniedTitle'), i18n.t('syncAlerts.deleteVisitDenied'));
         } else {
           console.warn('[sync] deleteVisite: erreur réseau/session, opération enqueued pour retry');
           enqueueOperation({ table: 'visites', op: 'delete', filter: { column: 'id', value: id } });

@@ -22,6 +22,14 @@ import BottomNavBar from '@/components/BottomNavBar';
 import { Reserve, ReserveWeekStat, CompanyClosureStat } from '@/constants/types';
 import { isOverdue } from '@/lib/reserveUtils';
 
+type TFunc = (key: string, options?: Record<string, any>) => string;
+
+function pdfLocaleFromLanguage(language?: string | null): string {
+  if (language?.startsWith('en')) return 'en-US';
+  if (language?.startsWith('es')) return 'es-ES';
+  return 'fr-FR';
+}
+
 function getWeekLabel(date: Date): string {
   const monday = new Date(date);
   monday.setDate(date.getDate() - ((date.getDay() + 6) % 7));
@@ -45,8 +53,11 @@ function buildAnalyticsPDF(
   reserves: Reserve[],
   projectName: string,
   userName: string,
+  t: TFunc,
+  language?: string | null,
 ): string {
-  const today = new Date().toLocaleDateString('fr-FR');
+  const locale = pdfLocaleFromLanguage(language);
+  const today = new Date().toLocaleDateString(locale);
   const docRef = `ANA-${new Date().toISOString().slice(0, 10)}`;
   const totalReserves = reserves.length;
   const closedReserves = reserves.filter(r => r.status === 'closed').length;
@@ -68,37 +79,36 @@ function buildAnalyticsPDF(
   ).join('');
 
   const body = `
-    ${buildLetterhead('Tableau de bord analytique', projectName, docRef, today, projectName)}
-    <div style="font-size:10px;color:#6B7280;margin-top:-16px;margin-bottom:20px">Généré par : <strong style="color:#1A2742">${escapeHtml(userName)}</strong></div>
+    ${buildLetterhead(t('analyticsScreen.pdf.title'), projectName, docRef, today, projectName, { locale })}
+    <div style="font-size:10px;color:#6B7280;margin-top:-16px;margin-bottom:20px">${escapeHtml(t('analyticsScreen.pdf.generatedBy'))} : <strong style="color:#1A2742">${escapeHtml(userName)}</strong></div>
     ${buildKpiRow([
-      { val: totalReserves, label: 'Réserves totales', color: '#003082' },
-      { val: closedReserves, label: 'Clôturées', color: '#059669' },
-      { val: `${closureRate}%`, label: 'Taux de clôture', color: '#003082' },
-      { val: overdueReserves, label: 'En retard', color: overdueReserves > 0 ? '#DC2626' : '#059669' },
+      { val: totalReserves, label: t('analyticsScreen.pdf.totalReserves'), color: '#003082' },
+      { val: closedReserves, label: t('analyticsScreen.closed'), color: '#059669' },
+      { val: `${closureRate}%`, label: t('analyticsScreen.kpis.closureRate'), color: '#003082' },
+      { val: overdueReserves, label: t('analyticsScreen.kpis.overdue'), color: overdueReserves > 0 ? '#DC2626' : '#059669' },
     ])}
-    <div class="section-header">Évolution hebdomadaire — 8 dernières semaines</div>
+    <div class="section-header">${escapeHtml(t('analyticsScreen.pdf.weeklyEightWeeks'))}</div>
     <table>
-      <thead><tr><th>Semaine</th><th>Créées</th><th>Clôturées</th><th>Taux levée</th></tr></thead>
-      <tbody>${weekRows || '<tr><td colspan="4" style="text-align:center;color:#6B7280">Aucune donnée</td></tr>'}</tbody>
+      <thead><tr><th>${escapeHtml(t('analyticsScreen.pdf.week'))}</th><th>${escapeHtml(t('analyticsScreen.created'))}</th><th>${escapeHtml(t('analyticsScreen.closed'))}</th><th>${escapeHtml(t('analyticsScreen.pdf.closureRate'))}</th></tr></thead>
+      <tbody>${weekRows || `<tr><td colspan="4" style="text-align:center;color:#6B7280">${escapeHtml(t('analyticsScreen.noData'))}</td></tr>`}</tbody>
     </table>
-    <div class="section-header">Performance par entreprise</div>
+    <div class="section-header">${escapeHtml(t('analyticsScreen.sections.company'))}</div>
     <table>
-      <thead><tr><th>Entreprise</th><th>Total</th><th>Clôturées</th><th>Taux</th><th>En retard</th></tr></thead>
-      <tbody>${companyRows || '<tr><td colspan="5" style="text-align:center;color:#6B7280">Aucune donnée</td></tr>'}</tbody>
+      <thead><tr><th>${escapeHtml(t('analyticsScreen.pdf.company'))}</th><th>${escapeHtml(t('analyticsScreen.kpis.total'))}</th><th>${escapeHtml(t('analyticsScreen.closed'))}</th><th>${escapeHtml(t('analyticsScreen.pdf.rate'))}</th><th>${escapeHtml(t('analyticsScreen.kpis.overdue'))}</th></tr></thead>
+      <tbody>${companyRows || `<tr><td colspan="5" style="text-align:center;color:#6B7280">${escapeHtml(t('analyticsScreen.noData'))}</td></tr>`}</tbody>
     </table>
-    ${buildDocFooter(projectName)}
+    ${buildDocFooter(projectName, { locale })}
   `;
-
-  return wrapHTML(body, `Analytique — ${projectName}`);
+  return wrapHTML(body, `${t('analyticsScreen.title')} - ${projectName}`);
 }
 
 export default function AnalyticsScreen() {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const { reserves, companies, lots } = useApp();
   const { user, permissions } = useAuth();
   const { projectName } = useSettings();
   const router = useRouter();
-  const userName = user?.name ?? 'Équipe BuildTrack';
+  const userName = user?.name ?? t('photosScreen.teamFallback');
 
   const weekStats = useMemo<ReserveWeekStat[]>(() => {
     const now = new Date();
@@ -171,7 +181,7 @@ export default function AnalyticsScreen() {
       return;
     }
     try {
-      const html = buildAnalyticsPDF(weekStats, companyStats, reserves, projectName, userName);
+      const html = buildAnalyticsPDF(weekStats, companyStats, reserves, projectName, userName, t, i18n.resolvedLanguage ?? i18n.language);
       await exportPDFHelper(html, buildPdfFilename('Tableau_Bord_Analytique', [projectName]));
     } catch (e: any) {
       Alert.alert(t('common.error'), e?.message ?? t('analyticsScreen.pdfError'));

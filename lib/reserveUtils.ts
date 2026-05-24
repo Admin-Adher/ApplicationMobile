@@ -80,6 +80,105 @@ export const RESERVE_TEMPLATES: { category: string; icon: string; items: { title
   },
 ];
 
+type ReserveTemplate = typeof RESERVE_TEMPLATES[number];
+
+const RESERVE_TEMPLATES_EN: ReserveTemplate[] = [
+  { category: 'Structural work', icon: 'construct-outline', items: [
+    { title: 'Render crack', description: 'Crack observed in the render. Repair with a suitable product and matching finish colour.' },
+    { title: 'Render repair', description: 'Defective render area to be repaired. Check adhesion and finish consistency.' },
+    { title: 'Floor levelling', description: 'Floor to be levelled before final floor covering. Respect reference levels.' },
+    { title: 'Moisture / staining', description: 'Moisture marks observed. Identify the source, infiltration or condensation, then treat.' },
+    { title: 'Exposed reinforcement', description: 'Concrete reinforcement is exposed. Anti-corrosion treatment and concrete repair required.' },
+  ] },
+  { category: 'Joinery', icon: 'grid-outline', items: [
+    { title: 'Door adjustment', description: 'Door is poorly adjusted: difficult closing or obstruction. Adjust hinges.' },
+    { title: 'Missing seal', description: 'Seal is missing or detached on joinery. Replace with a suitable seal.' },
+    { title: 'Glass replacement', description: 'Glass is cracked, broken or not compliant with specifications. Replacement required.' },
+    { title: 'Defective lock', description: 'Lock is blocked, key is hard to turn or mechanism is faulty. Replacement required.' },
+    { title: 'Missing threshold', description: 'Door threshold is missing or poorly installed. Install and finish to ensure watertightness.' },
+  ] },
+  { category: 'Painting / Finishes', icon: 'color-palette-outline', items: [
+    { title: 'Paint touch-up', description: 'Paint is scratched, missing or poorly applied. Touch up with the same colour.' },
+    { title: 'Plaster crack', description: 'Crack in interior plaster or coating. Fill, sand and repaint.' },
+    { title: 'Finish stains', description: 'Dirt or stains on finishes. Clean or replace the covering as required.' },
+    { title: 'Unprotected corner', description: 'Sharp corner without protection profile. Install a suitable corner trim.' },
+    { title: 'Incomplete suspended ceiling', description: 'Suspended ceiling tile or board missing or poorly installed. Complete and align.' },
+  ] },
+  { category: 'Electrical', icon: 'flash-outline', items: [
+    { title: 'Socket not working', description: 'Power socket out of service. Electrical check and repair required.' },
+    { title: 'Missing switch', description: 'Switch or cover plate missing. Complete installation and finish.' },
+    { title: 'Missing light fixture', description: 'Light point not equipped: cable not connected or fixture not installed.' },
+    { title: 'Incomplete panel', description: 'Electrical panel incomplete, unlabeled or missing protections. Bring into compliance.' },
+    { title: 'Unprotected cable', description: 'Visible cable without protective conduit. Add conduit or make good.' },
+  ] },
+  { category: 'Plumbing', icon: 'water-outline', items: [
+    { title: 'Leak observed', description: 'Water leak detected. Locate precisely and repair immediately.' },
+    { title: 'Defective tapware', description: 'Tap is dripping or mechanism is faulty. Replace gasket or cartridge.' },
+    { title: 'Blocked drain', description: 'Drain is blocked. Unblock and check the network.' },
+    { title: 'Missing trap', description: 'Trap missing or not installed on drain point. Install before use.' },
+    { title: 'Insufficient pressure', description: 'Insufficient water pressure at draw-off point. Check reducer and network.' },
+  ] },
+  { category: 'Floor / Wall coverings', icon: 'layers-outline', items: [
+    { title: 'Cracked tile', description: 'Tile cracked or debonded. Remove and reinstall with suitable mortar.' },
+    { title: 'Poorly laid parquet', description: 'Parquet boards are warped, misaligned or poorly fixed. Re-laying required.' },
+    { title: 'Tile grout', description: 'Tile grout missing, incomplete or colour not compliant. Complete grout.' },
+    { title: 'Missing skirting boards', description: 'Skirting boards missing or incomplete. Install and finish corners.' },
+    { title: 'Non-compliant covering', description: 'Covering not compliant with specification: colour, material or dimensions. Replacement required.' },
+  ] },
+];
+
+const RESERVE_TEMPLATES_ES: ReserveTemplate[] = [
+  { category: 'Obra gruesa', icon: 'construct-outline', items: [
+    { title: 'Fisura en revestimiento', description: 'Fisura observada en el revestimiento. Reparar con producto adecuado y color de acabado previsto.' },
+    { title: 'Reparación de revestimiento', description: 'Zona de revestimiento defectuosa a reparar. Verificar adherencia y homogeneidad.' },
+    { title: 'Nivelación de suelo', description: 'Suelo a nivelar antes del revestimiento final. Respetar los niveles de referencia.' },
+    { title: 'Humedad / manchas', description: 'Manchas de humedad observadas. Identificar origen, infiltración o condensación, y tratar.' },
+    { title: 'Armadura expuesta', description: 'Armadura de hormigón expuesta. Tratamiento anticorrosión y reparación del hormigón requeridos.' },
+  ] },
+  { category: 'Carpintería', icon: 'grid-outline', items: [
+    { title: 'Ajuste de puerta', description: 'Puerta mal ajustada: cierre difícil u obstrucción. Ajustar bisagras.' },
+    { title: 'Junta faltante', description: 'Junta de estanqueidad ausente o despegada. Sustituir por junta adecuada.' },
+    { title: 'Cristal a sustituir', description: 'Cristal fisurado, roto o no conforme a especificaciones. Sustitución necesaria.' },
+    { title: 'Cerradura defectuosa', description: 'Cerradura bloqueada, llave difícil de girar o mecanismo defectuoso. Sustitución requerida.' },
+    { title: 'Umbral faltante', description: 'Umbral de puerta ausente o mal instalado. Colocación y acabado para asegurar estanqueidad.' },
+  ] },
+  { category: 'Pintura / Acabados', icon: 'color-palette-outline', items: [
+    { title: 'Repaso de pintura', description: 'Pintura rayada, faltante o mal aplicada. Repasar con el mismo color.' },
+    { title: 'Fisura en yeso', description: 'Fisura en yeso o revestimiento interior. Rellenar, lijar y repintar.' },
+    { title: 'Manchas en acabados', description: 'Suciedad o manchas en acabados. Limpiar o sustituir el revestimiento.' },
+    { title: 'Esquina sin protección', description: 'Esquina viva sin perfil de protección. Instalar perfil adecuado.' },
+    { title: 'Falso techo incompleto', description: 'Placa de falso techo faltante o mal colocada. Completar y alinear.' },
+  ] },
+  { category: 'Electricidad', icon: 'flash-outline', items: [
+    { title: 'Toma no funciona', description: 'Toma de corriente fuera de servicio. Revisión eléctrica y reparación obligatorias.' },
+    { title: 'Interruptor faltante', description: 'Interruptor o placa ausente. Finalizar instalación y acabado.' },
+    { title: 'Luminaria ausente', description: 'Punto de luz sin equipar: cable no conectado o luminaria no instalada.' },
+    { title: 'Cuadro incompleto', description: 'Cuadro eléctrico incompleto, sin etiquetas o con protecciones faltantes. Poner en conformidad.' },
+    { title: 'Cable sin tubo', description: 'Cable visible sin conducto de protección. Colocar tubo o reparar acabado.' },
+  ] },
+  { category: 'Fontanería', icon: 'water-outline', items: [
+    { title: 'Fuga observada', description: 'Fuga de agua detectada. Localizar con precisión y reparar inmediatamente.' },
+    { title: 'Grifería defectuosa', description: 'Grifo que gotea o mecanismo defectuoso. Sustituir junta o cartucho.' },
+    { title: 'Desagüe obstruido', description: 'Desagüe obstruido. Desatascar y verificar la red.' },
+    { title: 'Sifón faltante', description: 'Sifón ausente o no instalado en punto de evacuación. Instalar antes del uso.' },
+    { title: 'Presión insuficiente', description: 'Presión de agua insuficiente en el punto de consumo. Verificar reductor y red.' },
+  ] },
+  { category: 'Revestimientos', icon: 'layers-outline', items: [
+    { title: 'Baldosa fisurada', description: 'Baldosa fisurada o despegada. Retirar y colocar de nuevo con mortero adecuado.' },
+    { title: 'Parquet mal instalado', description: 'Lamas de parquet abombadas, desalineadas o mal fijadas. Reinstalación necesaria.' },
+    { title: 'Junta de baldosas', description: 'Juntas de baldosas faltantes, incompletas o color no conforme. Completar.' },
+    { title: 'Rodapiés faltantes', description: 'Rodapiés no colocados o incompletos. Instalar y rematar esquinas.' },
+    { title: 'Revestimiento no conforme', description: 'Revestimiento no conforme al pliego: color, material o dimensiones. Sustitución requerida.' },
+  ] },
+];
+
+export function getReserveTemplates(language?: string | null): ReserveTemplate[] {
+  const normalized = String(language ?? '').toLowerCase();
+  if (normalized.startsWith('en')) return RESERVE_TEMPLATES_EN;
+  if (normalized.startsWith('es')) return RESERVE_TEMPLATES_ES;
+  return RESERVE_TEMPLATES;
+}
+
 export function levelSortKey(name: string): number {
   const t = (name ?? '').trim();
   if (/^(rdc|r\.?d\.?c\.?|rc|rez)/i.test(t)) return 0;

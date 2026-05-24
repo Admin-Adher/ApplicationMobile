@@ -10,6 +10,7 @@ import { toOpr, fromOpr } from '@/lib/mappers';
 import { Opr } from '@/constants/types';
 import { useStartupDelay } from '@/hooks/useStartupDelay';
 import { mergeWithCache, readCache, writeCache, pendingIdsForTable, isSupabaseSessionValid } from '@/lib/offlineCache';
+import i18n from '@/lib/i18n';
 
 const OPRS_CACHE_KEY = 'buildtrack_oprs_cache_v1';
 
@@ -129,7 +130,7 @@ export function useOprs() {
         if (isPermissionDenied && previous) {
           queryClient.setQueryData<Opr[]>(queryKeys.oprs(), old => [previous, ...(old ?? [])]);
           persist(queryClient.getQueryData<Opr[]>(queryKeys.oprs()) ?? []);
-          Alert.alert('Suppression refusée', "Vous n'avez pas les droits pour supprimer cet OPR, ou il n'existe plus sur le serveur.");
+          Alert.alert(i18n.t('syncAlerts.deleteDeniedTitle'), i18n.t('syncAlerts.deleteOprDenied'));
         } else {
           console.warn('[sync] deleteOpr: erreur réseau/session, opération enqueued pour retry');
           enqueueOperation({ table: 'oprs', op: 'delete', filter: { column: 'id', value: id } });

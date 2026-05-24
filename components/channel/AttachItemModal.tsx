@@ -29,15 +29,16 @@ export function getLinkedItemIcon(type?: string | null): string {
   }
 }
 
-export function getLinkedItemLabel(type?: string | null): string {
+export function getLinkedItemLabel(type?: string | null, t?: (key: string) => string): string {
+  const resolve = (key: string, fallback: string) => t ? t(key) : fallback;
   switch (type) {
-    case 'reserve': return 'Réserve';
-    case 'plan': return 'Plan';
-    case 'task': return 'Tâche';
-    case 'incident': return 'Incident';
-    case 'visite': return 'Visite';
-    case 'opr': return 'OPR';
-    default: return 'Élément lié';
+    case 'reserve': return resolve('linkedItems.reserve', 'Reserve');
+    case 'plan': return resolve('linkedItems.plan', 'Plan');
+    case 'task': return resolve('linkedItems.task', 'Task');
+    case 'incident': return resolve('linkedItems.incident', 'Incident');
+    case 'visite': return resolve('linkedItems.visit', 'Visit');
+    case 'opr': return resolve('linkedItems.opr', 'OPR');
+    default: return resolve('linkedItems.linkedItem', 'Linked item');
   }
 }
 

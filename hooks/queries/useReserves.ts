@@ -15,6 +15,7 @@ import { mergeWithCache, readCache, writeCache, pendingIdsForTable, isSupabaseSe
 import { uploadLocalPhotosInPayload } from '@/lib/storage';
 import { triggerReserveCreatedPush } from '@/lib/push/client';
 import { RESERVES_CACHE_KEY } from '@/lib/cacheKeys';
+import i18n from '@/lib/i18n';
 
 export function useReserves() {
   const { user } = useAuth();
@@ -245,8 +246,8 @@ export function useReserves() {
           // Server confirmed the user's role genuinely forbids creating reserves.
           rollback();
           Alert.alert(
-            'Permission refusée',
-            `Votre rôle actuel (${freshRole ?? 'inconnu'}) ne permet pas de créer des réserves. Contactez votre administrateur.`
+            i18n.t('syncAlerts.permissionDeniedTitle'),
+            i18n.t('syncAlerts.reserveCreateRoleDenied', { role: freshRole ?? i18n.t('common.unknown') }),
           );
           return;
         }
@@ -254,8 +255,8 @@ export function useReserves() {
           // Server confirmed the profile has no organisation.
           rollback();
           Alert.alert(
-            'Profil incomplet',
-            "Votre compte n'est pas rattaché à une organisation. Contactez votre administrateur ou utilisez le lien d'invitation."
+            i18n.t('syncAlerts.incompleteProfileTitle'),
+            i18n.t('syncAlerts.reserveCreateNoOrg'),
           );
           return;
         }
@@ -385,7 +386,7 @@ export function useReserves() {
             return [previous, ...cur];
           });
           persist(queryClient.getQueryData<Reserve[]>(queryKeys.reserves()) ?? []);
-          Alert.alert('Suppression refusée', "Vous n'avez pas les droits pour supprimer cette réserve, ou elle n'existe plus sur le serveur.");
+          Alert.alert(i18n.t('syncAlerts.deleteDeniedTitle'), i18n.t('syncAlerts.deleteReserveDenied'));
         } else {
           // Network / session error: local deletion is already applied and persisted.
           // Queue the delete so the sync engine retries it when connectivity is restored.
@@ -404,14 +405,17 @@ export function useReserves() {
     const reserves = query.data ?? [];
     const reserve = reserves.find(r => r.id === id);
     if (!reserve) return;
-    const actualAuthor = author ?? user?.name ?? 'Système';
+    const actualAuthor = author ?? user?.name ?? i18n.t('common.system');
     const now = new Date().toISOString().split('T')[0];
     const statusLabels: Record<string, string> = {
-      open: 'Ouvert', in_progress: 'En cours', waiting: 'En attente',
-      verification: 'Vérification', closed: 'Clôturé',
+      open: i18n.t('reserveLabels.status.open'),
+      in_progress: i18n.t('reserveLabels.status.in_progress'),
+      waiting: i18n.t('reserveLabels.status.waiting'),
+      verification: i18n.t('reserveLabels.status.verification'),
+      closed: i18n.t('reserveLabels.status.closed'),
     };
     const historyEntry = {
-      id: genId(), action: 'Statut modifié', author: actualAuthor, createdAt: nowTimestampFR(),
+      id: genId(), action: i18n.t('syncAlerts.statusChangedAction'), author: actualAuthor, createdAt: nowTimestampFR(),
       oldValue: statusLabels[reserve.status], newValue: statusLabels[status],
     };
     const isClosing = status === 'closed' && reserve.status !== 'closed';

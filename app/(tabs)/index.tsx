@@ -248,11 +248,11 @@ export default function DashboardScreen() {
   const firstName = user?.name?.split(' ')[0] ?? null;
 
   const priorityLabels = useMemo(() => ({
-    low: effectiveLanguage === 'en' ? 'Low' : effectiveLanguage === 'es' ? 'Baja' : 'Basse',
-    medium: effectiveLanguage === 'en' ? 'Medium' : effectiveLanguage === 'es' ? 'Media' : 'Moyenne',
-    high: effectiveLanguage === 'en' ? 'High' : effectiveLanguage === 'es' ? 'Alta' : 'Haute',
-    critical: t('dashboard.critical'),
-  }), [effectiveLanguage, t]);
+    low: t('reserveLabels.priority.low'),
+    medium: t('reserveLabels.priority.medium'),
+    high: t('reserveLabels.priority.high'),
+    critical: t('reserveLabels.priority.critical'),
+  }), [t]);
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
@@ -315,11 +315,6 @@ export default function DashboardScreen() {
     return companies;
   }, [isSousTraitant, userCompany, companies]);
 
-  const visibleCompanyPlural =
-    effectiveLanguage === 'en'
-      ? (visibleCompanies.length > 1 ? 'ies' : 'y')
-      : (visibleCompanies.length > 1 ? 's' : '');
-
   return (
     <View style={styles.container}>
       <View style={[styles.header, { paddingTop: topPad + 12 }]}>
@@ -342,7 +337,7 @@ export default function DashboardScreen() {
                 style={styles.syncChip}
                 onPress={() => router.push('/settings' as any)}
                 accessibilityRole="button"
-                accessibilityLabel={`${queueCount} élément${queueCount > 1 ? 's' : ''} en attente de synchronisation${!isOnline ? ', hors ligne' : ''}`}
+                accessibilityLabel={t(isOnline ? 'dashboard.syncPendingOnline' : 'dashboard.syncPendingOffline', { count: queueCount })}
                 hitSlop={8}
               >
                 {syncStatus === 'syncing' ? (
@@ -678,11 +673,11 @@ export default function DashboardScreen() {
           <View style={styles.card}>
             <Text style={styles.cardTitle}>{t('dashboard.reserveBreakdown')}</Text>
             <View style={styles.statusBars}>
-              <ReserveStatusBar label={effectiveLanguage === 'en' ? 'Open' : effectiveLanguage === 'es' ? 'Abierta' : 'Ouvert'} count={visibleStats.open} total={visibleStats.total} color={C.open} />
-              <ReserveStatusBar label={effectiveLanguage === 'en' ? 'In progress' : effectiveLanguage === 'es' ? 'En curso' : 'En cours'} count={visibleStats.inProgress} total={visibleStats.total} color={C.inProgress} />
-              <ReserveStatusBar label={effectiveLanguage === 'en' ? 'Pending' : effectiveLanguage === 'es' ? 'En espera' : 'En attente'} count={visibleStats.waiting} total={visibleStats.total} color={C.waiting} />
-              <ReserveStatusBar label={effectiveLanguage === 'en' ? 'Verification' : effectiveLanguage === 'es' ? 'Verificación' : 'Vérification'} count={visibleStats.verification} total={visibleStats.total} color={C.verification} />
-              <ReserveStatusBar label={t('dashboard.closed')} count={visibleStats.closed} total={visibleStats.total} color={C.closed} />
+              <ReserveStatusBar label={t('reserveLabels.status.open')} count={visibleStats.open} total={visibleStats.total} color={C.open} />
+              <ReserveStatusBar label={t('reserveLabels.status.in_progress')} count={visibleStats.inProgress} total={visibleStats.total} color={C.inProgress} />
+              <ReserveStatusBar label={t('reserveLabels.status.waiting')} count={visibleStats.waiting} total={visibleStats.total} color={C.waiting} />
+              <ReserveStatusBar label={t('reserveLabels.status.verification')} count={visibleStats.verification} total={visibleStats.total} color={C.verification} />
+              <ReserveStatusBar label={t('reserveLabels.status.closed')} count={visibleStats.closed} total={visibleStats.total} color={C.closed} />
             </View>
           </View>
         )}
@@ -824,7 +819,7 @@ export default function DashboardScreen() {
                 >
                   <Ionicons name="people-outline" size={16} color={C.textSub} />
                   <Text style={styles.personnelEmptyText}>
-                    {t('dashboard.noAttendance', { count: visibleCompanies.length, plural: visibleCompanyPlural })}
+                    {t('dashboard.noAttendance', { count: visibleCompanies.length })}
                   </Text>
                   <Ionicons name="chevron-down" size={14} color={C.textSub} />
                 </TouchableOpacity>
@@ -859,10 +854,7 @@ export default function DashboardScreen() {
                 >
                   <Ionicons name="chevron-down" size={14} color={C.primary} />
                   <Text style={styles.personnelToggleText}>
-                    {t('dashboard.seeOtherCompanies', {
-                      count: inactiveCount,
-                      plural: effectiveLanguage === 'en' ? (inactiveCount > 1 ? 'ies' : 'y') : (inactiveCount > 1 ? 's' : ''),
-                    })}
+                    {t('dashboard.seeOtherCompanies', { count: inactiveCount })}
                   </Text>
                 </TouchableOpacity>
               )}

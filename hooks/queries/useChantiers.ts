@@ -10,6 +10,7 @@ import { toChantier, toSitePlan } from '@/lib/mappers';
 import { Chantier, SitePlan, Channel } from '@/constants/types';
 import { uploadLocalPhotosInPayload } from '@/lib/storage';
 import { mergeWithCache, readCache, writeCache, pendingIdsForTable, isSupabaseSessionValid } from '@/lib/offlineCache';
+import i18n from '@/lib/i18n';
 
 const CHANTIERS_CACHE_KEY = 'buildtrack_chantiers_cache_v1';
 const SITE_PLANS_CACHE_KEY = 'buildtrack_site_plans_cache_v1';
@@ -114,7 +115,10 @@ export function useChantiers() {
   const addChantier = useCallback(async (c: Chantier, plans: SitePlan[], onCreated?: (ch: Channel) => void) => {
     const existing = queryClient.getQueryData<Chantier[]>(queryKeys.chantiers()) ?? [];
     if (existing.some(x => x.name.trim().toLowerCase() === c.name.trim().toLowerCase())) {
-      Alert.alert('Chantier existant', `Un chantier nommé "${c.name}" existe déjà.`);
+      Alert.alert(
+        i18n.t('syncAlerts.duplicateProjectTitle'),
+        i18n.t('syncAlerts.duplicateProjectMessage', { name: c.name }),
+      );
       return;
     }
     const newChantiers = [...existing, c];
@@ -175,7 +179,11 @@ export function useChantiers() {
         const { error: err2 } = await (supabase as any).from('chantiers').insert(chantierPayload);
         if (err2) {
           enqueueOperation({ table: 'chantiers', op: 'insert', data: chantierPayload });
-          Alert.alert('Synchronisation incomplète', `Le chantier "${c.name}" a été créé localement mais n'a pas pu être synchronisé avec le serveur (${err2.message}).`, [{ text: 'OK' }]);
+          Alert.alert(
+            i18n.t('syncAlerts.incompleteSyncTitle'),
+            i18n.t('syncAlerts.projectCreatedLocalMessage', { name: c.name, error: err2.message }),
+            [{ text: i18n.t('common.ok') }],
+          );
         }
       }
       // Fix 2: insert plans with full payload matching addSitePlan
@@ -289,7 +297,7 @@ export function useChantiers() {
           // Restore local cache on failure
           queryClient.setQueryData<Chantier[]>(queryKeys.chantiers(), [prev.find(c => c.id === id)!, ...newChantiers]);
           writeCache(CHANTIERS_CACHE_KEY, [prev.find(c => c.id === id)!, ...newChantiers], userId);
-          Alert.alert('Suppression refusée', 'Le chantier n\'a pas pu être supprimé du serveur.');
+          Alert.alert(i18n.t('syncAlerts.deleteDeniedTitle'), i18n.t('syncAlerts.deleteProjectDenied'));
         } else if (!deleted2?.length) {
           console.warn('[sync] deleteChantier: aucune ligne supprimée');
         }
@@ -405,7 +413,7 @@ export function useChantiers() {
         if (isPermissionDenied && previous) {
           queryClient.setQueryData<SitePlan[]>(queryKeys.sitePlans(), old => [...(old ?? []), previous]);
           writeCache(SITE_PLANS_CACHE_KEY, queryClient.getQueryData<SitePlan[]>(queryKeys.sitePlans()) ?? [], userId);
-          Alert.alert('Suppression refusée', "Vous n'avez pas les droits pour supprimer ce plan, ou il n'existe plus sur le serveur.");
+          Alert.alert(i18n.t('syncAlerts.deleteDeniedTitle'), i18n.t('syncAlerts.deletePlanDenied'));
         } else {
           console.warn('[sync] deleteSitePlan: erreur réseau/session, opération enqueued pour retry');
           enqueueOperation({ table: 'site_plans', op: 'delete', filter: { column: 'id', value: id } });

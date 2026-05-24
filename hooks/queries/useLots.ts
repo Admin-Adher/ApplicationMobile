@@ -10,6 +10,7 @@ import { toLot, fromLot } from '@/lib/mappers';
 import { Lot } from '@/constants/types';
 import { useStartupDelay } from '@/hooks/useStartupDelay';
 import { mergeWithCache, readCache, writeCache, pendingIdsForTable, isSupabaseSessionValid } from '@/lib/offlineCache';
+import i18n from '@/lib/i18n';
 
 const LOTS_CACHE_KEY = 'buildtrack_lots_cache_v1';
 
@@ -95,7 +96,10 @@ export function useLots() {
     const orgId = user?.organizationId ?? null;
     const existing = queryClient.getQueryData<Lot[]>(queryKeys.lots()) ?? [];
     if (existing.some(x => x.name.trim().toLowerCase() === l.name.trim().toLowerCase())) {
-      Alert.alert('Lot existant', `Un lot nommé "${l.name}" existe déjà.`);
+      Alert.alert(
+        i18n.t('syncAlerts.duplicateLotTitle'),
+        i18n.t('syncAlerts.duplicateLotMessage', { name: l.name }),
+      );
       return;
     }
     const newList = [...existing, l];
@@ -152,7 +156,7 @@ export function useLots() {
         if (isPermissionDenied && previous) {
           queryClient.setQueryData<Lot[]>(queryKeys.lots(), old => [...(old ?? []), previous]);
           persist(queryClient.getQueryData<Lot[]>(queryKeys.lots()) ?? []);
-          Alert.alert('Suppression refusée', "Vous n'avez pas les droits pour supprimer ce lot, ou il n'existe plus sur le serveur.");
+          Alert.alert(i18n.t('syncAlerts.deleteDeniedTitle'), i18n.t('syncAlerts.deleteLotDenied'));
         } else {
           console.warn('[sync] deleteLot: erreur réseau/session, opération enqueued pour retry');
           enqueueOperation({ table: 'lots', op: 'delete', filter: { column: 'id', value: id } });

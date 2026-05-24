@@ -442,7 +442,7 @@ export default function MessagesTabScreen() {
         Alert.alert(
           t('messages.pinnedLimitTitle'),
           t('messages.pinnedLimitText', { count: maxPinnedChannels }),
-          [{ text: 'OK' }]
+          [{ text: t('common.ok') }]
         );
       }
     }
@@ -1076,7 +1076,11 @@ export default function MessagesTabScreen() {
                       <View style={{ flex: 1 }}>
                         <Text style={styles.sheetTitle} numberOfLines={1}>{actionSheet.name}</Text>
                         <Text style={styles.sheetSub}>
-                          {actionSheet.type === 'dm' ? 'Message direct' : actionSheet.type === 'group' ? 'Groupe' : 'Canal'}
+                          {actionSheet.type === 'dm'
+                            ? t('messages.actionSheet.typeDm')
+                            : actionSheet.type === 'group'
+                              ? t('messages.actionSheet.typeGroup')
+                              : t('messages.actionSheet.typeChannel')}
                         </Text>
                       </View>
                     </View>
@@ -1092,8 +1096,8 @@ export default function MessagesTabScreen() {
                             <Ionicons name="pin-outline" size={20} color={C.waiting} />
                           </View>
                           <View style={{ flex: 1 }}>
-                            <Text style={[styles.sheetBtnLabel, { color: C.waiting }]}>Désépingler la conversation</Text>
-                            <Text style={styles.sheetBtnSub}>Retire de la section Épinglées</Text>
+                            <Text style={[styles.sheetBtnLabel, { color: C.waiting }]}>{t('messages.actionSheet.unpin')}</Text>
+                            <Text style={styles.sheetBtnSub}>{t('messages.actionSheet.unpinHint')}</Text>
                           </View>
                         </>
                       ) : (
@@ -1102,9 +1106,9 @@ export default function MessagesTabScreen() {
                             <Ionicons name="pin" size={20} color={C.primary} />
                           </View>
                           <View style={{ flex: 1 }}>
-                            <Text style={styles.sheetBtnLabel}>Épingler la conversation</Text>
+                            <Text style={styles.sheetBtnLabel}>{t('messages.actionSheet.pin')}</Text>
                             <Text style={styles.sheetBtnSub}>
-                              {pinnedChannelIds.length}/{maxPinnedChannels} emplacements utilisés
+                              {t('messages.actionSheet.pinSlots', { used: pinnedChannelIds.length, max: maxPinnedChannels })}
                             </Text>
                           </View>
                         </>
@@ -1119,8 +1123,8 @@ export default function MessagesTabScreen() {
                         <Ionicons name="chatbubble-outline" size={20} color={C.textSub} />
                       </View>
                       <View style={{ flex: 1 }}>
-                        <Text style={styles.sheetBtnLabel}>Ouvrir la conversation</Text>
-                        <Text style={styles.sheetBtnSub}>Aller directement aux messages</Text>
+                        <Text style={styles.sheetBtnLabel}>{t('messages.actionSheet.open')}</Text>
+                        <Text style={styles.sheetBtnSub}>{t('messages.actionSheet.openHint')}</Text>
                       </View>
                     </TouchableOpacity>
                     {(actionSheet.type === 'custom' || actionSheet.type === 'group' || actionSheet.type === 'dm') && (
@@ -1136,8 +1140,8 @@ export default function MessagesTabScreen() {
                             <Ionicons name="pencil-outline" size={20} color="#0A84FF" />
                           </View>
                           <View style={{ flex: 1 }}>
-                            <Text style={[styles.sheetBtnLabel, { color: '#0A84FF' }]}>Modifier le canal</Text>
-                            <Text style={styles.sheetBtnSub}>Changer le nom, l'icône ou la couleur</Text>
+                            <Text style={[styles.sheetBtnLabel, { color: '#0A84FF' }]}>{t('messages.actionSheet.edit')}</Text>
+                            <Text style={styles.sheetBtnSub}>{t('messages.actionSheet.editHint')}</Text>
                           </View>
                           </TouchableOpacity>
                         )}
@@ -1151,17 +1155,17 @@ export default function MessagesTabScreen() {
                           </View>
                           <View style={{ flex: 1 }}>
                             <Text style={[styles.sheetBtnLabel, { color: C.open }]}>
-                              {actionSheet.type === 'dm' ? 'Supprimer la conversation' : 'Supprimer le canal'}
+                              {actionSheet.type === 'dm' ? t('messages.actionSheet.deleteConversation') : t('messages.actionSheet.deleteChannel')}
                             </Text>
                             <Text style={styles.sheetBtnSub}>
-                              {actionSheet.type === 'dm' ? 'Masquer de votre messagerie' : 'Action irréversible'}
+                              {actionSheet.type === 'dm' ? t('messages.actionSheet.deleteDmHint') : t('messages.actionSheet.deleteChannelHint')}
                             </Text>
                           </View>
                         </TouchableOpacity>
                       </>
                     )}
                     <TouchableOpacity style={styles.sheetCancelBtn} onPress={() => setActionSheet(null)}>
-                      <Text style={styles.sheetCancelText}>Annuler</Text>
+                      <Text style={styles.sheetCancelText}>{t('common.cancel')}</Text>
                     </TouchableOpacity>
                   </>
                 )}

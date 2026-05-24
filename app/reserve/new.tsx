@@ -22,7 +22,7 @@ import { notifyReserveCreated } from '@/lib/email/notifyReserveCreated';
 import { uploadPhoto, persistLocalPhoto } from '@/lib/storage';
 import { genId, nowTimestampFR } from '@/lib/utils';
 import {
-  RESERVE_PRIORITIES, RESERVE_TEMPLATES,
+  RESERVE_PRIORITIES, getReserveTemplates,
   genReserveId, validateDeadline,
 } from '@/lib/reserveUtils';
 import LocationPicker from '@/components/LocationPicker';
@@ -78,7 +78,7 @@ function SelectRow<T extends string>({
 }
 
 export default function NewReserveScreen() {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const { companies, addReserve, reserves, addPhoto, activeChantierId, chantiers, sitePlans, lots, linkReserveToVisite, visites, profiles } = useApp();
@@ -110,6 +110,10 @@ export default function NewReserveScreen() {
     ?.map(companyId => companies.find(c => c.id === companyId)?.name)
     .filter((name): name is string => !!name) ?? [];
   const visitCompanyKey = visitCompanyNames.join('|');
+  const reserveTemplates = useMemo(
+    () => getReserveTemplates(i18n.resolvedLanguage ?? i18n.language),
+    [i18n.resolvedLanguage, i18n.language],
+  );
 
   const [kind, setKind] = useState<ReserveKind>('reserve');
   const [title, setTitle] = useState('');
@@ -852,14 +856,14 @@ export default function NewReserveScreen() {
                 <Ionicons name="bookmark-outline" size={15} color={C.primary} />
                 <Text style={styles.templateHeaderText}>{t('reserveNew.templates')}</Text>
                 <View style={styles.templateBadge}>
-                  <Text style={styles.templateBadgeText}>{RESERVE_TEMPLATES.reduce((s, c) => s + c.items.length, 0)}</Text>
+                  <Text style={styles.templateBadgeText}>{reserveTemplates.reduce((s, c) => s + c.items.length, 0)}</Text>
                 </View>
               </View>
               <Ionicons name={showTemplates ? 'chevron-up' : 'chevron-down'} size={16} color={C.textSub} />
             </TouchableOpacity>
             {showTemplates && (
               <View style={{ marginTop: 12 }}>
-                {RESERVE_TEMPLATES.map(cat => (
+                {reserveTemplates.map(cat => (
                   <View key={cat.category} style={{ marginBottom: 4 }}>
                     <TouchableOpacity
                       style={styles.templateCatRow}

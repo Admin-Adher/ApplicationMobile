@@ -26,15 +26,28 @@ import DictationTextInput from '@/components/DictationTextInput';
 
 const REACTIONS = ['👍', '✅', '⚠️', '🔥', '💯', '❌'];
 
-function formatTimestampLabel(timestamp: string, t: (key: string) => string): string {
+function getDateLocale(language: string | undefined): string {
+  if (language?.startsWith('es')) return 'es-ES';
+  if (language?.startsWith('en')) return 'en-GB';
+  return 'fr-FR';
+}
+
+function formatTimestampLabel(timestamp: string, t: (key: string) => string, language?: string): string {
   const parts = timestamp.split(' ');
   if (parts.length < 2) return timestamp;
   const datePart = parts[0];
-  const today = new Date().toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit', year: 'numeric' });
-  const yesterday = new Date(Date.now() - 86400000).toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit', year: 'numeric' });
+  const storageDate = new Intl.DateTimeFormat('fr-FR', { day: '2-digit', month: '2-digit', year: 'numeric' });
+  const today = storageDate.format(new Date());
+  const yesterday = storageDate.format(new Date(Date.now() - 86400000));
   if (datePart === today) return t('channel.today');
   if (datePart === yesterday) return t('channel.yesterday');
-  return datePart;
+  const match = datePart.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
+  if (!match) return datePart;
+  return new Intl.DateTimeFormat(getDateLocale(language), {
+    day: '2-digit',
+    month: 'short',
+    year: 'numeric',
+  }).format(new Date(Number(match[3]), Number(match[2]) - 1, Number(match[1])));
 }
 
 function getDateFromTimestamp(timestamp: string): string {
@@ -171,7 +184,7 @@ function selectChannelMessagesForRender(
 }
 
 export default function ChannelScreen() {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const insets = useSafeAreaInsets();
   const {
     id: channelId, name: channelName, color: channelColor, icon: channelIcon,
@@ -202,7 +215,7 @@ export default function ChannelScreen() {
 
   const channelObj = channels.find(c => c.id === channelId);
   const color = channelColor ?? channelObj?.color ?? C.primary;
-  const liveChannelName = channelObj?.name ?? channelName ?? 'Canal';
+  const liveChannelName = channelObj?.name ?? channelName ?? t('channel.defaultName');
   const baseMembers: string[] = channelObj?.members ?? (membersParam ? membersParam.split(',').filter(Boolean) : []);
   const overrideMembers: string[] = channelId ? (channelMembersOverride[channelId] ?? []) : [];
   const liveMembers: string[] = useMemo(() => {
@@ -358,13 +371,13 @@ export default function ChannelScreen() {
     for (const msg of filteredMessages) {
       const msgDate = getDateFromTimestamp(msg.timestamp);
       if (msgDate !== lastDate) {
-        items.push({ _type: 'date', label: formatTimestampLabel(msg.timestamp, t), key: `date-${msgDate}` });
+        items.push({ _type: 'date', label: formatTimestampLabel(msg.timestamp, t, i18n.language), key: `date-${msgDate}` });
         lastDate = msgDate;
       }
       items.push(msg);
     }
     return [...items].reverse();
-  }, [filteredMessages, t]);
+  }, [filteredMessages, t, i18n.language]);
 
   // Fix 2 — Pagination serveur : oldest dbCreatedAt parmi les messages chargés
   const oldestDbCreatedAt = useMemo(() => {
@@ -566,7 +579,7 @@ export default function ChannelScreen() {
   }
 
   async function handleCamera() {
-    if (Platform.OS === 'web') { Alert.alert('Info', t('channel.cameraMobileOnly')); return; }
+    if (Platform.OS === 'web') { Alert.alert(t('common.info'), t('channel.cameraMobileOnly')); return; }
     const { status } = await ImagePicker.requestCameraPermissionsAsync();
     if (status !== 'granted') { Alert.alert(t('channel.permissionDenied'), t('channel.cameraRequired')); return; }
     const result = await ImagePicker.launchCameraAsync({ allowsEditing: true, quality: 0.8 });

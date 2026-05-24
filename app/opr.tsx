@@ -67,7 +67,250 @@ const DEFAULT_OPR_ITEM_KEYS = [
   'outdoor',
 ];
 
-function buildOprPDF(opr: Opr, projectName: string, t: TFunc): string {
+type PdfLang = 'fr' | 'en' | 'es';
+
+function pdfLang(language?: string | null): PdfLang {
+  if (language?.startsWith('en')) return 'en';
+  if (language?.startsWith('es')) return 'es';
+  return 'fr';
+}
+
+function pdfLocale(language?: string | null): string {
+  if (language?.startsWith('en')) return 'en-US';
+  if (language?.startsWith('es')) return 'es-ES';
+  return 'fr-FR';
+}
+
+const OPR_PDF_COPY: Record<PdfLang, Record<string, string>> = {
+  fr: {
+    noValue: '—',
+    receptionReport: 'Procès-verbal de réception',
+    electronicSignatures: 'Signatures électroniques',
+    signedReport: 'PV signé électroniquement le {{date}}',
+    signatures: 'Signatures',
+    manager: 'Conducteur de travaux',
+    owner: "Maître d'ouvrage",
+    signedOn: 'Signé le',
+    date: 'Date',
+    location: 'Localisation',
+    receptionDate: 'Date de réception',
+    contradictoryVisit: 'Visite contradictoire',
+    participants: 'Participants à la visite contradictoire',
+    name: 'Nom',
+    companyFunction: 'Entreprise / fonction',
+    presence: 'Présence',
+    present: 'Présent',
+    absent: 'Absent',
+    compliant: 'Conforme',
+    reserves: 'Réserves',
+    reserve: 'Réserve',
+    nonApplicable: 'Non applicable',
+    conformity: 'Conformité',
+    detailByLot: 'Détail par lot',
+    lot: 'Lot',
+    company: 'Entreprise',
+    status: 'Statut',
+    closureDeadline: 'Délai levée',
+    reserveNo: 'N° rés.',
+    observations: 'Observations',
+    noControlPoint: 'Aucun point de contrôle',
+    closureReport: 'Procès-verbal de levée de réserves',
+    photosBeforeAfter: 'Photographies - Avant / Après levée',
+    initialFinding: 'Constat initial',
+    closedFinding: 'Levée constatée',
+    closureCertification: 'Certification de levée des réserves',
+    closureCertificationText: 'Les soussignés certifient avoir procédé à la vérification des réserves émises lors du procès-verbal de réception référencé {{id}} et attestent que les réserves indiquées comme « Levée » ont été régulièrement exécutées et conformes aux prescriptions contractuelles.',
+    oprReference: 'Référence OPR',
+    receptionDateShort: 'Date réception',
+    conductor: 'Conducteur',
+    reservesInReport: 'Réserves au PV',
+    closed: 'Levées',
+    waiting: 'En attente',
+    closureRate: 'Taux de levée',
+    allClosed: 'Toutes les réserves ont été levées - La réception est définitive.',
+    pendingClosure: '{{count}} réserve(s) en attente - La réception définitive ne peut être prononcée qu’après levée de l’ensemble des réserves.',
+    summaryByLot: 'Tableau récapitulatif des réserves par lot',
+    description: 'Description',
+    closedDate: 'Date levée',
+    closedBy: 'Levée par',
+    noReserveReception: 'Aucune réserve - Réception sans réserve',
+    convocationTitle: 'Lettre de convocation - OPR',
+    convocationObject: 'Objet',
+    convocationObjectText: 'Convocation aux Opérations Préalables à la Réception (OPR) - {{title}}',
+    controlPoints: 'Points de contrôle',
+    emittedReserves: 'Réserves émises',
+    invited: 'Convoqués',
+    convocationPurpose: 'Objet de la convocation',
+    convocationBody: "Par la présente, vous êtes convoqué(e) à participer aux Opérations Préalables à la Réception (OPR) du chantier {{project}} conformément aux dispositions contractuelles en vigueur. La réception des travaux intervient à la fin de l'exécution du marché. Elle permet de constater l'état d'achèvement des travaux et d'établir, le cas échéant, la liste des réserves à lever avant la réception définitive.",
+    reservesBeforeReception: 'Réserves à lever avant réception',
+    noReservePlanned: 'Aucune réserve - Réception envisagée sans réserve.',
+    invitedParties: 'Parties convoquées',
+    qualityRole: 'Qualité / rôle',
+    email: 'Email',
+    confirmed: 'Confirmé',
+    summoned: 'Convoqué',
+    noInvitedSigner: 'Aucun signataire invité - à compléter avant envoi',
+    managerSignature: 'Signature du conducteur de travaux',
+    acknowledgement: 'Accusé de réception',
+    recipientSignature: 'Nom, date et signature du destinataire',
+  },
+  en: {
+    noValue: '—',
+    receptionReport: 'Handover report',
+    electronicSignatures: 'Electronic signatures',
+    signedReport: 'Report electronically signed on {{date}}',
+    signatures: 'Signatures',
+    manager: 'Construction manager',
+    owner: 'Client',
+    signedOn: 'Signed on',
+    date: 'Date',
+    location: 'Location',
+    receptionDate: 'Handover date',
+    contradictoryVisit: 'Joint inspection',
+    participants: 'Joint inspection participants',
+    name: 'Name',
+    companyFunction: 'Company / role',
+    presence: 'Presence',
+    present: 'Present',
+    absent: 'Absent',
+    compliant: 'Compliant',
+    reserves: 'Issues',
+    reserve: 'Issue',
+    nonApplicable: 'Not applicable',
+    conformity: 'Compliance',
+    detailByLot: 'Details by trade',
+    lot: 'Trade',
+    company: 'Company',
+    status: 'Status',
+    closureDeadline: 'Closure deadline',
+    reserveNo: 'Issue no.',
+    observations: 'Observations',
+    noControlPoint: 'No control point',
+    closureReport: 'Issue closure report',
+    photosBeforeAfter: 'Photos - Before / after closure',
+    initialFinding: 'Initial finding',
+    closedFinding: 'Closure confirmed',
+    closureCertification: 'Issue closure certification',
+    closureCertificationText: 'The undersigned certify that they have checked the issues raised in handover report {{id}} and confirm that the issues marked as closed were properly completed and comply with contractual requirements.',
+    oprReference: 'OPR reference',
+    receptionDateShort: 'Handover date',
+    conductor: 'Manager',
+    reservesInReport: 'Issues in report',
+    closed: 'Closed',
+    waiting: 'Waiting',
+    closureRate: 'Closure rate',
+    allClosed: 'All issues have been closed - Handover is final.',
+    pendingClosure: '{{count}} issue(s) still waiting - Final handover can only be confirmed after all issues are closed.',
+    summaryByLot: 'Issue summary by trade',
+    description: 'Description',
+    closedDate: 'Closure date',
+    closedBy: 'Closed by',
+    noReserveReception: 'No issue - Handover without reservations',
+    convocationTitle: 'OPR convocation letter',
+    convocationObject: 'Subject',
+    convocationObjectText: 'Convocation to the handover inspection (OPR) - {{title}}',
+    controlPoints: 'Control points',
+    emittedReserves: 'Issues raised',
+    invited: 'Invited',
+    convocationPurpose: 'Purpose of the convocation',
+    convocationBody: 'You are invited to attend the handover inspection (OPR) for project {{project}} in accordance with the contractual provisions in force. Handover takes place at the end of the works. It records the completion status and, where applicable, the list of issues to close before final handover.',
+    reservesBeforeReception: 'Issues to close before handover',
+    noReservePlanned: 'No issue - Handover planned without reservations.',
+    invitedParties: 'Invited parties',
+    qualityRole: 'Position / role',
+    email: 'Email',
+    confirmed: 'Confirmed',
+    summoned: 'Invited',
+    noInvitedSigner: 'No invited signatory - complete before sending',
+    managerSignature: 'Construction manager signature',
+    acknowledgement: 'Acknowledgement of receipt',
+    recipientSignature: 'Recipient name, date and signature',
+  },
+  es: {
+    noValue: '—',
+    receptionReport: 'Acta de recepción',
+    electronicSignatures: 'Firmas electrónicas',
+    signedReport: 'Acta firmada electrónicamente el {{date}}',
+    signatures: 'Firmas',
+    manager: 'Jefe de obra',
+    owner: 'Cliente',
+    signedOn: 'Firmado el',
+    date: 'Fecha',
+    location: 'Ubicación',
+    receptionDate: 'Fecha de recepción',
+    contradictoryVisit: 'Visita contradictoria',
+    participants: 'Participantes en la visita contradictoria',
+    name: 'Nombre',
+    companyFunction: 'Empresa / función',
+    presence: 'Presencia',
+    present: 'Presente',
+    absent: 'Ausente',
+    compliant: 'Conforme',
+    reserves: 'Incidencias',
+    reserve: 'Incidencia',
+    nonApplicable: 'No aplicable',
+    conformity: 'Conformidad',
+    detailByLot: 'Detalle por lote',
+    lot: 'Lote',
+    company: 'Empresa',
+    status: 'Estado',
+    closureDeadline: 'Plazo de cierre',
+    reserveNo: 'N° incidencia',
+    observations: 'Observaciones',
+    noControlPoint: 'Ningún punto de control',
+    closureReport: 'Acta de cierre de incidencias',
+    photosBeforeAfter: 'Fotografías - Antes / después del cierre',
+    initialFinding: 'Constatación inicial',
+    closedFinding: 'Cierre constatado',
+    closureCertification: 'Certificación de cierre de incidencias',
+    closureCertificationText: 'Los abajo firmantes certifican haber verificado las incidencias emitidas en el acta de recepción {{id}} y declaran que las incidencias indicadas como cerradas se ejecutaron correctamente y conforme a los requisitos contractuales.',
+    oprReference: 'Referencia OPR',
+    receptionDateShort: 'Fecha recepción',
+    conductor: 'Jefe de obra',
+    reservesInReport: 'Incidencias del acta',
+    closed: 'Cerradas',
+    waiting: 'Pendientes',
+    closureRate: 'Tasa de cierre',
+    allClosed: 'Todas las incidencias se han cerrado - La recepción es definitiva.',
+    pendingClosure: '{{count}} incidencia(s) pendiente(s) - La recepción definitiva solo puede confirmarse tras cerrar todas las incidencias.',
+    summaryByLot: 'Resumen de incidencias por lote',
+    description: 'Descripción',
+    closedDate: 'Fecha cierre',
+    closedBy: 'Cerrada por',
+    noReserveReception: 'Ninguna incidencia - Recepción sin reservas',
+    convocationTitle: 'Carta de convocatoria OPR',
+    convocationObject: 'Asunto',
+    convocationObjectText: 'Convocatoria a las operaciones previas a la recepción (OPR) - {{title}}',
+    controlPoints: 'Puntos de control',
+    emittedReserves: 'Incidencias emitidas',
+    invited: 'Convocados',
+    convocationPurpose: 'Objeto de la convocatoria',
+    convocationBody: 'Por la presente, se le convoca a participar en las operaciones previas a la recepción (OPR) de la obra {{project}} conforme a las disposiciones contractuales vigentes. La recepción de los trabajos se realiza al final de la ejecución y permite constatar el estado de terminación y, si procede, la lista de incidencias que deben cerrarse antes de la recepción definitiva.',
+    reservesBeforeReception: 'Incidencias que cerrar antes de la recepción',
+    noReservePlanned: 'Ninguna incidencia - Recepción prevista sin reservas.',
+    invitedParties: 'Partes convocadas',
+    qualityRole: 'Cargo / rol',
+    email: 'Email',
+    confirmed: 'Confirmado',
+    summoned: 'Convocado',
+    noInvitedSigner: 'Ningún firmante invitado - completar antes del envío',
+    managerSignature: 'Firma del jefe de obra',
+    acknowledgement: 'Acuse de recibo',
+    recipientSignature: 'Nombre, fecha y firma del destinatario',
+  },
+};
+
+function oprPdfCopy(language?: string | null) {
+  return OPR_PDF_COPY[pdfLang(language)];
+}
+
+function interpolatePdf(text: string, values: Record<string, string | number>) {
+  return Object.entries(values).reduce((acc, [key, value]) => acc.replaceAll(`{{${key}}}`, String(value)), text);
+}
+
+function buildOprPDF(opr: Opr, projectName: string, t: TFunc, language?: string | null): string {
+  const copy = oprPdfCopy(language);
+  const locale = pdfLocale(language);
   const statusIcons: Record<string, string> = { ok: '✓', reserve: '⚠', non_applicable: '—' };
   const statusColors: Record<string, string> = { ok: '#059669', reserve: '#DC2626', non_applicable: '#6B7280' };
   const statusBg: Record<string, string> = { ok: '#ECFDF5', reserve: '#FEF2F2', non_applicable: '#F9FAFB' };
@@ -90,51 +333,51 @@ function buildOprPDF(opr: Opr, projectName: string, t: TFunc): string {
   const totalNA = opr.items.filter(i => i.status === 'non_applicable').length;
   const pctConformite = opr.items.length > 0 ? Math.round((totalOk / opr.items.length) * 100) : 0;
   const signedDate = opr.signedAt ?? opr.date;
-  const today = formatDateFR(new Date());
+  const today = new Date().toLocaleDateString(locale);
 
   const sigBlockHtml = opr.status === 'signed'
     ? `<div class="section-header">Signatures électroniques</div>
        <div class="alert alert-success">✓ PV signé électroniquement le ${signedDate}</div>
        <div class="sig-row">
          <div class="sig-block">
-           <div class="sig-label">Conducteur de travaux</div>
+           <div class="sig-label">${escapeHtml(copy.manager)}</div>
            ${opr.conducteurSignature
              ? `<img src="${svgStringToDataUrl(opr.conducteurSignature)}" style="width:100%;max-width:260px;height:80px;object-fit:contain;border-bottom:2px solid #1A2742;display:block;margin-bottom:6px" />`
              : '<div class="sig-line"></div>'
            }
            <div class="sig-name">${escapeHtml(opr.conducteur)}</div>
-           <div class="sig-date">Signé le ${escapeHtml(signedDate)}</div>
+           <div class="sig-date">${escapeHtml(copy.signedOn)} ${escapeHtml(signedDate)}</div>
          </div>
          <div class="sig-block">
-           <div class="sig-label">Maître d'ouvrage</div>
+           <div class="sig-label">${escapeHtml(copy.owner)}</div>
            ${opr.moSignature
              ? `<img src="${svgStringToDataUrl(opr.moSignature)}" style="width:100%;max-width:260px;height:80px;object-fit:contain;border-bottom:2px solid #1A2742;display:block;margin-bottom:6px" />`
              : '<div class="sig-line"></div>'
            }
-           <div class="sig-name">${escapeHtml(opr.maireOuvrage ?? '—')}</div>
-           <div class="sig-date">Signé le ${escapeHtml(signedDate)}</div>
+           <div class="sig-name">${escapeHtml(opr.maireOuvrage ?? copy.noValue)}</div>
+           <div class="sig-date">${escapeHtml(copy.signedOn)} ${escapeHtml(signedDate)}</div>
          </div>
        </div>`
     : `<div class="section-header">Signatures</div>
        <div class="sig-row">
          <div class="sig-block">
-           <div class="sig-label">Conducteur de travaux</div>
+           <div class="sig-label">${escapeHtml(copy.manager)}</div>
            <div class="sig-line"></div>
            <div class="sig-name">${escapeHtml(opr.conducteur)}</div>
-           <div class="sig-date">Date : _______________</div>
+           <div class="sig-date">${escapeHtml(copy.date)} : _______________</div>
          </div>
          <div class="sig-block">
-           <div class="sig-label">Maître d'ouvrage</div>
+           <div class="sig-label">${escapeHtml(copy.owner)}</div>
            <div class="sig-line"></div>
            <div class="sig-name">${escapeHtml(opr.maireOuvrage ?? '')}</div>
-           <div class="sig-date">Date : _______________</div>
+           <div class="sig-date">${escapeHtml(copy.date)} : _______________</div>
          </div>
        </div>`;
 
   const infoItems = [
     ...(opr.building || opr.level || opr.zone ? [{ label: 'Localisation', value: [opr.building, opr.level, opr.zone].filter(Boolean).join(' — ') }] : []),
     { label: 'Conducteur de travaux', value: opr.conducteur },
-    ...(opr.maireOuvrage ? [{ label: "Maître d'ouvrage", value: opr.maireOuvrage }] : []),
+    ...(opr.maireOuvrage ? [{ label: copy.owner, value: opr.maireOuvrage }] : []),
     { label: 'Date de réception', value: opr.date },
     ...(opr.visitContradictoire ? [{ label: 'Visite contradictoire', value: opr.visitContradictoire }] : []),
   ];
@@ -163,7 +406,7 @@ function buildOprPDF(opr: Opr, projectName: string, t: TFunc): string {
     </table>` : '';
 
   const body = `
-    ${buildLetterhead('Procès-verbal de réception', opr.title, opr.id, today, projectName)}
+    ${buildLetterhead(copy.receptionReport, opr.title, opr.id, today, projectName, { locale })}
     ${buildInfoGrid(infoItems)}
     ${buildKpiRow([
       { val: totalOk, label: 'Conforme' + (totalOk > 1 ? 's' : ''), color: '#059669' },
@@ -172,29 +415,31 @@ function buildOprPDF(opr: Opr, projectName: string, t: TFunc): string {
       { val: `${pctConformite}%`, label: 'Conformité', color: '#003082' },
     ])}
     ${participantsSection}
-    <div class="section-header">Détail par lot</div>
+    <div class="section-header">${escapeHtml(copy.detailByLot)}</div>
     <table>
       <thead>
         <tr>
-          <th>LOT</th>
-          <th>ENTREPRISE</th>
-          <th style="text-align:center">STATUT</th>
-          <th>DÉLAI LEVÉE</th>
-          <th>N° RÉS.</th>
-          <th>OBSERVATIONS</th>
+          <th>${escapeHtml(copy.lot)}</th>
+          <th>${escapeHtml(copy.company)}</th>
+          <th style="text-align:center">${escapeHtml(copy.status)}</th>
+          <th>${escapeHtml(copy.closureDeadline)}</th>
+          <th>${escapeHtml(copy.reserveNo)}</th>
+          <th>${escapeHtml(copy.observations)}</th>
         </tr>
       </thead>
-      <tbody>${rows || '<tr><td colspan="6" style="padding:14px;text-align:center;color:#059669">Aucun point de contrôle</td></tr>'}</tbody>
+      <tbody>${rows || `<tr><td colspan="6" style="padding:14px;text-align:center;color:#059669">${escapeHtml(copy.noControlPoint)}</td></tr>`}</tbody>
     </table>
     ${sigBlockHtml}
-    ${buildDocFooter(projectName)}
+    ${buildDocFooter(projectName, { locale })}
   `;
 
-  return wrapHTML(body, `PV de réception — ${opr.title}`);
+  return wrapHTML(body, `${copy.receptionReport} - ${opr.title}`);
 }
 
-async function buildPvLeveePDF(opr: Opr, reserves: Reserve[], projectName: string): Promise<string> {
-  const dateShort = formatDateFR(new Date());
+async function buildPvLeveePDF(opr: Opr, reserves: Reserve[], projectName: string, language?: string | null): Promise<string> {
+  const copy = oprPdfCopy(language);
+  const locale = pdfLocale(language);
+  const dateShort = new Date().toLocaleDateString(locale);
   const docRef = `PVL-${opr.id}-${dateShort.replace(/\//g, '')}`;
 
   const reserveItems = opr.items.filter(i => i.status === 'reserve');
@@ -242,15 +487,15 @@ async function buildPvLeveePDF(opr: Opr, reserves: Reserve[], projectName: strin
 
   const leveedWithPhotos = leveed.filter(({ reserve }) => reserve && photoData[reserve.id] && (photoData[reserve.id].defect || photoData[reserve.id].resolution));
   const photoSection = leveedWithPhotos.length > 0 ? `
-    <div class="section-header">Photographies — Avant / Après levée</div>
+    <div class="section-header">${escapeHtml(copy.photosBeforeAfter)}</div>
     ${leveedWithPhotos.map(({ item, reserve }) => {
       if (!reserve) return '';
       const photos = photoData[reserve.id];
       return `<div style="margin-bottom:20px;page-break-inside:avoid">
         <div style="font-size:11px;font-weight:700;color:#1A2742;margin-bottom:8px;background:#F4F7FB;padding:6px 10px;border-radius:6px">${escapeHtml(item.lotName)} — ${escapeHtml(reserve.title)} <span style="color:#6B7280;font-weight:400">· ${escapeHtml(formatReserveLocation(reserve))}</span></div>
         <div style="display:flex;gap:16px;flex-wrap:wrap">
-          ${photos.defect ? `<div style="text-align:center"><img src="${photos.defect}" style="width:200px;height:auto;max-height:240px;object-fit:contain;background:#FFF5F5;border-radius:8px;border:2px solid #FCA5A5;display:block" /><div style="font-size:10px;color:#DC2626;font-weight:700;margin-top:4px">🔴 Constat initial</div></div>` : ''}
-          ${photos.resolution ? `<div style="text-align:center"><img src="${photos.resolution}" style="width:200px;height:auto;max-height:240px;object-fit:contain;background:#F0FFF4;border-radius:8px;border:2px solid #6EE7B7;display:block" /><div style="font-size:10px;color:#059669;font-weight:700;margin-top:4px">🟢 Levée constatée</div></div>` : ''}
+          ${photos.defect ? `<div style="text-align:center"><img src="${photos.defect}" style="width:200px;height:auto;max-height:240px;object-fit:contain;background:#FFF5F5;border-radius:8px;border:2px solid #FCA5A5;display:block" /><div style="font-size:10px;color:#DC2626;font-weight:700;margin-top:4px">${escapeHtml(copy.initialFinding)}</div></div>` : ''}
+          ${photos.resolution ? `<div style="text-align:center"><img src="${photos.resolution}" style="width:200px;height:auto;max-height:240px;object-fit:contain;background:#F0FFF4;border-radius:8px;border:2px solid #6EE7B7;display:block" /><div style="font-size:10px;color:#059669;font-weight:700;margin-top:4px">${escapeHtml(copy.closedFinding)}</div></div>` : ''}
         </div>
       </div>`;
     }).join('')}
@@ -265,72 +510,74 @@ async function buildPvLeveePDF(opr: Opr, reserves: Reserve[], projectName: strin
 
   const signatureBlock = `
     <div style="margin-top:36px;padding-top:20px;border-top:2px solid #EEF3FA">
-      <div class="section-header">Certification de levée des réserves</div>
+      <div class="section-header">${escapeHtml(copy.closureCertification)}</div>
       <div class="alert alert-info" style="margin-bottom:20px">
-        Les soussignés certifient avoir procédé à la vérification des réserves émises lors du procès-verbal de réception référencé <strong>${opr.id}</strong> et attestent que les réserves indiquées comme « Levée » ont été régulièrement exécutées et conformes aux prescriptions contractuelles.
+        ${escapeHtml(interpolatePdf(copy.closureCertificationText, { id: opr.id }))}
       </div>
       <div class="sig-row">
         <div class="sig-block">
-          <div class="sig-label">Conducteur de travaux</div>
+          <div class="sig-label">${escapeHtml(copy.manager)}</div>
           ${conducteurSigHtml}
           <div class="sig-name">${escapeHtml(opr.conducteur)}</div>
-          <div class="sig-date">Date : ${escapeHtml(dateShort)}</div>
+          <div class="sig-date">${escapeHtml(copy.date)} : ${escapeHtml(dateShort)}</div>
         </div>
         <div class="sig-block">
-          <div class="sig-label">Maître d'ouvrage</div>
+          <div class="sig-label">${escapeHtml(copy.owner)}</div>
           ${moSigHtml}
-          <div class="sig-name">${escapeHtml(opr.maireOuvrage ?? '—')}</div>
-          <div class="sig-date">Date : ${escapeHtml(dateShort)}</div>
+          <div class="sig-name">${escapeHtml(opr.maireOuvrage ?? copy.noValue)}</div>
+          <div class="sig-date">${escapeHtml(copy.date)} : ${escapeHtml(dateShort)}</div>
         </div>
       </div>
     </div>`;
 
   const infoItems = [
-    { label: 'Référence OPR', value: opr.id },
-    { label: 'Date réception', value: opr.date },
-    ...((opr.building || opr.level || opr.zone) ? [{ label: 'Localisation', value: [opr.building, opr.level, opr.zone].filter(Boolean).join(' — ') }] : []),
-    { label: 'Conducteur', value: opr.conducteur },
-    ...(opr.maireOuvrage ? [{ label: "Maître d'ouvrage", value: opr.maireOuvrage }] : []),
+    { label: copy.oprReference, value: opr.id },
+    { label: copy.receptionDateShort, value: opr.date },
+    ...((opr.building || opr.level || opr.zone) ? [{ label: copy.location, value: [opr.building, opr.level, opr.zone].filter(Boolean).join(' - ') }] : []),
+    { label: copy.conductor, value: opr.conducteur },
+    ...(opr.maireOuvrage ? [{ label: copy.owner, value: opr.maireOuvrage }] : []),
   ];
 
   const body = `
-    ${buildLetterhead('Procès-Verbal de Levée de Réserves', opr.title, docRef, dateShort, projectName)}
+    ${buildLetterhead(copy.closureReport, opr.title, docRef, dateShort, projectName, { locale })}
     ${buildInfoGrid(infoItems)}
     ${buildKpiRow([
-      { val: totalReserves, label: 'Réserves au PV', color: '#003082' },
-      { val: leveed.length, label: 'Levées', color: '#059669' },
-      { val: pending.length, label: 'En attente', color: pending.length > 0 ? '#DC2626' : '#059669' },
-      { val: totalReserves > 0 ? Math.round((leveed.length / totalReserves) * 100) + '%' : '—', label: 'Taux de levée', color: '#003082' },
+      { val: totalReserves, label: copy.reservesInReport, color: '#003082' },
+      { val: leveed.length, label: copy.closed, color: '#059669' },
+      { val: pending.length, label: copy.waiting, color: pending.length > 0 ? '#DC2626' : '#059669' },
+      { val: totalReserves > 0 ? Math.round((leveed.length / totalReserves) * 100) + '%' : copy.noValue, label: copy.closureRate, color: '#003082' },
     ])}
     ${pending.length === 0
-      ? '<div class="alert alert-success">✅ Toutes les réserves ont été levées — La réception est définitive.</div>'
-      : `<div class="alert alert-warning">⚠️ <strong>${pending.length} réserve${pending.length > 1 ? 's' : ''} en attente</strong> — La réception définitive ne peut être prononcée qu'après levée de l'ensemble des réserves.</div>`
+      ? `<div class="alert alert-success">${escapeHtml(copy.allClosed)}</div>`
+      : `<div class="alert alert-warning">${escapeHtml(interpolatePdf(copy.pendingClosure, { count: pending.length }))}</div>`
     }
-    <div class="section-header">Tableau récapitulatif des réserves par lot</div>
+    <div class="section-header">${escapeHtml(copy.summaryByLot)}</div>
     <table>
       <thead>
         <tr>
-          <th>LOT</th>
-          <th>RÉSERVE</th>
-          <th>DESCRIPTION</th>
-          <th>LOCALISATION</th>
-          <th style="text-align:center">STATUT</th>
-          <th>DATE LEVÉE</th>
-          <th>LEVÉE PAR</th>
+          <th>${escapeHtml(copy.lot)}</th>
+          <th>${escapeHtml(copy.reserve)}</th>
+          <th>${escapeHtml(copy.description)}</th>
+          <th>${escapeHtml(copy.location)}</th>
+          <th style="text-align:center">${escapeHtml(copy.status)}</th>
+          <th>${escapeHtml(copy.closedDate)}</th>
+          <th>${escapeHtml(copy.closedBy)}</th>
         </tr>
       </thead>
-      <tbody>${rows || '<tr><td colspan="7" style="text-align:center;color:#059669;padding:14px">Aucune réserve — Réception sans réserve</td></tr>'}</tbody>
+      <tbody>${rows || `<tr><td colspan="7" style="text-align:center;color:#059669;padding:14px">${escapeHtml(copy.noReserveReception)}</td></tr>`}</tbody>
     </table>
     ${photoSection}
     ${signatureBlock}
-    ${buildDocFooter(projectName)}
+    ${buildDocFooter(projectName, { locale })}
   `;
 
-  return wrapHTML(body, `PV de Levée — ${opr.id}`);
+  return wrapHTML(body, `${copy.closureReport} - ${opr.id}`);
 }
 
-function buildConvocationPDF(opr: Opr, projectName: string, conducteur: string): string {
-  const today = formatDateFR(new Date());
+function buildConvocationPDF(opr: Opr, projectName: string, conducteur: string, language?: string | null): string {
+  const copy = oprPdfCopy(language);
+  const locale = pdfLocale(language);
+  const today = new Date().toLocaleDateString(locale);
   const docRef = `CONV-${opr.id}-${today.replace(/\//g, '')}`;
   const reserveItems = opr.items.filter(i => i.status === 'reserve');
   const totalItems = opr.items.length;
@@ -353,80 +600,76 @@ function buildConvocationPDF(opr: Opr, projectName: string, conducteur: string):
           <td style="padding:7px 10px;border-bottom:1px solid #EEF3FA;font-size:11px;color:#6B7280">${escapeHtml(s.email ?? '—')}</td>
           <td style="padding:7px 10px;border-bottom:1px solid #EEF3FA;text-align:center">
             ${s.signedAt
-              ? '<span style="background:#ECFDF5;color:#059669;font-size:10px;font-weight:700;padding:2px 8px;border-radius:10px">✓ Confirmé</span>'
-              : '<span style="background:#F9FAFB;color:#6B7280;font-size:10px;font-weight:700;padding:2px 8px;border-radius:10px">Convoqué</span>'}
+              ? `<span style="background:#ECFDF5;color:#059669;font-size:10px;font-weight:700;padding:2px 8px;border-radius:10px">&#10003; ${escapeHtml(copy.confirmed)}</span>`
+              : `<span style="background:#F9FAFB;color:#6B7280;font-size:10px;font-weight:700;padding:2px 8px;border-radius:10px">${escapeHtml(copy.summoned)}</span>`}
           </td>
         </tr>`
       ).join('')
-    : `<tr><td colspan="4" style="padding:10px;text-align:center;color:#6B7280;font-style:italic;font-size:11px">Aucun signataire invité — à compléter avant envoi</td></tr>`;
+    : `<tr><td colspan="4" style="padding:10px;text-align:center;color:#6B7280;font-style:italic;font-size:11px">${escapeHtml(copy.noInvitedSigner)}</td></tr>`;
 
   const body = `
-    ${buildLetterhead('Lettre de Convocation — OPR', opr.title, docRef, today, projectName)}
+    ${buildLetterhead(copy.convocationTitle, opr.title, docRef, today, projectName, { locale })}
     <div style="background:#FFF8E1;border-left:4px solid #F59E0B;padding:12px 16px;border-radius:0 10px 10px 0;margin-bottom:22px;font-size:12px;color:#92400E">
-      <strong>Objet :</strong> Convocation aux Opérations Préalables à la Réception (OPR) — ${opr.title}
+      <strong>${escapeHtml(copy.convocationObject)} :</strong> ${escapeHtml(interpolatePdf(copy.convocationObjectText, { title: opr.title }))}
     </div>
     ${buildInfoGrid([
-      { label: 'Référence OPR', value: opr.id },
-      { label: 'Date de réception', value: opr.date },
-      ...((opr.building || opr.level || opr.zone) ? [{ label: 'Localisation', value: [opr.building, opr.level, opr.zone].filter(Boolean).join(' — ') }] : []),
-      { label: 'Conducteur', value: conducteur },
-      ...(opr.maireOuvrage ? [{ label: "Maître d'ouvrage", value: opr.maireOuvrage }] : []),
-      ...(opr.visitContradictoire ? [{ label: 'Visite contradictoire', value: opr.visitContradictoire }] : []),
+      { label: copy.oprReference, value: opr.id },
+      { label: copy.receptionDate, value: opr.date },
+      ...((opr.building || opr.level || opr.zone) ? [{ label: copy.location, value: [opr.building, opr.level, opr.zone].filter(Boolean).join(' - ') }] : []),
+      { label: copy.conductor, value: conducteur },
+      ...(opr.maireOuvrage ? [{ label: copy.owner, value: opr.maireOuvrage }] : []),
+      ...(opr.visitContradictoire ? [{ label: copy.contradictoryVisit, value: opr.visitContradictoire }] : []),
     ])}
     ${buildKpiRow([
-      { val: totalItems, label: 'Points de contrôle', color: '#003082' },
-      { val: reserveItems.length, label: 'Réserves émises', color: '#DC2626' },
-      { val: opr.items.filter(i => i.status === 'ok').length, label: 'Conformes', color: '#059669' },
-      { val: signatories.length, label: 'Convoqués', color: '#D97706' },
+      { val: totalItems, label: copy.controlPoints, color: '#003082' },
+      { val: reserveItems.length, label: copy.emittedReserves, color: '#DC2626' },
+      { val: opr.items.filter(i => i.status === 'ok').length, label: copy.compliant, color: '#059669' },
+      { val: signatories.length, label: copy.invited, color: '#D97706' },
     ])}
-    <div class="section-header">Objet de la convocation</div>
+    <div class="section-header">${escapeHtml(copy.convocationPurpose)}</div>
     <div style="background:#F4F7FB;border-radius:10px;padding:14px 16px;border:1px solid #DDE4EE;font-size:12px;line-height:1.8;margin-bottom:16px">
-      Par la présente, vous êtes convoqué(e) à participer aux <strong>Opérations Préalables à la Réception (OPR)</strong>
-      du chantier <strong>${projectName}</strong> conformément aux dispositions contractuelles en vigueur.
-      <br/><br/>
-      La réception des travaux intervient à la fin de l'exécution du marché. Elle permet de constater l'état d'achèvement
-      des travaux et d'établir, le cas échéant, la liste des réserves à lever avant la réception définitive.
+      ${escapeHtml(interpolatePdf(copy.convocationBody, { project: projectName }))}
     </div>
     ${reserveItems.length > 0 ? `
-    <div class="section-header">Réserves à lever avant réception (${reserveItems.length})</div>
+    <div class="section-header">${escapeHtml(copy.reservesBeforeReception)} (${reserveItems.length})</div>
     <table>
       <thead><tr>
-        <th>LOT</th><th>ENTREPRISE</th><th>DÉLAI DE LEVÉE</th><th>OBSERVATIONS</th>
+        <th>${escapeHtml(copy.lot)}</th><th>${escapeHtml(copy.company)}</th><th>${escapeHtml(copy.closureDeadline)}</th><th>${escapeHtml(copy.observations)}</th>
       </tr></thead>
       <tbody>${reserveRows}</tbody>
     </table>
-    ` : `<div class="alert alert-success">✅ Aucune réserve — Réception envisagée sans réserve.</div>`}
-    <div class="section-header">Parties convoquées</div>
+    ` : `<div class="alert alert-success">${escapeHtml(copy.noReservePlanned)}</div>`}
+    <div class="section-header">${escapeHtml(copy.invitedParties)}</div>
     <table>
       <thead><tr>
-        <th>NOM</th><th>QUALITÉ / RÔLE</th><th>EMAIL</th><th style="text-align:center">STATUT</th>
+        <th>${escapeHtml(copy.name)}</th><th>${escapeHtml(copy.qualityRole)}</th><th>${escapeHtml(copy.email)}</th><th style="text-align:center">${escapeHtml(copy.status)}</th>
       </tr></thead>
       <tbody>${participants}</tbody>
     </table>
     <div style="margin-top:36px;padding-top:20px;border-top:2px solid #EEF3FA">
-      <div class="section-header">Signature du conducteur de travaux</div>
+      <div class="section-header">${escapeHtml(copy.managerSignature)}</div>
       <div style="display:flex;gap:40px;margin-top:16px">
         <div>
-          <div style="font-size:10px;color:#6B7280;text-transform:uppercase;letter-spacing:0.6px;margin-bottom:28px;font-weight:700">Conducteur de travaux</div>
+          <div style="font-size:10px;color:#6B7280;text-transform:uppercase;letter-spacing:0.6px;margin-bottom:28px;font-weight:700">${escapeHtml(copy.manager)}</div>
           <div style="height:60px;border-bottom:2px solid #1A2742;width:220px;margin-bottom:8px"></div>
           <div style="font-size:12px;font-weight:700;color:#1A2742">${conducteur}</div>
-          <div style="font-size:10px;color:#6B7280">Date : ${today}</div>
+          <div style="font-size:10px;color:#6B7280">${escapeHtml(copy.date)} : ${today}</div>
         </div>
         <div>
-          <div style="font-size:10px;color:#6B7280;text-transform:uppercase;letter-spacing:0.6px;margin-bottom:28px;font-weight:700">Accusé de réception</div>
+          <div style="font-size:10px;color:#6B7280;text-transform:uppercase;letter-spacing:0.6px;margin-bottom:28px;font-weight:700">${escapeHtml(copy.acknowledgement)}</div>
           <div style="height:60px;border-bottom:2px solid #1A2742;width:220px;margin-bottom:8px"></div>
-          <div style="font-size:10px;color:#6B7280">Nom, date et signature du destinataire</div>
+          <div style="font-size:10px;color:#6B7280">${escapeHtml(copy.recipientSignature)}</div>
         </div>
       </div>
     </div>
-    ${buildDocFooter(projectName)}
+    ${buildDocFooter(projectName, { locale })}
   `;
 
-  return wrapHTML(body, `Convocation OPR — ${opr.id}`);
+  return wrapHTML(body, `${copy.convocationTitle} - ${opr.id}`);
 }
 
 export default function OprScreen() {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const { oprs, addOpr, updateOpr, deleteOpr, lots, reserves, activeChantierId, activeChantier, updateReserveStatus, photos } = useApp();
   const { user, permissions } = useAuth();
   const { projectName } = useSettings();
@@ -632,7 +875,7 @@ export default function OprScreen() {
 
   async function exportOprPDF(opr: Opr) {
     try {
-      const html = buildOprPDF(opr, projectName, t);
+      const html = buildOprPDF(opr, projectName, t, i18n.resolvedLanguage ?? i18n.language);
       await exportPDFHelper(html, buildPdfFilename('PV_OPR', [opr.id, opr.title, opr.level, projectName]));
     } catch (e: any) {
       Alert.alert(t('oprScreen.pdfError'), e?.message ?? '');
@@ -641,7 +884,7 @@ export default function OprScreen() {
 
   async function exportLeveePDF(opr: Opr) {
     try {
-      const html = await buildPvLeveePDF(opr, enrichedReserves, projectName);
+      const html = await buildPvLeveePDF(opr, enrichedReserves, projectName, i18n.resolvedLanguage ?? i18n.language);
       await exportPDFHelper(html, buildPdfFilename('PV_Levee_OPR', [opr.id, opr.title, opr.level, projectName]));
     } catch (e: any) {
       Alert.alert(t('oprScreen.pdfError'), e?.message ?? '');
@@ -650,7 +893,7 @@ export default function OprScreen() {
 
   async function exportConvocationPDF(opr: Opr) {
     try {
-      const html = buildConvocationPDF(opr, projectName, user?.name ?? t('oprScreen.constructionManager'));
+      const html = buildConvocationPDF(opr, projectName, user?.name ?? t('oprScreen.constructionManager'), i18n.resolvedLanguage ?? i18n.language);
       await exportPDFHelper(html, buildPdfFilename('Convocation_OPR', [opr.id, opr.title, opr.level, projectName]));
     } catch (e: any) {
       Alert.alert(t('oprScreen.pdfError'), e?.message ?? '');
@@ -1741,43 +1984,43 @@ export default function OprScreen() {
                     style={styles.signInput}
                     value={signConducteurName}
                     onChangeText={setSignConducteurName}
-                    placeholder="Votre nom complet..."
+                    placeholder={t('oprScreen.fullNamePlaceholder')}
                     placeholderTextColor={C.textMuted}
                     autoCapitalize="words"
                     returnKeyType="done"
-                    accessibilityLabel="Nom complet du conducteur de travaux"
+                    accessibilityLabel={t('oprScreen.managerFullNameA11y')}
                   />
                 </View>
-                <Text style={styles.modalLabel}>SIGNATURE (dessiner ci-dessous)</Text>
+                <Text style={styles.modalLabel}>{t('oprScreen.signatureDrawLabel')}</Text>
                 <View style={styles.padContainer}>
                   <SignaturePad ref={conducteurPadRef} />
                   <TouchableOpacity
                     style={styles.clearPadBtn}
                     onPress={() => conducteurPadRef.current?.clear()}
-                    accessibilityLabel="Effacer la signature du conducteur"
+                    accessibilityLabel={t('oprScreen.clearManagerSignatureA11y')}
                     accessibilityRole="button"
                   >
                     <Ionicons name="refresh-outline" size={13} color={C.textMuted} />
-                    <Text style={styles.clearPadText}>Effacer</Text>
+                    <Text style={styles.clearPadText}>{t('common.clear')}</Text>
                   </TouchableOpacity>
                 </View>
                 <TouchableOpacity
                   style={styles.nextStepBtn}
                   onPress={() => {
                     if (!signConducteurName.trim()) {
-                      Alert.alert('Nom requis', 'Veuillez saisir votre nom complet avant de continuer.');
+                      Alert.alert(t('oprScreen.nameRequired'), t('oprScreen.fullNameRequiredBeforeContinue'));
                       return;
                     }
                     if (conducteurPadRef.current?.isEmpty()) {
-                      Alert.alert('Signature requise', 'Veuillez apposer votre signature avant de passer à l\'étape suivante.');
+                      Alert.alert(t('oprScreen.signatureRequiredTitle'), t('oprScreen.signatureRequiredBeforeNextStep'));
                       return;
                     }
                     setSignStep('mo');
                   }}
-                  accessibilityLabel="Passer à l'étape maître d'ouvrage"
+                  accessibilityLabel={t('oprScreen.goToOwnerStepA11y')}
                   accessibilityRole="button"
                 >
-                  <Text style={styles.nextStepBtnText}>Suivant — Maître d'ouvrage</Text>
+                  <Text style={styles.nextStepBtnText}>{t('oprScreen.nextOwnerStep')}</Text>
                   <Ionicons name="arrow-forward" size={15} color="#fff" />
                 </TouchableOpacity>
               </View>
@@ -1785,31 +2028,31 @@ export default function OprScreen() {
 
             {signStep === 'mo' && (
               <View style={styles.signBlock}>
-                <Text style={styles.modalLabel}>NOM DU MAÎTRE D'OUVRAGE *</Text>
+                <Text style={styles.modalLabel}>{t('oprScreen.ownerNameUpper')}</Text>
                 <View style={styles.signInputWrap}>
                   <Ionicons name="business-outline" size={15} color={C.textMuted} />
                   <TextInput
                     style={styles.signInput}
                     value={signMoName}
                     onChangeText={setSignMoName}
-                    placeholder="Nom du maître d'ouvrage..."
+                    placeholder={t('oprScreen.ownerNamePlaceholder')}
                     placeholderTextColor={C.textMuted}
                     autoCapitalize="words"
                     returnKeyType="done"
-                    accessibilityLabel="Nom du maître d'ouvrage"
+                    accessibilityLabel={t('oprScreen.ownerNameA11y')}
                   />
                 </View>
-                <Text style={styles.modalLabel}>SIGNATURE (dessiner ci-dessous)</Text>
+                <Text style={styles.modalLabel}>{t('oprScreen.signatureDrawLabel')}</Text>
                 <View style={styles.padContainer}>
                   <SignaturePad ref={moPadRef} />
                   <TouchableOpacity
                     style={styles.clearPadBtn}
                     onPress={() => moPadRef.current?.clear()}
-                    accessibilityLabel="Effacer la signature du maître d'ouvrage"
+                    accessibilityLabel={t('oprScreen.clearOwnerSignatureA11y')}
                     accessibilityRole="button"
                   >
                     <Ionicons name="refresh-outline" size={13} color={C.textMuted} />
-                    <Text style={styles.clearPadText}>Effacer</Text>
+                    <Text style={styles.clearPadText}>{t('common.clear')}</Text>
                   </TouchableOpacity>
                 </View>
               </View>
@@ -1818,7 +2061,7 @@ export default function OprScreen() {
             <View style={styles.signNotice}>
               <Ionicons name="shield-checkmark-outline" size={14} color={C.closed} />
               <Text style={styles.signNoticeText}>
-                En signant, les deux parties confirment avoir vérifié tous les points de contrôle. Les signatures sont horodatées.
+                {t('oprScreen.signNotice')}
               </Text>
             </View>
 
@@ -1829,21 +2072,21 @@ export default function OprScreen() {
                   const hasSig = !conducteurPadRef.current?.isEmpty() || !moPadRef.current?.isEmpty();
                   if (hasSig) {
                     Alert.alert(
-                      'Annuler la signature ?',
-                      'Les tracés de signature seront perdus si vous annulez maintenant.',
+                      t('oprScreen.cancelSignatureTitle'),
+                      t('oprScreen.cancelSignatureText'),
                       [
-                        { text: 'Continuer', style: 'cancel' },
-                        { text: 'Annuler quand même', style: 'destructive', onPress: () => setSignModalOpr(null) },
+                        { text: t('common.continue'), style: 'cancel' },
+                        { text: t('oprScreen.cancelAnyway'), style: 'destructive', onPress: () => setSignModalOpr(null) },
                       ]
                     );
                   } else {
                     setSignModalOpr(null);
                   }
                 }}
-                accessibilityLabel="Annuler la signature du PV"
+                accessibilityLabel={t('oprScreen.cancelPvSignatureA11y')}
                 accessibilityRole="button"
               >
-                <Text style={styles.modalCancelText}>Annuler</Text>
+                <Text style={styles.modalCancelText}>{t('common.cancel')}</Text>
               </TouchableOpacity>
               <TouchableOpacity
                 style={styles.modalConfirmBtn}

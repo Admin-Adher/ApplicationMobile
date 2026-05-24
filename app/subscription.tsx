@@ -320,7 +320,9 @@ export default function SubscriptionScreen() {
                     <Text style={styles.memberEmail}>{u.email}</Text>
                   </View>
                   <View style={[styles.memberRoleBadge, { backgroundColor: rc.bg }]}>
-                    <Text style={[styles.memberRoleTxt, { color: rc.color }]}>{rc.label}</Text>
+                    <Text style={[styles.memberRoleTxt, { color: rc.color }]}>
+                      {t(`roles.${u.role}`, { defaultValue: rc.label })}
+                    </Text>
                   </View>
                 </View>
               );

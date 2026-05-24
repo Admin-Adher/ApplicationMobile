@@ -9,6 +9,7 @@ import { queryKeys } from '@/lib/queryKeys';
 import { toCompany } from '@/lib/mappers';
 import { Company } from '@/constants/types';
 import { mergeWithCache, readCache, writeCache, pendingIdsForTable, isSupabaseSessionValid } from '@/lib/offlineCache';
+import i18n from '@/lib/i18n';
 
 const COMPANIES_CACHE_KEY = 'buildtrack_companies_cache_v1';
 
@@ -112,8 +113,8 @@ export function useCompanies() {
         console.warn('[sync] addCompany error:', error.message);
         enqueueOperation({ table: 'companies', op: 'insert', data: payload });
         Alert.alert(
-          'Synchronisation incomplète',
-          `L'entreprise a été créée localement mais n'a pas pu être synchronisée (${error.message}).`
+          i18n.t('syncAlerts.incompleteSyncTitle'),
+          i18n.t('syncAlerts.companyCreatedLocalMessage', { error: error.message }),
         );
       }
     }
@@ -164,7 +165,7 @@ export function useCompanies() {
           console.warn('[sync] deleteCompany erreur serveur:', error.message);
           if (previous) {
             queryClient.setQueryData<Company[]>(queryKeys.companies(), old => [...(old ?? []), previous]);
-            Alert.alert('Suppression refusée', 'Vous n\'avez pas les droits pour supprimer cette entreprise, ou elle n\'existe plus sur le serveur.');
+            Alert.alert(i18n.t('syncAlerts.deleteDeniedTitle'), i18n.t('syncAlerts.deleteCompanyDenied'));
           }
         } else if (!deleted?.length) {
           console.warn('[sync] deleteCompany: aucune ligne supprimée');
