@@ -93,8 +93,11 @@ const TABS = [
   { id: 'reserves', label: 'Réserves', icon: '⚠' },
   { id: 'plans', label: 'Plans', icon: '▤' },
   { id: 'visites', label: 'Visites', icon: '☑' },
+  { id: 'planning', label: 'Planning', icon: '◷' },
   { id: 'messages', label: 'Messages', icon: '◌' },
   { id: 'terrain', label: 'Terrain', icon: '⌁' },
+  { id: 'media', label: 'Médias', icon: '▧' },
+  { id: 'rapports', label: 'Rapports', icon: '▤' },
   { id: 'equipes', label: 'Équipes', icon: '◎' },
   { id: 'settings', label: 'Réglages', icon: '☰' },
   { id: 'admin', label: 'Admin', icon: '⚙' },
@@ -191,6 +194,24 @@ function getChantierId(item: any) {
 
 function assetUrl(item: any) {
   return item?.uri ?? item?.url ?? item?.file_url ?? item?.public_url ?? item?.signed_url ?? item?.photo_uri ?? '';
+}
+
+function toBase64Download(pdfBase64: string, filename: string) {
+  if (typeof window === 'undefined') return;
+  const byteChars = atob(pdfBase64);
+  const bytes = new Uint8Array(byteChars.length);
+  for (let i = 0; i < byteChars.length; i += 1) {
+    bytes[i] = byteChars.charCodeAt(i);
+  }
+  const blob = new Blob([bytes], { type: 'application/pdf' });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
 }
 
 function reserveCompanies(reserve: any): string[] {
@@ -338,6 +359,8 @@ export default function BuildTrackWebPage() {
   const [visitModalOpen, setVisitModalOpen] = useState(false);
   const [visitDraft, setVisitDraft] = useState<VisitDraft>(() => createVisitDraft('', ''));
   const [pinModeReserveId, setPinModeReserveId] = useState<string | null>(null);
+  const [reportLanguage, setReportLanguage] = useState<'fr' | 'en' | 'es'>('fr');
+  const [generatingReport, setGeneratingReport] = useState<string | null>(null);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(true);
@@ -778,6 +801,57 @@ export default function BuildTrackWebPage() {
         ? prev.notificationPreferences.map(row => row.user_id === authUser.id ? (saved ?? payload) : row)
         : [saved ?? payload, ...prev.notificationPreferences],
     }));
+  }
+
+  function projectName() {
+    if (selectedProjectId === 'all') return 'Tous les chantiers';
+    return data.chantiers.find(project => project.id === selectedProjectId)?.name ?? 'Chantier';
+  }
+
+  async function generateWebReport(type: 'global_reserves' | 'plans' | 'individual_reserve') {
+    const selectedProjectName = projectName();
+    const reportKey = `${type}-${reportLanguage}`;
+    setGeneratingReport(reportKey);
+    setError('');
+    try {
+      const payload = type === 'individual_reserve'
+        ? {
+            type,
+            chantierName: selectedProjectName,
+            reserve: selectedReserve,
+            language: reportLanguage,
+            generatedAt: new Date().toISOString(),
+          }
+        : {
+            type,
+            chantierName: selectedProjectName,
+            reserves: filteredReserves,
+            plans: projectScoped.plans,
+            companyFilter: null,
+            language: reportLanguage,
+            generatedAt: new Date().toISOString(),
+          };
+      if (type === 'individual_reserve' && !selectedReserve) {
+        setError('Sélectionnez une réserve avant de générer sa fiche.');
+        return;
+      }
+      const response = await fetch('/api/generate-pdf', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      const result = await response.json();
+      if (!response.ok || !result.success) {
+        throw new Error(result.error ?? 'Génération PDF impossible.');
+      }
+      const filePart = selectedProjectName.replace(/[^a-z0-9]+/gi, '_').replace(/^_+|_+$/g, '') || 'BuildTrack';
+      const typePart = type === 'global_reserves' ? 'reserves' : type === 'plans' ? 'plans' : 'reserve';
+      toBase64Download(result.pdfBase64, `BuildTrack_${typePart}_${filePart}_${reportLanguage}.pdf`);
+    } catch (err: any) {
+      setError(err?.message ?? 'Génération PDF impossible.');
+    } finally {
+      setGeneratingReport(null);
+    }
   }
 
   async function sendMessage(event: React.FormEvent) {
