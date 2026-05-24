@@ -69,6 +69,13 @@ const VISIBLE_RECENT_LEVEL_CHIPS = 3;
 
 const STATUS_ORDER: ReserveStatus[] = ['open', 'in_progress', 'waiting', 'verification', 'closed'];
 type TFunc = (key: string, options?: Record<string, any>) => string;
+type BuildingRailItem = {
+  id: string;
+  kind: 'building' | 'orphans';
+  name: string;
+  planCount: number;
+  reserveCount: number;
+};
 
 interface PinCluster {
   cx: number; cy: number;
@@ -1007,6 +1014,7 @@ export default function PlansScreen() {
   const draggingFirstMoveRef = useRef(false);
   const [dxfLoading, setDxfLoading] = useState(false);
   const [buildingPickerOpen, setBuildingPickerOpen] = useState(false);
+  const [buildingRailQuery, setBuildingRailQuery] = useState('');
   const [recentBuildingsByChantier, setRecentBuildingsByChantier] = useState<Record<string, string[]>>({});
   const [levelPickerOpen, setLevelPickerOpen] = useState(false);
   const [recentLevelsByBuilding, setRecentLevelsByBuilding] = useState<Record<string, string[]>>({});
@@ -1233,6 +1241,25 @@ export default function PlansScreen() {
 
   const showBuildingChips = chantierHierarchyBuildings.length > 1 || hasOrphanPlans;
   const useHybridPicker = chantierHierarchyBuildings.length >= HYBRID_PICKER_THRESHOLD;
+  const showBuildingRail = showBuildingChips && useHybridPicker && isTablet && !fullscreen;
+
+  const handleSelectAllBuildings = () => {
+    setSelectedBuilding('all');
+    setSelectedLevel('all');
+    setActivePlanId(null);
+  };
+
+  const handleSelectBuilding = (id: string) => {
+    setSelectedBuilding(id);
+    setSelectedLevel(pickInitialLevelForBuilding(id));
+    setActivePlanId(null);
+  };
+
+  const handleSelectOrphanPlans = () => {
+    setSelectedBuilding('__none__');
+    setSelectedLevel('all');
+    setActivePlanId(null);
+  };
 
   const buildingCounters = useMemo(() => {
     const planById = new Map<string, number>();
@@ -1267,6 +1294,39 @@ export default function PlansScreen() {
       return { id: b.id, name: b.name, planCount, reserveCount };
     });
   }, [chantierHierarchyBuildings, buildingCounters]);
+
+  const activeReserveCountForRail = useMemo(
+    () => reserves.filter(r => !r.archivedAt && r.status !== 'closed').length,
+    [reserves]
+  );
+
+  const orphanReserveCountForRail = useMemo(
+    () => reserves.filter(r => !r.archivedAt && r.status !== 'closed' && !r.buildingId && !r.building).length,
+    [reserves]
+  );
+
+  const buildingRailItems = useMemo<BuildingRailItem[]>(() => {
+    const items: BuildingRailItem[] = [];
+    if (hasOrphanPlans) {
+      items.push({
+        id: '__none__',
+        kind: 'orphans',
+        name: t('plansScreen.general'),
+        planCount: orphanPlans.length,
+        reserveCount: orphanReserveCountForRail,
+      });
+    }
+    return [
+      ...items,
+      ...buildingItems.map(b => ({ ...b, kind: 'building' as const })),
+    ];
+  }, [buildingItems, hasOrphanPlans, orphanPlans.length, orphanReserveCountForRail, t]);
+
+  const filteredBuildingRailItems = useMemo(() => {
+    const query = buildingRailQuery.trim().toLowerCase();
+    if (!query) return buildingRailItems;
+    return buildingRailItems.filter(item => item.name.toLowerCase().includes(query));
+  }, [buildingRailItems, buildingRailQuery]);
 
   const recentBuildingIds = useMemo(
     () => (activeChantierId ? recentBuildingsByChantier[activeChantierId] ?? [] : []),
@@ -2933,14 +2993,14 @@ export default function PlansScreen() {
           </View>
 
           {/* Hierarchy navigation — building chips (masqué si 1 seul bâtiment et aucun plan orphelin) */}
-          {showBuildingChips && !useHybridPicker && (
+          {showBuildingChips && !showBuildingRail && !useHybridPicker && (
             <View style={styles.hierarchyRow}>
               <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.hierarchyChips}>
                 {chantierHierarchyBuildings.map(b => (
                   <TouchableOpacity
                     key={b.id}
                     style={[styles.hierarchyChip, selectedBuilding === b.id && styles.hierarchyChipActive]}
-                    onPress={() => { setSelectedBuilding(b.id); setSelectedLevel(pickInitialLevelForBuilding(b.id)); setActivePlanId(null); }}
+                    onPress={() => handleSelectBuilding(b.id)}
                   >
                     <Ionicons name="business-outline" size={11} color={selectedBuilding === b.id ? C.primary : C.textSub} />
                     <Text style={[styles.hierarchyChipText, selectedBuilding === b.id && styles.hierarchyChipTextActive]}>{b.name}</Text>
@@ -2949,7 +3009,7 @@ export default function PlansScreen() {
                 {hasOrphanPlans && (
                   <TouchableOpacity
                     style={[styles.hierarchyChip, selectedBuilding === '__none__' && styles.hierarchyChipActive]}
-                    onPress={() => { setSelectedBuilding('__none__'); setSelectedLevel('all'); setActivePlanId(null); }}
+                    onPress={handleSelectOrphanPlans}
                   >
                     <Ionicons name="layers-outline" size={11} color={selectedBuilding === '__none__' ? C.primary : C.textSub} />
                     <Text style={[styles.hierarchyChipText, selectedBuilding === '__none__' && styles.hierarchyChipTextActive]}>{t('plansScreen.general')}</Text>
@@ -2960,7 +3020,7 @@ export default function PlansScreen() {
           )}
 
           {/* Hierarchy navigation — hybrid (récents + Tous · N) pour chantiers à plusieurs bâtiments */}
-          {showBuildingChips && useHybridPicker && (
+          {showBuildingChips && !showBuildingRail && useHybridPicker && (
             <View style={styles.hierarchyRow}>
               <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.hierarchyChips}>
                 {visibleRecentChips.map(b => {
@@ -2969,7 +3029,7 @@ export default function PlansScreen() {
                     <TouchableOpacity
                       key={b.id}
                       style={[styles.hierarchyChip, isActive && styles.hierarchyChipActive]}
-                      onPress={() => { setSelectedBuilding(b.id); setSelectedLevel(pickInitialLevelForBuilding(b.id)); setActivePlanId(null); }}
+                      onPress={() => handleSelectBuilding(b.id)}
                     >
                       <Ionicons name="business-outline" size={11} color={isActive ? C.primary : C.textSub} />
                       <Text
@@ -2989,7 +3049,7 @@ export default function PlansScreen() {
                 {hasOrphanPlans && (
                   <TouchableOpacity
                     style={[styles.hierarchyChip, selectedBuilding === '__none__' && styles.hierarchyChipActive]}
-                    onPress={() => { setSelectedBuilding('__none__'); setSelectedLevel('all'); setActivePlanId(null); }}
+                    onPress={handleSelectOrphanPlans}
                   >
                     <Ionicons name="layers-outline" size={11} color={selectedBuilding === '__none__' ? C.primary : C.textSub} />
                     <Text style={[styles.hierarchyChipText, selectedBuilding === '__none__' && styles.hierarchyChipTextActive]}>{t('plansScreen.general')}</Text>
@@ -3146,6 +3206,104 @@ export default function PlansScreen() {
       )}
 
       <View style={isTablet ? styles.tabletBodyRow : { flex: 1 }}>
+        {showBuildingRail && (
+          <View style={styles.buildingRail}>
+            <View style={styles.buildingRailHeader}>
+              <View style={{ flex: 1, minWidth: 0 }}>
+                <Text style={styles.buildingRailTitle}>{t('plansScreen.buildingRail.title')}</Text>
+                <Text style={styles.buildingRailSubtitle}>
+                  {t('plansScreen.buildingRail.fixedHint')}
+                </Text>
+              </View>
+              <TouchableOpacity
+                style={styles.buildingRailPickerBtn}
+                onPress={() => setBuildingPickerOpen(true)}
+                accessibilityLabel={t('plansScreen.a11y.viewAllBuildings', { count: chantierHierarchyBuildings.length })}
+              >
+                <Ionicons name="search-outline" size={15} color={C.primary} />
+              </TouchableOpacity>
+            </View>
+
+            <View style={styles.buildingRailSearch}>
+              <Ionicons name="search-outline" size={14} color={C.textMuted} />
+              <TextInput
+                style={styles.buildingRailSearchInput}
+                placeholder={t('plansScreen.buildingRail.search')}
+                placeholderTextColor={C.textMuted}
+                value={buildingRailQuery}
+                onChangeText={setBuildingRailQuery}
+                returnKeyType="search"
+              />
+              {buildingRailQuery.length > 0 && (
+                <TouchableOpacity onPress={() => setBuildingRailQuery('')} hitSlop={8}>
+                  <Ionicons name="close-circle" size={15} color={C.textMuted} />
+                </TouchableOpacity>
+              )}
+            </View>
+
+            <TouchableOpacity
+              style={[styles.buildingRailAllRow, selectedBuilding === 'all' && styles.buildingRailRowActive]}
+              onPress={handleSelectAllBuildings}
+              accessibilityState={{ selected: selectedBuilding === 'all' }}
+            >
+              <View style={[styles.buildingRailIcon, selectedBuilding === 'all' && styles.buildingRailIconActive]}>
+                <Ionicons name="grid-outline" size={16} color={selectedBuilding === 'all' ? '#fff' : C.primary} />
+              </View>
+              <View style={styles.buildingRailTextWrap}>
+                <Text style={[styles.buildingRailName, selectedBuilding === 'all' && styles.buildingRailNameActive]} numberOfLines={1}>
+                  {t('plansScreen.buildingRail.allBuildings')}
+                </Text>
+                <Text style={styles.buildingRailMeta} numberOfLines={1}>
+                  {commonPlanText(chantierPlans.length)} · {commonReserveText(activeReserveCountForRail)}
+                </Text>
+              </View>
+            </TouchableOpacity>
+
+            <FlatList
+              data={filteredBuildingRailItems}
+              keyExtractor={item => item.id}
+              style={styles.buildingRailList}
+              contentContainerStyle={styles.buildingRailListContent}
+              showsVerticalScrollIndicator
+              keyboardShouldPersistTaps="handled"
+              ListEmptyComponent={
+                <View style={styles.buildingRailEmpty}>
+                  <Ionicons name="search-outline" size={18} color={C.textMuted} />
+                  <Text style={styles.buildingRailEmptyText}>{t('plansScreen.buildingRail.empty')}</Text>
+                </View>
+              }
+              renderItem={({ item }) => {
+                const isActive = selectedBuilding === item.id;
+                const isOrphan = item.kind === 'orphans';
+                return (
+                  <TouchableOpacity
+                    style={[styles.buildingRailRow, isActive && styles.buildingRailRowActive]}
+                    onPress={isOrphan ? handleSelectOrphanPlans : () => handleSelectBuilding(item.id)}
+                    activeOpacity={0.78}
+                    accessibilityState={{ selected: isActive }}
+                  >
+                    <View style={[styles.buildingRailIcon, isActive && styles.buildingRailIconActive]}>
+                      <Ionicons name={isOrphan ? 'layers-outline' : 'business-outline'} size={16} color={isActive ? '#fff' : C.textSub} />
+                    </View>
+                    <View style={styles.buildingRailTextWrap}>
+                      <Text style={[styles.buildingRailName, isActive && styles.buildingRailNameActive]} numberOfLines={2}>
+                        {item.name}
+                      </Text>
+                      <Text style={styles.buildingRailMeta} numberOfLines={1}>
+                        {commonPlanText(item.planCount)} · {commonReserveText(item.reserveCount)}
+                      </Text>
+                    </View>
+                    {item.reserveCount > 0 && (
+                      <View style={[styles.buildingRailBadge, isActive && styles.buildingRailBadgeActive]}>
+                        <Text style={[styles.buildingRailBadgeText, isActive && styles.buildingRailBadgeTextActive]}>{item.reserveCount}</Text>
+                      </View>
+                    )}
+                  </TouchableOpacity>
+                );
+              }}
+            />
+          </View>
+        )}
         <View style={{ flex: 1 }}>
           {!fullscreen && (
             <>
@@ -4468,17 +4626,9 @@ export default function PlansScreen() {
         buildings={buildingItems}
         selectedId={selectedBuilding}
         recentIds={recentBuildingIds}
-        onSelect={(id) => {
-          setSelectedBuilding(id);
-          setSelectedLevel(pickInitialLevelForBuilding(id));
-          setActivePlanId(null);
-        }}
+        onSelect={handleSelectBuilding}
         hasOrphanPlans={hasOrphanPlans}
-        onSelectOrphans={() => {
-          setSelectedBuilding('__none__');
-          setSelectedLevel('all');
-          setActivePlanId(null);
-        }}
+        onSelectOrphans={handleSelectOrphanPlans}
         orphansSelected={selectedBuilding === '__none__'}
         initialFamily={activeChantierId ? recentFamilyByChantier[activeChantierId] : undefined}
         onFamilyChange={(famKey) => {
@@ -4517,9 +4667,9 @@ export default function PlansScreen() {
         buildings={buildings}
         selectedBuilding={selectedBuilding}
         onBuildingChange={(b) => {
-          setSelectedBuilding(b);
-          setSelectedLevel(b === 'all' || b === '__none__' ? 'all' : pickInitialLevelForBuilding(b));
-          setActivePlanId(null);
+          if (b === 'all') handleSelectAllBuildings();
+          else if (b === '__none__') handleSelectOrphanPlans();
+          else handleSelectBuilding(b);
         }}
         planLevels={planLevelsForBuilding}
         selectedLevel={selectedLevel}
@@ -4649,6 +4799,123 @@ const styles = StyleSheet.create({
   newVersionBtnText: { fontSize: 12, fontFamily: 'Inter_600SemiBold', color: C.primary },
 
   tabletBodyRow: { flex: 1, flexDirection: 'row' },
+  buildingRail: {
+    width: 260,
+    flexShrink: 0,
+    backgroundColor: C.surface,
+    borderRightWidth: 1,
+    borderRightColor: C.border,
+  },
+  buildingRailHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingHorizontal: 12,
+    paddingTop: 12,
+    paddingBottom: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: C.border,
+  },
+  buildingRailTitle: {
+    fontSize: 12,
+    fontFamily: 'Inter_700Bold',
+    color: C.text,
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+  },
+  buildingRailSubtitle: {
+    fontSize: 10,
+    fontFamily: 'Inter_400Regular',
+    color: C.textMuted,
+    marginTop: 2,
+  },
+  buildingRailPickerBtn: {
+    width: 34,
+    height: 34,
+    borderRadius: 10,
+    backgroundColor: C.primaryBg,
+    borderWidth: 1,
+    borderColor: C.primary + '30',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  buildingRailSearch: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    margin: 10,
+    paddingHorizontal: 10,
+    height: 38,
+    borderRadius: 11,
+    backgroundColor: C.surface2,
+    borderWidth: 1,
+    borderColor: C.border,
+  },
+  buildingRailSearchInput: {
+    flex: 1,
+    minWidth: 0,
+    paddingVertical: 0,
+    fontSize: 12,
+    fontFamily: 'Inter_400Regular',
+    color: C.text,
+  },
+  buildingRailAllRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    marginHorizontal: 10,
+    marginBottom: 8,
+    padding: 10,
+    borderRadius: 13,
+    backgroundColor: C.surface2,
+    borderWidth: 1,
+    borderColor: C.border,
+  },
+  buildingRailList: { flex: 1 },
+  buildingRailListContent: { paddingHorizontal: 10, paddingBottom: 18, gap: 6 },
+  buildingRailRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    padding: 10,
+    borderRadius: 13,
+    backgroundColor: C.surface,
+    borderWidth: 1,
+    borderColor: C.border,
+  },
+  buildingRailRowActive: { backgroundColor: C.primaryBg, borderColor: C.primary + '70' },
+  buildingRailIcon: {
+    width: 34,
+    height: 34,
+    borderRadius: 10,
+    backgroundColor: C.surface2,
+    borderWidth: 1,
+    borderColor: C.border,
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexShrink: 0,
+  },
+  buildingRailIconActive: { backgroundColor: C.primary, borderColor: C.primary },
+  buildingRailTextWrap: { flex: 1, minWidth: 0 },
+  buildingRailName: { fontSize: 12, fontFamily: 'Inter_600SemiBold', color: C.text, lineHeight: 16 },
+  buildingRailNameActive: { color: C.primary },
+  buildingRailMeta: { fontSize: 10, fontFamily: 'Inter_400Regular', color: C.textMuted, marginTop: 2 },
+  buildingRailBadge: {
+    minWidth: 22,
+    height: 22,
+    paddingHorizontal: 6,
+    borderRadius: 11,
+    backgroundColor: C.surface2,
+    borderWidth: 1,
+    borderColor: C.border,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  buildingRailBadgeActive: { backgroundColor: C.primary, borderColor: C.primary },
+  buildingRailBadgeText: { fontSize: 10, fontFamily: 'Inter_700Bold', color: C.textSub },
+  buildingRailBadgeTextActive: { color: '#fff' },
+  buildingRailEmpty: { alignItems: 'center', gap: 8, paddingVertical: 22, paddingHorizontal: 10 },
+  buildingRailEmptyText: { fontSize: 12, fontFamily: 'Inter_400Regular', color: C.textMuted, textAlign: 'center' },
   tabletPanel: {
     flex: 0, backgroundColor: C.surface, borderLeftWidth: 1, borderLeftColor: C.border,
     ...Platform.select({ web: { boxShadow: '-2px 0 8px rgba(0,0,0,0.05)' } as any, default: { shadowColor: '#000', shadowOffset: { width: -2, height: 0 }, shadowOpacity: 0.05, shadowRadius: 6 } }),
