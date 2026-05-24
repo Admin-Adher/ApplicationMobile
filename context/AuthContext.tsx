@@ -3,6 +3,7 @@ import { Alert } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { supabase, isSupabaseConfigured, resetAuthLock } from '@/lib/supabase';
 import { User, UserRole, UserPermissions, PermissionsOverride } from '@/constants/types';
+import type { AppLanguage } from '@/constants/language';
 import { ROLE_LABELS } from '@/constants/roles';
 import { debugLog, debugLogOk, debugLogWarn, debugLogError } from '@/lib/debugLog';
 import { sendWelcomeEmail, sendInvitationAcceptedEmail, sendAccessRevokedEmail } from '@/lib/email/client';
@@ -113,6 +114,7 @@ interface AuthContextValue {
   seedStatus: 'idle' | 'seeding' | 'done' | 'error';
   updateUserRole: (userId: string, newRole: UserRole) => Promise<void>;
   updateUserCompany: (userId: string, companyId: string | null) => Promise<void>;
+  updateUserPreferredLanguage: (language: AppLanguage | null) => Promise<void>;
   updateUserPermissions: (userId: string, override: PermissionsOverride) => Promise<void>;
   deleteUserProfile: (userId: string) => Promise<void>;
 }
@@ -329,6 +331,7 @@ async function fetchProfile(userId: string, skipInvitationLink = false): Promise
       email: profileData.email as string,
       organizationId: orgId,
       companyId,
+      preferredLanguage: (profileData.preferred_language as AppLanguage | null) ?? undefined,
       permissionsOverride: (
         profileData.permissions_override &&
         typeof profileData.permissions_override === 'object' &&
@@ -712,6 +715,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       email: p.email,
       organizationId: p.organization_id ?? undefined,
       companyId: p.company_id ?? undefined,
+      preferredLanguage: p.preferred_language ?? undefined,
       permissionsOverride: (p.permissions_override && Object.keys(p.permissions_override).length > 0)
         ? p.permissions_override as PermissionsOverride
         : undefined,
@@ -731,7 +735,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
       // Essai 2 : requête directe sur profiles (peut échouer si RLS récursif)
       (supabase as any).from('profiles')
-        .select('id, name, role, role_label, email, organization_id, company_id, permissions_override')
+        .select('id, name, role, role_label, email, organization_id, company_id, permissions_override, preferred_language')
         .then(({ data, error }: { data: any; error: any }) => {
           if (!error && data && data.length > 0) {
             setUsers(data.map(mapProfile));
@@ -745,7 +749,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
           // Essai 3 : requête minimale sans permissions_override
           (supabase as any).from('profiles')
-            .select('id, name, role, role_label, email, organization_id')
+            .select('id, name, role, role_label, email, organization_id, preferred_language')
             .then(({ data: d3, error: e3 }: { data: any; error: any }) => {
               if (e3) {
                 console.warn('[AuthContext] profiles minimal select error:', e3.code, e3.message);
@@ -757,6 +761,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                   id: p.id, name: p.name, role: p.role as UserRole,
                   roleLabel: p.role_label ?? ROLE_LABELS[p.role as UserRole] ?? p.role,
                   email: p.email, organizationId: p.organization_id ?? undefined,
+                  preferredLanguage: p.preferred_language ?? undefined,
                   companyId: undefined, permissionsOverride: undefined,
                 })));
                 setUsersLoaded(true);
@@ -1369,6 +1374,23 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     ));
   }
 
+  async function updateUserPreferredLanguage(language: AppLanguage | null): Promise<void> {
+    if (!user?.id) return;
+    if (isSupabaseConfigured) {
+      resetAuthLock();
+      const { data, error } = await withProfileMutationTimeout<any>((supabase as any).from('profiles').update({
+        preferred_language: language,
+      }).eq('id', user.id).select('id, preferred_language').maybeSingle(), 'langue utilisateur');
+      if (error || !data?.id) {
+        throw new Error(error?.message ?? "La langue n'a pas pu être synchronisée.");
+      }
+    }
+    setUser(prev => prev ? { ...prev, preferredLanguage: language ?? undefined } : prev);
+    setUsers(prev => prev.map(u =>
+      u.id === user.id ? { ...u, preferredLanguage: language ?? undefined } : u
+    ));
+  }
+
   async function deleteUserProfile(userId: string): Promise<void> {
     const targetUser = users.find(u => u.id === userId);
 
@@ -1451,6 +1473,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       seedStatus,
       updateUserRole,
       updateUserCompany,
+      updateUserPreferredLanguage,
       updateUserPermissions,
       deleteUserProfile,
     }}>

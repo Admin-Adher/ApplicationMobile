@@ -4,6 +4,7 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import { useState, useMemo, useEffect } from 'react';
 import { useRouter } from 'expo-router';
+import { useTranslation } from 'react-i18next';
 import * as Application from 'expo-application';
 import * as IntentLauncher from 'expo-intent-launcher';
 import { C } from '@/constants/colors';
@@ -19,6 +20,7 @@ import { getSessionFromStorage } from '@/lib/offlineCache';
 import { useNetwork } from '@/context/NetworkContext';
 import { useNotificationPreferences } from '@/context/NotificationPreferencesContext';
 import { usePushNotifications } from '@/context/PushNotificationsContext';
+import { useLanguage } from '@/context/LanguageContext';
 
 function groupByDate(records: AttendanceRecord[]): Record<string, AttendanceRecord[]> {
   const groups: Record<string, AttendanceRecord[]> = {};
@@ -65,6 +67,7 @@ const STATUS_COLORS = {
 } as const;
 
 export default function SettingsScreen() {
+  const { t } = useTranslation();
   const router = useRouter();
   const { projectName, projectDescription, setProjectName, setProjectDescription, attendanceHistory, saveAttendanceSnapshot, clearAttendanceHistory, defaultArrivalTime, setDefaultArrivalTime, standardDayHours, setStandardDayHours } = useSettings();
   const { companies } = useApp();
@@ -73,6 +76,13 @@ export default function SettingsScreen() {
   const { queue, queueCount, isOnline, syncStatus, syncProgress, clearQueue, retrySync } = useNetwork();
   const { preferences: notifPrefs, updatePreferences, isLoading: notifLoading, lastError: notifError } = useNotificationPreferences();
   const { expoPushToken, permissionStatus, lastError: pushError, retryRegistration: retryPushRegistration } = usePushNotifications();
+  const {
+    deviceLanguage,
+    effectiveLanguage,
+    languagePreference,
+    setLanguagePreference,
+    supportedLanguages,
+  } = useLanguage();
 
   const [nameInput, setNameInput] = useState(projectName);
   const [descInput, setDescInput] = useState(projectDescription);
@@ -244,18 +254,18 @@ export default function SettingsScreen() {
   }
 
   const pushStatus = pushError?.includes('Migration Supabase manquante')
-    ? 'Table Supabase manquante'
+    ? t('settings.pushStatus.missingTable')
     : pushError?.includes('Service push Android')
-      ? 'Service push indisponible'
+      ? t('settings.pushStatus.serviceUnavailable')
     : pushError
-      ? 'Configuration push incomplète'
+      ? t('settings.pushStatus.incomplete')
     : permissionStatus === 'granted'
-    ? (expoPushToken ? 'Appareil enregistré' : 'Permission accordée')
+    ? (expoPushToken ? t('settings.pushStatus.registered') : t('settings.pushStatus.granted'))
     : permissionStatus === 'denied'
-      ? 'Permission système refusée'
+      ? t('settings.pushStatus.denied')
       : permissionStatus === 'unsupported'
-        ? 'Non disponible sur web'
-        : 'Permission à demander';
+        ? t('settings.pushStatus.webUnavailable')
+        : t('settings.pushStatus.requestPermission');
 
   const pushStatusColor = pushError
     ? '#F59E0B'
@@ -270,20 +280,20 @@ export default function SettingsScreen() {
   const showPushPermissionCta = Platform.OS !== 'web'
     && (pushErrorIsActionable || permissionStatus === 'undetermined' || permissionStatus === 'denied' || !notifPrefs.pushEnabled);
   const pushPermissionCtaTitle = pushErrorIsActionable
-    ? 'Enregistrement push non termine'
+    ? t('settings.pushPermission.registrationTitle')
     : permissionStatus === 'denied'
-    ? 'Notifications bloquées sur ce téléphone'
-    : 'Recevoir les alertes importantes';
+    ? t('settings.pushPermission.deniedTitle')
+    : t('settings.pushPermission.importantTitle');
   const pushPermissionCtaText = pushErrorIsActionable
-    ? "Le service Android n'a pas fourni de token. Cela arrive parfois avec Google Play Services ou une connexion instable."
+    ? t('settings.pushPermission.registrationText')
     : permissionStatus === 'denied'
-    ? "BuildTrack ne peut plus demander la permission automatiquement. Activez les notifications dans les réglages de l'appareil."
-    : "Autorisez BuildTrack à envoyer des notifications natives pour les messages, réserves critiques et rappels chantier.";
+    ? t('settings.pushPermission.deniedText')
+    : t('settings.pushPermission.importantText');
   const pushPermissionCtaLabel = pushErrorIsActionable
-    ? 'Reessayer'
+    ? t('settings.pushPermission.retry')
     : permissionStatus === 'denied'
-    ? 'Ouvrir les réglages'
-    : 'Autoriser les notifications';
+    ? t('settings.pushPermission.openSettings')
+    : t('settings.pushPermission.allow');
 
   function renderSwitchRow(
     key: NotificationBooleanKey,
@@ -348,7 +358,7 @@ export default function SettingsScreen() {
       try {
         await Linking.openSettings();
       } catch {
-        Alert.alert('Réglages indisponibles', "Impossible d'ouvrir les réglages de l'application depuis BuildTrack.");
+        Alert.alert(t('settings.pushPermission.settingsUnavailableTitle'), t('settings.pushPermission.settingsUnavailableText'));
       } finally {
         retryPushRegistration();
       }
@@ -359,11 +369,11 @@ export default function SettingsScreen() {
     if (Platform.OS === 'web') return;
     if (permissionStatus === 'denied') {
       Alert.alert(
-        'Autoriser les notifications',
-        "Les notifications sont bloquées par le téléphone. Ouvrez les réglages BuildTrack puis activez les notifications.",
+        t('settings.pushPermission.alertTitle'),
+        t('settings.pushPermission.alertText'),
         [
-          { text: 'Annuler', style: 'cancel' },
-          { text: 'Ouvrir les réglages', onPress: openBuildTrackNotificationSettings },
+          { text: t('common.cancel'), style: 'cancel' },
+          { text: t('settings.pushPermission.openSettings'), onPress: openBuildTrackNotificationSettings },
         ],
       );
       return;
@@ -505,19 +515,20 @@ export default function SettingsScreen() {
   const seatBarColor = seatRatio >= 0.9 ? '#EF4444' : seatRatio >= 0.7 ? '#F59E0B' : '#10B981';
   const roleColor = ROLE_COLORS[user?.role ?? 'observateur'] ?? C.primary;
   const userInitials = user ? user.name.split(' ').map(w => w[0]).slice(0, 2).join('').toUpperCase() : '??';
+  const activeLanguage = supportedLanguages.find(lang => lang.code === effectiveLanguage) ?? supportedLanguages[0];
 
   return (
     <KeyboardAvoidingView style={styles.container} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
-      <Header title="Paramètres" subtitle="Compte & projet" showBack />
+      <Header title={t('common.settings')} subtitle={t('settings.accountAndProject')} showBack />
 
       <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.tabScroll} contentContainerStyle={styles.tabRow}>
         {[
-          { key: 'compte',       icon: 'person-circle-outline', label: 'Compte',          nav: false },
-          { key: 'notifications', icon: 'notifications-outline', label: 'Notifications',   nav: false },
-          ...((user?.role === 'admin' || user?.role === 'super_admin') ? [{ key: 'abonnement', icon: 'card-outline', label: 'Abonnement', nav: true }] : []),
-          { key: 'project',      icon: 'construct-outline',     label: 'Projet',          nav: false },
-          ...(!isSousTraitant ? [{ key: 'attendance', icon: 'people-outline', label: `Présences (${totalDays})`, nav: false }] : []),
-          { key: 'integrations', icon: 'apps-outline',          label: 'Intégrations BTP', nav: false },
+          { key: 'compte',       icon: 'person-circle-outline', label: t('settings.account'),          nav: false },
+          { key: 'notifications', icon: 'notifications-outline', label: t('settings.notifications'),   nav: false },
+          ...((user?.role === 'admin' || user?.role === 'super_admin') ? [{ key: 'abonnement', icon: 'card-outline', label: t('settings.subscription'), nav: true }] : []),
+          { key: 'project',      icon: 'construct-outline',     label: t('settings.project'),          nav: false },
+          ...(!isSousTraitant ? [{ key: 'attendance', icon: 'people-outline', label: t('settings.attendance', { count: totalDays }), nav: false }] : []),
+          { key: 'integrations', icon: 'apps-outline',          label: t('settings.integrations'), nav: false },
         ].map(tab => (
           <TouchableOpacity
             key={tab.key}
@@ -544,6 +555,56 @@ export default function SettingsScreen() {
                 <Text style={styles.orgSlug}>/{organization.slug}</Text>
               </View>
             )}
+
+            <View style={styles.card}>
+              <View style={styles.cardTitleRow}>
+                <Ionicons name="language-outline" size={16} color={C.primary} />
+                <Text style={styles.cardTitle}>{t('settings.language')}</Text>
+              </View>
+              <Text style={styles.prefSub}>{t('settings.languageDescription')}</Text>
+              <View style={styles.languageSummary}>
+                <View style={styles.languageBadge}>
+                  <Text style={styles.languageBadgeText}>{activeLanguage.label}</Text>
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.prefTitle}>{activeLanguage.nativeName}</Text>
+                  <Text style={styles.prefSub}>
+                    {languagePreference === 'auto'
+                      ? `${t('common.automatic')} · ${t('settings.languageDevice')} ${deviceLanguage.toUpperCase()}`
+                      : t('settings.languageSaved')}
+                  </Text>
+                </View>
+              </View>
+              <View style={styles.languageOptions}>
+                <TouchableOpacity
+                  style={[styles.languageOption, languagePreference === 'auto' && styles.languageOptionActive]}
+                  onPress={() => { void setLanguagePreference('auto'); }}
+                >
+                  <Ionicons
+                    name="phone-portrait-outline"
+                    size={14}
+                    color={languagePreference === 'auto' ? C.primary : C.textMuted}
+                  />
+                  <Text style={[styles.languageOptionText, languagePreference === 'auto' && styles.languageOptionTextActive]}>
+                    {t('common.automatic')}
+                  </Text>
+                </TouchableOpacity>
+                {supportedLanguages.map(lang => {
+                  const active = languagePreference === lang.code;
+                  return (
+                    <TouchableOpacity
+                      key={lang.code}
+                      style={[styles.languageOption, active && styles.languageOptionActive]}
+                      onPress={() => { void setLanguagePreference(lang.code); }}
+                    >
+                      <Text style={[styles.languageOptionCode, active && styles.languageOptionCodeActive]}>{lang.label}</Text>
+                      <Text style={[styles.languageOptionText, active && styles.languageOptionTextActive]}>{lang.nativeName}</Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+              <Text style={styles.languageHint}>{t('settings.languageAutoHint')}</Text>
+            </View>
 
             <View style={styles.profileCard}>
               <View style={[styles.avatar, { backgroundColor: roleColor + '22' }]}>
@@ -854,7 +915,7 @@ export default function SettingsScreen() {
             <View style={[styles.card, { marginBottom: 14 }]}>
               <View style={styles.cardTitleRow}>
                 <Ionicons name="phone-portrait-outline" size={16} color={C.primary} />
-                <Text style={styles.cardTitle}>État de l'appareil</Text>
+                <Text style={styles.cardTitle}>{t('settings.deviceState')}</Text>
               </View>
               <View style={styles.prefStatusRow}>
                 <View style={[styles.statusDot, { backgroundColor: pushStatusColor }]} />
@@ -901,17 +962,17 @@ export default function SettingsScreen() {
             <View style={[styles.card, { marginBottom: 14 }]}>
               <View style={styles.cardTitleRow}>
                 <Ionicons name="options-outline" size={16} color={C.primary} />
-                <Text style={styles.cardTitle}>Canaux</Text>
+                <Text style={styles.cardTitle}>{t('settings.channels')}</Text>
               </View>
-              {renderSwitchRow('inAppEnabled', 'Notifications app', 'Alertes visibles dans le centre de notifications BuildTrack.')}
-              {renderSwitchRow('pushEnabled', 'Notifications push', 'Alertes natives sur tablette ou téléphone.')}
-              {renderSwitchRow('emailEnabled', 'Notifications email', 'Emails automatiques liés aux réserves et aux changements importants.')}
-              {renderSwitchRow('quietHoursEnabled', 'Heures calmes', 'Suspend les push non critiques pendant le créneau choisi.')}
+              {renderSwitchRow('inAppEnabled', t('settings.notificationSwitches.inAppTitle'), t('settings.notificationSwitches.inAppText'))}
+              {renderSwitchRow('pushEnabled', t('settings.notificationSwitches.pushTitle'), t('settings.notificationSwitches.pushText'))}
+              {renderSwitchRow('emailEnabled', t('settings.notificationSwitches.emailTitle'), t('settings.notificationSwitches.emailText'))}
+              {renderSwitchRow('quietHoursEnabled', t('settings.notificationSwitches.quietHoursTitle'), t('settings.notificationSwitches.quietHoursText'))}
               {notifPrefs.quietHoursEnabled && (
                 <View style={styles.prefTimeBlock}>
-                  <Text style={styles.label}>Début</Text>
+                  <Text style={styles.label}>{t('settings.quietHoursStart')}</Text>
                   {renderTimeChips('quietHoursStart', ['18:00', '19:00', '20:00', '21:00'])}
-                  <Text style={styles.label}>Fin</Text>
+                  <Text style={styles.label}>{t('settings.quietHoursEnd')}</Text>
                   {renderTimeChips('quietHoursEnd', ['06:00', '07:00', '08:00', '09:00'])}
                 </View>
               )}
@@ -919,7 +980,7 @@ export default function SettingsScreen() {
                 <View style={styles.prefAdminNotice}>
                   <Ionicons name="information-circle-outline" size={15} color="#92400E" />
                   <Text style={styles.prefAdminNoticeText}>
-                    Les emails ont été désactivés par un administrateur. Vous pouvez les réactiver ici si besoin.
+                    {t('settings.notificationSwitches.adminEmailDisabled')}
                   </Text>
                 </View>
               )}
@@ -928,41 +989,41 @@ export default function SettingsScreen() {
             <View style={[styles.card, { marginBottom: 14 }]}>
               <View style={styles.cardTitleRow}>
                 <Ionicons name="chatbubbles-outline" size={16} color={C.primary} />
-                <Text style={styles.cardTitle}>Messages</Text>
+                <Text style={styles.cardTitle}>{t('settings.messages')}</Text>
               </View>
-              {renderSwitchRow('messagesInApp', 'Alertes app messages', 'Prépare le réglage des alertes de conversation dans BuildTrack.', !notifPrefs.inAppEnabled)}
-              {renderSwitchRow('messagesPush', 'Push messages', 'Prévenir lorsqu un message arrive.', !notifPrefs.pushEnabled)}
+              {renderSwitchRow('messagesInApp', t('settings.notificationSwitches.messagesInAppTitle'), t('settings.notificationSwitches.messagesInAppText'), !notifPrefs.inAppEnabled)}
+              {renderSwitchRow('messagesPush', t('settings.notificationSwitches.messagesPushTitle'), t('settings.notificationSwitches.messagesPushText'), !notifPrefs.pushEnabled)}
             </View>
 
             <View style={[styles.card, { marginBottom: 14 }]}>
               <View style={styles.cardTitleRow}>
                 <Ionicons name="warning-outline" size={16} color={C.primary} />
-                <Text style={styles.cardTitle}>Réserves</Text>
+                <Text style={styles.cardTitle}>{t('settings.reserves')}</Text>
               </View>
-              {renderSwitchRow('reserveCreatedPush', 'Push création', 'Nouvelle réserve affectée à votre entreprise.', !notifPrefs.pushEnabled)}
-              {renderSwitchRow('reserveCreatedEmail', 'Email création', 'Email lors d une nouvelle réserve.', !notifPrefs.emailEnabled)}
-              {renderSwitchRow('reserveStatusPush', 'Push statut', 'Changement de statut sur une réserve suivie.', !notifPrefs.pushEnabled)}
-              {renderSwitchRow('reserveStatusEmail', 'Email statut', 'Email lors d un changement de statut.', !notifPrefs.emailEnabled)}
-              {renderSwitchRow('reserveCriticalInApp', 'Critiques dans l app', 'Réserves critiques visibles dans le centre de notifications.', !notifPrefs.inAppEnabled)}
-              {renderSwitchRow('reserveCriticalPush', 'Push critiques', 'Alerte mobile pour les réserves critiques.', !notifPrefs.pushEnabled)}
-              {renderSwitchRow('reserveCriticalEmail', 'Email critiques', 'Email pour les réserves critiques.', !notifPrefs.emailEnabled)}
-              {renderSwitchRow('criticalAlwaysPush', 'Critiques hors heures calmes', 'Laisse passer les push critiques même pendant les heures calmes.', !notifPrefs.pushEnabled || !notifPrefs.quietHoursEnabled)}
+              {renderSwitchRow('reserveCreatedPush', t('settings.notificationSwitches.reserveCreatedPushTitle'), t('settings.notificationSwitches.reserveCreatedPushText'), !notifPrefs.pushEnabled)}
+              {renderSwitchRow('reserveCreatedEmail', t('settings.notificationSwitches.reserveCreatedEmailTitle'), t('settings.notificationSwitches.reserveCreatedEmailText'), !notifPrefs.emailEnabled)}
+              {renderSwitchRow('reserveStatusPush', t('settings.notificationSwitches.reserveStatusPushTitle'), t('settings.notificationSwitches.reserveStatusPushText'), !notifPrefs.pushEnabled)}
+              {renderSwitchRow('reserveStatusEmail', t('settings.notificationSwitches.reserveStatusEmailTitle'), t('settings.notificationSwitches.reserveStatusEmailText'), !notifPrefs.emailEnabled)}
+              {renderSwitchRow('reserveCriticalInApp', t('settings.notificationSwitches.reserveCriticalInAppTitle'), t('settings.notificationSwitches.reserveCriticalInAppText'), !notifPrefs.inAppEnabled)}
+              {renderSwitchRow('reserveCriticalPush', t('settings.notificationSwitches.reserveCriticalPushTitle'), t('settings.notificationSwitches.reserveCriticalPushText'), !notifPrefs.pushEnabled)}
+              {renderSwitchRow('reserveCriticalEmail', t('settings.notificationSwitches.reserveCriticalEmailTitle'), t('settings.notificationSwitches.reserveCriticalEmailText'), !notifPrefs.emailEnabled)}
+              {renderSwitchRow('criticalAlwaysPush', t('settings.notificationSwitches.criticalAlwaysPushTitle'), t('settings.notificationSwitches.criticalAlwaysPushText'), !notifPrefs.pushEnabled || !notifPrefs.quietHoursEnabled)}
             </View>
 
             <View style={[styles.card, { marginBottom: 14 }]}>
               <View style={styles.cardTitleRow}>
                 <Ionicons name="alarm-outline" size={16} color={C.primary} />
-                <Text style={styles.cardTitle}>Échéances et retards</Text>
+                <Text style={styles.cardTitle}>{t('settings.dueDatesAndOverdues')}</Text>
               </View>
-              {renderSwitchRow('dueSoonInApp', 'Échéances proches', 'Alertes app pour les échéances dans les 3 jours.', !notifPrefs.inAppEnabled)}
-              {renderSwitchRow('reserveOverdueInApp', 'Retards dans l app', 'Réserves en retard dans le centre de notifications.', !notifPrefs.inAppEnabled)}
-              {renderSwitchRow('reserveOverduePush', 'Push retards', 'Rappel mobile pour les réserves en retard.', !notifPrefs.pushEnabled)}
-              {renderSwitchRow('reserveOverdueEmail', 'Résumé email retards', 'Autorise le récapitulatif quotidien côté serveur.', !notifPrefs.emailEnabled)}
-              {renderSwitchRow('taskLateInApp', 'Tâches en retard', 'Tâches chantier en retard dans l app.', !notifPrefs.inAppEnabled)}
+              {renderSwitchRow('dueSoonInApp', t('settings.notificationSwitches.dueSoonInAppTitle'), t('settings.notificationSwitches.dueSoonInAppText'), !notifPrefs.inAppEnabled)}
+              {renderSwitchRow('reserveOverdueInApp', t('settings.notificationSwitches.reserveOverdueInAppTitle'), t('settings.notificationSwitches.reserveOverdueInAppText'), !notifPrefs.inAppEnabled)}
+              {renderSwitchRow('reserveOverduePush', t('settings.notificationSwitches.reserveOverduePushTitle'), t('settings.notificationSwitches.reserveOverduePushText'), !notifPrefs.pushEnabled)}
+              {renderSwitchRow('reserveOverdueEmail', t('settings.notificationSwitches.reserveOverdueEmailTitle'), t('settings.notificationSwitches.reserveOverdueEmailText'), !notifPrefs.emailEnabled)}
+              {renderSwitchRow('taskLateInApp', t('settings.notificationSwitches.taskLateInAppTitle'), t('settings.notificationSwitches.taskLateInAppText'), !notifPrefs.inAppEnabled)}
               <View style={styles.prefInfoBox}>
                 <Ionicons name="shield-checkmark-outline" size={15} color={C.primary} />
                 <Text style={styles.prefInfoText}>
-                  Les emails de retard ne partent plus depuis le mobile. Le serveur les regroupe en un seul résumé quotidien par destinataire, avec anti-doublon.
+                  {t('settings.notificationSwitches.overdueEmailInfo')}
                 </Text>
               </View>
             </View>
@@ -971,7 +1032,7 @@ export default function SettingsScreen() {
               <View style={styles.infoRow}>
                 <Ionicons name="lock-closed-outline" size={16} color={C.primary} />
                 <Text style={styles.infoText}>
-                  Les emails de sécurité, invitations, accès révoqué et mot de passe restent obligatoires pour protéger les comptes.
+                  {t('settings.securityEmailsNotice')}
                 </Text>
               </View>
             </View>
@@ -1467,6 +1528,72 @@ const styles = StyleSheet.create({
   timeChipActive: { backgroundColor: C.primaryBg, borderColor: C.primary },
   timeChipText: { fontSize: 13, fontFamily: 'Inter_500Medium', color: C.textSub },
   timeChipTextActive: { color: C.primary, fontFamily: 'Inter_700Bold' },
+
+  languageSummary: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    backgroundColor: C.surface2,
+    borderRadius: 12,
+    padding: 12,
+    borderWidth: 1,
+    borderColor: C.border,
+    marginTop: 10,
+  },
+  languageBadge: {
+    width: 40,
+    height: 40,
+    borderRadius: 12,
+    backgroundColor: C.primary,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  languageBadgeText: {
+    color: '#fff',
+    fontSize: 12,
+    fontFamily: 'Inter_700Bold',
+    letterSpacing: 0.4,
+  },
+  languageOptions: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    marginTop: 12,
+  },
+  languageOption: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 11,
+    paddingVertical: 9,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: C.border,
+    backgroundColor: C.surface2,
+  },
+  languageOptionActive: {
+    backgroundColor: C.primaryBg,
+    borderColor: C.primary,
+  },
+  languageOptionCode: {
+    fontSize: 11,
+    fontFamily: 'Inter_700Bold',
+    color: C.textMuted,
+  },
+  languageOptionCodeActive: { color: C.primary },
+  languageOptionText: {
+    fontSize: 12,
+    fontFamily: 'Inter_600SemiBold',
+    color: C.textSub,
+  },
+  languageOptionTextActive: { color: C.primary },
+  languageHint: {
+    fontSize: 11,
+    fontFamily: 'Inter_400Regular',
+    color: C.textMuted,
+    lineHeight: 16,
+    marginTop: 8,
+  },
 
   emptyHistory: { alignItems: 'center', paddingVertical: 40, gap: 10 },
   emptyTitle: { fontSize: 16, fontFamily: 'Inter_600SemiBold', color: C.text },

@@ -397,6 +397,7 @@ export function toProfile(row: any) {
     email: row.email,
     organizationId: row.organization_id ?? undefined,
     companyId: row.company_id ?? undefined,
+    preferredLanguage: row.preferred_language ?? undefined,
   };
 }
 

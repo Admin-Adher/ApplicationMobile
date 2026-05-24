@@ -3,6 +3,7 @@ import { View, Text, StyleSheet, TouchableOpacity, Platform, Animated } from 're
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
+import { useTranslation } from 'react-i18next';
 import { C } from '@/constants/colors';
 import { useNetwork } from '@/context/NetworkContext';
 
@@ -24,6 +25,7 @@ export default function Header({
   title, subtitle, showBack, onBack, rightIcon, onRightPress,
   rightLabel, rightElement, rightActions, showSearch, onSearchPress,
 }: Props) {
+  const { t } = useTranslation();
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const topPad = insets.top;
@@ -45,7 +47,7 @@ export default function Header({
       pulseLoop.current?.stop();
       pulseAnim.setValue(1);
     }
-  }, [stuckCount]);
+  }, [pulseAnim, stuckCount]);
 
   function handleBack() {
     if (onBack) onBack();
@@ -57,8 +59,6 @@ export default function Header({
     else router.push('/search' as any);
   }
 
-  // ── Dot state ───────────────────────────────────────────────────────────────
-  // Priority: offline > stuck > online-with-queue > online
   const dotInteractive = stuckCount > 0 || (!isOnline && queueCount > 0);
   const dotColor = !isOnline
     ? '#EF4444'
@@ -66,9 +66,7 @@ export default function Header({
     ? '#F59E0B'
     : '#22C55E';
   const dotExpanded = (!isOnline && queueCount > 0) || stuckCount > 0;
-  const dotCount = !isOnline
-    ? queueCount
-    : stuckCount;
+  const dotCount = !isOnline ? queueCount : stuckCount;
   const showDotCount = dotExpanded && dotCount > 0;
 
   const dotContent = (
@@ -104,8 +102,8 @@ export default function Header({
                 accessibilityRole="button"
                 accessibilityLabel={
                   stuckCount > 0
-                    ? `${stuckCount} opération${stuckCount > 1 ? 's' : ''} bloquée${stuckCount > 1 ? 's' : ''} — ouvrir les paramètres`
-                    : `${queueCount} opération${queueCount > 1 ? 's' : ''} hors ligne — ouvrir les paramètres`
+                    ? t('accessibility.stuckQueue', { count: stuckCount })
+                    : t('accessibility.offlineQueue', { count: queueCount })
                 }
               >
                 {dotContent}

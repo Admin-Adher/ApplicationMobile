@@ -53,6 +53,7 @@
       "expo-router",
       "expo-updates",
       "expo-notifications",
+      "expo-localization",
       [
         "expo-build-properties",
         {

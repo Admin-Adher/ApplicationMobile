@@ -226,6 +226,12 @@ create table if not exists public.profiles (
   email text not null,
   organization_id uuid references public.organizations(id)
 );
+alter table public.profiles
+  add column if not exists preferred_language text
+    check (
+      preferred_language is null
+      or preferred_language in ('fr', 'en', 'es')
+    );
 alter table public.profiles enable row level security;
 drop policy if exists "Profiles visibles par tous les utilisateurs connectés" on public.profiles;
 drop policy if exists "Profiles visibles par organisation" on public.profiles;

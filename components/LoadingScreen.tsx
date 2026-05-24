@@ -1,5 +1,6 @@
 import React, { useEffect, useRef } from 'react';
 import { View, Text, Image, Animated, Easing, StyleSheet, Platform } from 'react-native';
+import { useTranslation } from 'react-i18next';
 
 const NAVY   = '#1B2C4A';
 const ORANGE = '#F5A623';
@@ -9,6 +10,7 @@ const BAR_W  = 200;
 const WEB    = Platform.OS === 'web';
 
 export default function LoadingScreen() {
+  const { t } = useTranslation();
   // ── Ambient blob ─────────────────────────────────────────────────────────
   const ambientScale   = useRef(new Animated.Value(1)).current;
   const ambientOpacity = useRef(new Animated.Value(0.6)).current;
@@ -324,7 +326,7 @@ export default function LoadingScreen() {
         ]}
       >
         <Text style={styles.appName}>BuildTrack</Text>
-        <Text style={styles.tagline}>Gestion de chantier numérique</Text>
+        <Text style={styles.tagline}>{t('app.tagline')}</Text>
       </Animated.View>
 
       {/* Progress bar */}
@@ -354,7 +356,7 @@ export default function LoadingScreen() {
           />
         </View>
         <View style={styles.loadingRow}>
-          <Text style={styles.loadingLabel}>Chargement</Text>
+          <Text style={styles.loadingLabel}>{t('common.loading')}</Text>
           <Animated.Text style={[styles.dot, { opacity: dot1 }]}>.</Animated.Text>
           <Animated.Text style={[styles.dot, { opacity: dot2 }]}>.</Animated.Text>
           <Animated.Text style={[styles.dot, { opacity: dot3 }]}>.</Animated.Text>
@@ -370,7 +372,7 @@ export default function LoadingScreen() {
       >
         <View style={styles.brandPill}>
           <Animated.View style={[styles.bpDot, { transform: [{ scale: pillDotScale }] }]} />
-          <Text style={styles.bpLabel}>En ligne</Text>
+          <Text style={styles.bpLabel}>{t('common.online')}</Text>
         </View>
       </Animated.View>
 

@@ -295,7 +295,9 @@ export default function ReservesScreen() {
   const { width, height: windowHeight } = useWindowDimensions();
   const isWideScreen = width >= 768;
   const filterSheetBottomGap = Math.max(insets.bottom, Platform.OS === 'android' ? 56 : 8);
-  const filterFooterBottomPadding = Platform.OS === 'android' ? 14 : Math.max(insets.bottom, 14);
+  const filterFooterBottomPadding = Platform.OS === 'android'
+    ? Math.max(insets.bottom, 30)
+    : Math.max(insets.bottom + 14, 28);
   const filterSheetHeight = Math.min(
     windowHeight - filterSheetBottomGap,
     Math.max(420, windowHeight - topPad - filterSheetBottomGap - 8),

@@ -6,11 +6,13 @@ import { useState } from 'react';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter, useLocalSearchParams } from 'expo-router';
+import { useTranslation } from 'react-i18next';
 import { C } from '@/constants/colors';
 import { useAuth } from '@/context/AuthContext';
 import { supabase } from '@/lib/supabase';
 
 export default function RegisterScreen() {
+  const { t } = useTranslation();
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const { register } = useAuth();
@@ -31,19 +33,19 @@ export default function RegisterScreen() {
 
   async function handleRegister() {
     if (!name.trim()) {
-      Alert.alert('Champ requis', 'Veuillez saisir votre nom complet.');
+      Alert.alert(t('auth.nameRequiredTitle'), t('auth.nameRequiredMessage'));
       return;
     }
     if (!email.trim() || !email.includes('@')) {
-      Alert.alert('Email invalide', 'Veuillez saisir une adresse email valide.');
+      Alert.alert(t('auth.invalidEmailTitle'), t('auth.invalidEmailMessage'));
       return;
     }
     if (password.length < 8) {
-      Alert.alert('Mot de passe trop court', 'Le mot de passe doit contenir au moins 8 caractères.');
+      Alert.alert(t('auth.shortPasswordTitle'), t('auth.shortPasswordMessage'));
       return;
     }
     if (password !== confirmPassword) {
-      Alert.alert('Mots de passe différents', 'Les deux mots de passe ne correspondent pas.');
+      Alert.alert(t('auth.differentPasswordsTitle'), t('auth.differentPasswordsMessage'));
       return;
     }
 
@@ -60,17 +62,17 @@ export default function RegisterScreen() {
       if (rpcErr) {
         setLoading(false);
         Alert.alert(
-          'Vérification impossible',
-          "Impossible de vérifier votre invitation pour l'instant. Vérifiez votre connexion et réessayez.",
+          t('auth.checkUnavailableTitle'),
+          t('auth.checkUnavailableMessage'),
           [{ text: 'OK', style: 'default' }]
         );
         return;
       } else if (!hasInvitation) {
         setLoading(false);
         Alert.alert(
-          'Aucune invitation trouvée',
-          "Aucune invitation en attente n'a été trouvée pour cet email.\n\nDemandez à votre administrateur de vous envoyer une invitation avant de créer votre compte.",
-          [{ text: 'Compris', style: 'default' }]
+          t('auth.noInvitationTitle'),
+          t('auth.noInvitationMessage'),
+          [{ text: t('auth.understood'), style: 'default' }]
         );
         return;
       }
@@ -86,7 +88,7 @@ export default function RegisterScreen() {
     setLoading(false);
 
     if (!result.success) {
-      Alert.alert('Erreur', result.error ?? 'Une erreur est survenue.');
+      Alert.alert(t('common.error'), result.error ?? t('auth.genericError'));
     }
   }
 
@@ -110,7 +112,7 @@ export default function RegisterScreen() {
           </View>
           <View style={styles.heroDivider} />
           <Text style={styles.heroTitle}>BuildTrack</Text>
-          <Text style={styles.heroTagline}>Créez votre compte</Text>
+          <Text style={styles.heroTagline}>{t('auth.createAccountTagline')}</Text>
         </View>
 
         <View style={styles.formContainer}>
@@ -121,11 +123,11 @@ export default function RegisterScreen() {
                 <Ionicons name="mail-open-outline" size={18} color={C.primary} />
               </View>
               <View style={{ flex: 1 }}>
-                <Text style={styles.invitationBannerTitle}>Invitation acceptée</Text>
+                <Text style={styles.invitationBannerTitle}>{t('auth.invitationAccepted')}</Text>
                 <Text style={styles.invitationBannerText}>
-                  {invitedByName ? <><Text style={styles.invitationBannerBold}>{invitedByName}</Text> vous invite</> : 'Vous avez été invité'}
-                  {orgName ? <> à rejoindre <Text style={styles.invitationBannerBold}>{orgName}</Text></> : null}.
-                  {' '}Créez votre compte pour activer votre accès.
+                  {invitedByName ? t('auth.invitedBy', { name: invitedByName }) : t('auth.invitedGeneric')}
+                  {orgName ? <> {t('auth.joinOrganization')} <Text style={styles.invitationBannerBold}>{orgName}</Text></> : null}.
+                  {' '}{t('auth.createAccountToActivate')}
                 </Text>
               </View>
             </View>
@@ -133,17 +135,17 @@ export default function RegisterScreen() {
             <View style={styles.infoBanner}>
               <Ionicons name="mail-outline" size={15} color={C.inProgress} />
               <Text style={styles.infoBannerText}>
-                Utilisez l'adresse email sur laquelle vous avez reçu votre invitation.
+                {t('auth.useInvitationEmail')}
               </Text>
             </View>
           )}
 
           <View style={styles.card}>
-            <Text style={styles.cardTitle}>Rejoindre une organisation</Text>
+            <Text style={styles.cardTitle}>{t('auth.joinOrgTitle')}</Text>
 
             {/* Nom complet */}
             <View style={styles.field}>
-              <Text style={styles.label}>Nom complet</Text>
+              <Text style={styles.label}>{t('auth.fullName')}</Text>
               <View style={styles.inputWrap}>
                 <Ionicons name="person-outline" size={18} color={C.textMuted} />
                 <TextInput
@@ -159,7 +161,7 @@ export default function RegisterScreen() {
 
             {/* Email */}
             <View style={styles.field}>
-              <Text style={styles.label}>Email d'invitation</Text>
+              <Text style={styles.label}>{t('auth.invitationEmail')}</Text>
               <View style={[styles.inputWrap, fromInvitation && styles.inputWrapLocked]}>
                 <Ionicons name="mail-outline" size={18} color={fromInvitation ? C.primary : C.textMuted} />
                 <TextInput
@@ -178,18 +180,18 @@ export default function RegisterScreen() {
                 )}
               </View>
               {fromInvitation && (
-                <Text style={styles.lockedHint}>Email pré-rempli à partir de votre invitation.</Text>
+                <Text style={styles.lockedHint}>{t('auth.prefilledEmailHint')}</Text>
               )}
             </View>
 
             {/* Mot de passe */}
             <View style={styles.field}>
-              <Text style={styles.label}>Mot de passe</Text>
+              <Text style={styles.label}>{t('auth.password')}</Text>
               <View style={styles.inputWrap}>
                 <Ionicons name="lock-closed-outline" size={18} color={C.textMuted} />
                 <TextInput
                   style={styles.input}
-                  placeholder="Min. 8 caractères"
+                  placeholder={t('auth.minPassword')}
                   placeholderTextColor={C.textMuted}
                   value={password}
                   onChangeText={setPassword}
@@ -203,7 +205,7 @@ export default function RegisterScreen() {
 
             {/* Confirmer le mot de passe */}
             <View style={styles.field}>
-              <Text style={styles.label}>Confirmer le mot de passe</Text>
+              <Text style={styles.label}>{t('auth.confirmPassword')}</Text>
               <View style={[
                 styles.inputWrap,
                 confirmPassword.length > 0 && password !== confirmPassword && styles.inputWrapError,
@@ -211,7 +213,7 @@ export default function RegisterScreen() {
                 <Ionicons name="lock-closed-outline" size={18} color={C.textMuted} />
                 <TextInput
                   style={styles.input}
-                  placeholder="Répétez le mot de passe"
+                  placeholder={t('auth.repeatPassword')}
                   placeholderTextColor={C.textMuted}
                   value={confirmPassword}
                   onChangeText={setConfirmPassword}
@@ -222,7 +224,7 @@ export default function RegisterScreen() {
                 </TouchableOpacity>
               </View>
               {confirmPassword.length > 0 && password !== confirmPassword && (
-                <Text style={styles.errorHint}>Les mots de passe ne correspondent pas</Text>
+                <Text style={styles.errorHint}>{t('auth.passwordsMismatchInline')}</Text>
               )}
             </View>
 
@@ -237,7 +239,7 @@ export default function RegisterScreen() {
               ) : (
                 <>
                   <Ionicons name="checkmark-circle-outline" size={20} color={C.primary} />
-                  <Text style={styles.submitBtnText}>Créer mon compte</Text>
+                  <Text style={styles.submitBtnText}>{t('auth.createMyAccount')}</Text>
                 </>
               )}
             </TouchableOpacity>
@@ -245,7 +247,7 @@ export default function RegisterScreen() {
 
           <TouchableOpacity style={styles.backToLogin} onPress={() => router.replace('/login')} activeOpacity={0.7}>
             <Ionicons name="arrow-back-outline" size={15} color={C.primary} />
-            <Text style={styles.backToLoginText}>Déjà un compte ? Se connecter</Text>
+            <Text style={styles.backToLoginText}>{t('auth.alreadyAccountLogin')}</Text>
           </TouchableOpacity>
 
           <View style={{ height: insets.bottom + 24 }} />

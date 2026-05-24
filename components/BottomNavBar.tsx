@@ -2,15 +2,16 @@ import { View, Text, StyleSheet, TouchableOpacity, Platform } from 'react-native
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
+import { useTranslation } from 'react-i18next';
 import { C } from '@/constants/colors';
 import { useApp } from '@/context/AppContext';
 
 const TABS = [
-  { icon: 'grid', iconOff: 'grid-outline', label: 'Dashboard', route: '/(tabs)/' },
-  { icon: 'warning', iconOff: 'warning-outline', label: 'Réserves', route: '/(tabs)/reserves' },
-  { icon: 'map', iconOff: 'map-outline', label: 'Plans', route: '/(tabs)/plans' },
-  { icon: 'chatbubbles', iconOff: 'chatbubbles-outline', label: 'Messages', route: '/(tabs)/messages' },
-  { icon: 'hammer', iconOff: 'hammer-outline', label: 'Terrain', route: '/(tabs)/more' },
+  { key: 'dashboard', icon: 'grid', iconOff: 'grid-outline', route: '/(tabs)/' },
+  { key: 'reserves', icon: 'warning', iconOff: 'warning-outline', route: '/(tabs)/reserves' },
+  { key: 'plans', icon: 'map', iconOff: 'map-outline', route: '/(tabs)/plans' },
+  { key: 'messages', icon: 'chatbubbles', iconOff: 'chatbubbles-outline', route: '/(tabs)/messages' },
+  { key: 'more', icon: 'hammer', iconOff: 'hammer-outline', route: '/(tabs)/more' },
 ] as const;
 
 interface Props {
@@ -18,6 +19,7 @@ interface Props {
 }
 
 export default function BottomNavBar({ activeTab = 'more' }: Props) {
+  const { t } = useTranslation();
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const { unreadCount } = useApp();
@@ -35,7 +37,7 @@ export default function BottomNavBar({ activeTab = 'more' }: Props) {
         const hasBadge = i === 3 && unreadCount > 0;
         return (
           <TouchableOpacity
-            key={tab.label}
+            key={tab.key}
             style={styles.tab}
             onPress={() => router.navigate(tab.route as any)}
             activeOpacity={0.7}
@@ -52,7 +54,7 @@ export default function BottomNavBar({ activeTab = 'more' }: Props) {
                 </View>
               ) : null}
             </View>
-            <Text style={[styles.label, isActive && styles.labelActive]}>{tab.label}</Text>
+            <Text style={[styles.label, isActive && styles.labelActive]}>{t(`tabs.${tab.key}`)}</Text>
           </TouchableOpacity>
         );
       })}

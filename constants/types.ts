@@ -54,6 +54,7 @@ export interface User {
   email: string;
   organizationId?: string;
   companyId?: string;
+  preferredLanguage?: 'fr' | 'en' | 'es';
   permissionsOverride?: PermissionsOverride;
 }
 
@@ -492,6 +493,7 @@ export interface Profile {
   email: string;
   organizationId?: string;
   companyId?: string;
+  preferredLanguage?: 'fr' | 'en' | 'es';
   permissionsOverride?: PermissionsOverride;
 }
 

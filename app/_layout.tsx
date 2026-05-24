@@ -3,6 +3,7 @@ import { View, Text, TouchableOpacity, StyleSheet, Platform, LogBox, Animated } 
 import LoadingScreen from '@/components/LoadingScreen';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Stack, useRouter, useSegments } from 'expo-router';
+import { useTranslation } from 'react-i18next';
 import { ErrorBoundary as AppErrorBoundary } from '@/components/ErrorBoundary';
 import { StatusBar } from 'expo-status-bar';
 import * as SplashScreen from 'expo-splash-screen';
@@ -10,6 +11,7 @@ import { useFonts } from 'expo-font';
 import { Inter_400Regular, Inter_500Medium, Inter_600SemiBold, Inter_700Bold } from '@expo-google-fonts/inter';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
+import '@/lib/i18n';
 
 import { PersistQueryClientProvider } from '@tanstack/react-query-persist-client';
 import { queryClient } from '@/lib/queryClient';
@@ -25,6 +27,7 @@ import { NetworkProvider } from '@/context/NetworkContext';
 import { NotificationsProvider } from '@/context/NotificationsContext';
 import { NotificationPreferencesProvider } from '@/context/NotificationPreferencesContext';
 import { PushNotificationsProvider } from '@/context/PushNotificationsContext';
+import { LanguageProvider } from '@/context/LanguageContext';
 import NotificationBanner from '@/components/NotificationBanner';
 import OfflineBanner from '@/components/OfflineBanner';
 import OtaUpdateBanner from '@/components/OtaUpdateBanner';
@@ -60,6 +63,7 @@ function SafeKeyboardProvider({ children }: { children: React.ReactNode }) {
 }
 
 export function ErrorBoundary({ error, retry }: { error: Error; retry: () => void }) {
+  const { t } = useTranslation();
   const handleRestart = () => {
     if (Platform.OS !== 'web') {
       retry();
@@ -67,18 +71,18 @@ export function ErrorBoundary({ error, retry }: { error: Error; retry: () => voi
       reloadApp();
     }
   };
-  const title = error?.name ? `${error.name}` : 'Erreur';
-  const message = error?.message ?? 'Erreur inconnue au démarrage.';
+  const title = error?.name ? `${error.name}` : t('common.error');
+  const message = error?.message ?? t('app.startupUnknownError');
   const stack = (error as any)?.stack ? String((error as any).stack) : '';
   const stackPreview = stack.length > 1200 ? stack.slice(0, 1200) + '\n…' : stack;
   return (
     <View style={eb.container}>
-      <Text style={eb.title}>Une erreur est survenue</Text>
+      <Text style={eb.title}>{t('app.unexpectedError')}</Text>
       <Text style={eb.message}>{title}</Text>
       <Text style={eb.message}>{message}</Text>
       {stackPreview ? <Text style={eb.stack}>{stackPreview}</Text> : null}
       <TouchableOpacity style={eb.button} onPress={handleRestart}>
-        <Text style={eb.buttonText}>Redémarrer</Text>
+        <Text style={eb.buttonText}>{t('app.restart')}</Text>
       </TouchableOpacity>
     </View>
   );
@@ -270,6 +274,7 @@ export default function RootLayout() {
       persistOptions={{ persister: asyncStoragePersister, maxAge: 24 * 60 * 60 * 1000 }}
     >
       <AuthProvider>
+        <LanguageProvider>
         <SubscriptionProvider>
         <NetworkProvider>
         <NotificationPreferencesProvider>
@@ -351,6 +356,7 @@ export default function RootLayout() {
         </NotificationPreferencesProvider>
         </NetworkProvider>
         </SubscriptionProvider>
+        </LanguageProvider>
       </AuthProvider>
     </PersistQueryClientProvider>
   );

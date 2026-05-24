@@ -3,6 +3,7 @@ import { useState, useEffect } from 'react';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
+import { useTranslation } from 'react-i18next';
 import { C } from '@/constants/colors';
 import { useAuth } from '@/context/AuthContext';
 import { useApp } from '@/context/AppContext';
@@ -14,6 +15,7 @@ import { requestPasswordReset } from '@/lib/email/client';
 type ForgotStatus = 'idle' | 'loading' | 'sent' | 'error';
 
 export default function LoginScreen() {
+  const { t } = useTranslation();
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const { login, user } = useAuth();
@@ -35,7 +37,7 @@ export default function LoginScreen() {
 
   async function handleLogin() {
     if (!email.trim() || !password.trim()) {
-      Alert.alert('Champs requis', 'Veuillez saisir votre email et mot de passe.');
+      Alert.alert(t('auth.requiredTitle'), t('auth.requiredMessage'));
       return;
     }
     Keyboard.dismiss();
@@ -44,7 +46,7 @@ export default function LoginScreen() {
     const result = await login(trimmedEmail, password);
     setLoading(false);
     if (!result.success) {
-      Alert.alert('Erreur de connexion', result.error ?? 'Une erreur est survenue.');
+      Alert.alert(t('auth.loginErrorTitle'), result.error ?? t('auth.genericError'));
     }
   }
 
@@ -64,12 +66,12 @@ export default function LoginScreen() {
   async function handleForgotPassword() {
     const trimmed = forgotEmail.trim().toLowerCase();
     if (!trimmed || !trimmed.includes('@')) {
-      setForgotError('Veuillez saisir une adresse email valide.');
+      setForgotError(t('auth.validEmailError'));
       return;
     }
 
     if (!isSupabaseConfigured) {
-      setForgotError('La réinitialisation de mot de passe nécessite une connexion au serveur.');
+      setForgotError(t('auth.resetRequiresServer'));
       return;
     }
 
@@ -81,7 +83,7 @@ export default function LoginScreen() {
 
     if (!result.success) {
       setForgotStatus('error');
-      setForgotError(result.error ?? 'Impossible d\'envoyer l\'email. Réessayez.');
+      setForgotError(result.error ?? t('auth.resetSendError'));
       return;
     }
 
@@ -108,7 +110,7 @@ export default function LoginScreen() {
           </View>
           <View style={styles.heroDivider} />
           <Text style={styles.heroTitle}>BuildTrack</Text>
-          <Text style={styles.heroTagline}>Gestion de chantier numérique</Text>
+          <Text style={styles.heroTagline}>{t('app.tagline')}</Text>
         </View>
 
         <View style={styles.formContainer}>
@@ -116,10 +118,10 @@ export default function LoginScreen() {
           {/* ── Carte principale de connexion ── */}
           {!showForgot ? (
             <View style={styles.card}>
-              <Text style={styles.cardTitle}>Connexion</Text>
+              <Text style={styles.cardTitle}>{t('auth.loginTitle')}</Text>
 
               <View style={styles.field}>
-                <Text style={styles.label}>Email</Text>
+                <Text style={styles.label}>{t('auth.email')}</Text>
                 <View style={styles.inputWrap}>
                   <Ionicons name="mail-outline" size={18} color={C.textMuted} />
                   <TextInput
@@ -136,7 +138,7 @@ export default function LoginScreen() {
               </View>
 
               <View style={styles.field}>
-                <Text style={styles.label}>Mot de passe</Text>
+                <Text style={styles.label}>{t('auth.password')}</Text>
                 <View style={styles.inputWrap}>
                   <Ionicons name="lock-closed-outline" size={18} color={C.textMuted} />
                   <TextInput
@@ -152,7 +154,7 @@ export default function LoginScreen() {
                   </TouchableOpacity>
                 </View>
                 <TouchableOpacity onPress={openForgot} activeOpacity={0.7} style={styles.forgotLink}>
-                  <Text style={styles.forgotLinkText}>Mot de passe oublié ?</Text>
+                  <Text style={styles.forgotLinkText}>{t('auth.forgotPassword')}</Text>
                 </TouchableOpacity>
               </View>
 
@@ -163,8 +165,8 @@ export default function LoginScreen() {
                 activeOpacity={0.85}
               >
                 {loading
-                  ? <Text style={styles.loginBtnText}>Connexion...</Text>
-                  : <><Ionicons name="log-in-outline" size={20} color={C.primary} /><Text style={styles.loginBtnText}>Se connecter</Text></>
+                  ? <Text style={styles.loginBtnText}>{t('auth.loggingIn')}</Text>
+                  : <><Ionicons name="log-in-outline" size={20} color={C.primary} /><Text style={styles.loginBtnText}>{t('auth.loginButton')}</Text></>
                 }
               </TouchableOpacity>
             </View>
@@ -177,7 +179,7 @@ export default function LoginScreen() {
                 <TouchableOpacity onPress={closeForgot} hitSlop={8} style={styles.backBtn}>
                   <Ionicons name="arrow-back-outline" size={20} color={C.primary} />
                 </TouchableOpacity>
-                <Text style={styles.cardTitle}>Mot de passe oublié</Text>
+                <Text style={styles.cardTitle}>{t('auth.forgotPasswordTitle')}</Text>
               </View>
 
               {forgotStatus === 'sent' ? (
@@ -185,27 +187,27 @@ export default function LoginScreen() {
                   <View style={styles.successIconWrap}>
                     <Ionicons name="checkmark-circle" size={44} color={C.closed} />
                   </View>
-                  <Text style={styles.successTitle}>Email envoyé !</Text>
+                  <Text style={styles.successTitle}>{t('auth.resetSentTitle')}</Text>
                   <Text style={styles.successBody}>
-                    Un lien de réinitialisation a été envoyé à{' '}
+                    {t('auth.resetSentBody')}{' '}
                     <Text style={{ fontFamily: 'Inter_600SemiBold' }}>{forgotEmail}</Text>.
                   </Text>
                   <Text style={styles.successHint}>
-                    Vérifiez votre boîte de réception (et les spams). Le lien expire dans 1 heure.
+                    {t('auth.resetSentHint')}
                   </Text>
                   <TouchableOpacity onPress={closeForgot} style={styles.loginBtn} activeOpacity={0.85}>
                     <Ionicons name="arrow-back-outline" size={18} color={C.primary} />
-                    <Text style={styles.loginBtnText}>Retour à la connexion</Text>
+                    <Text style={styles.loginBtnText}>{t('auth.backToLogin')}</Text>
                   </TouchableOpacity>
                 </View>
               ) : (
                 <>
                   <Text style={styles.forgotDesc}>
-                    Saisissez votre adresse email. Vous recevrez un lien pour choisir un nouveau mot de passe.
+                    {t('auth.resetDescription')}
                   </Text>
 
                   <View style={styles.field}>
-                    <Text style={styles.label}>Adresse email</Text>
+                    <Text style={styles.label}>{t('auth.emailAddress')}</Text>
                     <View style={[styles.inputWrap, forgotError ? styles.inputWrapError : null]}>
                       <Ionicons name="mail-outline" size={18} color={C.textMuted} />
                       <TextInput
@@ -237,12 +239,12 @@ export default function LoginScreen() {
                     {forgotStatus === 'loading' ? (
                       <>
                         <ActivityIndicator size="small" color={C.primary} />
-                        <Text style={styles.loginBtnText}>Envoi en cours...</Text>
+                        <Text style={styles.loginBtnText}>{t('auth.sending')}</Text>
                       </>
                     ) : (
                       <>
                         <Ionicons name="send-outline" size={18} color={C.primary} />
-                        <Text style={styles.loginBtnText}>Envoyer le lien</Text>
+                        <Text style={styles.loginBtnText}>{t('auth.sendLink')}</Text>
                       </>
                     )}
                   </TouchableOpacity>
@@ -257,7 +259,7 @@ export default function LoginScreen() {
             activeOpacity={0.7}
           >
             <Ionicons name="person-add-outline" size={15} color={C.primary} />
-            <Text style={styles.registerLinkText}>Nouveau client ? Créer un compte</Text>
+            <Text style={styles.registerLinkText}>{t('auth.newClientCreateAccount')}</Text>
           </TouchableOpacity>
 
           <View style={{ height: insets.bottom + 24 }} />

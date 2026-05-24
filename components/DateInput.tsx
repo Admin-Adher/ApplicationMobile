@@ -12,6 +12,7 @@ import {
   ViewStyle,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { useTranslation } from 'react-i18next';
 import { C } from '@/constants/colors';
 import { isValidDateFR } from '@/lib/dateUtils';
 
@@ -105,6 +106,7 @@ export default function DateInput({
   inputStyle,
   showValidationIcon = true,
 }: DateInputProps) {
+  const { t } = useTranslation();
   const [focused, setFocused] = useState(false);
   const [calendarOpen, setCalendarOpen] = useState(false);
 
@@ -176,7 +178,7 @@ export default function DateInput({
           style={[styles.input, inputStyle]}
           value={value}
           onChangeText={raw => onChange(autoFormat(raw, value))}
-          placeholder={placeholder ?? 'JJ/MM/AAAA'}
+          placeholder={placeholder ?? t('dateInput.placeholder')}
           placeholderTextColor={C.textMuted}
           keyboardType="numbers-and-punctuation"
           maxLength={10}
@@ -202,9 +204,9 @@ export default function DateInput({
       </View>
 
       {showError ? (
-        <Text style={styles.errorText}>Date invalide — format JJ/MM/AAAA</Text>
+        <Text style={styles.errorText}>{t('dateInput.invalid')}</Text>
       ) : !hasValue ? (
-        <Text style={styles.hint}>Appuyez sur l'icône pour ouvrir le calendrier</Text>
+        <Text style={styles.hint}>{t('dateInput.openCalendarHint')}</Text>
       ) : null}
 
       <Modal
@@ -290,14 +292,14 @@ export default function DateInput({
                 color={C.primary}
                 style={{ marginRight: 6 }}
               />
-              <Text style={styles.todayBtnText}>Aujourd'hui</Text>
+              <Text style={styles.todayBtnText}>{t('dateInput.today')}</Text>
             </TouchableOpacity>
 
             <TouchableOpacity
               style={styles.cancelBtn}
               onPress={() => setCalendarOpen(false)}
             >
-              <Text style={styles.cancelBtnText}>Annuler</Text>
+              <Text style={styles.cancelBtnText}>{t('common.cancel')}</Text>
             </TouchableOpacity>
 
           </Pressable>
