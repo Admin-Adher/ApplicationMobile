@@ -3235,7 +3235,7 @@ export default function PlansScreen() {
                           accessibilityLabel={t('plansScreen.actions.deletePlan')}
                         >
                           <Ionicons name="trash-outline" size={13} color="#EF4444" />
-                          <Text style={[styles.removePlanText, { color: '#EF4444' }]}>Plan</Text>
+                          <Text style={[styles.removePlanText, { color: '#EF4444' }]}>{t('plansScreen.plan')}</Text>
                         </TouchableOpacity>
                       )}
                     </>

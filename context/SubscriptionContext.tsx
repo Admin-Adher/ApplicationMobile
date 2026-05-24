@@ -4,6 +4,7 @@ import { supabase, isSupabaseConfigured } from '@/lib/supabase';
 import { useAuth } from '@/context/AuthContext';
 import { Organization, Plan, Subscription, Invitation, UserRole, User } from '@/constants/types';
 import { sendInvitationEmail } from '@/lib/email/client';
+import i18n from '@/lib/i18n';
 
 export interface OrgSummary {
   org: Organization;
@@ -543,7 +544,7 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
     if (isSupabaseConfigured) {
       const { error } = await (supabase.from('invitations') as any).delete().eq('id', id);
       if (error) {
-        Alert.alert('Erreur', "L'invitation n'a pas pu être annulée. Veuillez réessayer.");
+        Alert.alert(i18n.t('common.error'), i18n.t('syncAlerts.invitationCancelFailed'));
         return;
       }
     }

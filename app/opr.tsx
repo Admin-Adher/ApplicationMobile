@@ -1942,13 +1942,16 @@ export default function OprScreen() {
             <View style={styles.modalHandle} />
             <View style={styles.modalTitleRow}>
               <Ionicons name="create-outline" size={20} color={C.primary} />
-              <Text style={styles.modalTitle}>Signature électronique du PV</Text>
+              <Text style={styles.modalTitle}>{t('oprScreen.pvSignatureTitle')}</Text>
             </View>
 
             {signModalOpr && (
               <View style={styles.modalPvInfo}>
                 <Text style={styles.modalPvTitle}>{signModalOpr.title}</Text>
-                <Text style={styles.modalPvMeta}>Date : {signModalOpr.date}{signModalOpr.building ? ` · ${[signModalOpr.building, signModalOpr.level].filter(Boolean).join(' — ')}` : ''}</Text>
+                <Text style={styles.modalPvMeta}>
+                  {t('oprScreen.dateLabel')} : {signModalOpr.date}
+                  {signModalOpr.building ? ` · ${[signModalOpr.building, signModalOpr.level].filter(Boolean).join(' — ')}` : ''}
+                </Text>
               </View>
             )}
 
@@ -1957,27 +1960,27 @@ export default function OprScreen() {
                 style={[styles.signStepTab, signStep === 'conducteur' && styles.signStepTabActive]}
                 onPress={() => setSignStep('conducteur')}
                 accessibilityRole="tab"
-                accessibilityLabel="Étape conducteur de travaux"
+                accessibilityLabel={t('oprScreen.managerStepA11y')}
                 accessibilityState={{ selected: signStep === 'conducteur' }}
               >
                 <Ionicons name="person-outline" size={14} color={signStep === 'conducteur' ? C.primary : C.textMuted} />
-                <Text style={[styles.signStepTabText, signStep === 'conducteur' && { color: C.primary }]}>Conducteur</Text>
+                <Text style={[styles.signStepTabText, signStep === 'conducteur' && { color: C.primary }]}>{t('oprScreen.managerStep')}</Text>
               </TouchableOpacity>
               <TouchableOpacity
                 style={[styles.signStepTab, signStep === 'mo' && styles.signStepTabActive]}
                 onPress={() => setSignStep('mo')}
                 accessibilityRole="tab"
-                accessibilityLabel="Étape maître d'ouvrage"
+                accessibilityLabel={t('oprScreen.ownerStepA11y')}
                 accessibilityState={{ selected: signStep === 'mo' }}
               >
                 <Ionicons name="business-outline" size={14} color={signStep === 'mo' ? C.primary : C.textMuted} />
-                <Text style={[styles.signStepTabText, signStep === 'mo' && { color: C.primary }]}>Maître d'ouvrage</Text>
+                <Text style={[styles.signStepTabText, signStep === 'mo' && { color: C.primary }]}>{t('oprScreen.ownerStep')}</Text>
               </TouchableOpacity>
             </View>
 
             {signStep === 'conducteur' && (
               <View style={styles.signBlock}>
-                <Text style={styles.modalLabel}>NOM COMPLET *</Text>
+                <Text style={styles.modalLabel}>{t('oprScreen.managerNameUpper')}</Text>
                 <View style={styles.signInputWrap}>
                   <Ionicons name="person-outline" size={15} color={C.textMuted} />
                   <TextInput
@@ -2091,11 +2094,11 @@ export default function OprScreen() {
               <TouchableOpacity
                 style={styles.modalConfirmBtn}
                 onPress={confirmSign}
-                accessibilityLabel="Valider et enregistrer les signatures électroniques"
+                accessibilityLabel={t('oprScreen.validateSignaturesA11y')}
                 accessibilityRole="button"
               >
                 <Ionicons name="ribbon-outline" size={16} color="#fff" />
-                <Text style={styles.modalConfirmText}>Valider les signatures</Text>
+                <Text style={styles.modalConfirmText}>{t('oprScreen.validateSignatures')}</Text>
               </TouchableOpacity>
             </View>
           </ScrollView>

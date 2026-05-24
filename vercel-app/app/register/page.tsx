@@ -3,6 +3,7 @@
 import { Suspense, useEffect, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { createClient } from '@supabase/supabase-js';
+import { getRequestedLang } from '@/lib/i18n';
 
 const BRAND = '#003082';
 const ACCENT = '#FFCB00';
@@ -17,6 +18,120 @@ const supabaseKey =
 const APP_STORE_URL = 'https://apps.apple.com/app/buildtrack';
 const PLAY_STORE_URL = 'https://play.google.com/store/apps/details?id=com.buildtrack.app';
 
+const COPY = {
+  fr: {
+    incompleteLink: "Lien d'invitation incomplet (aucun code).",
+    verifyInvitationFailed: "Impossible de vérifier l'invitation. Vérifiez votre connexion.",
+    invitationNotFound: 'Cette invitation est introuvable ou a été annulée.',
+    genericError: 'Une erreur est survenue.',
+    nameRequired: 'Veuillez saisir votre nom complet.',
+    passwordShort: 'Le mot de passe doit contenir au moins 8 caractères.',
+    passwordMismatch: 'Les deux mots de passe ne correspondent pas.',
+    invitationCheckFailed: 'Impossible de vérifier votre invitation. Réessayez.',
+    noPendingInvitation: "Aucune invitation en attente n'a été trouvée pour cet email.",
+    alreadyRegistered: "Un compte existe déjà avec cet email. Connectez-vous depuis l'application.",
+    createAccountFailed: 'Impossible de créer le compte.',
+    loadingTitle: 'Vérification...',
+    loadingText: 'Nous validons votre invitation.',
+    invalidTitle: 'Lien invalide',
+    expiredTitle: 'Invitation expirée',
+    expiredText: 'Demandez à votre administrateur de vous renvoyer une invitation.',
+    usedTitle: 'Invitation déjà utilisée',
+    usedText: "Connectez-vous directement depuis l'application BuildTrack.",
+    createTitle: 'Créer votre compte',
+    invitedBy: 'vous invite',
+    invited: 'Vous avez été invité',
+    join: 'à rejoindre',
+    emailLabel: "Email d'invitation",
+    fullNameLabel: 'Nom complet',
+    fullNamePlaceholder: 'Jean Dupont',
+    passwordLabel: 'Mot de passe',
+    passwordPlaceholder: 'Min. 8 caractères',
+    confirmPasswordLabel: 'Confirmer le mot de passe',
+    confirmPasswordPlaceholder: 'Répétez le mot de passe',
+    submitting: 'Création en cours...',
+    submit: 'Créer mon compte',
+    successTitle: 'Compte créé !',
+    successTextStart: 'Votre compte',
+    successTextEnd: "est prêt. Téléchargez l'app BuildTrack et connectez-vous pour rejoindre votre organisation.",
+    loading: 'Chargement...',
+  },
+  en: {
+    incompleteLink: 'Incomplete invitation link (missing code).',
+    verifyInvitationFailed: 'Unable to verify the invitation. Check your connection.',
+    invitationNotFound: 'This invitation cannot be found or was cancelled.',
+    genericError: 'An error occurred.',
+    nameRequired: 'Please enter your full name.',
+    passwordShort: 'The password must contain at least 8 characters.',
+    passwordMismatch: 'The two passwords do not match.',
+    invitationCheckFailed: 'Unable to verify your invitation. Try again.',
+    noPendingInvitation: 'No pending invitation was found for this email.',
+    alreadyRegistered: 'An account already exists with this email. Sign in from the app.',
+    createAccountFailed: 'Unable to create the account.',
+    loadingTitle: 'Checking...',
+    loadingText: 'We are validating your invitation.',
+    invalidTitle: 'Invalid link',
+    expiredTitle: 'Invitation expired',
+    expiredText: 'Ask your administrator to send you a new invitation.',
+    usedTitle: 'Invitation already used',
+    usedText: 'Sign in directly from the BuildTrack app.',
+    createTitle: 'Create your account',
+    invitedBy: 'invites you',
+    invited: 'You have been invited',
+    join: 'to join',
+    emailLabel: 'Invitation email',
+    fullNameLabel: 'Full name',
+    fullNamePlaceholder: 'John Smith',
+    passwordLabel: 'Password',
+    passwordPlaceholder: 'Min. 8 characters',
+    confirmPasswordLabel: 'Confirm password',
+    confirmPasswordPlaceholder: 'Repeat password',
+    submitting: 'Creating account...',
+    submit: 'Create my account',
+    successTitle: 'Account created!',
+    successTextStart: 'Your account',
+    successTextEnd: 'is ready. Download the BuildTrack app and sign in to join your organization.',
+    loading: 'Loading...',
+  },
+  es: {
+    incompleteLink: 'Enlace de invitación incompleto (sin código).',
+    verifyInvitationFailed: 'No se pudo verificar la invitación. Comprueba tu conexión.',
+    invitationNotFound: 'Esta invitación no existe o fue cancelada.',
+    genericError: 'Se ha producido un error.',
+    nameRequired: 'Introduce tu nombre completo.',
+    passwordShort: 'La contraseña debe tener al menos 8 caracteres.',
+    passwordMismatch: 'Las dos contraseñas no coinciden.',
+    invitationCheckFailed: 'No se pudo verificar tu invitación. Inténtalo de nuevo.',
+    noPendingInvitation: 'No se encontró ninguna invitación pendiente para este email.',
+    alreadyRegistered: 'Ya existe una cuenta con este email. Inicia sesión desde la aplicación.',
+    createAccountFailed: 'No se pudo crear la cuenta.',
+    loadingTitle: 'Verificando...',
+    loadingText: 'Estamos validando tu invitación.',
+    invalidTitle: 'Enlace no válido',
+    expiredTitle: 'Invitación caducada',
+    expiredText: 'Pide a tu administrador que te envíe una nueva invitación.',
+    usedTitle: 'Invitación ya utilizada',
+    usedText: 'Inicia sesión directamente desde la aplicación BuildTrack.',
+    createTitle: 'Crear tu cuenta',
+    invitedBy: 'te invita',
+    invited: 'Has sido invitado',
+    join: 'a unirte a',
+    emailLabel: 'Email de invitación',
+    fullNameLabel: 'Nombre completo',
+    fullNamePlaceholder: 'Juan García',
+    passwordLabel: 'Contraseña',
+    passwordPlaceholder: 'Mín. 8 caracteres',
+    confirmPasswordLabel: 'Confirmar contraseña',
+    confirmPasswordPlaceholder: 'Repite la contraseña',
+    submitting: 'Creando cuenta...',
+    submit: 'Crear mi cuenta',
+    successTitle: '¡Cuenta creada!',
+    successTextStart: 'Tu cuenta',
+    successTextEnd: 'está lista. Descarga la app BuildTrack e inicia sesión para unirte a tu organización.',
+    loading: 'Cargando...',
+  },
+} as const;
+
 type Stage =
   | { kind: 'loading' }
   | { kind: 'invalid'; reason: string }
@@ -28,6 +143,8 @@ type Stage =
 
 function RegisterContent() {
   const params = useSearchParams();
+  const lang = getRequestedLang((name) => params.get(name));
+  const copy = COPY[lang];
   const token = params.get('token') ?? '';
   const emailFromUrl = params.get('email') ?? '';
   const orgFromUrl = params.get('org') ?? '';
@@ -54,7 +171,7 @@ function RegisterContent() {
           });
           return;
         }
-        setStage({ kind: 'invalid', reason: 'Lien d\'invitation incomplet (aucun code).' });
+        setStage({ kind: 'invalid', reason: copy.incompleteLink });
         return;
       }
 
@@ -65,13 +182,13 @@ function RegisterContent() {
 
         if (error) {
           console.warn('[register] get_invitation_by_token error:', error.message);
-          setStage({ kind: 'invalid', reason: 'Impossible de vérifier l\'invitation. Vérifiez votre connexion.' });
+          setStage({ kind: 'invalid', reason: copy.verifyInvitationFailed });
           return;
         }
 
         const row = Array.isArray(data) ? data[0] : data;
         if (!row || !row.email) {
-          setStage({ kind: 'invalid', reason: 'Cette invitation est introuvable ou a été annulée.' });
+          setStage({ kind: 'invalid', reason: copy.invitationNotFound });
           return;
         }
         if (row.status && row.status !== 'pending') {
@@ -91,13 +208,13 @@ function RegisterContent() {
         });
       } catch (err: any) {
         if (cancelled) return;
-        setStage({ kind: 'invalid', reason: err?.message ?? 'Une erreur est survenue.' });
+        setStage({ kind: 'invalid', reason: err?.message ?? copy.genericError });
       }
     }
 
     bootstrap();
     return () => { cancelled = true; };
-  }, [token, emailFromUrl, orgFromUrl, invitedByFromUrl]);
+  }, [token, emailFromUrl, orgFromUrl, invitedByFromUrl, copy]);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -105,9 +222,9 @@ function RegisterContent() {
 
     if (stage.kind !== 'form') return;
 
-    if (!name.trim()) { setErrorMsg('Veuillez saisir votre nom complet.'); return; }
-    if (password.length < 8) { setErrorMsg('Le mot de passe doit contenir au moins 8 caractères.'); return; }
-    if (password !== confirm) { setErrorMsg('Les deux mots de passe ne correspondent pas.'); return; }
+    if (!name.trim()) { setErrorMsg(copy.nameRequired); return; }
+    if (password.length < 8) { setErrorMsg(copy.passwordShort); return; }
+    if (password !== confirm) { setErrorMsg(copy.passwordMismatch); return; }
 
     const { email, organizationName, invitedByName } = stage;
     setStage({ kind: 'submitting', email, organizationName, invitedByName });
@@ -120,12 +237,12 @@ function RegisterContent() {
         { p_email: email.trim().toLowerCase() }
       );
       if (rpcErr) {
-        setErrorMsg('Impossible de vérifier votre invitation. Réessayez.');
+        setErrorMsg(copy.invitationCheckFailed);
         setStage({ kind: 'form', email, organizationName, invitedByName });
         return;
       }
       if (!hasInv) {
-        setErrorMsg('Aucune invitation en attente n\'a été trouvée pour cet email.');
+        setErrorMsg(copy.noPendingInvitation);
         setStage({ kind: 'form', email, organizationName, invitedByName });
         return;
       }
@@ -139,9 +256,9 @@ function RegisterContent() {
       if (signUpErr) {
         const lower = (signUpErr.message ?? '').toLowerCase();
         if (lower.includes('already registered') || lower.includes('user_already_exists')) {
-          setErrorMsg('Un compte existe déjà avec cet email. Connectez-vous depuis l\'application.');
+          setErrorMsg(copy.alreadyRegistered);
         } else {
-          setErrorMsg(signUpErr.message ?? 'Impossible de créer le compte.');
+          setErrorMsg(signUpErr.message ?? copy.createAccountFailed);
         }
         setStage({ kind: 'form', email, organizationName, invitedByName });
         return;
@@ -160,7 +277,7 @@ function RegisterContent() {
 
       setStage({ kind: 'success', email });
     } catch (err: any) {
-      setErrorMsg(err?.message ?? 'Une erreur est survenue.');
+      setErrorMsg(err?.message ?? copy.genericError);
       setStage({ kind: 'form', email, organizationName, invitedByName });
     }
   }
@@ -180,15 +297,15 @@ function RegisterContent() {
         {stage.kind === 'loading' && (
           <>
             <div style={styles.iconCircle}>⏳</div>
-            <h1 style={styles.title}>Vérification...</h1>
-            <p style={styles.body}>Nous validons votre invitation.</p>
+            <h1 style={styles.title}>{copy.loadingTitle}</h1>
+            <p style={styles.body}>{copy.loadingText}</p>
           </>
         )}
 
         {stage.kind === 'invalid' && (
           <>
             <div style={{ ...styles.iconCircle, background: '#FEF2F2', color: '#B42318' }}>!</div>
-            <h1 style={styles.title}>Lien invalide</h1>
+            <h1 style={styles.title}>{copy.invalidTitle}</h1>
             <p style={styles.body}>{stage.reason}</p>
           </>
         )}
@@ -196,16 +313,16 @@ function RegisterContent() {
         {stage.kind === 'expired' && (
           <>
             <div style={{ ...styles.iconCircle, background: '#FEF2F2', color: '#B42318' }}>⌛</div>
-            <h1 style={styles.title}>Invitation expirée</h1>
-            <p style={styles.body}>Demandez à votre administrateur de vous renvoyer une invitation.</p>
+            <h1 style={styles.title}>{copy.expiredTitle}</h1>
+            <p style={styles.body}>{copy.expiredText}</p>
           </>
         )}
 
         {stage.kind === 'used' && (
           <>
             <div style={{ ...styles.iconCircle, background: '#ECFDF5', color: '#067647' }}>✓</div>
-            <h1 style={styles.title}>Invitation déjà utilisée</h1>
-            <p style={styles.body}>Connectez-vous directement depuis l'application BuildTrack.</p>
+            <h1 style={styles.title}>{copy.usedTitle}</h1>
+            <p style={styles.body}>{copy.usedText}</p>
             <div style={styles.storeRow}>
               <a href={APP_STORE_URL} style={styles.storeBtn}>📱 App Store</a>
               <a href={PLAY_STORE_URL} style={styles.storeBtn}>🤖 Google Play</a>
@@ -215,16 +332,16 @@ function RegisterContent() {
 
         {(stage.kind === 'form' || stage.kind === 'submitting') && (
           <>
-            <h1 style={styles.title}>Créer votre compte</h1>
+            <h1 style={styles.title}>{copy.createTitle}</h1>
             <div style={styles.invitationBox}>
               <p style={{ margin: 0, fontSize: 13, color: '#334155', lineHeight: 1.6 }}>
-                {stage.invitedByName ? <><strong style={{ color: BRAND }}>{stage.invitedByName}</strong> vous invite</> : 'Vous avez été invité'}
-                {stage.organizationName ? <> à rejoindre <strong style={{ color: BRAND }}>{stage.organizationName}</strong></> : ''}.
+                {stage.invitedByName ? <><strong style={{ color: BRAND }}>{stage.invitedByName}</strong> {copy.invitedBy}</> : copy.invited}
+                {stage.organizationName ? <> {copy.join} <strong style={{ color: BRAND }}>{stage.organizationName}</strong></> : ''}.
               </p>
             </div>
 
             <form onSubmit={handleSubmit} style={{ width: '100%' }}>
-              <label style={styles.label}>Email d'invitation</label>
+              <label style={styles.label}>{copy.emailLabel}</label>
               <input
                 type="email"
                 value={stage.email}
@@ -232,33 +349,33 @@ function RegisterContent() {
                 style={{ ...styles.input, background: '#EEF3FA', color: BRAND, fontWeight: 600 }}
               />
 
-              <label style={styles.label}>Nom complet</label>
+              <label style={styles.label}>{copy.fullNameLabel}</label>
               <input
                 type="text"
                 value={name}
                 onChange={(e) => setName(e.target.value)}
-                placeholder="Jean Dupont"
+                placeholder={copy.fullNamePlaceholder}
                 disabled={stage.kind === 'submitting'}
                 style={styles.input}
                 autoFocus
               />
 
-              <label style={styles.label}>Mot de passe</label>
+              <label style={styles.label}>{copy.passwordLabel}</label>
               <input
                 type="password"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                placeholder="Min. 8 caractères"
+                placeholder={copy.passwordPlaceholder}
                 disabled={stage.kind === 'submitting'}
                 style={styles.input}
               />
 
-              <label style={styles.label}>Confirmer le mot de passe</label>
+              <label style={styles.label}>{copy.confirmPasswordLabel}</label>
               <input
                 type="password"
                 value={confirm}
                 onChange={(e) => setConfirm(e.target.value)}
-                placeholder="Répétez le mot de passe"
+                placeholder={copy.confirmPasswordPlaceholder}
                 disabled={stage.kind === 'submitting'}
                 style={styles.input}
               />
@@ -274,7 +391,7 @@ function RegisterContent() {
                   cursor: stage.kind === 'submitting' ? 'not-allowed' : 'pointer',
                 }}
               >
-                {stage.kind === 'submitting' ? 'Création en cours...' : 'Créer mon compte'}
+                {stage.kind === 'submitting' ? copy.submitting : copy.submit}
               </button>
             </form>
           </>
@@ -283,10 +400,9 @@ function RegisterContent() {
         {stage.kind === 'success' && (
           <>
             <div style={{ ...styles.iconCircle, background: '#ECFDF5', color: '#067647' }}>✓</div>
-            <h1 style={styles.title}>Compte créé !</h1>
+            <h1 style={styles.title}>{copy.successTitle}</h1>
             <p style={styles.body}>
-              Votre compte <strong>{stage.email}</strong> est prêt.<br/>
-              Téléchargez l'app BuildTrack et connectez-vous pour rejoindre votre organisation.
+              {copy.successTextStart} <strong>{stage.email}</strong> {copy.successTextEnd}
             </p>
             <div style={styles.storeRow}>
               <a href={APP_STORE_URL} style={styles.storeBtn}>📱 App Store</a>
@@ -301,7 +417,7 @@ function RegisterContent() {
 
 export default function RegisterPage() {
   return (
-    <Suspense fallback={<div style={styles.container}><div style={styles.card}><p>Chargement...</p></div></div>}>
+    <Suspense fallback={<div style={styles.container}><div style={styles.card}><p>{COPY.fr.loading}</p></div></div>}>
       <RegisterContent />
     </Suspense>
   );

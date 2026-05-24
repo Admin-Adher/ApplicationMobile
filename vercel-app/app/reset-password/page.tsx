@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { createClient } from '@supabase/supabase-js';
+import { normalizeLang, type SupportedLang } from '@/lib/i18n';
 
 const BRAND = '#003082';
 const ACCENT = '#FFCB00';
@@ -13,7 +14,87 @@ const supabaseKey =
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ??
   'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imp6ZW9qZHBnZ2xieGpkYXNqZ3RhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQ4Mjg1ODAsImV4cCI6MjA5MDQwNDU4MH0.ZcU5EAYQMEnQHVe0-6Wff_1sBanvjtdZZ0hJNJGLAz0';
 
+const COPY = {
+  fr: {
+    invalidLink: 'Lien de réinitialisation invalide ou expiré. Veuillez faire une nouvelle demande.',
+    passwordShort: 'Le mot de passe doit contenir au moins 8 caractères.',
+    passwordMismatch: 'Les mots de passe ne correspondent pas.',
+    expiredSession: 'Lien expiré. Veuillez faire une nouvelle demande de réinitialisation.',
+    updateFailed: 'Impossible de mettre à jour le mot de passe.',
+    errorPrefix: 'Erreur',
+    checking: 'Vérification du lien...',
+    invalidTitle: 'Lien invalide',
+    home: "Retour à l'accueil",
+    title: 'Nouveau mot de passe',
+    intro: "Choisissez un mot de passe sécurisé d'au moins 8 caractères.",
+    newPassword: 'Nouveau mot de passe',
+    passwordPlaceholder: 'Min. 8 caractères',
+    confirmPassword: 'Confirmer le mot de passe',
+    confirmPlaceholder: 'Répétez le mot de passe',
+    mismatchHint: 'Les mots de passe ne correspondent pas',
+    submitting: 'Mise à jour...',
+    submit: 'Mettre à jour le mot de passe →',
+    successTitle: 'Mot de passe mis à jour !',
+    successText: 'Votre mot de passe a été modifié avec succès. Vous pouvez maintenant vous connecter avec votre nouveau mot de passe.',
+    openAppHint: "Ouvrez l'application BuildTrack et connectez-vous avec votre nouveau mot de passe.",
+    openBuildTrack: 'Ouvrir BuildTrack →',
+    footer: 'BuildTrack — Gestion de chantier numérique',
+  },
+  en: {
+    invalidLink: 'Invalid or expired reset link. Please request a new one.',
+    passwordShort: 'The password must contain at least 8 characters.',
+    passwordMismatch: 'Passwords do not match.',
+    expiredSession: 'The link has expired. Please request a new password reset.',
+    updateFailed: 'Unable to update the password.',
+    errorPrefix: 'Error',
+    checking: 'Checking the link...',
+    invalidTitle: 'Invalid link',
+    home: 'Back to home',
+    title: 'New password',
+    intro: 'Choose a secure password with at least 8 characters.',
+    newPassword: 'New password',
+    passwordPlaceholder: 'Min. 8 characters',
+    confirmPassword: 'Confirm password',
+    confirmPlaceholder: 'Repeat password',
+    mismatchHint: 'Passwords do not match',
+    submitting: 'Updating...',
+    submit: 'Update password →',
+    successTitle: 'Password updated!',
+    successText: 'Your password has been changed successfully. You can now sign in with your new password.',
+    openAppHint: 'Open the BuildTrack app and sign in with your new password.',
+    openBuildTrack: 'Open BuildTrack →',
+    footer: 'BuildTrack — Digital construction management',
+  },
+  es: {
+    invalidLink: 'Enlace de restablecimiento no válido o caducado. Solicita uno nuevo.',
+    passwordShort: 'La contraseña debe tener al menos 8 caracteres.',
+    passwordMismatch: 'Las contraseñas no coinciden.',
+    expiredSession: 'El enlace ha caducado. Solicita un nuevo restablecimiento.',
+    updateFailed: 'No se pudo actualizar la contraseña.',
+    errorPrefix: 'Error',
+    checking: 'Verificando el enlace...',
+    invalidTitle: 'Enlace no válido',
+    home: 'Volver al inicio',
+    title: 'Nueva contraseña',
+    intro: 'Elige una contraseña segura de al menos 8 caracteres.',
+    newPassword: 'Nueva contraseña',
+    passwordPlaceholder: 'Mín. 8 caracteres',
+    confirmPassword: 'Confirmar contraseña',
+    confirmPlaceholder: 'Repite la contraseña',
+    mismatchHint: 'Las contraseñas no coinciden',
+    submitting: 'Actualizando...',
+    submit: 'Actualizar contraseña →',
+    successTitle: '¡Contraseña actualizada!',
+    successText: 'Tu contraseña se ha modificado correctamente. Ya puedes iniciar sesión con tu nueva contraseña.',
+    openAppHint: 'Abre la aplicación BuildTrack e inicia sesión con tu nueva contraseña.',
+    openBuildTrack: 'Abrir BuildTrack →',
+    footer: 'BuildTrack — Gestión digital de obra',
+  },
+} as const;
+
 export default function ResetPasswordPage() {
+  const [lang, setLang] = useState<SupportedLang>('fr');
+  const copy = COPY[lang];
   const [stage, setStage] = useState<'loading' | 'form' | 'success' | 'error'>('loading');
   const [password, setPassword] = useState('');
   const [confirm, setConfirm] = useState('');
@@ -23,6 +104,9 @@ export default function ResetPasswordPage() {
   const [refreshToken, setRefreshToken] = useState('');
 
   useEffect(() => {
+    const nextLang = normalizeLang(new URLSearchParams(window.location.search).get('lang') ?? navigator.language);
+    setLang(nextLang);
+    const nextCopy = COPY[nextLang];
     const hash = window.location.hash;
     const params = new URLSearchParams(hash.replace('#', ''));
     const token = params.get('access_token');
@@ -35,7 +119,7 @@ export default function ResetPasswordPage() {
       setStage('form');
     } else {
       setStage('error');
-      setErrorMsg('Lien de réinitialisation invalide ou expiré. Veuillez faire une nouvelle demande.');
+      setErrorMsg(nextCopy.invalidLink);
     }
   }, []);
 
@@ -44,11 +128,11 @@ export default function ResetPasswordPage() {
     setErrorMsg('');
 
     if (password.length < 8) {
-      setErrorMsg('Le mot de passe doit contenir au moins 8 caractères.');
+      setErrorMsg(copy.passwordShort);
       return;
     }
     if (password !== confirm) {
-      setErrorMsg('Les mots de passe ne correspondent pas.');
+      setErrorMsg(copy.passwordMismatch);
       return;
     }
 
@@ -62,7 +146,7 @@ export default function ResetPasswordPage() {
       });
 
       if (sessionError) {
-        setErrorMsg('Lien expiré. Veuillez faire une nouvelle demande de réinitialisation.');
+        setErrorMsg(copy.expiredSession);
         setSubmitting(false);
         return;
       }
@@ -70,7 +154,7 @@ export default function ResetPasswordPage() {
       const { error } = await supabase.auth.updateUser({ password });
 
       if (error) {
-        setErrorMsg(error.message ?? 'Impossible de mettre à jour le mot de passe.');
+        setErrorMsg(error.message ?? copy.updateFailed);
         setSubmitting(false);
         return;
       }
@@ -78,7 +162,7 @@ export default function ResetPasswordPage() {
       await supabase.auth.signOut();
       setStage('success');
     } catch (err: any) {
-      setErrorMsg(`Erreur: ${err?.message ?? JSON.stringify(err)}`);
+      setErrorMsg(`${copy.errorPrefix}: ${err?.message ?? JSON.stringify(err)}`);
       setSubmitting(false);
     }
   }
@@ -96,16 +180,16 @@ export default function ResetPasswordPage() {
         <div style={s.divider} />
 
         {stage === 'loading' && (
-          <p style={s.body}>Vérification du lien...</p>
+          <p style={s.body}>{copy.checking}</p>
         )}
 
         {stage === 'error' && (
           <>
             <div style={s.iconWrap}>🔒</div>
-            <h1 style={s.title}>Lien invalide</h1>
+            <h1 style={s.title}>{copy.invalidTitle}</h1>
             <p style={s.body}>{errorMsg}</p>
             <a href="https://buildtrack-mobile.vercel.app" style={s.btn}>
-              Retour à l'accueil
+              {copy.home}
             </a>
           </>
         )}
@@ -113,28 +197,28 @@ export default function ResetPasswordPage() {
         {stage === 'form' && (
           <>
             <div style={s.iconWrap}>🔑</div>
-            <h1 style={s.title}>Nouveau mot de passe</h1>
-            <p style={s.body}>Choisissez un mot de passe sécurisé d'au moins 8 caractères.</p>
+            <h1 style={s.title}>{copy.title}</h1>
+            <p style={s.body}>{copy.intro}</p>
 
             <form onSubmit={handleSubmit} style={s.form}>
               <div style={s.field}>
-                <label style={s.label}>Nouveau mot de passe</label>
+                <label style={s.label}>{copy.newPassword}</label>
                 <input
                   type="password"
                   value={password}
                   onChange={e => setPassword(e.target.value)}
-                  placeholder="Min. 8 caractères"
+                  placeholder={copy.passwordPlaceholder}
                   style={s.input}
                   required
                 />
               </div>
               <div style={s.field}>
-                <label style={s.label}>Confirmer le mot de passe</label>
+                <label style={s.label}>{copy.confirmPassword}</label>
                 <input
                   type="password"
                   value={confirm}
                   onChange={e => setConfirm(e.target.value)}
-                  placeholder="Répétez le mot de passe"
+                  placeholder={copy.confirmPlaceholder}
                   style={{
                     ...s.input,
                     borderColor: confirm && confirm !== password ? '#DC2626' : '#DDE4EE',
@@ -142,7 +226,7 @@ export default function ResetPasswordPage() {
                   required
                 />
                 {confirm && confirm !== password && (
-                  <p style={s.hint}>Les mots de passe ne correspondent pas</p>
+                  <p style={s.hint}>{copy.mismatchHint}</p>
                 )}
               </div>
 
@@ -153,7 +237,7 @@ export default function ResetPasswordPage() {
               ) : null}
 
               <button type="submit" disabled={submitting} style={s.btn}>
-                {submitting ? 'Mise à jour...' : 'Mettre à jour le mot de passe →'}
+                {submitting ? copy.submitting : copy.submit}
               </button>
             </form>
           </>
@@ -162,23 +246,23 @@ export default function ResetPasswordPage() {
         {stage === 'success' && (
           <>
             <div style={s.iconWrap}>✅</div>
-            <h1 style={s.title}>Mot de passe mis à jour !</h1>
+            <h1 style={s.title}>{copy.successTitle}</h1>
             <p style={s.body}>
-              Votre mot de passe a été modifié avec succès. Vous pouvez maintenant vous connecter avec votre nouveau mot de passe.
+              {copy.successText}
             </p>
             <div style={s.infoBox}>
               <p style={s.infoText}>
-                Ouvrez l'application BuildTrack et connectez-vous avec votre nouveau mot de passe.
+                {copy.openAppHint}
               </p>
             </div>
             <a href="https://buildtrack-mobile.vercel.app" style={s.btn}>
-              Ouvrir BuildTrack →
+              {copy.openBuildTrack}
             </a>
           </>
         )}
 
         <div style={s.footer}>
-          <p style={s.footerText}>BuildTrack — Gestion de chantier numérique</p>
+          <p style={s.footerText}>{copy.footer}</p>
         </div>
       </div>
     </div>

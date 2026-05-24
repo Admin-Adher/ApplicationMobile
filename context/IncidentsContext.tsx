@@ -7,6 +7,7 @@ import { useAuth } from '@/context/AuthContext';
 import { useNetwork } from '@/context/NetworkContext';
 import { formatDateFR } from '@/lib/utils';
 import { mergeWithCache, pendingIdsForTable, isSupabaseSessionValid } from '@/lib/offlineCache';
+import i18n from '@/lib/i18n';
 
 const INCIDENTS_PREFIX = 'buildtrack_incidents_v3_';
 
@@ -203,7 +204,7 @@ export function IncidentsProvider({ children }: { children: React.ReactNode }) {
       return;
     }
     await syncToSupabase(incident, 'upsert', (err) => {
-      Alert.alert('Synchronisation échouée', `L'incident a été sauvegardé localement mais n'a pas pu être envoyé au serveur.\n${err}`);
+      Alert.alert(i18n.t('syncAlerts.syncFailedTitle'), i18n.t('syncAlerts.incidentCreateLocalMessage', { error: err }));
     });
   }, [enqueueOperation, incidentsKey]);
 
@@ -214,7 +215,7 @@ export function IncidentsProvider({ children }: { children: React.ReactNode }) {
       return;
     }
     await syncToSupabase(incident, 'upsert', (err) => {
-      Alert.alert('Synchronisation échouée', `La modification a été sauvegardée localement mais n'a pas pu être envoyée au serveur.\n${err}`);
+      Alert.alert(i18n.t('syncAlerts.syncFailedTitle'), i18n.t('syncAlerts.incidentUpdateLocalMessage', { error: err }));
     });
   }, [enqueueOperation, incidentsKey]);
 
@@ -228,7 +229,7 @@ export function IncidentsProvider({ children }: { children: React.ReactNode }) {
       }
       if (target) {
         await syncToSupabase(target, 'delete', (err) => {
-          Alert.alert('Synchronisation échouée', `La suppression locale a réussi mais n'a pas pu être propagée au serveur.\n${err}`);
+          Alert.alert(i18n.t('syncAlerts.syncFailedTitle'), i18n.t('syncAlerts.incidentDeleteLocalMessage', { error: err }));
         });
       }
     }

@@ -10,6 +10,7 @@ import { sendWelcomeEmail, sendInvitationAcceptedEmail, sendAccessRevokedEmail }
 import { markIntentionalLogout } from '@/lib/authIntent';
 import { setPersisterUserId } from '@/lib/queryPersister';
 import { deleteCurrentPushToken } from '@/lib/push/deviceRegistration';
+import i18n from '@/lib/i18n';
 
 /**
  * Module-level flag shared with AppContext so it can ignore auth events
@@ -1406,7 +1407,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
       const { error } = await (supabase as any).from('profiles').delete().eq('id', userId);
       if (error) {
-        Alert.alert('Erreur', "Le profil n'a pas pu être supprimé. Vérifiez vos permissions.");
+        Alert.alert(i18n.t('common.error'), i18n.t('syncAlerts.profileDeleteFailed'));
         return;
       }
     }

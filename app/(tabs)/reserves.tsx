@@ -2127,7 +2127,9 @@ export default function ReservesScreen() {
                 <View style={styles.contextItemIcon}>
                   <Ionicons name={headerCompact ? 'eye-outline' : 'eye-off-outline'} size={18} color={C.primary} />
                 </View>
-                <Text style={styles.contextItemText}>{headerCompact ? 'Afficher les indicateurs' : 'Masquer les indicateurs'}</Text>
+                <Text style={styles.contextItemText}>
+                  {headerCompact ? t('reservesScreen.showIndicators') : t('reservesScreen.hideIndicators')}
+                </Text>
                 <Ionicons name="chevron-forward" size={16} color={C.textMuted} />
               </TouchableOpacity>
             )}
@@ -2147,7 +2149,7 @@ export default function ReservesScreen() {
                       ? <ActivityIndicator size="small" color={C.primary} />
                       : <Ionicons name="document-text-outline" size={18} color={C.primary} />}
                   </View>
-                  <Text style={styles.contextItemText}>Exporter en PDF</Text>
+                  <Text style={styles.contextItemText}>{t('reservesScreen.exportPdfAction')}</Text>
                   <Ionicons name="chevron-forward" size={16} color={C.textMuted} />
                 </TouchableOpacity>
                 <TouchableOpacity
@@ -2160,7 +2162,7 @@ export default function ReservesScreen() {
                   <View style={styles.contextItemIcon}>
                     <Ionicons name="download-outline" size={18} color={C.textSub} />
                   </View>
-                  <Text style={styles.contextItemText}>Exporter en CSV</Text>
+                  <Text style={styles.contextItemText}>{t('reservesScreen.exportCsvAction')}</Text>
                 </TouchableOpacity>
               </>
             )}
