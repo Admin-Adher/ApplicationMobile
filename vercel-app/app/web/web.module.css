@@ -73,7 +73,11 @@
 .toolbar input,
 .toolbar select,
 .topbarActions select,
-.messageForm input {
+.messageForm input,
+.formGrid input,
+.formGrid select,
+.formGrid textarea,
+.companyStats input {
   width: 100%;
   border: 1px solid #d8e0ec;
   background: #fff;
@@ -88,7 +92,11 @@
 .toolbar input:focus,
 .toolbar select:focus,
 .topbarActions select:focus,
-.messageForm input:focus {
+.messageForm input:focus,
+.formGrid input:focus,
+.formGrid select:focus,
+.formGrid textarea:focus,
+.companyStats input:focus {
   border-color: #003082;
   box-shadow: 0 0 0 3px rgba(0, 48, 130, 0.08);
 }
@@ -98,7 +106,13 @@
 .actionBar button,
 .messageForm button,
 .userBox button,
-.linkButton {
+.linkButton,
+.panelHeaderCompact button,
+.inlineActions button,
+.tableActionBtn,
+.modalActions button,
+.chip,
+.chipActive {
   border: 0;
   border-radius: 10px;
   background: #003082;
@@ -391,6 +405,36 @@
   color: #64748b;
 }
 
+.panelHeaderCompact {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
+.panelHeaderCompact h2,
+.panelHeaderCompact p {
+  margin: 0;
+}
+
+.panelHeaderCompact p {
+  margin-top: 4px;
+  color: #64748b;
+}
+
+.inlineActions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.inlineActions button,
+.panelHeaderCompact button {
+  white-space: nowrap;
+}
+
 .badge {
   display: inline-flex;
   align-items: center;
@@ -525,6 +569,21 @@
   text-transform: uppercase;
 }
 
+.visitTableHead,
+.visitTableRow {
+  grid-template-columns: 1.5fr 0.8fr 1.1fr 0.6fr 1.2fr auto;
+  min-width: 980px;
+}
+
+.tableActionBtn {
+  justify-self: end;
+  align-self: center;
+  background: #eef3fa;
+  color: #003082;
+  border: 1px solid #d8e0ec;
+  padding: 9px 12px;
+}
+
 .messageList {
   max-height: 58vh;
   overflow: auto;
@@ -550,6 +609,227 @@
   grid-template-columns: 1fr auto;
   gap: 10px;
   margin-top: 12px;
+}
+
+.modalBackdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgba(15, 23, 42, 0.42);
+}
+
+.modalPanel {
+  width: min(920px, 100%);
+  max-height: min(88vh, 920px);
+  overflow: auto;
+  background: #fff;
+  border: 1px solid #d8e0ec;
+  border-radius: 18px;
+  box-shadow: 0 24px 80px rgba(15, 23, 42, 0.24);
+}
+
+.modalHeader {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 18px 20px;
+  background: rgba(255, 255, 255, 0.96);
+  border-bottom: 1px solid #eef2f7;
+  backdrop-filter: blur(12px);
+}
+
+.modalHeader h2,
+.modalHeader p {
+  margin: 0;
+}
+
+.modalHeader button {
+  border: 1px solid #d8e0ec;
+  border-radius: 999px;
+  background: #f8fafc;
+  color: #003082;
+  padding: 9px 12px;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.formGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+  padding: 18px 20px 6px;
+}
+
+.formGrid label {
+  display: grid;
+  gap: 7px;
+  color: #334155;
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.formGrid textarea {
+  min-height: 96px;
+  resize: vertical;
+}
+
+.formWide {
+  grid-column: 1 / -1;
+}
+
+.fieldLabel {
+  display: block;
+  margin-bottom: 8px;
+  color: #334155;
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.chipGrid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.chip,
+.chipActive {
+  background: #f8fafc;
+  color: #334155;
+  border: 1px solid #d8e0ec;
+  padding: 9px 12px;
+}
+
+.chipActive {
+  background: #003082;
+  color: #fff;
+  border-color: #003082;
+}
+
+.modalActions {
+  position: sticky;
+  bottom: 0;
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  padding: 14px 20px 18px;
+  background: rgba(255, 255, 255, 0.96);
+  border-top: 1px solid #eef2f7;
+  backdrop-filter: blur(12px);
+}
+
+.modalActions button:first-child {
+  background: #f8fafc;
+  color: #003082;
+  border: 1px solid #d8e0ec;
+}
+
+.modalActions button:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.companyGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 12px;
+}
+
+.companyCard {
+  display: grid;
+  gap: 14px;
+  border: 1px solid #dde4ee;
+  border-radius: 14px;
+  padding: 14px;
+  background: #fff;
+}
+
+.companyTop {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  align-items: center;
+  gap: 10px;
+}
+
+.companyTop strong,
+.companyTop small {
+  display: block;
+}
+
+.companyTop small,
+.companyFooter {
+  color: #64748b;
+}
+
+.companyColor {
+  width: 12px;
+  height: 12px;
+  border-radius: 999px;
+}
+
+.companyStats {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.companyStats label {
+  display: grid;
+  gap: 6px;
+  color: #64748b;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.companyFooter {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  font-size: 13px;
+}
+
+.companyFooter a {
+  color: #003082;
+  font-weight: 800;
+  text-decoration: none;
+}
+
+.toggleList {
+  display: grid;
+  gap: 10px;
+}
+
+.toggleRow {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  border: 1px solid #dde4ee;
+  border-radius: 12px;
+  padding: 12px;
+}
+
+.toggleRow strong,
+.toggleRow small {
+  display: block;
+}
+
+.toggleRow small {
+  margin-top: 3px;
+  color: #64748b;
+}
+
+.toggleRow input {
+  width: 46px;
+  height: 26px;
+  accent-color: #003082;
+  cursor: pointer;
 }
 
 @media (max-width: 980px) {
@@ -591,7 +871,38 @@
 
   .toolbar,
   .messageForm,
-  .metaGrid {
+  .metaGrid,
+  .formGrid,
+  .companyStats {
     grid-template-columns: 1fr;
+  }
+
+  .panelHeaderCompact,
+  .sectionHeader,
+  .modalHeader {
+    flex-direction: column;
+  }
+
+  .inlineActions,
+  .modalActions {
+    justify-content: stretch;
+  }
+
+  .inlineActions button,
+  .inlineActions a,
+  .panelHeaderCompact button,
+  .modalActions button {
+    width: 100%;
+    text-align: center;
+  }
+
+  .modalBackdrop {
+    align-items: end;
+    padding: 10px;
+  }
+
+  .modalPanel {
+    max-height: 92vh;
+    border-radius: 18px 18px 12px 12px;
   }
 }

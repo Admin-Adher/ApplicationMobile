@@ -36,6 +36,40 @@ type WebState = {
   notificationPreferences: any[];
 };
 
+type ReserveDraft = {
+  kind: 'reserve' | 'observation';
+  title: string;
+  description: string;
+  chantierId: string;
+  building: string;
+  level: string;
+  zone: string;
+  priority: string;
+  status: string;
+  deadline: string;
+  planId: string;
+  lotId: string;
+  visiteId: string;
+  companies: string[];
+};
+
+type VisitDraft = {
+  title: string;
+  chantierId: string;
+  date: string;
+  startTime: string;
+  endTime: string;
+  conducteur: string;
+  status: 'planned' | 'in_progress' | 'completed';
+  visitType: 'controle' | 'opr' | 'securite' | 'reception' | 'synthese' | 'autre';
+  building: string;
+  level: string;
+  zone: string;
+  reserveDeadlineDate: string;
+  notes: string;
+  companyIds: string[];
+};
+
 const EMPTY_DATA: WebState = {
   chantiers: [],
   reserves: [],
@@ -61,6 +95,8 @@ const TABS = [
   { id: 'visites', label: 'Visites', icon: '☑' },
   { id: 'messages', label: 'Messages', icon: '◌' },
   { id: 'terrain', label: 'Terrain', icon: '⌁' },
+  { id: 'equipes', label: 'Équipes', icon: '◎' },
+  { id: 'settings', label: 'Réglages', icon: '☰' },
   { id: 'admin', label: 'Admin', icon: '⚙' },
 ] as const;
 
@@ -83,12 +119,54 @@ const PRIORITY_LABELS: Record<string, string> = {
 
 const STATUS_OPTIONS = Object.entries(STATUS_LABELS);
 
+const VISIT_TYPE_LABELS: Record<VisitDraft['visitType'], string> = {
+  controle: 'Contrôle',
+  opr: 'OPR',
+  securite: 'Sécurité',
+  reception: 'Réception',
+  synthese: 'Synthèse',
+  autre: 'Autre',
+};
+
+const VISIT_STATUS_LABELS: Record<VisitDraft['status'], string> = {
+  planned: 'Planifiée',
+  in_progress: 'En cours',
+  completed: 'Terminée',
+};
+
+const VISIT_CHECKLIST_TEMPLATES: Record<VisitDraft['visitType'], string[]> = {
+  controle: ['Avancement des travaux', 'Matériaux et stockages', 'Coordination entreprises', 'Réserves précédentes', 'Sécurité et propreté'],
+  opr: ['Nettoyage final', 'Essais techniques', 'Finitions', 'Plans d’exécution', 'DOE / documents'],
+  securite: ['EPI', 'Signalisation', 'Propreté chantier', 'Installations électriques provisoires', 'Accès et circulations'],
+  reception: ['Nettoyage', 'Mise en service', 'Essais fonctionnels', 'Plans d’exécution', 'Notices et DOE'],
+  synthese: ['Participants', 'Avancement', 'Points bloquants', 'Planning', 'Questions diverses'],
+  autre: ['État constaté', 'Actions à mener', 'Prochaine étape'],
+};
+
 function isAdmin(profile: Profile | null) {
   return profile?.role === 'super_admin' || profile?.role === 'admin';
 }
 
 function canEdit(profile: Profile | null) {
   return ['super_admin', 'admin', 'conducteur', 'chef_equipe'].includes(String(profile?.role ?? ''));
+}
+
+function userLabel(profile: Profile | null, authUser?: SupabaseUser | null) {
+  return profile?.name || profile?.email || authUser?.email || 'BuildTrack Web';
+}
+
+function todayISO() {
+  return new Date().toISOString().slice(0, 10);
+}
+
+function nowFR() {
+  return new Date().toLocaleString('fr-FR', {
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
 }
 
 function prettyDate(value?: string | null, withTime = false) {
@@ -107,9 +185,102 @@ function sameName(a?: string | null, b?: string | null) {
   return String(a ?? '').trim().toLowerCase() === String(b ?? '').trim().toLowerCase();
 }
 
+function getChantierId(item: any) {
+  return item?.chantier_id ?? item?.chantierId ?? '';
+}
+
 function reserveCompanies(reserve: any): string[] {
   if (Array.isArray(reserve.companies) && reserve.companies.length) return reserve.companies;
   return reserve.company ? [reserve.company] : [];
+}
+
+function makeHistory(action: string, author: string, oldValue?: string, newValue?: string) {
+  return {
+    id: crypto.randomUUID(),
+    action,
+    author,
+    createdAt: nowFR(),
+    ...(oldValue !== undefined ? { oldValue } : {}),
+    ...(newValue !== undefined ? { newValue } : {}),
+  };
+}
+
+function generateReserveId(reserves: any[], lots: any[], lotId?: string) {
+  const lot = lots.find(item => item.id === lotId);
+  const suffix = () => Math.random().toString(36).slice(2, 5).toUpperCase();
+  const existing = new Set(reserves.map(r => String(r.id)));
+  const prefix = lot?.code
+    ? String(lot.code).toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 4)
+    : 'RSV';
+  let max = 0;
+  for (const reserve of reserves) {
+    const match = String(reserve.id).match(new RegExp(`^${prefix}-(\\d+)`));
+    if (match) max = Math.max(max, Number(match[1]));
+  }
+  let next = max + 1;
+  let candidate = `${prefix}-${String(next).padStart(3, '0')}-${suffix()}`;
+  while (existing.has(candidate)) {
+    next += 1;
+    candidate = `${prefix}-${String(next).padStart(3, '0')}-${suffix()}`;
+  }
+  return candidate;
+}
+
+function createReserveDraft(projectId: string, plan?: any | null, visit?: any | null): ReserveDraft {
+  return {
+    kind: 'reserve',
+    title: '',
+    description: '',
+    chantierId: visit?.chantier_id ?? plan?.chantier_id ?? projectId,
+    building: visit?.building ?? plan?.building ?? '',
+    level: visit?.level ?? plan?.level ?? '',
+    zone: visit?.zone ?? '',
+    priority: 'medium',
+    status: 'open',
+    deadline: visit?.reserve_deadline_date ?? '',
+    planId: visit?.default_plan_id ?? plan?.id ?? '',
+    lotId: '',
+    visiteId: visit?.id ?? '',
+    companies: [],
+  };
+}
+
+function reserveToDraft(reserve: any): ReserveDraft {
+  return {
+    kind: reserve.kind ?? 'reserve',
+    title: reserve.title ?? '',
+    description: reserve.description ?? '',
+    chantierId: reserve.chantier_id ?? '',
+    building: reserve.building ?? '',
+    level: reserve.level ?? '',
+    zone: reserve.zone ?? '',
+    priority: reserve.priority ?? 'medium',
+    status: reserve.status ?? 'open',
+    deadline: reserve.deadline ?? '',
+    planId: reserve.plan_id ?? '',
+    lotId: reserve.lot_id ?? '',
+    visiteId: reserve.visite_id ?? '',
+    companies: reserveCompanies(reserve),
+  };
+}
+
+function createVisitDraft(projectId: string, conducteur: string): VisitDraft {
+  return {
+    title: '',
+    chantierId: projectId,
+    date: todayISO(),
+    startTime: '08:00',
+    endTime: '10:00',
+    conducteur,
+    status: 'planned',
+    visitType: 'controle',
+    building: '',
+    level: '',
+    zone: '',
+    reserveDeadlineDate: '',
+    notes: '',
+    companyIds: [],
+  };
 }
 
 function channelLabel(channel: any, companies: any[]) {
@@ -157,6 +328,11 @@ export default function BuildTrackWebPage() {
   const [statusFilter, setStatusFilter] = useState('all');
   const [search, setSearch] = useState('');
   const [messageDraft, setMessageDraft] = useState('');
+  const [reserveModalMode, setReserveModalMode] = useState<'create' | 'edit' | null>(null);
+  const [reserveDraft, setReserveDraft] = useState<ReserveDraft>(() => createReserveDraft(''));
+  const [editingReserveId, setEditingReserveId] = useState<string | null>(null);
+  const [visitModalOpen, setVisitModalOpen] = useState(false);
+  const [visitDraft, setVisitDraft] = useState<VisitDraft>(() => createVisitDraft('', ''));
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(true);
@@ -307,6 +483,255 @@ export default function BuildTrackWebPage() {
     setSaving(false);
   }
 
+  function currentProjectId() {
+    return selectedProjectId !== 'all' ? selectedProjectId : data.chantiers[0]?.id ?? '';
+  }
+
+  function openReserveCreate(prefill?: { plan?: any; visit?: any }) {
+    setError('');
+    setEditingReserveId(null);
+    setReserveDraft(createReserveDraft(currentProjectId(), prefill?.plan, prefill?.visit));
+    setReserveModalMode('create');
+  }
+
+  function openReserveEdit(reserve: any) {
+    setError('');
+    setEditingReserveId(reserve.id);
+    setReserveDraft(reserveToDraft(reserve));
+    setReserveModalMode('edit');
+  }
+
+  function closeReserveModal() {
+    setReserveModalMode(null);
+    setEditingReserveId(null);
+  }
+
+  function openVisitCreate() {
+    setError('');
+    setVisitDraft(createVisitDraft(currentProjectId(), userLabel(profile, authUser)));
+    setVisitModalOpen(true);
+  }
+
+  function toggleReserveCompany(companyName: string) {
+    setReserveDraft(prev => ({
+      ...prev,
+      companies: prev.companies.includes(companyName)
+        ? prev.companies.filter(name => name !== companyName)
+        : [...prev.companies, companyName],
+    }));
+  }
+
+  function toggleVisitCompany(companyId: string) {
+    setVisitDraft(prev => ({
+      ...prev,
+      companyIds: prev.companyIds.includes(companyId)
+        ? prev.companyIds.filter(id => id !== companyId)
+        : [...prev.companyIds, companyId],
+    }));
+  }
+
+  async function syncVisitReserveLink(reserveId: string, nextVisitId?: string | null, previousVisitId?: string | null) {
+    const updates: Array<PromiseLike<any>> = [];
+    const nextVisites = data.visites.map(visit => {
+      if (previousVisitId && visit.id === previousVisitId && previousVisitId !== nextVisitId) {
+        const reserveIds = (visit.reserve_ids ?? []).filter((id: string) => id !== reserveId);
+        updates.push(supabaseBrowser.from('visites').update({ reserve_ids: reserveIds }).eq('id', visit.id));
+        return { ...visit, reserve_ids: reserveIds };
+      }
+      if (nextVisitId && visit.id === nextVisitId) {
+        const reserveIds = Array.from(new Set([...(visit.reserve_ids ?? []), reserveId]));
+        updates.push(supabaseBrowser.from('visites').update({ reserve_ids: reserveIds }).eq('id', visit.id));
+        return { ...visit, reserve_ids: reserveIds };
+      }
+      return visit;
+    });
+    if (updates.length) {
+      await Promise.all(updates);
+      setData(prev => ({ ...prev, visites: nextVisites }));
+    }
+  }
+
+  async function submitReserve(event: React.FormEvent) {
+    event.preventDefault();
+    if (!profile || !canEdit(profile)) return;
+    const title = reserveDraft.title.trim();
+    if (!title) {
+      setError('Le titre de la réserve est obligatoire.');
+      return;
+    }
+    setSaving(true);
+    setError('');
+    const existing = editingReserveId ? data.reserves.find(r => r.id === editingReserveId) : null;
+    const companies = reserveDraft.companies;
+    const history = [
+      ...(existing?.history ?? []),
+      reserveModalMode === 'edit'
+        ? makeHistory('Modifiée depuis le web', userLabel(profile, authUser))
+        : makeHistory(reserveDraft.kind === 'observation' ? 'Observation créée depuis le web' : 'Réserve créée depuis le web', userLabel(profile, authUser)),
+    ];
+    const basePayload = {
+      kind: reserveDraft.kind,
+      title,
+      description: reserveDraft.description.trim() || title,
+      building: reserveDraft.building.trim(),
+      zone: reserveDraft.zone.trim(),
+      level: reserveDraft.level.trim(),
+      company: companies[0] ?? '',
+      companies,
+      priority: reserveDraft.priority,
+      status: reserveDraft.status,
+      deadline: reserveDraft.deadline || null,
+      comments: existing?.comments ?? [],
+      history,
+      plan_id: reserveDraft.planId || null,
+      lot_id: reserveDraft.lotId || null,
+      visite_id: reserveDraft.visiteId || null,
+      chantier_id: reserveDraft.chantierId || null,
+      organization_id: profile.organization_id ?? null,
+      closed_at: reserveDraft.status === 'closed' ? (existing?.closed_at ?? todayISO()) : null,
+      closed_by: reserveDraft.status === 'closed' ? userLabel(profile, authUser) : null,
+    };
+
+    if (reserveModalMode === 'edit' && editingReserveId) {
+      const { data: updated, error: updateError } = await supabaseBrowser
+        .from('reserves')
+        .update(basePayload)
+        .eq('id', editingReserveId)
+        .select()
+        .single();
+      if (updateError) {
+        setError(updateError.message);
+      } else {
+        setData(prev => ({
+          ...prev,
+          reserves: prev.reserves.map(r => r.id === editingReserveId ? (updated ?? { ...r, ...basePayload }) : r),
+        }));
+        await syncVisitReserveLink(editingReserveId, reserveDraft.visiteId || null, existing?.visite_id ?? null);
+        closeReserveModal();
+      }
+    } else {
+      const id = generateReserveId(data.reserves, data.lots, reserveDraft.lotId);
+      const insertPayload = {
+        ...basePayload,
+        id,
+        created_at: todayISO(),
+        plan_x: null,
+        plan_y: null,
+        photo_uri: null,
+        photos: null,
+        photo_annotations: null,
+      };
+      const { data: inserted, error: insertError } = await supabaseBrowser
+        .from('reserves')
+        .insert(insertPayload)
+        .select()
+        .single();
+      if (insertError) {
+        setError(insertError.message);
+      } else {
+        setData(prev => ({ ...prev, reserves: [inserted ?? insertPayload, ...prev.reserves] }));
+        await syncVisitReserveLink(id, reserveDraft.visiteId || null, null);
+        setSelectedReserveId(id);
+        closeReserveModal();
+      }
+    }
+    setSaving(false);
+  }
+
+  async function submitVisit(event: React.FormEvent) {
+    event.preventDefault();
+    if (!profile || !canEdit(profile)) return;
+    const title = visitDraft.title.trim();
+    if (!title) {
+      setError('Le titre de la visite est obligatoire.');
+      return;
+    }
+    setSaving(true);
+    setError('');
+    const id = `VIS-${crypto.randomUUID().slice(0, 8).toUpperCase()}`;
+    const checklistItems = VISIT_CHECKLIST_TEMPLATES[visitDraft.visitType].map(label => ({
+      id: crypto.randomUUID(),
+      label,
+      checked: false,
+    }));
+    const payload = {
+      id,
+      chantier_id: visitDraft.chantierId || null,
+      title,
+      date: visitDraft.date || todayISO(),
+      start_time: visitDraft.startTime || null,
+      end_time: visitDraft.endTime || null,
+      conducteur: visitDraft.conducteur.trim() || userLabel(profile, authUser),
+      status: visitDraft.status,
+      visit_type: visitDraft.visitType,
+      concerned_company_ids: visitDraft.companyIds.length ? visitDraft.companyIds : null,
+      building: visitDraft.building.trim() || null,
+      level: visitDraft.level.trim() || null,
+      zone: visitDraft.zone.trim() || null,
+      notes: visitDraft.notes.trim() || null,
+      reserve_deadline_date: visitDraft.reserveDeadlineDate || null,
+      checklist_items: checklistItems,
+      reserve_ids: [],
+      participants: null,
+      created_at: new Date().toISOString(),
+      organization_id: profile.organization_id ?? null,
+    };
+    const { data: inserted, error: insertError } = await supabaseBrowser
+      .from('visites')
+      .insert(payload)
+      .select()
+      .single();
+    if (insertError) {
+      setError(insertError.message);
+    } else {
+      setData(prev => ({ ...prev, visites: [inserted ?? payload, ...prev.visites] }));
+      setVisitModalOpen(false);
+      setActiveTab('visites');
+    }
+    setSaving(false);
+  }
+
+  async function updateCompanyField(companyId: string, field: 'planned_workers' | 'actual_workers' | 'hours_worked', value: number) {
+    if (!canEdit(profile)) return;
+    const safeValue = Math.max(0, Number.isFinite(value) ? value : 0);
+    setData(prev => ({
+      ...prev,
+      companies: prev.companies.map(company => company.id === companyId ? { ...company, [field]: safeValue } : company),
+    }));
+    const { error: companyError } = await supabaseBrowser
+      .from('companies')
+      .update({ [field]: safeValue })
+      .eq('id', companyId);
+    if (companyError) setError(companyError.message);
+  }
+
+  async function updateNotificationField(field: string, value: boolean | string) {
+    if (!authUser || !profile) return;
+    const existing = data.notificationPreferences.find(row => row.user_id === authUser.id);
+    const payload = {
+      ...(existing ?? {}),
+      user_id: authUser.id,
+      organization_id: profile.organization_id ?? null,
+      [field]: value,
+      updated_at: new Date().toISOString(),
+    };
+    const { data: saved, error: prefError } = await supabaseBrowser
+      .from('notification_preferences')
+      .upsert(payload, { onConflict: 'user_id' })
+      .select()
+      .single();
+    if (prefError) {
+      setError(prefError.message);
+      return;
+    }
+    setData(prev => ({
+      ...prev,
+      notificationPreferences: existing
+        ? prev.notificationPreferences.map(row => row.user_id === authUser.id ? (saved ?? payload) : row)
+        : [saved ?? payload, ...prev.notificationPreferences],
+    }));
+  }
+
   async function sendMessage(event: React.FormEvent) {
     event.preventDefault();
     if (!selectedChannelId || !messageDraft.trim() || !profile) return;
@@ -454,6 +879,12 @@ export default function BuildTrackWebPage() {
               <option value="all">Tous les chantiers</option>
               {data.chantiers.map(project => <option key={project.id} value={project.id}>{project.name}</option>)}
             </select>
+            {canEdit(profile) && (
+              <>
+                <button type="button" onClick={() => openReserveCreate()}>Nouvelle réserve</button>
+                <button type="button" onClick={openVisitCreate}>Nouvelle visite</button>
+              </>
+            )}
             <button onClick={() => session.user && loadEverything(session.user)} disabled={loading}>
               {loading ? 'Synchronisation...' : 'Synchroniser'}
             </button>
@@ -480,6 +911,8 @@ export default function BuildTrackWebPage() {
                 setStatusFilter={setStatusFilter}
                 onStatus={updateReserveStatus}
                 onArchive={toggleArchive}
+                onCreate={() => openReserveCreate()}
+                onEdit={openReserveEdit}
                 editable={canEdit(profile)}
                 saving={saving}
               />
@@ -492,10 +925,17 @@ export default function BuildTrackWebPage() {
                 setSelectedPlanId={setSelectedPlanId}
                 setSelectedReserveId={setSelectedReserveId}
                 setTab={setActiveTab}
+                onCreateReserve={(plan: any) => openReserveCreate({ plan })}
               />
             )}
             {activeTab === 'visites' && (
-              <VisitesView visites={projectScoped.visites} reserves={projectScoped.reserves} companies={data.companies} />
+              <VisitesView
+                visites={projectScoped.visites}
+                reserves={projectScoped.reserves}
+                companies={data.companies}
+                onCreateVisit={openVisitCreate}
+                onCreateReserveFromVisit={(visit: any) => openReserveCreate({ visit })}
+              />
             )}
             {activeTab === 'messages' && (
               <MessagesView
@@ -513,12 +953,54 @@ export default function BuildTrackWebPage() {
             {activeTab === 'terrain' && (
               <TerrainView scoped={projectScoped} data={data} />
             )}
+            {activeTab === 'equipes' && (
+              <EquipesView
+                companies={data.companies}
+                reserves={projectScoped.reserves}
+                tasks={projectScoped.tasks}
+                editable={canEdit(profile)}
+                onUpdateCompanyField={updateCompanyField}
+              />
+            )}
+            {activeTab === 'settings' && (
+              <SettingsView
+                profile={profile}
+                authUser={authUser}
+                preferences={data.notificationPreferences}
+                onUpdateNotificationField={updateNotificationField}
+              />
+            )}
             {activeTab === 'admin' && (
               <AdminView data={data} profile={profile} />
             )}
           </>
         )}
       </section>
+      {reserveModalMode && (
+        <ReserveModal
+          mode={reserveModalMode}
+          draft={reserveDraft}
+          setDraft={setReserveDraft}
+          data={data}
+          selectedProjectId={selectedProjectId}
+          saving={saving}
+          onClose={closeReserveModal}
+          onSubmit={submitReserve}
+          onToggleCompany={toggleReserveCompany}
+        />
+      )}
+      {visitModalOpen && (
+        <VisitModal
+          draft={visitDraft}
+          setDraft={setVisitDraft}
+          data={data}
+          selectedProjectId={selectedProjectId}
+          saving={saving}
+          onClose={() => setVisitModalOpen(false)}
+          onSubmit={submitVisit}
+          onToggleCompany={toggleVisitCompany}
+        />
+      )}
     </main>
   );
 }
@@ -579,6 +1061,8 @@ function ReservesView(props: {
   setStatusFilter: (value: string) => void;
   onStatus: (id: string, status: string) => void;
   onArchive: (reserve: any) => void;
+  onCreate: () => void;
+  onEdit: (reserve: any) => void;
   editable: boolean;
   saving: boolean;
 }) {
@@ -586,6 +1070,10 @@ function ReservesView(props: {
   return (
     <div className={styles.twoCols}>
       <section className={styles.panel}>
+        <div className={styles.panelHeaderCompact}>
+          <h2>Réserves</h2>
+          {props.editable && <button type="button" onClick={props.onCreate}>Créer</button>}
+        </div>
         <div className={styles.toolbar}>
           <input placeholder="Titre, bâtiment, entreprise..." value={props.search} onChange={e => props.setSearch(e.target.value)} />
           <select value={props.statusFilter} onChange={e => props.setStatusFilter(e.target.value)}>
@@ -633,6 +1121,7 @@ function ReservesView(props: {
             </dl>
             {props.editable && (
               <div className={styles.actionBar}>
+                <button type="button" onClick={() => props.onEdit(selectedReserve)}>Modifier</button>
                 {STATUS_OPTIONS.map(([value, label]) => (
                   <button key={value} disabled={props.saving || selectedReserve.status === value} onClick={() => props.onStatus(selectedReserve.id, value)}>
                     {label}
@@ -666,7 +1155,7 @@ function HistoryBlock({ title, rows }: { title: string; rows: any[] }) {
   );
 }
 
-function PlansView({ plans, reserves, selectedPlan, setSelectedPlanId, setSelectedReserveId, setTab }: any) {
+function PlansView({ plans, reserves, selectedPlan, setSelectedPlanId, setSelectedReserveId, setTab, onCreateReserve }: any) {
   const planReserves = selectedPlan ? reserves.filter((r: any) => r.plan_id === selectedPlan.id) : [];
   return (
     <div className={styles.twoCols}>
@@ -693,7 +1182,10 @@ function PlansView({ plans, reserves, selectedPlan, setSelectedPlanId, setSelect
                 <p className={styles.eyebrow}>{selectedPlan.file_type ?? 'plan'}</p>
                 <h2>{selectedPlan.name}</h2>
               </div>
-              {selectedPlan.uri ? <a className={styles.linkButton} href={selectedPlan.uri} target="_blank">Ouvrir le fichier</a> : null}
+              <div className={styles.inlineActions}>
+                <button type="button" onClick={() => onCreateReserve(selectedPlan)}>Créer une réserve</button>
+                {selectedPlan.uri ? <a className={styles.linkButton} href={selectedPlan.uri} target="_blank">Ouvrir le fichier</a> : null}
+              </div>
             </div>
             <div className={styles.planCanvas}>
               {selectedPlan.uri && selectedPlan.file_type === 'image' ? (
@@ -734,23 +1226,31 @@ function PlansView({ plans, reserves, selectedPlan, setSelectedPlanId, setSelect
   );
 }
 
-function VisitesView({ visites, reserves, companies }: any) {
+function VisitesView({ visites, reserves, companies, onCreateVisit, onCreateReserveFromVisit }: any) {
   return (
     <section className={styles.panel}>
+      <div className={styles.panelHeaderCompact}>
+        <div>
+          <h2>Visites</h2>
+          <p>Préparez les visites et rattachez des réserves après coup.</p>
+        </div>
+        <button type="button" onClick={onCreateVisit}>Nouvelle visite</button>
+      </div>
       <div className={styles.dataTable}>
-        <div className={styles.tableHead}><span>Visite</span><span>Date</span><span>Périmètre</span><span>Réserves</span><span>Entreprises</span></div>
+        <div className={`${styles.tableHead} ${styles.visitTableHead}`}><span>Visite</span><span>Date</span><span>Périmètre</span><span>Réserves</span><span>Entreprises</span><span>Action</span></div>
         {visites.map((visit: any) => {
           const visitReserves = reserves.filter((r: any) => r.visite_id === visit.id || (visit.reserve_ids ?? []).includes(r.id));
           const companyNames = (visit.concerned_company_ids ?? [])
             .map((id: string) => companies.find((c: any) => c.id === id)?.name)
             .filter(Boolean);
           return (
-            <div key={visit.id} className={styles.tableRow}>
+            <div key={visit.id} className={`${styles.tableRow} ${styles.visitTableRow}`}>
               <strong>{visit.title}</strong>
               <span>{prettyDate(visit.date)}</span>
               <span>{[visit.building, visit.level, visit.zone].filter(Boolean).join(' · ') || 'Multi-bâtiments'}</span>
               <span>{visitReserves.length}</span>
               <span>{companyNames.join(', ') || '—'}</span>
+              <button type="button" className={styles.tableActionBtn} onClick={() => onCreateReserveFromVisit(visit)}>Ajouter réserve</button>
             </div>
           );
         })}
@@ -827,6 +1327,376 @@ function TerrainView({ scoped, data }: any) {
           ))}
         </div>
       </section>
+    </div>
+  );
+}
+
+function EquipesView({ companies, reserves, tasks, editable, onUpdateCompanyField }: any) {
+  const totalActual = companies.reduce((sum: number, company: any) => sum + Number(company.actual_workers ?? 0), 0);
+  const totalPlanned = companies.reduce((sum: number, company: any) => sum + Number(company.planned_workers ?? 0), 0);
+  const presence = totalPlanned ? Math.round((totalActual / totalPlanned) * 100) : 0;
+
+  return (
+    <div className={styles.stack}>
+      <div className={styles.kpiGrid}>
+        <Kpi title="Présents" value={totalActual} hint={`${totalPlanned} planifiés`} />
+        <Kpi title="Présence" value={`${presence}%`} hint="Pointage global" tone="green" />
+        <Kpi title="Entreprises" value={companies.length} hint="Sous-traitants" tone="amber" />
+        <Kpi title="Actions actives" value={tasks.filter((task: any) => task.status !== 'done').length} hint="Tâches non terminées" />
+      </div>
+      <section className={styles.panel}>
+        <div className={styles.panelHeaderCompact}>
+          <div>
+            <h2>Équipes chantier</h2>
+            <p>Pointage rapide, contacts et réserves ouvertes par entreprise.</p>
+          </div>
+        </div>
+        <div className={styles.companyGrid}>
+          {companies.map((company: any) => {
+            const names = [company.name, company.short_name, company.shortName].filter(Boolean);
+            const openReserves = reserves.filter((reserve: any) => {
+              const reserveNames = reserveCompanies(reserve);
+              return reserve.status !== 'closed' && reserveNames.some(name => names.some(companyName => sameName(companyName, name)));
+            }).length;
+            return (
+              <article className={styles.companyCard} key={company.id}>
+                <div className={styles.companyTop}>
+                  <span className={styles.companyColor} style={{ backgroundColor: company.color ?? '#3b82f6' }} />
+                  <div>
+                    <strong>{company.name}</strong>
+                    <small>{company.short_name ?? company.shortName ?? company.zone ?? 'Entreprise'}</small>
+                  </div>
+                </div>
+                <div className={styles.companyStats}>
+                  <label>
+                    <span>Présents</span>
+                    <input
+                      type="number"
+                      min={0}
+                      value={company.actual_workers ?? 0}
+                      disabled={!editable}
+                      onChange={event => onUpdateCompanyField(company.id, 'actual_workers', Number(event.target.value))}
+                    />
+                  </label>
+                  <label>
+                    <span>Planifiés</span>
+                    <input
+                      type="number"
+                      min={0}
+                      value={company.planned_workers ?? 0}
+                      disabled={!editable}
+                      onChange={event => onUpdateCompanyField(company.id, 'planned_workers', Number(event.target.value))}
+                    />
+                  </label>
+                </div>
+                <div className={styles.companyFooter}>
+                  <span>{openReserves} réserves ouvertes</span>
+                  {company.email ? <a href={`mailto:${company.email}`}>Email</a> : null}
+                  {company.contact ? <a href={`tel:${company.contact}`}>Appeler</a> : null}
+                </div>
+              </article>
+            );
+          })}
+        </div>
+        {!companies.length && <p className={styles.empty}>Aucune entreprise chargée.</p>}
+      </section>
+    </div>
+  );
+}
+
+function prefValue(preferences: any[], authUser: SupabaseUser | null, field: string, fallback = true) {
+  const row = preferences.find(item => item.user_id === authUser?.id);
+  return row?.[field] ?? fallback;
+}
+
+function SettingsView({ profile, authUser, preferences, onUpdateNotificationField }: {
+  profile: Profile | null;
+  authUser: SupabaseUser | null;
+  preferences: any[];
+  onUpdateNotificationField: (field: string, value: boolean | string) => void;
+}) {
+  return (
+    <div className={styles.twoCols}>
+      <section className={styles.panel}>
+        <div className={styles.sectionHeader}>
+          <div>
+            <p className={styles.eyebrow}>Compte</p>
+            <h2>{profile?.name ?? authUser?.email}</h2>
+            <p>{profile?.role_label ?? profile?.role} · {profile?.email ?? authUser?.email}</p>
+          </div>
+        </div>
+        <dl className={styles.metaGrid}>
+          <div><dt>ID utilisateur</dt><dd>{profile?.id ?? authUser?.id}</dd></div>
+          <div><dt>Organisation</dt><dd>{profile?.organization_id ?? '—'}</dd></div>
+          <div><dt>Entreprise</dt><dd>{profile?.company_id ?? '—'}</dd></div>
+          <div><dt>Langue</dt><dd>{profile?.preferred_language?.toUpperCase() ?? 'Auto'}</dd></div>
+        </dl>
+      </section>
+      <section className={styles.panel}>
+        <div className={styles.sectionHeader}>
+          <div>
+            <p className={styles.eyebrow}>Notifications</p>
+            <h2>Préférences personnelles</h2>
+            <p>Ces réglages sont stockés dans Supabase et restent cohérents avec l’application mobile.</p>
+          </div>
+        </div>
+        <div className={styles.toggleList}>
+          <ToggleRow label="Notifications app" hint="Alertes visibles dans BuildTrack." checked={!!prefValue(preferences, authUser, 'in_app_enabled')} onChange={value => onUpdateNotificationField('in_app_enabled', value)} />
+          <ToggleRow label="Notifications push" hint="Alertes natives tablette ou téléphone." checked={!!prefValue(preferences, authUser, 'push_enabled')} onChange={value => onUpdateNotificationField('push_enabled', value)} />
+          <ToggleRow label="Notifications email" hint="Emails automatiques réserves et rappels." checked={!!prefValue(preferences, authUser, 'email_enabled')} onChange={value => onUpdateNotificationField('email_enabled', value)} />
+          <ToggleRow label="Messages par email" hint="Recevoir les messages importants par mail." checked={!!prefValue(preferences, authUser, 'messages_email', false)} onChange={value => onUpdateNotificationField('messages_email', value)} />
+          <ToggleRow label="Heures calmes" hint="Suspend les push non critiques." checked={!!prefValue(preferences, authUser, 'quiet_hours_enabled', false)} onChange={value => onUpdateNotificationField('quiet_hours_enabled', value)} />
+        </div>
+      </section>
+    </div>
+  );
+}
+
+function ToggleRow({ label, hint, checked, onChange }: { label: string; hint: string; checked: boolean; onChange: (value: boolean) => void }) {
+  return (
+    <label className={styles.toggleRow}>
+      <span>
+        <strong>{label}</strong>
+        <small>{hint}</small>
+      </span>
+      <input type="checkbox" checked={checked} onChange={event => onChange(event.target.checked)} />
+    </label>
+  );
+}
+
+function ReserveModal({ mode, draft, setDraft, data, selectedProjectId, saving, onClose, onSubmit, onToggleCompany }: {
+  mode: 'create' | 'edit';
+  draft: ReserveDraft;
+  setDraft: React.Dispatch<React.SetStateAction<ReserveDraft>>;
+  data: WebState;
+  selectedProjectId: string;
+  saving: boolean;
+  onClose: () => void;
+  onSubmit: (event: React.FormEvent) => void;
+  onToggleCompany: (companyName: string) => void;
+}) {
+  const projectId = draft.chantierId || (selectedProjectId !== 'all' ? selectedProjectId : data.chantiers[0]?.id ?? '');
+  const plans = data.sitePlans.filter(plan => getChantierId(plan) === projectId);
+  const visits = data.visites.filter(visit => getChantierId(visit) === projectId);
+  const lots = data.lots.filter(lot => !lot.chantier_id || getChantierId(lot) === projectId);
+  return (
+    <div className={styles.modalBackdrop} role="dialog" aria-modal="true">
+      <form className={styles.modalPanel} onSubmit={onSubmit}>
+        <div className={styles.modalHeader}>
+          <div>
+            <p className={styles.eyebrow}>{mode === 'edit' ? 'Modification' : 'Création'}</p>
+            <h2>{mode === 'edit' ? 'Modifier la réserve' : 'Nouvelle réserve'}</h2>
+          </div>
+          <button type="button" onClick={onClose}>Fermer</button>
+        </div>
+        <div className={styles.formGrid}>
+          <label>
+            Type
+            <select value={draft.kind} onChange={event => setDraft(prev => ({ ...prev, kind: event.target.value as ReserveDraft['kind'] }))}>
+              <option value="reserve">Réserve</option>
+              <option value="observation">Observation</option>
+            </select>
+          </label>
+          <label>
+            Chantier
+            <select value={projectId} onChange={event => setDraft(prev => ({ ...prev, chantierId: event.target.value, planId: '', visiteId: '' }))}>
+              {data.chantiers.map(project => <option key={project.id} value={project.id}>{project.name}</option>)}
+            </select>
+          </label>
+          <label className={styles.formWide}>
+            Titre
+            <input
+              value={draft.title}
+              onChange={event => {
+                const value = event.target.value;
+                setDraft(prev => {
+                  const shouldMirrorDescription = !prev.description.trim() || prev.description === prev.title;
+                  return { ...prev, title: value, description: shouldMirrorDescription ? value : prev.description };
+                });
+              }}
+              placeholder="Ex: Finition mur à reprendre"
+              required
+            />
+          </label>
+          <label className={styles.formWide}>
+            Description
+            <textarea value={draft.description} onChange={event => setDraft(prev => ({ ...prev, description: event.target.value }))} rows={4} />
+          </label>
+          <label>
+            Bâtiment
+            <input value={draft.building} onChange={event => setDraft(prev => ({ ...prev, building: event.target.value }))} />
+          </label>
+          <label>
+            Niveau
+            <input value={draft.level} onChange={event => setDraft(prev => ({ ...prev, level: event.target.value }))} />
+          </label>
+          <label>
+            Zone
+            <input value={draft.zone} onChange={event => setDraft(prev => ({ ...prev, zone: event.target.value }))} />
+          </label>
+          <label>
+            Échéance
+            <input type="date" value={draft.deadline} onChange={event => setDraft(prev => ({ ...prev, deadline: event.target.value }))} />
+          </label>
+          <label>
+            Priorité
+            <select value={draft.priority} onChange={event => setDraft(prev => ({ ...prev, priority: event.target.value }))}>
+              {Object.entries(PRIORITY_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+            </select>
+          </label>
+          <label>
+            Statut
+            <select value={draft.status} onChange={event => setDraft(prev => ({ ...prev, status: event.target.value }))}>
+              {STATUS_OPTIONS.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+            </select>
+          </label>
+          <label>
+            Plan associé
+            <select value={draft.planId} onChange={event => setDraft(prev => ({ ...prev, planId: event.target.value }))}>
+              <option value="">Aucun plan</option>
+              {plans.map(plan => <option key={plan.id} value={plan.id}>{plan.name}</option>)}
+            </select>
+          </label>
+          <label>
+            Visite associée
+            <select value={draft.visiteId} onChange={event => setDraft(prev => ({ ...prev, visiteId: event.target.value }))}>
+              <option value="">Aucune visite</option>
+              {visits.map(visit => <option key={visit.id} value={visit.id}>{visit.title}</option>)}
+            </select>
+          </label>
+          <label>
+            Lot
+            <select value={draft.lotId} onChange={event => setDraft(prev => ({ ...prev, lotId: event.target.value }))}>
+              <option value="">Aucun lot</option>
+              {lots.map(lot => <option key={lot.id} value={lot.id}>{lot.code ? `${lot.code} · ${lot.name}` : lot.name}</option>)}
+            </select>
+          </label>
+          <div className={styles.formWide}>
+            <span className={styles.fieldLabel}>Entreprises responsables</span>
+            <div className={styles.chipGrid}>
+              {data.companies.map(company => (
+                <button
+                  key={company.id}
+                  type="button"
+                  className={draft.companies.includes(company.name) ? styles.chipActive : styles.chip}
+                  onClick={() => onToggleCompany(company.name)}
+                >
+                  {company.short_name ?? company.shortName ?? company.name}
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+        <div className={styles.modalActions}>
+          <button type="button" onClick={onClose}>Annuler</button>
+          <button type="submit" disabled={saving}>{saving ? 'Enregistrement...' : mode === 'edit' ? 'Enregistrer' : 'Créer'}</button>
+        </div>
+      </form>
+    </div>
+  );
+}
+
+function VisitModal({ draft, setDraft, data, selectedProjectId, saving, onClose, onSubmit, onToggleCompany }: {
+  draft: VisitDraft;
+  setDraft: React.Dispatch<React.SetStateAction<VisitDraft>>;
+  data: WebState;
+  selectedProjectId: string;
+  saving: boolean;
+  onClose: () => void;
+  onSubmit: (event: React.FormEvent) => void;
+  onToggleCompany: (companyId: string) => void;
+}) {
+  const projectId = draft.chantierId || (selectedProjectId !== 'all' ? selectedProjectId : data.chantiers[0]?.id ?? '');
+  return (
+    <div className={styles.modalBackdrop} role="dialog" aria-modal="true">
+      <form className={styles.modalPanel} onSubmit={onSubmit}>
+        <div className={styles.modalHeader}>
+          <div>
+            <p className={styles.eyebrow}>Visite chantier</p>
+            <h2>Nouvelle visite</h2>
+          </div>
+          <button type="button" onClick={onClose}>Fermer</button>
+        </div>
+        <div className={styles.formGrid}>
+          <label className={styles.formWide}>
+            Titre
+            <input value={draft.title} onChange={event => setDraft(prev => ({ ...prev, title: event.target.value }))} placeholder="Ex: Contrôle S21" required />
+          </label>
+          <label>
+            Chantier
+            <select value={projectId} onChange={event => setDraft(prev => ({ ...prev, chantierId: event.target.value }))}>
+              {data.chantiers.map(project => <option key={project.id} value={project.id}>{project.name}</option>)}
+            </select>
+          </label>
+          <label>
+            Type
+            <select value={draft.visitType} onChange={event => setDraft(prev => ({ ...prev, visitType: event.target.value as VisitDraft['visitType'] }))}>
+              {Object.entries(VISIT_TYPE_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+            </select>
+          </label>
+          <label>
+            Date
+            <input type="date" value={draft.date} onChange={event => setDraft(prev => ({ ...prev, date: event.target.value }))} />
+          </label>
+          <label>
+            Début
+            <input type="time" value={draft.startTime} onChange={event => setDraft(prev => ({ ...prev, startTime: event.target.value }))} />
+          </label>
+          <label>
+            Fin
+            <input type="time" value={draft.endTime} onChange={event => setDraft(prev => ({ ...prev, endTime: event.target.value }))} />
+          </label>
+          <label>
+            Statut
+            <select value={draft.status} onChange={event => setDraft(prev => ({ ...prev, status: event.target.value as VisitDraft['status'] }))}>
+              {Object.entries(VISIT_STATUS_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+            </select>
+          </label>
+          <label>
+            Conducteur
+            <input value={draft.conducteur} onChange={event => setDraft(prev => ({ ...prev, conducteur: event.target.value }))} />
+          </label>
+          <label>
+            Bâtiment
+            <input value={draft.building} onChange={event => setDraft(prev => ({ ...prev, building: event.target.value }))} />
+          </label>
+          <label>
+            Niveau
+            <input value={draft.level} onChange={event => setDraft(prev => ({ ...prev, level: event.target.value }))} />
+          </label>
+          <label>
+            Zone
+            <input value={draft.zone} onChange={event => setDraft(prev => ({ ...prev, zone: event.target.value }))} />
+          </label>
+          <label>
+            Délai cible réserves
+            <input type="date" value={draft.reserveDeadlineDate} onChange={event => setDraft(prev => ({ ...prev, reserveDeadlineDate: event.target.value }))} />
+          </label>
+          <label className={styles.formWide}>
+            Notes
+            <textarea value={draft.notes} onChange={event => setDraft(prev => ({ ...prev, notes: event.target.value }))} rows={3} />
+          </label>
+          <div className={styles.formWide}>
+            <span className={styles.fieldLabel}>Entreprises concernées</span>
+            <div className={styles.chipGrid}>
+              {data.companies.map(company => (
+                <button
+                  key={company.id}
+                  type="button"
+                  className={draft.companyIds.includes(company.id) ? styles.chipActive : styles.chip}
+                  onClick={() => onToggleCompany(company.id)}
+                >
+                  {company.short_name ?? company.shortName ?? company.name}
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+        <div className={styles.modalActions}>
+          <button type="button" onClick={onClose}>Annuler</button>
+          <button type="submit" disabled={saving}>{saving ? 'Création...' : 'Créer la visite'}</button>
+        </div>
+      </form>
     </div>
   );
 }
