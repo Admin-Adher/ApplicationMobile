@@ -2,9 +2,7 @@ import { createClient } from '@supabase/supabase-js';
 import { verifyReserveToken } from '@/lib/reserve-token';
 import {
   getReservePriorityColor,
-  getReservePriorityLabel,
   getReserveStatusColor,
-  getReserveStatusLabel,
 } from '@/lib/reserveLabels';
 import { getReserveDescriptionText } from '@/lib/reserveDescription';
 
@@ -13,6 +11,148 @@ export const dynamic = 'force-dynamic';
 const BRAND = '#1A2742';
 const ACCENT = '#FFCB00';
 
+type PublicLang = 'fr' | 'en' | 'es';
+
+const PUBLIC_COPY: Record<PublicLang, {
+  footer: string;
+  invalidLinkTitle: string;
+  invalidLinkText: string;
+  configMissingTitle: string;
+  serviceUnavailable: string;
+  expiredTitle: string;
+  expiredText: string;
+  dbMissingText: string;
+  notFoundTitle: string;
+  notFoundText: string;
+  ref: string;
+  project: string;
+  noProject: string;
+  location: string;
+  companies: string;
+  deadline: string;
+  createdOn: string;
+  description: string;
+  photos: string;
+  photoAlt: string;
+  comments: string;
+  history: string;
+  anonymous: string;
+  openApp: string;
+  actionHint: string;
+  noApp: string;
+  priorityLabels: Record<string, string>;
+  statusLabels: Record<string, string>;
+}> = {
+  fr: {
+    footer: 'Page sécurisée par lien privé — ne pas partager. © Bouygues Construction',
+    invalidLinkTitle: 'Lien invalide',
+    invalidLinkText: "Ce lien ne contient pas de jeton d'accès. Veuillez utiliser le lien envoyé par email.",
+    configMissingTitle: 'Configuration manquante',
+    serviceUnavailable: 'Service indisponible.',
+    expiredTitle: 'Lien expiré ou invalide',
+    expiredText: "Le jeton d'accès est invalide ou a expiré. Demandez à l'expéditeur de vous renvoyer un nouvel email.",
+    dbMissingText: "La connexion à la base de données n'est pas configurée.",
+    notFoundTitle: 'Réserve introuvable',
+    notFoundText: "Cette réserve a été supprimée ou n'existe plus.",
+    ref: 'Réf.',
+    project: 'Chantier',
+    noProject: 'Non rattaché',
+    location: 'Localisation',
+    companies: 'Entreprise(s)',
+    deadline: 'Échéance',
+    createdOn: 'Créée le',
+    description: 'Description',
+    photos: 'Photos',
+    photoAlt: 'photo',
+    comments: 'Commentaires',
+    history: 'Historique',
+    anonymous: 'Anonyme',
+    openApp: "Ouvrir dans l'app BuildTrack →",
+    actionHint: "Pour ajouter un commentaire, modifier le statut ou téléverser une photo, ouvrez la réserve depuis l'application.",
+    noApp: "Pas encore l'app ?",
+    priorityLabels: { critical: 'Critique', high: 'Haute', medium: 'Moyenne', low: 'Basse' },
+    statusLabels: { open: 'Ouverte', in_progress: 'En cours', waiting: 'En attente', verification: 'Vérification', closed: 'Clôturée' },
+  },
+  en: {
+    footer: 'Secure page via private link — do not share. © Bouygues Construction',
+    invalidLinkTitle: 'Invalid link',
+    invalidLinkText: 'This link does not contain an access token. Please use the link sent by email.',
+    configMissingTitle: 'Missing configuration',
+    serviceUnavailable: 'Service unavailable.',
+    expiredTitle: 'Expired or invalid link',
+    expiredText: 'The access token is invalid or has expired. Ask the sender to send you a new email.',
+    dbMissingText: 'The database connection is not configured.',
+    notFoundTitle: 'Issue not found',
+    notFoundText: 'This issue has been deleted or no longer exists.',
+    ref: 'Ref.',
+    project: 'Project',
+    noProject: 'Not linked',
+    location: 'Location',
+    companies: 'Company/companies',
+    deadline: 'Due date',
+    createdOn: 'Created on',
+    description: 'Description',
+    photos: 'Photos',
+    photoAlt: 'photo',
+    comments: 'Comments',
+    history: 'History',
+    anonymous: 'Anonymous',
+    openApp: 'Open in the BuildTrack app →',
+    actionHint: 'To add a comment, change the status or upload a photo, open this issue in the app.',
+    noApp: 'No app yet?',
+    priorityLabels: { critical: 'Critical', high: 'High', medium: 'Medium', low: 'Low' },
+    statusLabels: { open: 'Open', in_progress: 'In progress', waiting: 'Pending', verification: 'Verification', closed: 'Closed' },
+  },
+  es: {
+    footer: 'Página segura mediante enlace privado — no compartir. © Bouygues Construction',
+    invalidLinkTitle: 'Enlace no válido',
+    invalidLinkText: 'Este enlace no contiene un token de acceso. Usa el enlace enviado por correo.',
+    configMissingTitle: 'Configuración incompleta',
+    serviceUnavailable: 'Servicio no disponible.',
+    expiredTitle: 'Enlace caducado o no válido',
+    expiredText: 'El token de acceso no es válido o ha caducado. Pide al remitente que te envíe un nuevo correo.',
+    dbMissingText: 'La conexión a la base de datos no está configurada.',
+    notFoundTitle: 'Incidencia no encontrada',
+    notFoundText: 'Esta incidencia se eliminó o ya no existe.',
+    ref: 'Ref.',
+    project: 'Obra',
+    noProject: 'No vinculada',
+    location: 'Ubicación',
+    companies: 'Empresa(s)',
+    deadline: 'Fecha límite',
+    createdOn: 'Creada el',
+    description: 'Descripción',
+    photos: 'Fotos',
+    photoAlt: 'foto',
+    comments: 'Comentarios',
+    history: 'Historial',
+    anonymous: 'Anónimo',
+    openApp: 'Abrir en la app BuildTrack →',
+    actionHint: 'Para añadir un comentario, cambiar el estado o subir una foto, abre esta incidencia en la aplicación.',
+    noApp: '¿Aún no tienes la app?',
+    priorityLabels: { critical: 'Crítica', high: 'Alta', medium: 'Media', low: 'Baja' },
+    statusLabels: { open: 'Abierta', in_progress: 'En curso', waiting: 'En espera', verification: 'Verificación', closed: 'Cerrada' },
+  },
+};
+
+function publicLang(value?: string | null): PublicLang {
+  const normalized = String(value ?? '').toLowerCase();
+  if (normalized.startsWith('en')) return 'en';
+  if (normalized.startsWith('es')) return 'es';
+  return 'fr';
+}
+
+function publicLocale(lang: PublicLang): string {
+  if (lang === 'en') return 'en-GB';
+  if (lang === 'es') return 'es-ES';
+  return 'fr-FR';
+}
+
+function labelFor(labels: Record<string, string>, value?: string | null): string {
+  if (!value) return '—';
+  return labels[value] ?? value;
+}
+
 function getServiceClient() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -20,16 +160,16 @@ function getServiceClient() {
   return createClient(url, serviceKey, { auth: { persistSession: false } });
 }
 
-function fmtDate(iso?: string | null): string {
+function fmtDate(iso?: string | null, lang: PublicLang = 'fr'): string {
   if (!iso) return '—';
   try {
-    return new Date(iso).toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' });
+    return new Date(iso).toLocaleDateString(publicLocale(lang), { day: 'numeric', month: 'long', year: 'numeric' });
   } catch {
     return iso;
   }
 }
 
-function ErrorPage({ title, message }: { title: string; message: string }) {
+function ErrorPage({ title, message, lang = 'fr' }: { title: string; message: string; lang?: PublicLang }) {
   return (
     <div style={S.page}>
       <div style={S.card}>
@@ -39,7 +179,7 @@ function ErrorPage({ title, message }: { title: string; message: string }) {
           <h1 style={{ color: BRAND, fontSize: 22, margin: '0 0 12px' }}>{title}</h1>
           <p style={{ color: '#5E738A', fontSize: 14, lineHeight: 1.5 }}>{message}</p>
         </div>
-        <Footer />
+        <Footer lang={lang} />
       </div>
     </div>
   );
@@ -61,10 +201,11 @@ function Header() {
   );
 }
 
-function Footer() {
+function Footer({ lang = 'fr' }: { lang?: PublicLang }) {
+  const c = PUBLIC_COPY[lang] ?? PUBLIC_COPY.fr;
   return (
     <div style={{ background: '#F4F7FB', padding: '16px 24px', textAlign: 'center' as const, color: '#8899BB', fontSize: 11 }}>
-      Page sécurisée par lien privé — ne pas partager. © Bouygues Construction
+      {c.footer}
     </div>
   );
 }
@@ -74,28 +215,30 @@ export default async function ReservePublicPage({
   searchParams,
 }: {
   params: Promise<{ id: string }>;
-  searchParams: Promise<{ t?: string }>;
+  searchParams: Promise<{ t?: string; lang?: string }>;
 }) {
   const { id } = await params;
-  const { t } = await searchParams;
+  const { t, lang: langParam } = await searchParams;
+  const lang = publicLang(langParam);
+  const c = PUBLIC_COPY[lang] ?? PUBLIC_COPY.fr;
 
   if (!t) {
-    return <ErrorPage title="Lien invalide" message="Ce lien ne contient pas de jeton d'accès. Veuillez utiliser le lien envoyé par email." />;
+    return <ErrorPage lang={lang} title={c.invalidLinkTitle} message={c.invalidLinkText} />;
   }
 
   let payload;
   try {
     payload = verifyReserveToken(t, id);
   } catch (e: any) {
-    return <ErrorPage title="Configuration manquante" message={e?.message ?? 'Service indisponible.'} />;
+    return <ErrorPage lang={lang} title={c.configMissingTitle} message={e?.message ?? c.serviceUnavailable} />;
   }
   if (!payload) {
-    return <ErrorPage title="Lien expiré ou invalide" message="Le jeton d'accès est invalide ou a expiré. Demandez à l'expéditeur de vous renvoyer un nouvel email." />;
+    return <ErrorPage lang={lang} title={c.expiredTitle} message={c.expiredText} />;
   }
 
   const supabase = getServiceClient();
   if (!supabase) {
-    return <ErrorPage title="Service indisponible" message="La connexion à la base de données n'est pas configurée." />;
+    return <ErrorPage lang={lang} title={c.serviceUnavailable} message={c.dbMissingText} />;
   }
 
   const { data: reserve } = await supabase
@@ -105,7 +248,7 @@ export default async function ReservePublicPage({
     .maybeSingle();
 
   if (!reserve) {
-    return <ErrorPage title="Réserve introuvable" message="Cette réserve a été supprimée ou n'existe plus." />;
+    return <ErrorPage lang={lang} title={c.notFoundTitle} message={c.notFoundText} />;
   }
 
   const [{ data: chantier }, { data: photos }] = await Promise.all([
@@ -121,11 +264,11 @@ export default async function ReservePublicPage({
   ]);
 
   const prio = {
-    label: getReservePriorityLabel(reserve.priority),
+    label: labelFor(c.priorityLabels, reserve.priority),
     color: getReservePriorityColor(reserve.priority),
   };
   const stat = {
-    label: getReserveStatusLabel(reserve.status, true),
+    label: labelFor(c.statusLabels, reserve.status),
     color: getReserveStatusColor(reserve.status),
   };
   const descriptionText = getReserveDescriptionText(reserve.description, reserve.title, '');
@@ -149,7 +292,7 @@ export default async function ReservePublicPage({
             paddingLeft: 14, marginBottom: 18,
           }}>
             <div style={{ fontSize: 11, color: '#8899BB', textTransform: 'uppercase' as const, letterSpacing: 0.5, fontWeight: 700 }}>
-              Réf. {reserve.id.slice(0, 8)}
+              {c.ref} {reserve.id.slice(0, 8)}
             </div>
             <h1 style={{ color: BRAND, fontSize: 22, margin: '4px 0 10px', lineHeight: 1.25 }}>
               {reserve.title}
@@ -160,29 +303,29 @@ export default async function ReservePublicPage({
             </div>
           </div>
 
-          <Section label="Chantier">
-            {chantier?.name ?? <em style={{ color: '#8899BB' }}>Non rattaché</em>}
+          <Section label={c.project}>
+            {chantier?.name ?? <em style={{ color: '#8899BB' }}>{c.noProject}</em>}
           </Section>
 
           {locParts.length > 0 && (
-            <Section label="Localisation">{locParts.join(' • ')}</Section>
+            <Section label={c.location}>{locParts.join(' • ')}</Section>
           )}
 
           {involvedCompanies.length > 0 && (
-            <Section label="Entreprise(s)">{involvedCompanies.join(', ')}</Section>
+            <Section label={c.companies}>{involvedCompanies.join(', ')}</Section>
           )}
 
-          <Section label="Échéance">
+          <Section label={c.deadline}>
             <span style={{ color: reserve.deadline && reserve.status !== 'closed' && new Date(reserve.deadline) < new Date() ? '#DC2626' : '#1A2742', fontWeight: 600 }}>
-              {fmtDate(reserve.deadline)}
+              {fmtDate(reserve.deadline, lang)}
             </span>
           </Section>
 
-          <Section label="Créée le">{fmtDate(reserve.created_at)}</Section>
+          <Section label={c.createdOn}>{fmtDate(reserve.created_at, lang)}</Section>
 
           {descriptionText && (
             <div style={{ margin: '18px 0' }}>
-              <div style={S.sectionLabel}>Description</div>
+              <div style={S.sectionLabel}>{c.description}</div>
               <div style={{
                 background: '#F4F7FB', padding: 14, borderRadius: 8,
                 color: '#334155', fontSize: 14, lineHeight: 1.5, whiteSpace: 'pre-wrap' as const,
@@ -194,7 +337,7 @@ export default async function ReservePublicPage({
 
           {photos && photos.length > 0 && (
             <div style={{ margin: '18px 0' }}>
-              <div style={S.sectionLabel}>Photos ({photos.length})</div>
+              <div style={S.sectionLabel}>{c.photos} ({photos.length})</div>
               <div style={{
                 display: 'grid',
                 gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))',
@@ -205,7 +348,7 @@ export default async function ReservePublicPage({
                      style={{ display: 'block', aspectRatio: '1 / 1', overflow: 'hidden', borderRadius: 6, background: '#E5EAF1' }}>
                     {p.uri && (
                       // eslint-disable-next-line @next/next/no-img-element
-                      <img src={p.uri} alt={p.comment || 'photo'}
+                      <img src={p.uri} alt={p.comment || c.photoAlt}
                            style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
                     )}
                   </a>
@@ -216,15 +359,15 @@ export default async function ReservePublicPage({
 
           {comments.length > 0 && (
             <div style={{ margin: '18px 0' }}>
-              <div style={S.sectionLabel}>Commentaires ({comments.length})</div>
+              <div style={S.sectionLabel}>{c.comments} ({comments.length})</div>
               <div style={{ display: 'flex', flexDirection: 'column' as const, gap: 8 }}>
-                {comments.slice(-10).map((c: any, i: number) => (
+                {comments.slice(-10).map((comment: any, i: number) => (
                   <div key={i} style={{ background: '#F4F7FB', padding: '10px 12px', borderRadius: 6, fontSize: 13 }}>
                     <div style={{ color: '#5E738A', fontSize: 11, marginBottom: 4 }}>
-                      <strong style={{ color: BRAND }}>{c.author ?? c.by ?? 'Anonyme'}</strong>
-                      {c.created_at || c.at ? <> — {fmtDate(c.created_at ?? c.at)}</> : null}
+                      <strong style={{ color: BRAND }}>{comment.author ?? comment.by ?? c.anonymous}</strong>
+                      {comment.created_at || comment.at ? <> — {fmtDate(comment.created_at ?? comment.at, lang)}</> : null}
                     </div>
-                    <div style={{ color: '#1F2937', whiteSpace: 'pre-wrap' as const }}>{c.text ?? c.content ?? String(c)}</div>
+                    <div style={{ color: '#1F2937', whiteSpace: 'pre-wrap' as const }}>{comment.text ?? comment.content ?? String(comment)}</div>
                   </div>
                 ))}
               </div>
@@ -233,11 +376,11 @@ export default async function ReservePublicPage({
 
           {history.length > 0 && (
             <div style={{ margin: '18px 0' }}>
-              <div style={S.sectionLabel}>Historique</div>
+              <div style={S.sectionLabel}>{c.history}</div>
               <ul style={{ margin: 0, padding: '0 0 0 18px', color: '#5E738A', fontSize: 12, lineHeight: 1.6 }}>
                 {history.slice(-8).map((h: any, i: number) => (
                   <li key={i}>
-                    {h.at ? <span style={{ color: '#8899BB' }}>{fmtDate(h.at)} — </span> : null}
+                    {h.at ? <span style={{ color: '#8899BB' }}>{fmtDate(h.at, lang)} — </span> : null}
                     {h.action ?? h.text ?? JSON.stringify(h)}
                   </li>
                 ))}
@@ -254,13 +397,13 @@ export default async function ReservePublicPage({
                 padding: '14px 20px', borderRadius: 8, fontWeight: 700, fontSize: 14,
               }}
             >
-              Ouvrir dans l'app BuildTrack →
+              {c.openApp}
             </a>
             <div style={{ padding: 12, background: '#FFF8E1', borderRadius: 8, fontSize: 12, color: '#7A5C00', textAlign: 'center' as const }}>
-              Pour ajouter un commentaire, modifier le statut ou téléverser une photo, ouvrez la réserve depuis l'application.
+              {c.actionHint}
             </div>
             <div style={{ display: 'flex', gap: 8, justifyContent: 'center' as const, fontSize: 11, color: '#8899BB' }}>
-              Pas encore l'app ?
+              {c.noApp}
               <a href="https://apps.apple.com/app/buildtrack" style={{ color: BRAND, textDecoration: 'none', fontWeight: 600 }}>App Store</a>
               <span>·</span>
               <a href="https://play.google.com/store/apps/details?id=com.buildtrack.app" style={{ color: BRAND, textDecoration: 'none', fontWeight: 600 }}>Google Play</a>
@@ -268,7 +411,7 @@ export default async function ReservePublicPage({
           </div>
         </div>
 
-        <Footer />
+        <Footer lang={lang} />
       </div>
     </div>
   );

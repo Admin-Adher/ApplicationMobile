@@ -516,15 +516,17 @@ reserveOverdueDigestTemplate = function reserveOverdueDigestTemplateI18n({ recip
   };
 };
 
-function buildReserveUrl(reserveId, recipientEmail) {
+function buildReserveUrl(reserveId, recipientEmail, language) {
+  const normalizedLang = emailLanguage(language);
+  const langQuery = normalizedLang ? `lang=${encodeURIComponent(normalizedLang)}` : '';
   const secret = process.env.RESERVE_TOKEN_SECRET;
   if (!secret || secret.length < 16) {
-    return `${APP_URL}/reserve/${encodeURIComponent(reserveId)}`;
+    return `${APP_URL}/reserve/${encodeURIComponent(reserveId)}${langQuery ? `?${langQuery}` : ''}`;
   }
   const payload = { reserveId, email: recipientEmail.toLowerCase(), exp: Math.floor(Date.now() / 1000) + 30 * 86400 };
   const body = Buffer.from(JSON.stringify(payload), 'utf8').toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
   const sig = crypto.createHmac('sha256', secret).update(body).digest('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
-  return `${APP_URL}/reserve/${encodeURIComponent(reserveId)}?t=${encodeURIComponent(`${body}.${sig}`)}`;
+  return `${APP_URL}/reserve/${encodeURIComponent(reserveId)}?t=${encodeURIComponent(`${body}.${sig}`)}${langQuery ? `&${langQuery}` : ''}`;
 }
 
 // Push notifications
@@ -1410,12 +1412,18 @@ app.post('/api/send-email', async (req, res) => {
       const { email, recipientName, reserveTitle, reserveId, companyName, createdBy } = body;
       if (!email || !recipientName || !reserveTitle || !reserveId || !companyName || !createdBy)
         return res.status(400).json({ error: 'Paramètres manquants' });
-      to = email; template = emailTemplates.reserveCreatedEmail({ ...body, language: await resolveEmailLanguage(email, language), reserveUrl: buildReserveUrl(reserveId, email) });
+      {
+        const resolvedLanguage = await resolveEmailLanguage(email, language);
+        to = email; template = emailTemplates.reserveCreatedEmail({ ...body, language: resolvedLanguage, reserveUrl: buildReserveUrl(reserveId, email, resolvedLanguage) });
+      }
     } else if (type === 'reserve-status-changed') {
       const { email, recipientName, reserveTitle, reserveId, newStatus, changedBy, companyName } = body;
       if (!email || !recipientName || !reserveTitle || !reserveId || !newStatus || !changedBy || !companyName)
         return res.status(400).json({ error: 'Paramètres manquants' });
-      to = email; template = emailTemplates.reserveStatusChangedEmail({ ...body, language: await resolveEmailLanguage(email, language), reserveUrl: buildReserveUrl(reserveId, email) });
+      {
+        const resolvedLanguage = await resolveEmailLanguage(email, language);
+        to = email; template = emailTemplates.reserveStatusChangedEmail({ ...body, language: resolvedLanguage, reserveUrl: buildReserveUrl(reserveId, email, resolvedLanguage) });
+      }
     } else if (type === 'reserve-overdue') {
       if (!reserveOverdueEmailsEnabled()) {
         return res.json({ success: true, suppressed: true, reason: 'overdue-emails-disabled' });
@@ -1423,7 +1431,10 @@ app.post('/api/send-email', async (req, res) => {
       const { email, recipientName, reserveTitle, reserveId, deadline, daysLate, companyName } = body;
       if (!email || !recipientName || !reserveTitle || !reserveId || !deadline || daysLate == null || !companyName)
         return res.status(400).json({ error: 'Paramètres manquants' });
-      to = email; template = emailTemplates.reserveOverdueEmail({ ...body, language: await resolveEmailLanguage(email, language), reserveUrl: buildReserveUrl(reserveId, email) });
+      {
+        const resolvedLanguage = await resolveEmailLanguage(email, language);
+        to = email; template = emailTemplates.reserveOverdueEmail({ ...body, language: resolvedLanguage, reserveUrl: buildReserveUrl(reserveId, email, resolvedLanguage) });
+      }
     } else if (type === 'password-changed') {
       const { email, name } = body;
       if (!email || !name) return res.status(400).json({ error: 'Param?tres manquants' });
@@ -1621,7 +1632,7 @@ app.get('/api/cron/overdue-reserves', async (req, res) => {
                 priority: r.priority,
                 companyName: company.name,
                 chantierName: r.chantier_id ? chantierName.get(r.chantier_id) : undefined,
-                reserveUrl: buildReserveUrl(r.id, p.email),
+                reserveUrl: buildReserveUrl(r.id, p.email, p.preferred_language),
               })) targetCount += 1;
             }
           }
@@ -1638,7 +1649,7 @@ app.get('/api/cron/overdue-reserves', async (req, res) => {
               priority: r.priority,
               companyName: companyNames,
               chantierName: r.chantier_id ? chantierName.get(r.chantier_id) : undefined,
-              reserveUrl: buildReserveUrl(r.id, a.email),
+              reserveUrl: buildReserveUrl(r.id, a.email, a.preferred_language),
             })) targetCount += 1;
           }
         }

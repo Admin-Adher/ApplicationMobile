@@ -462,25 +462,25 @@ document.head.appendChild(s);
   const sigSection = reserve.enterpriseSignature
     ? `<div style="display:flex;gap:12px;align-items:flex-start">
         <div style="flex:1;border:1.5px solid #DDE4EE;border-radius:8px;padding:10px 14px;background:#FAFBFF">
-          <div style="font-size:9px;color:#5E738A;text-transform:uppercase;letter-spacing:0.6px;font-weight:700;margin-bottom:6px">Signature de levée</div>
-          <div style="font-size:10px;color:#5E738A;margin-bottom:6px">Signataire : <strong>${reserve.enterpriseSignataire ?? 'N/A'}</strong></div>
+          <div style="font-size:9px;color:#5E738A;text-transform:uppercase;letter-spacing:0.6px;font-weight:700;margin-bottom:6px">${copy.liftSignature}</div>
+          <div style="font-size:10px;color:#5E738A;margin-bottom:6px">${copy.signer} : <strong>${reserve.enterpriseSignataire ?? copy.noValue}</strong></div>
           <img src="${svgStringToDataUrl(reserve.enterpriseSignature!)}" style="width:180px;height:55px;object-fit:contain;border-bottom:2px solid #1A2742;display:block;margin-bottom:4px" />
-          ${reserve.enterpriseAcknowledgedAt ? `<div style="font-size:9px;color:#059669">✓ Levée reconnue le ${reserve.enterpriseAcknowledgedAt}</div>` : ''}
+          ${reserve.enterpriseAcknowledgedAt ? `<div style="font-size:9px;color:#059669">✓ ${copy.liftAcknowledgedOn} ${reserve.enterpriseAcknowledgedAt}</div>` : ''}
         </div>
       </div>`
     : `<div style="display:flex;gap:20px">
         <div style="flex:1;text-align:center">
           <div style="height:50px;border-bottom:2px solid #1A2742;margin-bottom:5px"></div>
-          <div style="font-size:10px;color:#5E738A">Conducteur de travaux</div>
+          <div style="font-size:10px;color:#5E738A">${copy.manager}</div>
         </div>
         <div style="flex:1;text-align:center">
           <div style="height:50px;border-bottom:2px solid #1A2742;margin-bottom:5px"></div>
-          <div style="font-size:10px;color:#5E738A">${(reserve.companies && reserve.companies.length > 0 ? reserve.companies : reserve.company ? [reserve.company] : ['Entreprise']).join(', ')}</div>
+          <div style="font-size:10px;color:#5E738A">${(reserve.companies && reserve.companies.length > 0 ? reserve.companies : reserve.company ? [reserve.company] : [copy.contractor]).join(', ')}</div>
         </div>
       </div>`;
 
-  return `<!DOCTYPE html><html lang="fr"><head><meta charset="UTF-8">
-  <title>Fiche réserve ${reserve.id}</title>
+  return `<!DOCTYPE html><html lang="${copy.lang}"><head><meta charset="UTF-8">
+  <title>${copy.titlePrefix} ${reserve.id}</title>
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body { font-family: Arial, Helvetica, sans-serif; background: #fff; color: #1A2742; font-size: 11px; line-height: 1.4; }
@@ -512,21 +512,21 @@ document.head.appendChild(s);
 
     <div class="top-bar">
       <div>
-        <div style="font-size:8px;color:#6B7280;text-transform:uppercase;letter-spacing:1px;margin-bottom:2px">Fiche de réserve · BuildTrack</div>
+        <div style="font-size:8px;color:#6B7280;text-transform:uppercase;letter-spacing:1px;margin-bottom:2px">${copy.titlePrefix} · BuildTrack</div>
         <div style="font-size:22px;font-weight:900;color:#003082;line-height:1">${reserve.id}</div>
         <div style="font-size:14px;font-weight:700;color:#1A2742;margin-top:2px">${reserve.title}</div>
         <div style="font-size:10px;color:#6B7280">${projectName}</div>
         <div style="display:flex;gap:6px;margin-top:6px;align-items:center;flex-wrap:wrap">
           <span class="badge" style="background:${sColor}22;color:${sColor}">${sLabel}</span>
           <span class="badge" style="background:${pColor}18;color:${pColor}">${pLabel}</span>
-          ${reserve.kind === 'observation' ? '<span class="badge" style="background:#0EA5E915;color:#0EA5E9">Observation</span>' : ''}
+          ${reserve.kind === 'observation' ? `<span class="badge" style="background:#0EA5E915;color:#0EA5E9">${copy.observation}</span>` : ''}
         </div>
       </div>
       <div style="text-align:right;font-size:10px;color:#6B7280;flex-shrink:0;margin-left:16px">
-        <div>Créé le <strong style="color:#1A2742">${reserve.createdAt}</strong></div>
-        ${reserve.closedAt ? `<div style="color:#059669;margin-top:2px;font-weight:700">✓ Clôturé le ${reserve.closedAt}</div>` : ''}
-        <div style="margin-top:4px">Échéance : <strong style="color:${reserve.closedAt ? '#059669' : '#DC2626'}">${reserve.deadline}</strong></div>
-        <div style="font-size:9px;color:#9CA3AF;margin-top:4px">${new Date().toLocaleDateString('fr-FR')}</div>
+        <div>${copy.createdOn} <strong style="color:#1A2742">${reserve.createdAt}</strong></div>
+        ${reserve.closedAt ? `<div style="color:#059669;margin-top:2px;font-weight:700">✓ ${copy.closedOn} ${reserve.closedAt}</div>` : ''}
+        <div style="margin-top:4px">${copy.deadline} : <strong style="color:${reserve.closedAt ? '#059669' : '#DC2626'}">${reserve.deadline}</strong></div>
+        <div style="font-size:9px;color:#9CA3AF;margin-top:4px">${copy.generatedOn} ${new Date().toLocaleDateString(locale)}</div>
       </div>
     </div>
 
@@ -534,29 +534,29 @@ document.head.appendChild(s);
       <div>
         <div class="col2" style="margin-bottom:8px">
           <div class="info-cell">
-            <div class="lbl">Entreprise</div>
+            <div class="lbl">${copy.company}</div>
             <div class="val" style="color:${company?.color ?? '#003082'}">${reserve.company ?? '—'}</div>
           </div>
           <div class="info-cell">
-            <div class="lbl">Localisation</div>
-            <div class="val">Bât. ${reserve.building} · ${reserve.level}</div>
+            <div class="lbl">${copy.location}</div>
+            <div class="val">${copy.buildingShort} ${reserve.building} · ${reserve.level}</div>
           </div>
           <div class="info-cell">
-            <div class="lbl">Zone</div>
+            <div class="lbl">${copy.zone}</div>
             <div class="val">${reserve.zone}</div>
           </div>
           <div class="info-cell">
-            <div class="lbl">Créé par</div>
-            <div class="val">${reserve.history[0]?.author ?? 'N/A'}</div>
+            <div class="lbl">${copy.createdBy}</div>
+            <div class="val">${reserve.history[0]?.author ?? copy.noValue}</div>
           </div>
         </div>
         <div class="desc-box">
-          <div class="lbl" style="margin-bottom:4px">Description</div>
+          <div class="lbl" style="margin-bottom:4px">${copy.description}</div>
           ${getReserveDescriptionText(reserve.description, reserve.title)}
         </div>
       </div>
       <div>
-        <div class="lbl" style="margin-bottom:6px">Plan de localisation</div>
+        <div class="lbl" style="margin-bottom:6px">${copy.locationPlan}</div>
         ${planSection}
       </div>
     </div>
@@ -567,25 +567,25 @@ document.head.appendChild(s);
     <div style="display:grid;grid-template-columns:${reserve.comments.length > 0 && reserve.history.length > 0 ? '1fr 1fr' : '1fr'};gap:10px;margin-top:10px">
       ${reserve.comments.length > 0 ? `
       <div>
-        <div class="sh">Commentaires (${Math.min(reserve.comments.length, 3)})</div>
+        <div class="sh">${copy.comments} (${Math.min(reserve.comments.length, 3)})</div>
         ${commentsHtml}
       </div>` : ''}
       ${reserve.history.length > 0 ? `
       <div>
-        <div class="sh">Historique (${Math.min(reserve.history.length, 5)} dernières actions)</div>
+        <div class="sh">${copy.history} (${Math.min(reserve.history.length, 5)} ${copy.latestActions})</div>
         <table>
-          <thead><tr><th>Date</th><th>Action</th><th>Auteur</th><th>Détail</th></tr></thead>
+          <thead><tr><th>${copy.date}</th><th>${copy.action}</th><th>${copy.author}</th><th>${copy.detail}</th></tr></thead>
           <tbody>${historyRows}</tbody>
         </table>
       </div>` : ''}
     </div>` : ''}
 
-    <div class="sh" style="margin-top:10px">Signatures</div>
+    <div class="sh" style="margin-top:10px">${copy.signatures}</div>
     ${sigSection}
 
     <div class="doc-footer">
-      <span>Fiche réserve générée par BuildTrack — ${projectName}</span>
-      <span>Document confidentiel</span>
+      <span>${copy.generatedBy} — ${projectName}</span>
+      <span>${copy.confidential}</span>
     </div>
 
   </div>
@@ -1020,7 +1020,11 @@ export default function ReserveDetailScreen() {
         .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
       const pinNumInPlan = (planReservesForNum.findIndex(r => r.id === reserve.id) + 1) || 1;
 
-      const html = buildReservePDF(reserve, projectName, company, resolvedSrcs, planData, pinNumInPlan);
+      const html = buildReservePDF(reserve, projectName, company, resolvedSrcs, planData, pinNumInPlan, {
+        language: i18n.resolvedLanguage ?? i18n.language,
+        statusLabels,
+        priorityLabels,
+      });
       await exportPDFHelper(html, buildPdfFilename('Reserve', [reserve.id, reserve.title, projectName]));
     } catch (e: any) {
       console.error('[exportPDF] Fiche réserve', e);

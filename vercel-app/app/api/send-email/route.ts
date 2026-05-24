@@ -15,12 +15,14 @@ import {
 } from '@/lib/templates';
 import { buildReserveUrl } from '@/lib/reserve-token';
 
-function safeReserveUrl(reserveId: string, recipientEmail: string): string {
+function safeReserveUrl(reserveId: string, recipientEmail: string, language?: string | null): string {
   try {
-    return buildReserveUrl(APP_URL, reserveId, recipientEmail);
+    return buildReserveUrl(APP_URL, reserveId, recipientEmail, language);
   } catch (e: any) {
     console.warn('[send-email] reserveUrl signature impossible:', e?.message);
-    return `${APP_URL}/reserve/${encodeURIComponent(reserveId)}`;
+    const lang = String(language ?? '').toLowerCase().slice(0, 2);
+    const langQuery = ['fr', 'en', 'es'].includes(lang) ? `?lang=${encodeURIComponent(lang)}` : '';
+    return `${APP_URL}/reserve/${encodeURIComponent(reserveId)}${langQuery}`;
   }
 }
 
@@ -158,7 +160,7 @@ export async function POST(req: NextRequest) {
       template = reserveCreatedEmail({
         recipientName, reserveTitle, reserveId, priority, deadline,
         building, level, zone, description, chantierName, companyName, createdBy, reserveCode, language,
-        reserveUrl: safeReserveUrl(reserveId, email),
+        reserveUrl: safeReserveUrl(reserveId, email, language),
       } as any);
     } else if (type === 'reserve-status-changed') {
       const {
@@ -173,7 +175,7 @@ export async function POST(req: NextRequest) {
       template = reserveStatusChangedEmail({
         recipientName, reserveTitle, reserveId, newStatus, previousStatus,
         changedBy, companyName, chantierName, reserveCode, language,
-        reserveUrl: safeReserveUrl(reserveId, email),
+        reserveUrl: safeReserveUrl(reserveId, email, language),
       } as any);
     } else if (type === 'reserve-overdue') {
       const {
@@ -188,7 +190,7 @@ export async function POST(req: NextRequest) {
       template = reserveOverdueEmail({
         recipientName, reserveTitle, reserveId, deadline, daysLate,
         priority, companyName, chantierName, reserveCode, language,
-        reserveUrl: safeReserveUrl(reserveId, email),
+        reserveUrl: safeReserveUrl(reserveId, email, language),
       } as any);
     } else if (type === 'password-changed') {
       const { email, name } = body;

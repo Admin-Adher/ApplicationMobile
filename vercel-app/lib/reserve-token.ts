@@ -73,7 +73,15 @@ export function verifyReserveToken(
   }
 }
 
-export function buildReserveUrl(appUrl: string, reserveId: string, recipientEmail: string): string {
+export function buildReserveUrl(appUrl: string, reserveId: string, recipientEmail: string, language?: string | null): string {
   const token = signReserveToken(reserveId, recipientEmail);
-  return `${appUrl}/reserve/${encodeURIComponent(reserveId)}?t=${encodeURIComponent(token)}`;
+  const lang = String(language ?? '').toLowerCase().startsWith('en')
+    ? 'en'
+    : String(language ?? '').toLowerCase().startsWith('es')
+      ? 'es'
+      : String(language ?? '').toLowerCase().startsWith('fr')
+        ? 'fr'
+        : null;
+  const langQuery = lang ? `&lang=${encodeURIComponent(lang)}` : '';
+  return `${appUrl}/reserve/${encodeURIComponent(reserveId)}?t=${encodeURIComponent(token)}${langQuery}`;
 }
