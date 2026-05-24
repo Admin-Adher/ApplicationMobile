@@ -8,22 +8,34 @@
 -- SECURITY DEFINER : contournent les politiques RLS de la table
 -- profiles lors de leur appel dans d'autres politiques.
 
-create or replace function auth_user_org()
+create or replace function public.auth_user_org()
 returns uuid
 language sql
 security definer
 stable
+set search_path = public
 as $$
-  select organization_id from public.profiles where id = auth.uid()
+  select p.organization_id from public.profiles p where p.id = auth.uid() limit 1
 $$;
 
-create or replace function auth_user_name()
+create or replace function public.auth_user_role()
 returns text
 language sql
 security definer
 stable
+set search_path = public
 as $$
-  select name from public.profiles where id = auth.uid()
+  select p.role from public.profiles p where p.id = auth.uid() limit 1
+$$;
+
+create or replace function public.auth_user_name()
+returns text
+language sql
+security definer
+stable
+set search_path = public
+as $$
+  select p.name from public.profiles p where p.id = auth.uid() limit 1
 $$;
 
 -- ---- RPC : marquer des messages comme lus par un utilisateur ----
@@ -240,10 +252,7 @@ create policy "Profiles visibles par organisation"
   using (
     auth.uid() = id
     or organization_id = auth_user_org()
-    or exists (
-      select 1 from public.profiles p
-      where p.id = auth.uid() and p.role = 'super_admin'
-    )
+    or auth_user_role() = 'super_admin'
   );
 drop policy if exists "Profil créable par son propriétaire" on public.profiles;
 create policy "Profil créable par son propriétaire"
@@ -1028,11 +1037,10 @@ alter table public.profiles add column if not exists pinned_channels jsonb not n
 drop policy if exists "Profil modifiable par admin de la même organisation" on public.profiles;
 create policy "Profil modifiable par admin de la même organisation"
   on public.profiles for update using (
-    exists (
-      select 1 from public.profiles p
-      where p.id = auth.uid()
-      and p.organization_id = public.profiles.organization_id
-      and p.role in ('admin', 'super_admin')
+    auth_user_role() = 'super_admin'
+    or (
+      auth_user_role() = 'admin'
+      and organization_id = auth_user_org()
     )
   );
 
@@ -1040,11 +1048,10 @@ create policy "Profil modifiable par admin de la même organisation"
 drop policy if exists "Profil supprimable par admin de la même organisation" on public.profiles;
 create policy "Profil supprimable par admin de la même organisation"
   on public.profiles for delete using (
-    exists (
-      select 1 from public.profiles p
-      where p.id = auth.uid()
-      and p.organization_id = public.profiles.organization_id
-      and p.role in ('admin', 'super_admin')
+    auth_user_role() = 'super_admin'
+    or (
+      auth_user_role() = 'admin'
+      and organization_id = auth_user_org()
     )
     or auth.uid() = id
   );
