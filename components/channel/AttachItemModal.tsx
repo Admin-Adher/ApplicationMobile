@@ -6,6 +6,7 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import { C } from '@/constants/colors';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useTranslation } from 'react-i18next';
 
 export type LinkedItemType = 'reserve' | 'plan' | 'task' | 'incident' | 'visite' | 'opr';
 
@@ -52,13 +53,13 @@ export function getLinkedItemColor(type?: string | null): string {
   }
 }
 
-const CATEGORIES: Array<{ type: LinkedItemType; label: string; icon: string }> = [
-  { type: 'reserve', label: 'Réserves', icon: 'alert-circle-outline' },
-  { type: 'plan', label: 'Plans', icon: 'map-outline' },
-  { type: 'task', label: 'Tâches', icon: 'checkmark-circle-outline' },
-  { type: 'incident', label: 'Incidents', icon: 'warning-outline' },
-  { type: 'visite', label: 'Visites', icon: 'walk-outline' },
-  { type: 'opr', label: 'OPRs', icon: 'clipboard-outline' },
+const CATEGORIES: Array<{ type: LinkedItemType; labelKey: string; icon: string }> = [
+  { type: 'reserve', labelKey: 'linkedItems.reserves', icon: 'alert-circle-outline' },
+  { type: 'plan', labelKey: 'linkedItems.plans', icon: 'map-outline' },
+  { type: 'task', labelKey: 'linkedItems.tasks', icon: 'checkmark-circle-outline' },
+  { type: 'incident', labelKey: 'linkedItems.incidents', icon: 'warning-outline' },
+  { type: 'visite', labelKey: 'linkedItems.visits', icon: 'walk-outline' },
+  { type: 'opr', labelKey: 'linkedItems.oprs', icon: 'clipboard-outline' },
 ];
 
 interface Props {
@@ -74,6 +75,7 @@ interface Props {
 }
 
 export default function AttachItemModal({ visible, onClose, onSelect, reserves, plans, tasks, incidents, visites, oprs }: Props) {
+  const { t } = useTranslation();
   const insets = useSafeAreaInsets();
   const [activeCategory, setActiveCategory] = useState<LinkedItemType>('reserve');
   const [search, setSearch] = useState('');
@@ -103,6 +105,7 @@ export default function AttachItemModal({ visible, onClose, onSelect, reserves, 
   }, [visible, activeCategory, search, reserves, plans, tasks, incidents, visites, oprs]);
 
   const color = getLinkedItemColor(activeCategory);
+  const activeCategoryLabel = t(CATEGORIES.find(c => c.type === activeCategory)?.labelKey ?? 'linkedItems.linkedItem');
 
   function handleClose() {
     setSearch('');
@@ -122,7 +125,7 @@ export default function AttachItemModal({ visible, onClose, onSelect, reserves, 
         <View style={styles.handle} />
 
         <View style={styles.header}>
-          <Text style={styles.title}>Insérer un élément</Text>
+          <Text style={styles.title}>{t('linkedItems.insert')}</Text>
           <TouchableOpacity onPress={handleClose} hitSlop={8}>
             <Ionicons name="close" size={22} color={C.textSub} />
           </TouchableOpacity>
@@ -140,7 +143,7 @@ export default function AttachItemModal({ visible, onClose, onSelect, reserves, 
                 onPress={() => { setActiveCategory(cat.type); setSearch(''); }}
               >
                 <Ionicons name={cat.icon as any} size={14} color={isActive ? catColor : C.textMuted} />
-                <Text style={[styles.tabLabel, isActive && { color: catColor }]}>{cat.label}</Text>
+                <Text style={[styles.tabLabel, isActive && { color: catColor }]}>{t(cat.labelKey)}</Text>
                 {count > 0 && (
                   <View style={[styles.tabBadge, isActive && { backgroundColor: catColor }]}>
                     <Text style={[styles.tabBadgeText, isActive && { color: '#fff' }]}>{count}</Text>
@@ -155,7 +158,7 @@ export default function AttachItemModal({ visible, onClose, onSelect, reserves, 
           <Ionicons name="search-outline" size={14} color={C.textMuted} />
           <TextInput
             style={styles.searchInput}
-            placeholder={`Rechercher dans ${CATEGORIES.find(c => c.type === activeCategory)?.label ?? ''}...`}
+            placeholder={t('linkedItems.searchIn', { label: activeCategoryLabel })}
             placeholderTextColor={C.textMuted}
             value={search}
             onChangeText={setSearch}
@@ -170,7 +173,7 @@ export default function AttachItemModal({ visible, onClose, onSelect, reserves, 
         {items.length === 0 ? (
           <View style={styles.empty}>
             <Ionicons name={getLinkedItemIcon(activeCategory) as any} size={36} color={C.border} />
-            <Text style={styles.emptyText}>{search ? 'Aucun résultat' : `Aucun élément disponible`}</Text>
+            <Text style={styles.emptyText}>{search ? t('linkedItems.noResult') : t('linkedItems.noneAvailable')}</Text>
           </View>
         ) : (
           <FlatList

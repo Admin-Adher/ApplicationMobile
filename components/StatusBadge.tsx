@@ -1,6 +1,7 @@
 import { View, Text, StyleSheet } from 'react-native';
 import { ReserveStatus } from '@/constants/types';
 import { RESERVE_STATUS_CONFIG } from '@/lib/reserveLabels';
+import { useTranslation } from 'react-i18next';
 
 const STATUS_CONFIG = RESERVE_STATUS_CONFIG;
 
@@ -10,12 +11,13 @@ interface Props {
 }
 
 export default function StatusBadge({ status, small }: Props) {
+  const { t } = useTranslation();
   const config = STATUS_CONFIG[status];
   return (
     <View style={[styles.badge, { backgroundColor: config.bg }, small && styles.small]}>
       <View style={[styles.dot, { backgroundColor: config.color }]} />
       <Text style={[styles.label, { color: config.color }, small && styles.labelSmall]}>
-        {config.label}
+        {t(`reserveLabels.status.${status}`, { defaultValue: config.label })}
       </Text>
     </View>
   );

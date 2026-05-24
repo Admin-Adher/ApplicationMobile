@@ -17,10 +17,18 @@ import EditChannelModal from '@/components/EditChannelModal';
 import NewDMModal from '@/components/NewDMModal';
 import NewGroupModal from '@/components/NewGroupModal';
 import SuperAdminMessagingHub from '@/components/SuperAdminMessagingHub';
+import { useTranslation } from 'react-i18next';
 
 type FilterMode = 'all' | 'unread' | 'pinned' | 'chantier' | 'company' | 'team';
 const COMPANY_PREVIEW_LIMIT = 4;
 const COMPANY_DEFAULT_LIMIT = 10;
+type ChannelItemLabels = {
+  noMessage: string;
+  photo: string;
+  you: string;
+  item: string;
+  linkedTypes: Record<string, string>;
+};
 
 const AVATAR_COLORS = [C.primary, '#059669', '#D97706', '#7C3AED', '#DB2777', '#EA580C', '#0891B2'];
 function getAvatarColor(name: string) {
@@ -82,12 +90,13 @@ function ChannelAvatar({ channel }: { channel: Channel }) {
   );
 }
 
-function ChannelItem({ channel, lastMsg, unread, isPinned, currentUserName, onPress, onLongPress, onMenuPress }: {
+function ChannelItem({ channel, lastMsg, unread, isPinned, currentUserName, labels, onPress, onLongPress, onMenuPress }: {
   channel: Channel;
   lastMsg: Message | null;
   unread: number;
   isPinned: boolean;
   currentUserName: string;
+  labels: ChannelItemLabels;
   onPress: () => void;
   onLongPress: () => void;
   onMenuPress: () => void;
@@ -96,19 +105,15 @@ function ChannelItem({ channel, lastMsg, unread, isPinned, currentUserName, onPr
   const avatarColor = channel.type === 'dm' ? getAvatarColor(channel.name) : channel.color;
 
   const previewText = () => {
-    if (!lastMsg) return 'Aucun message';
+    if (!lastMsg) return labels.noMessage;
     if (lastMsg.type === 'notification' || lastMsg.type === 'system') return `📢 ${lastMsg.content}`;
-    if (lastMsg.attachmentUri) return `📷 ${lastMsg.content || 'Photo'}`;
+    if (lastMsg.attachmentUri) return `📷 ${lastMsg.content || labels.photo}`;
     if (!lastMsg.content && lastMsg.linkedItemType) {
-      const typeLabel: Record<string, string> = {
-        reserve: 'Réserve', plan: 'Plan', task: 'Tâche',
-        incident: 'Incident', visite: 'Visite', opr: 'OPR',
-      };
-      const label = typeLabel[lastMsg.linkedItemType] ?? 'Élément';
+      const label = labels.linkedTypes[lastMsg.linkedItemType] ?? labels.item;
       return `🔗 ${label}${lastMsg.linkedItemTitle ? ' : ' + lastMsg.linkedItemTitle : ''}`;
     }
     const isMine = lastMsg.isMe || isSameUserName(lastMsg.sender, currentUserName);
-    const prefix = isMine ? 'Vous : ' : `${lastMsg.sender.split(' ')[0]} : `;
+    const prefix = isMine ? `${labels.you} : ` : `${lastMsg.sender.split(' ')[0]} : `;
     return prefix + lastMsg.content;
   };
 
@@ -169,6 +174,7 @@ function ChannelItem({ channel, lastMsg, unread, isPinned, currentUserName, onPr
 }
 
 export default function MessagesTabScreen() {
+  const { t, i18n } = useTranslation();
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const {
@@ -196,6 +202,21 @@ export default function MessagesTabScreen() {
   }
 
   const totalUnread = Object.values(unreadByChannel).reduce((a, b) => a + b, 0);
+  const collationLocale = i18n.language?.startsWith('en') ? 'en' : i18n.language?.startsWith('es') ? 'es' : 'fr';
+  const channelLabels = useMemo<ChannelItemLabels>(() => ({
+    noMessage: t('messages.noMessage'),
+    photo: t('messages.photo'),
+    you: t('messages.you'),
+    item: t('messages.item'),
+    linkedTypes: {
+      reserve: t('messages.reserve'),
+      plan: t('messages.plan'),
+      task: t('messages.task'),
+      incident: t('messages.incident'),
+      visite: t('messages.visit'),
+      opr: 'OPR',
+    },
+  }), [t]);
 
   const lastMessageByChannel = useMemo(() => {
     const map: Record<string, Message | null> = {};
@@ -254,23 +275,23 @@ export default function MessagesTabScreen() {
   const dmChannels = filteredChannels.filter(ch => ch.type === 'dm');
   const unreadChannels = filteredChannels.filter(ch => (unreadByChannel[ch.id] ?? 0) > 0);
   const activeFilterLabel = filter === 'unread'
-    ? 'Non lus'
+    ? t('messages.filters.unread')
     : filter === 'pinned'
-    ? 'Épinglées'
+    ? t('messages.filters.pinned')
     : filter === 'chantier'
-    ? 'Chantier'
+    ? t('messages.filters.chantier')
     : filter === 'company'
-    ? 'Entreprises'
+    ? t('messages.filters.company')
     : filter === 'team'
-    ? 'Equipe'
-    : 'Tous';
+    ? t('messages.filters.team')
+    : t('messages.filters.all');
 
   // ── Section "Canaux entreprises" : tri alpha + filtre + repli ──────────
   const sortedCompanyChannels = useMemo(
     () => [...companyChannels].sort((a, b) =>
-      a.name.localeCompare(b.name, 'fr', { sensitivity: 'base' })
+      a.name.localeCompare(b.name, collationLocale, { sensitivity: 'base' })
     ),
-    [companyChannels]
+    [companyChannels, collationLocale]
   );
 
   const companyUnreadTotal = useMemo(
@@ -285,9 +306,9 @@ export default function MessagesTabScreen() {
       const bTime = lastMessageByChannel[b.id] ? getMsgSortTime(lastMessageByChannel[b.id]!) : 0;
       const aTime = lastMessageByChannel[a.id] ? getMsgSortTime(lastMessageByChannel[a.id]!) : 0;
       if (bTime !== aTime) return bTime - aTime;
-      return a.name.localeCompare(b.name, 'fr', { sensitivity: 'base' });
+      return a.name.localeCompare(b.name, collationLocale, { sensitivity: 'base' });
     }),
-    [sortedCompanyChannels, unreadByChannel, lastMessageByChannel]
+    [sortedCompanyChannels, unreadByChannel, lastMessageByChannel, collationLocale]
   );
 
   const companySearchQuery = companySearch.trim().toLowerCase();
@@ -368,12 +389,12 @@ export default function MessagesTabScreen() {
     setActionSheet(null);
     if (ch.type === 'dm') {
       Alert.alert(
-        'Supprimer la conversation',
-        `Masquer la conversation avec ${ch.name} ? Les messages restent disponibles si un nouveau message arrive ou si vous relancez cet échange.`,
+        t('messages.deleteConversationTitle'),
+        t('messages.deleteConversationText', { name: ch.name }),
         [
-          { text: 'Annuler', style: 'cancel' },
+          { text: t('common.cancel'), style: 'cancel' },
           {
-            text: 'Supprimer',
+            text: t('messages.delete'),
             style: 'destructive',
             onPress: () => {
               if (pinnedChannelIds.includes(ch.id)) unpinChannel(ch.id);
@@ -385,12 +406,12 @@ export default function MessagesTabScreen() {
       return;
     }
     Alert.alert(
-      'Supprimer le canal',
-      `Supprimer définitivement « ${ch.name} » ? Cette action est irréversible.`,
+      t('messages.deleteChannelTitle'),
+      t('messages.deleteChannelText', { name: ch.name }),
       [
-        { text: 'Annuler', style: 'cancel' },
+        { text: t('common.cancel'), style: 'cancel' },
         {
-          text: 'Supprimer',
+          text: t('messages.delete'),
           style: 'destructive',
           onPress: () => {
             if (ch.type === 'custom') removeCustomChannel(ch.id);
@@ -419,8 +440,8 @@ export default function MessagesTabScreen() {
       const result = pinChannel(ch.id);
       if (!result.success && result.reason === 'limit_reached') {
         Alert.alert(
-          'Limite atteinte',
-          `Vous pouvez épingler au maximum ${maxPinnedChannels} conversations. Désépinglez-en une pour continuer.`,
+          t('messages.pinnedLimitTitle'),
+          t('messages.pinnedLimitText', { count: maxPinnedChannels }),
           [{ text: 'OK' }]
         );
       }
@@ -429,10 +450,11 @@ export default function MessagesTabScreen() {
 
   const currentUserName = user?.name ?? '';
 
-  const EMPTY_LABELS: Record<string, string> = {
-    'Messages directs': 'Aucun message direct — commencez une conversation !',
-    'Groupes': 'Aucun groupe — créez un groupe pour discuter à plusieurs !',
-    'Canaux personnalisés': 'Aucun canal personnalisé',
+  const emptySectionLabelFor = (title: string) => {
+    if (title === t('messages.directMessages')) return t('messages.noDirectMessages');
+    if (title === t('messages.groups')) return t('messages.noGroups');
+    if (title === t('messages.customChannels')) return t('messages.noCustomChannels');
+    return t('messages.noItem');
   };
 
   function renderSection(title: string, items: Channel[], onAction?: () => void, actionLabel?: string) {
@@ -459,6 +481,7 @@ export default function MessagesTabScreen() {
                   unread={unreadByChannel[ch.id] ?? 0}
                   isPinned={pinnedChannelIds.includes(ch.id)}
                   currentUserName={user?.name ?? ''}
+                  labels={channelLabels}
                   onPress={() => goToChannel(ch)}
                   onLongPress={() => setActionSheet(ch)}
                   onMenuPress={() => setActionSheet(ch)}
@@ -469,7 +492,7 @@ export default function MessagesTabScreen() {
         ) : (
           <View style={styles.emptySection}>
             <Text style={styles.emptySectionText}>
-              {EMPTY_LABELS[title] ?? 'Aucun élément'}
+              {emptySectionLabelFor(title)}
             </Text>
           </View>
         )}
@@ -521,7 +544,7 @@ export default function MessagesTabScreen() {
         <View style={{ flex: 1 }}>
           <Text style={styles.companyCompactName} numberOfLines={1}>{ch.name}</Text>
           <Text style={styles.companyCompactMeta} numberOfLines={1}>
-            {lastMsg ? formatChannelTime(lastMsg.timestamp) : 'Aucun message'}
+            {lastMsg ? formatChannelTime(lastMsg.timestamp) : t('messages.noMessage')}
           </Text>
         </View>
         {unread > 0 && (
@@ -544,6 +567,7 @@ export default function MessagesTabScreen() {
           unread={unreadByChannel[ch.id] ?? 0}
           isPinned={pinnedChannelIds.includes(ch.id)}
           currentUserName={user?.name ?? ''}
+          labels={channelLabels}
           onPress={() => goToCompanyChannel(ch)}
           onLongPress={() => setActionSheet(ch)}
           onMenuPress={() => setActionSheet(ch)}
@@ -568,7 +592,7 @@ export default function MessagesTabScreen() {
         <View style={{ flex: 1 }}>
           <Text style={styles.companyDirectoryName} numberOfLines={1}>{ch.name}</Text>
           <Text style={styles.companyDirectoryMeta} numberOfLines={1}>
-            {lastMsg ? `${formatChannelTime(lastMsg.timestamp)} · ${lastMsg.sender}` : 'Aucun message'}
+            {lastMsg ? `${formatChannelTime(lastMsg.timestamp)} · ${lastMsg.sender}` : t('messages.noMessage')}
           </Text>
         </View>
         {unread > 0 && (
@@ -588,7 +612,7 @@ export default function MessagesTabScreen() {
         <View style={styles.sectionHeader}>
           <View style={styles.pinnedSectionTitle}>
             <Ionicons name="business-outline" size={12} color={C.primary} />
-            <Text style={styles.sectionLabel}>Entreprises</Text>
+            <Text style={styles.sectionLabel}>{t('messages.companies')}</Text>
             <Text style={styles.pinnedCount}>{sortedCompanyChannels.length}</Text>
           </View>
           {companyUnreadTotal > 0 && (
@@ -609,14 +633,14 @@ export default function MessagesTabScreen() {
               <Ionicons name="business-outline" size={20} color={C.primary} />
             </View>
             <View style={{ flex: 1 }}>
-              <Text style={styles.companySummaryTitle}>Canaux entreprises</Text>
+              <Text style={styles.companySummaryTitle}>{t('messages.companyChannels')}</Text>
               <Text style={styles.companySummarySub}>
                 {companyUnreadTotal > 0
-                  ? `${companyUnreadTotal} message${companyUnreadTotal > 1 ? 's' : ''} non lu${companyUnreadTotal > 1 ? 's' : ''}`
-                  : `${sortedCompanyChannels.length} canaux disponibles`}
+                  ? t('messages.companyUnread', { count: companyUnreadTotal })
+                  : t('messages.companyChannelsAvailable', { count: sortedCompanyChannels.length })}
               </Text>
             </View>
-            <Text style={styles.companySummaryActionText}>Parcourir</Text>
+            <Text style={styles.companySummaryActionText}>{t('messages.browse')}</Text>
             <Ionicons name="chevron-forward" size={16} color={C.primary} />
           </TouchableOpacity>
           {companyPreviewChannels.length > 0 && (
@@ -636,7 +660,7 @@ export default function MessagesTabScreen() {
         <View style={styles.sectionHeader}>
           <View style={styles.pinnedSectionTitle}>
             <Ionicons name="business-outline" size={12} color={C.primary} />
-            <Text style={styles.sectionLabel}>Canaux entreprises</Text>
+            <Text style={styles.sectionLabel}>{t('messages.companyChannels')}</Text>
             <Text style={styles.pinnedCount}>{companySearchChannels.length}/{sortedCompanyChannels.length}</Text>
           </View>
           {companyUnreadTotal > 0 && (
@@ -651,7 +675,7 @@ export default function MessagesTabScreen() {
           <Ionicons name="search-outline" size={15} color={C.textMuted} />
           <TextInput
             style={styles.companySearchInput}
-            placeholder="Rechercher une entreprise..."
+            placeholder={t('messages.searchCompany')}
             placeholderTextColor={C.textMuted}
             value={companySearch}
             onChangeText={value => {
@@ -673,7 +697,7 @@ export default function MessagesTabScreen() {
           </View>
         ) : (
           <View style={styles.emptySection}>
-            <Text style={styles.emptySectionText}>Aucune entreprise correspondante</Text>
+            <Text style={styles.emptySectionText}>{t('messages.noMatchingCompany')}</Text>
           </View>
         )}
         {!companySearchQuery && hiddenCompanyCount > 0 && (
@@ -684,7 +708,7 @@ export default function MessagesTabScreen() {
           >
             <Ionicons name="albums-outline" size={16} color={C.primary} />
             <Text style={styles.companyShowAllText}>
-              Afficher les {hiddenCompanyCount} autres canaux
+              {t('messages.showOtherChannels', { count: hiddenCompanyCount })}
             </Text>
           </TouchableOpacity>
         )}
@@ -695,7 +719,7 @@ export default function MessagesTabScreen() {
             activeOpacity={0.75}
           >
             <Ionicons name="chevron-up" size={16} color={C.textMuted} />
-            <Text style={styles.companyShowLessText}>Réduire la liste</Text>
+            <Text style={styles.companyShowLessText}>{t('messages.reduceList')}</Text>
           </TouchableOpacity>
         )}
       </View>
@@ -707,9 +731,9 @@ export default function MessagesTabScreen() {
       <View style={[styles.header, { paddingTop: topPad + 12 }]}>
         <View style={styles.headerRow}>
           <View style={{ flex: 1 }}>
-            <Text style={styles.title}>Messages</Text>
+            <Text style={styles.title}>{t('messages.title')}</Text>
             {totalUnread > 0 && (
-              <Text style={styles.subtitle}>{totalUnread} non lu{totalUnread > 1 ? 's' : ''}</Text>
+              <Text style={styles.subtitle}>{t('messages.unread', { count: totalUnread })}</Text>
             )}
           </View>
           <TouchableOpacity style={styles.headerBtn} onPress={() => setShowNewDM(true)}>
@@ -726,7 +750,7 @@ export default function MessagesTabScreen() {
           <Ionicons name="search-outline" size={16} color={C.textMuted} />
           <TextInput
             style={styles.searchInput}
-            placeholder="Rechercher canaux, messages..."
+            placeholder={t('messages.searchPlaceholder')}
             placeholderTextColor={C.textMuted}
             value={search}
             onChangeText={setSearch}
@@ -744,12 +768,12 @@ export default function MessagesTabScreen() {
           contentContainerStyle={styles.filterStripContent}
         >
           {([
-            { key: 'all' as const, label: 'Tous', count: filteredChannels.length },
-            { key: 'unread' as const, label: 'Non lus', count: unreadChannels.length },
-            { key: 'pinned' as const, label: 'Épinglés', count: pinnedChannels.length },
-            { key: 'chantier' as const, label: 'Chantier', count: buildingChannels.length + generalChannel.length },
-            { key: 'company' as const, label: 'Entreprises', count: companyChannels.length },
-            { key: 'team' as const, label: 'Equipe', count: customChannels.length + groupChannels.length + dmChannels.length },
+            { key: 'all' as const, label: t('messages.filters.all'), count: filteredChannels.length },
+            { key: 'unread' as const, label: t('messages.filters.unread'), count: unreadChannels.length },
+            { key: 'pinned' as const, label: t('messages.filters.pinned'), count: pinnedChannels.length },
+            { key: 'chantier' as const, label: t('messages.filters.chantier'), count: buildingChannels.length + generalChannel.length },
+            { key: 'company' as const, label: t('messages.filters.company'), count: companyChannels.length },
+            { key: 'team' as const, label: t('messages.filters.team'), count: customChannels.length + groupChannels.length + dmChannels.length },
           ]).map(item => {
             const active = filter === item.key;
             return (
@@ -785,7 +809,7 @@ export default function MessagesTabScreen() {
         <View style={styles.demoBanner}>
           <Ionicons name="information-circle-outline" size={15} color={C.waiting} />
           <Text style={styles.demoBannerText}>
-            Mode démo — activez la synchronisation cloud pour collaborer en temps réel
+            {t('messages.demoMode')}
           </Text>
         </View>
       )}
@@ -797,7 +821,7 @@ export default function MessagesTabScreen() {
                 <View style={styles.sectionHeader}>
                   <View style={styles.pinnedSectionTitle}>
                     <Ionicons name="pin" size={12} color={C.waiting} />
-                    <Text style={[styles.sectionLabel, { color: C.waiting }]}>ÉPINGLÉES</Text>
+                    <Text style={[styles.sectionLabel, { color: C.waiting }]}>{t('messages.pinned')}</Text>
                     <Text style={styles.pinnedCount}>{pinnedChannels.length}/{maxPinnedChannels}</Text>
                   </View>
                 </View>
@@ -811,6 +835,7 @@ export default function MessagesTabScreen() {
                         unread={unreadByChannel[ch.id] ?? 0}
                         isPinned={true}
                         currentUserName={user?.name ?? ''}
+                        labels={channelLabels}
                         onPress={() => goToChannel(ch)}
                         onLongPress={() => setActionSheet(ch)}
                         onMenuPress={() => setActionSheet(ch)}
@@ -826,7 +851,7 @@ export default function MessagesTabScreen() {
                 ? renderSection('Non lus', unreadChannels)
                 : (
                   <View style={styles.emptySection}>
-                    <Text style={styles.emptySectionText}>Aucune conversation non lue</Text>
+                    <Text style={styles.emptySectionText}>{t('messages.noUnread')}</Text>
                   </View>
                 )
             )}
@@ -842,6 +867,7 @@ export default function MessagesTabScreen() {
                       unread={unreadByChannel[ch.id] ?? 0}
                       isPinned={pinnedChannelIds.includes(ch.id)}
                       currentUserName={user?.name ?? ''}
+                      labels={channelLabels}
                       onPress={() => goToChannel(ch)}
                       onLongPress={() => setActionSheet(ch)}
                       onMenuPress={() => setActionSheet(ch)}
@@ -850,19 +876,19 @@ export default function MessagesTabScreen() {
                 ))}
               </View>
             )}
-            {showBuilding && renderSection('Canaux chantier', buildingChannels)}
+            {showBuilding && renderSection(t('messages.chantierChannels'), buildingChannels)}
             {showCompanySummary && renderCompanySummarySection()}
             {showCompanyInbox && renderCompanyInboxSection()}
-            {showTeam && renderSection('Canaux personnalisés', customChannels, () => setShowNewChannel(true), 'Nouveau')}
-            {showTeam && renderSection('Groupes', groupChannels, () => setShowNewGroup(true), 'Nouveau')}
-            {showTeam && renderSection('Messages directs', dmChannels, () => setShowNewDM(true), 'Nouveau DM')}
+            {showTeam && renderSection(t('messages.customChannels'), customChannels, () => setShowNewChannel(true), t('messages.new'))}
+            {showTeam && renderSection(t('messages.groups'), groupChannels, () => setShowNewGroup(true), t('messages.new'))}
+            {showTeam && renderSection(t('messages.directMessages'), dmChannels, () => setShowNewDM(true), t('messages.newDm'))}
 
             {isSearching && globalSearchResults.length > 0 && (
               <>
                 <View style={styles.sectionHeader}>
                   <View style={styles.pinnedSectionTitle}>
                     <Ionicons name="search" size={12} color={C.primary} />
-                    <Text style={[styles.sectionLabel, { color: C.primary }]}>MESSAGES CORRESPONDANTS</Text>
+                    <Text style={[styles.sectionLabel, { color: C.primary }]}>{t('messages.matchingMessages')}</Text>
                     <Text style={styles.pinnedCount}>{globalSearchResults.length}</Text>
                   </View>
                 </View>
@@ -901,7 +927,7 @@ export default function MessagesTabScreen() {
             {!activeFilterHasResults && !isSearching && filter !== 'unread' && filter !== 'team' && (
               <View style={styles.empty}>
                 <Ionicons name="search-outline" size={40} color={C.textMuted} />
-                <Text style={styles.emptyText}>Aucun résultat dans {activeFilterLabel}</Text>
+                <Text style={styles.emptyText}>{t('messages.noResultsIn', { label: activeFilterLabel })}</Text>
               </View>
             )}
 
@@ -911,7 +937,7 @@ export default function MessagesTabScreen() {
                   <View style={[styles.quickBtnIcon, { backgroundColor: C.primary + '20' }]}>
                     <Ionicons name="add-circle" size={22} color={C.primary} />
                   </View>
-                  <Text style={styles.quickBtnText}>Créer un canal</Text>
+                  <Text style={styles.quickBtnText}>{t('messages.createChannel')}</Text>
                   <Ionicons name="chevron-forward" size={16} color={C.textMuted} />
                 </TouchableOpacity>
                 <View style={styles.divider} />
@@ -919,7 +945,7 @@ export default function MessagesTabScreen() {
                   <View style={[styles.quickBtnIcon, { backgroundColor: '#7C3AED' + '20' }]}>
                     <Ionicons name="people-circle" size={22} color="#7C3AED" />
                   </View>
-                  <Text style={styles.quickBtnText}>Créer un groupe</Text>
+                  <Text style={styles.quickBtnText}>{t('messages.createGroup')}</Text>
                   <Ionicons name="chevron-forward" size={16} color={C.textMuted} />
                 </TouchableOpacity>
                 <View style={styles.divider} />
@@ -927,7 +953,7 @@ export default function MessagesTabScreen() {
                   <View style={[styles.quickBtnIcon, { backgroundColor: '#EC4899' + '20' }]}>
                     <Ionicons name="chatbubble-ellipses" size={22} color="#EC4899" />
                   </View>
-                  <Text style={styles.quickBtnText}>Message direct</Text>
+                  <Text style={styles.quickBtnText}>{t('messages.directMessage')}</Text>
                   <Ionicons name="chevron-forward" size={16} color={C.textMuted} />
                 </TouchableOpacity>
               </View>
@@ -953,9 +979,9 @@ export default function MessagesTabScreen() {
                   <Ionicons name="business-outline" size={18} color={C.primary} />
                 </View>
                 <View>
-                  <Text style={styles.companyDirectoryTitle}>Canaux entreprises</Text>
+                  <Text style={styles.companyDirectoryTitle}>{t('messages.companyChannels')}</Text>
                   <Text style={styles.companyDirectorySubtitle}>
-                    {companySearchChannels.length}/{sortedCompanyChannels.length} canaux
+                    {companySearchChannels.length}/{sortedCompanyChannels.length} {t('messages.companyChannels').toLowerCase()}
                   </Text>
                 </View>
               </View>
@@ -971,7 +997,7 @@ export default function MessagesTabScreen() {
               <Ionicons name="search-outline" size={15} color={C.textMuted} />
               <TextInput
                 style={styles.companySearchInput}
-                placeholder="Rechercher une entreprise..."
+                placeholder={t('messages.searchCompany')}
                 placeholderTextColor={C.textMuted}
                 value={companySearch}
                 onChangeText={value => {
@@ -999,7 +1025,7 @@ export default function MessagesTabScreen() {
               removeClippedSubviews={Platform.OS !== 'web'}
               ListEmptyComponent={() => (
                 <View style={styles.companyDirectoryEmpty}>
-                  <Text style={styles.emptySectionText}>Aucune entreprise correspondante</Text>
+                  <Text style={styles.emptySectionText}>{t('messages.noMatchingCompany')}</Text>
                 </View>
               )}
             />

@@ -3,6 +3,7 @@ import { Platform, View, Text, StyleSheet, TouchableOpacity, useWindowDimensions
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useMemo } from 'react';
+import { useTranslation } from 'react-i18next';
 import { C } from '@/constants/colors';
 import { useApp } from '@/context/AppContext';
 import { useAuth } from '@/context/AuthContext';
@@ -33,11 +34,11 @@ function useMessagesUnreadBadge(): number {
 }
 
 const TAB_ITEMS = [
-  { name: 'index',    title: 'Dashboard', icon: 'grid',          iconOutline: 'grid-outline',        path: '/(tabs)/' },
-  { name: 'plans',    title: 'Plans',     icon: 'map',           iconOutline: 'map-outline',         path: '/(tabs)/plans' },
-  { name: 'reserves', title: 'Réserves',  icon: 'warning',       iconOutline: 'warning-outline',     path: '/(tabs)/reserves' },
-  { name: 'messages', title: 'Messages',  icon: 'chatbubbles',   iconOutline: 'chatbubbles-outline', path: '/(tabs)/messages' },
-  { name: 'more',     title: 'Terrain',   icon: 'hammer',        iconOutline: 'hammer-outline',      path: '/(tabs)/more' },
+  { name: 'index',    titleKey: 'tabs.dashboard', icon: 'grid',          iconOutline: 'grid-outline',        path: '/(tabs)/' },
+  { name: 'plans',    titleKey: 'tabs.plans',     icon: 'map',           iconOutline: 'map-outline',         path: '/(tabs)/plans' },
+  { name: 'reserves', titleKey: 'tabs.reserves',  icon: 'warning',       iconOutline: 'warning-outline',     path: '/(tabs)/reserves' },
+  { name: 'messages', titleKey: 'tabs.messages',  icon: 'chatbubbles',   iconOutline: 'chatbubbles-outline', path: '/(tabs)/messages' },
+  { name: 'more',     titleKey: 'tabs.more',      icon: 'hammer',        iconOutline: 'hammer-outline',      path: '/(tabs)/more' },
 ] as const;
 
 function TabIcon({ name, color, size, badge }: { name: any; color: string; size: number; badge?: number }) {
@@ -54,6 +55,7 @@ function TabIcon({ name, color, size, badge }: { name: any; color: string; size:
 }
 
 function TabletSidebar() {
+  const { t } = useTranslation();
   const pathname = usePathname();
   const router = useRouter();
   const { stats } = useApp();
@@ -123,7 +125,7 @@ function TabletSidebar() {
               )}
             </View>
             <Text style={[styles.sidebarLabel, isFocused && styles.sidebarLabelActive]} numberOfLines={1}>
-              {tab.title}
+              {t(tab.titleKey)}
             </Text>
           </TouchableOpacity>
         );
@@ -133,6 +135,7 @@ function TabletSidebar() {
 }
 
 function TabsNavigator() {
+  const { t } = useTranslation();
   const { stats } = useApp();
   const { incidents } = useIncidents();
   const messagesUnread = useMessagesUnreadBadge();
@@ -171,28 +174,28 @@ function TabsNavigator() {
       <Tabs.Screen
         name="index"
         options={{
-          title: 'Dashboard',
+          title: t('tabs.dashboard'),
           tabBarIcon: ({ color, focused }) => <TabIcon name={focused ? 'grid' : 'grid-outline'} color={color} size={26} />,
         }}
       />
       <Tabs.Screen
         name="plans"
         options={{
-          title: 'Plans',
+          title: t('tabs.plans'),
           tabBarIcon: ({ color, focused }) => <TabIcon name={focused ? 'map' : 'map-outline'} color={color} size={26} />,
         }}
       />
       <Tabs.Screen
         name="reserves"
         options={{
-          title: 'Réserves',
+          title: t('tabs.reserves'),
           tabBarIcon: ({ color, focused }) => <TabIcon name={focused ? 'warning' : 'warning-outline'} color={color} size={26} badge={stats.open} />,
         }}
       />
       <Tabs.Screen
         name="messages"
         options={{
-          title: 'Messages',
+          title: t('tabs.messages'),
           tabBarIcon: ({ color, focused }) => (
             <TabIcon name={focused ? 'chatbubbles' : 'chatbubbles-outline'} color={color} size={26} badge={messagesUnread} />
           ),
@@ -201,7 +204,7 @@ function TabsNavigator() {
       <Tabs.Screen
         name="more"
         options={{
-          title: 'Terrain',
+          title: t('tabs.more'),
           tabBarIcon: ({ color, focused }) => <TabIcon name={focused ? 'hammer' : 'hammer-outline'} color={color} size={26} badge={openIncidentsCount} />,
         }}
       />

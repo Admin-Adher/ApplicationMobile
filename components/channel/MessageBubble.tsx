@@ -3,7 +3,8 @@ import { Ionicons } from '@expo/vector-icons';
 import { C } from '@/constants/colors';
 import { Message } from '@/constants/types';
 import { isSameUserName, normalizeMessageReadBy } from '@/lib/mappers';
-import { getLinkedItemIcon, getLinkedItemLabel, getLinkedItemColor } from './AttachItemModal';
+import { useTranslation } from 'react-i18next';
+import { getLinkedItemIcon, getLinkedItemColor } from './AttachItemModal';
 
 const AVATAR_COLORS = [C.primary, '#059669', '#D97706', '#7C3AED', '#DB2777', '#EA580C', '#0891B2', '#65A30D'];
 
@@ -57,6 +58,18 @@ function MessageTextRender({ text, isMe, mentions }: { text: string; isMe: boole
   return <Text>{parts}</Text>;
 }
 
+function linkedItemLabelKey(type?: string | null): string {
+  switch (type) {
+    case 'reserve': return 'linkedItems.reserve';
+    case 'plan': return 'linkedItems.plan';
+    case 'task': return 'linkedItems.task';
+    case 'incident': return 'linkedItems.incident';
+    case 'visite': return 'linkedItems.visit';
+    case 'opr': return 'linkedItems.opr';
+    default: return 'linkedItems.linkedItem';
+  }
+}
+
 interface Props {
   msg: Message;
   color: string;
@@ -70,6 +83,7 @@ interface Props {
 }
 
 export default function MessageBubble({ msg: rawMsg, color, userName, highlighted = false, onLongPress, onNotifPress, onLinkedItemPress, onReactInline, onOpenReactPicker }: Props) {
+  const { t } = useTranslation();
   const normalizedReadBy = normalizeMessageReadBy(rawMsg.readBy);
   const isMine = rawMsg.isMe || isSameUserName(rawMsg.sender, userName);
   const msg: Message = rawMsg.isMe === isMine && JSON.stringify(normalizedReadBy) === JSON.stringify(rawMsg.readBy ?? [])
@@ -106,7 +120,7 @@ export default function MessageBubble({ msg: rawMsg, color, userName, highlighte
   const hasLinkedItem = !!(linkedType && linkedId);
   const itemColor = hasLinkedItem ? getLinkedItemColor(linkedType) : C.primary;
   const itemIcon = hasLinkedItem ? getLinkedItemIcon(linkedType) : 'link-outline';
-  const itemLabel = hasLinkedItem ? getLinkedItemLabel(linkedType) : '';
+  const itemLabel = hasLinkedItem ? t(linkedItemLabelKey(linkedType)) : '';
 
   const hasLegacyReserve = !!msg.reserveId && !hasLinkedItem;
 
@@ -144,7 +158,7 @@ export default function MessageBubble({ msg: rawMsg, color, userName, highlighte
           {msg.isPinned && (
             <View style={styles.pinBadge}>
               <Ionicons name="pin" size={9} color={msg.isMe ? 'rgba(255,255,255,0.7)' : C.waiting} />
-              <Text style={[styles.pinBadgeText, msg.isMe && { color: 'rgba(255,255,255,0.7)' }]}>Épinglé</Text>
+              <Text style={[styles.pinBadgeText, msg.isMe && { color: 'rgba(255,255,255,0.7)' }]}>{t('channel.pinnedBadge')}</Text>
             </View>
           )}
           {msg.attachmentUri && (
@@ -219,13 +233,13 @@ export default function MessageBubble({ msg: rawMsg, color, userName, highlighte
                     style={[styles.linkedCardLabel, msg.isMe ? { color: 'rgba(255,255,255,0.85)' } : { color: C.primary }]}
                     numberOfLines={1}
                   >
-                    Réserve · {msg.reserveId}
+                    {t('linkedItems.reserve')} · {msg.reserveId}
                   </Text>
                   <Text
                     style={[styles.linkedCardTitle, msg.isMe ? { color: '#fff' } : { color: C.text }]}
                     numberOfLines={2}
                   >
-                    Voir la réserve
+                    {t('channel.viewReserve')}
                   </Text>
                 </View>
                 <View style={[styles.linkedCardChevron, msg.isMe ? styles.linkedCardChevronMe : { backgroundColor: C.primary + '18' }]}>
@@ -270,7 +284,7 @@ export default function MessageBubble({ msg: rawMsg, color, userName, highlighte
                 size={11}
                 color={readCount > 0 ? C.closed : C.textMuted}
               />
-              {readCount > 0 && <Text style={styles.readText}>Vu par {readCount}</Text>}
+              {readCount > 0 && <Text style={styles.readText}>{t('channel.seenBy', { count: readCount })}</Text>}
             </View>
           )}
           <TouchableOpacity

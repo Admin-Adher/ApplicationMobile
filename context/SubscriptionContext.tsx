@@ -474,6 +474,7 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
         token: data.token,
         expiresAt: data.expires_at,
         companyName,
+        language: user.preferredLanguage,
       }).catch(() => {});
 
       return { success: true, token: data.token };
@@ -511,6 +512,7 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
       token: inv.token,
       expiresAt: inv.expiresAt,
       companyName,
+      language: user.preferredLanguage,
     });
 
     if (!emailResult.success) {
@@ -753,6 +755,7 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
             role: 'admin',
             token: invData.token,
             expiresAt: invData.expires_at,
+            language: user.preferredLanguage,
           }).catch((err) => {
             console.warn('[createOrganization] Email send failed:', err?.message ?? err);
           });

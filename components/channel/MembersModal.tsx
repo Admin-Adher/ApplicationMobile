@@ -2,6 +2,7 @@ import { View, Text, StyleSheet, TouchableOpacity, Modal, Alert, ScrollView } fr
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
+import { useTranslation } from 'react-i18next';
 import { C } from '@/constants/colors';
 import { Channel, Profile, User } from '@/constants/types';
 import { useApp } from '@/context/AppContext';
@@ -37,6 +38,7 @@ export default function MembersModal({
   user, knownSenders, profiles, onRenamePress, onAddMemberPress,
   removeChannelMember, removeCustomChannel, removeGroupChannel,
 }: Props) {
+  const { t } = useTranslation();
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { companies } = useApp();
@@ -84,13 +86,21 @@ export default function MembersModal({
             <View style={{ flex: 1 }}>
               <Text style={styles.title} numberOfLines={1}>{liveChannelName}</Text>
               <Text style={styles.sub}>
-                {isDMChannel ? 'Message direct' : isGroupChannel ? 'Groupe' : channelObj?.type === 'company' ? 'Canal entreprise' : isEditable ? 'Canal personnalisé' : 'Canal chantier'}
+                {isDMChannel
+                  ? t('membersModal.directMessage')
+                  : isGroupChannel
+                    ? t('membersModal.group')
+                    : channelObj?.type === 'company'
+                      ? t('membersModal.companyChannel')
+                      : isEditable
+                        ? t('membersModal.customChannel')
+                        : t('membersModal.siteChannel')}
               </Text>
             </View>
             {isEditable && !isCompanyChannel && canManageMembers && (
               <TouchableOpacity style={styles.renameBtn} onPress={onRenamePress}>
                 <Ionicons name="pencil-outline" size={16} color={C.primary} />
-                <Text style={styles.renameBtnText}>Renommer</Text>
+                <Text style={styles.renameBtnText}>{t('membersModal.rename')}</Text>
               </TouchableOpacity>
             )}
           </View>
@@ -101,12 +111,12 @@ export default function MembersModal({
             {isCompanyChannel ? (
               <>
                 <View style={styles.sectionRow}>
-                  <Text style={styles.sectionLabel}>MEMBRES DE L'ENTREPRISE</Text>
+                  <Text style={styles.sectionLabel}>{t('membersModal.companyMembers')}</Text>
                 </View>
                 <View style={styles.companyInfoBanner}>
                   <Ionicons name="sync-outline" size={14} color={C.primary} />
                   <Text style={styles.companyInfoText}>
-                    Les membres sont synchronisés automatiquement avec le personnel de l'entreprise.
+                    {t('membersModal.syncedCompanyMembers')}
                   </Text>
                 </View>
                 {visibleCompanyMembers.length > 0 ? visibleCompanyMembers.map(name => (
@@ -118,11 +128,11 @@ export default function MembersModal({
                       <Text style={styles.memberName} numberOfLines={1}>{name}</Text>
                       <CompanyPill name={name} />
                     </View>
-                    {name === user?.name && <View style={styles.meBadge}><Text style={styles.meBadgeText}>Vous</Text></View>}
+                    {name === user?.name && <View style={styles.meBadge}><Text style={styles.meBadgeText}>{t('membersModal.you')}</Text></View>}
                   </View>
                 )) : (
                   <View style={{ padding: 16, alignItems: 'center' }}>
-                    <Text style={styles.sub}>Aucun membre synchronise</Text>
+                    <Text style={styles.sub}>{t('membersModal.noSyncedMember')}</Text>
                   </View>
                 )}
               </>
@@ -130,12 +140,14 @@ export default function MembersModal({
               <>
                 <View style={styles.sectionRow}>
                   <Text style={styles.sectionLabel}>
-                    {isEditable ? (isGroupChannel ? 'MEMBRES DU GROUPE' : 'MEMBRES DU CANAL') : isDMChannel ? 'PARTICIPANTS' : 'MEMBRES DU GROUPE'}
+                    {isEditable
+                      ? (isGroupChannel ? t('membersModal.groupMembers') : t('membersModal.channelMembers'))
+                      : isDMChannel ? t('membersModal.participants') : t('membersModal.groupMembers')}
                   </Text>
                   {(isEditable || isGroupChannel) && canManageMembers && (
                     <TouchableOpacity style={styles.addBtn} onPress={() => { onClose(); onAddMemberPress(); }}>
                       <Ionicons name="person-add-outline" size={14} color={C.primary} />
-                      <Text style={styles.addBtnText}>Ajouter</Text>
+                      <Text style={styles.addBtnText}>{t('channel.add')}</Text>
                     </TouchableOpacity>
                   )}
                 </View>
@@ -148,10 +160,10 @@ export default function MembersModal({
                       <Text style={styles.memberName} numberOfLines={1}>{name}</Text>
                       <CompanyPill name={name} />
                     </View>
-                    {name === user?.name && <View style={styles.meBadge}><Text style={styles.meBadgeText}>Vous</Text></View>}
+                    {name === user?.name && <View style={styles.meBadge}><Text style={styles.meBadgeText}>{t('membersModal.you')}</Text></View>}
                     {channelObj?.createdBy === name && name !== user?.name && (
                       <View style={[styles.meBadge, { backgroundColor: C.primary + '15' }]}>
-                        <Text style={[styles.meBadgeText, { color: C.primary }]}>Créateur</Text>
+                        <Text style={[styles.meBadgeText, { color: C.primary }]}>{t('membersModal.creator')}</Text>
                       </View>
                     )}
                     {(isEditable || isGroupChannel) && canManageMembers && name !== channelObj?.createdBy && name !== user?.name && (
@@ -159,11 +171,14 @@ export default function MembersModal({
                         style={styles.removeBtn}
                         onPress={() => {
                           Alert.alert(
-                            'Retirer ce membre ?',
-                            `${name} sera retiré(e) du ${isGroupChannel ? 'groupe' : 'canal'}.`,
+                            t('membersModal.removeMemberTitle'),
+                            t('membersModal.removeMemberText', {
+                              name,
+                              target: isGroupChannel ? t('membersModal.leaveTargetGroup') : t('membersModal.leaveTargetChannel'),
+                            }),
                             [
-                              { text: 'Annuler', style: 'cancel' },
-                              { text: 'Retirer', style: 'destructive', onPress: () => removeChannelMember(channelId, name) },
+                              { text: t('common.cancel'), style: 'cancel' },
+                              { text: t('membersModal.remove'), style: 'destructive', onPress: () => removeChannelMember(channelId, name) },
                             ]
                           );
                         }}
@@ -174,14 +189,14 @@ export default function MembersModal({
                   </View>
                 )) : (
                   <View style={{ padding: 16, alignItems: 'center' }}>
-                    <Text style={styles.sub}>Aucun membre enregistré</Text>
+                    <Text style={styles.sub}>{t('membersModal.noMember')}</Text>
                   </View>
                 )}
               </>
             ) : (
               <>
-                <Text style={styles.sectionLabel}>MEMBRES ACTIFS</Text>
-                {[user?.name ?? 'Moi', ...knownSenders].filter((v, i, a) => a.indexOf(v) === i).map(name => (
+                <Text style={styles.sectionLabel}>{t('membersModal.activeMembers')}</Text>
+                {[user?.name ?? t('membersModal.you'), ...knownSenders].filter((v, i, a) => a.indexOf(v) === i).map(name => (
                   <View key={name} style={styles.memberItem}>
                     <View style={[styles.memberAvatar, { backgroundColor: getAvatarColor(name) + '25' }]}>
                       <Text style={[styles.memberAvatarText, { color: getAvatarColor(name) }]}>{name.charAt(0)}</Text>
@@ -190,7 +205,7 @@ export default function MembersModal({
                       <Text style={styles.memberName} numberOfLines={1}>{name}</Text>
                       <CompanyPill name={name} />
                     </View>
-                    {name === user?.name && <View style={styles.meBadge}><Text style={styles.meBadgeText}>Vous</Text></View>}
+                    {name === user?.name && <View style={styles.meBadge}><Text style={styles.meBadgeText}>{t('membersModal.you')}</Text></View>}
                   </View>
                 ))}
               </>
@@ -204,12 +219,12 @@ export default function MembersModal({
                     style={styles.dangerBtn}
                     onPress={() => {
                       Alert.alert(
-                        `Quitter ce ${isGroupChannel ? 'groupe' : 'canal'} ?`,
-                        `Vous ne ferez plus partie de ce ${isGroupChannel ? 'groupe' : 'canal'}.`,
+                        t('membersModal.leaveTitle', { target: isGroupChannel ? t('membersModal.leaveTargetGroup') : t('membersModal.leaveTargetChannel') }),
+                        t('membersModal.leaveText', { target: isGroupChannel ? t('membersModal.leaveTargetGroup') : t('membersModal.leaveTargetChannel') }),
                         [
-                          { text: 'Annuler', style: 'cancel' },
+                          { text: t('common.cancel'), style: 'cancel' },
                           {
-                            text: 'Quitter', style: 'destructive',
+                            text: t('membersModal.leave'), style: 'destructive',
                             onPress: () => {
                               onClose();
                               removeChannelMember(channelId, user?.name ?? '');
@@ -222,7 +237,7 @@ export default function MembersModal({
                   >
                     <Ionicons name="exit-outline" size={18} color={C.waiting} />
                     <Text style={[styles.dangerBtnText, { color: C.waiting }]}>
-                      Quitter {isGroupChannel ? 'le groupe' : 'le canal'}
+                      {isGroupChannel ? t('membersModal.leaveGroup') : t('membersModal.leaveChannel')}
                     </Text>
                   </TouchableOpacity>
                 )}
@@ -231,12 +246,12 @@ export default function MembersModal({
                     style={styles.dangerBtn}
                     onPress={() => {
                       Alert.alert(
-                        `Supprimer ce ${isGroupChannel ? 'groupe' : 'canal'} ?`,
-                        'Tous les messages seront perdus. Cette action est irréversible.',
+                        t('membersModal.deleteTitle', { target: isGroupChannel ? t('membersModal.leaveTargetGroup') : t('membersModal.leaveTargetChannel') }),
+                        t('membersModal.deleteText'),
                         [
-                          { text: 'Annuler', style: 'cancel' },
+                          { text: t('common.cancel'), style: 'cancel' },
                           {
-                            text: 'Supprimer', style: 'destructive',
+                            text: t('channel.delete'), style: 'destructive',
                             onPress: () => {
                               onClose();
                               if (channelObj?.type === 'custom') removeCustomChannel(channelId);
@@ -250,7 +265,7 @@ export default function MembersModal({
                   >
                     <Ionicons name="trash-outline" size={18} color={C.open} />
                     <Text style={styles.dangerBtnText}>
-                      Supprimer {isGroupChannel ? 'le groupe' : 'le canal'}
+                      {isGroupChannel ? t('membersModal.deleteGroup') : t('membersModal.deleteChannel')}
                     </Text>
                   </TouchableOpacity>
                 )}
@@ -259,7 +274,7 @@ export default function MembersModal({
           </ScrollView>
 
           <TouchableOpacity style={styles.cancelBtn} onPress={onClose}>
-            <Text style={styles.cancelBtnText}>Fermer</Text>
+            <Text style={styles.cancelBtnText}>{t('channel.close')}</Text>
           </TouchableOpacity>
         </TouchableOpacity>
       </TouchableOpacity>

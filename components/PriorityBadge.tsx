@@ -1,6 +1,7 @@
 import { View, Text, StyleSheet } from 'react-native';
 import { ReservePriority } from '@/constants/types';
 import { RESERVE_PRIORITY_CONFIG } from '@/lib/reserveLabels';
+import { useTranslation } from 'react-i18next';
 
 const PRIORITY_CONFIG = RESERVE_PRIORITY_CONFIG;
 
@@ -10,12 +11,13 @@ interface Props {
 }
 
 export default function PriorityBadge({ priority, small }: Props) {
+  const { t } = useTranslation();
   const config = PRIORITY_CONFIG[priority];
   return (
     <View style={[styles.badge, { backgroundColor: config.bg }, small && styles.small]}>
       <Text style={[styles.icon, { color: config.color }]}>{config.icon}</Text>
       <Text style={[styles.label, { color: config.color }, small && styles.labelSmall]}>
-        {config.label}
+        {t(`reserveLabels.priority.${priority}`, { defaultValue: config.label })}
       </Text>
     </View>
   );

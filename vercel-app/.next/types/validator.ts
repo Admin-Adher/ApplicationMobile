@@ -56,6 +56,24 @@ type RouteHandlerConfig<Route extends AppRouteHandlerRoutes = AppRouteHandlerRou
   type __Unused = __Check
 }
 
+// Validate ../../app/register/page.tsx
+{
+  type __IsExpected<Specific extends AppPageConfig<"/register">> = Specific
+  const handler = {} as typeof import("../../app/register/page.js")
+  type __Check = __IsExpected<typeof handler>
+  // @ts-ignore
+  type __Unused = __Check
+}
+
+// Validate ../../app/reserve/[id]/page.tsx
+{
+  type __IsExpected<Specific extends AppPageConfig<"/reserve/[id]">> = Specific
+  const handler = {} as typeof import("../../app/reserve/[id]/page.js")
+  type __Check = __IsExpected<typeof handler>
+  // @ts-ignore
+  type __Unused = __Check
+}
+
 // Validate ../../app/reset-password/page.tsx
 {
   type __IsExpected<Specific extends AppPageConfig<"/reset-password">> = Specific
@@ -74,10 +92,64 @@ type RouteHandlerConfig<Route extends AppRouteHandlerRoutes = AppRouteHandlerRou
   type __Unused = __Check
 }
 
+// Validate ../../app/api/admin-notification-preferences/route.ts
+{
+  type __IsExpected<Specific extends RouteHandlerConfig<"/api/admin-notification-preferences">> = Specific
+  const handler = {} as typeof import("../../app/api/admin-notification-preferences/route.js")
+  type __Check = __IsExpected<typeof handler>
+  // @ts-ignore
+  type __Unused = __Check
+}
+
+// Validate ../../app/api/cron/overdue-reserves/route.ts
+{
+  type __IsExpected<Specific extends RouteHandlerConfig<"/api/cron/overdue-reserves">> = Specific
+  const handler = {} as typeof import("../../app/api/cron/overdue-reserves/route.js")
+  type __Check = __IsExpected<typeof handler>
+  // @ts-ignore
+  type __Unused = __Check
+}
+
+// Validate ../../app/api/generate-pdf/route.ts
+{
+  type __IsExpected<Specific extends RouteHandlerConfig<"/api/generate-pdf">> = Specific
+  const handler = {} as typeof import("../../app/api/generate-pdf/route.js")
+  type __Check = __IsExpected<typeof handler>
+  // @ts-ignore
+  type __Unused = __Check
+}
+
+// Validate ../../app/api/request-password-reset/route.ts
+{
+  type __IsExpected<Specific extends RouteHandlerConfig<"/api/request-password-reset">> = Specific
+  const handler = {} as typeof import("../../app/api/request-password-reset/route.js")
+  type __Check = __IsExpected<typeof handler>
+  // @ts-ignore
+  type __Unused = __Check
+}
+
 // Validate ../../app/api/send-email/route.ts
 {
   type __IsExpected<Specific extends RouteHandlerConfig<"/api/send-email">> = Specific
   const handler = {} as typeof import("../../app/api/send-email/route.js")
+  type __Check = __IsExpected<typeof handler>
+  // @ts-ignore
+  type __Unused = __Check
+}
+
+// Validate ../../app/api/send-push/route.ts
+{
+  type __IsExpected<Specific extends RouteHandlerConfig<"/api/send-push">> = Specific
+  const handler = {} as typeof import("../../app/api/send-push/route.js")
+  type __Check = __IsExpected<typeof handler>
+  // @ts-ignore
+  type __Unused = __Check
+}
+
+// Validate ../../app/api/translate-text/route.ts
+{
+  type __IsExpected<Specific extends RouteHandlerConfig<"/api/translate-text">> = Specific
+  const handler = {} as typeof import("../../app/api/translate-text/route.js")
   type __Check = __IsExpected<typeof handler>
   // @ts-ignore
   type __Unused = __Check

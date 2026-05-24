@@ -5,6 +5,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { C } from '@/constants/colors';
 import { Profile } from '@/constants/types';
 import { ROLE_LABELS } from '@/constants/roles';
+import { useTranslation } from 'react-i18next';
 
 const AVATAR_COLORS = [C.primary, '#059669', '#D97706', '#7C3AED', '#DB2777', '#EA580C', '#0891B2'];
 
@@ -23,6 +24,7 @@ interface Props {
 }
 
 export default function NewDMModal({ visible, onClose, profiles, currentUserName, onSelect }: Props) {
+  const { t } = useTranslation();
   const insets = useSafeAreaInsets();
   const [search, setSearch] = useState('');
 
@@ -33,9 +35,9 @@ export default function NewDMModal({ visible, onClose, profiles, currentUserName
     return others.filter(p =>
       p.name.toLowerCase().includes(q) ||
       p.email.toLowerCase().includes(q) ||
-      (ROLE_LABELS[p.role] ?? '').toLowerCase().includes(q)
+      t(`roles.${p.role}`, { defaultValue: ROLE_LABELS[p.role] ?? p.role }).toLowerCase().includes(q)
     );
-  }, [profiles, currentUserName, search]);
+  }, [profiles, currentUserName, search, t]);
 
   function handleSelect(p: Profile) {
     onSelect(p);
@@ -55,7 +57,7 @@ export default function NewDMModal({ visible, onClose, profiles, currentUserName
           <TouchableOpacity onPress={handleClose} style={styles.closeBtn}>
             <Ionicons name="close" size={22} color={C.text} />
           </TouchableOpacity>
-          <Text style={styles.title}>Message direct</Text>
+          <Text style={styles.title}>{t('conversationModals.directMessage')}</Text>
           <View style={{ width: 36 }} />
         </View>
 
@@ -63,7 +65,7 @@ export default function NewDMModal({ visible, onClose, profiles, currentUserName
           <Ionicons name="search-outline" size={16} color={C.textMuted} />
           <TextInput
             style={styles.searchInput}
-            placeholder="Rechercher un utilisateur..."
+            placeholder={t('conversationModals.searchUser')}
             placeholderTextColor={C.textMuted}
             value={search}
             onChangeText={setSearch}
@@ -84,7 +86,7 @@ export default function NewDMModal({ visible, onClose, profiles, currentUserName
           ListEmptyComponent={() => (
             <View style={styles.empty}>
               <Ionicons name="people-outline" size={36} color={C.textMuted} />
-              <Text style={styles.emptyText}>Aucun utilisateur trouvé</Text>
+              <Text style={styles.emptyText}>{t('conversationModals.noUserFound')}</Text>
             </View>
           )}
           renderItem={({ item }) => {
@@ -96,7 +98,7 @@ export default function NewDMModal({ visible, onClose, profiles, currentUserName
                 </View>
                 <View style={styles.userInfo}>
                   <Text style={styles.userName}>{item.name}</Text>
-                  <Text style={styles.userRole}>{ROLE_LABELS[item.role] ?? item.role}</Text>
+                  <Text style={styles.userRole}>{t(`roles.${item.role}`, { defaultValue: ROLE_LABELS[item.role] ?? item.role })}</Text>
                   <Text style={styles.userEmail}>{item.email}</Text>
                 </View>
                 <View style={styles.dmBtn}>

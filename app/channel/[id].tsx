@@ -8,6 +8,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import * as ImagePicker from 'expo-image-picker';
+import { useTranslation } from 'react-i18next';
 import { C } from '@/constants/colors';
 import { useApp } from '@/context/AppContext';
 import { useAuth } from '@/context/AuthContext';
@@ -20,19 +21,19 @@ import { getMessageTimeMs, isSameUserName } from '@/lib/mappers';
 import { getDmDisplayName } from '@/hooks/queries/useChannels';
 import MessageBubble, { getAvatarColor } from '@/components/channel/MessageBubble';
 import MembersModal from '@/components/channel/MembersModal';
-import AttachItemModal, { LinkedItem, getLinkedItemIcon, getLinkedItemColor, getLinkedItemLabel } from '@/components/channel/AttachItemModal';
+import AttachItemModal, { LinkedItem, getLinkedItemIcon, getLinkedItemColor } from '@/components/channel/AttachItemModal';
 import DictationTextInput from '@/components/DictationTextInput';
 
 const REACTIONS = ['👍', '✅', '⚠️', '🔥', '💯', '❌'];
 
-function formatTimestampLabel(timestamp: string): string {
+function formatTimestampLabel(timestamp: string, t: (key: string) => string): string {
   const parts = timestamp.split(' ');
   if (parts.length < 2) return timestamp;
   const datePart = parts[0];
   const today = new Date().toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit', year: 'numeric' });
   const yesterday = new Date(Date.now() - 86400000).toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit', year: 'numeric' });
-  if (datePart === today) return "Aujourd'hui";
-  if (datePart === yesterday) return 'Hier';
+  if (datePart === today) return t('channel.today');
+  if (datePart === yesterday) return t('channel.yesterday');
   return datePart;
 }
 
@@ -51,6 +52,7 @@ function DateSeparator({ label }: { label: string }) {
 }
 
 function TypingIndicator({ users }: { users: string[] }) {
+  const { t } = useTranslation();
   const dot1 = useRef(new Animated.Value(0)).current;
   const dot2 = useRef(new Animated.Value(0)).current;
   const dot3 = useRef(new Animated.Value(0)).current;
@@ -79,8 +81,8 @@ function TypingIndicator({ users }: { users: string[] }) {
 
   if (users.length === 0) return null;
   const label = users.length === 1
-    ? `${users[0]} est en train d'écrire`
-    : `${users.join(', ')} écrivent`;
+    ? t('channel.typingOne', { name: users[0] })
+    : t('channel.typingMany', { names: users.join(', ') });
 
   return (
     <View style={styles.typingRow}>
@@ -95,6 +97,18 @@ function TypingIndicator({ users }: { users: string[] }) {
 }
 
 type ListItem = Message | { _type: 'date'; label: string; key: string };
+
+function linkedItemLabelKey(type?: string | null): string {
+  switch (type) {
+    case 'reserve': return 'linkedItems.reserve';
+    case 'plan': return 'linkedItems.plan';
+    case 'task': return 'linkedItems.task';
+    case 'incident': return 'linkedItems.incident';
+    case 'visite': return 'linkedItems.visit';
+    case 'opr': return 'linkedItems.opr';
+    default: return 'linkedItems.linkedItem';
+  }
+}
 
 const PAGE_SIZE = 50;
 const SEARCH_RESULT_CAP = 300;
@@ -157,6 +171,7 @@ function selectChannelMessagesForRender(
 }
 
 export default function ChannelScreen() {
+  const { t } = useTranslation();
   const insets = useSafeAreaInsets();
   const {
     id: channelId, name: channelName, color: channelColor, icon: channelIcon,
@@ -343,13 +358,13 @@ export default function ChannelScreen() {
     for (const msg of filteredMessages) {
       const msgDate = getDateFromTimestamp(msg.timestamp);
       if (msgDate !== lastDate) {
-        items.push({ _type: 'date', label: formatTimestampLabel(msg.timestamp), key: `date-${msgDate}` });
+        items.push({ _type: 'date', label: formatTimestampLabel(msg.timestamp, t), key: `date-${msgDate}` });
         lastDate = msgDate;
       }
       items.push(msg);
     }
     return [...items].reverse();
-  }, [filteredMessages]);
+  }, [filteredMessages, t]);
 
   // Fix 2 — Pagination serveur : oldest dbCreatedAt parmi les messages chargés
   const oldestDbCreatedAt = useMemo(() => {
@@ -520,7 +535,7 @@ export default function ChannelScreen() {
   async function sendPhotoMessage(uri: string) {
     const persistentUri = await persistLocalPhoto(uri);
     if (!isSupabaseConfigured || !isOnline) {
-      addMessage(channelId!, text.trim() || '', buildMessageOptions(persistentUri), user?.name ?? 'Moi');
+      addMessage(channelId!, text.trim() || '', buildMessageOptions(persistentUri), user?.name ?? t('messages.you'));
       resetComposer();
       return;
     }
@@ -529,10 +544,10 @@ export default function ChannelScreen() {
     try {
       const url = await uploadPhoto(persistentUri, `msg_${Date.now()}.jpg`);
       if (!url) {
-        Alert.alert('Erreur d\'envoi', "La photo n'a pas pu être envoyée sur le serveur. Vérifiez votre connexion et que le stockage est configuré.");
+        Alert.alert(t('channel.sendPhotoErrorTitle'), t('channel.sendPhotoErrorText'));
         return;
       }
-      addMessage(channelId!, text.trim() || '', buildMessageOptions(url), user?.name ?? 'Moi');
+      addMessage(channelId!, text.trim() || '', buildMessageOptions(url), user?.name ?? t('messages.you'));
       resetComposer();
     } finally {
       setAttachmentUploading(false);
@@ -542,7 +557,7 @@ export default function ChannelScreen() {
   async function handlePickPhoto() {
     if (Platform.OS !== 'web') {
       const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
-      if (status !== 'granted') { Alert.alert('Permission refusée', "L'accès à la galerie est nécessaire."); return; }
+      if (status !== 'granted') { Alert.alert(t('channel.permissionDenied'), t('channel.galleryRequired')); return; }
     }
     const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images'], allowsEditing: true, quality: 0.8 });
     if (!result.canceled && result.assets[0]) {
@@ -551,9 +566,9 @@ export default function ChannelScreen() {
   }
 
   async function handleCamera() {
-    if (Platform.OS === 'web') { Alert.alert('Info', 'La caméra est disponible sur appareil mobile.'); return; }
+    if (Platform.OS === 'web') { Alert.alert('Info', t('channel.cameraMobileOnly')); return; }
     const { status } = await ImagePicker.requestCameraPermissionsAsync();
-    if (status !== 'granted') { Alert.alert('Permission refusée', "L'accès à la caméra est nécessaire."); return; }
+    if (status !== 'granted') { Alert.alert(t('channel.permissionDenied'), t('channel.cameraRequired')); return; }
     const result = await ImagePicker.launchCameraAsync({ allowsEditing: true, quality: 0.8 });
     if (!result.canceled && result.assets[0]) {
       await sendPhotoMessage(result.assets[0].uri);
@@ -562,7 +577,7 @@ export default function ChannelScreen() {
 
   function handleSend() {
     if (!text.trim() && !linkedItem) return;
-    addMessage(channelId!, text.trim(), buildMessageOptions(), user?.name ?? 'Moi');
+    addMessage(channelId!, text.trim(), buildMessageOptions(), user?.name ?? t('messages.you'));
     resetComposer();
   }
 
@@ -581,14 +596,14 @@ export default function ChannelScreen() {
   async function handleCopy() {
     setActionModalVisible(false);
     await Clipboard.setStringAsync(selectedMsg?.content ?? '');
-    Alert.alert('Copié', 'Message copié dans le presse-papier.');
+    Alert.alert(t('channel.copiedTitle'), t('channel.copiedText'));
   }
 
   function handleDelete() {
     setActionModalVisible(false);
-    Alert.alert('Supprimer ce message ?', 'Cette action est irréversible.', [
-      { text: 'Annuler', style: 'cancel' },
-      { text: 'Supprimer', style: 'destructive', onPress: () => { if (selectedMsg) deleteMessage(selectedMsg.id); } },
+    Alert.alert(t('channel.deleteMessageTitle'), t('channel.deleteMessageText'), [
+      { text: t('common.cancel'), style: 'cancel' },
+      { text: t('channel.delete'), style: 'destructive', onPress: () => { if (selectedMsg) deleteMessage(selectedMsg.id); } },
     ]);
   }
 
@@ -596,7 +611,7 @@ export default function ChannelScreen() {
     setActionModalVisible(false);
     if (!selectedMsg) return;
     if (!selectedMsg.isMe && user?.role !== 'super_admin') {
-      Alert.alert('Action impossible', "Seul l'expéditeur du message peut l'épingler.");
+      Alert.alert(t('channel.actionImpossible'), t('channel.senderOnlyPin'));
       return;
     }
     updateMessage({ ...selectedMsg, isPinned: !selectedMsg.isPinned });
@@ -604,7 +619,7 @@ export default function ChannelScreen() {
 
   function handleUnpinPinnedMessage(msg: Message) {
     if (!msg.isMe && user?.role !== 'super_admin') {
-      Alert.alert('Action impossible', "Seul l'expéditeur du message peut le désépingler.");
+      Alert.alert(t('channel.actionImpossible'), t('channel.senderOnlyUnpin'));
       return;
     }
     updateMessage({ ...msg, isPinned: false });
@@ -617,7 +632,7 @@ export default function ChannelScreen() {
       pathname: '/reserve/new',
       params: {
         prefill_description: selectedMsg.content,
-        prefill_source: `Message de ${selectedMsg.sender} dans ${liveChannelName}`,
+        prefill_source: t('channel.messageSource', { sender: selectedMsg.sender, channel: liveChannelName }),
       },
     } as any);
   }
@@ -634,7 +649,7 @@ export default function ChannelScreen() {
   }
 
   function applyReact(emoji: string, msg: Message) {
-    const userName = user?.name ?? 'Moi';
+    const userName = user?.name ?? t('messages.you');
     toggleReaction(emoji, msg, userName);
   }
 
@@ -718,7 +733,7 @@ export default function ChannelScreen() {
           >
             <Ionicons name={isFetchingOlderRef.current ? 'hourglass-outline' : 'arrow-up-circle-outline'} size={16} color={C.textMuted} />
             <Text style={{ fontSize: 13, color: C.textMuted }}>
-              {isFetchingOlderRef.current ? 'Chargement…' : 'Voir les messages précédents'}
+              {isFetchingOlderRef.current ? t('channel.loadingOlder') : t('channel.loadOlder')}
             </Text>
           </TouchableOpacity>
         </View>
@@ -740,7 +755,7 @@ export default function ChannelScreen() {
     );
     // P13: openActions, handleNotifPress, handleLinkedItemPress sont stables (useCallback [])
     // applyReact passe par applyReactRef pour éviter les closures stale
-  }, [color, user?.name, channelId, sitePlans, highlightedMessageId, openActions, handleNotifPress, handleLinkedItemPress]);
+  }, [color, user?.name, channelId, sitePlans, highlightedMessageId, openActions, handleNotifPress, handleLinkedItemPress, t]);
 
   const lastPinned = pinnedMessages[pinnedMessages.length - 1];
 
@@ -751,7 +766,7 @@ export default function ChannelScreen() {
 
   const itemColor = linkedItem ? getLinkedItemColor(linkedItem.type) : C.primary;
   const itemIcon = linkedItem ? getLinkedItemIcon(linkedItem.type) : 'link-outline';
-  const itemLabel = linkedItem ? getLinkedItemLabel(linkedItem.type) : '';
+  const itemLabel = linkedItem ? t(linkedItemLabelKey(linkedItem.type)) : '';
 
   return (
     <View style={styles.container}>
@@ -776,16 +791,16 @@ export default function ChannelScreen() {
         <View style={{ flex: 1 }}>
           <Text style={styles.headerName} numberOfLines={1}>{displayChannelName}</Text>
           {(isDMChannel || isGroupChannel) && liveMembers.length > 0 ? (
-            <Text style={styles.headerSub} numberOfLines={1}>{liveMembers.length} membre{liveMembers.length !== 1 ? 's' : ''}</Text>
+            <Text style={styles.headerSub} numberOfLines={1}>{t('channel.members', { count: liveMembers.length })}</Text>
           ) : isCompanyChannel ? (
             // P11: Afficher le nombre de participants actifs pour les canaux entreprise
             <Text style={styles.headerSub} numberOfLines={1}>
               {knownSenders.length > 0
-                ? `${knownSenders.length + 1} participant${knownSenders.length > 0 ? 's' : ''}`
-                : 'Canal entreprise'}
+                ? t('channel.participants', { count: knownSenders.length + 1 })
+                : t('channel.companyChannel')}
             </Text>
           ) : (
-            <Text style={styles.headerSub}>{channelMessages.length} message{channelMessages.length !== 1 ? 's' : ''}</Text>
+            <Text style={styles.headerSub}>{t('channel.messages', { count: channelMessages.length })}</Text>
           )}
         </View>
         <View style={styles.headerActions}>
@@ -809,7 +824,7 @@ export default function ChannelScreen() {
           <Ionicons name="search-outline" size={14} color={C.textMuted} />
           <TextInput
             style={styles.searchInput}
-            placeholder="Rechercher dans les messages..."
+            placeholder={t('channel.searchPlaceholder')}
             placeholderTextColor={C.textMuted}
             value={searchQuery}
             onChangeText={setSearchQuery}
@@ -820,7 +835,7 @@ export default function ChannelScreen() {
               <Ionicons name="close-circle" size={14} color={C.textMuted} />
             </TouchableOpacity>
           )}
-          <Text style={styles.searchCount}>{filteredMessages.length} résultat{filteredMessages.length !== 1 ? 's' : ''}</Text>
+          <Text style={styles.searchCount}>{t('channel.searchResults', { count: filteredMessages.length })}</Text>
         </View>
       )}
 
@@ -828,9 +843,9 @@ export default function ChannelScreen() {
         <TouchableOpacity style={styles.pinnedBanner} onPress={() => setPinnedModalVisible(true)}>
           <Ionicons name="pin" size={13} color={C.waiting} />
           <View style={{ flex: 1 }}>
-            <Text style={styles.pinnedBannerLabel}>Message épinglé</Text>
+            <Text style={styles.pinnedBannerLabel}>{t('channel.pinnedMessage')}</Text>
             <Text style={styles.pinnedBannerContent} numberOfLines={1}>
-              {lastPinned.content || lastPinned.linkedItemTitle || 'Photo'}
+              {lastPinned.content || lastPinned.linkedItemTitle || t('channel.photo')}
             </Text>
           </View>
           <Ionicons name="chevron-forward" size={13} color={C.waiting} />
@@ -869,7 +884,7 @@ export default function ChannelScreen() {
                 <Ionicons name={(channelIcon ?? 'chatbubbles') as any} size={32} color={color} />
               </View>
               <Text style={styles.emptyTitle}>{liveChannelName}</Text>
-              <Text style={styles.emptyText}>Soyez le premier à envoyer un message dans ce canal.</Text>
+              <Text style={styles.emptyText}>{t('channel.emptyText')}</Text>
             </View>
           )}
         />
@@ -880,7 +895,7 @@ export default function ChannelScreen() {
           <View style={[styles.replyBar2, { borderLeftWidth: 3, borderLeftColor: itemColor }]}>
             <Ionicons name={itemIcon as any} size={14} color={itemColor} style={{ marginRight: 2 }} />
             <View style={{ flex: 1 }}>
-              <Text style={[styles.replyBarWho, { color: itemColor }]}>{itemLabel} lié(e)</Text>
+              <Text style={[styles.replyBarWho, { color: itemColor }]}>{t('channel.linked', { label: itemLabel })}</Text>
               <Text style={styles.replyBarText} numberOfLines={1}>{linkedItem.title}</Text>
             </View>
             <TouchableOpacity onPress={() => setLinkedItem(null)} hitSlop={8}>
@@ -893,8 +908,8 @@ export default function ChannelScreen() {
           <View style={styles.replyBar2}>
             <View style={[styles.replyAccent, { backgroundColor: color }]} />
             <View style={{ flex: 1 }}>
-              <Text style={[styles.replyBarWho, { color }]}>Réponse à {replyTo.sender}</Text>
-              <Text style={styles.replyBarText} numberOfLines={1}>{replyTo.content || 'Photo'}</Text>
+              <Text style={[styles.replyBarWho, { color }]}>{t('channel.replyTo', { name: replyTo.sender })}</Text>
+              <Text style={styles.replyBarText} numberOfLines={1}>{replyTo.content || t('channel.photo')}</Text>
             </View>
             <TouchableOpacity onPress={() => setReplyTo(null)} hitSlop={8}>
               <Ionicons name="close" size={18} color={C.textSub} />
@@ -918,7 +933,7 @@ export default function ChannelScreen() {
         {isReadOnly ? (
           <View style={[styles.readOnlyBar, { paddingBottom: insets.bottom + 8 }]}>
             <Ionicons name="eye-outline" size={16} color={C.textMuted} />
-            <Text style={styles.readOnlyText}>Lecture seule — canal organisationnel</Text>
+            <Text style={styles.readOnlyText}>{t('channel.readOnly')}</Text>
           </View>
         ) : (
           <View style={[styles.inputRow, { paddingBottom: insets.bottom + 8 }]}>
@@ -952,12 +967,12 @@ export default function ChannelScreen() {
                   onPress={handleSend}
                   disabled={!text.trim() && !linkedItem}
                   accessibilityRole="button"
-                  accessibilityLabel="Envoyer le message"
+                  accessibilityLabel={t('channel.sendAccessibility')}
                 >
                   <Ionicons name="send" size={18} color={(text.trim() || linkedItem) ? '#fff' : C.textMuted} />
                 </TouchableOpacity>
               )}
-              placeholder={replyTo ? 'Votre réponse...' : 'Message… (@ pour mentionner)'}
+              placeholder={replyTo ? t('channel.replyPlaceholder') : t('channel.messagePlaceholder')}
               placeholderTextColor={C.textMuted}
               value={text}
               onChangeText={handleTextChange}
@@ -992,17 +1007,17 @@ export default function ChannelScreen() {
             {selectedMsg && (
               <View style={styles.actionPreview}>
                 <Text style={styles.actionPreviewText} numberOfLines={2}>
-                  {selectedMsg.content || selectedMsg.linkedItemTitle || 'Photo'}
+                  {selectedMsg.content || selectedMsg.linkedItemTitle || t('channel.photo')}
                 </Text>
               </View>
             )}
             <TouchableOpacity style={styles.actionItem} onPress={openReactPicker}>
               <Text style={styles.actionEmoji}>😀</Text>
-              <Text style={styles.actionLabel}>Réagir</Text>
+              <Text style={styles.actionLabel}>{t('channel.react')}</Text>
             </TouchableOpacity>
             <TouchableOpacity style={styles.actionItem} onPress={handleReply}>
               <Ionicons name="return-down-back-outline" size={20} color={C.text} />
-              <Text style={styles.actionLabel}>Répondre</Text>
+              <Text style={styles.actionLabel}>{t('channel.reply')}</Text>
             </TouchableOpacity>
             {(selectedMsg?.linkedItemType || selectedMsg?.reserveId) && (
               <TouchableOpacity
@@ -1015,36 +1030,36 @@ export default function ChannelScreen() {
                   color={getLinkedItemColor(selectedMsg?.linkedItemType ?? (selectedMsg?.reserveId ? 'reserve' : null))}
                 />
                 <Text style={[styles.actionLabel, { color: getLinkedItemColor(selectedMsg?.linkedItemType ?? (selectedMsg?.reserveId ? 'reserve' : null)) }]}>
-                  Voir {getLinkedItemLabel(selectedMsg?.linkedItemType ?? (selectedMsg?.reserveId ? 'reserve' : null))}
+                  {t('channel.seeLinked', { label: t(linkedItemLabelKey(selectedMsg?.linkedItemType ?? (selectedMsg?.reserveId ? 'reserve' : null))) })}
                 </Text>
               </TouchableOpacity>
             )}
             {(selectedMsg?.isMe || user?.role === 'super_admin') && (
               <TouchableOpacity style={styles.actionItem} onPress={handlePin}>
                 <Ionicons name={selectedMsg?.isPinned ? 'pin' : 'pin-outline'} size={20} color={C.waiting} />
-                <Text style={[styles.actionLabel, { color: C.waiting }]}>{selectedMsg?.isPinned ? 'Désépingler' : 'Épingler'}</Text>
+                <Text style={[styles.actionLabel, { color: C.waiting }]}>{selectedMsg?.isPinned ? t('channel.unpin') : t('channel.pin')}</Text>
               </TouchableOpacity>
             )}
             <TouchableOpacity style={styles.actionItem} onPress={handleCopy}>
               <Ionicons name="copy-outline" size={20} color={C.text} />
-              <Text style={styles.actionLabel}>Copier le texte</Text>
+              <Text style={styles.actionLabel}>{t('channel.copyText')}</Text>
             </TouchableOpacity>
             {/* P9: Créer réserve uniquement pour les messages texte (pas notifications/photos) */}
             {(!selectedMsg?.type || selectedMsg?.type === 'message') && (
               <TouchableOpacity style={styles.actionItem} onPress={handleCreateReserveFromMsg}>
                 <Ionicons name="alert-circle-outline" size={20} color={C.waiting} />
-                <Text style={[styles.actionLabel, { color: C.waiting }]}>Créer une réserve</Text>
+                <Text style={[styles.actionLabel, { color: C.waiting }]}>{t('channel.createReserve')}</Text>
               </TouchableOpacity>
             )}
             {/* P10: Suppression autorisée pour l'expéditeur OU les administrateurs */}
             {(selectedMsg?.isMe || user?.role === 'admin' || user?.role === 'super_admin') && (
               <TouchableOpacity style={styles.actionItem} onPress={handleDelete}>
                 <Ionicons name="trash-outline" size={20} color={C.open} />
-                <Text style={[styles.actionLabel, { color: C.open }]}>Supprimer</Text>
+                <Text style={[styles.actionLabel, { color: C.open }]}>{t('channel.delete')}</Text>
               </TouchableOpacity>
             )}
             <TouchableOpacity style={[styles.actionItem, styles.actionCancel]} onPress={() => setActionModalVisible(false)}>
-              <Text style={styles.actionCancelText}>Fermer</Text>
+              <Text style={styles.actionCancelText}>{t('channel.close')}</Text>
             </TouchableOpacity>
           </View>
         </TouchableOpacity>
@@ -1054,7 +1069,7 @@ export default function ChannelScreen() {
       <Modal visible={emojiModalVisible} transparent animationType="fade" onRequestClose={() => setEmojiModalVisible(false)}>
         <TouchableOpacity style={styles.modalOverlay} activeOpacity={1} onPress={() => setEmojiModalVisible(false)}>
           <View style={[styles.emojiSheet, { paddingBottom: insets.bottom + 8 }]}>
-            <Text style={styles.emojiTitle}>Réagir au message</Text>
+            <Text style={styles.emojiTitle}>{t('channel.reactTitle')}</Text>
             <View style={styles.emojiRow}>
               {REACTIONS.map(emoji => (
                 <TouchableOpacity key={emoji} style={styles.emojiBtn} onPress={() => handleReact(emoji)}>
@@ -1074,14 +1089,14 @@ export default function ChannelScreen() {
         <TouchableOpacity style={styles.modalOverlay} activeOpacity={1} onPress={() => setPinnedModalVisible(false)}>
           <View style={[styles.actionSheet, { paddingBottom: insets.bottom + 8 }]}>
             <View style={styles.actionSheetHandle} />
-            <Text style={styles.pinnedSheetTitle}>Messages épinglés ({pinnedMessages.length})</Text>
+            <Text style={styles.pinnedSheetTitle}>{t('channel.pinnedTitle', { count: pinnedMessages.length })}</Text>
             {pinnedMessages.map(m => (
               <View key={m.id} style={styles.pinnedItem}>
                 <Ionicons name="pin" size={13} color={C.waiting} />
                 <View style={{ flex: 1 }}>
                   <Text style={styles.pinnedItemWho}>{m.sender}</Text>
                   <Text style={styles.pinnedItemContent} numberOfLines={2}>
-                    {m.content || m.linkedItemTitle || 'Photo'}
+                    {m.content || m.linkedItemTitle || t('channel.photo')}
                   </Text>
                   <Text style={styles.pinnedItemTime}>{m.timestamp}</Text>
                 </View>
@@ -1092,7 +1107,7 @@ export default function ChannelScreen() {
                 )}
               </View>
             ))}
-            {pinnedMessages.length === 0 && <Text style={styles.emptyText}>Aucun message épinglé.</Text>}
+            {pinnedMessages.length === 0 && <Text style={styles.emptyText}>{t('channel.noPinned')}</Text>}
           </View>
         </TouchableOpacity>
       </Modal>
@@ -1127,20 +1142,20 @@ export default function ChannelScreen() {
         <TouchableOpacity style={styles.modalOverlay} activeOpacity={1} onPress={() => setRenameVisible(false)}>
           <TouchableOpacity activeOpacity={1} style={styles.renameSheet}>
             <Text style={styles.renameTitle}>
-              Renommer {isGroupChannel ? 'le groupe' : 'le canal'}
+              {t('channel.renameTitle', { target: isGroupChannel ? t('channel.targetGroup') : t('channel.targetChannel') })}
             </Text>
             <TextInput
               style={styles.renameInput}
               value={renameText}
               onChangeText={setRenameText}
-              placeholder="Nouveau nom..."
+              placeholder={t('channel.newNamePlaceholder')}
               placeholderTextColor={C.textMuted}
               autoFocus
               maxLength={50}
             />
             <View style={styles.renameBtns}>
               <TouchableOpacity style={styles.renameCancelBtn} onPress={() => setRenameVisible(false)}>
-                <Text style={styles.renameCancelText}>Annuler</Text>
+                <Text style={styles.renameCancelText}>{t('common.cancel')}</Text>
               </TouchableOpacity>
               <TouchableOpacity
                 style={[styles.renameConfirmBtn, { backgroundColor: renameText.trim() ? color : C.surface2 }]}
@@ -1152,7 +1167,7 @@ export default function ChannelScreen() {
                 disabled={!renameText.trim()}
               >
                 <Text style={[styles.renameConfirmText, { color: renameText.trim() ? '#fff' : C.textMuted }]}>
-                  Enregistrer
+                  {t('channel.save')}
                 </Text>
               </TouchableOpacity>
             </View>
@@ -1165,10 +1180,10 @@ export default function ChannelScreen() {
         <TouchableOpacity style={styles.modalOverlay} activeOpacity={1} onPress={() => setAddMemberVisible(false)}>
           <TouchableOpacity activeOpacity={1} style={[styles.actionSheet, { maxHeight: '75%', paddingBottom: insets.bottom + 8 }]}>
             <View style={styles.actionSheetHandle} />
-            <Text style={styles.pinnedSheetTitle}>Ajouter un membre</Text>
+            <Text style={styles.pinnedSheetTitle}>{t('channel.addMemberTitle')}</Text>
             {addMemberCandidates.length === 0 ? (
               <View style={{ padding: 20, alignItems: 'center' }}>
-                <Text style={styles.emptyText}>Tous les utilisateurs sont déjà membres</Text>
+                <Text style={styles.emptyText}>{t('channel.allMembersAlready')}</Text>
               </View>
             ) : addMemberCandidates.map(p => {
               const co = p.companyId ? companies.find(c => c.id === p.companyId) : null;
@@ -1195,13 +1210,13 @@ export default function ChannelScreen() {
                   </View>
                   <View style={[styles.addBadge, { backgroundColor: C.primary + '15' }]}>
                     <Ionicons name="add" size={12} color={C.primary} />
-                    <Text style={[styles.addBadgeText, { color: C.primary }]}>Ajouter</Text>
+                    <Text style={[styles.addBadgeText, { color: C.primary }]}>{t('channel.add')}</Text>
                   </View>
                 </TouchableOpacity>
               );
             })}
             <TouchableOpacity style={styles.sheetCancelBtn} onPress={() => setAddMemberVisible(false)}>
-              <Text style={styles.sheetCancelText}>Annuler</Text>
+              <Text style={styles.sheetCancelText}>{t('common.cancel')}</Text>
             </TouchableOpacity>
           </TouchableOpacity>
         </TouchableOpacity>

@@ -54,6 +54,7 @@ export function notifyReserveCreated(params: {
         companyName: company.name,
         createdBy: createdByName,
         reserveCode: reserve.id,
+        language: profile.preferredLanguage,
       });
     }
   } catch (err: any) {
@@ -88,6 +89,7 @@ export function notifyReserveStatusChanged(params: {
         companyName: company.name,
         chantierName: chantier?.name,
         reserveCode: reserve.id,
+        language: profile.preferredLanguage,
       });
     }
   } catch (err: any) {
@@ -119,6 +121,7 @@ export function notifyReserveOverdue(params: {
         companyName: company.name,
         chantierName: chantier?.name,
         reserveCode: reserve.id,
+        language: profile.preferredLanguage,
       });
     }
   } catch (err: any) {

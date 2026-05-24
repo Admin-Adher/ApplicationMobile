@@ -11,13 +11,12 @@ import { useAuth } from '@/context/AuthContext';
 import { useIncidents } from '@/context/IncidentsContext';
 import { useNotifications } from '@/context/NotificationsContext';
 import { useNetwork } from '@/context/NetworkContext';
+import { useLanguage } from '@/context/LanguageContext';
 import { parseDeadline, isOverdue } from '@/lib/reserveUtils';
 import { Task, ReserveWeekStat, CompanyClosureStat } from '@/constants/types';
 import PortfolioDashboard from '@/components/PortfolioDashboard';
-
-const PRIORITY_LABELS: Record<string, string> = {
-  low: 'Basse', medium: 'Moyenne', high: 'Haute', critical: 'Critique',
-};
+import { localeForLanguage } from '@/constants/language';
+import { useTranslation } from 'react-i18next';
 
 function isTaskLate(t: Task): boolean {
   if (t.status === 'done') return false;
@@ -95,18 +94,26 @@ function ReserveStatusBar({ label, count, total, color }: { label: string; count
   );
 }
 
-function WeekTrendChart({ weekStats }: { weekStats: ReserveWeekStat[] }) {
+function WeekTrendChart({
+  weekStats,
+  createdLabel,
+  closedLabel,
+}: {
+  weekStats: ReserveWeekStat[];
+  createdLabel: string;
+  closedLabel: string;
+}) {
   const maxVal = Math.max(...weekStats.map(w => Math.max(w.created, w.closed)), 1);
   return (
     <View style={styles.chartContainer}>
       <View style={styles.chartLegend}>
         <View style={styles.legendItem}>
           <View style={[styles.legendDot, { backgroundColor: C.open }]} />
-          <Text style={styles.legendText}>Créées</Text>
+          <Text style={styles.legendText}>{createdLabel}</Text>
         </View>
         <View style={styles.legendItem}>
           <View style={[styles.legendDot, { backgroundColor: C.closed }]} />
-          <Text style={styles.legendText}>Clôturées</Text>
+          <Text style={styles.legendText}>{closedLabel}</Text>
         </View>
       </View>
       <View style={styles.chartBars}>
@@ -162,6 +169,8 @@ function CompanyTable({ stats }: { stats: CompanyClosureStat[] }) {
 }
 
 export default function DashboardScreen() {
+  const { t } = useTranslation();
+  const { effectiveLanguage } = useLanguage();
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const { stats, reserves, companies, tasks, reload, chantiers, activeChantier, realtimeConnected, isLoading: appLoading } = useApp();
@@ -235,8 +244,15 @@ export default function DashboardScreen() {
     [incidents]
   );
 
-  const today = new Date().toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' });
+  const today = new Date().toLocaleDateString(localeForLanguage(effectiveLanguage), { weekday: 'long', day: 'numeric', month: 'long' });
   const firstName = user?.name?.split(' ')[0] ?? null;
+
+  const priorityLabels = useMemo(() => ({
+    low: effectiveLanguage === 'en' ? 'Low' : effectiveLanguage === 'es' ? 'Baja' : 'Basse',
+    medium: effectiveLanguage === 'en' ? 'Medium' : effectiveLanguage === 'es' ? 'Media' : 'Moyenne',
+    high: effectiveLanguage === 'en' ? 'High' : effectiveLanguage === 'es' ? 'Alta' : 'Haute',
+    critical: t('dashboard.critical'),
+  }), [effectiveLanguage, t]);
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
@@ -299,6 +315,11 @@ export default function DashboardScreen() {
     return companies;
   }, [isSousTraitant, userCompany, companies]);
 
+  const visibleCompanyPlural =
+    effectiveLanguage === 'en'
+      ? (visibleCompanies.length > 1 ? 'ies' : 'y')
+      : (visibleCompanies.length > 1 ? 's' : '');
+
   return (
     <View style={styles.container}>
       <View style={[styles.header, { paddingTop: topPad + 12 }]}>
@@ -310,7 +331,7 @@ export default function DashboardScreen() {
             </View>
             <View style={styles.headerGreeting}>
               <Text style={styles.brand} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.85}>
-                {firstName ? `Bonjour, ${firstName} 👋` : 'BuildTrack'}
+                {firstName ? t('dashboard.hello', { name: firstName }) : 'BuildTrack'}
               </Text>
               <Text style={styles.date}>{today}</Text>
             </View>
@@ -385,7 +406,7 @@ export default function DashboardScreen() {
                 activeOpacity={0.75}
               >
                 <Ionicons name="add-circle-outline" size={14} color={C.textMuted} />
-                <Text style={styles.chantierPillEmptyText}>Ajouter un chantier</Text>
+                <Text style={styles.chantierPillEmptyText}>{t('dashboard.addChantier')}</Text>
               </TouchableOpacity>
             )
           )
@@ -410,7 +431,7 @@ export default function DashboardScreen() {
               color={viewMode === 'chantier' ? C.primary : C.textMuted}
             />
             <Text style={[styles.viewToggleText, viewMode === 'chantier' && styles.viewToggleTextActive]}>
-              {activeChantier?.name ?? 'Chantier'}
+              {activeChantier?.name ?? t('dashboard.chantier')}
             </Text>
           </TouchableOpacity>
           <TouchableOpacity
@@ -423,7 +444,7 @@ export default function DashboardScreen() {
               color={viewMode === 'portfolio' ? C.primary : C.textMuted}
             />
             <Text style={[styles.viewToggleText, viewMode === 'portfolio' && styles.viewToggleTextActive]}>
-              Portefeuille
+              {t('dashboard.portfolio')}
             </Text>
             <View style={styles.viewToggleBadge}>
               <Text style={styles.viewToggleBadgeText}>{chantiers.length}</Text>
@@ -443,7 +464,7 @@ export default function DashboardScreen() {
           activeOpacity={0.85}
         >
           <Ionicons name="add" size={28} color="#fff" />
-          <Text style={styles.fabLabel}>Nouvelle réserve</Text>
+          <Text style={styles.fabLabel}>{t('dashboard.newReserve')}</Text>
         </TouchableOpacity>
       )}
 
@@ -458,7 +479,7 @@ export default function DashboardScreen() {
         {isSousTraitant && userCompany && (
           <View style={styles.scopeBanner}>
             <View style={[styles.scopeDot, { backgroundColor: userCompany.color }]} />
-            <Text style={styles.scopeText}>Données filtrées pour <Text style={styles.scopeBold}>{userCompany.name}</Text></Text>
+            <Text style={styles.scopeText}>{t('dashboard.subcontractorScope', { company: userCompany.name })}</Text>
           </View>
         )}
 
@@ -467,9 +488,9 @@ export default function DashboardScreen() {
             <View style={styles.dashEmptyIconWrap}>
               <Ionicons name="speedometer-outline" size={44} color={C.primary} />
             </View>
-            <Text style={styles.dashEmptyTitle}>Aucun chantier actif</Text>
+            <Text style={styles.dashEmptyTitle}>{t('dashboard.noActiveChantier')}</Text>
             <Text style={styles.dashEmptySubtitle}>
-              Créez votre premier chantier pour piloter vos chantiers depuis ce tableau de bord.
+              {t('dashboard.noActiveChantierHint')}
             </Text>
             <View style={styles.dashEmptyFeatures}>
               <View style={styles.dashEmptyFeatureRow}>
@@ -477,8 +498,8 @@ export default function DashboardScreen() {
                   <Ionicons name="pulse-outline" size={14} color="#fff" />
                 </View>
                 <View style={{ flex: 1 }}>
-                  <Text style={styles.dashEmptyFeatureTitle}>Vue d'ensemble en temps réel</Text>
-                  <Text style={styles.dashEmptyFeatureDesc}>Suivez vos KPIs, l'avancement et les alertes de tous vos chantiers sur un seul écran.</Text>
+                  <Text style={styles.dashEmptyFeatureTitle}>{t('dashboard.overviewRealtime')}</Text>
+                  <Text style={styles.dashEmptyFeatureDesc}>{t('dashboard.overviewRealtimeHint')}</Text>
                 </View>
               </View>
               <View style={styles.dashEmptyFeatureRow}>
@@ -486,8 +507,8 @@ export default function DashboardScreen() {
                   <Ionicons name="warning-outline" size={14} color="#fff" />
                 </View>
                 <View style={{ flex: 1 }}>
-                  <Text style={styles.dashEmptyFeatureTitle}>Alertes & priorités</Text>
-                  <Text style={styles.dashEmptyFeatureDesc}>Identifiez immédiatement les réserves critiques, retards et tâches urgentes.</Text>
+                  <Text style={styles.dashEmptyFeatureTitle}>{t('dashboard.alertsPriorities')}</Text>
+                  <Text style={styles.dashEmptyFeatureDesc}>{t('dashboard.alertsPrioritiesHint')}</Text>
                 </View>
               </View>
               <View style={styles.dashEmptyFeatureRow}>
@@ -495,15 +516,15 @@ export default function DashboardScreen() {
                   <Ionicons name="bar-chart-outline" size={14} color="#fff" />
                 </View>
                 <View style={{ flex: 1 }}>
-                  <Text style={styles.dashEmptyFeatureTitle}>Analyses & tendances</Text>
-                  <Text style={styles.dashEmptyFeatureDesc}>Visualisez l'évolution hebdomadaire et les performances de chaque entreprise.</Text>
+                  <Text style={styles.dashEmptyFeatureTitle}>{t('dashboard.analyticsTrends')}</Text>
+                  <Text style={styles.dashEmptyFeatureDesc}>{t('dashboard.analyticsTrendsHint')}</Text>
                 </View>
               </View>
             </View>
             {permissions.canCreate && (
               <TouchableOpacity style={styles.dashEmptyBtn} onPress={() => router.push('/chantier/new' as any)}>
                 <Ionicons name="add-circle-outline" size={16} color="#fff" />
-                <Text style={styles.dashEmptyBtnText}>Créer un chantier</Text>
+                <Text style={styles.dashEmptyBtnText}>{t('dashboard.createChantier')}</Text>
               </TouchableOpacity>
             )}
           </View>
@@ -519,7 +540,7 @@ export default function DashboardScreen() {
           <>
         <View style={styles.kpiGrid}>
           <KPICard
-            label="Total réserves"
+            label={t('dashboard.totalReserves')}
             value={visibleStats.total}
             color={C.primary}
             icon="list"
@@ -527,7 +548,7 @@ export default function DashboardScreen() {
             onPress={() => router.navigate('/(tabs)/reserves' as any)}
           />
           <KPICard
-            label="Actives"
+            label={t('dashboard.active')}
             value={visibleStats.open + visibleStats.inProgress}
             color={C.open}
             icon="alert-circle"
@@ -535,7 +556,7 @@ export default function DashboardScreen() {
             onPress={() => router.navigate('/(tabs)/reserves' as any)}
           />
           <KPICard
-            label="Critiques"
+            label={t('dashboard.critical')}
             value={criticalReserves.length}
             color={C.critical}
             icon="warning"
@@ -543,7 +564,7 @@ export default function DashboardScreen() {
             onPress={() => router.navigate('/(tabs)/reserves' as any)}
           />
           <KPICard
-            label="Clôturées"
+            label={t('dashboard.closed')}
             value={visibleStats.closed}
             color={C.closed}
             icon="checkmark-circle"
@@ -570,7 +591,9 @@ export default function DashboardScreen() {
                 {lateTasks.length}
               </Text>
               <Text style={styles.kpiLabel}>
-                {lateTasks.length === 0 ? 'Aucune tâche en retard' : `Tâche${lateTasks.length > 1 ? 's' : ''} en retard`}
+                {lateTasks.length === 0
+                  ? t('dashboard.noLateTasks')
+                  : t('dashboard.lateTasks', { count: lateTasks.length })}
               </Text>
             </View>
             <Ionicons name="chevron-forward" size={16} color={C.textMuted} />
@@ -595,7 +618,9 @@ export default function DashboardScreen() {
                 {openIncidents.length}
               </Text>
               <Text style={styles.kpiLabel}>
-                {openIncidents.length === 0 ? 'Aucun incident ouvert' : `Incident${openIncidents.length > 1 ? 's' : ''} non résolu${openIncidents.length > 1 ? 's' : ''}`}
+                {openIncidents.length === 0
+                  ? t('dashboard.noOpenIncidents')
+                  : t('dashboard.openIncidents', { count: openIncidents.length })}
               </Text>
             </View>
             <Ionicons name="chevron-forward" size={16} color={C.textMuted} />
@@ -609,9 +634,9 @@ export default function DashboardScreen() {
             <View style={styles.onboardIconWrap}>
               <Ionicons name="construct" size={32} color={C.primary} />
             </View>
-            <Text style={styles.onboardTitle}>Bienvenue sur BuildTrack</Text>
+            <Text style={styles.onboardTitle}>{t('dashboard.welcome')}</Text>
             <Text style={styles.onboardText}>
-              Votre chantier numérique est prêt. Commencez par créer votre première réserve ou configurer les entreprises intervenantes.
+              {t('dashboard.welcomeHint')}
             </Text>
             <View style={styles.onboardActions}>
               <TouchableOpacity
@@ -619,7 +644,7 @@ export default function DashboardScreen() {
                 onPress={() => router.push('/reserve/new' as any)}
               >
                 <Ionicons name="add-circle-outline" size={16} color="#fff" />
-                <Text style={styles.onboardBtnText}>Créer une réserve</Text>
+                <Text style={styles.onboardBtnText}>{t('dashboard.createReserve')}</Text>
               </TouchableOpacity>
               {permissions.canManageTeams && (
                 <TouchableOpacity
@@ -627,7 +652,7 @@ export default function DashboardScreen() {
                   onPress={() => router.navigate('/(tabs)/equipes' as any)}
                 >
                   <Ionicons name="people-outline" size={16} color={C.primary} />
-                  <Text style={styles.onboardBtnSecondaryText}>Configurer les équipes</Text>
+                  <Text style={styles.onboardBtnSecondaryText}>{t('dashboard.configureTeams')}</Text>
                 </TouchableOpacity>
               )}
             </View>
@@ -637,7 +662,7 @@ export default function DashboardScreen() {
         {visibleStats.total > 0 && (
           <View style={styles.card}>
             <View style={styles.cardHeader}>
-              <Text style={styles.cardTitle}>Avancement global</Text>
+              <Text style={styles.cardTitle}>{t('dashboard.globalProgress')}</Text>
               <View style={styles.pctBadge}>
                 <Text style={styles.pct}>{visibleStats.progress}%</Text>
               </View>
@@ -645,19 +670,19 @@ export default function DashboardScreen() {
             <View style={styles.progressBg}>
               <View style={[styles.progressFill, { width: `${visibleStats.progress}%` as any }]} />
             </View>
-            <Text style={styles.progressHint}>{visibleStats.closed} / {visibleStats.total} réserves clôturées</Text>
+            <Text style={styles.progressHint}>{t('dashboard.closedProgress', { closed: visibleStats.closed, total: visibleStats.total })}</Text>
           </View>
         )}
 
         {visibleStats.total > 0 && (
           <View style={styles.card}>
-            <Text style={styles.cardTitle}>Répartition des réserves</Text>
+            <Text style={styles.cardTitle}>{t('dashboard.reserveBreakdown')}</Text>
             <View style={styles.statusBars}>
-              <ReserveStatusBar label="Ouvert" count={visibleStats.open} total={visibleStats.total} color={C.open} />
-              <ReserveStatusBar label="En cours" count={visibleStats.inProgress} total={visibleStats.total} color={C.inProgress} />
-              <ReserveStatusBar label="En attente" count={visibleStats.waiting} total={visibleStats.total} color={C.waiting} />
-              <ReserveStatusBar label="Vérification" count={visibleStats.verification} total={visibleStats.total} color={C.verification} />
-              <ReserveStatusBar label="Clôturé" count={visibleStats.closed} total={visibleStats.total} color={C.closed} />
+              <ReserveStatusBar label={effectiveLanguage === 'en' ? 'Open' : effectiveLanguage === 'es' ? 'Abierta' : 'Ouvert'} count={visibleStats.open} total={visibleStats.total} color={C.open} />
+              <ReserveStatusBar label={effectiveLanguage === 'en' ? 'In progress' : effectiveLanguage === 'es' ? 'En curso' : 'En cours'} count={visibleStats.inProgress} total={visibleStats.total} color={C.inProgress} />
+              <ReserveStatusBar label={effectiveLanguage === 'en' ? 'Pending' : effectiveLanguage === 'es' ? 'En espera' : 'En attente'} count={visibleStats.waiting} total={visibleStats.total} color={C.waiting} />
+              <ReserveStatusBar label={effectiveLanguage === 'en' ? 'Verification' : effectiveLanguage === 'es' ? 'Verificación' : 'Vérification'} count={visibleStats.verification} total={visibleStats.total} color={C.verification} />
+              <ReserveStatusBar label={t('dashboard.closed')} count={visibleStats.closed} total={visibleStats.total} color={C.closed} />
             </View>
           </View>
         )}
@@ -665,7 +690,7 @@ export default function DashboardScreen() {
         {visibleStats.total > 0 && (
           <View style={styles.card}>
             <View style={styles.cardHeader}>
-              <Text style={styles.cardTitle}>Analyse & tendances</Text>
+              <Text style={styles.cardTitle}>{t('dashboard.analytics')}</Text>
               {!isSousTraitant && (
                 <View style={styles.tabSwitch}>
                   <TouchableOpacity
@@ -673,7 +698,7 @@ export default function DashboardScreen() {
                     onPress={() => setAnalyticsTab('trend')}
                   >
                     <Text style={[styles.tabSwitchText, analyticsTab === 'trend' && styles.tabSwitchTextActive]}>
-                      Évolution
+                      {t('dashboard.trend')}
                     </Text>
                   </TouchableOpacity>
                   <TouchableOpacity
@@ -681,7 +706,7 @@ export default function DashboardScreen() {
                     onPress={() => setAnalyticsTab('companies')}
                   >
                     <Text style={[styles.tabSwitchText, analyticsTab === 'companies' && styles.tabSwitchTextActive]}>
-                      Entreprises
+                      {t('dashboard.companies')}
                     </Text>
                   </TouchableOpacity>
                 </View>
@@ -690,18 +715,22 @@ export default function DashboardScreen() {
 
             {(isSousTraitant || analyticsTab === 'trend') && (
               <>
-                <Text style={styles.chartSubtitle}>8 dernières semaines</Text>
-                <WeekTrendChart weekStats={weekStats} />
+                <Text style={styles.chartSubtitle}>{t('dashboard.lastWeeks')}</Text>
+                <WeekTrendChart
+                  weekStats={weekStats}
+                  createdLabel={t('dashboard.created')}
+                  closedLabel={t('dashboard.closedPlural')}
+                />
               </>
             )}
 
             {!isSousTraitant && analyticsTab === 'companies' && (
               <>
                 {companyStats.length === 0 ? (
-                  <Text style={styles.emptyAnalytics}>Aucune donnée entreprise disponible</Text>
+                  <Text style={styles.emptyAnalytics}>{t('dashboard.noCompanyData')}</Text>
                 ) : (
                   <>
-                    <Text style={styles.chartSubtitle}>Taux de clôture par entreprise</Text>
+                    <Text style={styles.chartSubtitle}>{t('dashboard.companyClosureRate')}</Text>
                     <CompanyTable stats={companyStats} />
                   </>
                 )}
@@ -716,7 +745,7 @@ export default function DashboardScreen() {
               <View style={styles.alertIconWrap}>
                 <Ionicons name="warning" size={16} color={C.critical} />
               </View>
-              <Text style={styles.alertTitle}>Alertes critiques</Text>
+              <Text style={styles.alertTitle}>{t('dashboard.criticalAlerts')}</Text>
               <View style={styles.alertCount}>
                 <Text style={styles.alertCountText}>{criticalReserves.length}</Text>
               </View>
@@ -730,7 +759,7 @@ export default function DashboardScreen() {
                 <View style={styles.alertDot} />
                 <View style={{ flex: 1 }}>
                   <Text style={styles.alertText}>{r.title}</Text>
-                  <Text style={styles.alertSub}>{r.building ? `Bât. ${r.building} — ` : ''}Échéance : {r.deadline}</Text>
+                  <Text style={styles.alertSub}>{r.building ? `${t('dashboard.buildingShort')} ${r.building} — ` : ''}{t('dashboard.deadline')} : {r.deadline}</Text>
                 </View>
                 <Ionicons name="chevron-forward" size={14} color={C.critical} />
               </TouchableOpacity>
@@ -744,7 +773,7 @@ export default function DashboardScreen() {
               <View style={styles.overdueIconWrap}>
                 <Ionicons name="calendar-outline" size={16} color={C.high} />
               </View>
-              <Text style={styles.overdueTitle}>Réserves en retard</Text>
+              <Text style={styles.overdueTitle}>{t('dashboard.overdueReserves')}</Text>
               <View style={styles.overdueCount}>
                 <Text style={styles.overdueCountText}>{overdueNonCritical.length}</Text>
               </View>
@@ -758,7 +787,7 @@ export default function DashboardScreen() {
                 <View style={[styles.alertDot, { backgroundColor: C.high }]} />
                 <View style={{ flex: 1 }}>
                   <Text style={styles.alertText}>{r.title}</Text>
-                  <Text style={styles.alertSub}>{r.building ? `Bât. ${r.building} — ` : ''}{PRIORITY_LABELS[r.priority] ?? r.priority} — Échéance : {r.deadline}</Text>
+                  <Text style={styles.alertSub}>{r.building ? `${t('dashboard.buildingShort')} ${r.building} — ` : ''}{priorityLabels[r.priority as keyof typeof priorityLabels] ?? r.priority} — {t('dashboard.deadline')} : {r.deadline}</Text>
                 </View>
                 <Ionicons name="chevron-forward" size={14} color={C.high} />
               </TouchableOpacity>
@@ -780,9 +809,9 @@ export default function DashboardScreen() {
           return (
             <View style={styles.card}>
               <View style={styles.cardHeader}>
-                <Text style={styles.cardTitle}>Personnel aujourd'hui</Text>
+                <Text style={styles.cardTitle}>{t('dashboard.personnelToday')}</Text>
                 <Text style={styles.cardSub}>
-                  {`${stats.totalWorkers} / ${stats.plannedWorkers} personnes`}
+                  {t('dashboard.peopleCount', { actual: stats.totalWorkers, planned: stats.plannedWorkers })}
                 </Text>
               </View>
 
@@ -795,7 +824,7 @@ export default function DashboardScreen() {
                 >
                   <Ionicons name="people-outline" size={16} color={C.textSub} />
                   <Text style={styles.personnelEmptyText}>
-                    Aucune présence renseignée · {visibleCompanies.length} entreprise{visibleCompanies.length > 1 ? 's' : ''}
+                    {t('dashboard.noAttendance', { count: visibleCompanies.length, plural: visibleCompanyPlural })}
                   </Text>
                   <Ionicons name="chevron-down" size={14} color={C.textSub} />
                 </TouchableOpacity>
@@ -830,7 +859,10 @@ export default function DashboardScreen() {
                 >
                   <Ionicons name="chevron-down" size={14} color={C.primary} />
                   <Text style={styles.personnelToggleText}>
-                    Voir les {inactiveCount} autre{inactiveCount > 1 ? 's' : ''} entreprise{inactiveCount > 1 ? 's' : ''}
+                    {t('dashboard.seeOtherCompanies', {
+                      count: inactiveCount,
+                      plural: effectiveLanguage === 'en' ? (inactiveCount > 1 ? 'ies' : 'y') : (inactiveCount > 1 ? 's' : ''),
+                    })}
                   </Text>
                 </TouchableOpacity>
               )}
@@ -841,7 +873,7 @@ export default function DashboardScreen() {
                   activeOpacity={0.7}
                 >
                   <Ionicons name="chevron-up" size={14} color={C.primary} />
-                  <Text style={styles.personnelToggleText}>Réduire</Text>
+                  <Text style={styles.personnelToggleText}>{t('dashboard.reduce')}</Text>
                 </TouchableOpacity>
               )}
             </View>
@@ -854,22 +886,22 @@ export default function DashboardScreen() {
               <View style={styles.delayIconWrap}>
                 <Ionicons name="time-outline" size={16} color={C.waiting} />
               </View>
-              <Text style={styles.delayTitle}>Tâches en retard</Text>
+              <Text style={styles.delayTitle}>{lateTasks.length === 1 ? t('dashboard.lateTasks', { count: 1 }) : t('dashboard.lateTasks', { count: lateTasks.length })}</Text>
               <View style={styles.delayCount}>
                 <Text style={styles.delayCountText}>{lateTasks.length}</Text>
               </View>
             </View>
-            {lateTasks.map(t => (
+            {lateTasks.map(task => (
               <TouchableOpacity
-                key={t.id}
+                key={task.id}
                 style={styles.delayItem}
                 onPress={() => router.push('/planning' as any)}
               >
                 <View style={styles.delayDot} />
                 <View style={{ flex: 1 }}>
-                  <Text style={styles.alertText}>{t.title}</Text>
+                  <Text style={styles.alertText}>{task.title}</Text>
                   <Text style={styles.alertSub}>
-                    {t.status === 'delayed' ? 'Marquée en retard' : 'Deadline dépassée'} — {t.deadline}
+                    {(task.status === 'delayed' ? t('dashboard.markedLate') : t('dashboard.deadlineExceeded'))} — {task.deadline}
                   </Text>
                 </View>
                 <Ionicons name="chevron-forward" size={14} color={C.waiting} />

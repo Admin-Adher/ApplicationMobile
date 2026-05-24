@@ -9,6 +9,7 @@ import {
   RESERVE_STATUS_COLORS,
   RESERVE_STATUS_LABELS,
 } from '@/lib/reserveLabels';
+import { useTranslation } from 'react-i18next';
 
 const STATUSES = [
   { key: 'all',          label: 'Tout',                               color: '#003082' },
@@ -53,7 +54,17 @@ export default function FiltersSheet({
   dxfLayers, visibleLayers, onLayersChange,
   onReset, activeFiltersCount,
 }: FiltersSheetProps) {
+  const { t, i18n } = useTranslation();
   const hasFilters = activeFiltersCount > 0;
+  const lang = i18n.language?.startsWith('en') ? 'en' : i18n.language?.startsWith('es') ? 'es' : 'fr';
+  const statusLabels = {
+    all: t('plansUi.all'),
+    open: lang === 'en' ? 'Open' : lang === 'es' ? 'Abierta' : RESERVE_STATUS_LABELS.open,
+    in_progress: lang === 'en' ? 'In progress' : lang === 'es' ? 'En curso' : RESERVE_STATUS_LABELS.in_progress,
+    waiting: lang === 'en' ? 'Pending' : lang === 'es' ? 'En espera' : RESERVE_STATUS_LABELS.waiting,
+    verification: lang === 'en' ? 'Verification' : lang === 'es' ? 'Verificación' : RESERVE_STATUS_LABELS.verification,
+    closed: lang === 'en' ? 'Closed' : lang === 'es' ? 'Cerrada' : RESERVE_STATUS_LABELS.closed,
+  };
 
   const handlePan = useRef(
     PanResponder.create({
@@ -82,7 +93,7 @@ export default function FiltersSheet({
           <View style={styles.header}>
             <View style={styles.headerLeft}>
               <Ionicons name="options-outline" size={18} color={C.primary} />
-              <Text style={styles.title}>Filtres</Text>
+              <Text style={styles.title}>{t('plansUi.filters')}</Text>
               {hasFilters && (
                 <View style={styles.activeBadge}>
                   <Text style={styles.activeBadgeText}>{activeFiltersCount}</Text>
@@ -93,7 +104,7 @@ export default function FiltersSheet({
               {hasFilters && (
                 <TouchableOpacity style={styles.resetBtn} onPress={onReset}>
                   <Ionicons name="refresh-outline" size={14} color={C.textSub} />
-                  <Text style={styles.resetText}>Réinitialiser</Text>
+                  <Text style={styles.resetText}>{t('plansUi.reset')}</Text>
                 </TouchableOpacity>
               )}
               <TouchableOpacity style={styles.closeBtn} onPress={onClose}>
@@ -108,7 +119,7 @@ export default function FiltersSheet({
             <View style={styles.section}>
               <View style={styles.sectionHeader}>
                 <Ionicons name="flag-outline" size={13} color={C.textSub} />
-                <Text style={styles.sectionTitle}>Statut</Text>
+                <Text style={styles.sectionTitle}>{t('plansUi.status')}</Text>
               </View>
               <ScrollView horizontal showsHorizontalScrollIndicator={false}>
                 <View style={styles.chipRow}>
@@ -122,12 +133,12 @@ export default function FiltersSheet({
                           isActive && { backgroundColor: s.color + '20', borderColor: s.color },
                         ]}
                         onPress={() => onStatusFilterChange(s.key)}
-                        accessibilityLabel={`Filtre statut : ${s.label}`}
+                        accessibilityLabel={`${t('plansUi.status')} : ${statusLabels[s.key]}`}
                         accessibilityState={{ selected: isActive }}
                       >
                         <View style={[styles.statusDot, { backgroundColor: s.color }]} />
                         <Text style={[styles.chipText, isActive && { color: s.color, fontFamily: 'Inter_600SemiBold' }]}>
-                          {s.label}
+                          {statusLabels[s.key]}
                         </Text>
                       </TouchableOpacity>
                     );
@@ -140,17 +151,17 @@ export default function FiltersSheet({
               <View style={styles.section}>
                 <View style={styles.sectionHeader}>
                   <Ionicons name="business-outline" size={13} color={C.textSub} />
-                  <Text style={styles.sectionTitle}>Bâtiment</Text>
+                  <Text style={styles.sectionTitle}>{t('plansUi.building')}</Text>
                 </View>
                 <ScrollView horizontal showsHorizontalScrollIndicator={false}>
                   <View style={styles.chipRow}>
                     <TouchableOpacity
                       style={[styles.chip, selectedBuilding === 'all' && styles.chipActive]}
                       onPress={() => onBuildingChange('all')}
-                      accessibilityLabel="Tous les bâtiments"
+                      accessibilityLabel={t('plansUi.building')}
                     >
                       <Ionicons name="grid-outline" size={12} color={selectedBuilding === 'all' ? '#fff' : C.textSub} />
-                      <Text style={[styles.chipText, selectedBuilding === 'all' && styles.chipTextActive]}>Tous</Text>
+                      <Text style={[styles.chipText, selectedBuilding === 'all' && styles.chipTextActive]}>{t('plansUi.all')}</Text>
                     </TouchableOpacity>
                     {buildings.map(b => (
                       <TouchableOpacity
@@ -172,7 +183,7 @@ export default function FiltersSheet({
               <View style={styles.section}>
                 <View style={styles.sectionHeader}>
                   <Ionicons name="layers-outline" size={13} color={C.textSub} />
-                  <Text style={styles.sectionTitle}>Niveau du plan</Text>
+                  <Text style={styles.sectionTitle}>{t('plansUi.planLevel')}</Text>
                 </View>
                 <ScrollView horizontal showsHorizontalScrollIndicator={false}>
                   <View style={styles.chipRow}>
@@ -180,7 +191,7 @@ export default function FiltersSheet({
                       style={[styles.chip, styles.levelChip, selectedLevel === 'all' && styles.levelChipActive]}
                       onPress={() => onLevelChange('all')}
                     >
-                      <Text style={[styles.chipText, selectedLevel === 'all' && { color: '#8B5CF6' }]}>Tous</Text>
+                      <Text style={[styles.chipText, selectedLevel === 'all' && { color: '#8B5CF6' }]}>{t('plansUi.all')}</Text>
                     </TouchableOpacity>
                     {planLevels.map(lvl => (
                       <TouchableOpacity
@@ -200,7 +211,7 @@ export default function FiltersSheet({
               <View style={styles.section}>
                 <View style={styles.sectionHeader}>
                   <Ionicons name="construct-outline" size={13} color={C.textSub} />
-                  <Text style={styles.sectionTitle}>Entreprise</Text>
+                  <Text style={styles.sectionTitle}>{t('plansUi.company')}</Text>
                 </View>
                 <ScrollView horizontal showsHorizontalScrollIndicator={false}>
                   <View style={styles.chipRow}>
@@ -208,7 +219,7 @@ export default function FiltersSheet({
                       style={[styles.chip, companyFilter === 'all' && styles.chipActive]}
                       onPress={() => onCompanyChange('all')}
                     >
-                      <Text style={[styles.chipText, companyFilter === 'all' && styles.chipTextActive]}>Toutes</Text>
+                      <Text style={[styles.chipText, companyFilter === 'all' && styles.chipTextActive]}>{t('plansUi.allFem')}</Text>
                     </TouchableOpacity>
                     {companies.map(c => (
                       <TouchableOpacity
@@ -230,7 +241,7 @@ export default function FiltersSheet({
               <View style={styles.section}>
                 <View style={styles.sectionHeader}>
                   <Ionicons name="albums-outline" size={13} color={C.textSub} />
-                  <Text style={styles.sectionTitle}>Niveau des réserves</Text>
+                  <Text style={styles.sectionTitle}>{t('plansUi.reserveLevel')}</Text>
                 </View>
                 <ScrollView horizontal showsHorizontalScrollIndicator={false}>
                   <View style={styles.chipRow}>
@@ -238,7 +249,7 @@ export default function FiltersSheet({
                       style={[styles.chip, styles.levelChip, levelFilter === 'all' && styles.levelChipActive]}
                       onPress={() => onLevelFilterChange('all')}
                     >
-                      <Text style={[styles.chipText, levelFilter === 'all' && { color: '#8B5CF6' }]}>Tous</Text>
+                      <Text style={[styles.chipText, levelFilter === 'all' && { color: '#8B5CF6' }]}>{t('plansUi.all')}</Text>
                     </TouchableOpacity>
                     {reserveLevels.map(lvl => (
                       <TouchableOpacity
@@ -258,15 +269,15 @@ export default function FiltersSheet({
               <View style={styles.section}>
                 <View style={styles.sectionHeader}>
                   <Ionicons name="layers" size={13} color={C.primary} />
-                  <Text style={styles.sectionTitle}>Calques DXF</Text>
-                  <Text style={styles.sectionCount}>{dxfLayers.length} calque{dxfLayers.length !== 1 ? 's' : ''}</Text>
+                  <Text style={styles.sectionTitle}>{t('plansUi.dxfLayers')}</Text>
+                  <Text style={styles.sectionCount}>{t('plansUi.layer', { count: dxfLayers.length })}</Text>
                 </View>
                 <View style={styles.layerGrid}>
                   <TouchableOpacity
                     style={[styles.layerChip, visibleLayers.length === 0 && styles.layerChipActive]}
                     onPress={() => onLayersChange([])}
                   >
-                    <Text style={[styles.chipText, visibleLayers.length === 0 && styles.chipTextActive]}>Tous</Text>
+                    <Text style={[styles.chipText, visibleLayers.length === 0 && styles.chipTextActive]}>{t('plansUi.all')}</Text>
                   </TouchableOpacity>
                   {dxfLayers.map(layer => {
                     const isActive = visibleLayers.includes(layer);
@@ -280,7 +291,7 @@ export default function FiltersSheet({
                         }}
                       >
                         <View style={[styles.layerDot, { backgroundColor: isActive ? C.primary : C.textMuted }]} />
-                        <Text style={[styles.chipText, isActive && styles.chipTextActive]} numberOfLines={1}>{layer || '(défaut)'}</Text>
+                        <Text style={[styles.chipText, isActive && styles.chipTextActive]} numberOfLines={1}>{layer || t('plansUi.defaultLayer')}</Text>
                       </TouchableOpacity>
                     );
                   })}
@@ -290,8 +301,8 @@ export default function FiltersSheet({
 
           </ScrollView>
 
-          <TouchableOpacity style={styles.applyBtn} onPress={onClose} accessibilityLabel="Appliquer les filtres">
-            <Text style={styles.applyBtnText}>Appliquer</Text>
+          <TouchableOpacity style={styles.applyBtn} onPress={onClose} accessibilityLabel={t('plansUi.apply')}>
+            <Text style={styles.applyBtnText}>{t('plansUi.apply')}</Text>
           </TouchableOpacity>
         </TouchableOpacity>
       </TouchableOpacity>

@@ -5,6 +5,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { C } from '@/constants/colors';
 import { Profile } from '@/constants/types';
 import { ROLE_LABELS } from '@/constants/roles';
+import { useTranslation } from 'react-i18next';
 
 const AVATAR_COLORS = [C.primary, '#059669', '#D97706', '#7C3AED', '#DB2777', '#EA580C', '#0891B2'];
 const GROUP_COLORS = ['#7C3AED', '#059669', '#D97706', '#0A84FF', '#EC4899', '#EA580C', '#0891B2', '#65A30D', '#DC2626', '#6366F1'];
@@ -24,6 +25,7 @@ interface Props {
 }
 
 export default function NewGroupModal({ visible, onClose, profiles, currentUserName, onCreate }: Props) {
+  const { t } = useTranslation();
   const insets = useSafeAreaInsets();
   const [search, setSearch] = useState('');
   const [selected, setSelected] = useState<Profile[]>([]);
@@ -37,9 +39,9 @@ export default function NewGroupModal({ visible, onClose, profiles, currentUserN
     const q = search.toLowerCase();
     return others.filter(p =>
       p.name.toLowerCase().includes(q) ||
-      (ROLE_LABELS[p.role] ?? '').toLowerCase().includes(q)
+      t(`roles.${p.role}`, { defaultValue: ROLE_LABELS[p.role] ?? p.role }).toLowerCase().includes(q)
     );
-  }, [profiles, currentUserName, search]);
+  }, [profiles, currentUserName, search, t]);
 
   function toggleSelect(p: Profile) {
     setSelected(prev =>
@@ -81,18 +83,18 @@ export default function NewGroupModal({ visible, onClose, profiles, currentUserN
           <TouchableOpacity onPress={step === 'name' ? () => setStep('members') : handleClose} style={styles.closeBtn}>
             <Ionicons name={step === 'name' ? 'chevron-back' : 'close'} size={22} color={C.text} />
           </TouchableOpacity>
-          <Text style={styles.title}>{step === 'members' ? 'Nouveau groupe' : 'Nom du groupe'}</Text>
+          <Text style={styles.title}>{step === 'members' ? t('conversationModals.newGroup') : t('conversationModals.groupName')}</Text>
           {step === 'members' ? (
             <TouchableOpacity
               onPress={handleNext}
               style={[styles.nextBtn, selected.length < 2 && styles.nextBtnDisabled]}
               disabled={selected.length < 2}
             >
-              <Text style={[styles.nextBtnText, selected.length < 2 && { opacity: 0.4 }]}>Suivant</Text>
+              <Text style={[styles.nextBtnText, selected.length < 2 && { opacity: 0.4 }]}>{t('conversationModals.next')}</Text>
             </TouchableOpacity>
           ) : (
             <TouchableOpacity onPress={handleCreate} style={[styles.nextBtn, { backgroundColor: selectedColor }]}>
-              <Text style={styles.nextBtnText}>Créer</Text>
+              <Text style={styles.nextBtnText}>{t('conversationModals.create')}</Text>
             </TouchableOpacity>
           )}
         </View>
@@ -118,14 +120,14 @@ export default function NewGroupModal({ visible, onClose, profiles, currentUserN
 
             <View style={styles.info}>
               <Ionicons name="information-circle-outline" size={14} color={C.textMuted} />
-              <Text style={styles.infoText}>Sélectionnez au moins 2 membres pour créer un groupe</Text>
+              <Text style={styles.infoText}>{t('conversationModals.selectMembersHint')}</Text>
             </View>
 
             <View style={styles.searchWrap}>
               <Ionicons name="search-outline" size={16} color={C.textMuted} />
               <TextInput
                 style={styles.searchInput}
-                placeholder="Rechercher un membre..."
+                placeholder={t('conversationModals.searchMember')}
                 placeholderTextColor={C.textMuted}
                 value={search}
                 onChangeText={setSearch}
@@ -146,7 +148,7 @@ export default function NewGroupModal({ visible, onClose, profiles, currentUserN
               ListEmptyComponent={() => (
                 <View style={styles.empty}>
                   <Ionicons name="people-outline" size={36} color={C.textMuted} />
-                  <Text style={styles.emptyText}>Aucun utilisateur trouvé</Text>
+                  <Text style={styles.emptyText}>{t('conversationModals.noUserFound')}</Text>
                 </View>
               )}
               renderItem={({ item }) => {
@@ -163,7 +165,7 @@ export default function NewGroupModal({ visible, onClose, profiles, currentUserN
                     </View>
                     <View style={styles.userInfo}>
                       <Text style={styles.userName}>{item.name}</Text>
-                      <Text style={styles.userRole}>{ROLE_LABELS[item.role] ?? item.role}</Text>
+                      <Text style={styles.userRole}>{t(`roles.${item.role}`, { defaultValue: ROLE_LABELS[item.role] ?? item.role })}</Text>
                     </View>
                     <View style={[styles.checkCircle, sel && { backgroundColor: selectedColor, borderColor: selectedColor }]}>
                       {sel && <Ionicons name="checkmark" size={14} color="#fff" />}
@@ -181,16 +183,16 @@ export default function NewGroupModal({ visible, onClose, profiles, currentUserN
               </View>
               <View style={{ flex: 1 }}>
                 <Text style={[styles.groupPreviewName, { color: selectedColor }]} numberOfLines={1}>
-                  {groupName || 'Nom du groupe'}
+                  {groupName || t('conversationModals.groupNamePreview')}
                 </Text>
-                <Text style={styles.groupPreviewSub}>{selected.length + 1} membres</Text>
+            <Text style={styles.groupPreviewSub}>{t('conversationModals.members', { count: selected.length + 1 })}</Text>
               </View>
             </View>
 
-            <Text style={styles.label}>Nom du groupe</Text>
+            <Text style={styles.label}>{t('conversationModals.groupName')}</Text>
             <TextInput
               style={styles.input}
-              placeholder="ex: Équipe Bâtiment A"
+              placeholder={t('conversationModals.groupNamePlaceholder')}
               placeholderTextColor={C.textMuted}
               value={groupName}
               onChangeText={setGroupName}
@@ -198,7 +200,7 @@ export default function NewGroupModal({ visible, onClose, profiles, currentUserN
               maxLength={40}
             />
 
-            <Text style={styles.label}>Couleur</Text>
+            <Text style={styles.label}>{t('conversationModals.color')}</Text>
             <View style={styles.colorRow}>
               {GROUP_COLORS.map(col => (
                 <TouchableOpacity
@@ -212,14 +214,14 @@ export default function NewGroupModal({ visible, onClose, profiles, currentUserN
               ))}
             </View>
 
-            <Text style={styles.label}>Membres ({selected.length + 1})</Text>
+            <Text style={styles.label}>{t('conversationModals.members', { count: selected.length + 1 })}</Text>
             <View style={styles.membersPreview}>
               <View style={styles.memberRow}>
                 <View style={[styles.memberAvatar, { backgroundColor: C.primary + '25' }]}>
                   <Text style={[styles.memberAvatarText, { color: C.primary }]}>{currentUserName.charAt(0).toUpperCase()}</Text>
                 </View>
                 <Text style={styles.memberName}>{currentUserName}</Text>
-                <Text style={styles.youBadge}>Vous</Text>
+                <Text style={styles.youBadge}>{t('conversationModals.you')}</Text>
               </View>
               {selected.map(p => {
                 const color = getAvatarColor(p.name);
@@ -229,7 +231,7 @@ export default function NewGroupModal({ visible, onClose, profiles, currentUserN
                       <Text style={[styles.memberAvatarText, { color }]}>{p.name.charAt(0).toUpperCase()}</Text>
                     </View>
                     <Text style={styles.memberName}>{p.name}</Text>
-                    <Text style={styles.memberRoleLabel}>{ROLE_LABELS[p.role] ?? p.role}</Text>
+                    <Text style={styles.memberRoleLabel}>{t(`roles.${p.role}`, { defaultValue: ROLE_LABELS[p.role] ?? p.role })}</Text>
                   </View>
                 );
               })}

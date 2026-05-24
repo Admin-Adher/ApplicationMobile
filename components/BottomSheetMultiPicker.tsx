@@ -6,6 +6,7 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { C } from '@/constants/colors';
+import { useTranslation } from 'react-i18next';
 
 export interface MultiPickerOption {
   label: string;
@@ -24,8 +25,9 @@ interface Props {
 }
 
 export default function BottomSheetMultiPicker({
-  label, options, values, onChange, placeholder, noneLabel = 'Aucun lot sélectionné',
+  label, options, values, onChange, placeholder, noneLabel,
 }: Props) {
+  const { t } = useTranslation();
   const [open, setOpen] = useState(false);
   const insets = useSafeAreaInsets();
 
@@ -60,7 +62,7 @@ export default function BottomSheetMultiPicker({
       <TouchableOpacity style={styles.trigger} onPress={() => setOpen(true)} activeOpacity={0.75}>
         <View style={styles.triggerLeft}>
           {selectedOptions.length === 0 ? (
-            <Text style={styles.triggerPlaceholder}>{placeholder ?? noneLabel}</Text>
+            <Text style={styles.triggerPlaceholder}>{placeholder ?? noneLabel ?? t('picker.noneSelected')}</Text>
           ) : (
             <View style={styles.chipsRow}>
               {selectedOptions.map(opt => (
@@ -105,11 +107,11 @@ export default function BottomSheetMultiPicker({
             <View style={styles.sheetHeaderRight}>
               {values.length > 0 && (
                 <TouchableOpacity onPress={clearAll} style={styles.clearBtn}>
-                  <Text style={styles.clearBtnText}>Tout effacer</Text>
+                  <Text style={styles.clearBtnText}>{t('picker.clearAll')}</Text>
                 </TouchableOpacity>
               )}
               <View style={styles.countBadge}>
-                <Text style={styles.countBadgeText}>{values.length} sélectionné{values.length > 1 ? 's' : ''}</Text>
+                <Text style={styles.countBadgeText}>{t('picker.selected', { count: values.length })}</Text>
               </View>
             </View>
           </View>
@@ -150,7 +152,7 @@ export default function BottomSheetMultiPicker({
           </ScrollView>
 
           <TouchableOpacity style={styles.doneBtn} onPress={() => setOpen(false)}>
-            <Text style={styles.doneBtnText}>Confirmer la sélection</Text>
+            <Text style={styles.doneBtnText}>{t('picker.confirm')}</Text>
           </TouchableOpacity>
         </View>
       </Modal>

@@ -1,4 +1,4 @@
-// File: /home/runner/workspace/vercel-app/app/invite/page.tsx
+// File: C:\Program Files\BuildTrack\ApplicationMobile-1\vercel-app\app\invite\page.tsx
 import * as entry from '../../../../app/invite/page.js'
 import type { ResolvingMetadata, ResolvingViewport } from 'next/dist/lib/metadata/types/metadata-interface.js'
 

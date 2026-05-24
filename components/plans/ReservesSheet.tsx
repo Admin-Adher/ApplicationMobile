@@ -9,6 +9,7 @@ import { Reserve, SitePlan } from '@/constants/types';
 import StatusBadge from '@/components/StatusBadge';
 import PriorityBadge from '@/components/PriorityBadge';
 import { useRouter } from 'expo-router';
+import { useTranslation } from 'react-i18next';
 
 interface Props {
   reserves: Reserve[];
@@ -64,6 +65,7 @@ export default function ReservesSheet({
   onReservePress, onExport, canCreate, currentPlan, activeChantierId,
   highlightedReserveId, sheetHeight, companies,
 }: Props) {
+  const { t } = useTranslation();
   const router = useRouter();
   const [expanded, setExpanded] = useState(false);
   const animY = useRef(new Animated.Value(PEEK_HEIGHT)).current;
@@ -153,7 +155,7 @@ export default function ReservesSheet({
       <View
         style={styles.handle}
         {...panResponder.panHandlers}
-        accessibilityLabel={expanded ? 'Réduire la liste des réserves' : 'Afficher la liste des réserves'}
+        accessibilityLabel={expanded ? t('plansUi.reduceReserves') : t('plansUi.showReserves')}
         accessibilityRole="button"
       >
         <View style={styles.handleBar} />
@@ -162,18 +164,18 @@ export default function ReservesSheet({
             <Ionicons name="list-outline" size={15} color={C.primary} />
             <Text style={styles.handleTitle}>
               {reserves.length > 0
-                ? `${reserves.length} réserve${reserves.length !== 1 ? 's' : ''}`
-                : 'Réserves'}
+                ? t('plansUi.reserves', { count: reserves.length })
+                : t('plansUi.reserves')}
             </Text>
             {allReserves.length > reserves.length && (
-              <Text style={styles.handleSub}>({allReserves.length} au total)</Text>
+              <Text style={styles.handleSub}>{t('plansUi.total', { count: allReserves.length })}</Text>
             )}
           </View>
           <View style={styles.handleRight}>
             <TouchableOpacity
               style={styles.exportBadge}
               onPress={onExport}
-              accessibilityLabel="Exporter en PDF"
+              accessibilityLabel={t('plansUi.exportPdf')}
             >
               <Ionicons name="document-text-outline" size={13} color={C.primary} />
               <Text style={styles.exportBadgeText}>PDF</Text>
@@ -194,12 +196,12 @@ export default function ReservesSheet({
               <Ionicons name="search-outline" size={15} color={C.textMuted} />
               <TextInput
                 style={styles.searchInput}
-                placeholder="Rechercher une réserve…"
+                placeholder={t('plansUi.searchReserve')}
                 placeholderTextColor={C.textMuted}
                 value={searchQuery}
                 onChangeText={onSearchChange}
                 returnKeyType="search"
-                accessibilityLabel="Rechercher dans les réserves"
+                accessibilityLabel={t('plansUi.searchInReserves')}
               />
               {searchQuery.length > 0 && (
                 <TouchableOpacity onPress={() => onSearchChange('')} hitSlop={8}>
@@ -220,12 +222,12 @@ export default function ReservesSheet({
                 {searchQuery ? (
                   <>
                     <Ionicons name="search-outline" size={24} color={C.textMuted} />
-                    <Text style={styles.emptyText}>Aucun résultat pour "{searchQuery}"</Text>
+                    <Text style={styles.emptyText}>{t('plansUi.noSearchResult', { query: searchQuery })}</Text>
                   </>
                 ) : (
                   <>
                     <Ionicons name="checkmark-circle-outline" size={28} color={C.closed} />
-                    <Text style={styles.emptyText}>Aucune réserve sur ce plan</Text>
+                    <Text style={styles.emptyText}>{t('plansUi.noReserveOnPlan')}</Text>
                     {canCreate && (
                       <TouchableOpacity
                         style={styles.addBtn}
@@ -242,7 +244,7 @@ export default function ReservesSheet({
                         } as any)}
                       >
                         <Ionicons name="add" size={14} color={C.primary} />
-                        <Text style={styles.addBtnText}>Ajouter une réserve</Text>
+                        <Text style={styles.addBtnText}>{t('plansUi.addReserve')}</Text>
                       </TouchableOpacity>
                     )}
                   </>
@@ -254,7 +256,7 @@ export default function ReservesSheet({
                 style={[styles.row, highlightedReserveId === r.id && styles.rowHighlighted]}
                 onPress={() => onReservePress(r)}
                 activeOpacity={0.75}
-                accessibilityLabel={`Réserve ${r.title}`}
+                accessibilityLabel={t('plansUi.reserveAccessibility', { title: r.title })}
                 accessibilityRole="button"
               >
                 <View style={[styles.pinBadge, { backgroundColor: getReservePinColor(r, companies) }]}>

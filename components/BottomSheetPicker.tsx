@@ -5,6 +5,7 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useTranslation } from 'react-i18next';
 import { C } from '@/constants/colors';
 
 export interface PickerOption {
@@ -25,8 +26,9 @@ interface Props {
 }
 
 export default function BottomSheetPicker({
-  label, options, value, onChange, placeholder, allowNone, noneLabel = 'Aucun',
+  label, options, value, onChange, placeholder, allowNone, noneLabel,
 }: Props) {
+  const { t } = useTranslation();
   const [open, setOpen] = useState(false);
   const insets = useSafeAreaInsets();
   const { height } = useWindowDimensions();
@@ -60,7 +62,7 @@ export default function BottomSheetPicker({
             <View style={[styles.colorDot, { backgroundColor: selected.color }]} />
           )}
           <Text style={[styles.triggerText, !selected && styles.triggerPlaceholder]}>
-            {selected?.label ?? placeholder ?? 'Sélectionner…'}
+            {selected?.label ?? placeholder ?? t('sharedPicker.selectPlaceholder')}
           </Text>
         </View>
         <Ionicons name="chevron-down" size={16} color={C.textMuted} />
@@ -97,7 +99,7 @@ export default function BottomSheetPicker({
                 activeOpacity={0.7}
               >
                 <Text style={[styles.optionText, !value && styles.optionTextSelected]} numberOfLines={2}>
-                  {noneLabel}
+                  {noneLabel ?? t('sharedPicker.none')}
                 </Text>
                 {!value && <Ionicons name="checkmark" size={18} color={C.primary} />}
               </TouchableOpacity>

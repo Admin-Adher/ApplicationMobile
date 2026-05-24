@@ -163,6 +163,7 @@ export interface PdfReportPayload {
   chantierName: string;
   companyFilter: string | null;
   generatedAt: string;
+  language?: string | null;
   plans: Array<{
     id: string;
     name: string;
@@ -216,6 +217,7 @@ export interface GlobalReservesPayload {
   chantierName: string;
   companyFilter: string | null;
   generatedAt: string;
+  language?: string | null;
   reserves: Array<{
     id: string;
     title: string;
@@ -258,6 +260,7 @@ export async function generateAndSendReservesReport(
 export interface IndividualReservePayload {
   chantierName: string;
   companyColor?: string;
+  language?: string | null;
   planUri?: string;
   planX?: number;
   planY?: number;

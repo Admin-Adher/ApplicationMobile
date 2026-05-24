@@ -1,4 +1,4 @@
-// File: /home/runner/workspace/vercel-app/app/.well-known/apple-app-site-association/route.ts
+// File: C:\Program Files\BuildTrack\ApplicationMobile-1\vercel-app\app\.well-known\apple-app-site-association\route.ts
 import * as entry from '../../../../../app/.well-known/apple-app-site-association/route.js'
 import type { NextRequest } from 'next/server.js'
 

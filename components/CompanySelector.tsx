@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react';
 import { View, Text, TextInput, TouchableOpacity, StyleSheet, ScrollView } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { useTranslation } from 'react-i18next';
 import { C } from '@/constants/colors';
 import { Company } from '@/constants/types';
 
@@ -35,11 +36,12 @@ const norm = (s: string) =>
   s.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
 
 export default function CompanySelector(props: Props) {
+  const { t } = useTranslation();
   const {
     companies,
     disabled,
-    emptyText = "Aucune entreprise configurée",
-    searchPlaceholder = "Rechercher une entreprise…",
+    emptyText,
+    searchPlaceholder,
     maxListHeight = 280,
   } = props;
   const idKey: 'id' | 'name' = props.identifier ?? 'id';
@@ -69,7 +71,7 @@ export default function CompanySelector(props: Props) {
     return (
       <View style={styles.empty}>
         <Ionicons name="alert-circle-outline" size={14} color={C.medium} />
-        <Text style={styles.emptyText}>{emptyText}</Text>
+        <Text style={styles.emptyText}>{emptyText ?? t('companySelector.empty')}</Text>
       </View>
     );
   }
@@ -96,7 +98,7 @@ export default function CompanySelector(props: Props) {
         <Ionicons name="search" size={14} color={C.textMuted} style={{ marginRight: 6 }} />
         <TextInput
           style={styles.searchInput}
-          placeholder={searchPlaceholder}
+          placeholder={searchPlaceholder ?? t('companySelector.searchPlaceholder')}
           placeholderTextColor={C.textMuted}
           value={query}
           onChangeText={setQuery}
@@ -134,8 +136,8 @@ export default function CompanySelector(props: Props) {
       {showActions && (
         <View style={styles.actionsRow}>
           <Text style={styles.counterText}>
-            {selectedCompanies.length}/{companies.length} sélectionnée{selectedCompanies.length > 1 ? 's' : ''}
-            {query ? ` · ${filtered.length} résultat${filtered.length > 1 ? 's' : ''}` : ''}
+            {t('companySelector.selectedCounter', { selected: selectedCompanies.length, total: companies.length, count: selectedCompanies.length })}
+            {query ? ` · ${t('companySelector.resultCounter', { count: filtered.length })}` : ''}
           </Text>
           <View style={{ flexDirection: 'row', gap: 6 }}>
             {filtered.length > 0 && (
@@ -150,7 +152,7 @@ export default function CompanySelector(props: Props) {
                 disabled={disabled}
               >
                 <Text style={styles.actionBtnText}>
-                  {query ? 'Sélectionner ces résultats' : 'Tout sélectionner'}
+                  {query ? t('companySelector.selectTheseResults') : t('companySelector.selectAll')}
                 </Text>
               </TouchableOpacity>
             )}
@@ -160,7 +162,7 @@ export default function CompanySelector(props: Props) {
                 style={[styles.actionBtn, styles.actionBtnDanger]}
                 disabled={disabled}
               >
-                <Text style={[styles.actionBtnText, { color: C.critical }]}>Effacer</Text>
+                <Text style={[styles.actionBtnText, { color: C.critical }]}>{t('companySelector.clear')}</Text>
               </TouchableOpacity>
             )}
           </View>
@@ -176,7 +178,7 @@ export default function CompanySelector(props: Props) {
         >
           <View style={styles.dotPlaceholder} />
           <Text style={[styles.rowName, props.value === null && { fontFamily: 'Inter_600SemiBold' }]}>
-            {(props as SingleProps).noneLabel || 'Aucune'}
+            {(props as SingleProps).noneLabel || t('companySelector.none')}
           </Text>
           {props.value === null && <Ionicons name="checkmark-circle" size={16} color={C.primary} />}
         </TouchableOpacity>
@@ -192,7 +194,7 @@ export default function CompanySelector(props: Props) {
         {filtered.length === 0 ? (
           <View style={styles.noResults}>
             <Ionicons name="search-outline" size={16} color={C.textMuted} />
-            <Text style={styles.noResultsText}>Aucune entreprise ne correspond à "{query}"</Text>
+            <Text style={styles.noResultsText}>{t('companySelector.noMatch', { query })}</Text>
           </View>
         ) : (
           filtered.map(co => {

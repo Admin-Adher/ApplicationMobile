@@ -446,7 +446,7 @@ export default function SettingsScreen() {
       setPwdMsg({ ok: true, text: 'Mot de passe modifié. Un email de confirmation vous a été envoyé.' });
       if (user?.email) {
         const { sendPasswordChangedEmail } = await import('@/lib/email/client');
-        sendPasswordChangedEmail({ email: user.email, name: user.name }).catch(() => {});
+        sendPasswordChangedEmail({ email: user.email, name: user.name, language: user.preferredLanguage }).catch(() => {});
       }
     }
   }

@@ -5,6 +5,7 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useTranslation } from 'react-i18next';
 import { C } from '@/constants/colors';
 
 export interface BuildingItem {
@@ -252,6 +253,7 @@ export default function BuildingPickerSheet({
   hasOrphanPlans, onSelectOrphans, orphansSelected, orphansLabel = 'Général',
   initialFamily, onFamilyChange,
 }: Props) {
+  const { t, i18n } = useTranslation();
   const insets = useSafeAreaInsets();
   const [query, setQuery] = useState('');
   const [activeFamily, setActiveFamily] = useState<string>(ALL_FAMILY);
@@ -318,9 +320,9 @@ export default function BuildingPickerSheet({
     // Tri alphabétique A→Z avec gestion intelligente des numéros
     // (ex. "GuestBlock 2" avant "GuestBlock 10")
     return [...list].sort((a, b) =>
-      a.name.localeCompare(b.name, 'fr', { sensitivity: 'base', numeric: true })
+      a.name.localeCompare(b.name, i18n.language, { sensitivity: 'base', numeric: true })
     );
-  }, [buildings, query]);
+  }, [buildings, query, i18n.language]);
 
   const familyView = useMemo(() => {
     if (!useGrouping || query) return null;
@@ -371,9 +373,9 @@ export default function BuildingPickerSheet({
 
         <View style={styles.header}>
           <View style={{ flex: 1 }}>
-            <Text style={styles.title}>Choisir un bâtiment</Text>
+            <Text style={styles.title}>{t('buildingPicker.title')}</Text>
             <Text style={styles.subtitle}>
-              {buildings.length} bâtiment{buildings.length > 1 ? 's' : ''} dans ce chantier
+              {t('buildingPicker.subtitle', { count: buildings.length })}
             </Text>
           </View>
           <TouchableOpacity onPress={() => { setQuery(''); onClose(); }} style={styles.closeBtn}>
@@ -387,7 +389,7 @@ export default function BuildingPickerSheet({
             style={styles.searchInput}
             value={query}
             onChangeText={setQuery}
-            placeholder="Rechercher par nom (ex. GuestBlock 7)"
+            placeholder={t('buildingPicker.searchPlaceholder')}
             placeholderTextColor={C.textMuted}
             autoCorrect={false}
             autoCapitalize="none"
@@ -409,7 +411,7 @@ export default function BuildingPickerSheet({
             contentContainerStyle={styles.familiesRow}
           >
             <FamilyChip
-              label="Toutes"
+              label={t('buildingPicker.all')}
               count={buildings.length}
               active={activeFamily === ALL_FAMILY}
               onPress={() => handleSetActiveFamily(ALL_FAMILY)}
@@ -434,7 +436,7 @@ export default function BuildingPickerSheet({
         >
           {showRecents && (
             <>
-              <SectionHeader icon="time-outline" label="Récemment consultés" />
+              <SectionHeader icon="time-outline" label={t('buildingPicker.recent')} />
               {recents.map(b => (
                 <BuildingRow
                   key={`recent-${b.id}`}
@@ -449,7 +451,7 @@ export default function BuildingPickerSheet({
 
           {showOrphansEntry && (
             <>
-              <SectionHeader icon="layers-outline" label="Plans non rattachés" />
+              <SectionHeader icon="layers-outline" label={t('buildingPicker.orphanPlans')} />
               <TouchableOpacity
                 style={[styles.row, orphansSelected && styles.rowActive]}
                 onPress={pickOrphans}
@@ -466,7 +468,7 @@ export default function BuildingPickerSheet({
                   <Text style={[styles.rowTitle, orphansSelected && styles.rowTitleActive]}>
                     {orphansLabel}
                   </Text>
-                  <Text style={styles.rowSub}>Plans sans bâtiment ni niveau</Text>
+                  <Text style={styles.rowSub}>{t('buildingPicker.orphanSub')}</Text>
                 </View>
                 {orphansSelected && <View style={styles.activeDot} />}
               </TouchableOpacity>
@@ -519,7 +521,7 @@ export default function BuildingPickerSheet({
                         );
                       })}
                     </View>
-                    <SectionHeader icon="list-outline" label="Détails" />
+                    <SectionHeader icon="list-outline" label={t('buildingPicker.details')} />
                   </>
                 )}
                 {!showGrid && (
@@ -546,14 +548,14 @@ export default function BuildingPickerSheet({
               <SectionHeader
                 icon="business-outline"
                 label={query
-                  ? `Résultats · ${filteredFlat.length}`
-                  : `Tous les bâtiments · ${buildings.length}`}
+                  ? t('buildingPicker.results', { count: filteredFlat.length })
+                  : t('buildingPicker.allBuildings', { count: buildings.length })}
               />
               {filteredFlat.length === 0 ? (
                 <View style={styles.empty}>
                   <Ionicons name="search-outline" size={20} color={C.textMuted} />
                   <Text style={styles.emptyText}>
-                    Aucun bâtiment ne correspond à « {query} »
+                    {t('buildingPicker.noMatch', { query })}
                   </Text>
                 </View>
               ) : (
@@ -628,8 +630,9 @@ function BuildingRow({
   pinned?: boolean;
   onPress: () => void;
 }) {
+  const { t } = useTranslation();
   const typoLabel = b.typoOf
-    ? `Probable coquille — rattaché à "${b.typoOf}"`
+    ? t('buildingPicker.typo', { name: b.typoOf })
     : undefined;
   return (
     <TouchableOpacity
@@ -672,13 +675,13 @@ function BuildingRow({
         </View>
         <View style={styles.rowSubRow}>
           <Text style={styles.rowSub}>
-            {b.planCount} plan{b.planCount > 1 ? 's' : ''}
+            {t('buildingPicker.plans', { count: b.planCount })}
           </Text>
           {b.reserveCount > 0 && (
             <>
               <View style={styles.dotSep} />
               <Text style={styles.rowSubReserve}>
-                {b.reserveCount} réserve{b.reserveCount > 1 ? 's' : ''}
+                {t('buildingPicker.reserves', { count: b.reserveCount })}
               </Text>
             </>
           )}
