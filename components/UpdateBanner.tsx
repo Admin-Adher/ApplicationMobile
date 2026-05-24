@@ -5,11 +5,13 @@ import * as Clipboard from 'expo-clipboard';
 import * as FileSystem from 'expo-file-system';
 import * as Sharing from 'expo-sharing';
 import * as IntentLauncher from 'expo-intent-launcher';
+import { useTranslation } from 'react-i18next';
 import { useAppUpdate } from '@/hooks/useAppUpdate';
 
 type DownloadState = 'idle' | 'downloading' | 'opening';
 
 export default function UpdateBanner() {
+  const { t } = useTranslation();
   const {
     updateAvailable,
     latestLabel,
@@ -69,12 +71,12 @@ export default function UpdateBanner() {
         </View>
         <View style={styles.textWrap}>
           <Text style={styles.title} numberOfLines={1}>
-            Mise à jour installée · {currentLabel}
+            {t('updateBanner.installed', { label: currentLabel })}
           </Text>
           <Text style={styles.subtitle} numberOfLines={1}>
             {justUpdatedFromBuild != null
-              ? `Vous étiez sur le Build ${justUpdatedFromBuild}`
-              : 'Vous utilisez la dernière version'}
+              ? t('updateBanner.previousBuild', { build: justUpdatedFromBuild })
+              : t('updateBanner.latestVersion')}
           </Text>
         </View>
         <TouchableOpacity style={styles.closeBtn} onPress={() => { acknowledgeJustUpdated(); }} hitSlop={8}>
@@ -95,12 +97,12 @@ export default function UpdateBanner() {
         window.open(downloadUrl, '_blank');
       } else {
         await Clipboard.setStringAsync(downloadUrl);
-        Alert.alert('Lien copié', 'Le lien a été copié dans le presse-papier.');
+        Alert.alert(t('updateBanner.linkCopiedTitle'), t('updateBanner.linkCopiedText'));
       }
     } catch {
       try {
         await Clipboard.setStringAsync(downloadUrl);
-        Alert.alert('Lien copié', 'Le lien a été copié dans le presse-papier.');
+        Alert.alert(t('updateBanner.linkCopiedTitle'), t('updateBanner.linkCopiedText'));
       } catch {}
     }
   };
@@ -148,7 +150,7 @@ export default function UpdateBanner() {
       resumableRef.current = null;
 
       if (!result?.uri) {
-        throw new Error('Téléchargement interrompu');
+        throw new Error(t('updateBanner.downloadInterrupted'));
       }
 
       downloadedUriRef.current = result.uri;
@@ -192,7 +194,7 @@ export default function UpdateBanner() {
           installLaunchedRef.current = true;
           await Sharing.shareAsync(result.uri, {
             mimeType: 'application/vnd.android.package-archive',
-            dialogTitle: 'Installer la mise à jour BuildTrack',
+            dialogTitle: t('updateBanner.installDialogTitle'),
             UTI: 'public.archive',
           });
         } else {
@@ -212,11 +214,11 @@ export default function UpdateBanner() {
       setState('idle');
       setProgress(0);
       Alert.alert(
-        'Téléchargement impossible',
-        'Le téléchargement intégré a échoué. On va l\'ouvrir dans votre navigateur.',
+        t('updateBanner.downloadImpossibleTitle'),
+        t('updateBanner.downloadImpossibleText'),
         [
-          { text: 'Annuler', style: 'cancel' },
-          { text: 'Ouvrir', onPress: () => { fallbackToBrowser(); } },
+          { text: t('common.cancel'), style: 'cancel' },
+          { text: t('updateBanner.open'), onPress: () => { fallbackToBrowser(); } },
         ],
       );
     }
@@ -226,10 +228,10 @@ export default function UpdateBanner() {
   const pct = Math.round(progress * 100);
   const buttonLabel =
     state === 'downloading'
-      ? `Téléchargement ${pct}%`
+      ? t('updateBanner.downloading', { pct })
       : state === 'opening'
-        ? 'Ouverture…'
-        : 'Mettre à jour';
+        ? t('updateBanner.opening')
+        : t('updateBanner.update');
 
   return (
     <View style={styles.banner}>
@@ -238,14 +240,14 @@ export default function UpdateBanner() {
       </View>
       <View style={styles.textWrap}>
         <Text style={styles.title} numberOfLines={1}>
-          Nouvelle version disponible{latestLabel ? ` · ${latestLabel}` : ''}
+          {t('updateBanner.newVersion', { label: latestLabel ? ` · ${latestLabel}` : '' })}
         </Text>
         <Text style={styles.subtitle} numberOfLines={1}>
           {state === 'downloading'
-            ? 'Téléchargement en cours, ne fermez pas l\'application'
+            ? t('updateBanner.downloadingHint')
             : publishedRelative
-              ? `Publiée ${publishedRelative}`
-              : 'Mettez à jour pour les dernières améliorations'}
+              ? t('updateBanner.published', { relative: publishedRelative })
+              : t('updateBanner.updateHint')}
         </Text>
         {state === 'downloading' && (
           <View style={styles.progressTrack}>

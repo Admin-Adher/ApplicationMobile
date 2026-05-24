@@ -7,21 +7,15 @@ import { useMemo, useState, useCallback } from 'react';
 import { useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as Haptics from 'expo-haptics';
+import { useTranslation } from 'react-i18next';
 import { C } from '@/constants/colors';
 import { useApp } from '@/context/AppContext';
 import { useAuth } from '@/context/AuthContext';
 import { useIncidents } from '@/context/IncidentsContext';
 
-const STATUS_LABELS: Record<string, string> = {
-  open: 'Ouvert', in_progress: 'En cours', waiting: 'En attente',
-  verification: 'Vérification', closed: 'Clôturé',
-};
 const STATUS_COLORS: Record<string, string> = {
   open: C.open, in_progress: C.inProgress, waiting: C.waiting,
   verification: C.verification, closed: C.closed,
-};
-const SEV_LABELS: Record<string, string> = {
-  minor: 'Mineur', moderate: 'Modéré', major: 'Majeur', critical: 'Critique',
 };
 const SEV_COLORS: Record<string, string> = {
   minor: '#6B7280', moderate: '#F59E0B', major: '#EF4444', critical: '#7F1D1D',
@@ -35,6 +29,7 @@ interface Props {
 export default function GlobalSearch({ visible, onClose }: Props) {
   const router = useRouter();
   const insets = useSafeAreaInsets();
+  const { t } = useTranslation();
   const { reserves, documents, companies } = useApp();
   const { user } = useAuth();
   const { incidents } = useIncidents();
@@ -106,7 +101,7 @@ export default function GlobalSearch({ visible, onClose }: Props) {
             <Ionicons name="search-outline" size={18} color={C.primary} />
             <TextInput
               style={styles.input}
-              placeholder="Chercher réserves, incidents, documents…"
+              placeholder={t('globalSearch.placeholder')}
               placeholderTextColor={C.textMuted}
               value={query}
               onChangeText={setQuery}
@@ -123,12 +118,12 @@ export default function GlobalSearch({ visible, onClose }: Props) {
             {q.length < 2 ? (
               <View style={styles.hint}>
                 <Ionicons name="search-outline" size={40} color={C.border} />
-                <Text style={styles.hintText}>Saisissez au moins 2 caractères</Text>
+                <Text style={styles.hintText}>{t('globalSearch.minChars')}</Text>
               </View>
             ) : totalCount === 0 ? (
               <View style={styles.hint}>
                 <Ionicons name="file-tray-outline" size={40} color={C.border} />
-                <Text style={styles.hintText}>Aucun résultat pour « {query} »</Text>
+                <Text style={styles.hintText}>{t('globalSearch.noResult', { query })}</Text>
               </View>
             ) : (
               <>
@@ -136,7 +131,7 @@ export default function GlobalSearch({ visible, onClose }: Props) {
                   <View style={styles.section}>
                     <View style={styles.sectionHeader}>
                       <Ionicons name="warning-outline" size={13} color={C.primary} />
-                      <Text style={styles.sectionTitle}>Réserves</Text>
+                      <Text style={styles.sectionTitle}>{t('globalSearch.reserves')}</Text>
                       <Text style={styles.sectionCount}>{results.reserves.length}</Text>
                     </View>
                     {results.reserves.map(r => (
@@ -152,12 +147,14 @@ export default function GlobalSearch({ visible, onClose }: Props) {
                           </View>
                           <View style={{ flex: 1 }}>
                             <Text style={styles.rowTitle} numberOfLines={1}>{r.title}</Text>
-                            <Text style={styles.rowMeta} numberOfLines={1}>Bât. {r.building} — {r.zone}</Text>
+                            <Text style={styles.rowMeta} numberOfLines={1}>
+                              {t('globalSearch.building', { building: r.building, zone: r.zone })}
+                            </Text>
                           </View>
                         </View>
                         <View style={[styles.statusPill, { backgroundColor: (STATUS_COLORS[r.status] ?? C.textMuted) + '18' }]}>
                           <Text style={[styles.statusText, { color: STATUS_COLORS[r.status] ?? C.textMuted }]}>
-                            {STATUS_LABELS[r.status] ?? r.status}
+                            {t(`reserveLabels.status.${r.status}`, { defaultValue: r.status })}
                           </Text>
                         </View>
                       </TouchableOpacity>
@@ -169,7 +166,7 @@ export default function GlobalSearch({ visible, onClose }: Props) {
                   <View style={styles.section}>
                     <View style={styles.sectionHeader}>
                       <Ionicons name="alert-circle-outline" size={13} color={C.open} />
-                      <Text style={styles.sectionTitle}>Incidents</Text>
+                      <Text style={styles.sectionTitle}>{t('globalSearch.incidents')}</Text>
                       <Text style={styles.sectionCount}>{results.incidents.length}</Text>
                     </View>
                     {results.incidents.map(i => (
@@ -183,7 +180,9 @@ export default function GlobalSearch({ visible, onClose }: Props) {
                           <View style={[styles.sevDot, { backgroundColor: SEV_COLORS[i.severity] ?? C.textMuted }]} />
                           <View style={{ flex: 1 }}>
                             <Text style={styles.rowTitle} numberOfLines={1}>{i.title}</Text>
-                            <Text style={styles.rowMeta} numberOfLines={1}>{i.location} · {SEV_LABELS[i.severity]}</Text>
+                            <Text style={styles.rowMeta} numberOfLines={1}>
+                              {i.location} · {t(`globalSearch.severity.${i.severity}`, { defaultValue: i.severity })}
+                            </Text>
                           </View>
                         </View>
                         <Ionicons name="chevron-forward" size={14} color={C.textMuted} />
@@ -196,7 +195,7 @@ export default function GlobalSearch({ visible, onClose }: Props) {
                   <View style={styles.section}>
                     <View style={styles.sectionHeader}>
                       <Ionicons name="document-text-outline" size={13} color={C.textSub} />
-                      <Text style={styles.sectionTitle}>Documents</Text>
+                      <Text style={styles.sectionTitle}>{t('globalSearch.documents')}</Text>
                       <Text style={styles.sectionCount}>{results.documents.length}</Text>
                     </View>
                     {results.documents.map(d => (

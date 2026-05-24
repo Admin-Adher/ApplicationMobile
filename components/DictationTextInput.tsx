@@ -17,6 +17,7 @@ import {
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Ionicons } from '@expo/vector-icons';
+import { useTranslation } from 'react-i18next';
 import {
   ExpoSpeechRecognitionModule,
   useSpeechRecognitionEvent,
@@ -38,10 +39,10 @@ type DictationLanguage = 'fr-FR' | 'en-US' | 'es-ES';
 const DICTATION_LANGUAGE_KEY = 'buildtrack_dictation_language_v1';
 const DICTATION_LANGUAGE_CONFIRMED_KEY = 'buildtrack_dictation_language_confirmed_v1';
 
-const LANGUAGES: Array<{ code: DictationLanguage; label: string; title: string }> = [
-  { code: 'fr-FR', label: 'FR', title: 'Francais' },
-  { code: 'en-US', label: 'EN', title: 'Anglais' },
-  { code: 'es-ES', label: 'ES', title: 'Espagnol' },
+const LANGUAGES: Array<{ code: DictationLanguage; label: string; key: 'fr' | 'en' | 'es' }> = [
+  { code: 'fr-FR', label: 'FR', key: 'fr' },
+  { code: 'en-US', label: 'EN', key: 'en' },
+  { code: 'es-ES', label: 'ES', key: 'es' },
 ];
 
 type SelectionRange = { start: number; end: number };
@@ -93,23 +94,23 @@ function insertTranscript(
   };
 }
 
-function friendlyDictationError(event: ExpoSpeechRecognitionErrorEvent) {
+function friendlyDictationError(event: ExpoSpeechRecognitionErrorEvent, t: (key: string) => string) {
   switch (event.error) {
     case 'language-not-supported':
-      return 'Cette langue de dictee n est pas disponible sur cet appareil.';
+      return t('dictation.languageNotSupported');
     case 'network':
-      return 'La dictee vocale a besoin du reseau ou d un moteur vocal local disponible.';
+      return t('dictation.network');
     case 'not-allowed':
-      return 'Permission micro ou reconnaissance vocale refusee.';
+      return t('dictation.notAllowed');
     case 'service-not-allowed':
-      return 'Le service de reconnaissance vocale est indisponible sur cet appareil.';
+      return t('dictation.serviceUnavailable');
     case 'busy':
-      return 'La reconnaissance vocale est deja en cours.';
+      return t('dictation.busy');
     case 'no-speech':
     case 'speech-timeout':
-      return 'Aucune parole detectee.';
+      return t('dictation.noSpeech');
     default:
-      return event.message || 'Dictee vocale indisponible.';
+      return event.message || t('dictation.unavailable');
   }
 }
 
@@ -131,6 +132,7 @@ const DictationTextInput = forwardRef<TextInput, DictationTextInputProps>(functi
   maxLength,
   ...props
 }: DictationTextInputProps, ref) {
+  const { t } = useTranslation();
   const [language, setLanguage] = useState<DictationLanguage>('fr-FR');
   const [recognizing, setRecognizing] = useState(false);
   const [starting, setStarting] = useState(false);
@@ -194,7 +196,7 @@ const DictationTextInput = forwardRef<TextInput, DictationTextInputProps>(functi
     setDictationPickerOpen(false);
     setStarting(false);
     setRecognizing(true);
-    setHint('Dictee en cours...');
+    setHint(t('dictation.inProgress'));
   });
 
   useSpeechRecognitionEvent('end', () => {
@@ -226,10 +228,10 @@ const DictationTextInput = forwardRef<TextInput, DictationTextInputProps>(functi
     setDictationPickerOpen(false);
     setStarting(false);
     setRecognizing(false);
-    const message = friendlyDictationError(event);
+    const message = friendlyDictationError(event, t);
     setHint(message);
     if (event.error === 'not-allowed' || event.error === 'service-not-allowed' || event.error === 'language-not-supported') {
-      Alert.alert('Dictee vocale', message);
+      Alert.alert(t('dictation.title'), message);
     }
   });
 
@@ -237,6 +239,13 @@ const DictationTextInput = forwardRef<TextInput, DictationTextInputProps>(functi
     () => LANGUAGES.find(item => item.code === language) ?? LANGUAGES[0],
     [language],
   );
+  const getLanguageTitle = (code: DictationLanguage | TextAssistLanguage) => {
+    const key = typeof code === 'string' && code.includes('-')
+      ? (LANGUAGES.find(item => item.code === code)?.key ?? 'fr')
+      : code;
+    return t(`dictation.languages.${key}`);
+  };
+  const selectedLanguageTitle = getLanguageTitle(language);
 
   const handleLanguageChange = (code: DictationLanguage) => {
     setLanguage(code);
@@ -278,22 +287,21 @@ const DictationTextInput = forwardRef<TextInput, DictationTextInputProps>(functi
 
     try {
       if (!ExpoSpeechRecognitionModule.isRecognitionAvailable()) {
-        Alert.alert('Dictee vocale', 'La reconnaissance vocale est indisponible sur cet appareil.');
+        Alert.alert(t('dictation.title'), t('dictation.unavailable'));
         return;
       }
 
       const permissions = await ExpoSpeechRecognitionModule.requestPermissionsAsync();
       if (!permissions.granted) {
-        Alert.alert('Dictee vocale', 'Autorisez le micro et la reconnaissance vocale pour utiliser la dictee.');
+        Alert.alert(t('dictation.title'), t('dictation.permissionText'));
         return;
       }
 
       activeRef.current = true;
       const activeLanguage = languageOverride ?? language;
-      const activeLanguageMeta = LANGUAGES.find(item => item.code === activeLanguage) ?? selectedLanguage;
       dictationRangeRef.current = clampSelection(selectionRef.current, valueRef.current);
       setStarting(true);
-      setHint(`Langue : ${activeLanguageMeta.title}`);
+      setHint(t('dictation.languageHint', { language: getLanguageTitle(activeLanguage) }));
       ExpoSpeechRecognitionModule.start({
         lang: activeLanguage,
         interimResults: true,
@@ -308,9 +316,9 @@ const DictationTextInput = forwardRef<TextInput, DictationTextInputProps>(functi
       setDictationPickerOpen(false);
       setStarting(false);
       setRecognizing(false);
-      const message = err?.message ?? 'Impossible de lancer la dictee vocale.';
+      const message = err?.message ?? t('dictation.startError');
       setHint(message);
-      Alert.alert('Dictee vocale', message);
+      Alert.alert(t('dictation.title'), message);
     }
   };
 
@@ -328,18 +336,18 @@ const DictationTextInput = forwardRef<TextInput, DictationTextInputProps>(functi
     setHint(null);
     try {
       const source = detectTextLanguage(value);
-      const targetLabel = TEXT_ASSIST_LANGUAGES.find(l => l.code === target)?.label ?? target.toUpperCase();
+      const targetLabel = getLanguageTitle(target);
       if (source === target) {
         setAssistSuggestion(null);
-        setHint(`Le texte est deja en ${targetLabel}.`);
+        setHint(t('dictation.alreadyLanguage', { language: targetLabel }));
         return;
       }
 
       const advancedCacheKey = textAssistAdvancedCacheKey(value, target, source);
       const cachedAdvanced = await AsyncStorage.getItem(advancedCacheKey);
       if (cachedAdvanced) {
-        setHint('Traduction Azure depuis le cache.');
-        setAssistSuggestion({ title: `Traduction ${targetLabel}`, text: limitSuggestion(cachedAdvanced) });
+        setHint(t('dictation.azureCache'));
+        setAssistSuggestion({ title: t('dictation.translationTitle', { language: targetLabel }), text: limitSuggestion(cachedAdvanced) });
         return;
       }
 
@@ -352,15 +360,15 @@ const DictationTextInput = forwardRef<TextInput, DictationTextInputProps>(functi
 
       if (advanced?.text) {
         AsyncStorage.setItem(advancedCacheKey, advanced.text).catch(() => {});
-        setHint(`Traduction en ligne via ${advanced.provider}.`);
-        setAssistSuggestion({ title: `Traduction ${targetLabel}`, text: limitSuggestion(advanced.text) });
+        setHint(t('dictation.azureOnline', { provider: advanced.provider }));
+        setAssistSuggestion({ title: t('dictation.translationTitle', { language: targetLabel }), text: limitSuggestion(advanced.text) });
         return;
       }
 
-      setHint('Traduction Azure indisponible.');
+      setHint(t('dictation.azureUnavailable'));
     } catch (err: any) {
       setAssistSuggestion(null);
-      setHint(err?.message || 'Traduction Azure indisponible.');
+      setHint(err?.message || t('dictation.azureUnavailable'));
     } finally {
       setAssistBusy(false);
     }
@@ -371,14 +379,14 @@ const DictationTextInput = forwardRef<TextInput, DictationTextInputProps>(functi
     setPreviousText(value);
     onChangeText(assistSuggestion.text);
     setAssistSuggestion(null);
-    setHint('Texte remplace. Annulation possible.');
+    setHint(t('dictation.replacedUndo'));
   };
 
   const restorePreviousText = () => {
     if (previousText == null) return;
     onChangeText(previousText);
     setPreviousText(null);
-    setHint('Texte precedent restaure.');
+    setHint(t('dictation.restored'));
   };
 
   const handleAssistPress = () => {
@@ -390,7 +398,7 @@ const DictationTextInput = forwardRef<TextInput, DictationTextInputProps>(functi
     if (!showControls || recognizing || starting) return;
     setAssistExpanded(false);
     setDictationPickerOpen(true);
-    setHint('Choisissez la langue de dictee.');
+    setHint(t('dictation.chooseLanguage'));
   };
 
   const handleMicPress = () => {
@@ -435,7 +443,7 @@ const DictationTextInput = forwardRef<TextInput, DictationTextInputProps>(functi
               style={styles.undoButton}
               onPress={restorePreviousText}
               accessibilityRole="button"
-              accessibilityLabel="Annuler la derniere assistance texte"
+              accessibilityLabel={t('dictation.undoAccessibility')}
             >
               <Ionicons name="arrow-undo-outline" size={16} color={C.primary} />
             </TouchableOpacity>
@@ -445,7 +453,7 @@ const DictationTextInput = forwardRef<TextInput, DictationTextInputProps>(functi
               style={[styles.assistButton, assistExpanded && styles.assistButtonActive]}
               onPress={handleAssistPress}
               accessibilityRole="button"
-              accessibilityLabel="Ouvrir la traduction"
+              accessibilityLabel={t('dictation.translationAccessibility')}
             >
               {assistBusy ? (
                 <ActivityIndicator size="small" color={assistExpanded ? '#fff' : C.primary} />
@@ -465,8 +473,8 @@ const DictationTextInput = forwardRef<TextInput, DictationTextInputProps>(functi
               onLongPress={openDictationPicker}
               disabled={controlsDisabled || starting}
               accessibilityRole="button"
-              accessibilityLabel={recognizing ? 'Arreter la dictee' : `Dictee en ${selectedLanguage.title}`}
-              accessibilityHint="Appui long pour changer la langue de dictee"
+              accessibilityLabel={recognizing ? t('dictation.stopAccessibility') : t('dictation.micAccessibility', { language: selectedLanguageTitle })}
+              accessibilityHint={t('dictation.longPressHint')}
             >
               {starting ? (
                 <ActivityIndicator size="small" color="#fff" />
@@ -486,9 +494,9 @@ const DictationTextInput = forwardRef<TextInput, DictationTextInputProps>(functi
       {showDictationPicker ? (
         <View style={styles.dictationPicker}>
           <View style={styles.dictationPickerHeader}>
-            <Text style={styles.dictationPickerTitle}>Langue de dictee</Text>
+            <Text style={styles.dictationPickerTitle}>{t('dictation.languageTitle')}</Text>
             <Text style={styles.dictationPickerSubtitle}>
-              La langue choisie est memorisee. Ensuite, le micro demarre directement dans cette langue.
+              {t('dictation.languageSubtitle')}
             </Text>
           </View>
           <View style={styles.dictationPickerOptions}>
@@ -500,7 +508,7 @@ const DictationTextInput = forwardRef<TextInput, DictationTextInputProps>(functi
                   style={[styles.dictationLanguageChip, active && styles.dictationLanguageChipActive]}
                   onPress={() => handleDictationLanguagePick(item.code)}
                   accessibilityRole="button"
-                  accessibilityLabel={`Demarrer la dictee en ${item.title}`}
+                  accessibilityLabel={t('dictation.startInLanguage', { language: getLanguageTitle(item.code) })}
                 >
                   <View style={styles.dictationLanguageTopRow}>
                     <Ionicons
@@ -513,7 +521,7 @@ const DictationTextInput = forwardRef<TextInput, DictationTextInputProps>(functi
                     </Text>
                   </View>
                   <Text style={[styles.dictationLanguageChipTitle, active && styles.dictationLanguageChipTitleActive]}>
-                    {item.title}
+                    {getLanguageTitle(item.code)}
                   </Text>
                 </TouchableOpacity>
               );
@@ -525,8 +533,8 @@ const DictationTextInput = forwardRef<TextInput, DictationTextInputProps>(functi
       {showAssist && assistExpanded && (
         <View style={styles.assistPanel}>
           <View style={styles.assistHeader}>
-            <Text style={styles.assistTitle}>Traduction</Text>
-            <Text style={styles.assistSource}>source {assistSourceLanguage.toUpperCase()}</Text>
+            <Text style={styles.assistTitle}>{t('dictation.translation')}</Text>
+            <Text style={styles.assistSource}>{t('dictation.source', { language: assistSourceLanguage.toUpperCase() })}</Text>
           </View>
           <View style={styles.assistActions}>
             {TEXT_ASSIST_LANGUAGES.map(item => (
@@ -536,7 +544,7 @@ const DictationTextInput = forwardRef<TextInput, DictationTextInputProps>(functi
                 onPress={() => proposeTranslation(item.code)}
                 disabled={assistBusy || !value.trim()}
                 accessibilityRole="button"
-                accessibilityLabel={`Traduire en ${item.title}`}
+                accessibilityLabel={t('dictation.translateTo', { language: getLanguageTitle(item.code) })}
               >
                 <Ionicons name="language-outline" size={13} color={C.primary} />
                 <Text style={styles.assistChipText}>{item.label}</Text>
@@ -549,10 +557,10 @@ const DictationTextInput = forwardRef<TextInput, DictationTextInputProps>(functi
               <Text style={styles.suggestionText} numberOfLines={4}>{assistSuggestion.text}</Text>
               <View style={styles.suggestionActions}>
                 <TouchableOpacity style={styles.suggestionCancel} onPress={() => setAssistSuggestion(null)}>
-                  <Text style={styles.suggestionCancelText}>Annuler</Text>
+                  <Text style={styles.suggestionCancelText}>{t('common.cancel')}</Text>
                 </TouchableOpacity>
                 <TouchableOpacity style={styles.suggestionApply} onPress={applySuggestion}>
-                  <Text style={styles.suggestionApplyText}>Remplacer</Text>
+                  <Text style={styles.suggestionApplyText}>{t('dictation.replace')}</Text>
                 </TouchableOpacity>
               </View>
             </View>

@@ -1,6 +1,7 @@
 import React, { useMemo } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, TextInput } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { useTranslation } from 'react-i18next';
 import { C } from '@/constants/colors';
 import { ChantierBuilding } from '@/constants/types';
 
@@ -56,6 +57,7 @@ function ChipList({
 }
 
 function LockedValue({ value, icon }: { value: string; icon: string }) {
+  const { t } = useTranslation();
   return (
     <View style={styles.lockedRow}>
       <View style={styles.lockedChip}>
@@ -64,7 +66,7 @@ function LockedValue({ value, icon }: { value: string; icon: string }) {
       </View>
       <View style={styles.lockedBadge}>
         <Ionicons name="lock-closed" size={10} color={C.textMuted} />
-        <Text style={styles.lockedBadgeText}>Défini par le plan</Text>
+        <Text style={styles.lockedBadgeText}>{t('locationPicker.lockedByPlan')}</Text>
       </View>
     </View>
   );
@@ -85,6 +87,7 @@ export default function LocationPicker({
   buildingId,
   levelId,
 }: LocationPickerProps) {
+  const { t } = useTranslation();
   const hasBuildingsConfig = buildings && buildings.length > 0;
 
   // Fix 6: try matching by id when name match fails (handles renamed buildings)
@@ -128,24 +131,24 @@ export default function LocationPicker({
           <View style={styles.freeTextHint}>
             <Ionicons name="lock-closed-outline" size={13} color={C.primary} />
             <Text style={styles.freeTextHintText}>
-              Localisation définie par le plan — non modifiable.
+              {t('locationPicker.lockedHint')}
             </Text>
           </View>
         ) : (
           <View style={styles.freeTextHint}>
             <Ionicons name="information-circle-outline" size={13} color={C.textMuted} />
             <Text style={styles.freeTextHintText}>
-              Aucune structure configurée pour ce chantier. Saisissez librement.
+              {t('locationPicker.freeHint')}
             </Text>
           </View>
         )}
-        <Text style={styles.label}>Bâtiment</Text>
+        <Text style={styles.label}>{t('locationPicker.building')}</Text>
         {lockedBuilding && building ? (
           <LockedValue value={building} icon="business-outline" />
         ) : (
           <TextInput
             style={styles.freeInput}
-            placeholder="Ex : Bât A, Tour Nord..."
+            placeholder={t('locationPicker.buildingPlaceholder')}
             placeholderTextColor={C.textMuted}
             value={building}
             onChangeText={onBuildingChange}
@@ -153,13 +156,13 @@ export default function LocationPicker({
         )}
         {showLevel && (
           <>
-            <Text style={styles.label}>Niveau</Text>
+            <Text style={styles.label}>{t('locationPicker.level')}</Text>
             {lockedLevel && level ? (
               <LockedValue value={level} icon="layers-outline" />
             ) : (
               <TextInput
                 style={styles.freeInput}
-                placeholder="Ex : RDC, R+5, SS1..."
+                placeholder={t('locationPicker.levelPlaceholder')}
                 placeholderTextColor={C.textMuted}
                 value={level}
                 onChangeText={onLevelChange}
@@ -169,10 +172,10 @@ export default function LocationPicker({
         )}
         {showZone && (
           <>
-            <Text style={styles.label}>Zone</Text>
+            <Text style={styles.label}>{t('locationPicker.zone')}</Text>
             <TextInput
               style={[styles.freeInput, { marginBottom: 0 }]}
-              placeholder="Ex : Zone Nord, Aile Est..."
+              placeholder={t('locationPicker.zonePlaceholder')}
               placeholderTextColor={C.textMuted}
               value={zone}
               onChangeText={onZoneChange}
@@ -188,7 +191,7 @@ export default function LocationPicker({
       {lockedBuilding && building && (
         <View style={styles.lockedHint}>
           <Ionicons name="lock-closed-outline" size={12} color={C.primary} />
-          <Text style={styles.lockedHintText}>Localisation définie par le plan — non modifiable.</Text>
+          <Text style={styles.lockedHintText}>{t('locationPicker.lockedHint')}</Text>
         </View>
       )}
 
@@ -196,7 +199,7 @@ export default function LocationPicker({
         <View style={[styles.stepBadge, lockedBuilding && building && styles.stepBadgeLocked]}>
           <Text style={styles.stepBadgeText}>1</Text>
         </View>
-        <Text style={styles.stepLabel}>Bâtiment</Text>
+        <Text style={styles.stepLabel}>{t('locationPicker.building')}</Text>
       </View>
       {lockedBuilding && building ? (
         <LockedValue value={building} icon="business-outline" />
@@ -215,7 +218,7 @@ export default function LocationPicker({
               <Text style={styles.stepBadgeText}>2</Text>
             </View>
             <Text style={styles.stepLabel}>
-              Niveau
+              {t('locationPicker.level')}
               {selectedBuilding ? ` — ${selectedBuilding.name}` : ''}
             </Text>
           </View>
@@ -238,7 +241,7 @@ export default function LocationPicker({
               <Text style={styles.stepBadgeText}>3</Text>
             </View>
             <Text style={styles.stepLabel}>
-              Zone
+              {t('locationPicker.zone')}
               {selectedLevel ? ` — ${selectedLevel.name}` : ''}
             </Text>
           </View>
@@ -256,11 +259,11 @@ export default function LocationPicker({
             <View style={styles.stepBadge}>
               <Text style={styles.stepBadgeText}>3</Text>
             </View>
-            <Text style={styles.stepLabel}>Zone (optionnel)</Text>
+            <Text style={styles.stepLabel}>{t('locationPicker.zoneOptional')}</Text>
           </View>
           <TextInput
             style={styles.freeInput}
-            placeholder="Ex : Zone Nord, Couloir Est..."
+            placeholder={t('locationPicker.zonePlaceholder')}
             placeholderTextColor={C.textMuted}
             value={zone}
             onChangeText={onZoneChange}

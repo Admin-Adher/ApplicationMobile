@@ -1,6 +1,7 @@
 import { View, Text, StyleSheet, Image, TouchableOpacity, Platform, Alert } from 'react-native';
 import * as Clipboard from 'expo-clipboard';
 import { Ionicons } from '@expo/vector-icons';
+import { useTranslation } from 'react-i18next';
 import { C } from '@/constants/colors';
 
 export interface QRPositionData {
@@ -46,12 +47,13 @@ interface QRCodeDisplayProps {
 }
 
 export default function QRCodeDisplay({ data, size = 160, showCopy = true }: QRCodeDisplayProps) {
+  const { t } = useTranslation();
   const payload = encodeQRPayload(data);
   const qrImageUrl = `https://api.qrserver.com/v1/create-qr-code/?size=${size * 2}x${size * 2}&data=${encodeURIComponent(payload)}&color=1E3A5F&bgcolor=0F172A&format=png&margin=4`;
 
   async function handleCopy() {
     await Clipboard.setStringAsync(payload);
-    Alert.alert('Copié', 'Code QR copié dans le presse-papier');
+    Alert.alert(t('qrCode.copiedTitle'), t('qrCode.copiedText'));
   }
 
   return (
@@ -72,7 +74,7 @@ export default function QRCodeDisplay({ data, size = 160, showCopy = true }: QRC
         {data.building && (
           <View style={styles.chip}>
             <Ionicons name="business-outline" size={11} color={C.primary} />
-            <Text style={styles.chipText}>Bât. {data.building}</Text>
+            <Text style={styles.chipText}>{t('qrCode.buildingShort', { building: data.building })}</Text>
           </View>
         )}
         {data.level && (
@@ -92,7 +94,7 @@ export default function QRCodeDisplay({ data, size = 160, showCopy = true }: QRC
       {showCopy && (
         <TouchableOpacity style={styles.copyBtn} onPress={handleCopy}>
           <Ionicons name="copy-outline" size={14} color={C.primary} />
-          <Text style={styles.copyText}>Copier le code</Text>
+          <Text style={styles.copyText}>{t('qrCode.copy')}</Text>
         </TouchableOpacity>
       )}
     </View>

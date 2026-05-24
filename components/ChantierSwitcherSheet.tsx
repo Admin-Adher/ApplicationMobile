@@ -6,6 +6,7 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
+import { useTranslation } from 'react-i18next';
 import { C } from '@/constants/colors';
 import { useApp } from '@/context/AppContext';
 import { useAuth } from '@/context/AuthContext';
@@ -16,10 +17,10 @@ export function openChantierSwitcher() {
   _open?.();
 }
 
-const STATUS_CFG: Record<string, { color: string; icon: string; label: string }> = {
-  active:    { color: C.closed,    icon: 'play-circle',         label: 'En cours' },
-  completed: { color: C.primary,   icon: 'checkmark-circle',    label: 'Terminé'  },
-  paused:    { color: '#F59E0B',   icon: 'pause-circle',        label: 'En pause' },
+const STATUS_CFG: Record<string, { color: string; icon: string }> = {
+  active:    { color: C.closed,    icon: 'play-circle' },
+  completed: { color: C.primary,   icon: 'checkmark-circle' },
+  paused:    { color: '#F59E0B',   icon: 'pause-circle' },
 };
 
 export default function ChantierSwitcherSheet() {
@@ -53,6 +54,7 @@ export default function ChantierSwitcherSheet() {
     })
   ).current;
   const router = useRouter();
+  const { t } = useTranslation();
   const { chantiers, activeChantierId, activeChantier, setActiveChantier, reserves, sitePlans } = useApp();
   const { permissions } = useAuth();
 
@@ -102,10 +104,10 @@ export default function ChantierSwitcherSheet() {
             <View style={styles.handle} />
 
             <View style={styles.sheetHeader}>
-              <Text style={styles.sheetTitle}>Chantiers</Text>
+              <Text style={styles.sheetTitle}>{t('chantierSwitcher.title')}</Text>
               {activeChantier && (
                 <Text style={styles.sheetSub} numberOfLines={1}>
-                  Actif : {activeChantier.name}
+                  {t('chantierSwitcher.active', { name: activeChantier.name })}
                 </Text>
               )}
             </View>
@@ -120,7 +122,7 @@ export default function ChantierSwitcherSheet() {
               {(chantiers ?? []).length === 0 && (
                 <View style={styles.emptyWrap}>
                   <Ionicons name="business-outline" size={36} color={C.textMuted} />
-                  <Text style={styles.emptyText}>Aucun chantier créé</Text>
+                  <Text style={styles.emptyText}>{t('chantierSwitcher.empty')}</Text>
                 </View>
               )}
 
@@ -148,7 +150,9 @@ export default function ChantierSwitcherSheet() {
                         </Text>
                         <View style={[styles.statusPill, { backgroundColor: cfg.color + '18' }]}>
                           <Ionicons name={cfg.icon as any} size={10} color={cfg.color} />
-                          <Text style={[styles.statusPillText, { color: cfg.color }]}>{cfg.label}</Text>
+                          <Text style={[styles.statusPillText, { color: cfg.color }]}>
+                            {t(`chantierSwitcher.status.${ch.status}`, { defaultValue: ch.status })}
+                          </Text>
                         </View>
                       </View>
                       {ch.address ? (
@@ -157,12 +161,12 @@ export default function ChantierSwitcherSheet() {
                       <View style={styles.itemMeta}>
                         <View style={styles.metaChip}>
                           <Ionicons name="warning-outline" size={11} color={C.textMuted} />
-                          <Text style={styles.metaChipText}>{reserveCount} réserve{reserveCount !== 1 ? 's' : ''}</Text>
+                          <Text style={styles.metaChipText}>{t('chantierSwitcher.reserves', { count: reserveCount })}</Text>
                         </View>
                         <View style={styles.metaDot} />
                         <View style={styles.metaChip}>
                           <Ionicons name="map-outline" size={11} color={C.textMuted} />
-                          <Text style={styles.metaChipText}>{planCount} plan{planCount !== 1 ? 's' : ''}</Text>
+                          <Text style={styles.metaChipText}>{t('chantierSwitcher.plans', { count: planCount })}</Text>
                         </View>
                       </View>
                     </View>
@@ -191,7 +195,7 @@ export default function ChantierSwitcherSheet() {
                 activeOpacity={0.8}
               >
                 <Ionicons name="add-circle-outline" size={18} color={C.primary} />
-                <Text style={styles.newBtnText}>Nouveau chantier</Text>
+                <Text style={styles.newBtnText}>{t('chantierSwitcher.new')}</Text>
               </TouchableOpacity>
             )}
           </TouchableOpacity>

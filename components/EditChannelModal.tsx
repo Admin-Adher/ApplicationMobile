@@ -2,6 +2,7 @@ import { View, Text, StyleSheet, Modal, TouchableOpacity, TextInput, ScrollView,
 import { useState, useEffect } from 'react';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useTranslation } from 'react-i18next';
 import { C } from '@/constants/colors';
 import { Channel } from '@/constants/types';
 
@@ -26,6 +27,7 @@ interface Props {
 
 export default function EditChannelModal({ visible, channel, onClose, onSave }: Props) {
   const insets = useSafeAreaInsets();
+  const { t } = useTranslation();
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
   const [selectedIcon, setSelectedIcon] = useState('chatbubbles');
@@ -43,7 +45,7 @@ export default function EditChannelModal({ visible, channel, onClose, onSave }: 
   function handleSave() {
     const trimmed = name.trim();
     if (!trimmed) {
-      Alert.alert('Nom requis', 'Veuillez saisir un nom pour le canal.');
+      Alert.alert(t('conversationModals.channelRequiredTitle'), t('conversationModals.channelRequiredText'));
       return;
     }
     if (channel) {
@@ -57,11 +59,11 @@ export default function EditChannelModal({ visible, channel, onClose, onSave }: 
       <View style={styles.container}>
         <View style={[styles.header, Platform.OS === 'android' && { paddingTop: insets.top + 14 }]}>
           <TouchableOpacity onPress={onClose} style={styles.cancelBtn}>
-            <Text style={styles.cancelText}>Annuler</Text>
+            <Text style={styles.cancelText}>{t('common.cancel')}</Text>
           </TouchableOpacity>
-          <Text style={styles.title}>Modifier le canal</Text>
+          <Text style={styles.title}>{t('conversationModals.editChannel')}</Text>
           <TouchableOpacity onPress={handleSave} style={[styles.saveBtn, { backgroundColor: selectedColor }]}>
-            <Text style={styles.saveText}>Enregistrer</Text>
+            <Text style={styles.saveText}>{t('common.save')}</Text>
           </TouchableOpacity>
         </View>
 
@@ -70,13 +72,13 @@ export default function EditChannelModal({ visible, channel, onClose, onSave }: 
             <View style={[styles.previewIcon, { backgroundColor: selectedColor + '25' }]}>
               <Ionicons name={selectedIcon as any} size={30} color={selectedColor} />
             </View>
-            <Text style={[styles.previewName, { color: selectedColor }]}>{name || 'Nom du canal'}</Text>
+            <Text style={[styles.previewName, { color: selectedColor }]}>{name || t('conversationModals.channelNamePreview')}</Text>
           </View>
 
-          <Text style={styles.label}>Nom du canal</Text>
+          <Text style={styles.label}>{t('conversationModals.channelName')}</Text>
           <TextInput
             style={styles.input}
-            placeholder="ex: Réunion de chantier"
+            placeholder={t('conversationModals.channelNamePlaceholder')}
             placeholderTextColor={C.textMuted}
             value={name}
             onChangeText={setName}
@@ -84,10 +86,10 @@ export default function EditChannelModal({ visible, channel, onClose, onSave }: 
             maxLength={40}
           />
 
-          <Text style={styles.label}>Description (optionnel)</Text>
+          <Text style={styles.label}>{t('conversationModals.descriptionOptional')}</Text>
           <TextInput
             style={[styles.input, styles.inputMulti]}
-            placeholder="À quoi sert ce canal ?"
+            placeholder={t('conversationModals.descriptionPlaceholder')}
             placeholderTextColor={C.textMuted}
             value={description}
             onChangeText={setDescription}
@@ -96,7 +98,7 @@ export default function EditChannelModal({ visible, channel, onClose, onSave }: 
             maxLength={120}
           />
 
-          <Text style={styles.label}>Couleur</Text>
+          <Text style={styles.label}>{t('conversationModals.color')}</Text>
           <View style={styles.colorRow}>
             {COLORS.map(col => (
               <TouchableOpacity
@@ -110,7 +112,7 @@ export default function EditChannelModal({ visible, channel, onClose, onSave }: 
             ))}
           </View>
 
-          <Text style={styles.label}>Icône</Text>
+          <Text style={styles.label}>{t('conversationModals.icon')}</Text>
           <View style={styles.iconGrid}>
             {ICONS.map(icon => (
               <TouchableOpacity
