@@ -4,6 +4,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { useMemo, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { C } from '@/constants/colors';
 import { useApp } from '@/context/AppContext';
 import { useAuth } from '@/context/AuthContext';
@@ -36,6 +37,7 @@ interface MenuSection {
 }
 
 export default function MoreScreen() {
+  const { t } = useTranslation();
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const { documents, photos, tasks, companies, chantiers, activeChantier } = useApp();
@@ -67,74 +69,90 @@ export default function MoreScreen() {
   const sections = useMemo<MenuSection[]>(() => {
     const result: MenuSection[] = [];
 
-    // Section Terrain quotidien — accès immédiat aux outils de chantier
     const isSousTraitant = user?.role === 'sous_traitant';
     const terrainItems: MenuItem[] = [
       ...(!isSousTraitant ? [
-        { icon: 'book', label: 'Journal chantier', subtitle: 'Saisie quotidienne', route: '/journal', color: '#059669' },
-        { icon: 'time', label: 'Pointage', subtitle: 'Arrivées & départs', route: '/pointage', color: '#0891B2' },
-        { icon: 'clipboard', label: 'OPR', subtitle: 'Opérations de réception', route: '/opr', color: '#7C3AED' },
-        { icon: 'eye', label: 'Visites chantier', subtitle: 'Compte-rendu visite', route: '/visites', color: '#F59E0B' },
-        { icon: 'shield', label: 'Incidents', subtitle: `${openIncidentsCount > 0 ? openIncidentsCount + ' non résolu' + (openIncidentsCount > 1 ? 's' : '') : incidents.length + ' au total'}`, route: '/(tabs)/incidents', color: '#EF4444', badge: openIncidentsCount || undefined },
+        { icon: 'book', label: t('moreScreen.items.journal.0'), subtitle: t('moreScreen.items.journal.1'), route: '/journal', color: '#059669' },
+        { icon: 'time', label: t('moreScreen.items.pointage.0'), subtitle: t('moreScreen.items.pointage.1'), route: '/pointage', color: '#0891B2' },
+        { icon: 'clipboard', label: t('moreScreen.items.opr.0'), subtitle: t('moreScreen.items.opr.1'), route: '/opr', color: '#7C3AED' },
+        { icon: 'eye', label: t('moreScreen.items.visits.0'), subtitle: t('moreScreen.items.visits.1'), route: '/visites', color: '#F59E0B' },
+        {
+          icon: 'shield',
+          label: t('moreScreen.items.incidents.0', { defaultValue: 'Incidents' }),
+          subtitle: openIncidentsCount > 0
+            ? t('moreScreen.items.incidentsOpen', { count: openIncidentsCount })
+            : t('moreScreen.items.incidentsTotal', { count: incidents.length }),
+          route: '/(tabs)/incidents',
+          color: '#EF4444',
+          badge: openIncidentsCount || undefined,
+        },
       ] : [
-        { icon: 'warning', label: 'Mes réserves', subtitle: 'Réserves de mon entreprise', route: '/sous-traitant', color: '#10B981' },
+        { icon: 'warning', label: t('moreScreen.items.myReserves.0'), subtitle: t('moreScreen.items.myReserves.1'), route: '/sous-traitant', color: '#10B981' },
       ]),
     ];
-    result.push({ title: 'Terrain quotidien', items: terrainItems });
+    result.push({ title: t('moreScreen.sections.daily'), items: terrainItems });
 
-    // Section Chantier
     const chantierItems: MenuItem[] = [
-      { icon: 'business', label: 'Chantiers', subtitle: chantiers.length > 0 ? `${chantiers.length} chantier${chantiers.length > 1 ? 's' : ''}${activeChantier ? ' · Actif: ' + activeChantier.name : ''}` : 'Aucun chantier', route: '/chantier/manage', color: C.primary },
+      {
+        icon: 'business',
+        label: t('moreScreen.items.sites.0'),
+        subtitle: chantiers.length > 0
+          ? t('moreScreen.items.sites.1', {
+              count: chantiers.length,
+              active: activeChantier ? t('moreScreen.items.activeSiteSuffix', { name: activeChantier.name }) : '',
+            })
+          : t('moreScreen.items.noSite'),
+        route: '/chantier/manage',
+        color: C.primary,
+      },
       ...(!isSousTraitant ? [
-        { icon: 'calendar', label: 'Planning', subtitle: `${tasks.length} tâche${tasks.length !== 1 ? 's' : ''}`, route: '/planning', color: C.closed, badge: delayedCount || undefined } as MenuItem,
-        { icon: 'bar-chart', label: 'Analytique', subtitle: 'Tendances & KPIs', route: '/analytics', color: '#0EA5E9' } as MenuItem,
+        { icon: 'calendar', label: t('moreScreen.items.planning.0'), subtitle: t('moreScreen.items.planning.1', { count: tasks.length }), route: '/planning', color: C.closed, badge: delayedCount || undefined } as MenuItem,
+        { icon: 'bar-chart', label: t('moreScreen.items.analytics.0'), subtitle: t('moreScreen.items.analytics.1'), route: '/analytics', color: '#0EA5E9' } as MenuItem,
       ] : []),
-      { icon: 'search', label: 'Recherche', subtitle: 'Tout le chantier', route: '/search', color: '#8B5CF6' },
+      { icon: 'search', label: t('moreScreen.items.search.0'), subtitle: t('moreScreen.items.search.1'), route: '/search', color: '#8B5CF6' },
     ];
     if (permissions.canViewTeams) {
-      chantierItems.push({ icon: 'people', label: 'Équipes', subtitle: `${companies.length} entreprise${companies.length !== 1 ? 's' : ''}`, route: '/(tabs)/equipes', color: '#EC4899' });
+      chantierItems.push({ icon: 'people', label: t('moreScreen.items.teams.0'), subtitle: t('moreScreen.items.teams.1', { count: companies.length }), route: '/(tabs)/equipes', color: '#EC4899' });
     }
-    result.push({ title: 'Chantier', items: chantierItems });
+    result.push({ title: t('moreScreen.sections.site'), items: chantierItems });
 
-    // Section Documents & Outils
     const outilsItems: MenuItem[] = [
       ...(!isSousTraitant ? [
-        { icon: 'document-text', label: 'Rapports', subtitle: 'Journalier, hebdo', route: '/rapports', color: C.verification } as MenuItem,
+        { icon: 'document-text', label: t('moreScreen.items.reports.0'), subtitle: t('moreScreen.items.reports.1'), route: '/rapports', color: C.verification } as MenuItem,
       ] : []),
-      { icon: 'folder-open', label: 'Documents', subtitle: `${documents.length} fichier${documents.length !== 1 ? 's' : ''}`, route: '/documents', color: C.inProgress, badge: recentDocsCount || undefined },
-      { icon: 'camera', label: 'Photos', subtitle: `${photos.length} photo${photos.length !== 1 ? 's' : ''}`, route: '/photos', color: C.medium },
+      { icon: 'folder-open', label: t('moreScreen.items.documents.0'), subtitle: t('moreScreen.items.documents.1', { count: documents.length }), route: '/documents', color: C.inProgress, badge: recentDocsCount || undefined },
+      { icon: 'camera', label: t('moreScreen.items.photos.0'), subtitle: t('moreScreen.items.photos.1', { count: photos.length }), route: '/photos', color: C.medium },
       ...(!isSousTraitant ? [
-        { icon: 'document-text', label: 'CR Réunions', subtitle: 'Comptes-rendus', route: '/meeting-report', color: '#7C3AED' } as MenuItem,
-        { icon: 'checkbox', label: 'Checklists', subtitle: 'Contrôle qualité', route: '/checklist', color: '#06B6D4' } as MenuItem,
+        { icon: 'document-text', label: t('moreScreen.items.meetingReports.0'), subtitle: t('moreScreen.items.meetingReports.1'), route: '/meeting-report', color: '#7C3AED' } as MenuItem,
+        { icon: 'checkbox', label: t('moreScreen.items.checklists.0'), subtitle: t('moreScreen.items.checklists.1'), route: '/checklist', color: '#06B6D4' } as MenuItem,
       ] : []),
-      { icon: 'document-lock', label: 'Docs réglementaires', subtitle: 'PPSPS · DICT · DOE', route: '/reglementaire', color: '#BE185D' },
+      { icon: 'document-lock', label: t('moreScreen.items.regulatoryDocs.0'), subtitle: t('moreScreen.items.regulatoryDocs.1'), route: '/reglementaire', color: '#BE185D' },
     ];
-    result.push({ title: 'Documents', items: outilsItems });
+    result.push({ title: t('moreScreen.sections.documents'), items: outilsItems });
 
-    // Section Administration (admin/super_admin uniquement)
     if (isAdmin) {
       const adminItems: MenuItem[] = [
-        { icon: 'shield-checkmark', label: 'Administration', subtitle: 'Utilisateurs & accès', route: '/(tabs)/admin', color: '#EF4444' },
-        { icon: 'settings', label: 'Paramètres', subtitle: 'Projet & présences', route: '/settings', color: C.textSub },
-        { icon: 'git-network', label: 'Intégrations BTP', subtitle: 'Procore · BIM · URSSAF', route: '/integrations', color: '#6366F1' },
+        { icon: 'shield-checkmark', label: t('moreScreen.items.administration.0'), subtitle: t('moreScreen.items.administration.1'), route: '/(tabs)/admin', color: '#EF4444' },
+        { icon: 'settings', label: t('moreScreen.items.settings.0'), subtitle: t('moreScreen.items.settings.1'), route: '/settings', color: C.textSub },
+        { icon: 'git-network', label: t('moreScreen.items.integrations.0'), subtitle: t('moreScreen.items.integrations.1'), route: '/integrations', color: '#6366F1' },
       ];
       if (user?.role === 'super_admin') {
-        adminItems.push({ icon: 'globe', label: 'Super Admin', subtitle: 'Toutes les orgs', route: '/superadmin', color: '#7C3AED' });
+        adminItems.push({ icon: 'globe', label: t('moreScreen.items.superAdmin.0'), subtitle: t('moreScreen.items.superAdmin.1'), route: '/superadmin', color: '#7C3AED' });
       }
-      result.push({ title: 'Administration', items: adminItems });
+      result.push({ title: t('moreScreen.sections.administration'), items: adminItems });
     } else {
-      result.push({ title: 'Compte', items: [
-        { icon: 'settings', label: 'Paramètres', subtitle: 'Projet & présences', route: '/settings', color: C.textSub },
+      result.push({ title: t('moreScreen.sections.account'), items: [
+        { icon: 'settings', label: t('moreScreen.items.settings.0'), subtitle: t('moreScreen.items.settings.1'), route: '/settings', color: C.textSub },
       ]});
     }
 
     return result;
-  }, [documents.length, tasks.length, photos.length, companies.length, incidents.length, delayedCount, recentDocsCount, openIncidentsCount, permissions.canViewTeams, isAdmin, user?.role, chantiers.length, activeChantier?.id, activeChantier?.name]);
+  }, [documents.length, tasks.length, photos.length, companies.length, incidents.length, delayedCount, recentDocsCount, openIncidentsCount, permissions.canViewTeams, isAdmin, user?.role, chantiers.length, activeChantier?.id, activeChantier?.name, t]);
 
   function handleLogout() {
-    Alert.alert('Déconnexion', 'Voulez-vous vous déconnecter ?', [
-      { text: 'Annuler', style: 'cancel' },
-      { text: 'Déconnexion', style: 'destructive', onPress: () => { logout(); } },
+    Alert.alert(t('moreScreen.logoutTitle'), t('moreScreen.logoutMessage'), [
+      { text: t('common.cancel'), style: 'cancel' },
+      { text: t('moreScreen.logoutAction'), style: 'destructive', onPress: () => { logout(); } },
     ]);
   }
 
@@ -146,8 +164,8 @@ export default function MoreScreen() {
       <View style={[styles.header, { paddingTop: topPad + 12 }]}>
         <View style={styles.headerRow}>
           <View style={{ flex: 1 }}>
-            <Text style={styles.title}>Terrain</Text>
-            <Text style={styles.subtitle}>Outils terrain quotidiens</Text>
+            <Text style={styles.title}>{t('moreScreen.title')}</Text>
+            <Text style={styles.subtitle}>{t('moreScreen.subtitle')}</Text>
           </View>
           {activeChantier ? (
             <TouchableOpacity style={styles.chantierPill} onPress={openChantierSwitcher} activeOpacity={0.8}>
@@ -158,7 +176,7 @@ export default function MoreScreen() {
           ) : (
             <TouchableOpacity style={styles.chantierPillEmpty} onPress={openChantierSwitcher} activeOpacity={0.8}>
               <Ionicons name="add" size={13} color={C.textMuted} />
-              <Text style={styles.chantierPillEmptyText}>Chantier</Text>
+              <Text style={styles.chantierPillEmptyText}>{t('moreScreen.site')}</Text>
             </TouchableOpacity>
           )}
         </View>
@@ -191,18 +209,18 @@ export default function MoreScreen() {
         {user && (
           <View style={styles.permCard}>
             <TouchableOpacity style={styles.permHeader} onPress={() => setPermExpanded(v => !v)}>
-              <Text style={styles.permTitle}>Permissions</Text>
+              <Text style={styles.permTitle}>{t('moreScreen.permissions')}</Text>
               <Ionicons name={permExpanded ? 'chevron-up' : 'chevron-down'} size={16} color={C.textMuted} />
             </TouchableOpacity>
             {permExpanded && (
               <View style={styles.permRow}>
                 {[
-                  { label: 'Créer', key: 'canCreate' },
-                  { label: 'Modifier', key: 'canEdit' },
-                  { label: 'Supprimer', key: 'canDelete' },
-                  { label: 'Exporter', key: 'canExport' },
-                  { label: 'Équipes', key: 'canViewTeams' },
-                  { label: 'Présences', key: 'canUpdateAttendance' },
+                  { label: t('moreScreen.permissionLabels.create'), key: 'canCreate' },
+                  { label: t('moreScreen.permissionLabels.edit'), key: 'canEdit' },
+                  { label: t('moreScreen.permissionLabels.delete'), key: 'canDelete' },
+                  { label: t('moreScreen.permissionLabels.export'), key: 'canExport' },
+                  { label: t('moreScreen.permissionLabels.teams'), key: 'canViewTeams' },
+                  { label: t('moreScreen.permissionLabels.attendance'), key: 'canUpdateAttendance' },
                 ].map(p => (
                   <View key={p.key} style={styles.permItem}>
                     <Ionicons
@@ -251,14 +269,14 @@ export default function MoreScreen() {
             <Ionicons name="construct-outline" size={18} color={C.primary} />
             <Text style={styles.infoTitle}>BuildTrack</Text>
           </View>
-          <Text style={styles.infoText}>Application de gestion de chantier numérique</Text>
+          <Text style={styles.infoText}>{t('moreScreen.appDescription')}</Text>
           <Text style={styles.infoVersion}>{projectName}</Text>
           <UpdateCheckRow />
         </View>
 
         <TouchableOpacity style={styles.logoutFullBtn} onPress={handleLogout}>
           <Ionicons name="log-out-outline" size={18} color={C.open} />
-          <Text style={styles.logoutFullText}>Se déconnecter</Text>
+          <Text style={styles.logoutFullText}>{t('moreScreen.logoutButton')}</Text>
         </TouchableOpacity>
       </ScrollView>
 
@@ -269,7 +287,7 @@ export default function MoreScreen() {
           activeOpacity={0.85}
         >
           <Ionicons name="add" size={22} color="#fff" />
-          <Text style={styles.fabLabel}>Réserve</Text>
+          <Text style={styles.fabLabel}>{t('moreScreen.reserveFab')}</Text>
         </TouchableOpacity>
       )}
     </View>

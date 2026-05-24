@@ -6,6 +6,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useEffect, useState, useMemo } from 'react';
 import { useLocalSearchParams, useRouter } from 'expo-router';
+import { useTranslation } from 'react-i18next';
 import { C } from '@/constants/colors';
 import { useAuth, ROLE_PERMISSIONS } from '@/context/AuthContext';
 import { useApp } from '@/context/AppContext';
@@ -18,16 +19,16 @@ import {
   type AdminEmailPreferenceState,
 } from '@/lib/adminNotificationPreferences';
 
-const PERMISSION_DEFS: { key: keyof PermissionsOverride; label: string; desc: string }[] = [
-  { key: 'canCreate',           label: 'Créer des réserves',        desc: 'Ajouter de nouvelles réserves sur les plans' },
-  { key: 'canEdit',             label: 'Modifier les réserves',     desc: 'Éditer toutes les réserves de l\'organisation' },
-  { key: 'canEditOwn',          label: 'Modifier ses réserves',     desc: 'Éditer uniquement ses propres réserves' },
-  { key: 'canDelete',           label: 'Supprimer des réserves',    desc: 'Supprimer définitivement des réserves' },
-  { key: 'canExport',           label: 'Exporter les données',      desc: 'Télécharger des rapports et exports PDF' },
-  { key: 'canViewTeams',        label: 'Voir les équipes',          desc: 'Consulter les équipes et leurs membres' },
-  { key: 'canUpdateAttendance', label: 'Gérer les présences',       desc: 'Pointer et mettre à jour les présences terrain' },
-  { key: 'canMovePins',         label: 'Déplacer les pins',         desc: 'Repositionner les épingles sur les plans' },
-  { key: 'canEditChantier',     label: 'Modifier les chantiers',    desc: 'Éditer les informations d\'un chantier (nom, adresse, dates…)' },
+const PERMISSION_DEFS: { key: keyof PermissionsOverride }[] = [
+  { key: 'canCreate' },
+  { key: 'canEdit' },
+  { key: 'canEditOwn' },
+  { key: 'canDelete' },
+  { key: 'canExport' },
+  { key: 'canViewTeams' },
+  { key: 'canUpdateAttendance' },
+  { key: 'canMovePins' },
+  { key: 'canEditChantier' },
 ];
 
 function cycleOverride(current: boolean | undefined): boolean | undefined {
@@ -46,6 +47,7 @@ function InitialAvatar({ name, color, size = 64 }: { name: string; color: string
 }
 
 export default function UserEditScreen() {
+  const { t } = useTranslation();
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
   const insets = useSafeAreaInsets();
@@ -95,7 +97,7 @@ export default function UserEditScreen() {
         if (!cancelled) setEmailPref(pref);
       })
       .catch(err => {
-        if (!cancelled) setEmailPrefError(err?.message ?? 'Préférences email indisponibles.');
+        if (!cancelled) setEmailPrefError(err?.message ?? t('adminUserEdit.changeImpossible'));
       })
       .finally(() => {
         if (!cancelled) setEmailPrefLoading(false);
@@ -110,15 +112,15 @@ export default function UserEditScreen() {
           <TouchableOpacity style={styles.backBtn} onPress={() => router.back()}>
             <Ionicons name="chevron-back" size={24} color={C.text} />
           </TouchableOpacity>
-          <Text style={styles.headerTitle}>Modifier l'utilisateur</Text>
+          <Text style={styles.headerTitle}>{t('adminUserEdit.title')}</Text>
         </View>
         <View style={styles.accessDenied}>
           <Ionicons name="lock-closed-outline" size={40} color={C.textMuted} />
-          <Text style={styles.accessDeniedTitle}>Accès refusé</Text>
+          <Text style={styles.accessDeniedTitle}>{t('adminUserEdit.accessDenied')}</Text>
           <Text style={styles.accessDeniedDesc}>
             {!target
-              ? 'Utilisateur introuvable.'
-              : 'Vous ne pouvez pas modifier les droits d\'un administrateur ou super-administrateur.'}
+              ? t('adminUserEdit.userNotFound')
+              : t('adminUserEdit.cannotEditAdmin')}
           </Text>
         </View>
       </View>
@@ -142,12 +144,12 @@ export default function UserEditScreen() {
 
   function resetPermissions() {
     Alert.alert(
-      'Réinitialiser les permissions',
-      'Toutes les surcharges personnalisées seront supprimées. Les permissions reviendront aux valeurs par défaut du rôle.',
+      t('adminUserEdit.resetPermissionsTitle'),
+      t('adminUserEdit.resetPermissionsMessage'),
       [
-        { text: 'Annuler', style: 'cancel' },
+        { text: t('common.cancel'), style: 'cancel' },
         {
-          text: 'Réinitialiser',
+          text: t('adminUserEdit.reset'),
           style: 'destructive',
           onPress: () => setLocalOverride({}),
         },
@@ -160,14 +162,14 @@ export default function UserEditScreen() {
     const currentlyEnabled = emailPref?.emailEnabled !== false;
     const nextEnabled = !currentlyEnabled;
     Alert.alert(
-      nextEnabled ? 'Réactiver les emails' : 'Désactiver les emails',
+      nextEnabled ? t('adminUserEdit.enableEmails') : t('adminUserEdit.disableEmails'),
       nextEnabled
-        ? `${target.name} pourra de nouveau recevoir les emails automatiques BuildTrack.`
-        : `${target.name} ne recevra plus les emails automatiques BuildTrack. Son onglet Notifications affichera ce réglage désactivé, et il pourra le réactiver lui-même.`,
+        ? t('adminUserEdit.enableEmailsMessage', { name: target.name })
+        : t('adminUserEdit.disableEmailsMessage', { name: target.name }),
       [
-        { text: 'Annuler', style: 'cancel' },
+        { text: t('common.cancel'), style: 'cancel' },
         {
-          text: nextEnabled ? 'Réactiver' : 'Désactiver',
+          text: nextEnabled ? t('adminUserEdit.enableEmails') : t('adminUserEdit.disableEmails'),
           style: nextEnabled ? 'default' : 'destructive',
           onPress: async () => {
             setEmailPrefSaving(true);
@@ -176,8 +178,8 @@ export default function UserEditScreen() {
               const pref = await setUserEmailEnabled(target.id, nextEnabled);
               setEmailPref(pref);
             } catch (err: any) {
-              setEmailPrefError(err?.message ?? 'Modification impossible.');
-              Alert.alert('Erreur', err?.message ?? 'La préférence email n a pas pu être modifiée.');
+              setEmailPrefError(err?.message ?? t('adminUserEdit.changeImpossible'));
+              Alert.alert(t('common.error'), err?.message ?? t('adminUserEdit.emailChangeFailed'));
             } finally {
               setEmailPrefSaving(false);
             }
@@ -207,7 +209,7 @@ export default function UserEditScreen() {
       JSON.stringify(localOverride) !== JSON.stringify(target.permissionsOverride ?? {});
 
     if (roleChanged && target.id === currentUser?.id && localRole !== 'admin') {
-      Alert.alert('Action impossible', 'Vous ne pouvez pas retirer votre propre rôle administrateur.');
+      Alert.alert(t('common.error'), t('adminUserEdit.cannotRemoveOwnAdmin'));
       return;
     }
 
@@ -216,8 +218,8 @@ export default function UserEditScreen() {
       const wasFree = FREE_ROLES.includes(target.role);
       if (isPaid && wasFree && !canInvite) {
         Alert.alert(
-          'Sièges insuffisants',
-          `Limite de ${seatMax} siège${seatMax > 1 ? 's' : ''} atteinte. Ce changement de rôle requiert un siège disponible.`,
+          t('adminUserEdit.seatsTitle'),
+          t('adminUserEdit.seatsMessage', { count: seatMax }),
           [{ text: 'OK', style: 'cancel' }]
         );
         return;
@@ -226,11 +228,11 @@ export default function UserEditScreen() {
         const remaining = orgUsers.filter(u => u.role === 'admin' && u.id !== target.id).length;
         if (remaining === 0) {
           Alert.alert(
-            'Dernier administrateur',
-            `${target.name} est le seul administrateur. En changeant son rôle, plus personne ne pourra gérer les accès.\n\nConfirmez-vous ?`,
+            t('adminUserEdit.lastAdminTitle'),
+            t('adminUserEdit.lastAdminMessage', { name: target.name }),
             [
-              { text: 'Annuler', style: 'cancel' },
-              { text: 'Changer quand même', style: 'destructive', onPress: () => doSave(roleChanged, companyChanged, overrideChanged) },
+              { text: t('common.cancel'), style: 'cancel' },
+              { text: t('adminUserEdit.changeAnyway'), style: 'destructive', onPress: () => doSave(roleChanged, companyChanged, overrideChanged) },
             ]
           );
           return;
@@ -252,10 +254,10 @@ export default function UserEditScreen() {
     } catch (err: any) {
       console.warn('[UserEditScreen] save failed:', err?.message ?? err);
       if (err?.message) {
-        Alert.alert('Erreur', err.message);
+        Alert.alert(t('common.error'), err.message);
         return;
       }
-      Alert.alert('Erreur', 'Les modifications n\'ont pas pu être enregistrées.');
+      Alert.alert(t('common.error'), t('adminUserEdit.saveFailed'));
     } finally {
       setSaving(false);
     }
@@ -266,13 +268,13 @@ export default function UserEditScreen() {
   return (
     <View style={[styles.root, { paddingTop: topPad }]}>
       <View style={styles.header}>
-        <TouchableOpacity style={styles.backBtn} onPress={() => router.back()} accessibilityLabel="Retour">
+        <TouchableOpacity style={styles.backBtn} onPress={() => router.back()} accessibilityLabel={t('adminUserEdit.back')}>
           <Ionicons name="chevron-back" size={24} color={C.text} />
         </TouchableOpacity>
-        <Text style={styles.headerTitle} numberOfLines={1}>Modifier l'utilisateur</Text>
+        <Text style={styles.headerTitle} numberOfLines={1}>{t('adminUserEdit.title')}</Text>
         {isDirty && !saving && (
           <View style={styles.dirtyPill}>
-            <Text style={styles.dirtyPillTxt}>Non enregistré</Text>
+            <Text style={styles.dirtyPillTxt}>{t('adminUserEdit.unsaved')}</Text>
           </View>
         )}
         {saving && <ActivityIndicator size="small" color={C.primary} style={{ marginLeft: 8 }} />}
@@ -292,7 +294,7 @@ export default function UserEditScreen() {
             <View style={styles.userCardBadgesRow}>
               <View style={[styles.roleBadge, { backgroundColor: (roleInfo?.bg ?? '#F3F4F6') }]}>
                 <Text style={[styles.roleBadgeTxt, { color: roleInfo?.color ?? C.textSub }]}>
-                  {roleInfo?.label ?? target.roleLabel}
+                  {t(`roles.${target.role}`, { defaultValue: roleInfo?.label ?? target.roleLabel })}
                 </Text>
               </View>
               {(() => {
@@ -322,9 +324,9 @@ export default function UserEditScreen() {
               />
             </View>
             <View style={{ flex: 1 }}>
-              <Text style={styles.sectionTitle}>Notifications email</Text>
+              <Text style={styles.sectionTitle}>{t('adminUserEdit.emailTitle')}</Text>
               <Text style={styles.sectionHint}>
-                Contrôle admin global des emails automatiques de cet utilisateur.
+                {t('adminUserEdit.emailHint')}
               </Text>
             </View>
           </View>
@@ -336,15 +338,15 @@ export default function UserEditScreen() {
             ]} />
             <Text style={styles.emailAdminStateText}>
               {emailPrefLoading
-                ? 'Chargement du statut email...'
+                ? t('adminUserEdit.emailLoading')
                 : emailPref?.emailEnabled === false
-                  ? 'Emails désactivés'
-                  : 'Emails autorisés'}
+                  ? t('adminUserEdit.emailsDisabled')
+                  : t('adminUserEdit.emailsAllowed')}
             </Text>
           </View>
 
           <Text style={styles.emailAdminDesc}>
-            Si vous désactivez les emails, le switch "Notifications email" sera coupé dans son onglet Notifications. L'utilisateur pourra le réactiver manuellement.
+            {t('adminUserEdit.emailDesc')}
           </Text>
 
           {!!emailPrefError && (
@@ -377,7 +379,7 @@ export default function UserEditScreen() {
                   styles.emailAdminBtnText,
                   emailPref?.emailEnabled === false && { color: C.primary },
                 ]}>
-                  {emailPref?.emailEnabled === false ? 'Réactiver les emails' : 'Désactiver les emails'}
+                  {emailPref?.emailEnabled === false ? t('adminUserEdit.enableEmails') : t('adminUserEdit.disableEmails')}
                 </Text>
               </>
             )}
@@ -385,7 +387,7 @@ export default function UserEditScreen() {
         </View>
 
         <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Rôle</Text>
+          <Text style={styles.sectionTitle}>{t('adminUserEdit.role')}</Text>
           <View style={styles.roleList}>
             {assignableRoles.map(r => {
               const selected = localRole === r.value;
@@ -398,8 +400,12 @@ export default function UserEditScreen() {
                 >
                   <View style={[styles.roleOptionDot, { backgroundColor: r.color }]} />
                   <View style={styles.roleOptionBody}>
-                    <Text style={[styles.roleOptionName, { color: selected ? r.color : C.text }]}>{r.label}</Text>
-                    <Text style={styles.roleOptionDesc} numberOfLines={2}>{r.description}</Text>
+                    <Text style={[styles.roleOptionName, { color: selected ? r.color : C.text }]}>
+                      {t(`roles.${r.value}`, { defaultValue: r.label })}
+                    </Text>
+                    <Text style={styles.roleOptionDesc} numberOfLines={2}>
+                      {t(`roleDescriptions.${r.value}`, { defaultValue: r.description })}
+                    </Text>
                   </View>
                   <View style={[
                     styles.radioCircle,
@@ -414,8 +420,8 @@ export default function UserEditScreen() {
         </View>
 
         <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Entreprise</Text>
-          <Text style={styles.sectionHint}>Associez cet utilisateur à une entreprise sous-traitante.</Text>
+          <Text style={styles.sectionTitle}>{t('adminUserEdit.company')}</Text>
+          <Text style={styles.sectionHint}>{t('adminUserEdit.companyHint')}</Text>
           <View style={styles.companyGrid}>
             <TouchableOpacity
               style={[styles.companyChip, !localCompanyId && styles.companyChipSelected]}
@@ -423,7 +429,7 @@ export default function UserEditScreen() {
               activeOpacity={0.7}
             >
               <Ionicons name="close-circle-outline" size={14} color={!localCompanyId ? C.primary : C.textMuted} />
-              <Text style={[styles.companyChipTxt, !localCompanyId && { color: C.primary }]}>Aucune</Text>
+              <Text style={[styles.companyChipTxt, !localCompanyId && { color: C.primary }]}>{t('adminUserEdit.none')}</Text>
             </TouchableOpacity>
             {companies.map(co => {
               const selected = localCompanyId === co.id;
@@ -450,25 +456,25 @@ export default function UserEditScreen() {
         <View style={styles.section}>
           <View style={styles.permHeaderRow}>
             <View style={styles.permHeaderLeft}>
-              <Text style={styles.sectionTitle}>Permissions avancées</Text>
+              <Text style={styles.sectionTitle}>{t('adminUserEdit.advancedPermissions')}</Text>
               {overrideCount > 0 && (
                 <View style={styles.overrideBadge}>
-                  <Text style={styles.overrideBadgeTxt}>{overrideCount} surcharge{overrideCount > 1 ? 's' : ''}</Text>
+                  <Text style={styles.overrideBadgeTxt}>{t('adminUserEdit.overload', { count: overrideCount })}</Text>
                 </View>
               )}
             </View>
             {overrideCount > 0 && (
               <TouchableOpacity style={styles.resetBtn} onPress={resetPermissions} activeOpacity={0.7}>
                 <Ionicons name="refresh-outline" size={13} color={C.textSub} />
-                <Text style={styles.resetBtnTxt}>Réinitialiser</Text>
+                <Text style={styles.resetBtnTxt}>{t('adminUserEdit.reset')}</Text>
               </TouchableOpacity>
             )}
           </View>
 
           <View style={styles.legendRow}>
-            <LegendItem icon="ellipse" color={C.border} label="Défaut du rôle" />
-            <LegendItem icon="checkmark-circle" color="#10B981" label="Activé manuellement" />
-            <LegendItem icon="close-circle" color="#EF4444" label="Désactivé manuellement" />
+            <LegendItem icon="ellipse" color={C.border} label={t('adminUserEdit.roleDefault')} />
+            <LegendItem icon="checkmark-circle" color="#10B981" label={t('adminUserEdit.manuallyEnabled')} />
+            <LegendItem icon="close-circle" color="#EF4444" label={t('adminUserEdit.manuallyDisabled')} />
           </View>
 
           <View style={styles.permList}>
@@ -485,15 +491,15 @@ export default function UserEditScreen() {
               if (!isOverridden) {
                 stateIcon = 'ellipse';
                 stateColor = C.border;
-                stateLabel = roleVal ? 'Activé par le rôle' : 'Désactivé par le rôle';
+                stateLabel = roleVal ? t('adminUserEdit.enabledByRole') : t('adminUserEdit.disabledByRole');
               } else if (overrideVal === true) {
                 stateIcon = 'checkmark-circle';
                 stateColor = '#10B981';
-                stateLabel = 'Activé manuellement';
+                stateLabel = t('adminUserEdit.manuallyEnabled');
               } else {
                 stateIcon = 'close-circle';
                 stateColor = '#EF4444';
-                stateLabel = 'Désactivé manuellement';
+                stateLabel = t('adminUserEdit.manuallyDisabled');
               }
 
               return (
@@ -506,14 +512,14 @@ export default function UserEditScreen() {
                   <View style={styles.permRowLeft}>
                     <View style={[styles.permEffectiveDot, { backgroundColor: effective ? '#10B981' : '#E5E7EB' }]} />
                     <View style={styles.permRowBody}>
-                      <Text style={styles.permLabel}>{perm.label}</Text>
-                      <Text style={styles.permDesc} numberOfLines={1}>{perm.desc}</Text>
+                      <Text style={styles.permLabel}>{t(`adminUserEdit.permissions.${perm.key}.0`)}</Text>
+                      <Text style={styles.permDesc} numberOfLines={1}>{t(`adminUserEdit.permissions.${perm.key}.1`)}</Text>
                     </View>
                   </View>
                   <View style={styles.permRowRight}>
                     {isOverridden && (
                       <View style={styles.overriddenPill}>
-                        <Text style={styles.overriddenPillTxt}>surcharge</Text>
+                        <Text style={styles.overriddenPillTxt}>{t('adminUserEdit.overload')}</Text>
                       </View>
                     )}
                     <Ionicons name={stateIcon} size={22} color={stateColor} />
@@ -524,14 +530,14 @@ export default function UserEditScreen() {
           </View>
 
           <Text style={styles.permHint}>
-            Appuyez sur une permission pour changer son état : défaut du rôle → activé → désactivé → défaut.
+            {t('adminUserEdit.permissionsHint')}
           </Text>
         </View>
       </ScrollView>
 
       <View style={[styles.footer, { paddingBottom: bottomPad + 8 }]}>
         <TouchableOpacity style={styles.cancelBtn} onPress={() => router.back()} activeOpacity={0.7}>
-          <Text style={styles.cancelBtnTxt}>Annuler</Text>
+          <Text style={styles.cancelBtnTxt}>{t('common.cancel')}</Text>
         </TouchableOpacity>
         <TouchableOpacity
           style={[styles.saveBtn, (!isDirty || saving) && styles.saveBtnDisabled]}
@@ -541,7 +547,7 @@ export default function UserEditScreen() {
         >
           {saving
             ? <ActivityIndicator size="small" color="#fff" />
-            : <Text style={styles.saveBtnTxt}>Enregistrer</Text>}
+            : <Text style={styles.saveBtnTxt}>{t('adminUserEdit.save')}</Text>}
         </TouchableOpacity>
       </View>
     </View>
